@@ -178,5 +178,69 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(result["sampledHealthEvents"],3)
 
 
+class RenderDeployEvidenceTests(unittest.TestCase):
+    def test_failed_index_rollout_followed_by_success_is_not_causal_repair(self):
+        from diagnostic_state_compare import render_deploy_event_sample
+        failed='dep-dbfghmmq1p3s73f6pndg'
+        recovered='dep-dbfgn6lg1s2s73aar890'
+        rows=[
+            {'timestamp':'2026-10-26T08:14:09.798244Z', 'type':'deploy_ended',
+             'details':{'deployId':recovered,'deployStatus':'succeeded','reason':{}}},
+            {'timestamp':'2026-10-26T08:01:30.693334Z','type':'deploy_started',
+             'details':{'deployId':failed,'trigger':{'newCommit':'10aa080d913f24a793526500472bfa1e9870c1fb'}}},
+            {'timestamp':'2026-10-26T08:03:41.260429Z','type':'deploy_ended',
+             'details':{'deployId':failed,'deployStatus':'failed',
+                        'reason':{'failure':{'evicted':False,'nonZeroExit':1}}}},
+            {'timestamp':'2026-10-26T08:13:14.636941Z','type':'deploy_started',
+             'details':{'deployId':recovered,'trigger':{'newCommit':'ba7c9ae697162e431b3b06b9e2faa93bae52f979'}}},
+        ]
+        report=render_deploy_event_sample(
+            rows,service='bob-push-service',
+            window_start='2026-10-26T08:00:00Z',
+            window_end='2026-10-26T08:15:00Z')
+        self.assertEqual(report['status'],'observed-deploy-events')
+        self.assertEqual(report['observedFailedDeploys'],1)
+        self.assertEqual(report['observedSucceededDeploys'],1)
+        self.assertEqual(report['failedWithRecordedNonzeroExit'],1)
+        self.assertEqual(report['pairedStartedAndEndedDeploys'],2)
+        self.assertEqual(report['distinctPairedCommits'],2)
+        self.assertFalse(report['isRepairVerified'])
+        self.assertFalse(report['isDeploymentRegressionVerified'])
+        self.assertFalse(report['providerVerified'])
+        self.assertFalse(report['completeEventHistoryProven'])
+        self.assertNotIn(failed,json.dumps(report))
+        self.assertNotIn(recovered,json.dumps(report))
+
+    def test_fake_successes_missing_start_or_cross_window_fail_closed(self):
+        from diagnostic_state_compare import render_deploy_event_sample
+        rows=[
+            {'timestamp':'2026-10-26T08:03:41Z','type':'deploy_ended',
+             'details':{'deployId':'dep-missingSTART123','deployStatus':'failed',
+                        'reason':{'failure':{'nonZeroExit':True}}}},
+            {'timestamp':'2099-01-01T00:00:00Z','type':'deploy_ended',
+             'details':{'deployId':'dep-future1234','deployStatus':'succeeded'}},
+            {'timestamp':'2026-10-26T08:03:00Z','type':'deploy_started',
+             'details':{'deployId':'dep-badcommits','trigger':{'newCommit':'SECRET'}}},
+            {'timestamp':'2026-10-26T08:03:42Z','type':'unknown',
+             'details':{'token':'DONOTPRINT','deployId':'dep-secret1234'}},
+        ]
+        args={'service':'bob-push-service','window_start':'2026-10-26T08:00:00Z',
+              'window_end':'2026-10-26T08:15:00Z'}
+        report=render_deploy_event_sample(rows,**args,has_more=True)
+        self.assertEqual(report['observedFailedDeploys'],1)
+        self.assertEqual(report['observedSucceededDeploys'],0)
+        self.assertEqual(report['pairedStartedAndEndedDeploys'],0)
+        self.assertEqual(report['failedWithRecordedNonzeroExit'],0)
+        self.assertTrue(report['sampleTruncated'])
+        self.assertFalse(report['isRepairVerified'])
+        self.assertNotIn('SECRET',json.dumps(report))
+        self.assertNotIn('DONOTPRINT',json.dumps(report))
+        self.assertEqual(render_deploy_event_sample([],**args)['status'],
+                         'insufficient-evidence')
+        self.assertEqual(render_deploy_event_sample(
+            rows,service='unknown',window_start=args['window_start'],
+            window_end=args['window_end'])['status'],'insufficient-evidence')
+
+
 if __name__=="__main__":
     unittest.main()
