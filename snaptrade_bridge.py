@@ -26,6 +26,7 @@ import snaptrade_csv_link as csv_link
 import snaptrade_identity as identity
 import snaptrade_trades as trades
 import snaptrade_quotes as holding_quotes
+import degiro_research_review
 from concurrent.futures import ThreadPoolExecutor
 from urllib.error import HTTPError
 from urllib.parse import urlencode
@@ -54,6 +55,11 @@ _QUOTE_CURSOR = 0
 _CATALOG_LOCK = threading.Lock()
 _CATALOG_LAST_ATTEMPT = 0.0
 _CATALOG_STATE = {'code': 'NOT_TESTED'}
+# One bounded account-scoped symbol lookup, never order preflight or quote.
+_SYMBOL_LOCK = threading.Lock()
+_SYMBOL_ACCOUNT_ID = None  # Internal only, never in authenticated status/diagnostics.
+_SYMBOL_PROBED = False
+_SYMBOL_STATE = {'code': 'NOT_TESTED'}
 ID = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 # SnapTrade Personal shares a 10-requests/minute bucket for account data.
 # One holdings cycle uses positions, balances and orders (3 calls), so reserve
@@ -146,7 +152,7 @@ def load_config():
 
 
 def configure(payload):
-    global _CONFIG, _LOADED, _GENERATION, _NEXT, _LAST_ATTEMPT, _CATALOG_LAST_ATTEMPT
+    global _CONFIG, _LOADED, _GENERATION, _NEXT, _LAST_ATTEMPT, _CATALOG_LAST_ATTEMPT, _SYMBOL_PROBED, _SYMBOL_ACCOUNT_ID
     config = validate_config(payload)
     sealed = cipher().encrypt(json.dumps(config).encode()).decode()
     with _LOCK:
@@ -160,13 +166,15 @@ def configure(payload):
         _STATE.update(code='READY', snapshot=None)
         _CATALOG_LAST_ATTEMPT = 0.0
         _CATALOG_STATE.clear(); _CATALOG_STATE.update(code='NOT_TESTED')
+        _SYMBOL_PROBED, _SYMBOL_ACCOUNT_ID = False, None
+        _SYMBOL_STATE.clear(); _SYMBOL_STATE.update(code='NOT_TESTED')
     start()
     _WAKE.set()
     return status()
 
 
 def disconnect():
-    global _CONFIG, _LOADED, _GENERATION, _NEXT, _LAST_ATTEMPT, _LEDGER_OWNER, _CATALOG_LAST_ATTEMPT
+    global _CONFIG, _LOADED, _GENERATION, _NEXT, _LAST_ATTEMPT, _LEDGER_OWNER, _CATALOG_LAST_ATTEMPT, _SYMBOL_PROBED, _SYMBOL_ACCOUNT_ID
     with _LOCK:
         if storage('delete').get('deleted') is not True:
             raise ReadError('STORE_UNAVAILABLE')
@@ -180,6 +188,8 @@ def disconnect():
         _LEDGER_OWNER = None
         _CATALOG_LAST_ATTEMPT = 0.0
         _CATALOG_STATE.clear(); _CATALOG_STATE.update(code='NOT_TESTED')
+        _SYMBOL_PROBED, _SYMBOL_ACCOUNT_ID = False, None
+        _SYMBOL_STATE.clear(); _SYMBOL_STATE.update(code='NOT_TESTED')
     return status()
 
 
@@ -225,6 +235,81 @@ def api_get(path, config, params=None):
         raise
     except Exception:
         raise ReadError('PROVIDER_UNAVAILABLE') from None
+
+
+def api_search_account_symbol(account_id, config, query):
+    """One account-supported symbol reference search; POST has no trading effect.
+
+    Signed exactly as documented for Personal API. Never accepts arbitrary
+    paths, query terms or account IDs from the mobile client.
+    """
+    import degiro_catalog
+    if (not isinstance(account_id, str) or not re.fullmatch(ID, account_id)
+            or query != degiro_catalog.SEEDS[0][0]):
+        raise ReadError('PATH_REJECTED')
+    path = '/accounts/' + account_id + '/symbols'
+    body = {'substring': query}
+    canonical_query = urlencode({'clientId': config['clientId'], 'timestamp': int(time.time())})
+    signed = json.dumps({'content': body, 'path': path, 'query': canonical_query},
+                        sort_keys=True, separators=(',', ':'))
+    signature = base64.b64encode(hmac.new(config['consumerKey'].encode(),
+                                         signed.encode(), hashlib.sha256).digest()).decode()
+    request = Request(ORIGIN + path + '?' + canonical_query,
+                      data=json.dumps(body, separators=(',', ':')).encode('utf-8'),
+                      method='POST', headers={'Accept': 'application/json',
+                                             'Content-Type': 'application/json',
+                                             'Signature': signature,
+                                             'User-Agent': 'BobPersonalReadOnly/1.0'})
+    try:
+        with build_opener(NoRedirect()).open(request, timeout=8) as response:
+            raw = response.read(200_001)
+        if len(raw) > 200_000:
+            raise ReadError('RESPONSE_TOO_LARGE')
+        return json.loads(raw)
+    except HTTPError as exc:
+        raise ReadError({401:'AUTH_REQUIRED',403:'ACCESS_DENIED',
+                         429:'RATE_LIMITED',402:'PLAN_REQUIRED'}.get(
+                             exc.code,'SEARCH_UNAVAILABLE')) from None
+    except ReadError:
+        raise
+    except Exception:
+        raise ReadError('SEARCH_UNAVAILABLE') from None
+
+
+def auto_probe_account_symbol(search=None):
+    """At most one account-supported read-only symbol query per process.
+
+    Only after a successful saved DEGIRO holdings read; zero requests if
+    there is no unique account. Rate-limit failures are not retried.
+    """
+    global _SYMBOL_PROBED
+    import degiro_catalog
+    if not _SYMBOL_LOCK.acquire(blocking=False):
+        return False
+    try:
+        with _LOCK:
+            if (_SYMBOL_PROBED or _CONFIG is None or _STATE.get('code') != 'READ_OK'
+                    or not _SYMBOL_ACCOUNT_ID):
+                return False
+            _SYMBOL_PROBED = True
+            aid, config, generation = _SYMBOL_ACCOUNT_ID, dict(_CONFIG), _GENERATION
+        target = degiro_catalog.SEEDS[0][0]
+        try:
+            data = (search or api_search_account_symbol)(aid, config, target)
+            result = degiro_research_review.summarize_symbol_search(data, target)
+        except ReadError as exc:
+            result = dict(code=exc.code, resultCount=None, exactSymbolCandidates=None)
+        except ValueError:
+            result = dict(code='INVALID_RESPONSE', resultCount=None, exactSymbolCandidates=None)
+        with _LOCK:
+            if generation == _GENERATION:
+                _SYMBOL_STATE.clear()
+                _SYMBOL_STATE.update(result, checkedAt=utcnow(),
+                    accountTradabilityVerified=False, completeGoldCatalog=False,
+                    executableQuoteVerified=False, tradeApproved=False)
+        return True
+    finally:
+        _SYMBOL_LOCK.release()
 
 
 def rows(data, wrapped=True):
@@ -853,7 +938,7 @@ def mark_interactive():
 
 
 def refresh():
-    global _NEXT, _LAST_ATTEMPT
+    global _NEXT, _LAST_ATTEMPT, _SYMBOL_ACCOUNT_ID
     if not _FETCH_LOCK.acquire(blocking=False):
         return status()
     try:
@@ -870,6 +955,12 @@ def refresh():
             _STATE['code'] = 'CHECKING'
         try:
             snapshot = read_snapshot(config)
+            # Capture only one internally verified provider account identifier
+            # before the normalizer deletes it. Never place it in a status or log.
+            account_ids = [a.get('providerAccountId') for a in snapshot.get('accounts', [])]
+            symbol_account = (account_ids[0] if len(account_ids) == 1
+                              and isinstance(account_ids[0], str)
+                              and re.fullmatch(ID, account_ids[0]) else None)
             try:
                 update_portfolio(snapshot, config, generation)
             except ReadError:
@@ -884,6 +975,7 @@ def refresh():
                                 p['issuerObservation']=copy.deepcopy(old['issuerObservation'])
                     for a in snapshot['accounts']: a.pop('providerAccountId', None)
                     _STATE.update(code='READ_OK', snapshot=snapshot, checkedAt=utcnow())
+                    _SYMBOL_ACCOUNT_ID = symbol_account
         except ReadError as exc:
             with _LOCK:
                 if generation == _GENERATION:
@@ -909,7 +1001,8 @@ def status():
                       interactive=time.monotonic() < _INTERACTIVE_UNTIL,
                       readOnly=True, realOrders=False, liveQuotes=False,
                       provider='SnapTrade Personal', coverageVerified=False,
-                      catalogProbe=copy.deepcopy(_CATALOG_STATE))
+                      catalogProbe=copy.deepcopy(_CATALOG_STATE),
+                      accountSymbolProbe=copy.deepcopy(_SYMBOL_STATE))
         # A successful HTTP request alone does not prove current provider data.
         snapshot = result.get('snapshot')
         for a in (snapshot or {}).get('accounts', []):
@@ -1027,6 +1120,9 @@ def diagnostics():
                          for k in ('code', 'checkedAt', 'instrumentCount',
                                    'historicalWatchCount')},
         'catalogHistoricalMatchCount': len((value.get('catalogProbe') or {}).get('historicalMatches') or []),
+        'accountSymbolProbe': {k: (value.get('accountSymbolProbe') or {}).get(k)
+                               for k in ('code','checkedAt','resultCount',
+                                         'exactSymbolCandidates','tradeApproved')},
         'catalogFullGoldListVerified': False,
         'catalogTradeApproved': False}
 
@@ -1068,6 +1164,7 @@ def _loop():
     while True:
         refresh()
         auto_probe_catalog()
+        auto_probe_account_symbol()
         _WAKE.wait(60)
         _WAKE.clear()
 

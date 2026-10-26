@@ -17,6 +17,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from product_quotes import valid_isin
+import degiro_research_review
 
 ZONE = ZoneInfo("Europe/Zurich")
 # Historical user-reviewed DEGIRO list identities, including the BNP products
@@ -48,6 +49,7 @@ _CURRENT = {
     "lastSession": None, "running": False, "errors": 0, "candidates": [],
     "excluded": [], "attempted": 0, "scanHistory": [],
     "historyResearch": {"code":"NO_HISTORY", "available":0, "sampled":0, "items":[]},
+    "historyResearchArchive": [],
 }
 
 
@@ -71,6 +73,10 @@ def normalize(isin, expected_direction, raw):
     if product_verified and (not _same_spot(meta) or meta.get("direction") != expected_direction):
         return None, dict(isin=isin, reason="Basiswert/Währung/Richtung weicht ab; keine Gold-Spot-Kandidatur")
     # Fail closed: absence of a quote means unknown, not removal from DEGIRO.
+    issuer_comparison = degiro_research_review.issuer_observation(isin, expected_direction, raw)
+    metrics = (degiro_research_review.original_ranking_metrics(raw)
+               if issuer_comparison else
+               dict(koDistancePercent=None, financingCostPercent=None))
     item = dict(isin=isin, direction=expected_direction,
         name=str(raw.get("name") or "Gold-Knock-out · historischer Listenfund")[:120],
         source="Historische DEGIRO-Listenbilder + Emittentenprüfung",
@@ -85,7 +91,12 @@ def normalize(isin, expected_direction, raw):
         issuerQuoteFresh=bool(product_verified and raw.get("found") is True
                               and raw.get("eligible") is True and raw.get("fresh") is True),
         degiroListed=None, degiroTradingEnabled=None,
-        screenshotToday=False, liveApproved=False, eligibleForTop3=False)
+        screenshotToday=False, liveApproved=False, eligibleForTop3=False,
+        issuerComparison=issuer_comparison,
+        issuerLeverage=(issuer_comparison or {}).get('leverage'),
+        # Never infer KO distance or carry from strike, spread or leverage.
+        koDistancePercent=metrics['koDistancePercent'],
+        financingCostPercent=metrics['financingCostPercent'])
     return item, None
 
 
@@ -225,8 +236,10 @@ def study_history(history, lookup, offset=0, limit=HISTORY_SAMPLE_LIMIT):
         verified = (quote.get('isin') == isin and quote.get('productVerified') is True
                     and meta.get('status') == 1 and meta.get('type') != 'FACTOR'
                     and _same_spot(meta) and meta.get('direction') == side)
+        observation = degiro_research_review.issuer_observation(isin, side, quote)
         observed.append({
             'isin':isin, 'direction':side, 'name':str(x.get('name') or '')[:120],
+            'issuerComparison': observation,
             'lastTradeDate':x.get('lastTradeDate'),
             'brokerHistoricallyTransacted':True, 'issuerIdentityMatched':bool(verified),
             'issuerChecked':True, 'researchOnly':True, 'currentlyDegiroListed':None,
@@ -263,6 +276,9 @@ def diagnostics(now=None):
                                        and elapsed is not None and elapsed <= 480
                                        and age is not None and age <= 480),
                 historyAvailable=(report.get('historyResearch') or {}).get('available',0),
+                historyInspectedRetained=len(report.get('historyResearchArchive') or []),
+                historyIssuerConfirmed=sum(x.get('issuerIdentityMatched') is True for x in
+                                           (report.get('historyResearchArchive') or [])),
                 historySampled=(report.get('historyResearch') or {}).get('sampled',0),
                 historySourceCode=(report.get('historyResearch') or {}).get('code'),
                 completeDegiroCatalog=False, tradeApproved=False)
@@ -272,6 +288,10 @@ def diagnostics(now=None):
 def snapshot():
     with _LOCK:
         status=copy.deepcopy(_CURRENT)
+    # Research Top3 requires measured KO distance, issuer leverage and financing cost.
+    # Without all three it intentionally remains empty; active Top3 is untouched.
+    status['researchTop3'] = degiro_research_review.preview_top3(status.get('candidates') or [])
+    status['issuerComparisonCount'] = sum(bool(c.get('issuerComparison')) for c in status.get('candidates', []))
     status.update(sourceType="historic-user-list-plus-issuer-research",
         completeDegiroCatalog=False, degiroAccountConnected=False,
         canAutoImportVerifiedDegiroList=False, automaticOrders=False,
@@ -318,10 +338,20 @@ def _loop():
                                 elapsed=round((at-datetime.fromisoformat(previous)).total_seconds())
                             except ValueError:
                                 pass
+                        # Bound and deduplicate the last research observations
+                        # across five-minute cycles; do not requery SnapTrade.
+                        old_records = _CURRENT.get('historyResearchArchive') or []
+                        merged = {x['isin']:x for x in old_records[:80]
+                                  if isinstance(x,dict) and isinstance(x.get('isin'),str)
+                                  and valid_isin(x['isin'])}
+                        for row in research.get('items', []):
+                            merged[row['isin']] = dict(row, issuerCheckedAt=at.isoformat())
+                        research_archive = list(merged.values())[-80:]
                         history=(prior+[{'at':at.isoformat(),'elapsedSeconds':elapsed,
                                          'outcome':result['status'],'errors':result['errors']}])[-12:]
                         _CURRENT.update(result, lastSession=period[1], running=False,
-                                        scanHistory=history, historyResearch=research)
+                                        scanHistory=history, historyResearch=research,
+                                        historyResearchArchive=research_archive)
                     bnp = result["sourceChecks"]["historicalBNP"]
                     other = result["sourceChecks"]["otherHistorical"]
                     print("BOB_ISSUER_CATALOG status="+result["status"]
