@@ -86,6 +86,21 @@ def issuer_observation(isin, direction, raw, now=None):
                 brokerTradeApproved=False, observedAt=now.isoformat())
 
 
+def original_ranking_metrics(raw, now=None):
+    """Use only explicitly dated issuer financial metrics; never calculate them."""
+    now = now or datetime.now(timezone.utc)
+    if not isinstance(raw, dict):
+        return dict(koDistancePercent=None, financingCostPercent=None)
+    distance, financing = raw.get('koDistancePercent'), raw.get('financingCostPercent')
+    if (any(type(x) not in (int, float) or not math.isfinite(x)
+            for x in (distance, financing))
+            or distance <= 0 or financing < 0
+            or not _clock(raw.get('koDistanceAt'), now)
+            or not _clock(raw.get('financingCostAt'), now)):
+        return dict(koDistancePercent=None, financingCostPercent=None)
+    return dict(koDistancePercent=distance, financingCostPercent=financing)
+
+
 def preview_top3(candidates):
     """Never invent a financial ranking when KO distance/carry proof is missing."""
     qualified = []
