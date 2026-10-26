@@ -338,7 +338,8 @@ def _loop():
                         # across five-minute cycles; do not requery SnapTrade.
                         old_records = _CURRENT.get('historyResearchArchive') or []
                         merged = {x['isin']:x for x in old_records[:80]
-                                  if isinstance(x,dict) and valid_isin(x.get('isin'))}
+                                  if isinstance(x,dict) and isinstance(x.get('isin'),str)
+                                  and valid_isin(x['isin'])}
                         for row in research.get('items', []):
                             merged[row['isin']] = dict(row, issuerCheckedAt=at.isoformat())
                         research_archive = list(merged.values())[-80:]
