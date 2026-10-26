@@ -67,6 +67,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   // A normal export is untouched without explicit activation in Bob.
   await exportCSV(csv);assert.equal(await bob.locator('.dg-holding').count(),0);
   await bob.locator('#bobBridgeStart').click();
+  await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStop').disabled);
   await broker.waitForFunction(()=>GM_getValue('bob-export-arm-v1',0)>Date.now());
   await bob.waitForFunction(()=>document.querySelector('#bobBridgeBrokerStatus').textContent.includes('erreichbar'));
   await exportCSV(csv);
@@ -135,6 +136,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.waitForTimeout(80);assert.equal(requests.length,blobRequests);
   assert.equal(await bob.evaluate(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity),13);
   await bob.locator('#bobBridgeStart').click();
+  await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStop').disabled);
   // Synchronize the new allowlisted read-only arm across tabs before making
   // assertions about created blobs and the next *explicit* CSV export.
   await broker.waitForFunction(()=>GM_getValue('bob-export-arm-v1',0)>Date.now());
