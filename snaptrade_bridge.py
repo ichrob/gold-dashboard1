@@ -69,7 +69,9 @@ ACTIVITY_OFFSETS = tuple(range(0, 2500, 500))
 HISTORY_MAX_ROWS = 20_000
 HISTORY_MAX_BYTES = 4_000_000
 HISTORY_JOURNAL_BYTES = 3_000_000
-HISTORY_PAGING_VERSION = 1
+HISTORY_PAGING_VERSION = 2
+
+import snaptrade_history_codec as history_codec
 
 def activity_rows(data):
     # Lossless removal of empty optional placeholders reduces encrypted history
@@ -520,14 +522,17 @@ def load_ledger(config):
             raw = zlib.decompressobj().decompress(cipher().decrypt(sealed.encode()), HISTORY_MAX_BYTES + 1)
             if len(raw) > HISTORY_MAX_BYTES: raise ValueError()
             value = json.loads(raw)
-            if value.get('owner') == owner: loaded = value
+            if value.get('owner') == owner: loaded = history_codec.decode_ledger(value)
         except Exception:
             raise ReadError('HISTORY_UNREADABLE') from None
     return loaded or {'owner': owner, 'history': [], 'changes': [], 'journal': {}}
 
 
 def save_ledger():
-    raw = json.dumps(_LEDGER, separators=(',', ':'), allow_nan=False).encode()
+    try:
+        raw = json.dumps(history_codec.encode_ledger(_LEDGER), separators=(',', ':'), allow_nan=False).encode()
+    except (ValueError, TypeError):
+        raise ReadError('HISTORY_FULL') from None
     if len(raw) > HISTORY_MAX_BYTES:
         raise ReadError('HISTORY_FULL')
     sealed = cipher().encrypt(zlib.compress(raw)).decode()
@@ -570,8 +575,8 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=HISTORY_JOUR
                     if offset == 0:
                         head_fingerprint = hashlib.sha256(json.dumps(batch, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
                         cursor = old.get('nextOffset')
-                        if (old.get('pagingVersion') == HISTORY_PAGING_VERSION
-                                and old.get('activityCoverageReason') == 'PAGE_LIMIT'
+                        if (old.get('pagingVersion') in (1, HISTORY_PAGING_VERSION)
+                                and old.get('activityCoverageReason') in ('PAGE_LIMIT', 'SIZE_LIMIT')
                                 and old.get('headFingerprint') == head_fingerprint
                                 and old.get('activitySourceTotal') == source_total
                                 and type(cursor) is int and 0 < cursor < HISTORY_MAX_ROWS
@@ -580,7 +585,7 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=HISTORY_JOUR
                             offsets[1:] = list(range(cursor, min(HISTORY_MAX_ROWS, cursor + (len(ACTIVITY_OFFSETS)-1)*500), 500))
                     data.extend(batch)
                     preview = prior_rows + activity_rows(data)
-                    if len(json.dumps(preview).encode())+len(json.dumps(result.get('orders',{})).encode())>max_bytes:
+                    if len(json.dumps(history_codec.pack(preview, max_rows=HISTORY_MAX_ROWS + 500), separators=(',', ':')).encode())+len(json.dumps(result.get('orders',{})).encode())>max_bytes:
                         if batch: del data[-len(batch):]
                         coverage_reason = 'SIZE_LIMIT'
                         break
@@ -811,7 +816,7 @@ def update_portfolio(snapshot, config, generation):
     # Keep the encrypted total bounded without dropping transaction evidence.
     # Snapshot history already has bounded retention; shorten it first when
     # the expanded journal needs more of the existing four-megabyte budget.
-    while len(ledger['history'])>1 and len(json.dumps(ledger,separators=(',',':')).encode())>HISTORY_MAX_BYTES-100_000:
+    while len(ledger['history'])>1 and len(json.dumps(history_codec.encode_ledger(ledger),separators=(',',':')).encode())>HISTORY_MAX_BYTES-100_000:
         del ledger['history'][:max(1,len(ledger['history'])//4)]
     snapshot['changes'] = ledger['changes']
     snapshot['history'] = [{'at': p['at'], 'complete':p['complete'], 'accounts':[
