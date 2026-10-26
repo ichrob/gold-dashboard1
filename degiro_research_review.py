@@ -12,6 +12,10 @@ import re
 from product_quotes import valid_isin
 
 
+def _isin(value):
+    return isinstance(value, str) and valid_isin(value)
+
+
 def _clock(value, now):
     if not isinstance(value, str) or not re.search(r'(Z|[+-][0-9]{2}:[0-9]{2})$', value):
         return None
@@ -27,7 +31,7 @@ def _clock(value, now):
 
 def summarize_symbol_search(rows, requested_isin):
     """Bounded anonymized account-search probe; never expose provider account IDs."""
-    if not valid_isin(requested_isin) or not isinstance(rows, list) or len(rows) > 20:
+    if not _isin(requested_isin) or not isinstance(rows, list) or len(rows) > 20:
         raise ValueError('Ungültiger oder zu großer Symbolsuchbeleg')
     exact = 0
     for item in rows:
@@ -52,7 +56,7 @@ def summarize_symbol_search(rows, requested_isin):
 def issuer_observation(isin, direction, raw, now=None):
     """Timestamp-safe issuer snapshot. Never substitute a screenshot or model quote."""
     now = now or datetime.now(timezone.utc)
-    if now.tzinfo is None or not valid_isin(isin) or direction not in ('LONG', 'SHORT'):
+    if now.tzinfo is None or not _isin(isin) or direction not in ('LONG', 'SHORT'):
         return None
     if not isinstance(raw, dict) or raw.get('isin') != isin or raw.get('productVerified') is not True:
         return None
@@ -88,7 +92,7 @@ def preview_top3(candidates):
         if not isinstance(x, dict):
             continue
         isin = x.get('isin')
-        if not valid_isin(isin) or isin in seen:
+        if not _isin(isin) or isin in seen:
             continue
         seen.add(isin)
         # Only independently supplied numeric evidence. No inferred cost, leverage, KO.
@@ -123,9 +127,9 @@ def proof_reuse_summary(existing, requested):
     Caller must supply already validated, presently current proof flags.
     """
     known = {x['isin'] for x in existing[:120] if isinstance(x, dict)
-             and valid_isin(x.get('isin')) and x.get('listingConfirmed') is True
+             and _isin(x.get('isin')) and x.get('listingConfirmed') is True
              and x.get('current') is True and x.get('executionConfirmed') is False}
-    todo = [isin for isin in requested[:120] if valid_isin(isin) and isin not in known]
+    todo = [isin for isin in requested[:120] if _isin(isin) and isin not in known]
     return dict(currentIdentityCount=len(known), furtherIdentityProofNeeded=len(set(todo)),
                 noNewScreenshotRequiredFor=list(sorted(known.intersection(requested)))[:120],
                 quoteFreshnessExtended=False, tradeApproved=False)
