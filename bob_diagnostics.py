@@ -21,6 +21,69 @@ def fields(value, keys):
     return out
 
 
+
+def collection_cycle_snapshot(value):
+    """Project only bounded scheduler counters from Bob's in-process collection.
+
+    A worker start gap is not independently verified loss of any market tick.
+    Unknown, malformed, future-dated or forged availability stays unavailable.
+    """
+    unavailable = {'status':'unavailable', 'readOnly':True,
+                   'workerMissedCyclesVerified':False,
+                   'scope':'process-local-worker-starts-not-market-tick-proof'}
+    if (not isinstance(value, dict)
+            or value.get('readOnly') is not True
+            or value.get('workerMissedCyclesVerified') is not False
+            or value.get('scope') != unavailable['scope']):
+        return unavailable
+    status = value.get('status')
+    if status == 'not-observed':
+        if type(value.get('observedCycles')) is not int or value['observedCycles'] != 0:
+            return unavailable
+        return dict(unavailable, status='not-observed', observedCycles=0)
+    if status != 'observed':
+        return unavailable
+    integer = lambda key, lo, hi: (type(value.get(key)) is int
+                                   and lo <= value[key] <= hi)
+    finite = lambda key, lo, hi: (type(value.get(key)) in (int, float)
+                                  and math.isfinite(value[key])
+                                  and lo <= value[key] <= hi)
+    if (not integer('observedCycles', 1, 20)
+            or not integer('comparableStartIntervals', 0, 19)
+            or value['comparableStartIntervals'] > value['observedCycles']-1
+            or not integer('lastDurationMs', 0, 3600000)
+            or not integer('configuredSeconds', 1, 1800)
+            or not finite('plannedWaitSeconds', 1, 1800)):
+        return unavailable
+    gaps = ('maxObservedStartGapSeconds', 'lastObservedStartGapSeconds')
+    for name in gaps:
+        if value.get(name) is not None and not finite(name, 0, 86400):
+            return unavailable
+    if ((value['comparableStartIntervals'] == 0)
+            != (value.get('maxObservedStartGapSeconds') is None)):
+        return unavailable
+    clocks = []
+    for name in ('lastStartedAt', 'lastCompletedAt'):
+        t = value.get(name)
+        if not isinstance(t, str) or len(t) > 42:
+            return unavailable
+        try:
+            dt = datetime.fromisoformat(t.replace('Z', '+00:00'))
+            if dt.tzinfo is None:
+                return unavailable
+            clocks.append(dt.astimezone(timezone.utc))
+        except (TypeError, ValueError, OverflowError):
+            return unavailable
+    if not 0 <= (clocks[1]-clocks[0]).total_seconds() <= 3600:
+        return unavailable
+    return {**unavailable, 'status':'observed',
+            **fields(value, ('observedCycles','comparableStartIntervals',
+                             'maxObservedStartGapSeconds','lastStartedAt',
+                             'lastCompletedAt','lastDurationMs',
+                             'configuredSeconds','plannedWaitSeconds',
+                             'lastObservedStartGapSeconds'))}
+
+
 def market_snapshot(live, cached_at, now=None):
     now = time.time() if now is None else now
     live = live if isinstance(live, dict) else {}
