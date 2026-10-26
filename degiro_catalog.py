@@ -74,6 +74,9 @@ def normalize(isin, expected_direction, raw):
         return None, dict(isin=isin, reason="Basiswert/Währung/Richtung weicht ab; keine Gold-Spot-Kandidatur")
     # Fail closed: absence of a quote means unknown, not removal from DEGIRO.
     issuer_comparison = degiro_research_review.issuer_observation(isin, expected_direction, raw)
+    metrics = (degiro_research_review.original_ranking_metrics(raw)
+               if issuer_comparison else
+               dict(koDistancePercent=None, financingCostPercent=None))
     item = dict(isin=isin, direction=expected_direction,
         name=str(raw.get("name") or "Gold-Knock-out · historischer Listenfund")[:120],
         source="Historische DEGIRO-Listenbilder + Emittentenprüfung",
@@ -91,8 +94,9 @@ def normalize(isin, expected_direction, raw):
         screenshotToday=False, liveApproved=False, eligibleForTop3=False,
         issuerComparison=issuer_comparison,
         issuerLeverage=(issuer_comparison or {}).get('leverage'),
-        # No KO distance or financing rate is guessed from a strike or KO barrier.
-        koDistancePercent=None, financingCostPercent=None)
+        # Never infer KO distance or carry from strike, spread or leverage.
+        koDistancePercent=metrics['koDistancePercent'],
+        financingCostPercent=metrics['financingCostPercent'])
     return item, None
 
 
