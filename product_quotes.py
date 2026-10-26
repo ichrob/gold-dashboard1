@@ -33,7 +33,7 @@ def sg_on_demand_candidate(isin):
     No scanning/range enumeration or broker-account access is performed.
     """
     return (isinstance(isin, str) and len(isin) == 12
-            and isin.startswith(('DE000FC', 'DE000FD', 'DE000FE', 'DE000FG', 'DE000SQ')) and valid_isin(isin))
+            and isin.startswith(('DE000FB', 'DE000FC', 'DE000FD', 'DE000FE', 'DE000FG', 'DE000SQ')) and valid_isin(isin))
 
 
 def sg_market(isin):
