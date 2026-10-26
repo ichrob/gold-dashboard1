@@ -23,7 +23,9 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    const values=await window.gmRead(),listeners={};
    window.unsafeWindow=window;
    window.GM_getValue=(k,d)=>k in values?values[k]:d;
-   window.GM_setValue=(k,v)=>{const old=values[k];values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,false);window.gmWrite(k,v,false);};
+   window.gmStatusWrites=0;
+   window.exportResults=[];window.addEventListener("message",e=>{if(e.source===window&&e.data?.type==="BOB_EXPORT_RESULT")window.exportResults.push(e.data);});
+   window.GM_setValue=(k,v)=>{if(k==='bob-export-status-v1')window.gmStatusWrites++;const old=values[k];values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,false);window.gmWrite(k,v,false);};
    window.GM_deleteValue=k=>{delete values[k];window.gmWrite(k,null,true);};
    window.GM_addValueChangeListener=(k,fn)=>(listeners[k]??=[]).push(fn);
    window.gmRemote=(k,v,remove)=>{const old=values[k];if(remove)delete values[k];else values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,true);};
@@ -44,12 +46,23 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.goto(BOB);await broker.goto(BROKER);
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
   async function exportCSV(text,method='click'){
+   const resultsBefore=await bob.evaluate(()=>window.exportResults.length);
+   const before=await broker.evaluate(()=>({armed:GM_getValue('bob-export-arm-v1',0)>Date.now(),writes:window.gmStatusWrites}));
    await broker.evaluate(({text,method})=>{
     document.getElementById('export').onclick=()=>{
      const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'}));a.download='portfolio.csv';if(method==='dispatch')a.dispatchEvent(new MouseEvent('click'));else a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);
     };
    },{text,method});
    await broker.locator('#export').click();
+   if(before.armed){
+    // Await this export's own terminal status, not an old note or a fixed sleep.
+    await broker.waitForFunction(writes=>window.gmStatusWrites>writes&&
+     ['staged','error'].includes(GM_getValue('bob-export-status-v1',null)?.state),before.writes,{timeout:12000});
+    const state=await broker.evaluate(()=>GM_getValue('bob-export-status-v1',null)?.state);
+    if(state==='error')return false;
+    await bob.waitForFunction(n=>window.exportResults.length>n,resultsBefore,{timeout:12000});
+    return bob.evaluate(()=>window.exportResults.at(-1).ok);
+   }
   }
   // A normal export is untouched without explicit activation in Bob.
   await exportCSV(csv);assert.equal(await bob.locator('.dg-holding').count(),0);
@@ -148,9 +161,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    csv+'\nCASH & CASH FUND & F,,,,CHF,INVALID,INVALID',
    csv.replace(',EUR,',',BADCCY,')
   ]){
-   await exportCSV(invalid);
-   await broker.waitForFunction(()=>!document.querySelector('#bob-export-bridge-note')?.textContent.includes('prüft'));
-   await bob.waitForTimeout(80);
+   assert.equal(await exportCSV(invalid),false,'Each invalid export reaches its own rejection before checking preservation');
    assert.equal(await bob.evaluate(()=>localStorage.getItem(BobDegiroPortfolio.KEY)),saved);
   }
   // Fully validated replacement, not cumulative holdings.
