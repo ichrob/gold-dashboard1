@@ -19,12 +19,13 @@ assert(preliminary.every(x=>x.proofComplete===false&&x.missing.length>0));
 assert.equal(b.selectionWorkflow([p],market,{}).approvedCount,0,
  'Preview never changes formal approval');
 assert.equal(b.selectionWorkflow([p],market,{}).groups.length,0);
-const markup=b.renderContinuingAnalysis([p],market);
-assert.match(markup,/data-unapproved-comparison/);
+const markup=b.renderContinuingAnalysis([p,{...p,isin:'DE000FG309G0',price:null}],market);
+assert.match(markup,/data-unified-product-ranking/);
+assert.match(markup,/data-unified-ranking-isin/);
 assert.match(markup,/NICHT FREIGEGEBEN/);
-assert.match(markup,/Keine aktuelle Handelsfreigabe/);
-assert.doesNotMatch(markup,/data-product-trade=/,
- 'Comparison is not a trade-entry or broker-order widget');
+assert.match(markup,/Ohne Rang/);
+assert.doesNotMatch(markup,/data-unapproved-comparison/);
+assert.doesNotMatch(markup,/data-product-trade=/);
 for(const [why,bad] of [
  ['missing price',{...p,price:null}],['missing leverage',{...p,leverage:null}],
  ['missing KO',{...p,ko:null}],['unconfirmed identity',{...p,isinConfirmed:false}],
@@ -38,4 +39,4 @@ for(const [why,bad] of [
 assert.equal(b.unapprovedComparisonRanking([p],{...market,spotFresh:false}).length,0);
 assert.equal(b.unapprovedComparisonRanking([p],{...market,direction:'NEUTRAL'}).length,0);
 assert.equal(b.unapprovedComparisonRanking([p],{...market,atr:null}).length,0);
-console.log('Provisional product comparison: unapproved ranking separate, approval and safety gates intact');
+console.log('Unified research ranking keeps incomplete products visible and approval independent');
