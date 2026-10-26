@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "goalId": 11,
+  "independentlyObserved": true,
+  "individuallyAccepted": false,
+  "countsTowardVerified": false,
+  "sourceWindow": "2026-10-26T07:00:00Z/2026-10-26T07:08:00Z",
+  "sample": {
+    "id": 11,
+    "goal": "Workerzyklen und Fälligkeit",
+    "kind": "bounded-five-worker-render-log-timing-sample",
+    "source": "Render app logs read-only, Bob private diagnostics read-only, and GitHub CI",
+    "observedAt": "2026-10-26T07:08:07.447514+00:00",
+    "build": "8369bafc26bff1603e477c9362c47f8809a24a3a",
+    "github": {
+      "ciRun": 40266093775,
+      "ciConclusion": "success",
+      "liveSmokeRun": 40266093778,
+      "liveSmokeConclusion": "success"
+    },
+    "render": [
+      {
+        "service": "bob-private-scanner",
+        "build": "8369bafc26bff1603e477c9362c47f8809a24a3a",
+        "finishedAt": "2026-10-26T03:54:38.343888Z",
+        "status": "live"
+      },
+      {
+        "service": "bob-push-service",
+        "build": "8369bafc26bff1603e477c9362c47f8809a24a3a",
+        "finishedAt": "2026-10-26T03:54:58.119572Z",
+        "status": "live"
+      }
+    ],
+    "sample": {
+      "session": "trading",
+      "windowStart": "2026-10-26T07:00:00Z",
+      "windowEnd": "2026-10-26T07:08:00Z",
+      "nominalCadenceSeconds": 30,
+      "allowedObservedGapSeconds": 45,
+      "fullyPaged": true,
+      "workers": [
+        {
+          "stream": "background",
+          "service": "bob-private-scanner",
+          "logMarker": "BOB_BACKGROUND checked",
+          "ticks": [
+            "2026-10-26T07:00:07.531179932Z",
+            "2026-10-26T07:00:38.256221505Z",
+            "2026-10-26T07:01:07.059485102Z",
+            "2026-10-26T07:01:37.153655931Z",
+            "2026-10-26T07:02:08.747293473Z",
+            "2026-10-26T07:02:36.73343262Z",
+            "2026-10-26T07:03:06.744552998Z",
+            "2026-10-26T07:03:37.362459235Z",
+            "2026-10-26T07:04:06.462984047Z",
+            "2026-10-26T07:04:36.640060028Z",
+            "2026-10-26T07:05:06.821244637Z",
+            "2026-10-26T07:05:37.267354326Z",
+            "2026-10-26T07:06:06.070644104Z",
+            "2026-10-26T07:06:36.74987337Z",
+            "2026-10-26T07:07:06.644316399Z",
+            "2026-10-26T07:07:38.668859804Z"
+          ]
+        },
+        {
+          "stream": "fibonacci",
+          "service": "bob-private-scanner",
+          "logMarker": "BOB_FIB monitor_checked",
+          "ticks": [
+            "2026-10-26T07:00:07.56532189Z",
+            "2026-10-26T07:00:38.360784651Z",
+            "2026-10-26T07:01:07.097536691Z",
+            "2026-10-26T07:01:37.191342241Z",
+            "2026-10-26T07:02:08.920911796Z",
+            "2026-10-26T07:02:36.776800983Z",
+            "2026-10-26T07:03:06.821662216Z",
+            "2026-10-26T07:03:37.462901047Z",
+            "2026-10-26T07:04:06.562522555Z",
+            "2026-10-26T07:04:36.673128928Z",
+            "2026-10-26T07:05:06.878892154Z",
+            "2026-10-26T07:05:37.313643984Z",
+            "2026-10-26T07:06:06.108538341Z",
+            "2026-10-26T07:06:36.817847699Z",
+            "2026-10-26T07:07:06.741798983Z",
+            "2026-10-26T07:07:38.761659406Z"
+          ]
+        },
+        {
+          "stream": "cfd",
+          "service": "bob-private-scanner",
+          "logMarker": "BOB_CFD checked",
+          "ticks": [
+            "2026-10-26T07:00:00.296436434Z",
+            "2026-10-26T07:00:30.335227465Z",
+            "2026-10-26T07:01:00.283648613Z",
+            "2026-10-26T07:01:30.368032437Z",
+            "2026-10-26T07:02:00.318729985Z",
+            "2026-10-26T07:02:30.302799062Z",
+            "2026-10-26T07:03:00.645899026Z",
+            "2026-10-26T07:03:30.26109374Z",
+            "2026-10-26T07:04:00.324237086Z",
+            "2026-10-26T07:04:30.329497445Z",
+            "2026-10-26T07:05:00.322687171Z",
+            "2026-10-26T07:05:30.377903238Z",
+            "2026-10-26T07:06:00.280462245Z",
+            "2026-10-26T07:06:30.312567243Z",
+            "2026-10-26T07:07:00.386148116Z",
+            "2026-10-26T07:07:30.356411722Z"
+          ],
+          "originalSourceTimes": [
+            "2026-10-26T06:59:59.195000+00:00",
+            "2026-10-26T07:00:29+00:00",
+            "2026-10-26T07:00:58.690000+00:00",
+            "2026-10-26T07:01:29.547000+00:00",
+            "2026-10-26T07:01:58.188000+00:00",
+            "2026-10-26T07:02:29.050000+00:00",
+            "2026-10-26T07:02:59.920000+00:00",
+            "2026-10-26T07:03:28.582000+00:00",
+            "2026-10-26T07:03:59.438000+00:00",
+            "2026-10-26T07:04:29+00:00",
+            "2026-10-26T07:04:59+00:00",
+            "2026-10-26T07:05:29.812000+00:00",
+            "2026-10-26T07:05:59+00:00",
+            "2026-10-26T07:06:29.340000+00:00",
+            "2026-10-26T07:06:59+00:00",
+            "2026-10-26T07:07:29+00:00"
+          ]
+        },
+        {
+          "stream": "collection",
+          "service": "bob-private-scanner",
+          "logMarker": "BOB_COLLECTION state=ready",
+          "ticks": [
+            "2026-10-26T07:00:00.568847331Z",
+            "2026-10-26T07:00:30.398751096Z",
+            "2026-10-26T07:01:00.384495162Z",
+            "2026-10-26T07:01:30.383905115Z",
+            "2026-10-26T07:02:00.768351232Z",
+            "2026-10-26T07:02:30.383526478Z",
+            "2026-10-26T07:03:00.376359216Z",
+            "2026-10-26T07:03:30.378572441Z",
+            "2026-10-26T07:04:00.480358102Z",
+            "2026-10-26T07:04:30.34792226Z",
+            "2026-10-26T07:05:00.376843147Z",
+            "2026-10-26T07:05:30.571910385Z",
+            "2026-10-26T07:06:00.427277007Z",
+            "2026-10-26T07:06:30.409828824Z",
+            "2026-10-26T07:07:00.469970153Z",
+            "2026-10-26T07:07:31.169657477Z"
+          ]
+        },
+        {
+          "stream": "paper",
+          "service": "bob-push-service",
+          "logMarker": "BOB_PAPER checked",
+          "ticks": [
+            "2026-10-26T07:00:11.987769726Z",
+            "2026-10-26T07:00:39.284678561Z",
+            "2026-10-26T07:01:06.925398312Z",
+            "2026-10-26T07:01:37.014954067Z",
+            "2026-10-26T07:02:16.667579647Z",
+            "2026-10-26T07:02:36.114588221Z",
+            "2026-10-26T07:03:08.772648504Z",
+            "2026-10-26T07:03:37.028992126Z",
+            "2026-10-26T07:04:06.44126632Z",
+            "2026-10-26T07:04:38.556967289Z",
+            "2026-10-26T07:05:06.64849873Z",
+            "2026-10-26T07:05:36.134947158Z",
+            "2026-10-26T07:06:07.795441189Z",
+            "2026-10-26T07:06:35.938745768Z",
+            "2026-10-26T07:07:06.438246316Z",
+            "2026-10-26T07:07:40.974024393Z"
+          ]
+        }
+      ],
+      "scope": "dated-five-worker-log-observations-only",
+      "readOnly": true,
+      "realOrders": false,
+      "workerMissed30sCyclesVerified": false,
+      "continuousHealthVerified": false,
+      "paperTradeOrDeliveryVerified": false
+    },
+    "limitations": "80 echte bereinigte Render-Logzeilen in acht Minuten auf exakt einem historischen, CI-geprüften Live-Build; je 16 Zeitstempel für Hintergrund, Fibonacci, CFD, Collection und Paper. CFD-Originalquellenzeiten sind separat erfasst. Paper hatte eine beobachtete Spanne bis knapp 40 Sekunden: keine perfekte 30-Sekunden-Pünktlichkeit behaupten. Kein 24/7-, Marktquellen-, Handelsplatz-, Paper-Traderesultat-, tatsächlicher Push-/Android-Empfangs-, Neustart-/Deploymentregressions- oder verpasster Takt-Negativbeweis."
+  },
+  "limitations": "Original timestamps from two Render services and original CFD source_at evidence; the included data are observations not new independent authorizations, verified absence of missed ticks, historical market coverage, full functional acceptance, live trade, device delivery, causal repair, or deployment stability. Acceptance counter remains 5/100 until independent checks and the blocked code-path update are resolved."
+}
