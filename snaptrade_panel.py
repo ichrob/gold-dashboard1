@@ -4,6 +4,7 @@ PANEL = r'''
 <h3>DEGIRO über SnapTrade Personal</h3>
 <p><button id="snapCatalogProbe" type="button" disabled>DEGIRO-Produktverzeichnis einmalig prüfen</button></p>
 <p id="snapCatalogProbeStatus" class="small" role="status">Produktverzeichnis noch nicht geprüft. Dies ist kein Nachweis aller handelbaren Gold-Knock-outs.</p>
+<p id="snapAccountSymbolStatus" class="small" role="status">Kontobezogene Symbolsuche: noch nicht geprüft.</p>
 <p>Kostenloser Personal-Zugang für dein eigenes Depot. Bob liest Bestände und Bargeld bei aktiver Bob-Ansicht frühestens alle zehn Minuten. Im Hintergrund gilt ein sparsamer Sechs-Stunden-Takt. Eindeutig zugeordnete Produktkurse prüft Bob zusätzlich etwa alle 30 Sekunden über seine bestehenden Emittentenquellen; dies sind keine DEGIRO-Ausführungskurse.</p>
 <p id="snapStatus" role="status">Einrichtung wird geprüft …</p>
 <ol>
@@ -57,6 +58,12 @@ function mount(){
   else if(pcode==='CATALOG_RETURNED')catalogStatus.textContent='Prüfung '+stamp(probe.checkedAt)+': '+probe.instrumentCount+' Broker-Instrumente gemeldet; '+(probe.historicalMatches?.length||0)+' von '+(probe.historicalWatchCount||0)+' historisch bekannten ISINs gefunden. Keine vollständige Gold-Knock-out-Liste oder Handelsfreigabe.';
   else if(pcode==='NOT_TESTED')catalogStatus.textContent='DEGIRO-Produktverzeichnis über SnapTrade noch nicht geprüft. Einmaliger Lesetest ohne Orders.';
   else catalogStatus.textContent='Produktverzeichnis-Abfrage '+stamp(probe.checkedAt)+': '+pcode+'. Kein vollständiger Katalognachweis.';
+  const symbol=data.accountSymbolProbe||{},scode=symbol.code||'NOT_TESTED';
+  const accountSymbolStatus=document.getElementById('snapAccountSymbolStatus');
+  if(scode==='EXACT_SYMBOL_CANDIDATE')accountSymbolStatus.textContent='SnapTrade-Kontosuche '+stamp(symbol.checkedAt)+': '+symbol.exactSymbolCandidates+' exakter Symbol-Suchkandidat. KEINE bestätigte DEGIRO-Handelbarkeit oder ausführbare Quote.';
+  else if(scode==='SEARCH_EMPTY'||scode==='NO_EXACT_SYMBOL')accountSymbolStatus.textContent='SnapTrade-Kontosuche '+stamp(symbol.checkedAt)+': Kein exakter ISIN-Suchtreffer in der begrenzten Probe. Dies beweist NICHT, dass das Produkt bei DEGIRO nicht handelbar ist.';
+  else if(scode==='NOT_TESTED')accountSymbolStatus.textContent='Kontobezogene Symbolsuche: noch nicht geprüft; bei erfolgreichem Depotlesestand einmalig im Hintergrund.';
+  else accountSymbolStatus.textContent='Kontobezogene Symbolsuche '+stamp(symbol.checkedAt)+': '+scode+'. Kein Produkt- oder Handelsnachweis.';
   document.getElementById('snapSetup').open=!data.configured;
   clock.textContent=(data.checkedAt?'Letzte Prüfung: '+stamp(data.checkedAt)+'. ':'')+(data.configured?'Nächster möglicher Abruf in '+data.nextCheckSeconds+' Sekunden. ':'')+(data.snapshot?(data.fresh?'Quellenstand innerhalb des Depotintervalls.':'Quellenstand nicht als aktuell bestätigt. '):'');
   const flags=[...new Set(data.connectionWatch?.codes||[])];
