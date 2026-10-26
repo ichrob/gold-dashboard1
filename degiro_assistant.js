@@ -5312,9 +5312,21 @@ function productSelectionExplanation(products,context,ranked,marketWarnings=[]){
 }
 function renderContinuingAnalysis(products,context){
  // One complete research ranking. Approval and execution gates remain separate.
- const direction=context?.direction;
- if(!['LONG','SHORT'].includes(direction)||context?.spotFresh!==true)return '<section data-unified-product-ranking><b>ABWARTEN · keine Rangliste</b></section>';
- const rows=continuingAnalysis(Array.isArray(products)?products:[],context||{}).filter(row=>row.p?.productDirection===direction);
+ if(typeof document!=='undefined')for(const [i,p] of products.entries())for(const [field,key] of [['price','Brief'],['lev','Hebel'],['ko','KO']]){
+  const input=document.querySelector('[data-dg="'+field+'"][data-i="'+(i+1)+'"]');if(!input)continue;
+  const evidence=p.snapshot?.evidence?.[key],at=evidence?.at||(field==='price'?(p.snapshot?.sourceTime||p.quote?.quoteAt):null);
+  const warning=calculationAge(at,p.snapshot?SCREENSHOT_MAX_AGE_MS:90000);
+  input.style.fontStyle=warning?'italic':'';input.title=warning;
+ }
+ const marketWarnings=window.BobAnalysisAge?.()||[];
+ const ranked=indicativeRecommendations(products,context);
+ const explanation=productSelectionExplanation(products,context,ranked,marketWarnings);
+ const explanationHtml='<p data-selection-reason="'+explanation.state+'" role="status" class="small" style="margin:10px 0">'+esc(explanation.text)+'</p>';
+ const highestLeverage=Math.max(...ranked.map(({evaluation:e})=>e.leverage));
+ const leveragePlaces=ranked.flatMap(({evaluation:e},i)=>e.leverage===highestLeverage?[i+1]:[]);
+ const leverageIsins=ranked.flatMap(({p,evaluation:e})=>e.leverage===highestLeverage?[p.isin]:[]);
+ const leverageHint=leveragePlaces.length?'<div data-risk-leverage data-risk-isins="'+esc(leverageIsins.join(' / '))+'" data-risk-positions="'+leveragePlaces.join(' / ')+'" style="margin:8px 0"><strong>Risiko: '+(leveragePlaces.length>1?'Plätze ':'Platz ')+leveragePlaces.join(' / ')+' · höchster Hebel: '+highestLeverage.toFixed(2)+'×</strong><details><summary>Erklärung zum Hebelrisiko</summary><div class="small">Unter den formal belegten Empfehlungen; verstärkt Gewinne und Verluste. Hebel laut vorhandenen Werten.</div></details></div>':'';
+ const rows=continuingAnalysis(Array.isArray(products)?products:[],context||{});
  const now=context?.now??Date.now(),seen=new Set(),rankable=[],unranked=[];
  for(const row of rows){
   const p=row.p||{},isin=p.isin||'';
@@ -5323,7 +5335,9 @@ function renderContinuingAnalysis(products,context){
   const evidence=finalProductStatus(p,now),e=row.evaluation||{};
   const item={...row,evidence};
   // Do not invent scores for missing contracts, knocked-out or mismatched products.
-  const safe=e.direction===direction&&validIsin(isin)&&p.isinConfirmed===true&&!knockoutStatus(p)&&
+  const safe=context?.spotFresh===true&&['LONG','SHORT'].includes(context?.direction)&&
+   n(context?.spot)>0&&n(context?.atr)>0&&p.productDirection===context.direction&&
+   e.direction===context.direction&&validIsin(isin)&&p.isinConfirmed===true&&!knockoutStatus(p)&&
    !isFutureProduct(p)&&!/FAKTOR|FACTOR/i.test(p.name||'')&&
    !(p.quote?.isin&&p.quote.isin!==isin)&&
    !(p.snapshot?.isin&&p.snapshot.isin!==isin)&&
@@ -5335,6 +5349,9 @@ function renderContinuingAnalysis(products,context){
  const describe=(row,i)=>{
   const p=row.p,e=row.evaluation||{},proof=row.evidence;
   const rank=i===null?'Ohne Rang':'Platz '+(i+1);
+  const freshness=row.warning&&row.warning.includes('veraltet')?'Mit veralteten Werten gerechnet':
+   row.warning?'Mit Werten unbekannter Aktualität gerechnet':
+   marketWarnings.length?'Marktdaten-Aktualität eingeschränkt':'Rechnerischer Vergleich mit vorhandenen Werten';
   const fields=[['Kurs',p.price],['Hebel',p.leverage],['KO',p.ko]].map(([name,value])=>{
    const estimated=p.estimated===true||p.calculated===true||
     (name==='Hebel'&&p.leverageCalculated===true)||
@@ -5346,12 +5363,13 @@ function renderContinuingAnalysis(products,context){
    rank+' · '+esc(p.isin)+'</b>'+renderIsinCopy(p.isin,true)+
    ' · '+esc(p.productDirection||'Richtung unbekannt')+
    (i===null?' · nicht zuverlässig bewertbar':' · Vergleichswert '+e.score+'/100')+
-   '<br>'+fields+'<br><strong>'+(proof.complete?'Produktnachweise vollständig; DEGIRO-Ausführung nicht bestätigt':'NICHT FREIGEGEBEN · Nachweise offen')+
+   '<br><strong>'+esc(freshness)+'</strong><br>'+fields+'<br><strong>'+(proof.complete?'Produktnachweise vollständig; DEGIRO-Ausführung nicht bestätigt':'NICHT FREIGEGEBEN · Nachweise offen')+
    '</strong>'+(row.warning?'<div class="small">'+esc(String(row.warning).slice(0,250))+'</div>':'')+
    (!proof.complete?'<div class="small">Fehlt: '+esc((proof.reasons||[]).slice(0,3).join(' · ').slice(0,300))+'</div>':'')+'</div>';
  };
- return '<section data-unified-product-ranking><b>Goldprodukte · '+esc(direction)+' Rangliste</b>'+
+ return '<section data-unified-product-ranking data-indicative-recommendations><b>Alle Goldprodukte · eine Rangliste · <span style="color:'+({LONG:'#15803d',SHORT:'#b91c1c'}[context?.direction]||'#ca8a04')+'">'+esc(['LONG','SHORT'].includes(context?.direction)?context.direction:'ABWARTEN')+'</span></b>'+
   '<p class="small">Original- und berechnete Werte gemeinsam vergleichen; fehlende Daten bleiben sichtbar. Die rechnerische Platzierung ist keine Handelsfreigabe oder ausführbare DEGIRO-Order.</p>'+
+  explanationHtml+leverageHint+
   rankable.map((r,i)=>describe(r,i)).join('')+
   unranked.map(r=>describe(r,null)).join('')+
   (!rows.length?'<p>Keine Produkte erfasst.</p>':'')+'</section>';
