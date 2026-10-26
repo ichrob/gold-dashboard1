@@ -100,7 +100,8 @@ class DirectTests(unittest.TestCase):
                          dict(ExchangeCode='CBSW'), dict(AssetNMP='GOLD-FUTURE')):
             with self.subTest(override=override):
                 sg._CACHE.clear(); sg._TERMS.clear()
-                wrong=dict(self.product, Isin=isin, Id=8765432, **override)
+                wrong=dict(self.product, Isin=isin, Id=8765432)
+                wrong.update(override)
                 with patch.object(q, 'issuer_json', side_effect=[wrong, []]), \
                      patch.object(q, 'get_bnp_quote',return_value={'found':False,'productVerified':False}):
                     got=q.get_issuer_quote(isin)
