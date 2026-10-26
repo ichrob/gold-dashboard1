@@ -52,12 +52,64 @@ class DiagnosticHttpErrorsTests(unittest.TestCase):
              "message": "unrecognized status=200 path=/health"},
         ]
         result = sample(rows, has_more=True)
-        self.assertEqual(result["validRequestRecords"], 2)
+        self.assertEqual(result["validRequestRecords"], 1)
         self.assertEqual(result["httpClasses"]["5xx"], 1)
-        self.assertEqual(result["httpClasses"]["2xx"], 1)
-        self.assertEqual(result["invalidOrIgnoredRecords"], 1)
+        self.assertEqual(result["httpClasses"]["2xx"], 0)
+        self.assertEqual(result["invalidOrIgnoredRecords"], 2)
         self.assertTrue(result["sampleTruncated"])
         self.assertNotIn("redacted", json.dumps(result))
+
+    def test_original_observed_push_routes_remain_distinct_at_503(self):
+        # Fixture mirrors a dated Render request-log window, NOT a live CI
+        # provider check. Never infer full uptime or recovery from this test.
+        rows = [
+            {"timestamp":"2026-10-26T08:03:36.972236639Z",
+             "message":"BOB_PUSH_HTTP method=POST path=/market-candles/write status=200"},
+            {"timestamp":"2026-10-26T08:03:38.627557033Z",
+             "message":"BOB_PUSH_HTTP method=POST path=/market-validations/write status=503"},
+            {"timestamp":"2026-10-26T08:03:35.466873101Z",
+             "message":"BOB_PUSH_HTTP method=POST path=/diagnostic-history status=503"},
+            {"timestamp":"2026-10-26T08:03:40.761739195Z",
+             "message":"BOB_PUSH_HTTP method=POST path=/monitor status=200"},
+        ]
+        report = classify(rows, service="bob-push-service",
+                          window_start="2026-10-26T08:03:35Z",
+                          window_end="2026-10-26T08:03:41Z")
+        self.assertEqual(report["status"], "classified-sample")
+        self.assertEqual(report["validRequestRecords"], 4)
+        self.assertEqual(report["httpClasses"]["5xx"], 2)
+        entries = {entry["endpoint"]: entry for entry in report["endpoints"]}
+        self.assertEqual(entries["/market-validations/write"]["serverErrors"], 1)
+        self.assertEqual(entries["/diagnostic-history"]["serverErrors"], 1)
+        self.assertEqual(entries["/market-candles/write"]["httpClasses"]["2xx"], 1)
+        self.assertEqual(entries["/monitor"]["httpClasses"]["2xx"], 1)
+        self.assertFalse(report["completeTrafficProven"])
+        self.assertFalse(report["liveVerified"])
+        self.assertFalse(report["realOrders"])
+        other_service = classify(rows, service="bob-private-scanner",
+                                 window_start="2026-10-26T08:03:35Z",
+                                 window_end="2026-10-26T08:03:41Z")
+        self.assertEqual(other_service["status"], "insufficient-evidence")
+        self.assertEqual(other_service["validRequestRecords"], 0)
+
+    def test_cross_service_spoof_and_variable_paths_are_never_exposed(self):
+        records = [
+            row(503, "/health", service="bob-push-service"),
+            {"timestamp": "2026-10-25T10:15:00Z",
+             "message": "BOB_PUSH_HTTP method=GET path=/monitor status=503"},
+            {"timestamp": "2026-10-25T10:15:00Z",
+             "message": "BOB_HTTP method=POST path=/mcp?token=NEVER-ECHO status=200"},
+            row(404, "/mcp/private-user-identifier?code=SECRET"),
+        ]
+        result = sample(records)
+        self.assertEqual(result["validRequestRecords"], 2)
+        self.assertEqual(result["invalidOrIgnoredRecords"], 2)
+        endpoints = {item["endpoint"] for item in result["endpoints"]}
+        self.assertEqual(endpoints, {"/mcp", "other-unclassified"})
+        self.assertNotIn("NEVER-ECHO", json.dumps(result))
+        self.assertNotIn("private-user-identifier", json.dumps(result))
+        self.assertNotIn("SECRET", json.dumps(result))
+        self.assertFalse(result["completeTrafficProven"])
 
     def test_empty_and_invalid_inputs_fail_closed(self):
         for records in ([], [row(200, at="not-a-timestamp")],
