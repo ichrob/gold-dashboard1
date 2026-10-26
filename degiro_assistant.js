@@ -5311,6 +5311,8 @@ function productSelectionExplanation(products,context,ranked,marketWarnings=[]){
  return {state:'no-match',text:'Die Marktdaten sind aktuell und die Richtung ist '+direction+'. Von den ausreichend belegten Produkten erfüllt derzeit keines sämtliche Auswahlkriterien. Andere Produkte können zusätzlich unvollständige Nachweise haben.'};
 }
 function renderContinuingAnalysis(products,context){
+ // Neutral or stale market conditions must not present a product ranking.
+ if(!context||!['LONG','SHORT'].includes(context.direction)||context.spotFresh!==true)return '<section data-market-waiting><b>ABWARTEN · keine Rangliste</b></section>';
  // One complete research ranking. Approval and execution gates remain separate.
  if(typeof document!=='undefined')for(const [i,p] of products.entries())for(const [field,key] of [['price','Brief'],['lev','Hebel'],['ko','KO']]){
   const input=document.querySelector('[data-dg="'+field+'"][data-i="'+(i+1)+'"]');if(!input)continue;
@@ -5326,7 +5328,7 @@ function renderContinuingAnalysis(products,context){
  const leveragePlaces=ranked.flatMap(({evaluation:e},i)=>e.leverage===highestLeverage?[i+1]:[]);
  const leverageIsins=ranked.flatMap(({p,evaluation:e})=>e.leverage===highestLeverage?[p.isin]:[]);
  const leverageHint=leveragePlaces.length?'<div data-risk-leverage data-risk-isins="'+esc(leverageIsins.join(' / '))+'" data-risk-positions="'+leveragePlaces.join(' / ')+'" style="margin:8px 0"><strong>Risiko: '+(leveragePlaces.length>1?'Plätze ':'Platz ')+leveragePlaces.join(' / ')+' · höchster Hebel: '+highestLeverage.toFixed(2)+'×</strong><details><summary>Erklärung zum Hebelrisiko</summary><div class="small">Unter den formal belegten Empfehlungen; verstärkt Gewinne und Verluste. Hebel laut vorhandenen Werten.</div></details></div>':'';
- const rows=continuingAnalysis(Array.isArray(products)?products:[],context||{});
+ const rows=continuingAnalysis((Array.isArray(products)?products:[]).filter(p=>p.productDirection===context.direction),context);
  const now=context?.now??Date.now(),seen=new Set(),rankable=[],unranked=[];
  for(const row of rows){
   const p=row.p||{},isin=p.isin||'';
