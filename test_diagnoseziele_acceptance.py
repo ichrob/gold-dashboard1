@@ -190,6 +190,25 @@ class DatedAcceptanceTests(unittest.TestCase):
             with self.subTest(edit=str(item)):
                 check(item)
 
+    def test_goal_7_historical_proof_is_immutable_across_dated_sources(self):
+        """A plausible but unobserved time, SHA or CI run is not evidence."""
+        goals, records = self.fixtures()
+        self.assertEqual(a.assess(goals, records)["status"],
+                         "five-dated-independent-acceptances")
+        cases = (
+            lambda r: r.update(build="a" * 40),
+            lambda r: r.update(observedAt="2099-01-01T00:00:00Z"),
+            lambda r: r.update(observedAt="2026-10-25T19:57:07Z"),
+            lambda r: r["github"].update(ciRun=40225363270),
+            lambda r: r["github"].update(liveSmokeRun=40225363342),
+        )
+        for change in cases:
+            candidate = json.loads(json.dumps(records))
+            change(candidate["accepted"][3])
+            with self.subTest(change=str(change)):
+                self.assertEqual(a.assess(goals, candidate)["status"],
+                                 "unavailable")
+
     def test_root_module_detection_is_dated_not_import_or_health_proof(self):
         goals,records=self.fixtures()
         accepted=a.assess(goals,records)
