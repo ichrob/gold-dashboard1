@@ -5335,7 +5335,9 @@ function renderContinuingAnalysis(products,context){
   if(!isin||seen.has(isin))continue;
   seen.add(isin);
   const evidence=finalProductStatus(p,now),e=row.evaluation||{};
-  const item={...row,evidence};
+  const calculation=typeof window!=='undefined'&&window.BobProductEvidence?.calculatedApproval?
+   window.BobProductEvidence.calculatedApproval(p,context,now):null;
+  const item={...row,evidence,calculation};
   // Do not invent scores for missing contracts, knocked-out or mismatched products.
   const safe=context?.spotFresh===true&&['LONG','SHORT'].includes(context?.direction)&&
    n(context?.spot)>0&&n(context?.atr)>0&&p.productDirection===context.direction&&
@@ -5365,7 +5367,7 @@ function renderContinuingAnalysis(products,context){
    rank+' · '+esc(p.isin)+'</b>'+renderIsinCopy(p.isin,true)+
    ' · '+esc(p.productDirection||'Richtung unbekannt')+
    (i===null?' · nicht zuverlässig bewertbar':' · Vergleichswert '+e.score+'/100')+
-   '<br><strong>'+esc(freshness)+'</strong><br>'+fields+'<br><strong>'+(proof.complete?'Produktnachweise vollständig; DEGIRO-Ausführung nicht bestätigt':'NICHT FREIGEGEBEN · Nachweise offen')+
+   '<br><strong>'+esc(freshness)+'</strong><br>'+fields+'<br><strong>'+(row.calculation?.status==='calculated-approved'?'RECHNERISCH FREIGEGEBEN · DEGIRO-Handelbarkeit nicht bestätigt':proof.complete?'Produktnachweise vollständig; DEGIRO-Ausführung nicht bestätigt':'NICHT FREIGEGEBEN · Nachweise offen')+
    '</strong>'+(row.warning?'<div class="small">'+esc(String(row.warning).slice(0,250))+'</div>':'')+
    (!proof.complete?'<div class="small">Fehlt: '+esc((proof.reasons||[]).slice(0,3).join(' · ').slice(0,300))+'</div>':'')+'</div>';
  };
