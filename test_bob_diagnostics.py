@@ -502,6 +502,10 @@ class PrivateWorkerClockProjectionTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertEqual(diagnostics.collection_cycle_snapshot(case)['status'],
                                  'unavailable')
+        future = dict(original, lastStartedAt='2099-10-26T08:35:30Z',
+                      lastCompletedAt='2099-10-26T08:35:31Z')
+        self.assertEqual(diagnostics.collection_cycle_snapshot(future)['status'],
+                         'unavailable')
         self.assertEqual(diagnostics.collection_cycle_snapshot({})['status'], 'unavailable')
         waiting = dict(status='not-observed', observedCycles=0,
                        readOnly=True, workerMissedCyclesVerified=False,
