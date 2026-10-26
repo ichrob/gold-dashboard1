@@ -60,7 +60,18 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
      ['staged','error'].includes(GM_getValue('bob-export-status-v1',null)?.state),before.writes,{timeout:12000});
     const state=await broker.evaluate(()=>GM_getValue('bob-export-status-v1',null)?.state);
     if(state==='error')return false;
-    await bob.waitForFunction(n=>window.exportResults.length>n,resultsBefore,{timeout:12000});
+    // Follow the UI instruction to return to Bob after choosing the export.
+    await bob.bringToFront();
+    // Bob was in the background while the broker button was clicked. Poll by
+    // timer: requestAnimationFrame may be suspended for a background tab.
+    await bob.waitForFunction(n=>window.exportResults.length>n,resultsBefore,{timeout:12000,polling:100}).catch(async error=>{
+     const state=await bob.evaluate(()=>({results:window.exportResults.length,
+      armed:GM_getValue('bob-export-arm-v1',0)>Date.now(),
+      pending:!!GM_getValue('bob-export-pending-v1',null),
+      active:!document.querySelector('#bobBridgeStop').disabled,
+      holdings:document.querySelectorAll('.dg-holding').length}));
+     error.message+='; synthetic bridge state '+JSON.stringify(state);throw error;
+    });
     return bob.evaluate(()=>window.exportResults.at(-1).ok);
    }
   }
