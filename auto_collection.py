@@ -76,8 +76,11 @@ def tick(now=None):
     if not in_window(now):
         paused_report(now)
         return
+    cycle_started = time.monotonic()
+    reference_ms = None
     future_estimate.ensure_collector()
     if time.monotonic() >= _next_source:
+        reference_started = time.monotonic()
         try:
             # Exact-contract source only. The SG/Onvista product-page fallback
             # is disabled by user request; no retry through SG on failure.
@@ -106,11 +109,13 @@ def tick(now=None):
                 backup_delay, backup_error = cme_reference.failure()
                 _next_source = time.monotonic() + min(delay, backup_delay)
                 _source_error += ' · ' + backup_error
+        reference_ms = max(0, int((time.monotonic() - reference_started) * 1000))
 
     result = future_estimate.current_estimate(_research, now)
     archive_error = None
     diagnostics = {}
     spot_archive = {}
+    archive_started = time.monotonic()
     try:
         saved = bob_validation_store.request('read', {})
         estimate_quality.restore_durable(saved['pairs'], datetime.now(timezone.utc))
@@ -122,6 +127,7 @@ def tick(now=None):
         spot_archive = spot_saved.get('diagnostics', {})
     except (OSError, ValueError, TypeError, KeyError):
         archive_error = 'Dauerhafter Messspeicher momentan nicht erreichbar'
+    archive_ms = max(0, int((time.monotonic() - archive_started) * 1000))
     evaluated = datetime.now(timezone.utc)
     result = future_estimate.current_estimate(_research, evaluated)
     groups = [estimate_quality.quality(bob_validation_store.KEY, h, evaluated)
@@ -133,6 +139,12 @@ def tick(now=None):
     reason = archive_error or ('' if ready else _source_error or result.get('reason') or
               validation.get('reason') or 'Noch nicht genügend passende Vergleichspaare')
     reference_at = _research.get('underlyingAt')
+    total_ms = max(0, int((time.monotonic() - cycle_started) * 1000))
+    # These values are execution timings only, never proof of a fresh quote,
+    # complete archive or an actual market-worker scheduling deadline.
+    stage_timing = dict(totalMs=total_ms, referenceMs=reference_ms,
+                        archiveMs=archive_ms, exceeded30s=total_ms > 30000,
+                        scope='one-completed-collection-call-not-scheduler-proof')
     report = dict(enabled=True, state='ready' if ready else 'estimating' if result.get('available') else 'collecting', contract=future_estimate.CONTRACT,
                   evaluatedAt=evaluated.isoformat(), lastCycleAt=evaluated.isoformat(),
                   referenceAt=reference_at, referenceAgeSeconds=result.get('referenceAgeSeconds'),
@@ -142,6 +154,7 @@ def tick(now=None):
                   estimateAt=result.get('priceAt') if result.get('available') else None,
                   updateIntervalSeconds=30, ready=ready, reason=reason,
                   collection=result.get('collection', {}), archive=diagnostics, spotArchive=spot_archive,
+                  cycleTiming=stage_timing,
                   archiveStatus='unavailable' if archive_error else 'loaded',
                   spotArchiveStatus='unavailable' if archive_error else 'loaded',
                   archiveCheckedAt=evaluated.isoformat() if not archive_error else None,
@@ -152,6 +165,10 @@ def tick(now=None):
                   nextSourceInSeconds=max(0, round(_next_source-time.monotonic())))
     with _lock:
         _report = report
+    print('BOB_COLLECTION_TIMING total_ms='+str(total_ms)+
+          ' reference_ms='+str(reference_ms if reference_ms is not None else 'not-due')+
+          ' archive_ms='+str(archive_ms)+
+          ' exceeded_30s='+str(total_ms > 30000), flush=True)
     print('BOB_COLLECTION state='+report['state']+' pairs='+str(diagnostics.get('pairCount', 0))+
           ' estimate_available='+str(report['estimateAvailable'])+
           ' reason='+str(report['reason'])+
@@ -179,6 +196,11 @@ def _run():
                                reason='Sammlung unterbrochen; automatischer Wiederholungsversuch',
                                errorType=type(exc).__name__)
             print('BOB_COLLECTION error='+type(exc).__name__, flush=True)
+        # Total cycle time also covers errors. Do not call this a missed
+        # scheduled evaluation: threads and provider clocks are distinct.
+        cycle_duration_ms = max(0, int((time.monotonic()-started) * 1000))
+        print('BOB_COLLECTION_CYCLE duration_ms='+str(cycle_duration_ms)+
+              ' exceeded_30s='+str(cycle_duration_ms > 30000), flush=True)
         interval = background_push.degiro_poll_seconds()
         threading.Event().wait(max(1, interval-(time.monotonic()-started)))
 
