@@ -1,5 +1,6 @@
 """Database lifecycle and concurrent archive access regressions."""
 import os
+import inspect
 import unittest
 from unittest.mock import patch
 
@@ -12,6 +13,12 @@ import decision_audit
 
 
 class PoolFailureTests(unittest.TestCase):
+    def test_service_init_never_builds_prospective_index(self):
+        """Large archive indexes must be provisioned outside live startup."""
+        source = inspect.getsource(decision_audit.init)
+        self.assertNotIn(decision_audit.PROSPECTIVE_INDEX, source)
+        self.assertNotIn('CREATE INDEX CONCURRENTLY', source)
+
     def test_connection_exhaustion_is_retryable_at_startup(self):
         with patch.object(push_server, '_init_db_once', side_effect=[PoolTimeout(), None]) as init, patch.object(push_server.time, 'sleep'):
             push_server.init_db()

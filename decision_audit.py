@@ -225,15 +225,6 @@ def init(conn):
         payload JSONB NOT NULL)''')
     conn.execute('CREATE INDEX IF NOT EXISTS bob_audit_recorded ON bob_decision_audit(recorded_at)')
     conn.execute("CREATE INDEX IF NOT EXISTS bob_audit_evaluable_cursor ON bob_decision_audit(recorded_at,id) WHERE payload->>'marketEvaluable'='true' AND jsonb_typeof(payload->'recordedAt')='number'")
-    # The prospective research query previously had to inspect every decision
-    # in its time range through the generic recorded_at index before applying
-    # its JSONB eligibility predicates. Keep only the stable eligibility
-    # subset in this cursor index and leave ruleVersion as the leading key so a
-    # future reviewed rule version can reuse the same index. No evidence row,
-    # retention window, statement timeout or trading rule is changed.
-    conn.execute("""CREATE INDEX IF NOT EXISTS """ + PROSPECTIVE_INDEX + """
-        ON bob_decision_audit ((payload->>'ruleVersion'),recorded_at,id)
-        WHERE """ + PROSPECTIVE_INDEX_PREDICATE)
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_outcomes (decision_id TEXT REFERENCES bob_decision_audit(id) ON DELETE CASCADE, horizon INTEGER NOT NULL, truth JSONB NOT NULL, PRIMARY KEY(decision_id,horizon))''')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_decision_harvest_cursor (
         horizon INTEGER PRIMARY KEY, recorded_at TIMESTAMPTZ, decision_id TEXT)''')
@@ -780,8 +771,12 @@ def _load_prospective_rows(conn, recent=False):
     Explicitly cap both the seed and each recursive forward step at the
     database's current time so that a bad future-dated archive record cannot
     extend the historical review or trigger an unbounded forward walk.
-    The filtered cursor index is the only schema addition. No SQL timeout,
-    retention, evidence horizon or live trading gate changes.
+    A separately provisioned filtered cursor index accelerates this query when
+    present. It is deliberately not built by init(): creating an index in the
+    request-serving startup transaction can block writers and make a second
+    service time out while both revisions overlap during deployment. Without
+    the index the existing bounded timeout and 24-hour fallback remain safe.
+    No SQL timeout, retention, evidence horizon or live trading gate changes.
     """
     sql, params = _prospective_query(recent)
     return conn.execute(sql, params).fetchall()
