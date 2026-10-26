@@ -55,6 +55,21 @@ class ResearchGuardTests(unittest.TestCase):
         self.assertTrue(b['liveTop3Unchanged'])
         self.assertEqual(review.preview_top3([{**valid,'financingCostPercent':None}])['entries'],[])
 
+    def test_rank_financial_metrics_require_independent_original_clocks(self):
+        at=(NOW-timedelta(seconds=12)).isoformat()
+        good=dict(koDistancePercent=4.7, financingCostPercent=1.2,
+                  koDistanceAt=at, financingCostAt=at)
+        self.assertEqual(review.original_ranking_metrics(good,NOW),
+                         {'koDistancePercent':4.7, 'financingCostPercent':1.2})
+        for changed in ({'koDistanceAt':None},
+                        {'financingCostAt':(NOW-timedelta(hours=2)).isoformat()},
+                        {'financingCostPercent':None},
+                        {'koDistancePercent':-4},
+                        {'financingCostPercent':float('nan')}):
+            result=review.original_ranking_metrics({**good,**changed},NOW)
+            self.assertIsNone(result['koDistancePercent'])
+            self.assertIsNone(result['financingCostPercent'])
+
     def test_reuse_only_today_current_exact_identity_no_quote_extension(self):
         result=review.proof_reuse_summary([
             dict(isin=ISIN,listingConfirmed=True,current=True,executionConfirmed=False),
