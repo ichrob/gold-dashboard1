@@ -253,7 +253,12 @@ function mount(){
  host.append(panel);
  let audit={status:'unavailable',items:[]},items=[],shown=0,busy=false,lastUpdate=0;
  function watchRows(){
-  let saved=[];try{saved=readWatchlist(root.localStorage);}catch(_){}
+  let saved=[];try{
+   saved=readWatchlist(root.localStorage);
+   // Only archive the original import timestamp, never the 30-second repaint time.
+   const at=saved[0]?.listUploadedAt;
+   if(at&&saved.every(p=>p.listUploadedAt===at))updateEvidenceHistory(root.localStorage,saved,at);
+  }catch(_){}
   return saved;
  }
  function depotRows(){
