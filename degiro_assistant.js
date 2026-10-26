@@ -5063,7 +5063,7 @@ async function inject(){
  });
 const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),addButton=b.querySelector('#dgListAddButton'),uploadStatus=b.querySelector('#dgCentralStatus');
  let listUploadMode='replace',stagedListImages=[],pendingRetryBusy=false;
- uploadStatus.dataset.listReaderVersion='20261023-persist-sha-retry-v1';
+ uploadStatus.dataset.listReaderVersion='20261026-mini-daily-ocr-v1';
  uploadButton.addEventListener('click',()=>{listUploadMode='replace';stagedListImages=[];upload.click();});
  addButton.addEventListener('click',()=>{listUploadMode='append';upload.click();});
  upload.addEventListener('change',async()=>{
