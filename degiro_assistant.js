@@ -11,11 +11,27 @@ function fixedBarriers(){try{const x=JSON.parse(localStorage.getItem(FIXED_KO_KE
 function fixedFor(p){const all=fixedBarriers(),x=Object.prototype.hasOwnProperty.call(all,p.isin)?all[p.isin]:FIXED_KO_DEFAULTS[p.isin];return x&&x.isin===p.isin&&x.direction===p.productDirection&&x.userConfirmed===true&&number(x.value)>0&&x.currency==='USD'&&(number(p.ko)===null||number(p.ko)===number(x.value))?x:null;}
 function saveFixed(p,image){if(!window.BobDegiro.validIsin(p.isin)||!['LONG','SHORT'].includes(p.productDirection)||!(number(p.ko)>0))return false;try{const all=fixedBarriers();all[p.isin]={isin:p.isin,direction:p.productDirection,value:number(p.ko),currency:'USD',source:'DEGIRO-Screenshot, vom Nutzer bestätigt',imageSource:image||'manuell aus DEGIRO-Screenshot',userConfirmed:true,confirmedAt:new Date().toISOString()};localStorage.setItem(FIXED_KO_KEY,JSON.stringify(all));return true;}catch(_){return false;}}
 function removeFixed(isin){try{const all=fixedBarriers();all[isin]=null;localStorage.setItem(FIXED_KO_KEY,JSON.stringify(all));}catch(_){} }
+const FIXED_KO_HISTORY_KEY='bobFixedScreenshotKoHistoryV1';
 function resetFixedList(){
- // A new screenshot generation revokes the older hand-confirmed barriers,
- // including fixed defaults on historically known ISINs.
+ // Preserve original evidence for diagnosis; never silently carry it into a new
+ // list generation as a current KO confirmation or trading authorization.
  try{
-  const ids=new Set([...Object.keys(FIXED_KO_DEFAULTS),...Object.keys(fixedBarriers())]);
+  const current=fixedBarriers();
+  const ids=new Set([...Object.keys(FIXED_KO_DEFAULTS),...Object.keys(current)]);
+  const history=JSON.parse(localStorage.getItem(FIXED_KO_HISTORY_KEY)||'{}');
+  if(!history||typeof history!=='object'||Array.isArray(history))return false;
+  const next={...history};
+  for(const isin of ids){
+   const proof=Object.prototype.hasOwnProperty.call(current,isin)?current[isin]:FIXED_KO_DEFAULTS[isin];
+   if(proof&&proof.isin===isin&&proof.userConfirmed===true){
+    const entries=Array.isArray(next[isin])?next[isin]:[];
+    const identity=JSON.stringify([proof.direction,proof.value,proof.confirmedAt,proof.source]);
+    if(!entries.some(e=>JSON.stringify([e.direction,e.value,e.confirmedAt,e.source])===identity))
+     next[isin]=[...entries,proof].slice(-30);
+   }
+  }
+  // Persist archive first. On storage failure retain current proofs untouched.
+  localStorage.setItem(FIXED_KO_HISTORY_KEY,JSON.stringify(next));
   localStorage.setItem(FIXED_KO_KEY,JSON.stringify(Object.fromEntries([...ids].map(id=>[id,null]))));
   return true;
  }catch(_){return false;}
