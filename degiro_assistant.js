@@ -5312,7 +5312,9 @@ function productSelectionExplanation(products,context,ranked,marketWarnings=[]){
 }
 function renderContinuingAnalysis(products,context){
  // One complete research ranking. Approval and execution gates remain separate.
- const rows=continuingAnalysis(Array.isArray(products)?products:[],context||{});
+ const direction=context?.direction;
+ if(!['LONG','SHORT'].includes(direction)||context?.spotFresh!==true)return '<section data-unified-product-ranking><b>ABWARTEN · keine Rangliste</b></section>';
+ const rows=continuingAnalysis(Array.isArray(products)?products:[],context||{}).filter(row=>row.p?.productDirection===direction);
  const now=context?.now??Date.now(),seen=new Set(),rankable=[],unranked=[];
  for(const row of rows){
   const p=row.p||{},isin=p.isin||'';
@@ -5321,7 +5323,7 @@ function renderContinuingAnalysis(products,context){
   const evidence=finalProductStatus(p,now),e=row.evaluation||{};
   const item={...row,evidence};
   // Do not invent scores for missing contracts, knocked-out or mismatched products.
-  const safe=validIsin(isin)&&p.isinConfirmed===true&&!knockoutStatus(p)&&
+  const safe=e.direction===direction&&validIsin(isin)&&p.isinConfirmed===true&&!knockoutStatus(p)&&
    !isFutureProduct(p)&&!/FAKTOR|FACTOR/i.test(p.name||'')&&
    !(p.quote?.isin&&p.quote.isin!==isin)&&
    !(p.snapshot?.isin&&p.snapshot.isin!==isin)&&
@@ -5348,7 +5350,7 @@ function renderContinuingAnalysis(products,context){
    '</strong>'+(row.warning?'<div class="small">'+esc(String(row.warning).slice(0,250))+'</div>':'')+
    (!proof.complete?'<div class="small">Fehlt: '+esc((proof.reasons||[]).slice(0,3).join(' · ').slice(0,300))+'</div>':'')+'</div>';
  };
- return '<section data-unified-product-ranking><b>Alle Goldprodukte · eine Rangliste</b>'+
+ return '<section data-unified-product-ranking><b>Goldprodukte · '+esc(direction)+' Rangliste</b>'+
   '<p class="small">Original- und berechnete Werte gemeinsam vergleichen; fehlende Daten bleiben sichtbar. Die rechnerische Platzierung ist keine Handelsfreigabe oder ausführbare DEGIRO-Order.</p>'+
   rankable.map((r,i)=>describe(r,i)).join('')+
   unranked.map(r=>describe(r,null)).join('')+
