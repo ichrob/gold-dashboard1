@@ -3,14 +3,14 @@
   "asOf": "2026-10-26",
   "total": 100,
   "counts": {
-    "partial": 89,
+    "partial": 88,
     "planned": 0,
     "blocked-client": 1,
     "requires-device": 5,
     "verified-at-build": 1,
-    "verified-at-sample": 4
+    "verified-at-sample": 5
   },
-  "acceptance": "Five dated, original-source technical observations, each narrowly scoped. New modules detected by root filename delta at a single tested build; import/runtime health remain unverified.",
+  "acceptance": "Six narrowly dated observations, including three manually reviewed handset notifications. No universal or continuous delivery claim.",
   "tasks": [
     {
       "id": 1,
@@ -560,9 +560,9 @@
       "id": 69,
       "area": "Mein Trade und Gewinnschutz",
       "goal": "Push-Versuch vs. Zustellung",
-      "state": "partial",
+      "state": "verified-at-sample",
       "codeEvidence": "push_delivery_history.py",
-      "verified": false
+      "verified": true
     },
     {
       "id": 70,

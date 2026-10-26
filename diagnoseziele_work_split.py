@@ -10,7 +10,7 @@ GROUPS = frozenset((
     "broker-issuer-source", "external-research-media",
     "independent-code-and-runtime",
 ))
-EXPECTED_ACCEPTED = frozenset((2, 7, 8, 13, 18))
+EXPECTED_ACCEPTED = frozenset((2, 7, 8, 13, 18, 69))
 SAFE = {"readOnly": True, "realOrders": False,
         "automaticLiveTradeApproval": False,
         "deviceControlWithoutConsent": False,

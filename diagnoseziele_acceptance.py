@@ -6,6 +6,7 @@ This local validation cannot poll GitHub or prove current/continuous health.
 """
 from datetime import datetime, timezone
 import re
+import json
 
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 SERVICES = frozenset(("bob-private-scanner", "bob-push-service"))
@@ -235,12 +236,55 @@ def _valid_root_module_change(record):
     return observed.isoformat().startswith("2026-10-26T03:38:17.")
 
 
+def _valid_handset_sample(record):
+    # Manual visual review and independently read provider clocks; no automatic ingestion.
+    expected = {'id': 69,
+     'goal': 'Push-Versuch vs. Zustellung',
+     'kind': 'user-screenshot-and-provider-clock-sample',
+     'reviewedAt': '2026-10-26T16:25:00+00:00',
+     'providerObservedAt': '2026-10-26T16:19:43.267309+00:00',
+     'providerBuild': 'b65dd89e98f49979579ebe176c3124aa2d628682',
+     'source': 'user-provided-samsung-screenshots',
+     'screenshotSha256': ['b504b9f1830d1dd6e1cffded6f60c2c156465676d40624196e54f3c8deb574e2',
+                          'd9ffdcc0ad1dfe14520ceda1c09f16eb8836b1008995e264dbfd3a90a30dc45c'],
+     'events': [{'category': 'early-short',
+                 'sourceAt': '2026-10-26T07:23:13+00:00',
+                 'attemptedAt': '2026-10-26T07:23:46.962743+00:00',
+                 'shownByMinute': '2026-10-26T07:26:00+00:00',
+                 'httpStatus': 201,
+                 'screenshotIndex': 0},
+                {'category': 'early-withdrawn',
+                 'sourceAt': '2026-10-26T07:24:43+00:00',
+                 'attemptedAt': '2026-10-26T07:25:16.356922+00:00',
+                 'shownByMinute': '2026-10-26T07:26:00+00:00',
+                 'httpStatus': 201,
+                 'screenshotIndex': 0},
+                {'category': 'early-long',
+                 'sourceAt': '2026-10-26T08:50:14+00:00',
+                 'attemptedAt': '2026-10-26T08:50:42.798577+00:00',
+                 'shownByMinute': '2026-10-26T08:51:00+00:00',
+                 'httpStatus': 201,
+                 'screenshotIndex': 1}],
+     'manualVisualReceiptVerified': True,
+     'eventIdentityCryptographicallyVerified': False,
+     'automaticReceiptIngestionVerified': False,
+     'allPushCategoriesVerified': False,
+     'marketSignalCorrectnessVerified': False,
+     'limitations': 'Three displayed notifications matched by original source clock and category; no '
+                    'event ID in screenshots. Duplicate LONG screenshot counted once. No proof for '
+                    'other notifications, device settings, present delivery or signal correctness.'}
+    try:
+        return json.dumps(record, sort_keys=True, allow_nan=False) == json.dumps(expected, sort_keys=True)
+    except (TypeError, ValueError):
+        return False
+
+
 def assess(goals, register):
-    """Five narrowly dated, independent samples with distinct target-specific proof.
+    """Six narrowly dated, independent samples with distinct target-specific proof.
 
     These facts were read via connected Render/GitHub tools before recording.
     Code validates the immutable record's shape, not external provider truth.
-    A sixth goal, mismatched source, or fake success fails closed.
+    An unsupported goal, mismatched source, or fake success fails closed.
     """
     invalid = {"status": "unavailable", "readOnly": True,
                "reason": "invalid-or-unsupported-goal-acceptance"}
@@ -248,14 +292,14 @@ def assess(goals, register):
             or not isinstance(register, dict)
             or register.get("schemaVersion") != 1
             or not isinstance(register.get("accepted"), list)
-            or len(register["accepted"]) != 5):
+            or len(register["accepted"]) != 6):
         return invalid
     if not all(isinstance(g, dict) and type(g.get("id")) is int for g in goals):
         return invalid
     by_id = {g["id"]: g for g in goals}
     if sorted(by_id) != list(range(1, 101)):
         return invalid
-    expected = {2: "verified-at-sample", 7: "verified-at-sample", 8: "verified-at-sample", 13: "verified-at-sample", 18: "verified-at-build"}
+    expected = {2: "verified-at-sample", 7: "verified-at-sample", 8: "verified-at-sample", 13: "verified-at-sample", 18: "verified-at-build", 69: "verified-at-sample"}
     for id_, row in by_id.items():
         accepted = id_ in expected
         if row.get("verified") is not accepted:
@@ -269,7 +313,7 @@ def assess(goals, register):
            for r in records):
         return invalid
     by_record = {r["id"]: r for r in records}
-    if set(by_record) != set(expected) or len(by_record) != 5:
+    if set(by_record) != set(expected) or len(by_record) != 6:
         return invalid
     build_record = by_record[18]
     metric_record = by_record[13]
@@ -280,17 +324,18 @@ def assess(goals, register):
             or not _valid_cpu_memory_window(metric_record)
             or not _valid_archived_health_pair(history_record)
             or not _valid_archived_stage_window(stage_record)
-            or not _valid_root_module_change(module_record)):
+            or not _valid_root_module_change(module_record)
+            or not _valid_handset_sample(by_record[69])):
         return invalid
     return {
-        "status": "five-dated-independent-acceptances",
+        "status": "six-dated-independent-acceptances",
         "readOnly": True,
         "individuallyAcceptedAtRecordedBuild": 1,
         "individuallyAcceptedAtRecordedMetricWindow": 1,
         "individuallyAcceptedAtArchivedHealthPair": 1,
         "individuallyAcceptedAtArchivedStageWindow": 1,
         "individuallyAcceptedAtRootModuleChange": 1,
-        "acceptedGoalIds": [2, 7, 8, 13, 18],
+        "acceptedGoalIds": [2, 7, 8, 13, 18, 69],
         "acceptedBuild": build_record["build"],
         "acceptedAt": build_record["checkedAt"],
         "metricSampleWindow": {
@@ -327,7 +372,12 @@ def assess(goals, register):
             "runtimeHealthVerified": False,
             "newModulesFunctioningVerified": False,
         },
-        "remainingUnaccepted": 95,
+        "remainingUnaccepted": 94,
+        "handsetSample": {"notificationsManuallyObserved": 3,
+            "categories": ["early-short", "early-withdrawn", "early-long"],
+            "automaticReceiptIngestionVerified": False,
+            "allPushCategoriesVerified": False,
+            "eventIdentityCryptographicallyVerified": False},
         "currentDeployProven": False,
         "continuouslyHealthyProven": False,
         "scope": "dated-ci-Render-metrics-private-health-stage-archive-and-repository-root-change", 

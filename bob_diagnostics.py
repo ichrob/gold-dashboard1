@@ -1084,9 +1084,9 @@ def read_access_coverage(manifest):
             (root/'Besser_werden/diagnoseziele_100_abnahmen.json')
             .read_text(encoding='utf-8'))
         historical_acceptance = inspect_acceptance(rows, acceptance_data)
-        if (historical_acceptance.get('status') != 'five-dated-independent-acceptances'
+        if (historical_acceptance.get('status') != 'six-dated-independent-acceptances'
                 or counts.get('verified-at-build') != 1
-                or counts.get('verified-at-sample') != 4):
+                or counts.get('verified-at-sample') != 5):
             raise ValueError('acceptance proof missing or inconsistent')
         # Dated evidence matrix is not an acceptance flag. Preserve original statuses.
         review = {'status':'not-available'}
@@ -1116,8 +1116,8 @@ def read_access_coverage(manifest):
                            'must not be mistaken for a test of a later build.'}
         except (OSError, ValueError, TypeError, KeyError):
             review={'status':'unavailable','reason':'evidence-matrix-missing-or-invalid'}
-        return {'status':'inventory-only','total':100,'verified':5,
-                'unverified':95,'counts':counts,'recordedAt':manifest.get('asOf'),
+        return {'status':'inventory-only','total':100,'verified':6,
+                'unverified':94,'counts':counts,'recordedAt':manifest.get('asOf'),
                 'buildBoundAcceptance':historical_acceptance,
                 'codeFilesMapped':len(unique_paths),'codeFilesPresent':present,
                 'codeFilesMissing':len(unique_paths)-present,
@@ -1125,10 +1125,10 @@ def read_access_coverage(manifest):
                 'evidenceReview':review, 'moduleInventory':module_summary,
                 'moduleDiscovery':root_discovery, 'testEvidenceInventory':test_evidence,
                 'workSplit':work_split,
-                'note':'Five goals have narrow dated original observations: module-root change, seven-day journal '
+                'note':'Six goals have narrow dated original observations: module-root change, seven-day journal '
                        'sample, archived health comparison, Render CPU/RAM, and historic '
-                       'dual-service build match. 95 remain unaccepted; no continuous '
-                       'deployment, device delivery, causal repair or trade approval.'}
+                       'dual-service build match plus three manually observed handset notifications. 94 remain unaccepted; no continuous '
+                       'deployment, universal device delivery, causal repair or trade approval.'}
     except (KeyError, TypeError, ValueError, AttributeError, OSError):
         return {'status':'unavailable',
                 'reason':'read-access-manifest-missing-or-inconsistent'}

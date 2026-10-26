@@ -23,12 +23,12 @@ class WeekendHandoffTests(unittest.TestCase):
         got=split.assess(goals,plan)
         self.assertEqual(got["status"],"complete-planning-coverage")
         self.assertEqual(got["totalGoals"],100)
-        self.assertEqual(got["individuallyAcceptedAtDatedSample"],5)
-        self.assertEqual(got["notIndividuallyAccepted"],95)
+        self.assertEqual(got["individuallyAcceptedAtDatedSample"],6)
+        self.assertEqual(got["notIndividuallyAccepted"],94)
         self.assertEqual(got["weekendReviewCandidateGoals"],94)
         self.assertEqual(got["originalMarketProofContingentGoals"],41)
         self.assertEqual(sum(g["total"] for g in got["groups"]),100)
-        self.assertEqual(sum(g["notAccepted"] for g in got["groups"]),95)
+        self.assertEqual(sum(g["notAccepted"] for g in got["groups"]),94)
         self.assertEqual(got["deviceRequiredGoalIds"],[91,92,93,94,95])
         self.assertEqual(got["clientBlockedGoalIds"],[1])
         self.assertTrue(got["readOnly"])
@@ -47,11 +47,11 @@ class WeekendHandoffTests(unittest.TestCase):
         for row in got["groups"]:
             self.assertEqual(row["total"],expected[row["code"]])
             self.assertEqual(row["acceptedHistorically"],
-                             5 if row["code"]=="independent-code-and-runtime" else 0)
+                             5 if row["code"]=="independent-code-and-runtime" else (1 if row["code"]=="market-original-clock" else 0))
         manifest=json.loads((ROOT/'Besser_werden/lesezugriff_100_status.json')
                             .read_text(encoding='utf-8'))
         private=diag.read_access_coverage(manifest)
-        self.assertEqual(private["verified"],5)
+        self.assertEqual(private["verified"],6)
         self.assertEqual(private["workSplit"],got)
 
     def test_missing_duplicate_or_out_of_scope_goal_is_refused(self):
