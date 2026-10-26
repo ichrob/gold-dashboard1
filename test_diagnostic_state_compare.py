@@ -14,6 +14,22 @@ def event(at, build=CURRENT, status="ok", bad=None, extra=None):
 
 
 class CompareTests(unittest.TestCase):
+    def test_conflicting_same_clock_observations_are_order_independent(self):
+        older = event(1000, build=OLD, bad=["market-worker-stopped"])
+        good = event(2000, status="ok")
+        failed = event(2000, status="failed", bad=["market-worker-stopped"])
+        first = compare([good, failed, older])
+        self.assertEqual(first, compare([failed, good, older]))
+        state = first["stateComparison"]
+        self.assertEqual(state["regressionAssessment"], "insufficient-evidence")
+        self.assertEqual(state["clearedTechnicalCodes"], [])
+        self.assertEqual(state["newTechnicalCodes"], [])
+        self.assertEqual(first["deploymentComparison"]["status"], "insufficient-evidence")
+
+    def test_identical_duplicate_observations_do_not_destroy_comparison(self):
+        older, newer = event(1000), event(2000)
+        self.assertEqual(compare([newer, newer, older]), compare([newer, older]))
+
     def test_two_snapshots_report_only_observed_change(self):
         result=compare([
             event(2000, bad=["market-feed-not-current"]),

@@ -92,6 +92,41 @@ class ModuleMapTests(unittest.TestCase):
             # Never infer a linked module outside the declared mapped tree.
             self.assertEqual(module_map.inspect(root,goals)["mappedDependencyEdges"],0)
 
+    def test_same_path_edit_replaces_cached_dependencies_and_rechecks_syntax(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "main.py"
+            source.write_text("import left\n", encoding="utf-8")
+            for name in ("left.py", "next.py"):
+                (root / name).write_text("pass\n", encoding="utf-8")
+            goals = [{"id": i, "codeEvidence": "main.py" if i < 99 else
+                      "left.py" if i == 99 else "next.py"} for i in range(1, 101)]
+            def dependencies():
+                report = module_map.inspect(root, goals)
+                return next(x for x in report["items"] if x["path"] == "main.py")["mappedDependencies"]
+            self.assertEqual(dependencies(), ["left.py"])
+            # Same-length edit, without process restart or cache clearing.
+            source.write_text("import next\n", encoding="utf-8")
+            self.assertEqual(dependencies(), ["next.py"])
+            source.write_text("def broken(:\n", encoding="utf-8")
+            self.assertEqual(module_map.inspect(root, goals)["status"], "unavailable")
+
+    def test_extensionless_js_link_does_not_guess_between_mapped_sources(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            allowed = {"main.js", "dep.js", "dep.mjs"}
+            self.assertIsNone(module_map._mapped_js_link(root, "main.js", "./dep", allowed))
+            self.assertEqual(module_map._mapped_js_link(root, "main.js", "./dep.js", allowed), "dep.js")
+
+    def test_cached_python_still_obeys_current_read_size_limit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "main.py"
+            path.write_text("import os\n", encoding="utf-8")
+            self.assertEqual(module_map._static_imports(path), ("os",))
+            with patch.object(module_map, "_MAX_SOURCE_BYTES", 3):
+                with self.assertRaises(ValueError):
+                    module_map._static_imports(path)
+
     def test_bad_paths_and_invalid_inventory_fail_closed(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

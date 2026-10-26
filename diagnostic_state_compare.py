@@ -195,9 +195,21 @@ def compare(events):
     """
     if not isinstance(events, list):
         events = []
-    health = sorted((v for event in events[:160]
-                     if (v := _sample(event)) is not None),
-                    key=lambda v: v["at"], reverse=True)
+    by_clock = {}
+    for event in events[:160]:
+        sample = _sample(event)
+        if sample is not None:
+            by_clock.setdefault(sample["at"], []).append(sample)
+    health = []
+    for at, samples in by_clock.items():
+        first = samples[0]
+        if any(sample != first for sample in samples[1:]):
+            # Same-clock conflicts have no reliable arrival order. Preserve an
+            # unknown boundary rather than arbitrarily claiming recovery.
+            first = {"at": at, "build": None, "status": "unknown",
+                     "bad": frozenset(), "codesRecorded": False, "session": None}
+        health.append(first)
+    health.sort(key=lambda v: v["at"], reverse=True)
     newest = health[0] if health else None
     earlier = next((p for p in health[1:] if p["at"] < newest["at"]), None) if newest else None
     before_build = next((p for p in health[1:] if p["at"] < newest["at"]
