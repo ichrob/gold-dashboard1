@@ -55,6 +55,19 @@ class ResearchGuardTests(unittest.TestCase):
         self.assertTrue(b['liveTop3Unchanged'])
         self.assertEqual(review.preview_top3([{**valid,'financingCostPercent':None}])['entries'],[])
 
+    def test_only_original_issuer_source_names_enable_venue_pairing(self):
+        for source, expected in (
+            ('BNP Paribas · Emittent OTC','BNP'),
+            ('Société Générale · offizielle Produktdaten','SG'),
+            ('comdirect · BNP LiveTrading',None),
+            ('Unbekannte Quelle',None)
+        ):
+            original={**issuer(),'source':source}
+            out=review.issuer_observation(ISIN,'SHORT',original,NOW)
+            self.assertIsNotNone(out)
+            self.assertEqual(out['issuerKind'],expected)
+            self.assertFalse(out['executable'])
+
     def test_rank_financial_metrics_require_independent_original_clocks(self):
         at=(NOW-timedelta(seconds=12)).isoformat()
         good=dict(koDistancePercent=4.7, financingCostPercent=1.2,
