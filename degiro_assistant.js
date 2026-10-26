@@ -4658,12 +4658,12 @@ function reviewedOctober26DegiroListReference(digest,length){
  };
  const sha=String(digest||'').toLowerCase();
  if(!/^[0-9a-f]{64}$/.test(sha))return null;
- let data=reviewed[sha],reviewMethod='exact-original-sha256-visual-review';
+ let data=reviewed[sha],reviewMethod='exact-reencoded-attachment-sha256-visual-review';
  if(!data&&length===597969&&sha.startsWith('0f8834d93678a798')){
   data=reviewed['36b0d18dd0c56d9ef1aea6bac63abccc503743f738365d1845e7acf4c03e36ff'];
   reviewMethod='samsung-image-size-and-sha256-prefix-reviewed';
  }
- if(!data||(reviewMethod==='exact-original-sha256-visual-review'&&data.bytes!==length))return null;
+ if(!data||(reviewMethod==='exact-reencoded-attachment-sha256-visual-review'&&data.bytes!==length))return null;
  const items=data.rows.map(raw=>{
   const product=parseDegiroListRow(raw);
   if(!product?.listRow?.complete||!validIsin(product.isin))return null;
