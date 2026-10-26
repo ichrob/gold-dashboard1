@@ -31,6 +31,9 @@ class ForwardTests(unittest.TestCase):
         self.assertAlmostEqual(m['early']['meanModelPct'],.96)
         self.assertEqual(m['regime']['signals'],1)
         self.assertFalse(result['automaticRuleChange'])
+        self.assertIsNone(m['baseline']['losingSignalRate'])
+        self.assertEqual(m['early']['losingSignalRate'],0)
+        self.assertAlmostEqual(m['early']['netModelDeltaVsBaselinePct'],.96)
 
     def test_legacy_browser_unavailable_and_future_not_success(self):
         row=self.row(); old=copy.deepcopy(row);old[0].pop('optimization')
