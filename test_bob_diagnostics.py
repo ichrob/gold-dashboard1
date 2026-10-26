@@ -504,7 +504,7 @@ class PrivateWorkerClockProjectionTests(unittest.TestCase):
 
     def test_future_clock_and_unknown_now_fail_closed(self):
         sample = self.sample()
-        now = datetime(2026, 10, 26, 8, 35, 29, tzinfo=timezone.utc)
+        now = datetime(2026, 10, 26, 8, 35, 26, tzinfo=timezone.utc)
         future = diagnostics.collection_cycle_snapshot(sample, now=now)
         self.assertEqual(future['status'], 'unavailable')
         self.assertEqual(diagnostics.collection_cycle_snapshot(
