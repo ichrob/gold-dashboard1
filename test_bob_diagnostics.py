@@ -1,5 +1,6 @@
 import json
 import unittest
+from datetime import datetime, timezone, timedelta
 from unittest.mock import Mock, patch
 import bob_diagnostics as diagnostics
 import bob_mcp
@@ -472,7 +473,8 @@ class PrivateWorkerClockProjectionTests(unittest.TestCase):
     def test_private_worker_clock_is_limited_and_not_a_market_tick_claim(self):
         sample = self.sample()
         sample['password'] = 'NEVER-ECHO-THIS'
-        result = diagnostics.collection_cycle_snapshot(sample)
+        result = diagnostics.collection_cycle_snapshot(
+            sample, now=datetime(2026, 10, 26, 8, 35, 31, tzinfo=timezone.utc))
         self.assertEqual(result['status'], 'observed')
         self.assertEqual(result['observedCycles'], 2)
         self.assertEqual(result['lastDurationMs'], 600)
@@ -480,6 +482,33 @@ class PrivateWorkerClockProjectionTests(unittest.TestCase):
         self.assertTrue(result['readOnly'])
         self.assertNotIn('password', json.dumps(result))
         self.assertNotIn('NEVER-ECHO-THIS', json.dumps(result))
+
+    def test_stale_cycle_is_not_reported_as_a_fresh_worker(self):
+        sample = self.sample()
+        base = datetime(2026, 10, 26, 8, 35, 31, tzinfo=timezone.utc)
+        current = diagnostics.collection_cycle_snapshot(sample, now=base)
+        self.assertEqual(current['status'], 'observed')
+        self.assertEqual(current['freshness'], 'current')
+        self.assertLess(current['lastCompletionAgeSeconds'], 2)
+        old = diagnostics.collection_cycle_snapshot(sample, now=base+timedelta(minutes=5))
+        self.assertEqual(old['status'], 'stale')
+        self.assertEqual(old['freshness'], 'stale')
+        self.assertEqual(old['staleAfterSeconds'], 90)
+        self.assertGreater(old['lastCompletionAgeSeconds'], 90)
+        self.assertFalse(old['workerMissedCyclesVerified'])
+        self.assertNotIn('workerStoppedVerified', old)
+        night = dict(sample, configuredSeconds=300, plannedWaitSeconds=298)
+        in_window = diagnostics.collection_cycle_snapshot(night, now=base+timedelta(minutes=5))
+        self.assertEqual(in_window['freshness'], 'current')
+        self.assertEqual(in_window['staleAfterSeconds'], 900)
+
+    def test_future_clock_and_unknown_now_fail_closed(self):
+        sample = self.sample()
+        now = datetime(2026, 10, 26, 8, 35, 26, tzinfo=timezone.utc)
+        future = diagnostics.collection_cycle_snapshot(sample, now=now)
+        self.assertEqual(future['status'], 'unavailable')
+        self.assertEqual(diagnostics.collection_cycle_snapshot(
+            sample, now=datetime(2026, 10, 26, 8, 35, 31))['status'], 'unavailable')
 
     def test_forged_clock_or_verified_missed_worker_is_unavailable(self):
         original = self.sample()
