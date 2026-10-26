@@ -235,6 +235,103 @@ def _valid_root_module_change(record):
     return observed.isoformat().startswith("2026-10-26T03:38:17.")
 
 
+
+def _valid_dated_worker_cycles(record):
+    """Validate one real, bounded sample, NOT ongoing market-worker uptime."""
+    if (record.get("kind") != "bounded-five-worker-render-log-timing-sample"
+            or record.get("source") !=
+            "Render app logs read-only, Bob private diagnostics read-only, and GitHub CI"
+            or record.get("build") != "8369bafc26bff1603e477c9362c47f8809a24a3a"
+            or _utc(record.get("observedAt")) != _utc("2026-10-26T07:08:07.447514+00:00")):
+        return False
+    ci = record.get("github")
+    if (not isinstance(ci, dict) or ci.get("ciRun") != 40266093775
+            or ci.get("liveSmokeRun") != 40266093778
+            or ci.get("ciConclusion") != "success"
+            or ci.get("liveSmokeConclusion") != "success"):
+        return False
+    deployments = {
+        "bob-private-scanner": "2026-10-26T03:54:38.343888Z",
+        "bob-push-service": "2026-10-26T03:54:58.119572Z"}
+    renders = record.get("render")
+    if not isinstance(renders, list) or len(renders) != 2:
+        return False
+    seen = set()
+    for r in renders:
+        if not isinstance(r, dict) or r.get("service") not in deployments:
+            return False
+        if (r["service"] in seen or r.get("build") != record["build"]
+                or r.get("status") != "live"
+                or _utc(r.get("finishedAt")) != _utc(deployments[r["service"]])):
+            return False
+        seen.add(r["service"])
+    if seen != set(deployments):
+        return False
+    sample = record.get("sample")
+    if not isinstance(sample, dict):
+        return False
+    required = {"session": "trading", "windowStart": "2026-10-26T07:00:00Z",
+                "windowEnd": "2026-10-26T07:08:00Z",
+                "nominalCadenceSeconds": 30, "allowedObservedGapSeconds": 45,
+                "fullyPaged": True, "readOnly": True, "realOrders": False,
+                "workerMissed30sCyclesVerified": False,
+                "continuousHealthVerified": False,
+                "paperTradeOrDeliveryVerified": False,
+                "scope": "dated-five-worker-log-observations-only"}
+    if any(type(sample.get(k)) is not type(v) or sample[k] != v
+           for k, v in required.items()):
+        return False
+    known = {
+        "background": ("bob-private-scanner", "BOB_BACKGROUND checked",
+            "2026-10-26T07:00:07.531179932Z", "2026-10-26T07:07:38.668859804Z"),
+        "fibonacci": ("bob-private-scanner", "BOB_FIB monitor_checked",
+            "2026-10-26T07:00:07.56532189Z", "2026-10-26T07:07:38.761659406Z"),
+        "cfd": ("bob-private-scanner", "BOB_CFD checked",
+            "2026-10-26T07:00:00.296436434Z", "2026-10-26T07:07:30.356411722Z"),
+        "collection": ("bob-private-scanner", "BOB_COLLECTION state=ready",
+            "2026-10-26T07:00:00.568847331Z", "2026-10-26T07:07:31.169657477Z"),
+        "paper": ("bob-push-service", "BOB_PAPER checked",
+            "2026-10-26T07:00:11.987769726Z", "2026-10-26T07:07:40.974024393Z")}
+    workers = sample.get("workers")
+    if not isinstance(workers, list) or len(workers) != 5:
+        return False
+    observed = set()
+    for w in workers:
+        if not isinstance(w, dict) or w.get("stream") not in known:
+            return False
+        key = w["stream"]
+        if key in observed:
+            return False
+        observed.add(key)
+        service, marker, first, last = known[key]
+        ticks = w.get("ticks")
+        if (w.get("service") != service or w.get("logMarker") != marker
+                or not isinstance(ticks, list) or len(ticks) != 16
+                or ticks[0] != first or ticks[-1] != last):
+            return False
+        times = [_utc(t) for t in ticks]
+        if (any(t is None or t < _utc(sample["windowStart"]) or
+                t > _utc(sample["windowEnd"]) for t in times)
+                or (times[-1] - times[0]).total_seconds() < 420
+                or any(not 0 < (b - a).total_seconds() <= 45
+                       for a, b in zip(times, times[1:]))):
+            return False
+        originals = w.get("originalSourceTimes")
+        if key == "cfd":
+            if not isinstance(originals, list) or len(originals) != 16:
+                return False
+            source_times = [_utc(t) for t in originals]
+            if (originals[0] != "2026-10-26T06:59:59.195000+00:00"
+                    or originals[-1] != "2026-10-26T07:07:29+00:00"
+                    or any(t is None or not 0 <= (v - t).total_seconds() <= 10
+                           for t, v in zip(source_times, times))
+                    or any(a >= b for a, b in zip(source_times, source_times[1:]))):
+                return False
+        elif originals is not None:
+            return False
+    return observed == set(known)
+
+
 def assess(goals, register):
     """Five narrowly dated, independent samples with distinct target-specific proof.
 
