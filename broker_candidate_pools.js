@@ -90,6 +90,52 @@ function standaloneImageProof(isin,proofs,now=Date.now()){
     localMinute(until).slice(0,16)!==local.slice(0,10)+'T22:00')return null;
  return p;
 }
+function compareBrokerDisplayToIssuer(screen,issuer,now=Date.now()){
+ const fail=(status,reason)=>({status,reason,checked:false,deviationPct:null,
+  accountTradeableNowVerified:false,executableQuoteVerified:false,tradeApproved:false,
+  screenClockKind:'display-minute-not-independent-bid-ask-clock'});
+ if(!Number.isFinite(now)||!isValidISIN(screen?.isin)||screen.isin!==issuer?.isin||
+    screen.kind!=='user-uploaded-detail-ocr'||
+    screen.origin!=='user-uploaded-degiro-detail-image'||
+    screen.listingConfirmed!==true||screen.brokerDisplayObserved!==true||
+    screen.executionConfirmed!==false||screen.tradeApproved!==false||
+    screen.isExecutableQuote!==false||screen.rankingsEligible!==false||
+    screen.displayClockRole!=='screen-minute-not-quote-source-clock'||
+    screen.brokerDisplayRecent!==true||
+    issuer.sourceRole!=='issuer-comparison-only'||issuer.executable!==false||
+    issuer.brokerTradeApproved!==false){
+  return fail('unverified','Brokerbild oder Emittentenzuordnung nicht unabhängig belegt');
+ }
+ const matchingIssuer=(issuer.issuerKind==='BNP'&&
+   ['BNP OTC','BNP Paribas OTC'].includes(screen.venue))||
+   (issuer.issuerKind==='SG'&&
+   ['Societe Generale OTC','Société Générale OTC'].includes(screen.venue));
+ if(!matchingIssuer||!['EUR','CHF'].includes(screen.currency)||
+    screen.currency!==issuer.currency)
+  return fail('mismatch','Emittent, Handelsplatz oder Produktwährung widersprüchlich');
+ const displayAt=validClock(screen.observedAt),until=validClock(screen.validUntil);
+ const times=['bidAt','askAt','leverageAt','snapshotAt'].map(k=>validClock(issuer[k]));
+ if(displayAt===null||until===null||times.some(t=>t===null))
+  return fail('clock-missing','Bildschirm- oder Emittenten-Originalzeit fehlt');
+ if(now<displayAt||now>=until||now-displayAt>90000||
+    times.some(t=>now<t||now-t>90000)||
+    Math.max(...times,displayAt)-Math.min(...times,displayAt)>90000)
+  return fail('stale','Bildschirmminute und Emittentenzeiten nicht gemeinsam aktuell');
+ const nums=[screen.bid,screen.ask,issuer.bid,issuer.ask];
+ if(nums.some(v=>typeof v!=='number'||!Number.isFinite(v)||v<=0)||
+    screen.ask<screen.bid||issuer.ask<issuer.bid)
+  return fail('price-invalid','Geld-/Briefpaar fehlt oder ist widersprüchlich');
+ const deviationPct=Math.max(Math.abs(screen.bid-issuer.bid)/issuer.bid,
+                             Math.abs(screen.ask-issuer.ask)/issuer.ask)*100;
+ return {status:deviationPct<=1?'display-aligned':'display-divergent',
+  reason:deviationPct<=1?'Ähnliche angezeigte Geld-/Briefwerte; keine ausführbare DEGIRO-Orderquote':
+    'DEGIRO-Bildschirmanzeige und Emittentenkurs weichen deutlich voneinander ab',
+  checked:true,deviationPct:Math.round(deviationPct*10000)/10000,
+  accountTradeableNowVerified:false,executableQuoteVerified:false,tradeApproved:false,
+  screenClockKind:'display-minute-not-independent-bid-ask-clock',
+  sourceClockKind:'independently-dated-issuer-comparison',currency:screen.currency};
+}
+
 function screenshotPayload(source,file,sha256){
  if(!source||!isValidISIN(source.isin)||
     source.source!=='DEGIRO-Produktdetail'||
@@ -316,6 +362,19 @@ function mount(){
     'DEGIRO: nicht aktuell nachgewiesen · IBKR: nicht geprüft · IG: nicht geprüft.'));
    const issuer=issuerReadouts.get(item.isin);
    if(issuer)card.append(el(doc,'p','broker-research-small',issuer));
+   // Compare only an existing independently checked user screenshot against
+   // genuinely timestamped issuer evidence, without new broker/issuer requests.
+   const proofForCompare=standaloneImageProof(item.isin,proofs,Date.now());
+   if(proofForCompare?.bid!==null&&proofForCompare?.bid!==undefined&&item.issuerComparison){
+    const cross=compareBrokerDisplayToIssuer(proofForCompare,item.issuerComparison,Date.now());
+    const line=cross.checked?
+      (cross.status==='display-aligned'?'DEGIRO-Bild und Emittent ähnlich':
+       'DEGIRO-Bild und Emittent abweichend')+
+      ' · maximale Geld-/Brief-Abweichung '+cross.deviationPct.toFixed(2)+' %':
+      'DEGIRO-Bild/Emittent nicht zeitgleich vergleichbar: '+cross.reason;
+    card.append(el(doc,'p','broker-research-small',
+      line+' · keine verifizierte persönliche Handelbarkeit, kein ausführbarer Brokerkurs.'));
+   }
    const comparison=item.issuerComparison;
    if(comparison){
     const at=validClock(comparison.bidAt),askAt=validClock(comparison.askAt);
@@ -494,7 +553,7 @@ function mount(){
  render();poll();
  setInterval(()=>{if(!doc.hidden&&Date.now()-lastPoll>=600000)poll();else if(!doc.hidden)render();},60000);
 }
-const api={KEY,isValidISIN,validClock,localMinute,verifiedBrokerProof,standaloneImageProof,screenshotPayload,imageISIN,
+const api={KEY,isValidISIN,validClock,localMinute,verifiedBrokerProof,standaloneImageProof,compareBrokerDisplayToIssuer,screenshotPayload,imageISIN,
  normalizeCatalog,normalizeManual,readLocal,saveLocal,queueManual,removeLocal,researchUniverse,mount};
 if(typeof module==='object'&&module.exports)module.exports=api;
 root.BobBrokerResearch=api;

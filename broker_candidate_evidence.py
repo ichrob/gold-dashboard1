@@ -201,6 +201,18 @@ def report(conn, now=None):
         # No unverified older row may regain listing status by polling.
         record = dict(source)
         record["listingConfirmed"] = current(record, now)
+        screen_at = _at(record.get("observedAt"))
+        screen_age = (now - screen_at).total_seconds() if screen_at else None
+        # The screen clock is a display observation, NOT separately timed
+        # exchange bid/ask and not a current executable DEGIRO offer.
+        record["brokerDisplayRecent"] = bool(
+            record["listingConfirmed"] and record.get("brokerDisplayObserved") is True
+            and record.get("bid") is not None and record.get("ask") is not None
+            and screen_age is not None and 0 <= screen_age <= 90
+        )
+        record["displayClockRole"] = "screen-minute-not-quote-source-clock"
+        record["brokerTradabilityNowVerified"] = False
+        record["executionQuoteVerified"] = False
         record["executionConfirmed"] = False
         record["isExecutableQuote"] = False
         record["tradeApproved"] = False
