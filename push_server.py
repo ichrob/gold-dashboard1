@@ -15,6 +15,7 @@ import background_push
 import bob_session_store
 import bob_recovery
 import diagnostic_history
+import push_receipt
 import bob_repair_store
 import research_transcript_provider
 import research_enhancements
@@ -147,6 +148,12 @@ def webpush(**kwargs):
             data = parsed.get('data') if isinstance(parsed.get('data'), dict) else {}
     except (ValueError, TypeError, AttributeError):
         pass
+    # One random proof per provider attempt, confined to its encrypted payload.
+    proof = push_receipt.issue(PUSH_SERVICE_TOKEN)
+    if proof:
+        data = {**data, **proof}
+        message = {**message, 'data': data}
+        kwargs['data'] = json.dumps(message, separators=(',', ':'))
     raw_kinds = data.get('events')
     if not isinstance(raw_kinds, list) or not raw_kinds:
         raw_kinds = [data.get('eventKind') or data.get('kind') or 'unknown']
@@ -189,7 +196,8 @@ def webpush(**kwargs):
             'test': is_test,
             'synthetic': is_synthetic,
             'signalBarAt': safe_clock('signalBarAt'),
-            'dataAt': safe_clock('dataAt')}, decision)
+            'dataAt': safe_clock('dataAt'),
+            'receiptId': proof['receiptId'] if proof else None}, decision)
 
     try:
         result = _webpush(**kwargs)
@@ -909,6 +917,21 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path == '/device-receipt':
+                # The browser need not have a live login cookie. Its scoped
+                # HMAC is checked before any asynchronous diagnostic write.
+                payload = json_body(self)
+                try:
+                    receipt_id, receipt_state = push_receipt.verify(payload, PUSH_SERVICE_TOKEN)
+                except ValueError:
+                    send_json(self, 400, {'error': 'Invalid or expired receipt'})
+                    return
+                diagnostic_history.emit('push-delivery', receipt_id,
+                    {'outcome': 'browser-receipt', 'receiptId': receipt_id,
+                     'receiptState': receipt_state},
+                    event_id=push_receipt.event_id(receipt_id, receipt_state))
+                send_json(self, 202, {'queued': True, 'androidDisplayVerified': False})
+                return
             if path == '/diagnostic-history':
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
