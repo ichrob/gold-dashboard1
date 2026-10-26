@@ -50,3 +50,9 @@ assert.doesNotMatch(stale,/Platz 1/);
 assert.match(stale,/data-selection-reason="market-data"/,
  'Stale market data keeps all products visible but suppresses a current rank');
 console.log('Unified research ranking keeps incomplete products visible and approval independent');
+
+// Regression: neutral market must not expose ranking entries.
+assert.doesNotMatch(b.renderContinuingAnalysis([p],{...market,direction:'NEUTRAL'}),/data-unified-ranking-isin/);
+assert.match(b.renderContinuingAnalysis([p],{...market,direction:'NEUTRAL'}),/ABWARTEN/);
+assert.doesNotMatch(b.renderContinuingAnalysis([p],{...market,spotFresh:false}),/data-unified-ranking-isin/);
+assert.doesNotMatch(b.renderContinuingAnalysis([p],{...market,direction:'SHORT'}),/data-unified-ranking-isin="DE000FG14AV8"/);
