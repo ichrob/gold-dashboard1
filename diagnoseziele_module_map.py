@@ -25,13 +25,20 @@ _JS_SUFFIXES = frozenset((".js", ".mjs", ".cjs"))
 
 
 
-@lru_cache(maxsize=64)
-def _static_imports(path):
-    file = Path(path)
-    if file.stat().st_size > _MAX_SOURCE_BYTES:
+def _read_source(path):
+    # Bound the actual read, including when a file grows after metadata inspection.
+    with Path(path).open("rb") as source_file:
+        data = source_file.read(_MAX_SOURCE_BYTES + 1)
+    if len(data) > _MAX_SOURCE_BYTES:
         raise ValueError("source too large")
+    return data.decode("utf-8")
+
+
+@lru_cache(maxsize=64)
+def _parse_python_source(source):
+    # Cache by content, so edits at the same path cannot reuse old dependencies.
     # Parse source syntax only. Never use importlib, import, exec, or eval.
-    tree = ast.parse(file.read_text(encoding="utf-8"), filename=file.name)
+    tree = ast.parse(source)
     deps = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -41,12 +48,13 @@ def _static_imports(path):
     return tuple(sorted(deps))
 
 
+def _static_imports(path):
+    return _parse_python_source(_read_source(path))
+
+
 def _literal_js_imports(path):
     """Read-only bounded JS local import-string hints; no parser completeness."""
-    file = Path(path)
-    if file.stat().st_size > _MAX_SOURCE_BYTES:
-        raise ValueError("source too large")
-    source = file.read_text(encoding="utf-8")
+    source = _read_source(path)
     return tuple(sorted(set(_JS_IMPORT.findall(source) +
                             _JS_REQUIRE.findall(source))))
 
@@ -62,12 +70,13 @@ def _mapped_js_link(base, current, raw, allowed):
     # modules are recognized, never guessed external packages/directories.
     candidates = [resolved] if resolved.suffix else [
         Path(str(resolved) + ext) for ext in sorted(_JS_SUFFIXES)]
+    matches = []
     for target in candidates:
         if target.is_relative_to(base):
             name = target.relative_to(base).as_posix()
             if name in allowed and name != current:
-                return name
-    return None
+                matches.append(name)
+    return matches[0] if len(matches) == 1 else None
 
 
 def inspect(root, tasks):
