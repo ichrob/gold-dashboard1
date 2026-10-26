@@ -108,6 +108,27 @@ class DirectTests(unittest.TestCase):
                 self.assertFalse(got.get('productVerified'))
                 self.assertFalse(got.get('eligible',False))
 
+    def test_fb0cvv_known_sg_does_not_mask_issuer_404_with_bnp(self):
+        from urllib.error import HTTPError
+        isin = 'DE000FB0CVV9'
+        self.assertIn(isin, q.SG_DISCOVERY_PRODUCTS)
+        failed = HTTPError('https://www.sg-zertifikate.de/',404,'Not Found',{},None)
+        with patch.object(q, 'issuer_json', side_effect=failed) as network, \
+             patch.object(q, 'get_bnp_quote') as bnp:
+            out = q.get_issuer_quote(isin)
+        bnp.assert_not_called()
+        self.assertEqual(network.call_count, 1)
+        self.assertTrue(network.call_args.args[0].endswith('/Products/'+isin))
+        self.assertEqual(out['source'],'Société Générale · Direktimport')
+        self.assertEqual(out['quoteFailureCode'],'SG_SOURCE_UNAVAILABLE')
+        self.assertIn('SG Produktidentität',out['reason'])
+        self.assertIn('HTTP 404',out['reason'])
+        self.assertFalse(out['productVerified'])
+        self.assertFalse(out['eligible'])
+        self.assertFalse(out['found'])
+        self.assertNotIn('bid',out)
+        self.assertNotIn('leverage',out)
+
     def test_missing_list_products_route_to_sg(self):
         for isin, product_id, classification in [('DE000FG5GUN3',6934161,47), ('DE000FG7HZY3',7151899,43), ('DE000FG7Q3N2',7152436,47)]:
             with self.subTest(isin=isin):

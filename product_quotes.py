@@ -21,7 +21,10 @@ SG_ORIGIN = 'https://www.sg-zertifikate.de/'
 # SG's own product IDs, not the independent onvista instrument IDs.
 SG_CH_PRODUCTS = {'DE000FG34XV8': 7039911, 'DE000FG14AV8': 6901337}
 # SG identities whose official product ID must be verified dynamically.
-SG_DISCOVERY_PRODUCTS = frozenset(('DE000FG7N6Z2', 'DE000FG8NHQ3'))
+# Exact FB0CVV issuer identity and EUR/Put terms confirmed on SG's own
+# public product page (26.10.2026). Product ID and quote must STILL come from
+# SG Products/<ISIN>; never substitute WKN, screen time, or a BNP price.
+SG_DISCOVERY_PRODUCTS = frozenset(('DE000FG7N6Z2', 'DE000FG8NHQ3', 'DE000FB0CVV9'))
 SG_CH_MARKET = frozenset((*SG_CH_PRODUCTS, 'DE000FG8NHQ3'))
 
 def sg_on_demand_candidate(isin):
