@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-10-25",
+  "asOf": "2026-10-26",
   "total": 100,
   "counts": {
-    "partial": 90,
+    "partial": 89,
     "planned": 0,
     "blocked-client": 1,
     "requires-device": 5,
     "verified-at-build": 1,
-    "verified-at-sample": 3
+    "verified-at-sample": 4
   },
-  "acceptance": "Four strictly narrow, dated independent original observations: seven-day multistage journal window (#7), archived health comparison (#8), Render CPU/RAM (#13), and two matching live service builds (#18). No continuous service/market or simulated trade proof.",
+  "acceptance": "Five dated, original-source technical observations, each narrowly scoped. New modules detected by root filename delta at a single tested build; import/runtime health remain unverified.",
   "tasks": [
     {
       "id": 1,
@@ -24,9 +24,9 @@
       "id": 2,
       "area": "Diagnosezentrale",
       "goal": "Neue Bob-Module erkennen",
-      "state": "partial",
+      "state": "verified-at-sample",
       "codeEvidence": "bob_diagnostics.py",
-      "verified": false
+      "verified": true
     },
     {
       "id": 3,

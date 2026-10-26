@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "scope": "Strictly dated and independently observed samples: build match, Render resources, two archived health snapshots and bounded 7-day private diagnostic stage inventory; no continuous market, repair or delivery proof.",
+  "scope": "Narrow dated external provider and private health / bounded root-module change samples; not a continuous service-health or new-module-runtime proof.",
   "accepted": [
     {
       "id": 18,
@@ -125,6 +125,45 @@
         "paperExecutionVerified": false
       },
       "limitations": "Read-only operational evidence of 100 sampled journal entries in a bounded 7-day, max-20-per-stage projection on a named historical build. Zero counts do not prove no messages or device delivery; pruning, missing async captures, complete availability, restart recovery, market tick proof and cross-service correctness are not verified."
+    },
+    {
+      "id": 2,
+      "goal": "Neue Bob-Module erkennen",
+      "kind": "repository-root-new-module-detected-at-build",
+      "source": "GitHub repository root and Bob private diagnostic read-only",
+      "observedAt": "2026-10-26T03:38:17.634341+00:00",
+      "build": "e45f9a2e039eacb3cd9e1e4a247f02d4e430fbb7",
+      "github": {
+        "ciRun": 40244064380,
+        "ciConclusion": "success",
+        "liveSmokeRun": 40244064379,
+        "liveSmokeConclusion": "success"
+      },
+      "tree": {
+        "baselineRecordedOn": "2026-10-25",
+        "baselineSourceBlobSha": "a4acd2a55e27633ccd99295b63692b146b401dd6",
+        "recordedSourceModules": 236,
+        "currentlySeenSourceModules": 237,
+        "newPathsNotInBaseline": 1,
+        "missingPathsFromBaseline": 0,
+        "newSourceFile": "diagnoseziele_work_split.py",
+        "sourceKinds": {
+          "py": 201,
+          "js": 36,
+          "mjs": 0,
+          "cjs": 0
+        }
+      },
+      "report": {
+        "status": "changed-since-recorded-tree",
+        "traversal": "bounded-direct-repository-root-only",
+        "readOnly": true,
+        "realOrders": false,
+        "individualGoalsVerified": 0,
+        "runtimeHealthVerified": false,
+        "newModulesFunctioningVerified": false
+      },
+      "limitations": "Zeitpunktgebundener Test der relativen Erkennung eines neuen Moduls im Repository-Root. Originale GitHub-Verzeichnisliste, gespeicherte Baseline und privater Bob-Lesewert stimmen überein. Kein Nachweis für importierte/ausgeführte, verschachtelte, generierte oder aktuell gesunde Module."
     }
   ]
 }

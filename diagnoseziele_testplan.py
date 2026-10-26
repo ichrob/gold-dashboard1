@@ -46,10 +46,12 @@ def assess(root, goals, mapping):
     for row in rows:
         number = row["id"]
         # This is only a mapping check. Separate acceptance guards validate
-        # goal-7 seven-day archive, goal-8 health pair, goal-13 Render and goal-18 build.
+        # goal-2 root module delta, goal-7 stage archive, goal-8 health pair,
+        # goal-13 Render metrics and goal-18 historic dual-service build.
         evidence_state = by_id[number].get("state")
         expected_verified = ((number == 18 and evidence_state == "verified-at-build")
-                             or (number in (7, 8, 13) and evidence_state == "verified-at-sample"))
+                             or (number in (2, 7, 8, 13)
+                                 and evidence_state == "verified-at-sample"))
         if (row.get("claim") != "test-file-candidate-only"
                 or by_id[number].get("verified") is not expected_verified):
             return unavailable
