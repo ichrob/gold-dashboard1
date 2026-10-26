@@ -35,10 +35,32 @@ class PublicTermsTests(unittest.TestCase):
     def test_exact_terms_without_invented_quote_clocks(self):
         r=p.parse_page(PAGE,ISIN,NOW)
         self.assertEqual(r['metadata']['ratio'],.1)
+        self.assertEqual(r['metadata']['currency'],'EUR')
+        self.assertEqual(r['conditions']['currency']['value'],'EUR')
+        self.assertTrue(r['conditions']['currency']['conditionVerified'])
         self.assertEqual(r['metadata']['underlying'],'XAU/USD')
         self.assertEqual(r['metadata']['ko'],4069.2502)
         self.assertIsNone(r['observedTerms']['effectiveAt'])
         self.assertFalse(r['eligible']);self.assertNotIn('bidAt',r)
+    def test_comdirect_eur_metadata_does_not_create_live_quote_or_trade_approval(self):
+        import degiro_product_audit as audit
+        result = p.parse_page(PAGE, ISIN, NOW)
+        result['quoteFailureCode'] = 'SG_SOURCE_UNAVAILABLE'
+        result['issuerResearch'] = {'sourceFailure': True, 'reason': 'HTTP 404'}
+        product = {'isin': ISIN, 'isinConfirmed': True,
+                   'productDirection': 'LONG', 'currency': 'EUR'}
+        row = audit.examine(product, result, NOW.timestamp()*1000)
+        self.assertEqual(row['nativeCurrency'], 'EUR')
+        self.assertNotIn('currency', row['missing'])
+        self.assertIn('quote', row['missing'])
+        self.assertIn('quote-time', row['missing'])
+        self.assertIn('leverage', row['missing'])
+        self.assertIn('leverage-time', row['missing'])
+        self.assertIn('market-status', row['missing'])
+        self.assertIsNone(row['quoteSourceAt'])
+        self.assertFalse(row['tradeApproved'])
+        self.assertFalse(row['degiroVerified'])
+
     def test_identity_and_navigation_link_do_not_prove_underlying(self):
         for html in [PAGE.replace('WKN: FG5GUT','WKN: FG309G'),PAGE.replace('<th>Basiswert</th>','<th>Navigation</th>'),PAGE.replace('10 : 1','-- : 1'),PAGE.replace('Gold</a>','Silver</a>')]:
             with self.assertRaises(ValueError):p.parse_page(html,ISIN,NOW)
