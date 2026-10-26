@@ -53,9 +53,12 @@ def read(key, loader):
             raise TimeoutError('Report capacity unavailable')
         with _lock:_ACTIVE_LOADS+=1
         result=loader()  # Only now may the loader borrow a database connection.
+        # Prepare the owner response before publishing success to waiting reads.
+        # A copy failure must complete the shared future with that error once.
+        response=copy.deepcopy(result)
         future.set_result(result)
         with _lock:_COUNTERS['completed']+=1
-        return copy.deepcopy(result)
+        return response
     except BaseException as exc:
         with _lock:_COUNTERS['failed']+=1
         future.set_exception(exc)
