@@ -457,6 +457,63 @@ class RecentPaperEvidenceStatusTests(unittest.TestCase):
         self.assertIn('last-five',result['scope'])
 
 
+class PrivateWorkerClockProjectionTests(unittest.TestCase):
+    def sample(self):
+        return dict(status='observed', readOnly=True,
+                    workerMissedCyclesVerified=False,
+                    scope='process-local-worker-starts-not-market-tick-proof',
+                    observedCycles=2, comparableStartIntervals=1,
+                    maxObservedStartGapSeconds=30.2,
+                    lastStartedAt='2026-10-26T08:35:30+00:00',
+                    lastCompletedAt='2026-10-26T08:35:30.600+00:00',
+                    lastDurationMs=600, configuredSeconds=30,
+                    plannedWaitSeconds=29.4, lastObservedStartGapSeconds=30.2)
+
+    def test_private_worker_clock_is_limited_and_not_a_market_tick_claim(self):
+        sample = self.sample()
+        sample['password'] = 'NEVER-ECHO-THIS'
+        result = diagnostics.collection_cycle_snapshot(sample)
+        self.assertEqual(result['status'], 'observed')
+        self.assertEqual(result['observedCycles'], 2)
+        self.assertEqual(result['lastDurationMs'], 600)
+        self.assertFalse(result['workerMissedCyclesVerified'])
+        self.assertTrue(result['readOnly'])
+        self.assertNotIn('password', json.dumps(result))
+        self.assertNotIn('NEVER-ECHO-THIS', json.dumps(result))
+
+    def test_forged_clock_or_verified_missed_worker_is_unavailable(self):
+        original = self.sample()
+        cases = (
+            ('workerMissedCyclesVerified', True),
+            ('readOnly', False),
+            ('observedCycles', 21),
+            ('observedCycles', True),
+            ('comparableStartIntervals', 9),
+            ('configuredSeconds', -1),
+            ('plannedWaitSeconds', '30'),
+            ('lastDurationMs', -1),
+            ('lastStartedAt', '2099-10-26T08:35:30Z'),
+            ('lastCompletedAt', '2026-10-25T08:35:30Z'),
+            ('maxObservedStartGapSeconds', float('nan')),
+            ('scope', 'all-systems-verified'),
+        )
+        for key, val in cases:
+            case = dict(original, **{key:val})
+            with self.subTest(key=key):
+                self.assertEqual(diagnostics.collection_cycle_snapshot(case)['status'],
+                                 'unavailable')
+        future = dict(original, lastStartedAt='2099-10-26T08:35:30Z',
+                      lastCompletedAt='2099-10-26T08:35:31Z')
+        self.assertEqual(diagnostics.collection_cycle_snapshot(future)['status'],
+                         'unavailable')
+        self.assertEqual(diagnostics.collection_cycle_snapshot({})['status'], 'unavailable')
+        waiting = dict(status='not-observed', observedCycles=0,
+                       readOnly=True, workerMissedCyclesVerified=False,
+                       scope=original['scope'])
+        self.assertEqual(diagnostics.collection_cycle_snapshot(waiting)['status'],
+                         'not-observed')
+
+
 class ReadAccessManifestMappingTests(unittest.TestCase):
     def test_exact_100_items_are_file_mapped_not_falsely_live_verified(self):
         from pathlib import Path

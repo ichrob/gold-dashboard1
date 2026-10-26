@@ -105,7 +105,8 @@ def read_diagnostics_for_mcp():
     def collection():
         value = auto_collection.status()
         return {**bob_diagnostics.fields(value, ('enabled','running','state','lastCycleAt','updateIntervalSeconds','sessionMode')),
-                'feed':bob_diagnostics.fields(value.get('cfdFeed'), ('state','lastCheckedAt','sourceAgeSeconds'))}
+                'feed':bob_diagnostics.fields(value.get('cfdFeed'), ('state','lastCheckedAt','sourceAgeSeconds')),
+                'cycleCadence':bob_diagnostics.collection_cycle_snapshot(value.get('cycleCadence'))}
     def research():
         return bob_diagnostics.research_snapshot(gold_research.snapshot())
     def problems():
