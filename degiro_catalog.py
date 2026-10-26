@@ -49,6 +49,7 @@ _CURRENT = {
     "lastSession": None, "running": False, "errors": 0, "candidates": [],
     "excluded": [], "attempted": 0, "scanHistory": [],
     "historyResearch": {"code":"NO_HISTORY", "available":0, "sampled":0, "items":[]},
+    "historyResearchArchive": [],
 }
 
 
@@ -231,8 +232,10 @@ def study_history(history, lookup, offset=0, limit=HISTORY_SAMPLE_LIMIT):
         verified = (quote.get('isin') == isin and quote.get('productVerified') is True
                     and meta.get('status') == 1 and meta.get('type') != 'FACTOR'
                     and _same_spot(meta) and meta.get('direction') == side)
+        observation = degiro_research_review.issuer_observation(isin, side, quote)
         observed.append({
             'isin':isin, 'direction':side, 'name':str(x.get('name') or '')[:120],
+            'issuerComparison': observation,
             'lastTradeDate':x.get('lastTradeDate'),
             'brokerHistoricallyTransacted':True, 'issuerIdentityMatched':bool(verified),
             'issuerChecked':True, 'researchOnly':True, 'currentlyDegiroListed':None,
@@ -269,6 +272,9 @@ def diagnostics(now=None):
                                        and elapsed is not None and elapsed <= 480
                                        and age is not None and age <= 480),
                 historyAvailable=(report.get('historyResearch') or {}).get('available',0),
+                historyInspectedRetained=len(report.get('historyResearchArchive') or []),
+                historyIssuerConfirmed=sum(x.get('issuerIdentityMatched') is True for x in
+                                           (report.get('historyResearchArchive') or [])),
                 historySampled=(report.get('historyResearch') or {}).get('sampled',0),
                 historySourceCode=(report.get('historyResearch') or {}).get('code'),
                 completeDegiroCatalog=False, tradeApproved=False)
@@ -328,10 +334,19 @@ def _loop():
                                 elapsed=round((at-datetime.fromisoformat(previous)).total_seconds())
                             except ValueError:
                                 pass
+                        # Bound and deduplicate the last research observations
+                        # across five-minute cycles; do not requery SnapTrade.
+                        old_records = _CURRENT.get('historyResearchArchive') or []
+                        merged = {x['isin']:x for x in old_records[:80]
+                                  if isinstance(x,dict) and valid_isin(x.get('isin'))}
+                        for row in research.get('items', []):
+                            merged[row['isin']] = dict(row, issuerCheckedAt=at.isoformat())
+                        research_archive = list(merged.values())[-80:]
                         history=(prior+[{'at':at.isoformat(),'elapsedSeconds':elapsed,
                                          'outcome':result['status'],'errors':result['errors']}])[-12:]
                         _CURRENT.update(result, lastSession=period[1], running=False,
-                                        scanHistory=history, historyResearch=research)
+                                        scanHistory=history, historyResearch=research,
+                                        historyResearchArchive=research_archive)
                     bnp = result["sourceChecks"]["historicalBNP"]
                     other = result["sourceChecks"]["otherHistorical"]
                     print("BOB_ISSUER_CATALOG status="+result["status"]
