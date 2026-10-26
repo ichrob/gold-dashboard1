@@ -2,6 +2,15 @@
 PANEL = r'''
 <section id="bobDegiroSandbox" class="card" style="padding:16px">
 <h3>DEGIRO · Verbindung und Automatik</h3>
+<section aria-label="DEGIRO Depotabgleich über SnapTrade">
+<h4>DEGIRO-Depotabgleich über SnapTrade · nur lesen</h4>
+<p id="dgSnaptradeSyncStatus" role="status">Gespeicherten Lese-Status prüfen …</p>
+<p id="dgSnaptradeSyncDetail" class="small">Keine neuen Brokerzugriffe durch diese Statusanzeige.</p>
+<p class="small">Dieser Abgleich zeigt nur die über SnapTrade gelieferten Depotpositionen, keine vollständige bei DEGIRO handelbare Goldproduktliste und keine ausführbaren Geld-/Briefkurse. Originalzeiten und Produktfreigaben werden nicht verändert.</p>
+</section>
+<hr>
+<details id="dgOptionalSdk"><summary>Separater inoffizieller DEGIRO-SDK-Test (für SnapTrade nicht erforderlich)</summary>
+<p class="small">Dies ist NICHT der SnapTrade-Abgleich. DEGIRO unterstützt diese inoffizielle Schnittstelle nicht; ein erfolgreicher SnapTrade-Lesezugriff startet den SDK-Test nicht.</p>
 <section aria-label="DEGIRO Lesetest">
 <h4>Verbindung prüfen · nur lesen</h4>
 <p id="dgConnectionStatus" role="status">Einrichtung wird geprüft …</p>
@@ -24,6 +33,7 @@ PANEL = r'''
 <div id="dgSyncHoldings"></div>
 <p class="small">Depotbewertungen sind keine aktuellen Geld-/Briefkurse. SG, BNP, comdirect und Swissquote bleiben für Produktdaten zuständig. Nach Serverneustart, spätestens nach acht Stunden oder bei abgelaufener Sitzung erneut anmelden. Zugangssitzungen werden nicht dauerhaft gespeichert.</p>
 </section>
+</details>
 <hr>
 <h4>Automatischer Simulationslauf</h4>
 <p><b>Simulation bereit · DEGIRO nicht verbunden</b></p>
@@ -51,6 +61,32 @@ function mount(){
  const target=document.getElementById('bob-view-degiro');
  if(!target || !panel)return;
  target.append(panel);
+ const sourceStatus=document.getElementById('dgSnaptradeSyncStatus'),sourceDetail=document.getElementById('dgSnaptradeSyncDetail');
+ async function refreshSnaptradeSource(){
+  try{
+   // Status is process-local and authenticated; unlike /api/snaptrade/check it does not contact the provider.
+   const response=await fetch('/api/snaptrade/status',{credentials:'same-origin',cache:'no-store'});
+   if(!response.ok)throw Error('status unavailable');
+   const data=await response.json();
+   if(!data||typeof data!=='object'||data.configured!==true){
+    sourceStatus.textContent='SnapTrade in Bob nicht eingerichtet. Kein automatischer Depotabgleich bestätigt.';
+    sourceDetail.textContent='Der separate DEGIRO-SDK-Test ist keine Ersatzverbindung.';
+    return;
+   }
+   const accounts=Array.isArray(data.snapshot?.accounts)?data.snapshot.accounts:[];
+   const positions=accounts.reduce((n,account)=>n+(Array.isArray(account?.positions)?account.positions.length:0),0);
+   const isRead=data.code==='READ_OK';
+   sourceStatus.textContent=isRead&&data.fresh===true?'✓ SnapTrade-Depotlesung aktuell bestätigt.':
+     isRead?'Letzter SnapTrade-Depotlesestand vorhanden, aber nicht als aktuell bestätigt.':
+     'SnapTrade eingerichtet; laufende Depotlesung nicht bestätigt.';
+   sourceDetail.textContent=(isRead?accounts.length+' Konto/Konten · '+positions+' Positionen im gespeicherten Lesestand. ':'Noch kein bestätigter Depotlesestand. ')+
+     'Keine vollständige DEGIRO-Produktliste, keine Broker-Geld-/Briefkurse und keine Orderfreigabe.';
+  }catch(_){
+   sourceStatus.textContent='SnapTrade-Status nicht erreichbar. Keine aktuelle Depotverbindung bestätigt.';
+   sourceDetail.textContent='Die Statusprüfung sendet keine neue Anfrage an DEGIRO oder SnapTrade.';
+  }
+ }
+ refreshSnaptradeSource();setInterval(()=>{if(!document.hidden)refreshSnaptradeSource();},30000);
  const connectionStatus=document.getElementById('dgConnectionStatus'),test=document.getElementById('dgConnectionTest'),otp=document.getElementById('dgConnectionOtp');
  const authReasons={TOTP_REQUIRED:'DEGIRO verlangt einen Einmalcode aus einer bereits eingerichteten Authenticator-App.',APP_APPROVAL_REQUIRED:'DEGIRO verlangt eine Bestätigung in der DEGIRO-App. Diesen Anmeldeablauf unterstützt Bob derzeit nicht.',CAPTCHA_REQUIRED:'DEGIRO verlangt ein CAPTCHA. Bob kann es nicht bearbeiten; im offiziellen DEGIRO-Browserzugang prüfen.',RATE_LIMITED:'DEGIRO begrenzt die Anmeldeversuche. Bitte vorerst keine weiteren Versuche starten.',ACCESS_DENIED:'Der DEGIRO-Server verweigert den Zugriff dieses Servers. Ein falsches Passwort ist damit nicht nachgewiesen.',SERVICE_UNAVAILABLE:'Der DEGIRO-Anmeldedienst ist derzeit nicht verfügbar.',INVALID_LOGIN_RESPONSE:'Die DEGIRO-Anmeldeantwort hat ein unerwartetes Format. Technische Prüfung erforderlich.',LOGIN_REJECTED:'DEGIRO hat keine Sitzung erteilt. Die Antwort bestätigt weder ein falsches Passwort noch einen fehlenden Einmalcode.'};
  function authDetail(data){
