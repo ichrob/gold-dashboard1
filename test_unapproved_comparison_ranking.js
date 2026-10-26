@@ -50,3 +50,11 @@ assert.doesNotMatch(stale,/Platz 1/);
 assert.match(stale,/data-selection-reason="market-data"/,
  'Stale market data keeps all products visible but suppresses a current rank');
 console.log('Unified research ranking keeps incomplete products visible and approval independent');
+
+// Market-state regression: never show a ranked recommendation while waiting.
+const waiting=b.renderContinuingAnalysis([p],{...market,direction:'NEUTRAL'});
+assert.match(waiting,/ABWARTEN/);
+assert.doesNotMatch(waiting,/data-unified-ranking-isin/);
+const shortOnly=b.renderContinuingAnalysis([p,{...p,isin:'BE000FG4JXV7',productDirection:'SHORT'}],{...market,direction:'SHORT'});
+assert.match(shortOnly,/BE000FG4JXV7/);
+assert.doesNotMatch(shortOnly,/data-unified-ranking-isin="DE000FG14AV8"/);
