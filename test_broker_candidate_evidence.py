@@ -125,6 +125,26 @@ class CandidateProofTests(unittest.TestCase):
         self.assertFalse(stale["items"][0]["listingConfirmed"])
         self.assertEqual(stale["items"][0]["observedMinute"],"2026-10-20T10:15")
 
+    def test_today_listing_can_survive_but_display_quote_expires(self):
+        from datetime import timedelta
+        conn=Memory()
+        service.save(conn,payload(time="20.10.2026 10:30"),NOW)
+        current=service.report(conn,NOW)["items"][0]
+        self.assertTrue(current["listingConfirmed"])
+        self.assertTrue(current["brokerDisplayRecent"])
+        self.assertEqual(current["displayClockRole"],"screen-minute-not-quote-source-clock")
+        for flag in ("brokerTradabilityNowVerified","executionQuoteVerified",
+                     "isExecutableQuote","tradeApproved"):
+            self.assertIs(current[flag],False)
+        later=service.report(conn,NOW+timedelta(seconds=91))["items"][0]
+        self.assertTrue(later["listingConfirmed"])
+        self.assertFalse(later["brokerDisplayRecent"])
+        self.assertEqual(later["observedAt"],current["observedAt"])
+        self.assertFalse(later["executionQuoteVerified"])
+        after_close=service.report(conn,NOW+timedelta(hours=12))["items"][0]
+        self.assertFalse(after_close["listingConfirmed"])
+        self.assertFalse(after_close["brokerDisplayRecent"])
+
     def test_different_instruments_bound_to_distinct_images(self):
         conn=Memory()
         service.save(conn,payload(),NOW)
