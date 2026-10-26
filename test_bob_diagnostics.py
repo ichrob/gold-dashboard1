@@ -543,6 +543,70 @@ class PrivateWorkerClockProjectionTests(unittest.TestCase):
                          'not-observed')
 
 
+class EvaluatorQueueSampleTests(unittest.TestCase):
+    """Caller-supplied samples are not full provider coverage or lost-tick proof."""
+    def log(self, at, instance, completed, **changes):
+        counters = dict(completed=completed, failed=0, queueTimeouts=0,
+                        shared=0, waiting=0, lastWaitMs=2, lastDurationMs=400)
+        counters.update(changes)
+        return {'timestamp':at, 'message':'BOB_EVALUATOR '+json.dumps(counters),
+                'labels':[{'name':'resource','value':'srv-demo123'},
+                          {'name':'type','value':'app'},
+                          {'name':'instance','value':'srv-demo123-'+instance}]}
+
+    def report(self, rows, **kwargs):
+        return diagnostics.evaluator_queue_log_sample(
+            rows, window_start='2026-10-26T10:12:00Z',
+            window_end='2026-10-26T10:19:00Z',
+            resource_id='srv-demo123', **kwargs)
+
+    def test_rollout_counters_are_separate_and_only_sampled(self):
+        rows=[self.log('2026-10-26T10:12:01Z','old-PRIVATE',251,
+                       waiting=2, lastWaitMs=2623),
+              self.log('2026-10-26T10:12:31Z','old-PRIVATE',252,
+                       waiting=0, lastWaitMs=2),
+              self.log('2026-10-26T10:13:01Z','new-PRIVATE',1,
+                       waiting=1, lastWaitMs=835)]
+        result=self.report(rows)
+        self.assertEqual(result['status'],'classified-sample')
+        self.assertEqual(result['distinctProcessInstances'],2)
+        self.assertEqual(result['sameInstanceCounterRegressions'],0)
+        self.assertEqual(result['validEvaluatorRecords'],3)
+        self.assertEqual(result['maxObservedWaiting'],2)
+        self.assertEqual(result['maxLastWaitMs'],2623)
+        self.assertFalse(result['observedNonzeroFailureCounter'])
+        self.assertFalse(result['observedNonzeroQueueTimeoutCounter'])
+        self.assertFalse(result['queueLossVerified'])
+        self.assertFalse(result['liveVerified'])
+        self.assertFalse(result['completeTrafficProven'])
+        self.assertNotIn('old-PRIVATE', json.dumps(result))
+        self.assertNotIn('new-PRIVATE', json.dumps(result))
+
+    def test_partial_invalid_rows_and_counter_rollback_fail_open_not_healed(self):
+        rows=[self.log('2026-10-26T10:12:01Z','one',4),
+              self.log('2026-10-26T10:12:31Z','one',3,
+                       failed=1, queueTimeouts=2)]
+        cross=self.log('2026-10-26T10:13:01Z','other',1)
+        cross['labels'][0]['value']='srv-other'
+        future=self.log('2099-01-01T00:00:00Z','other',1)
+        invalid=self.log('2026-10-26T10:13:15Z','bad',1,waiting=True)
+        rows.extend((cross,future,invalid, {'message':'SECRET','timestamp': 'bad'}))
+        x=self.report(rows,has_more=True)
+        self.assertEqual(x['validEvaluatorRecords'],2)
+        self.assertEqual(x['distinctProcessInstances'],1)
+        self.assertEqual(x['sameInstanceCounterRegressions'],1)
+        self.assertTrue(x['observedNonzeroFailureCounter'])
+        self.assertTrue(x['observedNonzeroQueueTimeoutCounter'])
+        self.assertEqual(x['invalidOrIgnoredRecords'],4)
+        self.assertTrue(x['sampleTruncated'])
+        self.assertFalse(x['queueLossVerified'])
+        self.assertNotIn('SECRET',json.dumps(x))
+        empty=self.report([])
+        self.assertEqual(empty['status'],'insufficient-evidence')
+        self.assertFalse(empty['liveVerified'])
+        self.assertEqual(self.report([cross])['status'],'insufficient-evidence')
+
+
 class ReadAccessManifestMappingTests(unittest.TestCase):
     def test_exact_100_items_are_file_mapped_not_falsely_live_verified(self):
         from pathlib import Path
