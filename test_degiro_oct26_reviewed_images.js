@@ -30,7 +30,7 @@ assert.equal(first.data.listItems[1].isin,'DE000BY4TLN0');
 assert.equal(first.data.listItems[3].isin,'DE000FG0SGZ2');
 assert.equal(original.data.listItems[2].isin,'DE000PJ8APE4');
 assert.equal(original.data.listItems[2].listRow.reviewMethod,'samsung-image-size-and-sha256-prefix-reviewed');
-assert.equal(first.data.listItems[2].listRow.reviewMethod,'exact-original-sha256-visual-review');
+assert.equal(first.data.listItems[2].listRow.reviewMethod,'exact-reencoded-attachment-sha256-visual-review');
 const all=[...first.data.listItems,...second.data.listItems];
 assert.equal(new Set(all.map(x=>x.isin)).size,10);
 for(const item of all){
