@@ -22,10 +22,10 @@ class DatedAcceptanceTests(unittest.TestCase):
     def test_one_goal_only_has_ci_and_exact_render_evidence(self):
         goals,record=self.fixtures()
         result=a.assess(goals,record)
-        self.assertEqual(result["status"],"four-dated-independent-acceptances")
-        self.assertEqual(result["acceptedGoalIds"],[7,8,13,18])
+        self.assertEqual(result["status"],"five-dated-independent-acceptances")
+        self.assertEqual(result["acceptedGoalIds"],[2,7,8,13,18])
         self.assertEqual(result["individuallyAcceptedAtRecordedBuild"],1)
-        self.assertEqual(result["remainingUnaccepted"],96)
+        self.assertEqual(result["remainingUnaccepted"],95)
         self.assertEqual(len(result["acceptedBuild"]),40)
         self.assertTrue(result["readOnly"])
         self.assertFalse(result["currentDeployProven"])
@@ -190,6 +190,50 @@ class DatedAcceptanceTests(unittest.TestCase):
             with self.subTest(edit=str(item)):
                 check(item)
 
+    def test_root_module_detection_is_dated_not_import_or_health_proof(self):
+        goals,records=self.fixtures()
+        accepted=a.assess(goals,records)
+        self.assertEqual(accepted["individuallyAcceptedAtRootModuleChange"],1)
+        sample=accepted["moduleChangeSample"]
+        self.assertEqual(sample["recordedSourceModules"],236)
+        self.assertEqual(sample["currentlySeenSourceModules"],237)
+        self.assertEqual(sample["newPathsNotInBaseline"],1)
+        self.assertFalse(sample["runtimeHealthVerified"])
+        self.assertFalse(sample["newModulesFunctioningVerified"])
+        self.assertFalse(accepted["continuouslyHealthyProven"])
+        self.assertEqual(sample["sourceBuild"],
+                         "e45f9a2e039eacb3cd9e1e4a247f02d4e430fbb7")
+
+    def test_root_module_record_is_fail_closed_on_mismatches(self):
+        goals,records=self.fixtures()
+        changes=(
+            lambda r:r.update(source="untrusted-screenshot"),
+            lambda r:r.update(kind="file-exists-only"),
+            lambda r:r.update(build="a"*40),
+            lambda r:r.update(observedAt="bad-time"),
+            lambda r:r["github"].update(ciConclusion="pending"),
+            lambda r:r["github"].update(ciRun=0),
+            lambda r:r["github"].update(liveSmokeRun=0),
+            lambda r:r["tree"].update(baselineSourceBlobSha="a"*40),
+            lambda r:r["tree"].update(newSourceFile="../sensitive.py"),
+            lambda r:r["tree"].update(recordedSourceModules=235),
+            lambda r:r["tree"].update(currentlySeenSourceModules=200),
+            lambda r:r["tree"].update(newPathsNotInBaseline=0),
+            lambda r:r["tree"].update(missingPathsFromBaseline=1),
+            lambda r:r["tree"]["sourceKinds"].update(py=200),
+            lambda r:r["report"].update(status="same-as-recorded-tree"),
+            lambda r:r["report"].update(traversal="full-system-and-secrets"),
+            lambda r:r["report"].update(realOrders=True),
+            lambda r:r["report"].update(readOnly=False),
+            lambda r:r["report"].update(runtimeHealthVerified=True),
+            lambda r:r["report"].update(newModulesFunctioningVerified=True),
+        )
+        for mutation in changes:
+            case=json.loads(json.dumps(records))
+            mutation(case["accepted"][4])
+            with self.subTest(mutation=str(mutation)):
+                self.assertEqual(a.assess(goals,case)["status"],"unavailable")
+
     def test_read_access_rejects_fake_extra_completions(self):
         goals,record=self.fixtures()
         original=goals[0]["verified"]
@@ -200,7 +244,7 @@ class DatedAcceptanceTests(unittest.TestCase):
                          "unavailable")
         goals[0]["verified"]=original
         manifest["tasks"]=goals
-        self.assertEqual(bob_diagnostics.read_access_coverage(manifest)["verified"],4)
+        self.assertEqual(bob_diagnostics.read_access_coverage(manifest)["verified"],5)
 
 
 if __name__=="__main__":
