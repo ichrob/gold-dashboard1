@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 import adaptive_learning as rule_learning
+import paper_case_review
 import paper_reflection
 import paper_entry_review
 import paper_stop_study
@@ -36,7 +37,7 @@ NOTE = ('Vorwärts-Simulation ohne Orders. Eine Position, rund 50 % Teilgewinn a
         'dieser spätere simulierte Verkauf wird separat protokolliert. '
         'Bei automatisch ausgewählten Produkten: verifizierter KO-Puffer, beobachteter fiktiver Sicherheitsausstieg; '
         'kein garantierter Stop oder Kurs. Bei bestätigtem Produktende ohne Abrechnungskurs bleibt das Ergebnis offen. '
-        '30 Tage Falldetails; Tagesstatistik fortlaufend ohne festes Enddatum.')
+        'Falldetails dauerhaft gespeichert; Tagesstatistik fortlaufend ohne festes Enddatum.')
 
 def finite(v):
     return isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) and v>0
@@ -287,7 +288,10 @@ def new_case(market, choice, quote, now, cash=100., cost_model=None,bundle=None)
 def advance_case(original, market, quote, now):
     """Stop checks precede trailing; resumed gaps cannot manufacture a win."""
     c=copy.deepcopy(original)
-    def event(kind,**extra):c['events'].append(dict(kind=kind,at=market.get('dataAt'),recordedAt=now,**extra))
+    def event(kind,**extra):
+        c['events'].append(dict(kind=kind,at=market.get('dataAt'),recordedAt=now,
+            inputEvidence={key:copy.deepcopy(market.get(key)) for key in
+                ('dataAt','analysisBarAt','ready','priceFresh','ruleVersion','decisionReason')},**extra))
     def defer_remaining():
         if c.get('remainingUnits'):
             c['pendingUnits']+=c['remainingUnits'];c['remainingUnits']=0;c['remaining']=0.
@@ -481,7 +485,9 @@ def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=
             value=closed['goldR'];d['goldPositive' if value>0 else 'goldNegative' if value<0 else 'goldFlat']+=1
         else:d['inconclusive']+=1
     product=product or closed
-    if product and product['productReturnKnown']:
+    if product:
+        product['performanceAccountingVersion'] = 2
+    if product and product.get('status') == 'closed' and product['productReturnKnown']:
         d['productKnown']+=1;d['productPositive' if product['productGrossPct']>0 else 'productNegative']+=1
     conn.execute('''INSERT INTO bob_paper_days VALUES(%s,%s::jsonb)
         ON CONFLICT(day) DO UPDATE SET payload=EXCLUDED.payload''',(day,json.dumps(d)))
@@ -494,6 +500,8 @@ def report(conn, day=None):
     cases=conn.execute('SELECT payload FROM bob_paper_cases WHERE day=%s ORDER BY started_at DESC LIMIT 100',(day,)).fetchall()
     stats=conn.execute('SELECT payload FROM bob_paper_days WHERE day=%s',(day,)).fetchone()
     totals=conn.execute('SELECT day,payload FROM bob_paper_days ORDER BY day DESC LIMIT 366').fetchall()
+    exclusions = paper_case_review.legacy_exclusions(conn)
+    profile = getattr(conn, 'profile', None)
     phase = background_push.degiro_session()
     closed = phase == 'weekend'
     status = dict(control)
@@ -502,12 +510,12 @@ def report(conn, day=None):
                       reason='Goldmarkt geschlossen · Simulation pausiert' if closed
                              else 'DEGIRO-Nachtmodus · Simulation pausiert, gespeichert und geschützt' if phase=='night'
                              else 'Vorbereitung ab 07:30 Uhr · Simulation startet ab 08:00 Uhr')
-    return dict(ok=True,version=VERSION,note=NOTE,control=status,marketClosed=closed,sessionMode=phase,day=day,stats=stats[0] if stats else {},
+    return dict(ok=True,version=VERSION,note=NOTE,control=status,marketClosed=closed,sessionMode=phase,day=day,stats=paper_case_review.adjust_daily(stats[0] if stats else {}, exclusions.get(day)),
                 products=[dict(isin=p.get('isin'),direction=p.get('productDirection'),name=p.get('name')) for p in feed[0]['products'] if p.get('isin')] if feed else [],
-                productSyncedAt=feed[1].isoformat() if feed else None,cases=[r[0] for r in cases],
+                productSyncedAt=feed[1].isoformat() if feed else None,cases=[paper_case_review.project_case(r[0], profile) for r in cases],
                 costReview=__import__('paper_costs').report([r[0] for r in cases]),
                 decisionReview=paper_entry_review.daily([r[0] for r in cases],stats[0] if stats else {},day),
-                daily=[dict(day=d,**s) for d,s in totals],detailsLimit=100,detailRetentionDays=30,
+                daily=[dict(day=d,**paper_case_review.adjust_daily(s, exclusions.get(d))) for d,s in totals],detailsLimit=100,detailRetentionDays=None,detailRetention='permanent',
                 demonstrations=technical_scenarios(), demonstration=technical_demo(control.get('lastGold'),next((p for p in feed[0]['products'] if p.get('productDirection')=='LONG'),None) if feed else None))
 
 def technical_scenarios():
@@ -715,7 +723,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                        entry=dict(direction=market.get('direction','NEUTRAL'),
                          isin=choice.get('isin') if choice else None,
                          goldAt=market.get('dataAt'),ruleVersion=market.get('ruleVersion')) if not entered else None)
-        conn.execute("DELETE FROM bob_paper_cases WHERE closed_at < now()-interval '30 days'")
+        # Preserve original entry/exit evidence; bounded report queries limit reads, not retention.
     conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
 
 def newer_queued_paper_bundle(current, candidate, now_ms):

@@ -497,6 +497,10 @@ def resume_retained(items):
         publication={key:item[key] for key in ('publishedAt','publishedDate','publicationSource') if key in item}
         youtube_research.enrich(item)
         item.update(publication)
+        # Caption retry can succeed while publication metadata remains absent.
+        # Recheck the original page independently; never invent a date.
+        if item.get('publishedAt') is None:
+            enrich_publication(item)
 
 
 def _run():

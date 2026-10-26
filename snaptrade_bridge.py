@@ -64,8 +64,29 @@ ID = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{1
 # SnapTrade Personal shares a 10-requests/minute bucket for account data.
 # One holdings cycle uses positions, balances and orders (3 calls), so reserve
 # two spare slots and cap historical activity reads to five pages (5 calls).
-# Never extend this merely to fill the provider's total historical count.
+# Five-page request budget stays fixed. Larger histories resume in later cycles.
 ACTIVITY_OFFSETS = tuple(range(0, 2500, 500))
+HISTORY_MAX_ROWS = 20_000
+HISTORY_MAX_BYTES = 4_000_000
+HISTORY_JOURNAL_BYTES = 3_000_000
+HISTORY_PAGING_VERSION = 1
+
+def activity_rows(data):
+    # Lossless removal of empty optional placeholders reduces encrypted history
+    # memory without dropping any observed amounts, identities or timestamps.
+    return [{k:v for k,v in row.items() if k in ('key','name','date','type') or v not in (None,'')}
+            for row in portfolio.journal_rows(data,'activities',number,text)]
+
+
+def activity_due(old, now=None):
+    now = time.time() if now is None else now
+    elapsed = now - old.get('attemptedEpoch', 0)
+    resumable = (old.get('code') == 'READ_OK' and old.get('activityCoverageReason') == 'PAGE_LIMIT'
+                 and old.get('pagingVersion') == HISTORY_PAGING_VERSION
+                 and type(old.get('nextOffset')) is int
+                 and 0 < old['nextOffset'] < HISTORY_MAX_ROWS)
+    return elapsed >= (INTERVAL if resumable else 86400) or old.get('schemaVersion') != trades.SCHEMA or old.get('pagingVersion') != HISTORY_PAGING_VERSION
+
 # A separate, filtered historical trade-coverage observation; these are
 # account-history BUY/SELL counts, never a complete account audit or FIFO proof.
 TRADE_COVERAGE_OFFSETS = (0, 1000, 2000)
@@ -205,7 +226,8 @@ def api_get(path, config, params=None):
     params = params or {}
     if params:
         permitted_standard = (path.endswith('/activities') and set(params) == {'offset', 'limit'}
-                              and params['limit'] == 500 and params['offset'] in ACTIVITY_OFFSETS)
+                              and params['limit'] == 500 and type(params['offset']) is int
+                              and 0 <= params['offset'] < HISTORY_MAX_ROWS and params['offset'] % 500 == 0)
         permitted_filtered = (path.endswith('/activities') and set(params) == {'offset', 'limit', 'type'}
                               and params['limit'] == 1000 and params['offset'] in TRADE_COVERAGE_OFFSETS
                               and params['type'] == 'BUY,SELL')
@@ -495,8 +517,8 @@ def load_ledger(config):
     sealed = storage('state-read').get('sealed')
     if sealed:
         try:
-            raw = zlib.decompressobj().decompress(cipher().decrypt(sealed.encode()), 4_000_001)
-            if len(raw) > 4_000_000: raise ValueError()
+            raw = zlib.decompressobj().decompress(cipher().decrypt(sealed.encode()), HISTORY_MAX_BYTES + 1)
+            if len(raw) > HISTORY_MAX_BYTES: raise ValueError()
             value = json.loads(raw)
             if value.get('owner') == owner: loaded = value
         except Exception:
@@ -506,19 +528,19 @@ def load_ledger(config):
 
 def save_ledger():
     raw = json.dumps(_LEDGER, separators=(',', ':'), allow_nan=False).encode()
-    if len(raw) > 4_000_000:
+    if len(raw) > HISTORY_MAX_BYTES:
         raise ReadError('HISTORY_FULL')
     sealed = cipher().encrypt(zlib.compress(raw)).decode()
     if len(sealed) > 900_000 or storage('state-save', {'sealed': sealed}).get('saved') is not True:
         raise ReadError('HISTORY_STORE_UNAVAILABLE')
 
 
-def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
+def read_journal(aid, config, previous=None, get=api_get, max_bytes=HISTORY_JOURNAL_BYTES):
     result = copy.deepcopy(previous or {})
     for category in ('orders', 'activities'):
         old = result.get(category) or {}
         # Transactions are daily data; even failures back off for a day.
-        due = category == 'orders' or time.time() - old.get('attemptedEpoch', 0) >= 86400 or old.get('schemaVersion') != trades.SCHEMA
+        due = category == 'orders' or activity_due(old)
         if not due: continue
         try:
             if category == 'orders':
@@ -528,7 +550,11 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                 data, complete = [], False
                 source_total, coverage_reason = None, None
                 activity_pages_received = 0
-                for offset in ACTIVITY_OFFSETS:
+                prior_rows = []
+                head_fingerprint = None
+                next_offset = 0
+                offsets = list(ACTIVITY_OFFSETS)
+                for offset in offsets:
                     page = get('/accounts/' + aid + '/activities', config, {'offset': offset, 'limit': 500})
                     if not isinstance(page, dict): raise ReadError('INVALID_RESPONSE')
                     batch = rows(page.get('data'), wrapped=False)
@@ -541,13 +567,25 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                         if source_total is not None and source_total != total:
                             raise ReadError('INVALID_RESPONSE')
                         source_total = total
+                    if offset == 0:
+                        head_fingerprint = hashlib.sha256(json.dumps(batch, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+                        cursor = old.get('nextOffset')
+                        if (old.get('pagingVersion') == HISTORY_PAGING_VERSION
+                                and old.get('activityCoverageReason') == 'PAGE_LIMIT'
+                                and old.get('headFingerprint') == head_fingerprint
+                                and old.get('activitySourceTotal') == source_total
+                                and type(cursor) is int and 0 < cursor < HISTORY_MAX_ROWS
+                                and cursor % 500 == 0 and not old.get('conflictingActivityIdentifiers')):
+                            prior_rows = old.get('rows') or []
+                            offsets[1:] = list(range(cursor, min(HISTORY_MAX_ROWS, cursor + (len(ACTIVITY_OFFSETS)-1)*500), 500))
                     data.extend(batch)
-                    preview = portfolio.journal_rows(data,category,number,text)
+                    preview = prior_rows + activity_rows(data)
                     if len(json.dumps(preview).encode())+len(json.dumps(result.get('orders',{})).encode())>max_bytes:
                         if batch: del data[-len(batch):]
                         coverage_reason = 'SIZE_LIMIT'
                         break
-                    if source_total is not None and offset + len(batch) >= source_total:
+                    next_offset = offset + len(batch)
+                    if source_total is not None and next_offset >= source_total:
                         complete = True
                         break
                     if len(batch) < 500:
@@ -558,7 +596,7 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                         break
                 if not complete and coverage_reason is None:
                     coverage_reason = 'PAGE_LIMIT'
-            normalized = portfolio.journal_rows(data, category, number, text)
+            normalized = prior_rows + activity_rows(data) if category == 'activities' else portfolio.journal_rows(data, category, number, text)
             unique, conflicts = {}, set()
             for row in normalized:
                 key = row['key']
@@ -573,6 +611,9 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                     continue
                 unique[key] = row
             normalized = sorted(unique.values(), key=lambda row: row['date'], reverse=True)
+            if category == 'activities' and complete and len(normalized) != (source_total if source_total is not None else next_offset):
+                complete = False
+                coverage_reason = 'IDENTITY_COUNT_MISMATCH'
             result[category] = dict(rows=normalized, checkedAt=utcnow(), attemptedEpoch=time.time(),
                                     code='READ_OK', complete=complete and not conflicts,
                                     conflictingOrderIdentifiers=len(conflicts) if category == 'orders' else 0,
@@ -581,6 +622,8 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                                     activityCoverageReason=coverage_reason if category == 'activities' else None,
                                     activityPagesReceived=activity_pages_received if category == 'activities' else None,
                                     schemaVersion=trades.SCHEMA)
+            if category == 'activities':
+                result[category].update(pagingVersion=HISTORY_PAGING_VERSION, nextOffset=next_offset, headFingerprint=head_fingerprint)
         except (ReadError, ValueError, TypeError) as exc:
             # Only static categories; never reflect provider errors, credentials or rows.
             allowed = ('AUTH_REQUIRED', 'ACCESS_DENIED', 'RATE_LIMITED', 'PLAN_REQUIRED',
@@ -596,6 +639,7 @@ def read_journal(aid, config, previous=None, get=api_get, max_bytes=3_000_000):
                 # journal nor its original checkedAt. Count only completed
                 # pages; the rejected page contains no usable evidence.
                 result[category]['activityPagesReceived'] = activity_pages_received
+                result[category]['pagingVersion'] = HISTORY_PAGING_VERSION
     return result
 
 
@@ -743,9 +787,8 @@ def update_portfolio(snapshot, config, generation):
         prior_activities = prior_journal.get('activities') or {}
         # One mode per provider cycle: up to five standard history pages OR
         # three filtered trade pages. Never stack both bursts in one request.
-        standard_due = (time.time() - prior_activities.get('attemptedEpoch', 0) >= 86400
-                        or prior_activities.get('schemaVersion') != trades.SCHEMA)
-        journal = read_journal(aid, config, prior_journal, api_get, 3_000_000//len(snapshot['accounts']))
+        standard_due = activity_due(prior_activities)
+        journal = read_journal(aid, config, prior_journal, api_get, HISTORY_JOURNAL_BYTES//len(snapshot['accounts']))
         trade_due = (time.time() - (journal.get('tradeCoverage') or {}).get('attemptedEpoch', 0)
                      >= TRADE_COVERAGE_INTERVAL
                      or (journal.get('tradeCoverage') or {}).get('schemaVersion') != TRADE_COVERAGE_SCHEMA)
@@ -768,7 +811,7 @@ def update_portfolio(snapshot, config, generation):
     # Keep the encrypted total bounded without dropping transaction evidence.
     # Snapshot history already has bounded retention; shorten it first when
     # the expanded journal needs more of the existing four-megabyte budget.
-    while len(ledger['history'])>1 and len(json.dumps(ledger,separators=(',',':')).encode())>3_900_000:
+    while len(ledger['history'])>1 and len(json.dumps(ledger,separators=(',',':')).encode())>HISTORY_MAX_BYTES-100_000:
         del ledger['history'][:max(1,len(ledger['history'])//4)]
     snapshot['changes'] = ledger['changes']
     snapshot['history'] = [{'at': p['at'], 'complete':p['complete'], 'accounts':[
@@ -974,6 +1017,10 @@ def refresh():
                             if old and old.get('isin')==p.get('isin') and old['currency']==p['currency'] and old.get('issuerObservation'):
                                 p['issuerObservation']=copy.deepcopy(old['issuerObservation'])
                     for a in snapshot['accounts']: a.pop('providerAccountId', None)
+                    if snapshot.get('historyPersistence') == 'SAVED' and len(snapshot['accounts']) == 1:
+                        history = snapshot['accounts'][0].get('journal', {}).get('activities', {})
+                        if history.get('code') == 'READ_OK' and history.get('activityCoverageReason') == 'PAGE_LIMIT' and type(history.get('nextOffset')) is int and history['nextOffset'] < HISTORY_MAX_ROWS:
+                            _NEXT = min(_NEXT, time.monotonic() + INTERVAL)
                     _STATE.update(code='READ_OK', snapshot=snapshot, checkedAt=utcnow())
                     _SYMBOL_ACCOUNT_ID = symbol_account
         except ReadError as exc:

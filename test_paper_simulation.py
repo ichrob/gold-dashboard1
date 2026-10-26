@@ -128,7 +128,7 @@ class SimulationTests(unittest.TestCase):
         conn=Mock()
         conn.execute.return_value.fetchone.side_effect=[
             ({'startAt':sim.START,'enabled':True,'status':'running'},),None,None]
-        conn.execute.return_value.fetchall.side_effect=[[],[]]
+        conn.execute.return_value.fetchall.side_effect=[[],[],[]]
         # Fix the simulated market session: selected archive day is Saturday,
         # while CI may execute this test on a live weekday in Zurich.
         with patch.object(sim.background_push,'gold_weekend_seconds_remaining',return_value=3600), \
@@ -283,7 +283,7 @@ class SimulationTests(unittest.TestCase):
 
     def test_read_report_does_not_advance_or_write(self):
         conn=Mock();conn.execute.return_value.fetchone.side_effect=[dict_payload:=({'startAt':sim.START},),None,None]
-        conn.execute.return_value.fetchall.side_effect=[[],[]]
+        conn.execute.return_value.fetchall.side_effect=[[],[],[]]
         r=sim.report(conn,'2026-10-08');self.assertEqual(r['cases'],[])
         self.assertTrue(all(call.args[0].startswith('SELECT') for call in conn.execute.call_args_list))
 

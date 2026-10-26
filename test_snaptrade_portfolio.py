@@ -378,7 +378,7 @@ class PortfolioTests(unittest.TestCase):
         snap=b.read_snapshot(CONFIG,lambda path, _:fixtures()[path])
         base={'owner':p.identity(CONFIG['clientId']), 'history':[], 'changes':[],
               'csv':{},'journal':{}}
-        activity={'code':'READ_OK', 'rows':[], 'attemptedEpoch':clock(),
+        activity={'code':'READ_OK', 'rows':[], 'attemptedEpoch':clock(),'pagingVersion':b.HISTORY_PAGING_VERSION,
                   'schemaVersion':b.trades.SCHEMA}
         fake={'orders':{'code':'READ_OK','rows':[]},'activities':activity}
         recent=copy.deepcopy(base)
@@ -426,9 +426,9 @@ class PortfolioTests(unittest.TestCase):
         self.assertTrue(result['activities']['complete'])
         self.assertEqual(len(result['activities']['rows']),2101)
         self.assertEqual(calls,[0,500,1000,1500,2000])
-        limited=b.read_journal(A,CONFIG,get=get,max_bytes=300000)
+        limited=b.read_journal(A,CONFIG,get=get,max_bytes=100000)
         self.assertFalse(limited['activities']['complete'])
-        self.assertLess(len(json.dumps(limited).encode()),310000)
+        self.assertLess(len(json.dumps(limited).encode()),110000)
 
     def test_disconnect_during_journal_does_not_resurrect_history(self):
         snap=b.read_snapshot(CONFIG,lambda path,_:fixtures()[path])

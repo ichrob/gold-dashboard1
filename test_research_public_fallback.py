@@ -92,3 +92,19 @@ class PublicFallbackTests(unittest.TestCase):
         rows=g.upload_evidence([item])
         self.assertNotIn('heavy-base64',json.dumps(rows));self.assertNotIn('overview',rows[0])
         self.assertTrue(rows[0]['trustedTranscript']);self.assertEqual(rows[0]['outlook'],'LONG')
+
+
+class RetainedPublicationTests(unittest.TestCase):
+    def test_retained_public_video_retries_original_publication_metadata(self):
+        from unittest.mock import patch
+        item={'url':'https://www.youtube.com/watch?v=abcdefghijk','channelId':g.MCO_CHANNEL,'publishedAt':None}
+        with patch.object(g,'allowed_item',return_value=True), patch('youtube_research.enrich'), patch.object(g,'enrich_publication') as enrich:
+            g.resume_retained([item])
+        enrich.assert_called_once_with(item)
+
+    def test_existing_publication_is_preserved(self):
+        from unittest.mock import patch
+        item={'url':'https://www.youtube.com/watch?v=abcdefghijk','publishedAt':12345}
+        with patch.object(g,'allowed_item',return_value=True), patch('youtube_research.enrich'), patch.object(g,'enrich_publication') as enrich:
+            g.resume_retained([item])
+        enrich.assert_not_called()

@@ -1317,9 +1317,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  const paperKinds={'entry':'Einstieg','stop-raised':'Stop nachgezogen','target-extended':'Ziel verlängert','partial-profit':'Teilgewinn','stop':'Stop-Ausstieg','target-exit':'Ziel-Ausstieg','profit-taking':'Gewinnmitnahme bei schwächerem Momentum','time-exit':'Zeit-Ausstieg','reversal-exit':'Richtungswechsel-Ausstieg','data-gap':'Datenlücke · Ergebnis unklar','deferred-sale':'Späterer Modellverkauf zum verfügbaren Geldkurs'};
  function renderPaperCase(c,host){
   const d=document.createElement('details'),s=document.createElement('summary'),body=document.createElement('p');
-  s.textContent=(c.demonstration?'PROBELAUF':paperTime(c.startedAt))+' · '+c.plan.direction+' · '+c.product.isin+' · '+({open:'offen',closed:'abgeschlossen',inconclusive:'nicht eindeutig'}[c.status]||c.status);
+  s.textContent=(c.demonstration?'PROBELAUF':paperTime(c.startedAt))+' · '+c.plan.direction+' · '+c.product.isin+' · '+(c.administrativeReview?.label||{open:'offen',closed:'abgeschlossen',inconclusive:'nicht eindeutig'}[c.status]||c.status);
   body.className='small';body.style.whiteSpace='pre-line';
-  body.textContent=[c.product.approval,c.product.warning||'',
+  body.textContent=[c.product.approval,c.product.warning||'',c.performanceExclusionReason||'',
    'Goldplan: Einstieg '+paperNumber(c.plan.entry)+' · ursprünglicher Stop '+paperNumber(c.plan.stop)+' · ursprüngliches Ziel '+paperNumber(c.plan.target)+' USD/oz',
    'Aktueller Stop '+paperNumber(c.engine.trade.stop)+' · Ziel '+paperNumber(c.engine.trade.target)+' · Rest '+Math.round(c.remaining*100)+' %',
    'Beobachtetes Goldplan-Ergebnis '+paperNumber(c.goldR)+' R'+(c.status!=='closed'?' (Zwischenstand, keine vollständige Bewertung)':''),
@@ -1345,7 +1345,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     'Abgleich '+paperTime(r.productSyncedAt)+(weekend?' · Anbieterabrufe bis Montag 00:00 Uhr (Zürich) pausiert.':night||phase==='preparation'?' · Automatische DEGIRO-Produktabrufe bis 08:00 Uhr pausiert.':' · Anbieterwerte werden im Hintergrund erneut abgerufen.')+' Keine Order und keine Trade-Pushs.'
    ].join('\n'));
    const st=r.stats;
-   text('paperStats',r.day+' · Tagesanfang '+paperMoney(st.openingCapital)+' · letzter Kapitalstand '+paperMoney(st.capital)+' · Tagesgewinn/-verlust '+paperMoney(st.dayProfit)+'\n'+(st.closed||0)+' abgeschlossene / '+(st.inconclusive||0)+' unklare Fälle. Goldplan: '+(st.goldPositive||0)+' positiv / '+(st.goldNegative||0)+' negativ / '+(st.goldFlat||0)+' unverändert.\nProdukt-Bruttovergleich: '+(st.productKnown||0)+' auswertbar · '+(st.productPositive||0)+' positiv / '+(st.productNegative||0)+' nicht positiv. Keine Nettogewinn- oder Erfolgsbehauptung.\n'+(st.lastWait?'Letzter Prüfstand: '+st.lastWait:'Noch keine echten Simulationsfälle für diesen Tag.')+'\nFalldetails: höchstens '+r.detailsLimit+' neueste Fälle; rollierend '+r.detailRetentionDays+' Tage. Tagesstatistik bleibt erhalten.');
+   text('paperStats',r.day+' · Tagesanfang '+paperMoney(st.openingCapital)+' · letzter Kapitalstand '+paperMoney(st.capital)+' · Tagesgewinn/-verlust '+paperMoney(st.dayProfit)+'\n'+(st.closed||0)+' abgeschlossene / '+(st.inconclusive||0)+' unklare Fälle. Goldplan: '+(st.goldPositive||0)+' positiv / '+(st.goldNegative||0)+' negativ / '+(st.goldFlat||0)+' unverändert.\nProdukt-Bruttovergleich: '+(st.productKnown||0)+' auswertbar · '+(st.productPositive||0)+' positiv / '+(st.productNegative||0)+' nicht positiv. Keine Nettogewinn- oder Erfolgsbehauptung.\n'+(st.lastWait?'Letzter Prüfstand: '+st.lastWait:'Noch keine echten Simulationsfälle für diesen Tag.')+'\nFalldetails: höchstens '+r.detailsLimit+' neueste Fälle; '+(r.detailRetention==='permanent'?'dauerhaft gespeichert':('rollierend '+r.detailRetentionDays+' Tage'))+'. Tagesstatistik bleibt erhalten.');
    const host=document.getElementById('paperCases');host.replaceChildren();r.cases.forEach(caseRecord=>renderPaperCase(caseRecord,host));
    const demo=document.getElementById('paperDemo');demo.replaceChildren();for(const c of (r.demonstrations||[r.demonstration])){const label=document.createElement('p');label.textContent=c.scenarioName?((c.checkPassed?'✓ Bestanden · ':'✗ Prüfen · ')+c.scenarioName):'LONG-Probelauf';demo.append(label);renderPaperCase(c,demo);}
    text('paperRules',r.note);text('paperDaily',JSON.stringify(r.daily,null,2));
@@ -3551,11 +3551,16 @@ function adxCalc(c,p=14){return dmiCalc(c,p).adx??0;}
 // infer holiday closures, or accept missing hours during the trading session.
 function dmiAdjacent(a,b,step){
  if(b.openTime-a.openTime===step)return true;
- if(step!==3600000||b.openTime-a.openTime!==2*step||a.source!==b.source||
+ if(step!==3600000||a.source!==b.source||
     !['biquote · XAU/USD Broker/MT5','XAUS · datierte XAU/USD-Historie'].includes(a.source))return false;
- const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(a.openTime+step));
- const hour=parts.find(x=>x.type==='hour')?.value,day=parts.find(x=>x.type==='weekday')?.value;
- return hour==='17'&&['Mon','Tue','Wed','Thu'].includes(day);
+ const local=at=>Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(at)).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
+ const gap=(b.openTime-a.openTime)/step;
+ if(gap===2){const p=local(a.openTime+step);return p.hour==='17'&&['Mon','Tue','Wed','Thu'].includes(p.weekday);}
+ // Observed XAUS Friday 16:00 -> Sunday 18:00 NY session boundary.
+ // Only this exact source/boundary; never accept a missing trading hour.
+ if(a.source!=='XAUS · datierte XAU/USD-Historie'||![49,50,51].includes(gap))return false;
+ const before=local(a.openTime),after=local(b.openTime);
+ return before.weekday==='Fri'&&before.hour==='16'&&after.weekday==='Sun'&&after.hour==='18';
 }
 function dmiContext(bundle,now=Date.now()){
  const frames={},steps={'5m':300000,'15m':900000,'1h':3600000};
