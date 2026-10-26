@@ -4625,9 +4625,60 @@ function listAppendSourceFiles(mode,staged,archive,now=Date.now()){
  if(archive.files.some(x=>!x?.blob||!x?.name))return null;
  return archive.files.map(x=>({name:x.name,blob:x.blob}));
 }
+// Emergency admission only for the two screenshots visually reviewed in this
+// conversation on 26 Oct. The ChatGPT JPEGs were recompressed, so their full
+// hashes are NOT the hashes of the original Samsung image-picker files.
+// Bob showed the FIRST original's size (597969) and SHA-256 prefix
+// (0f8834d93678a798) in its own failed-import diagnostic. That single
+// size+64-bit-prefix match is day-scoped and never a broker execution proof.
+// Any other phone image still goes through independent live OCR.
+function reviewedOctober26DegiroListReference(digest,length){
+ const reviewed={
+  '36b0d18dd0c56d9ef1aea6bac63abccc503743f738365d1845e7acf4c03e36ff':{
+   bytes:170032,
+   rows:[
+    "SG Gold Turbo BEST Open-End Put BAR 4221.31 BP 4221.31 Bv 10 | DE000FG7Q3A9\nSociete Generale OTC EUR",
+    "BNP GOLD Unlimited Long SL 3932.3275 STR 3932.3275 R 10 | DE000BY4TLN0\nBNP OTC EUR",
+    "BNP GOLD Mini Long SL 3687.0930 STR 3614.7971 R 10 | DE000PJ8APE4\nBNP OTC EUR",
+    "SG Gold Knock-Out Warrant Call BAR 3400 BP 3400 Bv 10 18/12/2026 | DE000FG0SGZ2\nSociete Generale OTC CHF",
+    "SG Gold Turbo BEST Open-End Call BAR 3729.14 BP 3729.14 Bv 10 | DE000FD0KVR8\nSociete Generale OTC EUR"
+   ],partialRows:[]
+  },
+  '2e2e59506c39ff582ee485f1cacc8ade798912997c371c2f6c3ea49a1a29f675':{
+   bytes:180528,
+   rows:[
+    "SG Gold Turbo BEST Open-End Put BAR 4181.31 BP 4181.31 Bv 10 | DE000FG77MY4\nSociete Generale OTC EUR",
+    "SG Gold Turbo BEST Open-End Put BAR 4089.3 BP 4089.3 Bv 10 | DE000FB0CVV9\nSociete Generale OTC EUR",
+    "SG Gold Turbo Unlimited Mini Call BAR 2144 BP 2117.58 Bv 10 | DE000SQ02JQ6\nSociete Generale OTC EUR",
+    "SG Gold Knock-Out Warrant Open End Call BAR 3964.95 BP 3964.95 Bv 10 | DE000FE2JJ20\nSociete Generale OTC CHF",
+    "SG Gold Knock-Out Warrant Open End Put BAR 4521.97 BP 4521.97 Bv 10 | DE000FG34XV8\nSociete Generale OTC CHF"
+   ],
+   partialRows:[{isin:'DE000FG7Q3A9',issuer:'SG',direction:'SHORT',name:'SG Gold Turbo BEST Open-End Put'}]
+  }
+ };
+ const sha=String(digest||'').toLowerCase();
+ if(!/^[0-9a-f]{64}$/.test(sha))return null;
+ let data=reviewed[sha],reviewMethod='exact-original-sha256-visual-review';
+ if(!data&&length===597969&&sha.startsWith('0f8834d93678a798')){
+  data=reviewed['36b0d18dd0c56d9ef1aea6bac63abccc503743f738365d1845e7acf4c03e36ff'];
+  reviewMethod='samsung-image-size-and-sha256-prefix-reviewed';
+ }
+ if(!data||(reviewMethod==='exact-original-sha256-visual-review'&&data.bytes!==length))return null;
+ const items=data.rows.map(raw=>{
+  const product=parseDegiroListRow(raw);
+  if(!product?.listRow?.complete||!validIsin(product.isin))return null;
+  product.listRow.crossChecked=true;
+  product.listRow.reviewMethod=reviewMethod;
+  return product;
+ });
+ if(items.some(x=>!x)||new Set(items.map(x=>x.isin)).size!==items.length)return null;
+ return {data:{listItems:items,partialRows:data.partialRows,text:data.rows.join('\n'),
+  listLayoutVersion:1,reviewedSource:reviewMethod}};
+}
 // Evidence recovery ONLY for exact user-reviewed screenshot bytes from 23 Oct.
 // Source remains a non-executable DEGIRO list, never a live broker quote.
 function reviewedDegiroListReference(digest,length,day=zurichListDay().day){
+ if(day==='2026-10-26')return reviewedOctober26DegiroListReference(digest,length);
  if(day!=='2026-10-23')return null;
  const known={
   '858f7f174d92950edde7bdfa1cb1c168b2c0c7efd2ebcd6840a90df6aca81ab4':{
@@ -4674,7 +4725,7 @@ function reviewedDegiroListReference(digest,length,day=zurichListDay().day){
 }
 async function recognizeReviewedDegiroOriginal(file){
  if(!file||typeof file.arrayBuffer!=='function'||typeof crypto==='undefined'||!crypto.subtle
-    ||![172361,177263,619449].includes(file.size))return null;
+    ||![172361,177263,619449,170032,180528,597969].includes(file.size))return null;
  try{
   const bytes=await file.arrayBuffer();
   if(bytes.byteLength!==file.size)return null;
@@ -5063,7 +5114,7 @@ async function inject(){
  });
 const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),addButton=b.querySelector('#dgListAddButton'),uploadStatus=b.querySelector('#dgCentralStatus');
  let listUploadMode='replace',stagedListImages=[],pendingRetryBusy=false;
- uploadStatus.dataset.listReaderVersion='20261026-mini-daily-ocr-v1';
+ uploadStatus.dataset.listReaderVersion='20261026-reviewed-list-retry-v2';
  uploadButton.addEventListener('click',()=>{listUploadMode='replace';stagedListImages=[];upload.click();});
  addButton.addEventListener('click',()=>{listUploadMode='append';upload.click();});
  upload.addEventListener('change',async()=>{
