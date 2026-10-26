@@ -17,6 +17,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from product_quotes import valid_isin
+import degiro_research_review
 
 ZONE = ZoneInfo("Europe/Zurich")
 # Historical user-reviewed DEGIRO list identities, including the BNP products
@@ -71,6 +72,7 @@ def normalize(isin, expected_direction, raw):
     if product_verified and (not _same_spot(meta) or meta.get("direction") != expected_direction):
         return None, dict(isin=isin, reason="Basiswert/Währung/Richtung weicht ab; keine Gold-Spot-Kandidatur")
     # Fail closed: absence of a quote means unknown, not removal from DEGIRO.
+    issuer_comparison = degiro_research_review.issuer_observation(isin, expected_direction, raw)
     item = dict(isin=isin, direction=expected_direction,
         name=str(raw.get("name") or "Gold-Knock-out · historischer Listenfund")[:120],
         source="Historische DEGIRO-Listenbilder + Emittentenprüfung",
@@ -85,7 +87,11 @@ def normalize(isin, expected_direction, raw):
         issuerQuoteFresh=bool(product_verified and raw.get("found") is True
                               and raw.get("eligible") is True and raw.get("fresh") is True),
         degiroListed=None, degiroTradingEnabled=None,
-        screenshotToday=False, liveApproved=False, eligibleForTop3=False)
+        screenshotToday=False, liveApproved=False, eligibleForTop3=False,
+        issuerComparison=issuer_comparison,
+        issuerLeverage=(issuer_comparison or {}).get('leverage'),
+        # No KO distance or financing rate is guessed from a strike or KO barrier.
+        koDistancePercent=None, financingCostPercent=None)
     return item, None
 
 
@@ -272,6 +278,10 @@ def diagnostics(now=None):
 def snapshot():
     with _LOCK:
         status=copy.deepcopy(_CURRENT)
+    # Research Top3 requires measured KO distance, issuer leverage and financing cost.
+    # Without all three it intentionally remains empty; active Top3 is untouched.
+    status['researchTop3'] = degiro_research_review.preview_top3(status.get('candidates') or [])
+    status['issuerComparisonCount'] = sum(bool(c.get('issuerComparison')) for c in status.get('candidates', []))
     status.update(sourceType="historic-user-list-plus-issuer-research",
         completeDegiroCatalog=False, degiroAccountConnected=False,
         canAutoImportVerifiedDegiroList=False, automaticOrders=False,
