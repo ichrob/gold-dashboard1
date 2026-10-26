@@ -3560,14 +3560,17 @@ function dmiAdjacent(a,b,step){
 function dmiContext(bundle,now=Date.now()){
  const frames={},steps={'5m':300000,'15m':900000,'1h':3600000};
  for(const [tf,step] of Object.entries(steps)){
-  let rows=(bundle?.history?.bars_by_tf?.[tf]||[]).filter(b=>!b.isOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now).sort((a,b)=>a.openTime-b.openTime).slice(-220);
+  let rows=(bundle?.history?.bars_by_tf?.[tf]||[]).filter(b=>!b.isOpen&&!b.providerIsOpen&&Number.isFinite(b.openTime)&&b.openTime+step<=now).sort((a,b)=>a.openTime-b.openTime).slice(-220);
   // Restart after unexplained gaps; the observed hourly maintenance pause
   // is excluded from the research sample without synthesizing a candle.
   let start=rows.length-1;
   while(start>0&&dmiAdjacent(rows[start-1],rows[start],step))start--;
   rows=rows.slice(Math.max(0,start));
-  const valid=rows.length>=31&&now-rows.at(-1).openTime<=2*step&&rows.every((b,i)=>b.instrument==='XAU/USD'&&!b.estimated&&b.openTime%step===0&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&(!i||dmiAdjacent(rows[i-1],b,step)));
-  if(!valid){frames[tf]={available:false,reason:'Geschlossene, aktuelle und lückenlose Goldkerzen fehlen'};continue;}
+  // DMI is research-only, but must never blend unlike or undated original sources.
+   const knownSource=['biquote · XAU/USD Broker/MT5','XAUS · datierte XAU/USD-Historie'].includes(rows[0]?.source);
+   const oneOriginalSource=knownSource&&rows.every(b=>b.source===rows[0].source);
+   const valid=rows.length>=31&&now-rows.at(-1).openTime<=2*step&&oneOriginalSource&&rows.every((b,i)=>b.instrument==='XAU/USD'&&!b.estimated&&b.openTime%step===0&&['open','high','low','close'].every(k=>Number.isFinite(b[k])&&b[k]>0)&&b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)&&b.low<=b.high&&(!i||dmiAdjacent(rows[i-1],b,step)));
+  if(!valid){frames[tf]={available:false,reason:rows.length<31?'Nur '+rows.length+' zusammenhängende Original-Schlusskerzen; mindestens 31 erforderlich':!oneOriginalSource?'Uneinheitliche oder unbelegte Kerzenquelle':'Geschlossene, aktuelle und lückenlose Goldkerzen fehlen',confirmedClosedBars:rows.length,lastOriginalBarAt:rows.at(-1)?.openTime??null};continue;}
   const current=dmiCalc(rows),previous=dmiCalc(rows.slice(0,-1)),earlier=dmiCalc(rows.slice(0,-3));
   const gap=current.plusDI-current.minusDI,oldGap=previous.plusDI-previous.minusDI;
   frames[tf]={...current,sessionBreaks:rows.filter((b,i)=>i&&b.openTime-rows[i-1].openTime!==step).length,barAt:rows.at(-1).openTime,direction:gap>0?'LONG':gap<0?'SHORT':'NEUTRAL',gap,gapChange:gap-oldGap,dominanceChange:Math.abs(gap)-Math.abs(oldGap),adxChange:current.adx-earlier.adx,cross:gap*oldGap<0};
