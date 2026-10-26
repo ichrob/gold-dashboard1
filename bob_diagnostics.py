@@ -127,7 +127,8 @@ def evaluator_queue_log_sample(logs, *, window_start, window_end,
     samples = {}
     ignored = 0
     for row in logs[:100]:
-        if not isinstance(row, dict) or not start <= (clock(row.get('timestamp')) or start.replace(year=1970)) <= end:
+        stamp = clock(row.get('timestamp')) if isinstance(row, dict) else None
+        if stamp is None or not start <= stamp <= end:
             ignored += 1
             continue
         labels = row.get('labels')
@@ -161,7 +162,7 @@ def evaluator_queue_log_sample(logs, *, window_start, window_end,
                        for key in keys)):
             ignored += 1
             continue
-        samples.setdefault(instance, []).append((clock(row['timestamp']), data))
+        samples.setdefault(instance, []).append((stamp, data))
     ordered = []
     regressions = 0
     for values in samples.values():
