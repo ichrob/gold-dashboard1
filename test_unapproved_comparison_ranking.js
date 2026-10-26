@@ -4,6 +4,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const src=fs.readFileSync('degiro_assistant.js','utf8');
 const context={window:{},localStorage:{getItem:()=>null,setItem:()=>{}}};
 vm.createContext(context);vm.runInContext(src,context,{timeout:4000});
+context.window.BobProductEvidence=require('./product_evidence_contract');
 const b=context.window.BobDegiro;
 const now=Date.parse('2026-10-26T13:51:00Z');
 const market={now,direction:'LONG',spotFresh:true,spot:4140,atr:10,
@@ -56,3 +57,21 @@ assert.doesNotMatch(b.renderContinuingAnalysis([p],{...market,direction:'NEUTRAL
 assert.match(b.renderContinuingAnalysis([p],{...market,direction:'NEUTRAL'}),/ABWARTEN/);
 assert.doesNotMatch(b.renderContinuingAnalysis([p],{...market,spotFresh:false}),/data-unified-ranking-isin/);
 assert.doesNotMatch(b.renderContinuingAnalysis([p],{...market,direction:'SHORT'}),/data-unified-ranking-isin="DE000FG14AV8"/);
+
+const calcProduct={...p,priceCalculated:true,calculationEvidence:{price:{method:'issuer formula',source:'issuer',at:new Date(now-10000).toISOString()}}};
+const calcMarkup=b.renderContinuingAnalysis([calcProduct],market);
+assert.doesNotMatch(calcMarkup,/RECHNERISCH FREIGEGEBEN/,'Free-form calculation labels cannot replace actual product evidence');
+assert.match(calcMarkup,/NICHT FREIGEGEBEN/);
+const noProofMarkup=b.renderContinuingAnalysis([{...calcProduct,calculationEvidence:{}}],market);
+assert.doesNotMatch(noProofMarkup,/RECHNERISCH FREIGEGEBEN/);
+
+for(const bad of [
+ {...calcProduct,isin:'DE000FG309G0'},
+ {...calcProduct,isinConfirmed:false},
+ {...calcProduct,quote:{isin:p.isin,productVerified:true,metadata:{status:0}}},
+ {...calcProduct,underlyingType:'FUTURE'},
+ {...calcProduct,price:Infinity},
+ {...calcProduct,ko:4139}
+])assert.doesNotMatch(b.renderContinuingAnalysis([bad],market),/RECHNERISCH FREIGEGEBEN/);
+context.window.BobAnalysisAge=()=>['Quelle veraltet'];
+assert.doesNotMatch(b.renderContinuingAnalysis([calcProduct],market),/RECHNERISCH FREIGEGEBEN/);
