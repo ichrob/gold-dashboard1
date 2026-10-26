@@ -61,3 +61,31 @@ assert(!evidence.goldProductRepairStatus(p,now).includes('repariert'));
  await scheduler.refresh();assert.deepEqual(calls,[2,2,1,2]);
  console.log('Eight-point Gold UI: grouping, collapsed cards, stale list, source retry, non-executable proof and quote suppression OK');
 })().catch(e=>{console.error(e);process.exitCode=1});
+// A valid shared issuer observation must survive the compact card's filter.
+// Synthetic values: no private product data in regression fixtures.
+const sharedAt=new Date(now-1000).toISOString();
+const sharedProduct={...p,quote:{isin,productVerified:true,found:false,source:'SG',
+ metadata:{status:1},chartEvidence:{pointAt:sharedAt},
+ sharedTimeContext:{kind:'issuer-collection',isin,at:sharedAt,fields:['Referenzhebel']},
+ issuerLeverageReference:{value:12.345,dated:false,eligible:false,sharedContextAt:sharedAt,source:'SG'}}};
+const sharedFields=b.productFieldStates(sharedProduct,now);
+assert.equal(sharedFields.leverage.state,'gemeinsamer SG-Zeitbezug · aktuell (nur Analyse)');
+function compactLever(product,time){
+ const html=b.goldProductCompactView(product,time);
+ return {html,value:html.match(/Hebel<\/div><strong>([^<]*)<\/strong>/)?.[1]};
+}
+const sharedCard=compactLever(sharedProduct,now);
+assert.equal(sharedCard.value,'12.345×');
+assert(sharedCard.html.includes('data-compact-leverage-source'));
+assert(sharedCard.html.includes('nur Analyse'));
+assert(sharedCard.html.includes(sharedAt));
+assert.equal(b.finalProductStatus(sharedProduct,now).complete,false);
+assert.equal(compactLever(sharedProduct,now+300000).value,'—','Expired shared evidence stays unavailable');
+assert.equal(compactLever(sharedProduct,now-2000).value,'—','Future time is not current evidence');
+const mismatched=JSON.parse(JSON.stringify(sharedProduct));
+mismatched.quote.sharedTimeContext.isin='DETEST000001';
+assert.equal(compactLever(mismatched,now).value,'—','No cross-product evidence reuse');
+const directProduct=JSON.parse(JSON.stringify(sharedProduct));
+Object.assign(directProduct.quote,{leverage:8,leverageAt:sharedAt});
+assert.equal(compactLever(directProduct,now).value,'8×','Fresh original leverage remains preferred');
+console.log('Compact leverage: shared observation visible; stale/future/mismatched evidence rejected; original preferred');

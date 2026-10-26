@@ -2632,10 +2632,15 @@ function goldProductCompactView(p,now=Date.now()){
  const verified=typeof serverAnalysisEvidence==='function'?serverAnalysisEvidence(p,now):null;
  const fields=productFieldStates(p,now),status=productDataStatus(p,now);
  const acceptable=x=>x&&typeof x.value==='number'&&x.value>0&&
-   (x.state==='aktuell'||/Momentaufnahme|innerhalb Altersgrenze/.test(x.state||''));
+   !/(unbestätigt|veraltet|abweichend)/i.test(x.state||'')&&
+   (x.state==='aktuell'||x.state==='gemeinsamer SG-Zeitbezug · aktuell (nur Analyse)'||
+    /Momentaufnahme|innerhalb Altersgrenze/.test(x.state||''));
  const bid=verified?.quote.bid??(acceptable(fields.bid)?fields.bid.value:null);
  const ask=verified?.quote.ask??(acceptable(fields.ask)?fields.ask.value:null);
  const lever=verified?.leverage??(acceptable(fields.leverage)?fields.leverage.value:null);
+ const leverageNote=lever!==null&&!verified&&fields.leverage?.kind==='issuer-reference'
+   ?'Hebel: gemeinsamer SG-Zeitbezug · nur Analyse · '+fields.leverage.at
+   :'';
  const currency=verified?.quote.currency||p.quote?.nativeChartEvidence?.currency||p.quote?.currency||'EUR';
  const number=x=>Number.isFinite(x)&&x>0?Number(x).toLocaleString('de-CH',{maximumFractionDigits:3}):'—';
  const term=typeof koEvidenceStatus==='function'?koEvidenceStatus(p,now):null;
@@ -2657,6 +2662,7 @@ function goldProductCompactView(p,now=Date.now()){
    [['Geld',number(bid)+' '+(bid!==null?currency:'')],['Brief',number(ask)+' '+(ask!==null?currency:'')],['Hebel',number(lever)+(lever!==null?'×':'')],['KO-Abstand',Number.isFinite(distance)&&distance>=0?distance.toFixed(2)+' %':'—']].map(([label,value])=>
     '<div style="min-width:0;padding:6px;border-radius:7px;background:#f2f5f9"><div class="small">'+esc(label)+'</div><strong>'+esc(value.trim())+'</strong></div>').join('')+
   '</div><div class="small" data-analysis-status>'+esc(detail)+(timestamp?' · Kurszeit '+esc(timestamp):'')+'</div>'+
+  (leverageNote?'<div class="small" data-compact-leverage-source>'+esc(leverageNote)+'</div>':'')+
   '<div class="small" data-gold-sync="'+esc(sync.state)+'">'+esc(sync.message)+'</div>'+
   '<div class="small" data-gold-repair>'+esc(goldProductRepairStatus(p,now))+'</div>'+
   '<div class="small" data-execution-separate style="color:#92400e">Ausführbarer DEGIRO-Orderkurs und tatsächliche Ausführung nicht bestätigt · keine Handelsfreigabe</div></div>';
