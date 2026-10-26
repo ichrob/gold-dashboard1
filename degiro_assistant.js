@@ -2993,9 +2993,19 @@ function showListArchive(){
 }
 async function saveListArchive(files,items){
  if(!Array.isArray(items)||!items.some(p=>validIsin(p?.isin)))throw Error('Keine gültige Produkt-ISIN erkannt. Alte Liste bleibt erhalten.');
+ const previousArchive=listArchive;
  listRevision++;
  const record={files:files.map(file=>({name:file.name,blob:file})),items,storedAt:new Date().toISOString()};
  await archiveTransaction('readwrite',store=>{store.put(JSON.stringify({version:2,products:items.map(cleanStoredProduct).filter(Boolean),listUploadedAt:record.storedAt}),'products');return store.put(record,'list');});
+ // Archive both generations at the import boundary, even before the next UI repaint.
+ // History remains optional metadata and never grants current broker eligibility.
+ try{
+  const history=window.BobDegiroAllProducts?.updateEvidenceHistory;
+  if(history){
+   if(previousArchive?.storedAt)history(localStorage,previousArchive.items,previousArchive.storedAt);
+   history(localStorage,record.items,record.storedAt);
+  }
+ }catch(_){}
  localStorage.setItem(LIST_DAY_KEY,zurichListDay(Date.parse(record.storedAt)).day);
  listArchive=record;showListArchive();
  // Best effort: storage persistence does not change quote/evidence timestamps.

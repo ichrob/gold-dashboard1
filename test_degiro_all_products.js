@@ -90,3 +90,17 @@ assert.equal(history.items.find(x=>x.isin===ids[0]).lastSeenAt,new Date(observed
 assert.equal(history.items.find(x=>x.isin===ids[1]).lastSeenAt,new Date(observed2).toISOString());
 assert(history.items.every(x=>x.brokerTradeable===false));
 assert.equal(combined.updateEvidenceHistory(evidenceStore,[{isin:ids[2]}],new Date(observed2+60000).toISOString(),observed2).saved,false);
+
+const historyKey='bobDegiroIsinEvidenceHistoryV1';
+assert.equal(combined.updateEvidenceHistory(evidenceStore,[],new Date(observed1).toISOString(),NaN).saved,false);
+for(const bad of ['{',JSON.stringify({version:2,items:[]})]){
+ evidenceStore.values[historyKey]=bad;
+ assert.equal(combined.updateEvidenceHistory(evidenceStore,[],new Date(observed1).toISOString(),observed2).saved,false);
+ assert.equal(evidenceStore.values[historyKey],bad,'Unreadable history must not be overwritten');
+}
+evidenceStore.values[historyKey]=JSON.stringify({version:1,items:[{isin:ids[0],lastSeenAt:new Date(observed2+60000).toISOString(),brokerTradeable:true}]});
+const repaired=combined.updateEvidenceHistory(evidenceStore,[{isin:ids[0]}],new Date(observed1).toISOString(),observed2);
+assert.equal(repaired.items[0].lastSeenAt,new Date(observed1).toISOString(),'Future saved date cannot suppress original evidence');
+assert.equal(repaired.items[0].brokerTradeable,false);
+assert.equal(combined.updateEvidenceHistory({getItem:()=>null,setItem(){}},[],new Date(observed1).toISOString(),observed2).saved,false,'Silent write failure cannot report success');
+console.log('History safety: corrupt store, future timestamps, invalid clock and silent write failure passed');
