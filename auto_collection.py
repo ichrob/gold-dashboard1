@@ -60,7 +60,10 @@ def _worker_cycle_summary():
         return dict(status="not-observed", observedCycles=0, readOnly=True,
                     workerMissedCyclesVerified=False,
                     scope="process-local-worker-starts-not-market-tick-proof")
-    comparable = [item["observedStartGapSeconds"] for item in history
+    # The first retained row can carry a gap to an evicted predecessor.
+    # That predecessor is outside the bounded observation window, so only
+    # intervals whose two endpoints remain in history are comparable.
+    comparable = [item["observedStartGapSeconds"] for item in history[1:]
                   if item["observedStartGapSeconds"] is not None]
     last = history[-1]
     return dict(status="observed", observedCycles=len(history),
