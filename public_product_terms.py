@@ -87,7 +87,7 @@ def parse_page(html,isin,now=None):
         reason='Produkt ausgeknockt oder beendet – ausgeschlossen' if inactive else 'Produktbedingungen übernommen; aktuelle Kurszeiten und der Datenstand veränderlicher Bedingungen bleiben separat erforderlich',
         conditions=conditions,isDegiroQuote=False,
         metadata=dict(direction=direction,underlying=underlying,underlyingType='FUTURE' if contract else 'SPOT',
-            contract=contract,ratio=ratio,strike=strike,ko=ko,status=2 if inactive else 1,
+            contract=contract,ratio=ratio,strike=strike,ko=ko,currency=currency,status=2 if inactive else 1,
             tradingHalted=False,termsDated=False,observedAt=now.isoformat()),
         observedTerms=dict(strike=strike,ko=ko,contract=contract,underlying=underlying,source=url,effectiveAt=None))
 
