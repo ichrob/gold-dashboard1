@@ -140,6 +140,42 @@ class AutoCollectionTests(unittest.TestCase):
             a.tick(weekend)
             archive.assert_called_once_with('read', {})
 
+    def test_collection_timing_is_bounded_metadata_not_a_market_or_tick_claim(self):
+        research = dict(contract='GCZ26', underlyingAt=NOW.isoformat(),
+                        underlyingPriceUsd=4200)
+        output = {'available': True, 'validation': {'ready': True},
+                  'collection': {'sampleCount': 12}}
+        with patch.object(a, 'enabled', return_value=True), \
+             patch.object(a.future_estimate, 'ensure_collector'), \
+             patch.object(a.future_analysis, 'fetch_reference', return_value=research), \
+             patch.object(a.future_estimate, 'current_estimate', return_value=output), \
+             patch.object(a.bob_validation_store, 'request',
+                          return_value={'pairs': [], 'diagnostics': {'pairCount': 12}}), \
+             patch.object(a.bob_market_store, 'request', return_value={}), \
+             patch.object(a.estimate_quality, 'restore_durable'), \
+             patch.object(a.estimate_quality, 'quality', return_value={'ready': True}), \
+             patch('builtins.print') as log, \
+             patch.object(a, 'datetime') as clock:
+            clock.now.return_value = NOW
+            a.tick(NOW)
+            first = a.status()['cycleTiming']
+            self.assertIsInstance(first['referenceMs'], int)
+            self.assertIsInstance(first['archiveMs'], int)
+            self.assertIsInstance(first['totalMs'], int)
+            self.assertGreaterEqual(first['totalMs'], 0)
+            self.assertEqual(first['scope'],
+                             'one-completed-collection-call-not-scheduler-proof')
+            self.assertNotIn('cycleTiming', a.health())
+            lines = [call.args[0] for call in log.call_args_list]
+            self.assertTrue(any(line.startswith('BOB_COLLECTION_TIMING total_ms=')
+                                for line in lines))
+            self.assertNotIn('underlyingPriceUsd', ' '.join(lines))
+            # A following due-not-yet source refresh reports no invented
+            # reference duration or original source timestamp.
+            a.tick(NOW)
+            self.assertIsNone(a.status()['cycleTiming']['referenceMs'])
+            self.assertEqual(a.status()['referenceAt'], NOW.isoformat())
+
     def test_missing_archive_is_unknown_not_a_zero_count(self):
         with patch.object(a.bob_validation_store, 'request', side_effect=OSError()), patch.object(a.bob_market_store, 'request', side_effect=OSError()):
             a.paused_report(NOW + timedelta(days=1))
