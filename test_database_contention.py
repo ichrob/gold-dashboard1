@@ -130,6 +130,35 @@ class DatabaseContentionTests(unittest.TestCase):
             last_day = decision_audit._load_prospective_rows(conn,recent=True)
             self.assertEqual([row[0]['id'] for row in last_day],['first','later'])
 
+    def test_prospective_sampling_uses_filtered_cursor_index(self):
+        """The 30-day research scan must not re-filter the full JSONB archive."""
+        from psycopg.types.json import Jsonb
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE TEMP TABLE bob_decision_audit (id TEXT PRIMARY KEY, recorded_at TIMESTAMPTZ, payload JSONB)')
+            conn.execute('CREATE TEMP TABLE bob_decision_outcomes (decision_id TEXT, horizon INTEGER, truth JSONB)')
+            conn.execute("""CREATE INDEX bob_audit_prospective_cursor
+                ON bob_decision_audit ((payload->>'ruleVersion'),recorded_at,id)
+                WHERE """ + decision_audit.PROSPECTIVE_INDEX_PREDICATE)
+            valid = Jsonb(dict(reviewVariants=dict(version='signal-review-v1'),
+                               origin='background', ruleVersion=decision_audit.RULE_VERSION,
+                               direction='LONG'))
+            irrelevant = Jsonb(dict(reviewVariants=dict(version='signal-review-v1'),
+                                    origin='browser', ruleVersion=decision_audit.RULE_VERSION,
+                                    direction='LONG'))
+            for n in range(200):
+                conn.execute("""INSERT INTO bob_decision_audit
+                    VALUES (%s,now()-interval '2 days' + %s * interval '5 minutes',%s)""",
+                             ('irrelevant-' + str(n), n, irrelevant))
+            conn.execute("INSERT INTO bob_decision_audit VALUES ('eligible',now()-interval '1 hour',%s)",
+                         (valid,))
+            # Force a deterministic planner contract even though this fixture
+            # is intentionally much smaller than the production archive.
+            conn.execute('SET LOCAL enable_seqscan=off')
+            self.assertEqual(len(decision_audit._load_prospective_rows(conn)), 1)
+            sql, params = decision_audit._prospective_query()
+            plan = conn.execute('EXPLAIN (FORMAT JSON) ' + sql, params).fetchone()[0]
+            self.assertIn('bob_audit_prospective_cursor', str(plan))
+
     def test_future_dated_records_never_enter_historical_hourly_research(self):
         """Bad future rows cannot become historical evidence or widen the scan."""
         from psycopg.types.json import Jsonb
