@@ -5311,25 +5311,48 @@ function productSelectionExplanation(products,context,ranked,marketWarnings=[]){
  return {state:'no-match',text:'Die Marktdaten sind aktuell und die Richtung ist '+direction+'. Von den ausreichend belegten Produkten erfüllt derzeit keines sämtliche Auswahlkriterien. Andere Produkte können zusätzlich unvollständige Nachweise haben.'};
 }
 function renderContinuingAnalysis(products,context){
- if(typeof document!=='undefined')for(const [i,p] of products.entries())for(const [field,key] of [['price','Brief'],['lev','Hebel'],['ko','KO']]){
-  const input=document.querySelector('[data-dg="'+field+'"][data-i="'+(i+1)+'"]');if(!input)continue;
-  const e=p.snapshot?.evidence?.[key],at=e?.at||(field==='price'?(p.snapshot?.sourceTime||p.quote?.quoteAt):null);
-  const warning=calculationAge(at,p.snapshot?SCREENSHOT_MAX_AGE_MS:90000);
-  input.style.fontStyle=warning?'italic':'';input.title=warning;
+ // One complete research ranking. Approval and execution gates remain separate.
+ const rows=continuingAnalysis(Array.isArray(products)?products:[],context||{});
+ const now=context?.now??Date.now(),seen=new Set(),rankable=[],unranked=[];
+ for(const row of rows){
+  const p=row.p||{},isin=p.isin||'';
+  if(!isin||seen.has(isin))continue;
+  seen.add(isin);
+  const evidence=finalProductStatus(p,now),e=row.evaluation||{};
+  const item={...row,evidence};
+  // Do not invent scores for missing contracts, knocked-out or mismatched products.
+  const safe=validIsin(isin)&&p.isinConfirmed===true&&!knockoutStatus(p)&&
+   !isFutureProduct(p)&&!/FAKTOR|FACTOR/i.test(p.name||'')&&
+   !(p.quote?.isin&&p.quote.isin!==isin)&&
+   !(p.snapshot?.isin&&p.snapshot.isin!==isin)&&
+   n(p.price)>0&&n(p.leverage)>=1&&n(p.ko)>0&&
+   Number.isFinite(e.score)&&Number.isFinite(e.koDistancePct);
+  (safe?rankable:unranked).push(item);
  }
-
- const marketWarnings=window.BobAnalysisAge?.()||[];
- const ranked=indicativeRecommendations(products,context);
- const highestLeverage=Math.max(...ranked.map(({evaluation:e})=>e.leverage));
- const leveragePlaces=ranked.flatMap(({evaluation:e},i)=>e.leverage===highestLeverage?[i+1]:[]);
- const leverageIsins=ranked.flatMap(({p,evaluation:e})=>e.leverage===highestLeverage?[p.isin]:[]);
- const leverageHint=leveragePlaces.length?'<div data-risk-leverage data-risk-isins="'+esc(leverageIsins.join(' / '))+'" data-risk-positions="'+leveragePlaces.join(' / ')+'" style="margin:8px 0"><strong>Risiko: '+(leveragePlaces.length>1?'Plätze ':'Platz ')+leveragePlaces.join(' / ')+' · höchster Hebel: '+highestLeverage.toFixed(2)+'×</strong><details><summary>Erklärung zum Hebelrisiko</summary><div class="small">Unter den angezeigten Empfehlungen; verstärkt Gewinne und Verluste. Hebel laut vorhandenen Werten.</div></details></div>':'';
- const comparison=unapprovedComparisonRanking(products,context);
- const comparisonHtml=comparison.length?'<section data-unapproved-comparison style="margin-top:12px"><b>Vorläufige Vergleichsrangfolge · auch ohne Produktfreigabe</b><p class="small">Nur rechnerischer KO-Puffervergleich mit vorhandenen Werten. Keine aktuelle Handelsfreigabe, keine DEGIRO-Ausführbarkeit, kein Empfehlungspush. Fehlende oder alte Kurs- und Vertragsnachweise bleiben offen.</p>'+comparison.map(({p,evaluation:e,warning,proofComplete,missing},i)=>'<div data-comparison-isin="'+esc(p.isin)+'" style="margin:8px 0"><b>Vergleichsplatz '+(i+1)+' · '+esc(p.isin)+'</b>'+renderIsinCopy(p.isin,true)+' · '+esc(p.productDirection)+' · KO-Pufferwert '+e.score+'/100 · KO-Abstand '+e.koDistancePct.toFixed(2)+'%<br><strong>'+(proofComplete?'Produktnachweise vollständig, Handelsstatus ungeprüft':'NICHT FREIGEGEBEN · Nachweise offen')+'</strong>'+(warning?'<div class="small">'+esc(warning.slice(0,300))+'</div>':'')+(!proofComplete?'<div class="small">Fehlt: '+esc(missing.slice(0,2).join(' · ').slice(0,300))+(missing.length>2?' · weitere Nachweise offen':'')+'</div>':'')+'</div>').join('')+'</section>':'';
- const explanation=productSelectionExplanation(products,context,ranked,marketWarnings);
- const explanationHtml='<p data-selection-reason="'+explanation.state+'" role="status" class="small" style="margin:10px 0">'+esc(explanation.text)+'</p>';
- const recommendations=ranked.map(({p,warning,evaluation:e},i)=>'<div style="margin:10px 0"><b>'+ (i+1)+'. '+esc(p.isin)+'</b>'+renderIsinCopy(p.isin,true)+'<b> · '+esc(e.direction)+'</b><br><strong>'+esc(warning&&warning.includes('veraltet')?'Mit veralteten Werten gerechnet':warning?'Mit Werten unbekannter Aktualität gerechnet':marketWarnings.length?'Marktdaten-Aktualität eingeschränkt':'Rechnerische Empfehlung mit vorhandenen Werten')+'</strong><br>KO-Pufferwert '+e.score+'/100 · KO-Abstand '+e.koDistancePct.toFixed(2)+'%<details data-product-details="recommendation-'+esc(p.isin)+'"><summary>Begründung und Datenhinweise</summary>'+esc(warning||'Produktkurs innerhalb des Zeitfensters; weitere Feldzeiten siehe Details')+'<br>'+esc(e.reasons.join(' · ')).replace(/\bHebel\b/g,'<strong>Hebel</strong>')+'</details></div>').join('');
- return '<section data-indicative-recommendations><b>Rechnerische Empfehlung · <span style="color:'+({LONG:'#15803d',SHORT:'#b91c1c'}[context.direction]||'#ca8a04')+'">'+esc(['LONG','SHORT'].includes(context.direction)?context.direction:'ABWARTEN')+'</span></b>'+explanationHtml+leverageHint+recommendations+'</section>'+comparisonHtml;
+ rankable.sort((a,b)=>b.evaluation.score-a.evaluation.score||a.p.isin.localeCompare(b.p.isin));
+ const describe=(row,i)=>{
+  const p=row.p,e=row.evaluation||{},proof=row.evidence;
+  const rank=i===null?'Ohne Rang':'Platz '+(i+1);
+  const fields=[['Kurs',p.price],['Hebel',p.leverage],['KO',p.ko]].map(([name,value])=>{
+   const estimated=p.estimated===true||p.calculated===true||
+    (name==='Hebel'&&p.leverageCalculated===true)||
+    (name==='Kurs'&&p.priceCalculated===true);
+   return name+': '+(n(value)!==null?esc(value):'unbekannt')+
+    ' ('+(n(value)===null?'fehlt':estimated?'berechnet':'Quelle/Originalstatus prüfen')+')';
+  }).join(' · ');
+  return '<div data-unified-ranking-isin="'+esc(p.isin)+'" style="margin:8px 0"><b>'+
+   rank+' · '+esc(p.isin)+'</b>'+renderIsinCopy(p.isin,true)+
+   ' · '+esc(p.productDirection||'Richtung unbekannt')+
+   (i===null?' · nicht zuverlässig bewertbar':' · Vergleichswert '+e.score+'/100')+
+   '<br>'+fields+'<br><strong>'+(proof.complete?'Produktnachweise vollständig; DEGIRO-Ausführung nicht bestätigt':'NICHT FREIGEGEBEN · Nachweise offen')+
+   '</strong>'+(row.warning?'<div class="small">'+esc(String(row.warning).slice(0,250))+'</div>':'')+
+   (!proof.complete?'<div class="small">Fehlt: '+esc((proof.reasons||[]).slice(0,3).join(' · ').slice(0,300))+'</div>':'')+'</div>';
+ };
+ return '<section data-unified-product-ranking><b>Alle Goldprodukte · eine Rangliste</b>'+
+  '<p class="small">Original- und berechnete Werte gemeinsam vergleichen; fehlende Daten bleiben sichtbar. Die rechnerische Platzierung ist keine Handelsfreigabe oder ausführbare DEGIRO-Order.</p>'+
+  rankable.map((r,i)=>describe(r,i)).join('')+
+  unranked.map(r=>describe(r,null)).join('')+
+  (!rows.length?'<p>Keine Produkte erfasst.</p>':'')+'</section>';
 }
 function listVenueForSync(isin,archive=listArchive){
  const row=archive?.items?.find(x=>x.isin===isin)?.listRow;
