@@ -806,9 +806,9 @@ def read_access_coverage(manifest):
             (root/'Besser_werden/diagnoseziele_100_abnahmen.json')
             .read_text(encoding='utf-8'))
         historical_acceptance = inspect_acceptance(rows, acceptance_data)
-        if (historical_acceptance.get('status') != 'four-dated-independent-acceptances'
+        if (historical_acceptance.get('status') != 'five-dated-independent-acceptances'
                 or counts.get('verified-at-build') != 1
-                or counts.get('verified-at-sample') != 3):
+                or counts.get('verified-at-sample') != 4):
             raise ValueError('acceptance proof missing or inconsistent')
         # Dated evidence matrix is not an acceptance flag. Preserve original statuses.
         review = {'status':'not-available'}
@@ -838,8 +838,8 @@ def read_access_coverage(manifest):
                            'must not be mistaken for a test of a later build.'}
         except (OSError, ValueError, TypeError, KeyError):
             review={'status':'unavailable','reason':'evidence-matrix-missing-or-invalid'}
-        return {'status':'inventory-only','total':100,'verified':4,
-                'unverified':96,'counts':counts,'recordedAt':manifest.get('asOf'),
+        return {'status':'inventory-only','total':100,'verified':5,
+                'unverified':95,'counts':counts,'recordedAt':manifest.get('asOf'),
                 'buildBoundAcceptance':historical_acceptance,
                 'codeFilesMapped':len(unique_paths),'codeFilesPresent':present,
                 'codeFilesMissing':len(unique_paths)-present,
@@ -847,9 +847,9 @@ def read_access_coverage(manifest):
                 'evidenceReview':review, 'moduleInventory':module_summary,
                 'moduleDiscovery':root_discovery, 'testEvidenceInventory':test_evidence,
                 'workSplit':work_split,
-                'note':'Four goals have narrow dated original observations: seven-day journal '
+                'note':'Five goals have narrow dated original observations: module-root change, seven-day journal '
                        'sample, archived health comparison, Render CPU/RAM, and historic '
-                       'dual-service build match. 96 remain unaccepted; no continuous '
+                       'dual-service build match. 95 remain unaccepted; no continuous '
                        'deployment, device delivery, causal repair or trade approval.'}
     except (KeyError, TypeError, ValueError, AttributeError, OSError):
         return {'status':'unavailable',
