@@ -25,6 +25,24 @@ function readWatchlist(storage){
   }));
  }catch(_){return [];}
 }
+// Bounded local evidence archive. Historical listing is never current broker tradeability.
+const HISTORY_KEY='bobDegiroIsinEvidenceHistoryV1';
+function updateEvidenceHistory(storage,products,observedAt,now=Date.now()){
+ const at=safeTime(observedAt);
+ if(!at||Date.parse(at)>now||!storage?.getItem||!storage?.setItem)return {saved:false,reason:'missing trusted observation time or storage'};
+ let previous=[];
+ try{const raw=storage.getItem(HISTORY_KEY);if(raw&&raw.length<=3000000){const data=JSON.parse(raw);if(data?.version===1&&Array.isArray(data.items))previous=data.items;}}catch(_){}
+ const byId=new Map();
+ for(const old of previous.slice(0,MAX_ITEMS))if(validIsin(old?.isin)&&safeTime(old?.lastSeenAt))byId.set(old.isin,{isin:old.isin,lastSeenAt:old.lastSeenAt,source:'DEGIRO screenshot/list',brokerTradeable:false});
+ for(const p of (Array.isArray(products)?products:[]).slice(0,MAX_ITEMS)){
+  if(!validIsin(p?.isin))continue;
+  const old=byId.get(p.isin);
+  if(!old||Date.parse(old.lastSeenAt)<=Date.parse(at))byId.set(p.isin,{isin:p.isin,lastSeenAt:at,source:'DEGIRO screenshot/list',brokerTradeable:false});
+ }
+ const items=Array.from(byId.values()).sort((a,b)=>Date.parse(b.lastSeenAt)-Date.parse(a.lastSeenAt)).slice(0,MAX_ITEMS);
+ try{storage.setItem(HISTORY_KEY,JSON.stringify({version:1,items}));return {saved:true,items};}
+ catch(_){return {saved:false,reason:'storage write failed'};}
+}
 function safeTime(value){
  if(typeof value!=='string'||!/(?:Z|[+-]\d{2}:\d{2})$/i.test(value))return null;
  const t=Date.parse(value);
@@ -342,7 +360,7 @@ function mount(){
  });
  setTimeout(()=>paint(),2000);
 }
-const api={validIsin,readWatchlist,safeTime,numericPrice,quoteObservation,auditQuote,safeAudit,combine,summary,zurichQuotePhase,quotePhaseMessage,mount};
+const api={validIsin,readWatchlist,updateEvidenceHistory,safeTime,numericPrice,quoteObservation,auditQuote,safeAudit,combine,summary,zurichQuotePhase,quotePhaseMessage,mount};
 if(typeof module==='object'&&module.exports)module.exports=api;
 root.BobDegiroAllProducts=api;
 if(!root.document)return;
