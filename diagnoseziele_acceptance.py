@@ -178,12 +178,60 @@ def _valid_archived_stage_window(record):
     return True
 
 
+def _valid_root_module_change(record):
+    """Validate the dated root-file detection, not module execution or safety."""
+    observed = _utc(record.get("observedAt"))
+    github = record.get("github")
+    tree = record.get("tree")
+    report = record.get("report")
+    if (record.get("kind") != "repository-root-new-module-detected-at-build"
+            or record.get("source") != "GitHub repository root and Bob private diagnostic read-only"
+            or record.get("build") != "e45f9a2e039eacb3cd9e1e4a247f02d4e430fbb7"
+            or observed is None or not isinstance(github, dict)
+            or github.get("ciRun") != 40244064380
+            or github.get("liveSmokeRun") != 40244064379
+            or github.get("ciConclusion") != "success"
+            or github.get("liveSmokeConclusion") != "success"
+            or not isinstance(tree, dict) or not isinstance(report, dict)):
+        return False
+    if (tree.get("baselineRecordedOn") != "2026-10-25"
+            or tree.get("baselineSourceBlobSha") !=
+               "a4acd2a55e27633ccd99295b63692b146b401dd6"
+            or tree.get("newSourceFile") != "diagnoseziele_work_split.py"):
+        return False
+    required = {"recordedSourceModules": 236,
+                "currentlySeenSourceModules": 237,
+                "newPathsNotInBaseline": 1,
+                "missingPathsFromBaseline": 0}
+    if any(type(tree.get(k)) is not int or tree[k] != v
+           for k, v in required.items()):
+        return False
+    kinds = tree.get("sourceKinds")
+    if (not isinstance(kinds, dict)
+            or set(kinds) != {"py", "js", "mjs", "cjs"}
+            or any(type(v) is not int or v < 0 for v in kinds.values())
+            or kinds != {"py": 201, "js": 36, "mjs": 0, "cjs": 0}
+            or sum(kinds.values()) != tree["currentlySeenSourceModules"]):
+        return False
+    if (report.get("status") != "changed-since-recorded-tree"
+            or report.get("traversal") != "bounded-direct-repository-root-only"
+            or report.get("readOnly") is not True
+            or report.get("realOrders") is not False
+            or report.get("individualGoalsVerified") != 0
+            or report.get("runtimeHealthVerified") is not False
+            or report.get("newModulesFunctioningVerified") is not False):
+        return False
+    # Independent CI, private diagnostic read and GitHub root listing were
+    # observed at this fixed historical SHA; a later build is NOT covered.
+    return observed.isoformat().startswith("2026-10-26T03:38:17.")
+
+
 def assess(goals, register):
-    """Four independent, narrowly dated target-specific kinds of acceptance.
+    """Five narrowly dated, independent samples with distinct target-specific proof.
 
     These facts were read via connected Render/GitHub tools before recording.
     Code validates the immutable record's shape, not external provider truth.
-    A fifth goal, mismatched source, or fake success fails closed.
+    A sixth goal, mismatched source, or fake success fails closed.
     """
     invalid = {"status": "unavailable", "readOnly": True,
                "reason": "invalid-or-unsupported-goal-acceptance"}
@@ -191,14 +239,14 @@ def assess(goals, register):
             or not isinstance(register, dict)
             or register.get("schemaVersion") != 1
             or not isinstance(register.get("accepted"), list)
-            or len(register["accepted"]) != 4):
+            or len(register["accepted"]) != 5):
         return invalid
     if not all(isinstance(g, dict) and type(g.get("id")) is int for g in goals):
         return invalid
     by_id = {g["id"]: g for g in goals}
     if sorted(by_id) != list(range(1, 101)):
         return invalid
-    expected = {7: "verified-at-sample", 8: "verified-at-sample", 13: "verified-at-sample", 18: "verified-at-build"}
+    expected = {2: "verified-at-sample", 7: "verified-at-sample", 8: "verified-at-sample", 13: "verified-at-sample", 18: "verified-at-build"}
     for id_, row in by_id.items():
         accepted = id_ in expected
         if row.get("verified") is not accepted:
@@ -212,25 +260,28 @@ def assess(goals, register):
            for r in records):
         return invalid
     by_record = {r["id"]: r for r in records}
-    if set(by_record) != set(expected) or len(by_record) != 4:
+    if set(by_record) != set(expected) or len(by_record) != 5:
         return invalid
     build_record = by_record[18]
     metric_record = by_record[13]
     history_record = by_record[8]
     stage_record = by_record[7]
+    module_record = by_record[2]
     if (not _valid_build_match(build_record)
             or not _valid_cpu_memory_window(metric_record)
             or not _valid_archived_health_pair(history_record)
-            or not _valid_archived_stage_window(stage_record)):
+            or not _valid_archived_stage_window(stage_record)
+            or not _valid_root_module_change(module_record)):
         return invalid
     return {
-        "status": "four-dated-independent-acceptances",
+        "status": "five-dated-independent-acceptances",
         "readOnly": True,
         "individuallyAcceptedAtRecordedBuild": 1,
         "individuallyAcceptedAtRecordedMetricWindow": 1,
         "individuallyAcceptedAtArchivedHealthPair": 1,
         "individuallyAcceptedAtArchivedStageWindow": 1,
-        "acceptedGoalIds": [7, 8, 13, 18],
+        "individuallyAcceptedAtRootModuleChange": 1,
+        "acceptedGoalIds": [2, 7, 8, 13, 18],
         "acceptedBuild": build_record["build"],
         "acceptedAt": build_record["checkedAt"],
         "metricSampleWindow": {
@@ -258,10 +309,19 @@ def assess(goals, register):
             "paperExecutionVerified": False,
             "noRecordedEventMeansNoRealEvent": False,
         },
-        "remainingUnaccepted": 96,
+        "moduleChangeSample": {
+            "sourceBuild": module_record["build"],
+            "observedAt": module_record["observedAt"],
+            "recordedSourceModules": module_record["tree"]["recordedSourceModules"],
+            "currentlySeenSourceModules": module_record["tree"]["currentlySeenSourceModules"],
+            "newPathsNotInBaseline": 1,
+            "runtimeHealthVerified": False,
+            "newModulesFunctioningVerified": False,
+        },
+        "remainingUnaccepted": 95,
         "currentDeployProven": False,
         "continuouslyHealthyProven": False,
-        "scope": "dated-ci-Render-metrics-private-health-pair-and-seven-day-stage-archive", 
+        "scope": "dated-ci-Render-metrics-private-health-stage-archive-and-repository-root-change", 
         "note": "The recorded external observations were read through connected tools. "
                 "Local validation only checks record structure, not fresh Render data. "
                 "No dated observation proves future capacity, uptime, trading "
