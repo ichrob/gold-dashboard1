@@ -733,3 +733,27 @@ for(const direction of ['LONG','SHORT']){
   assert(!b.selectionMarketGate({...c,...change}).ok);
  assert(!b.selectionMarketGate({...c,policy:'unknown'}).ok);
 }
+
+// The visible calculated approval and selection annotations share real source gates.
+const calcState=b.calculatedAnalysisStatus(analysisProduct,context,now);
+assert.equal(calcState.status,'calculated-approved');
+assert.equal(calcState.brokerTradeable,false);
+assert.equal(calcState.executableQuote,false);
+assert.equal(calcState.automaticOrder,false);
+assert(b.renderContinuingAnalysis([analysisProduct],context).includes('RECHNERISCH FREIGEGEBEN'));
+const calcSelected=b.selectionWorkflow([analysisProduct],context,{});
+assert(calcSelected.eligibleCandidates.every(x=>x.analysisApproval.approved));
+assert.equal(calcSelected.tradeable,false);
+for(const bad of [
+ {...analysisProduct,quote:{...analysisProduct.quote,productVerified:false}},
+ {...analysisProduct,quote:{...analysisProduct.quote,metadata:{status:0}}},
+ {...analysisProduct,quote:{...analysisProduct.quote,name:'Faktor Gold'}},
+ {...analysisProduct,underlyingType:'FUTURE'},
+ {...analysisProduct,isinConfirmed:false},
+ {...analysisProduct,leverage:Infinity},
+ {...analysisProduct,ko:4141},skewed
+])assert.equal(b.calculatedAnalysisStatus(bad,context,now).approved,false);
+assert.equal(b.calculatedAnalysisStatus(analysisProduct,context,now+301000).approved,false);
+assert.equal(b.calculatedAnalysisStatus(analysisProduct,{...context,direction:'NEUTRAL'},now).approved,false);
+assert.equal(b.calculatedAnalysisStatus(analysisProduct,{...context,spotFresh:false},now).approved,false);
+console.log('Calculated approval uses actual source/terms/risk gates in display and selection');

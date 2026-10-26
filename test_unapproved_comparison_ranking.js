@@ -60,8 +60,8 @@ assert.doesNotMatch(b.renderContinuingAnalysis([p],{...market,direction:'SHORT'}
 
 const calcProduct={...p,priceCalculated:true,calculationEvidence:{price:{method:'issuer formula',source:'issuer',at:new Date(now-10000).toISOString()}}};
 const calcMarkup=b.renderContinuingAnalysis([calcProduct],market);
-assert.match(calcMarkup,/RECHNERISCH FREIGEGEBEN/);
-assert.match(calcMarkup,/DEGIRO-Handelbarkeit nicht bestätigt/);
+assert.doesNotMatch(calcMarkup,/RECHNERISCH FREIGEGEBEN/,'Free-form calculation labels cannot replace actual product evidence');
+assert.match(calcMarkup,/NICHT FREIGEGEBEN/);
 const noProofMarkup=b.renderContinuingAnalysis([{...calcProduct,calculationEvidence:{}}],market);
 assert.doesNotMatch(noProofMarkup,/RECHNERISCH FREIGEGEBEN/);
 

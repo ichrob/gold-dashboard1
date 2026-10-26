@@ -59,27 +59,3 @@ const first=staticServer.indexOf('src="/product_evidence_contract.js"');
 const after=staticServer.indexOf('src="/degiro_handoff.js"');
 assert(first>=0&&after>first);
 console.log('Product source contract: shared bid/ask evidence, immutable clocks, CSV/watchlist union, no DEGIRO approval passed');
-const computed={isin:id,isinConfirmed:true,name:'Gold Turbo Long',productDirection:'LONG',price:4.25,leverage:12,ko:4000,priceCalculated:true,calculationEvidence:{price:{method:'issuer formula',source:'issuer',at:'2026-10-22T10:05:00Z'}}};
-const activeMarket={direction:'LONG',spotFresh:true,spot:4200,atr:10};
-const computedResult=common.calculatedApproval(computed,activeMarket,now);
-assert.equal(computedResult.status,'calculated-approved');
-assert.equal(computedResult.brokerTradeable,false);
-assert.equal(computedResult.automaticOrder,false);
-assert.equal(common.calculatedApproval({...computed,calculationEvidence:{}},activeMarket,now).approved,false);
-assert.equal(common.calculatedApproval(computed,{...activeMarket,direction:'NEUTRAL'},now).approved,false);
-assert.equal(common.calculatedApproval({...computed,ko:4300},activeMarket,now).approved,false);
-assert.equal(common.calculatedApproval({...computed,name:'Faktor Gold'},activeMarket,now).approved,false);
-assert.equal(common.calculatedApproval({...computed,quote:{isin:'DE000FG309G0'}},activeMarket,now).approved,false);
-assert.equal(common.calculatedApproval(computed,activeMarket,now+120000).approved,false);
-
-// Excluded products and malformed proof must never receive analysis approval.
-for(const patch of [
- {isinConfirmed:false},{price:Infinity},{leverage:Infinity},{ko:Infinity},
- {underlyingType:'FUTURE'},{quote:{metadata:{underlyingType:'FUTURE'}}},
- {quote:{name:'Gold Faktor'}},{quote:{metadata:{status:0}}},
- {quote:{metadata:{tradingHalted:true}}},
- {snapshot:{lifecycle:{status:'KNOCKED_OUT'}}},
- ...[{method:''},{method:42},{source:' '},{source:{}},{at:'2026-10-22T10:05:00'}].map(change=>({calculationEvidence:{price:{...computed.calculationEvidence.price,...change}}}))
-])assert.equal(common.calculatedApproval({...computed,...patch},activeMarket,now).approved,false,JSON.stringify(patch));
-assert.equal(common.calculatedApproval(computed,{...activeMarket,spot:Infinity},now).approved,false);
-assert.equal(common.calculatedApproval(computed,activeMarket,NaN).approved,false);
