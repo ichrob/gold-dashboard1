@@ -4,7 +4,7 @@ for(const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g))new vm.Script(m[1]
 const source=html.slice(html.indexOf('function dmiCalc('),html.indexOf('function confirmedMarketStructure'));
 const ctx={};vm.createContext(ctx);vm.runInContext(source,ctx);
 const now=1800000000000;
-function rows(step,sign=1){const end=Math.floor(now/step)*step;return Array.from({length:100},(_,i)=>{const price=2000+sign*i;return {openTime:end-(100-i)*step,open:price,close:price,high:price+1,low:price-1,instrument:'XAU/USD',isOpen:false};});}
+function rows(step,sign=1){const end=Math.floor(now/step)*step;return Array.from({length:100},(_,i)=>{const price=2000+sign*i;return {openTime:end-(100-i)*step,open:price,close:price,high:price+1,low:price-1,instrument:'XAU/USD',source:'biquote · XAU/USD Broker/MT5',isOpen:false};});}
 const up=ctx.dmiCalc(rows(300000)),down=ctx.dmiCalc(rows(300000,-1));
 assert(up.plusDI>up.minusDI);assert(down.minusDI>down.plusDI);assert(Math.abs(up.adx-down.adx)<1e-10);assert.equal(up.adx,100);
 assert.equal(ctx.dmiCalc([]).available,false);
@@ -21,6 +21,24 @@ assert.equal(ctx.dmiContext(recentGap,now).available,false);
 bundle.history.bars_by_tf['5m'].push({...rows(300000).at(-1),openTime:now,close:99999,isOpen:true});assert.equal(JSON.stringify(ctx.dmiContext(bundle,now)),baseline);
 bundle.history.bars_by_tf['15m'].splice(90,1);assert.equal(ctx.dmiContext(bundle,now).available,false);
 assert.equal(ctx.dmiContext(bundle,now+7200000).available,false);
+const unlike=JSON.parse(JSON.stringify(bundle));
+unlike.history.bars_by_tf['1h'].at(-8).source='XAUS · datierte XAU/USD-Historie';
+const unlikeState=ctx.dmiContext(unlike,now);
+assert.equal(unlikeState.frames['1h'].available,false,'mixed 1h sources must not be analysed as continuous');
+assert.match(unlikeState.frames['1h'].reason,/Kerzenquelle/);
+const unproven=JSON.parse(JSON.stringify(bundle));
+delete unproven.history.bars_by_tf['5m'][95].source;
+assert.equal(ctx.dmiContext(unproven,now).frames['5m'].available,false,'original source required');
+const providerOpen=JSON.parse(JSON.stringify(bundle));
+providerOpen.history.bars_by_tf['15m'][80].providerIsOpen=true;
+assert.equal(ctx.dmiContext(providerOpen,now).frames['15m'].available,false,'provider-open bar must not act as closed');
+const shortHistory=JSON.parse(JSON.stringify(bundle));
+shortHistory.history.bars_by_tf['1h']=shortHistory.history.bars_by_tf['1h'].slice(-14);
+const shortage=ctx.dmiContext(shortHistory,now);
+assert.equal(shortage.frames['1h'].available,false);
+assert.equal(shortage.frames['1h'].confirmedClosedBars,14);
+assert.match(shortage.frames['1h'].reason,/14 zusammenhängende Original-Schlusskerzen/);
+
 console.log('DMI tests passed: direction symmetry, ADX, flat/short history, closed bars, gaps, freshness, script syntax');
 
 // Known weekday maintenance hour is accepted only for the observed hourly feeds.
