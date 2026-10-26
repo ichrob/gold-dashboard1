@@ -229,7 +229,10 @@ function mount(){
  const section=doc.createElement('section');
  section.id='bobUnifiedWorkspace';section.className='card';
  section.innerHTML='<h3>Bob · Alles an einem Ort</h3>'+
+ '<p id="bobDecisionSummary" role="status" class="small">Marktrichtung wird geprüft.</p>'+
  '<p class="small">Einmal prüfen, dann den passenden Bereich öffnen. Quellen- und Handelsnachweise bleiben getrennt; keine automatische Order oder Änderung der Risikoregeln.</p>'+
+ '<div id="bobRequiredActions" role="status" class="small">Du musst etwas tun: Status noch nicht geprüft.</div>'+
+ '<details class="bob-disclosure"><summary>Betrieb und Datenqualität</summary><div id="bobOperationsDetail" class="small">Noch nicht geprüft.</div></details>'+
  '<p class="small" id="bobGoldProductBanner" role="status" aria-live="polite">Goldprodukte: Prüfbericht wird geladen …</p>'+
  '<details id="bobGoldProductList" class="bob-disclosure"><summary>Gold-ISINs anzeigen</summary><div id="bobGoldProductRows" class="small">Noch kein Prüfbericht.</div></details>'+
  '<button type="button" data-view="products" id="bobOpenGoldProducts">Gold-Hebelprodukte ansehen</button>'+
@@ -382,6 +385,9 @@ function mount(){
   };
  }
  function present(value){
+  const decision=doc.getElementById('bobDecisionSummary');
+  decision.textContent='Markt: '+(value.analysis.ok?value.signal:'ABWARTEN – Analyse nicht bestätigt')+
+   ' · '+text('quickReason').slice(0,220)+' · '+value.trade.label;
   refreshProducts();
   const candidates=productCandidates();
   const notice=doc.getElementById('bobGoldProductBanner');
@@ -434,7 +440,7 @@ function mount(){
   const box=doc.getElementById('bobUnifiedOperations');
   button.disabled=true;box.textContent='Lese vorhandene Produkt- und Problemberichte …';
   try{
-   const paths=['/api/degiro/audit','/api/problems'];
+   const paths=['/api/degiro/audit','/api/problems','/api/operations-summary'];
    const response=await Promise.all(paths.map(async path=>{
     if(path==='/api/degiro/audit')return fetchProductAudit();
     const controller=new AbortController();
@@ -444,6 +450,23 @@ function mount(){
      return r.ok?await r.json():null;
     }catch(_){return null;}finally{clearTimeout(timer);}
    }));
+   const operations=response[2];
+   const actions=doc.getElementById('bobRequiredActions');
+   actions.textContent=operations?.actionStatus==='known'?
+    (operations.actions.length?'Du musst etwas tun: '+operations.actions.map(x=>x.text).join(' '):'Du musst etwas tun: derzeit keine bestätigte persönliche Aufgabe.'):
+    'Du musst etwas tun: Aufgabenstatus nicht bestätigt.';
+   const detail=doc.getElementById('bobOperationsDetail');detail.replaceChildren();
+   const line=value=>{const p=doc.createElement('p');p.textContent=value;detail.append(p);};
+   const labels={unknown:'nicht bestätigt',unavailable:'Nachweis nicht verfügbar',observed:'Beobachtung vorhanden',paused:'pausiert',conflict:'Quellen widersprechen sich',complete:'Pflichtfelder vollständig',incomplete:'Pflichtfelder unvollständig'};
+   if(operations?.version===1){
+    line('Produktdaten: '+(labels[operations.productStatus.state]||'nicht bestätigt')+'. Handelsfreigabe separat.');
+    for(const c of operations.productStatus.conflicts||[])line(c.isin+': '+c.fields.join(', ')+' – '+c.resolution);
+    const clock=v=>{if(!v)return 'unbekannt';const d=new Date(typeof v==='number'?v*1000:v);return Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';};
+    for(const j of operations.jobs||[])line(j.label+': '+(labels[j.state]||'nicht bestätigt')+' · Letzter Erfolg: '+clock(j.lastSuccessAt)+' · Letzte Beobachtung: '+clock(j.lastObservedAt)+' · Nächster Lauf erwartet: '+clock(j.expectedNextAt)+' (nicht bestätigt)');
+    line((operations.cases||[]).length+' gebündelte Problemkategorien. Vollständige Produktfelder schließen ältere Nachweisfälle nicht automatisch.');
+    line(operations.historicalPolicy.note);
+    line(operations.comparisonPolicy.note);
+   }else line('Betriebsübersicht nicht verfügbar. Kein erfolgreicher Lauf daraus ableitbar.');
    present(analyzeInputs(snapshot()));
    const snapshotOps=operationalSnapshot(response[0],response[1],text('bobProfilesStatus'),Date.now(),root.BobProductAuditHelpCount);
    box.replaceChildren();

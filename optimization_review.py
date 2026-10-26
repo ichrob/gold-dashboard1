@@ -108,6 +108,9 @@ def report(rows, score, now=None):
             m['meanModelPct'] = m['netModelSumPct']/m['cases'] if m['cases'] else None
             m['averageWinPct'] = m['winSumPct']/m['wins'] if m['wins'] else None
             m['averageLossPct'] = m['lossSumPct']/m['losses'] if m['losses'] else None
+            m['losingSignalRate'] = m['losses']/m['signals'] if m['signals'] else None
+            baseline = variants['baseline']
+            m['netModelDeltaVsBaselinePct'] = m['netModelSumPct']-baseline['netModelSumPct'] if m['cases'] else None
     return dict(version=VERSION, labels=LABELS, phases=phases, validationDay=VALIDATION_DAY,
         sampled=sampled, paired=paired, missing=missing, pending=pending, rangeStart=start, rangeEnd=end,
         regimes=[dict(phase=p, regime=g, **m) for (p,g),m in regimes.items()],

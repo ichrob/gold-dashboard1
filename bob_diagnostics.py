@@ -995,7 +995,7 @@ _FOCUS_AREAS = {
     'research': ('research', 'strategyResearch', 'strategyReport', 'newFeatures'),
     'mobile': ('newFeatures', 'runtime', 'degiroSync', 'products'),
     'products': ('products', 'degiroSync', 'gapEvidence'),
-    'repairs': ('selfHealing', 'problems', 'background', 'diagnosticTriage',
+    'repairs': ('selfHealing', 'problems', 'background', 'diagnosticTriage', 'operationsSummary',
                 'healthCadence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'trades': ('background', 'diagnosticTriage'),
     'signals': ('analysis', 'background', 'diagnosticTriage', 'pushDeliveries',

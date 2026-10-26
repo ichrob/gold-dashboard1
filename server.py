@@ -147,6 +147,7 @@ def read_diagnostics_for_mcp():
     report['areas']['simulationEvidence'] = bob_diagnostics.simulation_evidence_snapshot(
         report['areas'].get('simulationAndPush'))
     report['areas']['diagnosticTriage'] = bob_diagnostics.triage_snapshot(report['areas'])
+    report['areas']['operationsSummary'] = __import__('bob_operations').snapshot(report)
     report['summary'] = bob_diagnostics.summary(report['areas'])
     return report
 
@@ -1261,7 +1262,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path in ("/api/degiro/connection-status", "/api/degiro/sync") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/degiro/candidate-proofs" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics" or path == "/api/source-reliability"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path in ("/api/degiro/connection-status", "/api/degiro/sync") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/degiro/candidate-proofs" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics" or path == "/api/source-reliability" or path == "/api/operations-summary"
         if protected_api_path or path == '/api/snaptrade/status':
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -1307,6 +1308,19 @@ class Handler(BaseHTTPRequestHandler):
             # Only authenticated users may read private operational statistics.
             body = json.dumps(bob_repair_store.statistics(), ensure_ascii=False,
                               separators=(",", ":")).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path == "/api/operations-summary":
+            # Authenticated projection only: no orders, repairs or notification sends.
+            import bob_operations
+            report = bob_operations.snapshot(read_diagnostics_for_mcp())
+            body = json.dumps(report, ensure_ascii=False, allow_nan=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
