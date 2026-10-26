@@ -24,3 +24,16 @@ const status=evidence.productEvidence({isin});
 assert.equal(status.tradeable,false);
 assert.equal(status.venue.state,'unknown');
 console.log('DEGIRO screenshot identity / approval separation contract passed');
+
+const storage=new Map();
+const sandbox={window:{},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)}};
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),sandbox);
+const prior={isin,direction:'SHORT',value:4460,currency:'USD',source:'original screenshot',imageSource:'list',userConfirmed:true,confirmedAt:'2026-10-26T10:00:00Z'};
+storage.set('bobFixedScreenshotKoV1',JSON.stringify({[isin]:prior}));
+assert.equal(sandbox.window.BobCombined.resetFixedList(),true);
+assert.equal(JSON.parse(storage.get('bobFixedScreenshotKoV1'))[isin],null);
+assert.equal(JSON.parse(storage.get('bobFixedScreenshotKoHistoryV1'))[isin][0].confirmedAt,prior.confirmedAt);
+assert.equal(sandbox.window.BobCombined.resetFixedList(),true);
+assert.equal(JSON.parse(storage.get('bobFixedScreenshotKoHistoryV1'))[isin].length,1);
+console.log('DEGIRO KO evidence archived without current-generation approval');
