@@ -64,3 +64,14 @@ assert.match(calcMarkup,/RECHNERISCH FREIGEGEBEN/);
 assert.match(calcMarkup,/DEGIRO-Handelbarkeit nicht bestätigt/);
 const noProofMarkup=b.renderContinuingAnalysis([{...calcProduct,calculationEvidence:{}}],market);
 assert.doesNotMatch(noProofMarkup,/RECHNERISCH FREIGEGEBEN/);
+
+for(const bad of [
+ {...calcProduct,isin:'DE000FG309G0'},
+ {...calcProduct,isinConfirmed:false},
+ {...calcProduct,quote:{isin:p.isin,productVerified:true,metadata:{status:0}}},
+ {...calcProduct,underlyingType:'FUTURE'},
+ {...calcProduct,price:Infinity},
+ {...calcProduct,ko:4139}
+])assert.doesNotMatch(b.renderContinuingAnalysis([bad],market),/RECHNERISCH FREIGEGEBEN/);
+context.window.BobAnalysisAge=()=>['Quelle veraltet'];
+assert.doesNotMatch(b.renderContinuingAnalysis([calcProduct],market),/RECHNERISCH FREIGEGEBEN/);
