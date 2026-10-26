@@ -49,6 +49,54 @@ for(const [key,bad] of [
 assert.equal(m.verifiedBrokerProof(id,record,audit,[],now),false,'Issuer proof without screenshot list must fail');
 assert.equal(m.verifiedBrokerProof(id,record,audit,watchlist,Date.parse('2026-10-20T22:00:00+02:00')),false,'End-of-day proof expired');
 assert.equal(m.verifiedBrokerProof(id,record,audit,watchlist,Date.parse('2026-10-21T10:30:00+02:00')),false,'Next-day proof expired');
+// A DEGIRO screen observation and an issuer quote can be compared only as
+// display evidence, never as currently executable broker prices.
+const screenTime=Date.parse('2026-10-20T10:15:59+02:00');
+const screen={
+ isin:id,kind:'user-uploaded-detail-ocr',origin:'user-uploaded-degiro-detail-image',
+ listingConfirmed:true,brokerDisplayObserved:true,executionConfirmed:false,
+ tradeApproved:false,isExecutableQuote:false,rankingsEligible:false,
+ brokerDisplayRecent:true,displayClockRole:'screen-minute-not-quote-source-clock',
+ venue:'Societe Generale OTC',currency:'EUR',
+ observedAt:'2026-10-20T10:15:00+02:00',
+ validUntil:'2026-10-20T22:00:00+02:00',bid:5.1,ask:5.12
+};
+const issuerQuote={
+ isin:id,sourceRole:'issuer-comparison-only',issuerKind:'SG',
+ executable:false,brokerTradeApproved:false,currency:'EUR',
+ bid:5.11,ask:5.13,
+ bidAt:'2026-10-20T10:15:35+02:00',askAt:'2026-10-20T10:15:35+02:00',
+ leverageAt:'2026-10-20T10:15:35+02:00',snapshotAt:'2026-10-20T10:15:35+02:00'
+};
+let cross=m.compareBrokerDisplayToIssuer(screen,issuerQuote,screenTime);
+assert.equal(cross.status,'display-aligned');
+assert.equal(cross.checked,true);
+assert.equal(cross.executableQuoteVerified,false);
+assert.equal(cross.accountTradeableNowVerified,false);
+assert.equal(cross.tradeApproved,false);
+cross=m.compareBrokerDisplayToIssuer(screen,{...issuerQuote,bid:4,ask:4.1},screenTime);
+assert.equal(cross.status,'display-divergent');
+assert.equal(cross.checked,true);
+for(const [reason,display,issuerSnap,at] of [
+ ['different ISIN',screen,{...issuerQuote,isin:other},screenTime],
+ ['stale display',screen,issuerQuote,screenTime+91000],
+ ['missing display origin',{...screen,origin:'invented'},issuerQuote,screenTime],
+ ['future display',{...screen,observedAt:'2026-10-20T10:17:00+02:00'},issuerQuote,screenTime],
+ ['mismatched venue',{...screen,venue:'BNP OTC'},issuerQuote,screenTime],
+ ['mismatched currency',{...screen,currency:'CHF'},issuerQuote,screenTime],
+ ['false execution',{...screen,isExecutableQuote:true},issuerQuote,screenTime],
+ ['missing issuer clock',screen,{...issuerQuote,askAt:null},screenTime],
+ ['synthetic original clock',screen,{...issuerQuote,issuerKind:null},screenTime],
+ ['late issuer quote',screen,{...issuerQuote,bidAt:'2026-10-20T10:12:00+02:00'},screenTime],
+ ['stale source identity',{...screen,brokerDisplayRecent:false},issuerQuote,screenTime],
+ ['calculated broker approval',screen,{...issuerQuote,brokerTradeApproved:true},screenTime],
+ ['missing prices',{...screen,ask:null},issuerQuote,screenTime]
+]){
+ const denied=m.compareBrokerDisplayToIssuer(display,issuerSnap,at);
+ assert.equal(denied.checked,false,reason);
+ assert.equal(denied.executableQuoteVerified,false,reason);
+ assert.equal(denied.tradeApproved,false,reason);
+}
 const manual=storage();
 assert.equal(m.queueManual(manual,' '+other.toLowerCase()+' ').length,1);
 assert.equal(m.queueManual(manual,other).length,1,'Same ISIN cannot be queued twice');
