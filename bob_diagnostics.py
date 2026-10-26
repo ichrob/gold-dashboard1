@@ -97,6 +97,106 @@ def collection_cycle_snapshot(value, now=None):
                              'lastObservedStartGapSeconds'))}
 
 
+
+def evaluator_queue_log_sample(logs, *, window_start, window_end,
+                               resource_id, has_more=False):
+    """Classify a bounded Render evaluator sample without inferring lost work.
+
+    Cumulative counters belong to ONE runtime instance. Never sum them across
+    rolling deployments; process-local zero is not verified system recovery.
+    Caller-supplied logs cannot independently prove provider provenance.
+    """
+    import json
+    invalid = {'status':'insufficient-evidence', 'readOnly':True,
+               'realOrders':False, 'liveVerified':False,
+               'completeTrafficProven':False,
+               'queueLossVerified':False}
+    def clock(value):
+        if not isinstance(value, str) or not 10 <= len(value) <= 42:
+            return None
+        try:
+            t = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            return t.astimezone(timezone.utc) if t.tzinfo else None
+        except (ValueError, OverflowError):
+            return None
+    start, end = clock(window_start), clock(window_end)
+    if (not isinstance(logs, list) or not start or not end or start >= end
+            or not isinstance(resource_id, str) or not resource_id.startswith('srv-')
+            or len(resource_id) > 100 or type(has_more) is not bool):
+        return invalid
+    samples = {}
+    ignored = 0
+    for row in logs[:100]:
+        stamp = clock(row.get('timestamp')) if isinstance(row, dict) else None
+        if stamp is None or not start <= stamp <= end:
+            ignored += 1
+            continue
+        labels = row.get('labels')
+        if not isinstance(labels, list):
+            ignored += 1
+            continue
+        labelmap = {}
+        for label in labels:
+            if isinstance(label, dict) and label.get('name') in ('resource','instance','type'):
+                labelmap[label['name']] = label.get('value')
+        instance = labelmap.get('instance')
+        message = row.get('message')
+        if (labelmap.get('resource') != resource_id
+                or labelmap.get('type') != 'app'
+                or not isinstance(instance, str) or not instance.startswith(resource_id+'-')
+                or len(instance) > 150
+                or not isinstance(message, str)
+                or not message.startswith('BOB_EVALUATOR ')
+                or len(message) > 1024):
+            ignored += 1
+            continue
+        try:
+            data = json.loads(message[len('BOB_EVALUATOR '):])
+        except (ValueError, TypeError):
+            ignored += 1
+            continue
+        keys = ('completed','failed','queueTimeouts','shared',
+                'waiting','lastWaitMs','lastDurationMs')
+        if (not isinstance(data, dict)
+                or any(type(data.get(key)) is not int or not 0 <= data[key] <= 1000000000
+                       for key in keys)):
+            ignored += 1
+            continue
+        samples.setdefault(instance, []).append((stamp, data))
+    ordered = []
+    regressions = 0
+    for values in samples.values():
+        values.sort(key=lambda item:item[0])
+        for (_, previous), (_, following) in zip(values, values[1:]):
+            if any(following[k] < previous[k]
+                   for k in ('completed','failed','queueTimeouts','shared')):
+                regressions += 1
+        ordered.extend(v for _, v in values)
+    if not ordered:
+        return {**invalid, 'sampledRecords':min(100,len(logs)),
+                'invalidOrIgnoredRecords':ignored,
+                'sampleTruncated':len(logs)>100 or has_more}
+    return {'status':'classified-sample', 'readOnly':True, 'realOrders':False,
+            'liveVerified':False, 'completeTrafficProven':False,
+            'queueLossVerified':False,
+            'source':'caller-supplied-bounded-Render-app-log-observations',
+            'windowStart':start.isoformat(), 'windowEnd':end.isoformat(),
+            'sampledRecords':min(100,len(logs)),
+            'validEvaluatorRecords':len(ordered),
+            'invalidOrIgnoredRecords':ignored,
+            'sampleTruncated':len(logs)>100 or has_more,
+            'distinctProcessInstances':len(samples),
+            'sameInstanceCounterRegressions':regressions,
+            'maxObservedWaiting':max(v['waiting'] for v in ordered),
+            'maxLastWaitMs':max(v['lastWaitMs'] for v in ordered),
+            'observedNonzeroFailureCounter':any(v['failed']>0 for v in ordered),
+            'observedNonzeroQueueTimeoutCounter':any(v['queueTimeouts']>0
+                                                      for v in ordered),
+            'note':'Process counters restart per instance. Samples cannot prove '
+                   'unobserved queue items were not lost, full traffic coverage, '
+                   'root cause or repaired alerts. No account or message data.'}
+
+
 def market_snapshot(live, cached_at, now=None):
     now = time.time() if now is None else now
     live = live if isinstance(live, dict) else {}
