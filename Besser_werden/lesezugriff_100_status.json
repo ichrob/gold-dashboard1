@@ -3,14 +3,14 @@
   "asOf": "2026-10-26",
   "total": 100,
   "counts": {
-    "partial": 89,
+    "partial": 88,
     "planned": 0,
     "blocked-client": 1,
     "requires-device": 5,
     "verified-at-build": 1,
-    "verified-at-sample": 4
+    "verified-at-sample": 5
   },
-  "acceptance": "Five dated, original-source technical observations, each narrowly scoped. New modules detected by root filename delta at a single tested build; import/runtime health remain unverified.",
+  "acceptance": "Six narrowly dated, original-source technical observations. Goal 11 demonstrates five observed worker log series in one eight-minute trading window, not continuous 30s punctuality, full market health or absence of missed ticks.",
   "tasks": [
     {
       "id": 1,
@@ -96,9 +96,9 @@
       "id": 11,
       "area": "Render und Hintergrundjobs",
       "goal": "Workerzyklen und Fälligkeit",
-      "state": "partial",
+      "state": "verified-at-sample",
       "codeEvidence": "bob_self_healing.py",
-      "verified": false
+      "verified": true
     },
     {
       "id": 12,
