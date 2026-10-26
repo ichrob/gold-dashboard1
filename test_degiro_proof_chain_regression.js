@@ -37,3 +37,20 @@ assert.equal(JSON.parse(storage.get('bobFixedScreenshotKoHistoryV1'))[isin][0].c
 assert.equal(sandbox.window.BobCombined.resetFixedList(),true);
 assert.equal(JSON.parse(storage.get('bobFixedScreenshotKoHistoryV1'))[isin].length,1);
 console.log('DEGIRO KO evidence archived without current-generation approval');
+
+(async()=>{
+ for(const mode of ['corrupt','archive-write-denied','revocation-write-denied']){
+  const store=new Map([['bobFixedScreenshotKoV1',JSON.stringify({[isin]:prior})]]);
+  if(mode==='corrupt')store.set('bobFixedScreenshotKoHistoryV1','{invalid');
+  let archiveOpens=0;
+  const env={window:{},indexedDB:{open(){archiveOpens++;throw Error('Replacement must not start');}},localStorage:{
+   getItem:k=>store.get(k)||null,
+   setItem(k,v){if(mode==='archive-write-denied'&&k==='bobFixedScreenshotKoHistoryV1'||mode==='revocation-write-denied'&&k==='bobFixedScreenshotKoV1')return;store.set(k,v);}
+  }};
+  vm.createContext(env);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),env);
+  await assert.rejects(env.window.BobDegiro.saveReplacementListArchive([],[]),/Liste nicht ersetzt/,mode);
+  assert.equal(archiveOpens,0,mode);
+  assert.equal(JSON.parse(store.get('bobFixedScreenshotKoV1'))[isin].confirmedAt,prior.confirmedAt,mode);
+ }
+ console.log('Replacement list rejected before archive commit on corrupt or silently failed KO storage');
+})().catch(e=>{console.error(e);process.exitCode=1;});
