@@ -167,6 +167,10 @@ class AutoCollectionTests(unittest.TestCase):
             self.assertEqual(a._worker_cycle_summary()['observedCycles'], 20)
             self.assertEqual(len(a._cycle_history), 20)
             report = a._worker_cycle_summary()
+            # The first retained row points to an evicted predecessor and
+            # therefore cannot count as an interval inside the bounded window.
+            self.assertEqual(report['comparableStartIntervals'], 19)
+            self.assertAlmostEqual(report['maxObservedStartGapSeconds'], 30.0)
             self.assertFalse(report['workerMissedCyclesVerified'])
             self.assertNotIn('password', str(report))
 
