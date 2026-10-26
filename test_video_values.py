@@ -30,8 +30,9 @@ class VideoValueTests(unittest.TestCase):
 
 class RuntimeBenchmarkTests(unittest.TestCase):
     def test_actual_separate_image_benchmark(self):
-        try:import rapidocr_onnxruntime
-        except ImportError:self.skipTest('Offline OCR dependencies unavailable')
+        from importlib.util import find_spec
+        if find_spec('rapidocr_onnxruntime') is None:
+            self.skipTest('Offline OCR dependencies unavailable')
         from video_ocr_evaluation import evaluate,source_fingerprint
         import video_ocr
         report=evaluate();stored=video_ocr.evaluation_report()

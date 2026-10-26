@@ -63,6 +63,19 @@ def compare_images(images,frames):
     return images
 
 
+def offline_engine():
+    """Disable optional runtime telemetry before constructing any OCR session.
+
+    If opt-out fails, do not fall back to starting an unconfigured engine.
+    This controls ONNX telemetry, not a general network sandbox.
+    """
+    import onnxruntime
+    onnxruntime.disable_telemetry_events()
+    from rapidocr_onnxruntime import RapidOCR
+    return RapidOCR(intra_op_num_threads=1,inter_op_num_threads=1,
+                    det_limit_side_len=640,rec_batch_num=1)
+
+
 def recognize(frames,profile="baseline"):
     if profile not in ("baseline","contrast"):raise ValueError("Unknown OCR profile")
     if not any(isinstance(f,dict) and not f.get('isCover') for f in frames[:5]):
@@ -70,9 +83,8 @@ def recognize(frames,profile="baseline"):
     from PIL import Image
     import cv2
     import numpy as np
-    from rapidocr_onnxruntime import RapidOCR
     cv2.setNumThreads(1)
-    engine=RapidOCR(intra_op_num_threads=1,inter_op_num_threads=1,det_limit_side_len=640,rec_batch_num=1)
+    engine=offline_engine()
     images=[]
     for index,frame in enumerate(frames[:5]):
         if not isinstance(frame,dict) or frame.get('isCover'):continue
