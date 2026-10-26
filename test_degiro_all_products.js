@@ -79,3 +79,14 @@ assert.equal(injected.length,12,'Bad server ISIN rejected');
 assert(injected.every(x=>x.tradeApproved===false&&x.executableQuote===false),'Server flags cannot grant trade');
 assert.equal(combined.readWatchlist({getItem:()=>'{'}).length,0);
 console.log('DEGIRO unified products: holdings/watchlist/audit union, freshness, safety and dedupe passed');
+
+const evidenceStore={values:{},getItem(k){return this.values[k]||null;},setItem(k,v){this.values[k]=v;}};
+const observed1=Date.parse('2026-10-20T08:00:00Z');
+const observed2=Date.parse('2026-10-21T08:00:00Z');
+assert.equal(combined.updateEvidenceHistory(evidenceStore,[{isin:ids[0]},{isin:ids[1]}],new Date(observed1).toISOString(),observed2).saved,true);
+const history=combined.updateEvidenceHistory(evidenceStore,[{isin:ids[1]}],new Date(observed2).toISOString(),observed2);
+assert.equal(history.items.length,2,'Old list evidence remains after new import');
+assert.equal(history.items.find(x=>x.isin===ids[0]).lastSeenAt,new Date(observed1).toISOString());
+assert.equal(history.items.find(x=>x.isin===ids[1]).lastSeenAt,new Date(observed2).toISOString());
+assert(history.items.every(x=>x.brokerTradeable===false));
+assert.equal(combined.updateEvidenceHistory(evidenceStore,[{isin:ids[2]}],new Date(observed2+60000).toISOString(),observed2).saved,false);
