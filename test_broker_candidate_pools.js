@@ -59,6 +59,32 @@ const historical={lastScanAt:'2026-10-20T06:00:00+00:00',candidates:[{
  issuerStatus:'verified',degiroListed:true,liveApproved:true,eligibleForTop3:true,
  brokerageExecutionConfirmed:true
 }]};
+const researchRotation={
+ lastScanAt:'2026-10-20T06:00:00+00:00',
+ candidates:historical.candidates,
+ historyResearchArchive:[
+  {isin:other,direction:'SHORT',name:'Historischer Gold-KO',
+   brokerHistoricallyTransacted:true,issuerIdentityMatched:true,
+   issuerCheckedAt:'2026-10-20T08:00:00Z',
+   currentlyDegiroListed:null,tradeApproved:false,
+   issuerComparison:{isin:other,sourceRole:'issuer-comparison-only',
+     bid:3.1,ask:3.2,currency:'EUR',
+     bidAt:'2026-10-20T08:00:00Z',askAt:'2026-10-20T08:00:00Z'}},
+  // Never import a historical artifact without validated broker history identity.
+  {isin:fakeIsin(3),direction:'LONG',brokerHistoricallyTransacted:false}
+ ]};
+const historicalView=m.normalizeCatalog(researchRotation);
+assert.equal(historicalView.length,2);
+const historicalRow=historicalView.find(x=>x.isin===other);
+assert.equal(historicalRow.origin,'historical-trade-research');
+assert.equal(historicalRow.issuerVerified,true);
+assert.equal(historicalRow.listingConfirmed,false);
+assert.equal(historicalRow.issuerComparison.sourceRole,'issuer-comparison-only');
+const historicalPool=m.researchUniverse([],researchRotation,[],null,now);
+assert.equal(historicalPool.confirmed.length,0);
+assert.equal(historicalPool.unverified.length,2);
+assert(historicalPool.unverified.every(x=>x.addToDegiroRankings===false &&
+ x.executableQuoteVerified===false && x.degiroTradeApproved===false));
 const normalized=m.normalizeCatalog(historical);
 assert.equal(normalized.length,1);
 assert.equal(normalized[0].origin,'historical-issuer-candidate');
