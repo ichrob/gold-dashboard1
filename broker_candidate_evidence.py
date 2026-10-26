@@ -206,8 +206,17 @@ def report(conn, now=None):
         record["tradeApproved"] = False
         record["rankingsEligible"] = False
         items.append(record)
+    # Existing current same-ISIN screenshot identity may be reused without
+    # another upload. Expired proofs cannot be silently refreshed by reads.
+    from degiro_research_review import proof_reuse_summary
+    reusable = proof_reuse_summary(
+        [{**row, 'current': row['listingConfirmed']} for row in items],
+        [row['isin'] for row in items])
     return {
         "status": "ok", "checkedAt": now.isoformat(),
+        "proofReuse": {'currentIdentityCount': reusable['currentIdentityCount'],
+                       'furtherIdentityProofNeeded': reusable['furtherIdentityProofNeeded'],
+                       'quoteFreshnessExtended': False, 'tradeApproved': False},
         "source": ORIGIN, "items": items,
         "degiroApiConnected": False, "ordersEnabled": False,
         "note": "Aus Nutzerbildern erkannte Anzeigen; keine automatische DEGIRO-Abfrage",
