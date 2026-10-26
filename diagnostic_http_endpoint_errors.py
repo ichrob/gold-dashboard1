@@ -14,6 +14,14 @@ ROUTES = frozenset((
     "/api/live", "/api/mtf", "/api/collection-status", "/api/market-cards",
     "/api/self-healing", "/api/problems", "/api/repair-statistics",
     "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences",
+    # Fixed routes independently observed in bounded Render app HTTP logs
+    # on 2026-10-26. Never include variable/user-supplied path segments.
+    "/mcp", "/background", "/monitor", "/monitor-status",
+    "/market-candles/write", "/market-spots/read", "/market-spots/write",
+    "/market-validations/read", "/market-validations/write",
+    "/push-delivery-history", "/auth-oauth/check",
+    "/youtube-feed/write", "/research-transcript/read",
+    "/research-enhancement/read",
 ))
 
 
@@ -48,17 +56,21 @@ def _route(value):
 
 
 
-def _request(row):
-    """Take only fixed, sanitized fields from structured or Bob app logs."""
+def _request(row, service):
+    """Take fixed fields; reject cross-service Bob app log attribution."""
     if not isinstance(row, dict):
         return None
     if row.get("type", "request") == "request" and "statusCode" in row:
+        if row.get("service", service) != service:
+            return None
         return row.get("path"), row.get("statusCode")
     message = row.get("message")
     if not isinstance(message, str) or len(message) > 512:
         return None
     parts = message.split()
-    if not parts or parts[0] not in ("BOB_HTTP", "BOB_PUSH_HTTP"):
+    expected_prefix = ("BOB_HTTP" if service == "bob-private-scanner"
+                       else "BOB_PUSH_HTTP")
+    if not parts or parts[0] != expected_prefix:
         return None
     fields = {}
     for part in parts[1:]:
@@ -74,7 +86,8 @@ def classify(logs, *, service, window_start, window_end, has_more=False):
     """Classify bounded, caller-supplied logs; original source not verified.
 
     Input: timestamped request records OR Bob app-log lines with fixed prefixes
-    BOB_HTTP/BOB_PUSH_HTTP. Unknown log messages cannot be classified.
+    BOB_HTTP/BOB_PUSH_HTTP from the corresponding service. Unknown or
+    cross-service log messages cannot be classified.
     Incomplete/paginated captures cannot prove the absence of HTTP errors.
     """
     start, end = _timestamp(window_start), _timestamp(window_end)
@@ -88,7 +101,7 @@ def classify(logs, *, service, window_start, window_end, has_more=False):
     considered = min(len(logs), MAX_LOGS)
     invalid = 0
     for row in logs[:MAX_LOGS]:
-        request = _request(row)
+        request = _request(row, service)
         if request is None:
             invalid += 1
             continue
