@@ -57,3 +57,17 @@ const state=ctx.dmiContext({history:{bars_by_tf:{'1h':hourly}}},sessionNow);
 assert(state.frames['1h'].available);assert(state.frames['1h'].sessionBreaks>0);
 hourly.splice(hourly.length-5,1);
 assert(!ctx.dmiContext({history:{bars_by_tf:{'1h':hourly}}},sessionNow).frames['1h'].available);
+
+// Actual XAUS weekend boundary observed independently on 2026-10-26.
+const friday={openTime:Date.parse('2026-10-23T20:00:00Z'),source:'XAUS · datierte XAU/USD-Historie'};
+const sunday={...friday,openTime:Date.parse('2026-10-25T22:00:00Z')};
+assert(ctx.dmiAdjacent(friday,sunday,3600000));
+assert(!ctx.dmiAdjacent({...friday,source:'biquote · XAU/USD Broker/MT5'},{...sunday,source:'biquote · XAU/USD Broker/MT5'},3600000));
+assert(!ctx.dmiAdjacent(friday,{...sunday,openTime:sunday.openTime+3600000},3600000));
+assert(!ctx.dmiAdjacent({...friday,openTime:friday.openTime-3600000},sunday,3600000));
+assert(!ctx.dmiAdjacent(friday,sunday,300000));
+assert(ctx.dmiAdjacent({...friday,openTime:Date.parse('2026-10-30T20:00:00Z')},{...sunday,openTime:Date.parse('2026-11-01T23:00:00Z')},3600000));
+const weekendRows=[...Array.from({length:17},(_,i)=>({...friday,openTime:friday.openTime-(16-i)*3600000})),...Array.from({length:20},(_,i)=>({...sunday,openTime:sunday.openTime+i*3600000}))].map((b,i)=>({...b,open:2000+i,high:2002+i,low:1999+i,close:2001+i,instrument:'XAU/USD',isOpen:false}));
+assert(ctx.dmiContext({history:{bars_by_tf:{'1h':weekendRows}}},weekendRows.at(-1).openTime+3600000).frames['1h'].available);
+weekendRows.splice(-3,1);
+assert(!ctx.dmiContext({history:{bars_by_tf:{'1h':weekendRows}}},weekendRows.at(-1).openTime+3600000).frames['1h'].available);

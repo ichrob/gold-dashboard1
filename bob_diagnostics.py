@@ -1,4 +1,5 @@
 """Bounded read-only operational observations; never invoke repair or trading."""
+import paper_case_review
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import math
@@ -543,7 +544,7 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
             try:
                 with conn.transaction():
                     cases = conn.execute(f'SELECT payload FROM {table} ORDER BY started_at DESC LIMIT 5').fetchall()
-                account['recentCases'] = {'status':'observed','items':[project(row[0], CASE) for row in cases]}
+                account['recentCases'] = {'status':'observed','items':[project(paper_case_review.project_case(row[0], account['profile']), CASE) for row in cases]}
             except Exception:
                 account['recentCases'] = {'status':'unavailable'}
         # Evidence-only recent-case tally. Never turn unknown/deferred results
@@ -614,7 +615,8 @@ def shape(*keys, **nested):
     return {**dict.fromkeys(keys), **nested}
 
 
-CASE = shape('status','startedAt','closedAt','lastAt','direction','modelOnly','netReturnKnown','productReturnKnown','productGrossPct','goldR','capitalMode','ledgerCostsDebited','ledgerFeesEur','ledgerSlippageEur','ledgerModelNetEur',
+CASE = shape('performanceEligible','performanceExclusionReason','modelSettlementGrossPct','status','startedAt','closedAt','lastAt','direction','modelOnly','netReturnKnown','productReturnKnown','productGrossPct','goldR','capitalMode','ledgerCostsDebited','ledgerFeesEur','ledgerSlippageEur','ledgerModelNetEur',
+    administrativeReview=shape('status','label','decidedAt','caseReviewId','resultVerified','reopenOnlyWithOriginalEvidence'),
     ledgerCostModel=shape('version','feeEurPerOrder','slippageBpsPerSide','extraHoldingBpsPerDay'),
     events=[shape('kind','at','recordedAt','reason')])
 
@@ -717,12 +719,13 @@ def simulation_evidence_snapshot(simulation):
                   isinstance(record.get('items'),list))
         cases=record['items'][:5] if observed else []
         kinds={'open':0,'closed':0,'inconclusive':0,'other':0}
-        data_gaps=deferred=terminal=0
+        data_gaps=deferred=terminal=administratively_closed=0
         for c in cases:
             if not isinstance(c,dict):
                 kinds['other']+=1
                 continue
             status=c.get('status')
+            administratively_closed += int((c.get('administrativeReview') or {}).get('status') == paper_case_review.STATUS)
             kinds[status if status in ('open','closed','inconclusive') else 'other']+=1
             events=[e for e in (c.get('events') or [])[-40:] if isinstance(e,dict)]
             event_kinds=[e.get('kind') for e in events]
@@ -756,6 +759,8 @@ def simulation_evidence_snapshot(simulation):
         evidence.append({**identity,
             'sampleStatus':'observed' if observed else 'unavailable',
             'sampleSize':len(cases),'counts':kinds,
+            'administrativelyClosed':administratively_closed,
+            'openOutcomeReviews':kinds['inconclusive']-administratively_closed,
             'casesWithRecordedDataGap':data_gaps,
             'casesWithRecordedDeferredSale':deferred,
             'casesWithRecordedTerminationEvidence':terminal,
@@ -905,6 +910,8 @@ def summary(areas):
             return
         if not isinstance(value,dict):return
         state=value.get('status',value.get('state'))
+        if state == 'inconclusive' and (value.get('administrativeReview') or {}).get('status') == paper_case_review.STATUS:
+            return
         if state in ('unavailable','stale','degraded','failed','retry','partial','wrong-basis','invalid-ohlc','recent-gap','missing','insufficient','incomplete','conflict','inconclusive','recurred'):
             findings.append({'area':path,'state':state})
         if path.endswith('.dmi') and value.get('available') is False:
@@ -1267,7 +1274,8 @@ def triage_snapshot(areas):
         # model trade is inconclusive. These events are not trading results.
         cases = [c for a in (sim.get('accounts') or []) if isinstance(a,dict)
                  for c in ((a.get('recentCases') or {}).get('items') or [])
-                 if isinstance(c,dict) and c.get('status') == 'inconclusive']
+                 if isinstance(c,dict) and c.get('status') == 'inconclusive'
+                 and (c.get('administrativeReview') or {}).get('status') != paper_case_review.STATUS]
         if cases:
             gaps = sum(any(isinstance(e,dict) and e.get('kind')=='data-gap'
                            for e in (c.get('events') or [])) for c in cases)

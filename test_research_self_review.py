@@ -27,6 +27,13 @@ class SelfReviewTests(unittest.TestCase):
         self.assertFalse(r["liveRuleChanged"])
         self.assertFalse(r["automaticOrder"])
 
+    def test_no_candidate_is_not_reported_as_broken_cost_test(self):
+        r=audit.review(learning._new_cycle())
+        self.assertEqual(r['status'],'insufficient')
+        self.assertIn('wartet auf einen eingefrorenen Kandidaten',r['reason'])
+        self.assertFalse(r['actionable'])
+        self.assertEqual(r['comparedScenarios'],{})
+
     def test_paired_stress_and_independent_sample_gate(self):
         a = audit.review(cycle())
         self.assertEqual(a["status"], "reference-promising")

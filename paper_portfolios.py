@@ -53,6 +53,7 @@ class Ledger:
     The shared, read-only quote universe stays bob_paper_products.
     """
     def __init__(self, conn, profile):
+        self.profile = profile
         self.conn = conn
         self.tables = names(profile)
 
@@ -84,6 +85,7 @@ def init(conn):
         conn.execute(f"""CREATE TABLE IF NOT EXISTS {n['bob_paper_cases']} (
             id TEXT PRIMARY KEY, day TEXT NOT NULL, started_at TIMESTAMPTZ NOT NULL,
             closed_at TIMESTAMPTZ, payload JSONB NOT NULL)""")
+        conn.execute(f'CREATE INDEX IF NOT EXISTS bob_paper_{profile}_recent_idx ON {n["bob_paper_cases"]} (started_at DESC)')
         conn.execute(f"""CREATE INDEX IF NOT EXISTS bob_paper_{profile}_day_idx
             ON {n['bob_paper_cases']} (day,started_at)""")
         conn.execute(f"""CREATE INDEX IF NOT EXISTS bob_paper_{profile}_open_idx
@@ -213,9 +215,11 @@ def performance_snapshot(data):
     """Compare only settled, quote-supported gross outcomes; never infer net P/L."""
     ctl=data.get('control') or {}
     days=data.get('daily') or []
-    priced=sum(d.get('productKnown',0) for d in days)
-    positive=sum(d.get('productPositive',0) for d in days)
+    valid=all(d.get('performanceCountsValid') is not False and type(d.get('productKnown',0)) is int and type(d.get('productPositive',0)) is int and 0 <= d.get('productPositive',0) <= d.get('productKnown',0) for d in days)
+    priced=sum(d.get('productKnown',0) for d in days) if valid else None
+    positive=sum(d.get('productPositive',0) for d in days) if valid else None
     return dict(pricedTrades=priced,positivePricedTrades=positive,
+        performanceCountsValid=valid,performanceExcluded=sum(d.get("inconclusive",0) for d in days),
         productPositiveRatePct=round(100*positive/priced,2) if priced else None,
         closedTrades=sum(d.get('closed',0) for d in days),
         inconclusiveTrades=sum(d.get('inconclusive',0) for d in days),

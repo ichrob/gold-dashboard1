@@ -40,6 +40,9 @@ def review(cycle):
                                          p.get("trades"), p.get("baselineTrades"))
     if any(type(x) is not int or x < 0 for x in (sessions, trades, baseline_trades)):
         return {**base, "reason": "Ungültige Stichprobenzähler; Bewertung gesperrt."}
+    if (cycle.get('status') == 'collecting' and cycle.get('proposal') is None
+            and sessions == trades == baseline_trades == 0):
+        return {**base, 'sessions':0, 'reason':'Noch kein Kandidat mit hinreichendem historischem Vorteil. Der gepaarte Vorwärts-Kostenvergleich wartet auf einen eingefrorenen Kandidaten; keine Ergebnisse erfunden.'}
     scenarios = p.get("costScenarios")
     if not isinstance(scenarios, dict) or set(scenarios) != {"standard", "stress"}:
         return {**base, "sessions": sessions, "reason": "Gepaarter Standard- und Kostenstresstest fehlt."}
