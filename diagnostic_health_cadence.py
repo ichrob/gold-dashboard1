@@ -33,9 +33,17 @@ def assess(events):
     """Only compare two consecutive captures with SAME known build and session."""
     if not isinstance(events, list):
         events = []
-    observations = sorted(set(sample for e in events[:160]
-                              if (sample := _sample(e)) is not None),
-                          key=lambda item: item[0], reverse=True)[:MAX_ROWS]
+    # Conflicting captures at one clock cannot establish an ordered build/session.
+    # Keep an unknown boundary so removing the conflict cannot bridge two runs.
+    by_clock = {}
+    for event in events[:160]:
+        sample = _sample(event)
+        if sample is not None:
+            by_clock.setdefault(sample[0], set()).add(sample[1:])
+    observations = [(at, *next(iter(values))) if len(values) == 1
+                    else (at, "unknown", None)
+                    for at, values in by_clock.items()]
+    observations = sorted(observations, key=lambda item: item[0], reverse=True)[:MAX_ROWS]
     newest = observations[0] if observations else None
     intervals = []
     cross_boundaries = 0
@@ -51,7 +59,7 @@ def assess(events):
     other_intervals = [dt for dt, session in intervals if session != "trading"]
     long_trading = [dt for dt in trading_intervals if dt > GAP_REVIEW_SECONDS]
     latest_session = newest[1] if newest else "unknown"
-    if not newest or not intervals:
+    if not newest or not intervals or newest[1] not in SESSIONS or newest[2] is None:
         state = "insufficient-evidence"
     elif latest_session in ("weekend", "night", "preparation"):
         state = "outside-trading-window-observation"
