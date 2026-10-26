@@ -1,4 +1,4 @@
-"""Anchored, non-executable price estimates for verified simple SG spot turbos.
+"""Anchored, non-executable price estimates for verified simple SG/BNP spot turbos.
 
 Bid/ask premiums are held constant in EUR; unit delta is an approximation.
 No options/quanto model, no guessed ratios, and no generated execution quotes.
@@ -115,13 +115,24 @@ def calculate(model, anchor, spot, fx, now=None):
         old_gold, old_rate = number(anchor['underlyingPriceUsd']), number(anchor['usdEur'])
         direction = 1 if model['direction'] == 'LONG' else -1
         ko, strike, ratio = number(model['ko']), number(model['strike']), number(model['ratio'])
+        if any(v <= 0 for v in (gold, rate, old_gold, old_rate, ko, strike, ratio)):
+            raise ValueError('Produktmodell oder Marktgrundlage nicht positiv')
+        # An anchor must itself be economically valid. A stale quote is never
+        # evidence that a turbo survived an intervening knock-out event.
+        if direction*(old_gold-ko) <= 0 or direction*(old_gold-strike) <= 0:
+            raise ValueError('Referenzpreis liegt an oder jenseits der KO-/Finanzierungsschwelle')
         if direction*(gold-ko) <= 0 or direction*(gold-strike) <= 0:
             raise ValueError('Goldpreis an oder jenseits der KO-/Finanzierungsschwelle')
+        old_bid, old_ask = number(anchor['bid']), number(anchor['ask'])
+        if old_bid <= 0 or old_ask < old_bid:
+            raise ValueError('Ungültiger originaler Referenzkurs')
         change = direction*ratio*((gold-strike)*rate-(old_gold-strike)*old_rate)
-        bid, ask = number(anchor['bid'])+change, number(anchor['ask'])+change
+        bid, ask = old_bid+change, old_ask+change
+        # Especially near KO a constant-spread/delta model can go negative.
+        # Never display a nonpositive or crossed price as a current estimate.
+        if bid <= 0 or ask <= 0 or ask < bid:
+            raise ValueError('Berechneter Produktkurs nicht plausibel positiv')
         number(bid);number(ask)
-        if ask < bid:
-            raise ValueError('Ungültiger berechneter Spread')
         out.update(available=True, bidEur=round(bid,4), askEur=round(ask,4), priceEur=round(ask,4),
                    referenceBidEur=anchor['bid'],referenceAskEur=anchor['ask'],
                    referenceAt=ref_at.isoformat(),referenceAgeSeconds=round(ref_age,1),

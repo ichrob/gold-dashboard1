@@ -85,6 +85,77 @@ class TestHybridProjection(unittest.TestCase):
             bad=copy.deepcopy(r);mutate(bad)
             self.assertIsNone(h.model_for(bad,BASE))
 
+    def test_bnp_stale_without_aligned_original_reports_no_estimate(self):
+        r=self.bnp()
+        # A product quote from two minutes earlier cannot be anchored against
+        # today's current spot/FX, even when product terms are valid.
+        r.update(eligible=False,fresh=False,quoteFailureCode='STALE_OR_INVALID_SOURCE_TIME',
+                 bidAt=at(130),askAt=at(130))
+        s,fx=inputs()
+        out=h.apply(r,BASE,s,fx)
+        self.assertEqual(out['hybridModelState'],'awaiting-original-reference')
+        self.assertIn('BNP-Originalkurs',out['hybridEstimateReason'])
+        self.assertNotIn('calculatedProduct',out)
+        self.assertFalse(out['eligible'])
+        self.assertEqual(out['bidAt'],at(130))
+        self.assertFalse(h._ANCHORS)
+
+    def test_bnp_projection_near_ko_cannot_show_negative_price(self):
+        r=self.bnp();s,fx=inputs()
+        h.apply(r,BASE,s,fx)  # First authenticated, dated BNP anchor.
+        later=BASE+dt.timedelta(seconds=120)
+        stale=copy.deepcopy(r)
+        stale.update(eligible=False,fresh=False,quoteFailureCode='STALE_OR_INVALID_SOURCE_TIME')
+        near_ko=lambda:dict(price=4000.1,at=later.isoformat())
+        live_fx=lambda:dict(fx(),data_updated_at=later.isoformat(),
+                            effective_at={'EUR':later.isoformat()})
+        out=h.apply(stale,later,near_ko,live_fx)
+        self.assertEqual(out['hybridModelState'],'unavailable')
+        self.assertIn('nicht plausibel positiv',out['hybridEstimateReason'])
+        self.assertNotIn('calculatedProduct',out)
+        self.assertFalse(out['eligible'])
+        self.assertEqual(out['ask'],r['ask'])  # Original quote not overwritten.
+
+    def test_bnp_old_anchor_is_not_an_evergreen_original(self):
+        r=self.bnp();s,fx=inputs()
+        h.apply(r,BASE,s,fx)
+        later=BASE+dt.timedelta(seconds=1801)
+        stale=copy.deepcopy(r)
+        stale.update(eligible=False,fresh=False,quoteFailureCode='STALE_OR_INVALID_SOURCE_TIME')
+        moved=lambda:dict(price=4160,at=later.isoformat())
+        live_fx=lambda:dict(fx(),data_updated_at=later.isoformat(),
+                            effective_at={'EUR':later.isoformat()})
+        out=h.apply(stale,later,moved,live_fx)
+        self.assertEqual(out['hybridModelState'],'unavailable')
+        self.assertIn('30 Minuten',out['hybridEstimateReason'])
+        self.assertNotIn('calculatedProduct',out)
+        self.assertFalse(out['eligible'])
+
+    def test_bnp_short_moves_opposite_gold_without_trade_clearance(self):
+        r=self.bnp()
+        r['metadata'].update(direction='SHORT',ko=4400.,strike=4400.)
+        r['comdirectFieldsBackup']['observations']['direction']['value']='SHORT'
+        for k in ('ko','strike'):
+            r['conditions'][k]['value']=4400.
+        r['eligible']=True
+        spot,fx=inputs()
+        self.assertNotIn('calculatedProduct',h.apply(r,BASE,spot,fx))
+        later=BASE+dt.timedelta(seconds=125)
+        stale=copy.deepcopy(r)
+        stale.update(eligible=False,fresh=False,quoteFailureCode='STALE_OR_INVALID_SOURCE_TIME')
+        risen=lambda:dict(price=4160,at=later.isoformat())
+        live_fx=lambda:dict(fx(),data_updated_at=later.isoformat(),
+                            effective_at={'EUR':later.isoformat()})
+        out=h.apply(stale,later,risen,live_fx)
+        model=out['calculatedProduct']
+        self.assertTrue(model['available'])
+        self.assertAlmostEqual(model['askEur'],12.4)
+        self.assertEqual(model['direction'],'SHORT')
+        self.assertFalse(model['isDegiroQuote'])
+        self.assertFalse(model['eligible'])
+        self.assertFalse(out['eligible'])
+        self.assertEqual(out['ask'],r['ask'])
+
     def test_sg_chart_anchor_then_forward_with_same_original_clock(self):
         r=record();s,fx=inputs()
         v=h.apply(r,BASE,s,fx)

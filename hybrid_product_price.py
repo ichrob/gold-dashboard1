@@ -255,7 +255,17 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
                     _ANCHORS.pop(next(iter(_ANCHORS)))
             anchor=_ANCHORS.get(key)
             anchor=dict(anchor) if anchor else None
-        if not anchor or result.get('eligible') is True:
+        if not anchor:
+            # A stale BNP quote with no previously dated, aligned reference
+            # cannot be extrapolated. Explain the gap, rather than fabricate
+            # a current issuer price or grant broker/Top-3 eligibility.
+            if model.get('provider') == 'BNP' and result.get('eligible') is not True:
+                out=dict(result)
+                out['hybridModelState']='awaiting-original-reference'
+                out['hybridEstimateReason']='Kein ausreichend zeitgleicher, bestätigter BNP-Originalkurs als Referenz'
+                return out
+            return result
+        if result.get('eligible') is True:
             return result
         # Prospective-only forecast validation. The prediction must already have
         # been frozen in an earlier request before today's new quote arrives.
@@ -277,6 +287,11 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
                             previous['referenceAt'],now.isoformat())
         projected=product_estimate.calculate(model,anchor,spot,fx,now)
         if not projected['available']:
+            if model.get('provider') == 'BNP' and result.get('eligible') is not True:
+                out=dict(result)
+                out['hybridModelState']='unavailable'
+                out['hybridEstimateReason']=projected.get('reason', 'Berechnung derzeit nicht verlässlich')
+                return out
             return result
         projected.update(anchorKind='research-hybrid',
                          source='Bob · '+('BNP' if model.get('provider') == 'BNP' else 'SG')+'/comdirect + Gold/FX',
