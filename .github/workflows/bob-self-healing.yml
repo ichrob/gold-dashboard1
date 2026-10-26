@@ -4,10 +4,10 @@ on:
   schedule:
     # Short checks; market-specific false alerts are skipped outside Swiss market time.
     - cron: '4,14,24,34,44,54 * * * *'
-  # GitHub's scheduled delivery can be delayed. Re-check each deployed main
-  # revision after the existing live smoke, using this same watchdog workflow.
+  # GitHub's scheduled delivery can be delayed. After a successful main CI,
+  # wait for the existing checksPass Render rollout and run this same watchdog.
   workflow_run:
-    workflows: ["Bob live smoke test"]
+    workflows: ["Bob CI"]
     types: [completed]
     branches: [main]
   push:
@@ -29,9 +29,13 @@ concurrency:
 
 jobs:
   monitor:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
+      - name: Wait for checksPass Render rollout
+        if: github.event_name == 'workflow_run'
+        run: sleep 120
       - name: Checkout monitored build
         uses: actions/checkout@v6
       - name: Set up Python
