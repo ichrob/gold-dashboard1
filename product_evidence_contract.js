@@ -79,7 +79,31 @@ function fromCombined(row,now=Date.now()){
   tradeable:false,automaticOrder:false,executableQuote:false
  };
 }
-const api={validIsin,originalAge,productEvidence,fromCombined};
+// Independent research approval for computed values; never grants broker execution.
+function calculatedApproval(p,market={},now=Date.now()){
+ const reasons=[];
+ if(!validIsin(p?.isin))reasons.push('ISIN nicht verifiziert');
+ const direction=p?.productDirection||p?.direction;
+ if(!['LONG','SHORT'].includes(direction))reasons.push('Produktrichtung fehlt');
+ if(!['LONG','SHORT'].includes(market?.direction)||market?.direction!==direction||market?.spotFresh!==true)reasons.push('Kein aktuelles passendes Marktsignal');
+ const spot=Number(market?.spot),atr=Number(market?.atr),ko=Number(p?.ko),price=Number(p?.price),leverage=Number(p?.leverage);
+ if(!(spot>0&&atr>0))reasons.push('Aktueller Goldkurs oder ATR fehlt');
+ if(!(ko>0&&price>0&&leverage>=1))reasons.push('KO, Preis oder Hebel fehlt');
+ if(spot>0&&ko>0&&((direction==='LONG'&&ko>=spot)||(direction==='SHORT'&&ko<=spot)))reasons.push('KO-Schwelle erreicht oder widersprüchlich');
+ if(/FAKTOR|FACTOR|FUTURE/i.test(String(p?.name||'')))reasons.push('Nicht unterstützter Produkttyp');
+ if(p?.quote?.isin&&p.quote.isin!==p.isin||p?.snapshot?.isin&&p.snapshot.isin!==p.isin)reasons.push('Produktidentität widersprüchlich');
+ const calculated=!!(p?.calculated||p?.estimated||p?.priceCalculated||p?.leverageCalculated||p?.koCalculated);
+ const fields=[['price',price],['leverage',leverage],['ko',ko]];
+ for(const [field,value] of fields){
+  const estimated=!!(p?.calculated||p?.estimated||p?.[field+'Calculated']);
+  if(!estimated)continue;
+  const proof=p?.calculationEvidence?.[field];
+  if(!proof||proof.method==null||!proof.source||!proof.at||!Number.isFinite(Date.parse(proof.at))||Date.parse(proof.at)>now||now-Date.parse(proof.at)>90000||!Number.isFinite(value)||value<=0)
+   reasons.push('Berechnung '+field+' ohne aktuelle prüfbare Quelle');
+ }
+ return {status:reasons.length?'blocked':calculated?'calculated-approved':'observed-approved',approved:reasons.length===0,calculated,reasons,brokerTradeable:false,executableQuote:false,automaticOrder:false};
+}
+const api={validIsin,originalAge,productEvidence,fromCombined,calculatedApproval};
 root.BobProductEvidence=api;
 if(typeof module==='object'&&module.exports)module.exports=api;
 })(typeof window==='undefined'?globalThis:window);
