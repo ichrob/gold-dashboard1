@@ -19,6 +19,7 @@ _state_lock = threading.Lock()
 _health = {"state": "starting", "lastCheckedAt": None, "sourceAt": None,
            "providerMarketOpen": None}
 POLL_SECONDS = 30
+PROVIDER_CLOSE_ERROR_GRACE_SECONDS = 65 * 60
 
 
 def numeric(value):
@@ -133,8 +134,20 @@ def collect_once():
                            providerMarketOpen=q.get('providerMarketOpen'))
         print('BOB_CFD checked state='+state+' source_at='+q['at'], flush=True)
     except Exception as exc:
+        now = time.time()
         with _state_lock:
-            _health.update(state='unavailable', lastCheckedAt=time.time())
+            successful = _health.get('successfulAt')
+            recently_closed = (
+                background_push.degiro_session() == 'night'
+                and _health.get('providerMarketOpen') is False
+                and isinstance(successful, (int, float))
+                and 0 <= now - successful <= PROVIDER_CLOSE_ERROR_GRACE_SECONDS)
+            # The provider can close its page connection during the daily
+            # market pause after first declaring the market closed. Preserve
+            # that last confirmed state only for the bounded pause window;
+            # outside it, fail closed as unavailable.
+            _health.update(state='closed' if recently_closed else 'unavailable',
+                           lastCheckedAt=now)
         print('BOB_CFD error='+type(exc).__name__, flush=True)
 
 
