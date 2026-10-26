@@ -43,12 +43,12 @@ assert.equal(b.unapprovedComparisonRanking([p],{...market,direction:'NEUTRAL'}).
 assert.equal(b.unapprovedComparisonRanking([p],{...market,atr:null}).length,0);
 const opposite=b.renderContinuingAnalysis([p,{...q,productDirection:'SHORT'}],market);
 assert.match(opposite,/Platz 1 · DE000FG14AV8/);
-assert.match(opposite,/Ohne Rang · DE000FG4JXV7/,
- 'Products against the current market direction stay visible but do not receive a rank');
+assert.doesNotMatch(opposite,/DE000FG4JXV7/,
+ 'Opposite-direction products must not appear in the active market ranking');
 const stale=b.renderContinuingAnalysis([p],{...market,spotFresh:false});
 assert.doesNotMatch(stale,/Platz 1/);
-assert.match(stale,/data-selection-reason="market-data"/,
- 'Stale market data keeps all products visible but suppresses a current rank');
+assert.match(stale,/ABWARTEN/,
+ 'Stale market data suppresses the entire ranking');
 console.log('Unified research ranking keeps incomplete products visible and approval independent');
 
 // Regression: neutral market must not expose ranking entries.
