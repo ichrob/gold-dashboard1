@@ -107,7 +107,26 @@ def _failed_source(response, raised=False):
                     "sourceFailureCode")))
 
 
+def _confirmed_terminal_bnp(isin, response):
+    """Only issuer-identified ended BNP instruments are quote-exempt."""
+    if not isinstance(response, dict) or response.get("isin") != isin:
+        return False
+    metadata = response.get("metadata")
+    return (isin in HISTORICAL_BNP
+            and response.get("productVerified") is True
+            and str(response.get("source") or "").startswith("BNP Paribas ·")
+            and isinstance(metadata, dict)
+            and metadata.get("status") == 2
+            and metadata.get("tradingHalted") is True
+            and response.get("found") is False
+            and response.get("eligible") is False
+            and not response.get("sourceFailure")
+            and not response.get("sourceDisabled"))
+
+
 def _retryable_bnp_failure(isin, response, raised=False):
+    if _confirmed_terminal_bnp(isin, response):
+        return False
     if isin not in HISTORICAL_BNP or (isinstance(response, dict)
                                       and response.get("sourceDisabled")):
         return False
@@ -132,7 +151,7 @@ def build(lookup, now=None, *, retry_limit=0, retry_wait_seconds=16, sleeper=tim
     """One bounded issuer refresh, no credentials or public DEGIRO calls."""
     now = now or datetime.now(ZONE)
     candidates, excluded, errors = [], [], 0
-    retry_attempts = retry_recovered = bnp_stale = 0
+    retry_attempts = retry_recovered = bnp_stale = bnp_terminal = 0
     source_checks = {
         "historicalBNP": dict(attempted=0, verified=0, datedFreshQuote=0, sourceErrors=0),
         "otherHistorical": dict(attempted=0, verified=0, datedFreshQuote=0, sourceErrors=0),
@@ -165,7 +184,10 @@ def build(lookup, now=None, *, retry_limit=0, retry_wait_seconds=16, sleeper=tim
                 response, raised = {}, True
             if not _failed_source(response, raised):
                 retry_recovered += 1
-        had_error = _failed_source(response, raised)
+        terminal = not raised and _confirmed_terminal_bnp(isin, response)
+        if terminal:
+            bnp_terminal += 1
+        had_error = _failed_source(response, raised) and not terminal
         if isin in HISTORICAL_BNP and isinstance(response, dict) and response.get("quoteFailureCode") == "STALE_OR_INVALID_SOURCE_TIME":
             # Diagnostic only: a delayed issuer clock is NOT cured by a new
             # local fetch time. Always preserve original issuer timestamps.
@@ -196,7 +218,7 @@ def build(lookup, now=None, *, retry_limit=0, retry_wait_seconds=16, sleeper=tim
                 lastScanAt=now.isoformat(), lastDay=now.date().isoformat(),
                 attempted=len(SEEDS), errors=errors, sourceChecks=source_checks,
                 retryAttempts=retry_attempts, retryRecovered=retry_recovered,
-                bnpStaleSourceClocks=bnp_stale,
+                bnpStaleSourceClocks=bnp_stale, bnpConfirmedEnded=bnp_terminal,
                 candidates=candidates[:LIMIT], excluded=excluded,
                 sourceType="historic-user-list-plus-issuer-research",
                 completeDegiroCatalog=False, degiroAccountConnected=False,
@@ -312,6 +334,7 @@ def _loop():
     global _RESEARCH_CURSOR
     last_retry = 0.
     while True:
+        period = None
         try:
             period=session()
             if period:
@@ -319,6 +342,7 @@ def _loop():
                 # Continue checking after recovery so a later issuer outage is
                 # detected without requiring a restart or a session change.
                 if time.monotonic() >= last_retry:
+                    scan_started_monotonic = time.monotonic()
                     with _LOCK:
                         _CURRENT["running"] = True
                     result=build(product_quotes.get_issuer_quote, retry_limit=3,
@@ -363,18 +387,21 @@ def _loop():
                           +" otherErrors="+str(other["sourceErrors"])
                           +" retries="+str(result["retryAttempts"])
                           +" recovered="+str(result["retryRecovered"])
-                          +" bnpStaleClocks="+str(result["bnpStaleSourceClocks"]),flush=True)
+                          +" bnpStaleClocks="+str(result["bnpStaleSourceClocks"])
+                          +" bnpConfirmedEnded="+str(result.get("bnpConfirmedEnded",0)),flush=True)
                     # Recheck the fixed historical ISIN set every five minutes
                     # during the existing weekday session only. This is issuer
                     # research, NOT a SnapTrade/DEGIRO holdings poll, tradeability
                     # proof, or permission to promote candidates into Top 3.
-                    last_retry=time.monotonic()+300
+                    # Start-to-start schedule; issuer work must not add drift.
+                    last_retry=scan_started_monotonic+300
         except Exception as exc:
             with _LOCK:
                 _CURRENT.update(status="error",running=False,errors=_CURRENT["errors"]+1)
             print("BOB_ISSUER_CATALOG error="+type(exc).__name__,flush=True)
             last_retry=time.monotonic()+1800
-        time.sleep(300)
+        delay = 300 if period is None else max(1, min(300, last_retry-time.monotonic()))
+        time.sleep(delay)
 
 
 def start():
