@@ -164,6 +164,51 @@
         "newModulesFunctioningVerified": false
       },
       "limitations": "Zeitpunktgebundener Test der relativen Erkennung eines neuen Moduls im Repository-Root. Originale GitHub-Verzeichnisliste, gespeicherte Baseline und privater Bob-Lesewert stimmen überein. Kein Nachweis für importierte/ausgeführte, verschachtelte, generierte oder aktuell gesunde Module."
+    },
+    {
+      "id": 69,
+      "goal": "Push-Versuch vs. Zustellung",
+      "kind": "user-screenshot-and-provider-clock-sample",
+      "reviewedAt": "2026-10-26T16:25:00+00:00",
+      "providerObservedAt": "2026-10-26T16:19:43.267309+00:00",
+      "providerBuild": "b65dd89e98f49979579ebe176c3124aa2d628682",
+      "source": "user-provided-samsung-screenshots",
+      "screenshotSha256": [
+        "b504b9f1830d1dd6e1cffded6f60c2c156465676d40624196e54f3c8deb574e2",
+        "d9ffdcc0ad1dfe14520ceda1c09f16eb8836b1008995e264dbfd3a90a30dc45c"
+      ],
+      "events": [
+        {
+          "category": "early-short",
+          "sourceAt": "2026-10-26T07:23:13+00:00",
+          "attemptedAt": "2026-10-26T07:23:46.962743+00:00",
+          "shownByMinute": "2026-10-26T07:26:00+00:00",
+          "httpStatus": 201,
+          "screenshotIndex": 0
+        },
+        {
+          "category": "early-withdrawn",
+          "sourceAt": "2026-10-26T07:24:43+00:00",
+          "attemptedAt": "2026-10-26T07:25:16.356922+00:00",
+          "shownByMinute": "2026-10-26T07:26:00+00:00",
+          "httpStatus": 201,
+          "screenshotIndex": 0
+        },
+        {
+          "category": "early-long",
+          "sourceAt": "2026-10-26T08:50:14+00:00",
+          "attemptedAt": "2026-10-26T08:50:42.798577+00:00",
+          "shownByMinute": "2026-10-26T08:51:00+00:00",
+          "httpStatus": 201,
+          "screenshotIndex": 1
+        }
+      ],
+      "manualVisualReceiptVerified": true,
+      "eventIdentityCryptographicallyVerified": false,
+      "automaticReceiptIngestionVerified": false,
+      "allPushCategoriesVerified": false,
+      "marketSignalCorrectnessVerified": false,
+      "limitations": "Three displayed notifications matched by original source clock and category; no event ID in screenshots. Duplicate LONG screenshot counted once. No proof for other notifications, device settings, present delivery or signal correctness."
     }
   ]
 }

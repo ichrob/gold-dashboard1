@@ -50,7 +50,7 @@ def assess(root, goals, mapping):
         # goal-13 Render metrics and goal-18 historic dual-service build.
         evidence_state = by_id[number].get("state")
         expected_verified = ((number == 18 and evidence_state == "verified-at-build")
-                             or (number in (2, 7, 8, 13)
+                             or (number in (2, 7, 8, 13, 69)
                                  and evidence_state == "verified-at-sample"))
         if (row.get("claim") != "test-file-candidate-only"
                 or by_id[number].get("verified") is not expected_verified):

@@ -22,15 +22,37 @@ class DatedAcceptanceTests(unittest.TestCase):
     def test_one_goal_only_has_ci_and_exact_render_evidence(self):
         goals,record=self.fixtures()
         result=a.assess(goals,record)
-        self.assertEqual(result["status"],"five-dated-independent-acceptances")
-        self.assertEqual(result["acceptedGoalIds"],[2,7,8,13,18])
+        self.assertEqual(result["status"],"six-dated-independent-acceptances")
+        self.assertEqual(result["acceptedGoalIds"],[2,7,8,13,18,69])
         self.assertEqual(result["individuallyAcceptedAtRecordedBuild"],1)
-        self.assertEqual(result["remainingUnaccepted"],95)
+        self.assertEqual(result["remainingUnaccepted"],94)
         self.assertEqual(len(result["acceptedBuild"]),40)
         self.assertTrue(result["readOnly"])
         self.assertFalse(result["currentDeployProven"])
         self.assertFalse(result["continuouslyHealthyProven"])
         self.assertNotIn("service_rows",json.dumps(result))
+
+    def test_handset_sample_rejects_changed_proofs_and_never_claims_all_delivery(self):
+        goals, records = self.fixtures()
+        sample = a.assess(goals, records)['handsetSample']
+        self.assertEqual(sample['notificationsManuallyObserved'], 3)
+        for flag in ('automaticReceiptIngestionVerified', 'allPushCategoriesVerified',
+                     'eventIdentityCryptographicallyVerified'):
+            self.assertIs(sample[flag], False)
+        mutations = (
+            lambda r: r.update(allPushCategoriesVerified=True),
+            lambda r: r.update(automaticReceiptIngestionVerified=True),
+            lambda r: r.update(screenshotSha256=[]),
+            lambda r: r['events'][0].update(sourceAt='2026-10-27T07:23:13+00:00'),
+            lambda r: r['events'][0].update(screenshotIndex=False),
+            lambda r: r['events'][0].update(httpStatus=500),
+            lambda r: r['events'].append(dict(r['events'][-1])),
+            lambda r: r.update(extraPrivatePayload='not-allowed'),
+        )
+        for mutate in mutations:
+            changed=json.loads(json.dumps(records))
+            mutate(changed['accepted'][-1])
+            self.assertEqual(a.assess(goals,changed)['status'],'unavailable')
 
     def test_any_wrong_service_or_sha_or_missing_ci_fails_closed(self):
         goals,record=self.fixtures()
@@ -194,7 +216,7 @@ class DatedAcceptanceTests(unittest.TestCase):
         """A plausible but unobserved time, SHA or CI run is not evidence."""
         goals, records = self.fixtures()
         self.assertEqual(a.assess(goals, records)["status"],
-                         "five-dated-independent-acceptances")
+                         "six-dated-independent-acceptances")
         cases = (
             lambda r: r.update(build="a" * 40),
             lambda r: r.update(observedAt="2099-01-01T00:00:00Z"),
@@ -263,7 +285,7 @@ class DatedAcceptanceTests(unittest.TestCase):
                          "unavailable")
         goals[0]["verified"]=original
         manifest["tasks"]=goals
-        self.assertEqual(bob_diagnostics.read_access_coverage(manifest)["verified"],5)
+        self.assertEqual(bob_diagnostics.read_access_coverage(manifest)["verified"],6)
 
 
 if __name__=="__main__":

@@ -678,9 +678,9 @@ class ReadAccessManifestMappingTests(unittest.TestCase):
         report=diagnostics.read_access_coverage(manifest)
         self.assertEqual(report['status'],'inventory-only')
         self.assertEqual(report['total'],100)
-        self.assertEqual(report['verified'],5)
-        self.assertEqual(report['unverified'],95)
-        self.assertEqual(report['buildBoundAcceptance']['acceptedGoalIds'],[2,7,8,13,18])
+        self.assertEqual(report['verified'],6)
+        self.assertEqual(report['unverified'],94)
+        self.assertEqual(report['buildBoundAcceptance']['acceptedGoalIds'],[2,7,8,13,18,69])
         expected_paths = {row['codeEvidence'] for row in manifest['tasks']}
         self.assertEqual(report['codeFilesMapped'], len(expected_paths))
         self.assertGreaterEqual(report['codeFilesMapped'], 10)
