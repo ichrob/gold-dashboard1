@@ -57,6 +57,27 @@ class CfdBackgroundTests(unittest.TestCase):
              patch.object(c.background_push,'degiro_session',return_value='night'):
             self.assertEqual(c.health()['state'],'stale')
 
+    def test_provider_close_survives_only_bounded_night_pause_errors(self):
+        now=datetime(2026,10,26,21,0,tzinfo=timezone.utc).timestamp()
+        closed={**self.quote,'at':datetime.fromtimestamp(now-1,timezone.utc).isoformat(),
+                'realtimeCfd':False,'providerMarketOpen':False}
+        with patch.object(c.time,'time',return_value=now), \
+             patch.object(c.background_push,'degiro_session',return_value='night'), \
+             patch.object(c,'_fetch',return_value=closed):
+            c.collect_once()
+        with patch.object(c.time,'time',return_value=now+300), \
+             patch.object(c.background_push,'degiro_session',return_value='night'), \
+             patch.object(c,'_next_fetch',0), \
+             patch.object(c,'_fetch',side_effect=OSError('provider closed')):
+            c.collect_once()
+            self.assertEqual(c.health()['state'],'closed')
+        with patch.object(c.time,'time',return_value=now+c.PROVIDER_CLOSE_ERROR_GRACE_SECONDS+1), \
+             patch.object(c.background_push,'degiro_session',return_value='night'), \
+             patch.object(c,'_next_fetch',0), \
+             patch.object(c,'_fetch',side_effect=OSError('still offline')):
+            c.collect_once()
+            self.assertEqual(c.health()['state'],'unavailable')
+
     def test_collector_repeats_without_any_browser_request(self):
         stop=threading.Event()
         cycles=[]
