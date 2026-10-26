@@ -42,7 +42,7 @@ def verify(value, secret, *, now=None):
             or type(expires) is not int
             or not isinstance(signature, str)
             or re.fullmatch(r"[0-9a-f]{64}", signature) is None
-            or state not in STATES):
+            or not isinstance(state, str) or state not in STATES):
         raise ValueError("Invalid receipt")
     at = int(time.time() if now is None else now)
     if not at <= expires <= at + MAX_AGE:
