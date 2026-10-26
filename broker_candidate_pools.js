@@ -138,6 +138,8 @@ function normalizeCatalog(data){
    origin:'historical-issuer-candidate',
    issuerVerified:row.issuerVerified===true && row.issuerStatus==='verified',
    checkedAt:validClock(data.lastScanAt)?data.lastScanAt:null,
+   issuerComparison:(row.issuerComparison?.sourceRole==='issuer-comparison-only'
+                     && row.issuerComparison?.isin===isin)?row.issuerComparison:null,
    listingConfirmed:false,brokerStatus:'unverified',
    source:'Historische ISIN + Emittentenrecherche'
   });
@@ -308,8 +310,20 @@ function mount(){
     'DEGIRO: nicht aktuell nachgewiesen · IBKR: nicht geprüft · IG: nicht geprüft.'));
    const issuer=issuerReadouts.get(item.isin);
    if(issuer)card.append(el(doc,'p','broker-research-small',issuer));
+   const comparison=item.issuerComparison;
+   if(comparison){
+    const at=validClock(comparison.bidAt),askAt=validClock(comparison.askAt);
+    const fresh=at!==null&&askAt!==null&&Date.now()>=Math.max(at,askAt)
+      &&Date.now()-Math.min(at,askAt)<=90000;
+    const label=fresh?'Zeitnaher Emittenten-Vergleich':'Historischer Emittenten-Vergleich';
+    card.append(el(doc,'p','broker-research-small',label+': '+
+      comparison.bid+' / '+comparison.ask+' '+comparison.currency+
+      ' · Original Geld/Brief '+new Date(at).toLocaleString('de-CH')+' / '+
+      new Date(askAt).toLocaleString('de-CH')+
+      ' · KEIN ausführbarer DEGIRO-Kurs.'));
+   }
    const chooseImage=el(doc,'button','broker-image-action',
-     isVerified?'DEGIRO-Nachweis aktualisieren':'DEGIRO-Produktbild zuordnen');
+     isVerified?'Bild nur bei Änderung erneut aufnehmen':'DEGIRO-Produktbild zuordnen');
    chooseImage.type='button';chooseImage.dataset.candidateIsin=item.isin;
    chooseImage.addEventListener('click',()=>chooseImageFor(item.isin));
    card.append(chooseImage);
@@ -335,6 +349,11 @@ function mount(){
   intro.textContent=resultSet.unverified.length+' Emittentenprodukte ohne bestätigte DEGIRO-Listung · '+
     resultSet.confirmed.length+' aktuell gelistete Kandidaten · '+
     'automatisch in aktive DEGIRO-Auswahl übernommen: 0.';
+  const researchRanks=catalog?.researchTop3;
+  if(researchRanks?.status==='insufficient-original-evidence')
+   intro.textContent+=' Forschungs-Top-3 noch nicht vollständig belegbar (KO-Abstand/Hebel/Finanzierungskosten).';
+  else if(Array.isArray(researchRanks?.entries)&&researchRanks.entries.length)
+   intro.textContent+=' '+researchRanks.entries.length+' getrennt gereihte Forschungs-Kandidaten, KEINE Handelsfreigabe.';
   verifiedStatus.textContent=resultSet.confirmed.length?
     resultSet.confirmed.length+' Produkt(e) mit aktuellem DEGIRO-Screenshotnachweis; keine Handelsfreigabe.':
     'Keine neuen Produkte mit aktuell bestätigter DEGIRO-Listung.';
