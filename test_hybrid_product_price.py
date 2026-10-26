@@ -131,6 +131,31 @@ class TestHybridProjection(unittest.TestCase):
         self.assertNotIn('calculatedProduct',out)
         self.assertFalse(out['eligible'])
 
+    def test_bnp_short_moves_opposite_gold_without_trade_clearance(self):
+        r=self.bnp()
+        r['metadata'].update(direction='SHORT',ko=4400.,strike=4400.)
+        r['comdirectFieldsBackup']['observations']['direction']['value']='SHORT'
+        for k in ('ko','strike'):
+            r['conditions'][k]['value']=4400.
+        r['eligible']=True
+        spot,fx=inputs()
+        self.assertNotIn('calculatedProduct',h.apply(r,BASE,spot,fx))
+        later=BASE+dt.timedelta(seconds=125)
+        stale=copy.deepcopy(r)
+        stale.update(eligible=False,fresh=False,quoteFailureCode='STALE_OR_INVALID_SOURCE_TIME')
+        risen=lambda:dict(price=4160,at=later.isoformat())
+        live_fx=lambda:dict(fx(),data_updated_at=later.isoformat(),
+                            effective_at={'EUR':later.isoformat()})
+        out=h.apply(stale,later,risen,live_fx)
+        model=out['calculatedProduct']
+        self.assertTrue(model['available'])
+        self.assertAlmostEqual(model['askEur'],12.4)
+        self.assertEqual(model['direction'],'SHORT')
+        self.assertFalse(model['isDegiroQuote'])
+        self.assertFalse(model['eligible'])
+        self.assertFalse(out['eligible'])
+        self.assertEqual(out['ask'],r['ask'])
+
     def test_sg_chart_anchor_then_forward_with_same_original_clock(self):
         r=record();s,fx=inputs()
         v=h.apply(r,BASE,s,fx)
