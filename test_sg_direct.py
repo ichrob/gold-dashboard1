@@ -65,6 +65,48 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(out['conditions']['maturity']['value'], 'Open End')
         self.assertEqual(out['chartEvidence']['ask'], 10.01)
 
+    def test_new_fb_series_requests_sg_before_bnp_with_exact_identity(self):
+        # Synthetic issuer product ID: a screenshot/WKN is a discovery hint
+        # only. The ID must come from the official SG Products/<ISIN> reply.
+        isin = 'DE000FB0CVV9'
+        self.assertTrue(q.sg_on_demand_candidate(isin))
+        self.assertFalse(q.sg_on_demand_candidate('DE000FB0CVV0'))
+        product = dict(self.product, Isin=isin, Id=8765432, Currency='EUR',
+                       ExchangeCode='CBDE', ProductClassificationId=47)
+        props = [dict(p, Value=isin) if p['Name']=='Isin' else dict(p)
+                 for p in self.props]
+        for p in props:
+            if p['Name'] == 'BarrierTurboCertificate' or p['Name'] == 'Strike':
+                p['Value'] = 4089.3179
+        with patch.object(q, 'issuer_json', side_effect=[product, props, self.points]) as network, \
+             patch.object(q, 'get_bnp_quote') as bnp:
+            received = q.get_issuer_quote(isin)
+        bnp.assert_not_called()
+        self.assertTrue(received['productVerified'])
+        self.assertEqual(received['isin'], isin)
+        self.assertEqual(received['metadata']['currency'], 'EUR')
+        self.assertEqual(received['metadata']['direction'], 'SHORT')
+        self.assertEqual(received['chartEvidence']['pointAt'], self.at)
+        self.assertFalse(received['found'])
+        self.assertFalse(received['eligible'])
+        urls = [c.args[0] for c in network.call_args_list]
+        self.assertEqual(urls[0], 'https://www.sg-zertifikate.de/EmcWebApi/api/Products/'+isin)
+        self.assertTrue(urls[1].endswith('/Products/AllProperties/8765432'))
+        self.assertTrue(urls[2].endswith('/Prices/Live?productId=8765432'))
+
+    def test_fb_wrong_identity_is_never_sg_verified(self):
+        isin='DE000FB0CVV9'
+        for override in (dict(Isin='DE000FG7K283'), dict(Currency='CHF'),
+                         dict(ExchangeCode='CBSW'), dict(AssetNMP='GOLD-FUTURE')):
+            with self.subTest(override=override):
+                sg._CACHE.clear(); sg._TERMS.clear()
+                wrong=dict(self.product, Isin=isin, Id=8765432, **override)
+                with patch.object(q, 'issuer_json', side_effect=[wrong, []]), \
+                     patch.object(q, 'get_bnp_quote',return_value={'found':False,'productVerified':False}):
+                    got=q.get_issuer_quote(isin)
+                self.assertFalse(got.get('productVerified'))
+                self.assertFalse(got.get('eligible',False))
+
     def test_missing_list_products_route_to_sg(self):
         for isin, product_id, classification in [('DE000FG5GUN3',6934161,47), ('DE000FG7HZY3',7151899,43), ('DE000FG7Q3N2',7152436,47)]:
             with self.subTest(isin=isin):
