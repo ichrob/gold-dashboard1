@@ -4035,6 +4035,18 @@ function intradayRiskData(bundle=liveBundleCache,now=Date.now(),allowStale=false
  if(!valid||!contiguous||!allowStale&&now-rows.at(-1).openTime>2*step)return {available:false,reason:'40 durchgehend bestätigte aktuelle 15m-Spotkerzen für Stopp und Ziel fehlen'};
  const volatility=atr(rows);return {available:volatility>0,bars:rows,atr:volatility,timeframe:'15m',reason:volatility>0?'':'15m-ATR ist null'};
 }
+// One market plan for product previews; existing stop/target engines remain authoritative.
+function productMarketPlan(direction,now=Date.now()){
+ const fixed=intradayRiskData(liveBundleCache,now),spots=liveBundleCache?.spots;
+ const at=Date.parse(spots?.spot_price_as_of);
+ if(!fixed.available||spots?.is_genuine_xauusd_spot!==true||spots.spot_error||!Number.isFinite(at)||now-at<0||now-at>60000)
+  return {available:false,reason:fixed.reason||'Aktuelle Gold-Spot-Referenz fehlt'};
+ const entry=Number(spots.xaus),sm=stopModel(direction,entry,fixed.atr,+($('trailAtr')?.value||1.5),fixed);
+ const target=targetModel(direction,entry,sm.stop,+($('minRR')?.value||2),fixed);
+ if(!(sm.stop>0&&target.target>0))return {available:false,reason:'Technischer Stopp-/Zielplan fehlt'};
+ return {available:true,direction,entry,stop:sm.stop,target:target.target,atr:fixed.atr,
+  entrySuitable:target.entrySuitable,reason:sm.reason,at:spots.spot_price_as_of,spots};
+}
 function continuedTradePlan(trade,bundle=liveBundleCache,now=Date.now()){
  if(!trade?.active||!['LONG','SHORT'].includes(trade.dir))return null;
  const spot=bundle?.spots||{},fixed=intradayRiskData(bundle,now),
