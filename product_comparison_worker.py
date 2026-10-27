@@ -74,7 +74,11 @@ def tick(db, bundle, quote_fetch=None, now=None):
                     conn.commit()
             except Exception as exc:print('BOB_METRIC_PRODUCT error='+type(exc).__name__,flush=True)
         return fetched[isin]
-    product_list_study.tick(db,bundle,fetch,now)
+    try:
+        product_list_study.tick(db,bundle,fetch,now)
+    except Exception as exc:
+        # A list-read failure must not cancel independent active-trade studies.
+        print('BOB_LIST_PRICE_STUDY error='+type(exc).__name__,flush=True)
     for tid,settings in trades:
         product = (settings.get('trade') or {}).get('product')
         if not history.calculate(product,bundle.get('spots'),now):continue

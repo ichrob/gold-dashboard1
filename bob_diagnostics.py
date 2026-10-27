@@ -433,6 +433,11 @@ def collect(readers):
             'virtualExecutionVerified':False, 'continuousCaptureVerified':False,
             'scope':'capture-review-unavailable',
         }
+    comparisons = (areas.get('simulationAndPush') or {}).get('comparisonHealth')
+    if isinstance(comparisons, dict):
+        areas['comparisonHealth'] = comparisons
+        areas['simulationAndPush'] = dict(areas['simulationAndPush'])
+        areas['simulationAndPush'].pop('comparisonHealth', None)
     stored_research = (areas.get('simulationAndPush') or {}).get('researchReports')
     if isinstance(stored_research, dict):
         # A large simulation/transition area may itself be omitted. Research
@@ -539,6 +544,7 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
     import decision_audit
     result['databaseAudit'] = decision_audit.prospective_query_probe()
     if extended:
+        result['comparisonHealth'] = __import__('comparison_health').report(conn)
         for account in accounts:
             table = portfolios.names(account['profile'])['bob_paper_cases']
             try:

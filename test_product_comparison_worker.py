@@ -29,7 +29,7 @@ class ComparisonChecks(unittest.TestCase):
     def test_closed_session_never_fetches(self):
         def fail(*args):raise AssertionError('No data access outside session')
         worker.tick(fail,{},fail,NOW+timedelta(days=1))
-    def test_persist_and_recheck_trade_after_network(self):
+    def test_list_failure_preserves_trade_capture_and_exit_study(self):
         class Conn:
             def __enter__(self):return self
             def __exit__(self,*args):pass
@@ -39,7 +39,7 @@ class ComparisonChecks(unittest.TestCase):
             def fetchone(self):return ({'trade':{'product':PRODUCT}},{})
             def commit(self):pass
         calls=[]
-        with patch('exit_quality.observe') as exit_observe,patch('product_precision.observe'),patch('metric_quality.product_check'),patch('precision_learning.observe'),patch('metric_quality.pnl_check'),patch('product_list_study.tick'):
+        with patch('exit_quality.observe') as exit_observe,patch('product_precision.observe'),patch('metric_quality.product_check'),patch('precision_learning.observe'),patch('metric_quality.pnl_check'),patch('product_list_study.tick',side_effect=RuntimeError('list unavailable')):
             worker.tick(Conn,{'spots':SPOTS},lambda _:QUOTE,NOW)
         exit_observe.assert_called_once()
         self.assertEqual(exit_observe.call_args.args[1],'test')
