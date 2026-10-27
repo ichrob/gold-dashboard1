@@ -9,6 +9,31 @@ class ProductPageReaderTest {
     private val header = lines("DE000FD0S0G4", "EUR")
     private val quotes = lines("Geld EUR 10,20", "Brief EUR 10,30")
     private fun step(reader: ProductPageReader, data: List<QuoteLayout.Line>, forward: Boolean = true, backward: Boolean = true, window: Int = 1, sensitive: Boolean = false) = reader.inspect(window, data, at, sensitive, forward, backward)
+    @Test fun waitsForUnanchoredLayoutAndCanThenReadWithoutRestart() {
+        val r = ProductPageReader()
+        repeat(3) {
+            val waiting = r.inspect(1, emptyList(), at, false, false, false, scrollAmbiguous = true)
+            assertEquals(ProductPageReader.Move.NONE, waiting.move)
+            assertEquals(ProductPageReader.Cause.WAIT_SCROLL_LAYOUT, waiting.cause)
+            assertEquals("", waiting.result.draft)
+            assertFalse(r.anchored)
+        }
+        assertEquals(ProductPageReader.Move.FORWARD, step(r, header).move)
+        assertEquals(ProductPageReader.Move.BACKWARD, step(r, quotes, forward = false).move)
+        assertEquals(ProductPageReader.Move.FINISHED, step(r, header).move)
+    }
+    @Test fun ambiguityAfterReadingDiscardsCandidateAndKeepsProtectedChecks() {
+        val r = ProductPageReader()
+        step(r, header); step(r, quotes)
+        val abort = r.inspect(1, quotes, at, false, false, false, scrollAmbiguous = true)
+        assertEquals(ProductPageReader.Move.ABORT, abort.move)
+        assertEquals(ProductPageReader.Cause.SCROLL_LAYOUT_CHANGED, abort.cause)
+        assertEquals("", abort.result.draft)
+        assertFalse(r.anchored)
+        step(r, header)
+        val protected = r.inspect(1, quotes, at, true, false, false, scrollAmbiguous = true)
+        assertEquals(ProductPageReader.Cause.UNSAFE_VIEW, protected.cause)
+    }
     @Test fun ambiguousHeaderCurrencyDoesNotPreventScrollToLabelledQuotes() {
         val r = ProductPageReader()
         val mixedHeader = lines("DE000FD0S0G4", "CHF 500,00", "EUR 10,20")
