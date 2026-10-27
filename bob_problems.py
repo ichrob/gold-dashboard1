@@ -236,13 +236,17 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
   <div><div class="small">Reparaturversuche</div><strong id="bobRepairAttempts">—</strong></div>
  </div>
  <p id="bobRepairStatsAt" class="small" role="status">Lade dauerhaften Fehlerzähler …</p>
+ <details id="bobOpenKiProblems" style="margin:12px 0">
+ <summary><strong>Offene Probleme für ChatGPT</strong> <span id="bobOpenKiCount">· wird geladen …</span></summary>
+ <p class="small">Automatisch zur KI-Prüfung erfasst. Der Reparaturwächter ruft diese Fälle stündlich ab; erfasst bedeutet noch nicht gelesen oder gelöst.</p>
+ <div id="bobProblemsList"></div>
+ </details>
  <details><summary>Letzte automatische Problemerkennung und Reparatur</summary>
  <div id="bobRepairEvents" class="small">Noch keine gespeicherten Ereignisse.</div>
  </details>
  <p class="small">Gezählt werden dokumentierte Fehlerereignisse seit Aktivierung dieser Statistik, nicht sämtliche Fehler aus Bobs Vergangenheit. Ein Neustartversuch ist noch keine bestätigte Lösung. Die Zahlen liegen im privaten Speicher und bleiben nach einem Render-Neustart erhalten.</p>
 </div>
 <p id="bobProblemsBreakdown" class="small" role="status"></p>
-<div id="bobProblemsList"></div>
 <details id="bobVerifiedRecoveries" style="border:1px solid #dce3ed;border-radius:12px;padding:10px;margin:10px 0">
 <summary><strong>Technisch nachgeprüfte Erholungen</strong> <span id="bobRecoveriesCount">—</span></summary>
 <p class="small">Zwei Prüfungen erkennen eine frühere technische Störung nicht mehr. Dies ist kein Beweis für einen ChatGPT-Fix, und keine Produkt- oder Handelsfreigabe.</p>
@@ -524,6 +528,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    }
    latest=data;
    badge(data.count);
+   document.getElementById('bobOpenKiCount').textContent='· '+data.count+(data.status==='stale'?' · letzter bekannter Stand':'');
    renderRecoveries(data);
    const items=document.getElementById('bobProblemsList');items.replaceChildren();
    summary.textContent=(data.count===1?'1 offenes Problem':data.count+' offene Probleme')+
@@ -538,9 +543,9 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     const article=document.createElement('article');
     article.className='bob-problem-item';
     article.style.cssText='border:1px solid #dce3ed;border-radius:12px;padding:12px;margin:10px 0';
-    const title=document.createElement('strong');title.textContent='Fall BOB-'+issue.number+'-'+issue.code+' · '+issue.message;
+    const title=document.createElement('strong');title.textContent=issue.message;
     const meta=document.createElement('p');meta.className='small';
-    meta.textContent='Erkannt: '+readableDate(issue.createdAt)+
+    meta.textContent='Fall #'+issue.number+' · Erkannt: '+readableDate(issue.createdAt)+
       ' · Letzte Änderung: '+readableDate(issue.updatedAt)+
       ' · offen · '+(issue.kiStatusLabel||kiStatusLabels.new);
     const link=document.createElement('a');link.href=issue.url;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Technischen Eintrag öffnen';
@@ -570,7 +575,11 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    summary.textContent=latest?'⚠️ Probleme können derzeit nicht neu abgefragt werden; letzter Stand bleibt sichtbar.':'⚠️ Problemarchiv momentan nicht erreichbar – Zahl unbekannt. Bitte GitHub prüfen.';
    document.getElementById('bobProblemsLastUpdate').textContent=
      'Letzte erfolgreiche Aktualisierung: '+(latest?readableDate(latest.checkedAt):'unbekannt');
-   if(!latest)badge(null);
+   document.getElementById('bobOpenKiCount').textContent=latest?'· '+latest.count+' · letzter bekannter Stand':'· Anzahl unbekannt';
+   if(!latest){
+    badge(null);
+    document.getElementById('bobProblemsList').textContent='Offene Probleme können momentan nicht geladen werden.';
+   }
    if(latest)renderRecoveries({...latest,status:'stale'});
   }
  }
@@ -594,4 +603,4 @@ PANEL = PANEL.replace("__BOB_MANUAL_LABELS__", json.dumps(MANUAL_LABELS, ensure_
 
 # Keep reliability metrics inside the existing Problems navigation section.
 from source_reliability_panel import PANEL as RELIABILITY_PANEL
-PANEL = PANEL.replace('<div id="bobProblemsList">', RELIABILITY_PANEL+'<div id="bobProblemsList">')
+PANEL = PANEL.replace('<p id="bobProblemsBreakdown"', RELIABILITY_PANEL+'<p id="bobProblemsBreakdown"')
