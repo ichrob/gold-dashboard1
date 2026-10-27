@@ -357,3 +357,24 @@ Währung, fehlende/widersprüchliche Kurse sowie Login-/Orderansichten. Die Grü
 sind feste Codes ohne Originaldaten. Der Wechsel zurück zu Bob überschreibt
 einen vorhandenen DEGIRO-Fehler nicht mehr mit „andere App“. Schutzprüfungen und
 das Verbot einer stillen Zuordnung verschiedener Bildausschnitte bleiben bestehen.
+
+### Automatische Seitenprüfung (Geräteabnahme offen)
+
+Nach bewusstem Start und Öffnen einer Produktseite mit sichtbarer gültiger ISIN
+scrollt Bob eine eindeutige sichtbare ScrollView/WebView/RecyclerView vorwärts.
+Maximal acht Vorwärts- und acht Rückwärtsschritte innerhalb des bestehenden
+60-Sekunden-Auftrags. Nur ACTION_SCROLL_FORWARD/BACKWARD, keine Klicks, Gesten,
+Text-Eingaben oder Orders. Bildschirm muss entsperrt bleiben.
+
+Kurse werden als vollständiger einzelner Beobachtungssatz zwischengespeichert,
+nicht aus verschiedenen Kursständen zusammengemischt. Die ISIN wird bei fehlendem
+Header nur innerhalb des begonnenen gleichen Fensterablaufs mitgeführt; bevor
+ein Entwurf ausgegeben wird, muss die ursprüngliche ISIN nach Rückscrollen erneut
+sichtbar sein. Fensterwechsel, andere ISIN, Klick-/Langklickereignis, geschützte
+Ansicht, Order/Login, Abbruch oder Scrollgrenze verwerfen den Zwischenstand.
+STOPP/Timeout löschen auch den Seitenleser. Bei mehreren Scrollflächen wird kein
+Ziel geraten. Kein Anspruch auf alle versteckten/zusammengeklappten Felder.
+
+Während der Prüfung nicht bedienen. Ob DEGIRO die benötigten Scrollaktionen
+anbietet und ob die Seite vollständig durchlaufen werden kann, muss am Gerät
+verifiziert werden. Frühere Abschnitte ohne Scrollen beschreiben ältere Versionen.

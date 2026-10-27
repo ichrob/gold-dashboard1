@@ -14,8 +14,9 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
 import java.time.Instant
 
-/** Explicit one-minute reading request or accessibility button; no UI actions. */
+/** Explicit one-minute reading request or accessibility button; only bounded scroll actions on validated product pages. */
 class ProductReadService : AccessibilityService() {
+    private val pageReader = ProductPageReader()
     private val handler = Handler(Looper.getMainLooper())
     private var readQueued = false
     private val pendingRead = object : Runnable {
@@ -39,7 +40,9 @@ class ProductReadService : AccessibilityService() {
         ProductReadDiagnostics.canRead = (serviceInfo.capabilities and AccessibilityServiceInfo.CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT) != 0
         ProductReadDiagnostics.windowAccess = (serviceInfo.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) != 0
         accessibilityButtonController.registerAccessibilityButtonCallback(callback)
+        ProductReadRequest.onCancelled = { pageReader.reset() }
         ProductReadRequest.onStarted = {
+            pageReader.reset()
             handler.removeCallbacks(pendingRead)
             readQueued = false
             queueRead(600)
@@ -50,6 +53,12 @@ class ProductReadService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (!ProductReadRequest.active(SystemClock.elapsedRealtime())) return
         if (event?.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
+        if (pageReader.anchored && event.eventType in setOf(AccessibilityEvent.TYPE_VIEW_CLICKED,
+                AccessibilityEvent.TYPE_VIEW_LONG_CLICKED, AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)) {
+            ProductReadSession.put(ProductScreenEvidence.Result(message = "Bedienung oder Ansichtswechsel erkannt. Seitenprüfung abgebrochen."), SystemClock.elapsedRealtime())
+            ProductReadRequest.cancel()
+            return
+        }
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         queueRead(400)
@@ -60,6 +69,8 @@ class ProductReadService : AccessibilityService() {
         ProductReadDiagnostics.canRead = false
         ProductReadDiagnostics.windowAccess = false
         ProductReadRequest.onStarted = null
+        ProductReadRequest.onCancelled = null
+        pageReader.reset()
         ProductReadRequest.cancel()
         handler.removeCallbacks(pendingRead)
         accessibilityButtonController.unregisterAccessibilityButtonCallback(callback)
@@ -99,9 +110,13 @@ class ProductReadService : AccessibilityService() {
         val result = runCatching {
             val root = productRoot(record = true)
                 ?: return@runCatching ProductScreenEvidence.Result(message = "Android liefert gerade keinen Fensterinhalt. Ursache noch ungeklärt; dies beweist keine DEGIRO-Sperre.")
+            val scrollNodes = mutableListOf<AccessibilityNodeInfo>()
             try {
                 // Returning to Bob must not erase the last DEGIRO rejection or draft.
-                if (root.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
+                if (root.packageName?.toString() != ProductScreenEvidence.PACKAGE) {
+                    if (pageReader.anchored) ProductReadRequest.cancel()
+                    return
+                }
                 val lines = mutableListOf<QuoteLayout.Line>()
                 var sensitive = false
                 var count = 0
@@ -111,6 +126,8 @@ class ProductReadService : AccessibilityService() {
                     if (node.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
                     if (node.isPassword || node.isEditable) { sensitive = true; return }
                     if (android.os.Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive) { sensitive = true; return }
+                    if (node.isScrollable && node.className?.toString() in setOf("android.widget.ScrollView", "android.widget.NestedScrollView", "androidx.core.widget.NestedScrollView", "android.webkit.WebView", "androidx.recyclerview.widget.RecyclerView"))
+                        scrollNodes += AccessibilityNodeInfo.obtain(node)
                     val bounds = Rect(); node.getBoundsInScreen(bounds)
                     val value = (node.text ?: node.contentDescription)?.toString()?.trim()
                     if (!value.isNullOrEmpty() && !bounds.isEmpty) {
@@ -129,7 +146,29 @@ class ProductReadService : AccessibilityService() {
                     current.packageName?.toString() == ProductScreenEvidence.PACKAGE
                 current?.recycle()
                 if (!unchanged) { ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CHANGED); ProductScreenEvidence.Result(message = "Ansicht wechselte; bitte erneut lesen.") }
-                else ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines.distinct(), Instant.now().toString(), sensitive).also {
+                else (if (automatic) {
+                    val scrollNode = scrollNodes.singleOrNull()
+                    fun supports(action: Int) = scrollNode?.actionList?.any { it.id == action } == true
+                    val step = pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
+                        supports(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD), supports(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD))
+                    when (step.move) {
+                        ProductPageReader.Move.FORWARD, ProductPageReader.Move.BACKWARD -> {
+                            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.PAGE_SCROLL)
+                            val action = if (step.move == ProductPageReader.Move.FORWARD) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                            val fresh = productRoot(record = false)
+                            val safe = fresh != null && fresh.windowId == root.windowId && fresh.packageName?.toString() == ProductScreenEvidence.PACKAGE
+                            fresh?.recycle()
+                            if (!safe || scrollNode == null) { ProductReadRequest.cancel(); ProductScreenEvidence.Result(message = "Scrollansicht nicht eindeutig. Prüfung abgebrochen.") }
+                            else {
+                                if (!scrollNode.performAction(action)) pageReader.scrollFailed(step.move)
+                                step.result
+                            }
+                        }
+                        ProductPageReader.Move.ABORT -> { ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.PAGE_ABORT); ProductReadRequest.cancel(); step.result }
+                        ProductPageReader.Move.FINISHED -> { ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.PAGE_COMPLETE); step.result }
+                        else -> step.result
+                    }
+                } else ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines.distinct(), Instant.now().toString(), sensitive)).also {
                     ProductReadDiagnostics.rejected(it.reason)
                     ProductReadDiagnostics.record(when {
                         sensitive -> ProductReadDiagnostics.Outcome.PROTECTED_VIEW
@@ -137,8 +176,8 @@ class ProductReadService : AccessibilityService() {
                         else -> ProductReadDiagnostics.Outcome.NO_FIELDS
                     })
                 }
-            } finally { root.recycle() }
-        }.getOrElse { ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.ERROR); ProductScreenEvidence.Result(message = "Ansicht nicht sicher lesbar. Nichts übernommen; Screenshot manuell teilen.") }
+            } finally { scrollNodes.forEach { it.recycle() }; root.recycle() }
+        }.getOrElse { ProductReadRequest.cancel(); ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.ERROR); ProductScreenEvidence.Result(message = "Ansicht nicht sicher lesbar. Nichts übernommen; Screenshot manuell teilen.") }
         ProductReadSession.put(result, SystemClock.elapsedRealtime())
         if (result.draft.isNotBlank()) ProductReadRequest.cancel()
         if (!automatic || result.draft.isNotBlank()) Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()

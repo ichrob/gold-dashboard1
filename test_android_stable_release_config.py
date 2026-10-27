@@ -81,12 +81,14 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('android:canTakeScreenshot="false"', config)
         self.assertIn('android:packageNames="nl.degiro.trader"', config)
         service = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadService.kt").read_text()
-        for forbidden in ['performAction(', 'dispatchGesture(', 'performGlobalAction(', 'takeScreenshot(']:
+        for forbidden in ['ACTION_CLICK', 'ACTION_SET_TEXT', 'dispatchGesture(', 'performGlobalAction(', 'takeScreenshot(']:
             self.assertNotIn(forbidden, service)
         self.assertNotIn('event.text', service)
         self.assertIn('ProductReadRequest.attempt(SystemClock.elapsedRealtime())', service)
         self.assertIn('flagRetrieveInteractiveWindows', config)
         self.assertIn('ProductWindowPolicy.select', service)
+        self.assertEqual(service.count('performAction('), 1)
+        self.assertIn('AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD', service)
         self.assertIn('root.packageName?.toString() != ProductScreenEvidence.PACKAGE', service)
 
     def test_no_private_key_material_is_tracked_in_android_setup(self):

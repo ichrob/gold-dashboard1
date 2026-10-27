@@ -33,7 +33,12 @@ internal object ProductScreenEvidence {
                 if (quote.keys.any { it in listOf("Geld", "Brief", "Zuletzt") }) units else emptyList()
             }
         }.distinct()
-        val currency = if (quoteCurrencies.isNotEmpty()) quoteCurrencies else currencies(text)
+        // Some accessibility trees expose the currency symbol separately from its amount.
+        val rowCurrencies = labels.flatMap { label -> lines.filter { other ->
+            other.left >= label.right && other.left - label.right <= 540 &&
+                kotlin.math.abs(other.centerY - label.centerY) <= kotlin.math.max(16, label.height)
+        }.flatMap { currencies(it.text) } }.distinct()
+        val currency = if (quoteCurrencies.isNotEmpty()) quoteCurrencies else if (rowCurrencies.isNotEmpty()) rowCurrencies else currencies(text)
         if (currency.size != 1) return Result(message = "Produktwährung nicht eindeutig sichtbar; nichts übernommen.", reason = Reason.CURRENCY_AMBIGUOUS)
         // QuoteLayout consumes geometry, never arbitrary neighboring text or account data.
         val fields = QuoteLayout.extract(lines.map { it.copy(text = it.text.replace("CHF", "EUR")) })
