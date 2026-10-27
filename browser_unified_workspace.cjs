@@ -9,6 +9,7 @@ const origin='https://bob-workspace.test';
  try{
   const page=await browser.newPage({viewport:{width:360,height:780}});
   const errors=[],requests=[];
+  let explained=false;
   page.on('pageerror',e=>errors.push(e.message));
   page.on('request',r=>{if(r.url()!==origin+'/'&&!r.url().endsWith('/favicon.ico'))requests.push(r.url());});
   await page.route(origin+'/**',route=>{
@@ -17,7 +18,7 @@ const origin='https://bob-workspace.test';
     status:'ok',lastCheckedAt:new Date().toISOString(),items:[{isin:'DE000FG14AV8'}],incomplete:1
    })});
    if(path==='/api/operations-summary')return route.fulfill({contentType:'application/json',body:JSON.stringify({
-    version:1,actionStatus:'known',actions:[],productStatus:{state:'conflict',conflicts:[{isin:'DE000FG14AV8',fields:['ko'],resolution:'Originalquelle prüfen'}]},
+    version:1,actionStatus:'known',actions:[],productStatus:{state:explained?'differences-explained':'conflict',conflicts:[{isin:'DE000FG14AV8',fields:['ko'],resolution:explained?'Datierte Emittentenangabe gewählt':'Originalquelle prüfen'}]},
     cases:[{}],jobs:[{label:'Simulation',state:'unavailable',lastSuccessAt:null,lastObservedAt:null,expectedNextAt:null}],
     historicalPolicy:{note:'Historischer Abschluss ist kein Gewinn.'},comparisonPolicy:{note:'Keine automatische Regeländerung.'}
    })});
@@ -103,8 +104,13 @@ const origin='https://bob-workspace.test';
   assert((await page.locator('#bobUnifiedOperations').innerText()).includes('1 offene öffentliche technische KI-Hilfeanfragen'));
   assert((await page.locator('#bobUnifiedOperations').innerText()).includes('Keine Echtgeldorder'));
   assert((await page.locator('#bobRequiredActions').innerText()).includes('keine bestätigte persönliche Aufgabe'));
-  assert((await page.locator('#bobOperationsDetail').textContent()).includes('Quellen widersprechen sich'));
+  assert((await page.locator('#bobOperationsDetail').textContent()).includes('Quellenentscheidung offen'));
   assert((await page.locator('#bobOperationsDetail').textContent()).includes('Letzter Erfolg: unbekannt'));
+  explained=true;
+  await page.locator('#bobUnifiedCheckOperations').click();
+  await page.waitForFunction(()=>document.getElementById('bobOperationsDetail').textContent.includes('Quellenabweichungen eingeordnet'));
+  assert((await page.locator('#bobOperationsDetail').textContent()).includes('Datierte Emittentenangabe gewählt'));
+  assert(!(await page.locator('#bobOperationsDetail').textContent()).includes('Quellenentscheidung offen'));
   await page.locator('#bobUnifiedProduct').selectOption('DE000FG14AV8');
   assert((await page.locator('#bobUnifiedProductNote').innerText()).includes('kein bestätigter DEGIRO-Kurs')||
     (await page.locator('#bobUnifiedProductNote').innerText()).includes('Kein bestätigter DEGIRO-Kurs'));
