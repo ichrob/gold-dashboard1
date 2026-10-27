@@ -41,6 +41,14 @@ class ProductScreenEvidenceTest {
         assertTrue(result.draft.contains("Kurse verzögert"))
         assertEquals("", read(lines("ISIN DE000FD0S0G4", "EUR", "Geld 10,40", "Brief 10,30")).draft)
     }
+    @Test fun separateCurrencySymbolOnQuoteRowIgnoresAccountHeader() {
+        val input = listOf(QuoteLayout.Line("CHF 999,00", 0, 0, 500, 30),
+            QuoteLayout.Line("DE000FD0S0G4", 0, 100, 500, 130),
+            QuoteLayout.Line("Geld", 0, 200, 100, 230),
+            QuoteLayout.Line("€", 120, 200, 140, 230),
+            QuoteLayout.Line("10,20", 150, 200, 240, 230))
+        assertTrue(read(input).draft.contains("Währung (Anzeige ungeprüft): EUR"))
+    }
     @Test fun accountCurrencyIsNotProductCurrency() {
         val result = read(lines("CHF 987,65", "ISIN DE000FD0S0G4", "Geld € 10,20", "Brief € 10,30"))
         assertTrue(result.draft.contains("Währung (Anzeige ungeprüft): EUR"))

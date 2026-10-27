@@ -41,14 +41,14 @@ class ProductReadActivity : Activity() {
         }
         button("Leseprüfung einschalten / Android-Einstellungen") {
             AlertDialog.Builder(this).setTitle("Sichtbare Produktfelder lesen")
-                .setMessage("Bob erhält über die Android-Bedienungshilfe Zugriff auf sichtbare DEGIRO-Texte. Nach „Prüfung starten“ wartet er höchstens eine Minute auf eine lesbare Produktseite; alternativ liest er nach deinem Tastendruck. Er speichert keinen Bildschirmtext und überträgt nichts automatisch. Login, Eingaben und Orderansichten werden ausgeschlossen. DEGIRO beschränkt automatisierte Werkzeuge; dieser Gerätetest ist keine Zustimmung von DEGIRO. Ohne Freigabe bleibt manuelles Screenshot-Teilen die Alternative.")
+                .setMessage("Bob erhält über die Android-Bedienungshilfe Zugriff auf sichtbare DEGIRO-Texte. Nach „Prüfung starten“ prüft er höchstens eine Minute die geöffnete Produktseite und scrollt dafür automatisch nach unten und zur ISIN zurück; alternativ liest er nach deinem Tastendruck. Er speichert keinen Bildschirmtext und überträgt nichts automatisch. Login, Eingaben und Orderansichten werden ausgeschlossen. DEGIRO beschränkt automatisierte Werkzeuge; dieser Gerätetest ist keine Zustimmung von DEGIRO. Ohne Freigabe bleibt manuelles Screenshot-Teilen die Alternative.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Leseprüfung aktivieren") { _, _ ->
                     preferences.edit().putBoolean("enabled", true).apply()
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 }.show()
         }
-        button("Prüfung starten · DEGIRO öffnen und automatisch lesen") {
+        button("Seite prüfen · DEGIRO öffnen, automatisch scrollen und lesen") {
             if (!preferences.getBoolean("enabled", false) || !serviceEnabled()) {
                 result.text = "Bitte zuerst die Leseprüfung und den Android-Dienst einschalten."
                 return@button
@@ -75,7 +75,7 @@ class ProductReadActivity : Activity() {
             android.widget.Toast.makeText(this, "Diagnose ohne Kontodaten kopiert.", android.widget.Toast.LENGTH_SHORT).show()
         }
         stack.addView(TextView(this).apply {
-            text = "Einmalig: Leseprüfung und Android-Dienst aktivieren. Die Männchen-Taste ist optional.\n\n1. Prüfung starten.\n2. In DEGIRO eine Produktseite mit beschrifteten Kursen öffnen. Bob liest automatisch, höchstens 60 Sekunden lang.\n3. Zu Bob Handy zurückkehren: Das Ergebnis steht direkt hier. Mit ‚Gelesene Werte in Bob prüfen‘ öffnest du die Webprüfung.\n\nKeine automatische Produktsuche oder Orderbedienung. Anmeldung selbst durchführen. Bei Zeitablauf erneut starten. Ohne zugängliche Bildschirmtexte: Screenshot teilen. Entwurf verfällt nach fünf Minuten."
+            text = "Einmalig: Leseprüfung und Android-Dienst aktivieren. Die Männchen-Taste ist optional.\n\n1. Prüfung starten.\n2. In DEGIRO das Produkt mit sichtbarer ISIN öffnen. Bob scrollt und liest automatisch, höchstens 60 Sekunden. Währenddessen bitte nicht bedienen.\n3. Zu Bob Handy zurückkehren: Das Ergebnis steht direkt hier. Mit ‚Gelesene Werte in Bob prüfen‘ öffnest du die Webprüfung.\n\nNur automatisches Scrollen der geöffneten Produktseite. Keine Produktsuche oder Orderbedienung. Anmeldung selbst durchführen. Bei Zeitablauf erneut starten. Ohne zugängliche Bildschirmtexte: Screenshot teilen. Entwurf verfällt nach fünf Minuten."
             textSize = 16f
         })
         setContentView(ScrollView(this).apply { addView(stack) })
