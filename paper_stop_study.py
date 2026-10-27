@@ -98,7 +98,7 @@ def tick(conn,market,quotes,now):
     for key,s in conn.execute('SELECT id,payload FROM bob_paper_stop_studies WHERE complete=FALSE ORDER BY day,id LIMIT 32 FOR UPDATE SKIP LOCKED').fetchall():
         s=advance(s,market,quotes.get(s['isin']),now)
         conn.execute('UPDATE bob_paper_stop_studies SET complete=%s,payload=%s::jsonb WHERE id=%s',(s['complete'],json.dumps(s),key))
-    conn.execute("DELETE FROM bob_paper_stop_studies WHERE complete=TRUE AND day < (current_date-interval '30 days')::date::text")
+    # Preserve study cases and outcomes for reproducible historical evaluation.
 
 def report(conn,day):
     rows=[r[0] for r in conn.execute('SELECT payload FROM bob_paper_stop_studies WHERE day=%s ORDER BY id LIMIT 100',(day,)).fetchall()]

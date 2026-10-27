@@ -80,7 +80,23 @@ def report(conn, now=None):
                                studyCompletedVerified=False)
     items['legacy-fast-cautious']['collectionWindowEnded'] = now >= intraday_comparison.END
     items['legacy-fast-cautious']['newCasesExpected'] = intraday_comparison.active(now)
-    return dict(status='partial' if any(x['status']=='unavailable' for x in items.values()) else 'observed',
+    evaluations = {}
+    try:
+        with conn.transaction():
+            evaluations['fastCautious'] = intraday_comparison.report(conn, now)
+    except Exception:
+        evaluations['fastCautious'] = dict(status='unavailable')
+    try:
+        with conn.transaction():
+            rows = conn.execute("""SELECT run_day,calculated_at,status,version,fingerprint
+                FROM bob_strategy_lab_revisions ORDER BY run_day DESC,calculated_at DESC
+                LIMIT 14""").fetchall()
+        evaluations['researchRevisions'] = dict(status='observed' if rows else 'no-records',
+            limit=14, items=[dict(day=str(d),calculatedAt=str(at),status=status,
+                version=version,fingerprint=fingerprint) for d,at,status,version,fingerprint in rows])
+    except Exception:
+        evaluations['researchRevisions'] = dict(status='unavailable')
+    return dict(storedEvaluations=evaluations, status='partial'  if any(x['status']=='unavailable' for x in items.values()) else 'observed',
         readOnly=True, realOrders=False, observedAt=now, sessionMode=background_push.degiro_session(now),
         sampleLimit=LIMIT, items=items,
         scope='bounded-stored-evidence-not-full-study-completion-or-worker-heartbeat',
