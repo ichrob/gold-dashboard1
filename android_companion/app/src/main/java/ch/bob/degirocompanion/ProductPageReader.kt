@@ -4,8 +4,10 @@ package ch.bob.degirocompanion
 internal class ProductPageReader {
     enum class Move { NONE, FORWARD, BACKWARD, FINISHED, ABORT }
     enum class Cause { NONE, WAIT_PROTECTED, WAIT_IDENTITY, WAIT_SCROLL, UNSAFE_VIEW,
-        IDENTITY_CHANGED, NO_QUOTES, RETURN_FAILED, SCROLL_LIMIT, INVALID_QUOTES }
+        IDENTITY_CHANGED, NO_QUOTES, RETURN_FAILED, SCROLL_LIMIT, INVALID_QUOTES, SEEK_HEADER, SEEK_LIMIT }
     data class Step(val move: Move, val result: ProductScreenEvidence.Result, val cause: Cause = Cause.NONE)
+    private var seekSteps = 0
+    private var seekWindow: Int? = null
     private var isin: String? = null
     private var window: Int? = null
     private var returning = false
@@ -13,13 +15,13 @@ internal class ProductPageReader {
     private var backward = 0
     private var candidate: ProductScreenEvidence.Result? = null
     val anchored get() = isin != null
-    fun reset() { isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null }
+    fun reset() { seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null }
     private fun stop(message: String, cause: Cause, reason: ProductScreenEvidence.Reason = ProductScreenEvidence.Reason.NONE): Step {
         reset(); return Step(Move.ABORT, ProductScreenEvidence.Result(message = message, reason = reason), cause)
     }
     fun scrollFailed(move: Move) {
         if (move == Move.FORWARD) returning = true
-        else if (move == Move.BACKWARD) { candidate = null; backward = 8 }
+        else if (move == Move.BACKWARD) { candidate = null; backward = 8; if (!anchored) seekSteps = 4 }
     }
     fun inspect(windowId: Int, lines: List<QuoteLayout.Line>, at: String, sensitive: Boolean,
                 canForward: Boolean, canBackward: Boolean): Step {
@@ -33,6 +35,15 @@ internal class ProductPageReader {
                 ProductScreenEvidence.Reason.ISIN_AMBIGUOUS)) return stop(direct.message, Cause.UNSAFE_VIEW, direct.reason)
         val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n") { it.text.uppercase() }).map { it.value }.distinct().toList()
         if (!anchored) {
+            val visibleText = lines.joinToString("\n") { it.text }
+            val quoteSection = Regex("(?i)kursdaten|produktdetails").containsMatchIn(visibleText) &&
+                Regex("(?i)\\bGeld\\b").containsMatchIn(visibleText) && Regex("(?i)\\bBrief\\b").containsMatchIn(visibleText)
+            if (ids.isEmpty() && quoteSection && canBackward) {
+                if (seekWindow != null && seekWindow != windowId) return stop("Fensterwechsel bei der Kopfzeilensuche. Prüfung abgebrochen.", Cause.IDENTITY_CHANGED)
+                if (seekSteps >= 4) return stop("Produktkennung nach vier Rückwärtsschritten nicht gefunden. Nichts übernommen.", Cause.SEEK_LIMIT)
+                seekWindow = windowId; seekSteps++
+                return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "Kursbereich erkannt. Bob scrollt zur Produktkennung; noch keine Werte übernommen."), Cause.SEEK_HEADER)
+            }
             if (ids.size != 1 || !SeriesEvidence.validIsin(ids.single())) return Step(Move.NONE, direct, Cause.WAIT_IDENTITY)
             isin = ids.single(); window = windowId
         }

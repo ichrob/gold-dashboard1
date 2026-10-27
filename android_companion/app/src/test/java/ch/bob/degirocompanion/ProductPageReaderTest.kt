@@ -9,6 +9,21 @@ class ProductPageReaderTest {
     private val header = lines("DE000FD0S0G4", "EUR")
     private val quotes = lines("Geld EUR 10,20", "Brief EUR 10,30")
     private fun step(reader: ProductPageReader, data: List<QuoteLayout.Line>, forward: Boolean = true, backward: Boolean = true, window: Int = 1, sensitive: Boolean = false) = reader.inspect(window, data, at, sensitive, forward, backward)
+    @Test fun locatesHeaderFromRecognizedQuoteSectionWithoutAssigningValues() {
+        val r = ProductPageReader()
+        val section = quotes + lines("Kursdaten")
+        repeat(4) {
+            val seek = step(r, section)
+            assertEquals(ProductPageReader.Move.BACKWARD, seek.move)
+            assertEquals(ProductPageReader.Cause.SEEK_HEADER, seek.cause)
+            assertEquals("", seek.result.draft)
+            assertFalse(r.anchored)
+        }
+        assertEquals(ProductPageReader.Cause.SEEK_LIMIT, step(r, section).cause)
+        assertEquals(ProductPageReader.Move.NONE, step(r, quotes).move)
+        assertEquals(ProductPageReader.Move.BACKWARD, step(r, section).move)
+        assertEquals(ProductPageReader.Move.FORWARD, step(r, header).move)
+    }
     @Test fun transientProtectedLaunchDoesNotAbortBeforeIdentity() {
         val r = ProductPageReader()
         val protected = step(r, header, sensitive = true)

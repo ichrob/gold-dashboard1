@@ -389,3 +389,9 @@ Fehlende Scrollfläche beim initialen Seitenaufbau wird ebenfalls begrenzt erneu
 geprüft, ohne eine Produktkennung zwischen diesen Warteversuchen zu behalten.
 Diagnose 3 zählt Warten auf Schutz/Identität/Scrollfläche und konkrete Abbrüche
 getrennt. Keine Erweiterung des Zugriffs auf geschützte Inhalte.
+
+Ist beim Start nur ein eindeutig beschrifteter Kursdaten-/Produktdetailsbereich
+mit Geld und Brief sichtbar, darf Bob höchstens viermal rückwärts zur ISIN
+scrollen. Dabei werden keine Werte zugeordnet oder zwischengespeichert. Ohne
+diese Abschnittsmerkmale wird keine Scrollfläche geraten. Der eigentliche
+Seitenlauf beginnt erst bei sichtbarer gültiger ISIN.
