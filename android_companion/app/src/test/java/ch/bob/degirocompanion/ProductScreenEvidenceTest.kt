@@ -8,6 +8,17 @@ class ProductScreenEvidenceTest {
     private fun lines(vararg text: String) = text.mapIndexed { i, value -> QuoteLayout.Line(value, 0, i * 50, 500, i * 50 + 30) }
     private val product get() = lines("ISIN DE000FD0S0G4", "EUR", "Geld 10,20", "Brief 10,30", "27/10/2026 14:59")
     private fun read(items: List<QuoteLayout.Line> = product, pkg: String = ProductScreenEvidence.PACKAGE, sensitive: Boolean = false) = ProductScreenEvidence.read(pkg, items, at, sensitive)
+    @Test fun rejectionReasonsSeparateIdentityCurrencyAndQuotes() {
+        assertEquals(ProductScreenEvidence.Reason.ISIN_MISSING, read(lines("Geld EUR 10,20")).reason)
+        assertEquals(ProductScreenEvidence.Reason.ISIN_AMBIGUOUS, read(product + lines("DE000FE2JJ20")).reason)
+        assertEquals(ProductScreenEvidence.Reason.ISIN_INVALID, read(lines("DE000FD0S0G5")).reason)
+        assertEquals(ProductScreenEvidence.Reason.CURRENCY_AMBIGUOUS, read(product + lines("CHF")).reason)
+        assertEquals(ProductScreenEvidence.Reason.QUOTES_MISSING, read(lines("DE000FD0S0G4", "EUR")).reason)
+        assertEquals(ProductScreenEvidence.Reason.PROTECTED, read(sensitive = true).reason)
+        assertEquals(ProductScreenEvidence.Reason.LOGIN_OR_ORDER, read(product + lines("Ordertyp")).reason)
+        assertEquals(ProductScreenEvidence.Reason.QUOTES_INVALID, read(lines("DE000FD0S0G4", "Geld EUR 12,00", "Brief EUR 11,00")).reason)
+        assertEquals(ProductScreenEvidence.Reason.NONE, read().reason)
+    }
     @Test fun readsOnlyLabelledProductFieldsWithoutApprovingTrading() {
         val result = read()
         assertTrue(result.draft.contains("Geld (Anzeige ungeprüft): 10,20"))

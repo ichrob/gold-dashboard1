@@ -4,19 +4,22 @@ package ch.bob.degirocompanion
 internal object ProductScreenEvidence {
     const val PACKAGE = "nl.degiro.trader"
     const val HEADER = "BOB APP-LESEENTWURF – NICHT VERIFIZIERT"
-    data class Result(val draft: String = "", val message: String)
+    enum class Reason { NONE, OTHER_APP, PROTECTED, TOO_LARGE, LOGIN_OR_ORDER,
+        ISIN_MISSING, ISIN_AMBIGUOUS, ISIN_INVALID, CURRENCY_AMBIGUOUS, QUOTES_MISSING, QUOTES_INVALID }
+    data class Result(val draft: String = "", val message: String, val reason: Reason = Reason.NONE)
     fun read(packageName: String, lines: List<QuoteLayout.Line>, observedAt: String,
              sensitive: Boolean = false): Result {
-        if (packageName != PACKAGE) return Result(message = "Nur eine sichtbare DEGIRO-Produktseite wird gelesen.")
-        if (sensitive) return Result(message = "Eingabe-, Login- oder geschützte Ansicht: nichts übernommen.")
+        if (packageName != PACKAGE) return Result(message = "Nur eine sichtbare DEGIRO-Produktseite wird gelesen.", reason = Reason.OTHER_APP)
+        if (sensitive) return Result(message = "Eingabe-, Login- oder geschützte Ansicht: nichts übernommen.", reason = Reason.PROTECTED)
         if (lines.size > 500 || lines.sumOf { it.text.length } > 20000)
-            return Result(message = "Ansicht zu umfangreich; bitte eine einzelne Produktseite öffnen.")
+            return Result(message = "Ansicht zu umfangreich; bitte eine einzelne Produktseite öffnen.", reason = Reason.TOO_LARGE)
         val text = lines.joinToString("\n") { it.text }
         if (Regex("(?i)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code|order platzieren|order bestätigen|place order|confirm order|orderart|ordertyp|order type|limitpreis|limit price|stückzahl|anzahl kaufen").containsMatchIn(text))
-            return Result(message = "Login oder Orderansicht erkannt: nichts übernommen.")
+            return Result(message = "Login oder Orderansicht erkannt: nichts übernommen.", reason = Reason.LOGIN_OR_ORDER)
         val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(text.uppercase()).map { it.value }.distinct().toList()
-        if (ids.size != 1 || !SeriesEvidence.validIsin(ids.single()))
-            return Result(message = "Keine einzelne gültige ISIN sichtbar. Produktdetails öffnen und erneut lesen.")
+        if (ids.isEmpty()) return Result(message = "ISIN fehlt im sichtbaren Ausschnitt. Kurse ohne Produktkennung werden nicht zugeordnet.", reason = Reason.ISIN_MISSING)
+        if (ids.size != 1) return Result(message = "Mehrere ISINs sichtbar; bitte ein einzelnes Produkt öffnen.", reason = Reason.ISIN_AMBIGUOUS)
+        if (!SeriesEvidence.validIsin(ids.single())) return Result(message = "ISIN-Prüfziffer ungültig; nichts übernommen.", reason = Reason.ISIN_INVALID)
         val currencyPattern = Regex("\\b(EUR|CHF)\\b|€")
         fun currencies(value: String) = currencyPattern.findAll(value.uppercase())
             .map { if (it.value == "€") "EUR" else it.value }.distinct().toList()
@@ -31,17 +34,17 @@ internal object ProductScreenEvidence {
             }
         }.distinct()
         val currency = if (quoteCurrencies.isNotEmpty()) quoteCurrencies else currencies(text)
-        if (currency.size != 1) return Result(message = "Produktwährung nicht eindeutig sichtbar; nichts übernommen.")
+        if (currency.size != 1) return Result(message = "Produktwährung nicht eindeutig sichtbar; nichts übernommen.", reason = Reason.CURRENCY_AMBIGUOUS)
         // QuoteLayout consumes geometry, never arbitrary neighboring text or account data.
         val fields = QuoteLayout.extract(lines.map { it.copy(text = it.text.replace("CHF", "EUR")) })
         val amounts = listOf("Geld", "Brief", "Zuletzt", "Hebel", "KO-Schwelle")
         val selected = fields.filterKeys { it in amounts || it == "Handelsplatz" || it == "Anzeigezeit" }
         if (selected.keys.none { it == "Geld" || it == "Brief" || it == "Zuletzt" })
-            return Result(message = "ISIN sichtbar, aber keine eindeutig beschrifteten Kurse zugänglich. Screenshot-Teilen bleibt möglich.")
+            return Result(message = "ISIN sichtbar, aber keine eindeutig beschrifteten Kurse zugänglich. Screenshot-Teilen bleibt möglich.", reason = Reason.QUOTES_MISSING)
         val bid = selected["Geld"]?.replace(',', '.')?.toDoubleOrNull()
         val ask = selected["Brief"]?.replace(',', '.')?.toDoubleOrNull()
         if ((bid != null && bid <= 0) || (ask != null && ask <= 0) || (bid != null && ask != null && bid > ask))
-            return Result(message = "Widersprüchliches Kurspaar; nichts übernommen.")
+            return Result(message = "Widersprüchliches Kurspaar; nichts übernommen.", reason = Reason.QUOTES_INVALID)
         val warning = when {
             Regex("(?i)nicht handelbar|not tradable|trading suspended").containsMatchIn(text) -> "Handel eingeschränkt"
             Regex("(?i)verzögert|delayed").containsMatchIn(text) -> "Kurse verzögert"

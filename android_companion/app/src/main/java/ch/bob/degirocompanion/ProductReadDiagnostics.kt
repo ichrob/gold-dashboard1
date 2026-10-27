@@ -8,18 +8,23 @@ internal object ProductReadDiagnostics {
     var canRead = false
     var windowAccess = false
     private val counts = mutableMapOf<Outcome, Int>()
+    private val reasons = mutableMapOf<ProductScreenEvidence.Reason, Int>()
     private var startedAt: Long? = null
-    fun reset(now: Long) { counts.clear(); startedAt = now }
-    fun clear() { counts.clear(); startedAt = null }
+    fun reset(now: Long) { counts.clear(); reasons.clear(); startedAt = now }
+    fun clear() { counts.clear(); reasons.clear(); startedAt = null }
     fun record(outcome: Outcome) { counts[outcome] = ((counts[outcome] ?: 0) + 1).coerceAtMost(999) }
+    fun rejected(reason: ProductScreenEvidence.Reason) {
+        if (reason != ProductScreenEvidence.Reason.NONE) reasons[reason] = ((reasons[reason] ?: 0) + 1).coerceAtMost(999)
+    }
     fun report(now: Long): String {
         val start = startedAt
         if (start != null && (now < start || now - start > 300000)) clear()
         return buildString {
-            appendLine("BOB-LESEDIAGNOSE/1")
+            appendLine("BOB-LESEDIAGNOSE/2")
             appendLine("Dienst verbunden: $connected · Textzugriff: $canRead · Fensterzugriff: $windowAccess")
             if (counts.isEmpty()) append("Noch keine Diagnosemessung.")
             else for (outcome in Outcome.values()) counts[outcome]?.let { appendLine("${outcome.name}: $it") }
+            for (reason in ProductScreenEvidence.Reason.values()) reasons[reason]?.let { appendLine("FIELD_${reason.name}: $it") }
         }.trim()
     }
 }
