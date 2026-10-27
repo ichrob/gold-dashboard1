@@ -19,8 +19,8 @@ _RUNNING = False
 _DATABASE = None
 # A newly started Render instance must first allow startup/database work to settle.
 # Retention is maintenance, not a prerequisite for diagnostic delivery.
-_LAST_PRUNE = time.monotonic()
-_PRUNE_INTERVAL_SECONDS = 1800
+_LAST_PRUNE = time.monotonic() - 240
+_PRUNE_INTERVAL_SECONDS = 300
 _PRUNE_TIMEOUT = '5s'
 _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
 _STATS = {'stored':0,'dropped':0,'failures':0,'lastStoredAt':None}
@@ -139,11 +139,15 @@ def prune(conn):
         (SELECT id FROM bob_diagnostic_history
          WHERE recorded_at < now()-interval '7 days'
          ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""")
-    capped=conn.execute('''DELETE FROM bob_diagnostic_history WHERE id IN
-        (SELECT h.id FROM bob_diagnostic_history h
-         JOIN (SELECT id FROM bob_diagnostic_history
-               ORDER BY recorded_at DESC OFFSET 60000 LIMIT 500) victims USING (id)
-         FOR UPDATE OF h SKIP LOCKED)''')
+    # Journal rows are append-only. Select physical tuple IDs and delete them
+    # in the SAME statement/snapshot, avoiding a second full journal ID join.
+    # The advisory lock above serializes maintenance across both services.
+    # Only the pre-existing 60,000-row journal cap applies; raw archives are
+    # separate tables and are never touched by this maintenance.
+    capped=conn.execute('''DELETE FROM bob_diagnostic_history
+        WHERE ctid = ANY(ARRAY(
+            SELECT ctid FROM bob_diagnostic_history
+            ORDER BY recorded_at DESC OFFSET 60000 LIMIT 2000))''')
     counts=(getattr(old,'rowcount',0),getattr(capped,'rowcount',0))
     return sum(value for value in counts if isinstance(value,int) and value>0)
 

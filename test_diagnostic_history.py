@@ -348,6 +348,31 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(conn.execute('SELECT id FROM bob_diagnostic_history').fetchall(),[('recent',)])
             conn.execute('DROP SCHEMA '+schema+' CASCADE')
 
+    def test_journal_cap_catches_up_without_deleting_source_evidence(self):
+        import psycopg
+        schema = 'diag_cap_' + str(time.time_ns())
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE SCHEMA '+schema)
+            conn.execute('SET search_path TO '+schema)
+            h.init(conn)
+            conn.execute("CREATE TABLE bob_spot_observations (price numeric)")
+            conn.execute("INSERT INTO bob_spot_observations VALUES (4000)")
+            conn.execute("""INSERT INTO bob_diagnostic_history
+                (id,trace_id,stage,observed_at,recorded_at,payload)
+                SELECT i::text,'test','health',0,
+                    now()-i*interval '1 second','{}'::jsonb
+                FROM generate_series(1,65000) i""")
+            for remaining in (63000,61000,60000,60000):
+                h.prune(conn)
+                self.assertEqual(conn.execute(
+                    'SELECT count(*) FROM bob_diagnostic_history').fetchone()[0],remaining)
+            self.assertEqual(conn.execute(
+                'SELECT min(id::int),max(id::int) FROM bob_diagnostic_history'
+                ).fetchone(),(1,60000))
+            self.assertEqual(conn.execute(
+                'SELECT price FROM bob_spot_observations').fetchone()[0],4000)
+            conn.execute('DROP SCHEMA '+schema+' CASCADE')
+
     def test_legacy_health_running_and_weekend_good_codes_cannot_fake_repair(self):
         import psycopg
         import bob_repair_store
