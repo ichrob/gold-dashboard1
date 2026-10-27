@@ -589,7 +589,7 @@ def handle(connect, payload):
                 result['summary']['note'] = 'Vorhandene Zusammenfassung; Aktualisierung noch ausstehend. ' + str(saved.get('note', ''))
         if saved and saved['_sourceFingerprint'] == fp:
             result['summary'] = row[1]
-            result['summaryStatus'] = 'KI-Zusammenfassung gespeichert.'
+            result['summaryStatus'] = ('Teilweise ausgewertet: unbelegte Abschnitte verworfen.' if result.get('summary', {}).get('partial') else 'KI-Zusammenfassung gespeichert.')
         elif key:
             count = conn.execute("SELECT count(*),count(*) FILTER (WHERE attempted_at>now()-interval '1 minute') FROM bob_research_ai_requests WHERE attempted_at>now()-interval '24 hours'").fetchone()
             if count[0] < 10 and count[1] == 0 and not paused:
@@ -622,7 +622,7 @@ def handle(connect, payload):
             with connect() as conn:
                 conn.execute('UPDATE bob_research_enhancements SET fingerprint=%s,summary=%s::jsonb,summary_error=NULL,summary_failures=0,updated_at=now() WHERE video_id=%s',
                              (fp, json.dumps(result['summary']), identity)); conn.commit()
-            result['summaryStatus'] = 'KI-Zusammenfassung gespeichert.'
+            result['summaryStatus'] = ('Teilweise ausgewertet: unbelegte Abschnitte verworfen.' if result.get('summary', {}).get('partial') else 'KI-Zusammenfassung gespeichert.')
         except Exception as exc:
             code = failure_code(exc)
             with connect() as conn:

@@ -847,6 +847,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     if(x.publicFallback)box.append(node('p',x.accessNote||'Älteres frei zugängliches Ersatzvideo; neuere Mitgliedervideos sind nicht ausgewertet.'));
     const a=node('a',x.title);const url=new URL(x.url);if(url.protocol==='https:'){a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';}
     const published=publicationLabel(x);
+    window.BobVideoBrief?.renderGuide(box,x,window.BobResearchContext?.());
     if(!x.transcriptAnalyzed)renderUnanalyzedMco(box,x,url);
     if(x.enhancements)renderEnhancements(box,x,url);
     if(x.overview){
@@ -871,6 +872,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     meta.append(technical);box.append(meta);
     for(const at of (x.overview?[]:x.goldMoments)||[]){const jump=node('a','Gold-Stelle '+Math.floor(at/60)+':'+String(at%60).padStart(2,'0')+' ');const target=new URL(x.url);target.searchParams.set('t',String(at));jump.href=target.href;jump.target='_blank';jump.rel='noopener noreferrer';box.append(jump);}
     const id=videoKey(x),entry=node('details',''),heading=node('summary',''),headingTitle=node('span',(readVideos.has(id)?'':'Neu · ')+x.title),publication=node('small','Veröffentlicht: '+published);
+    const guide=window.BobVideoBrief?.researchGuide(x);
+    if(guide)publication.textContent=guide.age+' · '+guide.publication+' · '+guide.status;
     publication.style.cssText='display:block;font-weight:400;margin-top:4px';
     if(!x.transcriptAnalyzed)publication.textContent+=' · noch keine Inhaltsanalyse';
     heading.append(headingTitle,publication);
@@ -884,15 +887,15 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  }
 
  function renderMcoFibonacci(box,item,url){
-  const permitted=new Set(['r382','r500','r618','r786','e1272','e1618']);
-  const marks=(Array.isArray(item.mcoFibonacci)?item.mcoFibonacci:[]).filter(x=>x&&permitted.has(x.key)&&typeof x.price==='number'&&x.price>=500&&x.price<=25000).slice(0,12);
+  const marks=window.BobVideoBrief?.sourceFibMarks(item)||[];
   const pane=node('details','');pane.className='research';pane.style.cssText='margin:12px 0;padding:12px;border:1px solid #dbe3ea;border-radius:10px';
   pane.append(node('summary','Optional: Fibonacci-Kursmarken · MCO und Bob (eigene Grafik)'));
   const legend=node('p','');legend.style.cssText='display:flex;gap:12px;flex-wrap:wrap';
-  for(const [name,color] of [['● MCO','#2563eb'],['● Bob','#c2410c'],['● Nahe Kursmarken','#15803d']]){const tag=node('b',name);tag.style.color=color;legend.append(tag);}
+  for(const [name,color] of [['● MCO-Untertitel','#2563eb'],['● Bob-Berechnung','#c2410c']]){const tag=node('b',name);tag.style.color=color;legend.append(tag);}
   pane.append(legend,node('small','Eigene Bob-Darstellung, kein MCO-Originalchart. Kurse in USD je Unze Gold. Die Angaben werden nicht für die Handelsfreigabe verwendet.'));
   const snapshot=typeof window.BobMcoFibSnapshot==='function'?window.BobMcoFibSnapshot():null;
   const fmt=p=>Number(p).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2});
+  pane.append(node('p','Belegstatus: gesprochene Kursmarken mit Untertitelstelle. Vorschaubilder/OCR sind keine bestätigten Chartwerte. Veröffentlichung ist nicht der Marktzeitpunkt im Chart.'));
   if(!item.trustedTranscript)pane.append(node('p','Hinweis: Das Transkript ist nicht unabhängig bestätigt; markierte Aussagen sind ungeprüft.'));
   if(!marks.length){pane.append(node('p','Keine explizite Fibonacci-Prozentzahl mit dazugehöriger Kursmarke im Transkript gefunden. MCO-Werte werden nicht geschätzt.'));box.append(pane);return;}
   if(!snapshot?.available)pane.append(node('p','Bob hat derzeit keine bestätigten Vergleichswerte aus 15-Minuten-Kerzen: '+(snapshot?.reason||'Marktdaten fehlen')+'.'));
@@ -901,15 +904,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const maybe=snapshot?.available?Number(snapshot.levels?.[m.key]):NaN;
    const bob=Number.isFinite(maybe)&&maybe>0?maybe:null;
    const difference=bob===null?null:Math.abs(m.price-bob);
-   const maxGap=Math.max(5,m.price*.0015);
-   return {...m,bob,difference,near:difference!==null&&difference<=maxGap};
+   return {...m,bob,difference,near:false};
   });
   const close=snapshot?.bars||[],prices=[...pairings.map(m=>m.price),...pairings.filter(m=>m.bob!==null).map(m=>m.bob),...close.map(b=>b.close)];
   if(prices.length){
    const lo=Math.min(...prices),hi=Math.max(...prices),pad=Math.max(5,(hi-lo)*.1),min=lo-pad,max=hi+pad;
    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
    svg.setAttribute('viewBox','0 0 640 268');svg.setAttribute('role','img');
-   svg.setAttribute('aria-label','Blau: MCO-Level, orange: Bob-Level, grün: Kurszahlen nahe beieinander. Graue Linie: Bobs 15-Minuten-Goldkurse.');
+   svg.setAttribute('aria-label','Blau: gesprochene MCO-Level, orange: Bob-Level; kein bestätigter gemeinsamer Chartbezug. Graue Linie: Bobs 15-Minuten-Goldkurse.');
    svg.style.cssText='width:100%;height:auto;background:#fff;border:1px solid #e5e7eb;border-radius:8px';
    function drawSvg(name,attrs,content){const n=document.createElementNS('http://www.w3.org/2000/svg',name);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));if(content!=null)n.textContent=String(content);svg.append(n);}
    const x0=73,x1=535,y0=19,y1=241,Y=p=>y1-(p-min)/(max-min)*(y1-y0);
@@ -931,13 +933,13 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const row=node('p','');row.style.cssText='border-top:1px solid #e2e8f0;padding-top:9px;line-height:1.5';
    const mc=node('b',m.ratio+' MCO: '+fmt(m.price)+' USD');mc.style.color='#2563eb';row.append(mc);
    if(m.bob!==null){const b=node('b',' · Bob: '+fmt(m.bob)+' USD');b.style.color='#c2410c';row.append(b);
-    const diff=node('span',' · Abstand: '+fmt(m.difference)+' USD'+(m.near?' · numerisch nahe':' · unterschiedlich'));diff.style.color=m.near?'#15803d':'#475569';row.append(diff);
+    const diff=node('span',' · Abstand: '+fmt(m.difference)+' USD'+(m.near?' · numerisch nahe':' · nur Zahlenabstand, keine Signalbestätigung'));diff.style.color=m.near?'#15803d':'#475569';row.append(diff);
    }else row.append(node('span',' · Bob: entsprechendes Level nicht bestätigt'));
    const q=node('small','Originaluntertitel: „'+String(m.quote||'').slice(0,300)+'“');q.style.cssText='display:block;margin:4px 0';row.append(q);
    if(item.trustedTranscript&&Number.isInteger(m.at)){const a=node('a','Videostelle '+Math.floor(m.at/60)+':'+String(m.at%60).padStart(2,'0'));const dest=new URL(url);dest.searchParams.set('t',String(m.at));a.href=dest.href;a.target='_blank';a.rel='noopener noreferrer';row.append(a);}
    pane.append(row);
   }
-  pane.append(node('small','Grün = Preisabstand höchstens 5 USD oder 0,15 % des MCO-Werts (größere Grenze zählt). Nur numerischer Vergleich: MCOs Zeitpunkt, Swing-Punkte, Zeitrahmen und Spot-/Future-Bezug können von Bobs 15m-Spot abweichen. Keine Bestätigung eines Marktsignals oder einer Produktfreigabe.'));
+  pane.append(node('small','Keine grüne Übereinstimmungswertung ohne gemeinsam bestätigten Marktzeitpunkt, Basiswert, Zeitrahmen und Swing-Bezug. Nur numerischer Vergleich: MCOs Zeitpunkt, Swing-Punkte, Zeitrahmen und Spot-/Future-Bezug können von Bobs 15m-Spot abweichen. Keine Bestätigung eines Marktsignals oder einer Produktfreigabe.'));
   box.append(pane);
  }
 
@@ -995,7 +997,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   }
   if(extra.summary&&extra.summary.kind==='ai'){
    const brief=node('section','');brief.className='mco-brief';
-   brief.append(node('h4','Zusammenfassung mit Videobildern · MCO Markets'),node('small','Aussagen von MCO, belegt durch Untertitel. Keine eigene Prognose von Bob.'));
+   brief.append(node('h4',extra.summary.partial?'Teilweise ausgewertet · Zusammenfassung mit Belegen':'Zusammenfassung mit Videobildern · MCO Markets'),node('small','Aussagen von MCO, belegt durch Untertitel. Keine eigene Prognose von Bob.'));
    const how=node('details','');how.append(node('summary','Methode und Grenzen'),node('small',extra.summary.scope));brief.append(how);
    for(const [sectionIndex,section] of (extra.summary.sections||[]).entries()){
     const part=node('section','');part.className='mco-section';part.append(node('h5',(sectionIndex+1)+'. '+section.label),node('p',section.text));
@@ -4024,6 +4026,11 @@ function intradayTechnicalContext(bundle=liveBundleCache,state=null,now=Date.now
  return {...empty,direction:state.dir,signalScore:state.score,trend:e20>e50?'LONG':e20<e50?'SHORT':'NEUTRAL',mtf:state.dir,rsi:rsi(values),hist:m.hist,momentum:m.hist,atr:risk.available?risk.atr:null,adx:adxCalc(bars),barAt:bars.at(-1).openTime};
 }
 window.BobTechnicalContext=()=>intradayTechnicalContext();
+window.BobResearchContext=()=>{
+ const at=liveBundleCache?.spots?.spot_price_as_of;
+ return {at,direction:signalState?.dir,reason:signalState?.reason,
+  fresh:liveBundleCache?.spots?.is_genuine_xauusd_spot===true&&!liveBundleCache.spots.spot_error&&analysisAgeWarnings().length===0&&!window.BobSession?.expired()};
+};
 function intradayRiskData(bundle=liveBundleCache,now=Date.now(),allowStale=false){
  const step=900000,raw=bundle?.history?.bars_by_tf?.['15m']||[];
  const rows=raw.filter(b=>b?.isOpen===false&&Number.isFinite(b.openTime)&&b.openTime+step<=now).slice(-200);
