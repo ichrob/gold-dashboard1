@@ -4038,7 +4038,7 @@ function intradayRiskData(bundle=liveBundleCache,now=Date.now(),allowStale=false
 // One market plan for product previews; existing stop/target engines remain authoritative.
 function productMarketPlan(direction,now=Date.now()){
  const fixed=intradayRiskData(liveBundleCache,now),spots=liveBundleCache?.spots;
- const at=Date.parse(spots?.spot_price_as_of);
+ const stamp=spots?.spot_price_as_of,at=typeof stamp==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(stamp)?Date.parse(stamp):NaN;
  if(!fixed.available||spots?.is_genuine_xauusd_spot!==true||spots.spot_error||!Number.isFinite(at)||now-at<0||now-at>60000)
   return {available:false,reason:fixed.reason||'Aktuelle Gold-Spot-Referenz fehlt'};
  const entry=Number(spots.xaus),sm=stopModel(direction,entry,fixed.atr,+($('trailAtr')?.value||1.5),fixed);

@@ -19,3 +19,20 @@ for(const direction of ['LONG','SHORT'])for(const currency of ['EUR','CHF']){
  assert(b.productRiskPreviewText(p,market,now).includes('Gesamtverlust erst mit tatsächlichem Kaufkurs'));
 }
 console.log('Product risk preview: shared plan, LONG/SHORT, EUR/CHF, KO buffer, identity, stale FX/quotes, immutability passed');
+
+const html=fs.readFileSync('Bob.html','utf8');
+const start=html.indexOf('function productMarketPlan('),end=html.indexOf('function continuedTradePlan(',start);
+const fixed={available:true,atr:10,bars:[]},calls=[];
+const planEnv={liveBundleCache:{spots:{xaus:4200,is_genuine_xauusd_spot:true,spot_price_as_of:at}},
+ intradayRiskData:()=>fixed,$:id=>({value:id==='trailAtr'?'1.8':'2.5'}),
+ stopModel:(...args)=>{calls.push(args);return {stop:4170,reason:'shared'};},
+ targetModel:(...args)=>{calls.push(args);return {target:4260,entrySuitable:true};}};
+vm.createContext(planEnv);vm.runInContext(html.slice(start,end),planEnv);
+assert(planEnv.productMarketPlan('LONG',now).available);
+assert.equal(calls[0][3],1.8);assert.equal(calls[1][3],2.5);
+assert.strictEqual(calls[0][4],fixed);assert.strictEqual(calls[1][4],fixed);
+for(const stamp of [new Date(now-60001).toISOString(),new Date(now+1).toISOString(),'2026-10-27T10:00:00']){
+ planEnv.liveBundleCache.spots.spot_price_as_of=stamp;
+ assert.equal(planEnv.productMarketPlan('LONG',now).available,false);
+}
+console.log('Market preview uses existing stop/target engines, user parameters and same risk snapshot; rejects stale/future/ambiguous clocks');
