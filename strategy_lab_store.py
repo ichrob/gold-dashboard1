@@ -121,6 +121,7 @@ def handle(conn, action, payload):
             "mode": "RESEARCH_ONLY",
             "automation": {
                 "enabled": True, "frequency": "daily-weekdays",
+                "replayProtocol": __import__("research_replay").VERSION,
                 "timezone": "Europe/Zurich", "fromHour": 8,
                 "lastDay": latest[0].isoformat() if latest else None,
                 "lastRunAt": latest[1].isoformat() if latest else None,
