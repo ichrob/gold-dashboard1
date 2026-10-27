@@ -22,7 +22,7 @@ class AutomaticResearchTests(unittest.TestCase):
         calls=[]
         def storage(action,payload):
             calls.append(action)
-            return dict(mode="RESEARCH_ONLY",automation=dict(lastDay="2026-10-12"),
+            return dict(mode="RESEARCH_ONLY",automation=dict(lastDay="2026-10-12",replayProtocol="bob-research-replay-v1"),
                         latestReport=dict(status="evaluated",version=strategy_lab.VERSION,replay={"available":True}))
         out=bg.evaluate_and_store(
             lambda *_:self.fail("recomputed despite saved daily snapshot"),
@@ -41,7 +41,7 @@ class AutomaticResearchTests(unittest.TestCase):
             self.assertEqual(payload["day"],"2026-10-12")
             self.assertFalse(payload["report"]["approved"])
             self.assertFalse(payload["report"]["orderExecutionEnabled"])
-            return dict(saved=True,day="2026-10-12")
+            return dict(saved=True,day="2026-10-12",replaySaved=True,replayId=payload.get("replay",{}).get("id"))
         with patch.object(bg.strategy_lab,"run",return_value=dict(
             status="insufficient",mode="RESEARCH_ONLY",approved=False,
             orderExecutionEnabled=False,closedBars=9,folds=[])) as engine:
@@ -79,7 +79,7 @@ class AutomaticResearchTests(unittest.TestCase):
             def storage(action,payload):
                 if action=="read":return {"mode":"RESEARCH_ONLY","automation":{}}
                 stored.append(payload)
-                return {"saved":True,"day":"2026-10-12"}
+                return {"saved":True,"day":"2026-10-12","replaySaved":True,"replayId":payload["replay"]["id"]}
             result=bg.evaluate_and_store(lambda *_:short,lambda rows,minutes:rows,
                                          now=now,storage=storage)
         self.assertEqual(result["status"],"evaluated")

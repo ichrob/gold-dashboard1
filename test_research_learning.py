@@ -148,10 +148,10 @@ class AutonomousLearningTests(unittest.TestCase):
         def storage(action,payload):
             if action=="read":
                 return dict(mode="RESEARCH_ONLY",
-                    automation=dict(lastDay="2026-10-12"),latestReport=stored)
+                    automation=dict(lastDay="2026-10-12",replayProtocol="bob-research-replay-v1"),latestReport=stored)
             writes.append(payload)
             stored.update(payload["report"])
-            return dict(saved=True,day="2026-10-12")
+            return dict(saved=True,day="2026-10-12",replaySaved=True,replayId=payload.get("replay",{}).get("id"))
         with patch.object(worker.strategy_lab,"run",return_value=dict(stored)) as engine:
             at_morning=worker.evaluate_and_store(lambda *_:[],lambda *_:[],
                 now=datetime(2026,10,12,9,tzinfo=TZ),storage=storage)

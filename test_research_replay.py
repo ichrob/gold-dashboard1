@@ -35,12 +35,24 @@ class ReplayTests(unittest.TestCase):
             if action=='read':return dict(mode='RESEARCH_ONLY',automation={'lastDay':'2026-10-27'},latestReport=report)
             writes.append(payload)
             self.assertTrue(replay.replay(payload['replay'])['matches'])
-            return dict(saved=True,day='2026-10-27')
+            return dict(saved=True,day='2026-10-27',replaySaved=True,replayId=payload['replay']['id'])
         out=bg.evaluate_and_store(lambda *_:rows,lambda rows,*_:rows,
             now=datetime(2026,10,27,9,tzinfo=ZoneInfo('Europe/Zurich')),storage=storage)
         self.assertEqual(out['status'],'evaluated')
         self.assertEqual(len(writes),1)
         self.assertTrue(writes[0]['report']['replay']['available'])
+
+    def test_old_or_wrong_server_receipt_never_confirms_package(self):
+        import strategy_lab_background as bg
+        from zoneinfo import ZoneInfo
+        rows,_,_=fixture()
+        for extra in ({},{'replaySaved':True,'replayId':'0'*64}):
+            def storage(action,payload):
+                if action=='read':return dict(mode='RESEARCH_ONLY',automation={},latestReport={})
+                return dict(saved=True,day='2026-10-27',**extra)
+            with self.subTest(extra=extra),self.assertRaisesRegex(ValueError,'Datenpaket|datenpaket'):
+                bg.evaluate_and_store(lambda *_:rows,lambda rows,*_:rows,
+                    now=datetime(2026,10,27,9,tzinfo=ZoneInfo('Europe/Zurich')),storage=storage)
 
     def test_tampering_and_engine_drift_are_not_silently_replayed(self):
         _,_,envelope=fixture()
@@ -65,7 +77,15 @@ class ReplayDatabaseTests(unittest.TestCase):
             try:
                 conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
                 replay.init(conn);bob_market_store.init(conn)
+                import strategy_lab_store as report_store
+                import json
+                report_store.init(conn)
+                orphan={**report,'replay':{'available':True,'id':envelope['id']}}
+                conn.execute("INSERT INTO bob_strategy_lab_daily VALUES ('2026-10-27',now(),1,'evaluated',%s,%s::jsonb)",
+                    (strategy_lab.VERSION,json.dumps(orphan)))
+                self.assertFalse(report_store.handle(conn,'read',{})['latestReport']['replay']['available'])
                 replay.save(conn,envelope,'2026-10-27',report)
+                self.assertTrue(report_store.handle(conn,'read',{})['latestReport']['replay']['available'])
                 replay.save(conn,envelope,'2026-10-27',report)
                 conn.execute("INSERT INTO bob_spot_observations VALUES (%s,'2020-01-01',1500)",(bob_market_store.STREAM,))
                 bob_market_store.handle(conn,'write',dict(symbol='XAU',currency='USD',price=4000,at=datetime.now(timezone.utc).isoformat()))
