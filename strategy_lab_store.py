@@ -1,7 +1,7 @@
 """Persist daily read-only Zukunft walk-forward reports in existing Bob PostgreSQL.
 
 Only accessible through push-service's shared secret; no broker, trading or
-live decision use. Same-day reruns do not duplicate historical runs.
+live decision use. Accepted report revisions are retained independently of the daily view.
 """
 import json
 from datetime import datetime, timezone
@@ -22,6 +22,25 @@ def init(conn):
         version TEXT NOT NULL,
         report JSONB NOT NULL
     )""")
+
+    conn.execute("""CREATE TABLE IF NOT EXISTS bob_strategy_lab_revisions (
+        run_day DATE NOT NULL, fingerprint TEXT NOT NULL,
+        calculated_at TIMESTAMPTZ NOT NULL, last_bar_at BIGINT,
+        status TEXT NOT NULL, version TEXT NOT NULL, report JSONB NOT NULL,
+        archived_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY(run_day,fingerprint)
+    )""")
+
+
+def archive_current(conn, day):
+    # Same transaction as the daily upsert: archive failure rolls back the write.
+    # Fingerprint deduplicates identical retries; it is not an authenticity proof.
+    conn.execute("""INSERT INTO bob_strategy_lab_revisions
+        (run_day,fingerprint,calculated_at,last_bar_at,status,version,report)
+        SELECT run_day,encode(sha256(convert_to(report::text,'UTF8')),'hex'),
+            calculated_at,last_bar_at,status,version,report
+        FROM bob_strategy_lab_daily WHERE run_day=%s
+        ON CONFLICT(run_day,fingerprint) DO NOTHING""",(day,))
 
 
 def validate(payload):
@@ -64,6 +83,7 @@ def validate(payload):
 def handle(conn, action, payload):
     if action == "write":
         day, report, last, data = validate(payload)
+        archive_current(conn, day)
         # Lock per date; never regress a validated report to insufficient, or
         # replace with fewer/older bars in a same-day retry.
         conn.execute("""INSERT INTO bob_strategy_lab_daily(run_day, calculated_at,last_bar_at,status,version,report)
@@ -74,8 +94,8 @@ def handle(conn, action, payload):
             WHERE (bob_strategy_lab_daily.status != 'evaluated' OR excluded.status = 'evaluated')
               AND COALESCE(excluded.last_bar_at,0) >= COALESCE(bob_strategy_lab_daily.last_bar_at,0)
         """, (day, last, report["status"], strategy_lab.VERSION, data))
-        # Research results retained for 90 calendar days; no deletion of other Bob data.
-        conn.execute("DELETE FROM bob_strategy_lab_daily WHERE run_day < CURRENT_DATE - 90")
+        archive_current(conn, day)
+        # Retain daily reports and accepted revisions for later evaluation.
         return dict(saved=True, day=day.isoformat(), mode="RESEARCH_ONLY")
     if action == "read":
         rows = conn.execute("""SELECT run_day, calculated_at,last_bar_at,status,version,report

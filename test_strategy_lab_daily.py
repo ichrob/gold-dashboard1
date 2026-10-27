@@ -144,9 +144,10 @@ class AutomaticResearchTests(unittest.TestCase):
             dt.now.return_value=datetime(2026,10,12,9,tzinfo=Z)
             receipt=store.handle(conn,"write",payload)
         self.assertTrue(receipt["saved"])
-        self.assertIn("ON CONFLICT(run_day) DO UPDATE",conn.execute.call_args_list[0].args[0])
+        upsert = next(c.args[0] for c in conn.execute.call_args_list if "ON CONFLICT(run_day) DO UPDATE" in c.args[0])
+        self.assertIn("ON CONFLICT(run_day) DO UPDATE",upsert)
         self.assertIn("status != 'evaluated' OR excluded.status = 'evaluated'",
-                      conn.execute.call_args_list[0].args[0])
+                      upsert)
         conn.execute.reset_mock()
         conn.execute.return_value.fetchall.return_value=[]
         report=store.handle(conn,"read",{})

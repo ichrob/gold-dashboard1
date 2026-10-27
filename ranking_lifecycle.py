@@ -119,7 +119,7 @@ def tick(conn,market,quotes,now):
         state=advance_state(state,market,quotes,now);result=summarize(row,state)
         conn.execute('''UPDATE bob_ranking_lifecycles SET state=%s::jsonb,result=%s::jsonb,complete=%s,checked_at=%s
             WHERE currency=%s AND slot=%s''',(json.dumps(state),json.dumps(result),not result['pending'] and not result.get('stopComparison',{}).get('pending'),now,currency,slot))
-    conn.execute('DELETE FROM bob_ranking_lifecycles WHERE complete=TRUE AND slot<%s',(now-180*86400000,))
+    # Preserve study cases and outcomes for reproducible historical evaluation.
 
 
 def report(conn):

@@ -288,7 +288,7 @@ def tick(conn,now=None):
         s['history']=s['history'][-50:]
         conn.execute('UPDATE bob_ranking_state SET state=%s::jsonb WHERE currency=%s',(json.dumps(s),currency))
     # Never discard an ongoing campaign's selection/validation evidence.
-    conn.execute('DELETE FROM bob_ranking_samples WHERE slot<%s AND slot<(SELECT min((state->>\'start\')::bigint) FROM bob_ranking_state)',(now-180*DAY,))
+    # Preserve study cases and outcomes for reproducible historical evaluation.
 
 
 def control(conn,enabled,now):
