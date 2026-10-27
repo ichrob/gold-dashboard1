@@ -378,3 +378,14 @@ Ziel geraten. Kein Anspruch auf alle versteckten/zusammengeklappten Felder.
 Während der Prüfung nicht bedienen. Ob DEGIRO die benötigten Scrollaktionen
 anbietet und ob die Seite vollständig durchlaufen werden kann, muss am Gerät
 verifiziert werden. Frühere Abschnitte ohne Scrollen beschreiben ältere Versionen.
+
+### Startübergänge / Diagnose 3
+
+Vor der ersten gültigen Produktkennung beendet eine geschützte/Login-Ansicht
+den Auftrag nicht sofort. Sie wird ohne Datenübernahme übersprungen; Bob wartet
+innerhalb des bestehenden Zeit-/Versuchslimits auf die Produktseite. Nach Beginn
+der Scrollzuordnung bleibt dieselbe Ansicht ein sofortiger Abbruchgrund.
+Fehlende Scrollfläche beim initialen Seitenaufbau wird ebenfalls begrenzt erneut
+geprüft, ohne eine Produktkennung zwischen diesen Warteversuchen zu behalten.
+Diagnose 3 zählt Warten auf Schutz/Identität/Scrollfläche und konkrete Abbrüche
+getrennt. Keine Erweiterung des Zugriffs auf geschützte Inhalte.
