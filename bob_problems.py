@@ -303,8 +303,8 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
   b.hidden=!(Number.isInteger(combined)&&combined>0);
   b.textContent=b.hidden?'':String(combined);
   const button=b.closest('button');
-  if(button)button.setAttribute('aria-label',combined===null?'Problem, Anzahl unbekannt':
-    combined===1?'Problem, 1 offene KI-Hilfeanfrage':'Problem, '+combined+' offene KI-Hilfeanfragen');
+  if(button)button.setAttribute('aria-label',combined===null?'Mehr, Problemzahl unbekannt':
+    combined===1?'Mehr, 1 offene KI-Hilfeanfrage':'Mehr, '+combined+' offene KI-Hilfeanfragen');
  }
  function readableDate(s){
   if(!s)return 'Zeitpunkt unbekannt';

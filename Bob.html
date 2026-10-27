@@ -249,6 +249,32 @@ button.bob-primary[data-view="products"]{background:#1677ff;color:#fff}
  .bob-mobile #bobTradePushControls .bob-trade-push-toggles .metric label{font-size:12px}
  .bob-mobile #bobTradePushControls .bob-push-card-description{font-size:11px}
 }
+
+/* Clear mobile reading hierarchy; fixed navigation reserves document space. */
+body.bob-mobile{font-size:16px}
+.bob-mobile .small,.bob-mobile .bob-short{font-size:15px;color:#42536a}
+.bob-mobile button,.bob-mobile input,.bob-mobile select{font-size:16px;min-height:48px}
+.bob-mobile summary{font-size:16px;padding:10px 0;cursor:pointer}
+.bob-mobile .bob-nav button{font-size:14px;min-height:60px}
+.bob-mobile .bob-nav{background:#fff}
+.bob-mobile #bobSimpleHome{padding:18px}
+.bob-mobile #bobSimpleHome h2{margin:0 0 12px}
+.bob-home-signal{font-size:24px;font-weight:750;padding:10px 12px;border-radius:12px;background:#fff3cd;color:#755500}
+.bob-home-signal[data-direction=LONG]{background:#dcfce7;color:#166534}
+.bob-home-signal[data-direction=SHORT]{background:#fee2e2;color:#991b1b}
+.bob-home-actions{display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px}
+.bob-home-actions button{width:100%;margin:0}
+.bob-home-trade dl{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.bob-home-trade dt{font-size:14px;color:#42536a}.bob-home-trade dd{font-weight:700;margin:0;overflow-wrap:anywhere}
+.bob-home-trade dl>div:first-child{grid-column:1/-1}
+.bob-mobile #bobSimpleHome p{margin:8px 0;overflow-wrap:anywhere}
+.bob-mobile #bobHomeProblems{border-left:4px solid #b45309;padding-left:12px}
+.bob-mobile #bobHomeDetails>.card{box-shadow:none}
+.bob-mobile [data-product-compact-summary] details{border-top:1px solid #dce3ed}
+.bob-mobile #bobTradePushControls .bob-trade-push-toggles .metric{min-height:0;padding:12px}
+.bob-mobile #bobTradePushControls .bob-push-card-icon{display:none}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+
 </style>
 </head>
 <body>
@@ -1673,7 +1699,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const quick=card('quickSignal'),manual=card('dgType'),push=card('generalPushBtn');
   const header=document.querySelector('h1')?.parentElement;
   const panels={};
-  for(const [key,label] of Object.entries({overview:'Übersicht',products:'Produkte',trade:'Mein Trade',auto:'Automatische Simulation',future:'Zukunft',research:'Recherche',learning:'Lernen & Ergebnisse',diagrams:'Diagramme',simulation:'Simulation',improve:'Besser werden',degiro:'DEGIRO',degiro2:'DEGIRO-Handy-Assistent',settings:'Einstellungen',help:'Hilfe',problems:'Probleme',more:'Mehr'})){
+  for(const [key,label] of Object.entries({overview:'Start',products:'Produkte',trade:'Mein Trade',auto:'Automatische Simulation',future:'Zukunft',research:'Recherche',learning:'Lernen & Ergebnisse',diagrams:'Diagramme',simulation:'Simulation',improve:'Besser werden',degiro:'DEGIRO',degiro2:'DEGIRO-Handy-Assistent',settings:'Einstellungen',help:'Hilfe',problems:'Probleme',more:'Mehr'})){
    const el=document.createElement('section');el.id='bob-view-'+key;el.setAttribute('aria-label',label);el.hidden=key!=='overview';
    if(key!=='overview'){const h=document.createElement('h2');h.textContent=label;h.tabIndex=-1;el.append(h);}
    panels[key]=el;main.append(el);
@@ -1954,13 +1980,13 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   window.BobDiagrams?.mount(panels.diagrams);
   const moreMenu=document.createElement('div');moreMenu.className='bob-more-menu';
   function menuButton(key,icon,label,note){return '<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'">'+icon+' '+label+'<small>'+note+'</small></button>';}
-  moreMenu.innerHTML=[['improve','↗','Besser werden','Ziele, Fortschritt und belegte Ergebnisse'],['simulation','▷','Simulation','Spielgeld, automatische Tests und Vergleiche'],['learning','↗','Lernen & Ergebnisse','Trade-Auswertung und Fortschritt'],['diagrams','▥','Diagramme','Vergleiche und Fortschritte'],['research','▶','Recherche','MCO-Goldvideos und Analysen'],['future','◇','Zukunft','Pläne und Broker'],['degiro','▤','DEGIRO','Dein reservierter Bereich'],['degiro2','↗','DEGIRO-Handy-Assistent','Vorbereitung und manuelle Übergabe'],['settings','⚙','Einstellungen','Push, Verbindung und Abmelden'],['help','?','Hilfe','Wofür Bob ist und wie du ihn bedienst']].map(args=>menuButton(...args)).join('');
+  moreMenu.innerHTML=[['problems','⚠','Probleme','Offene Fälle und automatische Bearbeitung'],['improve','↗','Besser werden','Ziele, Fortschritt und belegte Ergebnisse'],['simulation','▷','Simulation','Spielgeld, automatische Tests und Vergleiche'],['learning','↗','Lernen & Ergebnisse','Trade-Auswertung und Fortschritt'],['diagrams','▥','Diagramme','Vergleiche und Fortschritte'],['research','▶','Recherche','MCO-Goldvideos und Analysen'],['future','◇','Zukunft','Pläne und Broker'],['degiro','▤','DEGIRO','Dein reservierter Bereich'],['degiro2','↗','DEGIRO-Handy-Assistent','Vorbereitung und manuelle Übergabe'],['settings','⚙','Einstellungen','Push, Verbindung und Abmelden'],['help','?','Hilfe','Wofür Bob ist und wie du ihn bedienst']].map(args=>menuButton(...args)).join('');
   // Group existing destinations, retaining their buttons and navigation targets.
   for(const [title,keys] of [
    ['Trainieren und auswerten',['simulation','learning','diagrams','improve']],
    ['Recherche',['research']],
    ['Broker und Entwicklung',['degiro','degiro2','future']],
-   ['Bedienung',['settings','help']]
+   ['Bedienung',['problems','settings','help']]
   ]){
    const group=document.createElement('section');group.className='bob-more-group';
    const heading=document.createElement('h3');heading.textContent=title;
@@ -2054,7 +2080,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    <p>Bob unterstützt dich beim Gold-Trading: Markt einschätzen, Gold-Hebelprodukte vergleichen, erfasste Trades überwachen und aus dokumentierten Tests lernen. LONG, SHORT oder ABWARTEN sind Einschätzungen, keine Gewinnzusage.</p>
    <p><strong>Du handelst bei DEGIRO selbst.</strong> Bob führt keine echten Orders aus. Kaufen, Verkaufen und Stoppänderungen erledigst du bei DEGIRO. Berechnete Kurse sind Schätzungen, keine garantierten Ausführungskurse.</p>
    <h3>Dein Ablauf am Handy</h3><ol>
-   <li><b>Übersicht:</b> Marktrichtung, Begründung und Aktualität prüfen. Einzelheiten bei Bedarf aufklappen.</li>
+   <li><b>Start:</b> Marktrichtung, Begründung und Aktualität prüfen. Einzelheiten bei Bedarf aufklappen.</li>
    <li><b>Produkte:</b> DEGIRO-Liste hochladen, den blauen Button Gold-Hebelprodukte öffnen und Kandidaten prüfen. Fehlende Angaben mit Detailbildern ergänzen. Vor dem Kauf den tatsächlichen Brokerkurs kontrollieren.</li>
    <li><b>Mein Trade:</b> Nach dem Kauf Screenshots hochladen. ISIN, Einstieg, Stückzahl, Währung und Originalzeiten prüfen und übernehmen.</li>
    <li><b>Überwachen:</b> Aktiven Trade kontrollieren, Trade-Benachrichtigungen bei Bedarf einschalten. Stopp, Ziel und Warnungen beachten; Änderungen selbst bei DEGIRO vornehmen.</li>
@@ -2068,7 +2094,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const helpLink=document.createElement('div');helpLink.className='bob-more-menu';helpLink.innerHTML=menuButton('help','?','Bedienungsanleitung','Bob Schritt für Schritt');panels.settings.append(helpLink);
 
 
-  nav.innerHTML=[['overview','◫','Übersicht'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['problems','⚠','Probleme'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='problems'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
+  nav.innerHTML=[['overview','◫','Start'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='more'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
   // Bob-Handy action locator: lookup by stable control ID instead of
   // content-card position. Never click or send automatically.
   const handyActionTargets=Object.freeze({problems:'bobMobileHelpShare'});
@@ -2103,7 +2129,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    followUps.push(setTimeout(()=>{align();cleanup();},850));
    return true;
   }
-  function show(key,focus=true){if(['products-long','products-leverage'].includes(key))key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
+  function show(key,focus=true){if(['products-long','products-leverage'].includes(key))key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['problems','improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
   // The Android voice command explicitly requests the Gold-Hebelprodukte list.
   // An ordinary manual tap on the Produkte tab still opens the overview normally.
