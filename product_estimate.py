@@ -27,6 +27,11 @@ def quality_key(model,side):
     return product_validation_store.key(model, side, family='turbo')
 
 
+def forward_key(model, side):
+    import product_validation_store
+    return product_validation_store.key(model, side, family='turbo-forward')
+
+
 def validate_model(model):
     if (model['verifiedSimpleTurbo'] is not True or model['underlying'] != 'XAU/USD'
             or model['classification'] not in (43,45,47,'BNP_UNLIMITED')
@@ -56,6 +61,10 @@ def remember(result, model, now):
         if previous and stamp(previous['referenceAt']) >= min(times):
             return
         history=list(_history.get(key,[]))
+    # Match only forecasts saved before receiving this original. Keep the
+    # retrospective shadow study in its original, separate measurement scope.
+    for side in ('bid', 'ask'):
+        estimate_quality.observe(forward_key(model, side), result[side], result[side+'At'], now.isoformat())
     # Shadow-test older references at several horizons before updating the
     # anchor. The actual current bid/ask never enter the forecast formula.
     spot=dict(stale=False,data_state=dict(status='fresh'),xau=dict(currency='USD',unit='troy_oz'),
@@ -156,10 +165,19 @@ def current(model, spot, fx, now=None):
     if out['available']:
         horizon=(stamp(out['priceAt'])-stamp(out['referenceAt'])).total_seconds()
         qualities=[]
+        forward=[]
         for side in ('bid','ask'):
             key=quality_key(model,side)
             estimate_quality.record(key,out[side+'Eur'],out['priceAt'],out['referenceAt'],now.isoformat())
             qualities.append(estimate_quality.quality(key,horizon,now))
+            estimate_quality.record(forward_key(model,side),out[side+'Eur'],out['priceAt'],out['referenceAt'],now.isoformat())
+            forward.append(estimate_quality.quality(forward_key(model,side),horizon,now))
+        out['forwardValidation']=dict(ready=all(v['ready'] for v in forward),
+            sampleCount=min(v['sampleCount'] for v in forward), bid=forward[0],ask=forward[1],
+            meanAbsoluteError=forward[1].get('meanAbsoluteError'),
+            maxAbsoluteError=forward[1].get('maxAbsoluteError'),
+            kind='frozen-before-original',maxMatchSeconds=estimate_quality.MAX_MATCH_SECONDS,
+            note='Vor Empfang des Originalkurses gespeicherte Schätzung; Geld und Brief getrennt, gleiche Produktidentität und höchstens 5 Sekunden Kurszeitabweichung.')
         out['validation']=dict(ready=all(v['ready'] for v in qualities),
             sampleCount=min(v['sampleCount'] for v in qualities),minSamples=estimate_quality.MIN_SAMPLES,
             bid=qualities[0],ask=qualities[1],horizonBucket=qualities[0]['horizonBucket'],
