@@ -2649,22 +2649,22 @@ function goldProductCompactView(p,now=Date.now()){
  const priced=bid!==null&&ask!==null;
  const analysis=!!verified||status.complete;
  const check=analysis?'✓ Analyse-Nachweise vorhanden':'⚠ Analyse-Nachweise prüfen';
- const timestamp=verified?.quote.bidAt||null;
+ const timestamp=verified?.quote.bidAt||(priced?fields.bid?.at:null)||null;
  const detail=verified?'Serverbericht · passende Listenfassung':priced?'Originalwert · lokaler Datenstand':'Kurs noch nicht aktuell belegt';
  const sync=goldProductSyncState(p,now);
  const brokerList=goldProductBrokerListStatus(p,now);
  return '<div data-product-compact-summary style="display:grid;gap:9px">'+
   '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px"><b>'+esc(p.isin||'ISIN fehlt')+'</b>'+renderIsinCopy(p.isin)+'</div>'+
   '<div class="small"><b>'+esc(p.productDirection||'Richtung offen')+'</b> · '+esc(check)+'</div>'+
-  '<div class="small" data-degiro-list-proof="'+esc(brokerList.state)+'">'+esc(brokerList.message)+'</div>'+
-  degiroManualQuoteSummary(p,now)+
+  '<details data-compact-proof><summary>Details · Quellen und Nachweise</summary><div class="small" data-degiro-list-proof="'+esc(brokerList.state)+'">'+esc(brokerList.message)+'</div>'+
+  degiroManualQuoteSummary(p,now)+'</details>'+
   '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">'+
    [['Geld',number(bid)+' '+(bid!==null?currency:'')],['Brief',number(ask)+' '+(ask!==null?currency:'')],['Hebel',number(lever)+(lever!==null?'×':'')],['KO-Abstand',Number.isFinite(distance)&&distance>=0?distance.toFixed(2)+' %':'—']].map(([label,value])=>
     '<div style="min-width:0;padding:6px;border-radius:7px;background:#f2f5f9"><div class="small">'+esc(label)+'</div><strong>'+esc(value.trim())+'</strong></div>').join('')+
-  '</div><div class="small" data-analysis-status>'+esc(detail)+(timestamp?' · Kurszeit '+esc(timestamp):'')+'</div>'+
+  '</div><div class="small" data-analysis-status>'+esc(detail)+(timestamp?' · Kurszeit '+esc(timestamp):' · Kurszeit fehlt')+'</div>'+
   (leverageNote?'<div class="small" data-compact-leverage-source>'+esc(leverageNote)+'</div>':'')+
-  '<div class="small" data-gold-sync="'+esc(sync.state)+'">'+esc(sync.message)+'</div>'+
-  '<div class="small" data-gold-repair>'+esc(goldProductRepairStatus(p,now))+'</div>'+
+  '<details><summary>Abgleich und Bearbeitung</summary><div class="small" data-gold-sync="'+esc(sync.state)+'">'+esc(sync.message)+'</div>'+
+  '<div class="small" data-gold-repair>'+esc(goldProductRepairStatus(p,now))+'</div></details>'+
   '<div class="small" data-execution-separate style="color:#92400e">Ausführbarer DEGIRO-Orderkurs und tatsächliche Ausführung nicht bestätigt · keine Handelsfreigabe</div></div>';
 }
 function goldProductOverview(products,now=Date.now()){
@@ -2745,7 +2745,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const venueMissing=productProblemLabels(p).includes('DEGIRO-Handelsplatznachweis');
  const next=serverEvidence?'Serveranalyse vorhanden: keine neuen Bilder nötig. Keine bestätigte DEGIRO-Ausführung; lokale Produktfreigabe und Risikoprüfung bleiben separat.':venueMissing?productHelpState(p).action:automaticQuoteIssue?'Automatischer Kurs- und Hebelabruf wird erneut geprüft. Vorhandene Werte bleiben mit ihrem ursprünglichen Datenstand nutzbar; derzeit keine neuen Bilder erforderlich.':complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „Werte und Aktualitätsprüfung“ prüfen.':automaticRecoveryPending?'Bob prüft die zugelassenen Emittentenquellen automatisch erneut. Fehlende oder unklare Nachweise bleiben gesperrt und werden unter „Problem“ dokumentiert. Nur wenn diese Quellen keine ausreichenden Daten liefern, können zusätzliche Originalbelege notwendig sein.':'Offene Angaben unter „Werte und Aktualitätsprüfung“ ansehen und nur diese ergänzen.';
  return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere">'+
- goldProductCompactView(p)+'<details data-product-technical style="margin-top:10px"><summary>Technische Nachweise und Aktionen anzeigen</summary>'+renderProductIdentity(p)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+(typeof renderServerAnalysisEvidence==='function'?renderServerAnalysisEvidence(p):'')+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
+ goldProductCompactView(p)+'<details data-product-technical style="margin-top:10px"><summary>Details · Produktangaben und Aktionen</summary>'+renderProductIdentity(p)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+(typeof renderServerAnalysisEvidence==='function'?renderServerAnalysisEvidence(p):'')+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
  renderServerVenueEvidence(p)+renderVenueHistory(p)+renderDegiroDisplayedQuote(p)+renderDegiroVenueInference(p)+renderDegiroTradingSession(p)+(swissSgVenue&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Offen ist die Zuordnung dieses CHF-Produkts zu einem DEGIRO-Handelsplatz. Die vorhandenen SG-Kurse werden für die Analyse verwendet.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(!serverEvidence&&missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!serverEvidence&&!timeEvidence.confirmed)+' '+esc(serverEvidence?'Server-Nachweis aktuell · lokaler Bildzeitbezug separat geprüft':timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
  '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p><details><summary>Automatische Suche · letzter Stand</summary>'+renderAutomaticProductCheck(p)+'</details>'+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+

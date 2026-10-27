@@ -12,7 +12,7 @@ const p={isin,index:1,name:'SG Gold Turbo Call',productDirection:'LONG',isinConf
 const card=b.compactProductCard(p);
 assert(card.includes('data-product-compact-summary'));
 assert(card.includes('data-product-technical'));
-assert(card.includes('Technische Nachweise und Aktionen anzeigen'));
+assert(card.includes('Details · Produktangaben und Aktionen'));
 assert(card.includes('data-execution-separate'));
 assert(card.includes('data-gold-sync="unconfirmed"'));
 assert(card.includes('data-gold-repair'));

@@ -223,6 +223,71 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
 root.BobUnifiedWorkspace=api;
 if(!root.document)return;
 
+// Presentation only. Reuse the original outputs and controls, never recalculate
+// a signal or write trade state while navigating.
+function mountSimpleHome(doc,workspace){
+ const home=doc.getElementById('bob-view-overview'),products=doc.getElementById('bob-view-products');
+ if(!home||!products||doc.getElementById('bobSimpleHome'))return;
+ const fold=(parent,id,label)=>{const d=doc.createElement('details');d.id=id;d.className='card bob-disclosure';const s=doc.createElement('summary');s.textContent=label;d.append(s);parent.append(d);return d;};
+ const preparation=fold(products,'bobProductPreparation','Weitere Produktprüfung und Vorbereitung');
+ preparation.append(workspace);
+ const detail=fold(home,'bobHomeDetails','Warum? · Marktanalyse und Chart');
+ const quotes=home.querySelector('.gold-market');
+ for(const child of [...home.children]){
+  if(child===detail||child===quotes)continue;
+  if(child.classList.contains('bob-status'))doc.getElementById('bobSystemDetails')?.append(child);
+  else if(child.querySelector('#bobSelectionSummary'))products.append(child);
+  else detail.append(child);
+ }
+ const card=doc.createElement('section');card.id='bobSimpleHome';card.className='card';
+ card.innerHTML='<h2>Was ist jetzt wichtig?</h2>'+
+ '<div id="bobHomeSignal" class="bob-home-signal" role="status">ABWARTEN · Daten werden geprüft</div>'+
+ '<p id="bobHomeNext"></p>'+
+ '<section id="bobHomeTrade" class="bob-home-trade" hidden><h3>Dein aktiver Trade</h3><p id="bobHomeIdentity"></p>'+
+ '<dl><div><dt>Gewinn / Verlust</dt><dd id="bobHomePnl">—</dd></div><div><dt>Stop · berechnet</dt><dd id="bobHomeStop">—</dd></div><div><dt>Ziel · berechnet</dt><dd id="bobHomeTarget">—</dd></div></dl>'+
+ '<details><summary>Kursstand und Berechnung</summary><p id="bobHomeTradeNote"></p></details></section>'+
+ '<div class="bob-home-actions"><button type="button" class="bob-primary" id="bobHomePrimary" data-view="products">Produkte ansehen</button>'+
+ '<button type="button" id="bobHomeSecondary" data-view="trade">Trade eintragen</button></div>'+
+ '<details id="bobHomeProblems"><summary id="bobHomeProblemTitle">Probleme · Status wird geprüft</summary><p id="bobHomeProblemText"></p><button type="button" data-view="problems">Probleme und Bearbeitung ansehen</button></details>';
+ home.prepend(card);
+ // Keep the next action visible even with long warnings or large text.
+ doc.getElementById('bobHomeSignal').after(card.querySelector('.bob-home-actions'));
+ if(quotes)card.after(quotes);
+ const put=(id,value)=>{const el=doc.getElementById(id);if(el&&el.textContent!==value)el.textContent=value;};
+ const read=id=>doc.getElementById(id)?.textContent?.trim()||'';
+ function refresh(){
+  if(doc.hidden)return;
+  const expired=root.BobSession?.expired?.()===true;
+  const signal=read('quickSignal')||'ABWARTEN · Daten werden geprüft';
+  const direction=!expired&&/\bLONG\b/.test(signal)?'LONG':!expired&&/\bSHORT\b/.test(signal)?'SHORT':'ABWARTEN';
+  put('bobHomeSignal',expired?'ABWARTEN · Anmeldung prüfen':signal);
+  doc.getElementById('bobHomeSignal').dataset.direction=direction;
+  const trade=root.BobTradeSync?.current?.();
+  const active=!expired&&trade?.active===true&&trade?.test!==true;
+  const box=doc.getElementById('bobHomeTrade');box.hidden=!active;
+  let view=null;try{if(active)view=root.BobTradeSync?.overview?.();}catch(_){}
+  put('bobHomeIdentity',trade?.product?.isin||'Produktzuordnung fehlt');
+  for(const [id,key] of [['bobHomePnl','pnl'],['bobHomeStop','stop'],['bobHomeTarget','target'],['bobHomeTradeNote','note']])put(id,view?.[key]||'Noch nicht bestätigt');
+  put('bobHomeNext',expired?'Bitte melde dich erneut an.':active?(view?.action||'Prüfe deinen Trade und den Status der Überwachung.'):direction==='ABWARTEN'?'Keine aktive Position · Abwarten.': 'Keine aktive Position · Produkte und Nachweise prüfen.');
+  const primary=doc.getElementById('bobHomePrimary'),secondary=doc.getElementById('bobHomeSecondary');
+  primary.dataset.view=active?'trade':'products';put('bobHomePrimary',active?'Mein Trade ansehen':'Produkte ansehen');
+  secondary.dataset.view=active?'products':'trade';put('bobHomeSecondary',active?'Produkte ansehen':'Trade eintragen');
+  // Copy the existing archive's status verbatim; an unknown or stale index is
+  // never converted into "all clear" or "sent to ChatGPT".
+  const summary=read('bobProblemsSummary');
+  put('bobHomeProblemTitle',summary||'Probleme · Status noch nicht bestätigt');
+  put('bobHomeProblemText',[read('bobProblemsBreakdown'),read('bobProblemsLastUpdate')].filter(Boolean).join(' · ')||'Öffne Probleme, um den Bearbeitungsstand zu prüfen.');
+ }
+ // Add a dedicated, clearly named entry to the existing notification controls.
+ const tradePanel=doc.getElementById('bob-view-trade'),push=doc.getElementById('bobTradePushControls');
+ if(tradePanel&&push){
+  const button=doc.createElement('button');button.type='button';button.id='bobOpenMonitoring';button.textContent='Überwachung einstellen';
+  tradePanel.querySelector('h2')?.after(button);
+  button.addEventListener('click',()=>{for(let p=push.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;push.scrollIntoView({block:'start'});push.querySelector('button')?.focus({preventScroll:true});});
+ }
+ refresh();root.setInterval(refresh,1000);
+}
+
 function mount(){
  const doc=root.document,overview=doc.getElementById('bob-view-overview');
  if(!overview||doc.getElementById('bobUnifiedWorkspace'))return;
@@ -563,6 +628,7 @@ function mount(){
  // overview without a separate button. This is one existing read-only audit
  // request, shared with the explicit preparation/status controls.
  // It never calls issuer sources or changes the market/entry decision.
+ mountSimpleHome(doc,section);
  present(analyzeInputs(snapshot()));
  if(root.BobSession?.expired?.()!==true && !doc.hidden){
   fetchProductAudit().then(()=>{
