@@ -10,6 +10,14 @@ class QualityTests(unittest.TestCase):
  def setUp(self):
   for name in ('_pending','_errors','_seen','_truth_receipts'):
    p=patch.object(e,name,{});p.start();self.addCleanup(p.stop)
+ def test_forward_measurement_requires_strictly_earlier_prediction(self):
+  key='product:turbo-forward:'+('a'*64)+':ask'
+  e.record(key,102,at(60),at(0),at(61));e.observe(key,100,at(60),at(61))
+  self.assertEqual(e.quality(key,60,NOW+timedelta(seconds=90))['sampleCount'],0)
+  e.record(key,102,at(120),at(60),at(121));e.observe(key,100,at(120),at(122))
+  q=e.quality(key,60,NOW+timedelta(seconds=130))
+  self.assertEqual(q['sampleCount'],1);self.assertEqual(q['maxAbsoluteError'],2)
+  self.assertEqual(e.quality(key.replace('turbo-forward','turbo'),60,NOW+timedelta(seconds=130))['sampleCount'],0)
  def test_frozen_prediction_matches_once_and_separates_horizons(self):
   e.record('x',102,at(60),at(0),at(61));e.record('x',100,at(60),at(0),at(62))
   e.observe('x',100,at(60),at(80));e.observe('x',99,at(60),at(81))
