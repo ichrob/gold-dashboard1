@@ -4,3 +4,6 @@ degiro-connector==3.0.36
 # The web service encrypts SnapTrade Personal keys before private storage.
 # Declare directly: the web image does not install requirements-push.txt.
 cryptography>=46.0.3
+
+# Render eMudhra advisory: use the corrected CA bundle on every rebuild.
+certifi>=2026.10.19
