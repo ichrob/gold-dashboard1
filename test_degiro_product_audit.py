@@ -440,6 +440,25 @@ class ProductAuditTests(unittest.TestCase):
         q["isin"]="DE000FC1CHB7"
         self.assertIn("identity",audit.examine(feed()["products"][0],q,NOW)["missing"])
 
+    def test_verified_factor_does_not_request_missing_live_times_or_fake_recovery(self):
+        old=audit.build(feed(), {ISIN:{}}, NOW)
+        for key in ('type','productType'):
+            q=dict(isin=ISIN,productVerified=True,found=False,eligible=False,
+                   metadata={key:'FACTOR','status':1,'underlyingType':'FUTURE'})
+            report=old
+            for n in range(4):report=audit.build(feed(), {ISIN:q}, NOW+n*1000, report)
+            item=report['items'][0]
+            self.assertEqual(item['state'],'excluded-factor')
+            self.assertEqual(item['missing'],['factor'])
+            self.assertEqual(item['timeEvidence']['missing'],[])
+            self.assertFalse(item['needsKiHelp']);self.assertFalse(item['tradeApproved'])
+            self.assertEqual(item['missingChecks'],{})
+            self.assertEqual(item['recoveredFields'],[])
+            self.assertEqual(report['excluded'],1);self.assertEqual(report['incomplete'],0)
+            self.assertEqual(audit.public_help_codes(report),[])
+            for bad in (dict(q,productVerified=False),dict(q,isin='DE000FC1CHB7')):
+                self.assertNotEqual(audit.examine(feed()['products'][0],bad,NOW)['state'],'excluded-factor')
+
     def test_emitter_terminal_bitmask_blocks(self):
         q=provider()
         q["metadata"]["status"]=9  # SG active bit together with terminal bit
