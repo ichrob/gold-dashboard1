@@ -324,3 +324,14 @@ Gesten, Orders oder Übertragung. Die Männchen-Taste bleibt als Alternative erh
 Bei Rückkehr zu Bob Handy wird der lokale Entwurf direkt angezeigt. Das Öffnen
 der Webprüfung erfolgt weiterhin ausdrücklich. Tatsächliches Verhalten auf Samsung
 und zugängliche DEGIRO-Produktfelder müssen am Gerät geprüft werden.
+
+### Wiederholung bei fehlendem Fensterinhalt
+
+Ein expliziter Start benachrichtigt den verbundenen Dienst direkt. Auch ohne neue
+Android-Fensterereignisse folgen maximal 30 Leseversuche in höchstens 60 Sekunden.
+Ein vorübergehend fehlender Fensterinhalt ist kein Nachweis einer DEGIRO-Sperre.
+STOPP und Sperrbildschirm beenden den Auftrag; außerhalb des Auftrags gibt es
+keine regelmäßigen Leseversuche. Eindeutig beschriftete Kurse bestimmen ihre
+Währung unabhängig vom Kontostand. Fehlende ISIN, geschützte Ansichten und
+widersprüchliche Produktwährungen bleiben gesperrt. Getrennte Bildausschnitte
+werden nicht stillschweigend miteinander verknüpft. Geräteabnahme bleibt offen.

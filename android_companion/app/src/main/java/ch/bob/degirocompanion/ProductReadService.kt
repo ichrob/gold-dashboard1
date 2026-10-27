@@ -16,15 +16,30 @@ import java.time.Instant
 class ProductReadService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var readQueued = false
-    private val pendingRead = Runnable {
-        readQueued = false
-        if (ProductReadRequest.attempt(SystemClock.elapsedRealtime())) readOnce(automatic = true)
+    private val pendingRead = object : Runnable {
+        override fun run() {
+            readQueued = false
+            if (ProductReadRequest.attempt(SystemClock.elapsedRealtime())) readOnce(automatic = true)
+            if (ProductReadRequest.active(SystemClock.elapsedRealtime())) queueRead(2000)
+        }
+    }
+    private fun queueRead(delay: Long) {
+        if (!readQueued && ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+            readQueued = true
+            handler.postDelayed(pendingRead, delay)
+        }
     }
     private val callback = object : AccessibilityButtonController.AccessibilityButtonCallback() {
         override fun onClicked(controller: AccessibilityButtonController) { readOnce() }
     }
     override fun onServiceConnected() {
         accessibilityButtonController.registerAccessibilityButtonCallback(callback)
+        ProductReadRequest.onStarted = {
+            handler.removeCallbacks(pendingRead)
+            readQueued = false
+            queueRead(600)
+        }
+        queueRead(600)
     }
     // Only package/type metadata is used. Never read or retain event text.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -32,13 +47,11 @@ class ProductReadService : AccessibilityService() {
         if (event?.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
-        if (!readQueued) {
-            readQueued = true
-            handler.postDelayed(pendingRead, 400)
-        }
+        queueRead(400)
     }
     override fun onInterrupt() { ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
     override fun onDestroy() {
+        ProductReadRequest.onStarted = null
         ProductReadRequest.cancel()
         handler.removeCallbacks(pendingRead)
         accessibilityButtonController.unregisterAccessibilityButtonCallback(callback)
@@ -48,11 +61,11 @@ class ProductReadService : AccessibilityService() {
     private fun readOnce(automatic: Boolean = false) {
         if (!automatic) ProductReadRequest.cancel()
         ProductReadSession.clear()
-        if (!getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false)) return
+        if (!getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false)) { ProductReadRequest.cancel(); return }
         if ((getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) { ProductReadRequest.cancel(); return }
         val result = runCatching {
             val root = rootInActiveWindow
-                ?: return@runCatching ProductScreenEvidence.Result(message = "DEGIRO gibt keinen lesbaren Fensterinhalt frei. Screenshot manuell teilen.")
+                ?: return@runCatching ProductScreenEvidence.Result(message = "Android liefert gerade keinen Fensterinhalt. Ursache noch ungeklärt; dies beweist keine DEGIRO-Sperre.")
             try {
                 if (root.packageName?.toString() != ProductScreenEvidence.PACKAGE)
                     return@runCatching ProductScreenEvidence.Result(message = "Bitte zuerst die DEGIRO-Produktseite öffnen.")
