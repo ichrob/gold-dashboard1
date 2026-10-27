@@ -117,6 +117,23 @@ def _refresh(isin):
         with _LOCK:
             prior = _CACHE.get(isin)
             historical = prior[1].get('quote') if prior else None
+            incoming = result.get('quote')
+            if isinstance(historical, dict) and isinstance(incoming, dict):
+                try:
+                    old_at = datetime.fromisoformat(historical['quoteAt'])
+                    new_at = datetime.fromisoformat(incoming['quoteAt'])
+                    same_listing = (historical.get('isin') == isin and all(
+                        historical.get(key) == incoming.get(key)
+                        for key in ('isin', 'currency', 'venue', 'source')))
+                    if (same_listing and new_at < old_at <= datetime.now(timezone.utc)
+                            and not (result.get('fields') or {}).get('inactive')):
+                        # Provider caches can return an older page after a newer
+                        # one. Keep the original pair and clock, never re-date it.
+                        result['quote'] = copy.deepcopy(historical)
+                        result['retainedAfterClockRegression'] = True
+                        result['rejectedQuoteAt'] = incoming['quoteAt']
+                except (KeyError, TypeError, ValueError):
+                    pass
             if (not result.get('quote') and isinstance(historical, dict)
                     and historical.get('isin') == isin
                     and not (result.get('fields') or {}).get('inactive')):
@@ -157,10 +174,15 @@ def apply(result, isin, now=None):
             or not (meta.get('issuerExchangeCode') == 'CBDE' or bnp_origin(result))
             or (result.get('currency') or meta.get('currency')) != 'EUR'):
         return result
-    now = now or datetime.now(timezone.utc)
     out = copy.deepcopy(result)
     evidence = get_observation(isin, wait_seconds=2)
+    # A pending fetch can cross a minute boundary. Compare its source time to
+    # the clock AFTER waiting, otherwise a new row appears to be in the future.
+    now = now or datetime.now(timezone.utc)
     out['comdirectQuoteBackup'] = dict(state=evidence['state'], refreshSeconds=30, reasonCode=evidence.get('reasonCode'))
+    for key in ('retainedAfterFailure', 'retainedAfterClockRegression', 'rejectedQuoteAt'):
+        if key in evidence:
+            out['comdirectQuoteBackup'][key] = evidence[key]
     quote = evidence.get('quote')
     if not quote or not matches_primary(result, quote):
         return out
