@@ -2550,6 +2550,7 @@ function renderAutomaticProductCheck(p){
  const backupHtml=backup?'<details data-comdirect-fields><summary>comdirect · zweite Quelle</summary>'+
   '<div>'+esc(({checking:'Abruf läuft',unavailable:'Abruf nicht verfügbar',observed:'Quelle gelesen',active:'Werte abgeglichen',conflict:'Abweichungen gefunden',inactive:'Quelle meldet Produkt beendet',rejected:'Produktzuordnung abgelehnt'})[backup.state]||backup.state)+'</div>'+
   Object.entries(backup.observations||{}).map(([key,item])=>'<div>'+esc(names[key]||key)+': '+esc(item.value)+' · '+esc((backup.conflicts||[]).includes(key)?'Abweichung · nicht ersetzt':(backup.filledFields||[]).includes(key)?'ergänzt':'Quellenbeobachtung')+(item.conditionVerified===false?' · Datenstand nicht bestätigt':'')+'</div>').join('')+
+  Object.entries(backup.sourceDecisions||{}).filter(([,d])=>d.state==='dated-issuer-selected').map(([key,d])=>'<div><b>'+esc(names[key]||key)+': '+esc(d.primaryValue)+' · Emittentenstand '+esc(d.dateText)+'</b><br>'+esc(d.reason)+'</div>').join('')+
   ((backup.missing||[]).length?'<div>Nicht geliefert: '+esc(backup.missing.map(k=>names[k]||k).join(', '))+'</div>':'')+
   '<div>Die Abrufzeit ist keine veröffentlichte Kurs- oder Hebelzeit. Geld/Brief werden separat mit ihrem Kurszeitpunkt geprüft.</div></details>':'';
  return '<div class="small" data-product-auto-check style="margin:6px 0;color:#536176">'+

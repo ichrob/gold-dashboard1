@@ -444,6 +444,21 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
         "executionNote": "Datenabgleich abgeschlossen; keine Bestätigung eines ausführbaren DEGIRO-Kurses",
         "leverageObservation": (shared_leverage if shared_leverage and shared_leverage["current"]
                                 else calculated_leverage or shared_leverage),
+        # Keep an absent standalone issuer clock distinct from an accepted
+        # shared observation/calculation. Never copy that context into the
+        # issuer's original timestamp field.
+        "timeEvidence": {
+            "missing": [code for code in codes if code in ('quote-time', 'leverage-time', 'ko-time')],
+            "leverageBasis": ('unavailable' if terminated or secondary_inactive else
+                'original-issuer-time' if _recent(issuer_leverage_at, now_ms, QUOTE_MAX_MS) else
+                'shared-issuer-observation' if shared_leverage and shared_leverage['current'] else
+                'calculated-input-times' if calculated_leverage else 'unconfirmed'),
+            "terms": {key: {name: condition.get(name) for name in
+                ('value', 'source', 'at', 'dateText', 'sourceTimeRaw', 'sourceField',
+                 'reviewedAt', 'conditionVerified', 'validityUnconfirmed') if name in condition}
+                for key in ('ko', 'strike')
+                if verified and isinstance(condition := (quote.get('conditions') or {}).get(key), dict)},
+        },
         "leverageSourceAt": (issuer_leverage_at if not (terminated or secondary_inactive)
                               and "leverage-time" not in codes
                               and _recent(issuer_leverage_at, now_ms, QUOTE_MAX_MS)

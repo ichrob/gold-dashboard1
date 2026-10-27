@@ -822,7 +822,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception as audit_exc:
                         print("BOB_PRODUCT_AUDIT health_error="+type(audit_exc).__name__, flush=True)
                         product_codes = None  # Unknown is NOT a confirmed repair.
-                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule})
+                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule,"runtimeWatchdog":__import__('runtime_watchdog').snapshot()})
                 return
             if path == "/push-delivery-history":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
@@ -879,6 +879,7 @@ class Handler(BaseHTTPRequestHandler):
                     # Enforce the read boundary at the database as well.
                     conn.execute("SET TRANSACTION READ ONLY")
                     result = bob_diagnostics.push_snapshot(conn, evaluator_runtime, paper_health, paper_portfolios, extended=True)
+                result['runtimeWatchdog'] = __import__('runtime_watchdog').snapshot()
                 send_json(self, 200, result)
                 return
             if path == "/product-audit":
@@ -1583,6 +1584,8 @@ if __name__ == "__main__":
     # Process/child memory telemetry is read-only and never blocks Push.
     import memory_watch
     memory_watch.start()
+    import runtime_watchdog
+    runtime_watchdog.start()
     paper_simulation.start_preflight(db)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     threading.Thread(target=audit_outcome_loop, name="bob-audit-outcomes", daemon=True).start()

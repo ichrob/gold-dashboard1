@@ -4,6 +4,8 @@ import math
 import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+from urllib.parse import urlparse
 from public_product_terms import plain, ORIGIN
 from term_series import observed_condition
 
@@ -132,7 +134,49 @@ def display_equivalent(key, primary, item):
         return False
 
 
-def apply(result, isin):
+def source_decisions(result, report, isin, now):
+    """Explain dated issuer precedence; never change raw conflicts or eligibility."""
+    decisions = {}
+    meta = result.get('metadata') or {}
+    for key in report.get('conflicts', []):
+        primary = (result.get('conditions') or {}).get(key) or {}
+        secondary = (report.get('observations') or {}).get(key) or {}
+        decision = dict(state='unresolved', primaryValue=primary.get('value'),
+                        referenceValue=secondary.get('value'))
+        try:
+            source = primary.get('source')
+            parsed = urlparse(source or '')
+            reviewed = datetime.fromisoformat(primary.get('reviewedAt', '').replace('Z', '+00:00'))
+            day = datetime.strptime(primary.get('dateText', ''), '%d.%m.%Y').date()
+            raw = datetime.fromisoformat(primary.get('sourceTimeRaw', '').replace('Z', '+00:00'))
+            dated_issuer = (
+                key in ('ko', 'strike') and result.get('isin') == isin
+                and result.get('productVerified') is True and meta.get('status') == 1
+                and not result.get('sourceFailure') and not result.get('quoteFailureCode')
+                and primary.get('conditionVerified') is True
+                and not any(primary.get(k) for k in ('conflict', 'revoked', 'ocrCorrection'))
+                and primary.get('value') == meta.get(key)
+                and primary.get('sourceField') == 'StrikeBarrierUpdateTime'
+                and parsed.scheme == 'https' and not parsed.username and not parsed.password
+                and parsed.hostname in ('www.sg-zertifikate.de', 'www.sg-zertifikate.ch')
+                and parsed.path.lower() == '/product-details/'+isin.lower()
+                and day == raw.date() == now.astimezone(ZoneInfo('Europe/Zurich')).date()
+                and 0 <= (now-reviewed).total_seconds() <= 8*3600
+                and secondary.get('conditionVerified') is False
+                and not any(secondary.get(k) for k in ('at', 'dateText', 'sourceAt', 'sourceTimeRaw')))
+            if dated_issuer:
+                decision.update(state='dated-issuer-selected', source=source,
+                                dateText=primary['dateText'], sourceTimeRaw=primary['sourceTimeRaw'],
+                                reason='Heute datierte Emittentenbedingung maßgeblich; abweichende Portalangabe ohne Gültigkeitsdatum bleibt Vergleichswert.')
+        except (ValueError, TypeError, AttributeError):
+            pass
+        decisions[key] = decision
+    report['sourceDecisions'] = decisions
+    report['unresolvedConflicts'] = [k for k, v in decisions.items() if v['state'] == 'unresolved']
+
+
+def apply(result, isin, now=None):
+    now = now or datetime.now(timezone.utc)
     from product_quotes import valid_isin
     from comdirect_quotes import get_observation
     if not valid_isin(isin) or result.get('isin') not in (None, isin) or result.get('sourceDisabled'):
@@ -164,6 +208,7 @@ def apply(result, isin):
             report['conflicts'].append(key)
     if report['conflicts']:
         report['state'] = 'conflict'
+        source_decisions(out, report, isin, now)
         return out
     out.setdefault('conditions', {})
     for key, item in observations.items():
@@ -194,4 +239,5 @@ def apply(result, isin):
             if not equivalent_turbo:
                 report['conflicts'].append(key)
     report['state'] = 'conflict' if report['conflicts'] else 'active'
+    source_decisions(out, report, isin, now)
     return out
