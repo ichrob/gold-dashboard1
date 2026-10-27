@@ -341,6 +341,14 @@ def collect(readers):
         areas['gapEvidence'] = gap_evidence
         areas['simulationAndPush'] = dict(areas['simulationAndPush'])
         areas['simulationAndPush'].pop('gapEvidence', None)
+    entry_blocks = (areas.get('simulationAndPush') or {}).get('entryBlockEvidence')
+    if isinstance(entry_blocks, dict):
+        # Saved paper-day decisions are independent of the sampled seven-day
+        # journal. Keep their bounded, read-only projection separately so an
+        # oversized operational history cannot erase the evidence again.
+        areas['entryBlockEvidence'] = entry_blocks
+        areas['simulationAndPush'] = dict(areas['simulationAndPush'])
+        areas['simulationAndPush'].pop('entryBlockEvidence', None)
     # The full multi-stage journal may exceed the response size limit.
     # Preserve only the strictly bounded, already-redacted comparison results
     # as a separate area; never present missing archive data as healthy.
@@ -504,6 +512,97 @@ def recent_paper_outcomes(accounts):
                'noch automatisch behobene Datenlücken.'}
 
 
+def entry_block_evidence(conn, portfolios, limit=5):
+    """Bounded SELECT-only view of saved paper entry decisions.
+
+    The per-day paper records are independent of the sampled seven-day
+    diagnostic journal. Product identifiers are deliberately excluded.
+    """
+    accounts = []
+    unavailable = 0
+    allowed_directions = {'LONG', 'SHORT', 'NEUTRAL'}
+    for profile in portfolios.POLICIES:
+        table = portfolios.names(profile)['bob_paper_days']
+        try:
+            row = conn.execute(
+                f'SELECT day,payload FROM {table} ORDER BY day DESC LIMIT 1'
+            ).fetchone()
+            if not row:
+                accounts.append({'profile':profile, 'status':'unavailable',
+                    'reason':'no-saved-paper-day'})
+                unavailable += 1
+                continue
+            day, payload = row
+            payload = payload if isinstance(payload, dict) else {}
+            blocks = payload.get('entryBlocks')
+            blocks = blocks if isinstance(blocks, list) else []
+            counts = payload.get('entryBlockCounts')
+            counts = counts if isinstance(counts, dict) else {}
+            safe_counts = []
+            total_checks = 0
+            for reason, count in counts.items():
+                if type(count) not in (int, float) or not math.isfinite(count) or count < 0:
+                    continue
+                count = int(count)
+                total_checks += count
+                safe_counts.append({'reason':clean_text(str(reason))[:500],
+                                    'checks':count})
+            safe_counts.sort(key=lambda item: (-item['checks'], item['reason']))
+            latest = []
+            for record in blocks[-limit:]:
+                if not isinstance(record, dict):
+                    continue
+                item = {
+                    'reason':clean_text(str(record.get('reason') or ''))[:500],
+                    'direction':(record.get('direction')
+                        if record.get('direction') in allowed_directions else 'unknown'),
+                    'checks':(int(record.get('checks'))
+                        if type(record.get('checks')) in (int, float)
+                        and math.isfinite(record.get('checks'))
+                        and record.get('checks') >= 0 else None),
+                }
+                for source, target in (('at', 'at'), ('lastAt', 'lastAt'),
+                                       ('goldAt', 'sourceAt')):
+                    value = record.get(source)
+                    if type(value) in (int, float) and math.isfinite(value) and value >= 0:
+                        item[target] = value
+                for key, maximum in (('signalSource', 80), ('ruleVersion', 100)):
+                    value = record.get(key)
+                    if isinstance(value, str):
+                        item[key] = clean_text(value)[:maximum]
+                if isinstance(record.get('plan'), dict):
+                    item['plan'] = project(record['plan'],
+                        shape('kind', 'entry', 'stop', 'target', 'unit'))
+                latest.append(item)
+            accounts.append({
+                'profile':profile, 'status':'observed', 'day':str(day),
+                'totalChecks':total_checks,
+                'distinctReasons':len(safe_counts),
+                'reasonCounts':safe_counts[:limit],
+                'reasonCountsTruncated':len(safe_counts) > limit,
+                'storedRecords':len(blocks), 'returnedRecords':len(latest),
+                'omittedRecords':max(0, len(blocks) - len(latest)),
+                'sourceTruncated':payload.get('entryBlocksTruncated') is True,
+                'latest':latest,
+            })
+        except Exception:
+            accounts.append({'profile':profile, 'status':'unavailable',
+                             'reason':'entry-block-read-unavailable'})
+            unavailable += 1
+    observed = len(accounts) - unavailable
+    return {
+        'status':('observed' if unavailable == 0 else
+                  'partial' if observed else 'unavailable'),
+        'readOnly':True, 'realOrders':False, 'accounts':accounts,
+        'entryBlockRecordLimitPerAccountDay':200,
+        'diagnosticJournalRetentionDays':7,
+        'paperDayRetention':'separate-per-day-records',
+        'scope':'latest-saved-paper-day-per-account-bounded-projection',
+        'note':'Counts remain separate from the capped detail sequence. '
+               'A later record does not reconstruct an earlier missing decision.',
+    }
+
+
 def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
     """Only SELECT statements; fixed tables and explicit private diagnostic projections."""
     accounts = []
@@ -548,6 +647,7 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
     result['databaseAudit'] = decision_audit.prospective_query_probe()
     if extended:
         result['comparisonHealth'] = __import__('comparison_health').report(conn)
+        result['entryBlockEvidence'] = entry_block_evidence(conn, portfolios)
         for account in accounts:
             table = portfolios.names(account['profile'])['bob_paper_cases']
             try:

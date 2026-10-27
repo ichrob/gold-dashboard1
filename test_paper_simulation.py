@@ -22,6 +22,23 @@ def tick(price,seconds=30,direction='LONG',**values):
     return {**market(direction),'price':price,'dataAt':NOW+seconds*1000,**values}
 
 class SimulationTests(unittest.TestCase):
+    def test_entry_block_context_preserves_original_signal_and_plan(self):
+        source = market('LONG')
+        original = copy.deepcopy(source)
+
+        evidence = sim.entry_block_context(
+            source, {'isin': ISIN}, {'signalSource': 'early-warning-v2'})
+
+        self.assertEqual(evidence['direction'], 'LONG')
+        self.assertEqual(evidence['goldAt'], NOW)
+        self.assertEqual(evidence['signalSource'], 'early-warning-v2')
+        self.assertEqual(evidence['ruleVersion'], 'intraday-responsive-v6')
+        self.assertEqual(evidence['plan'], {
+            'kind': 'candidate', 'entry': 100., 'stop': 90.,
+            'target': 120., 'unit': 'USD/oz'})
+        evidence['plan']['stop'] = 0
+        self.assertEqual(source, original)
+
     def test_slow_quote_refresh_cannot_starve_end_of_list(self):
         from concurrent.futures import Future
         from unittest.mock import patch
