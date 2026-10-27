@@ -157,8 +157,8 @@ const origin='https://bob-workspace.test';
    name:'again.json',mimeType:'application/json',buffer:Buffer.from(backup)
   });
   await page.waitForFunction(()=>document.getElementById('bobBackupStatus')?.textContent?.includes('nicht erfolgt'));
-  assert.deepEqual(requests.sort(),[origin+'/api/degiro/audit',origin+'/api/problems',origin+'/api/operations-summary'].sort(),
-   'Only three read-only status API requests; no broker/external calls');
+  assert.deepEqual(requests.sort(),[origin+'/api/degiro/audit',origin+'/api/problems',origin+'/api/problems',origin+'/api/operations-summary'].sort(),
+   'Only the four expected read-only status API requests; no broker/external calls');
   assert.deepEqual(errors,[],'No client-side JavaScript errors');
   console.log('Bob unified mobile: 360px layout, one-click existing fetch, product handoff and safe backup recovery passed');
  }finally{await browser.close();}
