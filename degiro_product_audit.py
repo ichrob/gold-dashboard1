@@ -523,6 +523,8 @@ def _retain_recent_issuer_leverage(item, quote, before, now_ms):
     item["messages"] = [CODES[code] for code in item["missing"]]
     item["leverageSourceAt"] = prior["at"]
     item["issuerLeverageObservation"] = dict(prior)
+    item['timeEvidence']['leverageBasis'] = 'original-issuer-time'
+    item['timeEvidence']['missing'] = [code for code in item['timeEvidence']['missing'] if code != 'leverage-time']
     if not item["missing"]:
         item["state"] = "issuer-evidence-complete"
 
@@ -561,6 +563,7 @@ def _retain_verified_terminal(item, before, quote):
                 quoteSourceAt=None, leverageSourceAt=None,
                 dataQuoteSource=None, dataQuoteKind=None,
                 leverageObservation=None, issuerLeverageObservation=None,
+                timeEvidence=dict(missing=[], leverageBasis='unavailable', terms={}),
                 sourceObservations=[], degiroVerified=False, tradeApproved=False,
                 autoRecovery='Früheren verifizierten Endstatus beibehalten; erneute Emittentenprüfung ohne Handelsfreigabe')
 
