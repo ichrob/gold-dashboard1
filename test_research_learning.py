@@ -138,7 +138,7 @@ class AutonomousLearningTests(unittest.TestCase):
         self.assertEqual(calls,["read","write"])
 
     def test_morning_and_evening_checkpoints_do_not_repeat(self):
-        stored=dict(version=lab.VERSION, status="evaluated", mode="RESEARCH_ONLY",
+        stored=dict(version=lab.VERSION, status="evaluated", mode="RESEARCH_ONLY", replay={"available":True},
                     approved=False,orderExecutionEnabled=False,
                     affectsLiveSignals=False,brokerConnected=False,
                     closedBars=650,folds=[],rangeMs=[1700000000000,1702300000000],

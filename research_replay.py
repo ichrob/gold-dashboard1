@@ -25,7 +25,7 @@ def sources():
 
 def make(rows, previous, day, checkpoint, report):
     package=dict(version=VERSION,scope='historical-and-forward-reference-research',
-        day=day,checkpoint=checkpoint,rows=rows,previous=previous,expected=report,
+        day=day,checkpoint=checkpoint,rows=rows,previous=previous,expected={k:v for k,v in report.items() if k!='replay'},
         sources=sources(),python=platform.python_version(),build=os.environ.get('RENDER_GIT_COMMIT','unknown'),
         costBpsPerSide=report.get('costBpsPerSide',strategy_lab.COST_BPS_PER_SIDE))
     raw=canonical(package);compressed=zlib.compress(raw,9)

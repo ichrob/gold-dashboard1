@@ -49,10 +49,10 @@ class PostgresMarketTests(unittest.TestCase):
    store.handle(conn,'write',point)
    result=store.handle(conn,'read',{})
    self.assertTrue(conn.execute('SELECT 1 FROM bob_spot_observations WHERE stream=%s AND quote_at=%s',(store.STREAM,overnight)).fetchone())
-   self.assertFalse(conn.execute('SELECT 1 FROM bob_spot_observations WHERE stream=%s AND quote_at=%s',(store.STREAM,expired)).fetchone())
+   self.assertTrue(conn.execute('SELECT 1 FROM bob_spot_observations WHERE stream=%s AND quote_at=%s',(store.STREAM,expired)).fetchone())
    self.assertGreaterEqual(result['diagnostics']['sampleCount'],2)
    self.assertFalse(any(x['at']==overnight.isoformat() for x in result['observations']))
-   conn.execute('DELETE FROM bob_spot_observations WHERE stream=%s AND quote_at IN (%s,%s)',(store.STREAM,overnight,now))
+   conn.execute('DELETE FROM bob_spot_observations WHERE stream=%s AND quote_at IN (%s,%s,%s)',(store.STREAM,overnight,now,expired))
  def test_frozen_future_prediction_survives_connections_and_matches_only_later_truth_once(self):
   import psycopg
   import bob_validation_store as v
@@ -86,7 +86,7 @@ class PostgresMarketTests(unittest.TestCase):
    conn.execute('DELETE FROM bob_future_predictions WHERE quote_at IN (%s,%s)',(at,late))
    conn.execute('DELETE FROM bob_future_truths WHERE quote_at IN (%s,%s)',(at,late))
 
- def test_future_archive_keeps_six_days_and_expires_after_seven(self):
+ def test_future_archive_retains_old_evidence_but_keeps_read_window_bounded(self):
   import psycopg
   import bob_validation_store as v
   now=datetime.now(timezone.utc)
@@ -100,8 +100,8 @@ class PostgresMarketTests(unittest.TestCase):
    self.assertTrue(any(p['truthAt']==kept.isoformat() for p in result['pairs']))
    self.assertFalse(any(p['truthAt']==expired.isoformat() for p in result['pairs']))
    for table in ('bob_future_predictions','bob_future_truths'):
-    self.assertFalse(conn.execute('SELECT 1 FROM '+table+' WHERE quote_at=%s',(expired,)).fetchone())
-    conn.execute('DELETE FROM '+table+' WHERE quote_at=%s',(kept,))
+    self.assertTrue(conn.execute('SELECT 1 FROM '+table+' WHERE quote_at=%s',(expired,)).fetchone())
+    conn.execute('DELETE FROM '+table+' WHERE quote_at IN (%s,%s)',(kept,expired))
 
  def test_prediction_only_write_does_not_rescan_historic_truths(self):
   import psycopg
