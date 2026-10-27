@@ -1,13 +1,17 @@
 """Private visualisation of server-side DEGIRO list evidence checks."""
 PANEL = r'''<section id="bobProductAudit" class="card">
+<p class="small">Produktprobleme sind über den privaten Bob-Lesezugang für die automatische KI-Prüfung verfügbar. Kein manuelles Teilen erforderlich.</p>
+<p id="bobAuditShareHint" class="small">Produktprüfung wird geladen.</p>
+<div hidden aria-hidden="true">
 <button id="bobAuditShareChatGPT" type="button" style="width:100%;white-space:normal" aria-describedby="bobAuditShareHint">DEGIRO Goldhebelprodukte Probleme</button>
-<p id="bobAuditShareHint" class="small">Problembericht ohne Kopieren über Android an ChatGPT teilen: ChatGPT auswählen und dort selbst absenden. Falls Android-Teilen scheitert, bleibt Kopieren verfügbar.</p>
+
 <p id="bobAuditShareStatus" hidden role="status" class="small"></p>
 <div id="bobAuditShareActions" hidden>
 <button id="bobAuditCopyText" type="button">Bericht kopieren</button>
 <button id="bobAuditNativeShare" type="button">Über andere App teilen</button>
 </div>
 <textarea id="bobAuditShareFallback" hidden readonly aria-label="Privaten Bericht zum manuellen Kopieren" style="width:100%;min-height:140px"></textarea>
+</div>
 <div hidden>
 <p id="bobProductAuditStatus"></p>
 <p id="bobProductAuditUpdated"></p>
@@ -182,8 +186,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   // Visible warning even if detail status is hidden by mobile layout.
   const shareHint=byId('bobAuditShareHint');
   if(shareHint)shareHint.textContent=good?
-   'Aktuellen Produktproblembericht bewusst über Android an ChatGPT teilen; kein automatischer Versand oder Handelsfreigabe.':
-   '⚠️ Produktprüfung nicht aktuell ('+String(r.status||'unavailable').slice(0,40)+'). Historische Haken und Werte sind keine neuen Originalnachweise. Teilen nur als historischen Diagnosebericht.';
+   'Produktprüfung geladen. Ungelöste Befunde bleiben für die automatische KI-Prüfung verfügbar; keine Handelsfreigabe.':
+   '⚠️ Produktprüfung nicht aktuell ('+String(r.status||'unavailable').slice(0,40)+'). Historische Haken und Werte sind keine neuen Originalnachweise. Die automatische KI-Prüfung muss diesen veralteten Stand berücksichtigen.';
   if(r.status==='waiting-for-screenshot'){
    status.textContent='Keine aktuelle DEGIRO-Screenshotliste auf dem Hintergrundserver bestätigt.';
   }else if(r.status==='checking-new-list'){

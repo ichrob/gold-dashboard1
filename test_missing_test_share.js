@@ -25,12 +25,7 @@ const repair={available:true,workerCheckedAt:at,counts:{trying:1,escalated:1},it
 window.BobDiagrams.repairs(repair);
 const all=()=>{const list=[];function walk(e){list.push(e);e.children.forEach(walk);}walk(panel);return list;};
 assert.equal(shared.length,0,'Rendering never transmits the report');
-(async()=>{
- const button=all().find(e=>e.tag==='button'&&e.textContent.includes('selbstständig lösen'));assert(button);await button.events.click();assert.equal(shared.length,1);assert(shared[0].text.includes('DETEST'));assert(shared[0].text.includes('Archiv prüfen'));assert(shared[0].text.includes('Automatische Versuche durch Bob: 1'));
- assert(all().some(e=>e.textContent.includes('Empfang ist hier nicht bestätigt')));
- window.BobDiagrams.unavailable();const staleButton=all().find(e=>e.tag==='button'&&e.textContent.includes('selbstständig lösen'));await staleButton.events.click();assert(shared[1].text.includes('veraltet'));
- let copied='';assert.equal(await api.shareMissingText({clipboard:{writeText:async t=>{copied=t;}}},text),'copied');assert.equal(copied,text);
- assert.equal(await api.shareMissingText({share:async()=>{throw {name:'AbortError'};},clipboard:{writeText:async()=>{throw Error('must not copy after cancel');}}},text),'cancelled');
- assert.equal(await api.shareMissingText({share:async()=>{throw Error('blocked');},clipboard:{writeText:async()=>{throw Error('blocked');}}},text),'manual');
- console.log('Missing-test collection and explicit ChatGPT handoff: waiting/duplicates, stale state, sanitization, native share/copy/cancel/fallback passed');
-})().catch(e=>{console.error(e);process.exitCode=1;});
+assert(!all().some(e=>e.tag==='button'&&e.textContent.includes('selbstständig lösen')));
+assert(all().some(e=>e.textContent.includes('KI-Reparaturwächter automatisch geprüft')));
+window.BobDiagrams.unavailable();assert.equal(shared.length,0);
+console.log('Historical missing-test details retained without manual sharing action');

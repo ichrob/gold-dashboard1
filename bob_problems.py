@@ -249,11 +249,14 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
 <div id="bobRecoveriesList"></div>
 </details>
 <p class="small">Der Zähler zeigt, wie viele Probleme noch KI-Hilfe benötigen. Weitere Probleme erhöhen die Zahl. Nach bestätigter Behebung sinkt sie wieder. Das Öffnen der Sparte löscht keine Einträge.</p>
+<p class="small">Ungelöste technische Meldungen werden vom eingerichteten KI-Reparaturwächter automatisch geprüft. Du musst keinen Bericht teilen.</p>
+<div hidden aria-hidden="true">
 <button id="bobProblemsShare" type="button" style="width:100%;min-height:46px;background:#1563b5;color:white;font-weight:700;border-radius:10px">Fehlerdiagnose an ChatGPT teilen · ohne Kopieren</button>
 <p id="bobProblemsShareStatus" role="status" class="small">Beim Teilen ChatGPT auswählen und den Bericht dort selbst absenden. Nur freigegebene technische Fehlercodes; keine Kontodaten, Logins oder Handelsaufträge.</p>
 <div id="bobProblemsShareFallback" hidden>
   <button id="bobProblemsCopy" type="button">Ersatzweg: Bericht kopieren</button>
   <textarea id="bobProblemsShareText" readonly aria-label="Fehlerdiagnose zum manuellen Kopieren" style="width:100%;min-height:145px"></textarea>
+</div>
 </div>
 <button id="bobProblemsRefresh" type="button">Probleme aktualisieren</button>
 <p class="small"><a target="_blank" rel="noopener noreferrer" href="https://github.com/ichrob/gold-dashboard1/issues?q=is%3Aissue+%22Bob+KI-Hilfe%22">Fehlerarchiv auf GitHub öffnen</a></p>
@@ -544,7 +547,7 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     const button=document.createElement('button');button.type='button';button.textContent='KI-Hilfebericht kopieren';
     const note=document.createElement('p');note.className='small';note.setAttribute('role','status');
     button.addEventListener('click',()=>copy(report(issue),note));
-    article.append(title,meta,link,document.createElement('br'),button,note);
+    article.append(title,meta,link);
     const review=issue.review;
     if(review&&Number.isInteger(review.pr)&&review.pr>0&&
        typeof review.commit==='string'&&/^[a-f0-9]{40}$/.test(review.commit)&&

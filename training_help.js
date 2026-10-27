@@ -1,4 +1,4 @@
-/* Technical test failures only. Read-only diagnostics, explicit user sharing. */
+/* Technical test failures only. Read-only diagnostics, automatic watchdog handoff. */
 (function(root){
 'use strict';
 const sections={simulation:'Simulation',learning:'Lernen & Ergebnisse',diagrams:'Diagramme',improve:'Besser werden'};
@@ -53,7 +53,7 @@ async function share(nav,text){
 const api={actionable,classify,marker,explanation,evidenceText,historicalGap,reportText,share};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 if(!root?.document)return;
-const doc=root.document;let host,box,button,status,preview,field,link,lastReport=null,busy=false,workerChecks=0;
+const doc=root.document;let host,box,status,lastReport=null,busy=false,workerChecks=0;
 const failures={},timers={},queued={},queueBusy={};
 async function queueLocal(key){
  if(queued[key]||queueBusy[key])return;queueBusy[key]=true;
@@ -67,15 +67,12 @@ function render(){
  for(const key of Object.keys(sections)){
   const mark=marker(all,key);
   const targets=[...doc.querySelectorAll('[data-view="'+key+'"]'),doc.querySelector('#bob-view-'+key+' > h2')].filter(Boolean);
-  for(const target of targets){let badge=target.querySelector('[data-training-mark]');if(!badge){badge=node('span');badge.dataset.trainingMark='';badge.style.cssText='margin-left:8px;color:#b91c1c;font-weight:800';target.append(badge);}badge.style.color='#b91c1c';badge.textContent=mark?' '+mark:'';badge.hidden=!mark;badge.setAttribute('aria-label',mark==='X'?'Problem: Hilfe durch ChatGPT erforderlich':mark?'Bob versucht die automatische Behebung':'');let detail=target.querySelector('[data-training-detail]');if(!detail){detail=node('small');detail.dataset.trainingDetail='';detail.style.cssText='display:block;font-size:14px;font-weight:400;line-height:1.4;margin-top:6px';target.append(detail);}detail.textContent=explanation(all,key,lastReport);detail.hidden=!mark;}
+  for(const target of targets){let badge=target.querySelector('[data-training-mark]');if(!badge){badge=node('span');badge.dataset.trainingMark='';badge.style.cssText='margin-left:8px;color:#b91c1c;font-weight:800';target.append(badge);}badge.style.color='#b91c1c';badge.textContent=mark?' '+mark:'';badge.hidden=!mark;badge.setAttribute('aria-label',mark==='X'?'Problem für automatische KI-Prüfung':mark?'Bob versucht die automatische Behebung':'');let detail=target.querySelector('[data-training-detail]');if(!detail){detail=node('small');detail.dataset.trainingDetail='';detail.style.cssText='display:block;font-size:14px;font-weight:400;line-height:1.4;margin-top:6px';target.append(detail);}detail.textContent=explanation(all,key,lastReport);detail.hidden=!mark;}
  }
  const ready=all.filter(x=>x.state==='escalated'),trying=all.filter(x=>x.state==='trying'&&!historicalGap(x));
- button.disabled=!ready.length;
- button.hidden=!ready.length;
- preview.hidden=!ready.length;
- status.textContent=ready.length?ready.length+' technische Fehlerarten: X · Bericht zum Teilen verfügbar.'+(trying.length?' '+trying.length+' weitere Nachprüfungen laufen (X).':''):trying.length?'(X) Bob versucht die Behebung und prüft erneut.':lastReport?'Keine aktuellen technischen Fehler in den zuletzt abgerufenen Testnachprüfungen.':'Testnachprüfung wird geladen; Stand noch nicht bestätigt.';
- if(Object.keys(failures).some(k=>failures[k].state==='escalated'&&!queued[k]))status.textContent+=' Technische Abrufmeldung: interne Erfassung noch nicht bestätigt; Bob versucht es erneut.';
- field.value=reportText(all,Date.now(),lastReport?.truncated);
+ const unqueued=Object.keys(failures).some(k=>failures[k].state==='escalated'&&!queued[k]);
+ status.textContent=unqueued?'Automatische Fehlererfassung noch nicht bestätigt · Bob versucht es erneut.':ready.length?'Ungelöste technische Probleme sind für die automatische KI-Prüfung erfasst. Eine Behebung ist noch nicht bestätigt.':trying.length?'Bob prüft die Störung automatisch erneut.':lastReport?'Keine aktuellen technischen Fehler in den zuletzt abgerufenen Testnachprüfungen.':'Testnachprüfung wird geladen; Stand noch nicht bestätigt.';
+
 }
 function observe(key,ok,retry){
  if(!scope[key])return;
@@ -94,11 +91,7 @@ async function poll(){
 }
 function mount(group){
  if(host)return;host=group;box=node('div');box.style.cssText='margin-top:12px';status=node('p');status.setAttribute('role','status');
- button=node('button','Bericht mit ChatGPT teilen');button.type='button';button.style.cssText='background:#1565c0;color:#fff;border:0;border-radius:12px;min-height:48px;width:100%;font-weight:700;padding:12px';button.disabled=true;
- const feedback=node('p');feedback.setAttribute('role','status');preview=node('details');preview.append(node('summary','Details · Problembericht'));field=node('textarea');field.readOnly=true;field.rows=10;field.style.cssText='width:100%;box-sizing:border-box';field.setAttribute('aria-label','Problembericht an ChatGPT');preview.append(field);
- link=node('a','ChatGPT öffnen');link.href='https://chatgpt.com/';link.target='_blank';link.rel='noopener noreferrer';link.hidden=true;
- button.onclick=async()=>{const current=actionable(items());if(!current.some(x=>x.state==='escalated'))return;const text=reportText(current,Date.now(),lastReport?.truncated);field.value=text;button.disabled=true;try{const result=await share(root.navigator,text);feedback.textContent=result==='shared'?'Teilen-Menü geöffnet. Wähle ChatGPT und sende den Bericht dort ab; Empfang hier nicht bestätigt.':result==='cancelled'?'Teilen abgebrochen. Es wurde kein Problem als behoben markiert.':result==='copied'?'Bericht kopiert. ChatGPT öffnen, einfügen und absenden.':'Bericht unten kopieren und in ChatGPT absenden.';if(['copied','manual'].includes(result)){link.hidden=false;preview.open=true;}}finally{button.disabled=!actionable(items()).some(x=>x.state==='escalated');}};
- box.append(status,button,feedback,link,preview,node('p','Teilen öffnet die App-Auswahl oder kopiert den Bericht. Wähle ChatGPT, füge den Bericht gegebenenfalls ein und sende ihn dort ab. Ein direkter Versand in deinen bestehenden Chat ist hier nicht möglich.'));
+ box.append(status,node('p','Die eingerichtete KI-Prüfung liest technische Meldungen stündlich. Du musst keinen Bericht teilen oder kopieren.'));
  group.append(box);render();poll();
  setInterval(()=>{if(!doc.hidden){poll();for(const key of Object.keys(failures))if(failures[key].state==='escalated')queueLocal(key);}},30000);
  doc.addEventListener('visibilitychange',()=>{if(!doc.hidden)poll();});

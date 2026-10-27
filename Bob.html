@@ -1878,57 +1878,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   move(byId('bobProblemPanel'),'problems');
   move(byId('bobSelfHealing'),'problems');
 
-  // Smartphone handoff: never rely on ChatGPT's desktop-only MCP plugin here.
-  // Only the user can share/copy; no private report or credential is sent automatically.
+  // Stable mobile action now opens the existing automatic repair status.
   const mobileHelp=document.createElement('section');
   mobileHelp.id='bobMobileHelp';mobileHelp.className='card';
-  mobileHelp.innerHTML=
-    '<h3 style="margin:0 0 8px">Bob KI-Zentrale · Handy</h3>'+
-    '<button type="button" class="bob-primary" id="bobMobileHelpShare" style="display:block;width:100%;min-height:52px;white-space:normal">Fehlerdiagnose an ChatGPT teilen · ohne Kopieren</button>'+
-    '<p id="bobMobileHelpFeedback" class="small" role="status" aria-live="polite">Es werden keine Zugangsdaten oder privaten Produktwerte übertragen. Wähle danach ChatGPT und sende die Nachricht selbst ab.</p>'+
-    '<details class="bob-disclosure"><summary>Hilfe und Ersatzweg anzeigen</summary>'+
-    '<p class="small">Nutze ChatGPT direkt auf dem Handy. Die verbundenen GitHub- und Render-Werkzeuge helfen bei der Fehleranalyse, auch wenn das private Bob-Plugin als „Nur Desktop“ markiert ist.</p>'+
-    '<p class="small">Der Button öffnet Android-Teilen. Dort ChatGPT wählen und den Bericht selbst absenden. Wenn Teilen nicht klappt, gibt es im Bereich „Offene KI-Hilfeanfragen“ den Kopier-Ersatzweg.</p>'+
-    '<a id="bobMobileHelpOpen" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" style="display:block;padding:12px;text-align:center;margin-top:9px;border-radius:10px;background:#e8f1ff;color:#125bc0;font-weight:700;text-decoration:none;min-height:44px">ChatGPT manuell öffnen</a></details>';
-  // Compact primary action follows the Problems heading and precedes every
-  // diagnostic list and the lengthy health statistics.
+  mobileHelp.innerHTML='<h3>Automatische Fehlerbearbeitung</h3>'+
+    '<p role="status">Bob versucht technische Störungen selbst zu beheben. Ungelöste Meldungen prüft der eingerichtete KI-Reparaturwächter stündlich. Kein manuelles Teilen erforderlich; eine Behebung wird erst nach Prüfung bestätigt.</p>'+
+    '<button type="button" id="bobMobileHelpShare" class="bob-primary">Prüfstatus aktualisieren</button>';
   panels.problems.querySelector('h2')?.after(mobileHelp);
-  const mobileHelpPrompt=[
-    'Bitte prüfe das Projekt Bob und hilf mir, technische Probleme selbstständig zu beheben.',
-    'GitHub: ichrob/gold-dashboard1',
-    'Render: bob-private-scanner und bob-push-service.',
-    'Nutze die bereits verbundenen GitHub- und Render-Werkzeuge. Prüfe Fehler, offene Probleme, aktuelle Deployments und Tests.',
-    'Wenn der private Bob-Produktbericht am Handy nicht zugänglich ist, melde diese Grenze ausdrücklich und nutze nur autorisierte Ersatzprüfungen.',
-    'Ändere keine Echtgeldorders, Handelsfreigaben, Risiko- oder Knock-out-Regeln ohne gesonderte Prüfung und Freigabe.',
-    'Erkläre mir kurz, was behoben, veröffentlicht und tatsächlich kontrolliert wurde.'
-  ].join('\n');
-  async function copyMobileHelp(){
-    if(navigator.clipboard && navigator.clipboard.writeText){await navigator.clipboard.writeText(mobileHelpPrompt);return;}
-    const input=document.createElement('textarea');input.value=mobileHelpPrompt;
-    input.setAttribute('readonly','');input.style.position='fixed';input.style.left='-9999px';
-    document.body.append(input);input.select();
-    const copied=document.execCommand('copy');input.remove();
-    if(!copied)throw new Error('copy-unavailable');
-  }
-  byId('bobMobileHelpShare').addEventListener('click',async()=>{
-    const feedback=byId('bobMobileHelpFeedback');
-    // Delegation remains inside the same deliberate tap; do not fetch first.
-    if(typeof window.BobProblems?.shareToChatGPT==='function'){
-      window.BobProblems.shareToChatGPT();
-      feedback.textContent='Diagnose vorbereitet: ChatGPT im Teilen-Menü auswählen und dort absenden. Ersatztext steht unter „Offene KI-Hilfeanfragen“.';
-      return;
-    }
-    // Defensive generic fallback if the Problems panel has not loaded.
-    if(typeof navigator.share==='function'){
-      try{
-        await navigator.share({title:'Bob KI-Hilferuf',text:mobileHelpPrompt});
-        feedback.textContent='Teilen abgeschlossen. Bitte prüfe, ob die Nachricht in ChatGPT angekommen ist, und sende sie dort ab.';
-        return;
-      }catch(err){if(err && err.name==='AbortError'){feedback.textContent='Teilen abgebrochen. Es wurde nichts versendet.';return;}}
-    }
-    try{await copyMobileHelp();feedback.textContent='Hilferuf kopiert. Jetzt auf „ChatGPT öffnen“ tippen und den Text einfügen.';}
-    catch(_){feedback.textContent='Automatisches Kopieren nicht verfügbar. Öffne ChatGPT und schreibe: „Prüfe Bob über GitHub und Render.“';}
-  });
+  byId('bobMobileHelpShare').addEventListener('click',()=>window.BobProblems?.refresh());
   const disclaimer=main.querySelector(':scope > .card.warning');if(disclaimer){move(disclaimer,'settings');fold(disclaimer,'Hinweise zur Nutzung');}
   // Keep the existing live data-status node, but display it only once at the end of Products.
   const productDataStatus=byId('dgTop3')?.querySelector(':scope > div.small');
@@ -2105,7 +2062,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    </ol><h3>Wo finde ich was?</h3>
    <p><b>Mehr → Simulation:</b> laufende Spielgeldtests und Teststatus. <b>Lernen &amp; Ergebnisse:</b> abgeschlossene Trades, Auswertungen und Nachweise für Verbesserungen. Offene oder fehlende Daten zählen nicht als Erfolg.</p>
    <p><b>Mehr → Diagramme:</b> Markt, Mein Trade, Simulation und Lernen. <b>Recherche:</b> Videos, Zusammenfassungen und MCO vs. Bob. <b>DEGIRO-Handy-Assistent:</b> der frühere Bereich „DEGIRO 2“. Der separate DEGIRO-Bereich bleibt dein reservierter Platzhalter.</p>
-   <p><b>Mehr → Einstellungen:</b> Push-Einrichtung, Verbindung und Abmelden. Marktbeobachtung und Aktiver Trade stehen gemeinsam oben in Mein Trade. <b>Probleme:</b> technische Meldungen und bewusstes Teilen an ChatGPT; Produktnachweise stehen bei Produkte.</p>
+   <p><b>Mehr → Einstellungen:</b> Push-Einrichtung, Verbindung und Abmelden. Marktbeobachtung und Aktiver Trade stehen gemeinsam oben in Mein Trade. <b>Probleme:</b> technische Meldungen und automatische KI-Prüfung; Produktnachweise stehen bei Produkte.</p>
    <details class="bob-disclosure"><summary>Wenn etwas fehlt</summary><p>Bei fehlenden oder veralteten Kursen den Datenstatus unter Einstellungen öffnen. Bei falschen Trade-Angaben „Daten korrigieren“ nutzen. Unter Mein Trade → Details bleiben zusätzliche Eingaben und Nachweise erhalten.</p><p>Benachrichtigungen benötigen die Browser- beziehungsweise Handyberechtigung. Ein eingeschalteter Schalter allein bestätigt noch keine erfolgreiche Hintergrundüberwachung.</p></details>`;
   panels.help.append(help);
   const helpLink=document.createElement('div');helpLink.className='bob-more-menu';helpLink.innerHTML=menuButton('help','?','Bedienungsanleitung','Bob Schritt für Schritt');panels.settings.append(helpLink);

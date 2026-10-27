@@ -1,38 +1,16 @@
 "use strict";
-const fs=require("node:fs");
-const assert=require("node:assert/strict");
-const vm=require("node:vm");
-const html=fs.readFileSync("Bob.html","utf8");
-const sectionStart=html.indexOf("const mobileHelp=document.createElement('section')");
-assert(sectionStart>0, "Mobile KI help must exist in the Problem screen");
-const sectionEnd=html.indexOf("const disclaimer=main.querySelector", sectionStart);
-assert(sectionEnd>sectionStart, "The KI help code must stay inside the mobile app initialization");
-const block=html.slice(sectionStart,sectionEnd);
-for(const marker of ["panels.problems.querySelector('h2')?.after(mobileHelp)","bobMobileHelpShare","bobMobileHelpOpen","https://chatgpt.com/","navigator.share","copyMobileHelp","role=\"status\""]){
- assert(block.includes(marker),"Missing mobile action: "+marker);
-}
-assert(block.includes("Es werden keine Zugangsdaten oder privaten Produktwerte übertragen."));
-assert(block.includes("Nur Desktop"),"Explicitly explain the native plugin restriction");
-const titleAt=block.indexOf('Bob KI-Zentrale · Handy');
-const shareAt=block.indexOf('id="bobMobileHelpShare"');
-const helpAt=block.indexOf('Hilfe und Ersatzweg anzeigen');
-assert(titleAt>=0 && shareAt>titleAt && helpAt>shareAt,
-  "On a Samsung the primary share button must precede all explanations and fallback links");
-assert(block.includes('<details class="bob-disclosure">'),
-  "Long instructions must be collapsed under optional Help");
-assert(html.includes("const handyActionTargets=Object.freeze({problems:'bobMobileHelpShare'})"),
-  "Bob-Handy must locate the intended control by stable ID despite redesigns");
-assert(html.includes("stabilizeHandyActionEntry();"),
-  "Explicit handoff must align the requested button at the top");
-assert(!html.includes("bobPrimaryActionDock"),
-  "The primary action must not remain stuck over the lower page content");
-assert(block.includes("window.BobProblems.shareToChatGPT()"),
-  "Top action must delegate to the same consent-based sanitized report, never send automatically");
-assert(!block.includes("localStorage")&&!block.includes("Authorization"),"Do not copy authentication material to ChatGPT");
-assert(!block.includes("fetch("),"Never automatically upload private diagnostics");
-assert(block.includes("Ändere keine Echtgeldorders"),"Trade safety reminder required");
-const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
-const mobileScript=scripts.find(s=>s[1].includes("const mobileHelp=document.createElement"));
-assert(mobileScript, "Mobile handoff must be in a script tag");
-new vm.Script(mobileScript[1],{filename:"Bob.mobile-inline.js"});
-console.log("Bob smartphone KI handoff: markup, privacy and syntax OK");
+const fs=require('node:fs'),assert=require('node:assert/strict'),vm=require('node:vm');
+const html=fs.readFileSync('Bob.html','utf8');
+const start=html.indexOf("const mobileHelp=document.createElement('section')"),end=html.indexOf('const disclaimer=',start);
+assert(start>0&&end>start);const block=html.slice(start,end);
+assert(block.includes('Automatische Fehlerbearbeitung'));
+assert(block.includes('stündlich'));
+assert(block.includes('Prüfstatus aktualisieren'));
+assert(!/navigator.share|clipboard|chatgpt.com|fetch\(/.test(block));
+assert(html.includes("const handyActionTargets=Object.freeze({problems:'bobMobileHelpShare'})"));
+let refreshed=0,clicked;
+const el={className:'',innerHTML:'',addEventListener:(event,fn)=>{clicked=fn;}};
+vm.runInNewContext(block,{document:{createElement:()=>el},panels:{problems:{querySelector:()=>({after(){}})}},byId:()=>el,window:{BobProblems:{refresh:()=>refreshed++}}});
+clicked();assert.equal(refreshed,1);
+for(const script of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi))new vm.Script(script[1]);
+console.log('Mobile automatic repair status: stable action refreshes without sending reports');

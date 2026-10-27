@@ -295,7 +295,7 @@ PANEL = r'''<section id="bobSelfHealing" class="card" style="margin:16px 0;paddi
 <p id="bobHealingState" role="status">Prüfung wird geladen …</p>
 <p class="small">Bob startet ausgefallene Hintergrunddienste einschließlich CFD-Abruf, Spot-Tagesänderung und Quellenvergleich kontrolliert neu. Nach drei unbestätigten Wiederanläufen innerhalb von 30 Minuten pausiert er weitere Neustarts. Ein unabhängiger GitHub-Wächter dokumentiert ungelöste Störungen. KI-Codeänderungen erfolgen nicht ungeprüft.</p>
 <div id="bobHealingHistory" class="small"></div>
-<details style="margin-top:12px"><summary>KI-Hilfebericht anzeigen</summary>
+<details hidden aria-hidden="true" style="margin-top:12px"><summary>KI-Hilfebericht anzeigen</summary>
 <pre id="bobHealingReport" style="white-space:pre-wrap;word-break:break-word;max-height:330px;overflow:auto;background:#f4f6f9;border-radius:9px;padding:10px"></pre>
 <button type="button" id="bobHealingCopy">KI-Hilfebericht kopieren</button>
 <span id="bobHealingCopyStatus" role="status" class="small"></span></details>
