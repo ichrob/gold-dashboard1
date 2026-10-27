@@ -19,8 +19,8 @@ _RUNNING = False
 _DATABASE = None
 # A newly started Render instance must first allow startup/database work to settle.
 # Retention is maintenance, not a prerequisite for diagnostic delivery.
-_LAST_PRUNE = time.monotonic() - 240
-_PRUNE_INTERVAL_SECONDS = 300
+_LAST_PRUNE = time.monotonic()
+_PRUNE_INTERVAL_SECONDS = 1800
 _PRUNE_TIMEOUT = '5s'
 _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
 _STATS = {'stored':0,'dropped':0,'failures':0,'lastStoredAt':None}
