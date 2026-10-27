@@ -79,7 +79,42 @@ function illustrationPlan(item,section){
   sourceText:section.text.replace(/\s+/g,' ').trim().slice(0,117)+(section.text.replace(/\s+/g,' ').trim().length>117?'…':'')};
 }
 
-if(typeof module!=='undefined')module.exports={sections,choose,market,illustrationPlan};
+
+// Presentation only: never contributes votes or modifies Bob's market signal.
+function researchGuide(item,bob={},now=Date.now()){
+ const exact=typeof item.publishedAt==='number'?item.publishedAt*1000:
+  typeof item.publishedDate==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(item.publishedDate)?Date.parse(item.publishedDate):NaN;
+ const dated=Number.isFinite(exact)&&exact>0&&exact<=now;
+ const recent=dated&&now-exact<=86400000;
+ const dayOnly=typeof item.publishedDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(item.publishedDate);
+ const age=item.publicFallback?'Ersatzvideo · neuere Inhalte fehlen':recent?'Aktuelles Video · höchstens 24 Stunden alt':dated?'Älteres Video':dayOnly?'Veröffentlichungstag bekannt · Uhrzeit unbekannt':'Datum unbekannt · Aktualität nicht bestätigt';
+ const status=item.transcriptAnalyzed!==true?'Noch nicht ausgewertet':item.trustedTranscript!==true?'Manuelle oder unbestätigte Textübernahme':
+  item.enhancements?.summary?.partial===true?'Teilweise ausgewertet · unbelegte Abschnitte verworfen':
+  item.enhancements?.summary?.kind==='ai'?'Zusammenfassung mit Untertitelbelegen':'Untertitel ausgewertet · keine KI-Gesamtzusammenfassung';
+ const evidence=new Map((item.overview?.evidence||[]).map(e=>[e.id,e]));
+ const conditionSections=(item.overview?.sections||[]).filter(s=>s.key==='conditions');
+ const seen=new Set(),conditions=[];
+ for(const section of conditionSections)for(const id of section.evidenceIds||[]){
+  const e=evidence.get(id);
+  if(!e||typeof e.text!=='string'||!e.text.trim()||!Number.isFinite(e.at)||e.at<0||e.at>86400||seen.has(e.text))continue;
+  seen.add(e.text);conditions.push({text:e.text,at:e.at,trusted:item.trustedTranscript===true});
+ }
+ const direction=item.trustedTranscript===true&&item.transcriptAnalyzed===true&&['LONG','SHORT'].includes(item.outlook)?item.outlook:'UNKLAR';
+ const bobAt=typeof bob.at==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(bob.at)?Date.parse(bob.at):NaN;
+ const bobFresh=bob.fresh===true&&Number.isFinite(bobAt)&&now>=bobAt&&now-bobAt<=60000;
+ return {age,status,dated,recent,publication:dated?new Date(exact).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':dayOnly?item.publishedDate+' · Uhrzeit unbekannt':'Datum und Uhrzeit nicht bestätigt',
+  conditions:conditions.slice(0,3),direction,bobDirection:bobFresh&&['LONG','SHORT','NEUTRAL'].includes(bob.direction)?bob.direction:'NICHT_AKTUELL',
+  horizon:item.horizon||'unbekannt',bobAt:bobFresh?bob.at:null,bobReason:bobFresh?bob.reason||'Einstiegsbedingungen separat prüfen':'Aktuelle Bob-Analyse fehlt',
+  comparison:'Keine direkte Signalbestätigung: Videozeit, betrachteter Zeitraum und Voraussetzungen müssen übereinstimmen. Bobs Intraday-Plan gilt für etwa 1–3 Stunden.',
+  chartEvidence:item.trustedTranscript===true?'Gesprochene Kursmarken nur mit Originaluntertitel und Videostelle; kein Beweis für einen Chartwert.':'Keine bestätigten Kursmarken aus diesem Transkript.',
+  previewNote:'Vorschaubilder und OCR bleiben ungeprüft. Keine Übernahme von Chartzahlen in Stopps, Ziele oder Produktfreigaben.'};
+}
+function sourceFibMarks(item){
+ const permitted=new Set(['r382','r500','r618','r786','e1272','e1618']);
+ if(item.trustedTranscript!==true||item.transcriptAnalyzed!==true)return [];
+ return (Array.isArray(item.mcoFibonacci)?item.mcoFibonacci:[]).filter(m=>m&&permitted.has(m.key)&&Number.isFinite(m.price)&&m.price>=500&&m.price<=25000&&typeof m.quote==='string'&&m.quote.trim()&&Number.isInteger(m.at)&&m.at>=0&&m.at<=86400).slice(0,12);
+}
+if(typeof module!=='undefined')module.exports={sections,choose,market,illustrationPlan,researchGuide,sourceFibMarks};
 if(!root?.document)return;
 const d=root.document,views=new WeakMap(),el=(t,s)=>{const n=d.createElement(t);if(s!==undefined)n.textContent=s;return n;},stamp=t=>Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
 function link(item,at){try{const url=new URL(item.url);if(url.protocol!=='https:'||!['youtube.com','www.youtube.com'].includes(url.hostname)||url.pathname!=='/watch')return null;url.searchParams.set('t',String(Math.floor(at)));const a=el('a','Originalstelle '+stamp(at)+' auf YouTube');a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';return a;}catch(_){return null;}}
@@ -211,7 +246,7 @@ function profileControl(host,item){
  };
 }
 function draw(host,item){
- host.replaceChildren();host.append(el('h4','MCO: Chartbilder und Erklärung'),el('p','MCO-Aussagen mit der zugehörigen Videopassage. Bobs eigene Berechnungen stehen getrennt im Wertevergleich.'));
+ host.replaceChildren();host.append(el('h4',item.enhancements?.summary?.partial?'MCO: Teilweise ausgewertet · belegte Abschnitte':'MCO: Chartbilder und Erklärung'),el('p','MCO-Aussagen mit der zugehörigen Videopassage. Bobs eigene Berechnungen stehen getrennt im Wertevergleich.'));
  profileControl(host,item);
  const parts=sections(item),used=new Set();
  for(const [i,s] of parts.entries()){
@@ -231,6 +266,30 @@ function draw(host,item){
  if(others.length){const extra=el('details');extra.append(el('summary','Weitere Chartbilder · Aussage noch nicht zugeordnet'));for(const entry of others)figure(extra,entry,item);host.append(extra);}
  if(!(item.enhancements?.frames||[]).some(valid))host.append(el('p','Bisher fehlt ein zeitlich zugeordnetes Videobild. Bei jedem Abschnitt kannst du ein Chartbild hinzufügen; alternativ unten eine Videodatei. Titelbilder ersetzen keine Chartbelege.'));
 }
+
+const guideViews=new Set();
+function renderGuide(host,item,bob){
+ const g=researchGuide(item,bob),box=el('section');box.className='research-guide';
+ box.style.cssText='margin:10px 0;padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;overflow-wrap:anywhere';
+ box.append(el('h4','Für deinen Intraday-Plan'),el('strong',g.age),el('p','Veröffentlicht: '+g.publication),el('p',g.status));
+ const table=el('table');table.style.cssText='width:100%;table-layout:fixed;font-size:13px';
+ for(const cells of [['Vergleich','MCO im Video','Bob jetzt'],['Richtung',g.direction,g.bobDirection==='NEUTRAL'?'ABWARTEN':g.bobDirection==='NICHT_AKTUELL'?'Nicht aktuell bestätigt':g.bobDirection],['Zeitraum',g.horizon,'Intraday · etwa 1–3 Stunden'],['Zeitbezug',g.publication,g.bobAt?new Date(g.bobAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich)':'Unbestätigt']]){
+  const row=el('tr');cells.forEach((value,i)=>row.append(el(i===0?'th':'td',value)));table.append(row);
+ }
+ box.append(table,el('p',g.comparison),el('p','Bob-Voraussetzung: '+g.bobReason),el('h5','Bedingungen aus dem gesprochenen Text'));
+ if(!g.conditions.length)box.append(el('p','Keine eindeutige Bedingung mit Originalstelle identifiziert. Das bedeutet nicht, dass die Aussage bedingungslos gilt.'));
+ for(const c of g.conditions){const row=el('div');row.append(el('b',c.trusted?'Bedingtes Szenario · keine bestätigte Richtung':'Unbestätigte Übernahme · keine Richtungsstimme'),el('blockquote',c.text));const a=link(item,c.at);if(a)row.append(a);box.append(row);}
+ box.append(el('p','Bedingungen wie „erst oberhalb“, „falls Unterstützung hält“ oder „bei Bruch“ müssen zuerst erfüllt sein. Die Originalstelle bleibt maßgeblich.'),el('h5','Belegstatus der Kursmarken'),el('p',g.chartEvidence),el('p',g.previewNote));
+ host.append(box);
+ guideViews.add({box,item});
+}
+setInterval(()=>{
+ if(d.visibilityState==='hidden')return;
+ for(const view of [...guideViews]){
+  guideViews.delete(view);if(!view.box.isConnected)continue;
+  const holder=el('div');renderGuide(holder,view.item,root.BobResearchContext?.());view.box.replaceWith(holder.firstElementChild);
+ }
+},10000);
 function render(host,item){
  const section=el('section');host.append(section);views.set(item,section);draw(section,item);
  let videoId=item.videoId;try{videoId=videoId||new URL(item.url).searchParams.get('v');}catch(_){return;}
@@ -244,5 +303,5 @@ function render(host,item){
  }).catch(()=>{});
 }
 function update(item){const host=views.get(item);if(host?.isConnected)draw(host,item);}
-root.BobVideoBrief={render,update};
+root.BobVideoBrief={render,update,researchGuide,renderGuide,sourceFibMarks};
 })(typeof window==='undefined'?null:window);

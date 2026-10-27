@@ -7,6 +7,7 @@ assert(html.includes('Array.isArray(providedBars)?providedBars:'), 'Clip should 
 for(const color of ['#2563eb','#c2410c','#15803d'])assert(html.includes(color));
 assert(html.includes('Kein')||html.includes('Keine explizite Fibonacci-Prozentzahl'));
 assert(html.includes('Keine Bestätigung')||html.includes('Keine Bestätigung eines Marktsignals'));
-assert(html.includes("m.key==='r618'")||html.includes("'r618'"));
+assert(html.includes('sourceFibMarks(item)'));
+assert(fs.readFileSync('video_brief.js','utf8').includes("'r618'"));
 assert(html.includes("Number(b.openTime)+step<=Date.now()"));
 console.log('MCO Fibonacci transcript, source colors and independent market chart linked');
