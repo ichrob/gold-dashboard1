@@ -168,14 +168,16 @@ class ProductReadService : AccessibilityService() {
                             else -> ProductReadDiagnostics.Outcome.SCROLL_AVAILABLE
                         })
                     }
+                    if (!sensitive && capabilities.size > 1 && surface == null) {
+                        ProductReadDiagnostics.record(if (capabilities.all { it.evidence == 0 })
+                            ProductReadDiagnostics.Outcome.SCROLL_MARKERS_MISSING
+                        else ProductReadDiagnostics.Outcome.SCROLL_MARKERS_CONFLICT)
+                    }
                     // An ambiguous surface is not proof of the page end. Never publish a
                     // partial candidate as a completed round trip on that basis.
-                    val step = if (!sensitive && capabilities.size > 1 && surface == null) {
-                        pageReader.reset()
-                        ProductPageReader.Step(ProductPageReader.Move.ABORT,
-                            ProductScreenEvidence.Result(message = "Mehrere Scrollbereiche ohne eindeutige Produktzuordnung. Nichts übernommen."))
-                    } else pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
-                        forwardIndex != null, backwardIndex != null)
+                    val step = pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
+                        forwardIndex != null, backwardIndex != null,
+                        scrollAmbiguous = capabilities.size > 1 && surface == null)
                     ProductReadDiagnostics.page(step.cause)
                     when (step.move) {
                         ProductPageReader.Move.FORWARD, ProductPageReader.Move.BACKWARD -> {

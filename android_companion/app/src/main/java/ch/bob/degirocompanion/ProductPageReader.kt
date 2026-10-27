@@ -4,7 +4,7 @@ package ch.bob.degirocompanion
 internal class ProductPageReader {
     enum class Move { NONE, FORWARD, BACKWARD, FINISHED, ABORT }
     enum class Cause { NONE, WAIT_PROTECTED, WAIT_IDENTITY, WAIT_SCROLL, UNSAFE_VIEW,
-        IDENTITY_CHANGED, NO_QUOTES, RETURN_FAILED, SCROLL_LIMIT, INVALID_QUOTES, SEEK_HEADER, SEEK_LIMIT }
+        IDENTITY_CHANGED, NO_QUOTES, RETURN_FAILED, SCROLL_LIMIT, INVALID_QUOTES, SEEK_HEADER, SEEK_LIMIT, WAIT_SCROLL_LAYOUT, SCROLL_LAYOUT_CHANGED }
     data class Step(val move: Move, val result: ProductScreenEvidence.Result, val cause: Cause = Cause.NONE)
     private var seekSteps = 0
     private var seekWindow: Int? = null
@@ -24,7 +24,7 @@ internal class ProductPageReader {
         else if (move == Move.BACKWARD) { candidate = null; backward = 8; if (!anchored) seekSteps = 4 }
     }
     fun inspect(windowId: Int, lines: List<QuoteLayout.Line>, at: String, sensitive: Boolean,
-                canForward: Boolean, canBackward: Boolean): Step {
+                canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false): Step {
         val direct = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines, at, sensitive)
         // Launch/login transitions must not consume an unanchored request. Read nothing
         // from them; only wait within the existing 60-second request budget.
@@ -33,6 +33,10 @@ internal class ProductPageReader {
         if (direct.reason in setOf(ProductScreenEvidence.Reason.PROTECTED, ProductScreenEvidence.Reason.LOGIN_OR_ORDER,
                 ProductScreenEvidence.Reason.TOO_LARGE, ProductScreenEvidence.Reason.ISIN_INVALID,
                 ProductScreenEvidence.Reason.ISIN_AMBIGUOUS)) return stop(direct.message, Cause.UNSAFE_VIEW, direct.reason)
+        if (scrollAmbiguous) {
+            if (anchored) return stop("Scrollbereich während der Produktprüfung nicht mehr eindeutig. Kein Entwurf übernommen.", Cause.SCROLL_LAYOUT_CHANGED)
+            return Step(Move.NONE, direct.copy(draft = "", message = "Seitenaufbau noch nicht eindeutig. Bob wartet innerhalb des 60-Sekunden-Limits auf den Produktbereich."), Cause.WAIT_SCROLL_LAYOUT)
+        }
         val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n") { it.text.uppercase() }).map { it.value }.distinct().toList()
         if (!anchored) {
             val visibleText = lines.joinToString("\n") { it.text }
