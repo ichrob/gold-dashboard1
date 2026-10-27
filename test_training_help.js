@@ -69,8 +69,8 @@ assert.equal(h.evidenceText({}), '');
 withEvidence.modelReview.evidenceSummary.counts.original=-1;
 assert.equal(h.evidenceText(withEvidence),'');
 
-// Exercise the visible button: history alone hides the panel; a technical
-// failure exposes real sharing and never presents queueing as delivery.
+// No manual handoff controls. Failure is queued automatically, retried on
+// unconfirmed delivery, and never presented as a completed repair.
 (async()=>{
  const fs=require('node:fs'),vm=require('node:vm');
  class Element{
@@ -78,24 +78,30 @@ assert.equal(h.evidenceText(withEvidence),'');
   append(...xs){this.children.push(...xs);}setAttribute(){}
   querySelector(){return null;}
  }
- const group=new Element('section'),links=[];let shared='',copied='',queueCalls=0;
+ const group=new Element('section'),nodes=[],intervals=[];let queueCalls=0,accept=false;
  const historical={...grouped,workerCheckedAt:Date.now()};
- const doc={hidden:false,createElement:tag=>{const e=new Element(tag);links.push(e);return e;},querySelectorAll:()=>[],querySelector:()=>null,addEventListener(){}};
- const window={document:doc,navigator:{share:async x=>{shared=x.text;}},fetch:async url=>{if(url==='/api/assistance')queueCalls++;return {ok:true,json:async()=>url==='/api/assistance'?{ok:true,status:'queued'}:historical};}};
- vm.runInNewContext(fs.readFileSync('training_help.js','utf8'),{window,Date,AbortSignal,setInterval(){},setTimeout(){},clearTimeout(){}});
+ const doc={hidden:false,createElement:tag=>{const e=new Element(tag);nodes.push(e);return e;},querySelectorAll:()=>[],querySelector:()=>null,addEventListener(){}};
+ const window={document:doc,navigator:{share(){throw Error('No user sharing required');}},fetch:async(url,opts)=>{
+  if(url==='/api/assistance'){
+   queueCalls++;assert.deepEqual(JSON.parse(opts.body),{code:'training-audit-unavailable'});
+   return {ok:accept,json:async()=>({ok:accept,status:accept?'queued':'unavailable'})};
+  }
+  return {ok:true,json:async()=>historical};
+ }};
+ vm.runInNewContext(fs.readFileSync('training_help.js','utf8'),{window,Date,AbortSignal,setInterval(fn){intervals.push(fn);},setTimeout(){},clearTimeout(){}});
  window.BobTrainingHelp.mount(group);
  await new Promise(resolve=>setImmediate(resolve));
- const box=group.children[0],button=links.find(x=>x.tag==='button');
- assert.equal(box.hidden,true,'Historical archive cases must not leave a warning panel');
- assert.equal(button.hidden,true);assert.equal(queueCalls,0);
+ const box=group.children[0];assert.equal(box.hidden,true);
+ assert(!nodes.some(x=>['button','textarea','a'].includes(x.tag)));
  for(let n=0;n<3;n++)window.BobTrainingHelp.observe('audit',false);
  await new Promise(resolve=>setImmediate(resolve));
- assert.equal(box.hidden,false);assert.equal(button.hidden,false);assert.equal(button.textContent,'Bericht mit ChatGPT teilen');
- const before=queueCalls;await button.onclick();assert.match(shared,/technical:audit/);assert.doesNotMatch(shared,/test:signal:missingFollowup/);assert.equal(queueCalls,before,'Click shares, rather than just queueing');
- assert(links.some(x=>/Empfang hier nicht bestätigt/.test(x.textContent||'')));
- window.navigator={clipboard:{writeText:async text=>{copied=text;}}};await button.onclick();assert.equal(copied,shared.replace(/Erstellt: .*/,copied.match(/Erstellt: .*/)[0]));
- assert(links.some(x=>x.tag==='a'&&x.hidden===false));
+ assert.equal(queueCalls,1);assert.equal(box.hidden,false);
+ assert(nodes.some(x=>/Fehlererfassung noch nicht bestätigt/.test(x.textContent||'')));
+ accept=true;intervals[0]();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(queueCalls,2);
+ assert(nodes.some(x=>/für die automatische KI-Prüfung erfasst/.test(x.textContent||'')));
+ intervals[0]();await new Promise(resolve=>setImmediate(resolve));assert.equal(queueCalls,2,'Do not duplicate a confirmed queue entry');
  window.BobTrainingHelp.observe('audit',true);assert.equal(box.hidden,true);
- assert.equal(historical.problemGroups[0].status,'escalated','Archive data remains unchanged');
- console.log('Training help DOM: archive suppression, actual click/share, clipboard fallback, recovery and no delivery claim passed');
+ assert.equal(historical.problemGroups[0].status,'escalated','Archive evidence remains unchanged');
+ console.log('Automatic training handoff: no sharing controls, anonymous queue, retry, deduplication and recovery passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

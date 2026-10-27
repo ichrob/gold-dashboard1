@@ -310,23 +310,12 @@ function drawMissingTests(box,stale){
    details.append(p);
   }section.append(details);
  }
- if(repairReport?.truncated)section.append(node('p','Anzeige und Teilen auf 300 Fälle begrenzt. Weitere ungelöste Fälle bleiben gespeichert.'));
- if(!items.length){section.append(node('p',stale?'Stand der automatischen Nachprüfung nicht aktuell bestätigt.':'Noch keine ungelösten Fälle nach automatischem Versuch zum Teilen vorhanden. Neue fehlende Werte werden beim nächsten Hintergrundlauf geprüft.'));box.append(section);return;}
+ if(repairReport?.truncated)section.append(node('p','Anzeige auf 300 Fälle begrenzt. Weitere ungelöste Fälle bleiben gespeichert.'));
+ if(!items.length){section.append(node('p',stale?'Stand der automatischen Nachprüfung nicht aktuell bestätigt.':'Noch keine ungelösten Fälle nach automatischem Versuch vorhanden. Neue fehlende Werte werden beim nächsten Hintergrundlauf geprüft.'));box.append(section);return;}
  section.append(node('p',stale?'Gesammelte Fälle aus dem letzten verfügbaren Bericht. Der aktuelle Zustand ist nicht bestätigt.':'Diese Fälle hat Bob automatisch geprüft, aber nicht sicher beheben können. Sie bleiben für die weitere Fehlerbehebung gespeichert.'));
  const list=node('details');list.append(node('summary',items.length+' Einträge anzeigen'));
  for(const r of items){const item=node('p');item.textContent=r.type+' · '+r.count+' Prüfungen'+(r.currency?' · '+r.currency:'')+(r.at?' · '+stamp(r.at):'')+'\n'+r.reasons.map(v=>missingLabels[v]||v).join('; ')+'\nAutomatische Versuche: '+r.attempts;item.style.whiteSpace='pre-line';list.append(item);}section.append(list);
- const share=node('button','ChatGPT soll die Probleme selbstständig lösen');share.type='button';share.style.cssText='display:block;min-height:48px;width:100%;margin-top:12px;font-weight:bold';
- const state=node('p');state.setAttribute('role','status');
- const preview=node('details');preview.append(node('summary','Bericht ansehen oder manuell kopieren'));const field=node('textarea');field.readOnly=true;field.rows=12;field.style.cssText='width:100%;box-sizing:border-box';field.setAttribute('aria-label','Prüfbericht für ChatGPT');field.value=missingTestText(items,received,stale);preview.append(field);
- const open=node('a','ChatGPT öffnen');open.href='https://chatgpt.com/';open.target='_blank';open.rel='noopener noreferrer';open.style.cssText='display:none;min-height:44px;padding:12px 0';
- share.addEventListener('click',async()=>{share.disabled=true;const text=missingTestText(items,received,failed||Date.now()-received>420000||repairFailed||Date.now()-repairReceived>420000);field.value=text;
-  try{const result=await shareMissingText(root.navigator,text);
-   if(result==='shared')state.textContent='An das Teilen-Menü übergeben. Wähle ChatGPT und sende den Bericht dort ab; der Empfang ist hier nicht bestätigt.';
-   else if(result==='cancelled')state.textContent='Teilen abgebrochen. Es wird keine Übergabe bestätigt.';
-   else{preview.open=true;open.style.display='block';state.textContent=result==='copied'?'Bericht kopiert. Öffne ChatGPT, füge ihn ein und sende ihn ab.':'Automatisches Teilen nicht verfügbar. Kopiere den sichtbaren Bericht und füge ihn in ChatGPT ein.';}
-  }finally{share.disabled=false;}
- });
- section.append(share,state,open,preview,node('p','Enthält Testzeiten, fehlende Nachweise und gegebenenfalls ISINs. Übertragung erst durch dein Antippen und Absenden; keine automatische Nachricht.'));box.append(section);
+ section.append(node('p','Ungelöste Befunde bleiben gespeichert und werden vom eingerichteten KI-Reparaturwächter automatisch geprüft. Fehlende historische Originaldaten sind dadurch nicht wiederhergestellt.'));box.append(section);
 }
 
 function drawOverview(){
