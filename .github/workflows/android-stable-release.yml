@@ -187,8 +187,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$apk" > "$RUNNER_TEMP/bob-permissions.txt"
           for forbidden in android.permission.INTERNET android.permission.ACCESS_NETWORK_STATE \
               android.permission.SYSTEM_ALERT_WINDOW android.permission.QUERY_ALL_PACKAGES \
-              android.permission.READ_SMS android.permission.READ_CONTACTS \
-              android.permission.BIND_ACCESSIBILITY_SERVICE; do
+              android.permission.READ_SMS android.permission.READ_CONTACTS; do
             if grep -Fq "$forbidden" "$RUNNER_TEMP/bob-permissions.txt"; then
               echo "Release blocked: forbidden permission $forbidden" >&2
               exit 1

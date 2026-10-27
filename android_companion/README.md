@@ -1,3 +1,24 @@
+## Einmalige DEGIRO-Leseprüfung (27.10.2026)
+
+Neu: oben in Bob Handy **DEGIRO-Produktseite lesen**. Optionaler Android-Lesedienst,
+standardmäßig ausgeschaltet. Android-Bedienungshilfe und deren Taste bewusst aktivieren.
+DEGIRO selbst öffnen, anmelden und Produktseite auswählen. Tastendruck liest einmal;
+zurück in Bob Handy zeigt den Entwurf, **Gelesene Werte in Bob prüfen** übergibt ihn
+in die bestehende lokale Prüfansicht. Keine automatische Suche, Klicks, Gesten,
+Ordermasken, Hintergrundabfragen oder Übertragung. STOPP sperrt den Leser und löscht
+den Entwurf. App-Text und Bilder werden nicht gespeichert. Ein strukturierter Entwurf
+bleibt höchstens fünf Minuten im Arbeitsspeicher. Erfassungszeit ist keine Kurszeit;
+keine Handelsfreigabe. Fremde Apps, mehrere ISINs, sensible/editierbare Felder und
+erkannte Login-/Orderseiten werden abgewiesen. DEGIRO-Beschränkungen für automatisierte
+Werkzeuge bleiben relevant; Entwicklung ist keine Freigabe durch den Broker.
+
+Geräteabnahme offen: Gibt DEGIRO die Produktfelder auf dem Samsung frei? Funktioniert
+die Android-Bedienungshilfe-Taste? Verweigert Android/DEGIRO den Zugriff, bleibt
+Screenshot-Teilen die Alternative; keine Umgehung. Eine neue signierte APK ist nötig.
+Frühere Aussagen unten über fehlende Accessibility-Berechtigungen beschreiben alte Versionen.
+
+---
+
 ## Automatische Bob-Handy-Updates nach Android-Codeänderungen
 
 Nach **erfolgreicher Bob CI auf dem aktuellen GitHub-`main`** überprüft GitHub

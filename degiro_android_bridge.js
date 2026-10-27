@@ -18,6 +18,8 @@ function validIsin(value){
 }
 function readDraft(value){
  if(typeof value!=='string'||value.length>8000)throw Error('OCR-Entwurf fehlt oder ist zu groß (maximal 8.000 Zeichen).');
+ const appRead=value.startsWith('BOB APP-LESEENTWURF – NICHT VERIFIZIERT\n');
+ if(appRead)return readAppDraft(value);
  const lines=value.replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);
  if(lines.length<3||lines.length>30||lines[0]!==HEADER)throw Error('Kein gültiger Bob-Android-OCR-Entwurf.');
  const id=lines.filter(s=>s.startsWith('ISIN:'));
@@ -55,6 +57,22 @@ function readDraft(value){
   }
  }
  return out;
+}
+// Separate provenance: receipt time is never promoted to a quote timestamp.
+function readAppDraft(value){
+ const lines=value.replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);
+ const unique=prefix=>{const found=lines.filter(x=>x.startsWith(prefix));if(found.length!==1)throw Error('App-Leseentwurf: Pflichtangabe fehlt oder doppelt.');return found[0].slice(prefix.length);};
+ if(unique('Quelle: ')!=='DEGIRO-App')throw Error('Unbekannte App-Quelle.');
+ const observedAt=unique('Erfasst: ');
+ if(!/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(observedAt)||!Number.isFinite(Date.parse(observedAt)))throw Error('Ungültige Erfassungszeit.');
+ const currency=unique('Währung (Anzeige ungeprüft): ');
+ if(!['EUR','CHF'].includes(currency))throw Error('Unklare Produktwährung.');
+ const warning=unique('Hinweis (Anzeige ungeprüft): ');
+ if(!['Handel eingeschränkt','Kurse verzögert','Keine Aussage zur Handelbarkeit'].includes(warning))throw Error('Unbekannter App-Hinweis.');
+ const stripped=lines.filter(x=>!x.startsWith('Quelle: ')&&!x.startsWith('Erfasst: ')&&!x.startsWith('Währung (')&&!x.startsWith('Hinweis ('));
+ stripped[0]=HEADER;
+ const result=readDraft(stripped.map(x=>x.replace('(Anzeige ungeprüft)', '(OCR ungeprüft)')).join('\n'));
+ return {...result,sourceKind:'app-screen',observedAt,currency,warning};
 }
 // A user's shared DEGIRO screen is useful comparison evidence, not an
 // executable order quote or confirmation of an actual fill. This function is
@@ -117,7 +135,7 @@ function mount(){
   reset();
   try{
    const draft=readDraft(textarea.value);
-   const title=root.document.createElement('h4');title.textContent='ISIN '+draft.isin+' · ungeprüfte OCR-Beobachtung';
+   const title=root.document.createElement('h4');title.textContent='ISIN '+draft.isin+(draft.sourceKind==='app-screen'?' · ungeprüfte App-Beobachtung':' · ungeprüfte OCR-Beobachtung');
    const list=root.document.createElement('ul');
    const labels={bid:'Geld',ask:'Brief',leverage:'Hebel',ko:'KO-Schwelle',venue:'Handelsplatz',last:'Zuletzt (kein ausführbarer Kurs)',displayedTime:'Anzeigezeit (keine bestätigte Kurszeit)'};
    for(const [name,label] of Object.entries(labels)){
@@ -126,6 +144,11 @@ function mount(){
     list.append(item);
    }
    preview.append(title,list);
+   if(draft.sourceKind==='app-screen'){
+    const source=root.document.createElement('p');
+    source.textContent='DEGIRO-App · Währung '+draft.currency+' · erfasst '+draft.observedAt+' (keine Kurszeit) · '+draft.warning;
+    preview.append(source);
+   }
    const pair=displayedPairStatus(draft);
    const note=root.document.createElement('p');
    note.setAttribute('data-degiro-screen-quote',pair.state);

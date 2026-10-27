@@ -5,10 +5,18 @@
          Explicitly remove them from the final merged APK: local OCR must be offline. -->
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
-    <!-- No accessibility, screen capture, device administration or broker access. -->
+    <queries><package android:name="nl.degiro.trader" /></queries>
+    <!-- Optional one-shot reader; no gesture/screenshot/network capability. -->
     <application android:label="${bobAppLabel}"
                  android:allowBackup="false"
                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name=".ProductReadActivity" android:exported="false" />
+        <service android:name=".ProductReadService" android:exported="true"
+                 android:label="@string/product_reader_label"
+                 android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/product_reader" />
+        </service>
         <!-- Reuse the same in-memory approval session when Android Sharesheet returns a signed proposal. -->
         <activity android:name=".MainActivity" android:exported="true"
                   android:launchMode="singleTask">

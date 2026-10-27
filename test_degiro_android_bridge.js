@@ -126,3 +126,17 @@ assert.throws(()=>displayedPairStatus({...parsed,tradeApproved:true}));
 assert.throws(()=>displayedPairStatus({...parsed,sourceTime:'2026-10-24T09:00:00+02:00'}));
 assert(script.includes('data-degiro-screen-quote'));
 console.log('Android-OCR-Entwurf: Parser und Sicherheitsgrenzen geprüft.');
+
+// Explicit app-screen provenance stays distinct from OCR and broker execution.
+{
+ const appDraft='BOB APP-LESEENTWURF – NICHT VERIFIZIERT\nISIN: DE000FD0S0G4\nQuelle: DEGIRO-App\nErfasst: 2026-10-27T14:00:00Z\nWährung (Anzeige ungeprüft): CHF\nGeld (Anzeige ungeprüft): 10,20\nBrief (Anzeige ungeprüft): 10,30\nHinweis (Anzeige ungeprüft): Keine Aussage zur Handelbarkeit\nKein automatischer Handelsnachweis, keine Freigabe, keine Order.';
+ const bridge=require('./degiro_android_bridge.js');
+ const observed=bridge.readDraft(appDraft);
+ assert.equal(observed.sourceKind,'app-screen');
+ assert.equal(observed.currency,'CHF');
+ assert.equal(observed.sourceTime,null);
+ assert.equal(observed.tradeApproved,false);
+ assert.equal(observed.verified,false);
+ for(const bad of [appDraft+'\nKontostand: 1000',appDraft.replace('Quelle: DEGIRO-App','Quelle: other'),appDraft+'\nErfasst: 2026-10-27T14:00:00Z',appDraft.replace('Keine Aussage zur Handelbarkeit','Handel garantiert')])assert.throws(()=>bridge.readDraft(bad));
+ console.log('App screen draft: provenance retained, no quote time or trade permission inferred');
+}

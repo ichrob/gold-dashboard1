@@ -75,7 +75,15 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertNotIn("gh release create", workflow)
         manifest = MANIFEST.read_text(encoding="utf-8")
         self.assertIn('android.permission.INTERNET" tools:node="remove"', manifest)
-        self.assertNotIn('BIND_ACCESSIBILITY_SERVICE', manifest)
+        self.assertIn('android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"', manifest)
+        config = (ROOT / "android_companion/app/src/main/res/xml/product_reader.xml").read_text()
+        self.assertIn('android:canPerformGestures="false"', config)
+        self.assertIn('android:canTakeScreenshot="false"', config)
+        self.assertIn('android:packageNames="nl.degiro.trader"', config)
+        service = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadService.kt").read_text()
+        for forbidden in ['performAction(', 'dispatchGesture(', 'performGlobalAction(', 'takeScreenshot(']:
+            self.assertNotIn(forbidden, service)
+        self.assertIn('override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit', service)
 
     def test_no_private_key_material_is_tracked_in_android_setup(self):
         ignore = (ROOT / "android_companion/.gitignore").read_text(encoding="utf-8")
