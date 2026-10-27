@@ -111,6 +111,7 @@ class ProductReadService : AccessibilityService() {
             val root = productRoot(record = true)
                 ?: return@runCatching ProductScreenEvidence.Result(message = "Android liefert gerade keinen Fensterinhalt. Ursache noch ungeklärt; dies beweist keine DEGIRO-Sperre.")
             val scrollNodes = mutableListOf<AccessibilityNodeInfo>()
+            val capabilities = mutableListOf<ProductScrollPolicy.Capability>()
             try {
                 // Returning to Bob must not erase the last DEGIRO rejection or draft.
                 if (root.packageName?.toString() != ProductScreenEvidence.PACKAGE) {
@@ -120,26 +121,34 @@ class ProductReadService : AccessibilityService() {
                 val lines = mutableListOf<QuoteLayout.Line>()
                 var sensitive = false
                 var count = 0
-                fun collect(node: AccessibilityNodeInfo, depth: Int) {
+                fun collect(node: AccessibilityNodeInfo, depth: Int, ancestors: List<Int>) {
                     check(++count <= 1000 && depth <= 40) { "View too large" }
                     if (!node.isVisibleToUser) return
                     if (node.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
                     if (node.isPassword || node.isEditable) { sensitive = true; return }
                     if (android.os.Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive) { sensitive = true; return }
-                    if (node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD || it.id == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD })
+                    var containers = ancestors
+                    if (node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD || it.id == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD }) {
+                        containers = ancestors + scrollNodes.size
                         scrollNodes += AccessibilityNodeInfo.obtain(node)
+                        capabilities += ProductScrollPolicy.Capability(
+                            node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD },
+                            node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD }, ancestors)
+                    }
                     val bounds = Rect(); node.getBoundsInScreen(bounds)
                     val value = (node.text ?: node.contentDescription)?.toString()?.trim()
                     if (!value.isNullOrEmpty() && !bounds.isEmpty) {
                         check(value.length <= 2000)
                         lines += QuoteLayout.Line(value, bounds.left, bounds.top, bounds.right, bounds.bottom)
+                        val evidence = ProductScrollPolicy.evidence(value)
+                        for (index in containers) capabilities[index] = capabilities[index].copy(evidence = capabilities[index].evidence or evidence)
                     }
                     for (i in 0 until node.childCount) {
                         val child = node.getChild(i) ?: continue
-                        try { collect(child, depth + 1) } finally { child.recycle() }
+                        try { collect(child, depth + 1, containers) } finally { child.recycle() }
                     }
                 }
-                collect(root, 0)
+                collect(root, 0, emptyList())
                 // Reject navigation during traversal; never combine two screens.
                 val current = productRoot(record = false)
                 val unchanged = current != null && current.windowId == root.windowId &&
@@ -147,21 +156,25 @@ class ProductReadService : AccessibilityService() {
                 current?.recycle()
                 if (!unchanged) { ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CHANGED); ProductScreenEvidence.Result(message = "Ansicht wechselte; bitte erneut lesen.") }
                 else (if (automatic) {
-                    // Custom/Web accessibility nodes may expose scrolling without a standard class.
-                    // Select by advertised action, never by class name or arbitrary position.
-                    val capabilities = scrollNodes.map { node -> ProductScrollPolicy.Capability(
-                        node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD },
-                        node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD }) }
+                    // Resolve the product-bearing subtree before considering direction.
+                    val surface = ProductScrollPolicy.surface(capabilities)
                     val forwardIndex = ProductScrollPolicy.select(capabilities, true)
                     val backwardIndex = ProductScrollPolicy.select(capabilities, false)
                     if (!sensitive) {
                         ProductReadDiagnostics.record(when {
                             capabilities.isEmpty() -> ProductReadDiagnostics.Outcome.SCROLL_NO_ACTION
-                            capabilities.count { it.forward } > 1 || capabilities.count { it.backward } > 1 -> ProductReadDiagnostics.Outcome.SCROLL_AMBIGUOUS
+                            surface == null -> ProductReadDiagnostics.Outcome.SCROLL_AMBIGUOUS
+                            capabilities.size > 1 -> ProductReadDiagnostics.Outcome.SCROLL_PRODUCT_SCOPED
                             else -> ProductReadDiagnostics.Outcome.SCROLL_AVAILABLE
                         })
                     }
-                    val step = pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
+                    // An ambiguous surface is not proof of the page end. Never publish a
+                    // partial candidate as a completed round trip on that basis.
+                    val step = if (!sensitive && capabilities.size > 1 && surface == null) {
+                        pageReader.reset()
+                        ProductPageReader.Step(ProductPageReader.Move.ABORT,
+                            ProductScreenEvidence.Result(message = "Mehrere Scrollbereiche ohne eindeutige Produktzuordnung. Nichts übernommen."))
+                    } else pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
                         forwardIndex != null, backwardIndex != null)
                     ProductReadDiagnostics.page(step.cause)
                     when (step.move) {
