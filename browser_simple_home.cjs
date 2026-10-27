@@ -18,6 +18,9 @@ const {chromium}=require('playwright');
  await page.locator('#bobSimpleHome').waitFor();
  assert(await page.locator('#chart').isVisible(),'Chart visible with analysis collapsed');
  assert.equal(await page.locator('#chart').evaluate(el=>el.closest('details')),null,'Chart is never inside a disclosure');
+ assert.equal(await page.locator('#earlyImpulseStatus').count(),1,'Keep a single live warning');
+ assert(await page.locator('#bobSimpleHome #earlyImpulseStatus').isVisible(),'Early warning visible with analysis closed');
+ assert.equal(await page.locator('#earlyImpulseStatus').evaluate(el=>el.closest('details')),null);
  assert.equal(await page.locator('#bobNavigation button').count(),4);
  assert.deepEqual(await page.locator('#bobNavigation button').allTextContents(),['◫Start','▤Produkte','◎Mein Trade','☰Mehr']);
  for(const width of [360,390,768]){
@@ -50,6 +53,11 @@ const {chromium}=require('playwright');
  assert(await page.locator('#quickSignal').isVisible());
  await page.locator('#bobHomeDetails > summary').click();
  assert(await page.locator('#chart').isVisible(),'Chart remains visible after collapsing analysis again');
+ assert(await page.locator('#earlyImpulseStatus').isVisible(),'Early warning stays visible after collapsing analysis');
+ for(const label of ['FRÜH LONG · VORWARNUNG','FRÜH SHORT · VORWARNUNG','VORWARNUNG ABGELAUFEN','DATEN FEHLEN']){
+  await page.locator('#earlyImpulseStatus').evaluate((el,text)=>{el.textContent=text;},label);
+  assert.equal(await page.locator('#bobSimpleHome #earlyImpulseStatus').innerText(),label);
+ }
  await page.screenshot({path:'/tmp/bob-simple-home.png',fullPage:true});
  assert.deepEqual(errors,[]);
  console.log('Simple home: four tabs, all destinations, 360/390/768 widths, active/absent/test trades, currency and original analysis passed.');
