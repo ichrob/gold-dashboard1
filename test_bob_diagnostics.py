@@ -248,6 +248,11 @@ class EntryBlockEvidenceTests(unittest.TestCase):
         self.assertEqual(account['latest'][0]['direction'], 'LONG')
         self.assertNotIn('private-isin', json.dumps(evidence))
         self.assertNotIn('secret', json.dumps(evidence))
+        collected = diagnostics.collect({'simulationAndPush': lambda: {
+            'status': 'observed', 'entryBlockEvidence': evidence}})
+        self.assertEqual(collected['areas']['entryBlockEvidence'], evidence)
+        self.assertNotIn('entryBlockEvidence',
+                         collected['areas']['simulationAndPush'])
         self.assertTrue(all(call.args[0].startswith('SELECT ') for call in conn.execute.call_args_list))
 
 
