@@ -3159,6 +3159,7 @@ function earlyWarningContext(bundle,now=Date.now()){
 function renderEarlyImpulseStatus(){
  const el=$('earlyImpulseStatus');if(!el)return;
  const q=earlyWarningContext(liveBundleCache),active=signalState?.dir||'NEUTRAL';
+ window.BobDegiro?.renderEarlyProductPanel(q);
  const clock=t=>new Date(t).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'});
  const hasDirection=['LONG','SHORT'].includes(q.direction);
  const labels={unavailable:'DATEN FEHLEN – kein aktuelles Frühwarnsignal',paused:'WOCHENENDPAUSE',
