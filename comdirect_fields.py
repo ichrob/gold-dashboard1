@@ -160,7 +160,13 @@ def source_decisions(result, report, isin, now):
             dated_issuer = (
                 key in ('ko', 'strike') and result.get('isin') == isin
                 and result.get('productVerified') is True and meta.get('status') == 1
-                and not result.get('sourceFailure') and not result.get('quoteFailureCode')
+                and not result.get('sourceFailure')
+                # BNP reads the dated term table independently of its quote
+                # endpoint. A rejected quote clock cannot invalidate that
+                # separately proven field date; all quote gates stay intact.
+                and (not result.get('quoteFailureCode') or
+                     bnp_source and result.get('quoteFailureCode') == 'STALE_OR_INVALID_SOURCE_TIME'
+                     and not result.get('termsFailureCode'))
                 and primary.get('conditionVerified') is True
                 and not any(primary.get(k) for k in ('conflict', 'revoked', 'ocrCorrection'))
                 and primary.get('value') == meta.get(key)
