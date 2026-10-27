@@ -16,6 +16,8 @@ const {chromium}=require('playwright');
  });
  await page.goto('https://bob.test/');
  await page.locator('#bobSimpleHome').waitFor();
+ assert(await page.locator('#chart').isVisible(),'Chart visible with analysis collapsed');
+ assert.equal(await page.locator('#chart').evaluate(el=>el.closest('details')),null,'Chart is never inside a disclosure');
  assert.equal(await page.locator('#bobNavigation button').count(),4);
  assert.deepEqual(await page.locator('#bobNavigation button').allTextContents(),['◫Start','▤Produkte','◎Mein Trade','☰Mehr']);
  for(const width of [360,390,768]){
@@ -47,6 +49,7 @@ const {chromium}=require('playwright');
  await page.locator('#bobHomeDetails > summary').click();
  assert(await page.locator('#quickSignal').isVisible());
  await page.locator('#bobHomeDetails > summary').click();
+ assert(await page.locator('#chart').isVisible(),'Chart remains visible after collapsing analysis again');
  await page.screenshot({path:'/tmp/bob-simple-home.png',fullPage:true});
  assert.deepEqual(errors,[]);
  console.log('Simple home: four tabs, all destinations, 360/390/768 widths, active/absent/test trades, currency and original analysis passed.');
