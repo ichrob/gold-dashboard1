@@ -32,3 +32,23 @@ Stichproben mindestens 31 Minuten auseinander, vor Ergebnisprüfung ausgewählt.
 Neue gültige Hintergrundentscheidungen speichern zusätzlich `decision-context-v1` aus derselben bereits ausgeführten Analyse: Zeitebene/Kerzenzeit, EMA20/50/200, RSI, MACD/Signal, Histogramm, ATR, ADX, Einstiegsprüfung, Sitzungsfreigabe und DMI-Kontext. Die Momentaufnahme enthält nur freigegebene Felder, ohne Konto- oder Zugangsdaten. Identische Aufnahmen bleiben idempotent; veränderte technische Evidenz erhält eine eigene unveränderliche Revision. Fehlende Originalwerte bleiben unbekannt; alte Entscheidungen werden nicht nachgerechnet. Lernen → Tagesprüfung zeigt die damaligen Werte. Datenhaltung und bestehende Abtastung bleiben unverändert: kein Versprechen einer lückenlosen tickweisen Vollaufzeichnung. Ungültige Ausgangskurse werden weiterhin in der Datenabdeckung dokumentiert und starten keinen Signaltest.
 
 Der bereits vorhandene `bob-rolling-shadow-v2`-Vergleich bleibt erhalten: Kandidat und Protokoll werden vor der späteren Prüfung eingefroren. Dieselben späteren geschlossenen Kerzen, Standard-/Stresskosten und Drawdown prüfen beide Referenzstrategien. Mindestens 20 unabhängige Sitzungen und 30 Trades je Variante sind erforderlich; selbst ein positiver Referenzvergleich ersetzt keine Produktkostenprüfung und aktiviert keine Live-Regel. Am 20. Oktober war im Morgenbericht kein Kandidat mit hinreichendem historischem Vorteil vorhanden. Dies ist kein fehlgeschlagener technischer Test und kein Profitabilitätsnachweis.
+
+## Evidence alignment (27 October 2026)
+
+- Displayed analysis, research ranking and paper selection expose the same
+  `selectedPriceSnapshot` identity, value, source and original timestamp. Paper
+  cases freeze this basis at entry; observed bid/ask valuation remains separate
+  and may never be replaced by a calculated fill.
+- Turbo estimates have a separate `turbo-forward` measurement scope. Only a
+  prediction frozen strictly before receipt of a matching original (within five
+  seconds of source time) enters this scope. Retrospective shadow comparisons
+  remain separate. Readiness requires the existing sample count, time span and
+  freshness gates; future accuracy is not guaranteed.
+- Daily evidence review separates observed positions, calculated analysis and
+  unpriced cases, with entry/exit sources, frozen cost assumptions and sampled
+  per-position maximum drawdown. Missing historical measurements stay unknown;
+  inconclusive cases never contribute a strategy profit.
+- Resolved source differences remain visible as explained differences. Explicit
+  unresolved fields take precedence. A stale unused backup is informational;
+  failure of the selected feed remains a warning. No issue auto-closure or new
+  trading permissions are introduced.
