@@ -9,7 +9,7 @@ const panel=cp.execFileSync('python',['-c','from vollautomatisch_panel import PA
   page.on('pageerror',e=>errors.push(e.message));
   await page.setContent('<meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0;padding:8px}</style><section id="bob-view-simulation"></section>'+panel.replace(/<script>[\s\S]*?<\/script>/g,''));
   await page.evaluate(()=>{
-   window.fixture={mode:'five-independent-paper-accounts',realOrders:false,accounts:['conservative','balanced','offensive','early100','trend800'].map(profile=>({profile,sessionMode:'trading',control:{checkedAt:Date.now(),initialCapital:100,equity:100,cash:100},stats:{},cases:[]}))};
+   window.fixture={mode:'seven-independent-paper-accounts',realOrders:false,accounts:['conservative','balanced','offensive','early100','trend800','early1000oct','normal1000oct'].map(profile=>({profile,sessionMode:'trading',control:{checkedAt:Date.now(),initialCapital:100,equity:100,cash:100},stats:{},cases:[]}))};
    const a=fixture.accounts[1];
    a.stats.lastEntryChecklist={capturedAt:Date.now(),sourceAt:Date.now(),decision:'wait',reason:'Goldkurs fehlt <script>unsafe</script>',checks:[{label:'Goldkurs',state:'fail',required:true},{label:'Trend',state:'unknown',required:false}]};
    a.decisionReview={day:'2026-10-21',entries:3,checkedEntries:1,ruleConsistent:1,requiredViolations:0,entriesWithUnknownChecks:1,legacyEntries:2,waitChecks:8,pricedClosed:0,unpricedClosed:1,modelNetEur:null,note:'Keine rückwirkenden Checklisten'};
@@ -18,6 +18,9 @@ const panel=cp.execFileSync('python',['-c','from vollautomatisch_panel import PA
   });
   await page.addScriptTag({content:panel.match(/<script>([\s\S]*?)<\/script>/)[1]});
   await page.getByText('Einstiegscheckliste · Einstieg oder Abwarten',{exact:true}).first().waitFor();
+  assert.equal(await page.locator('#bobProfilesCards > div').count(),7);
+  await page.getByRole('heading',{name:'Frühwarnung · 1.000 € · bis Fr 16 Uhr',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'Hauptsignal · 1.000 € · bis Fr 16 Uhr',exact:true}).waitFor();
   const account=page.locator('#bobProfilesCards > div').nth(1);
   for(const width of [320,390]){
    await page.setViewportSize({width,height:844});
