@@ -117,7 +117,7 @@ def gaps(report):
             "autoRecovery", "tradeApproved", "issuerVenue", "venueAction")})
     return {k: report.get(k) for k in (
         "status", "lastCheckedAt", "listUploadedAt", "total", "incomplete",
-        "needsHelp", "terminated", "readOnly", "degiroConnected")} | {"items": items}
+        "needsHelp", "terminated", "excluded", "readOnly", "degiroConnected")} | {"items": items}
 
 
 def error(request_id, code, message):
