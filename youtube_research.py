@@ -401,7 +401,11 @@ def enrich(item, *, player_raw=None):
         expected='UCsl6Z6p7GOkczo8Cv-GH6Dg'
         if expected and result.get('channelId')!=expected:raise ValueError('Kanalzuordnung nicht bestätigt')
         # Preserve publication timestamp from Atom, never substitute retrieval date.
+        # Caption retries may omit publication metadata. Keep the original
+        # date and provenance together instead of replacing them with null.
+        publication={key:item[key] for key in ('publishedAt','publishedDate','publicationSource') if item.get(key) is not None}
         item.update(result)
+        item.update(publication)
         if expected:item['publisher']='MCO Markets'
         item['trustedTranscript']=bool(expected and result.get('transcriptAnalyzed'))
     except Exception as exc:

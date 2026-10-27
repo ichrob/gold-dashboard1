@@ -95,6 +95,36 @@ class PublicFallbackTests(unittest.TestCase):
 
 
 class RetainedPublicationTests(unittest.TestCase):
+    def test_null_retained_date_does_not_erase_new_player_date(self):
+        item=dict(PublicFallbackTests().item(1),publishedAt=None,publishedDate=None)
+        def enrich(value):value['publishedDate']='2026-10-20'
+        with patch.object(y,'enrich',side_effect=enrich), patch.object(g,'enrich_publication'):
+            g.resume_retained([item])
+        self.assertEqual(item['publishedDate'],'2026-10-20')
+        self.assertIsNone(item['publishedAt'])
+
+    def test_manual_overlay_preserves_original_date_and_source(self):
+        item=dict(PublicFallbackTests().item(1),publishedAt=None,
+                  publishedDate='2026-10-20',publicationSource='YouTube-Videometadaten; Uhrzeit fehlt')
+        manual=dict(item,publishedDate=None,publicationSource=None,trustedTranscript=False)
+        report=dict(checkedAt=1800000000,sources=[],items=[item])
+        with patch.object(g,'_report',report), patch.object(y,'manual_items',return_value=[manual]):
+            actual=g.snapshot()['items'][0]
+        self.assertEqual(actual['publishedDate'],item['publishedDate'])
+        self.assertEqual(actual['publicationSource'],item['publicationSource'])
+        self.assertIsNone(actual['publishedAt'])
+        self.assertFalse(actual['current'])
+        self.assertFalse(actual['trustedTranscript'])
+
+    def test_caption_retry_without_date_preserves_original_publication(self):
+        item=dict(PublicFallbackTests().item(1),publishedDate='2026-10-20',
+                  publicationSource='Originalquelle')
+        result=dict(channelId=g.MCO_CHANNEL,publishedDate=None,transcriptAnalyzed=True)
+        with patch.object(y,'analyze',return_value=result):
+            y.enrich(item)
+        self.assertEqual(item['publishedDate'],'2026-10-20')
+        self.assertEqual(item['publicationSource'],'Originalquelle')
+
     def test_retained_public_video_retries_original_publication_metadata(self):
         from unittest.mock import patch
         item={'url':'https://www.youtube.com/watch?v=abcdefghijk','channelId':g.MCO_CHANNEL,'publishedAt':None}
