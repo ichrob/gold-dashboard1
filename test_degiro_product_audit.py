@@ -174,6 +174,8 @@ class ProductAuditTests(unittest.TestCase):
         self.assertNotIn("leverage-time",item["missing"])
         self.assertIsNone(item["leverageSourceAt"])
         self.assertTrue(item["leverageObservation"]["current"])
+        self.assertEqual(item['timeEvidence']['leverageBasis'], 'shared-issuer-observation')
+        self.assertNotIn('leverage-time', item['timeEvidence']['missing'])
         self.assertIn("quote",item["missing"])
         self.assertFalse(item["tradeApproved"])
         self.assertFalse(item["degiroVerified"])
@@ -281,6 +283,7 @@ class ProductAuditTests(unittest.TestCase):
         self.assertEqual(item["state"], "analysis-evidence-complete")
         self.assertFalse(item["tradeApproved"])
         self.assertEqual(item["leverageObservation"]["kind"], "calculated-gearing")
+        self.assertEqual(item['timeEvidence']['leverageBasis'], 'calculated-input-times')
         self.assertIsNone(item["leverageSourceAt"])
 
     def test_real_calculation_closes_gap_until_inputs_expire(self):
