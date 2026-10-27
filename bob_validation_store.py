@@ -76,8 +76,8 @@ def handle(conn, action, payload):
         events=payload.get('events')
         if not isinstance(events,list) or len(events)>40:raise ValueError('Ungültiges Messpaket')
         checked=[event(e) for e in events]
-        conn.execute("DELETE FROM bob_future_predictions WHERE received_at<now()-interval '7 days'")
-        conn.execute("DELETE FROM bob_future_truths WHERE received_at<now()-interval '7 days'")
+        # Research evidence has no automatic age-based expiry.
+        # Research evidence has no automatic age-based expiry.
         for kind,at,value,ref,horizon in checked:
             if kind=='prediction':
                 # First server receipt is immutable, even after recalculation.

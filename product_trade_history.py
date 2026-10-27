@@ -89,10 +89,7 @@ def append(conn, trade_id, product, spots, now=None):
     point = calculate(product, spots, now)
     if not point:
         return False
-    # The read API exposes seven days. Prune only this derived model series so the
-    # 30-second worker cannot grow the database without bound.
-    conn.execute("""DELETE FROM bob_real_trade_price_curve
-        WHERE trade_id=%s AND spot_at < now()-interval '7 days'""", (trade_id,))
+    # Preserve the evidence behind historical model comparisons.
     conn.execute('''INSERT INTO bob_real_trade_price_curve
         (trade_id,spot_at,fx_at,price,currency,evidence)
         VALUES (%s,%s,%s,%s,%s,%s::jsonb)

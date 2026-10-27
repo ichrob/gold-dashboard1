@@ -163,9 +163,9 @@ def harvest(conn,now=None):
         result=evaluate(case,[r[0] for r in rows],now)
         conn.execute('UPDATE bob_precision_cases SET result=%s::jsonb,checked_at=%s,complete=%s WHERE id=%s',
             (json.dumps(result),now,result['complete'],identity))
-    conn.execute('DELETE FROM bob_precision_quotes WHERE at<%s',(now-30*24*HOUR,))
-    conn.execute('DELETE FROM bob_precision_cases WHERE started_at<%s',(now-30*24*HOUR,))
-    conn.execute('DELETE FROM bob_precision_cohorts WHERE at<%s',(now-30*24*HOUR,))
+    # Research evidence has no automatic age-based expiry.
+    # Research evidence has no automatic age-based expiry.
+    # Research evidence has no automatic age-based expiry.
 
 
 def report(conn):

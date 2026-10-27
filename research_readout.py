@@ -27,6 +27,7 @@ PROGRESS = shape('sessions','trades','baselineTrades','candidateIndex','baseline
 REPORT = shape('version','mode','status','brokerConnected','orderExecutionEnabled',
     'affectsLiveSignals','historicalInstrument','barInterval','closedBars',
     'costBpsPerSide','horizonBars','approved','description','note',rangeMs=[None],strategies=[None],
+    replay=shape('available','id'),
     folds=[shape('trainEndMs','validationStartMs','testStartMs','testEndMs',
                  'selectedOnValidation','learningFittedOnTrain','selectionUsesTest',
                  validation={k:SCORE for k in STRATEGIES},outOfSample={k:SCORE for k in STRATEGIES})],

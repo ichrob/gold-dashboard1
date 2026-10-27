@@ -55,8 +55,8 @@ def request(action, payload):
     req=Request(base+"/strategy-lab/"+action, data=data, method="POST", headers={
         "Content-Type":"application/json", "X-Bob-Push-Token":token})
     with build_opener(NoRedirect()).open(req,timeout=14) as response:
-        raw=response.read(262145)
-    if len(raw)>262144:
+        raw=response.read(1000001) if payload.get("replayId") else response.read(262145)
+    if len(raw)>(1000000 if payload.get("replayId") else 262144):
         raise ValueError("Forschungsarchiv-Antwort zu gross")
     parsed=json.loads(raw)
     if not isinstance(parsed,dict):
@@ -131,7 +131,13 @@ def evaluate_and_store(fetcher, marker, *, now=None, storage=request):
             raise ValueError("Forschungsbericht nicht speicherfähig")
         report=research_learning.enrich(report,research_rows,old,day=day)
         report["learningCycle"]["checkpoint"]="evening" if local.hour>=20 else "morning"
-    ack=storage("write",dict(day=day,report=report))
+    payload=dict(day=day,report=report)
+    if local.weekday()<5:
+        import research_replay
+        envelope=research_replay.make(research_rows,old,day,report['learningCycle']['checkpoint'],report)
+        report['replay']={'available':True,'id':envelope['id']}
+        payload['replay']=envelope
+    ack=storage("write",payload)
     if not isinstance(ack,dict) or ack.get("saved") is not True or ack.get("day")!=day:
         raise ValueError("Forschungsarchiv hat Speicherung nicht bestätigt")
     return dict(status=report["status"],day=day,closedBars=report["closedBars"],

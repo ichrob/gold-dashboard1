@@ -14,6 +14,7 @@ MAX_REPORT_BYTES = 220000
 
 
 def init(conn):
+    __import__("research_replay").init(conn)
     conn.execute("""CREATE TABLE IF NOT EXISTS bob_strategy_lab_daily (
         run_day DATE PRIMARY KEY,
         calculated_at TIMESTAMPTZ NOT NULL,
@@ -83,6 +84,12 @@ def validate(payload):
 def handle(conn, action, payload):
     if action == "write":
         day, report, last, data = validate(payload)
+        replay = payload.get('replay')
+        if report.get('replay') and replay is None:raise ValueError('Replay evidence missing')
+        if replay is not None:
+            if report.get('replay') != {'available':True,'id':replay.get('id')}:
+                raise ValueError('Replay reference mismatch')
+            __import__('research_replay').save(conn,replay,day,report)
         archive_current(conn, day)
         # Lock per date; never regress a validated report to insufficient, or
         # replace with fewer/older bars in a same-day retry.
@@ -98,6 +105,8 @@ def handle(conn, action, payload):
         # Retain daily reports and accepted revisions for later evaluation.
         return dict(saved=True, day=day.isoformat(), mode="RESEARCH_ONLY")
     if action == "read":
+        if payload.get('replayId') is not None:
+            return __import__('research_replay').read(conn,payload['replayId'])
         rows = conn.execute("""SELECT run_day, calculated_at,last_bar_at,status,version,report
             FROM bob_strategy_lab_daily ORDER BY run_day DESC LIMIT 14""").fetchall()
         latest = rows[0] if rows else None

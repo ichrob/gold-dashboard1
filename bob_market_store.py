@@ -1,4 +1,4 @@
-"""Seven-day archive of actual Gold-API Spot observations, preserving source time."""
+"""Durable archive of actual Gold-API Spot observations, preserving source time."""
 import json
 import math
 import os
@@ -36,7 +36,7 @@ def point(payload, now=None, age=60):
 def handle(conn, action, payload):
     if action=='write':
         at,price=point(payload)
-        conn.execute("DELETE FROM bob_spot_observations WHERE quote_at < now()-interval '7 days'")
+        # Research evidence has no automatic age-based expiry.
         conn.execute('''INSERT INTO bob_spot_observations(stream,quote_at,price)
             VALUES(%s,%s,%s) ON CONFLICT(stream,quote_at) DO NOTHING''',(STREAM,at,price))
         row=conn.execute('SELECT price FROM bob_spot_observations WHERE stream=%s AND quote_at=%s',(STREAM,at)).fetchone()

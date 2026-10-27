@@ -96,6 +96,11 @@ def report(conn, now=None):
                 version=version,fingerprint=fingerprint) for d,at,status,version,fingerprint in rows])
     except Exception:
         evaluations['researchRevisions'] = dict(status='unavailable')
+    try:
+        with conn.transaction():
+            evaluations['replayArchive'] = __import__('research_replay').diagnostics(conn)
+    except Exception:
+        evaluations['replayArchive'] = dict(status='unavailable')
     return dict(storedEvaluations=evaluations, status='partial'  if any(x['status']=='unavailable' for x in items.values()) else 'observed',
         readOnly=True, realOrders=False, observedAt=now, sessionMode=background_push.degiro_session(now),
         sampleLimit=LIMIT, items=items,

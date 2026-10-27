@@ -57,8 +57,7 @@ def handle(conn, action, payload):
         values = [checked(e, identity) for e in events]
         # One writer per product/side; no cross-product pairing.
         conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', (identity,))
-        for table in ('bob_product_predictions', 'bob_product_truths'):
-            conn.execute("DELETE FROM " + table + " WHERE received_at<now()-interval '7 days'")
+        # Research evidence has no automatic age-based expiry.
         for kind, at, value, ref, horizon in values:
             if kind == 'prediction':
                 conn.execute('''INSERT INTO bob_product_predictions(key,bucket,quote_at,price,reference_at)
