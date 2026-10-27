@@ -779,7 +779,17 @@ def _load_prospective_rows(conn, recent=False):
     No SQL timeout, retention, evidence horizon or live trading gate changes.
     """
     sql, params = _prospective_query(recent)
-    return conn.execute(sql, params).fetchall()
+    # Production timing shows that PostgreSQL can still choose a sequential
+    # scan for the recursive 30-day walk even though the narrow partial cursor
+    # index is available. That plan scales with the complete JSONB archive and
+    # repeatedly reaches the unchanged 10-second statement limit. Constrain
+    # only this research statement to an index-capable plan; the setting is
+    # restored immediately after success. On QueryCanceled the surrounding
+    # savepoint rolls the SET LOCAL back before the bounded 24-hour retry.
+    conn.execute('SET LOCAL enable_seqscan=off')
+    rows = conn.execute(sql, params).fetchall()
+    conn.execute('SET LOCAL enable_seqscan=on')
+    return rows
 
 def product_review(records, now=None):
     """Compare real bid/ask observations; never turn estimated prices into ground truth."""
