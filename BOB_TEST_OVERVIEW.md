@@ -1,0 +1,9 @@
+# Gemeinsame Testnachweise
+
+Unter „Betrieb und Datenqualität“ zeigt die bestehende private Betriebsabfrage die Vergleichstests und Simulationskonten gemeinsam. Keine zusätzliche Datenbankschleife und keine neuen Dienste. Beginn, letzte Beobachtung, Stichprobenumfang, vergleichbare Fälle und fehlender Abschluss bleiben getrennt. Ein unbekannter Beginn wird nicht aus dem ältesten Stichprobenpunkt erfunden. Historische Fälle und begrenzte Stichproben ergeben keinen Gesamtscore.
+
+Simulationsfälle zeigen eine Nachweiskette aus derselben gespeicherten Fallakte: Original-Marktkurs, Entscheidung, Ranglisten-Auswahl, Einstieg und belegter virtueller Ausstieg. Die drei tatsächlich verwendeten Kandidaten werden für neue Einstiege eingefroren. Alte Ranglisten werden nicht rekonstruiert. Eine vollständige Paper-Kette beweist weder Broker-Ausführung noch Push-Zustellung. Die vorhandenen signierten Push-Belege bleiben separat; eine gemeinsame fallbezogene Push-Zuordnung ist nicht bestätigt.
+
+Die vorhandenen isolierten Ausfalltests prüfen alte Kurse, Wiederherstellung, Transportausfall und Neustart ohne doppelte Stoppmeldung. Sie werden weiterhin durch die vollständige CI ausgeführt. Die unabhängige Veröffentlichungskontrolle reagiert bereits auf erfolgreiche Deployment-Ereignisse; der zusätzliche 15-Minuten-Zeitplan fängt fehlende Ereignisse auf, ohne garantierte GitHub-Startzeit. Sie prüft beide Build-IDs und jetzt auch die tatsächlich veröffentlichten Übersichts-Skripte gegen die getesteten Dateien. Grüne CI oder Skripttests schließen keine fachlichen Reparaturfälle automatisch.
+
+Validation: `python -m unittest test_test_overview test_resilience_drills test_market_recovery test_bob_operations test_bob_operations_http test_paper_case_review test_comparison_health`; `node test_test_overview.js`; `node test_bob_unified_workspace.js`.

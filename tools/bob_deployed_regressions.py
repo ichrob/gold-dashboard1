@@ -9,8 +9,8 @@ import subprocess
 from urllib.request import Request, urlopen
 
 ROOT=Path(__file__).resolve().parent.parent
-ASSETS=('degiro_assistant.js','product_evidence_contract.js')
-TESTS=('test_early_product_ranking.js','test_unapproved_comparison_ranking.js','test_primary_calculated_product.js')
+ASSETS=('degiro_assistant.js','product_evidence_contract.js','bob_unified_workspace.js')
+TESTS=('test_test_overview.js','test_bob_unified_workspace.js','test_early_product_ranking.js','test_unapproved_comparison_ranking.js','test_primary_calculated_product.js')
 
 
 def read_asset(name):

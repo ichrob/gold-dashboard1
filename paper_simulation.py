@@ -703,6 +703,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 entry_checklist=paper_entry_review.capture(market,choice,quotes.get(choice['isin']),now,True,'Alle bisherigen Einstiegssperren bestanden',control,profile_policy)
                 c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget,cost_model=cost_model,bundle=bundle)
                 c['entryChecklist']=entry_checklist
+                c['selectionEvidence']=__import__('paper_evidence_chain').capture_selection(selection, choice, now)
                 if c.get('koGuardRequired'):
                     _,c['koWatch']=paper_ko_guard.entry_reason(choice,quotes.get(choice['isin']),market,now)
                     c['koWatchStatus']='confirmed'
