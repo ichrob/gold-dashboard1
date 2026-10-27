@@ -11,3 +11,6 @@ opencv-python==5.0.0.93
 
 # WebAuthn signature/origin/challenge verification for optional daily second factor.
 webauthn==3.0.1
+
+# Render eMudhra advisory: use the corrected CA bundle on every rebuild.
+certifi>=2026.10.19
