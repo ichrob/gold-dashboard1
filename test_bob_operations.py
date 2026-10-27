@@ -29,6 +29,18 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(v['productStatus']['state'],'conflict')
         self.assertEqual(v['cases'][0]['comparison'],'source-conflict')
 
+    def test_source_decision_is_visible_without_hiding_raw_conflict(self):
+        r=self.report()
+        r['areas']['products']['items'][0]['fieldRecovery']={
+            'state':'conflict','conflicts':['strike'],
+            'sourceDecisions':{'strike':{'state':'dated-issuer-selected','primaryValue':4200,'referenceValue':4199}}}
+        v=op.snapshot(r,1000)
+        self.assertEqual(v['productStatus']['state'],'conflict')
+        conflict=v['productStatus']['conflicts'][0]
+        self.assertIn('Emittentenangabe gewählt',conflict['resolution'])
+        self.assertEqual(conflict['sourceDecisions']['strike']['referenceValue'],4199)
+        self.assertFalse(v['productStatus']['tradeApproved'])
+
     def test_stale_future_missing_do_not_imply_success(self):
         for at in (None,1001,1):
             r=self.report();r['areas']['products']['lastCheckedAt']=at
