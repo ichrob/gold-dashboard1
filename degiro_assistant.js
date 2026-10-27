@@ -1262,6 +1262,7 @@ function createQuoteRefresh({rows,request,visible=()=>true,now=()=>Date.now(),in
   if(!visible())return Promise.resolve();
   const queued=rows().filter(row=>validIsin(row.isin)&&row.suppressed!==true&&
    (force||!attempts.has(row.id)||attempts.get(row.id).key!==row.key||now()-attempts.get(row.id).at>=interval));
+  queued.sort((a,b)=>Number(!!b.repairNeeded)-Number(!!a.repairNeeded));
   if(!queued.length)return Promise.resolve();
   async function worker(){
    while(queued.length&&visible()){
@@ -1761,7 +1762,7 @@ function serverAnalysisEvidence(p,now=Date.now()){
     &&bidAt<=now&&askAt<=now&&now-bidAt<=90000&&now-askAt<=90000
     &&Math.abs(bidAt-askAt)<=90000;
  });
- return quote?{quote,leverage:item.leverageObservation.value,leverageKind:item.leverageObservation.kind,source:item.source}:null;
+ return quote?{quote,leverage:item.leverageObservation.value,leverageKind:item.leverageObservation.kind,leverageAt:item.leverageObservation.at,source:item.source}:null;
 }
 function renderServerAnalysisEvidence(p){
  const evidence=serverAnalysisEvidence(p);
@@ -2565,7 +2566,7 @@ function goldProductGroup(p,now=Date.now()){
  if(exclusion)return 'ended';
  if(typeof serverAnalysisEvidence==='function'&&serverAnalysisEvidence(p,now))return 'active';
  const local=productDataStatus(p,now);
- return local.complete?'active':'review';
+ return local.complete&&compactProductValues(p,now).missing.length===0?'active':'review';
 }
 // Read-only list-generation reconciliation; mismatched/old reports never
 // rewrite original screenshots or grant execution permission.
@@ -2631,29 +2632,44 @@ function degiroManualQuoteSummary(p,now=Date.now()){
   ' '+esc(status.currency)+' · '+esc(status.venue)+' · Kursanzeige '+esc(status.sourceTime)+
   '<div>Vom Nutzer bereitgestelltes DEGIRO-Bild, keine Live-Verbindung und keine ausführbare Preisgarantie.</div></div>';
 }
-function goldProductCompactView(p,now=Date.now()){
- const verified=typeof serverAnalysisEvidence==='function'?serverAnalysisEvidence(p,now):null;
- const fields=productFieldStates(p,now),status=productDataStatus(p,now);
+function compactProductValues(p,now=Date.now()){
+ const verified=serverAnalysisEvidence(p,now);
+ const fields=productFieldStates(p,now);
  const acceptable=x=>x&&typeof x.value==='number'&&x.value>0&&
    !/(unbestätigt|veraltet|abweichend)/i.test(x.state||'')&&
    (x.state==='aktuell'||x.state==='gemeinsamer SG-Zeitbezug · aktuell (nur Analyse)'||
-    /Momentaufnahme|innerhalb Altersgrenze/.test(x.state||''));
- const bid=verified?.quote.bid??(acceptable(fields.bid)?fields.bid.value:null);
- const ask=verified?.quote.ask??(acceptable(fields.ask)?fields.ask.value:null);
- const lever=verified?.leverage??(acceptable(fields.leverage)?fields.leverage.value:null);
- const leverageNote=lever!==null&&!verified&&fields.leverage?.kind==='issuer-reference'
-   ?'Hebel: gemeinsamer SG-Zeitbezug · nur Analyse · '+fields.leverage.at
-   :'';
+    /Momentaufnahme|innerhalb Altersgrenze/.test(x.state||'')||
+    /^(berechnet · aktuell|berechneter Hebel · Eingangsdaten: aktuell)$/.test(x.state||''));
+ const analysis=analysisReleaseQuote(p,now);
+ const bid=verified?.quote.bid??(acceptable(fields.bid)?fields.bid.value:analysis?.bid??null);
+ const ask=verified?.quote.ask??(acceptable(fields.ask)?fields.ask.value:analysis?.ask??null);
+ const lever=verified?.leverage??(acceptable(fields.leverage)?fields.leverage.value:
+   analysis?(analysis.leverage??n(p.quote?.leverage)):null);
+ const leverageKind=verified?.leverageKind||(acceptable(fields.leverage)?fields.leverage.kind:
+   analysis?(analysis.leverageKind||'calculated-gearing'):'');
+ const leverageAt=verified?verified.leverageAt:acceptable(fields.leverage)?fields.leverage.at:analysis?.leverageAt||analysis?.at;
+ const calculated=leverageKind==='calculated-gearing'||leverageKind==='calculated'||
+   !verified&&/berechnet/.test(fields.leverage?.state||'');
+ const missing=[['Geld',bid],['Brief',ask],['Hebel',lever]].filter(([,v])=>!(v>0)).map(([name])=>name);
+ return {verified,fields,analysis,bid,ask,lever,leverageKind,leverageAt,calculated,missing};
+}
+function goldProductCompactView(p,now=Date.now()){
+ const values=compactProductValues(p,now);
+ const {verified,fields,bid,ask,lever,missing}=values,status=productDataStatus(p,now);
+ const leverageNote=lever!==null?
+   'Hebel: '+(values.calculated?'berechnet · nur Analyse':['issuer-reference','shared-issuer-observation'].includes(values.leverageKind)
+    ?'gemeinsamer SG-Zeitbezug · nur Analyse':'Quellenwert')+
+   (values.leverageAt?' · '+values.leverageAt:''):'';
  const currency=verified?.quote.currency||p.quote?.nativeChartEvidence?.currency||p.quote?.currency||'EUR';
  const number=x=>Number.isFinite(x)&&x>0?Number(x).toLocaleString('de-CH',{maximumFractionDigits:3}):'—';
  const term=typeof koEvidenceStatus==='function'?koEvidenceStatus(p,now):null;
  const distance=term?.current&&n(p.spot)>0&&n(p.ko)>0&&['LONG','SHORT'].includes(p.productDirection)
    ?(p.productDirection==='LONG'?p.spot-p.ko:p.ko-p.spot)/p.spot*100:null;
  const priced=bid!==null&&ask!==null;
- const analysis=!!verified||status.complete;
- const check=analysis?'✓ Analyse-Nachweise vorhanden':'⚠ Analyse-Nachweise prüfen';
- const timestamp=verified?.quote.bidAt||(priced?fields.bid?.at:null)||null;
- const detail=verified?'Serverbericht · passende Listenfassung':priced?'Originalwert · lokaler Datenstand':'Kurs noch nicht aktuell belegt';
+ const analysis=(!!verified||status.complete)&&missing.length===0;
+ const check=analysis?'✓ Analyse-Nachweise vorhanden':missing.length?'⚠ '+missing.join(', ')+' fehlt oder ist nicht aktuell belegt':'⚠ Analyse-Nachweise prüfen';
+ const timestamp=verified?.quote.bidAt||(priced?fields.bid?.at||values.analysis?.bidAt:null)||null;
+ const detail=verified?'Serverbericht · passende Listenfassung':priced?(fields.bid?.kind==='calculated'?'Berechneter Analysewert':'Quellenbeobachtung')+' · lokaler Datenstand':'Kurs noch nicht aktuell belegt';
  const sync=goldProductSyncState(p,now);
  const brokerList=goldProductBrokerListStatus(p,now);
  return '<div data-product-compact-summary style="display:grid;gap:9px">'+
@@ -2666,6 +2682,7 @@ function goldProductCompactView(p,now=Date.now()){
     '<div style="min-width:0;padding:6px;border-radius:7px;background:#f2f5f9"><div class="small">'+esc(label)+'</div><strong>'+esc(value.trim())+'</strong></div>').join('')+
   '</div><div class="small" data-analysis-status>'+esc(detail)+(timestamp?' · Kurszeit '+esc(timestamp):' · Kurszeit fehlt')+'</div>'+
   (leverageNote?'<div class="small" data-compact-leverage-source>'+esc(leverageNote)+'</div>':'')+
+  (missing.length?'<div class="small" data-product-auto-repair role="status">'+esc(pendingQuotes.has(p.index)?'Automatische Quellenprüfung läuft':p.quote?.sourceFailure?'Letzter Abruf fehlgeschlagen · automatische Wiederholung vorgesehen':['night','weekend'].includes(window.BobDegiroPhase?.())?'Automatische Quellenprüfung in Handelspause': 'Automatische Quellenprüfung im 30-Sekunden-Zyklus vorgesehen')+' · '+esc(missing.join(', '))+' bleibt bis zum gültigen Nachweis offen.</div>':'')+
   '<details><summary>Abgleich und Bearbeitung</summary><div class="small" data-gold-sync="'+esc(sync.state)+'">'+esc(sync.message)+'</div>'+
   '<div class="small" data-gold-repair>'+esc(goldProductRepairStatus(p,now))+'</div></details>'+
   '<div class="small" data-execution-separate style="color:#92400e">Ausführbarer DEGIRO-Orderkurs und tatsächliche Ausführung nicht bestätigt · keine Handelsfreigabe</div></div>';
@@ -5158,7 +5175,9 @@ async function inject(){
        serverIssuerTerminated({isin});
    // Exclusions suppress recurring issuer quote requests, not manual review or
    // the first fetch of unknown products. List replacement resets cached states.
-   return {id,isin,suppressed:factor||terminal,key:isin+':'+(rowVersions.get(id)||0)};
+   const fields=productFieldStates({isin,quote,snapshot,leverage:quote?.leverage},Date.now());
+   const repairNeeded=Object.values(fields).some(f=>!(n(f.value)>0)||/fehlt|veraltet|unbestätigt|abweichend/.test(f.state));
+   return {id,isin,repairNeeded,suppressed:factor||terminal,key:isin+':'+(rowVersions.get(id)||0)};
   }),
   request:enrichProduct,visible:()=>!document.hidden,interval:30000,limit:4
  });

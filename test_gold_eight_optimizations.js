@@ -92,3 +92,19 @@ const directProduct=JSON.parse(JSON.stringify(sharedProduct));
 Object.assign(directProduct.quote,{leverage:8,leverageAt:sharedAt});
 assert.equal(compactLever(directProduct,now).value,'8×','Fresh original leverage remains preferred');
 console.log('Compact leverage: shared observation visible; stale/future/mismatched evidence rejected; original preferred');
+
+assert(!card.includes('✓ Analyse-Nachweise vorhanden'));
+assert(card.includes('data-product-auto-repair'));
+assert(card.includes('Geld, Brief, Hebel fehlt'));
+(async()=>{
+ let calls=[],clock=0;
+ const rows=[{id:1,isin,key:'healthy'},
+  {id:2,isin,key:'missing',repairNeeded:true},
+  {id:3,isin,key:'excluded',repairNeeded:true,suppressed:true}];
+ const scheduler=b.createQuoteRefresh({rows:()=>rows,now:()=>clock,limit:1,
+  request:async id=>{calls.push(id);if(id===2)throw Error('source unavailable');}});
+ await scheduler.refresh();assert.deepEqual(calls,[2,1]);
+ await scheduler.refresh();assert.deepEqual(calls,[2,1],'No retry storm after failure');
+ clock=60000;await scheduler.refresh();assert.deepEqual(calls,[2,1,2,1]);
+ console.log('Automatic repair queue: missing evidence first, bounded retries, excluded rows suppressed');
+})().catch(e=>{console.error(e);process.exitCode=1});
