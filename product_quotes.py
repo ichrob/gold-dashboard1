@@ -432,6 +432,7 @@ def parse_bnp_dated_terms(page, isin, metadata, now=None):
             raise ValueError('BNP-Stammdaten veraltet oder widersprüchlich')
         conditions[key] = dict(value=amount, at=None, dateText=label[2],
             source=ORIGIN+'product-details/'+isin+'/', conditionVerified=True,
+            sourceField='dated-terms-row', sourceTimeRaw=label[2],
             reviewedAt=now.isoformat())
     if set(conditions) != {'ko', 'strike'}:
         raise ValueError('Datierte BNP-Stammdaten fehlen')

@@ -109,6 +109,22 @@ class ComdirectFieldsTests(unittest.TestCase):
 if __name__=='__main__':unittest.main()
 
 class PrintedPrecisionTests(ComdirectFieldsTests):
+    def test_bnp_decision_requires_original_dated_row_for_exact_product(self):
+        p=self.primary();p['metadata'].update(strike=4200,termsDated=True)
+        p['conditions']['strike']=dict(value=4200,source='https://derivate.bnpparibas.com/product-details/'+ISIN+'/',
+            conditionVerified=True,dateText='14.10.2026',sourceField='dated-terms-row',
+            sourceTimeRaw='14.10.2026',reviewedAt=NOW.isoformat())
+        fields=self.parse()
+        for accepted,changes in ((True,{}),(False,dict(sourceField='quote-time')),
+                                 (False,dict(sourceTimeRaw='13.10.2026')),
+                                 (False,dict(source='https://derivate.bnpparibas.com/product-details/OTHER/'))):
+            changed=copy.deepcopy(p);changed['conditions']['strike'].update(changes)
+            with patch.object(q,'get_observation',return_value=dict(state='observed',fields=fields)):
+                out=f.apply(changed,ISIN,NOW)
+            self.assertEqual(out['comdirectFieldsBackup']['sourceDecisions']['strike']['state']=='dated-issuer-selected',accepted)
+            self.assertIn('strike',out['comdirectFieldsBackup']['conflicts'])
+            self.assertFalse(out['eligible'])
+
     def test_dated_issuer_decision_preserves_raw_difference_and_all_safety_flags(self):
         p=self.primary()
         p['metadata']['strike']=4200

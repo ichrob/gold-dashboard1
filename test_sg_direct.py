@@ -370,6 +370,7 @@ class DirectTests(unittest.TestCase):
             out=sg.get_quote(isin)
         fetch.assert_called_once()
         self.assertTrue(out['excluded']);self.assertTrue(out['productVerified'])
+        self.assertEqual(out['metadata']['type'],'FACTOR')
         self.assertFalse(out['eligible'])
 
     def test_different_products_do_not_share_network_lock(self):

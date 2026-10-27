@@ -291,6 +291,21 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
     metadata = quote.get("metadata") if isinstance(quote.get("metadata"), dict) else {}
     missing = []
     verified = quote.get("isin") == isin and quote.get("productVerified") is True
+    # SG's verified factor response intentionally has no live quote/term fields.
+    # Accept its existing productType spelling as well as the canonical type;
+    # an excluded factor is not fifteen independent missing-data incidents.
+    if verified and 'FACTOR' in (metadata.get('type'), metadata.get('productType')):
+        return dict(isin=isin, direction=direction, state='excluded-factor', excluded=True,
+            missing=['factor'], messages=[CODES['factor']],
+            source=str(quote.get('source') or 'Emittent')[:80],
+            sourceStatusEvidence=dict(issuerVerified=True, issuerProductType='FACTOR',
+                                      issuerStatus=metadata.get('status')),
+            timeEvidence=dict(missing=[], leverageBasis='unavailable', terms={}),
+            quoteSourceAt=None, leverageSourceAt=None, issuerLeverageObservation=None,
+            leverageObservation=None, sourceObservations=[],
+            dataQuoteSource=None, dataQuoteKind=None, identityEvidence='issuer-confirmed-excluded',
+            tradeApproved=False, degiroVerified=False,
+            autoRecovery='Faktorprodukt ausgeschlossen; keine laufenden Kurs-, Hebel- oder KO-Nachweise erforderlich.')
     snapshot = product.get('snapshot') or {}
     identity_matches = (valid_isin(isin) and verified
         and direction in ('LONG', 'SHORT')
@@ -523,6 +538,8 @@ def _retain_recent_issuer_leverage(item, quote, before, now_ms):
     item["messages"] = [CODES[code] for code in item["missing"]]
     item["leverageSourceAt"] = prior["at"]
     item["issuerLeverageObservation"] = dict(prior)
+    item['timeEvidence']['leverageBasis'] = 'original-issuer-time'
+    item['timeEvidence']['missing'] = [code for code in item['timeEvidence']['missing'] if code != 'leverage-time']
     if not item["missing"]:
         item["state"] = "issuer-evidence-complete"
 
@@ -561,6 +578,7 @@ def _retain_verified_terminal(item, before, quote):
                 quoteSourceAt=None, leverageSourceAt=None,
                 dataQuoteSource=None, dataQuoteKind=None,
                 leverageObservation=None, issuerLeverageObservation=None,
+                timeEvidence=dict(missing=[], leverageBasis='unavailable', terms={}),
                 sourceObservations=[], degiroVerified=False, tradeApproved=False,
                 autoRecovery='Früheren verifizierten Endstatus beibehalten; erneute Emittentenprüfung ohne Handelsfreigabe')
 
@@ -591,7 +609,7 @@ def build(feed, quotes, now_ms=None, previous=None):
             previous_counts = {code: int(before.get("consecutiveChecks", 0))
                                for code in before.get("missing", [])}
         counts = {code: min(99999, int(previous_counts.get(code, 0)) + 1)
-                  for code in item["missing"] if item["state"] != "terminated"}
+                  for code in item["missing"] if item["state"] not in ('terminated', 'excluded-factor')}
         item["missingChecks"] = counts
         prior_since=before.get('missingSince') or {}
         stamp=datetime.fromtimestamp(now_ms/1000,timezone.utc).isoformat()
@@ -601,7 +619,11 @@ def build(feed, quotes, now_ms=None, previous=None):
         item["firstSeenAt"] = before.get("firstSeenAt") if same else datetime.fromtimestamp(now_ms/1000,timezone.utc).isoformat()
         item["needsKiHelp"] = item["consecutiveChecks"] >= 3 and bool(item["missing"])
         recovered = sorted(set(before.get('missing', [])) - set(item['missing']))
-        if recovered and item['state'] != 'terminated':
+        if item['state'] == 'excluded-factor':
+            # Exclusion is not recovery of the previously missing original data.
+            item['lastRecoveredAt'] = None
+            item['recoveredFields'] = []
+        elif recovered and item['state'] != 'terminated':
             item['lastRecoveredAt'] = datetime.fromtimestamp(now_ms/1000, timezone.utc).isoformat()
             item['recoveredFields'] = recovered
         else:
@@ -621,6 +643,7 @@ def build(feed, quotes, now_ms=None, previous=None):
             "listUploadedAt": generation, "total": len(items), "incomplete": incomplete,
             "needsHelp": sum(item["needsKiHelp"] for item in items), "items": items,
             "terminated": sum(item["state"] == "terminated" for item in items),
+            "excluded": sum(item["state"] == "excluded-factor" for item in items),
             "readOnly": True, "degiroConnected": False,
             "sourcePolicy": "issuer-and-existing-authorised-backups",
             "note": "Ausführbare DEGIRO-Kurse und Kontoverfügbarkeit sind nicht angeschlossen. Fehlende Nachweise sperren die Freigabe. Kein Echtgeldhandel."}

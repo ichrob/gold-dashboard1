@@ -2581,6 +2581,7 @@ function goldProductSyncState(p,now=Date.now()){
  if(!item||item.direction!==p.productDirection)
   return {state:'not-covered',message:'Produkt nur lokal vorhanden · Belege separat prüfen'};
  if(item.state==='terminated')return {state:'terminated',message:'Beendet laut Emittenten-Nachweis'};
+ if(item.state==='excluded-factor')return {state:'excluded-factor',message:'Faktorprodukt ausgeschlossen · keine weiteren Kursnachweise erforderlich'};
  if((item.missing||[]).length)return {state:'missing',message:'Nachweise am Server weiterhin offen'};
  if(!['analysis-evidence-complete','issuer-evidence-complete'].includes(item.state))
   return {state:'unconfirmed',message:'Nachweisklasse nicht bestätigt'};
@@ -2594,6 +2595,7 @@ function goldProductRepairStatus(p,now=Date.now()){
  if(sync.state==='missing')return 'Bob prüft zugelassene Quellen erneut; fehlende Nachweise bleiben gesperrt';
  if(sync.state==='matched')return 'Keine offenen Analyse-Nachweislücken im letzten Serverbericht';
  if(sync.state==='terminated')return 'Keine laufende Produktkursüberwachung erforderlich';
+ if(sync.state==='excluded-factor')return 'Faktorprodukt ausgeschlossen; keine Reparatur fehlender Kurs- oder Zeitangaben nötig';
  return 'Originalbelege gespeichert; Serverabgleich separat offen';
 }
 

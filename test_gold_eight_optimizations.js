@@ -51,6 +51,9 @@ evidence.window.BobProductAuditReport.items=[{...row,state:'incomplete',missing:
 assert.equal(evidence.goldProductSyncState(p,now).state,'missing');
 assert(evidence.goldProductRepairStatus(p,now).includes('60 s'));
 assert(!evidence.goldProductRepairStatus(p,now).includes('repariert'));
+evidence.window.BobProductAuditReport.items=[{...row,state:'excluded-factor',missing:['factor']}];
+assert.equal(evidence.goldProductSyncState(p,now).state,'excluded-factor');
+assert(evidence.goldProductRepairStatus(p,now).includes('keine Reparatur'));
 (async()=>{
  let clock=0,calls=[],rows=[{id:1,isin,key:'product',suppressed:true},
  {id:2,isin:'DE000FG4JXV7',key:'active'}];
