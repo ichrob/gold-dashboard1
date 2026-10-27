@@ -65,7 +65,8 @@ function evaluate(input,now=Date.now()){
   if(api.selectionMarketGate(context).ok)for(const p of products){
    if(!valid(p)||api.isFutureProduct(p)||!p.isinConfirmed||!p.quote?.paperSelectionOnly
     ||!api.productTermsStatus(p,now).complete)continue;
-   const e=api.evaluateProduct({...p,...context});
+   const selected=api.researchPriceProduct(p,now);
+   const e=api.evaluateProduct({...selected,...context});
    if(!e.ok||!e.fit||e.direction!==context.direction||e.setupScore<35||e.conflictCount>=3)continue;
    papers.push({isin:p.isin,name:p.name,direction:e.direction,scope:'XAU/USD',score:e.score,
     price:p.price,at:p.quote.quoteAt,source:p.quote.source,priceKind:p.quote.paperQuoteLabel||'Simulationskurs · beobachteter Geld/Brief',
@@ -76,6 +77,10 @@ function evaluate(input,now=Date.now()){
   // The user's existing indicative mode remains a separate Gold-only model.
   if(!choices.length&&!flow.gateReasons.length)for(const x of api.indicativeRecommendations(products.filter(valid),context))
    choices.push({isin:x.p.isin,name:x.p.name,direction:context.direction,scope:api.isFutureProduct(x.p)?'FUTURE':'XAU/USD',score:x.evaluation.score,reasons:x.evaluation.reasons,approval:'Unverbindliche Berechnung mit vorhandenen Werten',indicative:true,warning:x.warning});
+  for(const choice of choices){
+   const product=products.find(p=>p.isin===choice.isin);
+   choice.priceBasis=product?api.selectedPriceSnapshot(product,now):null;
+  }
   const researchCandidates=choices.filter(c=>!c.indicative&&!c.estimated).slice(0,12);
   const ranked=api.applyLearnedRanking(choices,products,input.rankingPolicy,now);
   const selected=new Set(ranked.slice(0,3).map(c=>c.isin));
