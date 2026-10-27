@@ -37,7 +37,7 @@ class ProductReadActivity : Activity() {
         stack.addView(TextView(this).apply { text = "DEGIRO-Produktseite lesen · einmalig und lokal"; textSize = 21f })
         button("STOPP · Lesen ausschalten und Entwurf löschen") {
             preferences.edit().putBoolean("enabled", false).apply()
-            ProductReadRequest.cancel(); ProductReadSession.clear(); refresh()
+            ProductReadRequest.cancel(); ProductReadSession.clear(); ProductReadDiagnostics.clear(); refresh()
         }
         button("Leseprüfung einschalten / Android-Einstellungen") {
             AlertDialog.Builder(this).setTitle("Sichtbare Produktfelder lesen")
@@ -54,6 +54,7 @@ class ProductReadActivity : Activity() {
                 return@button
             }
             ProductReadSession.clear()
+            ProductReadDiagnostics.reset(SystemClock.elapsedRealtime())
             ProductReadRequest.start(SystemClock.elapsedRealtime())
             val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
             if (launch == null) { ProductReadRequest.cancel(); result.text = "DEGIRO-App nicht gefunden." }
@@ -66,12 +67,17 @@ class ProductReadActivity : Activity() {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://bob-private-scanner.onrender.com/#bob-ocr=" + Uri.encode(draft))))
             }.onFailure { result.text = "Browser konnte nicht geöffnet werden. Entwurf bleibt lokal." }
         }
+        result = TextView(this).apply { textSize = 16f; setTextIsSelectable(true) }
+        stack.addView(result)
+        button("Technische Diagnose kopieren") {
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Bob-Lesediagnose", ProductReadDiagnostics.report(SystemClock.elapsedRealtime())))
+            android.widget.Toast.makeText(this, "Diagnose ohne Kontodaten kopiert.", android.widget.Toast.LENGTH_SHORT).show()
+        }
         stack.addView(TextView(this).apply {
             text = "Einmalig: Leseprüfung und Android-Dienst aktivieren. Die Männchen-Taste ist optional.\n\n1. Prüfung starten.\n2. In DEGIRO eine Produktseite mit beschrifteten Kursen öffnen. Bob liest automatisch, höchstens 60 Sekunden lang.\n3. Zu Bob Handy zurückkehren: Das Ergebnis steht direkt hier. Mit ‚Gelesene Werte in Bob prüfen‘ öffnest du die Webprüfung.\n\nKeine automatische Produktsuche oder Orderbedienung. Anmeldung selbst durchführen. Bei Zeitablauf erneut starten. Ohne zugängliche Bildschirmtexte: Screenshot teilen. Entwurf verfällt nach fünf Minuten."
             textSize = 16f
         })
-        result = TextView(this).apply { textSize = 16f; setTextIsSelectable(true) }
-        stack.addView(result)
         setContentView(ScrollView(this).apply { addView(stack) })
     }
     override fun onResume() { super.onResume(); refresh(); statusHandler.post(statusTick) }
@@ -85,7 +91,7 @@ class ProductReadActivity : Activity() {
     private fun refresh() {
         displayedRequestActive = ProductReadRequest.active(SystemClock.elapsedRealtime())
         val value = ProductReadSession.get(SystemClock.elapsedRealtime())
-        result.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) "Android-Lesedienst bereit.\n" else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
-            if (value.draft.isNotBlank()) "\n\n${value.draft}" else ""
+        result.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
+            (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }
 }
