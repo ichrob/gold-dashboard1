@@ -246,6 +246,73 @@ if __name__ == '__main__':
 
 
 class PendingRefreshTests(unittest.TestCase):
+    def test_clock_is_read_after_pending_fetch_at_minute_boundary(self):
+        pair = q.parse_page(HTML.replace('Laufzeitende 16.10.26', 'Laufzeitende endlos'), ISIN)
+        at = datetime.fromisoformat(pair['quoteAt'])
+        primary = dict(isin=ISIN, productVerified=True, currency='EUR',
+                       metadata=dict(status=1, issuerExchangeCode='CBDE'))
+        fetched = []
+        def observation(*args, **kwargs):
+            fetched.append(True)
+            return dict(state='observed', quote=pair)
+        with patch.object(q, 'get_observation', side_effect=observation), \
+             patch.object(q, 'datetime') as clock:
+            clock.now.side_effect = lambda *args: at if fetched else at-timedelta(seconds=1)
+            clock.fromisoformat = datetime.fromisoformat
+            clock.min = datetime.min
+            out = q.apply(primary, ISIN)
+        self.assertEqual(out['comdirectQuoteBackup']['state'], 'current')
+        self.assertEqual(out['analysisQuote']['quoteAt'], pair['quoteAt'])
+
+    def test_refresh_does_not_replace_newer_quote_with_older_provider_page(self):
+        pair = q.parse_page(HTML.replace('Laufzeitende 16.10.26', 'Laufzeitende endlos'), ISIN)
+        old_page = HTML.replace('Laufzeitende 16.10.26', 'Laufzeitende endlos').replace('21:59', '21:58')
+        with patch.dict(q._CACHE, {ISIN:(0, dict(state='observed', quote=pair))}, clear=True), \
+             patch.object(q, 'open_public_page') as network:
+            response = network.return_value.__enter__.return_value
+            response.url = q.ORIGIN+'inf/zertifikate/'+ISIN
+            response.read.return_value = old_page.encode()
+            q._refresh(ISIN)
+            result = copy.deepcopy(q._CACHE[ISIN][1])
+        self.assertEqual(result['quote'], pair)
+        self.assertTrue(result['retainedAfterClockRegression'])
+        self.assertEqual(result['rejectedQuoteAt'], pair['quoteAt'].replace('21:59', '21:58'))
+        self.assertFalse(result['quote']['degiroExecutable'])
+
+    def test_retention_never_overrides_inactive_or_newer_evidence(self):
+        page = HTML.replace('Laufzeitende 16.10.26', 'Laufzeitende endlos')
+        pair = q.parse_page(page, ISIN)
+        for incoming, expected_at in (
+                (page.replace('erreicht Nein', 'erreicht Ja'), None),
+                (page.replace('21:59', '22:00'), pair['quoteAt'].replace('21:59', '22:00')),
+                (page.replace('5,44', '5,45'), pair['quoteAt'])):
+            with self.subTest(expected_at=expected_at), \
+                 patch.dict(q._CACHE, {ISIN:(0, dict(state='observed', quote=pair))}, clear=True), \
+                 patch.object(q, 'open_public_page') as network:
+                response = network.return_value.__enter__.return_value
+                response.url = q.ORIGIN+'inf/zertifikate/'+ISIN
+                response.read.return_value = incoming.encode()
+                q._refresh(ISIN)
+                result = q._CACHE[ISIN][1]
+                self.assertEqual((result.get('quote') or {}).get('quoteAt'), expected_at)
+                self.assertNotIn('retainedAfterClockRegression', result)
+                if '5,45' in incoming:
+                    self.assertEqual(result['quote']['ask'], 5.45)
+
+    def test_retained_original_still_expires_and_diagnostics_explain_retention(self):
+        pair = q.parse_page(HTML.replace('Laufzeitende 16.10.26', 'Laufzeitende endlos'), ISIN)
+        at = datetime.fromisoformat(pair['quoteAt'])
+        primary = dict(isin=ISIN, productVerified=True, currency='EUR',
+                       metadata=dict(status=1, issuerExchangeCode='CBDE'))
+        evidence = dict(state='observed', quote=pair, retainedAfterClockRegression=True,
+                        rejectedQuoteAt=(at-timedelta(minutes=1)).isoformat())
+        with patch.object(q, 'get_observation', return_value=evidence):
+            out = q.apply(primary, ISIN, at+timedelta(seconds=91))
+        self.assertEqual(out['comdirectQuoteBackup']['state'], 'stale')
+        self.assertTrue(out['comdirectQuoteBackup']['retainedAfterClockRegression'])
+        self.assertNotIn('analysisQuote', out)
+        self.assertEqual(out['secondaryQuote']['quoteAt'], pair['quoteAt'])
+
     def test_final_read_waits_for_pending_refresh_without_duplicate_request(self):
         from concurrent.futures import ThreadPoolExecutor
         from threading import Event
