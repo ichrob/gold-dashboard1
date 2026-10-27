@@ -2779,7 +2779,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  '<details data-product-details="'+p.index+'" style="margin-top:10px"><summary>Quellen und Einzelheiten</summary><div class="small">'+esc(p.name||'')+'</div>'+renderProductSources(p)+renderMissingValues(reasons,p)+renderProductDecision(p,selected,[status,...reasons])+screenshotSummary(x)+'<button data-card-research="'+p.index+'">Daten erneut abrufen</button></details></details></div>';
 }
 // Display-only: a bounded, proven-identity turbo projection shares the NORMAL
-// product-price row, but never enters quote/freshness, ranking or trade approval.
+// product-price row and labelled research ranking, never broker/trade approval.
 // An 08:00 list price without paired Gold/FX reference is not a model anchor.
 function calculatedProductDisplay(p,now=Date.now()){
  const q=p?.quote,c=q?.calculatedProduct,m=q?.productModel,meta=q?.metadata||{};
@@ -2818,9 +2818,15 @@ function calculatedProductDisplay(p,now=Date.now()){
 // Use the same dated observation in the value display and field diagnostics.
 function productDisplayQuote(q,isin,now){
  const live=q?.found?q:q?.analysisQuote||q?.referenceQuote;
- const backup=q?.analysisQuote;
- const recentPair=x=>x&&x.isin===isin&&x.currency==='EUR'&&!x.delayed&&n(x.bid)>0&&n(x.ask)>=n(x.bid)&&[x.bidAt,x.askAt].every(t=>typeof t==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(t)&&Number.isFinite(Date.parse(t))&&now-Date.parse(t)>=0&&now-Date.parse(t)<=90000);
- return q?.metadata?.status===1&&!recentPair(live)&&backup?.priceKind==='market-observation'&&backup.isExecutableQuote===false&&backup.degiroExecutable===false&&recentPair(backup)?backup:live;
+ const recentPair=x=>x&&x.isin===isin&&x.currency==='EUR'&&!x.delayed&&!x.estimated&&!x.calculated&&x.priceKind!=='calculated'&&n(x.bid)>0&&n(x.ask)>=n(x.bid)&&[x.bidAt,x.askAt].every(t=>typeof t==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(t)&&Number.isFinite(Date.parse(t))&&now-Date.parse(t)>=0&&now-Date.parse(t)<=90000);
+ if(q?.isin!==isin||q.productVerified!==true||q.metadata?.status!==1||q.sourceDisabled)return live;
+ // Genuine current primary pair, then dated alternative pairs, then chart
+ // observations. A retrieval timestamp never refreshes the source clock.
+ if(q.found&&!q.sourceFailure&&!q.quoteFailureCode&&q.priceKind!=='issuer-chart'&&recentPair(q))return q;
+ const backups=[q.analysisQuote,q.secondaryQuote].filter(x=>
+  x?.priceKind==='market-observation'&&x.isExecutableQuote===false&&x.degiroExecutable===false&&recentPair(x));
+ backups.sort((a,b)=>Math.min(Date.parse(b.bidAt),Date.parse(b.askAt))-Math.min(Date.parse(a.bidAt),Date.parse(a.askAt)));
+ return backups[0]||live;
 }
 // Display-only continuity never changes product release or broker evidence.
 function continuityDisplay(p,now){
@@ -2839,7 +2845,9 @@ function continuityDisplay(p,now){
 function renderPrimaryProductValues(p,now=Date.now()){
  const q=p.quote?.isin===p.isin&&p.quote.productVerified?p.quote:null;
  const continuity=continuityDisplay(p,now);
- const live=continuity?.state==='original'?{...continuity,isin:p.isin,bidAt:continuity.at,askAt:continuity.at,priceKind:'market-observation',isExecutableQuote:false}:productDisplayQuote(q,p.isin,now);
+ const selectedQuote=productDisplayQuote(q,p.isin,now);
+ const selectedRecent=selectedQuote&&selectedQuote!==q?.referenceQuote&&!(selectedQuote===q&&q?.sourceFailure)&&freshTimes([selectedQuote.bidAt,selectedQuote.askAt],now,90);
+ const live=selectedRecent?selectedQuote:continuity?.state==='original'?{...continuity,isin:p.isin,bidAt:continuity.at,askAt:continuity.at,priceKind:'market-observation',isExecutableQuote:false}:selectedQuote;
  const fields=productFieldStates(p,now);
  const native=q?.nativeChartEvidence;
  const nativeChf=!!q?.productVerified&&native?.currency==='CHF'&&n(native.bid)>0
@@ -5325,19 +5333,42 @@ function calculationAge(at,limit=90000,now=Date.now()){
  const t=Number.isFinite(iso)?iso:selectionTimeWindow(at)?.start;
  return Number.isFinite(t)&&t<=now&&now-t<=limit?'':!Number.isFinite(t)?'Aktualität unbekannt – Zeitstempel fehlt oder ist unklar':t>now?'Aktualität unbekannt – Zeitstempel liegt in der Zukunft':'veraltet – Stand: '+new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich) · '+Math.floor((now-t)/60000)+' min '+Math.floor((now-t)%60000/1000)+' s alt';
 }
+function researchPriceProduct(p,now){
+ // Copies only: calculations must not rewrite imported originals or grants.
+ const q=p.quote;
+ if(q?.isin!==p.isin||q.productVerified!==true||q.metadata?.status!==1||q.sourceDisabled||q.metadata?.tradingHalted)return p;
+ const fields=productFieldStates(p,now),ask=fields.ask,lev=fields.leverage;
+ const current=f=>f&&n(f.value)>0&&Number.isFinite(f.ageSeconds)&&f.ageSeconds>=0&&f.ageSeconds<=90&&!/(unbestätigt|veraltet|abweichend)/i.test(f.state);
+ if(current(ask)){
+  // Native CHF values must not be silently treated as EUR prices.
+  const nativeChf=q.metadata?.currency==='CHF'&&productDisplayQuote(q,p.isin,now)?.currency!=='EUR';
+  if(nativeChf)return p;
+  return {...p,price:ask.value,priceCalculated:ask.kind==='calculated',
+   ...(current(lev)?{leverage:lev.value,leverageCalculated:lev.kind==='calculated'||/berechnet/i.test(lev.state)}:{}),
+   researchPriceEvidence:{kind:ask.kind==='calculated'?'calculated':'observation',source:ask.source,at:ask.at,
+    leverageAt:current(lev)?lev.at:null,referenceOnly:true,degiroExecutable:false}};
+ }
+ const c=continuityDisplay(p,now);
+ if(c?.state==='calculated')return {...p,price:c.price,leverage:c.leverage,priceCalculated:true,leverageCalculated:true,
+  researchPriceEvidence:{kind:'calculated',source:'Bob · theoretischer Produktwert',at:c.at,leverageAt:c.at,referenceOnly:true,degiroExecutable:false}};
+ return p;
+}
 function continuingAnalysis(products,context){
- return products.filter(p=>p.isin||p.name).map(p=>{
+ return products.filter(p=>p.isin||p.name).map(original=>{
+  const p=researchPriceProduct(original,context.now??Date.now());
   const analysis=p.quote?.analysisQuote;
   const direct=p.quote?.isin===p.isin&&n(p.quote.price)===n(p.price);
   const at=direct?(p.quote.askAt||p.quote.quoteAt):((analysis&&n(analysis.price)>0&&n(analysis.price)===n(p.price))?analysis.askAt:p.snapshot?.evidence?.Brief?.at||p.snapshot?.sourceTime||p.quote?.askAt||p.quote?.quoteAt);
   const limit=direct||(analysis&&n(analysis.price)>0&&n(analysis.price)===n(p.price))?(p.quote?.analysisMaxAgeSeconds||90)*1000:p.snapshot?SCREENSHOT_MAX_AGE_MS:90000,now=context.now??Date.now();
-  const priceWarning=calculationAge(at,limit,now);
+  const priceWarning=calculationAge(p.researchPriceEvidence?.at||at,p.researchPriceEvidence?90000:limit,now);
   const levAt=p.quote?.isin===p.isin&&n(p.quote.leverage)===n(p.leverage)?p.quote.leverageAt:p.snapshot?.evidence?.Hebel?.at;
-  const levWarning=calculationAge(levAt,limit,now);
+  const levWarning=calculationAge(p.researchPriceEvidence?.leverageAt||levAt,limit,now);
   const terms=productTermsStatus(p,now,true);
   const seriesWarning=p.snapshot?.evidence?.Hebel?.fromSeries&&n(p.snapshot.evidence.Hebel.value)===n(p.leverage)?'Hebel: Zeitbezug aus Aufnahmeserie; kein separat bestätigter Anbieterzeitstempel':'';
+  const selected=p.researchPriceEvidence;
+  const sourceNote=selected?(selected.kind==='calculated'?'Kurs berechnet':'Originalkurs')+' · '+selected.source+' · '+selected.at:'';
   const warning=[priceWarning,levWarning?'Hebel: '+levWarning:'',seriesWarning,...terms.warnings].filter(Boolean).join(' · ');
-  return {p,warning,evaluation:evaluateProduct({...p,...context})};
+  return {p,warning,sourceNote,evaluation:evaluateProduct({...p,...context})};
  });
 }
 // Research-only KO-buffer order. Missing approval evidence stays missing;
@@ -5480,12 +5511,12 @@ function renderContinuingAnalysis(products,context){
    rank+' · '+esc(p.isin)+'</b>'+renderIsinCopy(p.isin,true)+
    ' · '+esc(p.productDirection||'Richtung unbekannt')+
    (i===null?' · nicht zuverlässig bewertbar':' · Vergleichswert '+e.score+'/100')+
-   '<br><strong>'+esc(freshness)+'</strong><br>'+fields+'<br><strong>'+(i!==null&&e.ok===true&&e.fit===true&&!marketWarnings.length&&row.calculation?.status==='calculated-approved'?'RECHNERISCH FREIGEGEBEN · DEGIRO-Handelbarkeit nicht bestätigt':proof.complete?'Produktnachweise vollständig; DEGIRO-Ausführung nicht bestätigt':'NICHT FREIGEGEBEN · Nachweise offen')+
+   '<br><strong>'+esc(freshness)+'</strong><br>'+fields+(row.sourceNote?'<div data-ranking-price-source>'+esc(row.sourceNote)+'</div>':'')+'<br><strong>'+(i!==null&&e.ok===true&&e.fit===true&&!marketWarnings.length&&row.calculation?.status==='calculated-approved'?'RECHNERISCH FREIGEGEBEN · DEGIRO-Handelbarkeit nicht bestätigt':proof.complete?'Produktnachweise vollständig; DEGIRO-Ausführung nicht bestätigt':'NICHT FREIGEGEBEN · Nachweise offen')+
    '</strong><div class="small" style="white-space:pre-line">'+esc(productRiskPreviewText(p,marketPlan,now))+'</div>'+(row.warning?'<div class="small">'+esc(String(row.warning).slice(0,250))+'</div>':'')+
    (!proof.complete?'<div class="small">Fehlt: '+esc((proof.reasons||[]).slice(0,3).join(' · ').slice(0,300))+'</div>':'')+'</div>';
  };
  return '<section data-unified-product-ranking data-indicative-recommendations><b>Alle Goldprodukte · eine Rangliste · <span style="color:'+({LONG:'#15803d',SHORT:'#b91c1c'}[context?.direction]||'#ca8a04')+'">'+esc(['LONG','SHORT'].includes(context?.direction)?context.direction:'ABWARTEN')+'</span></b>'+
-  '<p class="small">Original- und berechnete Werte gemeinsam vergleichen; fehlende Daten bleiben sichtbar. Die rechnerische Platzierung ist keine Handelsfreigabe oder ausführbare DEGIRO-Order.</p>'+
+  '<p class="small" data-price-source-priority>Kursreihenfolge: aktueller Originalkurs → aktuelle Ersatzquelle → gekennzeichnete Berechnung. Fehlt auch diese, bleiben ältere Werte als veraltet oder zeitlich unbestätigt sichtbar. Rangliste passend zu LONG oder SHORT; keine Handelsfreigabe oder ausführbare DEGIRO-Order.</p>'+
   explanationHtml+leverageHint+
   rankable.map((r,i)=>describe(r,i)).join('')+
   unranked.map(r=>describe(r,null)).join('')+
@@ -6362,3 +6393,4 @@ if(typeof document!=='undefined'&&typeof setInterval==='function'){setInterval(r
  }
  root.BobManualTradeTest={position,valuation,mount};
 })(typeof window!=='undefined'?window:globalThis);
+
