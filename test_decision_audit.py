@@ -129,7 +129,7 @@ class ReportCoalescingTests(unittest.TestCase):
  def test_report_query_is_bounded_for_interactive_reads(self):
   from unittest.mock import Mock,MagicMock,patch
   conn=MagicMock();rows=[]
-  conn.execute.side_effect=[Mock(fetchall=lambda:rows),Mock(fetchall=lambda:[]),Mock(fetchone=lambda:(0,))]
+  conn.execute.side_effect=[Mock(fetchall=lambda:rows),Mock(),Mock(fetchall=lambda:[]),Mock(),Mock(fetchone=lambda:(0,))]
   with patch.object(a,'harvest') as harvest,patch.object(a.rule_learning,'report',return_value={}),patch.object(a.intraday_comparison,'report',return_value={}):
    with patch.object(a.ranking_learning,'report',return_value={}),patch.object(a.precision_learning,'report',return_value={}),patch.object(a.metric_quality,'report',return_value={}),patch.object(a.product_precision,'report',return_value={}):
        result=a._build_report(conn)
@@ -368,22 +368,19 @@ class ReportBatchRowsTests(unittest.TestCase):
 
 class ProspectiveBoundedRecoveryTests(unittest.TestCase):
     def test_query_fallback_only_adds_safe_fixed_time_constraint(self):
-        from unittest.mock import Mock
-        db=Mock()
-        db.execute.return_value.fetchall.return_value=[]
-        a._load_prospective_rows(db)
-        full_sql=db.execute.call_args.args[0]
+        full_sql,full_params=a._prospective_query()
         self.assertIn("recorded_at >= now()-interval '30 days'",full_sql)
         self.assertIn('WITH RECURSIVE sampled',full_sql)
         self.assertIn('CROSS JOIN LATERAL',full_sql)
         self.assertEqual(full_sql.count('AND recorded_at <= now()'), 2)
         self.assertNotIn('DISTINCT ON',full_sql)
-        a._load_prospective_rows(db,recent=True)
+        recent_sql,recent_params=a._prospective_query(recent=True)
         self.assertIn("recorded_at >= now()-interval '24 hours'",
-                      db.execute.call_args.args[0])
-        self.assertEqual(db.execute.call_args.args[0].count(
+                      recent_sql)
+        self.assertEqual(recent_sql.count(
             'AND recorded_at <= now()'), 2)
-        self.assertEqual(db.execute.call_args.args[1],(a.RULE_VERSION,a.RULE_VERSION))
+        self.assertEqual(full_params,(a.RULE_VERSION,a.RULE_VERSION))
+        self.assertEqual(recent_params,(a.RULE_VERSION,a.RULE_VERSION))
 
     def test_one_timeout_produces_explicit_partial_not_30_day_result(self):
         from unittest.mock import MagicMock, Mock, patch
@@ -463,7 +460,7 @@ class ReportTimeoutRecoveryTests(unittest.TestCase):
         from unittest.mock import MagicMock, Mock, patch
         import psycopg
         conn=MagicMock()
-        conn.execute.side_effect=[Mock(fetchall=lambda:[]),Mock(fetchone=lambda:(10000,))]
+        conn.execute.side_effect=[Mock(),Mock(fetchall=lambda:[]),Mock(),Mock(fetchone=lambda:(10000,))]
         with patch.object(a,'_load_report_rows',side_effect=[psycopg.errors.QueryCanceled('timeout'),[]]) as load, patch.object(a.rule_learning,'report',return_value={}), patch.object(a.intraday_comparison,'report',return_value={}):
             with patch.object(a.ranking_learning,'report',return_value={}),patch.object(a.precision_learning,'report',return_value={}),patch.object(a.metric_quality,'report',return_value={}),patch.object(a.product_precision,'report',return_value={}):
                 result=a._build_report(conn)

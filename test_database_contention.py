@@ -13,6 +13,21 @@ import decision_audit
 
 
 class PoolFailureTests(unittest.TestCase):
+    def test_prospective_query_temporarily_prefers_cursor_indexes(self):
+        """The expensive archive read must not leave planner settings changed."""
+        from unittest.mock import MagicMock
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [('row', None)]
+        with patch.object(decision_audit, '_prospective_query',
+                          return_value=('SELECT payload FROM fixture', ('rule',))):
+            self.assertEqual(decision_audit._load_prospective_rows(conn),
+                             [('row', None)])
+        calls = conn.execute.call_args_list
+        self.assertEqual(calls[0].args, ('SET LOCAL enable_seqscan=off',))
+        self.assertEqual(calls[1].args,
+                         ('SELECT payload FROM fixture', ('rule',)))
+        self.assertEqual(calls[2].args, ('SET LOCAL enable_seqscan=on',))
+
     def test_service_init_never_builds_prospective_index(self):
         """Large archive indexes must be provisioned outside live startup."""
         source = inspect.getsource(decision_audit.init)
