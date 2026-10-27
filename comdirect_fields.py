@@ -148,7 +148,15 @@ def source_decisions(result, report, isin, now):
             parsed = urlparse(source or '')
             reviewed = datetime.fromisoformat(primary.get('reviewedAt', '').replace('Z', '+00:00'))
             day = datetime.strptime(primary.get('dateText', ''), '%d.%m.%Y').date()
-            raw = datetime.fromisoformat(primary.get('sourceTimeRaw', '').replace('Z', '+00:00'))
+            sg_source = (parsed.hostname in ('www.sg-zertifikate.de', 'www.sg-zertifikate.ch')
+                and parsed.path.lower() == '/product-details/'+isin.lower()
+                and primary.get('sourceField') == 'StrikeBarrierUpdateTime')
+            bnp_source = (parsed.hostname == 'derivate.bnpparibas.com'
+                and parsed.path == '/product-details/'+isin+'/'
+                and primary.get('sourceField') == 'dated-terms-row'
+                and meta.get('termsDated') is True)
+            raw = (datetime.strptime(primary.get('sourceTimeRaw', ''), '%d.%m.%Y') if bnp_source else
+                   datetime.fromisoformat(primary.get('sourceTimeRaw', '').replace('Z', '+00:00')))
             dated_issuer = (
                 key in ('ko', 'strike') and result.get('isin') == isin
                 and result.get('productVerified') is True and meta.get('status') == 1
@@ -156,10 +164,8 @@ def source_decisions(result, report, isin, now):
                 and primary.get('conditionVerified') is True
                 and not any(primary.get(k) for k in ('conflict', 'revoked', 'ocrCorrection'))
                 and primary.get('value') == meta.get(key)
-                and primary.get('sourceField') == 'StrikeBarrierUpdateTime'
+                and (sg_source or bnp_source)
                 and parsed.scheme == 'https' and not parsed.username and not parsed.password
-                and parsed.hostname in ('www.sg-zertifikate.de', 'www.sg-zertifikate.ch')
-                and parsed.path.lower() == '/product-details/'+isin.lower()
                 and day == raw.date() == now.astimezone(ZoneInfo('Europe/Zurich')).date()
                 and 0 <= (now-reviewed).total_seconds() <= 8*3600
                 and secondary.get('conditionVerified') is False
