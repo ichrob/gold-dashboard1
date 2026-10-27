@@ -533,6 +533,13 @@ function mount(){
     line('Produktdaten: '+(labels[operations.productStatus.state]||'nicht bestätigt')+'. Handelsfreigabe separat.');
     for(const c of operations.productStatus.conflicts||[])line(c.isin+': '+c.fields.join(', ')+' – '+c.resolution);
     const clock=v=>{if(!v)return 'unbekannt';const d=new Date(typeof v==='number'?(v>100000000000?v:v*1000):v);return Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';};
+    if(operations.connections){
+     line('Verbindungen · Zustand und Datenfrische');
+     const states={'current':'aktuell bestätigt','stale-or-partial':'älter oder nur teilweise bestätigt','unknown':'nicht bestätigt'};
+     for(const c of operations.connections.items||[])line(c.label+': '+(states[c.state]||'nicht bestätigt')+' · Letzter beobachteter Erfolg: '+clock(c.lastSuccessAt)+' · Letzte Beobachtung: '+clock(c.lastObservedAt)+' · '+c.note);
+     line(operations.connections.retryPolicy);
+     line(operations.connections.repairPolicy);
+    }
     for(const j of operations.jobs||[])line(j.label+': '+(labels[j.state]||'nicht bestätigt')+' · Letzter Erfolg: '+clock(j.lastSuccessAt)+' · Letzte Beobachtung: '+clock(j.lastObservedAt)+' · Nächster Lauf erwartet: '+clock(j.expectedNextAt)+' (nicht bestätigt)');
     line((operations.cases||[]).length+' gebündelte Problemkategorien. Vollständige Produktfelder schließen ältere Nachweisfälle nicht automatisch.');
     line(operations.historicalPolicy.note);

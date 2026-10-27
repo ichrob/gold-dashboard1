@@ -98,7 +98,7 @@ def snapshot(report, now=None):
         observationKind='readable-snapshot-not-continuous-execution-proof'))
     actions = [dict(code=c['code'], text='Deine Hilfe ist nach Bobs Prüfung nötig. Details im Bereich Probleme.',view='problems')
                for c in cases.values() if index_fresh and c['state'] == 'needs-user']
-    return dict(version=1, observedAt=report.get('observedAt'), readOnly=True, realOrders=False,
+    return dict(connections=__import__('bob_connections').snapshot(report, now), version=1, observedAt=report.get('observedAt'), readOnly=True, realOrders=False,
         productStatus=dict(state='unknown' if not product_fresh else 'conflict' if unresolved else 'differences-explained' if conflicts else 'complete' if complete else 'incomplete',
                            checkedAt=products.get('lastCheckedAt'), conflicts=conflicts,
                            unresolvedCount=len(unresolved),explainedCount=len(conflicts)-len(unresolved),
