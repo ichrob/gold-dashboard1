@@ -13,14 +13,8 @@ only for positive observed growth. Estimates are not a capacity guarantee.
 
 The authenticated /storage-health endpoint performs bounded catalog reads and is
 independent of the full simulation report. It exposes the 12 largest tables,
-estimated live/dead tuples, autovacuum time, measured database bytes and applied
-storage settings. No prices, identities, credentials or queries are returned.
+estimated live/dead tuples, autovacuum time, measured database bytes. No prices, identities, credentials or queries are returned.
 
-For six explicit evidence tables, PostgreSQL's toast_tuple_target is lowered to
-512 bytes, permitting lossless native compression earlier. The short lock timeout
-and savepoint prevent maintenance from blocking diagnostic delivery. This applies
-to new or subsequently updated rows. Existing tables are not bulk-rewritten and
-no immediate historical disk reduction is claimed. Read/query formats are unchanged.
 Identical candle checkpoints no longer create a replacement row/version, reducing
 write amplification while preserving all accepted candle revisions.
 

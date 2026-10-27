@@ -1,4 +1,4 @@
-"""Bounded storage observations and lossless PostgreSQL storage tuning.
+"""Bounded storage observations for durable comparison evidence.
 
 No research deletion, downsampling, paid scaling or order side effects.
 Database size excludes WAL and other databases; never label it disk free space.
@@ -11,8 +11,6 @@ import time
 ALLOCATION_BYTES=1_000_000_000
 CAUTION_BYTES=500_000_000
 ACTION_BYTES=700_000_000  # leave room for WAL, indexes and maintenance
-TABLES=('bob_decision_audit','bob_precision_quotes','bob_precision_cases',
-        'bob_list_price_pairs','bob_diagnostic_history','bob_candle_evidence')
 _NEXT=0
 _LOCK=threading.Lock()
 
@@ -27,20 +25,6 @@ def state(size):
     return 'action-required' if size>=ACTION_BYTES else 'caution' if size>=CAUTION_BYTES else 'below-budget-threshold'
 
 
-def tune(conn):
-    applied=[]
-    for name in TABLES:
-        row=conn.execute('SELECT reloptions FROM pg_class WHERE oid=to_regclass(%s)',(name,)).fetchone()
-        if not row:continue
-        if 'toast_tuple_target=512' not in (row[0] or []):
-            # Static table allowlist; refuse to wait behind active worker transactions.
-            with conn.transaction():
-                conn.execute("SET LOCAL lock_timeout='250ms'")
-                conn.execute('ALTER TABLE '+name+' SET (toast_tuple_target=512)')
-        applied.append(name)
-    return applied
-
-
 def maybe_observe(conn,now=None):
     global _NEXT
     now=time.time() if now is None else now
@@ -50,7 +34,6 @@ def maybe_observe(conn,now=None):
         # SAVEPOINT protects the diagnostic event if metadata maintenance is unavailable.
         with conn.transaction():
             conn.execute("SET LOCAL statement_timeout='3s'")
-            tune(conn)
             size=conn.execute('SELECT pg_database_size(current_database())').fetchone()[0]
             conn.execute('INSERT INTO bob_storage_samples(slot,database_bytes) VALUES(%s,%s) ON CONFLICT DO NOTHING',
                 (int(now//1800)*1800,size))
@@ -77,7 +60,6 @@ def report(conn,now=None):
         if elapsed>=86400:
             growth=(last[1]-first[1])*86400/elapsed
             if growth>0:days=max(0,(ACTION_BYTES-size)/growth)
-    policy=conn.execute('SELECT relname,reloptions FROM pg_class WHERE relname=ANY(%s)',(list(TABLES),)).fetchall()
     return dict(status='observed',readOnly=True,observedAt=now,
         databaseBytes=size,configuredAllocationBytes=ALLOCATION_BYTES,
         budgetState=state(size),cautionBytes=CAUTION_BYTES,actionBytes=ACTION_BYTES,
@@ -86,9 +68,8 @@ def report(conn,now=None):
         estimatedDaysToActionThreshold=round(days,1) if days is not None else None,
         growthStatus='observed' if growth is not None else 'needs-at-least-24-hours',
         lastSampleAt=samples[0][0] if samples else None,
-        losslessStorageTables=[name for name,opts in policy if 'toast_tuple_target=512' in (opts or [])],
         largestTables=[dict(table=name,bytes=n,estimatedRows=live,estimatedDeadRows=dead,
             lastAutovacuum=str(vac) if vac else None) for name,n,live,dead,vac in tables],
         evidenceDeleted=False,automaticPaidScaling=False,
-        note='Compression keeps original values. Existing rows are not bulk-rewritten. '
+        note='No test data or storage formats are changed. '
              'Dead-row estimates do not measure reclaimable disk bytes. Capacity forecasts are estimates.')
