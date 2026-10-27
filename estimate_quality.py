@@ -75,7 +75,7 @@ def observe(key, value, at, received_at):
                 if scoped[0]!=key:continue
                 seen=_seen.setdefault(scoped,[])
                 if point in seen:continue
-                choices=[r for r in rows if abs(r['at']-point)<=MAX_MATCH_SECONDS and r['created']<=received]
+                choices=[r for r in rows if abs(r['at']-point)<=MAX_MATCH_SECONDS and r['created']<=received and (not key.startswith('product:turbo-forward:') or r['created']<received)]
                 if not choices:continue
                 prediction=min(choices,key=lambda r:abs(r['at']-point))
                 # Every prediction and every dated truth are used only once.
@@ -101,6 +101,7 @@ def restore_durable(pairs, now=None, *, key=bob_validation_store.KEY):
         horizon=point-ref;b=horizon_bucket(horizon)
         values=(p['prediction'],p['truth'])
         if (b is None or b!=p['bucket'] or not ref<point<=created<=received<=now.timestamp()
+                or (key.startswith('product:turbo-forward:') and created>=received)
                 or abs(point-truth)>MAX_MATCH_SECONDS or truth>received
                 or any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<=0 for v in values)):
             raise ValueError('Gespeicherter Vergleich nicht verwendbar')
