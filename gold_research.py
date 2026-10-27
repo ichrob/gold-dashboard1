@@ -474,7 +474,7 @@ def snapshot():
     manual={x['url']:x for x in youtube_research.manual_items() if allowed_item(x) and x['url'] in kept}
     for item in report['items']:
         if item['url'] in manual and not item.get('transcriptAnalyzed'):
-            publication={key:item[key] for key in ('publishedAt','publishedRelative','publishedRelativeObservedAt','listingInfo') if item.get(key) is not None}
+            publication={key:item[key] for key in ('publishedAt','publishedDate','publicationSource','publishedRelative','publishedRelativeObservedAt','listingInfo') if item.get(key) is not None}
             item.update(manual.pop(item['url']))
             item.update(publication)
     urls={x['url'] for x in report['items']}
@@ -494,7 +494,7 @@ def resume_retained(items):
     import youtube_research
     for item in items[:3]:
         if not allowed_item(item):continue
-        publication={key:item[key] for key in ('publishedAt','publishedDate','publicationSource') if key in item}
+        publication={key:item[key] for key in ('publishedAt','publishedDate','publicationSource') if item.get(key) is not None}
         youtube_research.enrich(item)
         item.update(publication)
         # Caption retry can succeed while publication metadata remains absent.
