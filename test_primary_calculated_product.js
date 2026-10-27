@@ -146,3 +146,51 @@ Object.assign(alternate.quote,{bid:1,ask:1.01,bidAt:at(200),askAt:at(200),curren
 alternate.quote.analysisQuote={isin,bid:12.1,ask:12.2,bidAt:at(10),askAt:at(10),currency:'EUR',source:'comdirect · BNP LiveTrading',priceKind:'market-observation',isExecutableQuote:false,degiroExecutable:false};
 const alternateHtml=bob.renderPrimaryProductValues(alternate,now);
 assert(alternateHtml.includes('12.1')||alternateHtml.includes('12,1'),'Fresh backup replaces stale issuer in display');
+
+// The same source order must reach research rankings for BOTH directions.
+for(const direction of ['LONG','SHORT']){
+ const candidate=structuredClone(p),short=direction==='SHORT';
+ candidate.price=1;candidate.leverage=8;candidate.productDirection=direction;
+ candidate.ko=short?4250:model.ko;
+ Object.assign(candidate.quote.metadata,{direction,ko:candidate.ko,strike:short?4250:model.strike});
+ Object.assign(candidate.quote.productModel,{direction,ko:candidate.ko,strike:short?4250:model.strike});
+ Object.assign(candidate.quote.calculatedProduct,{direction,strikeUsd:short?4250:model.strike});
+ const context={now,direction,spotFresh:true,spot:4140,atr:10,trend:direction,trend2:direction,mtf:direction,
+  rsi:short?36:64,hist:short?-2:2,adx:28,momentum:short?-1:1};
+ const quote=(ask,age=5)=>({isin,currency:'EUR',bid:ask-.02,ask,price:ask,bidAt:at(age),askAt:at(age),
+  source:'comdirect · SG LiveTrading',priceKind:'market-observation',isExecutableQuote:false,degiroExecutable:false});
+ Object.assign(candidate.quote,quote(11),{found:true,source:'Issuer'});
+ candidate.quote.secondaryQuote=quote(12);
+ candidate.quote.analysisQuote={...quote(13),priceKind:'issuer-chart'};
+ const selected=()=>bob.continuingAnalysis([candidate],context)[0];
+ assert.strictEqual(selected().p.price,11,'Current primary precedes backup and model');
+ candidate.quote.bidAt=at(180);candidate.quote.askAt=at(180);
+ assert.strictEqual(selected().p.price,12,'Fresh secondary pair precedes chart and model');
+ assert(bob.renderPrimaryProductValues(candidate,now).includes('12'),'Display agrees with ranking');
+ candidate.quote.secondaryQuote=quote(12,180);
+ candidate.quote.analysisQuote={...quote(13,180),priceKind:'issuer-chart'};
+ const before=JSON.stringify(candidate),row=selected();
+ assert.strictEqual(row.p.price,10.53,'Validated model replaces old imported research price');
+ assert.strictEqual(row.p.priceCalculated,true);
+ assert.match(row.sourceNote,/Kurs berechnet/);
+ assert(row.sourceNote.includes(calculated.priceAt));
+ assert.strictEqual(JSON.stringify(candidate),before,'Original inputs remain untouched');
+ assert.strictEqual(bob.unapprovedComparisonRanking([candidate],context).length,1,'Directional research ranking continues');
+ assert.strictEqual(bob.earlyWarningRanking([candidate],context).length,1,'Early directional watchlist continues');
+ assert.strictEqual(bob.unapprovedComparisonRanking([candidate],{...context,direction:short?'LONG':'SHORT'}).length,0);
+ assert.strictEqual(bob.unapprovedComparisonRanking([candidate],{...context,spotFresh:false}).length,0);
+ const html=bob.renderContinuingAnalysis([candidate],context);
+ assert(html.includes('data-price-source-priority'));assert(html.includes('data-ranking-price-source'));
+ assert(html.includes('Kurs berechnet'));assert(!html.includes('data-product-trade='));
+ candidate.quote.secondaryQuote={...quote(15),isin:'DE000FG4JXV7'};
+ assert.strictEqual(selected().p.price,10.53,'Wrong-identity alternative ignored');
+ candidate.quote.secondaryQuote={...quote(15),estimated:true};
+ assert.strictEqual(selected().p.price,10.53,'Estimated alternative cannot masquerade as original');
+ candidate.quote.secondaryQuote=quote(15,-10);
+ assert.strictEqual(selected().p.price,10.53,'Future-dated alternative ignored');
+ candidate.quote.calculatedProduct.goldAt=at(61);
+ assert.strictEqual(selected().p.price,1,'Expired model cannot silently replace stored price');
+ assert.match(selected().warning,/veraltet/);
+}
+console.log('Research ranking source priority: original, secondary, model; LONG/SHORT, provenance and expiry passed');
+
