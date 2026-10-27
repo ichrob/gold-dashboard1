@@ -524,10 +524,9 @@ def entry_block_evidence(conn, portfolios, limit=5):
     for profile in portfolios.POLICIES:
         table = portfolios.names(profile)['bob_paper_days']
         try:
-            with conn.transaction():
-                row = conn.execute(
-                    f'SELECT day,payload FROM {table} ORDER BY day DESC LIMIT 1'
-                ).fetchone()
+            row = conn.execute(
+                f'SELECT day,payload FROM {table} ORDER BY day DESC LIMIT 1'
+            ).fetchone()
             if not row:
                 accounts.append({'profile':profile, 'status':'unavailable',
                     'reason':'no-saved-paper-day'})
