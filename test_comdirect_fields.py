@@ -124,6 +124,18 @@ class PrintedPrecisionTests(ComdirectFieldsTests):
             self.assertEqual(out['comdirectFieldsBackup']['sourceDecisions']['strike']['state']=='dated-issuer-selected',accepted)
             self.assertIn('strike',out['comdirectFieldsBackup']['conflicts'])
             self.assertFalse(out['eligible'])
+        for accepted,changes in ((True,dict(quoteFailureCode='STALE_OR_INVALID_SOURCE_TIME')),
+            (False,dict(quoteFailureCode='IDENTITY_MISMATCH')),
+            (False,dict(quoteFailureCode='STALE_OR_INVALID_SOURCE_TIME',sourceFailure=True)),
+            (False,dict(quoteFailureCode='STALE_OR_INVALID_SOURCE_TIME',termsFailureCode='DATED_TERMS_UNAVAILABLE'))):
+            changed=copy.deepcopy(p);changed.update(changes)
+            with patch.object(q,'get_observation',return_value=dict(state='observed',fields=fields)):
+                out=f.apply(changed,ISIN,NOW)
+            self.assertEqual(out['comdirectFieldsBackup']['sourceDecisions']['strike']['state']=='dated-issuer-selected',accepted)
+            self.assertEqual(out.get('quoteFailureCode'),changed.get('quoteFailureCode'))
+            self.assertEqual(out['conditions']['strike'],changed['conditions']['strike'])
+            self.assertIn('strike',out['comdirectFieldsBackup']['conflicts'])
+            self.assertFalse(out['eligible']);self.assertFalse(out['found'])
 
     def test_dated_issuer_decision_preserves_raw_difference_and_all_safety_flags(self):
         p=self.primary()
