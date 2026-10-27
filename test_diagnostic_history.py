@@ -348,6 +348,14 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(conn.execute('SELECT id FROM bob_diagnostic_history').fetchall(),[('recent',)])
             conn.execute('DROP SCHEMA '+schema+' CASCADE')
 
+    def test_journal_prune_stays_outside_hot_five_minute_write_path(self):
+        """A failed best-effort prune must not be retried every five minutes."""
+        import inspect
+        self.assertGreaterEqual(h._PRUNE_INTERVAL_SECONDS, 1800)
+        source = inspect.getsource(h)
+        self.assertIn('_LAST_PRUNE = time.monotonic()\\n', source)
+        self.assertNotIn('_LAST_PRUNE = time.monotonic() - 240', source)
+
     def test_journal_cap_catches_up_without_deleting_source_evidence(self):
         import psycopg
         schema = 'diag_cap_' + str(time.time_ns())
