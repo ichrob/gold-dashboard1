@@ -2,10 +2,11 @@ package ch.bob.degirocompanion
 
 /** Explicit, memory-only request. Never survives restart or runs indefinitely. */
 internal object ProductReadRequest {
+    var onStarted: (() -> Unit)? = null
     private var startedAt: Long? = null
     private var lastAttempt: Long? = null
     private var attempts = 0
-    fun start(now: Long) { startedAt = now; lastAttempt = null; attempts = 0 }
+    fun start(now: Long) { startedAt = now; lastAttempt = null; attempts = 0; onStarted?.invoke() }
     fun cancel() { startedAt = null; lastAttempt = null; attempts = 0 }
     fun active(now: Long): Boolean {
         val start = startedAt ?: return false

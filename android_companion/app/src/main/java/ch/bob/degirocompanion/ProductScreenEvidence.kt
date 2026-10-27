@@ -17,8 +17,20 @@ internal object ProductScreenEvidence {
         val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(text.uppercase()).map { it.value }.distinct().toList()
         if (ids.size != 1 || !SeriesEvidence.validIsin(ids.single()))
             return Result(message = "Keine einzelne gültige ISIN sichtbar. Produktdetails öffnen und erneut lesen.")
-        val currency = Regex("\\b(EUR|CHF)\\b|€").findAll(text.uppercase())
+        val currencyPattern = Regex("\\b(EUR|CHF)\\b|€")
+        fun currencies(value: String) = currencyPattern.findAll(value.uppercase())
             .map { if (it.value == "€") "EUR" else it.value }.distinct().toList()
+        val labels = lines.filter { Regex("(?i)^(Geld|Brief|Zuletzt)\\s*[:：]?$").matches(it.text.trim()) }
+        // Currency must belong to a labelled quote, not the account balance above it.
+        val quoteCurrencies = lines.flatMap { line ->
+            val units = currencies(line.text)
+            if (units.isEmpty()) emptyList() else {
+                val sample = (labels + line).distinct().map { it.copy(text = it.text.replace("CHF", "EUR")) }
+                val quote = QuoteLayout.extract(sample)
+                if (quote.keys.any { it in listOf("Geld", "Brief", "Zuletzt") }) units else emptyList()
+            }
+        }.distinct()
+        val currency = if (quoteCurrencies.isNotEmpty()) quoteCurrencies else currencies(text)
         if (currency.size != 1) return Result(message = "Produktwährung nicht eindeutig sichtbar; nichts übernommen.")
         // QuoteLayout consumes geometry, never arbitrary neighboring text or account data.
         val fields = QuoteLayout.extract(lines.map { it.copy(text = it.text.replace("CHF", "EUR")) })

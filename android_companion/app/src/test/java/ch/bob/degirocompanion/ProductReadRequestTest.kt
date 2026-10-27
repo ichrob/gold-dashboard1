@@ -4,6 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ProductReadRequestTest {
+    @Test fun explicitStartNotifiesReaderWithoutWaitingForWindowEvents() {
+        var starts = 0
+        ProductReadRequest.onStarted = { starts++ }
+        try {
+            ProductReadRequest.start(1000)
+            assertEquals(1, starts)
+            ProductReadRequest.cancel()
+            assertEquals(1, starts)
+            ProductReadRequest.start(2000)
+            assertEquals(2, starts)
+        } finally { ProductReadRequest.onStarted = null; ProductReadRequest.cancel() }
+    }
     @Test fun requestRequiresStartAndExpiresWithoutPersisting() {
         ProductReadRequest.cancel()
         assertFalse(ProductReadRequest.attempt(1000))

@@ -30,6 +30,17 @@ class ProductScreenEvidenceTest {
         assertTrue(result.draft.contains("Kurse verzögert"))
         assertEquals("", read(lines("ISIN DE000FD0S0G4", "EUR", "Geld 10,40", "Brief 10,30")).draft)
     }
+    @Test fun accountCurrencyIsNotProductCurrency() {
+        val result = read(lines("CHF 987,65", "ISIN DE000FD0S0G4", "Geld € 10,20", "Brief € 10,30"))
+        assertTrue(result.draft.contains("Währung (Anzeige ungeprüft): EUR"))
+        assertFalse(result.draft.contains("987"))
+        assertEquals("", read(lines("ISIN DE000FD0S0G4", "Geld EUR 10,20", "Brief CHF 10,30")).draft)
+        assertEquals("", read(lines("CHF 987,65", "ISIN DE000FD0S0G4", "Geld 10,20", "Brief 10,30", "EUR")).draft)
+    }
+    @Test fun separateScreensCannotSilentlyReuseIdentity() {
+        assertEquals("", read(lines("EUR", "Geld 10,20", "Brief 10,30")).draft)
+        assertEquals("", read(lines("ISIN DE000FD0S0G4", "EUR", "10,20")).draft)
+    }
     @Test fun boundedMemoryAndFailureClearPreviousDraft() {
         ProductReadSession.put(read(), 1000)
         assertTrue(ProductReadSession.get(2000).draft.isNotEmpty())

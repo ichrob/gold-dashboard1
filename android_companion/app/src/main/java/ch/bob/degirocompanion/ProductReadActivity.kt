@@ -6,6 +6,8 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
@@ -16,6 +18,14 @@ import android.widget.TextView
 
 /** Explicit local controls; no exported intent, remote command or automatic upload. */
 class ProductReadActivity : Activity() {
+    private var displayedRequestActive = false
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private val statusTick = object : Runnable {
+        override fun run() {
+            if (displayedRequestActive != ProductReadRequest.active(SystemClock.elapsedRealtime())) refresh()
+            statusHandler.postDelayed(this, 1000)
+        }
+    }
     private lateinit var result: TextView
     private val preferences by lazy { getSharedPreferences("product_reader", MODE_PRIVATE) }
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,7 +74,8 @@ class ProductReadActivity : Activity() {
         stack.addView(result)
         setContentView(ScrollView(this).apply { addView(stack) })
     }
-    override fun onResume() { super.onResume(); refresh() }
+    override fun onResume() { super.onResume(); refresh(); statusHandler.post(statusTick) }
+    override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
     private fun serviceEnabled(): Boolean {
         val manager = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
         return manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
@@ -72,6 +83,7 @@ class ProductReadActivity : Activity() {
                 it.resolveInfo.serviceInfo.name == ProductReadService::class.java.name }
     }
     private fun refresh() {
+        displayedRequestActive = ProductReadRequest.active(SystemClock.elapsedRealtime())
         val value = ProductReadSession.get(SystemClock.elapsedRealtime())
         result.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) "Android-Lesedienst bereit.\n" else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
             if (value.draft.isNotBlank()) "\n\n${value.draft}" else ""
