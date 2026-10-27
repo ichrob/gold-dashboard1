@@ -77,6 +77,8 @@ class ProductAuditTests(unittest.TestCase):
         item = retained["items"][0]
         self.assertNotIn("leverage-time", item["missing"])
         self.assertEqual(item["leverageSourceAt"], original_at)
+        self.assertEqual(item['timeEvidence']['leverageBasis'], 'original-issuer-time')
+        self.assertNotIn('leverage-time', item['timeEvidence']['missing'])
         self.assertFalse(item["tradeApproved"])
 
         changed = dict(fallback, leverage=19.0)
@@ -464,6 +466,7 @@ class ProductAuditTests(unittest.TestCase):
         self.assertEqual(item["state"],"terminated")
         self.assertTrue(item["sourceStatusEvidence"]["carriedForward"])
         self.assertFalse(item["sourceStatusEvidence"]["currentIssuerAvailable"])
+        self.assertEqual(item['timeEvidence'], dict(missing=[], leverageBasis='unavailable', terms={}))
         self.assertEqual(item["sourceStatusEvidence"]["issuerRawStatus"],8)
         self.assertIsNone(item["quoteSourceAt"])
         self.assertIsNone(item["leverageSourceAt"])
