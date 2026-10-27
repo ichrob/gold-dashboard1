@@ -40,7 +40,13 @@ def snapshot(report, now=None):
                  for p in items if (p.get('fieldRecovery') or {}).get('state') == 'conflict']
     for entry in conflicts:
         decisions = entry['sourceDecisions']
-        if decisions and all(d.get('state') == 'dated-issuer-selected' for d in decisions.values()):
+        # Every conflicting field needs its own decision. A partial decision
+        # must not describe an unresolved sibling as selected; ignore empty
+        # allowlisted projection slots for fields without a conflict.
+        if entry['fields'] and isinstance(decisions, dict) and all(
+                isinstance(decisions.get(key), dict)
+                and decisions[key].get('state') == 'dated-issuer-selected'
+                for key in entry['fields']):
             entry['resolution'] = 'Heute datierte Emittentenangabe gewählt; abweichende undatierte Vergleichswerte bleiben sichtbar. Keine zusätzliche Handelsfreigabe.'
     complete = product_fresh and bool(items) and products.get('total') == len(items) and products.get('incomplete') == 0
     cases = {}
@@ -100,3 +106,4 @@ def snapshot(report, now=None):
         comparisonPolicy=dict(automaticRuleChange=False, productNetValidated=False,
             metrics=['Signalverluste im Spotmodell','Signalverzögerung','Stopp-/Zielprüfung','Ergebnis nach belegten Produktkosten'],
             note='Variantenvergleich unter Besser werden. Spotmodellkosten sind keine tatsächlichen Produktkosten.'))
+

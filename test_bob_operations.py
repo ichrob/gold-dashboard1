@@ -41,6 +41,52 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(conflict['sourceDecisions']['strike']['referenceValue'],4199)
         self.assertFalse(v['productStatus']['tradeApproved'])
 
+    def test_source_decisions_survive_actual_diagnostic_projection(self):
+        import bob_diagnostics as diagnostics
+        r=self.report()
+        recovery={'state':'conflict','checkedAt':999,'conflicts':['strike'],
+            'unresolvedConflicts':[],
+            'sourceDecisions':{'strike':{'state':'dated-issuer-selected',
+                'reason':'Dated issuer selected', 'source':'https://issuer.example/item?token=PRIVATE',
+                'dateText':'27.10.2026','sourceTimeRaw':'2026-10-27T01:35:45',
+                'primaryValue':4200,'referenceValue':4199,'token':'PRIVATE'},
+                'unexpected':{'secret':'PRIVATE'}}}
+        r['areas']['products']['items'][0].update(fieldRecovery=recovery,tradeApproved=False)
+        before=copy.deepcopy(r)
+        r['areas']['products']=diagnostics.product_snapshot(r['areas']['products'])
+        v=op.snapshot(r,1000)
+        conflict=v['productStatus']['conflicts'][0]
+        self.assertIn('Emittentenangabe gewählt',conflict['resolution'])
+        decision=conflict['sourceDecisions']['strike']
+        self.assertEqual(decision['dateText'],'27.10.2026')
+        self.assertEqual(decision['sourceTimeRaw'],'2026-10-27T01:35:45')
+        self.assertEqual(decision['primaryValue'],4200)
+        self.assertEqual(decision['referenceValue'],4199)
+        self.assertEqual(decision['reason'],'Dated issuer selected')
+        self.assertNotIn('PRIVATE',str(v))
+        self.assertNotIn('unexpected',str(v))
+        self.assertEqual(conflict['fields'],['strike'])
+        self.assertFalse(v['productStatus']['tradeApproved'])
+        self.assertEqual(recovery,before['areas']['products']['items'][0]['fieldRecovery'])
+
+    def test_partial_missing_or_malformed_decision_stays_unresolved(self):
+        import bob_diagnostics as diagnostics
+        for decisions in ({}, None, [], {'ko':None},
+                {'ko':{'state':'dated-issuer-selected'}},
+                {'ko':{'state':'dated-issuer-selected'},'strike':{'state':'unresolved'}}):
+            with self.subTest(decisions=decisions):
+                r=self.report()
+                r['areas']['products']['items'][0]['fieldRecovery']={
+                    'state':'conflict','conflicts':['ko','strike'],
+                    'unresolvedConflicts':['strike'],'sourceDecisions':decisions}
+                r['areas']['products']=diagnostics.product_snapshot(r['areas']['products'])
+                self.assertEqual(r['areas']['products']['items'][0]
+                    ['fieldRecovery']['unresolvedConflicts'],['strike'])
+                v=op.snapshot(r,1000)
+                self.assertEqual(v['productStatus']['state'],'conflict')
+                self.assertIn('noch nicht bestätigt',v['productStatus']['conflicts'][0]['resolution'])
+                self.assertFalse(v['productStatus']['tradeApproved'])
+
     def test_stale_future_missing_do_not_imply_success(self):
         for at in (None,1001,1):
             r=self.report();r['areas']['products']['lastCheckedAt']=at
@@ -71,3 +117,4 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(op.stamp('2026-10-26T20:00:00+01:00'),op.stamp('2026-10-26T19:00:00Z'))
 
 if __name__=='__main__': unittest.main()
+

@@ -908,7 +908,11 @@ def product_snapshot(value):
             missing=[None],messages=[None],sourceRecovery=[shape('stage','state','scope','retryAfterSeconds')],
             leverageObservation=shape('value','leverage','source','at','current','calculated','method'),
             sourceObservations=[shape('source','at','bidAt','askAt','bid','ask','currency','kind','priceKind','isExecutableQuote')],
-            fieldRecovery=shape('status','state','source','checkedAt','reason',conflicts=[None]))]))
+            fieldRecovery=shape('status','state','source','checkedAt','reason',
+                conflicts=[None], unresolvedConflicts=[None],
+                sourceDecisions={key:shape('state','reason','source','dateText',
+                    'sourceTimeRaw','primaryValue','referenceValue')
+                    for key in ('ko','strike','ratio','currency')}))]))
 
 
 def summary(areas):
@@ -1371,4 +1375,5 @@ def bounded_report(report, max_bytes):
         areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
         result['omittedAreas'].append(name)
     return result
+
 
