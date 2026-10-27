@@ -561,10 +561,18 @@ def entry_block_evidence(conn, portfolios, limit=5):
                         and math.isfinite(record.get('checks'))
                         and record.get('checks') >= 0 else None),
                 }
-                for key in ('at', 'lastAt'):
-                    value = record.get(key)
+                for source, target in (('at', 'at'), ('lastAt', 'lastAt'),
+                                       ('goldAt', 'sourceAt')):
+                    value = record.get(source)
                     if type(value) in (int, float) and math.isfinite(value) and value >= 0:
-                        item[key] = value
+                        item[target] = value
+                for key, maximum in (('signalSource', 80), ('ruleVersion', 100)):
+                    value = record.get(key)
+                    if isinstance(value, str):
+                        item[key] = clean_text(value)[:maximum]
+                if isinstance(record.get('plan'), dict):
+                    item['plan'] = project(record['plan'],
+                        shape('kind', 'entry', 'stop', 'target', 'unit'))
                 latest.append(item)
             accounts.append({
                 'profile':profile, 'status':'observed', 'day':str(day),
