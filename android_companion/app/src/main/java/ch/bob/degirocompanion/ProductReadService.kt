@@ -86,8 +86,7 @@ class ProductReadService : AccessibilityService() {
             if (root == null) { note(ProductReadDiagnostics.Outcome.WINDOW_ROOT_MISSING); return null }
             if (root.packageName?.toString() != ProductScreenEvidence.PACKAGE) {
                 note(ProductReadDiagnostics.Outcome.OTHER_APP)
-                root.recycle()
-                return null
+                return root
             }
             note(ProductReadDiagnostics.Outcome.WINDOW_ROOT)
             return root
