@@ -1,5 +1,5 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const ctx={window:{},localStorage:{getItem:()=>null,setItem:()=>{}}};vm.createContext(ctx);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),ctx);
+const ctx={window:{},localStorage:{getItem:()=>null,setItem:()=>{}}};vm.createContext(ctx);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8').replace('window.BobDegiro={','window.BobDegiro={goldProductCompactView,'),ctx);
 const b=ctx.window.BobDegiro,isin='DE000FG4JXV7',now=Date.parse('2026-10-02T19:22:30Z');
 const directSource=b.renderProductSources({isin,index:99,quote:{isin,productVerified:true,
  source:'BNP Paribas · offizielle Produktdaten',sourceUrl:'https://derivate.bnpparibas.com/',
@@ -757,3 +757,16 @@ assert.equal(b.calculatedAnalysisStatus(analysisProduct,context,now+301000).appr
 assert.equal(b.calculatedAnalysisStatus(analysisProduct,{...context,direction:'NEUTRAL'},now).approved,false);
 assert.equal(b.calculatedAnalysisStatus(analysisProduct,{...context,spotFresh:false},now).approved,false);
 console.log('Calculated approval uses actual source/terms/risk gates in display and selection');
+
+// The compact card must repair its display from the same validated analysis
+// evidence that made the completeness check pass (no new trading permission).
+const displayProduct=JSON.parse(JSON.stringify(analysisProduct));
+delete displayProduct.snapshot.evidence.Hebel;
+const repairedCard=b.goldProductCompactView(displayProduct,now);
+assert(repairedCard.includes('Hebel</div><strong>15×</strong>'));
+assert(repairedCard.includes('Hebel: berechnet · nur Analyse'));
+assert(!repairedCard.includes('data-product-auto-repair'));
+const expiredCard=b.goldProductCompactView(displayProduct,now+301000);
+assert(!expiredCard.includes('✓ Analyse-Nachweise vorhanden'));
+assert(expiredCard.includes('data-product-auto-repair'));
+console.log('Automatic compact display reconciliation: calculated leverage visible, invalid inputs remain open');
