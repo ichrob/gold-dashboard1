@@ -151,6 +151,7 @@ class ProductReadService : AccessibilityService() {
                     fun supports(action: Int) = scrollNode?.actionList?.any { it.id == action } == true
                     val step = pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
                         supports(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD), supports(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD))
+                    ProductReadDiagnostics.page(step.cause)
                     when (step.move) {
                         ProductPageReader.Move.FORWARD, ProductPageReader.Move.BACKWARD -> {
                             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.PAGE_SCROLL)
