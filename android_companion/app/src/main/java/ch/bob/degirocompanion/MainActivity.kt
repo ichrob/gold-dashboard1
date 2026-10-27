@@ -107,6 +107,9 @@ class MainActivity : Activity() {
         }
         label(appHeadline)
         button("🛑 NOT-STOPP – alle Handy- und Fernaufträge sperren") { emergencyStop() }
+        button("DEGIRO-Produktseite lesen") {
+            startActivity(Intent(this, ProductReadActivity::class.java))
+        }
         button("📋 Kopierten ChatGPT-Auftrag prüfen") {
             // Explicit tap only. Never monitor or persist the clipboard.
             // Read plain text only, not URIs, images, account files or links.
@@ -663,6 +666,8 @@ class MainActivity : Activity() {
     }
 
     private fun emergencyStop() {
+        getSharedPreferences("product_reader", MODE_PRIVATE).edit().putBoolean("enabled", false).apply()
+        ProductReadSession.clear()
         remoteCoupling.stopped()
         remotePendingTask = null
         if (::remoteInput.isInitialized) remoteInput.setText("")

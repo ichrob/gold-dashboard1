@@ -67,8 +67,12 @@ jobs:
           assert 'tools:node="remove"' in manifest
           assert 'android.intent.action.SEND' in manifest
           assert 'android:mimeType="image/*"' in manifest
-          assert 'BIND_ACCESSIBILITY_SERVICE' not in manifest
-          print("Final APK checked: no network access, no broker automation.")
+          assert 'android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"' in manifest
+          config = Path("android_companion/app/src/main/res/xml/product_reader.xml").read_text()
+          assert 'android:canPerformGestures="false"' in config
+          assert 'android:canTakeScreenshot="false"' in config
+          assert 'android:packageNames="nl.degiro.trader"' in config
+          print("Final APK checked: no network access; explicit read-only product service.")
           PY
       - name: Upload disposable lab APK (NOT an update for Bob – Handy)
         uses: actions/upload-artifact@v4

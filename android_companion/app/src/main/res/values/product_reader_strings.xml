@@ -1,0 +1,4 @@
+<resources>
+    <string name="product_reader_label">Bob: Produktseite einmal lesen</string>
+    <string name="product_reader_description">Liest nach deinem Druck auf die Bedienungshilfe-Taste nur sichtbare DEGIRO-Produktfelder. Keine Klicks, Gesten, Passwörter, Orders, Screenshots oder Hintergrundabfragen. Entwurf bleibt lokal und ungeprüft. In Bob Handy jederzeit ausschalten.</string>
+</resources>
