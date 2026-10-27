@@ -221,7 +221,12 @@ class EntryBlockEvidenceTests(unittest.TestCase):
         cursor.fetchone.return_value = ('2026-10-27', {
             'entryBlockCounts': {'Frühwarn-Test: Mindest-CRV nicht erfüllt': 3},
             'entryBlocks': [
-                {'at': 1000, 'lastAt': 2000, 'checks': 2, 'direction': 'LONG',
+                {'at': 1000, 'lastAt': 2000, 'goldAt': 900, 'checks': 2,
+                 'direction': 'LONG', 'signalSource': 'early-warning-v2',
+                 'ruleVersion': 'intraday-responsive-v6',
+                 'plan': {'kind': 'candidate', 'entry': 100, 'stop': 90,
+                          'target': 120, 'unit': 'USD/oz',
+                          'private': 'must-not-pass'},
                  'reason': 'Frühwarn-Test: Mindest-CRV nicht erfüllt',
                  'isin': 'private-isin', 'token': 'secret'},
                 {'at': 3000, 'lastAt': 3000, 'checks': 1, 'direction': 'SHORT',
@@ -246,6 +251,10 @@ class EntryBlockEvidenceTests(unittest.TestCase):
         self.assertEqual(account['returnedRecords'], 2)
         self.assertTrue(account['sourceTruncated'])
         self.assertEqual(account['latest'][0]['direction'], 'LONG')
+        self.assertEqual(account['latest'][0]['sourceAt'], 900)
+        self.assertEqual(account['latest'][0]['signalSource'], 'early-warning-v2')
+        self.assertEqual(account['latest'][0]['plan']['stop'], 90)
+        self.assertNotIn('must-not-pass', json.dumps(evidence))
         self.assertNotIn('private-isin', json.dumps(evidence))
         self.assertNotIn('secret', json.dumps(evidence))
         collected = diagnostics.collect({'simulationAndPush': lambda: {
