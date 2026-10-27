@@ -35,8 +35,13 @@ def snapshot(report, now=None):
     items = [p for p in (products.get('items') or [])[:500] if isinstance(p, dict)]
     conflicts = [dict(isin=p.get('isin'), fields=[k for k in (p.get('fieldRecovery') or {}).get('conflicts', []) if k in ('ko','strike','ratio','currency')],
                       checkedAt=(p.get('fieldRecovery') or {}).get('checkedAt'),
+                      sourceDecisions=(p.get('fieldRecovery') or {}).get('sourceDecisions', {}),
                       resolution='Originalquellen abgleichen; maßgebliche Quelle noch nicht bestätigt.')
                  for p in items if (p.get('fieldRecovery') or {}).get('state') == 'conflict']
+    for entry in conflicts:
+        decisions = entry['sourceDecisions']
+        if decisions and all(d.get('state') == 'dated-issuer-selected' for d in decisions.values()):
+            entry['resolution'] = 'Heute datierte Emittentenangabe gewählt; abweichende undatierte Vergleichswerte bleiben sichtbar. Keine zusätzliche Handelsfreigabe.'
     complete = product_fresh and bool(items) and products.get('total') == len(items) and products.get('incomplete') == 0
     cases = {}
     for row in (index.get('items') or [])[:100]:
