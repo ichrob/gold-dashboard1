@@ -110,7 +110,8 @@ def evaluate_and_store(fetcher, marker, *, now=None, storage=request):
     auto=previous.get("automation") or {}
     old=previous.get("latestReport") or {}
     local=(now or datetime.now(TZ)).astimezone(TZ)
-    same_day=auto.get("lastDay")==day and old.get("version")==strategy_lab.VERSION
+    same_day=(auto.get("lastDay")==day and old.get("version")==strategy_lab.VERSION
+              and (old.get("status")=="maintenance" or (old.get("replay") or {}).get("available") is True))
     if same_day and (old.get("status")=="maintenance" or
          (old.get("status")=="evaluated" and
           (local.hour<20 or (old.get("learningCycle") or {}).get("checkpoint")=="evening"))):

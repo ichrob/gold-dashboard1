@@ -26,6 +26,22 @@ class ReplayTests(unittest.TestCase):
         rows.clear()  # deleting the original working input cannot affect the package
         self.assertTrue(replay.replay(envelope)['matches'])
 
+    def test_legacy_same_day_result_gets_new_package_instead_of_false_replay_claim(self):
+        import strategy_lab_background as bg
+        from zoneinfo import ZoneInfo
+        rows,report,_=fixture()
+        writes=[]
+        def storage(action,payload):
+            if action=='read':return dict(mode='RESEARCH_ONLY',automation={'lastDay':'2026-10-27'},latestReport=report)
+            writes.append(payload)
+            self.assertTrue(replay.replay(payload['replay'])['matches'])
+            return dict(saved=True,day='2026-10-27')
+        out=bg.evaluate_and_store(lambda *_:rows,lambda rows,*_:rows,
+            now=datetime(2026,10,27,9,tzinfo=ZoneInfo('Europe/Zurich')),storage=storage)
+        self.assertEqual(out['status'],'evaluated')
+        self.assertEqual(len(writes),1)
+        self.assertTrue(writes[0]['report']['replay']['available'])
+
     def test_tampering_and_engine_drift_are_not_silently_replayed(self):
         _,_,envelope=fixture()
         bad={**envelope,'id':'0'*64}
