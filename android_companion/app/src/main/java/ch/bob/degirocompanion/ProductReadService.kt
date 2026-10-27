@@ -126,7 +126,7 @@ class ProductReadService : AccessibilityService() {
                     if (node.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
                     if (node.isPassword || node.isEditable) { sensitive = true; return }
                     if (android.os.Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive) { sensitive = true; return }
-                    if (node.isScrollable && node.className?.toString() in setOf("android.widget.ScrollView", "android.widget.NestedScrollView", "androidx.core.widget.NestedScrollView", "android.webkit.WebView", "androidx.recyclerview.widget.RecyclerView"))
+                    if (node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD || it.id == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD })
                         scrollNodes += AccessibilityNodeInfo.obtain(node)
                     val bounds = Rect(); node.getBoundsInScreen(bounds)
                     val value = (node.text ?: node.contentDescription)?.toString()?.trim()
@@ -147,21 +147,38 @@ class ProductReadService : AccessibilityService() {
                 current?.recycle()
                 if (!unchanged) { ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CHANGED); ProductScreenEvidence.Result(message = "Ansicht wechselte; bitte erneut lesen.") }
                 else (if (automatic) {
-                    val scrollNode = scrollNodes.singleOrNull()
-                    fun supports(action: Int) = scrollNode?.actionList?.any { it.id == action } == true
+                    // Custom/Web accessibility nodes may expose scrolling without a standard class.
+                    // Select by advertised action, never by class name or arbitrary position.
+                    val capabilities = scrollNodes.map { node -> ProductScrollPolicy.Capability(
+                        node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD },
+                        node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD }) }
+                    val forwardIndex = ProductScrollPolicy.select(capabilities, true)
+                    val backwardIndex = ProductScrollPolicy.select(capabilities, false)
+                    if (!sensitive) {
+                        ProductReadDiagnostics.record(when {
+                            capabilities.isEmpty() -> ProductReadDiagnostics.Outcome.SCROLL_NO_ACTION
+                            capabilities.count { it.forward } > 1 || capabilities.count { it.backward } > 1 -> ProductReadDiagnostics.Outcome.SCROLL_AMBIGUOUS
+                            else -> ProductReadDiagnostics.Outcome.SCROLL_AVAILABLE
+                        })
+                    }
                     val step = pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
-                        supports(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD), supports(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD))
+                        forwardIndex != null, backwardIndex != null)
                     ProductReadDiagnostics.page(step.cause)
                     when (step.move) {
                         ProductPageReader.Move.FORWARD, ProductPageReader.Move.BACKWARD -> {
                             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.PAGE_SCROLL)
+                            val selectedIndex = if (step.move == ProductPageReader.Move.FORWARD) forwardIndex else backwardIndex
+                            val scrollNode = selectedIndex?.let { scrollNodes[it] }
                             val action = if (step.move == ProductPageReader.Move.FORWARD) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
                             val fresh = productRoot(record = false)
                             val safe = fresh != null && fresh.windowId == root.windowId && fresh.packageName?.toString() == ProductScreenEvidence.PACKAGE
                             fresh?.recycle()
                             if (!safe || scrollNode == null) { ProductReadRequest.cancel(); ProductScreenEvidence.Result(message = "Scrollansicht nicht eindeutig. Prüfung abgebrochen.") }
                             else {
-                                if (!scrollNode.performAction(action)) pageReader.scrollFailed(step.move)
+                                if (!scrollNode.performAction(action)) {
+                                    ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SCROLL_REJECTED)
+                                    pageReader.scrollFailed(step.move)
+                                }
                                 step.result
                             }
                         }

@@ -3,7 +3,7 @@ package ch.bob.degirocompanion
 /** Local counters only: no package names, screen text, ISINs or account values. */
 internal object ProductReadDiagnostics {
     enum class Outcome { NO_ROOT, NO_FOCUSED_WINDOW, WINDOW_ROOT_MISSING, OTHER_APP,
-        DIRECT_ROOT, WINDOW_ROOT, PROTECTED_VIEW, NO_FIELDS, DRAFT, CHANGED, ERROR, LOCKED, PAGE_SCROLL, PAGE_ABORT, PAGE_COMPLETE }
+        DIRECT_ROOT, WINDOW_ROOT, PROTECTED_VIEW, NO_FIELDS, DRAFT, CHANGED, ERROR, LOCKED, PAGE_SCROLL, PAGE_ABORT, PAGE_COMPLETE, SCROLL_NO_ACTION, SCROLL_AMBIGUOUS, SCROLL_AVAILABLE, SCROLL_REJECTED }
     var connected = false
     var canRead = false
     var windowAccess = false
@@ -24,7 +24,7 @@ internal object ProductReadDiagnostics {
         val start = startedAt
         if (start != null && (now < start || now - start > 300000)) clear()
         return buildString {
-            appendLine("BOB-LESEDIAGNOSE/3")
+            appendLine("BOB-LESEDIAGNOSE/4")
             appendLine("Dienst verbunden: $connected · Textzugriff: $canRead · Fensterzugriff: $windowAccess")
             if (counts.isEmpty()) append("Noch keine Diagnosemessung.")
             else for (outcome in Outcome.values()) counts[outcome]?.let { appendLine("${outcome.name}: $it") }
@@ -38,5 +38,13 @@ internal object ProductWindowPolicy {
     data class Window(val active: Boolean, val focused: Boolean, val application: Boolean)
     fun select(windows: List<Window>): Int? = windows.indices.filter {
         windows[it].active && windows[it].focused && windows[it].application
+    }.singleOrNull()
+}
+
+/** Only a unique advertised action can be used; unrelated non-action containers do not veto it. */
+internal object ProductScrollPolicy {
+    data class Capability(val forward: Boolean, val backward: Boolean)
+    fun select(nodes: List<Capability>, forward: Boolean): Int? = nodes.indices.filter {
+        if (forward) nodes[it].forward else nodes[it].backward
     }.singleOrNull()
 }

@@ -9,6 +9,18 @@ class ProductPageReaderTest {
     private val header = lines("DE000FD0S0G4", "EUR")
     private val quotes = lines("Geld EUR 10,20", "Brief EUR 10,30")
     private fun step(reader: ProductPageReader, data: List<QuoteLayout.Line>, forward: Boolean = true, backward: Boolean = true, window: Int = 1, sensitive: Boolean = false) = reader.inspect(window, data, at, sensitive, forward, backward)
+    @Test fun ambiguousHeaderCurrencyDoesNotPreventScrollToLabelledQuotes() {
+        val r = ProductPageReader()
+        val mixedHeader = lines("DE000FD0S0G4", "CHF 500,00", "EUR 10,20")
+        assertEquals(ProductPageReader.Move.FORWARD, step(r, mixedHeader).move)
+        val down = step(r, quotes, forward = false)
+        assertEquals(ProductPageReader.Move.BACKWARD, down.move)
+        assertEquals("", down.result.draft)
+        val done = step(r, mixedHeader)
+        assertEquals(ProductPageReader.Move.FINISHED, done.move)
+        assertTrue(done.result.draft.contains("Währung (Anzeige ungeprüft): EUR"))
+        assertFalse(done.result.draft.contains("500,00"))
+    }
     @Test fun locatesHeaderFromRecognizedQuoteSectionWithoutAssigningValues() {
         val r = ProductPageReader()
         val section = quotes + lines("Kursdaten")
