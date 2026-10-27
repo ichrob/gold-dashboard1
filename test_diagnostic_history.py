@@ -134,6 +134,62 @@ class HistoryTests(unittest.TestCase):
         self.assertIn('INSERT INTO bob_diagnostic_history', conn.statements[0][0])
         self.assertTrue(any("SET LOCAL statement_timeout='5s'" in sql for sql,_ in conn.statements))
 
+
+    def test_prune_log_identifies_sanitized_failed_stage(self):
+        from contextlib import nullcontext
+
+        class Conn:
+            def execute(self, sql, params=()):
+                return None
+
+            def transaction(self):
+                return nullcontext()
+
+        error = h._PruneStageError('cap-delete',
+                                   TimeoutError('private database detail'))
+        with patch.object(h, 'prune', side_effect=error), \
+             patch.object(h.time, 'monotonic', return_value=1801), \
+             patch.object(h, '_LAST_PRUNE', 0), \
+             patch('builtins.print') as output:
+            h.write(Conn(), self.event())
+
+        line = output.call_args.args[0]
+        self.assertIn('stage=cap-delete', line)
+        self.assertIn('error=TimeoutError', line)
+        self.assertNotIn('private database detail', line)
+
+    def test_prune_stage_errors_distinguish_age_and_cap_deletes(self):
+        class Result:
+            rowcount = 0
+
+            def __init__(self, row=None):
+                self.row = row
+
+            def fetchone(self):
+                return self.row
+
+        class Conn:
+            def __init__(self, failing_stage):
+                self.failing_stage = failing_stage
+
+            def execute(self, sql, params=()):
+                if 'pg_try_advisory_xact_lock' in sql:
+                    return Result((True,))
+                stage = ('age-delete' if "interval '7 days'" in sql
+                         else 'cap-delete')
+                if stage == self.failing_stage:
+                    raise TimeoutError('private database detail')
+                return Result()
+
+        for stage in ('age-delete', 'cap-delete'):
+            with self.subTest(stage=stage):
+                with self.assertRaises(h._PruneStageError) as caught:
+                    h.prune(Conn(stage))
+                self.assertEqual(caught.exception.stage, stage)
+                self.assertEqual(caught.exception.error_type, 'TimeoutError')
+                self.assertNotIn('private database detail',
+                                 str(caught.exception))
+
     def test_new_process_defers_retention_until_first_full_interval(self):
         class Conn:
             def __init__(self):

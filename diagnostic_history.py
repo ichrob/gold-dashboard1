@@ -24,6 +24,17 @@ _PRUNE_INTERVAL_SECONDS = 1800
 _PRUNE_TIMEOUT = '5s'
 _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
 _STATS = {'stored':0,'dropped':0,'failures':0,'lastStoredAt':None}
+
+
+class _PruneStageError(Exception):
+    """Sanitized retention failure with the bounded stage that failed."""
+
+    def __init__(self, stage, cause):
+        super().__init__(stage)
+        self.stage = stage
+        self.error_type = type(cause).__name__
+
+
 SCHEMAS = {
     'transport':diag.shape('outcome','errorType'),
     'input':diag.shape('spot_price_as_of','primary','xaus','fetchedAt',counts=diag.shape('1m','5m','15m','30m','1h','4h')),
@@ -116,8 +127,11 @@ def write(conn,event):
                     conn.execute("SET LOCAL statement_timeout='"+_PRUNE_TIMEOUT+"'")
                     removed=prune(conn)
                 print('BOB_DIAGNOSTIC_PRUNE status=completed removed='+str(removed),flush=True)
+            except _PruneStageError as exc:
+                print('BOB_DIAGNOSTIC_PRUNE status=deferred stage='+exc.stage+
+                      ' error='+exc.error_type,flush=True)
             except Exception as exc:
-                print('BOB_DIAGNOSTIC_PRUNE status=deferred error='+
+                print('BOB_DIAGNOSTIC_PRUNE status=deferred stage=transaction error='+
                       type(exc).__name__,flush=True)
             finally:
                 _LAST_PRUNE=time.monotonic()
@@ -130,24 +144,33 @@ def prune(conn):
     # processes, so the in-process mutex above cannot serialize deploy-time
     # retention.  A transaction-scoped, non-blocking PostgreSQL lock makes
     # exactly one service prune while the other keeps delivering diagnostics.
-    locked=conn.execute(
-        'SELECT pg_try_advisory_xact_lock(hashtext(%s))',
-        (_PRUNE_ADVISORY_LOCK,)).fetchone()
+    try:
+        locked=conn.execute(
+            'SELECT pg_try_advisory_xact_lock(hashtext(%s))',
+            (_PRUNE_ADVISORY_LOCK,)).fetchone()
+    except Exception as exc:
+        raise _PruneStageError('advisory-lock', exc) from exc
     if not locked or locked[0] is not True:
         return 0
-    old=conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
-        (SELECT id FROM bob_diagnostic_history
-         WHERE recorded_at < now()-interval '7 days'
-         ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""")
+    try:
+        old=conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
+            (SELECT id FROM bob_diagnostic_history
+             WHERE recorded_at < now()-interval '7 days'
+             ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""")
+    except Exception as exc:
+        raise _PruneStageError('age-delete', exc) from exc
     # Journal rows are append-only. Select physical tuple IDs and delete them
     # in the SAME statement/snapshot, avoiding a second full journal ID join.
     # The advisory lock above serializes maintenance across both services.
     # Only the pre-existing 60,000-row journal cap applies; raw archives are
     # separate tables and are never touched by this maintenance.
-    capped=conn.execute('''DELETE FROM bob_diagnostic_history
-        WHERE ctid = ANY(ARRAY(
-            SELECT ctid FROM bob_diagnostic_history
-            ORDER BY recorded_at DESC OFFSET 60000 LIMIT 2000))''')
+    try:
+        capped=conn.execute('''DELETE FROM bob_diagnostic_history
+            WHERE ctid = ANY(ARRAY(
+                SELECT ctid FROM bob_diagnostic_history
+                ORDER BY recorded_at DESC OFFSET 60000 LIMIT 2000))''')
+    except Exception as exc:
+        raise _PruneStageError('cap-delete', exc) from exc
     counts=(getattr(old,'rowcount',0),getattr(capped,'rowcount',0))
     return sum(value for value in counts if isinstance(value,int) and value>0)
 
