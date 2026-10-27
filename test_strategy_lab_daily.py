@@ -41,7 +41,7 @@ class AutomaticResearchTests(unittest.TestCase):
             self.assertEqual(payload["day"],"2026-10-12")
             self.assertFalse(payload["report"]["approved"])
             self.assertFalse(payload["report"]["orderExecutionEnabled"])
-            return dict(saved=True,day="2026-10-12")
+            return dict(saved=True,day="2026-10-12",replaySaved=True,replayId=payload.get("replay",{}).get("id"))
         with patch.object(bg.strategy_lab,"run",return_value=dict(
             status="insufficient",mode="RESEARCH_ONLY",approved=False,
             orderExecutionEnabled=False,closedBars=9,folds=[])) as engine:
@@ -79,7 +79,7 @@ class AutomaticResearchTests(unittest.TestCase):
             def storage(action,payload):
                 if action=="read":return {"mode":"RESEARCH_ONLY","automation":{}}
                 stored.append(payload)
-                return {"saved":True,"day":"2026-10-12"}
+                return {"saved":True,"day":"2026-10-12","replaySaved":True,"replayId":payload["replay"]["id"]}
             result=bg.evaluate_and_store(lambda *_:short,lambda rows,minutes:rows,
                                          now=now,storage=storage)
         self.assertEqual(result["status"],"evaluated")

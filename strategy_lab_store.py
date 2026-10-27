@@ -103,13 +103,20 @@ def handle(conn, action, payload):
         """, (day, last, report["status"], strategy_lab.VERSION, data))
         archive_current(conn, day)
         # Retain daily reports and accepted revisions for later evaluation.
-        return dict(saved=True, day=day.isoformat(), mode="RESEARCH_ONLY")
+        return dict(saved=True, day=day.isoformat(), mode="RESEARCH_ONLY",
+                    replaySaved=replay is not None, replayId=replay.get("id") if replay else None)
     if action == "read":
         if payload.get('replayId') is not None:
             return __import__('research_replay').read(conn,payload['replayId'])
         rows = conn.execute("""SELECT run_day, calculated_at,last_bar_at,status,version,report
             FROM bob_strategy_lab_daily ORDER BY run_day DESC LIMIT 14""").fetchall()
         latest = rows[0] if rows else None
+        # A legacy server during rolling deploy may have stored only the report.
+        # Availability must follow the actual package, never the report flag alone.
+        if latest and isinstance(latest[5].get('replay'),dict):
+            identity=latest[5]['replay'].get('id')
+            found=conn.execute('SELECT 1 FROM bob_research_replays WHERE id=%s',(identity,)).fetchone()
+            latest[5]['replay']['available']=bool(found)
         return {
             "mode": "RESEARCH_ONLY",
             "automation": {

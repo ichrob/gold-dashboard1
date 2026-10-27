@@ -115,7 +115,7 @@ def evaluate_and_store(fetcher, marker, *, now=None, storage=request):
     if same_day and (old.get("status")=="maintenance" or
          (old.get("status")=="evaluated" and
           (local.hour<20 or (old.get("learningCycle") or {}).get("checkpoint")=="evening"))):
-        return dict(status="already-stored", day=day)
+        return dict(status="already-stored", day=day, replayVerified=(old.get("replay") or {}).get("available") is True, closedBars=old.get("closedBars"))
     if local.weekday() >= 5:
         # Weekends verify durable state only: do not refit models on stale prices.
         report=research_learning.maintenance(old,day)
@@ -141,7 +141,9 @@ def evaluate_and_store(fetcher, marker, *, now=None, storage=request):
     ack=storage("write",payload)
     if not isinstance(ack,dict) or ack.get("saved") is not True or ack.get("day")!=day:
         raise ValueError("Forschungsarchiv hat Speicherung nicht bestätigt")
-    return dict(status=report["status"],day=day,closedBars=report["closedBars"],
+    if 'replay' in payload and (ack.get('replaySaved') is not True or ack.get('replayId')!=payload['replay']['id']):
+        raise ValueError('Forschungsdatenpaket nicht bestätigt')
+    return dict(status=report["status"],day=day,replayVerified=ack.get('replaySaved') is True,closedBars=report["closedBars"],
                 folds=len(report["folds"]))
 
 
@@ -187,13 +189,15 @@ def _loop(fetcher,marker):
             with _lock:
                 _state["phase"]=phase
                 _state["lastRunDay"]=result.get("day")
+                _state['replayVerified']=result.get('replayVerified') is True
+                _state['replayCandles']=result.get('closedBars') if result.get('replayVerified') else None
                 if phase in ("evaluated","maintenance","already-stored"):
                     _state["lastSuccessAt"]=int(time.time()*1000)
             print("BOB_STRATEGY_DAILY status="+phase+" day="+str(result.get("day")),flush=True)
             next_attempt=time.monotonic()+(3600 if phase in ("evaluated","maintenance","already-stored") else RETRY_SECONDS)
         except Exception as exc:
             with _lock:
-                _state.update(phase="retry",error=type(exc).__name__)
+                _state.update(phase="retry",error=type(exc).__name__,replayVerified=False,replayCandles=None)
             print("BOB_STRATEGY_DAILY error="+type(exc).__name__,flush=True)
             next_attempt=time.monotonic()+RETRY_SECONDS
         time.sleep(POLL_SECONDS)
