@@ -124,7 +124,7 @@ class BobMcpTests(unittest.TestCase):
                          {"status":"checking-new-list","total":None,
                           "incomplete":None,"lastCheckedAt":None,
                           "listUploadedAt":None,"needsHelp":None,
-                          "terminated":None,"readOnly":None,
+                          "terminated":None,"excluded":None,"readOnly":None,
                           "degiroConnected":None,"items":[]})
 
 
