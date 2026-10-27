@@ -60,3 +60,33 @@ def report(cases):
              'Zusätzlicher Haltekosten-Stress auf das volle Einstiegskapital; eingebettete Emittentenfinanzierung '
              'wird nicht als nochmals gemessene Gebühr abgezogen. Tatsächliche Kosten unbekannt. '
              'Zusätzlicher Szenariovergleich ohne weitere Abbuchung. Neue automatische Kontofälle ab 19.10.2026 buchen ihre eingefrorenen Beispielkosten bereits im Spielgeld; dieser Vergleich zieht sie nicht nochmals ab.')
+
+def evidence_report(cases):
+    """Bounded read-only audit; calculated analysis never becomes an observed fill."""
+    rows=[]
+    for c in cases:
+        if c.get('demonstration'):continue
+        entry=c.get('entryQuote') or {}
+        basis=c.get('priceBasis') or {}
+        kind='observed' if entry else 'calculated' if basis.get('kind')=='calculated' else 'unpriced'
+        eligible=(kind=='observed' and c.get('status')=='closed' and c.get('productReturnKnown') is True
+                  and c.get('performanceEligible') is not False and c.get('remainingUnits')==0
+                  and c.get('pendingUnits')==0)
+        exits=[dict(kind=e.get('kind'),at=e.get('at'),recordedAt=e.get('recordedAt'),
+                    source=(e.get('quote') or {}).get('source'),
+                    bidAt=(e.get('quote') or {}).get('bidAt'),bid=(e.get('quote') or {}).get('bid'),
+                    units=e.get('units'),reason=e.get('reason'))
+               for e in c.get('events',[]) if finite(e.get('units')) and e['units']>0]
+        rows.append(dict(id=c.get('id'),direction=c.get('plan',{}).get('direction'),kind=kind,
+            status=c.get('status'),performanceEligible=eligible,priceBasis=basis or None,
+            entry=dict(at=entry.get('askAt'),source=entry.get('source'),ask=c.get('entryAsk')),
+            exits=exits,grossPct=c.get('productGrossPct') if eligible else None,
+            observedMaxDrawdownPct=c.get('observedMaxDrawdownPct'),
+            observedValuationChecks=c.get('observedValuationChecks',0),
+            costAssumptions=c.get('ledgerCostModel'),actualNetKnown=False))
+    return dict(version=1,groups=[dict(kind=kind,cases=sum(r['kind']==kind for r in rows),
+        eligible=sum(r['kind']==kind and r['performanceEligible'] for r in rows))
+        for kind in ('observed','calculated','unpriced')],cases=rows,actualNetKnown=False,
+        note='Gewählter Tag, höchstens 100 Fälle. Beobachtete Geld/Brief-Positionen, berechnete Analyse und unbelegte Fälle getrennt. '
+             'Größter Rückgang nur an beobachteten Bewertungspunkten, ohne erfundene Zwischenkurse. '
+             'Kosten sind eingefrorene Beispielannahmen; tatsächlicher Nettogewinn unbekannt.')
