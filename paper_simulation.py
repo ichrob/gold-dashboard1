@@ -456,6 +456,26 @@ def capital_snapshot(control,case,quote,now):
     control['totalProfit']=equity-control['initialCapital'] if equity is not None else None
     control['costPeriodProfit']=(equity-control['costsOpeningEquity'] if equity is not None and control.get('costsOpeningEquity') is not None else None)
 
+def entry_block_context(market, choice, control):
+    """Copy only decision-time fields needed for later paper-entry review."""
+    market = market if isinstance(market, dict) else {}
+    choice = choice if isinstance(choice, dict) else {}
+    control = control if isinstance(control, dict) else {}
+    plan = market.get('plan')
+    safe_plan = ({key:copy.deepcopy(plan.get(key))
+                  for key in ('kind', 'entry', 'stop', 'target', 'unit')
+                  if plan.get(key) is not None}
+                 if isinstance(plan, dict) else None)
+    return {
+        'direction':market.get('direction', 'NEUTRAL'),
+        'isin':choice.get('isin'),
+        'goldAt':market.get('dataAt'),
+        'ruleVersion':market.get('ruleVersion'),
+        'signalSource':control.get('signalSource'),
+        'plan':safe_plan,
+    }
+
+
 def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=None,entry=None,checklist=None):
     row=conn.execute('SELECT payload FROM bob_paper_days WHERE day=%s',(day,)).fetchone()
     d=row[0] if row else dict(cases=0,closed=0,inconclusive=0,goldPositive=0,goldNegative=0,goldFlat=0,
@@ -752,9 +772,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             control['lastEntryChecklist']=entry_checklist
             control.update(status='running',reason=reason)
             day_update(conn,day,wait=None if entered else reason,now=now,capital=control,checklist=entry_checklist,
-                       entry=dict(direction=market.get('direction','NEUTRAL'),
-                         isin=choice.get('isin') if choice else None,
-                         goldAt=market.get('dataAt'),ruleVersion=market.get('ruleVersion')) if not entered else None)
+                       entry=entry_block_context(market, choice, control)
+                         if not entered else None)
         # Preserve original entry/exit evidence; bounded report queries limit reads, not retention.
     conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
 
