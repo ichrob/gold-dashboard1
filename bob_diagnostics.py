@@ -923,6 +923,12 @@ def summary(areas):
             return
         if not isinstance(value,dict):return
         state=value.get('status',value.get('state'))
+        if state == 'conflict' and path.endswith('.fieldRecovery'):
+            conflict_fields=value.get('conflicts') or []
+            decisions=value.get('sourceDecisions') or {}
+            if (conflict_fields and not value.get('unresolvedConflicts') and isinstance(decisions,dict)
+                and all(isinstance(decisions.get(k),dict) and decisions[k].get('state')=='dated-issuer-selected' for k in conflict_fields)):
+                state='differences-explained'
         if state == 'inconclusive' and (value.get('administrativeReview') or {}).get('status') == paper_case_review.STATUS:
             return
         if state in ('unavailable','stale','degraded','failed','retry','partial','wrong-basis','invalid-ohlc','recent-gap','missing','insufficient','incomplete','conflict','inconclusive','recurred'):
@@ -970,7 +976,12 @@ def summary(areas):
                 item['meaning'] = 'no-local-evaluator-capture-not-a-confirmed-global-outage'
         if path.startswith('simulationAndPush.accounts.') and item['state']=='inconclusive':
             item['meaning']='paper-result-unconfirmed-not-a-realised-loss'
-    return {'attention':findings[:40], 'assessment':'needs-attention' if findings else 'observed-only',
+    for item in findings:
+        if item.get('sourceRole')=='alternate':
+            item['severity']='info'
+            item['meaning']='backup-source-unavailable-selected-feed-assessed-separately'
+        else:item['severity']='warning'
+    return {'attention':findings[:40], 'assessment':'needs-attention' if any(x['severity']=='warning' for x in findings) else 'observed-only',
             'note':'A stale alternate quote source does not by itself prove the selected candle feed failed. Inconclusive paper results are not realised losses. Original timestamps remain authoritative.'}
 
 
