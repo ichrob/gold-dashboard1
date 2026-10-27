@@ -194,3 +194,14 @@ for(const direction of ['LONG','SHORT']){
 }
 console.log('Research ranking source priority: original, secondary, model; LONG/SHORT, provenance and expiry passed');
 
+
+// One immutable analysis snapshot is exposed to display, ranking and selector.
+const shared=bob.selectedPriceSnapshot(p,now);
+assert(shared && shared.kind==='calculated');
+assert.equal(shared.price,calculated.askEur);
+assert.equal(shared.at,calculated.priceAt);
+assert.equal(shared.degiroExecutable,false);
+assert(bob.renderPrimaryProductValues(p,now).includes('data-selected-price-key='));
+const row=bob.continuingAnalysis([p],{now,direction:'LONG',spot:4140,spotFresh:true,atr:10})[0];
+assert.equal(row.priceBasis.selectionKey,shared.selectionKey);
+assert.equal(row.p.price,shared.price);
