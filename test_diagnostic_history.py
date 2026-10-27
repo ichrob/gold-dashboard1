@@ -353,7 +353,7 @@ class DatabaseTests(unittest.TestCase):
         import inspect
         self.assertGreaterEqual(h._PRUNE_INTERVAL_SECONDS, 1800)
         source = inspect.getsource(h)
-        self.assertIn('_LAST_PRUNE = time.monotonic()\\n', source)
+        self.assertIn('_LAST_PRUNE = time.monotonic()', source.splitlines())
         self.assertNotIn('_LAST_PRUNE = time.monotonic() - 240', source)
 
     def test_journal_cap_catches_up_without_deleting_source_evidence(self):
