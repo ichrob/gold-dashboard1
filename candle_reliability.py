@@ -102,6 +102,11 @@ def transition(old,state,now,source_at=None):
 
 
 def init(conn):
+    conn.execute("""CREATE TABLE IF NOT EXISTS bob_candle_evidence (
+        source_key TEXT NOT NULL, open_time BIGINT NOT NULL,
+        fingerprint TEXT NOT NULL, payload JSONB NOT NULL,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY(source_key,open_time,fingerprint))""")
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_candle_checkpoints (
         key TEXT PRIMARY KEY, latest DOUBLE PRECISION NOT NULL,
         payload JSONB NOT NULL, saved_at TIMESTAMPTZ NOT NULL DEFAULT now())''')
@@ -144,6 +149,12 @@ def handle(conn,action,payload):
     else:
         rows=validated(key,payload.get('rows'))
         if not rows:raise ValueError('Empty checkpoint')
+        # Preserve all accepted candle revisions before replacing the rolling checkpoint.
+        conn.execute("""INSERT INTO bob_candle_evidence(source_key,open_time,fingerprint,payload)
+            SELECT %s,(value->>'openTime')::numeric::bigint,
+                encode(sha256(convert_to(value::text,'UTF8')),'hex'),value
+            FROM jsonb_array_elements(%s::jsonb)
+            ON CONFLICT DO NOTHING""",(key,json.dumps(rows,allow_nan=False)))
         conn.execute('''INSERT INTO bob_candle_checkpoints(key,latest,payload) VALUES(%s,%s,%s::jsonb)
             ON CONFLICT(key) DO UPDATE SET latest=excluded.latest,payload=excluded.payload,saved_at=now()
             WHERE excluded.latest>bob_candle_checkpoints.latest OR

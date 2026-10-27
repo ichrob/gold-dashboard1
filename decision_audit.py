@@ -242,7 +242,7 @@ def write(conn,payload):
     key,record=normalize(payload)
     inserted=conn.execute('INSERT INTO bob_decision_audit(id,payload) VALUES(%s,%s::jsonb) ON CONFLICT(id) DO NOTHING RETURNING id',(key,json.dumps(record,allow_nan=False))).fetchone()
     if inserted:stop_target_audit.register(conn,key,record)
-    conn.execute("DELETE FROM bob_decision_audit WHERE recorded_at < now()-interval '30 days'")
+    # Research evidence has no automatic age-based expiry.
     return {'ok':True,'id':key,'version':VERSION}
 
 def outcome(record, truth, horizon):

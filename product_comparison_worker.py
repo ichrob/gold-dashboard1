@@ -90,7 +90,7 @@ def tick(db, bundle, quote_fetch=None, now=None):
         with db() as conn:
             current = conn.execute('SELECT settings,state FROM bob_real_trades WHERE id=%s AND active=TRUE FOR UPDATE',(tid,)).fetchone()
             if not current or model_key((current[0].get('trade') or {}).get('product') or {}) != model_key(product):continue
-            conn.execute("DELETE FROM bob_trade_comparisons WHERE quote_at<now()-interval '7 days'")
+            # Research evidence has no automatic age-based expiry.
             conn.execute('''INSERT INTO bob_trade_comparisons(trade_id,model_key,quote_at,source,evidence)
                 VALUES(%s,%s::jsonb,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING''',
                 (tid,json.dumps(model_key(product)),history.clock(quote['bidAt']),row['source'],json.dumps(row)))

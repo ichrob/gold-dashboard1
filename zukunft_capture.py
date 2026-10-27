@@ -88,9 +88,6 @@ def record(conn, market, selection, quotes, now):
                  payload=EXCLUDED.payload""",
                  (key,isin,now/1000,json.dumps(item,allow_nan=False)))
         observed += 1
-    if observed:
-        conn.execute("""DELETE FROM bob_zukunft_observations
-                        WHERE observed_at < now()-interval '45 days'""")
     return observed
 
 

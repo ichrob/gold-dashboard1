@@ -73,8 +73,8 @@ def handle(conn, action, payload):
         events = payload.get('events', [])
         if not isinstance(events, list) or len(events) > 4:raise ValueError('Vergleichspaket zu groß')
         values = [(e, checked(e)) for e in events]
-        conn.execute("DELETE FROM bob_comparison_predictions WHERE received_at<now()-interval '7 days'")
-        conn.execute("DELETE FROM bob_comparison_truths WHERE received_at<now()-interval '7 days'")
+        # Research evidence has no automatic age-based expiry.
+        # Research evidence has no automatic age-based expiry.
         # Truth first: a calculation submitted together with already-known
         # truth must not be retrospectively accepted as a prediction.
         for e, (kind, at, ref, bucket) in sorted(values, key=lambda v: v[1][0] != 'truth'):

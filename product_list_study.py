@@ -142,7 +142,7 @@ def tick(db,bundle,quote_fetch,now):
                 if replace:
                     conn.execute('''INSERT INTO bob_list_price_anchors VALUES(%s,%s::jsonb)
                         ON CONFLICT(isin) DO UPDATE SET payload=EXCLUDED.payload''',(isin,json.dumps(current)))
-                conn.execute("DELETE FROM bob_list_price_pairs WHERE quote_at<now()-interval '30 days'")
+                # Research evidence has no automatic age-based expiry.
                 conn.execute('DELETE FROM bob_list_price_anchors WHERE NOT (isin=ANY(%s))',(list(isins),))
                 conn.commit()
         except Exception as exc:

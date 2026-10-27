@@ -50,7 +50,7 @@ class ProductCurveChecks(unittest.TestCase):
         class FakeDB:
             def execute(self,*a):raise AssertionError('Unverified data must not reach database')
         self.assertFalse(chart.append(FakeDB(),'trade-1',PRODUCT,{'xaus':4200},NOW))
-    def test_keep_original_clocks_in_insert_and_prune_only_old_model_points(self):
+    def test_keep_original_clocks_and_retain_model_evidence(self):
         class FakeDB:
             def __init__(self):
                 self.calls=[]
@@ -58,12 +58,8 @@ class ProductCurveChecks(unittest.TestCase):
                 self.calls.append((sql,args))
         db=FakeDB()
         self.assertTrue(chart.append(db,'trade-1',PRODUCT,SPOTS,NOW))
-        self.assertEqual(len(db.calls),2)
-        prune_sql,prune_args=db.calls[0]
-        self.assertIn('DELETE FROM bob_real_trade_price_curve',prune_sql)
-        self.assertIn("interval '7 days'",prune_sql)
-        self.assertEqual(prune_args,('trade-1',))
-        insert_sql,args=db.calls[1]
+        self.assertEqual(len(db.calls),1)
+        insert_sql,args=db.calls[0]
         self.assertIn('ON CONFLICT DO NOTHING',insert_sql)
         self.assertEqual(args[1],iso(-15))
         self.assertEqual(args[2],iso(-20))

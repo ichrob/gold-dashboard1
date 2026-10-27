@@ -23,7 +23,7 @@ class AutomaticResearchTests(unittest.TestCase):
         def storage(action,payload):
             calls.append(action)
             return dict(mode="RESEARCH_ONLY",automation=dict(lastDay="2026-10-12"),
-                        latestReport=dict(status="evaluated",version=strategy_lab.VERSION))
+                        latestReport=dict(status="evaluated",version=strategy_lab.VERSION,replay={"available":True}))
         out=bg.evaluate_and_store(
             lambda *_:self.fail("recomputed despite saved daily snapshot"),
             lambda *_:self.fail("marked despite saved daily snapshot"),

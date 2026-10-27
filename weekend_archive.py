@@ -144,7 +144,7 @@ def handle(conn, action, payload):
                 WHERE bob_weekend_archive.quote_at<excluded.quote_at""",
                 (key,stamp,json.dumps(item,allow_nan=False)))
             count+=1
-        conn.execute("DELETE FROM bob_weekend_archive WHERE quote_at < now() - interval '7 days'")
+        # Research evidence has no automatic age-based expiry.
         return {'ok':True,'accepted':count}
     if action=='read':
         rows=conn.execute("""SELECT data_key,payload FROM bob_weekend_archive
