@@ -45,6 +45,25 @@ class ProductEstimateTests(unittest.TestCase):
             self.assertEqual(measured['sampleCount'],1)
             self.assertAlmostEqual(measured['maxAbsoluteError'],.5)
             self.assertFalse(measured['ready'])
+            forward=quality.quality(e.forward_key(observed['productModel'],'ask'),50,later)
+            self.assertEqual(forward['sampleCount'],0)
+
+    def test_frozen_forecast_is_compared_when_original_returns(self):
+        import estimate_quality as quality
+        with patch.object(quality,'_pending',{}),patch.object(quality,'_errors',{}),patch.object(quality,'_seen',{}),patch.object(quality,'_truth_receipts',{}):
+            first,data=self.anchor();later=NOW+timedelta(seconds=40)
+            spot,fx=self.inputs(data,later,first['leverageInputs']['spotUsd'],first['leverageInputs']['usdEur'])
+            predicted=e.current(first['productModel'],spot,fx,later)
+            self.assertTrue(predicted['available'])
+            self.assertEqual(predicted['forwardValidation']['sampleCount'],0)
+            observed=copy.deepcopy(first)
+            for k in ('bidAt','askAt','spotAt','fxAt','fxDataAt','fxEffectiveAt'):observed[k]=later.isoformat()
+            observed['bid']+=.5;observed['ask']+=.5
+            e.remember(observed,observed['productModel'],later+timedelta(seconds=1))
+            measured=quality.quality(e.forward_key(observed['productModel'],'ask'),40,later+timedelta(seconds=2))
+            self.assertEqual(measured['sampleCount'],1)
+            self.assertAlmostEqual(measured['maxAbsoluteError'],.5,places=3)
+            self.assertFalse(measured['ready'])
 
     def test_short_product_formula_and_current_fx(self):
         result,data=self.anchor();now=NOW+timedelta(seconds=110)
