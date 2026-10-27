@@ -95,15 +95,14 @@ class ProductReadService : AccessibilityService() {
     }
     private fun readOnce(automatic: Boolean = false) {
         if (!automatic) { ProductReadRequest.cancel(); ProductReadDiagnostics.reset(SystemClock.elapsedRealtime()) }
-        ProductReadSession.clear()
         if (!getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false)) { ProductReadRequest.cancel(); return }
         if ((getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) { ProductReadRequest.cancel(); ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED); return }
         val result = runCatching {
             val root = productRoot(record = true)
                 ?: return@runCatching ProductScreenEvidence.Result(message = "Android liefert gerade keinen Fensterinhalt. Ursache noch ungeklärt; dies beweist keine DEGIRO-Sperre.")
             try {
-                if (root.packageName?.toString() != ProductScreenEvidence.PACKAGE)
-                    return@runCatching ProductScreenEvidence.Result(message = "Bitte zuerst die DEGIRO-Produktseite öffnen.")
+                // Returning to Bob must not erase the last DEGIRO rejection or draft.
+                if (root.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
                 val lines = mutableListOf<QuoteLayout.Line>()
                 var sensitive = false
                 var count = 0
@@ -132,6 +131,7 @@ class ProductReadService : AccessibilityService() {
                 current?.recycle()
                 if (!unchanged) { ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CHANGED); ProductScreenEvidence.Result(message = "Ansicht wechselte; bitte erneut lesen.") }
                 else ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines.distinct(), Instant.now().toString(), sensitive).also {
+                    ProductReadDiagnostics.rejected(it.reason)
                     ProductReadDiagnostics.record(when {
                         sensitive -> ProductReadDiagnostics.Outcome.PROTECTED_VIEW
                         it.draft.isNotBlank() -> ProductReadDiagnostics.Outcome.DRAFT

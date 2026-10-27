@@ -349,3 +349,11 @@ fremde App, geschützte Ansicht, fehlende Felder, Entwurf oder Fehler. Keine
 Paketnamen, Fenstertitel, Kontodaten, ISINs oder Bildschirmtexte. Nur Arbeitsspeicher,
 Löschung nach fünf Minuten/STOPP; Kopieren nur per Taste, keine Übertragung.
 Android-Geräteabnahme ist weiterhin offen.
+
+### Feldprüfung / Diagnose 2
+
+Die Diagnose zählt nun getrennt fehlende/mehrdeutige/ungültige ISIN, uneindeutige
+Währung, fehlende/widersprüchliche Kurse sowie Login-/Orderansichten. Die Gründe
+sind feste Codes ohne Originaldaten. Der Wechsel zurück zu Bob überschreibt
+einen vorhandenen DEGIRO-Fehler nicht mehr mit „andere App“. Schutzprüfungen und
+das Verbot einer stillen Zuordnung verschiedener Bildausschnitte bleiben bestehen.
