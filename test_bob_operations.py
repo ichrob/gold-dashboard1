@@ -29,6 +29,35 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(v['productStatus']['state'],'conflict')
         self.assertEqual(v['cases'][0]['comparison'],'source-conflict')
 
+    def test_unconfirmed_terms_survive_projection_and_prevent_complete_label(self):
+        import bob_diagnostics as diagnostics
+        r=self.report()
+        item=r['areas']['products']['items'][0]
+        item['timeEvidence']={'terms':{'ko':{'conditionVerified':False,
+            'validityUnconfirmed':True,'reviewedAt':999,'secret':'PRIVATE'},
+            'strike':{'conditionVerified':True}}}
+        item['leverageObservation']={'value':10,'kind':'shared-issuer-observation',
+                                    'researchOnly':True}
+        r['areas']['products']=diagnostics.product_snapshot(r['areas']['products'])
+        v=op.snapshot(r,1000)
+        self.assertEqual(v['productStatus']['state'],'incomplete')
+        self.assertEqual(v['productStatus']['unconfirmedTermsCount'],1)
+        self.assertEqual(v['cases'][0]['comparison'],'current-product-evidence-not-complete')
+        self.assertFalse(v['productStatus']['tradeApproved'])
+        self.assertNotIn('PRIVATE',str(r))
+        projected=r['areas']['products']['items'][0]
+        self.assertTrue(projected['leverageObservation']['researchOnly'])
+        self.assertEqual(projected['timeEvidence']['terms']['ko']['reviewedAt'],999)
+        report=diagnostics.summary(r['areas'])
+        self.assertTrue(any(x.get('meaning')=='original-term-validity-unconfirmed'
+                            for x in report['attention']))
+
+    def test_verified_terms_do_not_create_gap(self):
+        r=self.report()
+        r['areas']['products']['items'][0]['timeEvidence']={'terms':{
+            'ko':{'conditionVerified':True,'validityUnconfirmed':False}}}
+        self.assertEqual(op.snapshot(r,1000)['productStatus']['state'],'complete')
+
     def test_source_decision_is_visible_without_hiding_raw_conflict(self):
         r=self.report()
         r['areas']['products']['items'][0]['fieldRecovery']={

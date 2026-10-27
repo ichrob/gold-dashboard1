@@ -51,7 +51,11 @@ def snapshot(report, now=None):
         if entry['resolved']:
             entry['resolution'] = 'Datierte Emittentenangabe gewählt; abweichende undatierte Vergleichswerte bleiben sichtbar. Keine zusätzliche Handelsfreigabe.'
     unresolved = [entry for entry in conflicts if not entry['resolved']]
-    complete = product_fresh and bool(items) and products.get('total') == len(items) and products.get('incomplete') == 0
+    unconfirmed_terms = [p for p in items if any(
+        isinstance(term, dict) and term.get('validityUnconfirmed') is True
+        for term in ((p.get('timeEvidence') or {}).get('terms') or {}).values())]
+    complete = (product_fresh and bool(items) and products.get('total') == len(items)
+                and products.get('incomplete') == 0 and not unconfirmed_terms)
     cases = {}
     for row in (index.get('items') or [])[:100]:
         if not isinstance(row, dict) or not isinstance(row.get('code'), str):
@@ -102,6 +106,7 @@ def snapshot(report, now=None):
         productStatus=dict(state='unknown' if not product_fresh else 'conflict' if unresolved else 'differences-explained' if conflicts else 'complete' if complete else 'incomplete',
                            checkedAt=products.get('lastCheckedAt'), conflicts=conflicts,
                            unresolvedCount=len(unresolved),explainedCount=len(conflicts)-len(unresolved),
+                           unconfirmedTermsCount=len(unconfirmed_terms),
                            tradeApproved=False),
         cases=list(cases.values()), problemIndexFresh=index_fresh,
         actions=actions, actionStatus='known' if index_fresh else 'unknown', jobs=jobs,

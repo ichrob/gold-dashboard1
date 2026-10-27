@@ -907,7 +907,10 @@ def product_snapshot(value):
     return project(value,shape('status','lastCheckedAt','listUploadedAt','total','incomplete','needsHelp','readOnly','degiroConnected',
         items=[shape('isin','direction','state','source','quoteSourceAt','leverageSourceAt','dataQuoteSource','dataQuoteKind','nativeCurrency','tradeApproved','identityEvidence',
             missing=[None],messages=[None],sourceRecovery=[shape('stage','state','scope','retryAfterSeconds')],
-            leverageObservation=shape('value','leverage','source','at','current','calculated','method'),
+            leverageObservation=shape('value','leverage','source','at','current','calculated','method','kind','researchOnly','label'),
+            timeEvidence=shape('leverageBasis', terms={key:shape(
+                'at','dateText','reviewedAt','sourceField','sourceTimeRaw',
+                'conditionVerified','validityUnconfirmed') for key in ('ko','strike')}),
             sourceObservations=[shape('source','at','bidAt','askAt','bid','ask','currency','kind','priceKind','isExecutableQuote')],
             fieldRecovery=shape('status','state','source','checkedAt','reason',
                 conflicts=[None], unresolvedConflicts=[None],
@@ -940,6 +943,10 @@ def summary(areas):
             findings.append(finding)
         if path.endswith('.dmi') and value.get('available') is False:
             findings.append({'area':path,'state':'incomplete'})
+        if (path.startswith('products.items.') and '.timeEvidence.terms.' in path
+                and value.get('validityUnconfirmed') is True):
+            findings.append({'area':path,'state':'incomplete',
+                             'meaning':'original-term-validity-unconfirmed'})
         for key,item in value.items():
             # The outage event log is historical evidence. Its old "stale" /
             # "incomplete" transitions must not be counted as LIVE alerts.
