@@ -528,7 +528,7 @@ function mount(){
     'Du musst etwas tun: Aufgabenstatus nicht bestätigt.';
    const detail=doc.getElementById('bobOperationsDetail');detail.replaceChildren();
    const line=value=>{const p=doc.createElement('p');p.textContent=value;detail.append(p);};
-   const labels={unknown:'nicht bestätigt',unavailable:'Nachweis nicht verfügbar',observed:'Beobachtung vorhanden',paused:'pausiert',conflict:'Quellen widersprechen sich',complete:'Pflichtfelder vollständig',incomplete:'Pflichtfelder unvollständig'};
+   const labels={unknown:'nicht bestätigt',unavailable:'Nachweis nicht verfügbar',observed:'Beobachtung vorhanden',paused:'pausiert','differences-explained':'Quellenabweichungen eingeordnet',conflict:'Quellenentscheidung offen',complete:'Pflichtfelder vollständig',incomplete:'Pflichtfelder unvollständig'};
    if(operations?.version===1){
     line('Produktdaten: '+(labels[operations.productStatus.state]||'nicht bestätigt')+'. Handelsfreigabe separat.');
     for(const c of operations.productStatus.conflicts||[])line(c.isin+': '+c.fields.join(', ')+' – '+c.resolution);
