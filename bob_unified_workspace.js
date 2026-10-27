@@ -231,10 +231,11 @@ function mountSimpleHome(doc,workspace){
  const fold=(parent,id,label)=>{const d=doc.createElement('details');d.id=id;d.className='card bob-disclosure';const s=doc.createElement('summary');s.textContent=label;d.append(s);parent.append(d);return d;};
  const preparation=fold(products,'bobProductPreparation','Weitere Produktprüfung und Vorbereitung');
  preparation.append(workspace);
- const detail=fold(home,'bobHomeDetails','Warum? · Marktanalyse und Chart');
+ const detail=fold(home,'bobHomeDetails','Warum? · Marktanalyse');
  const quotes=home.querySelector('.gold-market');
+ const chart=doc.getElementById('chart')?.closest('.card');
  for(const child of [...home.children]){
-  if(child===detail||child===quotes)continue;
+  if(child===detail||child===quotes||child===chart)continue;
   if(child.classList.contains('bob-status'))doc.getElementById('bobSystemDetails')?.append(child);
   else if(child.querySelector('#bobSelectionSummary'))products.append(child);
   else detail.append(child);
@@ -253,6 +254,8 @@ function mountSimpleHome(doc,workspace){
  // Keep the next action visible even with long warnings or large text.
  doc.getElementById('bobHomeSignal').after(card.querySelector('.bob-home-actions'));
  if(quotes)card.after(quotes);
+ // Keep the original interactive chart outside every collapsed analysis panel.
+ if(chart)(quotes||card).after(chart);
  const put=(id,value)=>{const el=doc.getElementById(id);if(el&&el.textContent!==value)el.textContent=value;};
  const read=id=>doc.getElementById(id)?.textContent?.trim()||'';
  function refresh(){
