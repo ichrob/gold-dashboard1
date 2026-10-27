@@ -76,11 +76,11 @@ function stressCases(){
  });
 }
 function snapshot(raw){
- if(!raw||!['four-independent-paper-accounts','five-independent-paper-accounts'].includes(raw.mode)||raw.realOrders!==false||
-    !Array.isArray(raw.accounts)||raw.accounts.length!==(raw.mode==='five-independent-paper-accounts'?5:4))throw Error('Papierkonto-Daten nicht bestätigt');
+ if(!raw||!['four-independent-paper-accounts','five-independent-paper-accounts','seven-independent-paper-accounts'].includes(raw.mode)||raw.realOrders!==false||
+    !Array.isArray(raw.accounts)||raw.accounts.length!==(raw.mode==='seven-independent-paper-accounts'?7:raw.mode==='five-independent-paper-accounts'?5:4))throw Error('Papierkonto-Daten nicht bestätigt');
  const names=new Set(),items=[];
  for(const a of raw.accounts){
-  if(!(raw.mode==='five-independent-paper-accounts'?['conservative','balanced','offensive','trend800','early100']:['conservative','balanced','offensive','trend800']).includes(a.profile)||names.has(a.profile))
+  if(!(raw.mode==='seven-independent-paper-accounts'?['conservative','balanced','offensive','trend800','early100','early1000oct','normal1000oct']:raw.mode==='five-independent-paper-accounts'?['conservative','balanced','offensive','trend800','early100']:['conservative','balanced','offensive','trend800']).includes(a.profile)||names.has(a.profile))
    throw Error('Doppelte oder unbekannte Kontenkennung');names.add(a.profile);
   const ctl=a.control||{},p=a.performance||{},day=a.stats||{};
   const daily=Array.isArray(a.daily)?a.daily:[];

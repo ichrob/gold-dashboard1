@@ -505,7 +505,7 @@ def report(conn, day=None):
     phase = background_push.degiro_session()
     closed = phase == 'weekend'
     status = dict(control)
-    if phase != 'trading' and status.get('enabled') and time.time()*1000 >= status.get('startAt', START):
+    if phase != 'trading' and status.get('status') not in ('completed','ending-pending-quotes') and status.get('enabled') and time.time()*1000 >= status.get('startAt', START):
         status.update(status='market-closed' if closed else 'night-paused' if phase=='night' else 'preparing',
                       reason='Goldmarkt geschlossen · Simulation pausiert' if closed
                              else 'DEGIRO-Nachtmodus · Simulation pausiert, gespeichert und geschützt' if phase=='night'
@@ -577,7 +577,9 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         control.update(ledgerDay=day,dayOpeningEquity=control.get('equity'),dayOpeningRealized=control['realizedProfit'])
     control.update(checkedAt=now,ruleVersion=market.get('ruleVersion'),lastDirection=market.get('direction','NEUTRAL'),lastGold=market.get('price'),goldAt=market.get('dataAt'))
     phase = background_push.degiro_session(now)
-    if now >= control['startAt'] and control.get('enabled') and phase != 'trading':
+    campaign_end=(profile_policy or {}).get('campaign_end')
+    campaign_over=finite(campaign_end) and now>=campaign_end
+    if now >= control['startAt'] and control.get('enabled') and phase != 'trading' and not campaign_over:
         control.update(status='market-closed' if phase=='weekend' else 'night-paused' if phase=='night' else 'preparing',
                        reason='Goldmarkt geschlossen · fiktive Simulation pausiert' if phase=='weekend' else
                               'DEGIRO-Produkte nachts nicht handelbar · Simulation pausiert, Kapitalstand erhalten')
@@ -589,6 +591,10 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         control.update(status='paused',reason='Simulation pausiert')
     else:
         active=conn.execute('SELECT id,payload FROM bob_paper_cases WHERE closed_at IS NULL ORDER BY started_at LIMIT 1 FOR UPDATE').fetchone()
+        if campaign_over and not active:
+            control.update(status='completed',reason='Vergleich beendet · Freitag 16:00 Zürich',endAt=campaign_end)
+            conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
+            return
         if active:
             key,c=active;released=c.get('cashReleased',0);booked=c.get('bookedUnits',0);q=quotes.get(c['product']['isin'])
             if profile_policy and profile_policy.get('bob_stop_reentry') and c.get('trendFollow'):
@@ -596,6 +602,9 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 c.update(trendFollow=False,exitPolicy='bob-stop-reentry-v1')
                 c['events'].append(dict(kind='stop-policy-changed',at=market.get('dataAt'),recordedAt=now,
                   stop=c['engine']['trade']['stop'],reason='800-EUR-Test übernimmt Bobs gemeinsame Stoppverwaltung; vorhandener Schutzstopp bleibt erhalten'))
+            if finite(campaign_end):
+                c=copy.deepcopy(c)
+                c['endsAt']=min(c['endsAt'],campaign_end)
             c=advance_case(c,market,q,now)
             if c.get('exitReason')=='ko-safety-exit' or c.get('koWatchStatus') in ('knockout-confirmed','product-terminated','crossed-observed'):
                 excluded=control.get('koExcluded') or {}
@@ -619,6 +628,9 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             conn.execute('UPDATE bob_paper_cases SET payload=%s::jsonb,closed_at=to_timestamp(%s) WHERE id=%s',
                          (json.dumps(c),(c.get('settledAt') or c.get('closedAt'))/1000 if finished else None,key))
             control.update(status='running',reason='Simulationsfall '+c['status']+(' · Euroverkauf wartet auf Kurs' if c.get('pendingUnits') else ''),activeCase=None if finished else key)
+            if campaign_over:
+                control.update(status='completed' if finished else 'ending-pending-quotes',
+                    reason='Vergleich beendet' if finished else 'Vergleich beendet · unbelegte Ausstiegsbewertung bleibt offen',endAt=campaign_end)
             day_update(conn,day,now=now,capital=control)
         else:
             capital_snapshot(control,None,None,now)
@@ -653,7 +665,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                         else 'Stopp-/Zielplan fehlt oder ist ungültig: '+str(market.get('decisionReason') or 'Planprüfung nicht bestanden'))
             elif not choice:
                 reason=('KO-Schutz: heute ausgeschlossene ISIN; ' if blocked else 'Kein passendes belegtes Produkt: ')+ '; '.join(selection.get('reasons') or ['kein geeigneter neuer Kandidat'])
-            elif profile_policy and profile_policy.get('early_impulse') and choice.get('koGuardRequired') is not True:
+            elif profile_policy and (profile_policy.get('early_impulse') or profile_policy.get('campaign')) and choice.get('koGuardRequired') is not True:
                 reason='Frühimpuls-KO-Schutz: Nur ausdrücklich vollständig geprüfte Produkte zulässig'
             elif choice.get('indicative') or choice.get('estimated'):reason='Unverbindlicher Kandidat: kein virtueller Eurokauf ohne Produktfreigabe'
             elif not q:reason='Geld-/Briefkurs nicht freigegeben · Produkteinstieg gesperrt · '+choice['isin']+': '+str(quote_block_reason(quotes.get(choice['isin']),now,choice['isin']))
@@ -702,6 +714,11 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                         c['trendLowWater']=market['price'] if market['direction']=='SHORT' else None
                         c['trendReversalBars']=0
                         c['trendExtensions']=0
+                if profile_policy and profile_policy.get('campaign'):
+                    c['endsAt']=min(c['endsAt'],profile_policy['campaign_end'])
+                    c['campaign']='signal-comparison-20261027'
+                    c['entryHypothesis']=market.get('paperEntrySource') or 'confirmed-main'
+                    c['entrySignalAt']=(market.get('earlyWarning') or {}).get('signalBarAt') if profile_policy.get('early_warning') else market.get('analysisBarAt')
                 entry_control=copy.deepcopy(control)
                 entry_control['cash']-=c.get('allocated') or 0
                 paper_ledger_costs.apply(entry_control,c)
@@ -960,7 +977,7 @@ def _worker(db):
                         ranking_policy=ranking_learning.policy(conn)
                         precision_due=now%(2*3600000)<=300000
                         if market.get('ready') and market.get('direction') in ('LONG','SHORT') and (precision_due or any(
-                             p not in active_cases for p in ('conservative','balanced','offensive','trend800'))):
+                             p not in active_cases for p,policy in paper_portfolios.POLICIES.items() if not policy.get('early_impulse') and not policy.get('early_warning'))):
                             request={**evidence,'quotes':quotes,'market':market,'bundle':bundle,'rankingPolicy':ranking_policy}
                             p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
                                              text=True,capture_output=True,timeout=6,check=True,priority=2)
@@ -987,11 +1004,22 @@ def _worker(db):
                             except Exception as early_exc:
                                 early_selection['reasons']=['Frühimpuls-Produktprüfung nicht verfügbar: '+type(early_exc).__name__]
                                 print('BOB_EARLY_PAPER_SELECTION error='+type(early_exc).__name__,flush=True)
+                        warning_market=paper_portfolios.warning_paper_market(market,now)
+                        warning_selection=dict(choices=[],reasons=['Kein freigegebenes Frühwarnprodukt'])
+                        if now<paper_portfolios.CAMPAIGN_END and 'early1000oct' not in active_cases and warning_market.get('paperEntrySource'):
+                            try:
+                                request={**evidence,'quotes':quotes,'market':warning_market,'bundle':bundle,'rankingPolicy':ranking_policy}
+                                p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],
+                                    input=json.dumps(request),text=True,capture_output=True,timeout=6,check=True,priority=2)
+                                warning_selection=json.loads(p.stdout)
+                            except Exception as exc:
+                                warning_selection['reasons']=['Frühwarn-Produktauswahl nicht verfügbar: '+type(exc).__name__]
                         input_observations=[]
                         outcomes=paper_portfolios.run_all(conn,bundle,market,selection,quotes,
                                                           time.time()*1000,settings,active_cases,
                                                           early_market=early_market,early_selection=early_selection,
-                                                          input_observations=input_observations)
+                                                          input_observations=input_observations,
+                                                          warning_market=warning_market,warning_selection=warning_selection)
                         try:
                             with conn.transaction():paper_stop_study.tick(conn,market,quotes,time.time()*1000)
                         except Exception as exc:print('BOB_STOP_STUDY error='+type(exc).__name__,flush=True)

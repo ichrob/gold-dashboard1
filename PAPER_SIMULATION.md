@@ -72,3 +72,24 @@ The UI shows the latest 14 daily balances; older days remain available via
 the selected-day view (daily read response includes the latest 366).
 Account tests cover bid/ask spread, whole units, odd partial sales, one-unit
 exit, insufficient cash, deferred settlement and carried day boundaries.
+
+
+## Paired 1,000 EUR campaign, 27–30 October 2026
+
+Two additional isolated PostgreSQL ledgers (`early1000oct`, `normal1000oct`)
+start on first initialization, never backdated and never reset on redeployment.
+Both carry EUR 1,000, use 65% maximum exposure, a 3% daily entry loss limit,
+the same current product ranking and observed ask/bid, example fees/slippage,
+and existing Bob partial-target, trailing-stop, re-entry and KO protection.
+The first consumes the displayed `early-warning-v2` (active or still-valid watch);
+the second the confirmed main LONG/SHORT signal. Neutral/invalid setups wait.
+The warning gets its own validated ATR/Fibonacci plan and original signal clock;
+this never changes the main signal or grants real product approval.
+
+New entries stop at **2026-10-30 16:00 Europe/Zurich (15:00 UTC)**.
+Open cases have their existing time limit capped to that deadline. The first
+fresh observation at/after it attempts the virtual exit; no exact-time fill is
+invented. Unpriced units remain pending and are explicitly separated from
+settled results; later quotes are never backdated. No new positions follow.
+Existing five accounts and histories continue unchanged. UI and diagnostics
+include all seven accounts. Results remain paper-only, not broker executions.

@@ -118,7 +118,7 @@ class PaperInputEvidenceTests(unittest.TestCase):
                 {"choices":[]}, {}, 1000000, {}, active={},
                 input_observations=inputs)
         self.assertEqual(outcomes, {profile:"checked" for profile in paper_portfolios.POLICIES})
-        self.assertEqual(run.call_count,5)
+        self.assertEqual(run.call_count,7)
         self.assertEqual(inputs,[])
 
     def test_monday_readiness_observes_all_five_without_inferring_trades(self):
@@ -137,10 +137,10 @@ class PaperInputEvidenceTests(unittest.TestCase):
                      "isin":"PRIVATE"} for name in paper_portfolios.POLICIES]
         conn.execute.return_value.fetchone.return_value = (captured/1000,{"profiles":profiles})
         result = ev.latest(conn,now_ms=now_ms,session_mode="trading")
-        self.assertEqual(result["state"],"recent-five-profile-capture")
-        self.assertEqual(result["profilesObserved"],5)
-        self.assertEqual(result["profilesChecked"],5)
-        self.assertEqual(result["profilesFreshReady"],5)
+        self.assertEqual(result["state"],"recent-all-profile-capture")
+        self.assertEqual(result["profilesObserved"],7)
+        self.assertEqual(result["profilesChecked"],7)
+        self.assertEqual(result["profilesFreshReady"],7)
         self.assertEqual(result["ageSeconds"],35)
         self.assertEqual(result["profiles"][0]["sourceAgeAtCaptureSeconds"],5)
         self.assertNotIn("PRIVATE",json.dumps(result))
