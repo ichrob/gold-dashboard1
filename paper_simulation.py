@@ -274,9 +274,13 @@ def new_case(market, choice, quote, now, cash=100., cost_model=None,bundle=None)
     t=dict(tradeId=key,dir=direction,entry=p['entry'],stop=p['stop'],target=p['target'],initialRisk=risk,instrument='XAU/USD',active=True,product=None)
     return dict(stopStudySetup=paper_stop_study.setup(market,bundle,now),id=key,version=VERSION,status='open',day=local.date().isoformat(),startedAt=now,endsAt=end,
                 plan=p,ledgerCostModel=copy.deepcopy(cost_model),product=copy.deepcopy(choice),koGuardRequired=choice.get('koGuardRequired') is True,
+                priceBasis=copy.deepcopy(choice.get('priceBasis')),
                 entryQuote=q,entryAsk=q['ask'] if q else None,
                 analysis=copy.deepcopy(market),lastAt=market['dataAt'],remaining=1.,goldR=0.,productGrossPct=0. if q else None,
                 productReturnKnown=bool(q),netReturnKnown=False,modelOnly=True,partialTaken=False,
+                observedPeakValue=quantity*q['ask'] if quantity else None,
+                observedMaxDrawdownPct=(1-q['bid']/q['ask'])*100 if quantity else None,
+                observedValuationChecks=1 if quantity else 0,
                 quantity=quantity,remainingUnits=quantity,pendingUnits=0,cashReleased=0.,bookedUnits=0,
                 allocated=quantity*q['ask'] if quantity else None,availableAtEntry=cash,
                 entrySpreadEur=round(quantity*(q['ask']-q['bid']),8) if quantity else None,
@@ -308,6 +312,13 @@ def advance_case(original, market, quote, now):
         if changed:event(terminal_status,reason='Emittent meldet Produktende; Abrechnungswert unbekannt, kein erfundener Verkauf')
         return c
     q=fresh_quote(quote,now,c['product']['isin']) if c.get('quantity') else None
+    if q and c.get('quantity'):
+        value=c.get('cashReleased',0)+(c.get('remainingUnits',0)+c.get('pendingUnits',0))*q['bid']
+        peak=max(c.get('observedPeakValue') or c.get('allocated') or value,value)
+        if peak>0:
+            c['observedPeakValue']=peak
+            c['observedMaxDrawdownPct']=max(c.get('observedMaxDrawdownPct') or 0,(1-value/peak)*100)
+            c['observedValuationChecks']=c.get('observedValuationChecks',0)+1
     if (c.get('pendingUnits') and q and
             c.get('koWatchStatus') not in ('knockout-confirmed','product-terminated') and
             stamp(q.get('bidAt') or q.get('quoteAt'))>=c['pendingSince']):
@@ -513,6 +524,7 @@ def report(conn, day=None):
     return dict(ok=True,version=VERSION,note=NOTE,control=status,marketClosed=closed,sessionMode=phase,day=day,stats=paper_case_review.adjust_daily(stats[0] if stats else {}, exclusions.get(day)),
                 products=[dict(isin=p.get('isin'),direction=p.get('productDirection'),name=p.get('name')) for p in feed[0]['products'] if p.get('isin')] if feed else [],
                 productSyncedAt=feed[1].isoformat() if feed else None,cases=[paper_case_review.project_case(r[0], profile) for r in cases],
+                evidenceReview=__import__('paper_costs').evidence_report([paper_case_review.project_case(r[0],profile) for r in cases]),
                 costReview=__import__('paper_costs').report([r[0] for r in cases]),
                 decisionReview=paper_entry_review.daily([r[0] for r in cases],stats[0] if stats else {},day),
                 daily=[dict(day=d,**paper_case_review.adjust_daily(s, exclusions.get(d))) for d,s in totals],detailsLimit=100,detailRetentionDays=None,detailRetention='permanent',

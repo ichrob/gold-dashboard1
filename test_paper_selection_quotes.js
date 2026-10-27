@@ -32,3 +32,9 @@ const quotes=Object.fromEntries(all.map(p=>[p.isin,JSON.parse(JSON.stringify(q).
 const expanded=evaluate({...input,products:all,quotes},now);
 assert.equal(expanded.choices.length,3,JSON.stringify(expanded));assert.equal(expanded.researchCandidates.length,5);
 assert(expanded.researchCandidates.every(c=>c.paperOnly));
+const fs=require('fs'),vm=require('vm'),w={};
+vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),{window:w});
+const expectedBasis=w.BobDegiro.selectedPriceSnapshot({...input.products[0],quote:projected,price:projected.price,leverage:projected.leverage},now);
+assert(expectedBasis);
+assert.equal(r.choices[0].priceBasis.selectionKey,expectedBasis.selectionKey);
+assert.equal(r.choices[0].priceBasis.degiroExecutable,false);

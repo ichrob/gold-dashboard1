@@ -36,6 +36,7 @@ def snapshot(report, now=None):
     conflicts = [dict(isin=p.get('isin'), fields=[k for k in (p.get('fieldRecovery') or {}).get('conflicts', []) if k in ('ko','strike','ratio','currency')],
                       checkedAt=(p.get('fieldRecovery') or {}).get('checkedAt'),
                       sourceDecisions=(p.get('fieldRecovery') or {}).get('sourceDecisions', {}),
+                      unresolvedFields=(p.get('fieldRecovery') or {}).get('unresolvedConflicts', []),
                       resolution='Originalquellen abgleichen; maßgebliche Quelle noch nicht bestätigt.')
                  for p in items if (p.get('fieldRecovery') or {}).get('state') == 'conflict']
     for entry in conflicts:
@@ -43,11 +44,13 @@ def snapshot(report, now=None):
         # Every conflicting field needs its own decision. A partial decision
         # must not describe an unresolved sibling as selected; ignore empty
         # allowlisted projection slots for fields without a conflict.
-        if entry['fields'] and isinstance(decisions, dict) and all(
+        entry['resolved'] = bool(not entry['unresolvedFields'] and entry['fields'] and isinstance(decisions, dict) and all(
                 isinstance(decisions.get(key), dict)
                 and decisions[key].get('state') == 'dated-issuer-selected'
-                for key in entry['fields']):
-            entry['resolution'] = 'Heute datierte Emittentenangabe gewählt; abweichende undatierte Vergleichswerte bleiben sichtbar. Keine zusätzliche Handelsfreigabe.'
+                for key in entry['fields']))
+        if entry['resolved']:
+            entry['resolution'] = 'Datierte Emittentenangabe gewählt; abweichende undatierte Vergleichswerte bleiben sichtbar. Keine zusätzliche Handelsfreigabe.'
+    unresolved = [entry for entry in conflicts if not entry['resolved']]
     complete = product_fresh and bool(items) and products.get('total') == len(items) and products.get('incomplete') == 0
     cases = {}
     for row in (index.get('items') or [])[:100]:
@@ -59,7 +62,8 @@ def snapshot(report, now=None):
                  'waiting-for-evidence':'blocked', 'waiting-for-review':'review'}.get(phase, 'new')
         comparison = 'not-compared'
         if code.startswith('product-'):
-            comparison = ('source-conflict' if product_fresh and conflicts else
+            comparison = ('source-conflict' if product_fresh and unresolved else
+                          'source-differences-explained-review-required' if product_fresh and conflicts else
                           'current-list-complete-issue-evidence-review-required' if complete else
                           'current-product-evidence-not-complete')
         # Group duplicate categories while preserving all incident references.
@@ -95,8 +99,9 @@ def snapshot(report, now=None):
     actions = [dict(code=c['code'], text='Deine Hilfe ist nach Bobs Prüfung nötig. Details im Bereich Probleme.',view='problems')
                for c in cases.values() if index_fresh and c['state'] == 'needs-user']
     return dict(version=1, observedAt=report.get('observedAt'), readOnly=True, realOrders=False,
-        productStatus=dict(state='unknown' if not product_fresh else 'conflict' if conflicts else 'complete' if complete else 'incomplete',
+        productStatus=dict(state='unknown' if not product_fresh else 'conflict' if unresolved else 'differences-explained' if conflicts else 'complete' if complete else 'incomplete',
                            checkedAt=products.get('lastCheckedAt'), conflicts=conflicts,
+                           unresolvedCount=len(unresolved),explainedCount=len(conflicts)-len(unresolved),
                            tradeApproved=False),
         cases=list(cases.values()), problemIndexFresh=index_fresh,
         actions=actions, actionStatus='known' if index_fresh else 'unknown', jobs=jobs,

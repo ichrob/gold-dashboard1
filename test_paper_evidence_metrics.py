@@ -43,3 +43,29 @@ class PaperEvidenceTests(unittest.TestCase):
         self.assertIsNone(portfolios.performance_snapshot({'daily':[]})['productPositiveRatePct'])
 if __name__=='__main__':
     unittest.main()
+
+class EvidenceSeparationTests(unittest.TestCase):
+    def test_model_and_inconclusive_never_count_as_observed_results(self):
+        import paper_costs
+        base=dict(id='example',status='closed',productReturnKnown=True,remainingUnits=0,pendingUnits=0,
+                  plan={'direction':'LONG'},entryAsk=10,productGrossPct=5,events=[])
+        observed=dict(base,entryQuote={'ask':10,'askAt':NOW,'source':'example'})
+        model=dict(base,priceBasis={'kind':'calculated','price':10})
+        missing=dict(base,status='inconclusive')
+        out=paper_costs.evidence_report([observed,model,missing])
+        self.assertEqual([g['eligible'] for g in out['groups']],[1,0,0])
+        self.assertEqual([g['cases'] for g in out['groups']],[1,1,1])
+        self.assertIsNone(out['cases'][1]['grossPct'])
+        self.assertIsNone(out['cases'][2]['observedMaxDrawdownPct'])
+        self.assertFalse(out['actualNetKnown'])
+
+    def test_case_drawdown_uses_observed_bid_and_survives_missing_quote(self):
+        m=dict(plan=dict(direction='LONG',entry=4000.,stop=3990.,target=4020.),
+               price=4000.,dataAt=NOW,analysisBarAt=NOW,ruleVersion='test',priceFresh=True)
+        c=sim.new_case(m,dict(isin=ISIN,priceBasis={'kind':'calculated','price':10}),q(9.9,10.),NOW)
+        self.assertEqual(c['priceBasis']['kind'],'calculated')
+        down=sim.advance_case(c,m,q(8,8.1,NOW+1000),NOW+1000)
+        self.assertAlmostEqual(down['observedMaxDrawdownPct'],20.)
+        gap=sim.advance_case(down,m,None,NOW+2000)
+        self.assertEqual(gap['observedMaxDrawdownPct'],down['observedMaxDrawdownPct'])
+        self.assertEqual(gap['observedValuationChecks'],down['observedValuationChecks'])

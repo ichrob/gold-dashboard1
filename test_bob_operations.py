@@ -35,7 +35,8 @@ class OperationsTests(unittest.TestCase):
             'state':'conflict','conflicts':['strike'],
             'sourceDecisions':{'strike':{'state':'dated-issuer-selected','primaryValue':4200,'referenceValue':4199}}}
         v=op.snapshot(r,1000)
-        self.assertEqual(v['productStatus']['state'],'conflict')
+        self.assertEqual(v['productStatus']['state'],'differences-explained')
+        self.assertEqual(v['productStatus']['unresolvedCount'],0)
         conflict=v['productStatus']['conflicts'][0]
         self.assertIn('Emittentenangabe gewählt',conflict['resolution'])
         self.assertEqual(conflict['sourceDecisions']['strike']['referenceValue'],4199)
@@ -86,6 +87,15 @@ class OperationsTests(unittest.TestCase):
                 self.assertEqual(v['productStatus']['state'],'conflict')
                 self.assertIn('noch nicht bestätigt',v['productStatus']['conflicts'][0]['resolution'])
                 self.assertFalse(v['productStatus']['tradeApproved'])
+
+    def test_explicit_unresolved_field_wins_over_selected_decision(self):
+        r=self.report()
+        r['areas']['products']['items'][0]['fieldRecovery']={
+            'state':'conflict','conflicts':['ko'],'unresolvedConflicts':['ko'],
+            'sourceDecisions':{'ko':{'state':'dated-issuer-selected'}}}
+        out=op.snapshot(r,1000)
+        self.assertEqual(out['productStatus']['state'],'conflict')
+        self.assertEqual(out['productStatus']['unresolvedCount'],1)
 
     def test_stale_future_missing_do_not_imply_success(self):
         for at in (None,1001,1):

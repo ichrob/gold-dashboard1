@@ -15,14 +15,14 @@ _states = {}
 
 def key(model, side, family='hybrid'):
     import product_estimate
-    if side not in ('bid', 'ask') or family not in ('hybrid', 'turbo'):
+    if side not in ('bid', 'ask') or family not in ('hybrid', 'turbo', 'turbo-forward'):
         raise ValueError('Ungültige Messidentität')
     identity = json.dumps(product_estimate.identity(model), separators=(',', ':'))
     return 'product:' + family + ':' + hashlib.sha256(identity.encode()).hexdigest() + ':' + side
 
 
 def valid_key(value):
-    return isinstance(value, str) and re.fullmatch(r'product:(hybrid|turbo):[0-9a-f]{64}:(bid|ask)', value) is not None
+    return isinstance(value, str) and re.fullmatch(r'product:(hybrid|turbo|turbo-forward):[0-9a-f]{64}:(bid|ask)', value) is not None
 
 
 def init(conn):

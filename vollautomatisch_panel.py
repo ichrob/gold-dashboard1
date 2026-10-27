@@ -223,6 +223,22 @@ PANEL = r"""
        'Nur paralleler Simulationstest. Unter 20 vollständigen Vergleichen: Datensammlung; auch danach keine automatische Regelübernahme.',study.note].join('\n\n');
       panel.append(title,body);card.append(panel);
      }
+     const er=acc.evidenceReview;
+     if(er){
+      const panel=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('p');
+      title.textContent='Kursgrundlage und Ergebnisnachweise';body.className='small';body.style='white-space:pre-line;overflow-wrap:anywhere';
+      const labels={observed:'Beobachtete Produktkurse',calculated:'Berechnete Analyse',unpriced:'Ohne Produktbewertung'};
+      body.textContent=[...(er.groups||[]).map(g=>labels[g.kind]+': '+g.cases+' Fälle · '+g.eligible+' auswertbare Abschlüsse'),
+       ...(er.cases||[]).map(c=>[
+        c.direction+' · '+labels[c.kind]+' · '+c.status,
+        c.priceBasis?'Analyse: '+c.priceBasis.price+' EUR · '+c.priceBasis.source+' · '+time(c.priceBasis.at):'Analysegrundlage historisch nicht gespeichert',
+        'Virtueller Einstieg: '+(c.entry.ask??'offen')+' · '+(c.entry.source||'Quelle offen')+' · '+time(c.entry.at),
+        ...c.exits.map(e=>'Ausstieg '+e.kind+': '+(e.bid??'offen')+' · '+(e.source||'Quelle offen')+' · '+time(e.bidAt)),
+        'Größter beobachteter Rückgang: '+(Number.isFinite(c.observedMaxDrawdownPct)?c.observedMaxDrawdownPct.toFixed(2)+' %':'nicht gemessen'),
+        c.costAssumptions?'Beispielkosten eingefroren; Details im Kostenvergleich':'Keine eingefrorenen Kostenannahmen'
+       ].join(' · ')),er.note].join('\n\n');
+      panel.append(title,body);card.append(panel);
+     }
      const cr=acc.costReview;
      if(cr){
       const costs=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('p');
