@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ProductReadDiagnosticsTest {
+    @Test fun selectsOnlyUniqueAdvertisedDirection() {
+        val none = ProductScrollPolicy.Capability(false, false)
+        val down = ProductScrollPolicy.Capability(true, false)
+        val up = ProductScrollPolicy.Capability(false, true)
+        assertEquals(1, ProductScrollPolicy.select(listOf(none, down), true))
+        assertEquals(1, ProductScrollPolicy.select(listOf(down, up), false))
+        assertNull(ProductScrollPolicy.select(listOf(down, down), true))
+        assertNull(ProductScrollPolicy.select(listOf(none, up), true))
+        assertNull(ProductScrollPolicy.select(emptyList(), false))
+    }
+
     @Test fun onlyOneActiveFocusedApplicationWindowMayBeSelected() {
         val allowed = ProductWindowPolicy.Window(true, true, true)
         assertEquals(0, ProductWindowPolicy.select(listOf(allowed)))
