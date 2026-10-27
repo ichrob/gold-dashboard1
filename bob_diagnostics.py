@@ -933,7 +933,11 @@ def summary(areas):
         if state == 'inconclusive' and (value.get('administrativeReview') or {}).get('status') == paper_case_review.STATUS:
             return
         if state in ('unavailable','stale','degraded','failed','retry','partial','wrong-basis','invalid-ohlc','recent-gap','missing','insufficient','incomplete','conflict','inconclusive','recurred'):
-            findings.append({'area':path,'state':state})
+            finding = {'area':path,'state':state}
+            if value.get('reason') == 'omitted-response-size-limit':
+                finding['meaning'] = 'response-size-omission-not-source-failure'
+                finding['sourceStatus'] = value.get('sourceStatus', 'unknown')
+            findings.append(finding)
         if path.endswith('.dmi') and value.get('available') is False:
             findings.append({'area':path,'state':'incomplete'})
         for key,item in value.items():
@@ -978,7 +982,10 @@ def summary(areas):
         if path.startswith('simulationAndPush.accounts.') and item['state']=='inconclusive':
             item['meaning']='paper-result-unconfirmed-not-a-realised-loss'
     for item in findings:
-        if item.get('sourceRole')=='alternate':
+        if (item.get('meaning') == 'response-size-omission-not-source-failure'
+                and item.get('sourceStatus') == 'observed'):
+            item['severity']='info'
+        elif item.get('sourceRole')=='alternate':
             item['severity']='info'
             item['meaning']='backup-source-unavailable-selected-feed-assessed-separately'
         else:item['severity']='warning'
@@ -1370,7 +1377,15 @@ def bounded_report(report, max_bytes):
             for account in compact['accounts']:
                 if isinstance(account, dict) and 'recentCases' in account:
                     entry = dict(account)
+                    original_cases = account['recentCases']
+                    source_status = (original_cases.get('status')
+                                     if isinstance(original_cases, dict) else None)
+                    # Preserve the source observation, not raw cases. A size
+                    # omission must neither invent an outage nor clear one.
+                    if source_status not in ('observed', 'unavailable', 'partial', 'failed'):
+                        source_status = 'unknown'
                     entry['recentCases'] = {'status':'unavailable',
+                                            'sourceStatus':source_status,
                                             'reason':'omitted-response-size-limit'}
                     smaller.append(entry)
                     omitted_cases = True
