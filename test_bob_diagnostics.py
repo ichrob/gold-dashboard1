@@ -102,7 +102,7 @@ class ReportTests(unittest.TestCase):
         original={'status':'observed','sources':sources}
         report=diagnostics.summary({'sourceReliability':original})
         self.assertEqual(report['attention'],
-                         [{'area':'sourceReliability.sources.xaus/1m','state':'stale','sourceRole':'undetermined'}])
+                         [{'area':'sourceReliability.sources.xaus/1m','state':'stale','sourceRole':'undetermined','severity':'warning'}])
         self.assertEqual(report['assessment'],'needs-attention')
         self.assertEqual(len(original['sources']['xaus/1h']['events']),2)
 
@@ -234,7 +234,7 @@ class ExpandedReportTests(unittest.TestCase):
         kept=result['areas']['simulationAndPush']
         self.assertEqual(kept['details'],details)
         self.assertEqual(kept['omittedSections'],['history'])
-        self.assertIn({'area':'simulationAndPush.details.areas.learning','state':'unavailable'},result['summary']['attention'])
+        self.assertIn({'area':'simulationAndPush.details.areas.learning','state':'unavailable','severity':'warning'},result['summary']['attention'])
         self.assertLess(len(json.dumps(result).encode()),3000)
         self.assertIn('history',simulation)
         self.assertNotIn('omittedSections',simulation)
@@ -772,6 +772,17 @@ class FocusedReadAccessTests(unittest.TestCase):
         missing=diagnostics.focused_report(raw,'signals')
         self.assertEqual(missing['areas']['simulationAndPush']['signalHistory']['status'],
                          'unavailable')
+
+    def test_summary_distinguishes_explained_conflicts_and_backup_failures(self):
+        areas={'products':{'items':[{'fieldRecovery':{'state':'conflict','conflicts':['ko'],
+               'sourceDecisions':{'ko':{'state':'dated-issuer-selected'}}}}]},
+            'market':{'candles':{'1m':{'integrity':{'source':'biquote','state':'ok'}}}},
+            'sourceReliability':{'sources':{'xaus/1m':{'state':'stale'}}}}
+        result=diagnostics.summary(areas)
+        self.assertEqual(result['assessment'],'observed-only')
+        self.assertEqual(result['attention'][0]['severity'],'info')
+        areas['products']['items'][0]['fieldRecovery']['unresolvedConflicts']=['ko']
+        self.assertEqual(diagnostics.summary(areas)['assessment'],'needs-attention')
 
     def test_stale_backup_not_marked_active_market_outage(self):
         evidence={
