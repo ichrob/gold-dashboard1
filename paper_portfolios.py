@@ -144,7 +144,8 @@ def early_paper_market(market, now):
     A signal alone never grants a product purchase. The gold stop/target must be
     created using actual checked bars by the shared background evaluator.
     """
-    result={**market, 'direction':'NEUTRAL', 'plan':None, 'paperEntrySource':None}
+    result={**market, 'direction':'NEUTRAL', 'plan':None, 'paperEntrySource':None,
+            'warningPaperBlockReason':'Keine aktuelle gültige Frühwarnung oder zu stark ausgedehnte Bewegung'}
     impulse=market.get('earlyImpulse') or {}
     plan=market.get('earlyPaperPlan')
     valid=(market.get('ruleVersion')=='intraday-trend-follow-v7'
@@ -192,9 +193,14 @@ def warning_paper_market(market, now):
         and type(warning.get('signalBarAt')) in (int,float)
         and type(warning.get('expiresAt')) in (int,float)
         and warning['signalBarAt']<=now<warning['expiresAt'])
-    if valid and stop_target_audit.valid_plan(plan) and plan.get('kind')=='candidate' and plan.get('unit')=='USD/oz' and plan['direction']==warning['direction'] and abs(plan['entry']-market.get('price',0))<=.01:
+    if not valid:
+        return result
+    result['warningPaperBlockReason']=(market.get('warningPaperPlanReason') or
+        'Frühwarnung vorhanden, aber kein gültiger unabhängiger Gold-Stopp-/Zielplan')
+    if stop_target_audit.valid_plan(plan) and plan.get('kind')=='candidate' and plan.get('unit')=='USD/oz' and plan['direction']==warning['direction'] and abs(plan['entry']-market.get('price',0))<=.01:
         result.update(direction=warning['direction'], plan=plan,
-                      paperEntrySource='early-warning-paper-v2', analysisBarAt=warning['signalBarAt'])
+                      paperEntrySource='early-warning-paper-v2', analysisBarAt=warning['signalBarAt'],
+                      warningPaperBlockReason=None)
     return result
 
 

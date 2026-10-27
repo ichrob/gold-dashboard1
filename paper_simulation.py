@@ -672,6 +672,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             elif not (market.get('session') or {}).get('entryAllowed'):reason='Außerhalb von Bobs Einstiegszeit'
             elif profile_policy and profile_policy.get('early_impulse') and market.get('paperEntrySource')!='early-impulse-paper-v1':
                 reason='Frühimpuls-Strategie: '+str(market.get('earlyPaperBlockReason') or 'kein bestätigter 5m/15m-Frühimpuls')
+            elif profile_policy and profile_policy.get('early_warning') and market.get('paperEntrySource')!='early-warning-paper-v2':
+                reason='Frühwarn-Test: '+str(market.get('warningPaperBlockReason') or 'Keine aktuelle gültige Frühwarnung')
             elif not stop_target_audit.valid_plan(plan):
                 reason=('ABWARTEN: kein bestätigter gültiger Goldplan' if market.get('direction') not in ('LONG','SHORT')
                         else 'Stopp-/Zielplan fehlt oder ist ungültig: '+str(market.get('decisionReason') or 'Planprüfung nicht bestanden'))
