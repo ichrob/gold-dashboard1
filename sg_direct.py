@@ -347,7 +347,7 @@ def get_quote(isin, terms_only=False):
                         raise ValueError('SG-Faktorproduktidentität nicht bestätigt')
                     result.update(productVerified=True, excluded=True, name=product.get('Name'),
                         metadata=dict(name=product.get('Name'), status=1, underlyingType='FUTURE',
-                                      contract=product['AssetRic'], productType='FACTOR'),
+                                      contract=product['AssetRic'], type='FACTOR', productType='FACTOR'),
                         conditions={}, reason='Faktorprodukt ausgeschlossen – keine weiteren Daten erforderlich')
                     _CACHE[isin] = (time.monotonic(), copy.deepcopy(result))
                     return result
