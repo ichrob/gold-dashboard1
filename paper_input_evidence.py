@@ -10,7 +10,7 @@ from decimal import Decimal
 from paper_gap_archive import _times, WINDOW_MS, RETENTION_MS, MAX_EVENTS
 import diagnostic_history
 
-_ALLOWED_PROFILES = frozenset(("conservative", "balanced", "offensive", "early100", "trend800"))
+_ALLOWED_PROFILES = frozenset(("conservative", "balanced", "offensive", "early100", "trend800", "early1000oct", "normal1000oct"))
 _FIELDS = ("profile", "outcome", "ready", "priceFresh", "dataAt", "barAt")
 
 
@@ -39,7 +39,7 @@ def capture(bundle, profile_observations, committed_at=None):
     audit must not delay or modify the paper worker.
     """
     values = []
-    for row in profile_observations[:5] if isinstance(profile_observations, list) else []:
+    for row in profile_observations[:len(_ALLOWED_PROFILES)] if isinstance(profile_observations, list) else []:
         if not isinstance(row, dict):
             continue
         name = row.get("profile")
@@ -97,7 +97,7 @@ def latest(conn, now_ms=None, session_mode=None):
                    if observed_at is not None and now_ms>=observed_at else None)
     observed_profiles = []
     seen = set()
-    for p in (payload.get("profiles") or [])[:5]:
+    for p in (payload.get("profiles") or [])[:len(_ALLOWED_PROFILES)]:
         if not isinstance(p,dict) or p.get("profile") not in _ALLOWED_PROFILES:
             continue
         name = p["profile"]
@@ -133,7 +133,7 @@ def latest(conn, now_ms=None, session_mode=None):
     elif covered < len(_ALLOWED_PROFILES):
         state = "recent-capture-partial-profile-coverage"
     else:
-        state = "recent-five-profile-capture"
+        state = "recent-all-profile-capture"
     return {
         "status":"observed" if observed_at is not None else "not-yet-observed",
         "readOnly":True, "realOrders":False,
@@ -181,7 +181,7 @@ def report(conn, accounts, now_ms=None):
                     at_ms = float(row[0]) * 1000
                     stored = row[1] if isinstance(row[1], dict) else {}
                     observed = []
-                    for field in (stored.get("profiles") or [])[:5]:
+                    for field in (stored.get("profiles") or [])[:len(_ALLOWED_PROFILES)]:
                         if not isinstance(field, dict) or field.get("profile") not in _ALLOWED_PROFILES:
                             continue
                         observed.append({

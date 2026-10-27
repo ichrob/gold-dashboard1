@@ -35,6 +35,13 @@ POLICIES = {
                      hold_trend=False, bob_stop_reentry=True),
 }
 
+CAMPAIGN_END = int(datetime(2026, 10, 30, 16, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000)
+for _name, _early in (('early1000oct', True), ('normal1000oct', False)):
+    POLICIES[_name] = dict(id=_name, title=('Frühwarnung' if _early else 'Hauptsignal')+' · 1.000 € · bis Fr 16 Uhr',
+        initial_capital_eur=1000., exposure_fraction=.65, daily_loss_fraction=.03,
+        score_long=70, score_short=30, require_trend=False, early_warning=_early,
+        campaign_end=CAMPAIGN_END, campaign=True)
+
 _TABLES = ('bob_paper_control', 'bob_paper_cases', 'bob_paper_days')
 
 
@@ -72,7 +79,7 @@ def init(conn):
         # The experimental account starts with the first real deployment/initialization.
         # Existing live accounts retain their original Monday starting timestamps.
         policy=POLICIES[profile]
-        started = int(time.time()*1000) if policy.get('early_impulse') else START
+        started = int(time.time()*1000) if policy.get('early_impulse') or policy.get('campaign') else START
         starting = dict(version='paper-five-v1' if policy.get('early_impulse') else 'paper-four-v1',
                         startAt=started, enabled=True,
                         status='scheduled', portfolio=profile,
@@ -80,6 +87,9 @@ def init(conn):
                         dayOpeningEquity=seed, dayProfit=0., totalProfit=0.,
                         realizedProfit=0., currency='EUR',
                         capitalPolicy='separate-whole-units-gross-v1')
+        if policy.get('campaign'):
+            starting.update(endAt=policy['campaign_end'], campaign='signal-comparison-20261027',
+                            signalSource='early-warning-v2' if policy.get('early_warning') else 'confirmed-main')
         conn.execute(f"""INSERT INTO {n['bob_paper_control']} (id,payload)
             VALUES(1,%s::jsonb) ON CONFLICT DO NOTHING""", (json.dumps(starting),))
         conn.execute(f"""CREATE TABLE IF NOT EXISTS {n['bob_paper_cases']} (
@@ -108,6 +118,8 @@ def active_cases(conn):
 def entry_block_reason(policy, market):
     direction = market.get('direction')
     score = market.get('score')
+    if policy.get('early_warning'):
+        return None if market.get('paperEntrySource') == 'early-warning-paper-v2' and direction in ('LONG','SHORT') else 'Keine gültige aktuelle Frühwarnung'
     if policy.get('early_impulse'):
         if market.get('paperEntrySource')!='early-impulse-paper-v1':
             return 'Frühimpuls nicht auswertbar oder noch nicht bestätigt'
@@ -166,7 +178,27 @@ def early_paper_market(market, now):
     return result
 
 
-def run_all(conn, bundle, market, selection, quotes, now, settings, active=None, early_market=None, early_selection=None, input_observations=None):
+def warning_paper_market(market, now):
+    """Use exactly the displayed warning, retaining original signal clocks."""
+    result={**market, 'direction':'NEUTRAL', 'plan':None, 'paperEntrySource':None}
+    warning=market.get('earlyWarning') or {}
+    plan=market.get('warningPaperPlan')
+    valid=(market.get('ready') is True and market.get('priceFresh') is True
+        and type(market.get('dataAt')) in (int,float) and 0<=now-market['dataAt']<=60000
+        and warning.get('version')=='early-warning-v2' and warning.get('available') is True
+        and warning.get('state') in ('active','watch') and warning.get('comparisonOnly') is True
+        and warning.get('affectsApproval') is False and warning.get('extensionRisk') is not True
+        and warning.get('direction') in ('LONG','SHORT')
+        and type(warning.get('signalBarAt')) in (int,float)
+        and type(warning.get('expiresAt')) in (int,float)
+        and warning['signalBarAt']<=now<warning['expiresAt'])
+    if valid and stop_target_audit.valid_plan(plan) and plan.get('kind')=='candidate' and plan.get('unit')=='USD/oz' and plan['direction']==warning['direction'] and abs(plan['entry']-market.get('price',0))<=.01:
+        result.update(direction=warning['direction'], plan=plan,
+                      paperEntrySource='early-warning-paper-v2', analysisBarAt=warning['signalBarAt'])
+    return result
+
+
+def run_all(conn, bundle, market, selection, quotes, now, settings, active=None, early_market=None, early_selection=None, input_observations=None, warning_market=None, warning_selection=None):
     """One savepoint per account: a failure does not consume another account's run.
 
     Feed/selection are observational inputs, never broker orders.
@@ -180,6 +212,9 @@ def run_all(conn, bundle, market, selection, quotes, now, settings, active=None,
             with conn.transaction():
                 m = (early_market or early_paper_market(market,now)) if policy.get('early_impulse') else market
                 chosen = (early_selection or {'choices':[], 'reasons':['Keine freigegebenen Frühimpuls-Produkte']}) if policy.get('early_impulse') else selection
+                if policy.get('early_warning'):
+                    m = warning_paper_market(market,now)
+                    chosen = warning_selection or {'choices':[], 'reasons':['Keine freigegebenen Frühwarnprodukte']}
                 c = active.get(profile)
                 if c and c.get('status') == 'open':
                     scoped = {**settings, 'trade': c['engine']['trade']}
@@ -231,6 +266,32 @@ def performance_snapshot(data):
         netReturnKnown=False,sampleBased=True)
 
 
+def campaign_comparison(accounts):
+    """Automatic read-time comparison from durable ledgers, not a strategy verdict."""
+    rows=[]
+    for profile in ('early1000oct','normal1000oct'):
+        account=next((a for a in accounts if a.get('profile')==profile),{})
+        c=account.get('control') or {}
+        perf=account.get('performance') or {}
+        rows.append(dict(profile=profile,status=c.get('status','unavailable'),
+            startAt=c.get('startAt'),endAt=c.get('endAt'),checkedAt=c.get('checkedAt'),
+            initialCapital=c.get('initialCapital'),equity=c.get('equity'),
+            profitEur=c.get('totalProfit'),exampleCostsEur=c.get('costsDebitedEur'),
+            closedTrades=perf.get('closedTrades'),pricedTrades=perf.get('pricedTrades'),
+            inconclusiveTrades=perf.get('inconclusiveTrades'),
+            observedMaxDrawdownPct=perf.get('observedMaxDrawdownPct')))
+    complete=all(r['status']=='completed' for r in rows)
+    valid=complete and all(type(r['profitEur']) in (int,float) and math.isfinite(r['profitEur'])
+        and r['inconclusiveTrades']==0 and type(r['pricedTrades']) is int
+        and r['pricedTrades']>0 and r['pricedTrades']==r['closedTrades'] for r in rows)
+    state=('completed' if valid else 'completed-insufficient-evidence') if complete else (
+        'pending-exit-quotes' if any(r['status']=='ending-pending-quotes' for r in rows) else 'running-or-not-started')
+    return dict(id='signal-comparison-20261027',state=state,endAt=CAMPAIGN_END,
+        accounts=rows,differenceEarlyMinusMainEur=round(rows[0]['profitEur']-rows[1]['profitEur'],2) if valid else None,
+        realOrders=False,strategyWinnerConfirmed=False,
+        note='Virtueller Vergleich mit Beispielkosten; kein Nachweis künftiger Gewinne. Ohne vollständig bepreiste Abschlüsse kein Ergebnisvergleich.')
+
+
 def report(conn, day=None):
     import paper_simulation
     accounts = []
@@ -262,16 +323,18 @@ def report(conn, day=None):
                           'Produktfreigabe und frischer Geld-/Briefkurs vor dem Wiedereinstieg. '
                           'Fehlt der Verkaufskurs, bleibt das Kapital bis zur beobachteten Bewertung gebunden. '
                           'Nur virtuelle Trades, keine DEGIRO-Orders.')
+        if policy.get('campaign'):
+            data['note']='1.000 EUR virtuell; '+('angezeigte Frühwarnung LONG/SHORT' if policy.get('early_warning') else 'bestätigtes Hauptsignal LONG/SHORT')+'; gleiche Rangliste, Kosten und Schutzregeln. Ende 30.10.2026 16:00 Europe/Zurich. Fehlende Ausstiegskurse bleiben offen, keine rückdatierten Verkäufe.'
         accounts.append(dict(profile=profile, title=policy['title'],
                              riskPolicy={k: policy[k] for k in ('exposure_fraction',
                                   'daily_loss_fraction','score_long','score_short',
                                   'require_trend')},
                              exitPolicy='bob-stop-reentry-v1' if policy.get('bob_stop_reentry') else 'trend-follow-v1' if policy.get('hold_trend') else 'bob-partial-target-v2',
                              performance=performance_snapshot(data),**data))
-    return dict(ok=True, mode='five-independent-paper-accounts',
-                simulatedCapitalEur=1200, realOrders=False, startAt=START,
-                note='4 × 100 EUR plus 1 × 800 EUR virtuell. Der ursprüngliche manuelle 800-EUR-Test bleibt separat. KO-Schutz verlangt eine bestätigte heutige Spot-Barriere und aktuelle Euro-Kurse; er garantiert keinen rechtzeitigen Ausstieg. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital offen. Neue Einstiege ab 19.10.2026 mit Beispielkosten direkt im Spielgeld; frühere Fälle unverändert. Tatsächliche Brokergebühren unbekannt.',
-                accounts=accounts)
+    return dict(ok=True, mode='seven-independent-paper-accounts',
+                simulatedCapitalEur=sum(p.get('initial_capital_eur',100.) for p in POLICIES.values()), realOrders=False, startAt=START,
+                note='4 × 100 EUR, 1 × 800 EUR und 2 × 1.000 EUR virtuell. Der ursprüngliche manuelle 800-EUR-Test bleibt separat. KO-Schutz verlangt eine bestätigte heutige Spot-Barriere und aktuelle Euro-Kurse; er garantiert keinen rechtzeitigen Ausstieg. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital offen. Neue Einstiege ab 19.10.2026 mit Beispielkosten direkt im Spielgeld; frühere Fälle unverändert. Tatsächliche Brokergebühren unbekannt.',
+                accounts=accounts,campaignComparison=campaign_comparison(accounts))
 
 
 def diagram_report(conn):

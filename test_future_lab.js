@@ -52,3 +52,6 @@ assert(js.includes("Kein Broker verbunden"),'No broker connection may be implied
 assert(!/\/api\/(order|broker\/execute|trade\/open)/.test(js),'No new execution endpoints');
 assert(!js.includes('localStorage.'),'Do not silently invent persistent project completion.');
 console.log('Zukunft lab: 4 paper accounts, 9 synthetic safety cases, 11 readiness stages and NO trading actions OK');
+
+const seven={...five,mode:"seven-independent-paper-accounts",accounts:[...five.accounts,{profile:"early1000oct",control:{initialCapital:1000}},{profile:"normal1000oct",control:{initialCapital:1000}}]};
+assert.equal(snapshot(seven).length,7);

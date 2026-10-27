@@ -511,7 +511,7 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         table = portfolios.names(profile)['bob_paper_control']
         row = conn.execute(f'SELECT payload FROM {table} WHERE id=1').fetchone()
         accounts.append({'profile':profile, **fields(row[0] if row else {},
-            ('enabled','status','checkedAt','startAt','reason','currency','initialCapital','cash','equity','dayProfit','totalProfit','realizedProfit','costsDebitedEur','costPeriodProfit','costsStartedAt','costsNote'))})
+            ('enabled','status','checkedAt','startAt','endAt','campaign','signalSource','reason','currency','initialCapital','cash','equity','dayProfit','totalProfit','realizedProfit','costsDebitedEur','costPeriodProfit','costsStartedAt','costsNote'))})
     # Single bounded aggregate: distinguish no installed subscription from
     # an existing subscription whose notifications are disabled. No endpoints,
     # tokens, personal portfolio rows, or permission claims leave the server.

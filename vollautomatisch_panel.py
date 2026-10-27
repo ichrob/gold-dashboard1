@@ -38,9 +38,9 @@ PANEL = r"""
  </div>
 </section>
 <section class="card" id="bob-portfolio-comparison" style="margin:12px 0;padding:15px;border:1px solid #cbd5e1;border-radius:14px;background:#fff;color:#17263a">
- <h3>Fünf unabhängige Geldsimulationen</h3>
- <p class="small">Vier 100-€-Testkonten und ein 800-€-Trendfolgekonto. Die ersten vier bisherigen Konten starten wie bisher am Montag, 12.10.2026 um 08:00 Uhr (Zürich); das neue Frühimpuls-Testkonto erst ab seiner Aktivierung. Keine echten Orders, kein DEGIRO-Zugriff. Alle fünf Konten nutzen dieselben beobachteten Kurse. Der bestehende manuelle 800-Euro-Test unter Mein Trade bleibt vollständig unangetastet.</p>
- <button type="button" id="bobProfilesRefresh" class="bob-primary">Fünf Simulationen prüfen</button>
+ <h3>Sieben unabhängige Geldsimulationen</h3>
+ <p class="small">Vier 100-€-Testkonten und ein 800-€-Trendfolgekonto. Die ersten vier bisherigen Konten starten wie bisher am Montag, 12.10.2026 um 08:00 Uhr (Zürich); das neue Frühimpuls-Testkonto erst ab seiner Aktivierung. Keine echten Orders, kein DEGIRO-Zugriff. Zwei neue 1.000-€-Konten vergleichen Frühwarnung und Hauptsignal bis Freitag, 30.10.2026, 16:00 Uhr Zürich. Alle Konten nutzen dieselben beobachteten Kurse. Der bestehende manuelle 800-Euro-Test unter Mein Trade bleibt vollständig unangetastet.</p>
+ <button type="button" id="bobProfilesRefresh" class="bob-primary">Simulationen prüfen</button>
  <p id="bobProfilesStatus" class="small" role="status">Prüfstand wird geladen …</p>
  <div id="bobProfilesCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:12px"></div>
  <p class="small">Neue Einstiege ab 19.10.: 1 € je Kauf/Verkauf und 0,05 % Slippage je Seite werden direkt vom Spielgeld abgezogen. Beispielkosten, keine bestätigten Brokergebühren. Frühere Fälle bleiben unverändert. Spread ist bereits im Brief-/Geldkurs enthalten. Erfolgsquote zählt nur mit frischem Produktkurs bewertete Trades; Drawdown nur beobachtete Kurse, keine unbekannten Kurslücken.</p>
@@ -136,7 +136,7 @@ PANEL = r"""
   async function refreshProfiles(){
    if(profileBusy)return;
    profileBusy=true;
-   profilesStatus.textContent='Alle fünf Testkonten werden geprüft …';
+   profilesStatus.textContent='Alle sieben Testkonten werden geprüft …';
    try{
     const day=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich'}).format(new Date());
     const response=await fetch('/api/audit/read',{method:'POST',credentials:'same-origin',
@@ -144,16 +144,24 @@ PANEL = r"""
       body:JSON.stringify({mode:'simulation-profiles',day})});
     if(!response.ok)throw Error('HTTP '+response.status);
     const data=await response.json();
-    if(data.mode!=='five-independent-paper-accounts'||data.realOrders!==false||
-       !Array.isArray(data.accounts)||data.accounts.length!==5)throw Error('Fünf-Konten-Auswertung ungültig');
+    if(data.mode!=='seven-independent-paper-accounts'||data.realOrders!==false||
+       !Array.isArray(data.accounts)||data.accounts.length!==7)throw Error('Sieben-Konten-Auswertung ungültig');
     profilesCards.replaceChildren();
-    const names={conservative:'Konservativ',balanced:'Bob Lernkonto · 100 € (ausgewogen)',offensive:'Offensiv',trend800:'800 € · Bob-Stopp & Wiedereinstieg',early100:'Frühimpuls 100 € (LONG/SHORT)'};
+    if(data.campaignComparison){
+     const comparison=data.campaignComparison,summary=document.createElement('p');
+     const labels={'completed':'abgeschlossen','completed-insufficient-evidence':'beendet, Daten für Ergebnisvergleich unzureichend','pending-exit-quotes':'beendet, Ausstiegskurse fehlen','running-or-not-started':'laufend oder noch ohne Einstieg'};
+     summary.textContent='1.000-Euro-Vergleich: '+(labels[comparison.state]||'ungeprüft')+
+       (Number.isFinite(comparison.differenceEarlyMinusMainEur)?' · Frühwarnung minus Hauptsignal: '+money.format(comparison.differenceEarlyMinusMainEur):'')+' · '+comparison.note;
+     profilesCards.append(summary);
+    }
+    const names={early1000oct:'Frühwarnung · 1.000 € · bis Fr 16 Uhr',normal1000oct:'Hauptsignal · 1.000 € · bis Fr 16 Uhr',conservative:'Konservativ',balanced:'Bob Lernkonto · 100 € (ausgewogen)',offensive:'Offensiv',trend800:'800 € · Bob-Stopp & Wiedereinstieg',early100:'Frühimpuls 100 € (LONG/SHORT)'};
     for(const acc of data.accounts){
      const c=acc.control||{},p=acc.riskPolicy||{},st=acc.stats||{},perf=acc.performance||{};
      const card=document.createElement('div');card.style='padding:12px;border:1px solid #cbd5e1;border-radius:12px;min-width:0';
      const heading=document.createElement('h4');heading.style='margin:0 0 8px';heading.textContent=names[acc.profile]||acc.profile;card.append(heading);
      const lines=[
       'Fiktiver Anfang: '+money.format(c.initialCapital??100),
+      ...(c.endAt?['Testende: '+time(c.endAt)]:[]),
       'Kapital: '+(Number.isFinite(c.equity)?money.format(c.equity):'Bewertung offen'),
       'Gebuchte Beispielkosten: '+(Number.isFinite(c.costsDebitedEur)?money.format(c.costsDebitedEur):'Kostenperiode noch nicht gestartet'),
       'Kostenperiode ab: '+time(c.costsStartedAt),
@@ -170,7 +178,7 @@ PANEL = r"""
       'Offene Stücke: '+(c.openUnits??0),
       'Tagesverlustgrenze: '+Math.round((p.daily_loss_fraction||0)*100)+' %',
       'Max. Kapitaleinsatz: '+Math.round((p.exposure_fraction||0)*100)+' %',
-      'Strategie: '+(acc.profile==='early100'?'Frühimpuls LONG/SHORT · nur virtuell':'bestätigte Hauptrichtung') ,
+      'Strategie: '+(acc.profile==='early1000oct'?'Frühwarnung LONG/SHORT · nur virtuell':acc.profile==='early100'?'Frühimpuls LONG/SHORT · nur virtuell':'bestätigte Hauptrichtung') ,
       'Beginn der Konto-Historie: '+time(c.startAt),
       'Ausstiegsmodell: '+(acc.exitPolicy==='bob-stop-reentry-v1'?'Bobs Stopp übernehmen → am Stopp beenden → bei neuem bestätigtem Setup wieder einsteigen':acc.exitPolicy==='trend-follow-v1'?'Längeren Trend halten · kein Teilverkauf am 1. Ziel':'Bob: Teilgewinn und Zielverlängerung'),
       'Abgeschlossene Fälle heute: '+(st.closed||0),
@@ -276,8 +284,8 @@ PANEL = r"""
     const learner=data.accounts.find(a=>a.profile==='balanced')?.control||{};
     const closed=data.accounts.every(a=>a.sessionMode!=='trading');
     const fresh=Number.isFinite(learner.checkedAt)&&Date.now()-learner.checkedAt>=0&&Date.now()-learner.checkedAt<120000;
-    profilesStatus.textContent=(closed?'Handelszeit geschlossen · pausiert. ':fresh?'Hintergrundprüfung aktuell. ':'Hintergrundprüfung nicht aktuell bestätigt. ')+'Fünf getrennte Konten · Bericht für '+day+
-      ' · 1.200 € fiktives Startkapital (4 × 100 €, 1 × 800 €) · keine echten Orders';
+    profilesStatus.textContent=(closed?'Handelszeit geschlossen · pausiert. ':fresh?'Hintergrundprüfung aktuell. ':'Hintergrundprüfung nicht aktuell bestätigt. ')+'Sieben getrennte Konten · Bericht für '+day+
+      ' · 3.200 € fiktives Startkapital (4 × 100 €, 1 × 800 €, 2 × 1.000 €) · keine echten Orders';
    }catch(error){profilesStatus.textContent='Kontostand nicht abrufbar: '+String(error.message||error)+'. Kein Testerfolg bestätigt.';}
    finally{profileBusy=false;}
   }

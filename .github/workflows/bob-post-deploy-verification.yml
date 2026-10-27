@@ -4,6 +4,7 @@ name: Bob post-deploy verification (independent)
 # for a job that waits for the Render deployment. Three periodic read-only checks.
 on:
   workflow_dispatch:
+  deployment_status:
   schedule:
     - cron: '27 6,12,18 * * *'
 
@@ -17,6 +18,7 @@ concurrency:
 
 jobs:
   verify-deployed-main:
+    if: github.event_name != 'deployment_status' || github.event.deployment_status.state == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
@@ -26,3 +28,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python -m tools.bob_post_deploy_check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exercise verified published ranking scripts
+        run: python -m tools.bob_deployed_regressions

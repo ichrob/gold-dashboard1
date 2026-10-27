@@ -808,7 +808,7 @@ class Handler(BaseHTTPRequestHandler):
                         paper_heartbeat = paper_health.snapshot(conn)
                     except Exception as paper_exc:
                         print("BOB_PAPER_HEALTH error=" + type(paper_exc).__name__, flush=True)
-                        paper_heartbeat = {"state":"unavailable", "accountsTotal":5,
+                        paper_heartbeat = {"state":"unavailable", "accountsTotal":len(__import__("paper_portfolios").POLICIES),
                                            "accountsChecked":0,"realOrders":False,
                                            "scope":"paper-account-heartbeat-not-quote-quality"}
                     improvement_protocol=conn.execute('SELECT payload FROM bob_improvement_protocol WHERE id=%s',(improvement_tracker.VERSION,)).fetchone()

@@ -65,7 +65,7 @@ class DiagramEvidenceTests(unittest.TestCase):
             def fetchone(self):return ({'initialCapital':100,'secret':'excluded'},)
             def fetchall(self):return [('2026-10-16',{'capital':110,'initialCapital':100,'valuationKnown':True,'extra':'excluded'})]
         conn=Conn();result=portfolios.diagram_report(conn)
-        self.assertEqual(len(result['accounts']),5)
+        self.assertEqual(len(result['accounts']),7)
         self.assertFalse(result['realOrders'])
         self.assertTrue(all(q.startswith('SELECT') and 'cases' not in q for q in conn.queries))
         self.assertNotIn('secret',json.dumps(result));self.assertNotIn('extra',json.dumps(result))
