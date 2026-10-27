@@ -3169,7 +3169,8 @@ function renderEarlyImpulseStatus(){
   (q.invalidationPrice?'\nGegengrenze: '+q.invalidationPrice.toFixed(2)+' USD (5m-Schlusskurs; kein Produkt-Stopp)':'')+
   (q.extensionRisk?'\n⚠ Bewegung bereits weit gelaufen – erhöhtes Rückschlagrisiko':'')+
   '\nGeprüft: '+clock(q.checkedAt)+' (Zürich) · Hauptsignal: '+active+
-  '\nBeobachtung: keine Handelsfreigabe. Marktbeobachtung-Push nur bei frischer, geschlossener Signalkerze und nicht bereits bestätigter Hauptrichtung.';
+  '\nBeobachtung: keine Handelsfreigabe. Marktbeobachtung-Push nur bei frischer, geschlossener Signalkerze und nicht bereits bestätigter Hauptrichtung.'+
+  (window.BobDegiro?.earlyProductRankingText(q)||'');
 }
 
 // Recheck expiry even when a fetch or the main analysis fails; no extra network request.
