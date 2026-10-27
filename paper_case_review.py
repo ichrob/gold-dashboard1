@@ -41,6 +41,7 @@ def project_case(case, profile=None):
         result["modelSettlementGrossPct"] = result.get("productGrossPct")
         result["productGrossPct"] = None
         result["netReturnKnown"] = False
+    result['evidenceChain'] = __import__('paper_evidence_chain').review(result)
     return result
 
 def adjust_daily(stats, excluded):

@@ -1,12 +1,12 @@
 name: Bob post-deploy verification (independent)
 
 # Never use push or workflow_run here: a Render checksPass gate must not wait
-# for a job that waits for the Render deployment. Three periodic read-only checks.
+# for a job that waits for the Render deployment. Periodic read-only checks also cover missing deployment events.
 on:
   workflow_dispatch:
   deployment_status:
   schedule:
-    - cron: '27 6,12,18 * * *'
+    - cron: '7,22,37,52 * * * *'
 
 permissions:
   contents: read

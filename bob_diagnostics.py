@@ -625,6 +625,7 @@ def shape(*keys, **nested):
 
 
 CASE = shape('performanceEligible','performanceExclusionReason','modelSettlementGrossPct','status','startedAt','closedAt','lastAt','direction','modelOnly','netReturnKnown','productReturnKnown','productGrossPct','goldR','capitalMode','ledgerCostsDebited','ledgerFeesEur','ledgerSlippageEur','ledgerModelNetEur',
+    evidenceChain=shape('version','sourceAt','startedAt','complete','performanceExcluded','pushLinkVerified','brokerExecutionVerified','note', stages=[shape('label','observed')]),
     administrativeReview=shape('status','label','decidedAt','caseReviewId','resultVerified','reopenOnlyWithOriginalEvidence'),
     ledgerCostModel=shape('version','feeEurPerOrder','slippageBpsPerSide','extraHoldingBpsPerDay'),
     events=[shape('kind','at','recordedAt','reason')])

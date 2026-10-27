@@ -218,7 +218,19 @@ function compactProductLabel(item){
  const history=item.fromAuditStale?' · historischer Prüfbericht':'';
  return item.isin+' · '+direction+gap+history+' · keine Handelsfreigabe';
 }
-const api={zurichDay,originalAge,validIsin,visibleChange,uploadedList,compareUploadedList,mergeProductIdentities,knownProductCount,productEvidence,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup,compactProductLabel};
+function testOverviewLines(value){
+ if(value?.version!==1)return ['Testübersicht: Nachweise nicht verfügbar.'];
+ const clock=v=>{if(!v)return 'unbekannt';const d=new Date(typeof v==='number'?(v>100000000000?v:v*1000):v);return Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';};
+ const n=v=>Number.isInteger(v)&&v>=0?String(v):'unbekannt';
+ const states={checked:'aktuell geprüft',observed:'Stichprobe vorhanden','no-records':'keine Aufzeichnungen',unavailable:'nicht bestätigt'};
+ const lines=['Tests und Vergleichstests',value.note];
+ for(const r of value.items||[])lines.push(r.label+' · '+(states[r.state]||'nicht bestätigt')+' · Beginn: '+clock(r.startedAt)+' · Letzte Beobachtung: '+clock(r.lastObservedAt)+' · Stichprobe: '+n(r.sampledRecords)+' · Vergleichbare Fälle: '+n(r.comparableCases)+' · Abschluss nicht bestätigt. '+r.missing);
+ lines.push('Nachweisketten: '+(value.chainSampleAvailable?'Stichproben vorhanden':'keine Fallnachweise in diesem Bericht'));
+ for(const c of value.evidenceChains||[])lines.push('Fall '+clock(c.startedAt)+': '+(c.stages||[]).map(s=>s.label+': '+(s.observed?'vorhanden':'nicht belegt')).join(' · ')+'. '+c.note);
+ lines.push(value.drillNote,value.releaseNote);
+ return lines.filter(x=>typeof x==='string');
+}
+const api={testOverviewLines,zurichDay,originalAge,validIsin,visibleChange,uploadedList,compareUploadedList,mergeProductIdentities,knownProductCount,productEvidence,analyzeInputs,operationalSnapshot,validateDraftBackup,serializeDraftBackup,compactProductLabel};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 root.BobUnifiedWorkspace=api;
 if(!root.document)return;
@@ -540,6 +552,7 @@ function mount(){
      line(operations.connections.retryPolicy);
      line(operations.connections.repairPolicy);
     }
+    for(const text of testOverviewLines(operations.testOverview))line(text);
     for(const j of operations.jobs||[])line(j.label+': '+(labels[j.state]||'nicht bestätigt')+' · Letzter Erfolg: '+clock(j.lastSuccessAt)+' · Letzte Beobachtung: '+clock(j.lastObservedAt)+' · Nächster Lauf erwartet: '+clock(j.expectedNextAt)+' (nicht bestätigt)');
     line((operations.cases||[]).length+' gebündelte Problemkategorien. Vollständige Produktfelder schließen ältere Nachweisfälle nicht automatisch.');
     line(operations.historicalPolicy.note);
