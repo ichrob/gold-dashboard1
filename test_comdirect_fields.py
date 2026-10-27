@@ -109,6 +109,36 @@ class ComdirectFieldsTests(unittest.TestCase):
 if __name__=='__main__':unittest.main()
 
 class PrintedPrecisionTests(ComdirectFieldsTests):
+    def test_dated_issuer_decision_preserves_raw_difference_and_all_safety_flags(self):
+        p=self.primary()
+        p['metadata']['strike']=4200
+        p['conditions']['strike']=dict(value=4200,source='https://www.sg-zertifikate.de/product-details/'+ISIN.lower(),
+            conditionVerified=True,dateText='14.10.2026',sourceField='StrikeBarrierUpdateTime',
+            sourceTimeRaw='2026-10-14T01:00:00',reviewedAt=NOW.isoformat())
+        fields=self.parse()
+        with patch.object(q,'get_observation',return_value=dict(state='observed',fields=fields)):
+            out=f.apply(p,ISIN,NOW)
+        report=out['comdirectFieldsBackup']
+        self.assertEqual(report['sourceDecisions']['strike']['state'],'dated-issuer-selected')
+        self.assertEqual(report['unresolvedConflicts'],[])
+        self.assertIn('strike',report['conflicts'])
+        self.assertEqual(report['state'],'conflict')
+        self.assertEqual(out['conditions']['strike'],p['conditions']['strike'])
+        self.assertFalse(out['eligible']);self.assertFalse(out['found'])
+        # No time zone is inferred from an issuer's local source time.
+        self.assertNotIn('at',out['conditions']['strike'])
+        for changes in (dict(dateText='13.10.2026'),dict(sourceTimeRaw='2026-10-13T01:00:00'),
+                        dict(conditionVerified=False),dict(revoked=True),dict(source='https://evil.example/'+ISIN),
+                        dict(reviewedAt='2026-10-13T01:00:00+00:00'),dict(reviewedAt='2026-10-15T01:00:00+00:00')):
+            bad=copy.deepcopy(p);bad['conditions']['strike'].update(changes)
+            with patch.object(q,'get_observation',return_value=dict(state='observed',fields=fields)):
+                r=f.apply(bad,ISIN,NOW)['comdirectFieldsBackup']
+            self.assertIn('strike',r['unresolvedConflicts'])
+        dated=copy.deepcopy(fields)
+        dated['observations']['strike']['dateText']='14.10.2026'
+        with patch.object(q,'get_observation',return_value=dict(state='observed',fields=dated)):
+            self.assertIn('strike',f.apply(p,ISIN,NOW)['comdirectFieldsBackup']['unresolvedConflicts'])
+
     def test_rounding_preserves_exact_issuer_terms(self):
         fields=self.parse();p=self.primary()
         p['metadata'].update(simpleTurbo=True,classificationId=47)
