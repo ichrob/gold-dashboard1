@@ -83,7 +83,8 @@ class AndroidStableReleaseTests(unittest.TestCase):
         service = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadService.kt").read_text()
         for forbidden in ['performAction(', 'dispatchGesture(', 'performGlobalAction(', 'takeScreenshot(']:
             self.assertNotIn(forbidden, service)
-        self.assertIn('override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit', service)
+        self.assertNotIn('event.text', service)
+        self.assertIn('ProductReadRequest.attempt(SystemClock.elapsedRealtime())', service)
 
     def test_no_private_key_material_is_tracked_in_android_setup(self):
         ignore = (ROOT / "android_companion/.gitignore").read_text(encoding="utf-8")

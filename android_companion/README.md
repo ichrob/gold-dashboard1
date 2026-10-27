@@ -310,3 +310,17 @@ Zwei strikt getrennte Untersuchungen für Bob:
 5. Vor einer Verbindung zu Bob erforderlich: freigegebener Datenumfang, brokerrechtliche Zustimmung für automatischen Abruf, authentifiziertes Pairing ohne Passwort-Weitergabe, replay-sicherer Empfang, separates zeitbehaftetes Quellenschema, Einwilligung/Abbruch, lokale Redaktions- und Review-Prüfung sowie Device-Tests.
 
 **Status**: Laborquelle / unveröffentlichter Entwurf. Weder APK-Erstellung, Gerätetest noch produktiver Betrieb sind durch das Einchecken nachgewiesen. Bestehende Bob-Builds, Datenquellen, Handelsfreigaben und Trading-Simulationen bleiben unverändert.
+
+
+### Vereinfachter Start der lokalen Leseprüfung
+
+„Prüfung starten“ öffnet DEGIRO und aktiviert einen ausschließlich im Arbeitsspeicher
+liegenden Leseauftrag für maximal 60 Sekunden / 30 Versuche. Der Android-Dienst
+muss vorher vom Nutzer aktiviert sein. Fensteränderungen der DEGIRO-App lösen
+gedrosselte Leseversuche aus; Ereignistexte werden nicht gelesen. Nach dem ersten
+lesbaren Produkt endet der Auftrag. STOPP, Dienstunterbrechung, Sperrbildschirm
+oder Prozessneustart beenden ihn ebenfalls. Es gibt keine automatische Suche,
+Gesten, Orders oder Übertragung. Die Männchen-Taste bleibt als Alternative erhalten.
+Bei Rückkehr zu Bob Handy wird der lokale Entwurf direkt angezeigt. Das Öffnen
+der Webprüfung erfolgt weiterhin ausdrücklich. Tatsächliches Verhalten auf Samsung
+und zugängliche DEGIRO-Produktfelder müssen am Gerät geprüft werden.

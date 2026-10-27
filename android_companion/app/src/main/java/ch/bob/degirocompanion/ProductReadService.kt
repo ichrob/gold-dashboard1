@@ -5,31 +5,51 @@ import android.accessibilityservice.AccessibilityButtonController
 import android.app.KeyguardManager
 import android.graphics.Rect
 import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import java.time.Instant
 
-/** Reads only on the Android accessibility button. No gestures or node actions. */
+/** Explicit one-minute reading request or accessibility button; no UI actions. */
 class ProductReadService : AccessibilityService() {
+    private val handler = Handler(Looper.getMainLooper())
+    private var readQueued = false
+    private val pendingRead = Runnable {
+        readQueued = false
+        if (ProductReadRequest.attempt(SystemClock.elapsedRealtime())) readOnce(automatic = true)
+    }
     private val callback = object : AccessibilityButtonController.AccessibilityButtonCallback() {
         override fun onClicked(controller: AccessibilityButtonController) { readOnce() }
     }
     override fun onServiceConnected() {
         accessibilityButtonController.registerAccessibilityButtonCallback(callback)
     }
-    // Event text is deliberately never read, including login events.
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
-    override fun onInterrupt() { ProductReadSession.clear() }
+    // Only package/type metadata is used. Never read or retain event text.
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (!ProductReadRequest.active(SystemClock.elapsedRealtime())) return
+        if (event?.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
+        if (!readQueued) {
+            readQueued = true
+            handler.postDelayed(pendingRead, 400)
+        }
+    }
+    override fun onInterrupt() { ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
     override fun onDestroy() {
+        ProductReadRequest.cancel()
+        handler.removeCallbacks(pendingRead)
         accessibilityButtonController.unregisterAccessibilityButtonCallback(callback)
         ProductReadSession.clear()
         super.onDestroy()
     }
-    private fun readOnce() {
+    private fun readOnce(automatic: Boolean = false) {
+        if (!automatic) ProductReadRequest.cancel()
         ProductReadSession.clear()
         if (!getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false)) return
-        if ((getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return
+        if ((getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) { ProductReadRequest.cancel(); return }
         val result = runCatching {
             val root = rootInActiveWindow
                 ?: return@runCatching ProductScreenEvidence.Result(message = "DEGIRO gibt keinen lesbaren Fensterinhalt frei. Screenshot manuell teilen.")
@@ -67,6 +87,7 @@ class ProductReadService : AccessibilityService() {
             } finally { root.recycle() }
         }.getOrElse { ProductScreenEvidence.Result(message = "Ansicht nicht sicher lesbar. Nichts übernommen; Screenshot manuell teilen.") }
         ProductReadSession.put(result, SystemClock.elapsedRealtime())
-        Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
+        if (result.draft.isNotBlank()) ProductReadRequest.cancel()
+        if (!automatic || result.draft.isNotBlank()) Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
     }
 }
