@@ -45,6 +45,31 @@ class CampaignTests(unittest.TestCase):
         ledger.control.update(startAt=END-3600000,initialCapital=1000.,cash=1000.,equity=1000.)
         return ledger
 
+    def test_warning_plan_rejection_reaches_ledger_without_main_signal_requirement(self):
+        now=END-600000
+        m=market(at=now)
+        m.update(direction='NEUTRAL', warningPaperPlan=None,
+            warningPaperPlanReason='Unterstützung vor dem Ziel: Mindest-CRV nicht erfüllt',
+            earlyWarning=dict(version='early-warning-v2',available=True,state='active',
+                direction='SHORT',signalBarAt=now-300000,expiresAt=now+300000,
+                comparisonOnly=True,affectsApproval=False,extensionRisk=False))
+        original=copy.deepcopy(m)
+        for expired in (False,True):
+            source=copy.deepcopy(m)
+            if expired:source['earlyWarning']['expiresAt']=now
+            out=profiles.warning_paper_market(source,now)
+            ledger=self.ledger()
+            with patch('paper_simulation.new_case') as enter:
+                sim.run_once(ledger,{},out,{'choices':[]},{},now,profiles.POLICIES['early1000oct'])
+                enter.assert_not_called()
+            self.assertIn('Frühwarn-Test:',ledger.control['reason'])
+            if expired:
+                self.assertIn('Keine aktuelle gültige Frühwarnung',ledger.control['reason'])
+                self.assertNotIn('Mindest-CRV',ledger.control['reason'])
+            else:self.assertIn(m['warningPaperPlanReason'],ledger.control['reason'])
+            self.assertEqual(ledger.control['cash'],1000.)
+        self.assertEqual(m,original)
+
     def test_no_entry_at_or_after_deadline(self):
         for profile in ('early1000oct','normal1000oct'):
             ledger=self.ledger()
