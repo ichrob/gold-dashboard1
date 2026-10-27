@@ -860,6 +860,15 @@ class Handler(BaseHTTPRequestHandler):
                     result=signal_history.report(conn,args)
                 send_json(self,200,result)
                 return
+            if path == "/storage-health":
+                supplied=self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{"error":"Unauthorized"});return
+                with db() as conn:
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    conn.execute("SET LOCAL statement_timeout='3s'")
+                    result=__import__('storage_budget').report(conn)
+                send_json(self,200,result);return
             if path == "/diagnostics":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):

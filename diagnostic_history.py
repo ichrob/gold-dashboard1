@@ -39,6 +39,7 @@ SCHEMAS = {
 
 
 def init(conn):
+    __import__("storage_budget").init(conn)
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_diagnostic_history (
         id TEXT PRIMARY KEY, trace_id TEXT NOT NULL, decision_id TEXT,
         stage TEXT NOT NULL, observed_at DOUBLE PRECISION NOT NULL,
@@ -93,6 +94,7 @@ def write(conn,event):
     conn.execute('''INSERT INTO bob_diagnostic_history(id,trace_id,decision_id,stage,observed_at,build,payload)
         VALUES(%s,%s,%s,%s,%s,%s,%s::jsonb) ON CONFLICT(id) DO NOTHING''',
         (e['id'],e['traceId'],e['decisionId'],e['stage'],e['at'],e['build'],json.dumps(e['payload'],allow_nan=False)))
+    __import__("storage_budget").maybe_observe(conn)
     source=original_spot(e['payload'],e['at']) if e['stage']=='input' else None
     if source:
         # The journal is an independent delivery path for the SAME original

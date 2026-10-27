@@ -157,8 +157,9 @@ def handle(conn,action,payload):
             ON CONFLICT DO NOTHING""",(key,json.dumps(rows,allow_nan=False)))
         conn.execute('''INSERT INTO bob_candle_checkpoints(key,latest,payload) VALUES(%s,%s,%s::jsonb)
             ON CONFLICT(key) DO UPDATE SET latest=excluded.latest,payload=excluded.payload,saved_at=now()
-            WHERE excluded.latest>bob_candle_checkpoints.latest OR
-                (excluded.latest=bob_candle_checkpoints.latest AND jsonb_array_length(excluded.payload)>=jsonb_array_length(bob_candle_checkpoints.payload))''',
+            WHERE (excluded.latest>bob_candle_checkpoints.latest OR
+                (excluded.latest=bob_candle_checkpoints.latest AND jsonb_array_length(excluded.payload)>=jsonb_array_length(bob_candle_checkpoints.payload)))
+                AND bob_candle_checkpoints.payload IS DISTINCT FROM excluded.payload''',
             (key,rows[-1]['openTime'],json.dumps(rows,allow_nan=False)))
     return {'ok':True}
 
