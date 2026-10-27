@@ -76,18 +76,22 @@ jobs:
               assert research.get('lastAttemptAt') is not None, 'Research has not attempted a daily check'
 
           paper=push.get('paperObservation') or {}
-          assert paper.get('accountsTotal')==5, 'Paper health data not present'
+          accounts_total=paper.get('accountsTotal')
+          accounts_checked=paper.get('accountsChecked')
+          # Five long-running ledgers plus the two registered 1,000-EUR comparison profiles.
+          # Permit future additions, but fail if the current inventory shrinks or any profile is unchecked.
+          assert isinstance(accounts_total,int) and accounts_total>=7, 'Paper health inventory incomplete'
           assert paper.get('realOrders') is False, 'Paper-only safety marker missing'
           if active:
               if local.hour==8 and local.minute<10:
                   assert paper.get('state') in ('ok','warming'), 'Paper heartbeat unexpected at market open'
               else:
-                  assert paper.get('state')=='ok', 'Not all five paper ledgers are advancing'
-                  assert paper.get('accountsChecked')==5, 'Missing paper-account heartbeat'
+                  assert paper.get('state')=='ok', 'Not all registered paper ledgers are advancing'
+                  assert accounts_checked==accounts_total, 'Missing paper-account heartbeat'
                   assert isinstance(paper.get('maxCheckAgeSeconds'),int) and paper['maxCheckAgeSeconds']<=300, 'Paper heartbeat too old'
           else:
               assert paper.get('state')=='paused', 'Off-hours paper should be paused'
           # These are heartbeat checks, NOT validation of real market quotes,
           # independently verified net returns, broker fills or trading success.
-          print('Bob health checks passed: market, monitor, 5 paper heartbeats, research worker')
+          print(f'Bob health checks passed: market, monitor, {accounts_total} paper heartbeats, research worker')
           PY
