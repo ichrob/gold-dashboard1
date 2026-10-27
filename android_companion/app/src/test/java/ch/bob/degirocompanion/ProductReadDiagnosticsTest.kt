@@ -4,15 +4,35 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ProductReadDiagnosticsTest {
-    @Test fun selectsOnlyUniqueAdvertisedDirection() {
-        val none = ProductScrollPolicy.Capability(false, false)
-        val down = ProductScrollPolicy.Capability(true, false)
-        val up = ProductScrollPolicy.Capability(false, true)
-        assertEquals(1, ProductScrollPolicy.select(listOf(none, down), true))
-        assertEquals(1, ProductScrollPolicy.select(listOf(down, up), false))
-        assertNull(ProductScrollPolicy.select(listOf(down, down), true))
-        assertNull(ProductScrollPolicy.select(listOf(none, up), true))
-        assertNull(ProductScrollPolicy.select(emptyList(), false))
+    @Test fun choosesProductContainerAndNotChart() {
+        val outer = ProductScrollPolicy.Capability(true, true, evidence = 3)
+        val product = ProductScrollPolicy.Capability(true, true, ancestors = listOf(0), evidence = 3)
+        val chart = ProductScrollPolicy.Capability(true, true, ancestors = listOf(0, 1))
+        val nodes = listOf(outer, product, chart)
+        assertEquals(1, ProductScrollPolicy.surface(nodes))
+        assertEquals(1, ProductScrollPolicy.select(nodes, true))
+        assertEquals(1, ProductScrollPolicy.select(nodes, false))
+        // End of the product container must not fall back to the chart or wrapper.
+        assertNull(ProductScrollPolicy.select(listOf(outer, product.copy(forward = false), chart), true))
+    }
+    @Test fun requiresCommonEvidenceAndRejectsUnrelatedTies() {
+        val header = ProductScrollPolicy.Capability(true, true, evidence = 1)
+        val quote = ProductScrollPolicy.Capability(true, true, evidence = 2)
+        assertNull(ProductScrollPolicy.surface(listOf(header, quote)))
+        assertNull(ProductScrollPolicy.surface(listOf(header, header)))
+        assertNull(ProductScrollPolicy.surface(listOf(header.copy(evidence = 0), quote.copy(evidence = 0))))
+        val outer = ProductScrollPolicy.Capability(true, true, evidence = 3)
+        assertEquals(0, ProductScrollPolicy.surface(listOf(outer, header.copy(ancestors = listOf(0)), quote.copy(ancestors = listOf(0)))))
+        assertNull(ProductScrollPolicy.surface(emptyList()))
+        assertEquals(0, ProductScrollPolicy.select(listOf(header), true))
+    }
+    @Test fun evidenceDoesNotTreatChartOrAccountNumbersAsProductLabels() {
+        assertEquals(1, ProductScrollPolicy.evidence("DE000FD0S0G4 · OTC"))
+        assertEquals(0, ProductScrollPolicy.evidence("DE000FD0S0G5"))
+        assertEquals(2, ProductScrollPolicy.evidence("Kursdaten"))
+        assertEquals(2, ProductScrollPolicy.evidence("Brief"))
+        assertEquals(0, ProductScrollPolicy.evidence("CHF 500,00"))
+        assertEquals(0, ProductScrollPolicy.evidence("1D 1W 1M"))
     }
 
     @Test fun onlyOneActiveFocusedApplicationWindowMayBeSelected() {

@@ -3,7 +3,7 @@ package ch.bob.degirocompanion
 /** Local counters only: no package names, screen text, ISINs or account values. */
 internal object ProductReadDiagnostics {
     enum class Outcome { NO_ROOT, NO_FOCUSED_WINDOW, WINDOW_ROOT_MISSING, OTHER_APP,
-        DIRECT_ROOT, WINDOW_ROOT, PROTECTED_VIEW, NO_FIELDS, DRAFT, CHANGED, ERROR, LOCKED, PAGE_SCROLL, PAGE_ABORT, PAGE_COMPLETE, SCROLL_NO_ACTION, SCROLL_AMBIGUOUS, SCROLL_AVAILABLE, SCROLL_REJECTED }
+        DIRECT_ROOT, WINDOW_ROOT, PROTECTED_VIEW, NO_FIELDS, DRAFT, CHANGED, ERROR, LOCKED, PAGE_SCROLL, PAGE_ABORT, PAGE_COMPLETE, SCROLL_NO_ACTION, SCROLL_AMBIGUOUS, SCROLL_AVAILABLE, SCROLL_REJECTED, SCROLL_PRODUCT_SCOPED }
     var connected = false
     var canRead = false
     var windowAccess = false
@@ -24,7 +24,7 @@ internal object ProductReadDiagnostics {
         val start = startedAt
         if (start != null && (now < start || now - start > 300000)) clear()
         return buildString {
-            appendLine("BOB-LESEDIAGNOSE/4")
+            appendLine("BOB-LESEDIAGNOSE/5")
             appendLine("Dienst verbunden: $connected · Textzugriff: $canRead · Fensterzugriff: $windowAccess")
             if (counts.isEmpty()) append("Noch keine Diagnosemessung.")
             else for (outcome in Outcome.values()) counts[outcome]?.let { appendLine("${outcome.name}: $it") }
@@ -41,10 +41,25 @@ internal object ProductWindowPolicy {
     }.singleOrNull()
 }
 
-/** Only a unique advertised action can be used; unrelated non-action containers do not veto it. */
+/** Select the deepest common product container, never a chart merely offering an action. */
 internal object ProductScrollPolicy {
-    data class Capability(val forward: Boolean, val backward: Boolean)
-    fun select(nodes: List<Capability>, forward: Boolean): Int? = nodes.indices.filter {
+    data class Capability(val forward: Boolean, val backward: Boolean,
+                          val ancestors: List<Int> = emptyList(), val evidence: Int = 0)
+    fun evidence(text: String): Int {
+        val identity = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(text.uppercase())
+            .any { SeriesEvidence.validIsin(it.value) }
+        val quotes = Regex("(?i)^(kursdaten|produktdetails|geld|brief|zuletzt)\\s*[:：]?$").matches(text.trim())
+        return (if (identity) 1 else 0) or (if (quotes) 2 else 0)
+    }
+    fun surface(nodes: List<Capability>): Int? {
+        if (nodes.size == 1) return 0
+        val required = nodes.fold(0) { bits, node -> bits or node.evidence }
+        if (required == 0) return null
+        val candidates = nodes.indices.filter { nodes[it].evidence and required == required }
+        // A nested wrapper is less specific than its product-bearing descendant.
+        return candidates.filter { i -> candidates.none { j -> i != j && i in nodes[j].ancestors } }.singleOrNull()
+    }
+    fun select(nodes: List<Capability>, forward: Boolean): Int? = surface(nodes)?.takeIf {
         if (forward) nodes[it].forward else nodes[it].backward
-    }.singleOrNull()
+    }
 }
