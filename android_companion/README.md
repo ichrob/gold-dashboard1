@@ -335,3 +335,17 @@ keine regelmäßigen Leseversuche. Eindeutig beschriftete Kurse bestimmen ihre
 Währung unabhängig vom Kontostand. Fehlende ISIN, geschützte Ansichten und
 widersprüchliche Produktwährungen bleiben gesperrt. Getrennte Bildausschnitte
 werden nicht stillschweigend miteinander verknüpft. Geräteabnahme bleibt offen.
+
+### Fensterdiagnose und begrenzter Ersatzweg
+
+Wenn rootInActiveWindow fehlt, wird Androids interaktive Fensterliste genutzt.
+Nur genau ein aktives, fokussiertes Anwendungsfenster ist zulässig; dessen
+Paket muss DEGIRO entsprechen. Hintergrundfenster, Systemfenster und mehrdeutige
+Auswahl werden nicht gelesen. Schutzprüfungen bleiben bestehen.
+
+BOB-LESEDIAGNOSE/1 zeigt ausschließlich feste Statuswerte/Zähler: Dienstverbindung,
+Text-/Fensterfähigkeit, direkter/alternativer Fensterzugriff, fehlende Wurzel,
+fremde App, geschützte Ansicht, fehlende Felder, Entwurf oder Fehler. Keine
+Paketnamen, Fenstertitel, Kontodaten, ISINs oder Bildschirmtexte. Nur Arbeitsspeicher,
+Löschung nach fünf Minuten/STOPP; Kopieren nur per Taste, keine Übertragung.
+Android-Geräteabnahme ist weiterhin offen.

@@ -667,7 +667,7 @@ class MainActivity : Activity() {
 
     private fun emergencyStop() {
         getSharedPreferences("product_reader", MODE_PRIVATE).edit().putBoolean("enabled", false).apply()
-        ProductReadRequest.cancel(); ProductReadSession.clear()
+        ProductReadRequest.cancel(); ProductReadSession.clear(); ProductReadDiagnostics.clear()
         remoteCoupling.stopped()
         remotePendingTask = null
         if (::remoteInput.isInitialized) remoteInput.setText("")

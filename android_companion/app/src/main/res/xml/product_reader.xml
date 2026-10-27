@@ -4,7 +4,7 @@
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:packageNames="nl.degiro.trader"
-    android:accessibilityFlags="flagRequestAccessibilityButton"
+    android:accessibilityFlags="flagRequestAccessibilityButton|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="false"
     android:canTakeScreenshot="false"
