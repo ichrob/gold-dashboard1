@@ -253,6 +253,9 @@ function mountSimpleHome(doc,workspace){
  home.prepend(card);
  // Keep the next action visible even with long warnings or large text.
  doc.getElementById('bobHomeSignal').after(card.querySelector('.bob-home-actions'));
+ // Move the original live warning, preserving expiry, withdrawal and ranking updates.
+ const earlyWarning=doc.getElementById('earlyImpulseStatus');
+ if(earlyWarning)card.querySelector('.bob-home-actions').after(earlyWarning);
  if(quotes)card.after(quotes);
  // Keep the original interactive chart outside every collapsed analysis panel.
  if(chart)(quotes||card).after(chart);
