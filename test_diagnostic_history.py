@@ -190,6 +190,35 @@ class HistoryTests(unittest.TestCase):
                 self.assertNotIn('private database detail',
                                  str(caught.exception))
 
+    def test_cap_delete_uses_proven_bounded_maintenance_batch(self):
+        class Result:
+            rowcount = 0
+
+            def __init__(self, row=None):
+                self.row = row
+
+            def fetchone(self):
+                return self.row
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+                if 'pg_try_advisory_xact_lock' in sql:
+                    return Result((True,))
+                return Result()
+
+        conn = Conn()
+        h.prune(conn)
+        cap_sql, cap_params = next(
+            (sql, params) for sql, params in conn.statements
+            if 'OFFSET 60000' in sql)
+        self.assertIn('LIMIT %s', cap_sql)
+        self.assertEqual(cap_params, (500,))
+        self.assertEqual(h._PRUNE_CAP_BATCH_SIZE, 500)
+
     def test_new_process_defers_retention_until_first_full_interval(self):
         class Conn:
             def __init__(self):
@@ -426,7 +455,8 @@ class DatabaseTests(unittest.TestCase):
                 SELECT i::text,'test','health',0,
                     now()-i*interval '1 second','{}'::jsonb
                 FROM generate_series(1,65000) i""")
-            for remaining in (63000,61000,60000,60000):
+            expected = list(range(64500,59999,-500)) + [60000]
+            for remaining in expected:
                 h.prune(conn)
                 self.assertEqual(conn.execute(
                     'SELECT count(*) FROM bob_diagnostic_history').fetchone()[0],remaining)
