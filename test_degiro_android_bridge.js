@@ -167,7 +167,7 @@ assert.throws(()=>bridge.storeObservation({getItem:()=>null,setItem:()=>{throw E
 // The fallback reads only dated, checksum-valid existing server identities.
 (async()=>{
  const vm=require('node:vm'),source=fs.readFileSync('degiro_assistant.js','utf8');
- const body=source.slice(source.indexOf('async function readServerProductList(){'),source.indexOf('async function restoreServerCorrection(){'));
+ const body=source.slice(source.indexOf('async function readServerProductList('),source.indexOf('async function restoreServerCorrection(){'));
  const invoke=async(data)=>{
   const context={Date,Error,AbortSignal,validIsin,fetch:async(url,options)=>{
    assert.equal(url,'/api/degiro/list-correction');
@@ -182,5 +182,30 @@ assert.throws(()=>bridge.storeObservation({getItem:()=>null,setItem:()=>{throw E
  await assert.rejects(()=>invoke({...base,products:[...base.products,...base.products]}));
  await assert.rejects(()=>invoke({...base,products:[{isin:'DE000FG77MY5'}]}));
  await assert.rejects(()=>invoke({...base,listUploadedAt:new Date(Date.now()+60000).toISOString()}));
+ const scenarios=async(failures,options={})=>{
+  let calls=0;const delays=[],timeouts=[];
+  const context={Date,Error,validIsin,AbortSignal:{timeout:ms=>{timeouts.push(ms);return undefined;}},
+   setTimeout:(fn,ms)=>{delays.push(ms);fn();},fetch:async()=>{
+    const failure=failures[calls++];
+    if(failure instanceof Error)throw failure;
+    if(typeof failure==='number')return {ok:false,status:failure};
+    return {ok:true,json:async()=>base};
+   }};
+  vm.createContext(context);vm.runInContext(body,context);
+  let result,error;try{result=await context.readServerProductList(options);}catch(e){error=e;}
+  return {calls,delays,timeouts,result,error};
+ };
+ const timeout=Object.assign(new Error('signal timed out'),{name:'TimeoutError'});
+ const recovered=await scenarios([timeout,503,null]);
+ assert.equal(recovered.calls,3);assert.ok(recovered.result);assert.deepEqual(recovered.delays,[1500,4000]);
+ assert.deepEqual(recovered.timeouts,[15000,15000,15000]);
+ const exhausted=await scenarios([timeout,timeout,timeout]);
+ assert.equal(exhausted.calls,3);assert.match(exhausted.error.message,/drei Versuchen/);
+ assert.equal((await scenarios([401])).calls,1);
+ assert.equal((await scenarios([403])).calls,1);
+ let active=true;
+ const cancelled=await scenarios([timeout,null],{isCurrent:()=>active,onRetry:()=>{active=false;}});
+ assert.equal(cancelled.calls,1);assert.equal(cancelled.result,undefined);
+ console.log('Android automatic retry: timeout recovery, finite budget, auth rejection and cancellation passed');
  console.log('Android server-list fallback: read-only dated identities, duplicates and invalid ISIN rejected');
 })().catch(e=>{console.error(e);process.exitCode=1;});

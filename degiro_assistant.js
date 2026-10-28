@@ -5020,14 +5020,30 @@ async function refreshIssuerCandidates(){
 
 // Read-only identity list for passive Android observations. Never replaces the
 // user's local editing rows or imports broker prices/approval from a screen.
-async function readServerProductList(){
- const response=await fetch('/api/degiro/list-correction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'read'}),signal:AbortSignal.timeout(10000)});
- if(!response.ok)throw Error('Gespeicherte Produktliste nicht erreichbar.');
- const data=await response.json(),at=Date.parse(data.listUploadedAt);
- if(!data.ok||!Array.isArray(data.products)||!data.products.length||data.products.length>12||!Number.isFinite(at)||at>Date.now())throw Error('Kein gültiger datierter Listenstand.');
- const products=data.products.map(p=>({isin:String(p.isin||'').trim().toUpperCase(),name:p.name||p.isin}));
- if(products.some(p=>!validIsin(p.isin))||new Set(products.map(p=>p.isin)).size!==products.length)throw Error('Produktliste enthält uneindeutige ISINs.');
- return {products,listUploadedAt:data.listUploadedAt};
+async function readServerProductList(options={}){
+ const current=()=>!options.isCurrent||options.isCurrent();
+ for(let attempt=1;attempt<=3;attempt++){
+  if(!current())throw Error('Zuordnung abgebrochen.');
+  try{
+   // Allow the bounded 12s server relay to answer before aborting the client.
+   const response=await fetch('/api/degiro/list-correction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'read'}),signal:AbortSignal.timeout(15000)});
+   if(!response.ok){const error=Error('Gespeicherte Produktliste nicht erreichbar.');error.retryable=[408,429,502,503,504].includes(response.status);throw error;}
+   const data=await response.json(),at=Date.parse(data.listUploadedAt);
+   if(!data.ok||!Array.isArray(data.products)||!data.products.length||data.products.length>12||!Number.isFinite(at)||at>Date.now())throw Error('Kein gültiger datierter Listenstand.');
+   const products=data.products.map(p=>({isin:String(p.isin||'').trim().toUpperCase(),name:p.name||p.isin}));
+   if(products.some(p=>!validIsin(p.isin))||new Set(products.map(p=>p.isin)).size!==products.length)throw Error('Produktliste enthält uneindeutige ISINs.');
+   if(!current())throw Error('Zuordnung abgebrochen.');
+   return {products,listUploadedAt:data.listUploadedAt};
+  }catch(error){
+   const temporary=error.retryable===true||['TimeoutError','AbortError','TypeError'].includes(error.name);
+   if(!current())throw Error('Zuordnung abgebrochen.');
+   if(!temporary)throw error;
+   if(attempt===3)throw Error('Serverliste nach drei Versuchen nicht erreichbar. Der Entwurf bleibt gespeichert.');
+   const delay=attempt===1?1500:4000;
+   options.onRetry?.(attempt+1,delay);
+   await new Promise(resolve=>setTimeout(resolve,delay));
+  }
+ }
 }
 
 async function restoreServerCorrection(){

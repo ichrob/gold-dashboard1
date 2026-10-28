@@ -220,7 +220,10 @@ function mount(){
    if(!existing.some(p=>p?.isin===draft.isin)&&root.BobDegiro?.readServerProductList){
     status.textContent='Entwurf gelesen. Gespeicherte Produktliste wird über die ISIN abgeglichen …';
     serverLookupStarted=true;
-    const remote=await root.BobDegiro.readServerProductList();
+    const remote=await root.BobDegiro.readServerProductList({
+     isCurrent:()=>run===analysisRun&&textarea.value===text,
+     onRetry:(attempt)=>{if(run===analysisRun)status.textContent='Serverliste antwortet noch nicht. Automatischer Versuch '+attempt+' von 3; dein Entwurf bleibt gespeichert.';}
+    });
     if(run!==analysisRun||textarea.value!==text)return;
     existing=remote.products;serverAt=remote.listUploadedAt;
    }
