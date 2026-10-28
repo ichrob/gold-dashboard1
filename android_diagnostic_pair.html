@@ -1,0 +1,26 @@
+<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bob Handy · Diagnosefreigabe</title>
+<style>body{font:18px system-ui;margin:24px auto;padding:20px;max-width:520px;background:#f3f5f8}button,a{display:block;margin:18px 0;padding:16px}button{font:inherit;width:100%}p{line-height:1.5}</style>
+<h1>Bob Handy verbinden</h1><p>Nach deiner Freigabe sendet dieses Handy App-Version, Dienststatus und feste Fehlercodes an deinen privaten Bob. Keine Bildschirmtexte, Kontowerte oder Zugangsdaten. Keine Fernsteuerung.</p>
+<p>Freigabe gilt bis zu 90 Tage. In Bob Handy abschaltbar; hier lassen sich alle Diagnosefreigaben widerrufen.</p>
+<p id="fingerprint"></p><button id="approve" disabled>Dieses Handy für Diagnose freigeben</button>
+<a href="/login" target="_blank" rel="noopener">Bei Bob anmelden (neuer Tab)</a>
+<p>Nach einer Anmeldung hierher zurückkehren und die Freigabe erneut drücken. Danach Bob Handy öffnen.</p>
+<a href="bobhandy://list-reader/open">Zurück zu Bob Handy</a>
+<button id="revoke">Alle Handy-Diagnosefreigaben widerrufen</button><p id="status" role="status"></p>
+<script>
+'use strict';
+const state=document.getElementById('status'),approve=document.getElementById('approve');
+// Only a one-way device-key hash enters the browser, never the bearer credential.
+const digest=location.hash.slice(1);history.replaceState(null,'',location.pathname);
+if(/^[a-f0-9]{64}$/.test(digest)){approve.disabled=false;document.getElementById('fingerprint').textContent='Vergleichscode: '+digest.slice(0,12)+' — muss mit Bob Handy übereinstimmen.';}
+else state.textContent='Zum Verbinden bitte in Bob Handy „Automatische Diagnose verbinden“ starten.';
+async function submit(value){
+ try{const r=await fetch('/api/android-diagnostics/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value),signal:AbortSignal.timeout(15000)});
+ if(r.status===401){state.textContent='Bitte über den Link anmelden, dann hierher zurückkehren.';return;}
+ if(!r.ok)throw Error();const d=await r.json();if(!d.ok)throw Error();
+ state.textContent=d.paired?'Freigabe gespeichert. Zurück zu Bob Handy; die Verbindung wird dort geprüft.':'Alle Diagnosefreigaben widerrufen.';
+ }catch(e){state.textContent='Nicht bestätigt. Bitte erneut versuchen.';}
+}
+approve.onclick=()=>submit({action:'register',tokenHash:digest});
+document.getElementById('revoke').onclick=()=>{if(confirm('Alle Handy-Diagnosefreigaben widerrufen?'))submit({action:'revokeAll'});};
+</script></html>

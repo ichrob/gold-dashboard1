@@ -49,6 +49,14 @@ class ProductReadActivity : Activity() {
             preferences.edit().putBoolean("enabled", false).apply()
             ProductReadRequest.cancel(); ProductReadSession.clear(); ProductReadDiagnostics.clear(); refresh()
         }
+        button("Automatische Diagnose verbinden / Freigabe öffnen") {
+            AlertDialog.Builder(this).setTitle("Automatische Diagnose freigeben")
+                .setMessage("Bob Handy darf App-Version, Dienststatus und feste Fehlercodes direkt an deinen privaten Bob senden. Keine Bildschirmtexte, Kontowerte oder Zugangsdaten. Keine Fernsteuerung. Freigabe anschließend im angemeldeten Browser bestätigen. Android-Hintergrundmeldungen können verzögert eintreffen. Jederzeit hier abschaltbar.")
+                .setNegativeButton("Abbrechen",null).setPositiveButton("Verbinden") { _,_ ->
+                    runCatching { PhoneDiagnostics.connect(this) }.onFailure { result.text="Verbindung konnte nicht vorbereitet werden." }
+                }.show()
+        }
+        button("Automatische Diagnose ausschalten") { PhoneDiagnostics.disable(this);refresh() }
         val advanced=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=android.view.View.GONE }
         button("Weitere Möglichkeiten und technische Diagnose") {
             advanced.visibility=if(advanced.visibility==android.view.View.GONE) android.view.View.VISIBLE else android.view.View.GONE
@@ -123,7 +131,7 @@ class ProductReadActivity : Activity() {
         setContentView(ScrollView(this).apply { addView(stack) })
     }
     override fun onResume() {
-        super.onResume();refresh();statusHandler.post(statusTick)
+        super.onResume();PhoneDiagnostics.queue(this);refresh();statusHandler.post(statusTick)
         statusHandler.postDelayed(automaticTransfer,600)
     }
     override fun onPause() { statusHandler.removeCallbacks(automaticTransfer);statusHandler.removeCallbacks(statusTick); super.onPause() }
@@ -160,7 +168,7 @@ class ProductReadActivity : Activity() {
             MorningReadUiPolicy.Action.SETUP -> "Lesedienst einmalig einschalten"
             MorningReadUiPolicy.Action.START -> "Automatisch prüfen · Morgenliste"
         }
-        result.text=MorningReadRun.summary()+"\n"+MorningReadRun.savedStatus(this)
+        result.text=MorningReadRun.summary()+"\n"+MorningReadRun.savedStatus(this)+"\n\n"+PhoneDiagnostics.status(this)
         diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }

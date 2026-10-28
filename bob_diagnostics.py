@@ -1198,7 +1198,7 @@ _FOCUS_AREAS = {
                    'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'sources': ('market', 'sourceReliability', 'collection', 'background', 'analysis'),
     'research': ('research', 'strategyResearch', 'strategyReport', 'newFeatures'),
-    'mobile': ('newFeatures', 'runtime', 'degiroSync', 'products'),
+    'mobile': ('androidTelemetry', 'androidReader', 'newFeatures', 'runtime', 'degiroSync', 'products'),
     'products': ('products', 'degiroSync', 'gapEvidence'),
     'repairs': ('selfHealing', 'problems', 'background', 'diagnosticTriage', 'operationsSummary',
                 'healthCadence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),

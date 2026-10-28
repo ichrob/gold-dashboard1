@@ -145,6 +145,7 @@ class ProductReadService : AccessibilityService() {
         }
         keepScreenForRequest()
         queueRead(600)
+        PhoneDiagnostics.queue(this)
     }
     // Only package/type metadata is used. Never read or retain event text.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -176,6 +177,7 @@ class ProductReadService : AccessibilityService() {
         ProductReadDiagnostics.connected = false
         ProductReadDiagnostics.canRead = false
         ProductReadDiagnostics.windowAccess = false
+        PhoneDiagnostics.queue(this)
         releaseScreen()
         if (screenReceiverRegistered) { unregisterReceiver(screenOff); screenReceiverRegistered = false }
         ProductReadRequest.onStarted = null
