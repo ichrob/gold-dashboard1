@@ -4,7 +4,7 @@ package ch.bob.degirocompanion
 internal class ProductPageReader {
     enum class Move { NONE, FORWARD, BACKWARD, FINISHED, ABORT }
     enum class Cause { NONE, WAIT_PROTECTED, WAIT_IDENTITY, WAIT_SCROLL, UNSAFE_VIEW,
-        IDENTITY_CHANGED, NO_QUOTES, RETURN_FAILED, SCROLL_LIMIT, INVALID_QUOTES, SEEK_HEADER, SEEK_LIMIT, WAIT_SCROLL_LAYOUT, SCROLL_LAYOUT_CHANGED }
+        IDENTITY_CHANGED, NO_QUOTES, RETURN_FAILED, SCROLL_LIMIT, INVALID_QUOTES, SEEK_HEADER, SEEK_LIMIT, WAIT_SCROLL_LAYOUT, SCROLL_LAYOUT_CHANGED, QUOTES_CAPTURED }
     data class Step(val move: Move, val result: ProductScreenEvidence.Result, val cause: Cause = Cause.NONE)
     private var rejectedForward = 0
     private var rejectedBackward = 0
@@ -18,6 +18,7 @@ internal class ProductPageReader {
     private var backward = 0
     private var candidate: ProductScreenEvidence.Result? = null
     val anchored get() = isin != null
+    fun sameWindow(windowId: Int): Boolean = anchored && window == windowId
     fun reset() { rejectedForward = 0; rejectedBackward = 0; layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null }
     private fun stop(message: String, cause: Cause, reason: ProductScreenEvidence.Reason = ProductScreenEvidence.Reason.NONE): Step {
         reset(); return Step(Move.ABORT, ProductScreenEvidence.Result(message = message, reason = reason), cause)
@@ -92,6 +93,14 @@ internal class ProductPageReader {
         if (observed.reason == ProductScreenEvidence.Reason.QUOTES_INVALID) return stop(observed.message, Cause.INVALID_QUOTES, observed.reason)
         fun score(value: ProductScreenEvidence.Result) = listOf("Geld (", "Brief (", "Zuletzt (").count { value.draft.contains(it) }
         if (observed.draft.isNotBlank() && (candidate == null || score(observed) >= score(candidate!!))) candidate = observed
+        // A complete labelled quote pair is the useful end of this read. Avoid
+        // scrolling through unrelated footer sections or probing the page bottom.
+        // Publication still requires returning to the original visible ISIN.
+        if (observed.draft.contains("Geld (") && observed.draft.contains("Brief (")) {
+            returning = true
+            val next = inspect(windowId, lines, at, sensitive, false, canBackward)
+            return if (next.move == Move.BACKWARD) next.copy(cause = Cause.QUOTES_CAPTURED) else next
+        }
         if (canForward) {
             if (forward >= 8) return stop("Scrollgrenze erreicht. Keine vollständige Seitenprüfung; kein Entwurf übernommen.", Cause.SCROLL_LIMIT)
             forward++
