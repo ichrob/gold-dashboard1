@@ -702,6 +702,34 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
     return result
 
 
+def simulation_status(conn, evaluator, paper_health, portfolios):
+    """Fast live controls and today's indexed case sample; no history scans."""
+    from zoneinfo import ZoneInfo
+    result = push_snapshot(conn, evaluator, paper_health, portfolios, extended=False)
+    result['observedAt'] = datetime.now(timezone.utc).isoformat()
+    result['analysis'] = analysis_snapshot()
+    result['scope'] = 'live-controls-and-current-day-case-sample'
+    result['historicalEvidence'] = {'status':'not-requested',
+        'reason':'extended-history-is-separate-from-live-simulation-status'}
+    day = datetime.now(ZoneInfo('Europe/Zurich')).date().isoformat()
+    for account in result['accounts']:
+        table = portfolios.names(account['profile'])['bob_paper_cases']
+        try:
+            with conn.transaction():
+                conn.execute("SET LOCAL statement_timeout='500ms'")
+                # Uses the existing (day, started_at) index on each portfolio.
+                rows = conn.execute(f'SELECT payload FROM {table} WHERE day=%s ORDER BY started_at DESC LIMIT 5', (day,)).fetchall()
+                conn.execute("SET LOCAL statement_timeout='3s'")
+            account['recentCases'] = {'status':'observed', 'day':day,
+                'scope':'current-day-latest-five-not-complete-history',
+                'items':[project(paper_case_review.project_case(row[0], account['profile']), CASE) for row in rows]}
+        except Exception:
+            account['recentCases'] = {'status':'unavailable', 'day':day,
+                'reason':'current-day-case-read-unavailable'}
+    result['recentPaperOutcomes'] = recent_paper_outcomes(result['accounts'])
+    return result
+
+
 # Projection schemas are explicit: credentials, raw logs, subscription endpoints,
 # document bodies, receipt identifiers and arbitrary nested payloads never pass.
 def clean_text(value):
