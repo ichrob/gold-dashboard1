@@ -8,6 +8,7 @@ const {chromium}=require('playwright'),fs=require('fs'),assert=require('node:ass
  await page.route('**/*',route=>{
   const u=new URL(route.request().url());
   if(u.hostname!=='bob.test')return route.abort();
+  if(u.pathname==='/api/risk-paper')return route.fulfill({contentType:'application/json',body:JSON.stringify({checkedAt:Date.now(),accounts:{'0':{delaySeconds:0,cash:2000,equity:2000,realized:0,closed:0,wins:0,incomplete:0,maxDrawdown:0,reason:'Warte auf bestätigtes Risiko-Signal',recent:[]}}})});
   if(u.pathname==='/')return route.fulfill({body:html,contentType:'text/html'});
   const file=require('node:path').basename(u.pathname);
   if(file.endsWith('.js')&&fs.existsSync(file))return route.fulfill({contentType:'text/javascript',body:fs.readFileSync(file,'utf8')});
@@ -16,6 +17,8 @@ const {chromium}=require('playwright'),fs=require('fs'),assert=require('node:ass
  await page.goto('https://bob.test/');
  await page.locator('#bobNavigation [data-view="risk"]').click();
  await page.locator('#bob-view-risk').waitFor({state:'visible'});
+ await page.locator('#bobRiskPaper').getByText('0 s Verzögerung',{exact:true}).waitFor();
+ assert((await page.locator('#bobRiskPaper').innerText()).includes('2000.00 €'));
  assert.equal(await page.locator('#bobNavigation button').count(),5);
  assert(await page.locator('#bobRiskContent').innerText().then(x=>x.includes('ABWARTEN')));
  assert(await page.locator('#bob-view-risk').innerText().then(x=>x.includes('Risiko-Push')));

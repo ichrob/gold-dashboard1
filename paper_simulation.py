@@ -971,6 +971,7 @@ def _worker(db):
                         try:
                             with conn.transaction():active_isins+=ranking_lifecycle.active_isins(conn)
                             with conn.transaction():active_isins+=paper_stop_study.active_isins(conn)
+                            with conn.transaction():active_isins+=__import__("risk_paper").active_isins(conn)
                         except Exception as exc:print('BOB_RANKING_EXITS lookup_error='+type(exc).__name__,flush=True)
                         import product_repair_learning
                         try:
@@ -1005,6 +1006,11 @@ def _worker(db):
                             print('BOB_PRODUCT_AUDIT error='+type(audit_exc).__name__,flush=True)
                         precision_quotes=dict(quotes)
                         quotes={isin:paper_quote(q,now,isin) for isin,q in quotes.items()}
+                        try:
+                            with conn.transaction():
+                                __import__('risk_paper').tick(conn,bundle,evidence,quotes,time.time()*1000)
+                        except Exception as exc:
+                            print('BOB_RISK_PAPER error='+type(exc).__name__,flush=True)
                         # Original four paper policies consume unchanged confirmed direction.
                         market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])

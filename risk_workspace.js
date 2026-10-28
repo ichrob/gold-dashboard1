@@ -170,14 +170,32 @@ function refresh(){
  if(host._riskHtml!==html){host.innerHTML=html;host._riskHtml=html;}
 }
 function update(snapshot){input=snapshot;refresh();}
+let paperBusy=false;
+async function refreshPaper(){
+ const el=root.document?.getElementById('bobRiskPaper');
+ if(!el||paperBusy||root.document.hidden)return;
+ paperBusy=true;
+ try{
+  const response=await root.fetch('/api/risk-paper',{cache:'no-store'});
+  if(!response.ok)throw Error('Simulation nicht erreichbar oder Anmeldung erforderlich.');
+  const data=await response.json();if(!data.accounts)throw Error('Simulation noch nicht gestartet.');
+  const euros=x=>typeof x==='number'&&Number.isFinite(x)?x.toFixed(2)+' €':'unbewertet';
+  const checked=data.checkedAt, fresh=Number.isFinite(checked)&&checked<=Date.now()&&Date.now()-checked<=120000;
+  el.innerHTML='<h3>Virtuelles Testkonto · 2.000 €</h3><p>'+ (fresh?'Letzte Prüfung: ':'Keine aktuelle Prüfung bestätigt: ')+esc(checked?new Date(checked).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch offen')+'</p><p class="small">Drei unabhängige Vergleichskonten mit je 2.000 €; maximal 1.000 € inklusive Einstiegsgebühr je Position. Einstieg nur BESTÄTIGT, Produkt auf Platz 1. Keine Orders. 0/30/60 Sekunden zusätzliche Wartezeit, tatsächliche Ausführung erst beim nächsten passenden beobachteten Kurs.</p>'+Object.values(data.accounts).map(a=>{
+   const p=a.position;
+   return '<article><h4>'+esc(a.delaySeconds)+' s Verzögerung</h4><p>Modell-Kontowert: <b>'+euros(a.equity)+'</b> · frei '+euros(a.cash)+'</p><p>Realisierter Modellerfolg: '+euros(a.realized)+' · Rendite auf Startkapital '+(a.realized/2000*100).toFixed(2)+' %</p><p>'+a.closed+' abgeschlossen · '+a.incomplete+' davon mit Beobachtungslücken · Trefferquote '+(a.closed?(100*a.wins/a.closed).toFixed(1)+' %':'noch offen')+' · größter beobachteter Rückgang '+euros(a.maxDrawdown)+'</p><p>'+esc(a.reason)+'</p>'+(p?'<p>Virtuell: '+esc(p.direction)+' · '+esc(p.isin)+' · '+p.units+' Stück</p>':'')+'<p class="small">'+(a.reviewReady?'100 lückenfrei beobachtete Abschlüsse erreicht; erste Auswertung möglich, kein Profitabilitätsnachweis.':'Erste Auswertung ab 100 Abschlüssen ohne dokumentierte Beobachtungslücken.')+'</p><details><summary>Letzte Abschlüsse und Kursbelege</summary>'+a.recent.map(c=>'<p>'+esc(c.isin)+' · '+esc(c.direction)+' · '+euros(c.modelNet)+' · '+esc(c.exitReason)+'<br>Brief '+esc(c.entryQuote.ask)+' ('+esc(c.entryQuote.askAt||c.entryQuote.quoteAt)+') → Geld '+esc(c.exitQuote.bid)+' ('+esc(c.exitQuote.bidAt||c.exitQuote.quoteAt)+')<br>'+esc(c.entryQuote.source)+' / '+esc(c.exitQuote.source)+(c.dataGap?' · Datenlücke':'')+'</p>').join('')+'</details></article>';
+  }).join('')+'<p class="small"><b>Kostenmodell:</b> beobachteter Spread plus angenommene 5 € je Kauf/Verkauf. Finanzierung, FX und zusätzliche Slippage nicht vollständig belegt. Modellnetto ist kein bestätigter DEGIRO-Nettogewinn. CHF-Umrechnungs-/Chartkurse werden hier ausgeschlossen. KO ohne Abrechnung bleibt unbewertet. Rückgang nur an beobachteten Zeitpunkten; fehlende Zwischenkurse können Verluste verbergen. Ergebnisse mit Datenlücken sind in den Kontosummen enthalten und separat gezählt.</p>';
+ }catch(e){el.textContent='2.000-€-Simulation: '+e.message;}finally{paperBusy=false;}
+}
 function mount(panel){
  if(!panel||host)return;
+ const paper=root.document.createElement('div');paper.className='card';paper.id='bobRiskPaper';paper.textContent='2.000-€-Simulation wird geladen …';panel.append(paper);refreshPaper();root.setInterval(refreshPaper,30000);
  const intro=root.document.createElement('div');intro.className='card';
  intro.innerHTML='<p><b>Experimentell · keine Echtgeldorders</b></p><p class="small">Lokale Ansicht plus zuschaltbarer Hintergrund-Push. Prüfung mit Bobs vorhandenen Kursdaten, normalerweise etwa alle 30 Sekunden; kein zugesicherter Sekundenstream.</p><details><summary>Regeln, Kosten und Grenzen</summary><p>Hohe Hebel verstärken Gewinne und Verluste. Die Regeln sind noch nicht als profitable Strategie bestätigt. Die bestehende Trade-Überwachung bleibt separat.</p><p>Vorwarnung aus laufendem Spot und 1-Minuten-Struktur. Bestätigung: zwei abgeschlossene Minutenkerzen über/unter einem vorher bekannten Niveau plus 0,15 ATR. Vorwarnung und Bestätigung können sich widersprechen.</p><p>Gewinnschutz: 1,5 Minuten-ATR vom besten seit Beobachtungsbeginn gesehenen Spot, nie lockerer als der bestehende Stop. Nach fünf Minuten ohne günstige Fortsetzung: Zeitwarnung. Neustart beginnt eine neue Beobachtung; vergangene Spitzen werden nicht erfunden.</p><p>Spread, Gebühren, Kursstellung und deine Reaktionszeit können den Vorteil aufheben. Die Rangliste belegt weder einen Nettogewinn noch einen aktuellen DEGIRO-Verkaufskurs. Emittenten-, Screenshot- und berechnete Preise bleiben Analysewerte.</p><p>Vor einem belastbaren Einsatz fehlen zeitlich getrennte Simulationen mit echten Produktkursen, Kosten und gemessener Push-/Reaktionsverzögerung. Beobachtete Warnungen sind keine ausgeführten Trades.</p></details>';
  const push=root.document.createElement('div');push.className='card';push.innerHTML='<h3>Risiko-Push</h3><p id="bobRiskPushStatus" role="status"></p><button id="bobRiskPushToggle" type="button">Risiko-Push einschalten</button><p class="small">Marktbeobachtung erhält Vorwarnung und Bestätigung; Aktiver Trade erhält Gegenbewegungs- und Ausstiegswarnungen. Nur bei eingeschaltetem jeweiligem Push-Kanal. Keine Orders.</p><button type="button" data-view="settings">Push und Verbindung</button>';panel.append(push);push.querySelector('#bobRiskPushToggle').addEventListener('click',togglePush);
  host=root.document.createElement('div');host.id='bobRiskContent';host.setAttribute('aria-live','polite');panel.insertBefore(intro,push);panel.insertBefore(host,push);refresh();
  root.setInterval(()=>{if(!root.document.hidden)refresh();},1000);
- root.document.addEventListener('visibilitychange',()=>{if(!root.document.hidden)refresh();});
+ root.document.addEventListener('visibilitychange',()=>{if(!root.document.hidden){refresh();refreshPaper();}});
  root.navigator?.serviceWorker?.addEventListener('message',event=>{
   if(event.data?.type==='BOB_PUSH_CLICK'&&event.data.data?.url==='/#risk')
    root.document.querySelector('#bobNavigation [data-view="risk"]')?.click();

@@ -48,7 +48,7 @@ function selectionQuote(q,now){
 }
 function evaluate(input,now=Date.now()){
  const selectedInput={...input,quotes:Object.fromEntries(Object.entries(input.quotes||{}).map(([isin,q])=>[isin,selectionQuote(q,now)]))};
- const env={window:{BobRankingPolicy:input.rankingPolicy||null},localStorage:{getItem:k=>k==='bobFixedScreenshotKoV1'?JSON.stringify(input.fixedBarriers||{}):null},input:selectedInput,now};
+ const env={window:{BobRankingPolicy:input.rankingPolicy||null},localStorage:{getItem:k=>k==='bobFixedScreenshotKoV1'?JSON.stringify(input.fixedBarriers||{}):null},input:selectedInput,now,Risk:require('./risk_workspace.js')};
  vm.createContext(env);vm.runInContext(fs.readFileSync(__dirname+'/degiro_assistant.js','utf8'),env,{timeout:2000});
  return vm.runInContext(`(()=>{
   const api=window.BobDegiro,context={...input.market.context,direction:input.market.direction,spotFresh:input.market.priceFresh,spot:input.market.price,now};
@@ -59,6 +59,11 @@ function evaluate(input,now=Date.now()){
     productDirection:q.direction||m.direction||p.productDirection,
     isinConfirmed:api.automaticIdentity({...p,quote:q,price:q.price??p.price,leverage:q.leverage??p.leverage,ko:q.conditions?.ko?.value??q.ko??m.ko??p.ko})||p.isinConfirmed===true};
   });
+  if(input.riskOnly===true){
+   const signal=Risk.analyze(input.bundle,now);
+   return {signal,choices:Risk.ranking(products,signal,context,api,now).filter(r=>r.p.quote?.productVerified===true&&!r.p.quote.sourceDisabled&&api.productTermsStatus(r.p,now).complete).map(r=>({isin:r.p.isin,direction:r.p.productDirection,scope:'XAU/USD',leverage:r.p.leverage,ko:r.p.ko})),
+    watches:Object.fromEntries(Object.entries(input.positions||{}).map(([key,p])=>[key,Risk.monitor(p.watch,{active:true,tradeId:p.id,dir:p.direction,entry:p.goldEntry,stop:p.goldStop},signal,now)]))};
+  }
   const flow=api.selectionWorkflow(products,context,input.bundle,input.references||[]);
   const valid=p=>!/FAKTOR|FACTOR/i.test(p.name||'')&&!api.knockoutStatus(p);
   const papers=[];

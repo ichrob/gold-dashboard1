@@ -226,6 +226,7 @@ def init_db():
 def _init_db_once():
     with db() as conn:
         bob_session_store.init(conn)
+        __import__("risk_paper").init(conn)
         bob_recovery.init(conn)
         bob_passkey_store.init(conn)
         bob_oauth_store.init(conn)
@@ -853,6 +854,14 @@ class Handler(BaseHTTPRequestHandler):
                     result = push_delivery_history.report(conn, args)
                 send_json(self, 200, result)
                 return
+            if path == "/risk-paper":
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                with db() as conn:
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    result=__import__('risk_paper').report(conn)
+                send_json(self,200,result);return
             if path == "/signal-history":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):

@@ -68,7 +68,7 @@ SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 
 def read_private_report_for_mcp(path, query=None):
     """Fetch the existing internal report without adding a public database port."""
-    if path not in ("/product-audit", "/diagnostics", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health"):
+    if path not in ("/product-audit", "/diagnostics", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health", "/risk-paper"):
         raise ValueError("Unknown report")
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
         raise RuntimeError("Private audit unavailable")
@@ -1417,6 +1417,18 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+
+        if path == "/api/risk-paper":
+            if not self.authenticated():
+                bob_auth.send(self,401,body=b'{"error":"Unauthorized"}');return
+            try:
+                body=json.dumps(read_private_report_for_mcp('/risk-paper')).encode();status=200
+            except (OSError, ValueError, RuntimeError, HTTPError, URLError, TimeoutError):
+                body=b'{"status":"unavailable"}';status=503
+            self.send_response(status)
+            self.send_header('Content-Type','application/json')
+            self.send_header('Cache-Control','no-store')
+            self.end_headers();self.wfile.write(body);return
 
         if path == "/api/collection-status":
             body = json.dumps(auto_collection.status(), ensure_ascii=False, separators=(",", ":")).encode()
