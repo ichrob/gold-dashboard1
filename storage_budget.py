@@ -41,7 +41,7 @@ def maybe_observe(conn,now=None):
             conn.execute("SET LOCAL statement_timeout='3s'")
             size=conn.execute('SELECT pg_database_size(current_database())').fetchone()[0]
             relations=conn.execute('''SELECT relname,pg_total_relation_size(relid)
-                FROM pg_stat_user_tables''').fetchall()
+                FROM pg_stat_user_tables WHERE schemaname=current_schema()''').fetchall()
             relation_bytes={name:value for name,value in relations
                 if isinstance(name,str) and isinstance(value,int) and value>=0}
             conn.execute('''INSERT INTO bob_storage_samples(slot,database_bytes,relation_bytes)
@@ -61,7 +61,8 @@ def report(conn,now=None):
     # Catalog statistics and size functions, never full COUNT(*) scans of evidence.
     tables=conn.execute('''SELECT relname,pg_total_relation_size(relid),
         n_live_tup,n_dead_tup,last_autovacuum
-        FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 12''').fetchall()
+        FROM pg_stat_user_tables WHERE schemaname=current_schema()
+        ORDER BY pg_total_relation_size(relid) DESC LIMIT 12''').fetchall()
     samples=conn.execute('''SELECT slot,database_bytes,relation_bytes
         FROM bob_storage_samples ORDER BY slot DESC LIMIT 336''').fetchall()
     growth=None;days=None
