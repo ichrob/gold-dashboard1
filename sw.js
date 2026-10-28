@@ -93,7 +93,9 @@ self.addEventListener("push", event => {
     if(Number.isFinite(details.expiresAt)&&Date.now()>=details.expiresAt)return;
     if(details.riskOnly===true){
       const cache=await caches.open('bob-push-settings'),response=await cache.match('/__bob_push_preferences__');
-      if(!Number.isFinite(details.expiresAt)||!response||(await response.json()).risk!==true)return;
+      if(!Number.isFinite(details.expiresAt)||!response)return;
+      const preferences=await response.json();
+      if((details.kind==='general'?(preferences.riskMarket??preferences.risk):preferences.risk)!==true)return;
     }
     if(details.kind==='general'){
       const cache=await caches.open('bob-push-settings'),response=await cache.match('/__bob_push_preferences__');
@@ -149,8 +151,8 @@ self.addEventListener("message", event => {
     await flushQueuedReceipts();
     const cache=await caches.open('bob-push-settings');
     const general=event.data.general===true,trade=event.data.trade===true,activeTrade=event.data.activeTrade===true;
-    await cache.put('/__bob_push_preferences__',new Response(JSON.stringify({general,trade,activeTrade,risk:event.data.risk===true,tradeId:event.data.tradeId||null})));
-    if(event.data.risk!==true){const notices=await self.registration.getNotifications();notices.filter(n=>n.data?.riskOnly===true).forEach(n=>n.close());}
+    await cache.put('/__bob_push_preferences__',new Response(JSON.stringify({general,trade,activeTrade,risk:event.data.risk===true,riskMarket:(event.data.riskMarket??event.data.risk)===true,tradeId:event.data.tradeId||null})));
+    {const notices=await self.registration.getNotifications();notices.filter(n=>n.data?.riskOnly===true&&(n.data.kind==='general'?(event.data.riskMarket??event.data.risk)!==true:event.data.risk!==true)).forEach(n=>n.close());}
     if(!trade||!activeTrade){const notices=await self.registration.getNotifications();notices.filter(n=>n.data?.kind==='trade').forEach(n=>n.close());}
     if(!general){const notifications=await self.registration.getNotifications({tag:'bob-product-selection'});notifications.forEach(n=>n.close());}
   })());

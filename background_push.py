@@ -153,6 +153,10 @@ def config(value):
         if type(value['riskEnabled']) is not bool:
             raise ValueError('Risiko-Schalter muss wahr oder falsch sein')
         result['riskEnabled'] = value['riskEnabled']
+    if 'riskMarketEnabled' in value:
+        if type(value['riskMarketEnabled']) is not bool:
+            raise ValueError('Risiko-Markt-Schalter muss wahr oder falsch sein')
+        result['riskMarketEnabled'] = value['riskMarketEnabled']
     mult = value.get('trailAtr', 1.5)
     if not positive(mult) or mult > 10:
         raise ValueError('Ungültiger ATR-Faktor')
@@ -276,7 +280,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         return state, []
     events = []
     risk = market.get('risk')
-    if settings.get('riskEnabled') is not True:
+    if not (settings.get('riskEnabled') is True or settings.get('riskMarketEnabled') is True):
         state.pop('risk', None)
     elif isinstance(risk, dict) and isinstance(risk.get('state'), dict):
         candidate = risk['state']
@@ -288,9 +292,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
                 channel = data.get('kind')
                 if not (positive(data.get('expiresAt')) and now < data['expiresAt']):
                     continue
-                if channel == 'general' and general and degiro_entry_allowed(now):
+                if channel == 'general' and general and settings.get('riskMarketEnabled', settings.get('riskEnabled')) is True and degiro_entry_allowed(now):
                     events.append(copy.deepcopy(event))
-                elif channel == 'trade' and trade_enabled and data.get('tradeId') == (settings.get('trade') or {}).get('tradeId'):
+                elif channel == 'trade' and settings.get('riskEnabled') is True and trade_enabled and data.get('tradeId') == (settings.get('trade') or {}).get('tradeId'):
                     events.append(copy.deepcopy(event))
     def audit(kind, outcome, reason):
         history = state.setdefault('pushHistory', [])

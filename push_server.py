@@ -1380,7 +1380,7 @@ class Handler(BaseHTTPRequestHandler):
                             background_state.pop('trade', None)
                             if isinstance(background_state.get('risk'),dict):
                                 background_state['risk'].pop('watch',None)
-                        if settings.get('riskEnabled') is not True:
+                        if not (settings.get('riskEnabled') is True or settings.get('riskMarketEnabled') is True):
                             background_state.pop('risk',None)
                         conn.execute('UPDATE subscriptions SET background_config=%s::jsonb, background_state=%s::jsonb WHERE endpoint=%s', (json.dumps(settings),json.dumps(background_state),endpoint))
                     conn.execute("""
@@ -1391,7 +1391,7 @@ class Handler(BaseHTTPRequestHandler):
                     """, (general, trade, active, json.dumps(monitor) if monitor else None, general, endpoint))
                     real_trade_journal.sync_devices(conn)
                     conn.commit()
-                send_json(self, 200, {"ok": True, "fibonacciMonitor": "active" if monitor else "inactive", "backgroundEnabled": settings is not None, "riskEnabled": bool(settings and settings.get("riskEnabled")), "riskState": (background_state or {}).get("risk"), "backgroundTrade": (background_state or {}).get("trade"), "continuedCalculation": (background_state or {}).get("continuedCalculation")})
+                send_json(self, 200, {"ok": True, "fibonacciMonitor": "active" if monitor else "inactive", "backgroundEnabled": settings is not None, "riskEnabled": bool(settings and settings.get("riskEnabled")), "riskMarketEnabled": bool(settings and settings.get("riskMarketEnabled", settings.get("riskEnabled"))), "riskState": (background_state or {}).get("risk"), "backgroundTrade": (background_state or {}).get("trade"), "continuedCalculation": (background_state or {}).get("continuedCalculation")})
                 return
 
             if path == "/unsubscribe":

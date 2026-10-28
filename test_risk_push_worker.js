@@ -3,6 +3,10 @@ async function shows(prefs,details){let job,shown=0,handlers={};const sandbox={s
 (async()=>{
  assert.equal(await shows({risk:true,general:true},{}),1);
  assert.equal(await shows({risk:false,general:true},{}),0);
+ assert.equal(await shows({risk:true,riskMarket:false,general:true},{}),0);
+ assert.equal(await shows({risk:false,riskMarket:true,general:true},{}),1);
+ assert.equal(await shows({risk:false,riskMarket:true,trade:true,activeTrade:true,tradeId:'a'},{kind:'trade',tradeId:'a'}),0);
+ assert.equal(await shows({risk:true,riskMarket:false,trade:true,activeTrade:true,tradeId:'a'},{kind:'trade',tradeId:'a'}),1);
  assert.equal(await shows({risk:true,general:false},{}),0);
  assert.equal(await shows({risk:true,general:true},{expiresAt:1}),0);
  assert.equal(await shows({risk:true,general:true},{expiresAt:null}),0);

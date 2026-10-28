@@ -168,7 +168,7 @@
   function activeTradeId(){try{const t=JSON.parse(localStorage.getItem('goldScannerTradeMgmt')||'{}');return t.tradeId||t.fibonacciMonitor?.tradeId||null;}catch(_){return null;}}
   function syncWorkerPreferences(){
     if(!('serviceWorker' in navigator))return;
-    navigator.serviceWorker.ready.then(reg=>reg.active?.postMessage({type:'BOB_PUSH_PREFERENCES',risk:read().risk===true,general:read().general===true,trade:read().trade===true,activeTrade:read().activeTrade===true,tradeId:activeTradeId()})).catch(()=>{});
+    navigator.serviceWorker.ready.then(reg=>reg.active?.postMessage({type:'BOB_PUSH_PREFERENCES',risk:read().risk===true,riskMarket:(read().riskMarket??read().risk)===true,general:read().general===true,trade:read().trade===true,activeTrade:read().activeTrade===true,tradeId:activeTradeId()})).catch(()=>{});
   }
   let selectionBusy=false,selectionLastAt=0,selectionLastKey='',selectionGeneration=0;
   function productStatus(text){const el=typeof document!=='undefined'?document.getElementById('productPushStatus'):null;if(el)el.textContent=text;}
@@ -194,7 +194,7 @@
   }
   function set(kind,value){
     const next=save({...read(),[kind]:Boolean(value)});
-    if(kind==='risk'||kind==='trade'||kind==='activeTrade')syncWorkerPreferences();
+    if(kind==='riskMarket'||kind==='risk'||kind==='trade'||kind==='activeTrade')syncWorkerPreferences();
     if(kind==='general'){selectionGeneration++;selectionLastAt=0;selectionLastKey='';syncWorkerPreferences();}
     return next;
   }

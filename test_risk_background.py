@@ -22,6 +22,13 @@ class RiskBackgroundTests(unittest.TestCase):
         state,events=b.advance({},b.config({}),self.market(),True,False,NOW,log=False)
         self.assertFalse(events)
         self.assertNotIn('risk',state)
+    def test_market_switch_independent_of_trade_switch(self):
+        for trade, market, expected in [(True,False,0),(False,True,1)]:
+            cfg=b.config({'riskEnabled':trade,'riskMarketEnabled':market})
+            _,events=b.advance({},cfg,self.market(),True,False,NOW,log=False)
+            self.assertEqual(len(events),expected)
+        for value in ['true',1,None]:
+            with self.assertRaises(ValueError):b.config({'riskMarketEnabled':value})
     def test_expired_result_not_delivered(self):
         for market in [self.market({**self.event(),'data':{**self.event()['data'],'expiresAt':NOW}}),
                        {**self.market(),'risk':{'state':{'checkedAt':NOW-60001},'events':[self.event()]}}]:
