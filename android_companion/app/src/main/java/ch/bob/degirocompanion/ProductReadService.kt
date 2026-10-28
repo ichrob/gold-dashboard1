@@ -224,6 +224,8 @@ class ProductReadService : AccessibilityService() {
                 ?: return@runCatching ProductScreenEvidence.Result(message = "Android liefert gerade keinen Fensterinhalt. Ursache noch ungeklärt; dies beweist keine DEGIRO-Sperre.")
             val scrollNodes = mutableListOf<AccessibilityNodeInfo>()
             val capabilities = mutableListOf<ProductScrollPolicy.Capability>()
+            val symbolMemory = getSharedPreferences("degiro_symbol_identity_v1", MODE_PRIVATE)
+            val symbolContainers = mutableListOf<Pair<String, List<Int>>>()
             try {
                 // Returning to Bob must not erase the last DEGIRO rejection or draft.
                 if (root.packageName?.toString() != ProductScreenEvidence.PACKAGE) {
@@ -261,6 +263,7 @@ class ProductReadService : AccessibilityService() {
                     if (!value.isNullOrEmpty() && !bounds.isEmpty) {
                         check(value.length <= 2000)
                         lines += QuoteLayout.Line(value, bounds.left, bounds.top, bounds.right, bounds.bottom)
+                        ProductSymbolMemory.headerSymbol(value)?.let { symbolContainers += it to containers }
                         val evidence = ProductScrollPolicy.evidence(value)
                         for (index in containers) capabilities[index] = capabilities[index].copy(evidence = capabilities[index].evidence or evidence)
                     }
@@ -277,6 +280,21 @@ class ProductReadService : AccessibilityService() {
                 current?.recycle()
                 if (!unchanged) { ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CHANGED); ProductScreenEvidence.Result(message = "Ansicht wechselte; bitte erneut lesen.") }
                 else (if (automatic) {
+                    val pairing = ProductSymbolMemory.observe(lines.distinct(), sensitive)
+                    if (pairing != null) {
+                        val previous = symbolMemory.getString(pairing.symbol, null)
+                        if (previous != null || symbolMemory.all.size < 1000) {
+                            val merged = ProductSymbolMemory.merge(previous, pairing.isin)
+                            symbolMemory.edit().putString(pairing.symbol, merged).apply()
+                        }
+                    }
+                    val identityHint = if (sensitive) null else ProductSymbolMemory.resolve(lines) {
+                        symbolMemory.getString(it, null)
+                    }
+                    // Mark only the exact header's ancestors, never unrelated chart containers.
+                    if (identityHint != null) for ((_, containers) in symbolContainers)
+                        for (index in containers) capabilities[index] = capabilities[index].copy(evidence = capabilities[index].evidence or 1)
+
                     // Resolve the product-bearing subtree before considering direction.
                     val surface = ProductScrollPolicy.surface(capabilities)
                     val forwardIndex = ProductScrollPolicy.select(capabilities, true)
@@ -306,7 +324,7 @@ class ProductReadService : AccessibilityService() {
                     val step = pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
                         forwardIndex != null, backwardIndex != null,
                         scrollAmbiguous = capabilities.size > 1 && surface == null,
-                        requireParameters = MorningReadRun.running)
+                        requireParameters = MorningReadRun.running, identityHint = identityHint)
                     ProductReadDiagnostics.page(step.cause)
                     when (step.move) {
                         ProductPageReader.Move.FORWARD, ProductPageReader.Move.BACKWARD -> {

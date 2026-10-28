@@ -37,7 +37,7 @@ internal class ProductPageReader {
         }
     }
     fun inspect(windowId: Int, lines: List<QuoteLayout.Line>, at: String, sensitive: Boolean,
-                canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false, requireParameters: Boolean = false): Step {
+                canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false, requireParameters: Boolean = false, identityHint: String? = null): Step {
         val direct = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines, at, sensitive)
         // Launch/login transitions must not consume an unanchored request. Read nothing
         // from them; only wait within the existing 60-second request budget.
@@ -48,7 +48,7 @@ internal class ProductPageReader {
                 ProductScreenEvidence.Reason.ISIN_AMBIGUOUS)) return stop(direct.message, Cause.UNSAFE_VIEW, direct.reason)
         val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n") { it.text.uppercase() }).map { it.value }.distinct().toList()
         // Identity changes must be rejected even while the scroll tree is transient.
-        if (anchored && (windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)))
+        if (anchored && (identityHint != null && identityHint != isin || windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)))
             return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
         if (scrollAmbiguous) {
             if (anchored && ++layoutWaits > 5)
@@ -57,17 +57,18 @@ internal class ProductPageReader {
         }
         layoutWaits = 0
         if (!anchored) {
+            val anchorIds = if (ids.isEmpty() && identityHint != null && SeriesEvidence.validIsin(identityHint)) listOf(identityHint) else ids
             val visibleText = lines.joinToString("\n") { it.text }
             val quoteSection = Regex("(?i)kursdaten|produktdetails").containsMatchIn(visibleText) &&
                 Regex("(?i)\\bGeld\\b").containsMatchIn(visibleText) && Regex("(?i)\\bBrief\\b").containsMatchIn(visibleText)
-            if (ids.isEmpty() && quoteSection && canBackward) {
+            if (anchorIds.isEmpty() && quoteSection && canBackward) {
                 if (seekWindow != null && seekWindow != windowId) return stop("Fensterwechsel bei der Kopfzeilensuche. Prüfung abgebrochen.", Cause.IDENTITY_CHANGED)
                 if (seekSteps >= 4) return stop("Produktkennung nach vier Rückwärtsschritten nicht gefunden. Nichts übernommen.", Cause.SEEK_LIMIT)
                 seekWindow = windowId; seekSteps++
                 return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "Kursbereich erkannt. Bob scrollt zur Produktkennung; noch keine Werte übernommen."), Cause.SEEK_HEADER)
             }
-            if (ids.size != 1 || !SeriesEvidence.validIsin(ids.single())) return Step(Move.NONE, direct, Cause.WAIT_IDENTITY)
-            isin = ids.single(); window = windowId
+            if (anchorIds.size != 1 || !SeriesEvidence.validIsin(anchorIds.single())) return Step(Move.NONE, direct, Cause.WAIT_IDENTITY)
+            isin = anchorIds.single(); window = windowId
             anchorParameters = QuoteLayout.productParameters(lines)
         }
         if (windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)) return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
