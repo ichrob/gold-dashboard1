@@ -1574,7 +1574,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/comparison_diagrams.js", "/mco_comparison.js", "/video_ocr.js", "/video_evidence.js", "/video_brief.js"):
+        if path in ("/risk_workspace.js", "/comparison_diagrams.js", "/mco_comparison.js", "/video_ocr.js", "/video_evidence.js", "/video_brief.js"):
             try:
                 body = (BASE_DIR / path.lstrip("/")).read_bytes()
                 self.send_response(200)

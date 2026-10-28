@@ -137,6 +137,7 @@ jobs:
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_self_review.cjs
           echo "CI browser: browser_snaptrade.cjs"
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_snaptrade.cjs
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_risk_workspace.cjs
           echo "CI browser: browser_simple_home.cjs"
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_simple_home.cjs
           echo "CI browser: browser_unified_workspace.cjs"

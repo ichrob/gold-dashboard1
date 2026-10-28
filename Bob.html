@@ -255,7 +255,7 @@ body.bob-mobile{font-size:16px}
 .bob-mobile .small,.bob-mobile .bob-short{font-size:15px;color:#42536a}
 .bob-mobile button,.bob-mobile input,.bob-mobile select{font-size:16px;min-height:48px}
 .bob-mobile summary{font-size:16px;padding:10px 0;cursor:pointer}
-.bob-mobile .bob-nav button{font-size:14px;min-height:60px}
+.bob-mobile .bob-nav button{font-size:clamp(10px,2.8vw,14px);min-height:60px}
 .bob-mobile .bob-nav{background:#fff}
 .bob-mobile #bobSimpleHome{padding:18px}
 .bob-mobile #bobSimpleHome h2{margin:0 0 12px}
@@ -1190,6 +1190,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 </main>
 <script src="/push_manager.js"></script>
 <script src="/late_entry_guard.js?v=20261016-no-chase-v1"></script>
+<script src="/risk_workspace.js?v=20261028-v1"></script>
 <script src="/degiro_assistant.js?v=20261026-reviewed-list-retry-v2"></script>
 <script src="/bob_stop_assistant.js?v=20261016-chf-v1"></script>
 <script src="/product_trade_curve.js?v=20261018-trade-details"></script>
@@ -1701,11 +1702,12 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const quick=card('quickSignal'),manual=card('dgType'),push=card('generalPushBtn');
   const header=document.querySelector('h1')?.parentElement;
   const panels={};
-  for(const [key,label] of Object.entries({overview:'Start',products:'Produkte',trade:'Mein Trade',auto:'Automatische Simulation',future:'Zukunft',research:'Recherche',learning:'Lernen & Ergebnisse',diagrams:'Diagramme',simulation:'Simulation',improve:'Besser werden',degiro:'DEGIRO',degiro2:'DEGIRO-Handy-Assistent',settings:'Einstellungen',help:'Hilfe',problems:'Probleme',more:'Mehr'})){
+  for(const [key,label] of Object.entries({overview:'Start',products:'Produkte',risk:'Risiko',trade:'Mein Trade',auto:'Automatische Simulation',future:'Zukunft',research:'Recherche',learning:'Lernen & Ergebnisse',diagrams:'Diagramme',simulation:'Simulation',improve:'Besser werden',degiro:'DEGIRO',degiro2:'DEGIRO-Handy-Assistent',settings:'Einstellungen',help:'Hilfe',problems:'Probleme',more:'Mehr'})){
    const el=document.createElement('section');el.id='bob-view-'+key;el.setAttribute('aria-label',label);el.hidden=key!=='overview';
    if(key!=='overview'){const h=document.createElement('h2');h.textContent=label;h.tabIndex=-1;el.append(h);}
    panels[key]=el;main.append(el);
   }
+  window.BobRisk?.mount(panels.risk);
   function move(node,key){if(node)panels[key].append(node);}
   function fold(node,title){if(!node)return null;const d=document.createElement('details');d.className='bob-disclosure';const h=document.createElement('summary');h.textContent=title;node.before(d);d.append(h,node);return d;}
   move(quick,'overview');
@@ -2096,7 +2098,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const helpLink=document.createElement('div');helpLink.className='bob-more-menu';helpLink.innerHTML=menuButton('help','?','Bedienungsanleitung','Bob Schritt für Schritt');panels.settings.append(helpLink);
 
 
-  nav.innerHTML=[['overview','◫','Start'],['products','▤','Produkte'],['trade','◎','Mein Trade'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='more'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
+  nav.innerHTML=[['overview','◫','Start'],['products','▤','Produkte'],['risk','⚡','Risiko'],['trade','◎','Mein Trade'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='more'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
   // Bob-Handy action locator: lookup by stable control ID instead of
   // content-card position. Never click or send automatically.
   const handyActionTargets=Object.freeze({problems:'bobMobileHelpShare'});

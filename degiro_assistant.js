@@ -5699,6 +5699,7 @@ function renderRankUI(){
  earlyProductSnapshot={at:Date.now(),products:ps,context:{...technical,...selectionUiSignals(),spotFresh,spot:s,atr:a,
   trend:document.getElementById('trend')?.textContent,trend2:document.getElementById('trend2')?.textContent,
   rsi:n(document.getElementById('rsi')?.textContent),hist:n(document.getElementById('hist')?.textContent),adx:n(document.getElementById('adx')?.textContent)}};
+ window.BobRisk?.update({bundle,products:ps,context:earlyProductSnapshot.context});
  renderEarlyProductPanel();
  const savedProducts=ps.filter(p=>p.name||p.isin);
  const savedSummary=document.getElementById("dgSavedProductsSummary");

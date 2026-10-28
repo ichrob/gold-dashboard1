@@ -21,8 +21,8 @@ const {chromium}=require('playwright');
  assert.equal(await page.locator('#earlyImpulseStatus').count(),1,'Keep a single live warning');
  assert(await page.locator('#bobSimpleHome #earlyImpulseStatus').isVisible(),'Early warning visible with analysis closed');
  assert.equal(await page.locator('#earlyImpulseStatus').evaluate(el=>el.closest('details')),null);
- assert.equal(await page.locator('#bobNavigation button').count(),4);
- assert.deepEqual(await page.locator('#bobNavigation button').allTextContents(),['◫Start','▤Produkte','◎Mein Trade','☰Mehr']);
+ assert.equal(await page.locator('#bobNavigation button').count(),5);
+ assert.deepEqual(await page.locator('#bobNavigation button').allTextContents(),['◫Start','▤Produkte','⚡Risiko','◎Mein Trade','☰Mehr']);
  for(const width of [360,390,768]){
   await page.setViewportSize({width,height:780});
   assert(await page.locator('#bobHomePrimary').isVisible());
