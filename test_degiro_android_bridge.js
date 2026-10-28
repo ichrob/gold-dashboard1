@@ -140,3 +140,12 @@ console.log('Android-OCR-Entwurf: Parser und Sicherheitsgrenzen geprüft.');
  for(const bad of [appDraft+'\nKontostand: 1000',appDraft.replace('Quelle: DEGIRO-App','Quelle: other'),appDraft+'\nErfasst: 2026-10-27T14:00:00Z',appDraft.replace('Keine Aussage zur Handelbarkeit','Handel garantiert')])assert.throws(()=>bridge.readDraft(bad));
  console.log('App screen draft: provenance retained, no quote time or trade permission inferred');
 }
+
+// Compact title values survive the handoff as observations, never inferred ratios.
+const titleFields=readDraft(safe('Basispreis (OCR ungeprüft): 4181,33\nBv (OCR ungeprüft): 10'));
+assert.equal(titleFields.fields.basisPrice,'4181,33');
+assert.equal(titleFields.fields.displayedBv,'10');
+assert.equal(titleFields.fields.ratio,undefined);
+assert.equal(titleFields.sourceTime,null);
+assert.equal(titleFields.tradeApproved,false);
+assert.throws(()=>readDraft(safe('Bv (OCR ungeprüft): 10\nBv (OCR ungeprüft): 100')));
