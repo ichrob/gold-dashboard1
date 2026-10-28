@@ -178,7 +178,7 @@ function mount(){
  box.append(removeSaved);showSaved();
  box.addEventListener('toggle',()=>{if(box.open)showSaved();});
  function reset(){analysisRun++;preview.replaceChildren();status.textContent='';}
- textarea.addEventListener('input',reset);
+ textarea.addEventListener('input',()=>{reset();serverLookupStarted=false;try{root.localStorage.removeItem(PENDING_KEY);}catch(_){}});
  clear.onclick=()=>{textarea.value='';reset();try{root.localStorage.removeItem(PENDING_KEY);}catch(_){}status.textContent='Entwurf lokal entfernt.';};
  analyze.onclick=async()=>{
   reset();
