@@ -41,7 +41,7 @@ class MorningReadPolicyTest {
             assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(listOf(node(isin),node("Übersicht"),n),isin).kind)
     }
     @Test fun markedSearchPlaceholderCanIdentifyInputWithoutViewId() {
-        for(label in listOf("Suche", "Search instruments", "Name, ISIN oder Symbol")) {
+        for(label in listOf("Suche", "Search instruments", "Name, ISIN oder Symbol", "Mit Namen, ISIN oder Symbol suchen")) {
             val hint=MorningReadPolicy.inputHint("",label,true)
             val input=node("").copy(editable=true,hint=hint)
             assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.decide(listOf(input),isin).kind)
@@ -51,6 +51,20 @@ class MorningReadPolicyTest {
             assertEquals("",MorningReadPolicy.inputHint("",label,true))
             assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(listOf(node("").copy(editable=true)),isin).kind)
         }
+    }
+    @Test fun marketSearchLabelSupportsButtonHintAndDescriptionWithoutBypassingProtection() {
+        val label="Mit Namen, ISIN oder Symbol suchen"
+        for(button in listOf(node(label,true),node("",true).copy(description=label),node("",true).copy(row=label))) {
+            assertEquals(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.decide(listOf(node("Märkte"),button),isin).kind)
+            assertEquals("PROTECTED_ORDER",MorningReadPolicy.decide(listOf(button,node("Orderart")),isin).code)
+        }
+        val input=node("").copy(editable=true,hint=label)
+        assertTrue(MorningReadPolicy.isSearchInput("","",label))
+        assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.decide(listOf(input),isin).kind)
+        assertEquals(MorningReadPolicy.Kind.RESULT,MorningReadPolicy.decide(listOf(input.copy(text=isin),node(isin,true)),isin).kind)
+        assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(node("Andere "+label,true)),isin).kind)
+        assertEquals("PROTECTED_ORDER",MorningReadPolicy.decide(listOf(input,node("Limitpreis")),isin).code)
+        assertEquals("PROTECTED_LOGIN",MorningReadPolicy.decide(listOf(input,node("Anmelden")),isin).code)
     }
     @Test fun protectionCausesAreDistinctWithoutExportingScreenText() {
         val cases=listOf(

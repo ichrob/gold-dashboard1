@@ -12,7 +12,7 @@ internal object MorningReadPolicy {
     private val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
     private val login = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code")
     private val order = Regex("(?iu)order platzieren|order bestätigen|place order|confirm order|orderart|ordertyp|limitpreis|stückzahl|anzahl kaufen")
-    private fun searchLabel(value: String) = Regex("(?iu)^(suche|suchen|search|produkt suchen|produkte suchen|search products|search instruments|instrument suchen|instrumente suchen|suchen nach|name, isin oder symbol|name, isin or symbol)(?:[.…: ]*)$").matches(value.trim())
+    private fun searchLabel(value: String) = Regex("(?iu)^(suche|suchen|search|produkt suchen|produkte suchen|search products|search instruments|instrument suchen|instrumente suchen|suchen nach|name, isin oder symbol|name, isin or symbol|mit namen, isin oder symbol suchen)(?:[.…: ]*)$").matches(value.trim())
     private fun search(n: Node) = searchLabel(n.text) || searchLabel(n.description) || searchLabel(n.hint) ||
         Regex("(?iu)(^|[/_:])(search|search_input|search_src_text|search_field|search_button|search_view)([/:_]|$)").containsMatchIn(n.id)
     fun isSearchInput(id: String, description: String, hint: String): Boolean =
