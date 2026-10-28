@@ -11,6 +11,12 @@ small capacity samples expire after 90 days; no test evidence is deleted. Report
 show a trend only after at least 24 hours, and a linear days-to-threshold estimate
 only for positive observed growth. Estimates are not a capacity guarantee.
 
+Each new capacity sample also records an exact `pg_total_relation_size` snapshot
+for the current user tables. After two fixed snapshots, the private report exposes
+the twelve largest absolute per-relation byte deltas together with their baseline,
+latest sample, and elapsed time. This separates measured table growth from a later
+single-table size ranking without adding full row scans or modifying evidence.
+
 The authenticated /storage-health endpoint performs bounded catalog reads and is
 independent of the full simulation report. It exposes the 12 largest tables,
 estimated live/dead tuples, autovacuum time, measured database bytes. No prices, identities, credentials or queries are returned.

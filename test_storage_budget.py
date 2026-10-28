@@ -36,13 +36,17 @@ class StorageTests(unittest.TestCase):
             try:
                 conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
                 budget.init(conn)
+                columns={row[0] for row in conn.execute('''SELECT column_name FROM information_schema.columns
+                    WHERE table_schema=current_schema() AND table_name='bob_storage_samples' ''').fetchall()}
+                self.assertIn('relation_bytes',columns)
                 conn.execute('CREATE TABLE bob_decision_audit (id INT PRIMARY KEY,payload JSONB)')
                 payload={'observations':[{'source':'gold-reference','value':4000,'valid':True} for _ in range(12)]}
                 conn.execute('INSERT INTO bob_decision_audit VALUES (1,%s::jsonb)',(json.dumps(payload),))
                 conn.execute('INSERT INTO bob_decision_audit VALUES (2,%s::jsonb)',(json.dumps(payload),))
                 self.assertEqual(conn.execute('SELECT payload FROM bob_decision_audit WHERE id=2').fetchone()[0],payload)
                 with patch.object(budget,'_NEXT',0):budget.maybe_observe(conn,1_800_000_000)
-                self.assertEqual(conn.execute('SELECT count(*) FROM bob_storage_samples').fetchone()[0],1)
+                with patch.object(budget,'_NEXT',0):budget.maybe_observe(conn,1_800_001_800)
+                self.assertEqual(conn.execute('SELECT count(*) FROM bob_storage_samples').fetchone()[0],2)
                 # Telemetry retention never touches test data.
                 self.assertEqual(conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0],2)
                 import candle_reliability as candles_store
@@ -60,6 +64,10 @@ class StorageTests(unittest.TestCase):
                 self.assertTrue(result['readOnly'])
                 self.assertFalse(result['evidenceDeleted'])
                 self.assertEqual(result['growthStatus'],'needs-at-least-24-hours')
+                self.assertEqual(result['relationGrowthStatus'],'observed')
+                self.assertEqual(result['relationElapsedSeconds'],1800)
+                self.assertTrue(any(item['table']=='bob_decision_audit'
+                    for item in result['largestTableDeltas']))
                 self.assertIn('not-total-disk',result['scope'])
                 conn.commit()
             finally:
