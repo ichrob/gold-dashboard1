@@ -374,12 +374,20 @@ def get_quote(isin, terms_only=False):
             else:
                 stage = 'dated-quotes'
                 points = q.issuer_json(origin+'EmcWebApi/api/Prices/Live?productId='+str(product['Id']), origin, timeout=12)
-                chart = q.parse_sg_chart_research(product, points, isin,
-                    verified_id=product['Id'] if (isin in q.SG_DISCOVERY_PRODUCTS or q.sg_on_demand_candidate(isin)) else None, market=market)
-                result['chartEvidence'] = chart['chartEvidence']
-                associate_shared_observation(result)
-                result['reason'] = ('SG-Direktimport aktiv (30 s): Stammdaten übernommen; '
-                    'Geld/Brief als datierter Chartnachweis. Basispreis/KO verwenden den Zeitbezug der automatischen Abrufserie; Hebelnachweise werden separat geprüft.')
+                verified_id = product['Id'] if (isin in q.SG_DISCOVERY_PRODUCTS or q.sg_on_demand_candidate(isin)) else None
+                if isinstance(points, list) and points and points[-1].get('Ask') == 0:
+                    result['oneSidedQuote'] = q.parse_sg_bid_only_research(
+                        product, points, isin, verified_id=verified_id, market=market)
+                    result.update(quoteFailureCode='SG_BID_ONLY', sourceFailure=False,
+                        reason='SG stellt nur einen datierten Geldkurs; kein Briefkurs angeboten. '
+                               'Kein vollständiges Kurspaar und keine Handelsfreigabe.')
+                else:
+                    chart = q.parse_sg_chart_research(product, points, isin,
+                        verified_id=product['Id'] if (isin in q.SG_DISCOVERY_PRODUCTS or q.sg_on_demand_candidate(isin)) else None, market=market)
+                    result['chartEvidence'] = chart['chartEvidence']
+                    associate_shared_observation(result)
+                    result['reason'] = ('SG-Direktimport aktiv (30 s): Stammdaten übernommen; '
+                        'Geld/Brief als datierter Chartnachweis. Basispreis/KO verwenden den Zeitbezug der automatischen Abrufserie; Hebelnachweise werden separat geprüft.')
         except Exception as exc:
             result.update(sourceFailure=not result['productVerified'],
                           quoteFailureCode='SG_SOURCE_UNAVAILABLE', reason=q.sg_source_error(exc, stage))

@@ -6,6 +6,7 @@ All per-ISIN details stay in the authenticated private database/API.
 """
 import json
 import math
+from copy import deepcopy
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -502,6 +503,7 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
             "swissquoteState": (quote.get("swissquoteBackup") or {}).get("state"),
             "swissquoteReasonCode": str((quote.get("swissquoteBackup") or {}).get("reasonCode") or "")[:60] or None,
         },
+        "oneSidedQuote": deepcopy(quote.get("oneSidedQuote")) if verified and not terminated else None,
         "nativeCurrency": native_currency,
         "thirdSourceEvidence": quote.get("swissquoteBackup"),
         "fieldRecovery": quote.get("comdirectFieldsBackup"),
@@ -516,7 +518,8 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
                         "Bob übernimmt eindeutige Angaben automatisch."
                         if swiss_dots and not has_broker_venue else None),
         "autoRecovery": ("Vom Emittenten als beendet gemeldet · keine neue Handelsfreigabe; fehlende laufende Kurse sind kein Reparaturfehler"
-                         if terminated else "Vorhandene Emittenten- und Ersatzquellen werden bei der nächsten Aktualisierung erneut geprüft"),
+                         if terminated else "SG stellt nur Geld; Briefkurs fehlt beim Anbieter. Quellen werden erneut geprüft, keine Handelsfreigabe."
+                         if quote.get("quoteFailureCode") == "SG_BID_ONLY" else "Vorhandene Emittenten- und Ersatzquellen werden bei der nächsten Aktualisierung erneut geprüft"),
         "degiroVerified": False,
         "tradeApproved": False,
     }

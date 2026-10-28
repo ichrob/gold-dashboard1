@@ -18,6 +18,42 @@ class DirectTests(unittest.TestCase):
             ('ClassificationName','BEST Turbo (Open-End)',''))]
         self.at = (datetime.now(timezone.utc)-timedelta(seconds=2)).isoformat()
         self.points = [dict(Bid=10, Ask=10.01, Date=self.at)]
+    def test_bid_only_preserves_original_clock_without_pair_or_old_ask(self):
+        prior = dict(productVerified=True, isin=ISIN, metadata=dict(status=1),
+                     chartEvidence=dict(bid=9, ask=10, pointAt=self.at))
+        sg._CACHE[ISIN] = (-1000000, prior)
+        points = [dict(Bid=10, Ask=0, Date=self.at)]
+        with patch.object(q, 'issuer_json', side_effect=[self.product, self.props, points]):
+            out = sg.get_quote(ISIN)
+        self.assertEqual(out['quoteFailureCode'], 'SG_BID_ONLY')
+        self.assertFalse(out['sourceFailure'])
+        one = out['oneSidedQuote']
+        self.assertEqual(one['bid'], 10)
+        self.assertEqual(one['bidAt'], self.at)
+        self.assertIsNone(one['ask'])
+        self.assertFalse(one['isExecutableQuote'])
+        self.assertNotIn('chartEvidence', out)
+        self.assertNotIn('analysisQuote', out)
+        self.assertFalse(out['found'])
+        self.assertFalse(out['eligible'])
+        from degiro_product_audit import examine
+        audit = examine(dict(isin=ISIN, direction='SHORT'), out, datetime.now(timezone.utc).timestamp()*1000)
+        self.assertIn('quote', audit['missing'])
+        self.assertIn('Briefkurs fehlt', audit['autoRecovery'])
+        self.assertFalse(audit['tradeApproved'])
+
+    def test_bid_only_parser_rejects_bad_identity_time_and_prices(self):
+        now = datetime.now(timezone.utc)
+        for change in (dict(Bid=0), dict(Ask=-1), dict(Ask=9), dict(Bid=float('nan')),
+                       dict(Date=(now+timedelta(minutes=5)).isoformat()),
+                       dict(Date='2026-10-28T12:00:00')):
+            with self.subTest(change=change), self.assertRaises((ValueError, TypeError)):
+                q.parse_sg_bid_only_research(self.product,
+                    [dict(dict(Bid=10, Ask=0, Date=self.at), **change)], ISIN, now)
+        with self.assertRaises(ValueError):
+            q.parse_sg_bid_only_research(dict(self.product, Isin='wrong'),
+                [dict(Bid=10, Ask=0, Date=self.at)], ISIN, now)
+
     def test_shared_leverage_reason_does_not_claim_missing_timestamp(self):
         self.props.append(dict(Name='CurrentLeverage', Value='18,25', Suffix=''))
         with patch.object(q, 'issuer_json', side_effect=[self.product, self.props, self.points]):

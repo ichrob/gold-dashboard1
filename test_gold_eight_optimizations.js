@@ -108,3 +108,22 @@ assert(card.includes('Geld, Brief, Hebel fehlt'));
  clock=60000;await scheduler.refresh();assert.deepEqual(calls,[2,1,2,1]);
  console.log('Automatic repair queue: missing evidence first, bounded retries, excluded rows suppressed');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
+// A bid-only source observation is visible but never an eligible pair.
+const bidOnlyProduct={...p,quote:{isin,productVerified:true,found:false,eligible:false,
+ metadata:{status:1,currency:'EUR'},oneSidedQuote:{isin,bid:7.25,ask:null,
+ bidAt:new Date(now-1000).toISOString(),currency:'EUR',missingSide:'ask',
+ priceKind:'issuer-bid-only',isExecutableQuote:false,degiroExecutable:false}}};
+const onlyCard=b.goldProductCompactView(bidOnlyProduct,now);
+assert(onlyCard.includes('7.25 EUR'));
+assert(onlyCard.includes('Anbieter stellt keinen Briefkurs'));
+assert(onlyCard.includes('Brief, Hebel fehlt'));
+assert(!onlyCard.includes('✓ Analyse-Nachweise vorhanden'));
+assert.equal(b.finalProductStatus(bidOnlyProduct,now).complete,false);
+for(const time of [now+91000,now-2000])
+ assert(!b.goldProductCompactView(bidOnlyProduct,time).includes('7.25 EUR'));
+for(const change of [{isin:'wrong'},{ask:7.3},{currency:'CHF'},{isExecutableQuote:true}]){
+ const bad=JSON.parse(JSON.stringify(bidOnlyProduct));Object.assign(bad.quote.oneSidedQuote,change);
+ assert(!b.goldProductCompactView(bad,now).includes('7.25 EUR'));
+}
+console.log('Bid-only display: original clock, expiry, identity and pair restrictions passed');
