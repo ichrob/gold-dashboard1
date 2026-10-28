@@ -1,17 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">
-    <!-- Dependencies may declare network permissions in their own manifests.
-         Explicitly remove them from the final merged APK: local OCR must be offline. -->
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <!-- Network is used only for separately consented, scoped phone diagnostics. OCR remains on-device. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Bounded screen-on lease during an explicitly started product read. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <queries><package android:name="nl.degiro.trader" /></queries>
-    <!-- Optional one-shot reader; no gesture/screenshot/network capability. -->
+    <!-- Optional one-shot reader; no gesture/screenshot capability. -->
     <application android:label="${bobAppLabel}"
                  android:allowBackup="false"
+                 android:usesCleartextTraffic="false"
+                 android:networkSecurityConfig="@xml/diagnostic_network"
                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <service android:name=".PhoneDiagnosticJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <activity android:name=".ProductReadActivity" android:exported="false" />
         <activity android:name=".MorningReadTransfer" android:exported="true">
             <intent-filter>
