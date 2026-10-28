@@ -9,6 +9,31 @@ class ProductPageReaderTest {
     private val header = lines("DE000FD0S0G4", "EUR")
     private val quotes = lines("Geld EUR 10,20", "Brief EUR 10,30")
     private fun step(reader: ProductPageReader, data: List<QuoteLayout.Line>, forward: Boolean = true, backward: Boolean = true, window: Int = 1, sensitive: Boolean = false) = reader.inspect(window, data, at, sensitive, forward, backward)
+    @Test fun transientScrollLayoutCanRecoverWithoutPublishingPartialDraft() {
+        val r = ProductPageReader()
+        step(r, header)
+        val waiting = r.inspect(1, quotes, at, false, false, false, scrollAmbiguous = true)
+        assertEquals(ProductPageReader.Move.NONE, waiting.move)
+        assertEquals(ProductPageReader.Cause.WAIT_SCROLL_LAYOUT, waiting.cause)
+        assertEquals("", waiting.result.draft)
+        assertTrue(r.anchored)
+        assertEquals(ProductPageReader.Move.BACKWARD, step(r, quotes, forward = false).move)
+        val done = step(r, header)
+        assertEquals(ProductPageReader.Move.FINISHED, done.move)
+        assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 10,20"))
+    }
+    @Test fun layoutWaitDoesNotHideChangedWindowOrProduct() {
+        for (changedWindow in listOf(false, true)) {
+            val r = ProductPageReader()
+            step(r, header)
+            val changed = r.inspect(if (changedWindow) 2 else 1,
+                if (changedWindow) quotes else lines("DE000FE2JJ20"), at, false, false, false, scrollAmbiguous = true)
+            assertEquals(ProductPageReader.Move.ABORT, changed.move)
+            assertEquals(ProductPageReader.Cause.IDENTITY_CHANGED, changed.cause)
+            assertEquals("", changed.result.draft)
+        }
+    }
+
     @Test fun returnedHeaderAddsParametersOnlyAfterIdentityRecheck() {
         val r = ProductPageReader()
         val title = lines("DE000FG77MY4", "SG Gold Turbo BEST Open-End Put BAR",
@@ -38,9 +63,14 @@ class ProductPageReaderTest {
         assertEquals(ProductPageReader.Move.BACKWARD, step(r, quotes, forward = false).move)
         assertEquals(ProductPageReader.Move.FINISHED, step(r, header).move)
     }
-    @Test fun ambiguityAfterReadingDiscardsCandidateAndKeepsProtectedChecks() {
+    @Test fun persistentAmbiguityDiscardsCandidateAndKeepsProtectedChecks() {
         val r = ProductPageReader()
         step(r, header); step(r, quotes)
+        repeat(5) {
+            val waiting = r.inspect(1, quotes, at, false, false, false, scrollAmbiguous = true)
+            assertEquals(ProductPageReader.Move.NONE, waiting.move)
+            assertEquals("", waiting.result.draft)
+        }
         val abort = r.inspect(1, quotes, at, false, false, false, scrollAmbiguous = true)
         assertEquals(ProductPageReader.Move.ABORT, abort.move)
         assertEquals(ProductPageReader.Cause.SCROLL_LAYOUT_CHANGED, abort.cause)
