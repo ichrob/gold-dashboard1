@@ -60,6 +60,6 @@ const {chromium}=require('playwright');
  }
  await page.screenshot({path:'/tmp/bob-simple-home.png',fullPage:true});
  assert.deepEqual(errors,[]);
- console.log('Simple home: four tabs, all destinations, 360/390/768 widths, active/absent/test trades, currency and original analysis passed.');
+ console.log('Simple home: five tabs, all destinations, 360/390/768 widths, active/absent/test trades, currency and original analysis passed.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

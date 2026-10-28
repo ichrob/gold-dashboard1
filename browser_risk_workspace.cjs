@@ -5,11 +5,15 @@ const {chromium}=require('playwright'),fs=require('fs'),assert=require('node:ass
  const page=await browser.newPage({viewport:{width:360,height:800}}),errors=[];
  page.on('pageerror',e=>errors.push(e.message));
  const html=fs.readFileSync('Bob.html','utf8');
- await page.route('https://bob.test/**',route=>route.fulfill({body:html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,''),contentType:'text/html'}));
+ await page.route('**/*',route=>{
+  const u=new URL(route.request().url());
+  if(u.hostname!=='bob.test')return route.abort();
+  if(u.pathname==='/')return route.fulfill({body:html,contentType:'text/html'});
+  const file=require('node:path').basename(u.pathname);
+  if(file.endsWith('.js')&&fs.existsSync(file))return route.fulfill({contentType:'text/javascript',body:fs.readFileSync(file,'utf8')});
+  return route.fulfill({status:503,contentType:'application/json',body:'{"status":"unavailable"}'});
+ });
  await page.goto('https://bob.test/');
- await page.addScriptTag({path:'risk_workspace.js'});
- const mobile=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]).find(x=>x.includes('function initMobile()'));
- await page.evaluate(mobile);
  await page.locator('#bobNavigation [data-view="risk"]').click();
  await page.locator('#bob-view-risk').waitFor({state:'visible'});
  assert.equal(await page.locator('#bobNavigation button').count(),5);
