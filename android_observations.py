@@ -33,7 +33,7 @@ def parse_draft(raw, isin, now):
         fields[m[1]]=m[2]
     if fixed.get('ISIN')!=isin or fixed.get('Quelle')!='DEGIRO-App': raise ValueError('Produktkennung stimmt nicht')
     at=timestamp(fixed.get('Erfasst'))
-    if not -60 <= (now-at).total_seconds() <= 86400: raise ValueError('Lesebeobachtung abgelaufen')
+    if at.year<2020 or (now-at).total_seconds() < -60: raise ValueError('Ungültige Erfassungszeit')
     if fields.get('Währung') not in ('EUR','CHF'): raise ValueError('Währung fehlt')
     if fields.get('Hinweis') not in ('Handel eingeschränkt','Kurse verzögert','Keine Aussage zur Handelbarkeit'): raise ValueError('Hinweis fehlt')
     for key in ('Geld','Brief','Zuletzt','Hebel','KO-Schwelle','Basispreis','Bv'):
@@ -45,7 +45,7 @@ def parse_draft(raw, isin, now):
     if 'Handelsplatz' in fields and not re.fullmatch(r'[\w ./-]{2,48}',fields['Handelsplatz']): raise ValueError('Handelsplatz ungültig')
     missing=[k for k in REQUIRED if k not in fields]
     return dict(isin=isin,observedAt=at.isoformat(),fields=fields,missingFields=missing,
-                verified=False,tradeApproved=False,executable=False,sourceTime=None,source='DEGIRO-App',raw=raw)
+                verified=False,tradeApproved=False,executable=False,sourceTime=None,source='DEGIRO-App',raw=raw,staleAtReceipt=(now-at).total_seconds()>86400)
 
 
 def prepare(payload, feed, now=None):
@@ -57,7 +57,7 @@ def prepare(payload, feed, now=None):
     if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch): raise ValueError('Leselauf-Kennung fehlt')
     if not isinstance(ids,list) or not 1<=len(ids)<=12 or any(not isinstance(i,str) or not valid_isin(i) for i in ids) or len(set(ids))!=len(ids): raise ValueError('Ungültige Produktliste')
     uploaded=timestamp(payload.get('listUploadedAt'))
-    if not -60 <= (now-uploaded).total_seconds() <= 172800: raise ValueError('Listenstand abgelaufen')
+    if uploaded.year<2020 or (now-uploaded).total_seconds() < -60: raise ValueError('Ungültiger Listenstand')
     if not isinstance(rows,list) or len(rows)>12 or not isinstance(events,list) or len(events)>48: raise ValueError('Leselauf unvollständig')
     current={p.get('isin') for p in feed.get('products',[]) if isinstance(p,dict)}
     results=[];seen=set()
@@ -76,7 +76,7 @@ def prepare(payload, feed, now=None):
     for e in events:
         if not isinstance(e,dict) or e.get('isin') not in ids or not isinstance(e.get('code'),str) or e.get('code') not in CODES or type(e.get('attempt')) is not int or not 1<=e['attempt']<=2: raise ValueError('Ungültiger Fehlereintrag')
         at=timestamp(e.get('at'))
-        if not -60<=(now-at).total_seconds()<=86400: raise ValueError('Protokollzeit ungültig')
+        if at.year<2020 or (now-at).total_seconds() < -60: raise ValueError('Protokollzeit ungültig')
         safe_events.append(dict(isin=e['isin'],code=e['code'],attempt=e['attempt'],at=at.isoformat()))
     return dict(batchId=batch,revision=revision,listUploadedAt=uploaded.isoformat(),isins=ids,results=results,events=safe_events,
                 receivedAt=now.isoformat(),verified=False,tradeApproved=False,realOrders=False,
