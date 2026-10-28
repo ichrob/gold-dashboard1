@@ -68,7 +68,7 @@ SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 
 def read_private_report_for_mcp(path, query=None):
     """Fetch the existing internal report without adding a public database port."""
-    if path not in ("/product-audit", "/diagnostics", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health", "/risk-paper"):
+    if path not in ("/product-audit", "/diagnostics", "/simulation-status", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health", "/risk-paper"):
         raise ValueError("Unknown report")
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
         raise RuntimeError("Private audit unavailable")
@@ -149,7 +149,7 @@ def read_diagnostics_for_mcp():
         'strategyResearch':lambda:bob_diagnostics.fields(strategy_lab_background.status(),
             ('enabled','running','phase','lastSuccessAt','lastAttemptAt','lastRunDay','error')),
         'storage':lambda:read_private_report_for_mcp('/storage-health'),
-        'simulationAndPush':lambda:read_private_report_for_mcp('/diagnostics'),
+        'simulationAndPush':lambda:read_private_report_for_mcp('/simulation-status'),
         # Small private 24h window; the dedicated reader can paginate prior days.
         'pushDeliveries':lambda:read_private_report_for_mcp('/push-delivery-history'),
         'research':research,
