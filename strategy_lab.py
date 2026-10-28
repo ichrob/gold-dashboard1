@@ -8,7 +8,7 @@ import math
 import statistics
 import time
 
-VERSION = "zukunft-walkforward-v2"
+VERSION = "zukunft-walkforward-v3-latest12"
 HORIZON = 4
 WARMUP = 210
 TRAIN_END = 420
@@ -222,7 +222,12 @@ def run(raw, cost_bps=COST_BPS_PER_SIDE):
     f = features(bars)
     totals = {k: [] for k in STRATEGIES}
     oos = []
-    for train_end in range(TRAIN_END, len(bars)-HORIZON-VALIDATION-HORIZON-TEST+1, TEST):
+    available = range(TRAIN_END, len(bars)-HORIZON-VALIDATION-HORIZON-TEST+1, TEST)
+    selected = available[-12:]
+    result['foldSelection'] = dict(policy='latest-12-complete-chronological',
+        available=len(available),selected=len(selected),omittedEarlier=len(available)-len(selected),
+        latestTestEndMs=None,sourceLastBarMs=bars[-1]['openTime'])
+    for train_end in selected:
         val_start = train_end+HORIZON
         val_end = val_start+VALIDATION
         test_start = val_end+HORIZON
@@ -243,8 +248,7 @@ def run(raw, cost_bps=COST_BPS_PER_SIDE):
             testEndMs=bars[test_end-1]["openTime"],
             selectedOnValidation=winner, validation=v, outOfSample=t,
             learningFittedOnTrain=weights is not None, selectionUsesTest=False))
-        if len(result["folds"]) >= 12:
-            break
+    result['foldSelection']['latestTestEndMs'] = result['folds'][-1]['testEndMs']
     def aggregate(rows):
         return dict(trades=sum(z["trades"] for z in rows),
                     meanFoldNetPct=round(statistics.mean(z["netReturnPct"] for z in rows),4),

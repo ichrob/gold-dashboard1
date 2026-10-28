@@ -129,7 +129,7 @@ def error(request_id, code, message):
             "error": {"code": code, "message": message}}
 
 
-def handle(request, report_reader, diagnostics_reader=None, products=True, signal_history_reader=None, push_history_reader=None, remote_push=False, push_reader=None, push_sender=None):
+def handle(request, report_reader, diagnostics_reader=None, products=True, signal_history_reader=None, push_history_reader=None, remote_push=False, push_reader=None, push_sender=None, research_reader=None):
     """Return (HTTP status, JSON-RPC result). Only tool calls read the database."""
     if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
         return 400, error(None, -32600, "Invalid Request")
@@ -194,8 +194,11 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
         data = push_history_reader(args) if push_history_reader else {"status":"unavailable","readOnly":True}
     elif params["name"] == "bob_diagnostics":
         from bob_diagnostics import bounded_report, focused_report
+        # The dedicated callback is installed only under the existing
+        # diagnostics grant; other focuses retain the fast reader unchanged.
+        reader = research_reader if args.get('focus') == 'research' and research_reader is not None else diagnostics_reader
         data = bounded_report(focused_report(
-            diagnostics_reader(), args.get("focus","overview")), _MAX_RESULT_BYTES)
+            reader(), args.get("focus","overview")), _MAX_RESULT_BYTES)
     else:
         report = report_reader()
         data = report if params["name"] == "bob_product_audit" else gaps(report)

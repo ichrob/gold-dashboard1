@@ -68,7 +68,7 @@ SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 
 def read_private_report_for_mcp(path, query=None):
     """Fetch the existing internal report without adding a public database port."""
-    if path not in ("/product-audit", "/diagnostics", "/simulation-status", "/comparison-status", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health", "/risk-paper", "/android-read-status"):
+    if path not in ("/product-audit", "/diagnostics", "/simulation-status", "/comparison-status", "/research-status", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health", "/risk-paper", "/android-read-status"):
         raise ValueError("Unknown report")
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
         raise RuntimeError("Private audit unavailable")
@@ -110,6 +110,21 @@ def remote_push_rpc(name, args):
 
 def read_private_product_audit_for_mcp():
     return read_private_report_for_mcp('/product-audit')
+
+
+def read_research_diagnostics_for_mcp():
+    # A research focus must load the stored report independently of today's
+    # fast paper heartbeat. No extended operational history is needed.
+    report = bob_diagnostics.collect({
+        'strategyReport':lambda:read_private_report_for_mcp('/research-status'),
+        'strategyResearch':lambda:bob_diagnostics.fields(strategy_lab_background.status(),
+            ('enabled','running','phase','lastSuccessAt','lastAttemptAt','lastRunDay','error')),
+        'research':lambda:bob_diagnostics.research_snapshot(gold_research.snapshot()),
+    })
+    features = bob_diagnostics.new_feature_snapshot(report['areas'])
+    report['areas']['newFeatures'] = {
+        'researchSelfReview':features['researchSelfReview']}
+    return report
 
 
 def read_diagnostics_for_mcp():
@@ -2044,6 +2059,7 @@ class Handler(BaseHTTPRequestHandler):
                     read_diagnostics_for_mcp if diagnostics_allowed else None, products=products_allowed,
                     remote_push=True, push_reader=remote_push_rpc if diagnostics_allowed else None,
                     push_sender=remote_push_rpc if push_test_allowed else None,
+                    research_reader=read_research_diagnostics_for_mcp if diagnostics_allowed else None,
                     signal_history_reader=(lambda args:read_private_report_for_mcp("/signal-history", args)) if diagnostics_allowed else None,
                     push_history_reader=(lambda args:read_private_report_for_mcp("/push-delivery-history", args)) if diagnostics_allowed else None)
             except (ValueError, UnicodeError):
