@@ -48,7 +48,11 @@ internal object ProductScrollPolicy {
     fun evidence(text: String): Int {
         val identity = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(text.uppercase())
             .any { SeriesEvidence.validIsin(it.value) }
-        val quotes = Regex("(?i)^(kursdaten|produktdetails|geld|brief|zuletzt)\\s*[:：]?$").matches(text.trim())
+        // Accessibility can expose a label and its price as one node. Recognize
+        // only complete labelled quote rows, never bare chart/account amounts.
+        val heading = Regex("(?i)^(kursdaten|produktdetails|geld|brief|zuletzt)\\s*[:：]?$")
+        val quotedRow = Regex("(?i)^(?:(?:Geld|Brief|Zuletzt)\\s*[:：]?\\s*(?:EUR|CHF|€)?\\s*[0-9]{1,5}[,.][0-9]{2,4}(?:\\s*(?:EUR|CHF|€))?\\s*)+(?:[0-9]{2}/[0-9]{2}/20[0-9]{2}\\s+[0-9]{2}:[0-9]{2})?$")
+        val quotes = text.lineSequence().map { it.trim() }.any { heading.matches(it) || quotedRow.matches(it) }
         return (if (identity) 1 else 0) or (if (quotes) 2 else 0)
     }
     fun surface(nodes: List<Capability>): Int? {
