@@ -54,7 +54,14 @@ internal class ProductPageReader {
         if (windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)) return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
         if (returning) {
             if (ids.singleOrNull() == isin) {
-                val value = candidate
+                // Read compact parameters only after the original ISIN has been
+                // rechecked on return. Do not reuse a different page's title.
+                val parameters = QuoteLayout.productParameters(lines)
+                val value = candidate?.let { observation ->
+                    val extra = parameters.filterKeys { !observation.draft.contains("$it (Anzeige ungeprüft):") }
+                        .map { (key, field) -> "$key (Anzeige ungeprüft): $field" }.joinToString("\n")
+                    if (extra.isEmpty()) observation else observation.copy(draft = observation.draft + "\n" + extra)
+                }
                 reset()
                 return if (value != null) Step(Move.FINISHED, value.copy(message = "Produktseite automatisch gelesen und ISIN nach Rückkehr erneut geprüft. Werte bleiben ungeprüfte App-Beobachtungen."))
                 else Step(Move.ABORT, ProductScreenEvidence.Result(message = "Seite geprüft, aber kein eindeutig zuordenbarer Kurs gefunden."), Cause.NO_QUOTES)
