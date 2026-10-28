@@ -165,15 +165,21 @@ def prune(conn):
              ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""")
     except Exception as exc:
         raise _PruneStageError('age-delete', exc) from exc
-    # Journal rows are append-only. An exact count preserves the pre-existing
-    # 60,000-row cap without an ordered OFFSET scan.  When over the limit,
-    # remove only the proven bounded batch of oldest physical tuples.  The
-    # advisory lock serializes maintenance across both services; concurrent
-    # writers can only increase the count, never make this over-delete.
+    # Journal rows are append-only. Count only the compact primary-key index
+    # entries needed to prove this bounded maintenance batch.  A full heap
+    # count becomes expensive once the JSON payload relation is large, while
+    # LIMIT(cap + batch) still gives the exact excess up to the most we may
+    # delete in this transaction.  No ordered OFFSET scan is reintroduced.
+    # The advisory lock serializes maintenance across both services;
+    # concurrent writers can only increase the count, never make this
+    # over-delete.
     # Raw archives are separate tables and are never touched here.
     try:
-        counted=conn.execute(
-            'SELECT count(*) FROM bob_diagnostic_history').fetchone()
+        counted=conn.execute('''SELECT count(*) FROM (
+                SELECT id FROM bob_diagnostic_history
+                ORDER BY id LIMIT %s
+            ) AS bounded_history''',
+            (_PRUNE_MAX_EVENTS+_PRUNE_CAP_BATCH_SIZE,)).fetchone()
     except Exception as exc:
         raise _PruneStageError('cap-count', exc) from exc
     total=(counted[0] if counted and isinstance(counted[0],int) else 0)

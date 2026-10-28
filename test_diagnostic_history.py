@@ -231,6 +231,14 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(h._PRUNE_CAP_BATCH_SIZE, 500)
         self.assertEqual(h._PRUNE_MAX_EVENTS, 60000)
 
+        count_sql, count_params = next(
+            (sql, params) for sql, params in conn.statements
+            if 'AS bounded_history' in sql)
+        self.assertIn('SELECT id FROM bob_diagnostic_history', count_sql)
+        self.assertIn('ORDER BY id LIMIT %s', count_sql)
+        self.assertNotIn('OFFSET', count_sql)
+        self.assertEqual(count_params, (60500,))
+
     def test_cap_delete_skips_at_exact_limit(self):
         class Result:
             rowcount = 0
