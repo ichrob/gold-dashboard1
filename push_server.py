@@ -929,18 +929,30 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == '/device-receipt':
                 # The browser need not have a live login cookie. Its scoped
-                # HMAC is checked before any asynchronous diagnostic write.
+                # HMAC is checked before the receipt is committed. Do not
+                # promise success while the asynchronous audit queue may drop it.
                 payload = json_body(self)
                 try:
                     receipt_id, receipt_state = push_receipt.verify(payload, PUSH_SERVICE_TOKEN)
                 except ValueError:
                     send_json(self, 400, {'error': 'Invalid or expired receipt'})
                     return
-                diagnostic_history.emit('push-delivery', receipt_id,
-                    {'outcome': 'browser-receipt', 'receiptId': receipt_id,
-                     'receiptState': receipt_state},
-                    event_id=push_receipt.event_id(receipt_id, receipt_state))
-                send_json(self, 202, {'queued': True, 'androidDisplayVerified': False})
+                event = {
+                    'id': push_receipt.event_id(receipt_id, receipt_state),
+                    'traceId': receipt_id,
+                    'decisionId': None,
+                    'stage': 'push-delivery',
+                    'at': time.time(),
+                    'payload': {'outcome': 'browser-receipt',
+                                'receiptId': receipt_id,
+                                'receiptState': receipt_state},
+                }
+                # Existing unique event id makes network retries idempotent.
+                # Database failures return 503 so the service worker can retry.
+                with db() as conn:
+                    conn.execute("SET LOCAL statement_timeout='1500ms'")
+                    diagnostic_history.write(conn, event)
+                send_json(self, 200, {'stored': True, 'androidDisplayVerified': False})
                 return
             if path == '/diagnostic-history':
                 supplied=self.headers.get('X-Bob-Push-Token','')
