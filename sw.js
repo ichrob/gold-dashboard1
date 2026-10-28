@@ -1,22 +1,73 @@
-const CACHE_VERSION = "bob-shell-v26";
+const CACHE_VERSION = "bob-shell-v27";
+const RECEIPT_CACHE = "bob-push-receipt-queue-v1";
 
 self.addEventListener("install", event => { self.skipWaiting(); });
 self.addEventListener("activate", event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith("bob-") && key !== CACHE_VERSION && key !== "bob-push-settings").map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(key => key.startsWith("bob-") && key !== CACHE_VERSION && key !== "bob-push-settings" && key !== RECEIPT_CACHE).map(key => caches.delete(key)));
+    await self.clients.claim();
+    await flushQueuedReceipts();
+  })());
 });
 
-// Browser confirmation is NOT proof the Android notification tray displayed it.
-function reportPushReceipt(details, receiptState) {
+// Browser showNotification() success is NOT proof of the Android notification
+// tray; only a real notificationclick may create a clicked receipt. Cache
+// transient failures so a click is not lost merely because the network is down.
+function validReceipt(details, receiptState) {
   const id = details?.receiptId, proof = details?.receiptProof, exp = details?.receiptExpiry;
   if (typeof id !== 'string' || !/^[0-9a-f]{32}$/.test(id) ||
       typeof proof !== 'string' || !/^[0-9a-f]{64}$/.test(proof) ||
       !Number.isSafeInteger(exp) || exp * 1000 < Date.now() ||
-      !['show-resolved', 'clicked'].includes(receiptState)) return Promise.resolve();
-  return fetch('/api/push/device-receipt', {
-    method: 'POST', credentials: 'omit', cache: 'no-store',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({receiptId:id, receiptExpiry:exp, receiptProof:proof, receiptState})
-  }).catch(() => {});
+      !['show-resolved', 'clicked'].includes(receiptState)) return null;
+  return {receiptId:id, receiptExpiry:exp, receiptProof:proof, receiptState};
+}
+function receiptKey(receipt) {
+  return '/__bob_pending_push_receipt__/' + receipt.receiptId + '/' + receipt.receiptState;
+}
+async function persistReceipt(receipt) {
+  try {
+    const response = await fetch('/api/push/device-receipt', {
+      method:'POST', credentials:'omit', cache:'no-store',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(receipt)
+    });
+    if (response.status !== 200) return false; // 202 was only queued: do not discard
+    const result = await response.json();
+    return result?.stored === true;
+  } catch (_) { return false; }
+}
+async function flushQueuedReceipts(cache = null) {
+  try {
+    cache = cache || await caches.open(RECEIPT_CACHE);
+    const keys = await cache.keys();
+    // Strictly bounded work and storage: never block push delivery indefinitely.
+    for (const key of keys.slice(0, 8)) {
+      try {
+        const saved = await cache.match(key);
+        const raw = saved && await saved.json();
+        const receipt = validReceipt(raw, raw?.receiptState);
+        if (!receipt || (await persistReceipt(receipt))) await cache.delete(key);
+      } catch (_) { await cache.delete(key); }
+    }
+    // If storage was unavailable for a long period, bound to 128 small claims.
+    if (keys.length > 128) {
+      for (const key of keys.slice(0, keys.length - 128)) await cache.delete(key);
+    }
+  } catch (_) { /* Missing storage is not a confirmed delivery. */ }
+}
+async function reportPushReceipt(details, receiptState) {
+  const receipt = validReceipt(details, receiptState);
+  if (!receipt) return;
+  let cache = null;
+  try {
+    cache = await caches.open(RECEIPT_CACHE);
+    await cache.put(receiptKey(receipt), new Response(JSON.stringify(receipt)));
+  } catch (_) { /* Still try the network without claiming persistence. */ }
+  if (await persistReceipt(receipt) && cache) {
+    try { await cache.delete(receiptKey(receipt)); } catch (_) {}
+  }
+  if (cache) await flushQueuedReceipts(cache);
 }
 
 function safeJson(event) {
@@ -34,6 +85,7 @@ self.addEventListener("push", event => {
     badge: data.badge || "/icon.svg?v=4",
     tag: data.tag || "bob",
     renotify: Boolean(data.renotify),
+    actions: [{action:"receipt-confirm", title:"Empfang bestätigen"}],
     requireInteraction: Boolean(data.requireInteraction),
     data: { url: details.url || "/", kind: details.kind || "general", signalId: details.signalId || null, tradeId:details.tradeId||null, receiptId:details.receiptId, receiptExpiry:details.receiptExpiry, receiptProof:details.receiptProof }
   };
@@ -67,17 +119,22 @@ self.addEventListener("push", event => {
 });
 
 self.addEventListener("notificationclick", event => {
+  // Snapshot the notification metadata BEFORE close() or a browser navigation.
+  const details = event.notification.data || {};
+  const target = details.url || "/";
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || "/";
   event.waitUntil(Promise.all([
-    reportPushReceipt(event.notification.data || {}, "clicked"),
+    reportPushReceipt(details, "clicked"),
+    // A dedicated acknowledgement action should not unexpectedly open Bob;
+    // a normal notification tap retains the existing navigation behavior.
+    event.action === "receipt-confirm" ? Promise.resolve() :
     clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
-    const existing = list.find(client => "focus" in client);
-    if (existing) {
-      existing.postMessage({ type: "BOB_PUSH_CLICK", data: event.notification.data || {} });
-      return existing.focus();
-    }
-    if (clients.openWindow) return clients.openWindow(target);
+      const existing = list.find(client => "focus" in client);
+      if (existing) {
+        existing.postMessage({ type: "BOB_PUSH_CLICK", data: details });
+        return existing.focus();
+      }
+      if (clients.openWindow) return clients.openWindow(target);
     })
   ]));
 });
@@ -85,6 +142,7 @@ self.addEventListener("notificationclick", event => {
 self.addEventListener("message", event => {
   if (event.data && event.data.type === "BOB_SKIP_WAITING") self.skipWaiting();
   if(event.data?.type==='BOB_PUSH_PREFERENCES')event.waitUntil((async()=>{
+    await flushQueuedReceipts();
     const cache=await caches.open('bob-push-settings');
     const general=event.data.general===true,trade=event.data.trade===true,activeTrade=event.data.activeTrade===true;
     await cache.put('/__bob_push_preferences__',new Response(JSON.stringify({general,trade,activeTrade,tradeId:event.data.tradeId||null})));
