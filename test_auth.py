@@ -52,6 +52,23 @@ class AuthenticationTests(unittest.TestCase):
         token = self.form()
         return self.request('POST', '/login', urlencode({'username':'test-user','password':password,'csrf':token}), {'Origin':origin,'Content-Type':'application/x-www-form-urlencoded','Cookie':f'{bob_auth.CSRF_COOKIE}={token}'})
 
+    def test_android_observation_relay_requires_login_and_same_origin(self):
+        from unittest.mock import patch, MagicMock
+        basic='Basic '+base64.b64encode(b'test-user:test-only-password').decode()
+        route='/api/degiro/android-observations'
+        with patch.object(server,'PUSH_SERVICE_URL','https://private-bob.invalid'), patch.object(server,'PUSH_SERVICE_TOKEN','test-relay-token'), patch.object(server,'urlopen') as relay:
+            self.assertEqual(self.request('POST',route,'{}')[0],401)
+            self.assertEqual(self.request('POST',route,'{}',{'Authorization':basic,'Origin':'https://other.invalid'})[0],403)
+            relay.assert_not_called()
+            response=MagicMock()
+            response.__enter__.return_value.status=200
+            response.__enter__.return_value.read.return_value=b'{"ok":true,"runs":[]}'
+            relay.return_value=response
+            self.assertEqual(self.request('POST',route,'{"action":"read"}',{'Authorization':basic,'Origin':'https://bob.example','Content-Type':'application/json'})[0],200)
+            request=relay.call_args[0][0]
+            self.assertEqual(request.full_url,'https://private-bob.invalid/android-observations')
+            self.assertEqual(request.get_header('X-bob-push-token'),'test-relay-token')
+
     def test_price_learning_control_requires_authentication(self):
         self.assertEqual(self.request('POST','/api/ranking-learning/control','{}',{'Content-Type':'application/json'})[0],401)
         self.assertEqual(self.request('POST','/api/precision-learning/control','{}',{'Content-Type':'application/json'})[0],401)

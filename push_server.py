@@ -225,6 +225,7 @@ def init_db():
 
 def _init_db_once():
     with db() as conn:
+        __import__("android_observations").init(conn)
         bob_session_store.init(conn)
         __import__("remote_push").init(conn)
         __import__("risk_paper").init(conn)
@@ -886,6 +887,15 @@ class Handler(BaseHTTPRequestHandler):
                     result=signal_history.report(conn,args)
                 send_json(self,200,result)
                 return
+            if path == "/android-read-status":
+                supplied=self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{"error":"Unauthorized"});return
+                with db() as conn:
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    conn.execute("SET LOCAL statement_timeout='3s'")
+                    result=__import__('android_observations').status(conn)
+                send_json(self,200,result);return
             if path == "/storage-health":
                 supplied=self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
@@ -1102,6 +1112,16 @@ class Handler(BaseHTTPRequestHandler):
                         result={"ok":True,"new":bool(inserted)}
                         real_trade_journal.reconcile_sales(conn)
                         conn.commit()
+                send_json(self,200,result);return
+            if path == '/android-observations':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                import android_observations
+                payload=json_body(self)
+                with db() as conn:
+                    result=android_observations.handle(conn,payload)
+                    conn.commit()
                 send_json(self,200,result);return
             if path == '/list-correction':
                 supplied=self.headers.get('X-Bob-Push-Token','')

@@ -37,7 +37,7 @@ internal class ProductPageReader {
         }
     }
     fun inspect(windowId: Int, lines: List<QuoteLayout.Line>, at: String, sensitive: Boolean,
-                canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false): Step {
+                canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false, requireParameters: Boolean = false): Step {
         val direct = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines, at, sensitive)
         // Launch/login transitions must not consume an unanchored request. Read nothing
         // from them; only wait within the existing 60-second request budget.
@@ -76,6 +76,10 @@ internal class ProductPageReader {
                 // Read compact parameters only after the original ISIN has been
                 // rechecked on return. Do not reuse a different page's title.
                 val parameters = QuoteLayout.productParameters(lines).ifEmpty { anchorParameters }
+                if (requireParameters && parameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv")).not() && canBackward && backward < 4) {
+                    backward++
+                    return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "Bob sucht die fehlenden Produktparameter in der Kopfzeile."))
+                }
                 val value = candidate?.let { observation ->
                     val extra = parameters.filterKeys { !observation.draft.contains("$it (Anzeige ungeprüft):") }
                         .map { (key, field) -> "$key (Anzeige ungeprüft): $field" }.joinToString("\n")
@@ -100,7 +104,7 @@ internal class ProductPageReader {
         // Publication still requires returning to the original visible ISIN.
         if (observed.draft.contains("Geld (") && observed.draft.contains("Brief (")) {
             returning = true
-            val next = inspect(windowId, lines, at, sensitive, false, canBackward)
+            val next = inspect(windowId, lines, at, sensitive, false, canBackward, requireParameters = requireParameters)
             return if (next.move == Move.BACKWARD) next.copy(cause = Cause.QUOTES_CAPTURED) else next
         }
         if (canForward) {
@@ -113,6 +117,6 @@ internal class ProductPageReader {
             return Step(Move.NONE, observed.copy(message = "Produktkennung erkannt, aber noch keine eindeutige Scrollfläche oder verwertbaren Kurse. Bob wartet auf den Seitenaufbau."), Cause.WAIT_SCROLL)
         }
         returning = true
-        return inspect(windowId, lines, at, sensitive, false, canBackward)
+        return inspect(windowId, lines, at, sensitive, false, canBackward, requireParameters = requireParameters)
     }
 }

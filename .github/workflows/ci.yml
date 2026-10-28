@@ -143,6 +143,7 @@ jobs:
           echo "CI browser: browser_unified_workspace.cjs"
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_unified_workspace.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_android_observations.cjs
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_morning_reader.cjs
           echo "CI browser: browser_degiro_export_mobile.cjs"
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_degiro_export_mobile.cjs
           echo "CI browser: browser_degiro_browser_bridge.cjs"

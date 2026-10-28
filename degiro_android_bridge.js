@@ -138,6 +138,7 @@ function storeObservation(storage,text,products,now=Date.now()){
 }
 const api={validIsin,readDraft,displayedPairStatus,takeTransferFragment,savedObservations,storeObservation};
 if(typeof module==='object'&&module.exports)module.exports=api;
+root.BobAndroidEvidence=api;
 if(!root.document)return;
 function mount(){
  const host=root.document.getElementById('bob-view-degiro');

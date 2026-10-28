@@ -13,6 +13,14 @@
                  android:allowBackup="false"
                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".ProductReadActivity" android:exported="false" />
+        <activity android:name=".MorningReadTransfer" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="bobhandy" android:host="list-reader" />
+            </intent-filter>
+        </activity>
         <service android:name=".ProductReadService" android:exported="true"
                  android:label="@string/product_reader_label"
                  android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
