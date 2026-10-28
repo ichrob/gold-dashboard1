@@ -88,7 +88,7 @@ const server=fs.readFileSync('./server.py','utf8');
 assert.match(server,/DEGIRO_ANDROID_BRIDGE_JS/);
 assert.match(server,/\/degiro_android_bridge\.js/);
 const script=fs.readFileSync('./degiro_android_bridge.js','utf8');
-assert.ok(!/\b(fetch\(|XMLHttpRequest|localStorage\.setItem|api\/degiro\/candidate-proof)\b/.test(script));
+assert.ok(!/\b(fetch\(|XMLHttpRequest|api\/degiro\/candidate-proof)\b/.test(script));
 assert.ok(!/tradeApproved\s*:\s*true/.test(script));
 // Android → Bob navigation: only a local URL fragment, never a server-side write.
 function testTransfer(value){
@@ -149,3 +149,17 @@ assert.equal(titleFields.fields.ratio,undefined);
 assert.equal(titleFields.sourceTime,null);
 assert.equal(titleFields.tradeApproved,false);
 assert.throws(()=>readDraft(safe('Bv (OCR ungeprüft): 10\nBv (OCR ungeprüft): 100')));
+
+const memory=new Map(),storage={getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v)};
+const bridge=require('./degiro_android_bridge');
+assert.equal(bridge.storeObservation(storage,safe(),[]).state,'unmatched');
+assert.equal(memory.size,0);
+const products=[{isin:'DE000FG14AV8'}];
+assert.equal(bridge.storeObservation(storage,safe(),products,1000).state,'saved');
+assert.equal(bridge.savedObservations(storage)[0].draft.isin,products[0].isin);
+assert.equal(bridge.savedObservations(storage)[0].draft.tradeApproved,false);
+assert.equal(bridge.savedObservations(storage)[0].draft.sourceTime,null);
+bridge.storeObservation(storage,safe(),products,2000);
+assert.equal(bridge.savedObservations(storage).length,1);
+assert.equal(bridge.storeObservation(storage,safe(),[...products,...products]).state,'unmatched');
+assert.throws(()=>bridge.storeObservation({getItem:()=>null,setItem:()=>{throw Error('full');}},safe(),products));

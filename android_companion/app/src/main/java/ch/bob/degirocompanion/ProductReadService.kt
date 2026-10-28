@@ -212,7 +212,16 @@ class ProductReadService : AccessibilityService() {
             } finally { scrollNodes.forEach { it.recycle() }; root.recycle() }
         }.getOrElse { ProductReadRequest.cancel(); ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.ERROR); ProductScreenEvidence.Result(message = "Ansicht nicht sicher lesbar. Nichts übernommen; Screenshot manuell teilen.") }
         ProductReadSession.put(result, SystemClock.elapsedRealtime())
-        if (result.draft.isNotBlank()) ProductReadRequest.cancel()
+        if (result.draft.isNotBlank()) {
+            ProductReadRequest.cancel()
+            if (automatic && getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("auto_return", true)) {
+                runCatching {
+                    startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://bob-private-scanner.onrender.com/#bob-ocr=" + android.net.Uri.encode(result.draft)))
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                }.onFailure { Toast.makeText(this, "Automatische Rückgabe nicht möglich. Entwurf bleibt in Bob Handy.", Toast.LENGTH_LONG).show() }
+            }
+        }
         if (!automatic || result.draft.isNotBlank()) Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
     }
 }
