@@ -33,4 +33,8 @@ class RelayTests(unittest.TestCase):
         route=source.split('if path == "/api/degiro/audit":',1)[1].split('if path == "/api/mtf":',1)[0]
         self.assertIn('result = read_private_product_audit_for_mcp()',route)
         self.assertIn('status = 503',route)
+    def test_comparison_status_is_allowlisted_without_new_public_access(self):
+        source=pathlib.Path('server.py').read_text()
+        self.assertIn('"/comparison-status"',source)
+        self.assertIn("read_private_report_for_mcp('/comparison-status')",source)
 if __name__=='__main__':unittest.main()

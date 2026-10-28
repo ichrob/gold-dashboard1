@@ -17,7 +17,8 @@ def count(value):
 
 def snapshot(report, now):
     areas=report.get('areas') or {}
-    health=areas.get('comparisonHealth') or {}
+    evidence=areas.get('comparisonEvidence') or {}
+    health=areas.get('comparisonHealth') or evidence.get('comparisonHealth') or {}
     rows=[]
     for key,label in LABELS.items():
         source=(health.get('items') or {}).get(key) or {}
@@ -39,7 +40,9 @@ def snapshot(report, now):
             comparableCases=None,completed=False,truncated=True,
             missing='Abschluss und vollständige Nettoauswertung separat prüfen.',
             note='Aktuelle Eingangsprüfung beweist keinen Einstieg oder Gewinn.'))
-    chains=[c.get('evidenceChain') for a in (areas.get('simulationAndPush') or {}).get('accounts',[])
+    chain_accounts=(evidence.get('accountSamples') or
+                    (areas.get('simulationAndPush') or {}).get('accounts',[]))
+    chains=[c.get('evidenceChain') for a in chain_accounts
             for c in (a.get('recentCases') or {}).get('items',[]) if isinstance(c.get('evidenceChain'),dict)]
     return dict(version=1,readOnly=True,realOrders=False,items=rows,
         evidenceChains=chains[:35],chainSampleAvailable=bool(chains),
