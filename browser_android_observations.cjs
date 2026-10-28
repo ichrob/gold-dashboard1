@@ -14,7 +14,7 @@ const draft=['BOB APP-LESEENTWURF – NICHT VERIFIZIERT','ISIN: DE000FG77MY4','Q
   await page.goto('https://bob.local.test/#bob-ocr='+encodeURIComponent(draft));
   await page.addScriptTag({content:source});
   assert.equal(await page.evaluate(()=>location.hash),'');
-  assert.equal(await page.evaluate(()=>localStorage.length),0);
+  assert.ok(await page.evaluate(()=>localStorage.getItem('bobAndroidPendingObservationV1')));
   await page.evaluate(()=>{window.BobDegiro={tradeTestProducts:()=>[{isin:'DE000FG77MY4'}]};});
   await page.waitForFunction(()=>localStorage.getItem('bobAndroidProductObservationsV1'));
   assert.match(await page.locator('#bobAndroidEvidence').innerText(),/Automatisch über die ISIN zugeordnet/);
@@ -25,6 +25,27 @@ const draft=['BOB APP-LESEENTWURF – NICHT VERIFIZIERT','ISIN: DE000FG77MY4','Q
   await page.locator('#bobAndroidEvidence summary').click();
   assert.match(await page.locator('#bobAndroidEvidence').innerText(),/Geld 11,14 · Brief 11,16/);
   await page.getByRole('button',{name:'Gespeicherte Lesebeobachtungen löschen',exact:true}).click();
+  assert.equal(await page.evaluate(()=>localStorage.length),0);
+  // A different browser can have empty UI rows while the existing server list
+  // contains the product. Keep the draft over reload and match read-only.
+  await page.goto('https://bob.local.test/#bob-ocr='+encodeURIComponent(draft));
+  await page.evaluate(()=>{window.BobDegiro={tradeTestProducts:()=>[]};});
+  await page.addScriptTag({content:source});
+  assert.ok(await page.evaluate(()=>localStorage.getItem('bobAndroidPendingObservationV1')));
+  assert.equal(await page.evaluate(()=>localStorage.getItem('bobAndroidProductObservationsV1')),null);
+  await page.reload();
+  await page.evaluate(()=>{window.BobDegiro={tradeTestProducts:()=>[],readServerProductList:async()=>({products:[{isin:'DE000FG77MY4'}],listUploadedAt:'2026-10-28T07:09:32Z'})};});
+  await page.addScriptTag({content:source});
+  await page.waitForFunction(()=>localStorage.getItem('bobAndroidProductObservationsV1'));
+  assert.equal(await page.evaluate(()=>localStorage.getItem('bobAndroidPendingObservationV1')),null);
+  assert.match(await page.locator('#bobAndroidEvidence').innerText(),/Automatisch über die ISIN zugeordnet/);
+  assert.match(await page.locator('#bobAndroidEvidence').innerText(),/Listenstand: 2026-10-28T07:09:32Z/);
+  // Clearing the draft during a delayed response must not resurrect it.
+  await page.goto('https://bob.local.test/#bob-ocr='+encodeURIComponent(draft));
+  await page.evaluate(()=>{localStorage.clear();window.BobDegiro={tradeTestProducts:()=>[],readServerProductList:()=>new Promise(resolve=>{window.finishList=resolve;})};});
+  await page.addScriptTag({content:source});
+  await page.getByRole('button',{name:'Eingabe entfernen',exact:true}).click();
+  await page.evaluate(()=>window.finishList({products:[{isin:'DE000FG77MY4'}],listUploadedAt:'2026-10-28T07:09:32Z'}));
   assert.equal(await page.evaluate(()=>localStorage.length),0);
   console.log('Android observation handoff: delayed list, exact ISIN, persistence, reload and deletion passed');
  }finally{await browser.close();}
