@@ -68,7 +68,7 @@ SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 
 def read_private_report_for_mcp(path, query=None):
     """Fetch the existing internal report without adding a public database port."""
-    if path not in ("/product-audit", "/diagnostics", "/simulation-status", "/comparison-status", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health", "/risk-paper"):
+    if path not in ("/product-audit", "/diagnostics", "/simulation-status", "/comparison-status", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health", "/risk-paper", "/android-read-status"):
         raise ValueError("Unknown report")
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
         raise RuntimeError("Private audit unavailable")
@@ -149,6 +149,7 @@ def read_diagnostics_for_mcp():
         'strategyResearch':lambda:bob_diagnostics.fields(strategy_lab_background.status(),
             ('enabled','running','phase','lastSuccessAt','lastAttemptAt','lastRunDay','error')),
         'storage':lambda:read_private_report_for_mcp('/storage-health'),
+        'androidReader':lambda:read_private_report_for_mcp('/android-read-status'),
         'simulationAndPush':lambda:read_private_report_for_mcp('/simulation-status'),
         # Stored comparisons are isolated from the live heartbeat so either
         # report can fail truthfully without erasing the other observation.
@@ -314,7 +315,7 @@ ICON_PATH = BASE_DIR / "icon.svg"
 HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
 HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
-HTML = HTML.replace(b"</body>", b'<script src="/product_evidence_contract.js"></script><script src="/bob_audit_read_pool.js"></script><script src="/degiro_handoff.js"></script><script src="/degiro_portfolio_store.js"></script><script src="/degiro_report_import.js"></script><script src="/degiro_all_products.js"></script><script src="/broker_candidate_pools.js"></script><script src="/degiro_browser_bridge.js"></script><script src="/degiro_android_bridge.js"></script></body>')
+HTML = HTML.replace(b"</body>", b'<script src="/product_evidence_contract.js"></script><script src="/bob_audit_read_pool.js"></script><script src="/degiro_handoff.js"></script><script src="/degiro_portfolio_store.js"></script><script src="/degiro_report_import.js"></script><script src="/degiro_all_products.js"></script><script src="/broker_candidate_pools.js"></script><script src="/degiro_browser_bridge.js"></script><script src="/degiro_android_bridge.js"></script><script src="/degiro_morning_reader.js"></script></body>')
 HTML = HTML.replace(b"</body>", degiro_sandbox_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", snaptrade_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
@@ -338,6 +339,7 @@ BOB_AUDIT_READ_POOL_JS = (BASE_DIR / "bob_audit_read_pool.js").read_text(encodin
 BOB_UNIFIED_WORKSPACE_JS = (BASE_DIR / "bob_unified_workspace.js").read_text(encoding="utf-8")
 DEGIRO_PORTFOLIO_STORE_JS = (BASE_DIR / "degiro_portfolio_store.js").read_text(encoding="utf-8")
 DEGIRO_BROWSER_BRIDGE_JS = (BASE_DIR / "degiro_browser_bridge.js").read_text(encoding="utf-8")
+DEGIRO_MORNING_READER_JS = (BASE_DIR / "degiro_morning_reader.js").read_text(encoding="utf-8")
 DEGIRO_ANDROID_BRIDGE_JS = (BASE_DIR / "degiro_android_bridge.js").read_text(encoding="utf-8")
 DEGIRO_BROWSER_USERSCRIPT = (BASE_DIR / "bob_degiro_export.user.js").read_text(encoding="utf-8")
 DEGIRO_REPORT_IMPORT_JS = (BASE_DIR / "degiro_report_import.js").read_text(encoding="utf-8")
@@ -1699,9 +1701,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/product_evidence_contract.js", "/bob_audit_read_pool.js", "/bob_unified_workspace.js", "/degiro_assistant.js", "/degiro_handoff.js", "/degiro_portfolio_store.js", "/degiro_report_import.js", "/degiro_all_products.js", "/broker_candidate_pools.js", "/degiro_browser_bridge.js", "/degiro_android_bridge.js", "/bob_degiro_export.user.js"):
+        if path in ("/product_evidence_contract.js", "/bob_audit_read_pool.js", "/bob_unified_workspace.js", "/degiro_assistant.js", "/degiro_handoff.js", "/degiro_portfolio_store.js", "/degiro_report_import.js", "/degiro_all_products.js", "/broker_candidate_pools.js", "/degiro_browser_bridge.js", "/degiro_android_bridge.js", "/degiro_morning_reader.js", "/bob_degiro_export.user.js"):
             try:
-                body = (PRODUCT_EVIDENCE_CONTRACT_JS if path == "/product_evidence_contract.js" else BOB_AUDIT_READ_POOL_JS if path == "/bob_audit_read_pool.js" else BOB_UNIFIED_WORKSPACE_JS if path == "/bob_unified_workspace.js" else DEGIRO_BROWSER_BRIDGE_JS if path == "/degiro_browser_bridge.js" else DEGIRO_BROWSER_USERSCRIPT if path == "/bob_degiro_export.user.js" else DEGIRO_HANDOFF_JS if path == "/degiro_handoff.js" else DEGIRO_PORTFOLIO_STORE_JS if path == "/degiro_portfolio_store.js" else DEGIRO_REPORT_IMPORT_JS if path == "/degiro_report_import.js" else DEGIRO_ALL_PRODUCTS_JS if path == "/degiro_all_products.js" else BROKER_CANDIDATE_POOLS_JS if path == "/broker_candidate_pools.js" else DEGIRO_ANDROID_BRIDGE_JS if path == "/degiro_android_bridge.js" else DEGIRO_ASSISTANT_JS).encode("utf-8")
+                body = (DEGIRO_MORNING_READER_JS if path == "/degiro_morning_reader.js" else PRODUCT_EVIDENCE_CONTRACT_JS if path == "/product_evidence_contract.js" else BOB_AUDIT_READ_POOL_JS if path == "/bob_audit_read_pool.js" else BOB_UNIFIED_WORKSPACE_JS if path == "/bob_unified_workspace.js" else DEGIRO_BROWSER_BRIDGE_JS if path == "/degiro_browser_bridge.js" else DEGIRO_BROWSER_USERSCRIPT if path == "/bob_degiro_export.user.js" else DEGIRO_HANDOFF_JS if path == "/degiro_handoff.js" else DEGIRO_PORTFOLIO_STORE_JS if path == "/degiro_portfolio_store.js" else DEGIRO_REPORT_IMPORT_JS if path == "/degiro_report_import.js" else DEGIRO_ALL_PRODUCTS_JS if path == "/degiro_all_products.js" else BROKER_CANDIDATE_POOLS_JS if path == "/broker_candidate_pools.js" else DEGIRO_ANDROID_BRIDGE_JS if path == "/degiro_android_bridge.js" else DEGIRO_ASSISTANT_JS).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/javascript; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
@@ -2253,14 +2255,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/degiro/candidate-proof", "/api/degiro/list-correction", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
+        if path in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/degiro/candidate-proof", "/api/degiro/list-correction", "/api/degiro/android-observations", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
             self.send_response(401)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(b"Authentication required.")
             return
 
-        if path in ("/api/degiro/candidate-proof", "/api/degiro/list-correction"):
+        if path in ("/api/degiro/candidate-proof", "/api/degiro/list-correction", "/api/degiro/android-observations"):
             # Only an authenticated user in this site's own UI can submit a
             # candidate image observation. A worker token is insufficient.
             if not self.authenticated():
@@ -2270,7 +2272,7 @@ class Handler(BaseHTTPRequestHandler):
                 bob_auth.send(self, 403)
                 return
         path = urlparse(self.path).path
-        if path not in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/degiro/candidate-proof", "/api/degiro/list-correction", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences", "/api/push/device-receipt"):
+        if path not in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/degiro/candidate-proof", "/api/degiro/list-correction", "/api/degiro/android-observations", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences", "/api/push/device-receipt"):
             self.send_response(404)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -2298,6 +2300,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/degiro/venue": "/broker-venue/write",
                 "/api/degiro/candidate-proof": "/candidate-proof/write",
                 "/api/degiro/list-correction": "/list-correction",
+                "/api/degiro/android-observations": "/android-observations",
                 "/api/ranking-learning/control": "/ranking-learning/control",
                 "/api/precision-learning/control": "/precision-learning/control",
                 "/api/rule-learning/read": "/rule-learning/read",
