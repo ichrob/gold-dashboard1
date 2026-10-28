@@ -169,11 +169,34 @@ class ProductPageReaderTest {
         step(r, header)
         assertEquals(ProductPageReader.Move.ABORT, step(r, lines("Geld EUR 12,00", "Brief EUR 11,00"), forward = false).move)
     }
-    @Test fun failedForwardActionReturnsToHeaderButFailedReturnNeverPublishes() {
-        val r = ProductPageReader(); step(r, header); step(r, quotes)
+    @Test fun transientRejectedActionsRetryAndStillRequireHeaderRecheck() {
+        val r = ProductPageReader(); step(r, header)
         r.scrollFailed(ProductPageReader.Move.FORWARD)
-        assertEquals(ProductPageReader.Move.BACKWARD, step(r, quotes).move)
+        assertEquals(ProductPageReader.Move.FORWARD, step(r, header).move)
+        r.scrollSucceeded(ProductPageReader.Move.FORWARD)
+        assertEquals(ProductPageReader.Move.BACKWARD, step(r, quotes, forward = false).move)
         r.scrollFailed(ProductPageReader.Move.BACKWARD)
-        assertEquals(ProductPageReader.Move.ABORT, step(r, quotes).move)
+        val retry = step(r, quotes, forward = false)
+        assertEquals(ProductPageReader.Move.BACKWARD, retry.move)
+        assertEquals("", retry.result.draft)
+        r.scrollSucceeded(ProductPageReader.Move.BACKWARD)
+        val done = step(r, header)
+        assertEquals(ProductPageReader.Move.FINISHED, done.move)
+        assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 10,20"))
+    }
+    @Test fun persistentRejectedReturnDiscardsDraft() {
+        val r = ProductPageReader(); step(r, header); step(r, quotes)
+        repeat(3) {
+            r.scrollFailed(ProductPageReader.Move.FORWARD)
+            if (it < 2) assertEquals(ProductPageReader.Move.FORWARD, step(r, quotes).move)
+        }
+        repeat(3) {
+            assertEquals(ProductPageReader.Move.BACKWARD, step(r, quotes).move)
+            r.scrollFailed(ProductPageReader.Move.BACKWARD)
+        }
+        val aborted = step(r, quotes)
+        assertEquals(ProductPageReader.Move.ABORT, aborted.move)
+        assertEquals(ProductPageReader.Cause.RETURN_FAILED, aborted.cause)
+        assertEquals("", aborted.result.draft)
     }
 }
