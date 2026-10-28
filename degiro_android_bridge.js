@@ -173,6 +173,7 @@ function mount(){
  const removeSaved=root.document.createElement('button');removeSaved.type='button';removeSaved.textContent='Gespeicherte Lesebeobachtungen löschen';
  removeSaved.onclick=()=>{try{root.localStorage.removeItem(OBSERVATION_KEY);showSaved();}catch(e){status.textContent='Löschen fehlgeschlagen: '+e.message;}};
  box.append(removeSaved);showSaved();
+ box.addEventListener('toggle',()=>{if(box.open)showSaved();});
  function reset(){preview.replaceChildren();status.textContent='';}
  textarea.addEventListener('input',reset);
  clear.onclick=()=>{textarea.value='';reset();status.textContent='Entwurf lokal entfernt.';};
