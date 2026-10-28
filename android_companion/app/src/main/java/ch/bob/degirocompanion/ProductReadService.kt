@@ -4,7 +4,12 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityButtonController
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Rect
+import android.os.PowerManager
 import android.os.SystemClock
 import android.os.Handler
 import android.os.Looper
@@ -18,6 +23,50 @@ import java.time.Instant
 class ProductReadService : AccessibilityService() {
     private val pageReader = ProductPageReader()
     private val handler = Handler(Looper.getMainLooper())
+    private var screenReceiverRegistered = false
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != Intent.ACTION_SCREEN_OFF || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return
+            ProductReadRequest.cancel()
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED)
+            ProductReadSession.put(ProductScreenEvidence.Result(message = "Bildschirm ausgeschaltet. Leseprüfung beendet; zum Fortsetzen entsperren und erneut starten."), SystemClock.elapsedRealtime())
+        }
+    }
+    private var screenLease: PowerManager.WakeLock? = null
+    private val requestDeadline = Runnable { ProductReadRequest.cancel() }
+    private fun releaseScreen() {
+        handler.removeCallbacks(requestDeadline)
+        screenLease?.let { if (it.isHeld) it.release() }
+        screenLease = null
+    }
+    @Suppress("DEPRECATION")
+    private fun keepScreenForRequest() {
+        releaseScreen()
+        val remaining = ProductReadRequest.remainingMillis(SystemClock.elapsedRealtime())
+        if (remaining <= 0) return
+        handler.postDelayed(requestDeadline, remaining)
+        val power = getSystemService(POWER_SERVICE) as PowerManager
+        if (!power.isInteractive || (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) {
+            ProductReadRequest.cancel()
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED)
+            return
+        }
+        // The activity window is no longer foreground while DEGIRO is read.
+        // No wake-up flag: never turn on or unlock a deliberately locked phone.
+        runCatching {
+            power.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK, "Bob:ProductRead").also {
+                screenLease = it
+                it.setReferenceCounted(false)
+                it.acquire(remaining)
+            }
+        }.onSuccess { ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SCREEN_HELD) }
+            .onFailure {
+                releaseScreen()
+                handler.postDelayed(requestDeadline, remaining)
+                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SCREEN_HOLD_FAILED)
+                Toast.makeText(this, "Bildschirm konnte nicht wachgehalten werden. Während der Prüfung eingeschaltet lassen.", Toast.LENGTH_LONG).show()
+            }
+    }
     private var readQueued = false
     private val pendingRead = object : Runnable {
         override fun run() {
@@ -40,13 +89,26 @@ class ProductReadService : AccessibilityService() {
         ProductReadDiagnostics.canRead = (serviceInfo.capabilities and AccessibilityServiceInfo.CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT) != 0
         ProductReadDiagnostics.windowAccess = (serviceInfo.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) != 0
         accessibilityButtonController.registerAccessibilityButtonCallback(callback)
-        ProductReadRequest.onCancelled = { pageReader.reset() }
+        if (!screenReceiverRegistered) {
+            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+            if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, filter, Context.RECEIVER_NOT_EXPORTED)
+            else registerReceiver(screenOff, filter)
+            screenReceiverRegistered = true
+        }
+        ProductReadRequest.onCancelled = {
+            pageReader.reset()
+            releaseScreen()
+            handler.removeCallbacks(pendingRead)
+            readQueued = false
+        }
         ProductReadRequest.onStarted = {
             pageReader.reset()
             handler.removeCallbacks(pendingRead)
             readQueued = false
+            keepScreenForRequest()
             queueRead(600)
         }
+        keepScreenForRequest()
         queueRead(600)
     }
     // Only package/type metadata is used. Never read or retain event text.
@@ -68,6 +130,8 @@ class ProductReadService : AccessibilityService() {
         ProductReadDiagnostics.connected = false
         ProductReadDiagnostics.canRead = false
         ProductReadDiagnostics.windowAccess = false
+        releaseScreen()
+        if (screenReceiverRegistered) { unregisterReceiver(screenOff); screenReceiverRegistered = false }
         ProductReadRequest.onStarted = null
         ProductReadRequest.onCancelled = null
         pageReader.reset()
@@ -106,7 +170,7 @@ class ProductReadService : AccessibilityService() {
     private fun readOnce(automatic: Boolean = false) {
         if (!automatic) { ProductReadRequest.cancel(); ProductReadDiagnostics.reset(SystemClock.elapsedRealtime()) }
         if (!getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false)) { ProductReadRequest.cancel(); return }
-        if ((getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) { ProductReadRequest.cancel(); ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED); return }
+        if (!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive || (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) { ProductReadRequest.cancel(); ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED); return }
         val result = runCatching {
             val root = productRoot(record = true)
                 ?: return@runCatching ProductScreenEvidence.Result(message = "Android liefert gerade keinen Fensterinhalt. Ursache noch ungeklärt; dies beweist keine DEGIRO-Sperre.")
