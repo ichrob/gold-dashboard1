@@ -8,6 +8,17 @@ class ProductScreenEvidenceTest {
     private fun lines(vararg text: String) = text.mapIndexed { i, value -> QuoteLayout.Line(value, 0, i * 50, 500, i * 50 + 30) }
     private val product get() = lines("ISIN DE000FD0S0G4", "EUR", "Geld 10,20", "Brief 10,30", "27/10/2026 14:59")
     private fun read(items: List<QuoteLayout.Line> = product, pkg: String = ProductScreenEvidence.PACKAGE, sensitive: Boolean = false) = ProductScreenEvidence.read(pkg, items, at, sensitive)
+    @Test fun groupedTableRowsKeepEuroQuotesSeparateFromChfAccount() {
+        val result = read(lines("CHF 505,05", "DE000FG77MY4 • Societe Generale OTC",
+            "Zuletzt € 11,15 28/10/2026 07:55", "Geld € 11,14 Brief € 11,16"))
+        assertEquals(ProductScreenEvidence.Reason.NONE, result.reason)
+        assertTrue(result.draft.contains("Währung (Anzeige ungeprüft): EUR"))
+        assertTrue(result.draft.contains("Geld (Anzeige ungeprüft): 11,14"))
+        assertTrue(result.draft.contains("Brief (Anzeige ungeprüft): 11,16"))
+        assertTrue(result.draft.contains("Anzeigezeit (Anzeige ungeprüft): 28/10/2026 07:55"))
+        assertFalse(result.draft.contains("505,05"))
+    }
+
     @Test fun rejectionReasonsSeparateIdentityCurrencyAndQuotes() {
         assertEquals(ProductScreenEvidence.Reason.ISIN_MISSING, read(lines("Geld EUR 10,20")).reason)
         assertEquals(ProductScreenEvidence.Reason.ISIN_AMBIGUOUS, read(product + lines("DE000FE2JJ20")).reason)
