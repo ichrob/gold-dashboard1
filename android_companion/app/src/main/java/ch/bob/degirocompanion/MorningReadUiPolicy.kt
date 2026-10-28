@@ -1,0 +1,31 @@
+package ch.bob.degirocompanion
+
+/** One primary action and finite, opt-out automatic diagnostic handoff. */
+internal object MorningReadUiPolicy {
+    enum class Action { OPEN, SEND, SETUP, START }
+    fun action(running:Boolean,pending:Boolean,enabled:Boolean,connected:Boolean):Action = when {
+        running -> Action.OPEN
+        pending -> Action.SEND
+        !enabled || !connected -> Action.SETUP
+        else -> Action.START
+    }
+    fun automatic(enabled:Boolean,autoReturn:Boolean,running:Boolean,interactive:Boolean,locked:Boolean,
+                  version:String,lastAttempt:String):Boolean = enabled && autoReturn && !running && interactive && !locked &&
+        version.isNotEmpty() && version!=lastAttempt
+    fun reason(code:String):String=when(code) {
+        "SEARCH_MISSING" -> "DEGIRO-Suche nicht erkannt"
+        "SEARCH_AMBIGUOUS" -> "Suchfläche nicht eindeutig"
+        "RESULT_MISSING" -> "Kein eindeutiger ISIN-Treffer"
+        "READ_TIMEOUT" -> "Zeitlimit beim Lesen erreicht"
+        "SCREEN_LOCKED" -> "Bildschirm wurde gesperrt"
+        "USER_INTERRUPTED", "USER_STOP" -> "Prüfung durch Bedienung beendet"
+        "PROTECTED_VIEW", "UNSAFE_VIEW" -> "Geschützte Ansicht; Lesen angehalten"
+        "IDENTITY_CHANGED" -> "Produktkennung hat gewechselt"
+        "PARTIAL" -> "Produkt teilweise gelesen"
+        "COMPLETE" -> "Produkt vollständig gelesen"
+        "RUN_TIMEOUT" -> "Zeitlimit des Listenlaufs erreicht"
+        "SERVICE_INTERRUPTED" -> "Android-Lesedienst unterbrochen"
+        "NAVIGATION_REJECTED" -> "DEGIRO hat den Suchschritt nicht ausgeführt"
+        else -> "Leseschritt nicht abgeschlossen ($code)"
+    }
+}
