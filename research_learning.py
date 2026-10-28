@@ -11,7 +11,7 @@ import math
 import strategy_lab
 import research_self_review
 
-VERSION = "bob-rolling-shadow-v2"
+VERSION = "bob-rolling-shadow-v3-latest12"
 MIN_FOLDS = 3
 MIN_HISTORIC_TRADES = 30
 MIN_FORWARD_SESSIONS = 20
@@ -148,6 +148,7 @@ def enrich(report, bars, previous=None, *, day):
     previous_end = state.get("prospective", {}).get("lastEvaluatedBarAt")
     if previous_end is None:
         previous_end = (previous.get("rangeMs") or [None, None])[-1] if isinstance(previous, dict) else None
+    new_observation_accepted = False
     proposal = state.get("proposal")
     if proposal and proposal.get("state") == "shadow":
         if (previous and previous.get("historicalInstrument") and
@@ -160,6 +161,7 @@ def enrich(report, bars, previous=None, *, day):
         elif result.get("status") == "evaluated":
             observation = _forward(bars, previous_end, proposal.get("strategy"), proposal.get("protocol"))
             if observation:
+                new_observation_accepted = True
                 p = state["prospective"]
                 accumulate_scenarios(p, observation)
                 a = observation["candidate"]
@@ -235,8 +237,7 @@ def enrich(report, bars, previous=None, *, day):
             state["status"] = "collecting"
             state["reason"] = "Noch kein Kandidat mit hinreichendem historischem Vorteil."
     state["lastResearchBarAt"] = current_end
-    state["newIndependentEvidence"] = bool(
-        state.get("prospective", {}).get("lastObservation", {}).get("day") == day)
+    state["newIndependentEvidence"] = new_observation_accepted
     # Read-only critique. This is NOT an alternate live market signal.
     state["selfReview"] = research_self_review.review(state)
     result["learningCycle"] = state
