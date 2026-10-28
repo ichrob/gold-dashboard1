@@ -169,7 +169,7 @@ class ProductReadService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         queueRead(400)
     }
-    override fun onInterrupt() { ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
+    override fun onInterrupt() { MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
     override fun onDestroy() {
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
@@ -383,12 +383,12 @@ class ProductReadService : AccessibilityService() {
                 if(!n.isVisibleToUser || n.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return ""
                 val sensitiveNode=n.isPassword || (android.os.Build.VERSION.SDK_INT>=34 && n.isAccessibilityDataSensitive)
                 val hint=n.hintText?.toString().orEmpty()
-                var id=n.viewIdResourceName.orEmpty()
-                if(Regex("(?i)suche|suchen|search").containsMatchIn(hint)) id+="/search"
-                val searchInput=n.isEditable && Regex("(?i)search").containsMatchIn(id)
-                val text=if(sensitiveNode || (n.isEditable && !searchInput)) "" else (n.text ?: n.contentDescription)?.toString().orEmpty().take(2000)
+                val id=n.viewIdResourceName.orEmpty()
+                val description=if(sensitiveNode) "" else n.contentDescription?.toString().orEmpty().take(2000)
+                val searchInput=n.isEditable && MorningReadPolicy.isSearchInput(id,description,hint)
+                val text=if(sensitiveNode || (n.isEditable && !searchInput)) "" else n.text?.toString().orEmpty().ifBlank { description }.take(2000)
                 val index=nodes.size;nodes+=AccessibilityNodeInfo.obtain(n)
-                descriptions+=MorningReadPolicy.Node(text,id,n.isClickable,n.isEditable,sensitiveNode)
+                descriptions+=MorningReadPolicy.Node(text,id,n.isClickable,n.isEditable,sensitiveNode,description=description,hint=if(sensitiveNode) "" else hint)
                 val children=mutableListOf<String>()
                 if(!sensitiveNode && !n.isEditable) for(i in 0 until n.childCount) {
                     val child=n.getChild(i) ?: continue
@@ -422,7 +422,10 @@ class ProductReadService : AccessibilityService() {
                         val args=android.os.Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,MorningReadRun.target) }
                         node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)
                     } else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    if(!success) MorningReadRun.event(this,"NAVIGATION_REJECTED")
+                    if(!success) {
+                        lastNavigationIssue="NAVIGATION_REJECTED"
+                        MorningReadRun.event(this,lastNavigationIssue)
+                    }
                 }
             }
             return true

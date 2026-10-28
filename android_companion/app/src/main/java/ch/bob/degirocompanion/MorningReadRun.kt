@@ -55,6 +55,7 @@ internal object MorningReadRun {
         val values = (0 until ids.length()).map { ids.getString(it) }
         check(values.all { SeriesEvidence.validIsin(it) } && values.toSet().size == values.size)
         data = JSONObject().put("batchId", nonce).put("listUploadedAt", at)
+            .put("appVersionCode",c.packageManager.getPackageInfo(c.packageName,0).versionCode)
             .put("revision",0).put("isins", JSONArray(values)).put("results", JSONArray()).put("events", JSONArray())
         index=0; attempt=1; reading=false; backSteps=0; started=SystemClock.elapsedRealtime()
         persist(c)

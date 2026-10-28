@@ -13,6 +13,7 @@ internal object MorningReadUiPolicy {
                   version:String,lastAttempt:String):Boolean = enabled && autoReturn && !running && interactive && !locked &&
         version.isNotEmpty() && version!=lastAttempt
     fun reason(code:String):String=when(code) {
+        "STOPPED" -> "Prüfung angehalten; genauer Auslöser nicht protokolliert"
         "SEARCH_MISSING" -> "DEGIRO-Suche nicht erkannt"
         "SEARCH_AMBIGUOUS" -> "Suchfläche nicht eindeutig"
         "RESULT_MISSING" -> "Kein eindeutiger ISIN-Treffer"

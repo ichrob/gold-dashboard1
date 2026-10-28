@@ -25,6 +25,17 @@ class MorningReadPolicyTest {
         assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(icon.copy(containsInput=true)),isin).kind)
         assertEquals(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.decide(listOf(node("Search instruments",true)),isin).kind)
     }
+    @Test fun semanticDescriptionsAndHintsSurviveEmptyOrEnteredText() {
+        val icon=node("",true).copy(description="Suchen")
+        assertEquals(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.decide(listOf(icon),isin).kind)
+        val input=node("").copy(editable=true,hint="Search instruments")
+        assertTrue(MorningReadPolicy.isSearchInput("","","Search instruments"))
+        assertFalse(MorningReadPolicy.isSearchInput("amount","","Search orders"))
+        assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.decide(listOf(input),isin).kind)
+        assertEquals(MorningReadPolicy.Kind.RESULT,MorningReadPolicy.decide(listOf(input.copy(text=isin),node(isin,true)),isin).kind)
+        for(bad in listOf(icon.copy(description="Order bestätigen"),icon.copy(hint="Passwort"),input.copy(hint="Search orders")))
+            assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(listOf(bad),isin).kind)
+    }
     @Test fun protectedLoginAndOrderViewsAlwaysStop() {
         for(n in listOf(node("Passwort"),node("Orderart"),node("Anmelden"),node("Gold").copy(sensitive=true)))
             assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(listOf(node(isin),node("Übersicht"),n),isin).kind)
