@@ -26,20 +26,35 @@ class ProductReadActivity : Activity() {
             statusHandler.postDelayed(this, 1000)
         }
     }
+    private val automaticTransfer=Runnable { runCatching { MorningReadTransfer.automaticResults(this) } }
     private lateinit var result: TextView
+    private lateinit var diagnostics: TextView
+    private lateinit var primary: Button
     private val preferences by lazy { getSharedPreferences("product_reader", MODE_PRIVATE) }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val stack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
+        var container=stack
         fun button(title: String, action: () -> Unit) {
-            stack.addView(Button(this).apply { text = title; isAllCaps = false; setOnClickListener { action() } })
+            container.addView(Button(this).apply { text = title; isAllCaps = false; setOnClickListener { action() } })
         }
-        stack.addView(TextView(this).apply { text = "DEGIRO lesen · Produkt und Morgenliste"; textSize = 21f })
-        button("STOPP · Lesen ausschalten und Entwurf löschen") {
+        container.addView(TextView(this).apply { text = "DEGIRO lesen · Produkt und Morgenliste"; textSize = 21f })
+        primary=Button(this).apply { text="Automatisch prüfen";isAllCaps=false;setOnClickListener { primaryAction() } }
+        container.addView(primary)
+        result=TextView(this).apply { textSize=18f;setTextIsSelectable(true) }
+        container.addView(result)
+        container.addView(TextView(this).apply { text="Ein Start: Morgenliste holen, Produkte lesen und Diagnose an Bob senden. DEGIRO muss angemeldet sein. Während des Lesens Handy entsperrt lassen. Nach einem Abbruch wird das Protokoll ebenfalls übertragen; bei Bildschirmsperre erst nach dem Entsperren. Ein Browser-Übergabelink kann einen zusätzlichen Tipp erfordern." })
+        button("Prüfung stoppen") {
             MorningReadRun.stop(this,"USER_STOP")
             preferences.edit().putBoolean("enabled", false).apply()
             ProductReadRequest.cancel(); ProductReadSession.clear(); ProductReadDiagnostics.clear(); refresh()
         }
+        val advanced=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=android.view.View.GONE }
+        button("Weitere Möglichkeiten und technische Diagnose") {
+            advanced.visibility=if(advanced.visibility==android.view.View.GONE) android.view.View.VISIBLE else android.view.View.GONE
+        }
+        container.addView(advanced)
+        container=advanced
         button("Leseprüfung einschalten / Android-Einstellungen") {
             AlertDialog.Builder(this).setTitle("Sichtbare Produktfelder lesen")
                 .setMessage("Bob erhält über die Android-Bedienungshilfe Zugriff auf sichtbare DEGIRO-Texte. Nach „Prüfung starten“ prüft er höchstens eine Minute die geöffnete Produktseite und scrollt dafür automatisch nach unten und zur ISIN zurück; alternativ liest er nach deinem Tastendruck. Während der gestarteten Prüfung hält Bob den Bildschirm bis zu 60 Sekunden eingeschaltet; Abschluss oder Abbruch beendet dies. Die Sperrtaste bleibt wirksam. Er übernimmt nur strukturierte Produktfelder. Bei aktivierter automatischer Rückgabe öffnet er danach Bob und ordnet den Entwurf lokal anhand der ISIN deiner Produktliste zu. Beim Morgenlisten-Lauf wird ausschließlich die ISIN in die Produktsuche eingetragen. Login- und Orderansichten stoppen den Lauf. DEGIRO beschränkt automatisierte Werkzeuge; dieser Gerätetest ist keine Zustimmung von DEGIRO. Ohne Freigabe bleibt manuelles Screenshot-Teilen die Alternative.")
@@ -49,8 +64,8 @@ class ProductReadActivity : Activity() {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 }.show()
         }
-        stack.addView(android.widget.CheckBox(this).apply {
-            text = "Nach dem Lesen automatisch zu Bob zurückkehren und der ISIN zuordnen"
+        container.addView(android.widget.CheckBox(this).apply {
+            text = "Ergebnisse und Fehler automatisch an Bob übertragen"
             isChecked = preferences.getBoolean("auto_return", true)
             setOnCheckedChangeListener { _, checked -> preferences.edit().putBoolean("auto_return", checked).apply() }
         })
@@ -71,7 +86,7 @@ class ProductReadActivity : Activity() {
         button("Gespeicherten Listenlauf an Bob übertragen / erneut versuchen") {
             runCatching { MorningReadTransfer.showResults(this) }.onFailure { result.text="Browser nicht erreichbar. Ergebnisse bleiben gespeichert." }
         }
-        stack.addView(TextView(this).apply {
+        container.addView(TextView(this).apply {
             text="Morgenliste: Bob lädt die zuletzt gespeicherte Liste (höchstens 24 Stunden alt), sucht jede ISIN und liest bis zu zwölf Produkte. DEGIRO muss angemeldet und das Handy entsperrt sein. Höchstens zwei Versuche je Produkt und 15 Minuten insgesamt. Nicht bedienen; STOPP oder Sperrtaste beendet den Lauf. Ergebnisse bleiben bis zur bestätigten Übertragung gespeichert. Login- und Orderansichten halten den Lauf an."
         })
         button("Seite prüfen · DEGIRO öffnen, automatisch scrollen und lesen") {
@@ -94,21 +109,41 @@ class ProductReadActivity : Activity() {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://bob-private-scanner.onrender.com/#bob-ocr=" + Uri.encode(draft))))
             }.onFailure { result.text = "Browser konnte nicht geöffnet werden. Entwurf bleibt lokal." }
         }
-        result = TextView(this).apply { textSize = 16f; setTextIsSelectable(true) }
-        stack.addView(result)
+        diagnostics = TextView(this).apply { textSize = 16f; setTextIsSelectable(true) }
+        container.addView(diagnostics)
         button("Technische Diagnose kopieren") {
             val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Bob-Lesediagnose", ProductReadDiagnostics.report(SystemClock.elapsedRealtime())))
             android.widget.Toast.makeText(this, "Diagnose ohne Kontodaten kopiert.", android.widget.Toast.LENGTH_SHORT).show()
         }
-        stack.addView(TextView(this).apply {
+        container.addView(TextView(this).apply {
             text = "Einmalig: Leseprüfung und Android-Dienst aktivieren. Die Männchen-Taste ist optional.\n\n1. Prüfung starten.\n2. In DEGIRO das Produkt mit sichtbarer ISIN öffnen. Bob scrollt und liest automatisch, höchstens 60 Sekunden. Bob hält den Bildschirm während dieser Prüfung automatisch wach. Währenddessen bitte nicht bedienen; die Sperrtaste bricht ab.\n3. Bob öffnet sich nach erfolgreichem Lesen automatisch und speichert die Beobachtung beim passenden Listeneintrag. Falls die Rückgabe scheitert, bleibt der Entwurf hier über ‚Gelesene Werte in Bob prüfen‘ erreichbar.\n\nEinzelseitenprüfung: nur Scrollen der geöffneten Seite. Die Morgenlisten-Funktion oben übernimmt zusätzlich die ISIN-Suche. Keine Orderbedienung. Anmeldung selbst durchführen. Bei Zeitablauf erneut starten. Ohne zugängliche Bildschirmtexte: Screenshot teilen. Entwurf verfällt nach fünf Minuten."
             textSize = 16f
         })
         setContentView(ScrollView(this).apply { addView(stack) })
     }
-    override fun onResume() { super.onResume(); refresh(); statusHandler.post(statusTick) }
-    override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
+    override fun onResume() {
+        super.onResume();refresh();statusHandler.post(statusTick)
+        statusHandler.postDelayed(automaticTransfer,600)
+    }
+    override fun onPause() { statusHandler.removeCallbacks(automaticTransfer);statusHandler.removeCallbacks(statusTick); super.onPause() }
+    private fun primaryAction() {
+        runCatching {
+            when(MorningReadUiPolicy.action(MorningReadRun.running,MorningReadRun.pending(this)!=null,
+                preferences.getBoolean("enabled",false),serviceEnabled() && ProductReadDiagnostics.connected)) {
+                MorningReadUiPolicy.Action.OPEN -> {
+                    val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App nicht gefunden.")
+                    startActivity(launch)
+                }
+                MorningReadUiPolicy.Action.SEND -> MorningReadTransfer.showResults(this)
+                MorningReadUiPolicy.Action.SETUP -> {
+                    preferences.edit().putBoolean("enabled",true).apply()
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }
+                MorningReadUiPolicy.Action.START -> MorningReadTransfer.requestList(this)
+            }
+        }.onFailure { result.text=it.message ?: "Start fehlgeschlagen; gespeichertes Protokoll bleibt erhalten." }
+    }
     private fun serviceEnabled(): Boolean {
         val manager = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
         return manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
@@ -118,7 +153,15 @@ class ProductReadActivity : Activity() {
     private fun refresh() {
         displayedRequestActive = ProductReadRequest.active(SystemClock.elapsedRealtime())
         val value = ProductReadSession.get(SystemClock.elapsedRealtime())
-        result.text = MorningReadRun.summary() + (if(MorningReadRun.pending(this)!=null) "\nErgebnisse lokal gesichert; Übertragung noch offen.\n" else "\n") + (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
+        primary.text=when(MorningReadUiPolicy.action(MorningReadRun.running,MorningReadRun.pending(this)!=null,
+            preferences.getBoolean("enabled",false),serviceEnabled() && ProductReadDiagnostics.connected)) {
+            MorningReadUiPolicy.Action.OPEN -> "Zur laufenden Prüfung in DEGIRO"
+            MorningReadUiPolicy.Action.SEND -> "Diagnose an Bob senden / erneut versuchen"
+            MorningReadUiPolicy.Action.SETUP -> "Lesedienst einmalig einschalten"
+            MorningReadUiPolicy.Action.START -> "Automatisch prüfen · Morgenliste"
+        }
+        result.text=MorningReadRun.summary()+"\n"+MorningReadRun.savedStatus(this)
+        diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }
 }
