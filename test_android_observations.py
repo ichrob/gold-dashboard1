@@ -34,6 +34,18 @@ class AndroidObservations(unittest.TestCase):
         for bad in [True,0,-1,2100000001,'10210',{}]:
             payload['appVersionCode']=bad
             with self.subTest(bad=bad),self.assertRaises(ValueError):a.prepare(payload,{},NOW)
+    def test_protection_causes_roundtrip_without_screen_text(self):
+        for code in ('PROTECTED_PASSWORD','PROTECTED_LOGIN','PROTECTED_ORDER','PROTECTED_SENSITIVE_INPUT','PROTECTED_SENSITIVE_CONTENT','UNRECOGNIZED_INPUT'):
+            payload=run();payload['results']=[];payload['events'][0]['code']=code
+            payload['events'][0]['screenText']='must not be retained'
+            saved=a.prepare(payload,{},NOW)
+            class StatusDb:
+                def execute(self,*args):return self
+                def fetchall(self):return [(saved,)]
+            status=a.status(StatusDb())
+            self.assertEqual(status['runs'][0]['events'][0]['code'],code)
+            self.assertNotIn('must not be retained',json.dumps(saved))
+            self.assertNotIn('screenText',json.dumps(status))
     def test_partial_is_recomputed_and_cannot_be_promoted(self):
         r=a.prepare(run(),{'products':[{'isin':ISIN}]},NOW)
         self.assertEqual(r['results'][0]['code'],'PARTIAL')

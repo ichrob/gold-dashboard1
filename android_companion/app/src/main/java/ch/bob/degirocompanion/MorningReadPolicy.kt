@@ -5,20 +5,34 @@ internal object MorningReadPolicy {
     data class Node(val text: String, val id: String = "", val clickable: Boolean = false,
                     val editable: Boolean = false, val sensitive: Boolean = false,
                     val row: String = text, val containsInput: Boolean = false,
-                    val description: String = "", val hint: String = "")
+                    val description: String = "", val hint: String = "",
+                    val password: Boolean = false)
     enum class Kind { WAIT, SEARCH, QUERY, RESULT, READ, BACK, BLOCK }
     data class Action(val kind: Kind, val index: Int = -1, val code: String = "")
     private val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
-    private val unsafe = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code|order platzieren|order bestätigen|place order|confirm order|orderart|ordertyp|limitpreis|stückzahl|anzahl kaufen")
-    private fun searchLabel(value: String) = Regex("(?iu)^(suche|suchen|search|produkt suchen|produkte suchen|search products|search instruments|instrument suchen|instrumente suchen|suchen nach)(?:[.…: ]*)$").matches(value.trim())
+    private val login = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code")
+    private val order = Regex("(?iu)order platzieren|order bestätigen|place order|confirm order|orderart|ordertyp|limitpreis|stückzahl|anzahl kaufen")
+    private fun searchLabel(value: String) = Regex("(?iu)^(suche|suchen|search|produkt suchen|produkte suchen|search products|search instruments|instrument suchen|instrumente suchen|suchen nach|name, isin oder symbol|name, isin or symbol)(?:[.…: ]*)$").matches(value.trim())
     private fun search(n: Node) = searchLabel(n.text) || searchLabel(n.description) || searchLabel(n.hint) ||
         Regex("(?iu)(^|[/_:])(search|search_input|search_src_text|search_field|search_button|search_view)([/:_]|$)").containsMatchIn(n.id)
     fun isSearchInput(id: String, description: String, hint: String): Boolean =
         search(Node("", id=id, description=description, hint=hint))
+    // Android may expose a placeholder as text, without hintText or a view ID.
+    // Only an exact, explicitly marked search placeholder may identify an input.
+    fun inputHint(hint: String, text: String, showingHint: Boolean): String =
+        hint.ifBlank { if (showingHint && searchLabel(text)) text else "" }
+    private fun protection(nodes: List<Node>): String? {
+        if (nodes.any { it.password }) return "PROTECTED_PASSWORD"
+        if (nodes.any { it.sensitive && it.editable }) return "PROTECTED_SENSITIVE_INPUT"
+        if (nodes.any { it.sensitive }) return "PROTECTED_SENSITIVE_CONTENT"
+        if (nodes.any { n -> listOf(n.text,n.description,n.hint).any(login::containsMatchIn) }) return "PROTECTED_LOGIN"
+        if (nodes.any { n -> listOf(n.text,n.description,n.hint).any(order::containsMatchIn) }) return "PROTECTED_ORDER"
+        if (nodes.any { it.editable && !search(it) }) return "UNRECOGNIZED_INPUT"
+        return null
+    }
     fun decide(nodes: List<Node>, target: String): Action {
         if (!SeriesEvidence.validIsin(target) || nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
-        if (nodes.any { it.sensitive || listOf(it.text,it.description,it.hint).any(unsafe::containsMatchIn) || (it.editable && !search(it)) })
-            return Action(Kind.BLOCK, code="PROTECTED_VIEW")
+        protection(nodes)?.let { return Action(Kind.BLOCK, code=it) }
         val inputs = nodes.indices.filter { nodes[it].editable && search(nodes[it]) }
         if (inputs.size > 1) return Action(Kind.WAIT, code="SEARCH_AMBIGUOUS")
         if (inputs.size == 1) {

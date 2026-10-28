@@ -382,13 +382,16 @@ class ProductReadService : AccessibilityService() {
                 check(depth<=30 && nodes.size<500)
                 if(!n.isVisibleToUser || n.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return ""
                 val sensitiveNode=n.isPassword || (android.os.Build.VERSION.SDK_INT>=34 && n.isAccessibilityDataSensitive)
-                val hint=n.hintText?.toString().orEmpty()
+                val hint=if(sensitiveNode) "" else MorningReadPolicy.inputHint(
+                    n.hintText?.toString().orEmpty(),
+                    if(n.isShowingHintText) n.text?.toString().orEmpty() else "",
+                    n.isShowingHintText)
                 val id=n.viewIdResourceName.orEmpty()
                 val description=if(sensitiveNode) "" else n.contentDescription?.toString().orEmpty().take(2000)
                 val searchInput=n.isEditable && MorningReadPolicy.isSearchInput(id,description,hint)
                 val text=if(sensitiveNode || (n.isEditable && !searchInput)) "" else n.text?.toString().orEmpty().ifBlank { description }.take(2000)
                 val index=nodes.size;nodes+=AccessibilityNodeInfo.obtain(n)
-                descriptions+=MorningReadPolicy.Node(text,id,n.isClickable,n.isEditable,sensitiveNode,description=description,hint=if(sensitiveNode) "" else hint)
+                descriptions+=MorningReadPolicy.Node(text,id,n.isClickable,n.isEditable,sensitiveNode,description=description,hint=hint,password=n.isPassword)
                 val children=mutableListOf<String>()
                 if(!sensitiveNode && !n.isEditable) for(i in 0 until n.childCount) {
                     val child=n.getChild(i) ?: continue
