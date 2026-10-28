@@ -68,7 +68,7 @@ SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 
 def read_private_report_for_mcp(path, query=None):
     """Fetch the existing internal report without adding a public database port."""
-    if path not in ("/product-audit", "/diagnostics", "/simulation-status", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health", "/risk-paper"):
+    if path not in ("/product-audit", "/diagnostics", "/simulation-status", "/comparison-status", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health", "/risk-paper"):
         raise ValueError("Unknown report")
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
         raise RuntimeError("Private audit unavailable")
@@ -150,11 +150,19 @@ def read_diagnostics_for_mcp():
             ('enabled','running','phase','lastSuccessAt','lastAttemptAt','lastRunDay','error')),
         'storage':lambda:read_private_report_for_mcp('/storage-health'),
         'simulationAndPush':lambda:read_private_report_for_mcp('/simulation-status'),
+        # Stored comparisons are isolated from the live heartbeat so either
+        # report can fail truthfully without erasing the other observation.
+        'comparisonEvidence':lambda:read_private_report_for_mcp('/comparison-status'),
         # Small private 24h window; the dedicated reader can paginate prior days.
         'pushDeliveries':lambda:read_private_report_for_mcp('/push-delivery-history'),
         'research':research,
         'problems':problems,
     })
+    comparison = report['areas'].get('comparisonEvidence') or {}
+    if isinstance(comparison.get('comparisonHealth'), dict):
+        report['areas']['comparisonHealth'] = comparison['comparisonHealth']
+    if isinstance(comparison.get('entryBlockEvidence'), dict):
+        report['areas']['entryBlockEvidence'] = comparison['entryBlockEvidence']
     report['areas']['newFeatures'] = bob_diagnostics.new_feature_snapshot(
         report['areas'], mobile_asset_loaded=bool(BOB_UNIFIED_WORKSPACE_JS))
     report['areas']['simulationEvidence'] = bob_diagnostics.simulation_evidence_snapshot(

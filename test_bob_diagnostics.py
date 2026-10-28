@@ -923,3 +923,28 @@ class FastSimulationStatusTests(unittest.TestCase):
         self.assertEqual(result['paper']['state'], 'ok')
         self.assertEqual(result['accounts'][0]['reason'], 'wait')
         self.assertEqual(result['accounts'][0]['recentCases']['status'], 'unavailable')
+
+    def test_comparison_status_is_bounded_and_separate_from_live_controls(self):
+        from unittest.mock import MagicMock
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [({'status':'inconclusive'},)]
+        portfolios = Mock()
+        portfolios.POLICIES = {'balanced':{}}
+        portfolios.names.return_value = {
+            'bob_paper_cases':'bob_paper_balanced_cases',
+            'bob_paper_days':'bob_paper_balanced_days'}
+        with patch('comparison_health.report', return_value={'status':'observed','items':{}}), \
+             patch.object(diagnostics, 'entry_block_evidence',
+                          return_value={'status':'observed','accounts':[]}), \
+             patch('paper_case_review.project_case',
+                   return_value={'status':'inconclusive'}):
+            result = diagnostics.comparison_status(conn, portfolios)
+        self.assertEqual(result['status'],'observed')
+        self.assertTrue(result['readOnly'])
+        self.assertFalse(result['realOrders'])
+        self.assertEqual(result['accountSamples'][0]['profile'],'balanced')
+        self.assertEqual(result['accountSamples'][0]['recentCases']['status'],'observed')
+        selects=[call.args[0] for call in conn.execute.call_args_list
+                 if call.args and call.args[0].startswith('SELECT')]
+        self.assertEqual(selects,[
+            'SELECT payload FROM bob_paper_balanced_cases ORDER BY started_at DESC LIMIT 5'])

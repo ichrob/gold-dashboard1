@@ -895,7 +895,7 @@ class Handler(BaseHTTPRequestHandler):
                     conn.execute("SET LOCAL statement_timeout='3s'")
                     result=__import__('storage_budget').report(conn)
                 send_json(self,200,result);return
-            if path in ("/diagnostics", "/simulation-status"):
+            if path in ("/diagnostics", "/simulation-status", "/comparison-status"):
                 supplied = self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
                     send_json(self, 401, {"error":"Unauthorized"})
@@ -907,6 +907,9 @@ class Handler(BaseHTTPRequestHandler):
                     if path == "/simulation-status":
                         conn.execute("SET LOCAL statement_timeout='3s'")
                         result = bob_diagnostics.simulation_status(conn, evaluator_runtime, paper_health, paper_portfolios)
+                    elif path == "/comparison-status":
+                        conn.execute("SET LOCAL statement_timeout='3s'")
+                        result = bob_diagnostics.comparison_status(conn, paper_portfolios)
                     else:
                         result = bob_diagnostics.push_snapshot(conn, evaluator_runtime, paper_health, paper_portfolios, extended=True)
                 result['runtimeWatchdog'] = __import__('runtime_watchdog').snapshot()

@@ -730,6 +730,42 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
     return result
 
 
+def comparison_status(conn, portfolios):
+    """Independent bounded stored evidence; never hides live simulation status."""
+    comparison = __import__('comparison_health').report(conn)
+    blocks = entry_block_evidence(conn, portfolios)
+    samples = []
+    for profile in portfolios.POLICIES:
+        table = portfolios.names(profile)['bob_paper_cases']
+        try:
+            with conn.transaction():
+                conn.execute("SET LOCAL statement_timeout='500ms'")
+                rows = conn.execute(
+                    f'SELECT payload FROM {table} ORDER BY started_at DESC LIMIT 5'
+                ).fetchall()
+                conn.execute("SET LOCAL statement_timeout='3s'")
+            recent = {'status':'observed',
+                'scope':'latest-five-not-complete-history',
+                'items':[project(paper_case_review.project_case(row[0], profile), CASE)
+                         for row in rows]}
+        except Exception:
+            recent = {'status':'unavailable',
+                'reason':'bounded-case-evidence-read-unavailable'}
+        samples.append({'profile':profile, 'recentCases':recent})
+    partial = (comparison.get('status') == 'partial'
+               or blocks.get('status') == 'unavailable'
+               or any(row['recentCases']['status'] == 'unavailable'
+                      for row in samples))
+    return {'status':'partial' if partial else 'observed',
+            'readOnly':True, 'realOrders':False,
+            'observedAt':datetime.now(timezone.utc).isoformat(),
+            'comparisonHealth':comparison,
+            'entryBlockEvidence':blocks,
+            'accountSamples':samples,
+            'scope':'bounded-stored-comparisons-and-latest-case-evidence',
+            'note':'Stored evidence is not a completed study, executable trade or profit proof.'}
+
+
 # Projection schemas are explicit: credentials, raw logs, subscription endpoints,
 # document bodies, receipt identifiers and arbitrary nested payloads never pass.
 def clean_text(value):
@@ -1157,7 +1193,9 @@ def broker_sync_snapshot(value):
 DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
                     'sources', 'research', 'repairs', 'mobile', 'products')
 _FOCUS_AREAS = {
-    'simulation': ('simulationEvidence', 'simulationAndPush', 'background', 'collection', 'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
+    'simulation': ('simulationEvidence', 'simulationAndPush', 'comparisonEvidence',
+                   'comparisonHealth', 'entryBlockEvidence', 'background', 'collection',
+                   'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'sources': ('market', 'sourceReliability', 'collection', 'background', 'analysis'),
     'research': ('research', 'strategyResearch', 'strategyReport', 'newFeatures'),
     'mobile': ('newFeatures', 'runtime', 'degiroSync', 'products'),

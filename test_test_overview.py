@@ -17,6 +17,18 @@ class OverviewTests(unittest.TestCase):
     def test_stale_account_cannot_claim_current_check(self):
         r=overview.snapshot({'areas':{'simulationAndPush':{'accounts':[{'profile':'a','checkedAt':NOW-121000,'recentCases':{'status':'unavailable'}}]}}},NOW/1000)
         row=r['items'][-1];self.assertEqual(row['state'],'unavailable');self.assertIsNone(row['sampledRecords'])
+    def test_independent_comparison_evidence_restores_inventory_and_chains(self):
+        evidence={'comparisonHealth':{'items':{'signals':{
+            'status':'observed','sampledRecords':3,'counts':{'eligible':3}}}},
+            'accountSamples':[{'profile':'balanced','recentCases':{'status':'observed',
+                'items':[{'evidenceChain':{'complete':False}}]}}]}
+        r=overview.snapshot({'areas':{'comparisonEvidence':evidence,
+            'simulationAndPush':{'accounts':[]}}},NOW/1000)
+        row=next(x for x in r['items'] if x['id']=='signals')
+        self.assertEqual(row['state'],'observed')
+        self.assertEqual(row['sampledRecords'],3)
+        self.assertTrue(r['chainSampleAvailable'])
+        self.assertEqual(len(r['evidenceChains']),1)
     def test_chain_preserves_history_and_rejects_later_settlement(self):
         c=case();before=copy.deepcopy(c)
         self.assertFalse(chain.review(c)['complete']);self.assertEqual(c,before)
