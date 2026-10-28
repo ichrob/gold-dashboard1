@@ -33,7 +33,7 @@ class ProductReadService : AccessibilityService() {
         }
     }
     private var screenLease: PowerManager.WakeLock? = null
-    private val requestDeadline = Runnable { ProductReadRequest.cancel() }
+    private val requestDeadline = Runnable { ProductReadRequest.cancel(ProductReadRequest.End.TIMEOUT) }
     private fun releaseScreen() {
         handler.removeCallbacks(requestDeadline)
         screenLease?.let { if (it.isHeld) it.release() }
@@ -96,6 +96,16 @@ class ProductReadService : AccessibilityService() {
             screenReceiverRegistered = true
         }
         ProductReadRequest.onCancelled = {
+            val outcome = when (ProductReadRequest.endReason) {
+                ProductReadRequest.End.TIMEOUT -> ProductReadDiagnostics.Outcome.REQUEST_EXPIRED
+                ProductReadRequest.End.ATTEMPT_LIMIT -> ProductReadDiagnostics.Outcome.REQUEST_ATTEMPT_LIMIT
+                ProductReadRequest.End.CLOCK_CHANGED -> ProductReadDiagnostics.Outcome.REQUEST_CLOCK_CHANGED
+                else -> null
+            }
+            if (outcome != null) {
+                ProductReadDiagnostics.record(outcome)
+                ProductReadSession.put(ProductScreenEvidence.Result(message = "Leseprüfung am Zeit- oder Versuchslimit beendet. Kein fertig geprüfter Entwurf; bitte Diagnose prüfen."), SystemClock.elapsedRealtime())
+            }
             pageReader.reset()
             releaseScreen()
             handler.removeCallbacks(pendingRead)
@@ -115,12 +125,18 @@ class ProductReadService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (!ProductReadRequest.active(SystemClock.elapsedRealtime())) return
         if (event?.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
-        if (pageReader.anchored && event.eventType in setOf(AccessibilityEvent.TYPE_VIEW_CLICKED,
-                AccessibilityEvent.TYPE_VIEW_LONG_CLICKED, AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)) {
+        val userAction = event.eventType in setOf(AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_LONG_CLICKED)
+        val windowEvent = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        if (pageReader.anchored && (userAction || (windowEvent && !pageReader.sameWindow(event.windowId)))) {
+            ProductReadDiagnostics.record(if (userAction) ProductReadDiagnostics.Outcome.USER_INTERRUPTED else ProductReadDiagnostics.Outcome.WINDOW_INTERRUPTED)
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.PAGE_ABORT)
             ProductReadSession.put(ProductScreenEvidence.Result(message = "Bedienung oder Ansichtswechsel erkannt. Seitenprüfung abgebrochen."), SystemClock.elapsedRealtime())
             ProductReadRequest.cancel()
             return
         }
+        // A state event can describe a rebuilt subtree inside the same window.
+        // Re-traverse it: inspect() still rejects changed ISINs and protected views.
+        if (pageReader.anchored && windowEvent) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.WINDOW_RECHECK)
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         queueRead(400)
@@ -179,7 +195,12 @@ class ProductReadService : AccessibilityService() {
             try {
                 // Returning to Bob must not erase the last DEGIRO rejection or draft.
                 if (root.packageName?.toString() != ProductScreenEvidence.PACKAGE) {
-                    if (pageReader.anchored) ProductReadRequest.cancel()
+                    if (pageReader.anchored) {
+                        ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.APP_LEFT)
+                        ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.PAGE_ABORT)
+                        ProductReadSession.put(ProductScreenEvidence.Result(message = "Produkt-App verlassen. Leseprüfung beendet; kein Entwurf übernommen."), SystemClock.elapsedRealtime())
+                        ProductReadRequest.cancel()
+                    }
                     return
                 }
                 val lines = mutableListOf<QuoteLayout.Line>()
