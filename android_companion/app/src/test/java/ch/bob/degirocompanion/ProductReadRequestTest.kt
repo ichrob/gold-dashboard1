@@ -22,8 +22,10 @@ class ProductReadRequestTest {
         ProductReadRequest.start(1000)
         assertTrue(ProductReadRequest.active(60999))
         assertFalse(ProductReadRequest.attempt(61000))
+        assertEquals(ProductReadRequest.End.TIMEOUT, ProductReadRequest.endReason)
         ProductReadRequest.start(1000)
         assertFalse(ProductReadRequest.active(999))
+        assertEquals(ProductReadRequest.End.CLOCK_CHANGED, ProductReadRequest.endReason)
     }
     @Test fun eventFloodIsThrottledAndHasFiniteBudget() {
         ProductReadRequest.start(1000)
@@ -31,6 +33,7 @@ class ProductReadRequestTest {
         repeat(999) { assertFalse(ProductReadRequest.attempt(1001 + it.toLong())) }
         for (i in 1..29) assertTrue(ProductReadRequest.attempt(1000 + i * 1000L))
         assertFalse(ProductReadRequest.attempt(31000))
+        assertEquals(ProductReadRequest.End.ATTEMPT_LIMIT, ProductReadRequest.endReason)
     }
     @Test fun resumedRequestKeepsOriginalDeadlineAndReleasesOnExpiryOrStop() {
         var releases = 0
