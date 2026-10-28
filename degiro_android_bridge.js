@@ -109,7 +109,33 @@ function takeTransferFragment(location,history){
  readDraft(draft); // Strict parser rejects missing/multiple/invalid ISINs and unknown fields.
  return draft;
 }
-const api={validIsin,readDraft,displayedPairStatus,takeTransferFragment};
+const OBSERVATION_KEY='bobAndroidProductObservationsV1';
+function savedObservations(storage){
+ const raw=storage.getItem(OBSERVATION_KEY);
+ if(!raw)return [];
+ const rows=JSON.parse(raw);
+ if(!Array.isArray(rows)||rows.length>12)throw Error('Gespeicherte Lesebeobachtungen sind ungültig.');
+ return rows.map(row=>{
+  if(!Number.isFinite(row.savedAt))throw Error('Ungültiger Speicherzeitpunkt.');
+  return {...row,draft:readDraft(row.text)};
+ });
+}
+function storeObservation(storage,text,products,now=Date.now()){
+ const draft=readDraft(text);
+ if(!Array.isArray(products)||products.filter(p=>p?.isin===draft.isin).length!==1)
+  return {state:'unmatched',isin:draft.isin};
+ const current=savedObservations(storage);
+ const previous=current.find(row=>row.draft.isin===draft.isin);
+ if(previous?.draft.observedAt && draft.observedAt && Date.parse(previous.draft.observedAt)>Date.parse(draft.observedAt))
+  return {state:'older',isin:draft.isin};
+ const retained=current.filter(row=>row.draft.isin!==draft.isin && products.some(p=>p?.isin===row.draft.isin));
+ const rows=[...retained.map(({text,savedAt})=>({text,savedAt})),{text,savedAt:now}].slice(-12);
+ const payload=JSON.stringify(rows);
+ storage.setItem(OBSERVATION_KEY,payload);
+ if(storage.getItem(OBSERVATION_KEY)!==payload)throw Error('Speicherung nicht bestätigt.');
+ return {state:'saved',isin:draft.isin};
+}
+const api={validIsin,readDraft,displayedPairStatus,takeTransferFragment,savedObservations,storeObservation};
 if(typeof module==='object'&&module.exports)module.exports=api;
 if(!root.document)return;
 function mount(){
@@ -125,9 +151,28 @@ function mount(){
  const clear=root.document.createElement('button');clear.type='button';clear.textContent='Eingabe entfernen';
  const status=root.document.createElement('p');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
  const preview=root.document.createElement('div');preview.id='bobAndroidEvidencePreview';
- const safety=root.document.createElement('p');safety.textContent='OCR-Nachweise werden hier nicht gespeichert oder an den Server übertragen. Kein Einfluss auf Top 3, MyTrade, Simulationen oder Produktfreigaben.';
+ const safety=root.document.createElement('p');safety.textContent='Passende ISINs werden automatisch als Lesebeobachtung auf diesem Gerät gespeichert. Ungeprüfte Bildschirmwerte ersetzen keine bestätigten Kursquellen.';
  box.append(heading,introduction,textarea,analyze,clear,status,preview,safety);
  host.append(box);
+ const savedPanel=root.document.createElement('div');box.append(savedPanel);
+ function showSaved(){
+  savedPanel.replaceChildren();
+  const products=root.BobDegiro?.tradeTestProducts?.()||[];
+  try{
+   const saved=savedObservations(root.localStorage);
+   const title=root.document.createElement('h4');title.textContent='Lesestand deiner Produktliste';savedPanel.append(title);
+   for(const product of products.slice(0,12)){
+    const row=saved.find(x=>x.draft.isin===product.isin),line=root.document.createElement('p');
+    const f=row?.draft.fields;
+    line.textContent=product.isin+' · '+(f ?
+      'Geld '+(f.bid||'fehlt')+' · Brief '+(f.ask||'fehlt')+' · Anzeigezeit '+(f.displayedTime||'fehlt')+' · gespeicherte, ungeprüfte Beobachtung' : 'noch keine Lesebeobachtung');
+    savedPanel.append(line);
+   }
+  }catch(e){status.textContent='Lesespeicher nicht verfügbar: '+e.message;}
+ }
+ const removeSaved=root.document.createElement('button');removeSaved.type='button';removeSaved.textContent='Gespeicherte Lesebeobachtungen löschen';
+ removeSaved.onclick=()=>{try{root.localStorage.removeItem(OBSERVATION_KEY);showSaved();}catch(e){status.textContent='Löschen fehlgeschlagen: '+e.message;}};
+ box.append(removeSaved);showSaved();
  function reset(){preview.replaceChildren();status.textContent='';}
  textarea.addEventListener('input',reset);
  clear.onclick=()=>{textarea.value='';reset();status.textContent='Entwurf lokal entfernt.';};
@@ -168,7 +213,9 @@ function mount(){
    if(Array.isArray(existing)){
     const match=existing.some(p=>p?.isin===draft.isin);
     const note=root.document.createElement('p');
-    note.textContent=match?'ISIN in einer vorhandenen Bob-Produktidentitätenliste gefunden. Das beweist keine aktuelle DEGIRO-Handelbarkeit.':'Keine Zuordnung in der verfügbaren lokalen Bob-Vergleichsliste. Das sagt nichts darüber aus, ob DEGIRO dieses Produkt anbietet oder handeln lässt.';
+    const saved=storeObservation(root.localStorage,textarea.value,existing);
+    note.textContent=saved.state==='saved'?'Automatisch über die ISIN zugeordnet und auf diesem Gerät gespeichert.':saved.state==='older'?'Eine neuere Lesebeobachtung bleibt erhalten.':'ISIN noch nicht in der geladenen Produktliste gefunden; nichts zugeordnet.';
+    showSaved();
     preview.append(note);
    }
   }catch(e){status.textContent='Nicht übernommen: '+e.message;}
@@ -181,6 +228,12 @@ function mount(){
    textarea.value=incoming;
    box.open=true;
    analyze.click();
+   let attempts=0;
+   const pending=root.setInterval(()=>{
+    if(textarea.value!==incoming||++attempts>20){root.clearInterval(pending);return;}
+    const products=root.BobDegiro?.tradeTestProducts?.();
+    if(Array.isArray(products)&&products.some(p=>p?.isin===readDraft(incoming).isin)){root.clearInterval(pending);analyze.click();}
+   },500);
    const navButton=root.document.querySelector('#bob-view-more [data-view="degiro"]')||
                    root.document.querySelector('[data-view="degiro"]');
    if(navButton)navButton.click();
