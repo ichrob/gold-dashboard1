@@ -96,6 +96,18 @@ def read_private_report_for_mcp(path, query=None):
     return result
 
 
+def remote_push_rpc(name, args):
+    import remote_push
+    remote_push.arguments(name,args)
+    if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:raise RuntimeError('Private push unavailable')
+    base=PUSH_SERVICE_URL.rstrip('/')
+    if not base.startswith(('https://','http://')):base='https://'+base
+    request=Request(base+'/remote-push',data=json.dumps({'name':name,'arguments':args}).encode(),
+                    headers={'X-Bob-Push-Token':PUSH_SERVICE_TOKEN,'Content-Type':'application/json'},method='POST')
+    with urlopen(request,timeout=8) as response:result=json.loads(response.read(65536))
+    return result
+
+
 def read_private_product_audit_for_mcp():
     return read_private_report_for_mcp('/product-audit')
 
@@ -1996,14 +2008,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         if path == "/mcp":
-            # A separate machine credential is scoped ONLY to this read-only
-            # tool dispatcher. It never grants browser or general API access.
+            # The legacy machine credential remains product-read-only.
+            # Only explicit OAuth consent enables the separate push-test scope.
             # Legacy user-password access remains subject to the daily factor.
             products_allowed = (bob_mcp.service_authenticated(self.headers)
                 or bob_oauth.bearer_authenticated(self.headers, USER)
                 or (self.headers.get("Authorization", "").startswith("Basic ") and self.authenticated()))
             diagnostics_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.DIAGNOSTICS_SCOPE)
-            if not products_allowed and not diagnostics_allowed:
+            push_test_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.PUSH_TEST_SCOPE)
+            if not products_allowed and not diagnostics_allowed and not push_test_allowed:
                 self.send_response(401)
                 self.send_header("WWW-Authenticate", bob_oauth.challenge_header())
                 self.send_header("Cache-Control", "no-store")
@@ -2019,6 +2032,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(int(length)).decode("utf-8"))
                 status, output = bob_mcp.handle(payload, read_private_product_audit_for_mcp,
                     read_diagnostics_for_mcp if diagnostics_allowed else None, products=products_allowed,
+                    remote_push=True, push_reader=remote_push_rpc if diagnostics_allowed else None,
+                    push_sender=remote_push_rpc if push_test_allowed else None,
                     signal_history_reader=(lambda args:read_private_report_for_mcp("/signal-history", args)) if diagnostics_allowed else None,
                     push_history_reader=(lambda args:read_private_report_for_mcp("/push-delivery-history", args)) if diagnostics_allowed else None)
             except (ValueError, UnicodeError):

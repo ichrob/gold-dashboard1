@@ -60,6 +60,17 @@ class StateTests(unittest.TestCase):
         self.assertNotIn(tokens['access_token'],json.dumps(self.state))
         self.assertNotIn(tokens['refresh_token'],json.dumps(self.state))
 
+    def test_push_test_scope_requires_new_explicit_consent(self):
+        tokens=self.exchange(self.authorize())
+        self.assertNotIn(store.PUSH_TEST_SCOPE,self.call('check',token=tokens['access_token'])['scope'])
+        self.assertEqual(self.refresh(tokens['refresh_token'],scope=store.PUSH_TEST_SCOPE)['error'],'invalid_scope')
+        req=self.begin(scope=store.DIAGNOSTICS_SCOPE+' '+store.PUSH_TEST_SCOPE)['request']
+        self.assertIn(store.PUSH_TEST_SCOPE,self.call('pending',request=req)['scope'])
+        code=self.call('approve',request=req,until=self.now+10000)['code']
+        new=self.exchange(code)
+        self.assertIn(store.PUSH_TEST_SCOPE,self.call('check',token=new['access_token'])['scope'])
+        self.assertNotIn(store.PUSH_TEST_SCOPE,self.call('check',token=tokens['access_token'])['scope'])
+
     def test_code_replay_revokes_grant(self):
         code = self.authorize()
         tokens = self.exchange(code)
