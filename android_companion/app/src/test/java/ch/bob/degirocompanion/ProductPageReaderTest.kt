@@ -9,6 +9,22 @@ class ProductPageReaderTest {
     private val header = lines("DE000FD0S0G4", "EUR")
     private val quotes = lines("Geld EUR 10,20", "Brief EUR 10,30")
     private fun step(reader: ProductPageReader, data: List<QuoteLayout.Line>, forward: Boolean = true, backward: Boolean = true, window: Int = 1, sensitive: Boolean = false) = reader.inspect(window, data, at, sensitive, forward, backward)
+    @Test fun returnedHeaderAddsParametersOnlyAfterIdentityRecheck() {
+        val r = ProductPageReader()
+        val title = lines("DE000FG77MY4", "SG Gold Turbo BEST Open-End Put BAR",
+            "4181.33 BP 4181.33 Bv 10 LV 32.33")
+        step(r, title)
+        assertEquals(ProductPageReader.Move.BACKWARD, step(r, quotes, forward = false).move)
+        val done = step(r, title)
+        assertEquals(ProductPageReader.Move.FINISHED, done.move)
+        assertTrue(done.result.draft.contains("Hebel (Anzeige ungeprüft): 32,33"))
+        assertTrue(done.result.draft.contains("Bv (Anzeige ungeprüft): 10"))
+        step(r, title); step(r, quotes, forward = false)
+        val changed = step(r, header)
+        assertEquals(ProductPageReader.Move.ABORT, changed.move)
+        assertEquals("", changed.result.draft)
+    }
+
     @Test fun waitsForUnanchoredLayoutAndCanThenReadWithoutRestart() {
         val r = ProductPageReader()
         repeat(3) {
