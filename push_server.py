@@ -949,9 +949,16 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 # Existing unique event id makes network retries idempotent.
                 # Database failures return 503 so the service worker can retry.
-                with db() as conn:
-                    conn.execute("SET LOCAL statement_timeout='1500ms'")
-                    diagnostic_history.write(conn, event)
+                try:
+                    with db() as conn:
+                        conn.execute("SET LOCAL statement_timeout='1500ms'")
+                        diagnostic_history.write(conn, event)
+                except Exception as exc:
+                    # Never turn a failed commit into a receipt. 503 tells the
+                    # service worker to keep its signed claim for later retry.
+                    print('BOB_PUSH_RECEIPT persist_error='+type(exc).__name__, flush=True)
+                    send_json(self, 503, {'stored': False, 'error': 'Receipt not saved'})
+                    return
                 send_json(self, 200, {'stored': True, 'androidDisplayVerified': False})
                 return
             if path == '/diagnostic-history':
