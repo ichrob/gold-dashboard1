@@ -163,3 +163,24 @@ bridge.storeObservation(storage,safe(),products,2000);
 assert.equal(bridge.savedObservations(storage).length,1);
 assert.equal(bridge.storeObservation(storage,safe(),[...products,...products]).state,'unmatched');
 assert.throws(()=>bridge.storeObservation({getItem:()=>null,setItem:()=>{throw Error('full');}},safe(),products));
+
+// The fallback reads only dated, checksum-valid existing server identities.
+(async()=>{
+ const vm=require('node:vm'),source=fs.readFileSync('degiro_assistant.js','utf8');
+ const body=source.slice(source.indexOf('async function readServerProductList(){'),source.indexOf('async function restoreServerCorrection(){'));
+ const invoke=async(data)=>{
+  const context={Date,Error,AbortSignal,validIsin,fetch:async(url,options)=>{
+   assert.equal(url,'/api/degiro/list-correction');
+   assert.deepEqual(JSON.parse(options.body),{action:'read'});
+   return {ok:true,json:async()=>data};
+  }};
+  vm.createContext(context);vm.runInContext(body,context);
+  return context.readServerProductList();
+ };
+ const base={ok:true,listUploadedAt:new Date(Date.now()-1000).toISOString(),products:[{isin:'DE000FG77MY4'}]};
+ assert.equal((await invoke(base)).products[0].isin,'DE000FG77MY4');
+ await assert.rejects(()=>invoke({...base,products:[...base.products,...base.products]}));
+ await assert.rejects(()=>invoke({...base,products:[{isin:'DE000FG77MY5'}]}));
+ await assert.rejects(()=>invoke({...base,listUploadedAt:new Date(Date.now()+60000).toISOString()}));
+ console.log('Android server-list fallback: read-only dated identities, duplicates and invalid ISIN rejected');
+})().catch(e=>{console.error(e);process.exitCode=1;});
