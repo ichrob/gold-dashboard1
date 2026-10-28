@@ -13,6 +13,22 @@ class QuoteLayoutTest {
             QuoteLayout.Line(value, valueX, y, valueX + value.length * 9, y + 22)
         )
 
+    @Test fun joinedQuoteRowsAndFullIssuerVenueAreReadWithoutGuessing() {
+        val input = listOf(
+            QuoteLayout.Line("DE000FG77MY4 • Societe Generale OTC", 0, 100, 650, 130),
+            QuoteLayout.Line("Zuletzt € 11,15 28/10/2026 07:55", 0, 200, 650, 230),
+            QuoteLayout.Line("Geld € 11,14 Brief € 11,16", 0, 250, 650, 280),
+            QuoteLayout.Line("Geld Vol. 25K Brief Vol. 25K", 0, 300, 650, 330))
+        val actual = QuoteLayout.extract(input)
+        assertEquals("11,14", actual["Geld"])
+        assertEquals("11,16", actual["Brief"])
+        assertEquals("11,15", actual["Zuletzt"])
+        assertEquals("28/10/2026 07:55", actual["Anzeigezeit"])
+        assertEquals("SOCIETE GENERALE OTC", actual["Handelsplatz"])
+        assertNull(QuoteLayout.extract(input + QuoteLayout.Line("Geld € 12,00",0,400,400,430))["Geld"])
+        assertNull(QuoteLayout.extract(listOf(QuoteLayout.Line("Kaufen Geld € 12,00",0,0,400,30)))["Geld"])
+    }
+
     @Test fun compactTitleParametersRemainSeparateFromAccountAndChart() {
         val header = listOf(
             QuoteLayout.Line("CHF 505,05", 0, 70, 650, 120),
