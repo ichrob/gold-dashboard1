@@ -9,6 +9,17 @@ class ProductPageReaderTest {
     private val header = lines("DE000FD0S0G4", "EUR")
     private val quotes = lines("Geld EUR 10,20", "Brief EUR 10,30")
     private fun step(reader: ProductPageReader, data: List<QuoteLayout.Line>, forward: Boolean = true, backward: Boolean = true, window: Int = 1, sensitive: Boolean = false) = reader.inspect(window, data, at, sensitive, forward, backward)
+    @Test fun morningReadSeeksMissingHeaderParametersAfterQuoteIdentity() {
+        val r=ProductPageReader()
+        val first=r.inspect(1,header+quotes,at,false,true,true,requireParameters=true)
+        assertEquals(ProductPageReader.Move.BACKWARD,first.move)
+        assertEquals("",first.result.draft)
+        val title=lines("DE000FD0S0G4","SG Gold Turbo Unlimited Mini Call BAR","3942 BP 3901.07 Bv 10 LV 27.07")
+        val done=r.inspect(1,title,at,false,true,true,requireParameters=true)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("Hebel (Anzeige ungeprüft): 27,07"))
+        assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 10,20"))
+    }
     @Test fun completeQuotesReturnBeforeFooterEvenWhenForwardActionRemainsAvailable() {
         val r = ProductPageReader()
         step(r, header)
