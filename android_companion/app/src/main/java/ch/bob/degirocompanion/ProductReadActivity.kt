@@ -16,7 +16,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
-/** Explicit local controls; no exported intent, remote command or automatic upload. */
+/** User-started local reading with optional automatic return of structured fields to Bob. */
 class ProductReadActivity : Activity() {
     private var displayedRequestActive = false
     private val statusHandler = Handler(Looper.getMainLooper())
@@ -41,13 +41,18 @@ class ProductReadActivity : Activity() {
         }
         button("Leseprüfung einschalten / Android-Einstellungen") {
             AlertDialog.Builder(this).setTitle("Sichtbare Produktfelder lesen")
-                .setMessage("Bob erhält über die Android-Bedienungshilfe Zugriff auf sichtbare DEGIRO-Texte. Nach „Prüfung starten“ prüft er höchstens eine Minute die geöffnete Produktseite und scrollt dafür automatisch nach unten und zur ISIN zurück; alternativ liest er nach deinem Tastendruck. Er speichert keinen Bildschirmtext und überträgt nichts automatisch. Login, Eingaben und Orderansichten werden ausgeschlossen. DEGIRO beschränkt automatisierte Werkzeuge; dieser Gerätetest ist keine Zustimmung von DEGIRO. Ohne Freigabe bleibt manuelles Screenshot-Teilen die Alternative.")
+                .setMessage("Bob erhält über die Android-Bedienungshilfe Zugriff auf sichtbare DEGIRO-Texte. Nach „Prüfung starten“ prüft er höchstens eine Minute die geöffnete Produktseite und scrollt dafür automatisch nach unten und zur ISIN zurück; alternativ liest er nach deinem Tastendruck. Er übernimmt nur strukturierte Produktfelder. Bei aktivierter automatischer Rückgabe öffnet er danach Bob und ordnet den Entwurf lokal anhand der ISIN deiner Produktliste zu. Login, Eingaben und Orderansichten werden ausgeschlossen. DEGIRO beschränkt automatisierte Werkzeuge; dieser Gerätetest ist keine Zustimmung von DEGIRO. Ohne Freigabe bleibt manuelles Screenshot-Teilen die Alternative.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Leseprüfung aktivieren") { _, _ ->
                     preferences.edit().putBoolean("enabled", true).apply()
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 }.show()
         }
+        stack.addView(android.widget.CheckBox(this).apply {
+            text = "Nach dem Lesen automatisch zu Bob zurückkehren und der ISIN zuordnen"
+            isChecked = preferences.getBoolean("auto_return", true)
+            setOnCheckedChangeListener { _, checked -> preferences.edit().putBoolean("auto_return", checked).apply() }
+        })
         button("Seite prüfen · DEGIRO öffnen, automatisch scrollen und lesen") {
             if (!preferences.getBoolean("enabled", false) || !serviceEnabled()) {
                 result.text = "Bitte zuerst die Leseprüfung und den Android-Dienst einschalten."
@@ -75,7 +80,7 @@ class ProductReadActivity : Activity() {
             android.widget.Toast.makeText(this, "Diagnose ohne Kontodaten kopiert.", android.widget.Toast.LENGTH_SHORT).show()
         }
         stack.addView(TextView(this).apply {
-            text = "Einmalig: Leseprüfung und Android-Dienst aktivieren. Die Männchen-Taste ist optional.\n\n1. Prüfung starten.\n2. In DEGIRO das Produkt mit sichtbarer ISIN öffnen. Bob scrollt und liest automatisch, höchstens 60 Sekunden. Währenddessen bitte nicht bedienen.\n3. Zu Bob Handy zurückkehren: Das Ergebnis steht direkt hier. Mit ‚Gelesene Werte in Bob prüfen‘ öffnest du die Webprüfung.\n\nNur automatisches Scrollen der geöffneten Produktseite. Keine Produktsuche oder Orderbedienung. Anmeldung selbst durchführen. Bei Zeitablauf erneut starten. Ohne zugängliche Bildschirmtexte: Screenshot teilen. Entwurf verfällt nach fünf Minuten."
+            text = "Einmalig: Leseprüfung und Android-Dienst aktivieren. Die Männchen-Taste ist optional.\n\n1. Prüfung starten.\n2. In DEGIRO das Produkt mit sichtbarer ISIN öffnen. Bob scrollt und liest automatisch, höchstens 60 Sekunden. Währenddessen bitte nicht bedienen.\n3. Bob öffnet sich nach erfolgreichem Lesen automatisch und speichert die Beobachtung beim passenden Listeneintrag. Falls die Rückgabe scheitert, bleibt der Entwurf hier über ‚Gelesene Werte in Bob prüfen‘ erreichbar.\n\nNur automatisches Scrollen der geöffneten Produktseite. Keine Produktsuche oder Orderbedienung. Anmeldung selbst durchführen. Bei Zeitablauf erneut starten. Ohne zugängliche Bildschirmtexte: Screenshot teilen. Entwurf verfällt nach fünf Minuten."
             textSize = 16f
         })
         setContentView(ScrollView(this).apply { addView(stack) })
