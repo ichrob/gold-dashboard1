@@ -119,11 +119,36 @@ let remote=null,remoteAt=0,pushNote='Serverstatus noch nicht bestätigt.';
 function server(result){
  remote=result;remoteAt=Date.now();renderPushState();refresh();
 }
+function renderMarketPush(){
+ const button=root.document?.getElementById('bobRiskMarketPushToggle'),box=root.document?.getElementById('bobRiskMarketPushStatus');
+ if(!button||!box)return;
+ const p=root.BobPush?.state?.()||{},enabled=(p.riskMarket??p.risk)===true;
+ button.textContent=enabled?'Risiko-Markt-Push deaktivieren':'Risiko-Markt-Push aktivieren';
+ button.setAttribute('aria-pressed',String(enabled));
+ box.textContent=!p.serverRegistered?'Gerät zuerst unter Push und Verbindung registrieren.':
+  !remote||Date.now()-remoteAt>=90000?'Serverbestätigung ausstehend.':
+  remote.riskMarketEnabled!==enabled?'Einstellung noch nicht am Server bestätigt.':
+  !enabled?'Risiko-Marktbeobachtung: Push deaktiviert.':
+  !p.general?'Aktiviert; zusätzlich muss der Kanal Marktbeobachtung eingeschaltet sein.':
+  'Risiko-Marktbeobachtung: Push aktiviert und am Server gespeichert.';
+}
+async function toggleMarketPush(){
+ const button=root.document.getElementById('bobRiskMarketPushToggle');button.disabled=true;
+ try{
+  const p=root.BobPush?.state?.()||{};
+  if(!p.serverRegistered)throw Error('Bitte zuerst das Gerät für Push registrieren.');
+  const enabled=!((p.riskMarket??p.risk)===true);
+  if(!await root.BobRiskPush.setMarket(enabled)||remote?.riskMarketEnabled!==enabled)throw Error('Serverbestätigung fehlt. Push aktualisieren.');
+  renderMarketPush();
+ }catch(e){root.document.getElementById('bobRiskMarketPushStatus').textContent=e.message;}
+ finally{button.disabled=false;}
+}
 function renderPushState(){
+ renderMarketPush();
  const box=root.document?.getElementById('bobRiskPushStatus'),button=root.document?.getElementById('bobRiskPushToggle');
  if(!box||!button)return;
  const pref=root.BobPush?.state?.()||{},enabled=pref.risk===true;
- button.textContent=enabled?'Risiko-Push ausschalten':'Risiko-Push einschalten';button.setAttribute('aria-pressed',String(enabled));
+ button.textContent=enabled?'Risiko-Trade-Push ausschalten':'Risiko-Trade-Push einschalten';button.setAttribute('aria-pressed',String(enabled));
  const fresh=remote&&Date.now()-remoteAt<90000,checked=remote?.riskState?.checkedAt;
  box.textContent=!pref.serverRegistered?'Zuerst Gerät unter Push und Verbindung registrieren.':
   !fresh?pushNote:remote.riskEnabled!==enabled?'Einstellung am Server noch nicht bestätigt.':
@@ -189,10 +214,11 @@ async function refreshPaper(){
 }
 function mount(panel){
  if(!panel||host)return;
+ const marketPush=root.document.createElement('div');marketPush.className='card';marketPush.innerHTML='<h3>Risiko · Marktbeobachtung</h3><button id="bobRiskMarketPushToggle" type="button" aria-pressed="false">Risiko-Markt-Push aktivieren</button><p id="bobRiskMarketPushStatus" role="status"></p><p class="small">Separate Vorwarnungen und Bestätigungen für LONG und SHORT. Keine Einstiegsfreigabe. Die Einstellung ändert keine Trade-Warnungen. Der Kanal Marktbeobachtung muss eingeschaltet sein.</p>';panel.append(marketPush);marketPush.querySelector('button').addEventListener('click',toggleMarketPush);
  const paper=root.document.createElement('div');paper.className='card';paper.id='bobRiskPaper';paper.textContent='2.000-€-Simulation wird geladen …';panel.append(paper);refreshPaper();root.setInterval(refreshPaper,30000);
  const intro=root.document.createElement('div');intro.className='card';
  intro.innerHTML='<p><b>Experimentell · keine Echtgeldorders</b></p><p class="small">Lokale Ansicht plus zuschaltbarer Hintergrund-Push. Prüfung mit Bobs vorhandenen Kursdaten, normalerweise etwa alle 30 Sekunden; kein zugesicherter Sekundenstream.</p><details><summary>Regeln, Kosten und Grenzen</summary><p>Hohe Hebel verstärken Gewinne und Verluste. Die Regeln sind noch nicht als profitable Strategie bestätigt. Die bestehende Trade-Überwachung bleibt separat.</p><p>Vorwarnung aus laufendem Spot und 1-Minuten-Struktur. Bestätigung: zwei abgeschlossene Minutenkerzen über/unter einem vorher bekannten Niveau plus 0,15 ATR. Vorwarnung und Bestätigung können sich widersprechen.</p><p>Gewinnschutz: 1,5 Minuten-ATR vom besten seit Beobachtungsbeginn gesehenen Spot, nie lockerer als der bestehende Stop. Nach fünf Minuten ohne günstige Fortsetzung: Zeitwarnung. Neustart beginnt eine neue Beobachtung; vergangene Spitzen werden nicht erfunden.</p><p>Spread, Gebühren, Kursstellung und deine Reaktionszeit können den Vorteil aufheben. Die Rangliste belegt weder einen Nettogewinn noch einen aktuellen DEGIRO-Verkaufskurs. Emittenten-, Screenshot- und berechnete Preise bleiben Analysewerte.</p><p>Vor einem belastbaren Einsatz fehlen zeitlich getrennte Simulationen mit echten Produktkursen, Kosten und gemessener Push-/Reaktionsverzögerung. Beobachtete Warnungen sind keine ausgeführten Trades.</p></details>';
- const push=root.document.createElement('div');push.className='card';push.innerHTML='<h3>Risiko-Push</h3><p id="bobRiskPushStatus" role="status"></p><button id="bobRiskPushToggle" type="button">Risiko-Push einschalten</button><p class="small">Marktbeobachtung erhält Vorwarnung und Bestätigung; Aktiver Trade erhält Gegenbewegungs- und Ausstiegswarnungen. Nur bei eingeschaltetem jeweiligem Push-Kanal. Keine Orders.</p><button type="button" data-view="settings">Push und Verbindung</button>';panel.append(push);push.querySelector('#bobRiskPushToggle').addEventListener('click',togglePush);
+ const push=root.document.createElement('div');push.className='card';push.innerHTML='<h3>Risiko · Aktiver Trade</h3><p id="bobRiskPushStatus" role="status"></p><button id="bobRiskPushToggle" type="button">Risiko-Trade-Push einschalten</button><p class="small">Aktiver Trade erhält Gegenbewegungs- und Ausstiegswarnungen. Nur bei eingeschaltetem jeweiligem Push-Kanal. Keine Orders.</p><button type="button" data-view="settings">Push und Verbindung</button>';panel.append(push);push.querySelector('#bobRiskPushToggle').addEventListener('click',togglePush);
  host=root.document.createElement('div');host.id='bobRiskContent';host.setAttribute('aria-live','polite');panel.insertBefore(intro,push);panel.insertBefore(host,push);refresh();
  root.setInterval(()=>{if(!root.document.hidden)refresh();},1000);
  root.document.addEventListener('visibilitychange',()=>{if(!root.document.hidden){refresh();refreshPaper();}});

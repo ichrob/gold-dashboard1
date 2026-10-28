@@ -81,10 +81,10 @@ function evaluate(input, {render=false}={}){
   if(input.trade?.active&&['entry','stop','target'].every(k=>Number.isFinite(input.trade[k])&&input.trade[k]>0))plan={kind:'active-monitor',direction:input.trade.dir,entry:input.trade.entry,stop:input.trade.stop,target:input.trade.target,unit:'USD/oz',at:Date.now(),isin:input.trade.product?.isin||null};
   return {monitorPlan,entryTimingGate,entryTiming:signalState.entryTiming||'five-minute-confirmation',confirmationAt:signalState.confirmationAt||null,baseDirection:signalState.baseDirection||direction,learningPolicy:signalState.learningPolicy,dmi:dmiContext(bundle),continuedPlan:continuedTradePlan(input.trade,bundle),fx:bundle.spots?.usd_eur_meta||null,fxByCurrency:{EUR:bundle.spots?.usd_eur_meta||null,CHF:bundle.spots?.usd_chf_meta||null},marketReview:bundle.marketReview||null,plan,trendContext,earlyImpulse,earlyWarning,warningPaperPlan,warningPaperPlanReason,earlyPaperPlan,earlyPaperPlanReason,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),analysisWarnings:analysisAgeWarnings(),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,suggestedTargetPlan,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
  })()`,env,{timeout:8000});
- if(input.riskEnabled===true){
+ if(input.riskEnabled===true||input.riskMarketEnabled===true){
   const clock=Date.now(),signal=Risk.analyze(input.bundle,clock);
   result.risk=Risk.advance(input.riskPrevious,{
-   enabled:true,general:input.riskGeneral===true,tradeEnabled:input.riskTrade===true,
+   enabled:true,general:input.riskGeneral===true&&(input.riskMarketEnabled??input.riskEnabled)===true,tradeEnabled:input.riskTrade===true&&input.riskEnabled===true,
    entryAllowed:input.riskEntryAllowed===true,trade:input.trade},signal,clock);
  }
  return result;
