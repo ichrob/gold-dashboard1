@@ -18,7 +18,7 @@ internal object QuoteLayout {
     private val label = Regex("^(Geld|Brief|Zuletzt)\\s*[:：]?$", RegexOption.IGNORE_CASE)
     private val numeric = Regex("^\\s*(?:€\\s*|EUR\\s*)?([0-9]{1,5}[,.][0-9]{2,4})(?:\\s*€|\\s*EUR)?\\s*$", RegexOption.IGNORE_CASE)
     private val inline = Regex("^(Geld|Brief|Zuletzt)\\s*[:：]?\\s*(?:€\\s*|EUR\\s*)?([0-9]{1,5}[,.][0-9]{2,4})(?:\\s*€|\\s*EUR)?\\s*$", RegexOption.IGNORE_CASE)
-    private val venue = Regex("(?i)\\b([A-ZÀ-ÿ]{2,18}\\s+(?:OTC|DOT))\\b")
+    private val venue = Regex("(?i)\\b((?:SOCI[EÉ]T[EÉ]\\s+G[EÉ]N[EÉ]RALE|[A-ZÀ-ÿ]{2,18})\\s+(?:OTC|DOT))\\b")
     private val date = Regex("^(\\d{2}/\\d{2}/20\\d{2}\\s+\\d{2}:\\d{2})$")
     private val heading = Regex("^(?:Handelsplatz|Börse|Venue)\\s*[:：]?\\s*(.*)$", RegexOption.IGNORE_CASE)
     private val isin = Regex("(?i)\\bDE[A-Z0-9]{10}\\b")
@@ -48,7 +48,21 @@ internal object QuoteLayout {
             val distinct = candidates.distinct()
             if (distinct.size == 1) results[field] = distinct.single()
         }
-        val sorted = lines.filter { it.text.isNotBlank() }.sortedWith(compareBy(Line::top, Line::left))
+        val fullRow = Regex("(?i)^(?:(?:Geld|Brief|Zuletzt)\\s*[:：]?\\s*(?:€|EUR|CHF)?\\s*[0-9]{1,5}[,.][0-9]{2,4}(?:\\s*(?:€|EUR|CHF))?\\s*)+(?:[0-9]{2}/[0-9]{2}/20[0-9]{2}\\s+[0-9]{2}:[0-9]{2})?$")
+        val rowField = Regex("(?i)(Geld|Brief|Zuletzt)\\s*[:：]?\\s*(?:€|EUR|CHF)?\\s*([0-9]{1,5}[,.][0-9]{2,4})(?:\\s*(?:€|EUR|CHF))?")
+        val inlineTimes = mutableListOf<String>()
+        val expanded = lines.flatMap { line ->
+            val texts = line.text.lineSequence().map { it.trim() }.toList()
+            val rows = texts.filter { fullRow.matches(it) }
+            if (rows.isEmpty()) listOf(line) else listOf(line) + rows.flatMap { row ->
+                if (row.startsWith("Zuletzt", true))
+                    Regex("[0-9]{2}/[0-9]{2}/20[0-9]{2}\\s+[0-9]{2}:[0-9]{2}$").find(row)?.let { inlineTimes += it.value }
+                rowField.findAll(row).map { match ->
+                    line.copy(text = match.groupValues[1] + " " + match.groupValues[2])
+                }.toList()
+            }
+        }
+        val sorted = expanded.filter { it.text.isNotBlank() }.sortedWith(compareBy(Line::top, Line::left))
         for (field in listOf("Geld", "Brief", "Zuletzt")) {
             val found = mutableListOf<String>()
             for (line in sorted) {
@@ -128,7 +142,7 @@ internal object QuoteLayout {
 
         // This is just what a screenshot displays next to "Zuletzt"; its
         // provenance/timezone is NOT validated, so it never becomes sourceTime.
-        val displayedTimes = mutableListOf<String>()
+        val displayedTimes = inlineTimes.toMutableList()
         for (line in sorted) {
             if (label.matchEntire(line.text.trim())?.groupValues?.get(1)?.equals("Zuletzt", true) != true) continue
             sorted.filter { other ->
