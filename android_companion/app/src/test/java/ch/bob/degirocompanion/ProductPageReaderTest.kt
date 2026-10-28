@@ -9,6 +9,34 @@ class ProductPageReaderTest {
     private val header = lines("DE000FD0S0G4", "EUR")
     private val quotes = lines("Geld EUR 10,20", "Brief EUR 10,30")
     private fun step(reader: ProductPageReader, data: List<QuoteLayout.Line>, forward: Boolean = true, backward: Boolean = true, window: Int = 1, sensitive: Boolean = false) = reader.inspect(window, data, at, sensitive, forward, backward)
+    @Test fun completeQuotesReturnBeforeFooterEvenWhenForwardActionRemainsAvailable() {
+        val r = ProductPageReader()
+        step(r, header)
+        val back = step(r, quotes, forward = true)
+        assertEquals(ProductPageReader.Move.BACKWARD, back.move)
+        assertEquals(ProductPageReader.Cause.QUOTES_CAPTURED, back.cause)
+        assertEquals("", back.result.draft)
+        r.scrollSucceeded(ProductPageReader.Move.BACKWARD)
+        val done = step(r, header)
+        assertEquals(ProductPageReader.Move.FINISHED, done.move)
+        assertTrue(done.result.draft.contains("Brief (Anzeige ungeprüft): 10,30"))
+    }
+    @Test fun sameWindowRecheckStillRejectsProductChangeAndUnverifiedReturn() {
+        val r = ProductPageReader()
+        assertFalse(r.sameWindow(1))
+        step(r, header)
+        assertTrue(r.sameWindow(1))
+        assertFalse(r.sameWindow(2))
+        step(r, quotes)
+        val changed = step(r, lines("DE000FE2JJ20"))
+        assertEquals(ProductPageReader.Cause.IDENTITY_CHANGED, changed.cause)
+        assertEquals("", changed.result.draft)
+        assertFalse(r.sameWindow(1))
+        step(r, header)
+        val noReturn = step(r, quotes, backward = false)
+        assertEquals(ProductPageReader.Cause.RETURN_FAILED, noReturn.cause)
+        assertEquals("", noReturn.result.draft)
+    }
     @Test fun transientScrollLayoutCanRecoverWithoutPublishingPartialDraft() {
         val r = ProductPageReader()
         step(r, header)
@@ -185,10 +213,12 @@ class ProductPageReaderTest {
         assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 10,20"))
     }
     @Test fun persistentRejectedReturnDiscardsDraft() {
-        val r = ProductPageReader(); step(r, header); step(r, quotes)
+        val r = ProductPageReader(); step(r, header)
+        val partial = lines("Zuletzt EUR 10,20")
+        step(r, partial)
         repeat(3) {
             r.scrollFailed(ProductPageReader.Move.FORWARD)
-            if (it < 2) assertEquals(ProductPageReader.Move.FORWARD, step(r, quotes).move)
+            if (it < 2) assertEquals(ProductPageReader.Move.FORWARD, step(r, partial).move)
         }
         repeat(3) {
             assertEquals(ProductPageReader.Move.BACKWARD, step(r, quotes).move)
