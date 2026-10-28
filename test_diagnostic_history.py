@@ -496,6 +496,9 @@ class DatabaseTests(unittest.TestCase):
                 SELECT i::text,'test','health',0,
                     now()-i*interval '1 second','{}'::jsonb
                 FROM generate_series(1,65000) i""")
+            # Exercise the production maintenance budget, not an unbounded
+            # integration-only query plan.
+            conn.execute("SET LOCAL statement_timeout='5s'")
             expected = list(range(64500,59999,-500)) + [60000]
             for remaining in expected:
                 h.prune(conn)
