@@ -175,13 +175,19 @@ class HistoryTests(unittest.TestCase):
             def execute(self, sql, params=()):
                 if 'pg_try_advisory_xact_lock' in sql:
                     return Result((True,))
-                stage = ('age-delete' if "interval '7 days'" in sql
-                         else 'cap-delete')
+                if "interval '7 days'" in sql:
+                    stage = 'age-delete'
+                elif 'SELECT count(*)' in sql:
+                    stage = 'cap-count'
+                else:
+                    stage = 'cap-delete'
                 if stage == self.failing_stage:
                     raise TimeoutError('private database detail')
+                if stage == 'cap-count':
+                    return Result((60001,))
                 return Result()
 
-        for stage in ('age-delete', 'cap-delete'):
+        for stage in ('age-delete', 'cap-count', 'cap-delete'):
             with self.subTest(stage=stage):
                 with self.assertRaises(h._PruneStageError) as caught:
                     h.prune(Conn(stage))
@@ -190,7 +196,7 @@ class HistoryTests(unittest.TestCase):
                 self.assertNotIn('private database detail',
                                  str(caught.exception))
 
-    def test_cap_delete_uses_proven_bounded_maintenance_batch(self):
+    def test_cap_delete_avoids_offset_and_uses_exact_bounded_excess(self):
         class Result:
             rowcount = 0
 
@@ -208,16 +214,51 @@ class HistoryTests(unittest.TestCase):
                 self.statements.append((sql, params))
                 if 'pg_try_advisory_xact_lock' in sql:
                     return Result((True,))
+                if 'SELECT count(*)' in sql:
+                    return Result((60550,))
                 return Result()
 
         conn = Conn()
         h.prune(conn)
         cap_sql, cap_params = next(
             (sql, params) for sql, params in conn.statements
-            if 'OFFSET 60000' in sql)
+            if 'DELETE FROM bob_diagnostic_history' in sql
+            and "interval '7 days'" not in sql)
+        self.assertNotIn('OFFSET', cap_sql)
+        self.assertIn('ORDER BY recorded_at ASC', cap_sql)
         self.assertIn('LIMIT %s', cap_sql)
         self.assertEqual(cap_params, (500,))
         self.assertEqual(h._PRUNE_CAP_BATCH_SIZE, 500)
+        self.assertEqual(h._PRUNE_MAX_EVENTS, 60000)
+
+    def test_cap_delete_skips_at_exact_limit(self):
+        class Result:
+            rowcount = 0
+
+            def __init__(self, row=None):
+                self.row = row
+
+            def fetchone(self):
+                return self.row
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+                if 'pg_try_advisory_xact_lock' in sql:
+                    return Result((True,))
+                if 'SELECT count(*)' in sql:
+                    return Result((60000,))
+                return Result()
+
+        conn = Conn()
+        h.prune(conn)
+        cap_deletes = [sql for sql, _ in conn.statements
+                       if 'DELETE FROM bob_diagnostic_history' in sql
+                       and "interval '7 days'" not in sql]
+        self.assertEqual(cap_deletes, [])
 
     def test_new_process_defers_retention_until_first_full_interval(self):
         class Conn:
