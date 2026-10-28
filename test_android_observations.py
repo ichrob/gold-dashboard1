@@ -32,8 +32,14 @@ class AndroidObservations(unittest.TestCase):
         self.assertTrue(r['results'][0]['matchedCurrentList'])
         self.assertFalse(a.prepare(run(),{},NOW)['results'][0]['matchedCurrentList'])
     def test_bad_product_time_unknown_field_and_crossed_quotes_rejected(self):
-        for draft in [DRAFT.replace(ISIN,'DE000FG77MY4'),DRAFT+'\nPassword: secret',DRAFT.replace('13,06','14,06'),DRAFT.replace('10:59:00Z','10:59:00'),DRAFT.replace('2026-10-28T10','2026-10-20T10')]:
+        for draft in [DRAFT.replace(ISIN,'DE000FG77MY4'),DRAFT+'\nPassword: secret',DRAFT.replace('13,06','14,06'),DRAFT.replace('10:59:00Z','10:59:00'),DRAFT.replace('2026-10-28T10','2026-10-29T10')]:
             with self.subTest(draft=draft),self.assertRaises(ValueError):a.parse_draft(draft,ISIN,NOW)
+    def test_late_delivery_preserves_historical_evidence_without_freshness(self):
+        old=DRAFT.replace('2026-10-28T10','2026-10-20T10')
+        observation=a.parse_draft(old,ISIN,NOW)
+        self.assertTrue(observation['staleAtReceipt'])
+        self.assertFalse(observation['executable'])
+        self.assertIsNone(observation['sourceTime'])
     def test_duplicate_ids_results_and_bad_events_rejected(self):
         for key,value in [('isins',[ISIN,ISIN]),('results',run()['results']*2),('events',[{'code':'unknown'}]),('revision',True)]:
             r=run();r[key]=value
