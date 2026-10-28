@@ -6,6 +6,47 @@ import memory_watch as m
 
 
 class MemoryWatchTests(unittest.TestCase):
+    def test_reclamation_requires_pressure_and_respects_cooldown(self):
+        sample = dict(containerMiB=310, limitMiB=512, parentMiB=280)
+        self.assertTrue(m.reclaim_due(sample, 240, 120))
+        self.assertFalse(m.reclaim_due(sample, 239, 120))
+        for field, value in [('containerMiB', 200), ('limitMiB', None),
+                             ('parentMiB', None), ('parentMiB', 50)]:
+            self.assertFalse(m.reclaim_due({**sample, field:value}, 500, 0))
+
+    def test_native_reclaim_preserves_live_buffers(self):
+        # Exercise the actual allocator interface while live data stays owned.
+        import hashlib
+        buffers = [bytearray(bytes([i]) * 131072) for i in range(16)]
+        before = [hashlib.sha256(b).digest() for b in buffers]
+        released = m.release_free_pages()
+        self.assertIn(released, (None, False, True))
+        self.assertEqual(before, [hashlib.sha256(b).digest() for b in buffers])
+
+    def test_reclaim_unavailable_does_not_fail_worker(self):
+        import ctypes
+        with patch.object(ctypes, 'CDLL', return_value=object()):
+            self.assertIsNone(m.release_free_pages())
+
+    def test_watcher_reclaims_once_under_sustained_pressure(self):
+        sample = dict(containerMiB=400, limitMiB=512, kernelPeakMiB=410,
+                      parentMiB=380, childrenMiB=0, nodeMiB=0,
+                      pythonChildrenMiB=0, children=0, threads=18)
+        class Stop:
+            cycles = 0
+            def is_set(self): return self.cycles >= 3
+            def wait(self, _):
+                self.cycles += 1
+                return self.cycles >= 3
+        emitted = []
+        with patch.object(m, 'snapshot', return_value=sample), \
+             patch.object(m.time, 'monotonic', side_effect=[1000,1000,1000,1001,1002]), \
+             patch.object(m, 'release_free_pages', return_value=True) as release:
+            m.watch(stop=Stop(), interval=0, reclaim=True,
+                    emit=lambda line, **_: emitted.append(line))
+        release.assert_called_once()
+        self.assertEqual(sum(s.startswith('BOB_MEMORY_RECLAIM ') for s in emitted), 1)
+
     def test_unavailable_process_details_are_safe(self):
         with patch.object(m, "_text", return_value=None):
             self.assertIsNone(m._number("/unavailable"))

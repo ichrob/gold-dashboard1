@@ -2488,7 +2488,7 @@ if __name__ == "__main__":
     # Attribute scanner/container peaks before starting background fetchers.
     # Counts and sizes only: no request data, credentials or trading payloads.
     import memory_watch
-    memory_watch.start()
+    memory_watch.start(reclaim=True)
     candle_reliability.start()
     ensure_fibonacci_monitor()
     auto_collection.start()
