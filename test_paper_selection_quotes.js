@@ -38,3 +38,16 @@ const expectedBasis=w.BobDegiro.selectedPriceSnapshot({...input.products[0],quot
 assert(expectedBasis);
 assert.equal(r.choices[0].priceBasis.selectionKey,expectedBasis.selectionKey);
 assert.equal(r.choices[0].priceBasis.degiroExecutable,false);
+// Risiko study reuses the exact signal and monitor, without changing old selectors.
+const minute=Math.floor(now/60000)*60000;
+const rb=Array.from({length:21},(_,i)=>({openTime:minute-(21-i)*60000,instrument:'XAU/USD',isOpen:false,open:4000,high:4001,low:3999,close:4000}));
+for(const b of rb.slice(-2)){b.close=3997;b.low=3997;}
+const riskBundle={spots:{is_genuine_xauusd_spot:true,xaus:3996.8,spot_price_as_of:new Date(now).toISOString()},history:{bars_by_tf:{'1m':rb}}};
+const riskInput={...input,riskOnly:true,bundle:riskBundle,positions:{'0':{id:'paper-0',direction:'SHORT',goldEntry:4000,goldStop:4020,watch:{}}}};
+const riskResult=evaluate(riskInput,now);
+assert.equal(riskResult.signal.stage,'BESTÄTIGT');
+assert.equal(riskResult.signal.direction,'SHORT');
+assert.equal(riskResult.choices.length,1,JSON.stringify(riskResult));
+assert.equal(riskResult.watches['0'].id,'paper-0');
+assert.equal(evaluate({...riskInput,quotes:{[isin]:{...q,productVerified:false}}},now).choices.length,0);
+console.log('Risk paper selector: shared confirmed signal, qualified product and isolated monitor passed');

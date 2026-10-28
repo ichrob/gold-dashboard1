@@ -82,3 +82,31 @@ Ende-zu-Ende-Latenz auf dem Handy. Keine Gewinn- oder Ausstiegszeitgarantie.
 Browser: `NODE_PATH=<playwright modules> node browser_risk_workspace.cjs`.
 Prüft fünf Hauptreiter, Risiko/Trade-Navigation, leeren Datenzustand, sichtbare
 Betriebsgrenzen und 360px-Breite. Für diesen Test ist Chromium erforderlich.
+
+## Virtuelle 2.000-EUR-Studie
+
+Drei dauerhaft getrennte Konten in `bob_risk_paper`, Verzögerung 0/30/60 s;
+maximal 1.000 EUR einschließlich Einstiegsgebühr und eine Position pro Konto.
+Gemeinsame `Risk.analyze/ranking/monitor`, Einstieg nur BESTÄTIGT. Produkt wird
+beim beobachteten Signal eingefroren, bei Fälligkeit erneut geprüft; niemals
+rückwirkend zum Signalkurs. Ein neuer Original-Geld/Briefkurs muss nach der
+Fälligkeit liegen. Standard-Paper- und KO-Nachweise bleiben verpflichtend.
+Nur EUR-Originalpaare; CHF-Umrechnung und Chart-/Modellpreise ausgeschlossen.
+Konten starten bei Initialisierung, ohne rückdatierte Resultate, und laufen
+im vorhandenen Paper-Worker während der Handelssitzung. Einschalten von
+Risiko-Push ist dafür nicht erforderlich.
+
+Beobachteter Brief/Geld-Spread plus ausdrücklich angenommene 5 EUR pro Seite.
+Finanzierung, zusätzliche Slippage, tatsächliche Brokergebühren sind nicht
+vollständig belegt. Deshalb nur Modellnetto, niemals bestätigter Produktnettoertrag.
+Ausstiege: gemeinsame Risiko-Warnschwellen, Gegenbewegung, Zeitwarnung, KO-Puffer,
+vier Stunden Maximaldauer oder ab 21:45 Zürich. Fehlende Ausstiegskurse bleiben
+offen, KO/Produktende ohne Abrechnung bleibt unbewertet und Kapital gesperrt.
+Beobachtungslücken markieren Fälle dauerhaft. Kontosummen enthalten diese Fälle,
+sie zählen aber nicht für die erste Auswertung nach 100 lückenfrei beobachteten
+Abschlüssen. Drawdown nur auf beobachteten Bewertungen; keine Aussage über
+Zwischenkurse. Varianten sind eigenständige Konten, kein garantierter Paarvergleich.
+
+Abgeschlossene Fälle vollständig in `bob_risk_paper_cases`; letzte 20 pro Konto
+im privaten, authentifizierten `/api/risk-paper`-Bericht und im Risiko-Reiter.
+Keine öffentlichen Kurslisten, keine Orders, keine Testtrade-Pushes.
