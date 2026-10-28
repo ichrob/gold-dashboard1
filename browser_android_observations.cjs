@@ -50,6 +50,26 @@ const draft=['BOB APP-LESEENTWURF – NICHT VERIFIZIERT','ISIN: DE000FG77MY4','Q
   await page.getByRole('button',{name:'Eingabe entfernen',exact:true}).click();
   await page.evaluate(()=>window.finishList({products:[{isin:'DE000FG77MY4'}],listUploadedAt:'2026-10-28T07:09:32Z'}));
   assert.equal(await page.evaluate(()=>localStorage.length),0);
+  // Exercise the production retry helper in the browser: no second tap.
+  await page.goto('about:blank');
+  await page.goto('https://bob.local.test/#bob-ocr='+encodeURIComponent(draft));
+  await page.evaluate(()=>{
+   localStorage.clear();window.BobDegiro={tradeTestProducts:()=>[]};window.listCalls=0;
+   window.validIsin=v=>v==='DE000FG77MY4';
+   window.fetch=async()=>{
+    if(++window.listCalls===1)throw new DOMException('signal timed out','TimeoutError');
+    return new Response(JSON.stringify({ok:true,listUploadedAt:new Date(Date.now()-1000).toISOString(),products:[{isin:'DE000FG77MY4'}]}),{status:200});
+   };
+  });
+  const assistant=fs.readFileSync('degiro_assistant.js','utf8');
+  const helper=assistant.slice(assistant.indexOf('async function readServerProductList('),assistant.indexOf('async function restoreServerCorrection(){'));
+  await page.addScriptTag({content:helper+'\nwindow.BobDegiro.readServerProductList=readServerProductList;'});
+  await page.addScriptTag({content:source});
+  await page.waitForFunction(()=>document.getElementById('bobAndroidEvidence').innerText.includes('Automatischer Versuch 2 von 3'));
+  assert.ok(await page.evaluate(()=>localStorage.getItem('bobAndroidPendingObservationV1')));
+  await page.waitForFunction(()=>localStorage.getItem('bobAndroidProductObservationsV1'));
+  assert.equal(await page.evaluate(()=>window.listCalls),2);
+  assert.equal(await page.evaluate(()=>localStorage.getItem('bobAndroidPendingObservationV1')),null);
   console.log('Android observation handoff: delayed list, exact ISIN, persistence, reload and deletion passed');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
