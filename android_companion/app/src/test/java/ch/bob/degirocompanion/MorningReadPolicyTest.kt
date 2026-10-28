@@ -18,6 +18,13 @@ class MorningReadPolicyTest {
         for(bad in listOf(node("DE000FG77MY4",true),node("$isin DE000FG77MY4",true),node("Kauf $isin",true),exact.copy(containsInput=true)))
             assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(input,bad),isin).kind)
     }
+    @Test fun searchLabelOnChildCanIdentifyOnlyItsOwnClickableIcon() {
+        val icon=MorningReadPolicy.Node("",clickable=true,row="Suchen")
+        assertEquals(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.decide(listOf(icon,node("Suchen")),isin).kind)
+        assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(icon.copy(row="Suchen\nKauf")),isin).kind)
+        assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(icon.copy(containsInput=true)),isin).kind)
+        assertEquals(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.decide(listOf(node("Search instruments",true)),isin).kind)
+    }
     @Test fun protectedLoginAndOrderViewsAlwaysStop() {
         for(n in listOf(node("Passwort"),node("Orderart"),node("Anmelden"),node("Gold").copy(sensitive=true)))
             assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(listOf(node(isin),node("Übersicht"),n),isin).kind)
