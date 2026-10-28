@@ -56,14 +56,14 @@ class MorningReadPolicyTest {
         val label="Mit Namen, ISIN oder Symbol suchen"
         for(button in listOf(node(label,true),node("",true).copy(description=label),node("",true).copy(row=label))) {
             assertEquals(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.decide(listOf(node("Märkte"),button),isin).kind)
-            assertEquals("PROTECTED_ORDER",MorningReadPolicy.decide(listOf(button,node("Orderart")),isin).code)
+            assertEquals("PROTECTED_ORDER_TYPE",MorningReadPolicy.decide(listOf(button,node("Orderart")),isin).code)
         }
         val input=node("").copy(editable=true,hint=label)
         assertTrue(MorningReadPolicy.isSearchInput("","",label))
         assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.decide(listOf(input),isin).kind)
         assertEquals(MorningReadPolicy.Kind.RESULT,MorningReadPolicy.decide(listOf(input.copy(text=isin),node(isin,true)),isin).kind)
         assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(node("Andere "+label,true)),isin).kind)
-        assertEquals("PROTECTED_ORDER",MorningReadPolicy.decide(listOf(input,node("Limitpreis")),isin).code)
+        assertEquals("PROTECTED_ORDER_PRICE",MorningReadPolicy.decide(listOf(input,node("Limitpreis")),isin).code)
         assertEquals("PROTECTED_LOGIN",MorningReadPolicy.decide(listOf(input,node("Anmelden")),isin).code)
     }
     @Test fun protectionCausesAreDistinctWithoutExportingScreenText() {
@@ -72,7 +72,7 @@ class MorningReadPolicyTest {
             node("").copy(sensitive=true,editable=true) to "PROTECTED_SENSITIVE_INPUT",
             node("").copy(sensitive=true) to "PROTECTED_SENSITIVE_CONTENT",
             node("Anmelden") to "PROTECTED_LOGIN",
-            node("Orderart") to "PROTECTED_ORDER",
+            node("Orderart") to "PROTECTED_ORDER_TYPE",
             node("").copy(editable=true) to "UNRECOGNIZED_INPUT")
         for((blocked,code) in cases) {
             val action=MorningReadPolicy.decide(listOf(node("Suchen",true),blocked),isin)
@@ -80,6 +80,18 @@ class MorningReadPolicyTest {
             assertEquals(code,action.code)
         }
         assertEquals("PROTECTED_PASSWORD",MorningReadPolicy.decide(listOf(node("Suchen").copy(editable=true,password=true)),isin).code)
+    }
+    @Test fun everyExistingOrderMarkerStillBlocksAndExportsOnlyFixedCause() {
+        val cases=listOf("Order platzieren" to "CONFIRM", "Order bestätigen" to "CONFIRM",
+            "Place order" to "CONFIRM", "Confirm order" to "CONFIRM",
+            "Orderart" to "TYPE", "Ordertyp" to "TYPE", "Limitpreis" to "PRICE",
+            "Stückzahl" to "QUANTITY", "Anzahl kaufen" to "QUANTITY")
+        for ((label,cause) in cases) for (n in listOf(node(label),node("").copy(description=label),node("").copy(hint=label))) {
+            val action=MorningReadPolicy.decide(listOf(node("Suchen",true),n),isin)
+            assertEquals(MorningReadPolicy.Kind.BLOCK,action.kind)
+            assertEquals("PROTECTED_ORDER_"+cause,action.code)
+            assertEquals(-1,action.index)
+        }
     }
     @Test fun detailNeedsIdentityAndNeverClicksBuy() {
         assertEquals(MorningReadPolicy.Kind.READ,MorningReadPolicy.decide(listOf(node(isin),node("Übersicht"),node("KAUF",true)),isin).kind)
