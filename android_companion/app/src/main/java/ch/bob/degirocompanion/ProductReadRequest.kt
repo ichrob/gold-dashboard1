@@ -14,6 +14,10 @@ internal object ProductReadRequest {
         if (now < start || now - start >= 60000 || attempts >= 30) { cancel(); return false }
         return true
     }
+    fun remainingMillis(now: Long): Long {
+        if (!active(now)) return 0
+        return 60000 - (now - (startedAt ?: return 0))
+    }
     fun attempt(now: Long): Boolean {
         if (!active(now)) return false
         val last = lastAttempt
