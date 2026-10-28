@@ -49,6 +49,18 @@ class QuoteLayoutTest {
         assertTrue(QuoteLayout.productParameters(header + QuoteLayout.Line("BAR 4181.33 BP 4181.33 Bv 10 LV 31.00", 85, 365, 680, 390)).isEmpty())
     }
 
+    @Test fun compactMiniCallAcceptsWholeBarrierWithoutLosingOtherParameters() {
+        fun parse(sequence: String) = QuoteLayout.productParameters(listOf(
+            QuoteLayout.Line("SG Gold Turbo Unlimited Mini Call BAR", 85, 270, 680, 305),
+            QuoteLayout.Line(sequence, 85, 325, 650, 360)))
+        assertEquals(mapOf("KO-Schwelle" to "3942", "Basispreis" to "3901,07", "Bv" to "10", "Hebel" to "27,07"),
+            parse("3942 BP 3901.07 Bv 10 LV 27.07"))
+        assertEquals("3901", parse("3942 BP 3901 Bv 10 LV 27")["Basispreis"])
+        assertEquals("27", parse("3942 BP 3901 Bv 10 LV 27")["Hebel"])
+        for (bad in listOf("-3942 BP 3901.07 Bv 10 LV 27.07", "0 BP 3901.07 Bv 10 LV 27.07",
+            "3942 BP 3901.07 LV 27.07", "3942 BP 3901.07 Bv 10 LV 27.12345", "3942 BP 3901.07 Bv 10 LV 27e3")) assertTrue(parse(bad).isEmpty())
+    }
+
     @Test fun readsLabelsAndValuesInSeparateVisualColumns() {
         // Synthetic ML Kit line geometry based on the DEGIRO screenshot layout.
         val lines = mutableListOf<QuoteLayout.Line>()

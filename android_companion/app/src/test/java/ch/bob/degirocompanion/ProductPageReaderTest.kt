@@ -37,6 +37,21 @@ class ProductPageReaderTest {
         assertEquals(ProductPageReader.Cause.RETURN_FAILED, noReturn.cause)
         assertEquals("", noReturn.result.draft)
     }
+    @Test fun anchoredParametersSurviveQuoteSectionWithRepeatedIsin() {
+        val r = ProductPageReader()
+        val title = lines("DE000FD0S0G4", "SG Gold Turbo Unlimited Mini Call BAR", "3942 BP 3901.07 Bv 10 LV 27.07")
+        step(r, title)
+        val done = step(r, quotes + lines("Symbol | ISIN", "DE000FD0S0G4"))
+        assertEquals(ProductPageReader.Move.FINISHED, done.move)
+        assertTrue(done.result.draft.contains("KO-Schwelle (Anzeige ungeprüft): 3942"))
+        assertTrue(done.result.draft.contains("Hebel (Anzeige ungeprüft): 27,07"))
+        // No carried values may leak into another read after completion/reset.
+        step(r, header)
+        val clean = step(r, quotes + header)
+        assertEquals(ProductPageReader.Move.FINISHED, clean.move)
+        assertFalse(clean.result.draft.contains("KO-Schwelle"))
+    }
+
     @Test fun transientScrollLayoutCanRecoverWithoutPublishingPartialDraft() {
         val r = ProductPageReader()
         step(r, header)

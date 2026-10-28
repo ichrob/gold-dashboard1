@@ -28,7 +28,7 @@ internal object QuoteLayout {
     fun productParameters(lines: List<Line>): Map<String, String> {
         val titles = lines.filter { Regex("(?i)\\bGold\\s+Turbo\\b").containsMatchIn(it.text) }
         val values = mutableListOf<Map<String, String>>()
-        val pattern = Regex("(?i)\\bBAR\\s+([0-9]{1,5}[.,][0-9]{2,4})\\s+BP\\s+([0-9]{1,5}[.,][0-9]{2,4})\\s+Bv\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+LV\\s+([0-9]{1,5}[.,][0-9]{2,4})(?![0-9.,])")
+        val pattern = Regex("(?i)\\bBAR\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+BP\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+Bv\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+LV\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?![0-9A-Za-z.,])")
         for (title in titles) {
             val text = lines.filter { it.top >= title.top && it.top <= title.bottom + 90 }
                 .sortedWith(compareBy(Line::top, Line::left)).joinToString(" ") { it.text }
