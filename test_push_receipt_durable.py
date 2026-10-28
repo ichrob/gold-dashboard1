@@ -1,7 +1,7 @@
 """A browser acknowledgment must be committed before we claim it is stored."""
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, MagicMock, patch
 
 import push_server
 import push_receipt
@@ -16,7 +16,7 @@ class DurableReceiptEndpointTests(unittest.TestCase):
         sent = []
         saved = []
         conn = Mock()
-        dbctx = Mock()
+        dbctx = MagicMock()
         dbctx.__enter__ = Mock(return_value=conn)
         dbctx.__exit__ = Mock(return_value=False)
         for state in ("show-resolved", "clicked", "clicked"):
@@ -39,7 +39,7 @@ class DurableReceiptEndpointTests(unittest.TestCase):
     def test_no_success_when_storage_fails(self):
         results=[]
         conn=Mock()
-        dbctx=Mock()
+        dbctx=MagicMock()
         dbctx.__enter__=Mock(return_value=conn)
         dbctx.__exit__=Mock(return_value=False)
         with patch.object(push_server, "PUSH_SERVICE_TOKEN", self.secret), \
