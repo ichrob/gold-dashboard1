@@ -67,6 +67,19 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn("rm -f", workflow)
         self.assertNotIn("pull_request:", workflow)
 
+    def test_network_trust_is_limited_to_exact_bob_host(self):
+        import xml.etree.ElementTree as ET
+        root=ET.parse(ROOT / "android_companion/app/src/main/res/xml/diagnostic_network.xml").getroot()
+        base=root.find('base-config')
+        self.assertEqual(base.get('cleartextTrafficPermitted'),'false')
+        self.assertEqual(len(base.find('trust-anchors')),0)
+        domains=root.findall('domain-config')
+        self.assertEqual(len(domains),1)
+        self.assertEqual(domains[0].find('domain').text,'bob-private-scanner.onrender.com')
+        self.assertEqual(domains[0].find('domain').get('includeSubdomains'),'false')
+        self.assertEqual(domains[0].find('trust-anchors/certificates').get('src'),'system')
+        self.assertIn('android:networkSecurityConfig="@xml/diagnostic_network"',MANIFEST.read_text())
+
     def test_debug_job_cannot_claim_to_be_stable_release(self):
         workflow = DEBUG.read_text(encoding="utf-8")
         self.assertIn("ch.bob.degirocompanion.stable.voicetest", workflow)

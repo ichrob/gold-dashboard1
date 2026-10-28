@@ -12,6 +12,7 @@
     <application android:label="${bobAppLabel}"
                  android:allowBackup="false"
                  android:usesCleartextTraffic="false"
+                 android:networkSecurityConfig="@xml/diagnostic_network"
                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <service android:name=".PhoneDiagnosticJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <activity android:name=".ProductReadActivity" android:exported="false" />
