@@ -23,6 +23,24 @@ internal object QuoteLayout {
     private val heading = Regex("^(?:Handelsplatz|Börse|Venue)\\s*[:：]?\\s*(.*)$", RegexOption.IGNORE_CASE)
     private val isin = Regex("(?i)\\bDE[A-Z0-9]{10}\\b")
 
+    // Read the broker's compact title literally. Bv is an observed notation,
+    // not a validated multiplier or a conversion to a product ratio.
+    fun productParameters(lines: List<Line>): Map<String, String> {
+        val titles = lines.filter { Regex("(?i)\\bGold\\s+Turbo\\b").containsMatchIn(it.text) }
+        val values = mutableListOf<Map<String, String>>()
+        val pattern = Regex("(?i)\\bBAR\\s+([0-9]{1,5}[.,][0-9]{2,4})\\s+BP\\s+([0-9]{1,5}[.,][0-9]{2,4})\\s+Bv\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+LV\\s+([0-9]{1,5}[.,][0-9]{2,4})(?![0-9.,])")
+        for (title in titles) {
+            val text = lines.filter { it.top >= title.top && it.top <= title.bottom + 90 }
+                .sortedWith(compareBy(Line::top, Line::left)).joinToString(" ") { it.text }
+            for (match in pattern.findAll(text)) {
+                val numbers = match.groupValues.drop(1).map { it.replace('.', ',') }
+                if (numbers.any { (it.replace(',', '.').toDoubleOrNull() ?: 0.0) <= 0 }) continue
+                values += listOf("KO-Schwelle", "Basispreis", "Bv", "Hebel").zip(numbers).toMap()
+            }
+        }
+        return values.distinct().singleOrNull() ?: emptyMap()
+    }
+
     fun extract(lines: List<Line>): Map<String, String> {
         if (lines.isEmpty()) return emptyMap()
         val results = linkedMapOf<String, String>()
@@ -121,6 +139,7 @@ internal object QuoteLayout {
             }
         }
         addIfUnique("Anzeigezeit", displayedTimes)
+        results.putAll(productParameters(sorted))
         return results
     }
 }

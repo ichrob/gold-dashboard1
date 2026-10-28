@@ -42,7 +42,7 @@ internal object ProductScreenEvidence {
         if (currency.size != 1) return Result(message = "Produktwährung nicht eindeutig sichtbar; nichts übernommen.", reason = Reason.CURRENCY_AMBIGUOUS)
         // QuoteLayout consumes geometry, never arbitrary neighboring text or account data.
         val fields = QuoteLayout.extract(lines.map { it.copy(text = it.text.replace("CHF", "EUR")) })
-        val amounts = listOf("Geld", "Brief", "Zuletzt", "Hebel", "KO-Schwelle")
+        val amounts = listOf("Geld", "Brief", "Zuletzt", "Hebel", "KO-Schwelle", "Basispreis", "Bv")
         val selected = fields.filterKeys { it in amounts || it == "Handelsplatz" || it == "Anzeigezeit" }
         if (selected.keys.none { it == "Geld" || it == "Brief" || it == "Zuletzt" })
             return Result(message = "ISIN sichtbar, aber keine eindeutig beschrifteten Kurse zugänglich. Screenshot-Teilen bleibt möglich.", reason = Reason.QUOTES_MISSING)

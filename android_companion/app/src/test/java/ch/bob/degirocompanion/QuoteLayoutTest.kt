@@ -13,6 +13,26 @@ class QuoteLayoutTest {
             QuoteLayout.Line(value, valueX, y, valueX + value.length * 9, y + 22)
         )
 
+    @Test fun compactTitleParametersRemainSeparateFromAccountAndChart() {
+        val header = listOf(
+            QuoteLayout.Line("CHF 505,05", 0, 70, 650, 120),
+            QuoteLayout.Line("DE000FG77MY4 • Societe Generale OTC", 24, 210, 650, 245),
+            QuoteLayout.Line("SG Gold Turbo BEST Open-End Put BAR", 85, 270, 680, 305),
+            QuoteLayout.Line("4181.33 BP 4181.33 Bv 10 LV 32.33", 85, 325, 650, 360),
+            QuoteLayout.Line("€11,37", 24, 380, 200, 425),
+            QuoteLayout.Line("17.44", 560, 620, 630, 660))
+        val result = QuoteLayout.extract(header)
+        assertEquals("4181,33", result["KO-Schwelle"])
+        assertEquals("4181,33", result["Basispreis"])
+        assertEquals("10", result["Bv"])
+        assertEquals("32,33", result["Hebel"])
+        assertNull(result["Geld"])
+        assertNull(result["Zuletzt"])
+        assertTrue(QuoteLayout.productParameters(header.filterNot { it.text.contains("Gold Turbo") }).isEmpty())
+        assertTrue(QuoteLayout.productParameters(header.map { it.copy(text = it.text.replace("LV 32.33", "LV 0.00")) }).isEmpty())
+        assertTrue(QuoteLayout.productParameters(header + QuoteLayout.Line("BAR 4181.33 BP 4181.33 Bv 10 LV 31.00", 85, 365, 680, 390)).isEmpty())
+    }
+
     @Test fun readsLabelsAndValuesInSeparateVisualColumns() {
         // Synthetic ML Kit line geometry based on the DEGIRO screenshot layout.
         val lines = mutableListOf<QuoteLayout.Line>()

@@ -844,7 +844,7 @@ class MainActivity : Activity() {
                     fail("Die Bildserie hat keine eindeutige gemeinsame ISIN oder zeigt widersprüchliche Produkte. Bitte ein Bild mit sichtbarer ISIN ergänzen.")
                     return
                 }
-                val fieldNames = listOf("Geld", "Brief", "Hebel", "KO-Schwelle", "Handelsplatz", "Zuletzt", "Anzeigezeit")
+                val fieldNames = listOf("Geld", "Brief", "Hebel", "KO-Schwelle", "Basispreis", "Bv", "Handelsplatz", "Zuletzt", "Anzeigezeit")
                 val fields = linkedMapOf<String, String>()
                 val conflicting = mutableListOf<String>()
                 for (name in fieldNames) {
@@ -921,6 +921,7 @@ class MainActivity : Activity() {
             val value = fields[label] ?: return ""
             val valid = when (kind) {
                 "amount" -> Regex("[0-9]{1,5},[0-9]{2,4}").matches(value)
+                "notation" -> Regex("[0-9]{1,5}(?:,[0-9]{1,4})?").matches(value)
                 "venue" -> Regex("[A-ZÀ-Ÿ0-9 ._/-]{2,48}").matches(value)
                 "time" -> Regex("\\d{2}/\\d{2}/20\\d{2} \\d{2}:\\d{2}").matches(value)
                 else -> false
@@ -932,6 +933,7 @@ class MainActivity : Activity() {
         val evidence = listOf(
             observed("Geld", "amount"), observed("Brief", "amount"),
             observed("Hebel", "amount"), observed("KO-Schwelle", "amount"),
+            observed("Basispreis", "amount"), observed("Bv", "notation"),
             observed("Handelsplatz", "venue"), observed("Zuletzt", "amount"),
             observed("Anzeigezeit", "time")
         ).joinToString("")
