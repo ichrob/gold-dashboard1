@@ -11,3 +11,11 @@ Bob Handy übernimmt die zuletzt bei Bob gespeicherte Morgenliste über den ange
 Die Übertragung bestätigt eine konkrete Laufkennung und Speicherversion; ein älterer Beleg löscht keine neueren Ergebnisse. Serverdaten liegen in `bob_android_read_runs`, getrennt von Marktpreisen, Produktfreigaben und Simulationseingaben. Gelesene Bildschirmwerte bleiben ungeprüfte Beobachtungen. Ein gelesener Kurs ist keine Order oder Ausführung.
 
 Die Navigation nutzt sichtbare Accessibility-Texte, Suchfelder und exakte ISIN-Treffer. Unzugängliche oder mehrdeutige Oberflächen werden mit einem Grund protokolliert; Bob errät keine Bildschirmkoordinaten. Login- und Orderansichten stoppen den Lauf. Ein realer Samsung-/DEGIRO-Gesamtlauf muss nach Installation auf dem Gerät geprüft werden; CI ersetzt diesen Gerätetest nicht.
+
+## Vereinfachter Einstieg und automatische Diagnose
+
+Der Hauptknopf zeigt die aktuell nötige Aktion: Dienst einschalten, Morgenliste starten, zur laufenden DEGIRO-Prüfung zurückkehren oder ein vorhandenes Protokoll übertragen. Einzelprüfungen und technische Daten liegen unter **Weitere Möglichkeiten und technische Diagnose**. Die Statusanzeige unterscheidet gelesene Produkte von bloß gespeicherten Fehlern.
+
+Bei aktivierter automatischer Rückgabe werden auch Abbrüche übertragen. Eine Bildschirmsperre wird respektiert; der Browser wird erst nach dem Entsperren geöffnet. Pro gespeicherter Version erfolgt höchstens ein automatischer Öffnungsversuch. Nach Dienst-/App-Unterbrechung wird die offene Diagnose beim nächsten Öffnen von Bob Handy angeboten beziehungsweise automatisch übertragen. Ein bewusster STOPP schaltet das Lesen und automatische Öffnen aus. Manuelle Übertragung bleibt möglich.
+
+Dies ist Diagnosezugriff auf übertragene Bob-Protokolle, kein Fernzugriff auf das Samsung, keine allgemeine Bildschirmfreigabe und keine Konto- oder Ordersteuerung.

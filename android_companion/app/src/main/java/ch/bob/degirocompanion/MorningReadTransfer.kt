@@ -50,11 +50,29 @@ class MorningReadTransfer : Activity() {
             val nonce=MorningReadRun.challenge(c)
             c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(BASE+"#bob-read-list="+nonce)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
+        fun automaticResults(c: Context): Boolean {
+            val raw=MorningReadRun.pending(c) ?: return false
+            val data=org.json.JSONObject(raw)
+            val version=data.optString("batchId")+":"+data.optInt("revision")
+            val prefs=c.getSharedPreferences("product_reader",Context.MODE_PRIVATE)
+            val power=c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            val keyguard=c.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+            if(!MorningReadUiPolicy.automatic(prefs.getBoolean("enabled",false),prefs.getBoolean("auto_return",true),
+                MorningReadRun.running,power.isInteractive,keyguard.isKeyguardLocked,version,prefs.getString("last_auto_transfer","").orEmpty())) return false
+            // At most one automatic browser opening per saved version, never a retry loop.
+            check(prefs.edit().putString("last_auto_transfer",version).commit())
+            return runCatching { showResults(c);true }.getOrElse {
+                prefs.edit().remove("last_auto_transfer").commit();false
+            }
+        }
         fun showResults(c: Context) {
             check(!MorningReadRun.running) { "Leselauf läuft noch. Zuerst stoppen oder Abschluss abwarten." }
             val raw=MorningReadRun.pending(c) ?: return
             val encoded=Base64.encodeToString(raw.toByteArray(Charsets.UTF_8),Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
             c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(BASE+"#bob-read-results="+encoded)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val data=org.json.JSONObject(raw)
+            c.getSharedPreferences("product_reader",Context.MODE_PRIVATE).edit()
+                .putString("last_auto_transfer",data.optString("batchId")+":"+data.optInt("revision")).commit()
         }
     }
 }
