@@ -1,5 +1,5 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const script=fs.readFileSync('android_diagnostic_pair.html','utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
+const script=fs.readFileSync('android_diagnostic_pair.html','utf8').match(/<script>([\s\S]*?)<\/script>/i)[1];
 function mount(hash,storage){
  const nodes={};const calls=[];
  const context={document:{getElementById:id=>nodes[id]??=( {disabled:id==='approve',textContent:''})},
