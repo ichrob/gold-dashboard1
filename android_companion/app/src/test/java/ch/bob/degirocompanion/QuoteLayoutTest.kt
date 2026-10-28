@@ -58,7 +58,7 @@ class QuoteLayoutTest {
         assertEquals("3901", parse("3942 BP 3901 Bv 10 LV 27")["Basispreis"])
         assertEquals("27", parse("3942 BP 3901 Bv 10 LV 27")["Hebel"])
         for (bad in listOf("-3942 BP 3901.07 Bv 10 LV 27.07", "0 BP 3901.07 Bv 10 LV 27.07",
-            "3942 BP 3901.07 LV 27.07", "3942 BP 3901.07 Bv 10 LV 27.12345")) assertTrue(parse(bad).isEmpty())
+            "3942 BP 3901.07 LV 27.07", "3942 BP 3901.07 Bv 10 LV 27.12345", "3942 BP 3901.07 Bv 10 LV 27e3")) assertTrue(parse(bad).isEmpty())
     }
 
     @Test fun readsLabelsAndValuesInSeparateVisualColumns() {
