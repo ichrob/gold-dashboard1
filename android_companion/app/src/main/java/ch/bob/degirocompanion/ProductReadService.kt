@@ -193,7 +193,7 @@ class ProductReadService : AccessibilityService() {
                                 if (!scrollNode.performAction(action)) {
                                     ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SCROLL_REJECTED)
                                     pageReader.scrollFailed(step.move)
-                                }
+                                } else pageReader.scrollSucceeded(step.move)
                                 step.result
                             }
                         }
