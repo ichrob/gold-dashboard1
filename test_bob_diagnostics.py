@@ -890,3 +890,36 @@ class FocusedReadAccessTests(unittest.TestCase):
         self.assertNotIn('DE000FG7UE38',issues['PRODUCT_EVIDENCE_GAPS']['finding'])
         self.assertTrue(all(x['tradeApproval'] is False and x['repairVerified'] is False
                             for x in t['items']))
+
+
+class FastSimulationStatusTests(unittest.TestCase):
+    def test_current_day_uses_indexed_scope_without_historical_reports(self):
+        from unittest.mock import MagicMock
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = []
+        portfolios = Mock()
+        portfolios.names.return_value = {'bob_paper_cases':'bob_paper_cases'}
+        core = {'status':'observed', 'accounts':[{'profile':'balanced', 'status':'running', 'checkedAt':123}], 'paper':{'state':'ok'}}
+        with patch.object(diagnostics, 'push_snapshot', return_value=core) as base, patch.object(diagnostics, 'analysis_snapshot', return_value={'status':'observed'}), patch('comparison_health.report') as history:
+            result = diagnostics.simulation_status(conn, Mock(), Mock(), portfolios)
+        self.assertFalse(base.call_args.kwargs['extended'])
+        history.assert_not_called()
+        selects = [c for c in conn.execute.call_args_list if c.args[0].startswith('SELECT')]
+        self.assertEqual(len(selects), 1)
+        self.assertIn('WHERE day=%s ORDER BY started_at DESC LIMIT 5', selects[0].args[0])
+        self.assertEqual(result['accounts'][0]['recentCases']['items'], [])
+        self.assertEqual(result['historicalEvidence']['status'], 'not-requested')
+
+    def test_case_timeout_preserves_actual_control_and_heartbeat(self):
+        from unittest.mock import MagicMock
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.side_effect = TimeoutError()
+        portfolios = Mock()
+        portfolios.names.return_value = {'bob_paper_cases':'bob_paper_cases'}
+        core = {'status':'observed', 'accounts':[{'profile':'balanced', 'status':'running', 'reason':'wait', 'checkedAt':123}], 'paper':{'state':'ok'}}
+        with patch.object(diagnostics, 'push_snapshot', return_value=core), patch.object(diagnostics, 'analysis_snapshot', return_value={}):
+            result = diagnostics.simulation_status(conn, Mock(), Mock(), portfolios)
+        self.assertEqual(result['status'], 'observed')
+        self.assertEqual(result['paper']['state'], 'ok')
+        self.assertEqual(result['accounts'][0]['reason'], 'wait')
+        self.assertEqual(result['accounts'][0]['recentCases']['status'], 'unavailable')
