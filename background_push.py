@@ -650,7 +650,9 @@ def notification_batches(events):
     """Existing alerts first; separate optional risk alerts for device opt-out."""
     ordinary = [e for e in events if e.get('data', {}).get('riskOnly') is not True]
     risk = [e for e in events if e.get('data', {}).get('riskOnly') is True]
-    return [group for group in (ordinary, risk) if group]
+    risk_trade = [e for e in risk if e['data'].get('kind') == 'trade']
+    risk_general = [e for e in risk if e['data'].get('kind') == 'general']
+    return [group for group in (ordinary, risk_trade, risk_general) if group]
 
 
 def compose_events(events):

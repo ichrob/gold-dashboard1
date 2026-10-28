@@ -42,6 +42,10 @@ class RiskBackgroundTests(unittest.TestCase):
         self.assertEqual(groups,[[ordinary],[optional]])
         self.assertFalse(b.compose_events(groups[0])['data']['riskOnly'])
         self.assertTrue(b.compose_events(groups[1])['data']['riskOnly'])
+        groups=b.notification_batches([self.event(),optional])
+        self.assertEqual(len(groups),2)
+        self.assertEqual(b.compose_events(groups[0])['data']['tradeId'],'a')
+        self.assertEqual(b.compose_events(groups[1])['data']['kind'],'general')
     def test_exit_priority_and_short_expiry(self):
         exit=self.event('risk-exit','trade')
         advisory={**self.event('signal-change'),'data':{**self.event('signal-change')['data'],'riskOnly':False,'expiresAt':NOW+180000}}
