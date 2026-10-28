@@ -11,6 +11,7 @@ const draft=['BOB APP-LESEENTWURF – NICHT VERIFIZIERT','ISIN: DE000FG77MY4','Q
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}});
   await page.route('https://bob.local.test/**',route=>route.fulfill({contentType:'text/html',body:'<section id="bob-view-degiro"></section>'}));
+  await page.goto('about:blank');
   await page.goto('https://bob.local.test/#bob-ocr='+encodeURIComponent(draft));
   await page.addScriptTag({content:source});
   assert.equal(await page.evaluate(()=>location.hash),'');
@@ -28,6 +29,7 @@ const draft=['BOB APP-LESEENTWURF – NICHT VERIFIZIERT','ISIN: DE000FG77MY4','Q
   assert.equal(await page.evaluate(()=>localStorage.length),0);
   // A different browser can have empty UI rows while the existing server list
   // contains the product. Keep the draft over reload and match read-only.
+  await page.goto('about:blank');
   await page.goto('https://bob.local.test/#bob-ocr='+encodeURIComponent(draft));
   await page.evaluate(()=>{window.BobDegiro={tradeTestProducts:()=>[]};});
   await page.addScriptTag({content:source});
@@ -41,6 +43,7 @@ const draft=['BOB APP-LESEENTWURF – NICHT VERIFIZIERT','ISIN: DE000FG77MY4','Q
   assert.match(await page.locator('#bobAndroidEvidence').innerText(),/Automatisch über die ISIN zugeordnet/);
   assert.match(await page.locator('#bobAndroidEvidence').innerText(),/Listenstand: 2026-10-28T07:09:32Z/);
   // Clearing the draft during a delayed response must not resurrect it.
+  await page.goto('about:blank');
   await page.goto('https://bob.local.test/#bob-ocr='+encodeURIComponent(draft));
   await page.evaluate(()=>{localStorage.clear();window.BobDegiro={tradeTestProducts:()=>[],readServerProductList:()=>new Promise(resolve=>{window.finishList=resolve;})};});
   await page.addScriptTag({content:source});
