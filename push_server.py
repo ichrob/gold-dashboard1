@@ -664,7 +664,9 @@ def run_background(bundle):
         rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE SKIP LOCKED").fetchall()
         for sid, sub, general, trade, active, settings, previous, evidence, selection in rows:
             try:
-                market = background_push.analyze(bundle, {**settings,'learningPolicy':learning_policy})
+                market = background_push.analyze(bundle, {**settings,'learningPolicy':learning_policy,
+                    'riskPrevious':(previous or {}).get('risk'), 'riskGeneral':general,
+                    'riskTrade':bool(trade and active), 'riskEntryAllowed':background_push.degiro_entry_allowed()})
             except Exception as exc:
                 print('BOB_BACKGROUND analysis_failed='+type(exc).__name__, flush=True)
                 market = background_push.failed_analysis_market(bundle)
@@ -682,32 +684,40 @@ def run_background(bundle):
                     'data':{'kind':'trade','eventKind':'trade-connected','test':True,'tradeId':linked,'url':'/#trade','expiresAt':int(time.time()*1000)+180000}})
                 state['journalConnected']=linked+':v2'
             delivered = True
+            message = None
             if events:
-                # One delivery/checkpoint per device, so a failure cannot consume an alert.
-                message = background_push.compose_events(events)
-                if linked:message['data']['journalManaged']=True
-                # Correlate the original decision, not a reconstructed market tick.
-                message['data']['traceId'] = market.get('traceId')
-                message['data']['decisionId'] = market.get('decisionId')
-                at=market.get('dataAt')
-                if at:
-                    from datetime import datetime
-                    from zoneinfo import ZoneInfo
-                    message['body'] += ' · Kurszeit '+datetime.fromtimestamp(at/1000,ZoneInfo('Europe/Zurich')).strftime('%d.%m. %H:%M:%S')+' (Zürich).'
-                else:
-                    message['body'] += ' · Kurszeit unbekannt.'
-                try:
-                    webpush(subscription_info=sub,data=json.dumps(message,separators=(',',':')),vapid_private_key=vapid(),vapid_claims={'sub':VAPID_SUBJECT},ttl=180)
-                    sent += 1
-                    history = state.setdefault('pushHistory', [])
-                    history.append({'at': int(time.time()*1000), 'kind': 'delivery',
-                                    'outcome': 'provider-accepted',
-                                    'events': [e['data']['eventKind'] for e in events]})
-                    del history[:-50]
-                except WebPushException as exc:
-                    delivered=False
-                    if getattr(getattr(exc,'response',None),'status_code',None) in (404,410):
-                        conn.execute('DELETE FROM subscriptions WHERE id=%s',(sid,))
+                # Keep risk opt-out/expiry independent of established stop warnings.
+                # A partial failure never consumes either durable checkpoint.
+                groups = background_push.notification_batches(events)
+                for group in groups:
+                    message = background_push.compose_events(group)
+                    if linked:message['data']['journalManaged']=True
+                    message['data']['traceId'] = market.get('traceId')
+                    message['data']['decisionId'] = market.get('decisionId')
+                    at=message['data'].get('dataAt') or market.get('dataAt')
+                    if at:
+                        from datetime import datetime
+                        from zoneinfo import ZoneInfo
+                        message['body'] += ' · Kurszeit '+datetime.fromtimestamp(at/1000,ZoneInfo('Europe/Zurich')).strftime('%d.%m. %H:%M:%S')+' (Zürich).'
+                    else:
+                        message['body'] += ' · Kurszeit unbekannt.'
+                    remaining=message['data'].get('expiresAt',int(time.time()*1000)+180000)-int(time.time()*1000)
+                    if message['data'].get('riskOnly') and remaining<=0:
+                        delivered=False  # Expired, not provider-accepted; keep previous checkpoint.
+                        break
+                    try:
+                        webpush(subscription_info=sub,data=json.dumps(message,separators=(',',':')),vapid_private_key=vapid(),vapid_claims={'sub':VAPID_SUBJECT},ttl=max(1,min(180,int(remaining/1000))))
+                        sent += 1
+                        history = state.setdefault('pushHistory', [])
+                        history.append({'at': int(time.time()*1000), 'kind': 'delivery',
+                                        'outcome': 'provider-accepted',
+                                        'events': [e['data']['eventKind'] for e in group]})
+                        del history[:-50]
+                    except WebPushException as exc:
+                        delivered=False
+                        if getattr(getattr(exc,'response',None),'status_code',None) in (404,410):
+                            conn.execute('DELETE FROM subscriptions WHERE id=%s',(sid,))
+                        break
             diagnostic_history.emit('push', market.get('traceId') or diagnostic_history.trace(bundle),
                 {'outcome':('provider-accepted' if delivered else 'delivery-failed') if events else 'no-alert',
                  'eventsCount':len(events),
@@ -1330,6 +1340,10 @@ class Handler(BaseHTTPRequestHandler):
                         background_state = row[0] if row and isinstance(row[0], dict) else {}
                         if not settings.get('trade'):
                             background_state.pop('trade', None)
+                            if isinstance(background_state.get('risk'),dict):
+                                background_state['risk'].pop('watch',None)
+                        if settings.get('riskEnabled') is not True:
+                            background_state.pop('risk',None)
                         conn.execute('UPDATE subscriptions SET background_config=%s::jsonb, background_state=%s::jsonb WHERE endpoint=%s', (json.dumps(settings),json.dumps(background_state),endpoint))
                     conn.execute("""
                       UPDATE subscriptions
@@ -1339,7 +1353,7 @@ class Handler(BaseHTTPRequestHandler):
                     """, (general, trade, active, json.dumps(monitor) if monitor else None, general, endpoint))
                     real_trade_journal.sync_devices(conn)
                     conn.commit()
-                send_json(self, 200, {"ok": True, "fibonacciMonitor": "active" if monitor else "inactive", "backgroundEnabled": settings is not None, "backgroundTrade": (background_state or {}).get("trade"), "continuedCalculation": (background_state or {}).get("continuedCalculation")})
+                send_json(self, 200, {"ok": True, "fibonacciMonitor": "active" if monitor else "inactive", "backgroundEnabled": settings is not None, "riskEnabled": bool(settings and settings.get("riskEnabled")), "riskState": (background_state or {}).get("risk"), "backgroundTrade": (background_state or {}).get("trade"), "continuedCalculation": (background_state or {}).get("continuedCalculation")})
                 return
 
             if path == "/unsubscribe":

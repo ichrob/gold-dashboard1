@@ -1,0 +1,55 @@
+name: Bob Risiko
+on:
+  pull_request:
+    paths:
+      - 'risk_workspace.js'
+      - 'test_risk*'
+      - 'background_analysis.js'
+      - 'background_push.py'
+      - 'push_server.py'
+      - 'push_manager.js'
+      - 'sw.js'
+      - 'browser_risk_workspace.cjs'
+      - 'Bob.html'
+      - '.github/workflows/bob-risk.yml'
+permissions:
+  contents: read
+concurrency:
+  group: bob-risk-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  risk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Risk rules and existing product guards
+        run: |
+          node validate_bob.js
+          node test_risk_workspace.js
+          node test_risk_background.js
+          node test_risk_push_worker.js
+          python -m unittest test_risk_background
+          node test_unapproved_comparison_ranking.js
+          node test_early_product_ranking.js
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: bob-playwright-linux-1.51.1
+      - name: Browser setup
+        run: |
+          npm install --prefix /tmp/bob-risk-browser --no-package-lock playwright@1.51.1
+          /tmp/bob-risk-browser/node_modules/.bin/playwright install chromium
+      - name: Mobile navigation and risk view
+        run: |
+          NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_risk_workspace.cjs
+          NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_simple_home.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: risk-mobile-preview
+          path: risk-mobile.png
+          if-no-files-found: ignore
