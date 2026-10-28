@@ -4,7 +4,7 @@
 const HEADER='BOB OCR-ENTWURF – NICHT VERIFIZIERT';
 const FIELDS=Object.freeze({
   'Geld':'bid', 'Brief':'ask', 'Hebel':'leverage',
-  'KO-Schwelle':'ko', 'Handelsplatz':'venue', 'Zuletzt':'last', 'Anzeigezeit':'displayedTime'
+  'KO-Schwelle':'ko', 'Basispreis':'basisPrice', 'Bv':'displayedBv', 'Handelsplatz':'venue', 'Zuletzt':'last', 'Anzeigezeit':'displayedTime'
 });
 function validIsin(value){
  const s=String(value||'').trim().toUpperCase();
@@ -38,7 +38,7 @@ function readDraft(value){
    out.series={imageCount,anchorCount,provisional:anchorCount<imageCount};
    continue;
   }
-  const m=line.match(/^(Geld|Brief|Hebel|KO-Schwelle|Handelsplatz|Zuletzt|Anzeigezeit) \(OCR ungeprüft\): (.{1,55})$/);
+  const m=line.match(/^(Geld|Brief|Hebel|KO-Schwelle|Basispreis|Bv|Handelsplatz|Zuletzt|Anzeigezeit) \(OCR ungeprüft\): (.{1,55})$/);
   if(!m)throw Error('Unbekanntes oder unzulässiges OCR-Feld; keine Übernahme.');
   const key=FIELDS[m[1]];
   if(Object.prototype.hasOwnProperty.call(out.fields,key))throw Error('Doppelte OCR-Angabe für '+m[1]+'.');
@@ -137,7 +137,7 @@ function mount(){
    const draft=readDraft(textarea.value);
    const title=root.document.createElement('h4');title.textContent='ISIN '+draft.isin+(draft.sourceKind==='app-screen'?' · ungeprüfte App-Beobachtung':' · ungeprüfte OCR-Beobachtung');
    const list=root.document.createElement('ul');
-   const labels={bid:'Geld',ask:'Brief',leverage:'Hebel',ko:'KO-Schwelle',venue:'Handelsplatz',last:'Zuletzt (kein ausführbarer Kurs)',displayedTime:'Anzeigezeit (keine bestätigte Kurszeit)'};
+   const labels={bid:'Geld',ask:'Brief',leverage:'Hebel',ko:'KO-Schwelle',basisPrice:'Basispreis',displayedBv:'Bv (angezeigte Schreibweise)',venue:'Handelsplatz',last:'Zuletzt (kein ausführbarer Kurs)',displayedTime:'Anzeigezeit (keine bestätigte Kurszeit)'};
    for(const [name,label] of Object.entries(labels)){
     const item=root.document.createElement('li');
     item.textContent=label+': '+(draft.fields[name]||'nicht erkannt')+' (nicht bestätigt)';
