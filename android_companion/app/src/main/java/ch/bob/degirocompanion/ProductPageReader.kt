@@ -16,10 +16,11 @@ internal class ProductPageReader {
     private var returning = false
     private var forward = 0
     private var backward = 0
+    private var anchorParameters: Map<String, String> = emptyMap()
     private var candidate: ProductScreenEvidence.Result? = null
     val anchored get() = isin != null
     fun sameWindow(windowId: Int): Boolean = anchored && window == windowId
-    fun reset() { rejectedForward = 0; rejectedBackward = 0; layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null }
+    fun reset() { rejectedForward = 0; rejectedBackward = 0; layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null; anchorParameters = emptyMap() }
     private fun stop(message: String, cause: Cause, reason: ProductScreenEvidence.Reason = ProductScreenEvidence.Reason.NONE): Step {
         reset(); return Step(Move.ABORT, ProductScreenEvidence.Result(message = message, reason = reason), cause)
     }
@@ -67,13 +68,14 @@ internal class ProductPageReader {
             }
             if (ids.size != 1 || !SeriesEvidence.validIsin(ids.single())) return Step(Move.NONE, direct, Cause.WAIT_IDENTITY)
             isin = ids.single(); window = windowId
+            anchorParameters = QuoteLayout.productParameters(lines)
         }
         if (windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)) return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
         if (returning) {
             if (ids.singleOrNull() == isin) {
                 // Read compact parameters only after the original ISIN has been
                 // rechecked on return. Do not reuse a different page's title.
-                val parameters = QuoteLayout.productParameters(lines)
+                val parameters = QuoteLayout.productParameters(lines).ifEmpty { anchorParameters }
                 val value = candidate?.let { observation ->
                     val extra = parameters.filterKeys { !observation.draft.contains("$it (Anzeige ungeprüft):") }
                         .map { (key, field) -> "$key (Anzeige ungeprüft): $field" }.joinToString("\n")
