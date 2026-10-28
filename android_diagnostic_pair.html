@@ -11,7 +11,13 @@
 'use strict';
 const state=document.getElementById('status'),approve=document.getElementById('approve');
 // Only a one-way device-key hash enters the browser, never the bearer credential.
-const digest=location.hash.slice(1);history.replaceState(null,'',location.pathname);
+let digest=location.hash.slice(1);
+try {
+ const key='bobDiagnosticPairV1',saved=JSON.parse(sessionStorage.getItem(key)||'null');
+ if(/^[a-f0-9]{64}$/.test(digest))sessionStorage.setItem(key,JSON.stringify({digest,at:Date.now()}));
+ else if(saved && /^[a-f0-9]{64}$/.test(saved.digest) && Date.now()-saved.at>=0 && Date.now()-saved.at<600000)digest=saved.digest;
+} catch(_) { /* In-memory approval remains usable if tab storage is unavailable. */ }
+history.replaceState(null,'',location.pathname);
 if(/^[a-f0-9]{64}$/.test(digest)){approve.disabled=false;document.getElementById('fingerprint').textContent='Vergleichscode: '+digest.slice(0,12)+' — muss mit Bob Handy übereinstimmen.';}
 else state.textContent='Zum Verbinden bitte in Bob Handy „Automatische Diagnose verbinden“ starten.';
 async function submit(value){

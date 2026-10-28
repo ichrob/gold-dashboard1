@@ -57,6 +57,7 @@ internal object PhoneDiagnostics {
                 .putString("iv",Base64.encodeToString(cipher.iv,Base64.NO_WRAP)).putBoolean("enabled",true)
                 .putLong("pairingAt",System.currentTimeMillis()).commit())
         }
+        if(!p.getBoolean("paired",false))p.edit().putLong("pairingAt",System.currentTimeMillis()).commit()
         val hash=digest(token(c));p.edit().putString("comparison",hash.take(12)).commit()
         queue(c)
         c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(BASE+"/handy/diagnostics#"+hash)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
