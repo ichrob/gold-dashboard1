@@ -109,6 +109,7 @@ function takeTransferFragment(location,history){
  readDraft(draft); // Strict parser rejects missing/multiple/invalid ISINs and unknown fields.
  return draft;
 }
+const PENDING_KEY='bobAndroidPendingObservationV1';
 const OBSERVATION_KEY='bobAndroidProductObservationsV1';
 function savedObservations(storage){
  const raw=storage.getItem(OBSERVATION_KEY);
@@ -155,13 +156,15 @@ function mount(){
  box.append(heading,introduction,textarea,analyze,clear,status,preview,safety);
  host.append(box);
  const savedPanel=root.document.createElement('div');box.append(savedPanel);
+ let resolvedProducts=null,analysisRun=0,serverLookupStarted=false;
  function showSaved(){
   savedPanel.replaceChildren();
-  const products=root.BobDegiro?.tradeTestProducts?.()||[];
+  const products=resolvedProducts||root.BobDegiro?.tradeTestProducts?.()||[];
   try{
    const saved=savedObservations(root.localStorage);
    const title=root.document.createElement('h4');title.textContent='Lesestand deiner Produktliste';savedPanel.append(title);
-   for(const product of products.slice(0,12)){
+   const visible=[...products,...saved.filter(row=>!products.some(p=>p.isin===row.draft.isin)).map(row=>({isin:row.draft.isin}))];
+   for(const product of visible.slice(0,12)){
     const row=saved.find(x=>x.draft.isin===product.isin),line=root.document.createElement('p');
     const f=row?.draft.fields;
     line.textContent=product.isin+' · '+(f ?
@@ -174,11 +177,12 @@ function mount(){
  removeSaved.onclick=()=>{try{root.localStorage.removeItem(OBSERVATION_KEY);showSaved();}catch(e){status.textContent='Löschen fehlgeschlagen: '+e.message;}};
  box.append(removeSaved);showSaved();
  box.addEventListener('toggle',()=>{if(box.open)showSaved();});
- function reset(){preview.replaceChildren();status.textContent='';}
+ function reset(){analysisRun++;preview.replaceChildren();status.textContent='';}
  textarea.addEventListener('input',reset);
- clear.onclick=()=>{textarea.value='';reset();status.textContent='Entwurf lokal entfernt.';};
- analyze.onclick=()=>{
+ clear.onclick=()=>{textarea.value='';reset();try{root.localStorage.removeItem(PENDING_KEY);}catch(_){}status.textContent='Entwurf lokal entfernt.';};
+ analyze.onclick=async()=>{
   reset();
+  const run=analysisRun,text=textarea.value;
   try{
    const draft=readDraft(textarea.value);
    const title=root.document.createElement('h4');title.textContent='ISIN '+draft.isin+(draft.sourceKind==='app-screen'?' · ungeprüfte App-Beobachtung':' · ungeprüfte OCR-Beobachtung');
@@ -210,21 +214,36 @@ function mount(){
     preview.append(seriesNote);
    }
    status.textContent='Lokal geprüft: nur ISIN-Prüfziffer; keine verifizierte Kurszeit, Handelsplatzfreigabe oder Originalbildprüfung.';
-   const existing=root.BobDegiro?.tradeTestProducts?.();
+   // Retain a valid incoming draft before an asynchronous list lookup/reload.
+   root.localStorage.setItem(PENDING_KEY,JSON.stringify({text,savedAt:Date.now()}));
+   let existing=root.BobDegiro?.tradeTestProducts?.()||[],serverAt=null;
+   if(!existing.some(p=>p?.isin===draft.isin)&&root.BobDegiro?.readServerProductList){
+    status.textContent='Entwurf gelesen. Gespeicherte Produktliste wird über die ISIN abgeglichen …';
+    serverLookupStarted=true;
+    const remote=await root.BobDegiro.readServerProductList();
+    if(run!==analysisRun||textarea.value!==text)return;
+    existing=remote.products;serverAt=remote.listUploadedAt;
+   }
    if(Array.isArray(existing)){
-    const match=existing.some(p=>p?.isin===draft.isin);
     const note=root.document.createElement('p');
-    const saved=storeObservation(root.localStorage,textarea.value,existing);
-    note.textContent=saved.state==='saved'?'Automatisch über die ISIN zugeordnet und auf diesem Gerät gespeichert.':saved.state==='older'?'Eine neuere Lesebeobachtung bleibt erhalten.':'ISIN noch nicht in der geladenen Produktliste gefunden; nichts zugeordnet.';
+    const saved=storeObservation(root.localStorage,text,existing);
+    resolvedProducts=existing;
+    if(saved.state==='saved'||saved.state==='older')root.localStorage.removeItem(PENDING_KEY);
+    note.textContent=saved.state==='saved'?'Automatisch über die ISIN zugeordnet und auf diesem Gerät gespeichert.':saved.state==='older'?'Eine neuere Lesebeobachtung bleibt erhalten.':'ISIN nicht in der verfügbaren Produktliste gefunden. Entwurf bleibt auf diesem Gerät für den nächsten Abgleich gespeichert.';
+    status.textContent=note.textContent+(serverAt?' Listenstand: '+serverAt:'');
     showSaved();
     preview.append(note);
    }
-  }catch(e){status.textContent='Nicht übernommen: '+e.message;}
+  }catch(e){if(run===analysisRun)status.textContent='Zuordnung nicht abgeschlossen: '+e.message;}
  };
  // Automatic navigation is only a user-initiated image share from our Android app.
  // The URL fragment is local browser navigation; no API request or trade approval.
  try{
-  const incoming=takeTransferFragment(root.location,root.history);
+  let incoming=takeTransferFragment(root.location,root.history);
+  if(incoming===null){
+   const raw=root.localStorage.getItem(PENDING_KEY);
+   if(raw){const pending=JSON.parse(raw);if(Number.isFinite(pending.savedAt)&&Date.now()>=pending.savedAt&&Date.now()-pending.savedAt<86400000){readDraft(pending.text);incoming=pending.text;}else root.localStorage.removeItem(PENDING_KEY);}
+  }
   if(incoming!==null){
    textarea.value=incoming;
    box.open=true;
@@ -233,7 +252,7 @@ function mount(){
    const pending=root.setInterval(()=>{
     if(textarea.value!==incoming||++attempts>20){root.clearInterval(pending);return;}
     const products=root.BobDegiro?.tradeTestProducts?.();
-    if(Array.isArray(products)&&products.some(p=>p?.isin===readDraft(incoming).isin)){root.clearInterval(pending);analyze.click();}
+    if((Array.isArray(products)&&products.some(p=>p?.isin===readDraft(incoming).isin))||(!serverLookupStarted&&root.BobDegiro?.readServerProductList)){root.clearInterval(pending);analyze.click();}
    },500);
    const navButton=root.document.querySelector('#bob-view-more [data-view="degiro"]')||
                    root.document.querySelector('[data-view="degiro"]');
