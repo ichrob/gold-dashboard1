@@ -11,6 +11,7 @@ import java.util.UUID
 internal object MorningReadRun {
     private fun prefs(c: Context) = c.getSharedPreferences("morning_reader_v1", Context.MODE_PRIVATE)
     private var data: JSONObject? = null
+    var onStopped: (() -> Unit)? = null
     var running = false; private set
     var reading = false
     var index = 0; private set
@@ -22,6 +23,18 @@ internal object MorningReadRun {
     fun summary(): String = if (running) "Produkt ${index+1} von $count · $target · Versuch $attempt/2" else "Listenlauf nicht aktiv."
     fun expired(now: Long = SystemClock.elapsedRealtime()) = now < started || now-started >= 15*60*1000
     fun pending(c: Context): String? = prefs(c).getString("outbox", null)
+    fun savedStatus(c: Context): String {
+        val raw=pending(c)
+        if(raw==null) return if(prefs(c).getString("lastDelivered",null)!=null) "Letztes Protokoll von Bob bestätigt. Die Diagnose ist dort abrufbar." else "Noch kein Listenprotokoll übertragen."
+        return runCatching {
+            val d=JSONObject(raw);val rows=d.getJSONArray("results")
+            val read=(0 until rows.length()).count { rows.getJSONObject(it).optString("draft").isNotEmpty() }
+            val events=d.getJSONArray("events");val last=events.optJSONObject(events.length()-1)
+            "$read Produkte gelesen · ${rows.length()} geprüft · ${d.getJSONArray("isins").length()} angefragt.\n"+
+                (if(last!=null) "Zuletzt: ${MorningReadUiPolicy.reason(last.optString("code"))}.\n" else "Noch kein Produkt gelesen.\n")+
+                "Protokoll lokal gespeichert; Bestätigung von Bob steht noch aus."
+        }.getOrDefault("Lokales Protokoll vorhanden; bitte an Bob übertragen.")
+    }
     fun challenge(c: Context): String {
         check(!running) { "Listenlauf läuft bereits." }
         check(pending(c) == null) { "Zuerst die gespeicherten Ergebnisse an Bob übertragen." }
@@ -96,7 +109,9 @@ internal object MorningReadRun {
         attempt=1;reading=false;backSteps=0;started=SystemClock.elapsedRealtime();running=true
     }
     fun stop(c: Context, code: String) {
+        val wasRunning=running
         try { if(running) runCatching { event(c,code) } } finally { running=false;reading=false }
+        if(wasRunning && code!="USER_STOP") onStopped?.invoke()
     }
     fun acknowledge(c: Context, batchId: String, revision: Int): Boolean {
         val raw=pending(c) ?: return false
