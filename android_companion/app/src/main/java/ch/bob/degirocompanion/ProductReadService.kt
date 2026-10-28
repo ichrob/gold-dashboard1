@@ -29,6 +29,10 @@ class ProductReadService : AccessibilityService() {
     private var screenReceiverRegistered = false
     private val screenOff = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if(intent?.action == Intent.ACTION_USER_PRESENT) {
+                handler.postDelayed({ runCatching { MorningReadTransfer.automaticResults(this@ProductReadService) } },1000)
+                return
+            }
             if (intent?.action != Intent.ACTION_SCREEN_OFF || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return
             MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
             ProductReadRequest.cancel()
@@ -95,10 +99,18 @@ class ProductReadService : AccessibilityService() {
         ProductReadDiagnostics.windowAccess = (serviceInfo.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) != 0
         accessibilityButtonController.registerAccessibilityButtonCallback(callback)
         if (!screenReceiverRegistered) {
-            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF).apply { addAction(Intent.ACTION_USER_PRESENT) }
             if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, filter, Context.RECEIVER_NOT_EXPORTED)
             else registerReceiver(screenOff, filter)
             screenReceiverRegistered = true
+        }
+        MorningReadRun.onStopped = {
+            handler.post {
+                if(!MorningReadRun.running) {
+                    ProductReadRequest.cancel()
+                    runCatching { MorningReadTransfer.automaticResults(this) }
+                }
+            }
         }
         ProductReadRequest.onCancelled = {
             val outcome = when (ProductReadRequest.endReason) {
@@ -159,6 +171,7 @@ class ProductReadService : AccessibilityService() {
     }
     override fun onInterrupt() { ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
     override fun onDestroy() {
+        MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
         ProductReadDiagnostics.connected = false
         ProductReadDiagnostics.canRead = false
@@ -353,7 +366,7 @@ class ProductReadService : AccessibilityService() {
             if(more) {
                 Toast.makeText(this,MorningReadRun.summary(),Toast.LENGTH_SHORT).show()
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
-            } else MorningReadTransfer.showResults(this)
+            } else MorningReadTransfer.automaticResults(this)
         }.onFailure {
             MorningReadRun.stop(this,"STORAGE_ERROR");ProductReadRequest.cancel()
             Toast.makeText(this,"Leselauf gestoppt. Gespeicherte Ergebnisse bleiben in Bob Handy.",Toast.LENGTH_LONG).show()
