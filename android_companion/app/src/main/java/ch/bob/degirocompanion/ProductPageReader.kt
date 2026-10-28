@@ -6,6 +6,7 @@ internal class ProductPageReader {
     enum class Cause { NONE, WAIT_PROTECTED, WAIT_IDENTITY, WAIT_SCROLL, UNSAFE_VIEW,
         IDENTITY_CHANGED, NO_QUOTES, RETURN_FAILED, SCROLL_LIMIT, INVALID_QUOTES, SEEK_HEADER, SEEK_LIMIT, WAIT_SCROLL_LAYOUT, SCROLL_LAYOUT_CHANGED }
     data class Step(val move: Move, val result: ProductScreenEvidence.Result, val cause: Cause = Cause.NONE)
+    private var layoutWaits = 0
     private var seekSteps = 0
     private var seekWindow: Int? = null
     private var isin: String? = null
@@ -15,7 +16,7 @@ internal class ProductPageReader {
     private var backward = 0
     private var candidate: ProductScreenEvidence.Result? = null
     val anchored get() = isin != null
-    fun reset() { seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null }
+    fun reset() { layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null }
     private fun stop(message: String, cause: Cause, reason: ProductScreenEvidence.Reason = ProductScreenEvidence.Reason.NONE): Step {
         reset(); return Step(Move.ABORT, ProductScreenEvidence.Result(message = message, reason = reason), cause)
     }
@@ -33,11 +34,16 @@ internal class ProductPageReader {
         if (direct.reason in setOf(ProductScreenEvidence.Reason.PROTECTED, ProductScreenEvidence.Reason.LOGIN_OR_ORDER,
                 ProductScreenEvidence.Reason.TOO_LARGE, ProductScreenEvidence.Reason.ISIN_INVALID,
                 ProductScreenEvidence.Reason.ISIN_AMBIGUOUS)) return stop(direct.message, Cause.UNSAFE_VIEW, direct.reason)
+        val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n") { it.text.uppercase() }).map { it.value }.distinct().toList()
+        // Identity changes must be rejected even while the scroll tree is transient.
+        if (anchored && (windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)))
+            return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
         if (scrollAmbiguous) {
-            if (anchored) return stop("Scrollbereich während der Produktprüfung nicht mehr eindeutig. Kein Entwurf übernommen.", Cause.SCROLL_LAYOUT_CHANGED)
+            if (anchored && ++layoutWaits > 5)
+                return stop("Scrollbereich nach fünf Nachprüfungen weiterhin uneindeutig. Kein Entwurf übernommen.", Cause.SCROLL_LAYOUT_CHANGED)
             return Step(Move.NONE, direct.copy(draft = "", message = "Seitenaufbau noch nicht eindeutig. Bob wartet innerhalb des 60-Sekunden-Limits auf den Produktbereich."), Cause.WAIT_SCROLL_LAYOUT)
         }
-        val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n") { it.text.uppercase() }).map { it.value }.distinct().toList()
+        layoutWaits = 0
         if (!anchored) {
             val visibleText = lines.joinToString("\n") { it.text }
             val quoteSection = Regex("(?i)kursdaten|produktdetails").containsMatchIn(visibleText) &&
