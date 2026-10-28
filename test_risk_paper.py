@@ -82,3 +82,27 @@ class RiskPaperTests(unittest.TestCase):
         self.assertIsNone(s['accounts']['0']['position'])
 
 if __name__=='__main__':unittest.main()
+
+# CI provides an isolated PostgreSQL database. Temporary tables never touch live accounts.
+import os
+from unittest.mock import patch, Mock
+@unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'isolated PostgreSQL not configured')
+class RiskPaperDatabaseTests(unittest.TestCase):
+    def test_restart_idempotent_initialization_and_durable_settlement(self):
+        import psycopg
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE TEMP TABLE bob_risk_paper (id INTEGER PRIMARY KEY, payload JSONB NOT NULL) ON COMMIT DROP')
+            conn.execute('CREATE TEMP TABLE bob_risk_paper_cases (id TEXT PRIMARY KEY, payload JSONB NOT NULL) ON COMMIT DROP')
+            with patch('risk_paper.time.time',return_value=NOW/1000):r.init(conn)
+            with patch('risk_paper.evaluator_runtime.run',return_value=Mock(stdout=__import__('json').dumps(result()))), patch('risk_paper.time.time',return_value=NOW/1000), patch('background_push.degiro_entry_allowed',return_value=True):
+                r.tick(conn,{}, {'products':[]},{ISIN:quote()},NOW)
+            self.assertIn(ISIN,r.active_isins(conn))
+            first=r.report(conn)
+            r.init(conn)
+            self.assertEqual(r.report(conn),first,'deploy must not reset money or positions')
+            at=NOW+30000
+            with patch('risk_paper.evaluator_runtime.run',return_value=Mock(stdout=__import__('json').dumps(result(at,'AUSSTIEG PRÜFEN')))), patch('risk_paper.time.time',return_value=at/1000), patch('background_push.degiro_entry_allowed',return_value=True):
+                r.tick(conn,{}, {'products':[]},{ISIN:quote(at,bid=11)},at)
+                r.tick(conn,{}, {'products':[]},{ISIN:quote(at,bid=11)},at)
+            self.assertEqual(conn.execute('SELECT count(*) FROM bob_risk_paper_cases').fetchone()[0],1)
+            self.assertEqual(r.report(conn)['accounts']['0']['closed'],1)
