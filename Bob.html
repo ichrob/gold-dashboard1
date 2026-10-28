@@ -2620,10 +2620,11 @@ async function syncPushPreferencesImpl(){
     backgroundTrade={...tradeMgmt,instrument,personalRisk:personalRisk()};
     saveTradeMgmt();
    }
-   const background={timeframe:$('tf')?.value||'15m',trailAtr:Number($('trailAtr')?.value)||1.5,trade:backgroundTrade};
+   const background={riskEnabled:BobPush.state().risk===true,timeframe:$('tf')?.value||'15m',trailAtr:Number($('trailAtr')?.value)||1.5,trade:backgroundTrade};
    const r=await fetch("/api/push/preferences",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({endpoint:sub.endpoint,general:!!pushState.general,trade:!!pushState.trade,activeTrade:!!pushState.activeTrade,background,fibonacciMonitor:tradeMgmt?.active&&!tradeMgmt.test&&pushState.trade?tradeMgmt.fibonacciMonitor||null:null})});
    if(!r.ok)throw Error(pushRequestError(r.status));
    const result=await r.json();
+   window.BobRisk?.server(result);
    if(result?.backgroundEnabled){
     pushState=BobPush.set('backgroundEnabled',true);
     const remote=result.backgroundTrade;
@@ -2639,6 +2640,10 @@ async function syncPushPreferencesImpl(){
    return r.ok;
  }catch(e){const message=e?.message||"Push-Verbindung unterbrochen.";if(status)status.textContent="Hintergrund-Einstellungen nicht gespeichert. "+message;if($("pushStatus"))$("pushStatus").textContent="⚠️ Registrierung gespeichert, aktuelle Server-Verbindung nicht bestätigt.";return false;}
 }
+window.BobRiskPush={set:async enabled=>{
+ pushState=BobPush.set('risk',enabled===true);
+ return syncPushPreferences();
+}};
 let bobEarlyWarningTestBusy=false;
 async function testBackgroundPush(scenario='delivery'){
  const early=scenario==='early-long'||scenario==='early-short';

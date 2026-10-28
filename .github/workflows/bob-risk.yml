@@ -3,7 +3,12 @@ on:
   pull_request:
     paths:
       - 'risk_workspace.js'
-      - 'test_risk_workspace.js'
+      - 'test_risk*'
+      - 'background_analysis.js'
+      - 'background_push.py'
+      - 'push_server.py'
+      - 'push_manager.js'
+      - 'sw.js'
       - 'browser_risk_workspace.cjs'
       - 'Bob.html'
       - '.github/workflows/bob-risk.yml'
@@ -25,6 +30,9 @@ jobs:
         run: |
           node validate_bob.js
           node test_risk_workspace.js
+          node test_risk_background.js
+          node test_risk_push_worker.js
+          python -m unittest test_risk_background
           node test_unapproved_comparison_ranking.js
           node test_early_product_ranking.js
       - uses: actions/cache@v4

@@ -27,25 +27,52 @@ Produktfreigabe und Hintergrund-Tradeüberwachung werden nicht verändert.
 - Verlauf der letzten 30 Zustandswechsel dieser Sitzung; keine Speicherung von
   privaten Produktlisten in Repository, öffentlichen Endpunkten oder Logs.
 
-## Bewusste Betriebsgrenzen
+## Hintergrundbetrieb und Zustellung
 
-Nur Vordergrundanalyse: kein neuer Hintergrunddienst, keine neue Push-Kategorie,
-kein neuer Datenanbieter und keine Brokerorder. Die bestehende Tradeüberwachung
-bleibt separat. Ein Neuladen beginnt eine neue Zusatzbeobachtung, der tatsächliche
-bestehende Trade-Stop bleibt unverändert. Der Reiter zeigt diese Grenzen ausdrücklich.
+`background_analysis.js` verwendet dasselbe `Risk.analyze/advance/monitor` wie
+der Browser. Kein dupliziertes Python-Signalmodell. Der vorhandene Worker prüft
+mit seinem bestehenden Live-Bundle (typischerweise ca. 30 Sekunden); der
+Reiter verspricht keinen Sekundenstream.
 
-Ein Update der Ansicht pro Sekunde erzeugt keine neuen Quellkurse. Veraltete Daten
-sperren Richtung und Rangliste. Fehlende Minutenhistorie wird nicht durch 5m- oder
-Future-Daten ersetzt. Regeln und ATR-Faktoren sind unvalidierte Forschungsparameter.
+Der zusätzliche Risiko-Schalter ist standardmäßig aus und wird in der bestehenden
+Push-Konfiguration gespeichert. Marktvorwarnungen/Bestätigungen benötigen zusätzlich
+Markt-Push und das bestehende DEGIRO-Zeitfenster. Ausstiegswarnungen benötigen
+Trade-Push und einen tatsächlichen aktiven Trade mit passender ID. Testtrades lösen
+keine echten Risikowarnungen aus. Der Geräteschalter blockiert auch noch wartende
+Risiko-Meldungen im Service Worker und entfernt angezeigte Risiko-Mitteilungen.
+Bestehende Stop-/KO-Warnungen werden separat versandt und nicht mit ausgeschaltet.
 
-Für den vollständigen späteren Hintergrundbetrieb fehlen ein nachgewiesener
-schneller Datenzugang, dauerhafte serverseitige Risikozustände, Push-Ablaufzeiten
-und Zustellmessungen sowie Simulationen mit echten Produkt-Geld-/Briefkursen,
-Kosten und Nutzerreaktionszeit. Keine Gewinn- oder Ausstiegszeitgarantie.
+Zustände (Signal, nachgezogene Warnschwelle, deduplizierte Ankündigungen, Verlauf)
+liegen in `subscriptions.background_state.risk`. Erst nach erfolgreicher
+Provider-Annahme wird der Versandzustand gespeichert. Bei Teil-/Komplettfehlern
+bleibt der vorherige Checkpoint bestehen. Kein Verlust einer Warnung durch
+vorzeitiges Abhaken; wiederholte Zustellversuche sind bei unklarem Providerstatus
+möglich. Meldungen verfallen spätestens 60 Sekunden nach der Originalkurszeit;
+TTL und Service Worker prüfen die Gültigkeit. Keine Zustellzeitgarantie.
+
+Die bestehenden signierten Push-Empfangsbelege bleiben erhalten: Provider-Annahme,
+Browser-API-Akzeptanz und tatsächlicher Klick sind unterschiedliche Nachweise.
+Der Reiter zeigt gespeicherte Aktivierung und letzten geprüften Serverdurchlauf;
+ein gesetzter Schalter allein wird nie als erfolgreiche Überwachung dargestellt.
+Beim Neuladen kann eine zum Trade passende dauerhafte Schutzgrenze übernommen
+werden, ohne einen tatsächlichen Trade- oder Broker-Stop zu ändern.
+
+## Grenzen
+
+Kein neuer Datenanbieter, keine garantierten Sekundenkurse, keine Brokerorders.
+Veraltete Daten sperren Richtung und Rangliste. Fehlende Minutenhistorie wird nicht
+mit 5m-/Future-Daten ersetzt. Regeln/ATR-Faktoren sind Forschungsparameter.
+
+Noch offen: unabhängige Simulationen mit echten Produkt-Geld-/Briefkursen,
+Kosten und gemessener Nutzerreaktionszeit sowie Nachweis der tatsächlichen
+Ende-zu-Ende-Latenz auf dem Handy. Keine Gewinn- oder Ausstiegszeitgarantie.
 
 ## Prüfung
 
 `node test_risk_workspace.js`
+`node test_risk_background.js`
+`node test_risk_push_worker.js`
+`python -m unittest test_risk_background test_background_push`
 `node test_unapproved_comparison_ranking.js`
 `node test_zukunft_navigation.js`
 `node --check risk_workspace.js`

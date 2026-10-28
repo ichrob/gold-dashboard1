@@ -1,6 +1,7 @@
 // Run Bob's actual dashboard analysis on the server; never duplicate its score formula.
 const fs=require('fs'),vm=require('vm');
 const LateEntry=require('./late_entry_guard.js');
+const Risk=require('./risk_workspace.js');
 function evaluate(input, {render=false}={}){
  const noop=()=>{},elements=new Map(),canvas=new Proxy({},{get:()=>noop,set:()=>true});
  const element=id=>{if(!elements.has(id))elements.set(id,{value:({tf:input.timeframe||'15m',n:'200',account:'500',risk:'1',trailAtr:String(input.trailAtr||1.5),minRR:'2',displayCcy:'USD'})[id]||'',textContent:'',innerHTML:'',className:'',parentElement:{className:''},style:{},dataset:{},classList:{add:noop,remove:noop,toggle:noop},addEventListener:noop,setAttribute:noop,appendChild:noop,append:noop,selectedOptions:[{textContent:"15 Minuten"}],getContext:()=>canvas,getBoundingClientRect:()=>({width:800,height:300}),width:800,height:220});return elements.get(id);};
@@ -11,7 +12,7 @@ function evaluate(input, {render=false}={}){
  const html=fs.readFileSync(__dirname+'/Bob.html','utf8');
  const script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].find(m=>m[1].includes('function confirmedSignalDirection()'))[1];
  vm.runInContext(script,env,{timeout:3000});
- return vm.runInContext(`(()=>{
+ const result=vm.runInContext(`(()=>{
   // UI rendering repeatedly replays signal history and formats dates. None is
   // needed by the worker: retain the shared math and evaluate direction once.
   if(!render){draw=()=>{};renderCompactAnalysis=()=>{};renderExtraDirections=()=>{};updateQuick=()=>{};updateResearchPanel=()=>{};renderIntraday=()=>{};renderDecisionExplanation=()=>{};}
@@ -80,6 +81,13 @@ function evaluate(input, {render=false}={}){
   if(input.trade?.active&&['entry','stop','target'].every(k=>Number.isFinite(input.trade[k])&&input.trade[k]>0))plan={kind:'active-monitor',direction:input.trade.dir,entry:input.trade.entry,stop:input.trade.stop,target:input.trade.target,unit:'USD/oz',at:Date.now(),isin:input.trade.product?.isin||null};
   return {monitorPlan,entryTimingGate,entryTiming:signalState.entryTiming||'five-minute-confirmation',confirmationAt:signalState.confirmationAt||null,baseDirection:signalState.baseDirection||direction,learningPolicy:signalState.learningPolicy,dmi:dmiContext(bundle),continuedPlan:continuedTradePlan(input.trade,bundle),fx:bundle.spots?.usd_eur_meta||null,fxByCurrency:{EUR:bundle.spots?.usd_eur_meta||null,CHF:bundle.spots?.usd_chf_meta||null},marketReview:bundle.marketReview||null,plan,trendContext,earlyImpulse,earlyWarning,warningPaperPlan,warningPaperPlanReason,earlyPaperPlan,earlyPaperPlanReason,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),analysisWarnings:analysisAgeWarnings(),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,suggestedTargetPlan,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
  })()`,env,{timeout:8000});
+ if(input.riskEnabled===true){
+  const clock=Date.now(),signal=Risk.analyze(input.bundle,clock);
+  result.risk=Risk.advance(input.riskPrevious,{
+   enabled:true,general:input.riskGeneral===true,tradeEnabled:input.riskTrade===true,
+   entryAllowed:input.riskEntryAllowed===true,trade:input.trade},signal,clock);
+ }
+ return result;
 }
 module.exports={evaluate};
 if(require.main===module){try{process.stdout.write(JSON.stringify(evaluate(JSON.parse(fs.readFileSync(0,'utf8')))));}catch(e){process.stderr.write(JSON.stringify({name:e.name,message:String(e.message).slice(0,200),frames:String(e.stack).split('\n').filter(x=>/^\s+at /.test(x)).slice(0,3)}));process.exitCode=1;}}

@@ -149,6 +149,10 @@ def config(value):
     if tf not in ('5m', '15m', '1h'):
         raise ValueError('Ungültige Push-Zeitebene')
     result = {'timeframe': tf, 'trailAtr': 1.5, 'trade': None}
+    if 'riskEnabled' in value:
+        if type(value['riskEnabled']) is not bool:
+            raise ValueError('Risiko-Schalter muss wahr oder falsch sein')
+        result['riskEnabled'] = value['riskEnabled']
     mult = value.get('trailAtr', 1.5)
     if not positive(mult) or mult > 10:
         raise ValueError('Ungültiger ATR-Faktor')
@@ -271,6 +275,23 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         state.pop('trade', None)
         return state, []
     events = []
+    risk = market.get('risk')
+    if settings.get('riskEnabled') is not True:
+        state.pop('risk', None)
+    elif isinstance(risk, dict) and isinstance(risk.get('state'), dict):
+        candidate = risk['state']
+        checked = candidate.get('checkedAt')
+        if positive(checked) and 0 <= now-checked <= 60000:
+            state['risk'] = copy.deepcopy(candidate)
+            for event in risk.get('events', []):
+                data = event.get('data') or {}
+                channel = data.get('kind')
+                if not (positive(data.get('expiresAt')) and now < data['expiresAt']):
+                    continue
+                if channel == 'general' and general and degiro_entry_allowed(now):
+                    events.append(copy.deepcopy(event))
+                elif channel == 'trade' and trade_enabled and data.get('tradeId') == (settings.get('trade') or {}).get('tradeId'):
+                    events.append(copy.deepcopy(event))
     def audit(kind, outcome, reason):
         history = state.setdefault('pushHistory', [])
         # Keep a bounded durable history without adding an entry every tick.
@@ -625,17 +646,28 @@ def present_events(events, settings, market):
     return events
 
 
+def notification_batches(events):
+    """Existing alerts first; separate optional risk alerts for device opt-out."""
+    ordinary = [e for e in events if e.get('data', {}).get('riskOnly') is not True]
+    risk = [e for e in events if e.get('data', {}).get('riskOnly') is True]
+    return [group for group in (ordinary, risk) if group]
+
+
 def compose_events(events):
     """Urgent action first; advisory plans never compete with an exit warning."""
     priority = {'ko-hit': 0, 'stop-hit': 1, 'personal-risk': 2, 'reversal': 3,
-                'data-unavailable': 4, 'stop-near': 5, 'target-extension': 6, 'target': 7}
+                'risk-exit': 3, 'data-unavailable': 4, 'stop-near': 5, 'target-extension': 6, 'target': 7}
     ordered = sorted(events, key=lambda e: priority.get(e['data']['eventKind'], 8))
     message = copy.deepcopy(ordered[0])
-    urgent = ordered[0]['data']['eventKind'] in ('ko-hit', 'stop-hit', 'reversal')
-    advisory = {'target', 'target-extension', 'trailing-stop', 'profit-protection', 'profit-weak', 'signal-change', 'initial-stop'}
+    urgent = ordered[0]['data']['eventKind'] in ('ko-hit', 'stop-hit', 'reversal', 'risk-exit')
+    advisory = {'target', 'target-extension', 'trailing-stop', 'profit-protection', 'profit-weak', 'signal-change', 'initial-stop', 'risk-warning', 'risk-confirmed'}
     visible = [e for e in ordered if not urgent or e['data']['eventKind'] not in advisory]
     message['body'] = ' | '.join(e['body'] for e in visible)
     message['data']['events'] = [e['data']['eventKind'] for e in ordered]
+    if any(e['data'].get('riskOnly') for e in ordered):
+        message['data']['expiresAt'] = min(e['data']['expiresAt'] for e in ordered)
+        # A mixed message must retain existing critical warnings after risk opt-out.
+        message['data']['riskOnly'] = all(e['data'].get('riskOnly') is True for e in ordered)
     if any(e['data']['kind'] == 'trade' for e in ordered):
         message['data']['kind'] = 'trade'
     return message

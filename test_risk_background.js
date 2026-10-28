@@ -1,0 +1,31 @@
+'use strict';
+const assert=require('node:assert/strict'),Risk=require('./risk_workspace');
+const now=Date.parse('2026-10-28T10:00:00Z');
+const signal={ready:true,direction:'LONG',stage:'VORWARNUNG',reason:'test',spot:4003,at:now,barAt:now-60000,atr:2};
+const opts={enabled:true,general:true,entryAllowed:true,tradeEnabled:false};
+let x=Risk.advance({},opts,signal,now);assert.equal(x.events.length,1);assert.equal(x.events[0].data.eventKind,'risk-warning');assert.equal(x.events[0].data.expiresAt,now+60000);
+assert.equal(Risk.advance(x.state,opts,signal,now+1000).events.length,0,'No duplicate while same state');
+assert.equal(Risk.advance({},opts,signal,now).events.length,1,'Failed-send checkpoint may retry');
+const confirmed=Risk.advance(x.state,opts,{...signal,stage:'BESTÄTIGT'},now+1000);assert.equal(confirmed.events[0].data.eventKind,'risk-confirmed');
+const withdrawn=Risk.advance(confirmed.state,opts,{...signal,direction:'ABWARTEN',stage:'BEOBACHTEN'},now+2000);assert.equal(withdrawn.events[0].data.eventKind,'risk-withdrawn');
+assert.equal(Risk.advance(x.state,opts,{...signal,ready:false},now+1000).events.length,0,'Missing data is not a withdrawal');
+for(const cfg of [{...opts,enabled:false},{...opts,general:false},{...opts,entryAllowed:false}])assert.equal(Risk.advance({},cfg,signal,now).events.length,0);
+for(const at of [now+1,now-60000])assert.equal(Risk.advance({},opts,{...signal,at},now).events.length,0);
+assert.equal(Risk.advance({dataAt:now+10},opts,signal,now).events.length,0);
+const trade={active:true,tradeId:'a',dir:'LONG',entry:4000,stop:3990};
+const t={...opts,general:false,tradeEnabled:true,trade};
+x=Risk.advance({},t,signal,now);assert.equal(x.events.length,0);const initial=x.state.watch.stop;
+x=Risk.advance(x.state,t,{...signal,spot:initial-1,at:now+1000},now+1000);assert.equal(x.events[0].data.eventKind,'risk-exit');assert.equal(x.events[0].data.tradeId,'a');
+assert.equal(Risk.advance(x.state,t,{...signal,spot:4010,at:now+2000},now+2000).events.length,0,'Exit stays latched');
+assert.equal(Risk.advance(x.state,{...t,tradeEnabled:false},signal,now).events.length,0);
+assert.equal(Risk.advance(x.state,{...t,trade:{...trade,test:true}},signal,now).events.length,0);
+const copy=JSON.stringify(x.state);Risk.advance(x.state,t,signal,now);assert.equal(JSON.stringify(x.state),copy);
+// Full headless entrypoint evaluates risk even with insufficient slow main history.
+const clock=Date.now(),end=Math.floor(clock/60000)*60000;
+const bars=Array.from({length:21},(_,i)=>({openTime:end-(21-i)*60000,instrument:'XAU/USD',open:4000,high:4001,low:3999,close:4000}));
+for(const b of bars.slice(-2)){b.close=4003;b.high=4003;}
+const bundle={spots:{is_genuine_xauusd_spot:true,xaus:4003.2,spot_price_as_of:new Date(clock).toISOString()},history:{bars_by_tf:{'1m':bars}}};
+const result=require('./background_analysis').evaluate({bundle,riskEnabled:true,riskGeneral:true,riskEntryAllowed:true});
+assert.equal(result.ready,false);assert.equal(result.risk.state.signal.direction,'LONG');assert.equal(result.risk.events[0].data.eventKind,'risk-confirmed');
+assert(!require('./background_analysis').evaluate({bundle}).risk,'Default remains opt-out');
+console.log('Risk background: shared headless rules, channel opt-outs, expiry, monotonic clocks, durable dedup/retry, confirmation/withdrawal, trade identity and latched exit passed.');
