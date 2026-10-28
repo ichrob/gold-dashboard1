@@ -2641,7 +2641,15 @@ function compactProductValues(p,now=Date.now()){
     /Momentaufnahme|innerhalb Altersgrenze/.test(x.state||'')||
     /^(berechnet · aktuell|berechneter Hebel · Eingangsdaten: aktuell)$/.test(x.state||''));
  const analysis=analysisReleaseQuote(p,now);
- const bid=verified?.quote.bid??(acceptable(fields.bid)?fields.bid.value:analysis?.bid??null);
+ const q=p.quote,one=q?.oneSidedQuote;
+ const oneAge=now-Date.parse(one?.bidAt);
+ const bidOnly=q?.isin===p.isin&&q.productVerified===true&&q.metadata?.status===1
+   &&one?.isin===p.isin&&one.priceKind==='issuer-bid-only'&&one.missingSide==='ask'
+   &&one.ask===null&&one.isExecutableQuote===false&&one.currency===q.metadata?.currency
+   &&!verified&&!analysis&&!acceptable(fields.bid)&&!acceptable(fields.ask)
+   &&Number.isFinite(one.bid)&&one.bid>0&&Number.isFinite(oneAge)&&oneAge>=0&&oneAge<=90000
+   ?one:null;
+ const bid=verified?.quote.bid??(acceptable(fields.bid)?fields.bid.value:analysis?.bid??bidOnly?.bid??null);
  const ask=verified?.quote.ask??(acceptable(fields.ask)?fields.ask.value:analysis?.ask??null);
  const lever=verified?.leverage??(acceptable(fields.leverage)?fields.leverage.value:
    analysis?(analysis.leverage??n(p.quote?.leverage)):null);
@@ -2651,7 +2659,7 @@ function compactProductValues(p,now=Date.now()){
  const calculated=leverageKind==='calculated-gearing'||leverageKind==='calculated'||
    !verified&&/berechnet/.test(fields.leverage?.state||'');
  const missing=[['Geld',bid],['Brief',ask],['Hebel',lever]].filter(([,v])=>!(v>0)).map(([name])=>name);
- return {verified,fields,analysis,bid,ask,lever,leverageKind,leverageAt,calculated,missing};
+ return {verified,fields,analysis,bid,ask,lever,leverageKind,leverageAt,calculated,missing,bidOnly};
 }
 function goldProductCompactView(p,now=Date.now()){
  const values=compactProductValues(p,now);
@@ -2660,7 +2668,7 @@ function goldProductCompactView(p,now=Date.now()){
    'Hebel: '+(values.calculated?'berechnet · nur Analyse':['issuer-reference','shared-issuer-observation'].includes(values.leverageKind)
     ?'gemeinsamer SG-Zeitbezug · nur Analyse':'Quellenwert')+
    (values.leverageAt?' · '+values.leverageAt:''):'';
- const currency=verified?.quote.currency||p.quote?.nativeChartEvidence?.currency||p.quote?.currency||'EUR';
+ const currency=verified?.quote.currency||values.bidOnly?.currency||p.quote?.nativeChartEvidence?.currency||p.quote?.currency||'EUR';
  const number=x=>Number.isFinite(x)&&x>0?Number(x).toLocaleString('de-CH',{maximumFractionDigits:3}):'—';
  const term=typeof koEvidenceStatus==='function'?koEvidenceStatus(p,now):null;
  const distance=term?.current&&n(p.spot)>0&&n(p.ko)>0&&['LONG','SHORT'].includes(p.productDirection)
@@ -2668,8 +2676,8 @@ function goldProductCompactView(p,now=Date.now()){
  const priced=bid!==null&&ask!==null;
  const analysis=(!!verified||status.complete)&&missing.length===0;
  const check=analysis?'✓ Analyse-Nachweise vorhanden':missing.length?'⚠ '+missing.join(', ')+' fehlt oder ist nicht aktuell belegt':'⚠ Analyse-Nachweise prüfen';
- const timestamp=verified?.quote.bidAt||(priced?fields.bid?.at||values.analysis?.bidAt:null)||null;
- const detail=verified?'Serverbericht · passende Listenfassung':priced?(fields.bid?.kind==='calculated'?'Berechneter Analysewert':'Quellenbeobachtung')+' · lokaler Datenstand':'Kurs noch nicht aktuell belegt';
+ const timestamp=verified?.quote.bidAt||(priced?fields.bid?.at||values.analysis?.bidAt:null)||values.bidOnly?.bidAt||null;
+ const detail=values.bidOnly&&!priced?'SG · nur Geldkurs belegt; Anbieter stellt keinen Briefkurs':verified?'Serverbericht · passende Listenfassung':priced?(fields.bid?.kind==='calculated'?'Berechneter Analysewert':'Quellenbeobachtung')+' · lokaler Datenstand':'Kurs noch nicht aktuell belegt';
  const sync=goldProductSyncState(p,now);
  const brokerList=goldProductBrokerListStatus(p,now);
  return '<div data-product-compact-summary style="display:grid;gap:9px">'+

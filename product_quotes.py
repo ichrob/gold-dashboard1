@@ -189,15 +189,7 @@ def get_sg_quote(isin):
     return get_quote(isin)
 
 
-def parse_sg_chart_research(product, points, isin, now=None, verified_id=None, market=None):
-    """Parse the public Prices/Live chart for bounded research only.
-
-    The request's productId must come from a verified product response. A chart
-    point dates its bid/ask pair, not independent executable quotes, leverage,
-    or KO terms. This pure parser performs no network calls or persistence.
-    """
-    now = now or datetime.now(timezone.utc)
-    market = market or sg_market(isin)
+def _validate_sg_chart_identity(product, isin, verified_id, market):
     expected = SG_DIRECT_PRODUCTS.get(isin)
     if (isin in SG_DISCOVERY_PRODUCTS or sg_on_demand_candidate(isin)) and type(verified_id) is int and verified_id > 0:
         expected = verified_id
@@ -207,15 +199,52 @@ def parse_sg_chart_research(product, points, isin, now=None, verified_id=None, m
             or (product.get('AssetNMP') != 'XAUUSD' and sg_future_contract(product, isin) is None)
             or product.get('AssetCurrency') != 'USD' or product.get('Currency') != market[2]):
         raise ValueError('SG-Chartprodukt nicht eindeutig bestätigt')
+
+
+def parse_sg_bid_only_research(product, points, isin, now=None, verified_id=None, market=None):
+    """Keep a dated bid when SG explicitly publishes zero ask, never a pair."""
+    now = now or datetime.now(timezone.utc)
+    market = market or sg_market(isin)
+    _validate_sg_chart_identity(product, isin, verified_id, market)
+    if not isinstance(points, list) or not points or len(points) > 10000:
+        raise ValueError('SG-Chartdaten fehlen oder sind zu groß')
+    previous = None
+    for point in points:
+        at = stamp(point['Date'])
+        bid, ask = number(point['Bid']), number(point['Ask'])
+        if bid <= 0 or ask < 0 or (ask > 0 and ask < bid) or at > now or (previous and at < previous):
+            raise ValueError('SG-Chartzeit oder einseitiger Kurs ungültig')
+        previous = at
+    if ask != 0:
+        raise ValueError('Kein einseitiger SG-Kurs')
+    return dict(isin=isin, bid=bid, ask=None, bidAt=at.isoformat(),
+                currency=market[2], source='SG · datierter Geldkurs',
+                sourceUrl=market[0]+'product-details/'+isin.lower(),
+                missingSide='ask', priceKind='issuer-bid-only',
+                isExecutableQuote=False, degiroExecutable=False)
+
+
+def parse_sg_chart_research(product, points, isin, now=None, verified_id=None, market=None):
+    """Parse the public Prices/Live chart for bounded research only.
+
+    The request's productId must come from a verified product response. A chart
+    point dates its bid/ask pair, not independent executable quotes, leverage,
+    or KO terms. This pure parser performs no network calls or persistence.
+    """
+    now = now or datetime.now(timezone.utc)
+    market = market or sg_market(isin)
+    _validate_sg_chart_identity(product, isin, verified_id, market)
     if not isinstance(points, list) or not points or len(points) > 10000:
         raise ValueError('SG-Chartdaten fehlen oder sind zu groß')
     previous = None
     for point in points:
         at = stamp(point['Date'])  # no implicit zone and no request-time fallback
         bid, ask = number(point['Bid']), number(point['Ask'])
-        if bid <= 0 or ask < bid or at > now or (previous and at < previous):
+        if bid <= 0 or ask < 0 or (ask > 0 and ask < bid) or at > now or (previous and at < previous):
             raise ValueError('SG-Chartzeit oder Geld-/Briefpaar ungültig')
         previous = at
+    if ask <= 0:
+        raise ValueError('SG-Briefkurs fehlt im letzten Chartpunkt')
     age = (now-at).total_seconds()
     return dict(found=False, eligible=False, fresh=False, productVerified=True,
                 isin=isin, source='SG · Live-Chart, Recherche',
