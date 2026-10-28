@@ -226,6 +226,7 @@ def init_db():
 def _init_db_once():
     with db() as conn:
         bob_session_store.init(conn)
+        __import__("remote_push").init(conn)
         __import__("risk_paper").init(conn)
         bob_recovery.init(conn)
         bob_passkey_store.init(conn)
@@ -501,6 +502,8 @@ def deliver_background_tests():
             allowed=(general or trade) if scenario=='stop-target' else (general if scenario in ('early-long','early-short') else (general if pending.get('kind')=='general' else trade))
             if allowed and now < pending['dueAt']+300000:
                 message={'title':'TEST · Push bei geschlossener App','body':'Diese Testnachricht wurde zeitversetzt auf dem Server ausgelöst. Kein Handelssignal.','tag':'bob-background-test','data':{'kind':pending['kind'],'test':True,'url':'/','expiresAt':now+180000}}
+                if pending.get('remoteRequestId'):
+                    message['data'].update(traceId=pending['remoteRequestId'],eventKind='remote-delivery-test')
                 if scenario=='stop-target':
                     message=trigger_test_message(pending.get('stage',0),now)
                 elif scenario in ('early-long','early-short'):
@@ -508,12 +511,16 @@ def deliver_background_tests():
                 try:
                     webpush(subscription_info=sub,data=json.dumps(message),vapid_private_key=vapid(),vapid_claims={'sub':VAPID_SUBJECT},ttl=180)
                     # A provider acceptance is never a proof of on-device display.
+                    __import__('remote_push').record(conn,pending,'provider-accepted',now)
                     print('BOB_PUSH_TEST outcome=provider-accepted scenario='+scenario,flush=True)
                 except WebPushException as exc:
+                    __import__('remote_push').record(conn,pending,'provider-rejected',now)
                     code=getattr(getattr(exc,'response',None),'status_code',None)
                     print('BOB_PUSH_TEST outcome=provider-rejected scenario='+scenario+
                           ' status='+str(code if type(code) is int else 'unknown'),flush=True)
                     continue
+            if not allowed or now >= pending['dueAt']+300000:
+                __import__('remote_push').record(conn,pending,'cancelled-channel-off' if not allowed else 'expired',now)
             if allowed and now < pending['dueAt']+300000 and pending.get('scenario')=='stop-target' and pending.get('stage',0)==0:
                 pending.update(stage=1,dueAt=now+30000)
                 conn.execute('UPDATE subscriptions SET pending_test=%s::jsonb WHERE id=%s',(json.dumps(pending),sid))
@@ -946,6 +953,21 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path == '/remote-push':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                import remote_push
+                payload=json_body(self)
+                if not isinstance(payload,dict) or set(payload)!={'name','arguments'}:raise ValueError('Invalid remote push request')
+                name=payload['name'];args=remote_push.arguments(name,payload['arguments'])
+                with db() as conn:
+                    if name=='bob_push_test':result=remote_push.schedule(conn,args)
+                    else:
+                        conn.execute('SET TRANSACTION READ ONLY')
+                        result=remote_push.devices(conn) if name=='bob_push_devices' else remote_push.status(conn,args)
+                    conn.commit()
+                send_json(self,200,result);return
             if path == '/device-receipt':
                 # The browser need not have a live login cookie. Its scoped
                 # HMAC is checked before the receipt is committed. Do not

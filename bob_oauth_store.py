@@ -15,9 +15,10 @@ ORIGIN = 'https://bob-private-scanner.onrender.com'
 RESOURCE = ORIGIN + '/mcp'
 SCOPE = 'bob:products:read'
 DIAGNOSTICS_SCOPE = 'bob:diagnostics:read'
+PUSH_TEST_SCOPE = 'bob:push:test'
 
 def valid_scope(value):
-    return isinstance(value, str) and bool(value.split()) and set(value.split()) <= {SCOPE, DIAGNOSTICS_SCOPE}
+    return isinstance(value, str) and bool(value.split()) and set(value.split()) <= {SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE}
 
 REDIRECT = 'https://chatgpt.com/connector_platform_oauth_redirect'
 ACCESS_TTL = 3600

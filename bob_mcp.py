@@ -1,8 +1,8 @@
-"""Minimal read-only MCP transport for Bob's private product-audit report.
+"""Private MCP reports plus separately consented synthetic push testing.
 
-Uses a dedicated read-only service credential, or the legacy Bob login before
-Passkey enrollment. The service credential is accepted only on POST /mcp.
-It does not expose the PostgreSQL port, accept browser cookies, or provide write tools.
+Legacy service credentials remain product-read-only. Only an explicit OAuth
+bob:push:test grant can schedule a bounded TEST for an existing device.
+No browser cookies, database port, arbitrary messages or trading tools.
 """
 import base64
 import json
@@ -33,7 +33,7 @@ def service_authenticated(headers):
 
 
 
-def tool_definitions(diagnostics=False, products=True):
+def tool_definitions(diagnostics=False, products=True, remote_push=False):
     result = [
         {
             "name": "bob_product_audit",
@@ -81,8 +81,12 @@ def tool_definitions(diagnostics=False, products=True):
                 "additionalProperties":False},
             "annotations":{"readOnlyHint":True,"destructiveHint":False,"idempotentHint":True,"openWorldHint":False},
         })
+    if remote_push:
+        result.extend(__import__('remote_push').definitions())
     for tool in result:
         scope = DIAGNOSTICS_SCOPE if tool['name'] in ('bob_diagnostics','bob_signal_history','bob_push_history') else SCOPE
+        if tool['name'] in __import__('remote_push').READ_TOOLS:scope=DIAGNOSTICS_SCOPE
+        elif tool['name']=='bob_push_test':scope=__import__('remote_push').SCOPE
         schemes = [{"type": "oauth2", "scopes": [scope]}]
         tool['securitySchemes'] = schemes
         tool['_meta'] = {"securitySchemes": schemes}
@@ -100,7 +104,7 @@ def authorization_required(rid, required_scope, products, diagnostics):
     challenge = (f'Bearer resource_metadata="{ORIGIN}/.well-known/oauth-protected-resource", '
                  f'error="insufficient_scope", scope="{" ".join(sorted(scopes))}"')
     return 200, {"jsonrpc": "2.0", "id": rid, "result": {
-        "content": [{"type": "text", "text": "Authorize the additional read-only access to continue."}],
+        "content": [{"type": "text", "text": "Authorize the explicitly requested additional permission to continue."}],
         "isError": True, "_meta": {"mcp/www_authenticate": [challenge]}}}
 
 
@@ -125,7 +129,7 @@ def error(request_id, code, message):
             "error": {"code": code, "message": message}}
 
 
-def handle(request, report_reader, diagnostics_reader=None, products=True, signal_history_reader=None, push_history_reader=None):
+def handle(request, report_reader, diagnostics_reader=None, products=True, signal_history_reader=None, push_history_reader=None, remote_push=False, push_reader=None, push_sender=None):
     """Return (HTTP status, JSON-RPC result). Only tool calls read the database."""
     if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
         return 400, error(None, -32600, "Invalid Request")
@@ -145,13 +149,22 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
     if method == "ping":
         return 200, {"jsonrpc":"2.0","id":rid,"result":{}}
     if method == "tools/list":
-        return 200, {"jsonrpc":"2.0","id":rid,"result":{"tools":tool_definitions(diagnostics=True)}}
+        return 200, {"jsonrpc":"2.0","id":rid,"result":{"tools":tool_definitions(diagnostics=True, remote_push=remote_push)}}
     if method != "tools/call":
         return 200, error(rid, -32601, "Method not found")
     params = request.get("params")
-    if not isinstance(params, dict) or params.get("name") not in [t["name"] for t in tool_definitions(diagnostics=True)]:
+    if not isinstance(params, dict) or params.get("name") not in [t["name"] for t in tool_definitions(diagnostics=True, remote_push=remote_push)]:
         return 200, error(rid, -32602, "Invalid tool arguments")
     args=params.get("arguments", {})
+    if params['name'] in __import__('remote_push').TOOLS:
+        import remote_push as rp
+        try:args=rp.arguments(params['name'],args)
+        except ValueError:return 200,error(rid,-32602,'Invalid remote push arguments')
+        scope=rp.SCOPE if params['name']=='bob_push_test' else DIAGNOSTICS_SCOPE
+        callback=push_sender if params['name']=='bob_push_test' else push_reader
+        if callback is None:return authorization_required(rid,scope,products,diagnostics_reader is not None)
+        data=callback(params['name'],args)
+        return 200,{'jsonrpc':'2.0','id':rid,'result':{'content':[{'type':'text','text':json.dumps(data)}],'isError':False}}
     if params["name"] == "bob_signal_history":
         try:
             from signal_history import arguments

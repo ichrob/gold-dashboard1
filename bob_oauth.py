@@ -1,4 +1,4 @@
-"""OAuth HTTP boundary for the two read-only MCP tools, not a browser login.
+"""OAuth HTTP boundary for scoped private MCP tools, not a browser login.
 
 Public discovery/registration never returns product data. Approval requires the
 existing browser session, daily factor when enrolled, same-origin POST and CSRF.
@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, build_opener, HTTPSHandler
 import bob_auth
 import bob_passkey
-from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, REDIRECT
+from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, REDIRECT
 
 COOKIE = '__Host-bob_oauth'
 UNTIL = '2026-11-16T23:59:59+01:00'
@@ -138,12 +138,12 @@ def route(handler,user,password):
         if handler.command=='GET':
             if path in ('/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp'):
                 respond(handler,200,{'resource':RESOURCE,'authorization_servers':[ORIGIN],
-                                    'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE],'bearer_methods_supported':['header']})
+                                    'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE],'bearer_methods_supported':['header']})
             elif path=='/.well-known/oauth-authorization-server':
                 respond(handler,200,{'issuer':ORIGIN,'authorization_endpoint':ORIGIN+'/oauth/authorize',
                     'token_endpoint':ORIGIN+'/oauth/token','registration_endpoint':ORIGIN+'/oauth/register',
                     'revocation_endpoint':ORIGIN+'/oauth/revoke','response_types_supported':['code'],
-                    'grant_types_supported':['authorization_code','refresh_token'],'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE],
+                    'grant_types_supported':['authorization_code','refresh_token'],'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE],
                     'token_endpoint_auth_methods_supported':['none'],'code_challenge_methods_supported':['S256'],
                     'authorization_response_iss_parameter_supported':True})
             elif path=='/oauth/authorize':
@@ -161,18 +161,19 @@ def route(handler,user,password):
                     respond(handler,200,page('ChatGPT mit Bob verbinden',
                         ('<p>ChatGPT darf deine privaten Produktprüfberichte mit ISINs, Quellen, Zeitstempeln und fehlenden Nachweisen lesen.</p>' if SCOPE in pending.get('scope', SCOPE).split() else '') +
                         ('<p>Zusätzlich freigegeben: Diagnoseberichte zu Marktanalyse, Hintergrundjobs, Simulationen, Push-Überwachung, Recherche und offenen Problemen. Keine Zugangsdaten oder vollständigen Protokolle.</p>' if DIAGNOSTICS_SCOPE in pending.get('scope', SCOPE).split() else '') +
-                        '<p>Keine Änderungen an Bob, keine Orders und kein Zugriff auf dein DEGIRO-Konto.</p>'
+                        ('<p>Zusätzliche Schreibberechtigung: klar gekennzeichnete TEST-Pushs für bereits registrierte Geräte auslösen (maximal einer je fünf Minuten und zehn pro Tag/Gerät). Keine freie Nachricht, Registrierung, Änderung der Push-Kanäle oder Android-Berechtigungen.</p>' if PUSH_TEST_SCOPE in pending.get('scope', SCOPE).split() else '<p>Keine Änderungen an Bob.</p>') +
+                        '<p>Keine Orders und kein Zugriff auf dein DEGIRO-Konto.</p>'
                         '<p>Gültig höchstens 28 Tage, längstens bis '+until+'. In Bob jederzeit widerrufbar.</p>'
                         '<form method="post" action="/oauth/consent"><input type="hidden" name="request" value="'+html.escape(nonce)+'">'
-                        '<button name="decision" value="approve">Lesezugriff erlauben</button>'
+                        '<button name="decision" value="approve">'+('Push-Test-Berechtigung erlauben' if PUSH_TEST_SCOPE in pending.get('scope',SCOPE).split() else 'Lesezugriff erlauben')+'</button>'
                         '<button class="secondary" name="decision" value="deny">Abbrechen</button></form>'),page=True)
             elif path=='/oauth/connections':
                 if browser_ready(handler,user,password):
                     grants = rpc('list',user).get('grants',[])
-                    respond(handler,200,page('ChatGPT-Lesezugriff',
-                        '<p>Aktive Freigaben: '+str(len(grants))+'</p><p>Hier kannst du alle OAuth-Lesefreigaben sofort beenden. Dein Bob-Login bleibt bestehen.</p>'
+                    respond(handler,200,page('ChatGPT-Zugriff',
+                        '<p>Aktive Freigaben: '+str(len(grants))+'</p><p>Hier kannst du alle OAuth-Freigaben sofort beenden. Dein Bob-Login bleibt bestehen.</p>'
                         '<form method="post" action="/oauth/disconnect"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
-                        '<button>Alle Lesefreigaben widerrufen</button></form><p><a href="/">Zurück zu Bob</a></p>'),page=True)
+                        '<button>Alle Freigaben widerrufen</button></form><p><a href="/">Zurück zu Bob</a></p>'),page=True)
             else:respond(handler,404,{'error':'not_found'})
         elif handler.command=='POST':
             if path=='/oauth/register':
