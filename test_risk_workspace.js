@@ -17,6 +17,8 @@ w=r.monitor(w,trade,{...state,spot:3990,at:now+2000},now+2000);assert.equal(w.ac
 w=r.monitor(w,trade,{...state,spot:4010,at:now+3000},now+3000);assert.equal(w.action,'AUSSTIEG PRÜFEN','warning latches until trade closes');
 assert.equal(r.monitor(w,{active:false},state).active,false);
 assert.equal(r.monitor(w,trade,{ready:false,reason:'stale'}).action,'ÜBERWACHUNG EINGESCHRÄNKT');
+assert.equal(r.monitor(w,{...trade,tradeId:'another'}, {ready:false,reason:'stale'}).stop,undefined,'Never carry another trade stop across a data gap');
+assert.equal(r.monitor(w,{...trade,test:true},state).action,'SIMULATION');
 const short={...trade,tradeId:'short',dir:'SHORT',stop:4010};let sw=r.monitor({},short,{...state,spot:4000},now);const shortStop=sw.stop;sw=r.monitor(sw,short,{...state,atr:20,spot:3999,at:now+1000},now+1000);assert(sw.stop<=shortStop);
 const ctx={window:{},localStorage:{getItem:()=>null,setItem:()=>{}}};vm.createContext(ctx);vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),ctx);ctx.window.BobProductEvidence=require('./product_evidence_contract');const api=ctx.window.BobDegiro;
 const market={atr:10,trend:'LONG',trend2:'LONG',mtf:'LONG',rsi:64,hist:2,adx:28,momentum:1};
