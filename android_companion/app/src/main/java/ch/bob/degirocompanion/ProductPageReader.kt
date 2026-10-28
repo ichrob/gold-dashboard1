@@ -6,6 +6,8 @@ internal class ProductPageReader {
     enum class Cause { NONE, WAIT_PROTECTED, WAIT_IDENTITY, WAIT_SCROLL, UNSAFE_VIEW,
         IDENTITY_CHANGED, NO_QUOTES, RETURN_FAILED, SCROLL_LIMIT, INVALID_QUOTES, SEEK_HEADER, SEEK_LIMIT, WAIT_SCROLL_LAYOUT, SCROLL_LAYOUT_CHANGED }
     data class Step(val move: Move, val result: ProductScreenEvidence.Result, val cause: Cause = Cause.NONE)
+    private var rejectedForward = 0
+    private var rejectedBackward = 0
     private var layoutWaits = 0
     private var seekSteps = 0
     private var seekWindow: Int? = null
@@ -16,13 +18,21 @@ internal class ProductPageReader {
     private var backward = 0
     private var candidate: ProductScreenEvidence.Result? = null
     val anchored get() = isin != null
-    fun reset() { layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null }
+    fun reset() { rejectedForward = 0; rejectedBackward = 0; layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null }
     private fun stop(message: String, cause: Cause, reason: ProductScreenEvidence.Reason = ProductScreenEvidence.Reason.NONE): Step {
         reset(); return Step(Move.ABORT, ProductScreenEvidence.Result(message = message, reason = reason), cause)
     }
+    fun scrollSucceeded(move: Move) {
+        if (move == Move.FORWARD) rejectedForward = 0
+        else if (move == Move.BACKWARD) rejectedBackward = 0
+    }
     fun scrollFailed(move: Move) {
-        if (move == Move.FORWARD) returning = true
-        else if (move == Move.BACKWARD) { candidate = null; backward = 8; if (!anchored) seekSteps = 4 }
+        // A stale accessibility node can reject an action while the page rebuilds.
+        // Retry only via a fresh traversal; the existing scroll/time limits apply.
+        if (move == Move.FORWARD && ++rejectedForward >= 3) returning = true
+        else if (move == Move.BACKWARD && ++rejectedBackward >= 3) {
+            candidate = null; backward = 8; if (!anchored) seekSteps = 4
+        }
     }
     fun inspect(windowId: Int, lines: List<QuoteLayout.Line>, at: String, sensitive: Boolean,
                 canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false): Step {
