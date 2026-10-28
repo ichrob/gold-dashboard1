@@ -36,9 +36,38 @@ internal object MorningReadPolicy {
         if (nodes.any { it.editable && !search(it) }) return "UNRECOGNIZED_INPUT"
         return null
     }
+    /** A market navigation launcher is not an open order form. This exception
+     * permits only opening an isolated, explicit product search on Markets;
+     * never entering text, opening results, reading, or activating the launcher. */
+    private fun marketSearchBesideLauncher(nodes: List<Node>): Int? {
+        if (nodes.any { it.editable || it.containsInput || it.sensitive || it.password }) return null
+        fun values(n: Node) = listOf(n.text,n.description,n.hint)
+        fun exact(value: String, label: String) = value.trim().equals(label,ignoreCase=true)
+        if (!nodes.any { exact(it.text,"Märkte") } || !nodes.any { exact(it.text,"Indizes") }) return null
+        if (orderMarkers.drop(1).any { (_,marker) -> nodes.any { n -> values(n).any(marker::containsMatchIn) } }) return null
+        val launchLabel=Regex("(?iu)^(order platzieren|place order)$")
+        val marked=nodes.filter { n -> values(n).any(orderMarkers.first().second::containsMatchIn) }
+        if (marked.size != 1) return null
+        val launcher=marked.single()
+        if (!launcher.clickable || values(launcher).filter(String::isNotBlank).any { !launchLabel.matches(it.trim()) } ||
+            launcher.row.lines().filter(String::isNotBlank).any { !launchLabel.matches(it.trim()) }) return null
+        val productLabel="Mit Namen, ISIN oder Symbol suchen"
+        val searches=nodes.indices.filter { index ->
+            val n=nodes[index]
+            n.clickable && values(n).any { exact(it,productLabel) } &&
+                values(n).filter(String::isNotBlank).all { exact(it,productLabel) } &&
+                n.row.lines().filter(String::isNotBlank).all { exact(it,productLabel) }
+        }
+        return searches.singleOrNull()
+    }
     fun decide(nodes: List<Node>, target: String): Action {
         if (!SeriesEvidence.validIsin(target) || nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
-        protection(nodes)?.let { return Action(Kind.BLOCK, code=it) }
+        protection(nodes)?.let { cause ->
+            if (cause == "PROTECTED_ORDER_CONFIRM") {
+                marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
+            }
+            return Action(Kind.BLOCK, code=cause)
+        }
         val inputs = nodes.indices.filter { nodes[it].editable && search(nodes[it]) }
         if (inputs.size > 1) return Action(Kind.WAIT, code="SEARCH_AMBIGUOUS")
         if (inputs.size == 1) {

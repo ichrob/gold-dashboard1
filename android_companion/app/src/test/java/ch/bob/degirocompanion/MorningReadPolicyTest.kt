@@ -93,6 +93,35 @@ class MorningReadPolicyTest {
             assertEquals(-1,action.index)
         }
     }
+    @Test fun isolatedMarketLauncherAllowsOnlyExplicitProductSearch() {
+        val search=node("Mit Namen, ISIN oder Symbol suchen",true)
+        val launcher=node("",true).copy(description="Order platzieren")
+        val home=listOf(node("Märkte"),node("Indizes"),search,launcher)
+        val action=MorningReadPolicy.decide(home,isin)
+        assertEquals(MorningReadPolicy.Kind.SEARCH,action.kind)
+        assertEquals(2,action.index)
+        // A generic toolbar search icon does not compete with the exact product label.
+        assertEquals(2,MorningReadPolicy.decide(home+node("Suche",true),isin).index)
+        for (bad in listOf(
+            home+node("Order bestätigen",true), home+node("Confirm order",true),
+            home+node("Orderart"),home+node("Limitpreis"),home+node("Stückzahl"),
+            home+node("").copy(editable=true),home+node("").copy(password=true),
+            home+node("").copy(sensitive=true),home+node("Anmelden"),
+            home+search,home+launcher,
+            home.filterNot { it.text=="Indizes" },home.filterNot { it.text=="Märkte" },
+            home.take(3)+launcher.copy(clickable=false),
+            home.take(3)+launcher.copy(row="Order platzieren\nKauf"),
+            home.take(3)+launcher.copy(description="Order bestätigen"),
+            home.take(2)+search.copy(row="Mit Namen, ISIN oder Symbol suchen\nOrder platzieren")+launcher,
+            home.take(2)+search.copy(clickable=false)+launcher,
+            home.take(2)+search.copy(editable=true)+launcher,
+            home.take(2)+node("Suche",true)+launcher,
+            home+node(isin).copy(editable=true,hint="Suche"))) {
+            assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(bad,isin).kind)
+        }
+        // An order launcher on product/results views remains blocked.
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(listOf(node(isin),node("Übersicht"),launcher),isin).kind)
+    }
     @Test fun detailNeedsIdentityAndNeverClicksBuy() {
         assertEquals(MorningReadPolicy.Kind.READ,MorningReadPolicy.decide(listOf(node(isin),node("Übersicht"),node("KAUF",true)),isin).kind)
         assertEquals(MorningReadPolicy.Kind.BACK,MorningReadPolicy.decide(listOf(node("DE000FG77MY4"),node("Übersicht")),isin).kind)
