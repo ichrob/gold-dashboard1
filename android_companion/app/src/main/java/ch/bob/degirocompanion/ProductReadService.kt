@@ -30,7 +30,7 @@ class ProductReadService : AccessibilityService() {
     private val screenOff = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != Intent.ACTION_SCREEN_OFF || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return
-            MorningReadRun.stop(this,"SCREEN_LOCKED")
+            MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
             ProductReadRequest.cancel()
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED)
             ProductReadSession.put(ProductScreenEvidence.Result(message = "Bildschirm ausgeschaltet. Leseprüfung beendet; zum Fortsetzen entsperren und erneut starten."), SystemClock.elapsedRealtime())
@@ -51,7 +51,7 @@ class ProductReadService : AccessibilityService() {
         handler.postDelayed(requestDeadline, remaining)
         val power = getSystemService(POWER_SERVICE) as PowerManager
         if (!power.isInteractive || (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) {
-            MorningReadRun.stop(this,"SCREEN_LOCKED")
+            MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
             ProductReadRequest.cancel()
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED)
             return
