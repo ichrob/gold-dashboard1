@@ -129,7 +129,7 @@ function renderPushState(){
   !fresh?pushNote:remote.riskEnabled!==enabled?'Einstellung am Server noch nicht bestätigt.':
   !enabled?'Risiko-Push ausgeschaltet.':
   !(pref.general||pref.trade)?'Servereinstellung gespeichert; Markt- oder Trade-Push muss eingeschaltet sein.':
-  !Number.isFinite(checked)||Date.now()-checked>90000?'Risiko-Push gespeichert; aktueller Hintergrunddurchlauf noch nicht bestätigt.':
+  !Number.isFinite(checked)||checked>Date.now()||Date.now()-checked>90000?'Risiko-Push gespeichert; aktueller Hintergrunddurchlauf noch nicht bestätigt.':
   'Hintergrundprüfung: '+new Date(checked).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'})+' · '+
   (remote.riskState.signal?.ready?'Kursdaten geprüft':'Daten eingeschränkt')+'. Versand ist kein bestätigter Handyempfang.';
 }
@@ -158,7 +158,7 @@ function refresh(){
  const rows=ranking(input?.products,state,input?.context||{},root.BobDegiro,now);
  let trade;try{trade=root.BobTradeSync?.current?.();}catch(_){}
  const saved=remote?.riskState?.watch;
- if(root.BobPush?.state?.().risk===true&&saved?.id===trade?.tradeId&&saved?.dir===trade?.dir&&positive(saved.stop)){
+ if(root.BobPush?.state?.().risk===true&&saved&&trade?.active===true&&saved.id===trade.tradeId&&saved?.dir===trade?.dir&&positive(saved.stop)){
   // Restore the durable tighter boundary after reload, without changing the actual trade.
   if(watch.id!==saved.id||!positive(watch.stop)||
      (saved.dir==='LONG'?saved.stop>watch.stop:saved.stop<watch.stop))watch={...saved};
