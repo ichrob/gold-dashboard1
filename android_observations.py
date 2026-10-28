@@ -53,6 +53,8 @@ def prepare(payload, feed, now=None):
     if not isinstance(payload,dict) or len(json.dumps(payload))>65536: raise ValueError('Leselauf zu groß')
     revision=payload.get('revision')
     if type(revision) is not int or not 1<=revision<=10000: raise ValueError('Ungültige Speicherversion')
+    version=payload.get('appVersionCode')
+    if version is not None and (type(version) is not int or not 1<=version<=2100000000): raise ValueError('Ungültige App-Version')
     batch=payload.get('batchId','');ids=payload.get('isins');rows=payload.get('results');events=payload.get('events')
     if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch): raise ValueError('Leselauf-Kennung fehlt')
     if not isinstance(ids,list) or not 1<=len(ids)<=12 or any(not isinstance(i,str) or not valid_isin(i) for i in ids) or len(set(ids))!=len(ids): raise ValueError('Ungültige Produktliste')
@@ -78,7 +80,7 @@ def prepare(payload, feed, now=None):
         at=timestamp(e.get('at'))
         if at.year<2020 or (now-at).total_seconds() < -60: raise ValueError('Protokollzeit ungültig')
         safe_events.append(dict(isin=e['isin'],code=e['code'],attempt=e['attempt'],at=at.isoformat()))
-    return dict(batchId=batch,revision=revision,listUploadedAt=uploaded.isoformat(),isins=ids,results=results,events=safe_events,
+    return dict(batchId=batch,revision=revision,appVersionCode=version,listUploadedAt=uploaded.isoformat(),isins=ids,results=results,events=safe_events,
                 receivedAt=now.isoformat(),verified=False,tradeApproved=False,realOrders=False,
                 scope='unverified-app-observations-not-market-inputs')
 
@@ -122,7 +124,7 @@ def status(conn):
     for row in rows:
         r=row[0]
         runs.append(dict(batchId=r['batchId'],revision=r['revision'],receivedAt=r['receivedAt'],
-            listUploadedAt=r['listUploadedAt'],requested=len(r['isins']),
+            appVersionCode=r.get('appVersionCode'),listUploadedAt=r['listUploadedAt'],requested=len(r['isins']),
             results=[dict(isin=x['isin'],code=x['code'],attempts=x['attempts'],
                 missingFields=(x.get('observation') or {}).get('missingFields',list(REQUIRED)),
                 matchedCurrentList=x['matchedCurrentList']) for x in r['results']],events=r['events'][-12:]))

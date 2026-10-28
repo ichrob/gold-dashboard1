@@ -23,6 +23,17 @@ class MemoryDb:
     def fetchone(self):return self.result
 
 class AndroidObservations(unittest.TestCase):
+    def test_app_version_is_optional_bounded_and_survives_private_status(self):
+        self.assertIsNone(a.prepare(run(),{},NOW)['appVersionCode'])
+        payload=run();payload['appVersionCode']=10210
+        saved=a.prepare(payload,{},NOW)
+        class StatusDb:
+            def execute(self,*args):return self
+            def fetchall(self):return [(saved,)]
+        self.assertEqual(a.status(StatusDb())['runs'][0]['appVersionCode'],10210)
+        for bad in [True,0,-1,2100000001,'10210',{}]:
+            payload['appVersionCode']=bad
+            with self.subTest(bad=bad),self.assertRaises(ValueError):a.prepare(payload,{},NOW)
     def test_partial_is_recomputed_and_cannot_be_promoted(self):
         r=a.prepare(run(),{'products':[{'isin':ISIN}]},NOW)
         self.assertEqual(r['results'][0]['code'],'PARTIAL')
