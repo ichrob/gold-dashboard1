@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   android-lab-build:
-    name: Build offline-only Android test APK
+    name: Build Android test APK with opt-in diagnostics
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -53,8 +53,10 @@ jobs:
           grep -Fq "package: name='ch.bob.degirocompanion.stable.voicetest'" /tmp/bob-android-badging.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > /tmp/bob-android-actual-permissions.txt
           cat /tmp/bob-android-actual-permissions.txt
-          for forbidden in android.permission.INTERNET android.permission.ACCESS_NETWORK_STATE \
-                           android.permission.SYSTEM_ALERT_WINDOW android.permission.QUERY_ALL_PACKAGES \
+          for required in android.permission.INTERNET android.permission.ACCESS_NETWORK_STATE android.permission.RECEIVE_BOOT_COMPLETED; do
+            grep -Fq "$required" /tmp/bob-android-actual-permissions.txt
+          done
+          for forbidden in android.permission.SYSTEM_ALERT_WINDOW android.permission.QUERY_ALL_PACKAGES \
                            android.permission.READ_SMS android.permission.READ_CONTACTS; do
             if grep -Fq "$forbidden" /tmp/bob-android-actual-permissions.txt; then
               echo "Forbidden permission in real APK: $forbidden" >&2
@@ -64,7 +66,8 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           manifest = Path("android_companion/app/src/main/AndroidManifest.xml").read_text()
-          assert 'tools:node="remove"' in manifest
+          assert 'android:usesCleartextTraffic="false"' in manifest
+          assert 'android.permission.INTERNET' in manifest
           assert 'android.intent.action.SEND' in manifest
           assert 'android:mimeType="image/*"' in manifest
           assert 'android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"' in manifest
@@ -72,7 +75,7 @@ jobs:
           assert 'android:canPerformGestures="false"' in config
           assert 'android:canTakeScreenshot="false"' in config
           assert 'android:packageNames="nl.degiro.trader"' in config
-          print("Final APK checked: no network access; explicit read-only product service.")
+          print("Final APK checked: opt-in diagnostic transport; explicit read-only product service.")
           PY
       - name: Upload disposable lab APK (NOT an update for Bob – Handy)
         uses: actions/upload-artifact@v4

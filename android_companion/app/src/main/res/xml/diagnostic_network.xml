@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- No default CA trust for dependency telemetry or other destinations. -->
+    <base-config cleartextTrafficPermitted="false"><trust-anchors /></base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">bob-private-scanner.onrender.com</domain>
+        <trust-anchors><certificates src="system" /></trust-anchors>
+    </domain-config>
+</network-security-config>

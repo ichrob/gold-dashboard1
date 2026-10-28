@@ -18,6 +18,17 @@ def request(focus='research'):
 
 
 class ResearchAccessTests(unittest.TestCase):
+    def test_internal_transport_allowlist_accepts_research_and_android_status(self):
+        for path in ('/research-status','/android-diagnostic-status'):
+            response=MagicMock();response.__enter__.return_value.read.return_value=b'{"status":"empty"}'
+            with patch.object(server,'PUSH_SERVICE_URL','https://service.test'), \
+                 patch.object(server,'PUSH_SERVICE_TOKEN','synthetic-test-token'), \
+                 patch.object(server,'urlopen',return_value=response) as opening:
+                self.assertEqual(server.read_private_report_for_mcp(path),{'status':'empty'})
+            req=opening.call_args.args[0]
+            self.assertEqual(req.full_url,'https://service.test'+path)
+            self.assertEqual(req.get_method(),'GET')
+
     def test_research_focus_loads_report_independently_of_fast_simulation(self):
         stored={'status':'observed','items':[{'calculatedAt':'original-clock',
             'report':{'mode':'RESEARCH_ONLY','approved':False,'closedBars':1200}}]}

@@ -174,7 +174,7 @@ jobs:
         if: steps.update.outputs.needs_release == 'true'
         run: gradle -p android_companion :app:testDebugUnitTest :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Require correct package, offline-only permissions and pinned signature
+      - name: Require correct package, scoped diagnostic permissions and pinned signature
         if: steps.update.outputs.needs_release == 'true'
         shell: bash
         run: |
@@ -185,8 +185,10 @@ jobs:
           grep -Fq "package: name='ch.bob.degirocompanion.stable'" "$RUNNER_TEMP/bob-badging.txt"
           grep -Fq "versionCode='$BOB_ANDROID_VERSION_CODE'" "$RUNNER_TEMP/bob-badging.txt"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$apk" > "$RUNNER_TEMP/bob-permissions.txt"
-          for forbidden in android.permission.INTERNET android.permission.ACCESS_NETWORK_STATE \
-              android.permission.SYSTEM_ALERT_WINDOW android.permission.QUERY_ALL_PACKAGES \
+          for required in android.permission.INTERNET android.permission.ACCESS_NETWORK_STATE android.permission.RECEIVE_BOOT_COMPLETED; do
+            grep -Fq "$required" "$RUNNER_TEMP/bob-permissions.txt"
+          done
+          for forbidden in android.permission.SYSTEM_ALERT_WINDOW android.permission.QUERY_ALL_PACKAGES \
               android.permission.READ_SMS android.permission.READ_CONTACTS; do
             if grep -Fq "$forbidden" "$RUNNER_TEMP/bob-permissions.txt"; then
               echo "Release blocked: forbidden permission $forbidden" >&2

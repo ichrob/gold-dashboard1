@@ -68,7 +68,7 @@ SIGNAL_WORKER_TOKEN = os.environ.get("SIGNAL_WORKER_TOKEN", "")
 
 def read_private_report_for_mcp(path, query=None):
     """Fetch the existing internal report without adding a public database port."""
-    if path not in ("/product-audit", "/diagnostics", "/simulation-status", "/comparison-status", "/research-status", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health", "/risk-paper", "/android-read-status"):
+    if path not in ("/product-audit", "/diagnostics", "/simulation-status", "/comparison-status", "/research-status", "/candidate-proofs", "/signal-history", "/push-delivery-history", "/storage-health", "/risk-paper", "/android-read-status", "/android-diagnostic-status"):
         raise ValueError("Unknown report")
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:
         raise RuntimeError("Private audit unavailable")
@@ -106,6 +106,15 @@ def remote_push_rpc(name, args):
                     headers={'X-Bob-Push-Token':PUSH_SERVICE_TOKEN,'Content-Type':'application/json'},method='POST')
     with urlopen(request,timeout=8) as response:result=json.loads(response.read(65536))
     return result
+
+
+def android_diagnostic_rpc(payload):
+    if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:raise RuntimeError('Diagnostics unavailable')
+    base=PUSH_SERVICE_URL.rstrip('/')
+    if not base.startswith(('https://','http://')):base='https://'+base
+    request=Request(base+'/android-diagnostics',data=json.dumps(payload).encode(),method='POST',
+        headers={'X-Bob-Push-Token':PUSH_SERVICE_TOKEN,'Content-Type':'application/json'})
+    with urlopen(request,timeout=8) as response:return json.loads(response.read(8192))
 
 
 def read_private_product_audit_for_mcp():
@@ -164,6 +173,7 @@ def read_diagnostics_for_mcp():
         'strategyResearch':lambda:bob_diagnostics.fields(strategy_lab_background.status(),
             ('enabled','running','phase','lastSuccessAt','lastAttemptAt','lastRunDay','error')),
         'storage':lambda:read_private_report_for_mcp('/storage-health'),
+        'androidTelemetry':lambda:read_private_report_for_mcp('/android-diagnostic-status'),
         'androidReader':lambda:read_private_report_for_mcp('/android-read-status'),
         'simulationAndPush':lambda:read_private_report_for_mcp('/simulation-status'),
         # Stored comparisons are isolated from the live heartbeat so either
@@ -1246,6 +1256,7 @@ class Handler(BaseHTTPRequestHandler):
         return bob_auth.authenticated(self.headers, USER, PASSWORD)
 
     def do_GET(self):
+        if __import__('android_telemetry_http').route(self,'GET',urlparse(self.path).path,android_diagnostic_rpc):return
         if bob_oauth.route(self, USER, PASSWORD):
             return
         if bob_passkey.route(self, USER, PASSWORD):
@@ -2025,6 +2036,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
+        if __import__('android_telemetry_http').route(self,'POST',urlparse(self.path).path,android_diagnostic_rpc):return
         if bob_oauth.route(self, USER, PASSWORD):
             return
         if bob_passkey.route(self, USER, PASSWORD):

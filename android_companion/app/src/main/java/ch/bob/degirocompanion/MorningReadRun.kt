@@ -61,6 +61,7 @@ internal object MorningReadRun {
         persist(c)
         p.edit().remove("challenge").remove("challengeAt").commit()
         running=true
+        PhoneDiagnostics.queue(c)
     }
     private fun persist(c: Context) {
         data?.put("revision", (data?.optInt("revision") ?: 0)+1)
@@ -72,6 +73,7 @@ internal object MorningReadRun {
         events.put(JSONObject().put("isin",target).put("code",code).put("attempt",attempt).put("at",Instant.now().toString()))
         while(events.length()>48) events.remove(0)
         persist(c)
+        PhoneDiagnostics.queue(c)
     }
     fun outcome(c: Context, code: String, draft: String = ""): Boolean {
         check(running)
@@ -112,6 +114,7 @@ internal object MorningReadRun {
     fun stop(c: Context, code: String) {
         val wasRunning=running
         try { if(running) runCatching { event(c,code) } } finally { running=false;reading=false }
+        PhoneDiagnostics.queue(c)
         if(wasRunning && code!="USER_STOP") onStopped?.invoke()
     }
     fun acknowledge(c: Context, batchId: String, revision: Int): Boolean {
