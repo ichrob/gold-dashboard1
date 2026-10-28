@@ -32,6 +32,23 @@ class ProductReadRequestTest {
         for (i in 1..29) assertTrue(ProductReadRequest.attempt(1000 + i * 1000L))
         assertFalse(ProductReadRequest.attempt(31000))
     }
+    @Test fun resumedRequestKeepsOriginalDeadlineAndReleasesOnExpiryOrStop() {
+        var releases = 0
+        ProductReadRequest.onCancelled = { releases++ }
+        try {
+            ProductReadRequest.start(1000)
+            assertEquals(60000L, ProductReadRequest.remainingMillis(1000))
+            assertEquals(10000L, ProductReadRequest.remainingMillis(51000))
+            assertEquals(0L, ProductReadRequest.remainingMillis(61000))
+            assertEquals(1, releases)
+            assertEquals(0L, ProductReadRequest.remainingMillis(62000))
+            assertEquals(1, releases)
+            ProductReadRequest.start(70000)
+            ProductReadRequest.cancel()
+            assertEquals(2, releases)
+            assertEquals(0L, ProductReadRequest.remainingMillis(71000))
+        } finally { ProductReadRequest.onCancelled = null; ProductReadRequest.cancel() }
+    }
     @Test fun cancellationAndNewStartDoNotReuseOldBudget() {
         ProductReadRequest.start(1000)
         assertTrue(ProductReadRequest.attempt(1000))
