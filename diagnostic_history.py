@@ -23,11 +23,12 @@ _LAST_PRUNE = time.monotonic()
 _PRUNE_INTERVAL_SECONDS = 1800
 _PRUNE_TIMEOUT = '5s'
 _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
-# Live stage telemetry isolated repeated five-second timeouts to the 2,000-row
-# cap delete, while the existing 500-row age delete continued to complete.
-# Keep the same journal cap and cadence, but bound the expensive index cleanup
-# to the already proven maintenance batch size.
+# Live stage telemetry isolated repeated five-second timeouts to the cap delete,
+# even after its batch was reduced from 2,000 to 500 rows.  Keep that bounded
+# maintenance batch, but avoid rescanning an ordered 60,000-row OFFSET before
+# every delete.
 _PRUNE_CAP_BATCH_SIZE = 500
+_PRUNE_MAX_EVENTS = 60000
 _STATS = {'stored':0,'dropped':0,'failures':0,'lastStoredAt':None}
 
 
@@ -164,19 +165,30 @@ def prune(conn):
              ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""")
     except Exception as exc:
         raise _PruneStageError('age-delete', exc) from exc
-    # Journal rows are append-only. Select physical tuple IDs and delete them
-    # in the SAME statement/snapshot, avoiding a second full journal ID join.
-    # The advisory lock above serializes maintenance across both services.
-    # Only the pre-existing 60,000-row journal cap applies; raw archives are
-    # separate tables and are never touched by this maintenance.
+    # Journal rows are append-only. An exact count preserves the pre-existing
+    # 60,000-row cap without an ordered OFFSET scan.  When over the limit,
+    # remove only the proven bounded batch of oldest physical tuples.  The
+    # advisory lock serializes maintenance across both services; concurrent
+    # writers can only increase the count, never make this over-delete.
+    # Raw archives are separate tables and are never touched here.
     try:
-        capped=conn.execute('''DELETE FROM bob_diagnostic_history
-            WHERE ctid = ANY(ARRAY(
-                SELECT ctid FROM bob_diagnostic_history
-                ORDER BY recorded_at DESC OFFSET 60000 LIMIT %s))''',
-            (_PRUNE_CAP_BATCH_SIZE,))
+        counted=conn.execute(
+            'SELECT count(*) FROM bob_diagnostic_history').fetchone()
     except Exception as exc:
-        raise _PruneStageError('cap-delete', exc) from exc
+        raise _PruneStageError('cap-count', exc) from exc
+    total=(counted[0] if counted and isinstance(counted[0],int) else 0)
+    excess=max(0,total-_PRUNE_MAX_EVENTS)
+    capped=None
+    if excess:
+        cap_batch=min(_PRUNE_CAP_BATCH_SIZE,excess)
+        try:
+            capped=conn.execute('''DELETE FROM bob_diagnostic_history
+                WHERE ctid = ANY(ARRAY(
+                    SELECT ctid FROM bob_diagnostic_history
+                    ORDER BY recorded_at ASC LIMIT %s))''',
+                (cap_batch,))
+        except Exception as exc:
+            raise _PruneStageError('cap-delete', exc) from exc
     counts=(getattr(old,'rowcount',0),getattr(capped,'rowcount',0))
     return sum(value for value in counts if isinstance(value,int) and value>0)
 
