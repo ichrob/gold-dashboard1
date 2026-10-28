@@ -4,6 +4,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ProductReadDiagnosticsTest {
+    @Test fun inlineQuoteNodesIdentifyProductScrollSurfaceWithoutUsingChartOrAccount() {
+        for (row in listOf("Geld € 11,40", "Brief CHF 11,41", "Geld € 11,40 Brief € 11,41",
+                "Zuletzt € 11,40 27/10/2026 17:32", "Kursdaten\nGeld € 11,40")) {
+            assertEquals(row, 2, ProductScrollPolicy.evidence(row))
+            val nodes = listOf(ProductScrollPolicy.Capability(true, true),
+                ProductScrollPolicy.Capability(true, true, evidence = ProductScrollPolicy.evidence(row)))
+            assertEquals(1, ProductScrollPolicy.select(nodes, true))
+        }
+        for (row in listOf("CHF 505,05", "€ 11,37", "Geld Vol. 25K", "Brief Vol. 25K",
+                "1D 1W 1M", "Geld verdienen", "Geld € 11,40 kaufen"))
+            assertEquals(row, 0, ProductScrollPolicy.evidence(row))
+    }
+
     @Test fun choosesProductContainerAndNotChart() {
         val outer = ProductScrollPolicy.Capability(true, true, evidence = 3)
         val product = ProductScrollPolicy.Capability(true, true, ancestors = listOf(0), evidence = 3)
