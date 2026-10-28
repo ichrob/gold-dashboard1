@@ -42,6 +42,19 @@ class DirectTests(unittest.TestCase):
         self.assertIn('Briefkurs fehlt', audit['autoRecovery'])
         self.assertFalse(audit['tradeApproved'])
 
+    def test_pair_recovers_after_bid_only_history_without_mixing_points(self):
+        older = (q.stamp(self.at)-timedelta(seconds=10)).isoformat()
+        points = [dict(Bid=9, Ask=0, Date=older), dict(Bid=10, Ask=10.01, Date=self.at)]
+        with patch.object(q, 'issuer_json', side_effect=[self.product, self.props, points]):
+            out = sg.get_quote(ISIN)
+        self.assertEqual(out['chartEvidence']['bid'], 10)
+        self.assertEqual(out['chartEvidence']['ask'], 10.01)
+        self.assertEqual(out['chartEvidence']['pointAt'], self.at)
+        self.assertNotIn('oneSidedQuote', out)
+        self.assertNotIn('quoteFailureCode', out)
+        with self.assertRaises(ValueError):
+            q.parse_sg_chart_research(self.product, points[:1], ISIN)
+
     def test_bid_only_parser_rejects_bad_identity_time_and_prices(self):
         now = datetime.now(timezone.utc)
         for change in (dict(Bid=0), dict(Ask=-1), dict(Ask=9), dict(Bid=float('nan')),

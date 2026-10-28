@@ -240,9 +240,11 @@ def parse_sg_chart_research(product, points, isin, now=None, verified_id=None, m
     for point in points:
         at = stamp(point['Date'])  # no implicit zone and no request-time fallback
         bid, ask = number(point['Bid']), number(point['Ask'])
-        if bid <= 0 or ask < bid or at > now or (previous and at < previous):
+        if bid <= 0 or ask < 0 or (ask > 0 and ask < bid) or at > now or (previous and at < previous):
             raise ValueError('SG-Chartzeit oder Geld-/Briefpaar ungültig')
         previous = at
+    if ask <= 0:
+        raise ValueError('SG-Briefkurs fehlt im letzten Chartpunkt')
     age = (now-at).total_seconds()
     return dict(found=False, eligible=False, fresh=False, productVerified=True,
                 isin=isin, source='SG · Live-Chart, Recherche',
