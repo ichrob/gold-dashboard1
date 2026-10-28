@@ -40,6 +40,33 @@ class MorningReadPolicyTest {
         for(n in listOf(node("Passwort"),node("Orderart"),node("Anmelden"),node("Gold").copy(sensitive=true)))
             assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(listOf(node(isin),node("Übersicht"),n),isin).kind)
     }
+    @Test fun markedSearchPlaceholderCanIdentifyInputWithoutViewId() {
+        for(label in listOf("Suche", "Search instruments", "Name, ISIN oder Symbol")) {
+            val hint=MorningReadPolicy.inputHint("",label,true)
+            val input=node("").copy(editable=true,hint=hint)
+            assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.decide(listOf(input),isin).kind)
+            assertEquals("",MorningReadPolicy.inputHint("",label,false))
+        }
+        for(label in listOf("Passwort", "Limitpreis", "Search orders", "ISIN", isin)) {
+            assertEquals("",MorningReadPolicy.inputHint("",label,true))
+            assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(listOf(node("").copy(editable=true)),isin).kind)
+        }
+    }
+    @Test fun protectionCausesAreDistinctWithoutExportingScreenText() {
+        val cases=listOf(
+            node("").copy(password=true,sensitive=true,editable=true) to "PROTECTED_PASSWORD",
+            node("").copy(sensitive=true,editable=true) to "PROTECTED_SENSITIVE_INPUT",
+            node("").copy(sensitive=true) to "PROTECTED_SENSITIVE_CONTENT",
+            node("Anmelden") to "PROTECTED_LOGIN",
+            node("Orderart") to "PROTECTED_ORDER",
+            node("").copy(editable=true) to "UNRECOGNIZED_INPUT")
+        for((blocked,code) in cases) {
+            val action=MorningReadPolicy.decide(listOf(node("Suchen",true),blocked),isin)
+            assertEquals(MorningReadPolicy.Kind.BLOCK,action.kind)
+            assertEquals(code,action.code)
+        }
+        assertEquals("PROTECTED_PASSWORD",MorningReadPolicy.decide(listOf(node("Suchen").copy(editable=true,password=true)),isin).code)
+    }
     @Test fun detailNeedsIdentityAndNeverClicksBuy() {
         assertEquals(MorningReadPolicy.Kind.READ,MorningReadPolicy.decide(listOf(node(isin),node("Übersicht"),node("KAUF",true)),isin).kind)
         assertEquals(MorningReadPolicy.Kind.BACK,MorningReadPolicy.decide(listOf(node("DE000FG77MY4"),node("Übersicht")),isin).kind)
