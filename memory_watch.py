@@ -118,7 +118,32 @@ def _report(s, high, highest_node, highest_children):
     }, separators=(",", ":"), allow_nan=False)
 
 
-def watch(interval=0.5, stop=None, emit=print):
+def release_free_pages():
+    """Ask glibc to return already-free pages; never discard live Python data.
+
+    malloc_trim is MT-Safe and examines all arenas on modern glibc.
+    Unsupported runtimes simply retain their normal allocator behaviour.
+    https://man7.org/linux/man-pages/man3/malloc_trim.3.html
+    """
+    try:
+        import ctypes
+        trim = ctypes.CDLL(None).malloc_trim
+        trim.argtypes = [ctypes.c_size_t]
+        trim.restype = ctypes.c_int
+        return bool(trim(0))
+    except (ImportError, AttributeError, OSError):
+        return None
+
+
+def reclaim_due(sample, now, last_attempt):
+    used, limit = sample.get('containerMiB'), sample.get('limitMiB')
+    parent = sample.get('parentMiB')
+    return (used is not None and limit is not None and limit > 0
+            and parent is not None and parent >= 128
+            and used >= 0.60 * limit and now - last_attempt >= 120)
+
+
+def watch(interval=0.5, stop=None, emit=print, reclaim=False):
     """Sample short subprocess peaks; throttle logs to protect Render capacity."""
     high = 0.0
     node_high = 0.0
@@ -126,10 +151,25 @@ def watch(interval=0.5, stop=None, emit=print):
     last_log = -120.0
     last_reported_high = 0.0
     last_warning = -120.0
+    last_reclaim = -120.0
     while stop is None or not stop.is_set():
         try:
             sample = snapshot()
             now = time.monotonic()
+            if reclaim and reclaim_due(sample, now, last_reclaim):
+                last_reclaim = now
+                started = time.monotonic()
+                released = release_free_pages()
+                after = snapshot()
+                emit('BOB_MEMORY_RECLAIM ' + json.dumps({
+                    'supported': released is not None, 'released': released,
+                    'beforeParentMiB': sample['parentMiB'],
+                    'afterParentMiB': after['parentMiB'],
+                    'beforeContainerMiB': sample['containerMiB'],
+                    'afterContainerMiB': after['containerMiB'],
+                    'durationMs': round((time.monotonic()-started)*1000),
+                    'scope': 'already-free-allocator-pages-only',
+                }, separators=(',', ':'), allow_nan=False), flush=True)
             used = sample["containerMiB"]
             limit = sample["limitMiB"]
             if used is not None:
@@ -157,5 +197,6 @@ def watch(interval=0.5, stop=None, emit=print):
             break
 
 
-def start():
-    threading.Thread(target=watch, name="bob-memory-watch", daemon=True).start()
+def start(reclaim=False):
+    threading.Thread(target=watch, kwargs={'reclaim': reclaim},
+                     name="bob-memory-watch", daemon=True).start()
