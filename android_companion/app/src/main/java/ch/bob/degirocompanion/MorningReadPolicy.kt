@@ -11,7 +11,11 @@ internal object MorningReadPolicy {
     data class Action(val kind: Kind, val index: Int = -1, val code: String = "")
     private val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
     private val login = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code")
-    private val order = Regex("(?iu)order platzieren|order bestätigen|place order|confirm order|orderart|ordertyp|limitpreis|stückzahl|anzahl kaufen")
+    private val orderMarkers = listOf(
+        "PROTECTED_ORDER_CONFIRM" to Regex("(?iu)order platzieren|order bestätigen|place order|confirm order"),
+        "PROTECTED_ORDER_TYPE" to Regex("(?iu)orderart|ordertyp"),
+        "PROTECTED_ORDER_PRICE" to Regex("(?iu)limitpreis"),
+        "PROTECTED_ORDER_QUANTITY" to Regex("(?iu)stückzahl|anzahl kaufen"))
     private fun searchLabel(value: String) = Regex("(?iu)^(suche|suchen|search|produkt suchen|produkte suchen|search products|search instruments|instrument suchen|instrumente suchen|suchen nach|name, isin oder symbol|name, isin or symbol|mit namen, isin oder symbol suchen)(?:[.…: ]*)$").matches(value.trim())
     private fun search(n: Node) = searchLabel(n.text) || searchLabel(n.description) || searchLabel(n.hint) ||
         Regex("(?iu)(^|[/_:])(search|search_input|search_src_text|search_field|search_button|search_view)([/:_]|$)").containsMatchIn(n.id)
@@ -26,7 +30,9 @@ internal object MorningReadPolicy {
         if (nodes.any { it.sensitive && it.editable }) return "PROTECTED_SENSITIVE_INPUT"
         if (nodes.any { it.sensitive }) return "PROTECTED_SENSITIVE_CONTENT"
         if (nodes.any { n -> listOf(n.text,n.description,n.hint).any(login::containsMatchIn) }) return "PROTECTED_LOGIN"
-        if (nodes.any { n -> listOf(n.text,n.description,n.hint).any(order::containsMatchIn) }) return "PROTECTED_ORDER"
+        // Export only a fixed cause code, never the matching screen text.
+        for ((code, marker) in orderMarkers)
+            if (nodes.any { n -> listOf(n.text,n.description,n.hint).any(marker::containsMatchIn) }) return code
         if (nodes.any { it.editable && !search(it) }) return "UNRECOGNIZED_INPUT"
         return null
     }

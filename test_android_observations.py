@@ -35,7 +35,7 @@ class AndroidObservations(unittest.TestCase):
             payload['appVersionCode']=bad
             with self.subTest(bad=bad),self.assertRaises(ValueError):a.prepare(payload,{},NOW)
     def test_protection_causes_roundtrip_without_screen_text(self):
-        for code in ('PROTECTED_PASSWORD','PROTECTED_LOGIN','PROTECTED_ORDER','PROTECTED_SENSITIVE_INPUT','PROTECTED_SENSITIVE_CONTENT','UNRECOGNIZED_INPUT'):
+        for code in ('PROTECTED_PASSWORD','PROTECTED_LOGIN','PROTECTED_ORDER','PROTECTED_ORDER_CONFIRM','PROTECTED_ORDER_TYPE','PROTECTED_ORDER_PRICE','PROTECTED_ORDER_QUANTITY','PROTECTED_SENSITIVE_INPUT','PROTECTED_SENSITIVE_CONTENT','UNRECOGNIZED_INPUT'):
             payload=run();payload['results']=[];payload['events'][0]['code']=code
             payload['events'][0]['screenText']='must not be retained'
             saved=a.prepare(payload,{},NOW)
