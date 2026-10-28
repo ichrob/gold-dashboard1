@@ -23,6 +23,11 @@ _LAST_PRUNE = time.monotonic()
 _PRUNE_INTERVAL_SECONDS = 1800
 _PRUNE_TIMEOUT = '5s'
 _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
+# Live stage telemetry isolated repeated five-second timeouts to the 2,000-row
+# cap delete, while the existing 500-row age delete continued to complete.
+# Keep the same journal cap and cadence, but bound the expensive index cleanup
+# to the already proven maintenance batch size.
+_PRUNE_CAP_BATCH_SIZE = 500
 _STATS = {'stored':0,'dropped':0,'failures':0,'lastStoredAt':None}
 
 
@@ -168,7 +173,8 @@ def prune(conn):
         capped=conn.execute('''DELETE FROM bob_diagnostic_history
             WHERE ctid = ANY(ARRAY(
                 SELECT ctid FROM bob_diagnostic_history
-                ORDER BY recorded_at DESC OFFSET 60000 LIMIT 2000))''')
+                ORDER BY recorded_at DESC OFFSET 60000 LIMIT %s))''',
+            (_PRUNE_CAP_BATCH_SIZE,))
     except Exception as exc:
         raise _PruneStageError('cap-delete', exc) from exc
     counts=(getattr(old,'rowcount',0),getattr(capped,'rowcount',0))
