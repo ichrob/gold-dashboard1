@@ -2485,6 +2485,10 @@ def start_agentmail_recovery():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v2 process={PROCESS_ID}", flush=True)
+    # Attribute scanner/container peaks before starting background fetchers.
+    # Counts and sizes only: no request data, credentials or trading payloads.
+    import memory_watch
+    memory_watch.start()
     candle_reliability.start()
     ensure_fibonacci_monitor()
     auto_collection.start()
