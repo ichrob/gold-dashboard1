@@ -1,0 +1,64 @@
+"""Private, bounded handset list-image handoff; never product/trade approval."""
+import base64
+import hashlib
+import json
+import re
+import struct
+from datetime import datetime
+from android_telemetry import token_hash
+
+MAX_BODY=4100000
+
+def validate(value, now):
+    if not isinstance(value,dict) or set(value)!={'batchId','sessionId','images'}:
+        raise ValueError('Invalid list batch')
+    if any(not isinstance(value[k],str) or not re.fullmatch('[a-f0-9]{32}',value[k]) for k in ('batchId','sessionId')):
+        raise ValueError('Invalid list identity')
+    images=value['images']
+    if not isinstance(images,list) or len(images)!=2:raise ValueError('Two images required')
+    seen=set();previous=0
+    for image in images:
+        if not isinstance(image,dict) or set(image)!={'at','png'}:raise ValueError('Invalid image')
+        stamp=datetime.fromisoformat(image['at'].replace('Z','+00:00'))
+        if stamp.tzinfo is None or not now-120<=stamp.timestamp()<=now+5 or stamp.timestamp()<previous:raise ValueError('Invalid capture time')
+        previous=stamp.timestamp()
+        if not isinstance(image['png'],str) or len(image['png'])>2000000:raise ValueError('Image too large')
+        raw=base64.b64decode(image['png'],validate=True)
+        if len(raw)<33 or raw[:8]!=b'\x89PNG\r\n\x1a\n' or raw[12:16]!=b'IHDR':raise ValueError('PNG required')
+        w,h=struct.unpack('>II',raw[16:24])
+        if not 200<=w<=5000 or not 200<=h<=5000 or w*h>16000000:raise ValueError('Invalid dimensions')
+        digest=hashlib.sha256(raw).hexdigest()
+        if digest in seen:raise ValueError('Duplicate screenshots')
+        seen.add(digest)
+    return value
+
+def init(conn):
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_android_list_images (
+        batch_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL REFERENCES bob_android_diagnostic_devices(token_hash) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(), payload JSONB NOT NULL)''')
+
+def handle(conn,payload,now):
+    conn.execute("DELETE FROM bob_android_list_images WHERE created_at<now()-interval '24 hours'")
+    if payload['action']=='list-get':
+        batch=payload.get('batchId')
+        if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')
+        row=conn.execute('''SELECT i.payload FROM bob_android_list_images i
+            JOIN bob_android_diagnostic_devices d USING(token_hash)
+            WHERE i.batch_id=%s AND NOT d.revoked AND d.expires_at>now()''',(batch,)).fetchone()
+        return {'ok':True,'batch':row[0] if row else None}
+    digest=token_hash(payload.get('token'))
+    device=conn.execute('SELECT token_hash FROM bob_android_diagnostic_devices WHERE token_hash=%s AND NOT revoked AND expires_at>now() FOR UPDATE',(digest,)).fetchone()
+    if not device:raise PermissionError('Device not paired')
+    value=validate(payload.get('value'),now)
+    row=conn.execute('SELECT state FROM bob_android_remote WHERE token_hash=%s FOR UPDATE',(digest,)).fetchone()
+    state=row[0] if row else {}
+    if state.get('sessionId')!=value['sessionId'] or not state.get('active') or state.get('expiresAt',0)<=now or now-state.get('seenAt',0)>30:
+        raise PermissionError('No active handset session')
+    old=conn.execute('SELECT token_hash,payload FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()
+    if old:
+        if old!=(digest,value):raise ValueError('Conflicting batch')
+    else:
+        count=conn.execute("SELECT count(*) FROM bob_android_list_images WHERE token_hash=%s AND created_at>now()-interval '1 hour'",(digest,)).fetchone()[0]
+        if count>=12:raise ValueError('Capture rate limit')
+        conn.execute('INSERT INTO bob_android_list_images(batch_id,token_hash,payload) VALUES(%s,%s,%s::jsonb)',(value['batchId'],digest,json.dumps(value)))
+    return {'ok':True,'batchId':value['batchId']}

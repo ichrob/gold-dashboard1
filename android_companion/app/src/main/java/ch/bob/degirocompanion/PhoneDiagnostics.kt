@@ -63,16 +63,18 @@ internal object PhoneDiagnostics {
         queue(c)
         c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(BASE+"/handy/diagnostics#"+hash)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
-    fun remoteExchange(c:Context, body:JSONObject):JSONObject {
+    fun remoteExchange(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,false)
+    fun uploadList(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,true)
+    private fun sendDevice(c:Context, body:JSONObject, list:Boolean):JSONObject {
         check(paired(c))
         val credential=token(c)
-        val conn=URL(BASE+"/api/android-remote/exchange").openConnection() as HttpsURLConnection
+        val conn=URL(BASE+if(list) "/api/android-list/upload" else "/api/android-remote/exchange").openConnection() as HttpsURLConnection
         try {
             conn.instanceFollowRedirects=false;conn.connectTimeout=8000;conn.readTimeout=8000
             conn.requestMethod="POST";conn.doOutput=true
             conn.setRequestProperty("Authorization","Bearer "+credential)
             conn.setRequestProperty("Content-Type","application/json")
-            val bytes=body.toString().toByteArray(Charsets.UTF_8);check(bytes.size<=24576)
+            val bytes=body.toString().toByteArray(Charsets.UTF_8);check(bytes.size<=if(list) 4100000 else 24576)
             conn.setFixedLengthStreamingMode(bytes.size)
             check(paired(c) && token(c)==credential)
             conn.outputStream.use { it.write(bytes) }

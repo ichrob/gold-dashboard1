@@ -31,6 +31,18 @@ class ProductReadService : AccessibilityService() {
     private var searchTapAttempted = false
     private var inputTapAttempted = false
     private var categorySteps = 0
+    private var listGeneration = 0
+    private var listBusy = false
+    private var listScrolled = false
+    private var listScrollTries = 0
+    private var listFirstIds = emptyList<String>()
+    private val listImages = org.json.JSONArray()
+    private var listBatch = ""
+    private fun resetListCapture() {
+        listGeneration++; listBusy=false; listScrolled=false; listScrollTries=0
+        listFirstIds=emptyList(); while(listImages.length()>0) listImages.remove(0)
+        listBatch=java.util.UUID.randomUUID().toString().replace("-","")
+    }
     private var batchTransition = false
     private var lastNavigation = 0L
     private var lastNavigationIssue = ""
@@ -135,6 +147,7 @@ class ProductReadService : AccessibilityService() {
             }
         }
         ProductReadRequest.onCancelled = {
+            resetListCapture()
             val outcome = when (ProductReadRequest.endReason) {
                 ProductReadRequest.End.TIMEOUT -> ProductReadDiagnostics.Outcome.REQUEST_EXPIRED
                 ProductReadRequest.End.ATTEMPT_LIMIT -> ProductReadDiagnostics.Outcome.REQUEST_ATTEMPT_LIMIT
@@ -164,6 +177,7 @@ class ProductReadService : AccessibilityService() {
             PhoneDiagnostics.queue(this)
         }
         ProductReadRequest.onStarted = {
+            resetListCapture()
             clearWrittenSearch()
             searchTapAttempted = false
             inputTapAttempted = false
@@ -628,6 +642,124 @@ class ProductReadService : AccessibilityService() {
         } finally { live.forEach { it.recycle() };root.recycle() }
     }
 
+
+    private fun keyboardVisible():Boolean {
+        val list=windows
+        return try { list.any { it.type==AccessibilityWindowInfo.TYPE_INPUT_METHOD } }
+        finally { list.forEach { it.recycle() } }
+    }
+
+    // Capture only the validated product-list window (Android 14+), after the
+    // keyboard has disappeared. Never capture the full display or secure windows.
+    private fun captureMorningList(root:AccessibilityNodeInfo,nodes:List<AccessibilityNodeInfo>,
+                                  descriptions:List<MorningReadPolicy.Node>,action:MorningReadPolicy.Action) {
+        if(listBusy || listImages.length()>=2) return
+        fun fail(code:String) { lastNavigationIssue=code;ProductReadRequest.cancel() }
+        if(android.os.Build.VERSION.SDK_INT<34) { fail("LIST_CAPTURE_ANDROID_VERSION");return }
+        if(!PhoneRemote.active() || !GoldSearchRun.running || keyboardVisible()) return
+        if(listImages.length()==1 && !listScrolled) {
+            val candidates=nodes.indices.filter { i ->
+                val n=nodes[i]; val d=descriptions[i]
+                n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
+                    n.className?.toString()!="android.widget.HorizontalScrollView" &&
+                    n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_SCROLL_FORWARD } &&
+                    action.isins.any { d.row.contains(it) }
+            }
+            val chosen=candidates.filter { ancestor -> candidates.none { child ->
+                var cursor=descriptions[child].parent;var steps=0;var found=false
+                while(cursor in descriptions.indices && steps++<descriptions.size) {
+                    if(cursor==ancestor) { found=true;break };cursor=descriptions[cursor].parent
+                };child!=ancestor && found
+            } }.singleOrNull()
+            if(chosen==null || ++listScrollTries>2) { fail("LIST_SCROLL_UNAVAILABLE");return }
+            lastNavigation=SystemClock.elapsedRealtime()
+            listScrolled=nodes[chosen].performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            if(!listScrolled) fail("LIST_SCROLL_REJECTED")
+            return
+        }
+        if(listImages.length()==1 && action.isins==listFirstIds) {
+            if(++listScrollTries>4) fail("LIST_SCROLL_NO_PROGRESS")
+            return
+        }
+        val windowId=root.windowId;val generation=listGeneration
+        val rect=Rect();root.getBoundsInScreen(rect)
+        val input=descriptions.indexOfFirst { it.editable }
+        if(input<0) { fail("LIST_CAPTURE_SEARCH_MISSING");return }
+        val search=Rect();nodes[input].getBoundsInScreen(search)
+        val cropTop=search.top-rect.top
+        if(rect.width()<=0 || cropTop<0 || cropTop>=rect.height()/2) { fail("LIST_CAPTURE_BOUNDS");return }
+        val current=windows
+        val safe=try {
+            val app=current.singleOrNull { it.id==windowId && it.isActive && it.isFocused && it.type==AccessibilityWindowInfo.TYPE_APPLICATION }
+            app!=null && app.displayId==android.view.Display.DEFAULT_DISPLAY && current.none {
+                it.id!=windowId && it.layer>app.layer && it.type!=AccessibilityWindowInfo.TYPE_SYSTEM
+            }
+        } finally { current.forEach { it.recycle() } }
+        if(!safe) { fail("LIST_CAPTURE_WINDOW_CHANGED");return }
+        listBusy=true
+        val ids=action.isins.toList();val capturedAt=Instant.now().toString()
+        takeScreenshotOfWindow(windowId,mainExecutor,object:TakeScreenshotCallback {
+            override fun onFailure(errorCode:Int) {
+                if(generation!=listGeneration)return
+                listBusy=false;fail("LIST_CAPTURE_FAILED")
+            }
+            override fun onSuccess(result:ScreenshotResult) {
+                val buffer=result.hardwareBuffer
+                try {
+                    if(generation!=listGeneration || !PhoneRemote.active() || !GoldSearchRun.running ||
+                        !ProductReadRequest.active(SystemClock.elapsedRealtime()) || keyboardVisible())return
+                    val live=rootInActiveWindow ?: return
+                    val refs=mutableListOf<AccessibilityNodeInfo>();val view=mutableListOf<MorningReadPolicy.Node>()
+                    val unchanged=try {
+                        navigationTree(live,refs,view)
+                        val decision=MorningReadPolicy.discoverGold(view)
+                        live.windowId==windowId && live.packageName?.toString()==ProductScreenEvidence.PACKAGE &&
+                            decision.kind==MorningReadPolicy.Kind.COLLECT && decision.isins==ids
+                    } finally { refs.forEach { it.recycle() };live.recycle() }
+                    if(!unchanged) { fail("LIST_CAPTURE_WINDOW_CHANGED");return }
+                    val hardware=android.graphics.Bitmap.wrapHardwareBuffer(buffer,result.colorSpace) ?: error("bitmap")
+                    val bitmap=try { hardware.copy(android.graphics.Bitmap.Config.ARGB_8888,false) } finally { hardware.recycle() }
+                    try {
+                        check(bitmap.width==rect.width() && bitmap.height==rect.height())
+                        val cropped=android.graphics.Bitmap.createBitmap(bitmap,0,cropTop,bitmap.width,bitmap.height-cropTop)
+                        val bytes=try { java.io.ByteArrayOutputStream().use { out ->
+                            check(cropped.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out));out.toByteArray()
+                        } } finally { if(cropped!==bitmap)cropped.recycle() }
+                        check(bytes.size<=1500000)
+                        val image=org.json.JSONObject().put("at",capturedAt).put("png",android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP))
+                        listImages.put(image)
+                        if(listImages.length()==1)listFirstIds=ids
+                    } finally { bitmap.recycle() }
+                    if(listImages.length()==2) deliverMorningList(generation)
+                    else GoldSearchRun.event("LIST_FIRST_CAPTURED",capturedAt)
+                } catch(_:Exception) { if(generation==listGeneration)fail("LIST_CAPTURE_FAILED") }
+                finally { buffer.close();if(generation==listGeneration)listBusy=false }
+            }
+        })
+    }
+    private fun deliverMorningList(generation:Int) {
+        val id=listBatch
+        val body=org.json.JSONObject().put("batchId",id).put("sessionId",PhoneRemote.sessionId())
+            .put("images",org.json.JSONArray(listImages.toString()))
+        val file=java.io.File(filesDir,"morning-list-pending.json")
+        file.writeText(body.toString())
+        listBusy=true
+        java.util.concurrent.Executors.newSingleThreadExecutor().also { executor -> executor.execute {
+            val delivered=runCatching { check(PhoneRemote.active() && generation==listGeneration);PhoneDiagnostics.uploadList(this,body).getString("batchId")==id }.getOrDefault(false)
+            handler.post {
+                if(generation==listGeneration) {
+                    val code=if(delivered) "LIST_IMAGES_DELIVERED" else "LIST_UPLOAD_FAILED"
+                    GoldSearchRun.stop(code,Instant.now().toString());lastNavigationIssue=code
+                    ProductReadRequest.cancel();PhoneDiagnostics.queue(this)
+                    if(delivered) {
+                        file.delete()
+                        startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://bob-private-scanner.onrender.com/#bob-morning-images="+id)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                }
+            };executor.shutdown()
+        } }
+    }
+
     private fun focusSearch(node: AccessibilityNodeInfo): Boolean =
         node.isEditable && node.isEnabled && !node.isPassword &&
             node.actionList.any { it.id==AccessibilityNodeInfo.ACTION_FOCUS } &&
@@ -663,6 +795,11 @@ class ProductReadService : AccessibilityService() {
                 if(gold) { GoldSearchRun.event(code,Instant.now().toString());PhoneDiagnostics.queue(this) }
                 else MorningReadRun.event(this,code)
             }
+            if(gold && action.kind in setOf(MorningReadPolicy.Kind.CATEGORY,MorningReadPolicy.Kind.COLLECT) && keyboardVisible()) {
+                lastNavigation=SystemClock.elapsedRealtime()
+                if(!performGlobalAction(GLOBAL_ACTION_BACK)) { lastNavigationIssue="KEYBOARD_HIDE_FAILED";ProductReadRequest.cancel() }
+                return true
+            }
             when(action.kind) {
                 MorningReadPolicy.Kind.BLOCK -> {
                     if(action.code=="PROTECTED_ORDER_CONFIRM") ProductReadDiagnostics.launcher(MorningReadPolicy.launcherSearchIssue(descriptions),descriptions)
@@ -672,10 +809,7 @@ class ProductReadService : AccessibilityService() {
                 }
                 MorningReadPolicy.Kind.COLLECT -> {
                     check(gold && GoldSearchRun.running)
-                    MorningReadRun.beginDiscovered(this,action.isins)
-                    GoldSearchRun.clear()
-                    ProductReadRequest.start(SystemClock.elapsedRealtime())
-                    PhoneDiagnostics.queue(this)
+                    captureMorningList(root,nodes,descriptions,action)
                 }
                 MorningReadPolicy.Kind.READ -> { lastNavigationIssue="";MorningReadRun.reading=true; return false }
                 MorningReadPolicy.Kind.WAIT -> {

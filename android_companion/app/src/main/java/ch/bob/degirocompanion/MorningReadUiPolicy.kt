@@ -13,6 +13,13 @@ internal object MorningReadUiPolicy {
                   version:String,lastAttempt:String):Boolean = enabled && autoReturn && !running && interactive && !locked &&
         version.isNotEmpty() && version!=lastAttempt
     fun reason(code:String):String=when(code) {
+        "LIST_IMAGES_DELIVERED" -> "Zwei Listenbilder an Bob übertragen; Bilderkennung und Listenübernahme werden im Browser geprüft"
+        "LIST_FIRST_CAPTURED" -> "Erstes Listenbild gespeichert; weiter scrollen"
+        "LIST_UPLOAD_FAILED" -> "Listenbilder lokal gespeichert; Übertragung nicht bestätigt"
+        "LIST_SCROLL_UNAVAILABLE", "LIST_SCROLL_REJECTED", "LIST_SCROLL_NO_PROGRESS" -> "Liste konnte nicht nachweisbar gescrollt werden; keine neue Morgenliste übernommen"
+        "LIST_CAPTURE_FAILED" -> "Android hat die Listenaufnahme nicht geliefert; Screenshot-Berechtigung oder geschützte Ansicht prüfen"
+        "LIST_CAPTURE_ANDROID_VERSION" -> "Automatische Fensteraufnahme benötigt Android 14 oder neuer"
+        "KEYBOARD_HIDE_FAILED" -> "Tastatur konnte nicht geschlossen werden"
         "STOPPED" -> "Prüfung angehalten; genauer Auslöser nicht protokolliert"
         "SEARCH_NO_PROGRESS" -> "Suchfläche reagiert nicht; begrenzte Suchversuche ausgeschöpft"
         "SEARCH_TRANSITION_PENDING" -> "Warte auf das Suchfeld"

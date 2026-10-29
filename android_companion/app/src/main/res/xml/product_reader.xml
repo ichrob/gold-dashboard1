@@ -7,7 +7,7 @@
     android:accessibilityFlags="flagRequestAccessibilityButton|flagRetrieveInteractiveWindows|flagReportViewIds|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="true"
-    android:canTakeScreenshot="false"
+    android:canTakeScreenshot="true"
     android:notificationTimeout="100"
     android:isAccessibilityTool="false"
     android:settingsActivity="ch.bob.degirocompanion.ProductReadActivity" />

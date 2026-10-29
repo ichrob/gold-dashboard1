@@ -344,7 +344,7 @@ def cors(handler):
 
 def json_body(handler):
     length = int(handler.headers.get("Content-Length", "0") or 0)
-    if length <= 0 or length > (1048576 if urlparse(handler.path).path in ("/market-candles/write", "/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write", "/snaptrade-settings/state-save") else 65536):
+    if length <= 0 or length > (4101000 if urlparse(handler.path).path=="/android-remote" else 1048576 if urlparse(handler.path).path in ("/market-candles/write", "/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write", "/snaptrade-settings/state-save") else 65536):
         raise ValueError("Ungültige Payload-Größe")
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 

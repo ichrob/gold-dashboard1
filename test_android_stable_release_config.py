@@ -93,7 +93,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"', manifest)
         config = (ROOT / "android_companion/app/src/main/res/xml/product_reader.xml").read_text()
         self.assertIn('android:canPerformGestures="true"', config)
-        self.assertIn('android:canTakeScreenshot="false"', config)
+        self.assertIn('android:canTakeScreenshot="true"', config)
         self.assertIn('android:packageNames="nl.degiro.trader"', config)
         service = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadService.kt").read_text()
         for forbidden in ['takeScreenshot(']:
@@ -102,7 +102,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('ProductReadRequest.attempt(SystemClock.elapsedRealtime())', service)
         self.assertIn('flagRetrieveInteractiveWindows', config)
         self.assertIn('ProductWindowPolicy.select', service)
-        self.assertEqual(service.count('performAction('), 8)
+        self.assertEqual(service.count('performAction('), 9)
         self.assertEqual(service.count('dispatchGesture('), 1)
         tap = service.split('private fun tapRecognizedSearch(', 1)[1].split('private fun submitSearch(', 1)[0]
         for guard in ['PhoneRemote.active()', 'ProductReadRequest.active(', 'isKeyguardLocked',
