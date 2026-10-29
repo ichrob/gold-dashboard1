@@ -161,7 +161,12 @@ class ProductReadService : AccessibilityService() {
     }
     // Only package/type metadata is used. Never read or retain event text.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if(PhoneRemote.active() && event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START)PhoneRemote.stop(this,"USER_INTERRUPTED")
+        if(PhoneRemote.active() && event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
+            val foreground=productRoot(false)
+            val touchesProduct=foreground?.packageName?.toString()==ProductScreenEvidence.PACKAGE
+            foreground?.recycle()
+            if(touchesProduct)PhoneRemote.stop(this,"USER_INTERRUPTED")
+        }
         if (!ProductReadRequest.active(SystemClock.elapsedRealtime())) return
         if((MorningReadRun.running || GoldSearchRun.running) && event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
             GoldSearchRun.stop("USER_INTERRUPTED",Instant.now().toString())
