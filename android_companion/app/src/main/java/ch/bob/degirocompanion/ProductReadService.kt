@@ -130,7 +130,7 @@ class ProductReadService : AccessibilityService() {
             if(ids.isNotEmpty() && PhoneRemote.active()) {
                 MorningReadRun.beginDiscovered(this,ids)
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
-            }
+            } else PhoneRemote.stop(this,"COMPLETE")
         }
         PhoneRemote.onStop={ code ->
             MorningListDelivery.cancel()
@@ -457,7 +457,10 @@ class ProductReadService : AccessibilityService() {
             if(more) {
                 Toast.makeText(this,MorningReadRun.summary(),Toast.LENGTH_SHORT).show()
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
-            } else MorningReadTransfer.automaticResults(this)
+            } else {
+                PhoneRemote.stop(this,"COMPLETE")
+                MorningReadTransfer.automaticResults(this)
+            }
         }.onFailure {
             MorningReadRun.stop(this,"STORAGE_ERROR");ProductReadRequest.cancel()
             Toast.makeText(this,"Leselauf gestoppt. Gespeicherte Ergebnisse bleiben in Bob Handy.",Toast.LENGTH_LONG).show()
@@ -802,9 +805,13 @@ class ProductReadService : AccessibilityService() {
                 val last=value.getJSONArray("last");val ids=(0 until last.length()).map { last.getString(it) }
                 check(decision.kind==MorningReadPolicy.Kind.COLLECT && decision.isins==ids)
                 val images=value.getJSONArray("images");check(images.length() in 1..4)
-                listBatch=value.getString("batch");listWindowId=root.windowId;listCropTop=value.getInt("crop")
-                for(i in 0 until images.length())listImages.put(images.getJSONObject(i))
-                val seen=value.getJSONArray("seen");for(i in 0 until seen.length())listSeenIds.add(seen.getString(i))
+                val batch=value.getString("batch");check(batch.matches(Regex("[a-f0-9]{32}")))
+                val seen=value.getJSONArray("seen");val seenIds=(0 until seen.length()).map { seen.getString(it) }
+                check(seenIds.size in 1..10 && seenIds.distinct()==seenIds && seenIds.all { SeriesEvidence.validIsin(it) } && seenIds.containsAll(ids))
+                val crop=value.getInt("crop");check(crop>=0)
+                val savedImages=(0 until images.length()).map { images.getJSONObject(it) }
+                listBatch=batch;listWindowId=root.windowId;listCropTop=crop
+                savedImages.forEach { listImages.put(it) };listSeenIds.addAll(seenIds)
                 listFirstIds=ids;listScrolled=false
                 if(listSeenIds.size==10)deliverMorningList(listGeneration)
             } finally { refs.forEach { it.recycle() };root.recycle() }

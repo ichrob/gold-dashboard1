@@ -40,12 +40,58 @@ console.log(JSON.stringify(out));
                 return Result(None)
         db=DB()
         with patch('paper_simulation.sync',return_value={'ok':True,'products':10}) as sync:
-            worker.tick(lambda:db,lambda p,at:{'items':[],'evidence':{'listUploadedAt':at}})
+            worker.tick(lambda:db,lambda p,at:{'items':[{'isin':str(n)} for n in range(10)],'evidence':{'listUploadedAt':at,'products':[{'isin':str(n)} for n in range(10)]}})
             self.assertTrue(sync.called);self.assertEqual(db.receipts[-1]['stage'],'synced');self.assertEqual(db.commits,2)
         db=DB()
         def fail(*_):raise ValueError('private image text must never leak')
         worker.tick(lambda:db,fail)
         self.assertEqual(db.receipts[-1]['stage'],'read-failed')
         self.assertNotIn('private',json.dumps(db.receipts))
+
+class DatabaseTests(unittest.TestCase):
+    def test_committed_receipt_owned_by_paired_device(self):
+        import os, uuid, time, copy
+        from datetime import datetime, timezone
+        from contextlib import contextmanager
+        url=os.environ.get('BOB_TEST_DATABASE_URL')
+        if not url:self.skipTest('CI PostgreSQL not configured')
+        import psycopg
+        import android_telemetry, android_remote, android_list
+        from test_android_list import batch
+        schema='handset_'+uuid.uuid4().hex
+        with psycopg.connect(url) as admin:
+            admin.execute('CREATE SCHEMA '+schema)
+        @contextmanager
+        def connect():
+            with psycopg.connect(url) as conn:
+                conn.execute('SET search_path TO '+schema)
+                yield conn
+        try:
+            now=int(time.time());value=batch()
+            for i,image in enumerate(value['images']):image['at']=datetime.fromtimestamp(now-10+i,timezone.utc).isoformat()
+            with connect() as conn:
+                android_telemetry.init(conn);android_remote.init(conn)
+                conn.execute('CREATE TABLE bob_paper_products(id INTEGER PRIMARY KEY,payload JSONB)')
+                for token in ('a'*64,'b'*64):
+                    android_telemetry.handle(conn,{'action':'register','tokenHash':android_telemetry.token_hash(token)})
+                state={'sessionId':value['sessionId'],'active':True,'expiresAt':now+900,'seenAt':now}
+                conn.execute('INSERT INTO bob_android_remote VALUES(%s,%s::jsonb)',(android_telemetry.token_hash('a'*64),json.dumps(state)))
+                android_list.handle(conn,{'action':'list-upload','token':'a'*64,'value':value},now)
+            products=[{'isin':str(n),'name':'test'} for n in range(10)]
+            parsed={'items':products,'evidence':{'products':products,'listUploadedAt':value['images'][-1]['at']}}
+            def sync(conn,payload):
+                conn.execute('INSERT INTO bob_paper_products VALUES(1,%s::jsonb)',(json.dumps(payload),))
+                return {'ok':True,'products':10}
+            with patch('paper_simulation.sync',side_effect=sync):worker.tick(connect,lambda *_:parsed)
+            with connect() as conn:
+                own=android_list.handle(conn,{'action':'list-status','token':'a'*64,'value':{'batchId':value['batchId']}},now)
+                other=android_list.handle(conn,{'action':'list-status','token':'b'*64,'value':{'batchId':value['batchId']}},now)
+                self.assertEqual(own['import']['stage'],'synced')
+                self.assertIsNone(other['import']);self.assertEqual(other['detailIsins'],[])
+                android_list.handle(conn,{'action':'list-receipt','value':{'batchId':value['batchId'],'stage':'reading','count':0}},now)
+                again=android_list.handle(conn,{'action':'list-status','token':'a'*64,'value':{'batchId':value['batchId']}},now)
+                self.assertEqual(again['import']['stage'],'synced','late browser receipt cannot undo confirmation')
+        finally:
+            with psycopg.connect(url) as admin:admin.execute('DROP SCHEMA '+schema+' CASCADE')
 
 if __name__=='__main__':unittest.main()

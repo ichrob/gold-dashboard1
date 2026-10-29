@@ -63,11 +63,16 @@ def tick(connect,runner=process):
         conn.commit()
     try:
         parsed=runner(payload,payload['images'][-1]['at'])
+        if len(parsed.get('items',[]))!=10 or len({x.get('isin') for x in parsed['items']})!=10:
+            raise ValueError('Incomplete list')
+        if {p.get('isin') for p in parsed.get('evidence',{}).get('products',[])}!={x['isin'] for x in parsed['items']}:
+            raise ValueError('Mismatched evidence')
         with connect() as conn:
             current=conn.execute('SELECT i.import_receipt FROM bob_android_list_images i JOIN bob_android_diagnostic_devices d USING(token_hash) WHERE i.batch_id=%s AND NOT d.revoked AND d.expires_at>now() FOR UPDATE OF i',(batch,)).fetchone()
             if not current or (current[0] or {}).get('stage')=='synced':return True
             import paper_simulation
             result=paper_simulation.sync(conn,parsed['evidence'])
+            if not result.get('ok') or (not result.get('preserved') and result.get('products')!=10):raise ValueError('Persistence not confirmed')
             stage='superseded' if result.get('preserved') else 'synced'
             receipt={'batchId':batch,'stage':stage,'count':10,'at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}
             conn.execute('UPDATE bob_android_list_images SET parsed_items=%s::jsonb,import_receipt=%s::jsonb WHERE batch_id=%s',(json.dumps(parsed['items']),json.dumps(receipt),batch))
@@ -80,10 +85,24 @@ def tick(connect,runner=process):
 
 
 def loop(connect):
+    # One OCR process at a time on the small server. Keep the existing video
+    # reader's two-minute cadence, with handset work first in each cycle.
+    import video_ocr
+    last_video=0.0
     while True:
         try:tick(connect)
         except Exception:pass  # Fixed receipts expose failures without screenshot text in logs.
+        if time.monotonic()-last_video>=120:
+            try:print('BOB_VIDEO_OCR status='+video_ocr.tick(connect),flush=True)
+            except Exception as exc:print('BOB_VIDEO_OCR error='+type(exc).__name__,flush=True)
+            last_video=time.monotonic()
         time.sleep(10)
 
 if __name__=='__main__' and '--ocr' in sys.argv:
-    print(json.dumps(recognize(json.load(sys.stdin))))
+    import socket, resource
+    def no_network(*args,**kwargs):raise RuntimeError('Local OCR network disabled')
+    socket.socket.connect=no_network
+    resource.setrlimit(resource.RLIMIT_CPU,(110,110))
+    raw=sys.stdin.read(8100001)
+    if len(raw)>8100000:raise ValueError('Image input limit')
+    print(json.dumps(recognize(json.loads(raw))))
