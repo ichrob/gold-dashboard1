@@ -57,16 +57,16 @@ class ProductReadActivity : Activity() {
                 result.text=it.message
             }
         }
-        result=TextView(this).apply { textSize=18f;setTextIsSelectable(true) }
-        container.addView(result)
-        container.addView(TextView(this).apply { text="Goldsuche: bis zu zwölf sichtbare Goldhebel-Kandidaten mit ISIN suchen und lesen. Unvollständige Stichprobe; neue Kandidaten bleiben getrennte Lesebeobachtungen." })
-        container.addView(TextView(this).apply { text="Ein Start: Morgenliste holen, Produkte lesen und Diagnose an Bob senden. DEGIRO muss angemeldet sein. Während des Lesens Handy entsperrt lassen. Nach einem Abbruch wird das Protokoll ebenfalls übertragen; bei Bildschirmsperre erst nach dem Entsperren. Ein Browser-Übergabelink kann einen zusätzlichen Tipp erfordern." })
         button("Prüfung stoppen") {
             GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
             MorningReadRun.stop(this,"USER_STOP")
             preferences.edit().putBoolean("enabled", false).apply()
             ProductReadRequest.cancel(); ProductReadSession.clear(); ProductReadDiagnostics.clear(); refresh()
         }
+        result=TextView(this).apply { textSize=18f;setTextIsSelectable(true) }
+        container.addView(result)
+        container.addView(TextView(this).apply { text="Goldsuche: bis zu zwölf sichtbare Goldhebel-Kandidaten mit ISIN suchen und lesen. Unvollständige Stichprobe; neue Kandidaten bleiben getrennte Lesebeobachtungen." })
+        container.addView(TextView(this).apply { text="Ein Start: Morgenliste holen, Produkte lesen und Diagnose an Bob senden. DEGIRO muss angemeldet sein. Während des Lesens Handy entsperrt lassen. Nach einem Abbruch wird das Protokoll ebenfalls übertragen; bei Bildschirmsperre erst nach dem Entsperren. Ein Browser-Übergabelink kann einen zusätzlichen Tipp erfordern." })
         button("Automatische Diagnose verbinden / Freigabe öffnen") {
             AlertDialog.Builder(this).setTitle("Automatische Diagnose freigeben")
                 .setMessage("Bob Handy darf App-Version, Dienststatus und feste Fehlercodes direkt an deinen privaten Bob senden. Keine Bildschirmtexte, Kontowerte oder Zugangsdaten. Keine Fernsteuerung. Freigabe anschließend im angemeldeten Browser bestätigen. Android-Hintergrundmeldungen können verzögert eintreffen. Jederzeit hier abschaltbar.")
@@ -187,7 +187,7 @@ class ProductReadActivity : Activity() {
             MorningReadUiPolicy.Action.SETUP -> "Lesedienst einmalig einschalten"
             MorningReadUiPolicy.Action.START -> "Automatisch prüfen · Morgenliste"
         }
-        result.text=(if(GoldSearchRun.running) "Goldsuche läuft · sichtbare ISIN-Kandidaten erfassen" else MorningReadRun.summary())+"\n"+MorningReadRun.savedStatus(this)+"\n\n"+PhoneDiagnostics.status(this)
+        result.text=(if(GoldSearchRun.running) "Goldsuche läuft · sichtbare ISIN-Kandidaten erfassen" else if(GoldSearchRun.lastCode!=null) "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty()) else MorningReadRun.summary())+"\n"+MorningReadRun.savedStatus(this)+"\n\n"+PhoneDiagnostics.status(this)
         diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }
