@@ -546,6 +546,8 @@ class ProductReadService : AccessibilityService() {
             val actionName=command?.optString("action") ?: "inspect"
             val target=command?.optString("isin").orEmpty()
             val proposed=if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
+                else if(GoldSearchRun.running && listImages.length()>0 && actionName=="inspect")
+                    MorningReadPolicy.captureGoldList(descriptions,true)
                 else MorningReadPolicy.discoverGold(descriptions)
             val decision=remoteSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
             if(decision.kind==MorningReadPolicy.Kind.BLOCK) {
