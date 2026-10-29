@@ -437,6 +437,15 @@ class ProductReadService : AccessibilityService() {
                 check(depth<=30 && nodes.size<500)
                 if(!n.isVisibleToUser || n.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return ""
                 val sensitiveNode=n.isPassword || (android.os.Build.VERSION.SDK_INT>=34 && n.isAccessibilityDataSensitive)
+                if(!sensitiveNode) {
+                    if(n.isEditable) {
+                        ProductReadDiagnostics.searchShape(ProductReadDiagnostics.SearchSource.INPUT_TEXT,n.text?.toString().orEmpty())
+                        ProductReadDiagnostics.searchShape(ProductReadDiagnostics.SearchSource.INPUT_HINT,n.hintText?.toString().orEmpty())
+                        ProductReadDiagnostics.searchShape(ProductReadDiagnostics.SearchSource.INPUT_DESCRIPTION,n.contentDescription?.toString().orEmpty())
+                        ProductReadDiagnostics.searchShape(ProductReadDiagnostics.SearchSource.INPUT_ID,n.viewIdResourceName.orEmpty())
+                    } else ProductReadDiagnostics.searchShape(ProductReadDiagnostics.SearchSource.PAGE_LABEL,
+                        listOf(n.text,n.hintText,n.contentDescription).joinToString(" "))
+                }
                 val writtenQueryExpected=n.isEditable && writtenSearchQuery.isNotEmpty()
                 val writtenQueryPresent=writtenQueryExpected && n.text?.toString()==writtenSearchQuery
                 val writtenNodeIdentity=writtenQueryPresent && n==writtenSearchNode &&
