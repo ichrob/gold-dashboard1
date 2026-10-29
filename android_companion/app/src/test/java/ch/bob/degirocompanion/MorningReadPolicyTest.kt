@@ -2,6 +2,21 @@ package ch.bob.degirocompanion
 import org.junit.Assert.*
 import org.junit.Test
 class MorningReadPolicyTest {
+    @Test fun launcherExceptionUsesSemanticInputIdentityNotOneLongPlaceholder() {
+        val launcher=MorningReadPolicy.Node("",description="Order platzieren",clickable=true)
+        for(input in listOf(
+                MorningReadPolicy.Node("",editable=true,id="nl.degiro.trader:id/search_src_text"),
+                MorningReadPolicy.Node("",editable=true,hint="Suche"),
+                MorningReadPolicy.Node("",editable=true,description="Search products"))) {
+            assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.discoverGold(listOf(launcher,input)).kind)
+            for(extra in listOf(node("Order bestätigen"),node("Limitpreis"),node("Stückzahl"),node("Passwort"),
+                    node("").copy(editable=true),node("").copy(sensitive=true)))
+                assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(listOf(launcher,input,extra)).kind)
+        }
+        for(input in listOf(MorningReadPolicy.Node("Suche",editable=true),
+                MorningReadPolicy.Node("",editable=true,id="nl.degiro.trader:id/amount")))
+            assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(listOf(launcher,input)).kind)
+    }
     @Test fun submitOnlyRecognizedSearchWithMatchingQueryAndNoResult() {
         val input=MorningReadPolicy.Node("Gold",editable=true,hint="Mit Namen, ISIN oder Symbol suchen",imeEnter=true)
         assertEquals(MorningReadPolicy.Kind.SUBMIT,MorningReadPolicy.discoverGold(listOf(input)).kind)
@@ -168,7 +183,7 @@ class MorningReadPolicyTest {
             home.take(2)+search.copy(clickable=false)+launcher,
             home.take(2)+search.copy(editable=true)+launcher,
             home.take(2)+node("Suche",true)+launcher,
-            home+node(isin).copy(editable=true,hint="Suche"))) {
+            home+node(isin).copy(editable=true,hint="Betrag"))) {
             assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(bad,isin).kind)
         }
         // An order launcher on product/results views remains blocked.
@@ -191,7 +206,7 @@ class MorningReadPolicyTest {
                 node("").copy(sensitive=true),node("").copy(editable=true)))
             assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(page+extra).kind)
         for(bad in listOf(
-                listOf(launcher,input.copy(hint="Suche")),
+                listOf(launcher,input.copy(hint="Betrag")),
                 listOf(launcher.copy(description="Order bestätigen"),input),
                 listOf(launcher.copy(row="Order platzieren\nKaufen"),input),
                 listOf(launcher.copy(clickable=false),input),
@@ -215,7 +230,7 @@ class MorningReadPolicyTest {
         assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(listOf(mixed,input)).kind)
         assertEquals(MorningReadPolicy.LauncherIssue.LAUNCHER_ROW,MorningReadPolicy.launcherSearchIssue(listOf(mixed,input)))
         assertEquals(MorningReadPolicy.LauncherIssue.INPUT_COUNT,MorningReadPolicy.launcherSearchIssue(listOf(launcher)))
-        assertEquals(MorningReadPolicy.LauncherIssue.INPUT_LABEL,MorningReadPolicy.launcherSearchIssue(listOf(launcher,input.copy(hint="Suche"))))
+        assertEquals(MorningReadPolicy.LauncherIssue.INPUT_LABEL,MorningReadPolicy.launcherSearchIssue(listOf(launcher,input.copy(hint="Betrag"))))
         assertEquals(MorningReadPolicy.LauncherIssue.MARKER_COUNT,MorningReadPolicy.launcherSearchIssue(listOf(launcher,launcher,input)))
     }
     @Test fun knownSymbolHandsDetailToReaderButNeverOverridesVisibleIdentityOrProtection() {
