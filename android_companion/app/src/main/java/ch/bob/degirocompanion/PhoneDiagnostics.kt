@@ -74,7 +74,7 @@ internal object PhoneDiagnostics {
             conn.requestMethod="POST";conn.doOutput=true
             conn.setRequestProperty("Authorization","Bearer "+credential)
             conn.setRequestProperty("Content-Type","application/json")
-            val bytes=body.toString().toByteArray(Charsets.UTF_8);check(bytes.size<=if(list) 4100000 else 24576)
+            val bytes=body.toString().toByteArray(Charsets.UTF_8);check(bytes.size<=if(list) 8100000 else 24576)
             conn.setFixedLengthStreamingMode(bytes.size)
             check(paired(c) && token(c)==credential)
             conn.outputStream.use { it.write(bytes) }

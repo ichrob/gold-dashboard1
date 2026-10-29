@@ -36,11 +36,12 @@ class ProductReadService : AccessibilityService() {
     private var listScrolled = false
     private var listScrollTries = 0
     private var listFirstIds = emptyList<String>()
+    private val listSeenIds = mutableSetOf<String>()
     private val listImages = org.json.JSONArray()
     private var listBatch = ""
     private fun resetListCapture() {
         listGeneration++; listBusy=false; listScrolled=false; listScrollTries=0
-        listFirstIds=emptyList(); while(listImages.length()>0) listImages.remove(0)
+        listFirstIds=emptyList(); listSeenIds.clear(); while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
     }
     private var batchTransition = false
@@ -653,11 +654,11 @@ class ProductReadService : AccessibilityService() {
     // keyboard has disappeared. Never capture the full display or secure windows.
     private fun captureMorningList(root:AccessibilityNodeInfo,nodes:List<AccessibilityNodeInfo>,
                                   descriptions:List<MorningReadPolicy.Node>,action:MorningReadPolicy.Action) {
-        if(listBusy || listImages.length()>=2) return
+        if(listBusy || listSeenIds.size==10) return
         fun fail(code:String) { lastNavigationIssue=code;ProductReadRequest.cancel() }
         if(android.os.Build.VERSION.SDK_INT<34) { fail("LIST_CAPTURE_ANDROID_VERSION");return }
         if(!PhoneRemote.active() || !GoldSearchRun.running || keyboardVisible()) return
-        if(listImages.length()==1 && !listScrolled) {
+        if(listImages.length()>0 && !listScrolled) {
             val candidates=nodes.indices.filter { i ->
                 val n=nodes[i]; val d=descriptions[i]
                 n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
@@ -677,10 +678,15 @@ class ProductReadService : AccessibilityService() {
             if(!listScrolled) fail("LIST_SCROLL_REJECTED")
             return
         }
-        if(listImages.length()==1 && action.isins==listFirstIds) {
+        if(listImages.length()>0 && action.isins==listFirstIds) {
             if(++listScrollTries>4) fail("LIST_SCROLL_NO_PROGRESS")
             return
         }
+        if(listImages.length()==0 && !descriptions.any { n ->
+            listOf(n.text,n.description,n.row).any { value -> value.lines().any { it.trim().equals("Top Ergebnisse",true) } }
+        }) { fail("LIST_TOP_RESULTS_MISSING");return }
+        if((listSeenIds+action.isins).size>10) { fail("LIST_TOP_RESULTS_OVERFLOW");return }
+        if(listImages.length()>=4) { fail("LIST_TOP_RESULTS_INCOMPLETE");return }
         val windowId=root.windowId;val generation=listGeneration
         val rect=Rect();root.getBoundsInScreen(rect)
         val input=descriptions.indexOfFirst { it.editable }
@@ -728,9 +734,10 @@ class ProductReadService : AccessibilityService() {
                         check(bytes.size<=1500000)
                         val image=org.json.JSONObject().put("at",capturedAt).put("png",android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP))
                         listImages.put(image)
-                        if(listImages.length()==1)listFirstIds=ids
+                        listFirstIds=ids;listSeenIds.addAll(ids);listScrolled=false;listScrollTries=0
                     } finally { bitmap.recycle() }
-                    if(listImages.length()==2) deliverMorningList(generation)
+                    if(listSeenIds.size==10) deliverMorningList(generation)
+                    else if(listImages.length()>=4) fail("LIST_TOP_RESULTS_INCOMPLETE")
                     else GoldSearchRun.event("LIST_FIRST_CAPTURED",capturedAt)
                 } catch(_:Exception) { if(generation==listGeneration)fail("LIST_CAPTURE_FAILED") }
                 finally { buffer.close();if(generation==listGeneration)listBusy=false }

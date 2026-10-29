@@ -206,13 +206,6 @@ internal object MorningReadPolicy {
                         Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future)\\b").containsMatchIn(row) &&
                         !Regex("(?iu)\\b(faktor|factor|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b").containsMatchIn(row) }
                 }.distinct().take(12)
-                val allResults=innermost(nodes,nodes.indices.filter { j ->
-                    val n=nodes[j]
-                    canClick(n) && !n.editable && !n.containsInput && !n.sensitive && !n.password &&
-                        listOf(n.text,n.description,n.hint,n.row).flatMap { it.lines() }.map { normalized(it) }.filter(String::isNotBlank).let { labels -> labels.isNotEmpty() && labels.all { it.equals("Alle Ergebnisse in Hebelprodukte",true) } }
-                })
-                if(allResults.size==1) return Action(Kind.CATEGORY,allResults.single(),code="ALL_LEVERAGE_RESULTS")
-                if(allResults.size>1) return Action(Kind.WAIT,code="CATEGORY_AMBIGUOUS")
                 if(candidates.isNotEmpty()) return Action(Kind.COLLECT,isins=candidates)
                 goldCategory(nodes)?.let { return it }
                 return Action(if(nodes[i].imeEnter) Kind.SUBMIT else Kind.WAIT,index=i,code="GOLD_IDENTITIES_MISSING")

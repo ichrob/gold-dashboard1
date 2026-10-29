@@ -9,9 +9,16 @@ def batch():
     def png(suffix):return base64.b64encode(b'\x89PNG\r\n\x1a\n'+b'\0\0\0\rIHDR'+struct.pack('>II',709,1200)+b'\x08\x02\0\0\0'+suffix).decode()
     return {'batchId':'a'*32,'sessionId':'b'*32,'images':[{'at':datetime.fromtimestamp(NOW-10+i,timezone.utc).isoformat(),'png':png(bytes([i])*8)} for i in range(2)]}
 class ListTests(unittest.TestCase):
-    def test_bounded_original_pair(self):
+    def test_bounded_original_series(self):
         self.assertEqual(images.validate(batch(),NOW),batch())
-        for mutate in [lambda x:x['images'].pop(),lambda x:x['images'].append(x['images'][0]),lambda x:x['images'][1].update(png=x['images'][0]['png']),lambda x:x['images'][0].update(at='2020-01-01T00:00:00Z'),lambda x:x['images'][0].update(png='bad'),lambda x:x.update(sessionId='bad')]:
+        one=batch();one['images']=one['images'][:1]
+        self.assertEqual(len(images.validate(one,NOW)['images']),1)
+        four=batch()
+        for i in (2,3):
+            image=dict(four['images'][0]);image['png']=base64.b64encode(base64.b64decode(image['png'])+bytes([i])).decode()
+            image['at']=four['images'][-1]['at'];four['images'].append(image)
+        self.assertEqual(len(images.validate(four,NOW)['images']),4)
+        for mutate in [lambda x:x['images'].clear(),lambda x:x['images'].extend(x['images']*2),lambda x:x['images'][1].update(png=x['images'][0]['png']),lambda x:x['images'][0].update(at='2020-01-01T00:00:00Z'),lambda x:x['images'][0].update(png='bad'),lambda x:x.update(sessionId='bad')]:
             x=batch();mutate(x)
             with self.assertRaises((ValueError,TypeError)):images.validate(x,NOW)
     def test_browser_cannot_upload_and_device_cannot_read(self):

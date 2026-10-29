@@ -29,13 +29,12 @@ class GoldCategoryNavigationTest {
         val stock=MorningReadPolicy.Node("Gold stock US38141G1040",clickable=true)
         assertEquals(MorningReadPolicy.Kind.CATEGORY,MorningReadPolicy.discoverGold(listOf(input,tab,stock)).kind)
     }
-    @Test fun opensFullListBeforeCollectingTopResults() {
+    @Test fun staysInTopResultsAndNeverOpensAllResults() {
         val all=MorningReadPolicy.Node("Alle Ergebnisse in Hebelprodukte",clickable=true)
         val row=MorningReadPolicy.Node("Gold Turbo DE000FD0S0G4",clickable=true)
         val action=MorningReadPolicy.discoverGold(listOf(input,tab.copy(selected=true),all,row))
-        assertEquals(MorningReadPolicy.Kind.CATEGORY,action.kind)
-        assertEquals(2,action.index)
-        assertEquals("ALL_LEVERAGE_RESULTS",action.code)
+        assertEquals(MorningReadPolicy.Kind.COLLECT,action.kind)
+        assertEquals(listOf("DE000FD0S0G4"),action.isins)
         assertNotEquals(MorningReadPolicy.Kind.CATEGORY, MorningReadPolicy.discoverGold(listOf(input,all.copy(row="Alle Ergebnisse in Hebelprodukte\nKaufen"))).kind)
         assertEquals(MorningReadPolicy.Kind.BLOCK, MorningReadPolicy.discoverGold(listOf(input,all,MorningReadPolicy.Node("Order bestätigen"))).kind)
     }

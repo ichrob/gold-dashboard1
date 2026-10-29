@@ -41,7 +41,7 @@ def route(h, method, path, forward):
         if not re.fullmatch(r'Bearer [a-f0-9]{64}',credential):send(h,401,{'error':'Device credential required'});return True
     try:
         length=h.headers.get('Content-Length','')
-        if not length.isdecimal() or not 0<int(length)<=(4100000 if list_upload else 24576 if remote else 4096):raise ValueError()
+        if not length.isdecimal() or not 0<int(length)<=(8100000 if list_upload else 24576 if remote else 4096):raise ValueError()
         if h.headers.get('Content-Type','').split(';')[0]!='application/json':raise ValueError()
         value=json.loads(h.rfile.read(int(length)))
         if pairing:
