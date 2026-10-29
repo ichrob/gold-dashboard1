@@ -8,7 +8,7 @@
     <!-- Bounded screen-on lease during an explicitly started product read. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <queries><package android:name="nl.degiro.trader" /></queries>
-    <!-- Optional one-shot reader; no gesture/screenshot capability. -->
+    <!-- Explicit product reader with a bounded search-tap fallback; no screenshots. -->
     <application android:label="${bobAppLabel}"
                  android:allowBackup="false"
                  android:usesCleartextTraffic="false"
