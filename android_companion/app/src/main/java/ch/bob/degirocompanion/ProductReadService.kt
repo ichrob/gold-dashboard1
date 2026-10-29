@@ -36,6 +36,7 @@ class ProductReadService : AccessibilityService() {
             }
             if (intent?.action != Intent.ACTION_SCREEN_OFF || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return
             MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
+            GoldSearchRun.stop("SCREEN_LOCKED",Instant.now().toString())
             ProductReadRequest.cancel()
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED)
             ProductReadSession.put(ProductScreenEvidence.Result(message = "Bildschirm ausgeschaltet. Leseprüfung beendet; zum Fortsetzen entsperren und erneut starten."), SystemClock.elapsedRealtime())
@@ -56,6 +57,7 @@ class ProductReadService : AccessibilityService() {
         handler.postDelayed(requestDeadline, remaining)
         val power = getSystemService(POWER_SERVICE) as PowerManager
         if (!power.isInteractive || (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) {
+            GoldSearchRun.stop("SCREEN_LOCKED",Instant.now().toString())
             MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
             ProductReadRequest.cancel()
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED)
@@ -124,6 +126,11 @@ class ProductReadService : AccessibilityService() {
                 ProductReadDiagnostics.record(outcome)
                 ProductReadSession.put(ProductScreenEvidence.Result(message = "Leseprüfung am Zeit- oder Versuchslimit beendet. Kein fertig geprüfter Entwurf; bitte Diagnose prüfen."), SystemClock.elapsedRealtime())
             }
+            if(GoldSearchRun.running) {
+                GoldSearchRun.stop(lastNavigationIssue.ifEmpty { if(outcome!=null) "READ_TIMEOUT" else "STOPPED" },Instant.now().toString())
+                ProductReadSession.put(ProductScreenEvidence.Result(message="Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty())),SystemClock.elapsedRealtime())
+                PhoneDiagnostics.queue(this)
+            }
             pageReader.reset()
             releaseScreen()
             handler.removeCallbacks(pendingRead)
@@ -135,6 +142,7 @@ class ProductReadService : AccessibilityService() {
                 }
                 else MorningReadRun.stop(this, "STOPPED")
             }
+            PhoneDiagnostics.queue(this)
         }
         ProductReadRequest.onStarted = {
             lastNavigationIssue=""
@@ -151,7 +159,8 @@ class ProductReadService : AccessibilityService() {
     // Only package/type metadata is used. Never read or retain event text.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (!ProductReadRequest.active(SystemClock.elapsedRealtime())) return
-        if(MorningReadRun.running && event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
+        if((MorningReadRun.running || GoldSearchRun.running) && event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
+            GoldSearchRun.stop("USER_INTERRUPTED",Instant.now().toString())
             MorningReadRun.stop(this,"USER_INTERRUPTED");ProductReadRequest.cancel();return
         }
         if (event?.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
@@ -171,8 +180,9 @@ class ProductReadService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         queueRead(400)
     }
-    override fun onInterrupt() { MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
+    override fun onInterrupt() { GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
     override fun onDestroy() {
+        GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
         ProductReadDiagnostics.connected = false
@@ -237,6 +247,7 @@ class ProductReadService : AccessibilityService() {
                     }
                     return
                 }
+                if (GoldSearchRun.running) { navigateMorning(root, gold=true);return }
                 if (MorningReadRun.running) {
                     if (MorningReadRun.expired()) { MorningReadRun.stop(this,"RUN_TIMEOUT");ProductReadRequest.cancel();return }
                     if (!MorningReadRun.reading && navigateMorning(root)) return
@@ -394,11 +405,11 @@ class ProductReadService : AccessibilityService() {
     }
 
     /** Search actions use semantic nodes only, never coordinates or order buttons. */
-    private fun navigateMorning(root: AccessibilityNodeInfo): Boolean {
+    private fun navigateMorning(root: AccessibilityNodeInfo, gold: Boolean = false): Boolean {
         val nodes=mutableListOf<AccessibilityNodeInfo>()
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         try {
-            fun walk(n: AccessibilityNodeInfo, depth: Int): String {
+            fun walk(n: AccessibilityNodeInfo, depth: Int, parent: Int = -1): String {
                 check(depth<=30 && nodes.size<500)
                 if(!n.isVisibleToUser || n.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return ""
                 val sensitiveNode=n.isPassword || (android.os.Build.VERSION.SDK_INT>=34 && n.isAccessibilityDataSensitive)
@@ -411,29 +422,46 @@ class ProductReadService : AccessibilityService() {
                 val searchInput=n.isEditable && MorningReadPolicy.isSearchInput(id,description,hint)
                 val text=if(sensitiveNode || (n.isEditable && !searchInput)) "" else n.text?.toString().orEmpty().ifBlank { description }.take(2000)
                 val index=nodes.size;nodes+=AccessibilityNodeInfo.obtain(n)
-                descriptions+=MorningReadPolicy.Node(text,id,n.isClickable,n.isEditable,sensitiveNode,description=description,hint=hint,password=n.isPassword)
+                descriptions+=MorningReadPolicy.Node(text,id,n.isClickable,n.isEditable,sensitiveNode,description=description,hint=hint,password=n.isPassword,
+                    clickAction=n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_CLICK },enabled=n.isEnabled,parent=parent)
                 val children=mutableListOf<String>()
                 if(!sensitiveNode && !n.isEditable) for(i in 0 until n.childCount) {
                     val child=n.getChild(i) ?: continue
-                    try { children+=walk(child,depth+1) } finally { child.recycle() }
+                    try { children+=walk(child,depth+1,index) } finally { child.recycle() }
                 }
                 val row=(listOf(text)+children).filter { it.isNotEmpty() }.joinToString("\n").take(4000)
                 descriptions[index]=descriptions[index].copy(row=row, containsInput=n.isEditable || descriptions.subList(index+1,descriptions.size).any { it.editable })
                 return row
             }
             walk(root,0)
-            val action=MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
+            val action=if(gold) MorningReadPolicy.discoverGold(descriptions) else MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
                 symbolMemory.getString(it, null)
             }
+            fun record(code:String) {
+                if(gold) { GoldSearchRun.event(code,Instant.now().toString());PhoneDiagnostics.queue(this) }
+                else MorningReadRun.event(this,code)
+            }
             when(action.kind) {
-                MorningReadPolicy.Kind.BLOCK -> { MorningReadRun.stop(this,action.code);ProductReadRequest.cancel() }
+                MorningReadPolicy.Kind.BLOCK -> {
+                    if(gold) { lastNavigationIssue=action.code;record(action.code) }
+                    else MorningReadRun.stop(this,action.code)
+                    ProductReadRequest.cancel()
+                }
+                MorningReadPolicy.Kind.COLLECT -> {
+                    check(gold && GoldSearchRun.running)
+                    MorningReadRun.beginDiscovered(this,action.isins)
+                    GoldSearchRun.clear()
+                    ProductReadRequest.start(SystemClock.elapsedRealtime())
+                    PhoneDiagnostics.queue(this)
+                }
                 MorningReadPolicy.Kind.READ -> { lastNavigationIssue="";MorningReadRun.reading=true; return false }
                 MorningReadPolicy.Kind.WAIT -> {
-                    if(lastNavigationIssue!=action.code) MorningReadRun.event(this,action.code)
+                    if(lastNavigationIssue!=action.code) record(action.code)
                     lastNavigationIssue=action.code
                 }
                 MorningReadPolicy.Kind.BACK -> {
-                    if(++MorningReadRun.backSteps>4) finishBatchProduct("SEARCH_MISSING")
+                    if(gold) { lastNavigationIssue="SEARCH_MISSING";ProductReadRequest.cancel() }
+                    else if(++MorningReadRun.backSteps>4) finishBatchProduct("SEARCH_MISSING")
                     else performGlobalAction(GLOBAL_ACTION_BACK)
                 }
                 else -> {
@@ -444,12 +472,12 @@ class ProductReadService : AccessibilityService() {
                     val node=nodes[action.index]
                     lastNavigation=SystemClock.elapsedRealtime()
                     val success=if(action.kind==MorningReadPolicy.Kind.QUERY) {
-                        val args=android.os.Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,MorningReadRun.target) }
+                        val args=android.os.Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(gold) "Gold" else MorningReadRun.target) }
                         node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)
                     } else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     if(!success) {
                         lastNavigationIssue="NAVIGATION_REJECTED"
-                        MorningReadRun.event(this,lastNavigationIssue)
+                        record(lastNavigationIssue)
                     }
                 }
             }

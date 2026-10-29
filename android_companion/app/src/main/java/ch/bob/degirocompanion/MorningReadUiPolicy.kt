@@ -15,6 +15,9 @@ internal object MorningReadUiPolicy {
     fun reason(code:String):String=when(code) {
         "STOPPED" -> "Prüfung angehalten; genauer Auslöser nicht protokolliert"
         "SEARCH_MISSING" -> "DEGIRO-Suche nicht erkannt"
+        "SEARCH_TREE_EMPTY" -> "Android liefert keine lesbare Suchbeschriftung"
+        "SEARCH_NOT_ACTIONABLE" -> "Suchbeschriftung erkannt, aber keine bedienbare Suchfläche"
+        "GOLD_IDENTITIES_MISSING" -> "Goldsuche geöffnet; noch keine eindeutigen Goldhebel-Treffer mit sichtbarer ISIN"
         "SEARCH_AMBIGUOUS" -> "Suchfläche nicht eindeutig"
         "RESULT_MISSING" -> "Kein eindeutiger ISIN-Treffer"
         "READ_TIMEOUT" -> "Zeitlimit beim Lesen erreicht"

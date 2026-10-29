@@ -4,6 +4,35 @@ import org.junit.Test
 class MorningReadPolicyTest {
     private val isin="DE000FD0S0G4"
     private fun node(text:String,click:Boolean=false)=MorningReadPolicy.Node(text,clickable=click)
+    @Test fun splitSearchTextAndActionOnlyContainersCanOpenSearch() {
+        val label="Mit Namen,\nISIN oder\u00a0Symbol suchen"
+        val wrapper=node("").copy(row=label,clickAction=true)
+        assertEquals(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.decide(listOf(wrapper),isin).kind)
+        assertEquals(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.decide(listOf(node(label).copy(clickAction=true)),isin).kind)
+        assertEquals("SEARCH_NOT_ACTIONABLE",MorningReadPolicy.decide(listOf(node(label)),isin).code)
+        assertEquals("SEARCH_NOT_ACTIONABLE",MorningReadPolicy.decide(listOf(wrapper.copy(enabled=false)),isin).code)
+        assertEquals("SEARCH_TREE_EMPTY",MorningReadPolicy.decide(listOf(node("")),isin).code)
+        assertEquals("SEARCH_MISSING",MorningReadPolicy.decide(listOf(node("Märkte")),isin).code)
+        for(extra in listOf("\nPortfolio","\nKaufen","\nIndizes"))
+            assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(wrapper.copy(row=label+extra)),isin).kind)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(listOf(wrapper,node("Limitpreis")),isin).kind)
+    }
+    @Test fun nestedSearchWrappersAreOneTargetButSiblingSearchesRemainAmbiguous() {
+        val label="Mit Namen, ISIN oder Symbol suchen"
+        val outer=node("").copy(row=label,clickAction=true)
+        val inner=node(label,true).copy(parent=0)
+        assertEquals(1,MorningReadPolicy.decide(listOf(outer,inner),isin).index)
+        assertEquals("SEARCH_AMBIGUOUS",MorningReadPolicy.decide(listOf(outer,inner.copy(parent=-1)),isin).code)
+        assertEquals(0,MorningReadPolicy.decide(listOf(outer,inner.copy(enabled=false)),isin).index)
+        val input=node("").copy(editable=true,hint=label,parent=0)
+        assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.decide(listOf(outer.copy(containsInput=true),input),isin).kind)
+        // A wholly blank wrapper does not make an unrelated clickable parent a search.
+        assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(node("",true),node(label).copy(parent=0)),isin).kind)
+        val market=listOf(node("Märkte"),node("Suche",true),node(label,true))
+        assertEquals(2,MorningReadPolicy.decide(market,isin).index)
+        assertEquals(2,MorningReadPolicy.discoverGold(market).index)
+        assertEquals("SEARCH_AMBIGUOUS",MorningReadPolicy.decide(market+node(label,true),isin).code)
+    }
     @Test fun onlySearchFieldCanReceiveIsin() {
         val input=MorningReadPolicy.Node("",id="nl.degiro.trader:id/search_src_text",editable=true)
         assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.decide(listOf(input),isin).kind)

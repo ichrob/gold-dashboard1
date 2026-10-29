@@ -1,3 +1,33 @@
+## Goldsuche und ISIN-Leselauf (29.10.2026)
+
+Neu: **Gold-Produkte suchen und auslesen** in Bob Handy. Nach bewusstem Start öffnet
+Bob die angemeldete DEGIRO-App, erkennt eine semantische Produktsuche und gibt
+fest `Gold` ein. Aus sichtbaren, anklickbaren Trefferzeilen sammelt er bis zu zwölf
+unterschiedliche gültige ISINs mit Gold/XAU und Turbo/Knock-out/Mini-Future im Text.
+Faktor- und Orderzeilen werden verworfen. Danach startet für diese Kennungen der
+bestehende ISIN-Such-/Produktleselauf. Die Goldsuche ist auf die vorhandenen
+60 Sekunden begrenzt, der anschließende Listenlauf auf die bestehenden Grenzen.
+STOPP, Bedienung, Bildschirmsperre, Login- und Ordermerkmale beenden die Suche.
+
+Das ist nur eine **Stichprobe sichtbarer Treffer**, keine vollständige Brokerliste.
+Kein automatisches Blättern durch Suchergebnisse, keine ISIN aus bloßen Namen
+oder Symbolen erraten. Ohne passende sichtbare ISIN-Zeilen meldet Bob
+`GOLD_IDENTITIES_MISSING`. Die Kennungen und späteren Beobachtungen bleiben im
+privaten Leselauf (`listSource=degiro-gold-search`); die aktive Produktliste,
+Kurseingänge, Simulationen und Handelsfreigaben werden dadurch nicht verändert.
+Erfassungszeit der Liste ist keine Broker-Kurszeit. Automatische Screenshots sind
+weiterhin ausgeschaltet. Eine automatische Übernahme neuer Kandidaten in die
+aktive Produktliste ist ein separater, noch offener Schritt.
+
+Sucherkennung: Android darf zusätzliche sichtbare Accessibility-Knoten liefern;
+explizite ACTION_CLICK-Fähigkeit zählt auch ohne Clickable-Flag. Geteilte
+Suchbeschriftungen, Unicode-Leerzeichen und ineinanderliegende Suchflächen werden
+berücksichtigt. Zwei getrennte Suchflächen bleiben uneindeutig. Es gibt keine
+Koordinatenklicks. `SEARCH_TREE_EMPTY` und `SEARCH_NOT_ACTIONABLE` unterscheiden
+fehlende Texte von einer nicht bedienbaren Suchfläche; nur feste Codes verlassen
+die Diagnoseschnittstelle. Ein Screenshot beweist nicht den Accessibility-Baum:
+Die Wirkung dieser Verbesserungen muss auf dem Samsung noch geprüft werden.
+
 ## Listenlauf: bekannte Symbol-Kopfzeilen lesen (29.10.2026)
 
 Der automatische ISIN-Listenlauf verwendet jetzt dieselbe lokale Symbolzuordnung

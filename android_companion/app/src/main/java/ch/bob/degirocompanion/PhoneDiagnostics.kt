@@ -78,7 +78,9 @@ internal object PhoneDiagnostics {
     fun snapshot(c:Context):String {
         val p=prefs(c)
         val event=runCatching { JSONObject(MorningReadRun.pending(c) ?: "{}").optJSONArray("events")?.let { it.optJSONObject(it.length()-1) } }.getOrNull()
-        if(event!=null) p.edit().putString("lastCode",PhoneDiagnosticPolicy.code(event.optString("code")))
+        if(GoldSearchRun.lastCode!=null) p.edit().putString("lastCode",GoldSearchRun.lastCode)
+            .putString("lastEventAt",GoldSearchRun.lastEventAt).commit()
+        else if(event!=null) p.edit().putString("lastCode",PhoneDiagnosticPolicy.code(event.optString("code")))
             .putString("lastEventAt",event.optString("at")).commit()
         val manager=c.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
         val active=manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any {
@@ -88,7 +90,7 @@ internal object PhoneDiagnostics {
             .put("observedAt",Instant.now().toString()).put("appVersionCode",c.packageManager.getPackageInfo(c.packageName,0).versionCode)
             .put("serviceEnabled",active).put("serviceConnectedInProcess",ProductReadDiagnostics.connected)
             .put("textAccess",ProductReadDiagnostics.canRead).put("windowAccess",ProductReadDiagnostics.windowAccess)
-            .put("running",MorningReadRun.running).put("pendingRun",MorningReadRun.pending(c)!=null)
+            .put("running",MorningReadRun.running || GoldSearchRun.running).put("pendingRun",MorningReadRun.pending(c)!=null)
             .put("lastCode",p.getString("lastCode","NONE"))
             .put("lastEventAt",p.getString("lastEventAt",null)?.takeIf { it.isNotBlank() } ?: JSONObject.NULL).toString()
     }

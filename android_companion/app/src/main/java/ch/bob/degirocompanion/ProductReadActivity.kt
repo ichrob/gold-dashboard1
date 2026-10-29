@@ -22,7 +22,7 @@ class ProductReadActivity : Activity() {
     private val statusHandler = Handler(Looper.getMainLooper())
     private val statusTick = object : Runnable {
         override fun run() {
-            if (MorningReadRun.running || displayedRequestActive != ProductReadRequest.active(SystemClock.elapsedRealtime())) refresh()
+            if (MorningReadRun.running || GoldSearchRun.running || displayedRequestActive != ProductReadRequest.active(SystemClock.elapsedRealtime())) refresh()
             statusHandler.postDelayed(this, 1000)
         }
     }
@@ -41,14 +41,32 @@ class ProductReadActivity : Activity() {
         container.addView(TextView(this).apply { text = "DEGIRO lesen · Produkt und Morgenliste"; textSize = 21f })
         primary=Button(this).apply { text="Automatisch prüfen";isAllCaps=false;setOnClickListener { primaryAction() } }
         container.addView(primary)
-        result=TextView(this).apply { textSize=18f;setTextIsSelectable(true) }
-        container.addView(result)
-        container.addView(TextView(this).apply { text="Ein Start: Morgenliste holen, Produkte lesen und Diagnose an Bob senden. DEGIRO muss angemeldet sein. Während des Lesens Handy entsperrt lassen. Nach einem Abbruch wird das Protokoll ebenfalls übertragen; bei Bildschirmsperre erst nach dem Entsperren. Ein Browser-Übergabelink kann einen zusätzlichen Tipp erfordern." })
+        button("Gold-Produkte suchen und auslesen") {
+            var startedHere=false
+            runCatching {
+                check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
+                check(!MorningReadRun.running && !GoldSearchRun.running && MorningReadRun.pending(this)==null) { "Lauf zuerst beenden und gespeicherte Ergebnisse übertragen." }
+                val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt")
+                ProductReadRequest.cancel();ProductReadSession.clear()
+                GoldSearchRun.start()
+                startedHere=true
+                ProductReadRequest.start(SystemClock.elapsedRealtime())
+                startActivity(launch)
+            }.onFailure {
+                if(startedHere) { GoldSearchRun.stop("STOPPED",java.time.Instant.now().toString());ProductReadRequest.cancel() }
+                result.text=it.message
+            }
+        }
         button("Prüfung stoppen") {
+            GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
             MorningReadRun.stop(this,"USER_STOP")
             preferences.edit().putBoolean("enabled", false).apply()
             ProductReadRequest.cancel(); ProductReadSession.clear(); ProductReadDiagnostics.clear(); refresh()
         }
+        result=TextView(this).apply { textSize=18f;setTextIsSelectable(true) }
+        container.addView(result)
+        container.addView(TextView(this).apply { text="Goldsuche: bis zu zwölf sichtbare Goldhebel-Kandidaten mit ISIN suchen und lesen. Unvollständige Stichprobe; neue Kandidaten bleiben getrennte Lesebeobachtungen." })
+        container.addView(TextView(this).apply { text="Ein Start: Morgenliste holen, Produkte lesen und Diagnose an Bob senden. DEGIRO muss angemeldet sein. Während des Lesens Handy entsperrt lassen. Nach einem Abbruch wird das Protokoll ebenfalls übertragen; bei Bildschirmsperre erst nach dem Entsperren. Ein Browser-Übergabelink kann einen zusätzlichen Tipp erfordern." })
         button("Automatische Diagnose verbinden / Freigabe öffnen") {
             AlertDialog.Builder(this).setTitle("Automatische Diagnose freigeben")
                 .setMessage("Bob Handy darf App-Version, Dienststatus und feste Fehlercodes direkt an deinen privaten Bob senden. Keine Bildschirmtexte, Kontowerte oder Zugangsdaten. Keine Fernsteuerung. Freigabe anschließend im angemeldeten Browser bestätigen. Android-Hintergrundmeldungen können verzögert eintreffen. Jederzeit hier abschaltbar.")
@@ -65,7 +83,7 @@ class ProductReadActivity : Activity() {
         container=advanced
         button("Leseprüfung einschalten / Android-Einstellungen") {
             AlertDialog.Builder(this).setTitle("Sichtbare Produktfelder lesen")
-                .setMessage("Bob erhält über die Android-Bedienungshilfe Zugriff auf sichtbare DEGIRO-Texte. Nach „Prüfung starten“ prüft er höchstens eine Minute die geöffnete Produktseite und scrollt dafür automatisch nach unten und zur ISIN zurück; alternativ liest er nach deinem Tastendruck. Während der gestarteten Prüfung hält Bob den Bildschirm bis zu 60 Sekunden eingeschaltet; Abschluss oder Abbruch beendet dies. Die Sperrtaste bleibt wirksam. Er übernimmt nur strukturierte Produktfelder. Bei aktivierter automatischer Rückgabe öffnet er danach Bob und ordnet den Entwurf lokal anhand der ISIN deiner Produktliste zu. Beim Morgenlisten-Lauf wird ausschließlich die ISIN in die Produktsuche eingetragen. Login- und Orderansichten stoppen den Lauf. DEGIRO beschränkt automatisierte Werkzeuge; dieser Gerätetest ist keine Zustimmung von DEGIRO. Ohne Freigabe bleibt manuelles Screenshot-Teilen die Alternative.")
+                .setMessage("Bob erhält über die Android-Bedienungshilfe Zugriff auf sichtbare DEGIRO-Texte. Nach „Prüfung starten“ prüft er höchstens eine Minute die geöffnete Produktseite und scrollt dafür automatisch nach unten und zur ISIN zurück; alternativ liest er nach deinem Tastendruck. Während der gestarteten Prüfung hält Bob den Bildschirm bis zu 60 Sekunden eingeschaltet; Abschluss oder Abbruch beendet dies. Die Sperrtaste bleibt wirksam. Er übernimmt nur strukturierte Produktfelder. Bei aktivierter automatischer Rückgabe öffnet er danach Bob und ordnet den Entwurf lokal anhand der ISIN deiner Produktliste zu. Beim Morgenlisten-Lauf wird die ISIN in die Produktsuche eingetragen; beim getrennten Goldsuchlauf zunächst nur das Wort Gold. Login- und Orderansichten stoppen den Lauf. DEGIRO beschränkt automatisierte Werkzeuge; dieser Gerätetest ist keine Zustimmung von DEGIRO. Ohne Freigabe bleibt manuelles Screenshot-Teilen die Alternative.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Leseprüfung aktivieren") { _, _ ->
                     preferences.edit().putBoolean("enabled", true).apply()
@@ -137,6 +155,7 @@ class ProductReadActivity : Activity() {
     override fun onPause() { statusHandler.removeCallbacks(automaticTransfer);statusHandler.removeCallbacks(statusTick); super.onPause() }
     private fun primaryAction() {
         runCatching {
+            check(!GoldSearchRun.running) { "Goldsuche läuft bereits. Zuerst stoppen oder Abschluss abwarten." }
             when(MorningReadUiPolicy.action(MorningReadRun.running,MorningReadRun.pending(this)!=null,
                 preferences.getBoolean("enabled",false),serviceEnabled() && ProductReadDiagnostics.connected)) {
                 MorningReadUiPolicy.Action.OPEN -> {
@@ -168,7 +187,7 @@ class ProductReadActivity : Activity() {
             MorningReadUiPolicy.Action.SETUP -> "Lesedienst einmalig einschalten"
             MorningReadUiPolicy.Action.START -> "Automatisch prüfen · Morgenliste"
         }
-        result.text=MorningReadRun.summary()+"\n"+MorningReadRun.savedStatus(this)+"\n\n"+PhoneDiagnostics.status(this)
+        result.text=(if(GoldSearchRun.running) "Goldsuche läuft · sichtbare ISIN-Kandidaten erfassen" else if(GoldSearchRun.lastCode!=null) "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty()) else MorningReadRun.summary())+"\n"+MorningReadRun.savedStatus(this)+"\n\n"+PhoneDiagnostics.status(this)
         diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }

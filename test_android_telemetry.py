@@ -16,6 +16,12 @@ def report(at=None):
         **{k:False for k in a.BOOLS})
 
 class Boundary(unittest.TestCase):
+    def test_search_diagnostics_use_fixed_codes_without_screen_content(self):
+        for code in ('SEARCH_TREE_EMPTY','SEARCH_NOT_ACTIONABLE'):
+            value=report();value['lastCode']=code
+            self.assertEqual(a.validate_report(value)['lastCode'],code)
+            value['screenText']='Mit Namen, ISIN oder Symbol suchen'
+            with self.assertRaises(ValueError):a.validate_report(value)
     def test_report_rejects_extra_content_and_invalid_states(self):
         self.assertEqual(a.validate_report(report())['lastCode'],'UNRECOGNIZED_INPUT')
         for key,value in [('screenText','account'),('token','secret'),('appVersionCode',True),('lastCode','raw screen text'),('running',1),('observedAt',(NOW-timedelta(days=2)).isoformat()),('lastEventAt','bad')]:

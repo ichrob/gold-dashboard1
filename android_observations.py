@@ -7,7 +7,7 @@ from product_quotes import valid_isin
 
 FIELDS = ('Geld','Brief','Zuletzt','Anzeigezeit','Hebel','KO-Schwelle','Basispreis','Bv','Handelsplatz')
 REQUIRED = ('Geld','Brief','Anzeigezeit','Hebel','KO-Schwelle','Basispreis','Bv')
-CODES = set('COMPLETE PARTIAL READ_TIMEOUT SEARCH_MISSING SEARCH_AMBIGUOUS RESULT_MISSING NAVIGATION_REJECTED PROTECTED_VIEW PROTECTED_PASSWORD PROTECTED_LOGIN PROTECTED_ORDER PROTECTED_ORDER_CONFIRM PROTECTED_ORDER_TYPE PROTECTED_ORDER_PRICE PROTECTED_ORDER_QUANTITY PROTECTED_SENSITIVE_INPUT PROTECTED_SENSITIVE_CONTENT UNRECOGNIZED_INPUT INVALID_VIEW IDENTITY_CHANGED NO_QUOTES RETURN_FAILED SCROLL_LIMIT INVALID_QUOTES SEEK_LIMIT SCROLL_LAYOUT_CHANGED UNSAFE_VIEW USER_STOP STOPPED RUN_TIMEOUT USER_INTERRUPTED TRANSFER_ERROR STORAGE_ERROR SCREEN_LOCKED SERVICE_INTERRUPTED'.split())
+CODES = set('COMPLETE PARTIAL READ_TIMEOUT SEARCH_MISSING SEARCH_TREE_EMPTY SEARCH_NOT_ACTIONABLE GOLD_IDENTITIES_MISSING SEARCH_AMBIGUOUS RESULT_MISSING NAVIGATION_REJECTED PROTECTED_VIEW PROTECTED_PASSWORD PROTECTED_LOGIN PROTECTED_ORDER PROTECTED_ORDER_CONFIRM PROTECTED_ORDER_TYPE PROTECTED_ORDER_PRICE PROTECTED_ORDER_QUANTITY PROTECTED_SENSITIVE_INPUT PROTECTED_SENSITIVE_CONTENT UNRECOGNIZED_INPUT INVALID_VIEW IDENTITY_CHANGED NO_QUOTES RETURN_FAILED SCROLL_LIMIT INVALID_QUOTES SEEK_LIMIT SCROLL_LAYOUT_CHANGED UNSAFE_VIEW USER_STOP STOPPED RUN_TIMEOUT USER_INTERRUPTED TRANSFER_ERROR STORAGE_ERROR SCREEN_LOCKED SERVICE_INTERRUPTED'.split())
 
 
 def timestamp(value):
@@ -59,6 +59,8 @@ def prepare(payload, feed, now=None):
     if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch): raise ValueError('Leselauf-Kennung fehlt')
     if not isinstance(ids,list) or not 1<=len(ids)<=12 or any(not isinstance(i,str) or not valid_isin(i) for i in ids) or len(set(ids))!=len(ids): raise ValueError('Ungültige Produktliste')
     uploaded=timestamp(payload.get('listUploadedAt'))
+    source=payload.get('listSource','bob-saved-list')
+    if source not in ('bob-saved-list','degiro-gold-search'): raise ValueError('Ungültige Listenquelle')
     if uploaded.year<2020 or (now-uploaded).total_seconds() < -60: raise ValueError('Ungültiger Listenstand')
     if not isinstance(rows,list) or len(rows)>12 or not isinstance(events,list) or len(events)>48: raise ValueError('Leselauf unvollständig')
     current={p.get('isin') for p in feed.get('products',[]) if isinstance(p,dict)}
@@ -80,7 +82,7 @@ def prepare(payload, feed, now=None):
         at=timestamp(e.get('at'))
         if at.year<2020 or (now-at).total_seconds() < -60: raise ValueError('Protokollzeit ungültig')
         safe_events.append(dict(isin=e['isin'],code=e['code'],attempt=e['attempt'],at=at.isoformat()))
-    return dict(batchId=batch,revision=revision,appVersionCode=version,listUploadedAt=uploaded.isoformat(),isins=ids,results=results,events=safe_events,
+    return dict(batchId=batch,revision=revision,appVersionCode=version,listUploadedAt=uploaded.isoformat(),listSource=source,isins=ids,results=results,events=safe_events,
                 receivedAt=now.isoformat(),verified=False,tradeApproved=False,realOrders=False,
                 scope='unverified-app-observations-not-market-inputs')
 
@@ -124,7 +126,7 @@ def status(conn):
     for row in rows:
         r=row[0]
         runs.append(dict(batchId=r['batchId'],revision=r['revision'],receivedAt=r['receivedAt'],
-            appVersionCode=r.get('appVersionCode'),listUploadedAt=r['listUploadedAt'],requested=len(r['isins']),
+            appVersionCode=r.get('appVersionCode'),listUploadedAt=r['listUploadedAt'],listSource=r.get('listSource','bob-saved-list'),requested=len(r['isins']),
             results=[dict(isin=x['isin'],code=x['code'],attempts=x['attempts'],
                 missingFields=(x.get('observation') or {}).get('missingFields',list(REQUIRED)),
                 matchedCurrentList=x['matchedCurrentList']) for x in r['results']],events=r['events'][-12:]))
