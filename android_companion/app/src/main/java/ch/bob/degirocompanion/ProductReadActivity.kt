@@ -216,8 +216,17 @@ class ProductReadActivity : Activity() {
         displayedRequestActive = ProductReadRequest.active(SystemClock.elapsedRealtime())
         val value = ProductReadSession.get(SystemClock.elapsedRealtime())
         primary.text=if(PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running) "Test läuft · DEGIRO öffnen" else "Start"
-        result.text=MorningListDelivery.status(this)+"\n\n"+(if(GoldSearchRun.running) "Goldsuche läuft · sichtbare ISIN-Kandidaten erfassen" else if(GoldSearchRun.lastCode!=null) "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty()) else MorningReadRun.summary())+"\n"+MorningReadRun.savedStatus(this)+"\n\n"+PhoneDiagnostics.status(this)+"\n\n"+PhoneRemote.message
-        diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
+        val delivery=MorningListDelivery.status(this)
+        val current=when {
+            GoldSearchRun.running -> "Goldsuche läuft · zehn Top Ergebnisse erfassen"
+            MorningReadRun.running -> delivery+"\n\nFehlende Produktangaben lesen: "+MorningReadRun.summary()
+            delivery.isNotBlank() -> delivery
+            GoldSearchRun.lastCode!=null -> "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty())
+            else -> MorningReadRun.summary()
+        }
+        result.text=current+"\n\n"+PhoneDiagnostics.status(this)+"\n\n"+PhoneRemote.message
+
+        diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + MorningReadRun.savedStatus(this) + "\n\n" + value.message +
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }
 }
