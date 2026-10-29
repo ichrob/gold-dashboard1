@@ -101,10 +101,10 @@ class ProductReadService : AccessibilityService() {
     }
     override fun onServiceConnected() {
         PhoneRemote.reader={command -> remoteRead(command)}
-        PhoneRemote.onStop={
+        PhoneRemote.onStop={ code ->
             remoteSearchProgress.clear(); automaticSearchProgress.clear()
-            GoldSearchRun.stop("STOPPED",Instant.now().toString())
-            MorningReadRun.stop(this,"STOPPED")
+            GoldSearchRun.stop(code,Instant.now().toString())
+            MorningReadRun.stop(this,code)
             ProductReadRequest.cancel()
         }
         ProductReadDiagnostics.connected = true

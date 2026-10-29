@@ -20,7 +20,7 @@ internal object PhoneRemote {
     private var ack:JSONObject?=null
     private var commands=PhoneCommandPolicy()
     var reader:((JSONObject?)->JSONObject)?=null
-    var onStop:(()->Unit)?=null
+    var onStop:((String)->Unit)?=null
     var message="Handy-Sitzung ausgeschaltet."
         private set
     fun active()=session.isNotEmpty() && SystemClock.elapsedRealtime()<deadline
@@ -41,7 +41,7 @@ internal object PhoneRemote {
     fun stop(c:Context,code:String="STOPPED") {
         if(session.isEmpty())return
         val old=session;session="";deadline=0;message="Handy-Sitzung beendet: $code"
-        onStop?.invoke()
+        onStop?.invoke(code)
         val body=payload(old,false,empty(code))
         network.execute { runCatching { PhoneDiagnostics.remoteExchange(c.applicationContext,body) } }
     }
@@ -62,6 +62,7 @@ internal object PhoneRemote {
                 if(!active()) { stop(c,"SESSION_EXPIRED");return@post }
                 result.onSuccess { response ->
                     if(response.optString("sessionId")!=id) { stop(c,"SESSION_MISMATCH");return@onSuccess }
+                    message="Handy-Sitzung verbunden · Status wird übertragen."
                     response.optJSONObject("command")?.let { command ->
                         val request=command.optString("requestId")
                         if(commands.accept(command.optString("sessionId"),id,request,command.optString("action"),command.optString("isin"),command.optLong("expiresAt"),System.currentTimeMillis()/1000)) {
