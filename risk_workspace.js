@@ -63,7 +63,7 @@ function ranking(products,state,context,api,now=Date.now()){
   seen.add(original.isin);
   // Singleton calls keep all original KO, identity, factor and contract gates,
   // without truncating the universe to the old top three before leverage sort.
-  const row=api.earlyWarningRanking([original],{...context,now,direction:state.direction,spot:state.spot,spotFresh:true});
+  const row=api.earlyWarningRanking([original],{...context,now,direction:state.direction,spot:state.spot,atr:state.atr,spotFresh:true});
   if(row.length&&positive(row[0].p.leverage))rows.push(row[0]);
  }
  return rows.sort((a,b)=>b.p.leverage-a.p.leverage||a.p.isin.localeCompare(b.p.isin)).slice(0,2);
@@ -258,5 +258,6 @@ function mount(panel){
 const api={POLICY,analyze,analyzePaper,ranking,monitor,advance,markup,update,mount,server};root.BobRisk=api;
 if(typeof module==='object'&&module.exports)module.exports=api;
 })(typeof window==='undefined'?globalThis:window);
+
 
 
