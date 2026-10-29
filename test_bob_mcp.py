@@ -128,5 +128,44 @@ class BobMcpTests(unittest.TestCase):
                           "degiroConnected":None,"items":[]})
 
 
+    def test_concurrent_diagnostics_serialize_complete_snapshot_reader(self):
+        import threading
+        import time
+        active = 0
+        highest = 0
+        guard = threading.Lock()
+        start = threading.Barrier(3)
+        results = []
+
+        def reader():
+            nonlocal active, highest
+            with guard:
+                active += 1
+                highest = max(highest, active)
+            time.sleep(0.05)
+            with guard:
+                active -= 1
+            return {"status":"observed","readOnly":True,"areas":{}}
+
+        def call():
+            start.wait()
+            results.append(bob_mcp.handle(
+                {"jsonrpc":"2.0","id":1,"method":"tools/call",
+                 "params":{"name":"bob_diagnostics",
+                           "arguments":{"focus":"overview"}}},
+                lambda: self.fail("product access"), reader))
+
+        threads = [threading.Thread(target=call) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        start.wait()
+        for thread in threads:
+            thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(highest, 1)
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(status == 200 for status, _ in results))
+
+
 if __name__ == "__main__":
     unittest.main()
