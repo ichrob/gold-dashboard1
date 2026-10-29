@@ -20,6 +20,8 @@ internal object ProductReadDiagnostics {
     fun rejected(reason: ProductScreenEvidence.Reason) {
         if (reason != ProductScreenEvidence.Reason.NONE) reasons[reason] = ((reasons[reason] ?: 0) + 1).coerceAtMost(999)
     }
+    fun counters(): Map<String, Int> = counts.mapKeys { it.key.name } +
+        pageCauses.mapKeys { "PAGE_"+it.key.name } + reasons.mapKeys { "FIELD_"+it.key.name }
     fun report(now: Long): String {
         val start = startedAt
         if (start != null && (now < start || now - start > 300000)) clear()

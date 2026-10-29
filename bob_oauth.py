@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, build_opener, HTTPSHandler
 import bob_auth
 import bob_passkey
-from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, REDIRECT
+from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, HANDY_SCOPE, REDIRECT
 
 COOKIE = '__Host-bob_oauth'
 UNTIL = '2026-11-16T23:59:59+01:00'
@@ -138,12 +138,12 @@ def route(handler,user,password):
         if handler.command=='GET':
             if path in ('/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp'):
                 respond(handler,200,{'resource':RESOURCE,'authorization_servers':[ORIGIN],
-                                    'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE],'bearer_methods_supported':['header']})
+                                    'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, HANDY_SCOPE],'bearer_methods_supported':['header']})
             elif path=='/.well-known/oauth-authorization-server':
                 respond(handler,200,{'issuer':ORIGIN,'authorization_endpoint':ORIGIN+'/oauth/authorize',
                     'token_endpoint':ORIGIN+'/oauth/token','registration_endpoint':ORIGIN+'/oauth/register',
                     'revocation_endpoint':ORIGIN+'/oauth/revoke','response_types_supported':['code'],
-                    'grant_types_supported':['authorization_code','refresh_token'],'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE],
+                    'grant_types_supported':['authorization_code','refresh_token'],'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, HANDY_SCOPE],
                     'token_endpoint_auth_methods_supported':['none'],'code_challenge_methods_supported':['S256'],
                     'authorization_response_iss_parameter_supported':True})
             elif path=='/oauth/authorize':
@@ -161,11 +161,12 @@ def route(handler,user,password):
                     respond(handler,200,page('ChatGPT mit Bob verbinden',
                         ('<p>ChatGPT darf deine privaten Produktprüfberichte mit ISINs, Quellen, Zeitstempeln und fehlenden Nachweisen lesen.</p>' if SCOPE in pending.get('scope', SCOPE).split() else '') +
                         ('<p>Zusätzlich freigegeben: Diagnoseberichte zu Marktanalyse, Hintergrundjobs, Simulationen, Push-Überwachung, Recherche und offenen Problemen. Keine Zugangsdaten oder vollständigen Protokolle.</p>' if DIAGNOSTICS_SCOPE in pending.get('scope', SCOPE).split() else '') +
-                        ('<p>Zusätzliche Schreibberechtigung: klar gekennzeichnete TEST-Pushs für bereits registrierte Geräte auslösen (maximal einer je fünf Minuten und zehn pro Tag/Gerät). Keine freie Nachricht, Registrierung, Änderung der Push-Kanäle oder Android-Berechtigungen.</p>' if PUSH_TEST_SCOPE in pending.get('scope', SCOPE).split() else '<p>Keine Änderungen an Bob.</p>') +
+                        ('<p>Zusätzliche Schreibberechtigung: klar gekennzeichnete TEST-Pushs für bereits registrierte Geräte auslösen (maximal einer je fünf Minuten und zehn pro Tag/Gerät). Keine freie Nachricht, Registrierung, Änderung der Push-Kanäle oder Android-Berechtigungen.</p>' if PUSH_TEST_SCOPE in pending.get('scope', SCOPE).split() else '') +
+                        ('<p>Zusätzliche Bedienberechtigung: In separat am Handy freigegebenen 15-Minuten-Sitzungen Produktlesen, feste Goldsuche oder STOPP auslösen und feste Lesediagnosen lesen. Kein Livebild, keine freien Klicks, kein Login und keine Orders.</p>' if HANDY_SCOPE in pending.get('scope',SCOPE).split() else '') +
                         '<p>Keine Orders und kein Zugriff auf dein DEGIRO-Konto.</p>'
                         '<p>Gültig höchstens 28 Tage, längstens bis '+until+'. In Bob jederzeit widerrufbar.</p>'
                         '<form method="post" action="/oauth/consent"><input type="hidden" name="request" value="'+html.escape(nonce)+'">'
-                        '<button name="decision" value="approve">'+('Push-Test-Berechtigung erlauben' if PUSH_TEST_SCOPE in pending.get('scope',SCOPE).split() else 'Lesezugriff erlauben')+'</button>'
+                        '<button name="decision" value="approve">'+('Handy-Fernhilfe erlauben' if HANDY_SCOPE in pending.get('scope',SCOPE).split() else 'Push-Test-Berechtigung erlauben' if PUSH_TEST_SCOPE in pending.get('scope',SCOPE).split() else 'Lesezugriff erlauben')+'</button>'
                         '<button class="secondary" name="decision" value="deny">Abbrechen</button></form>'),page=True)
             elif path=='/oauth/connections':
                 if browser_ready(handler,user,password):

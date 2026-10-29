@@ -57,7 +57,16 @@ class ProductReadActivity : Activity() {
                 result.text=it.message
             }
         }
+        button("Fernhilfe für ChatGPT · 15 Minuten") {
+            AlertDialog.Builder(this).setTitle("Fernsitzung freigeben")
+                .setMessage("Nach zusätzlicher Browserfreigabe darf ChatGPT die Produktseitenprüfung, feste Goldsuche und STOPP auslösen. DEGIRO muss geöffnet und entsperrt sein. Übertragen werden Dienststatus und feste Lesediagnosen, keine Bildschirmbilder, Kontowerte oder Zugangsdaten. Keine freien Klicks, Anmeldung oder Orders. Die Sitzung endet nach 15 Minuten, bei Sperre oder über STOPP.")
+                .setNegativeButton("Abbrechen",null).setPositiveButton("Fernsitzung starten") { _,_ ->
+                    runCatching { PhoneRemote.start(this) }.onFailure { result.text=it.message }
+                }.show()
+        }
+        button("Fernsitzung beenden") { PhoneRemote.stop();refresh() }
         button("Prüfung stoppen") {
+            PhoneRemote.stop()
             GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
             MorningReadRun.stop(this,"USER_STOP")
             preferences.edit().putBoolean("enabled", false).apply()
@@ -187,7 +196,7 @@ class ProductReadActivity : Activity() {
             MorningReadUiPolicy.Action.SETUP -> "Lesedienst einmalig einschalten"
             MorningReadUiPolicy.Action.START -> "Automatisch prüfen · Morgenliste"
         }
-        result.text=(if(GoldSearchRun.running) "Goldsuche läuft · sichtbare ISIN-Kandidaten erfassen" else if(GoldSearchRun.lastCode!=null) "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty()) else MorningReadRun.summary())+"\n"+MorningReadRun.savedStatus(this)+"\n\n"+PhoneDiagnostics.status(this)
+        result.text=(if(GoldSearchRun.running) "Goldsuche läuft · sichtbare ISIN-Kandidaten erfassen" else if(GoldSearchRun.lastCode!=null) "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty()) else MorningReadRun.summary())+"\n"+MorningReadRun.savedStatus(this)+"\n\n"+PhoneDiagnostics.status(this)+"\n"+PhoneRemote.status
         diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }

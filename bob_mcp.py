@@ -33,7 +33,7 @@ def service_authenticated(headers):
 
 
 
-def tool_definitions(diagnostics=False, products=True, remote_push=False):
+def tool_definitions(diagnostics=False, products=True, remote_push=False, remote_handy=False):
     result = [
         {
             "name": "bob_product_audit",
@@ -83,10 +83,12 @@ def tool_definitions(diagnostics=False, products=True, remote_push=False):
         })
     if remote_push:
         result.extend(__import__('remote_push').definitions())
+    if remote_handy:result.extend(__import__('android_remote').definitions())
     for tool in result:
         scope = DIAGNOSTICS_SCOPE if tool['name'] in ('bob_diagnostics','bob_signal_history','bob_push_history') else SCOPE
         if tool['name'] in __import__('remote_push').READ_TOOLS:scope=DIAGNOSTICS_SCOPE
         elif tool['name']=='bob_push_test':scope=__import__('remote_push').SCOPE
+        if tool['name'] in __import__('android_remote').TOOLS:scope=__import__('android_remote').SCOPE
         schemes = [{"type": "oauth2", "scopes": [scope]}]
         tool['securitySchemes'] = schemes
         tool['_meta'] = {"securitySchemes": schemes}
@@ -129,7 +131,7 @@ def error(request_id, code, message):
             "error": {"code": code, "message": message}}
 
 
-def handle(request, report_reader, diagnostics_reader=None, products=True, signal_history_reader=None, push_history_reader=None, remote_push=False, push_reader=None, push_sender=None):
+def handle(request, report_reader, diagnostics_reader=None, products=True, signal_history_reader=None, push_history_reader=None, remote_push=False, push_reader=None, push_sender=None, remote_handy=False, handy_callback=None):
     """Return (HTTP status, JSON-RPC result). Only tool calls read the database."""
     if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
         return 400, error(None, -32600, "Invalid Request")
@@ -149,13 +151,20 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
     if method == "ping":
         return 200, {"jsonrpc":"2.0","id":rid,"result":{}}
     if method == "tools/list":
-        return 200, {"jsonrpc":"2.0","id":rid,"result":{"tools":tool_definitions(diagnostics=True, remote_push=remote_push)}}
+        return 200, {"jsonrpc":"2.0","id":rid,"result":{"tools":tool_definitions(diagnostics=True, remote_push=remote_push, remote_handy=remote_handy)}}
     if method != "tools/call":
         return 200, error(rid, -32601, "Method not found")
     params = request.get("params")
-    if not isinstance(params, dict) or params.get("name") not in [t["name"] for t in tool_definitions(diagnostics=True, remote_push=remote_push)]:
+    if not isinstance(params, dict) or params.get("name") not in [t["name"] for t in tool_definitions(diagnostics=True, remote_push=remote_push, remote_handy=remote_handy)]:
         return 200, error(rid, -32602, "Invalid tool arguments")
     args=params.get("arguments", {})
+    if params['name'] in __import__('android_remote').TOOLS:
+        import android_remote as ar
+        try:args=ar.arguments(params['name'],args)
+        except ValueError:return 200,error(rid,-32602,'Invalid remote Android arguments')
+        if handy_callback is None:return authorization_required(rid,ar.SCOPE,products,diagnostics_reader is not None)
+        data=handy_callback(params['name'],args)
+        return 200,{'jsonrpc':'2.0','id':rid,'result':{'content':[{'type':'text','text':json.dumps(data)}],'isError':False}}
     if params['name'] in __import__('remote_push').TOOLS:
         import remote_push as rp
         try:args=rp.arguments(params['name'],args)

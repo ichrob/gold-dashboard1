@@ -22,6 +22,7 @@ import java.time.Instant
 /** Explicit one-minute reading request or accessibility button; only bounded scroll actions on validated product pages. */
 class ProductReadService : AccessibilityService() {
     private val symbolMemory by lazy { getSharedPreferences("degiro_symbol_identity_v1", MODE_PRIVATE) }
+    private var remoteOwnsRead = false
     private var batchTransition = false
     private var lastNavigation = 0L
     private var lastNavigationIssue = ""
@@ -34,6 +35,7 @@ class ProductReadService : AccessibilityService() {
                 handler.postDelayed({ runCatching { MorningReadTransfer.automaticResults(this@ProductReadService) } },1000)
                 return
             }
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) PhoneRemote.stop()
             if (intent?.action != Intent.ACTION_SCREEN_OFF || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return
             MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
             GoldSearchRun.stop("SCREEN_LOCKED",Instant.now().toString())
@@ -96,7 +98,35 @@ class ProductReadService : AccessibilityService() {
     private val callback = object : AccessibilityButtonController.AccessibilityButtonCallback() {
         override fun onClicked(controller: AccessibilityButtonController) { readOnce() }
     }
+    private fun stopRemoteRead() {
+        if (!remoteOwnsRead) return
+        remoteOwnsRead=false
+        GoldSearchRun.stop("USER_STOP",Instant.now().toString())
+        MorningReadRun.stop(this,"USER_STOP")
+        ProductReadRequest.cancel()
+    }
+    private fun remoteAction(action: String): String {
+        val unlocked=(getSystemService(POWER_SERVICE) as PowerManager).isInteractive &&
+            !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
+        val root=productRoot(false)
+        val degiro=root?.packageName?.toString()==ProductScreenEvidence.PACKAGE
+        root?.recycle()
+        PhoneRemotePolicy.reject(action,PhoneRemote.active(),false,unlocked,degiro,
+            ProductReadRequest.active(SystemClock.elapsedRealtime()) || MorningReadRun.running || GoldSearchRun.running)?.let { return it }
+        if(action=="STOP") {
+            GoldSearchRun.stop("USER_STOP",Instant.now().toString());MorningReadRun.stop(this,"USER_STOP")
+            ProductReadRequest.cancel();remoteOwnsRead=false
+            return "STOPPED"
+        }
+        if(!getSharedPreferences("product_reader",MODE_PRIVATE).getBoolean("enabled",false))return "REJECTED"
+        ProductReadSession.clear();ProductReadDiagnostics.reset(SystemClock.elapsedRealtime())
+        if(action=="SEARCH_GOLD")GoldSearchRun.start()
+        ProductReadRequest.start(SystemClock.elapsedRealtime())
+        remoteOwnsRead=ProductReadRequest.active(SystemClock.elapsedRealtime())
+        return "STARTED"
+    }
     override fun onServiceConnected() {
+        PhoneRemote.attach(this,::remoteAction,::stopRemoteRead)
         ProductReadDiagnostics.connected = true
         ProductReadDiagnostics.canRead = (serviceInfo.capabilities and AccessibilityServiceInfo.CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT) != 0
         ProductReadDiagnostics.windowAccess = (serviceInfo.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) != 0
@@ -116,6 +146,7 @@ class ProductReadService : AccessibilityService() {
             }
         }
         ProductReadRequest.onCancelled = {
+            remoteOwnsRead=false
             val outcome = when (ProductReadRequest.endReason) {
                 ProductReadRequest.End.TIMEOUT -> ProductReadDiagnostics.Outcome.REQUEST_EXPIRED
                 ProductReadRequest.End.ATTEMPT_LIMIT -> ProductReadDiagnostics.Outcome.REQUEST_ATTEMPT_LIMIT
@@ -145,6 +176,7 @@ class ProductReadService : AccessibilityService() {
             PhoneDiagnostics.queue(this)
         }
         ProductReadRequest.onStarted = {
+            remoteOwnsRead=false
             lastNavigationIssue=""
             pageReader.reset()
             handler.removeCallbacks(pendingRead)
@@ -180,8 +212,9 @@ class ProductReadService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         queueRead(400)
     }
-    override fun onInterrupt() { GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
+    override fun onInterrupt() { PhoneRemote.stop(); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
     override fun onDestroy() {
+        PhoneRemote.detach()
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")

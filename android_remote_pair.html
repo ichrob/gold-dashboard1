@@ -1,0 +1,15 @@
+<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bob Handy · Fernsitzung</title>
+<style>body{font:18px system-ui;margin:24px auto;padding:20px;max-width:540px;background:#f3f5f8}button,a{display:block;margin:18px 0;padding:16px}button{font:inherit;width:100%}p{line-height:1.5}</style>
+<h1>Bob Handy · 15 Minuten Fernhilfe</h1>
+<p>ChatGPT darf mit zusätzlicher Bedienfreigabe eine Produktseite lesen lassen, die feste Goldsuche starten oder das Lesen stoppen. Dein Handy muss entsperrt und DEGIRO im Vordergrund sein. Es werden nur Dienststatus und feste Lesediagnosen übertragen, kein Bildschirmfoto, keine Kontodaten oder Zugangsdaten. Keine beliebigen Tastendrücke und keine Orders.</p>
+<p>Diese Freigabe ist getrennt von der automatischen Diagnose. Beende sie jederzeit in Bob Handy. Eine neue Sitzung braucht eine neue Freigabe.</p>
+<p id="fingerprint"></p><button id="approve" disabled>Fernsitzung für 15 Minuten freigeben</button>
+<a href="/login" target="_blank" rel="noopener">Bei Bob anmelden (neuer Tab)</a><p>Nach der Anmeldung hierher zurückkehren und freigeben.</p>
+<a href="bobhandy://list-reader/open">Zurück zu Bob Handy</a><p id="status" role="status"></p>
+<script>
+'use strict';let digest=location.hash.slice(1);const state=document.getElementById('status'),approve=document.getElementById('approve');
+try{const key='bobRemotePairV1',old=JSON.parse(sessionStorage.getItem(key)||'null');if(/^[a-f0-9]{64}$/.test(digest))sessionStorage.setItem(key,JSON.stringify({digest,at:Date.now()}));else if(old&&/^[a-f0-9]{64}$/.test(old.digest)&&Date.now()-old.at>=0&&Date.now()-old.at<900000)digest=old.digest;}catch(_){}
+history.replaceState(null,'',location.pathname);
+if(/^[a-f0-9]{64}$/.test(digest)){approve.disabled=false;document.getElementById('fingerprint').textContent='Vergleichscode: '+digest.slice(0,12)+' – mit Bob Handy vergleichen.';}else state.textContent='Die Fernsitzung zuerst in Bob Handy starten.';
+approve.onclick=async()=>{try{const r=await fetch('/api/android-remote/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tokenHash:digest}),signal:AbortSignal.timeout(15000)});if(r.status===401){state.textContent='Bitte anmelden und danach hierher zurückkehren.';return;}if(!r.ok)throw Error();const d=await r.json();if(!d.ok)throw Error();state.textContent='Fernsitzung freigegeben. Zurück zu Bob Handy, danach DEGIRO öffnen. ChatGPT benötigt zusätzlich die Bedienberechtigung der Bob-Verbindung.';}catch(_){state.textContent='Freigabe nicht bestätigt. Erneut versuchen.';}};
+</script></html>
