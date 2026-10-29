@@ -151,6 +151,32 @@ class MorningReadPolicyTest {
         // An order launcher on product/results views remains blocked.
         assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(listOf(node(isin),node("Übersicht"),launcher),isin).kind)
     }
+    @Test fun explicitProductInputWorksBesideIsolatedGlobalLauncher() {
+        val input=node("").copy(editable=true,hint="Mit Namen, ISIN oder Symbol suchen")
+        val launcher=node("",true).copy(description="Order platzieren")
+        val page=listOf(launcher,input,node("Nach Produkttyp durchsuchen"))
+        val query=MorningReadPolicy.discoverGold(page)
+        assertEquals(MorningReadPolicy.Kind.QUERY,query.kind)
+        assertEquals(1,query.index)
+        val row=node("Gold Turbo $isin",true)
+        val results=listOf(launcher,input.copy(text="Gold"),row)
+        assertEquals(listOf(isin),MorningReadPolicy.discoverGold(results).isins)
+        assertEquals(2,MorningReadPolicy.decide(listOf(launcher,input.copy(text=isin),row),isin).index)
+        assertEquals("GOLD_IDENTITIES_MISSING",MorningReadPolicy.discoverGold(results.take(2)).code)
+        for(extra in listOf(node("Order bestätigen",true),node("Orderart"),node("Limitpreis"),
+                node("Stückzahl"),node("Anmelden"),node("").copy(password=true),
+                node("").copy(sensitive=true),node("").copy(editable=true)))
+            assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(page+extra).kind)
+        for(bad in listOf(
+                listOf(launcher,input.copy(hint="Suche")),
+                listOf(launcher.copy(description="Order bestätigen"),input),
+                listOf(launcher.copy(row="Order platzieren\nKaufen"),input),
+                listOf(launcher.copy(clickable=false),input),
+                listOf(launcher,input.copy(parent=0)),
+                listOf(launcher.copy(parent=1),input),
+                listOf(launcher,input.copy(enabled=false)),page+launcher))
+            assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(bad).kind)
+    }
     @Test fun detailNeedsIdentityAndNeverClicksBuy() {
         assertEquals(MorningReadPolicy.Kind.READ,MorningReadPolicy.decide(listOf(node(isin),node("Übersicht"),node("KAUF",true)),isin).kind)
         assertEquals(MorningReadPolicy.Kind.BACK,MorningReadPolicy.decide(listOf(node("DE000FG77MY4"),node("Übersicht")),isin).kind)
