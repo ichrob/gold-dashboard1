@@ -29,6 +29,7 @@ class ProductReadService : AccessibilityService() {
         clearWrittenSearch(); writtenSearchNode=AccessibilityNodeInfo.obtain(node); writtenSearchQuery=query
     }
     private var searchTapAttempted = false
+    private var inputTapAttempted = false
     private var batchTransition = false
     private var lastNavigation = 0L
     private var lastNavigationIssue = ""
@@ -164,6 +165,7 @@ class ProductReadService : AccessibilityService() {
         ProductReadRequest.onStarted = {
             clearWrittenSearch()
             searchTapAttempted = false
+            inputTapAttempted = false
             automaticSearchProgress.clear()
             lastNavigationIssue=""
             pageReader.reset()
@@ -431,7 +433,7 @@ class ProductReadService : AccessibilityService() {
     }
 
     private fun navigationTree(root:AccessibilityNodeInfo,nodes:MutableList<AccessibilityNodeInfo>,descriptions:MutableList<MorningReadPolicy.Node>) {
-            fun walk(n: AccessibilityNodeInfo, depth: Int, parent: Int = -1): String {
+            fun walk(n: AccessibilityNodeInfo, depth: Int, parent: Int = -1, insideInput: Boolean = false): String {
                 check(depth<=30 && nodes.size<500)
                 if(!n.isVisibleToUser || n.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return ""
                 val sensitiveNode=n.isPassword || (android.os.Build.VERSION.SDK_INT>=34 && n.isAccessibilityDataSensitive)
@@ -451,7 +453,7 @@ class ProductReadService : AccessibilityService() {
                 val description=if(sensitiveNode) "" else n.contentDescription?.toString().orEmpty().take(2000)
                 val searchInput=n.isEditable && MorningReadPolicy.isSearchInput(id,description,hint)
                 val explicitPrompt=SearchInputCluster.explicitPrompt(n.text?.toString().orEmpty())
-                val text=if(sensitiveNode || (n.isEditable && !searchInput && !explicitPrompt)) "" else n.text?.toString().orEmpty().ifBlank { description }.take(2000)
+                val text=if(sensitiveNode || (insideInput && !explicitPrompt) || (n.isEditable && !searchInput && !explicitPrompt)) "" else n.text?.toString().orEmpty().ifBlank { description }.take(2000)
                 val index=nodes.size;nodes+=AccessibilityNodeInfo.obtain(n)
                 descriptions+=MorningReadPolicy.Node(text,id,n.isClickable,n.isEditable,sensitiveNode,description=description,hint=hint,password=n.isPassword,
                     clickAction=n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_CLICK },enabled=n.isEnabled,parent=parent,focused=n.isFocused,
@@ -460,9 +462,11 @@ class ProductReadService : AccessibilityService() {
                     writtenQueryExpected=writtenQueryExpected,writtenQueryPresent=writtenQueryPresent,
                     writtenNodeIdentity=writtenNodeIdentity)
                 val children=mutableListOf<String>()
-                if(!sensitiveNode && !n.isEditable) for(i in 0 until n.childCount) {
+                // Some input wrappers expose their placeholder in a child.
+                // Retain only the fixed product prompt from text below an input.
+                if(!sensitiveNode) for(i in 0 until n.childCount) {
                     val child=n.getChild(i) ?: continue
-                    try { children+=walk(child,depth+1,index) } finally { child.recycle() }
+                    try { children+=walk(child,depth+1,index,insideInput || n.isEditable) } finally { child.recycle() }
                 }
                 val row=(listOf(text)+children).filter { it.isNotEmpty() }.joinToString("\n").take(4000)
                 descriptions[index]=descriptions[index].copy(row=row, containsInput=n.isEditable || descriptions.subList(index+1,descriptions.size).any { it.editable })
@@ -552,7 +556,7 @@ class ProductReadService : AccessibilityService() {
     }
 
     /** Local-only fallback. No caller-supplied coordinates and no result/order taps. */
-    private fun tapRecognizedSearch(expectedWindow: Int): Boolean {
+    private fun tapRecognizedSearch(expectedWindow: Int, input: Boolean = false): Boolean {
         if(!PhoneRemote.active() || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return false
         if(!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive ||
             (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return false
@@ -566,9 +570,9 @@ class ProductReadService : AccessibilityService() {
             if(root.windowId!=expectedWindow || root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return false
             navigationTree(root,live,descriptions)
             val action=MorningReadPolicy.discoverGold(descriptions)
-            if(action.kind!=MorningReadPolicy.Kind.SEARCH) return false
+            if(action.kind!=if(input) MorningReadPolicy.Kind.FOCUS else MorningReadPolicy.Kind.SEARCH) return false
             val target=live[action.index]
-            if(!target.isVisibleToUser || !target.isEnabled || target.isEditable || target.isPassword) return false
+            if(!target.isVisibleToUser || !target.isEnabled || target.isEditable!=input || target.isPassword) return false
             val bounds=Rect();target.getBoundsInScreen(bounds)
             val screen=Rect();root.getBoundsInScreen(screen)
             val point=SearchTapPolicy.center(
@@ -673,7 +677,14 @@ class ProductReadService : AccessibilityService() {
                     val success=if(action.kind==MorningReadPolicy.Kind.QUERY) {
                         val args=android.os.Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(gold) "Gold" else MorningReadRun.target) }
                         node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)
-                    } else if(action.kind==MorningReadPolicy.Kind.FOCUS) focusSearch(node)
+                    } else if(action.kind==MorningReadPolicy.Kind.FOCUS) {
+                        if(!inputTapAttempted) {
+                            inputTapAttempted=true
+                            val tapped=tapRecognizedSearch(root.windowId,input=true)
+                            ProductReadDiagnostics.record(if(tapped) ProductReadDiagnostics.Outcome.SEARCH_INPUT_TAP_SENT else ProductReadDiagnostics.Outcome.SEARCH_INPUT_TAP_REJECTED)
+                            tapped
+                        } else focusSearch(node)
+                    }
                     else if(action.kind==MorningReadPolicy.Kind.SUBMIT) submitSearch(node)
                     else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     if(success && action.kind==MorningReadPolicy.Kind.QUERY)

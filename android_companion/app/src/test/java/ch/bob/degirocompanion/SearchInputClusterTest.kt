@@ -36,8 +36,21 @@ class SearchInputClusterTest {
     @Test fun focusPrecedesQueryAndSubmitButNeverOverridesOrderGuard() {
         val n=input.copy(hint=label.text,focused=false,focusAction=true)
         assertEquals(MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.discoverGold(listOf(n)).kind)
+        assertEquals(MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.discoverGold(listOf(n.copy(focusAction=false))).kind)
         assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.discoverGold(listOf(n.copy(focused=true))).kind)
         assertEquals(MorningReadPolicy.Kind.SUBMIT,MorningReadPolicy.discoverGold(listOf(n.copy(focused=true,text="Gold",imeEnter=true))).kind)
         assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(listOf(n,MorningReadPolicy.Node("Limitpreis"))).kind)
+    }
+    @Test fun nestedPlaceholderSupportsSecondTapThenTextThenSubmit() {
+        val field=input.copy(parent=-1,focused=false)
+        val child=label.copy(parent=0)
+        val tree=listOf(field,child)
+        val matched=SearchInputCluster.spatial(tree,listOf(SearchInputCluster.Box(20,200,680,290),
+            SearchInputCluster.Box(100,220,600,270)),SearchInputCluster.Box(0,0,700,1500))
+        assertEquals(setOf(0),matched)
+        val identified=field.copy(id="bob:search_input")
+        assertEquals(MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.discoverGold(listOf(identified,child)).kind)
+        assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.discoverGold(listOf(identified.copy(focused=true),child)).kind)
+        assertEquals(MorningReadPolicy.Kind.SUBMIT,MorningReadPolicy.discoverGold(listOf(identified.copy(focused=true,text="Gold",imeEnter=true))).kind)
     }
 }
