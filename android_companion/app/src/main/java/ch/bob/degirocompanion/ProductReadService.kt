@@ -21,6 +21,7 @@ import java.time.Instant
 
 /** Explicit one-minute reading request or accessibility button; only bounded scroll actions on validated product pages. */
 class ProductReadService : AccessibilityService() {
+    private val symbolMemory by lazy { getSharedPreferences("degiro_symbol_identity_v1", MODE_PRIVATE) }
     private var batchTransition = false
     private var lastNavigation = 0L
     private var lastNavigationIssue = ""
@@ -224,7 +225,6 @@ class ProductReadService : AccessibilityService() {
                 ?: return@runCatching ProductScreenEvidence.Result(message = "Android liefert gerade keinen Fensterinhalt. Ursache noch ungeklärt; dies beweist keine DEGIRO-Sperre.")
             val scrollNodes = mutableListOf<AccessibilityNodeInfo>()
             val capabilities = mutableListOf<ProductScrollPolicy.Capability>()
-            val symbolMemory = getSharedPreferences("degiro_symbol_identity_v1", MODE_PRIVATE)
             val symbolContainers = mutableListOf<Pair<String, List<Int>>>()
             try {
                 // Returning to Bob must not erase the last DEGIRO rejection or draft.
@@ -422,7 +422,9 @@ class ProductReadService : AccessibilityService() {
                 return row
             }
             walk(root,0)
-            val action=MorningReadPolicy.decide(descriptions,MorningReadRun.target)
+            val action=MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
+                symbolMemory.getString(it, null)
+            }
             when(action.kind) {
                 MorningReadPolicy.Kind.BLOCK -> { MorningReadRun.stop(this,action.code);ProductReadRequest.cancel() }
                 MorningReadPolicy.Kind.READ -> { lastNavigationIssue="";MorningReadRun.reading=true; return false }

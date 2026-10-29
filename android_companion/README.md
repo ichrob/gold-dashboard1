@@ -1,3 +1,19 @@
+## Listenlauf: bekannte Symbol-Kopfzeilen lesen (29.10.2026)
+
+Der automatische ISIN-Listenlauf verwendet jetzt dieselbe lokale Symbolzuordnung
+wie der Produktseitenleser. Zeigt die geöffnete Detailseite nur ein bereits eindeutig
+gelerntes DEGIRO-Symbol, beginnt die begrenzte Seitenprüfung, statt sofort zur Suche
+zurückzugehen. Ein unbekanntes, widersprüchliches oder fremdes Symbol genügt nicht.
+Die ISIN muss vor der Übernahme der Kurse weiterhin tatsächlich sichtbar geprüft
+werden. Suchtreffer benötigen weiterhin die gesuchte ISIN; Login-/Ordersperren
+bleiben aktiv. Die Änderung braucht eine neue signierte App und einen Gerätetest.
+
+Der Listenlauf verarbeitet eine bereits an Bob übergebene ISIN-Liste. Eine neue
+DEGIRO-Liste durch Eingabe von „Gold“ zu entdecken und automatisch Bildschirmfotos
+anzufertigen, ist damit noch nicht umgesetzt. Die Screenshot-Berechtigung bleibt
+in diesem Stand ausgeschaltet. Die folgenden älteren Abschnitte beschreiben den
+jeweiligen damaligen Entwicklungsstand.
+
 ## Einmalige DEGIRO-Leseprüfung (27.10.2026)
 
 Neu: oben in Bob Handy **DEGIRO-Produktseite lesen**. Optionaler Android-Lesedienst,
