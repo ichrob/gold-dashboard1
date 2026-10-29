@@ -135,8 +135,11 @@ internal object MorningReadPolicy {
      * scroll out of the accessibility tree. A synthetic context node is used only
      * for policy validation; no action can target it or any product row. */
     fun captureGoldList(nodes: List<Node>, continuing: Boolean): Action {
-        val selected=nodes.count { it.selected && normalized(it.text).equals("Hebelprodukte",true) } == 1
-        if (!selected) return discoverGold(nodes)
+        // DEGIRO's WebView may draw the selected tab without exposing Android's
+        // selected/checked flag. A captured Top Results page is stronger evidence.
+        val tabs=innermost(nodes,nodes.indices.filter { nodes[it].enabled && normalized(nodes[it].text).equals("Hebelprodukte",true) })
+        val topResults=nodes.any { normalized(it.text).equals("Top Ergebnisse",true) }
+        if(tabs.size!=1 || !(nodes[tabs.single()].selected || continuing || topResults)) return discoverGold(nodes)
         val context=if(continuing && nodes.none { it.editable })
             nodes + Node("Gold",id="search-input",editable=true) else nodes
         val action=navigate(context,"Gold",true,{ null },captureAll=true)

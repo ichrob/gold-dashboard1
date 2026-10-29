@@ -38,11 +38,12 @@ class ProductReadService : AccessibilityService() {
     private var listFirstIds = emptyList<String>()
     private val listSeenIds = mutableSetOf<String>()
     private var listCropTop: Int? = null
+    private var listWindowId: Int? = null
     private val listImages = org.json.JSONArray()
     private var listBatch = ""
     private fun resetListCapture() {
         listGeneration++; listBusy=false; listScrolled=false; listScrollTries=0
-        listFirstIds=emptyList(); listSeenIds.clear(); listCropTop=null; while(listImages.length()>0) listImages.remove(0)
+        listFirstIds=emptyList(); listSeenIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
     }
     private var batchTransition = false
@@ -510,7 +511,7 @@ class ProductReadService : AccessibilityService() {
             // category strip and the bottom navigation, not clipped last rows.
             val rootBounds=Rect();root.getBoundsInScreen(rootBounds)
             fun bounds(i:Int)=Rect().also { nodes[i].getBoundsInScreen(it) }
-            val top=descriptions.indices.filter { descriptions[it].selected && descriptions[it].text.trim().equals("Hebelprodukte",true) }
+            val top=descriptions.indices.filter { descriptions[it].text.trim().equals("Hebelprodukte",true) }
                 .maxOfOrNull { bounds(it).bottom } ?: rootBounds.top
             val bottom=descriptions.indices.filter { descriptions[it].text.trim() in setOf("Märkte","Favoriten","Portfolio","Inbox") }
                 .map { bounds(it).top }.filter { it>rootBounds.centerY() }.minOrNull() ?: rootBounds.bottom
@@ -546,7 +547,7 @@ class ProductReadService : AccessibilityService() {
             val actionName=command?.optString("action") ?: "inspect"
             val target=command?.optString("isin").orEmpty()
             val proposed=if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
-                else if(GoldSearchRun.running && listImages.length()>0 && actionName=="inspect")
+                else if(GoldSearchRun.running && listImages.length()>0 && root.windowId==listWindowId && actionName=="inspect")
                     MorningReadPolicy.captureGoldList(descriptions,true)
                 else MorningReadPolicy.discoverGold(descriptions)
             val decision=remoteSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
@@ -690,6 +691,7 @@ class ProductReadService : AccessibilityService() {
             if(chosen==null || ++listScrollTries>2) { fail("LIST_SCROLL_UNAVAILABLE");return }
             lastNavigation=SystemClock.elapsedRealtime()
             listScrolled=nodes[chosen].performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            if(listScrolled) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_SCROLL_SENT)
             if(!listScrolled) fail("LIST_SCROLL_REJECTED")
             return
         }
@@ -751,6 +753,8 @@ class ProductReadService : AccessibilityService() {
                         val image=org.json.JSONObject().put("at",capturedAt).put("png",android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP))
                         listImages.put(image)
                         listCropTop=cropTop
+                        listWindowId=windowId
+                        ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_IMAGE_CAPTURED)
                         listFirstIds=ids;listSeenIds.addAll(ids);listScrolled=false;listScrollTries=0
                     } finally { bitmap.recycle() }
                     if(listSeenIds.size==10) deliverMorningList(generation)
@@ -811,6 +815,14 @@ class ProductReadService : AccessibilityService() {
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         try {
             navigationTree(root,nodes,descriptions)
+            if(gold && listImages.length()>0 && root.windowId!=listWindowId) {
+                lastNavigationIssue="LIST_CAPTURE_WINDOW_CHANGED";ProductReadRequest.cancel();return true
+            }
+            if(gold && listImages.length()>0 && descriptions.none { it.editable }) {
+                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_HEADER_SCROLLED_AWAY)
+                if(descriptions.none { it.selected && it.text.trim().equals("Hebelprodukte",true) })
+                    ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_TAB_SELECTION_UNREPORTED)
+            }
             val proposed=if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
                 symbolMemory.getString(it, null)
             }
