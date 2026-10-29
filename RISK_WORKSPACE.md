@@ -87,7 +87,12 @@ Betriebsgrenzen und 360px-Breite. Für diesen Test ist Chromium erforderlich.
 
 Drei dauerhaft getrennte Konten in `bob_risk_paper`, Verzögerung 0/30/60 s;
 maximal 1.000 EUR einschließlich Einstiegsgebühr und eine Position pro Konto.
-Gemeinsame `Risk.analyze/ranking/monitor`, Einstieg nur BESTÄTIGT. Produkt wird
+Gemeinsame `Risk.analyze/ranking/monitor`. Ab Einstiegsregel
+`risk-early-intraday-v2` reagiert der Test bereits auf VORWARNUNG für kurze
+Intraday-Rücksetzer und kleine Bewegungen; BESTÄTIGT bleibt ebenfalls zulässig,
+wenn vorher noch kein Einstieg dieser Richtung erfolgte. Ein Wechsel von
+VORWARNUNG zu BESTÄTIGT eröffnet keine zweite Position desselben Impulses.
+Produkt wird
 beim beobachteten Signal eingefroren, bei Fälligkeit erneut geprüft; niemals
 rückwirkend zum Signalkurs. Ein neuer Original-Geld/Briefkurs muss nach der
 Fälligkeit liegen. Standard-Paper- und KO-Nachweise bleiben verpflichtend.
@@ -95,6 +100,16 @@ Nur EUR-Originalpaare; CHF-Umrechnung und Chart-/Modellpreise ausgeschlossen.
 Konten starten bei Initialisierung, ohne rückdatierte Resultate, und laufen
 im vorhandenen Paper-Worker während der Handelssitzung. Einschalten von
 Risiko-Push ist dafür nicht erforderlich.
+
+Die Regeländerung gilt ab dem ersten folgenden Worker-Durchlauf
+(`entryPolicyStartedAt`), ohne rückwirkende Einstiege oder Kontoreset.
+Neue vorgemerkte Einstiege und Positionen speichern Regel und ursprüngliche
+Signalstufe. Frühere Positionen und bereits vorgemerkte bestätigte Einstiege
+behalten ihre Herkunft; historische Ergebnisse werden nicht umetikettiert.
+Bei Rücknahme, Richtungswechsel, veralteten Signaldaten oder außerhalb der
+Einstiegszeit wird ein noch nicht ausgeführter Einstieg verworfen.
+Kontosummen bleiben über den Regelwechsel erhalten; Ergebnisse vor und nach
+diesem Zeitpunkt sind keine einheitliche Strategie-Stichprobe.
 
 Beobachteter Brief/Geld-Spread plus ausdrücklich angenommene 5 EUR pro Seite.
 Finanzierung, zusätzliche Slippage, tatsächliche Brokergebühren sind nicht
@@ -110,3 +125,4 @@ Zwischenkurse. Varianten sind eigenständige Konten, kein garantierter Paarvergl
 Abgeschlossene Fälle vollständig in `bob_risk_paper_cases`; letzte 20 pro Konto
 im privaten, authentifizierten `/api/risk-paper`-Bericht und im Risiko-Reiter.
 Keine öffentlichen Kurslisten, keine Orders, keine Testtrade-Pushes.
+

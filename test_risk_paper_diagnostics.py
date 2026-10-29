@@ -38,6 +38,18 @@ class RiskPaperDiagnosticsTests(unittest.TestCase):
         self.assertEqual(focused['status'],'partial')
         self.assertEqual(focused['areas']['riskPaper'],result)
 
+    def test_entry_policy_and_signal_stage_are_visible_without_private_payloads(self):
+        raw=self.state()
+        raw.update(entryPolicy='risk-early-intraday-v2',entryPolicyStartedAt=999000,
+                   signal={'ready':True,'direction':'SHORT','stage':'VORWARNUNG',
+                           'at':1000000,'reason':'Kurzer Rücksetzer',
+                           'private':{'token':'hidden'}})
+        result=diag.risk_paper_snapshot(raw,1001000)
+        self.assertEqual(result['entryPolicyStartedAt'],999000)
+        self.assertEqual(result['entryPolicy'],'risk-early-intraday-v2')
+        self.assertEqual(result['signal']['stage'],'VORWARNUNG')
+        self.assertNotIn('hidden',json.dumps(result))
+
     def test_absent_invalid_and_future_clock(self):
         for at in (None,True,float('nan'),float('inf'),1000002,0):
             state=self.state();state['checkedAt']=at
@@ -85,3 +97,4 @@ class RiskPaperDiagnosticsTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

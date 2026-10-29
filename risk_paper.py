@@ -10,12 +10,15 @@ import evaluator_runtime
 import paper_ko_guard
 
 VERSION = 'risk-paper-2000-v1'
+ENTRY_POLICY = 'risk-early-intraday-v2'
+LEGACY_ENTRY_POLICY = 'risk-confirmed-v1'
 FEE = 5.0  # Assumed EUR per side, NOT a verified broker tariff.
 DELAYS = (0, 30, 60)
 
 
 def seed(now):
     return dict(version=VERSION, startedAt=now, checkedAt=None, realOrders=False,
+                entryPolicy=ENTRY_POLICY, entryPolicyStartedAt=now,
                 costAssumptionPerSide=FEE, accounts={str(d): dict(delaySeconds=d,
                 cash=2000., realized=0., closed=0, wins=0, incomplete=0,
                 peak=2000., maxDrawdown=0., equity=2000., position=None,
@@ -51,6 +54,10 @@ def usable(raw, isin, now, due):
 
 def advance(old, result, quotes, now, entry_allowed=True):
     state=copy.deepcopy(old); state['checkedAt']=now
+    # Change only future entry admission. Keep balances, cases, open positions
+    # and already-frozen delayed orders intact across deployment/restarts.
+    if state.get('entryPolicy') != ENTRY_POLICY:
+        state.update(entryPolicy=ENTRY_POLICY, entryPolicyStartedAt=now)
     signal=result.get('signal') or {}
     ready=(signal.get('ready') is True and isinstance(signal.get('at'),(int,float))
            and 0<=now-signal['at']<=60000)
@@ -61,12 +68,13 @@ def advance(old, result, quotes, now, entry_allowed=True):
     closed=[]
     for key,a in state['accounts'].items():
         delay=a['delaySeconds']*1000; p=a.get('position')
-        a['reason']='Warte auf bestätigtes Risiko-Signal'
+        a['reason']='Warte auf Risiko-Vorwarnung für eine kurze Intraday-Bewegung'
         if ready and a.get('lastDataAt') and signal['at']<a['lastDataAt']:
             a['reason']='Rückläufige Kurszeit: keine Auswertung';a['equity']=None
             if p:p['dataGap']=True
             continue
         if p:
+            a['reason']='Virtuelle Position offen; kurze Bewegung wird überwacht'
             raw=quotes.get(p['isin']) or {}; q=usable(raw,p['isin'],now,p['entryAt'])
             if not ready or (a.get('lastDataAt') and signal['at']-a['lastDataAt']>90000):
                 p['dataGap']=True
@@ -102,18 +110,29 @@ def advance(old, result, quotes, now, entry_allowed=True):
             elif not a.get('position'):a['equity']=a['cash']
         else:
             a['equity']=a['cash']
-            confirmed=ready and signal.get('stage')=='BESTÄTIGT' and signal.get('direction') in ('LONG','SHORT')
-            episode=signal.get('direction') if confirmed else None
-            if not confirmed or not entry_allowed:
+            eligible=(ready and signal.get('stage') in ('VORWARNUNG','BESTÄTIGT')
+                      and signal.get('direction') in ('LONG','SHORT'))
+            episode=signal.get('direction') if eligible else None
+            # A new direction must never fill a product frozen for the old side.
+            if a.get('pending') and a['pending']['choice'].get('direction') != episode:
+                a['pending']=None
+            if not eligible or not entry_allowed:
                 a['pending']=None
                 if ready:a['lastSignal']=None
+                if not ready:
+                    a['reason']='Risiko-Einstieg wartet auf aktuelle Signaldaten: '+str(signal.get('reason') or 'Originalkurszeit fehlt oder ist veraltet')
+                elif not entry_allowed:
+                    a['reason']='Außerhalb von Bobs Einstiegszeit'
             elif a.get('lastSignal')!=episode and not a.get('pending'):
                 choices=result.get('choices') or []
                 if choices:
                     # Freeze product choice at signal observation; never pick a later winner.
-                    a['pending']=dict(choice=choices[0],due=now+delay,signalAt=now,signal=signal)
+                    a['pending']=dict(choice=choices[0],due=now+delay,signalAt=now,signal=signal,
+                                      entryPolicy=ENTRY_POLICY)
                     a['lastSignal']=episode
                 else:a['reason']='Keine geeigneten Top-2-Produkte mit Nachweisen'
+            elif not a.get('pending'):
+                a['reason']='Risiko-Impuls bereits verarbeitet; nächste kurze Bewegung abwarten'
             pending=a.get('pending')
             if pending:
                 a['reason']='Virtueller Einstieg wartet auf Reaktionszeit und neuen Briefkurs'
@@ -129,6 +148,8 @@ def advance(old, result, quotes, now, entry_allowed=True):
                         if units>0:
                             debit=units*q['ask']+FEE; sign=1 if choice['direction']=='LONG' else -1
                             p=dict(**choice,id=f"risk-{key}-{int(now)}",entryAt=now,entryQuote=q,
+                                   entryPolicy=pending.get('entryPolicy',LEGACY_ENTRY_POLICY),
+                                   entrySignalStage=pending['signal'].get('stage'),
                                    signal=pending['signal'],signalAt=pending['signalAt'],delaySeconds=a['delaySeconds'],
                                    units=units,debit=debit,goldEntry=signal['spot'],goldStop=signal['spot']-sign*1.5*signal['atr'],watch={})
                             a['position']=p;a['cash']-=debit;a['pending']=None
@@ -159,3 +180,4 @@ def tick(conn,bundle,evidence,quotes,now):
 def report(conn):
     row=conn.execute('SELECT payload FROM bob_risk_paper WHERE id=1').fetchone()
     return row[0] if row else {'status':'not-started','realOrders':False}
+

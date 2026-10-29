@@ -739,7 +739,13 @@ def risk_paper_snapshot(value, now=None):
     return {**base,
             'status':('unavailable' if not valid_clock else 'stale' if age > 120
                       else 'observed' if complete else 'partial'),
-            **fields(value, ('version','startedAt','checkedAt','costAssumptionPerSide')),
+            **fields(value, ('version','startedAt','checkedAt','costAssumptionPerSide',
+                             'entryPolicyStartedAt')),
+            # Fixed public rule identifiers only; never pass arbitrary strings
+            # around the generic credential scrubber ("risk-" contains "sk-").
+            'entryPolicy':next((p for p in ('risk-early-intraday-v2','risk-confirmed-v1')
+                                if value.get('entryPolicy') == p), None),
+            'signal':fields(value.get('signal'), ('ready','direction','stage','reason','at','barAt')),
             'ageSeconds':age, 'staleAfterSeconds':120, 'accounts':accounts,
             'reason':None if valid_clock else 'risk-paper-heartbeat-unconfirmed',
             'note':'Stored virtual accounts with assumed costs. A fresh check does not '
@@ -1619,6 +1625,7 @@ def bounded_report(report, max_bytes):
         areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
         result['omittedAreas'].append(name)
     return result
+
 
 
 
