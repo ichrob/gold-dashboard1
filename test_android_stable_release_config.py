@@ -102,7 +102,13 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('ProductReadRequest.attempt(SystemClock.elapsedRealtime())', service)
         self.assertIn('flagRetrieveInteractiveWindows', config)
         self.assertIn('ProductWindowPolicy.select', service)
-        self.assertEqual(service.count('performAction('), 5)
+        self.assertEqual(service.count('performAction('), 6)
+        submit = service.split('private fun submitSearch(', 1)[1].split('/** Search actions', 1)[0]
+        self.assertIn('android.os.Build.VERSION.SDK_INT>=30', submit)
+        self.assertIn('node.isEditable && node.isFocused', submit)
+        self.assertIn('node.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id }', submit)
+        self.assertEqual(submit.count('performAction('), 1)
+        self.assertIn('node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)', submit)
         single_page = service[:service.index('private fun navigationTree(')]
         self.assertNotIn('ACTION_CLICK', single_page)
         self.assertNotIn('ACTION_SET_TEXT', single_page)
