@@ -46,14 +46,24 @@ _REVIEW_MARKER = re.compile(
     r"(?m)^<!-- BOB_KI_REVIEW:pr=([1-9][0-9]{0,7});sha=([a-f0-9]{40});phase=(proposed|ci-tested|deployed-unverified) -->$")
 
 
-def ki_review(issue):
+def _trusted_marker_tail(issue):
+    """Read only a bounded suffix of an owner-authored issue for status markers.
+
+    The full issue may contain long chronological repair reports. Do not
+    expose its prose or reject a valid final marker solely due to length.
+    """
     author = issue.get("user")
     if not isinstance(author, dict) or author.get("login") not in ("ichrob", "github-actions[bot]"):
         return None
     body = issue.get("body")
-    if not isinstance(body, str) or len(body) > 8000:
+    return body[-8000:] if isinstance(body, str) else None
+
+
+def ki_review(issue):
+    tail = _trusted_marker_tail(issue)
+    if tail is None:
         return None
-    matches = _REVIEW_MARKER.findall(body)
+    matches = _REVIEW_MARKER.findall(tail)
     if not matches:
         return None
     pr, commit, phase = matches[-1]
@@ -64,13 +74,10 @@ def ki_review(issue):
 def ki_status(issue):
     # All arbitrary issue prose is ignored; only allowlisted markers from
     # the trusted repository owner or the GitHub Actions watchdog are used.
-    author = issue.get("user")
-    if not isinstance(author, dict) or author.get("login") not in ("ichrob", "github-actions[bot]"):
+    tail = _trusted_marker_tail(issue)
+    if tail is None:
         return "new"
-    body = issue.get("body")
-    if not isinstance(body, str) or len(body) > 8000:
-        return "new"
-    matches = _KI_MARKER.findall(body)
+    matches = _KI_MARKER.findall(tail)
     return matches[-1] if matches else "new"
 
 
@@ -484,15 +491,15 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
    if(!code||seen.has(code))continue;
    seen.add(code);
    const stamp=x=>typeof x==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(x)?x:null;
+   const markerBody=typeof issue.body==='string'?issue.body.slice(-8000):'';
    let kiStatus='new';
-   if(['ichrob','github-actions[bot]'].includes(issue.user?.login)&&
-      typeof issue.body==='string'&&issue.body.length<=8000){
-     const matches=[...issue.body.matchAll(/^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review|needs-user) -->$/gm)];
+   if(['ichrob','github-actions[bot]'].includes(issue.user?.login)&&markerBody){
+     const matches=[...markerBody.matchAll(/^<!-- BOB_KI_STATUS:(in-progress|testing|waiting-for-evidence|waiting-for-review|needs-user) -->$/gm)];
      if(matches.length)kiStatus=matches[matches.length-1][1];
    }
    let review=null;
-   if(['ichrob','github-actions[bot]'].includes(issue.user?.login)&&typeof issue.body==='string'&&issue.body.length<=8000){
-     const matches=[...issue.body.matchAll(/^<!-- BOB_KI_REVIEW:pr=([1-9][0-9]{0,7});sha=([a-f0-9]{40});phase=(proposed|ci-tested|deployed-unverified) -->$/gm)];
+   if(['ichrob','github-actions[bot]'].includes(issue.user?.login)&&markerBody){
+     const matches=[...markerBody.matchAll(/^<!-- BOB_KI_REVIEW:pr=([1-9][0-9]{0,7});sha=([a-f0-9]{40});phase=(proposed|ci-tested|deployed-unverified) -->$/gm)];
      if(matches.length){const m=matches[matches.length-1];review={pr:Number(m[1]),commit:m[2],phase:m[3]};}
    }
    problems.push({number:issue.number,code,message,kiStatus,kiStatusLabel:kiStatusLabels[kiStatus],
