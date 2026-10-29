@@ -74,9 +74,11 @@ internal object MorningReadPolicy {
     fun isSearchInput(id: String, description: String, hint: String): Boolean =
         search(Node("", id=id, description=description, hint=hint))
     // Android may expose a placeholder as text, without hintText or a view ID.
-    // Only an exact, explicitly marked search placeholder may identify an input.
+    // A full product-search prompt is explicit even if a WebView omits the hint flag.
+    // Short labels still require the Android placeholder flag.
     fun inputHint(hint: String, text: String, showingHint: Boolean): String =
-        hint.ifBlank { if (showingHint && searchLabel(text)) text else "" }
+        hint.ifBlank { if ((showingHint && searchLabel(text)) ||
+            normalized(text).equals("Mit Namen, ISIN oder Symbol suchen",ignoreCase=true)) text else "" }
     private fun protection(nodes: List<Node>): String? {
         if (nodes.any { it.password }) return "PROTECTED_PASSWORD"
         if (nodes.any { it.sensitive && it.editable }) return "PROTECTED_SENSITIVE_INPUT"

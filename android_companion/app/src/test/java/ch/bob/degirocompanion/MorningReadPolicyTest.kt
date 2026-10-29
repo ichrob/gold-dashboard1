@@ -2,6 +2,17 @@ package ch.bob.degirocompanion
 import org.junit.Assert.*
 import org.junit.Test
 class MorningReadPolicyTest {
+    @Test fun exactProductPromptWithoutAndroidHintFlagStillIdentifiesSearch() {
+        val prompt="Mit Namen, ISIN oder Symbol suchen"
+        val hint=MorningReadPolicy.inputHint("",prompt,false)
+        val input=MorningReadPolicy.Node(prompt,editable=true,hint=hint)
+        val launcher=MorningReadPolicy.Node("",description="Order platzieren",clickable=true)
+        assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.discoverGold(listOf(input,launcher)).kind)
+        for(text in listOf("Suche","Gold","DE000FD0S0G4","Order suchen",prompt+" Order bestätigen"))
+            assertEquals("",MorningReadPolicy.inputHint("",text,false))
+        assertEquals("Limitpreis",MorningReadPolicy.inputHint("Limitpreis",prompt,false))
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(listOf(input,launcher,node("Stückzahl"))).kind)
+    }
     @Test fun launcherExceptionUsesSemanticInputIdentityNotOneLongPlaceholder() {
         val launcher=MorningReadPolicy.Node("",description="Order platzieren",clickable=true)
         for(input in listOf(
@@ -112,7 +123,7 @@ class MorningReadPolicyTest {
             val hint=MorningReadPolicy.inputHint("",label,true)
             val input=node("").copy(editable=true,hint=hint)
             assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.decide(listOf(input),isin).kind)
-            assertEquals("",MorningReadPolicy.inputHint("",label,false))
+            assertEquals(if(label=="Mit Namen, ISIN oder Symbol suchen") label else "",MorningReadPolicy.inputHint("",label,false))
         }
         for(label in listOf("Passwort", "Limitpreis", "Search orders", "ISIN", isin)) {
             assertEquals("",MorningReadPolicy.inputHint("",label,true))
