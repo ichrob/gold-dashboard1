@@ -13,6 +13,37 @@ def result(at=NOW, action=None):
 
 
 class RiskPaperTests(unittest.TestCase):
+    def test_expired_unfilled_attempt_retries_with_new_delay_and_quote(self):
+        s,_=r.advance(r.seed(NOW),result(),{},NOW)
+        for a in s['accounts'].values():
+            self.assertIsNone(a['lastSignal'])
+        s,_=r.advance(s,result(NOW+151000),{},NOW+151000)
+        for a in s['accounts'].values():
+            self.assertIsNone(a['pending'])
+            self.assertEqual(a['cash'],2000)
+        at=NOW+152000
+        s,_=self.step(s,at,q=quote(NOW))
+        for d in r.DELAYS:
+            a=s['accounts'][str(d)]
+            self.assertIsNone(a['position'])
+            self.assertEqual(a['pending']['due'],at+d*1000)
+        for offset in (0,30000,60000):
+            s,_=self.step(s,at+offset)
+        for a in s['accounts'].values():
+            self.assertIsNotNone(a['position'])
+            self.assertEqual(a['lastSignal'],'LONG')
+
+    def test_legacy_unfilled_lock_recovers_but_closed_episode_stays_locked(self):
+        old=r.seed(NOW)
+        for a in old['accounts'].values():a['lastSignal']='LONG'
+        old['accounts']['60']['closed']=1
+        s,_=self.step(old)
+        self.assertIsNotNone(s['accounts']['0']['position'])
+        self.assertIsNotNone(s['accounts']['30']['pending'])
+        self.assertIsNone(s['accounts']['60']['pending'])
+        self.assertIsNone(s['accounts']['60']['position'])
+        self.assertNotIn('entryAttemptPolicy',old)
+
     def step(self,s,at=NOW,action=None,q=None):
         return r.advance(s,result(at,action),{ISIN:q or quote(at)},at)
 
@@ -204,5 +235,6 @@ class RiskPaperDatabaseTests(unittest.TestCase):
                 r.tick(conn,{}, {'products':[]},{ISIN:quote(at,bid=11)},at)
             self.assertEqual(conn.execute('SELECT count(*) FROM bob_risk_paper_cases').fetchone()[0],1)
             self.assertEqual(r.report(conn)['accounts']['0']['closed'],1)
+
 
 
