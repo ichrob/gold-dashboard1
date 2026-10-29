@@ -2,6 +2,29 @@ package ch.bob.degirocompanion
 import org.junit.Assert.*
 import org.junit.Test
 class MorningReadPolicyTest {
+    @Test fun submitOnlyRecognizedSearchWithMatchingQueryAndNoResult() {
+        val input=MorningReadPolicy.Node("Gold",editable=true,hint="Mit Namen, ISIN oder Symbol suchen",imeEnter=true)
+        assertEquals(MorningReadPolicy.Kind.SUBMIT,MorningReadPolicy.discoverGold(listOf(input)).kind)
+        assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.discoverGold(listOf(input.copy(text=""))).kind)
+        assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.discoverGold(listOf(input.copy(imeEnter=false))).kind)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(listOf(input.copy(hint=""))).kind)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(listOf(input, node("Limitpreis"))).kind)
+        val result=node("Gold Turbo DE000FD0S0G4",true)
+        assertEquals(MorningReadPolicy.Kind.COLLECT,MorningReadPolicy.discoverGold(listOf(input,result)).kind)
+        assertEquals(MorningReadPolicy.Kind.RESULT,MorningReadPolicy.decide(listOf(input.copy(text=isin),result),isin).kind)
+    }
+    @Test fun submitIsAttemptedOnceUntilQueryOrWindowChanges() {
+        val progress=SearchClickProgress()
+        val input=MorningReadPolicy.Node("Gold",editable=true,hint="Suche",imeEnter=true)
+        val nodes=listOf(input)
+        val proposed=MorningReadPolicy.discoverGold(nodes)
+        assertEquals(MorningReadPolicy.Kind.SUBMIT,progress.select(nodes,proposed,1,100).kind)
+        progress.record(0,100)
+        assertEquals(MorningReadPolicy.Kind.WAIT,progress.select(nodes,proposed,1,2000).kind)
+        assertEquals(MorningReadPolicy.Kind.SUBMIT,progress.select(nodes,proposed,2,3000).kind)
+        progress.clear()
+        assertEquals(MorningReadPolicy.Kind.SUBMIT,progress.select(nodes,proposed,1,4000).kind)
+    }
     private val isin="DE000FD0S0G4"
     private fun node(text:String,click:Boolean=false)=MorningReadPolicy.Node(text,clickable=click)
     @Test fun splitSearchTextAndActionOnlyContainersCanOpenSearch() {

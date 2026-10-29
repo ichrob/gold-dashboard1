@@ -7,8 +7,8 @@ internal object MorningReadPolicy {
                     val row: String = text, val containsInput: Boolean = false,
                     val description: String = "", val hint: String = "",
                     val password: Boolean = false, val clickAction: Boolean = false,
-                    val enabled: Boolean = true, val parent: Int = -1)
-    enum class Kind { WAIT, SEARCH, QUERY, RESULT, READ, BACK, BLOCK, COLLECT }
+                    val enabled: Boolean = true, val parent: Int = -1, val imeEnter: Boolean = false)
+    enum class Kind { WAIT, SEARCH, QUERY, SUBMIT, RESULT, READ, BACK, BLOCK, COLLECT }
     data class Action(val kind: Kind, val index: Int = -1, val code: String = "", val isins: List<String> = emptyList())
     private val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
     private val login = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code")
@@ -148,7 +148,7 @@ internal object MorningReadPolicy {
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 productSearchWithoutLauncher(nodes)?.let { searchNodes ->
                     val action=navigate(searchNodes,target,discovery,lookupSymbol)
-                    if(action.kind in setOf(Kind.QUERY,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
+                    if(action.kind in setOf(Kind.QUERY,Kind.SUBMIT,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
                 }
             }
             return Action(Kind.BLOCK, code=cause)
@@ -172,7 +172,7 @@ internal object MorningReadPolicy {
                         !Regex("(?iu)\\b(faktor|factor|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b").containsMatchIn(row) }
                 }.distinct().take(12)
                 return if(candidates.isNotEmpty()) Action(Kind.COLLECT,isins=candidates)
-                    else Action(Kind.WAIT,code="GOLD_IDENTITIES_MISSING")
+                    else Action(if(nodes[i].imeEnter) Kind.SUBMIT else Kind.WAIT,index=i,code="GOLD_IDENTITIES_MISSING")
             }
             val candidates = nodes.indices.filter { j ->
                 val n = nodes[j]
@@ -180,7 +180,7 @@ internal object MorningReadPolicy {
                     !Regex("(?iu)\\b(kauf|verkauf|buy|sell|order)\\b").containsMatchIn(n.row)
             }
             val smallest = candidates.minByOrNull { nodes[it].row.length }
-            return if (smallest == null) Action(Kind.WAIT, code="RESULT_MISSING") else Action(Kind.RESULT, smallest)
+            return if (smallest == null) Action(if(nodes[i].imeEnter) Kind.SUBMIT else Kind.WAIT,index=i, code="RESULT_MISSING") else Action(Kind.RESULT, smallest)
         }
         val visibleIds = nodes.filterNot { it.editable }.flatMap { ids.findAll(it.text.uppercase()).map { m -> m.value }.toList() }.toSet()
         val detail = nodes.any { Regex("(?iu)^(übersicht|overview|kursdaten|produktdetails)$").matches(it.text.trim()) }
