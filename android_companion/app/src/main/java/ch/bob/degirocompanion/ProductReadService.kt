@@ -26,6 +26,7 @@ class ProductReadService : AccessibilityService() {
     private var lastNavigation = 0L
     private var lastNavigationIssue = ""
     private val pageReader = ProductPageReader()
+    private val remoteSearchProgress = SearchClickProgress()
     private val handler = Handler(Looper.getMainLooper())
     private var screenReceiverRegistered = false
     private val screenOff = object : BroadcastReceiver() {
@@ -99,7 +100,7 @@ class ProductReadService : AccessibilityService() {
     }
     override fun onServiceConnected() {
         PhoneRemote.reader={command -> remoteRead(command)}
-        PhoneRemote.onStop={ ProductReadRequest.cancel() }
+        PhoneRemote.onStop={ remoteSearchProgress.clear(); ProductReadRequest.cancel() }
         ProductReadDiagnostics.connected = true
         ProductReadDiagnostics.canRead = (serviceInfo.capabilities and AccessibilityServiceInfo.CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT) != 0
         ProductReadDiagnostics.windowAccess = (serviceInfo.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) != 0
@@ -454,8 +455,9 @@ class ProductReadService : AccessibilityService() {
             navigationTree(root,nodes,descriptions)
             val actionName=command?.optString("action") ?: "inspect"
             val target=command?.optString("isin").orEmpty()
-            val decision=if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
+            val proposed=if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
                 else MorningReadPolicy.discoverGold(descriptions)
+            val decision=remoteSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
             if(decision.kind==MorningReadPolicy.Kind.BLOCK)return observation("PROTECTED_VIEW")
             val ids=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(descriptions.filterNot { it.editable }.joinToString("\n") { it.text.uppercase() })
                 .map { it.value }.filter { SeriesEvidence.validIsin(it) }.distinct().take(12).toList()
@@ -492,6 +494,7 @@ class ProductReadService : AccessibilityService() {
                 else -> return result
             }
             lastNavigation=SystemClock.elapsedRealtime()
+            if(decision.kind==MorningReadPolicy.Kind.SEARCH)remoteSearchProgress.record(decision.index,lastNavigation)
             return result.put("code",if(success) "ACTION_ACCEPTED" else "ACTION_REJECTED")
         } finally { nodes.forEach { it.recycle() };root.recycle() }
     }
@@ -553,3 +556,4 @@ class ProductReadService : AccessibilityService() {
         } finally { nodes.forEach { it.recycle() } }
     }
 }
+
