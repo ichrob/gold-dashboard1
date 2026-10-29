@@ -91,6 +91,14 @@ class AdmissionTests(unittest.TestCase):
         readers=[
             ('/product-audit', 'GET', None, 'product-audit'),
             ('/candidate-proofs', 'GET', None, 'candidate-proofs'),
+            ('/risk-paper', 'GET', None, 'risk-paper'),
+            ('/android-diagnostic-status', 'GET', None, 'android-diagnostic-status'),
+            ('/android-read-status', 'GET', None, 'android-read-status'),
+            ('/storage-health', 'GET', None, 'storage-health'),
+            ('/diagnostics', 'GET', None, 'diagnostics'),
+            ('/simulation-status', 'GET', None, 'simulation-status'),
+            ('/comparison-status', 'GET', None, 'comparison-status'),
+            ('/monitor-status', 'GET', None, 'monitor-status'),
             ('/email-import/read', 'POST', {}, 'email-import'),
             ('/list-correction', 'POST', {'action':'read'}, 'list-correction'),
         ]
@@ -109,6 +117,25 @@ class AdmissionTests(unittest.TestCase):
                 self.assertEqual(admitted.call_args.args[0],key)
                 db.assert_not_called()
                 self.assertEqual(send.call_args.args[1],200)
+
+    def test_parameterized_history_reads_use_distinct_admission_keys(self):
+        import push_server
+        for route in ('push-delivery-history', 'signal-history'):
+            keys=[]
+            for offset in (0, 100):
+                handler=object.__new__(push_server.Handler)
+                handler.path=f'/{route}?offset={offset}'
+                handler.headers={'X-Bob-Push-Token':'test'}
+                with patch.object(push_server,'PUSH_SERVICE_TOKEN','test'), \
+                     patch.object(push_server,'read_db_report',return_value={'ok':True}) as admitted, \
+                     patch.object(push_server,'db') as db, \
+                     patch.object(push_server,'send_json') as send:
+                    handler.do_GET()
+                keys.append(admitted.call_args.args[0])
+                self.assertTrue(keys[-1].startswith(route+':'))
+                db.assert_not_called()
+                self.assertEqual(send.call_args.args[1],200)
+            self.assertNotEqual(keys[0],keys[1])
 
     def test_video_read_is_admitted_but_write_bypasses_read_gate(self):
         import push_server
