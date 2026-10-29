@@ -7,8 +7,8 @@ internal object MorningReadPolicy {
                     val row: String = text, val containsInput: Boolean = false,
                     val description: String = "", val hint: String = "",
                     val password: Boolean = false, val clickAction: Boolean = false,
-                    val enabled: Boolean = true, val parent: Int = -1, val imeEnter: Boolean = false)
-    enum class Kind { WAIT, SEARCH, QUERY, SUBMIT, RESULT, READ, BACK, BLOCK, COLLECT }
+                    val enabled: Boolean = true, val parent: Int = -1, val imeEnter: Boolean = false, val focused: Boolean = true, val focusAction: Boolean = false)
+    enum class Kind { WAIT, SEARCH, FOCUS, QUERY, SUBMIT, RESULT, READ, BACK, BLOCK, COLLECT }
     data class Action(val kind: Kind, val index: Int = -1, val code: String = "", val isins: List<String> = emptyList())
     private val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
     private val login = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code")
@@ -170,7 +170,7 @@ internal object MorningReadPolicy {
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 productSearchWithoutLauncher(nodes)?.let { searchNodes ->
                     val action=navigate(searchNodes,target,discovery,lookupSymbol)
-                    if(action.kind in setOf(Kind.QUERY,Kind.SUBMIT,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
+                    if(action.kind in setOf(Kind.FOCUS,Kind.QUERY,Kind.SUBMIT,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
                 }
             }
             return Action(Kind.BLOCK, code=cause)
@@ -180,6 +180,7 @@ internal object MorningReadPolicy {
         if (inputs.size == 1) {
             val i = inputs.single()
             if (!nodes[i].enabled) return Action(Kind.WAIT,code="SEARCH_NOT_ACTIONABLE")
+            if (!nodes[i].focused && nodes[i].focusAction) return Action(Kind.FOCUS,i)
             if (nodes[i].text != target) return Action(Kind.QUERY, i)
             if (discovery) {
                 // Only visible, explicit identities in Gold leverage-product rows.
