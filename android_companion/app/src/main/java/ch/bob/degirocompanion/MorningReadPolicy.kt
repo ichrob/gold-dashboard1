@@ -182,7 +182,7 @@ internal object MorningReadPolicy {
         if (inputs.size == 1) {
             val i = inputs.single()
             if (!nodes[i].enabled) return Action(Kind.WAIT,code="SEARCH_NOT_ACTIONABLE")
-            if (!nodes[i].focused && nodes[i].focusAction) return Action(Kind.FOCUS,i)
+            if (!nodes[i].focused) return Action(Kind.FOCUS,i)
             if (nodes[i].text != target) return Action(Kind.QUERY, i)
             if (discovery) {
                 // Only visible, explicit identities in Gold leverage-product rows.
