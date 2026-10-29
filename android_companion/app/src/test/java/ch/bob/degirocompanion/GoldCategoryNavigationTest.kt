@@ -35,6 +35,7 @@ class GoldCategoryNavigationTest {
         val action=MorningReadPolicy.discoverGold(listOf(input,tab.copy(selected=true),all,row))
         assertEquals(MorningReadPolicy.Kind.COLLECT,action.kind)
         assertEquals(listOf("DE000FD0S0G4"),action.isins)
+        assertEquals(MorningReadPolicy.Kind.COLLECT,MorningReadPolicy.discoverGold(listOf(input,tab.copy(selected=true),all,row.copy(clickable=false))).kind)
         assertNotEquals(MorningReadPolicy.Kind.CATEGORY, MorningReadPolicy.discoverGold(listOf(input,all.copy(row="Alle Ergebnisse in Hebelprodukte\nKaufen"))).kind)
         assertEquals(MorningReadPolicy.Kind.BLOCK, MorningReadPolicy.discoverGold(listOf(input,all,MorningReadPolicy.Node("Order bestätigen"))).kind)
     }

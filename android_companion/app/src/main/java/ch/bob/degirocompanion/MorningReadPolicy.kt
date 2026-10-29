@@ -198,7 +198,7 @@ internal object MorningReadPolicy {
                 // Only visible, explicit identities in Gold leverage-product rows.
                 // This is a bounded candidate sample, never a complete catalog or
                 // proof of the underlying, quote freshness, or trade approval.
-                val candidates=nodes.filter { canClick(it) && !it.editable && !it.containsInput }.mapNotNull { n ->
+                val candidates=nodes.filter { it.enabled && !it.editable && !it.containsInput }.mapNotNull { n ->
                     val row=n.row
                     val found=ids.findAll(row.uppercase()).map { it.value }.toSet().singleOrNull()
                     found?.takeIf { SeriesEvidence.validIsin(it) &&
