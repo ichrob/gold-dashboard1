@@ -102,7 +102,13 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('ProductReadRequest.attempt(SystemClock.elapsedRealtime())', service)
         self.assertIn('flagRetrieveInteractiveWindows', config)
         self.assertIn('ProductWindowPolicy.select', service)
-        self.assertEqual(service.count('performAction('), 9)
+        # One additional semantic backward scroll seeks the Top Results heading.
+        self.assertEqual(service.count('performAction('), 10)
+        seek=service.split('A fresh run can begin on yesterday',1)[1].split('val proposed=',1)[0]
+        for guard in ['listImages.length()==0','MorningReadPolicy.captureGoldList(descriptions,true)',
+                      'seek.kind==MorningReadPolicy.Kind.COLLECT','listTopSeekSteps>4',
+                      'ACTION_SCROLL_BACKWARD','!n.isEditable','!n.isPassword']:
+            self.assertIn(guard,seek)
         self.assertEqual(service.count('dispatchGesture('), 1)
         tap = service.split('private fun tapRecognizedSearch(', 1)[1].split('private fun submitSearch(', 1)[0]
         for guard in ['PhoneRemote.active()', 'ProductReadRequest.active(', 'isKeyguardLocked',
