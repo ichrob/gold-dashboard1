@@ -54,6 +54,13 @@ def usable(raw, isin, now, due):
 
 def advance(old, result, quotes, now, entry_allowed=True):
     state=copy.deepcopy(old); state['checkedAt']=now
+    # Older versions consumed an episode when scheduling, even without a fill.
+    # Recover only provably unfilled accounts; preserve completed-trade locks.
+    if state.get('entryAttemptPolicy') != 'consume-on-fill-v1':
+        for account in state['accounts'].values():
+            if account.get('pending') or (not account.get('position') and account.get('closed') == 0):
+                account['lastSignal']=None
+        state['entryAttemptPolicy']='consume-on-fill-v1'
     # Change only future entry admission. Keep balances, cases, open positions
     # and already-frozen delayed orders intact across deployment/restarts.
     if state.get('entryPolicy') != ENTRY_POLICY:
@@ -132,7 +139,6 @@ def advance(old, result, quotes, now, entry_allowed=True):
                     # Freeze product choice at signal observation; never pick a later winner.
                     a['pending']=dict(choice=choices[0],due=now+delay,signalAt=now,signal=signal,
                                       entryPolicy=ENTRY_POLICY)
-                    a['lastSignal']=episode
                 else:a['reason']='Keine geeigneten Top-2-Produkte mit Nachweisen'
             elif not a.get('pending'):
                 a['reason']='Risiko-Impuls bereits verarbeitet; nächste kurze Bewegung abwarten'
@@ -159,6 +165,7 @@ def advance(old, result, quotes, now, entry_allowed=True):
                                    signal=pending['signal'],signalAt=pending['signalAt'],delaySeconds=a['delaySeconds'],
                                    units=units,debit=debit,goldEntry=signal['spot'],goldStop=signal['spot']-sign*1.5*signal['atr'],watch={})
                             a['position']=p;a['cash']-=debit;a['pending']=None
+                            a['lastSignal']=episode
                             a['equity']=a['cash']+units*q['bid']-FEE;a['reason']='Virtuelle Position offen'
                     elif blocker:a['reason']=blocker
         if ready:a['lastDataAt']=signal['at']
@@ -186,5 +193,6 @@ def tick(conn,bundle,evidence,quotes,now):
 def report(conn):
     row=conn.execute('SELECT payload FROM bob_risk_paper WHERE id=1').fetchone()
     return row[0] if row else {'status':'not-started','realOrders':False}
+
 
 
