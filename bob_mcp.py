@@ -8,10 +8,15 @@ import base64
 import json
 import os
 import hmac
+import threading
 from bob_oauth_store import ORIGIN, SCOPE, DIAGNOSTICS_SCOPE
 
 PROTOCOL = "2025-03-26"
 _MAX_RESULT_BYTES = 200_000
+# Building the complete cross-service snapshot is memory-intensive. The HTTP
+# server is threaded, so overlapping focused reads must share one bounded
+# snapshot build instead of multiplying the same transient allocations.
+_DIAGNOSTICS_LOCK = threading.Lock()
 _TOOL_NAMES = ("bob_product_audit", "bob_product_gaps")
 
 
@@ -203,8 +208,14 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
         data = push_history_reader(args) if push_history_reader else {"status":"unavailable","readOnly":True}
     elif params["name"] == "bob_diagnostics":
         from bob_diagnostics import bounded_report, focused_report
+        # Focus is projected only after the complete private snapshot exists.
+        # Serialize that expensive reader across ThreadingHTTPServer requests;
+        # this changes no evidence or safety rule and prevents concurrent copies
+        # from exhausting the scanner's fixed memory budget.
+        with _DIAGNOSTICS_LOCK:
+            full_report = diagnostics_reader()
         data = bounded_report(focused_report(
-            diagnostics_reader(), args.get("focus","overview")), _MAX_RESULT_BYTES)
+            full_report, args.get("focus","overview")), _MAX_RESULT_BYTES)
     else:
         report = report_reader()
         data = report if params["name"] == "bob_product_audit" else gaps(report)
