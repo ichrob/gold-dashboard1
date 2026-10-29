@@ -113,6 +113,11 @@ class AndroidStableReleaseTests(unittest.TestCase):
             self.assertIn(guard, tap)
         self.assertIn('action.code=="SEARCH_NO_PROGRESS" && !searchTapAttempted', service)
         self.assertIn('searchTapAttempted=true', service)
+        self.assertIn('if(category) MorningReadPolicy.Kind.CATEGORY', tap)
+        self.assertIn('action.kind!=required || (input && category)', tap)
+        self.assertIn('target.isEditable!=input', tap)
+        self.assertIn('tapRecognizedSearch(root.windowId,category=true)', service)
+        self.assertIn('++categorySteps>4', service)
         submit = service.split('private fun submitSearch(', 1)[1].split('private fun scrollCategories(', 1)[0]
         self.assertIn('android.os.Build.VERSION.SDK_INT>=30', submit)
         self.assertIn('node.isEditable && node.isFocused', submit)
