@@ -21,6 +21,31 @@ class ListTests(unittest.TestCase):
         h=Handler({},headers={'Authorization':'Bearer '+'a'*64});h.path='/api/android-list/latest?batchId='+'a'*32
         http.route(h,'GET','/api/android-list/latest',lambda *_:self.fail('device read'))
         self.assertEqual(h.code,401)
+    def test_requires_matching_live_session_before_insert(self):
+        class Result:
+            def __init__(self,value):self.value=value
+            def fetchone(self):return self.value
+        class DB:
+            def __init__(self,state):self.state=state;self.inserted=False
+            def execute(self,sql,args=()):
+                if sql.startswith('SELECT token_hash FROM'):return Result(('device',))
+                if sql.startswith('SELECT state'):return Result((self.state,))
+                if sql.startswith('SELECT token_hash,payload'):return Result(None)
+                if sql.startswith('SELECT count'):return Result((0,))
+                if sql.startswith('INSERT'):self.inserted=True
+                return Result(None)
+        good=dict(sessionId='b'*32,active=True,expiresAt=NOW+60,seenAt=NOW)
+        for change in [dict(active=False),dict(expiresAt=NOW),dict(seenAt=NOW-31),dict(sessionId='c'*32)]:
+            db=DB({**good,**change})
+            with self.assertRaises(PermissionError):images.handle(db,{'action':'list-upload','token':'a'*64,'value':batch()},NOW)
+            self.assertFalse(db.inserted)
+        db=DB(good)
+        self.assertEqual(images.handle(db,{'action':'list-upload','token':'a'*64,'value':batch()},NOW)['batchId'],'a'*32)
+        self.assertTrue(db.inserted)
+    def test_capture_codes_are_preserved_without_free_text(self):
+        from android_observations import CODES
+        for code in ('LIST_IMAGES_DELIVERED','LIST_CAPTURE_FAILED','LIST_SCROLL_NO_PROGRESS','KEYBOARD_HIDE_FAILED'):
+            self.assertIn(code,CODES)
     def test_separate_routes(self):
         sent=[];h=Handler(batch(),headers={'Authorization':'Bearer '+'a'*64})
         http.route(h,'POST','/api/android-list/upload',lambda p,remote=False:sent.append((p,remote)) or {})
