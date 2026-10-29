@@ -41,8 +41,9 @@ class ProductReadService : AccessibilityService() {
     private var listWindowId: Int? = null
     private val listImages = org.json.JSONArray()
     private var listBatch = ""
+    private var listResumeChecked = false
     private fun resetListCapture() {
-        listGeneration++; listBusy=false; listScrolled=false; listScrollTries=0
+        listGeneration++; listResumeChecked=false; listBusy=false; listScrolled=false; listScrollTries=0
         listFirstIds=emptyList(); listSeenIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
     }
@@ -125,7 +126,14 @@ class ProductReadService : AccessibilityService() {
     }
     override fun onServiceConnected() {
         PhoneRemote.reader={command -> remoteRead(command)}
+        MorningListDelivery.onConfirmed={ ids ->
+            if(ids.isNotEmpty() && PhoneRemote.active()) {
+                MorningReadRun.beginDiscovered(this,ids)
+                ProductReadRequest.start(SystemClock.elapsedRealtime())
+            }
+        }
         PhoneRemote.onStop={ code ->
+            MorningListDelivery.cancel()
             remoteSearchProgress.clear(); automaticSearchProgress.clear(); clearWrittenSearch()
             GoldSearchRun.stop(code,Instant.now().toString())
             MorningReadRun.stop(this,code)
@@ -191,7 +199,12 @@ class ProductReadService : AccessibilityService() {
             handler.removeCallbacks(pendingRead)
             readQueued = false
             keepScreenForRequest()
-            queueRead(600)
+            if(GoldSearchRun.running && MorningListDelivery.resume(this)) {
+                GoldSearchRun.stop("LIST_IMAGES_DELIVERED",Instant.now().toString())
+                ProductReadRequest.cancel()
+            } else {
+                queueRead(600)
+            }
         }
         keepScreenForRequest()
         queueRead(600)
@@ -228,7 +241,7 @@ class ProductReadService : AccessibilityService() {
         queueRead(400)
     }
     override fun onInterrupt() { PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
-    override fun onDestroy() { PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
+    override fun onDestroy() { MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
@@ -547,7 +560,7 @@ class ProductReadService : AccessibilityService() {
             val actionName=command?.optString("action") ?: "inspect"
             val target=command?.optString("isin").orEmpty()
             val proposed=if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
-                else if(GoldSearchRun.running && listImages.length()>0 && root.windowId==listWindowId && actionName=="inspect")
+                else if(((GoldSearchRun.running && listImages.length()>0 && root.windowId==listWindowId) || MorningListDelivery.waiting) && actionName=="inspect")
                     MorningReadPolicy.captureGoldList(descriptions,true)
                 else MorningReadPolicy.discoverGold(descriptions)
             val decision=remoteSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
@@ -570,7 +583,7 @@ class ProductReadService : AccessibilityService() {
             val collected=ProductReadSession.get(SystemClock.elapsedRealtime()).draft
             if(ids.size==1 && collected.contains(ids.single()))result.put("draft",collected.take(8000))
             if(command==null || actionName=="inspect")return result
-            if(ProductReadRequest.active(SystemClock.elapsedRealtime()) || MorningReadRun.running || GoldSearchRun.running)return result.put("code","BUSY")
+            if(MorningListDelivery.waiting || ProductReadRequest.active(SystemClock.elapsedRealtime()) || MorningReadRun.running || GoldSearchRun.running)return result.put("code","BUSY")
             val current=productRoot(false)
             val safe=current?.windowId==root.windowId && current?.packageName?.toString()==ProductScreenEvidence.PACKAGE
             current?.recycle()
@@ -756,6 +769,7 @@ class ProductReadService : AccessibilityService() {
                         listWindowId=windowId
                         ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_IMAGE_CAPTURED)
                         listFirstIds=ids;listSeenIds.addAll(ids);listScrolled=false;listScrollTries=0
+                        saveListCheckpoint()
                     } finally { bitmap.recycle() }
                     if(listSeenIds.size==10) deliverMorningList(generation)
                     else if(listImages.length()>=4) fail("LIST_TOP_RESULTS_INCOMPLETE")
@@ -765,27 +779,45 @@ class ProductReadService : AccessibilityService() {
             }
         })
     }
+    private fun checkpoint()=android.util.AtomicFile(java.io.File(filesDir,"morning-list-checkpoint.json"))
+    private fun saveListCheckpoint() {
+        val value=org.json.JSONObject().put("at",System.currentTimeMillis()).put("batch",listBatch)
+            .put("window",listWindowId).put("crop",listCropTop).put("images",org.json.JSONArray(listImages.toString()))
+            .put("seen",org.json.JSONArray(listSeenIds.toList())).put("last",org.json.JSONArray(listFirstIds))
+        val f=checkpoint();val stream=f.startWrite()
+        try { stream.write(value.toString().toByteArray());f.finishWrite(stream) }
+        catch(e:Exception) { f.failWrite(stream);throw e }
+    }
+    private fun restoreListCheckpoint() {
+        if(!GoldSearchRun.running)return
+        runCatching {
+            val value=org.json.JSONObject(String(checkpoint().readFully()))
+            check(System.currentTimeMillis()-value.getLong("at") in 0..120000)
+            val root=productRoot(true) ?: return
+            val refs=mutableListOf<AccessibilityNodeInfo>();val view=mutableListOf<MorningReadPolicy.Node>()
+            try {
+                check(root.packageName?.toString()==ProductScreenEvidence.PACKAGE && root.windowId==value.getInt("window"))
+                navigationTree(root,refs,view)
+                val decision=MorningReadPolicy.captureGoldList(view,true)
+                val last=value.getJSONArray("last");val ids=(0 until last.length()).map { last.getString(it) }
+                check(decision.kind==MorningReadPolicy.Kind.COLLECT && decision.isins==ids)
+                val images=value.getJSONArray("images");check(images.length() in 1..4)
+                listBatch=value.getString("batch");listWindowId=root.windowId;listCropTop=value.getInt("crop")
+                for(i in 0 until images.length())listImages.put(images.getJSONObject(i))
+                val seen=value.getJSONArray("seen");for(i in 0 until seen.length())listSeenIds.add(seen.getString(i))
+                listFirstIds=ids;listScrolled=false
+                if(listSeenIds.size==10)deliverMorningList(listGeneration)
+            } finally { refs.forEach { it.recycle() };root.recycle() }
+        }
+    }
     private fun deliverMorningList(generation:Int) {
-        val id=listBatch
-        val body=org.json.JSONObject().put("batchId",id).put("sessionId",PhoneRemote.sessionId())
+        if(generation!=listGeneration)return
+        val body=org.json.JSONObject().put("batchId",listBatch).put("sessionId",PhoneRemote.sessionId())
             .put("images",org.json.JSONArray(listImages.toString()))
-        val file=java.io.File(filesDir,"morning-list-pending.json")
-        file.writeText(body.toString())
-        listBusy=true
-        java.util.concurrent.Executors.newSingleThreadExecutor().also { executor -> executor.execute {
-            val delivered=runCatching { check(PhoneRemote.active() && generation==listGeneration);PhoneDiagnostics.uploadList(this,body).getString("batchId")==id }.getOrDefault(false)
-            handler.post {
-                if(generation==listGeneration) {
-                    val code=if(delivered) "LIST_IMAGES_DELIVERED" else "LIST_UPLOAD_FAILED"
-                    GoldSearchRun.stop(code,Instant.now().toString());lastNavigationIssue=code
-                    ProductReadRequest.cancel();PhoneDiagnostics.queue(this)
-                    if(delivered) {
-                        file.delete()
-                        startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://bob-private-scanner.onrender.com/?handset-list="+id+"#bob-morning-images="+id)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    }
-                }
-            };executor.shutdown()
-        } }
+        MorningListDelivery.start(this,body)
+        checkpoint().delete()
+        GoldSearchRun.stop("LIST_IMAGES_DELIVERED",Instant.now().toString())
+        ProductReadRequest.cancel();PhoneDiagnostics.queue(this)
     }
 
     private fun focusSearch(node: AccessibilityNodeInfo): Boolean =
@@ -811,6 +843,11 @@ class ProductReadService : AccessibilityService() {
 
     /** Search actions use semantic nodes only, never coordinates or order buttons. */
     private fun navigateMorning(root: AccessibilityNodeInfo, gold: Boolean = false): Boolean {
+        if(gold && !listResumeChecked) {
+            listResumeChecked=true
+            restoreListCheckpoint()
+            if(!GoldSearchRun.running)return true
+        }
         val nodes=mutableListOf<AccessibilityNodeInfo>()
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         try {

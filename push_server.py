@@ -1721,6 +1721,8 @@ if __name__ == "__main__":
     threading.Thread(target=browserless_trial.run_once,args=(db,),name="bob-browserless-trial",daemon=True).start()
     import video_ocr
     threading.Thread(target=video_ocr.loop,args=(db,),name="bob-video-ocr",daemon=True).start()
+    import handset_list_worker
+    threading.Thread(target=handset_list_worker.loop,args=(db,),name="bob-handset-list",daemon=True).start()
     BobHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 
 

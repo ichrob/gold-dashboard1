@@ -63,12 +63,13 @@ internal object PhoneDiagnostics {
         queue(c)
         c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(BASE+"/handy/diagnostics#"+hash)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
-    fun remoteExchange(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,false)
-    fun uploadList(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,true)
-    private fun sendDevice(c:Context, body:JSONObject, list:Boolean):JSONObject {
+    fun remoteExchange(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-remote/exchange",false)
+    fun uploadList(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-list/upload",true)
+    fun listStatus(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-list/status",false)
+    private fun sendDevice(c:Context, body:JSONObject, path:String, list:Boolean):JSONObject {
         check(paired(c))
         val credential=token(c)
-        val conn=URL(BASE+if(list) "/api/android-list/upload" else "/api/android-remote/exchange").openConnection() as HttpsURLConnection
+        val conn=URL(BASE+path).openConnection() as HttpsURLConnection
         try {
             conn.instanceFollowRedirects=false;conn.connectTimeout=8000;conn.readTimeout=8000
             conn.requestMethod="POST";conn.doOutput=true

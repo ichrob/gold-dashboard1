@@ -20,7 +20,7 @@ def validate(value, now):
     for image in images:
         if not isinstance(image,dict) or set(image)!={'at','png'}:raise ValueError('Invalid image')
         stamp=datetime.fromisoformat(image['at'].replace('Z','+00:00'))
-        if stamp.tzinfo is None or not now-120<=stamp.timestamp()<=now+5 or stamp.timestamp()<previous:raise ValueError('Invalid capture time')
+        if stamp.tzinfo is None or not now-86400<=stamp.timestamp()<=now+5 or stamp.timestamp()<previous:raise ValueError('Invalid capture time')
         previous=stamp.timestamp()
         if not isinstance(image['png'],str) or len(image['png'])>2000000:raise ValueError('Image too large')
         raw=base64.b64decode(image['png'],validate=True)
@@ -37,8 +37,11 @@ def init(conn):
         batch_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL REFERENCES bob_android_diagnostic_devices(token_hash) ON DELETE CASCADE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(), payload JSONB NOT NULL)''')
     conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS import_receipt JSONB")
+    conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS parsed_items JSONB")
+    conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS processing_at TIMESTAMPTZ")
+    conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS processing_attempts INTEGER NOT NULL DEFAULT 0")
 
-IMPORT_STAGES = frozenset(('fetching','images-ready','reading','stored','synced','fetch-failed','read-failed','store-failed'))
+IMPORT_STAGES = frozenset(('fetching','images-ready','reading','stored','synced','fetch-failed','read-failed','store-failed','superseded'))
 
 def receipt(value, now):
     if not isinstance(value,dict) or set(value)!={'batchId','stage','count'}:
@@ -61,7 +64,7 @@ def handle(conn,payload,now):
     conn.execute("DELETE FROM bob_android_list_images WHERE created_at<now()-interval '24 hours'")
     if payload['action']=='list-receipt':
         value=receipt(payload.get('value'),now)
-        row=conn.execute('''UPDATE bob_android_list_images i SET import_receipt=%s::jsonb
+        row=conn.execute('''UPDATE bob_android_list_images i SET import_receipt=CASE WHEN i.import_receipt->>'stage' IN ('synced','superseded') THEN i.import_receipt ELSE %s::jsonb END
             FROM bob_android_diagnostic_devices d WHERE i.token_hash=d.token_hash AND i.batch_id=%s
             AND NOT d.revoked AND d.expires_at>now() RETURNING i.batch_id''',
             (json.dumps(value),value['batchId'])).fetchone()
@@ -69,14 +72,32 @@ def handle(conn,payload,now):
         return {'ok':True}
     if payload['action']=='list-get':
         batch=payload.get('batchId')
-        if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')
-        row=conn.execute('''SELECT i.payload FROM bob_android_list_images i
-            JOIN bob_android_diagnostic_devices d USING(token_hash)
-            WHERE i.batch_id=%s AND NOT d.revoked AND d.expires_at>now()''',(batch,)).fetchone()
-        return {'ok':True,'batch':row[0] if row else None}
+        if batch=='current':
+            row=conn.execute("""SELECT i.payload,i.parsed_items,i.import_receipt FROM bob_android_list_images i
+                JOIN bob_android_diagnostic_devices d USING(token_hash)
+                WHERE NOT d.revoked AND d.expires_at>now() AND i.import_receipt->>'stage'='synced'
+                AND i.parsed_items IS NOT NULL ORDER BY i.created_at DESC LIMIT 1""").fetchone()
+        else:
+            if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')
+            row=conn.execute("""SELECT i.payload,i.parsed_items,i.import_receipt FROM bob_android_list_images i
+                JOIN bob_android_diagnostic_devices d USING(token_hash)
+                WHERE i.batch_id=%s AND NOT d.revoked AND d.expires_at>now()""",(batch,)).fetchone()
+        return {'ok':True,'batch':row[0] if row else None,'items':row[1] if row else None,'import':row[2] if row else None}
     digest=token_hash(payload.get('token'))
     device=conn.execute('SELECT token_hash FROM bob_android_diagnostic_devices WHERE token_hash=%s AND NOT revoked AND expires_at>now() FOR UPDATE',(digest,)).fetchone()
     if not device:raise PermissionError('Device not paired')
+    if payload['action']=='list-status':
+        batch=payload.get('value',{}).get('batchId')
+        if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')
+        row=conn.execute('SELECT import_receipt, parsed_items FROM bob_android_list_images WHERE batch_id=%s AND token_hash=%s',(batch,digest)).fetchone()
+        details=[]
+        if row and row[0] and row[0].get('stage')=='synced':
+            saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
+            products=(saved[0] or {}).get('products',[]) if saved else []
+            candidates={x['isin'] for x in (row[1] or []) if not x.get('listRow',{}).get('excluded')}
+            details=[p['isin'] for p in products if p.get('isin') in candidates
+                     and any(not isinstance(p.get(k),(int,float)) or isinstance(p.get(k),bool) or p[k]<=0 for k in ('price','leverage','ko'))]
+        return {'ok':True,'batchId':batch,'import':row[0] if row else None,'detailIsins':details}
     value=validate(payload.get('value'),now)
     row=conn.execute('SELECT state FROM bob_android_remote WHERE token_hash=%s FOR UPDATE',(digest,)).fetchone()
     state=row[0] if row else {}
@@ -84,7 +105,7 @@ def handle(conn,payload,now):
         raise PermissionError('No active handset session')
     old=conn.execute('SELECT token_hash,payload FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()
     if old:
-        if old!=(digest,value):raise ValueError('Conflicting batch')
+        if old[0]!=digest or old[1]['images']!=value['images']:raise ValueError('Conflicting batch')
     else:
         count=conn.execute("SELECT count(*) FROM bob_android_list_images WHERE token_hash=%s AND created_at>now()-interval '1 hour'",(digest,)).fetchone()[0]
         if count>=12:raise ValueError('Capture rate limit')
