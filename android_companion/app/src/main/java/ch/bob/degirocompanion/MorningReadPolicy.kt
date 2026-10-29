@@ -7,7 +7,9 @@ internal object MorningReadPolicy {
                     val row: String = text, val containsInput: Boolean = false,
                     val description: String = "", val hint: String = "",
                     val password: Boolean = false, val clickAction: Boolean = false,
-                    val enabled: Boolean = true, val parent: Int = -1, val imeEnter: Boolean = false, val focused: Boolean = true, val focusAction: Boolean = false)
+                    val enabled: Boolean = true, val parent: Int = -1, val imeEnter: Boolean = false,
+                    val writtenQueryExpected: Boolean = false, val writtenQueryPresent: Boolean = false,
+                    val writtenNodeIdentity: Boolean = false, val focused: Boolean = true, val focusAction: Boolean = false)
     enum class Kind { WAIT, SEARCH, FOCUS, QUERY, SUBMIT, RESULT, READ, BACK, BLOCK, COLLECT }
     data class Action(val kind: Kind, val index: Int = -1, val code: String = "", val isins: List<String> = emptyList())
     private val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")

@@ -11,13 +11,34 @@ internal object ProductReadDiagnostics {
     private val pageCauses = mutableMapOf<ProductPageReader.Cause, Int>()
     private val reasons = mutableMapOf<ProductScreenEvidence.Reason, Int>()
     private val launcherIssues = mutableMapOf<MorningReadPolicy.LauncherIssue, Int>()
-    fun launcher(issue: MorningReadPolicy.LauncherIssue) {
+    enum class SearchInputEvidence { NO_EDITABLE, MULTIPLE_EDITABLE, DISABLED,
+        TRACKED_QUERY_IDENTITY, TRACKED_QUERY_NODE_CHANGED, TRACKED_QUERY_MISSING,
+        NO_METADATA, OTHER_METADATA }
+    private val searchInputEvidence = mutableMapOf<SearchInputEvidence, Int>()
+    private fun classifySearchInput(nodes: List<MorningReadPolicy.Node>): SearchInputEvidence {
+        val inputs=nodes.filter { it.editable }
+        if(inputs.isEmpty()) return SearchInputEvidence.NO_EDITABLE
+        if(inputs.size!=1) return SearchInputEvidence.MULTIPLE_EDITABLE
+        val input=inputs.single()
+        if(!input.enabled) return SearchInputEvidence.DISABLED
+        if(input.writtenNodeIdentity) return SearchInputEvidence.TRACKED_QUERY_IDENTITY
+        if(input.writtenQueryPresent) return SearchInputEvidence.TRACKED_QUERY_NODE_CHANGED
+        if(input.writtenQueryExpected) return SearchInputEvidence.TRACKED_QUERY_MISSING
+        if(input.id.isBlank() && input.description.isBlank() && input.hint.isBlank())
+            return SearchInputEvidence.NO_METADATA
+        return SearchInputEvidence.OTHER_METADATA
+    }
+    fun launcher(issue: MorningReadPolicy.LauncherIssue, nodes: List<MorningReadPolicy.Node> = emptyList()) {
         if(issue != MorningReadPolicy.LauncherIssue.NONE)
             launcherIssues[issue] = ((launcherIssues[issue] ?: 0) + 1).coerceAtMost(999)
+        if(issue == MorningReadPolicy.LauncherIssue.INPUT_LABEL) {
+            val evidence=classifySearchInput(nodes)
+            searchInputEvidence[evidence] = ((searchInputEvidence[evidence] ?: 0) + 1).coerceAtMost(999)
+        }
     }
     private var startedAt: Long? = null
-    fun reset(now: Long) { counts.clear(); launcherIssues.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
-    fun clear() { counts.clear(); launcherIssues.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
+    fun reset(now: Long) { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
+    fun clear() { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
     fun record(outcome: Outcome) { counts[outcome] = ((counts[outcome] ?: 0) + 1).coerceAtMost(999) }
     fun page(cause: ProductPageReader.Cause) {
         if (cause != ProductPageReader.Cause.NONE) pageCauses[cause] = ((pageCauses[cause] ?: 0) + 1).coerceAtMost(999)
@@ -29,11 +50,12 @@ internal object ProductReadDiagnostics {
         val start = startedAt
         if (start != null && (now < start || now - start > 300000)) clear()
         return buildString {
-            appendLine("BOB-LESEDIAGNOSE/6")
+            appendLine("BOB-LESEDIAGNOSE/7")
             appendLine("Dienst verbunden: $connected · Textzugriff: $canRead · Fensterzugriff: $windowAccess")
             if (counts.isEmpty()) append("Noch keine Diagnosemessung.")
             else for (outcome in Outcome.values()) counts[outcome]?.let { appendLine("${outcome.name}: $it") }
             for (issue in MorningReadPolicy.LauncherIssue.values()) launcherIssues[issue]?.let { appendLine("SEARCH_GUARD_${issue.name}: $it") }
+            for (evidence in SearchInputEvidence.values()) searchInputEvidence[evidence]?.let { appendLine("SEARCH_INPUT_${evidence.name}: $it") }
             for (cause in ProductPageReader.Cause.values()) pageCauses[cause]?.let { appendLine("PAGE_${cause.name}: $it") }
             for (reason in ProductScreenEvidence.Reason.values()) reasons[reason]?.let { appendLine("FIELD_${reason.name}: $it") }
         }.trim()
