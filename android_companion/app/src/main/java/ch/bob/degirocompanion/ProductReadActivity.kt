@@ -26,7 +26,6 @@ class ProductReadActivity : Activity() {
             statusHandler.postDelayed(this, 1000)
         }
     }
-    private val automaticTransfer=Runnable { runCatching { MorningReadTransfer.automaticResults(this) } }
     private lateinit var result: TextView
     private lateinit var diagnostics: TextView
     private lateinit var primary: Button
@@ -162,9 +161,8 @@ class ProductReadActivity : Activity() {
     }
     override fun onResume() {
         super.onResume();PhoneDiagnostics.queue(this);refresh();statusHandler.post(statusTick)
-        statusHandler.postDelayed(automaticTransfer,600)
     }
-    override fun onPause() { statusHandler.removeCallbacks(automaticTransfer);statusHandler.removeCallbacks(statusTick); super.onPause() }
+    override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
     /** One explicit start authorizes the bounded local test and its remote observation. */
     private fun startAutomaticTest() {
         var startedHere=false
