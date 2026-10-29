@@ -4,13 +4,30 @@ const fs=require('fs'),vm=require('vm');
 const context={window:{}};
 vm.runInNewContext(fs.readFileSync(__dirname+'/degiro_assistant.js','utf8'),context);
 const b=context.window.BobDegiro;
+function normalizeLayout(text){
+ // Restore whitespace at known labels only; never change identity or numbers.
+ return String(text).replace(/\bSG(?=Gold)/g,'SG ')
+  .replace(/Gold(?=Knock|Turbo|Future)/g,'Gold ')
+  .replace(/Knock-Out(?=Warrant)/g,'Knock-Out ')
+  .replace(/Warrant(?=Open|Call|Put)/g,'Warrant ')
+  .replace(/Future(?=Faktor)/g,'Future ')
+  .replace(/Faktor(?=Long|Short)/g,'Faktor ')
+  .replace(/Turbo(?=BEST|Unlimited)/g,'Turbo ')
+  .replace(/BEST(?=Open)/g,'BEST ')
+  .replace(/Open-End(?=Call|Put)/g,'Open-End ')
+  .replace(/Unlimited(?=Mini)/g,'Unlimited ')
+  .replace(/Mini(?=Call|Put)/g,'Mini ')
+  .replace(/(Call|Put)(?=BAR)/g,'$1 ')
+  .replace(/(Long|Short)(?=HB)/g,'$1 ')
+  .replace(/(\bB[vV]\s*)(1|10|100|1000)([0-3]\d\/[01]\d\/20\d{2})(?=\s*\|)/g,'$1$2 $3');
+}
 function parse(images,at){
  const items=new Map();
  for(const [index,passes] of images.entries()){
   const votes=new Map();
   for(const text of passes){
    const seen=new Set();
-   for(const block of b.degiroListBlocks(text)){
+   for(const block of b.degiroListBlocks(normalizeLayout(text))){
     const row=b.parseDegiroListRow(block);
     if(!row||!b.validIsin(row.isin)||seen.has(row.isin))continue;
     seen.add(row.isin);
@@ -36,5 +53,5 @@ function parse(images,at){
   listVenueEvidence:b.listVenueForSync(x.isin,archive)
  }))}};
 }
-module.exports={parse};
+module.exports={parse,normalizeLayout};
 if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(parse(x.images,x.at)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
