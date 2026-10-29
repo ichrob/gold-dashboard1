@@ -32,10 +32,10 @@ class SharedSpotTests(unittest.TestCase):
             self.assertTrue(bundle['spots']['is_genuine_xauusd_spot'])
 
     def test_bundle_rechecks_near_expiry_with_original_provider_timestamp(self):
-        old=(self.now-timedelta(seconds=56)).isoformat()
+        old=(self.now-timedelta(seconds=35)).isoformat()
         newer=(self.now-timedelta(seconds=2)).isoformat()
         source='Gold-API.com · XAU/USD Spot'
-        original=(4100.,56.,None,source,True,old)
+        original=(4100.,35.,None,source,True,old)
         refreshed={'price':4141.8,'at':newer,'source':source}
         with patch.object(s,'current',return_value=refreshed) as current:
             row=server.recheck_spot_before_bundle(original,now=self.now.timestamp())
@@ -78,7 +78,7 @@ class SharedSpotTests(unittest.TestCase):
             self.assertEqual(s._quote['at'],self.payload['updatedAt'])
 
     def test_near_expiry_observation_gets_one_bounded_early_retry(self):
-        payload={**self.payload,'updatedAt':(self.now-timedelta(seconds=55)).isoformat()}
+        payload={**self.payload,'updatedAt':(self.now-timedelta(seconds=35)).isoformat()}
         with patch.object(product_quotes,'issuer_json',return_value=payload) as request:
             self.assertEqual(s.current()['at'],payload['updatedAt'])
             self.assertEqual(request.call_count,1)
@@ -89,6 +89,18 @@ class SharedSpotTests(unittest.TestCase):
             with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
                 self.assertEqual(s.current()['at'],payload['updatedAt'])
             self.assertEqual(request.call_count,2)
+
+    def test_ageing_cached_quote_refreshes_before_minute_signal_expires(self):
+        # Provider observation is already 35s old, but our HTTP cache is only 6s old.
+        # Stacked cache lifetimes used to retain it until the 50s threshold.
+        old=(self.now-timedelta(seconds=35)).isoformat()
+        s._quote={'price':4100.,'at':old,'source':'Gold-API.com · XAU/USD Spot'}
+        s._attempted=time.monotonic()-6
+        with patch.object(product_quotes,'issuer_json',return_value=self.payload) as request:
+            refreshed=s.current()
+        request.assert_called_once()
+        self.assertEqual(refreshed['at'],self.payload['updatedAt'])
+        self.assertEqual(refreshed['price'],self.payload['price'])
 
     def test_early_retry_can_replace_quote_just_after_it_expires(self):
         expired_at=(self.now-timedelta(seconds=61)).isoformat()

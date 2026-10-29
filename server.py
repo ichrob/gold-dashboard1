@@ -833,7 +833,9 @@ def recheck_spot_before_bundle(spot_result, now=None):
             return spot_result
     except (ValueError, OverflowError, TypeError, AttributeError):
         return spot_result
-    if age >= 50:
+    # Keep the shared source cadence; a 35s-old quote can already predate
+    # the newest closed minute even when the HTTP cache is only seconds old.
+    if age >= 30:
         try:
             from spot_data import current
             refreshed = current()

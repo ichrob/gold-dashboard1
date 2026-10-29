@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 URL = 'https://api.gold-api.com/price/XAU'
 POLL_SECONDS = 30
-NEAR_EXPIRY_SECONDS = 50
+NEAR_EXPIRY_SECONDS = 30  # Original quote age, not time since the HTTP request.
 NEAR_EXPIRY_RETRY_SECONDS = 5
 _lock = threading.Lock()
 _quote = None
@@ -19,7 +19,7 @@ ROUTES = (URL, URL + "/USD")
 
 
 def _poll_interval():
-    """Retry one near-expiry provider observation early, without changing its clock."""
+    """Refresh ageing observations at the 30s cadence, without changing their clock."""
     if not _quote or _quote.get('at') == _near_expiry_retried_at:
         return POLL_SECONDS
     try:
