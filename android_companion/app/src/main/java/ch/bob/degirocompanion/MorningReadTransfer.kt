@@ -51,6 +51,7 @@ class MorningReadTransfer : Activity() {
             c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(BASE+"#bob-read-list="+nonce)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
         fun automaticResults(c: Context): Boolean {
+            if(GoldSearchRun.running || ProductReadRequest.active(SystemClock.elapsedRealtime())) return false
             val raw=MorningReadRun.pending(c) ?: return false
             val data=org.json.JSONObject(raw)
             val version=data.optString("batchId")+":"+data.optInt("revision")
