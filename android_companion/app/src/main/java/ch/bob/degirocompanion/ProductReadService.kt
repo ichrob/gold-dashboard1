@@ -30,6 +30,7 @@ class ProductReadService : AccessibilityService() {
     }
     private var searchTapAttempted = false
     private var inputTapAttempted = false
+    private var categorySteps = 0
     private var batchTransition = false
     private var lastNavigation = 0L
     private var lastNavigationIssue = ""
@@ -166,6 +167,7 @@ class ProductReadService : AccessibilityService() {
             clearWrittenSearch()
             searchTapAttempted = false
             inputTapAttempted = false
+            categorySteps = 0
             automaticSearchProgress.clear()
             lastNavigationIssue=""
             pageReader.reset()
@@ -469,7 +471,9 @@ class ProductReadService : AccessibilityService() {
                     focusAction=n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_FOCUS },
                     imeEnter=android.os.Build.VERSION.SDK_INT>=30 && n.isFocused && n.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id },
                     writtenQueryExpected=writtenQueryExpected,writtenQueryPresent=writtenQueryPresent,
-                    writtenNodeIdentity=writtenNodeIdentity)
+                    writtenNodeIdentity=writtenNodeIdentity,selected=n.isSelected || n.isChecked,
+                    scrollRight=n.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.id } ||
+                        (n.className?.toString()=="android.widget.HorizontalScrollView" && n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_SCROLL_FORWARD }))
                 val children=mutableListOf<String>()
                 // Some input wrappers expose their placeholder in a child.
                 // Retain only the fixed product prompt from text below an input.
@@ -547,7 +551,8 @@ class ProductReadService : AccessibilityService() {
             }
             if(actionName !in setOf("search_gold","search_isin"))return result.put("code","INVALID_ACTION")
             val success=when(decision.kind) {
-                MorningReadPolicy.Kind.SEARCH, MorningReadPolicy.Kind.RESULT -> nodes[decision.index].performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                MorningReadPolicy.Kind.SEARCH, MorningReadPolicy.Kind.RESULT, MorningReadPolicy.Kind.CATEGORY -> nodes[decision.index].performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                MorningReadPolicy.Kind.CATEGORY_SCROLL -> scrollCategories(nodes[decision.index])
                 MorningReadPolicy.Kind.QUERY -> nodes[decision.index].performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,android.os.Bundle().apply {
                     putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(actionName=="search_gold") "Gold" else target)
                 })
@@ -634,6 +639,15 @@ class ProductReadService : AccessibilityService() {
             node.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id } &&
             node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
 
+    private fun scrollCategories(node:AccessibilityNodeInfo):Boolean {
+        val right=AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.id
+        val action=if(node.actionList.any { it.id==right }) right else AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        if(!node.isVisibleToUser || !node.isEnabled || node.isEditable || node.isPassword ||
+            (action!=right && node.className?.toString()!="android.widget.HorizontalScrollView") ||
+            node.actionList.none { it.id==action }) return false
+        return node.performAction(action)
+    }
+
     /** Search actions use semantic nodes only, never coordinates or order buttons. */
     private fun navigateMorning(root: AccessibilityNodeInfo, gold: Boolean = false): Boolean {
         val nodes=mutableListOf<AccessibilityNodeInfo>()
@@ -677,6 +691,10 @@ class ProductReadService : AccessibilityService() {
                     else performGlobalAction(GLOBAL_ACTION_BACK)
                 }
                 else -> {
+                    if(action.kind in setOf(MorningReadPolicy.Kind.CATEGORY,MorningReadPolicy.Kind.CATEGORY_SCROLL) && ++categorySteps>4) {
+                        lastNavigationIssue="CATEGORY_NO_PROGRESS";record(lastNavigationIssue)
+                        ProductReadRequest.cancel();return true
+                    }
                     val current=productRoot(false)
                     val safe=current?.windowId==root.windowId && current?.packageName?.toString()==ProductScreenEvidence.PACKAGE
                     current?.recycle()
@@ -695,7 +713,10 @@ class ProductReadService : AccessibilityService() {
                         } else focusSearch(node)
                     }
                     else if(action.kind==MorningReadPolicy.Kind.SUBMIT) submitSearch(node)
+                    else if(action.kind==MorningReadPolicy.Kind.CATEGORY_SCROLL) scrollCategories(node)
                     else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if(success && action.kind==MorningReadPolicy.Kind.CATEGORY) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CATEGORY_CLICK_SENT)
+                    if(success && action.kind==MorningReadPolicy.Kind.CATEGORY_SCROLL) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CATEGORY_SCROLL_SENT)
                     if(success && action.kind==MorningReadPolicy.Kind.QUERY)
                         rememberWrittenSearch(node,if(gold) "Gold" else MorningReadRun.target)
                     if(action.kind in setOf(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.Kind.SUBMIT))automaticSearchProgress.record(action.index,lastNavigation)

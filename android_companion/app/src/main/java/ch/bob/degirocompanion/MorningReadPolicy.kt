@@ -9,8 +9,9 @@ internal object MorningReadPolicy {
                     val password: Boolean = false, val clickAction: Boolean = false,
                     val enabled: Boolean = true, val parent: Int = -1, val imeEnter: Boolean = false,
                     val writtenQueryExpected: Boolean = false, val writtenQueryPresent: Boolean = false,
-                    val writtenNodeIdentity: Boolean = false, val focused: Boolean = true, val focusAction: Boolean = false)
-    enum class Kind { WAIT, SEARCH, FOCUS, QUERY, SUBMIT, RESULT, READ, BACK, BLOCK, COLLECT }
+                    val writtenNodeIdentity: Boolean = false, val focused: Boolean = true, val focusAction: Boolean = false,
+                    val selected: Boolean = false, val scrollRight: Boolean = false)
+    enum class Kind { WAIT, SEARCH, FOCUS, QUERY, SUBMIT, CATEGORY, CATEGORY_SCROLL, RESULT, READ, BACK, BLOCK, COLLECT }
     data class Action(val kind: Kind, val index: Int = -1, val code: String = "", val isins: List<String> = emptyList())
     private val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
     private val login = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code")
@@ -182,7 +183,7 @@ internal object MorningReadPolicy {
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 productSearchWithoutLauncher(nodes)?.let { searchNodes ->
                     val action=navigate(searchNodes,target,discovery,lookupSymbol)
-                    if(action.kind in setOf(Kind.FOCUS,Kind.QUERY,Kind.SUBMIT,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
+                    if(action.kind in setOf(Kind.FOCUS,Kind.QUERY,Kind.SUBMIT,Kind.CATEGORY,Kind.CATEGORY_SCROLL,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
                 }
             }
             return Action(Kind.BLOCK, code=cause)
@@ -192,8 +193,7 @@ internal object MorningReadPolicy {
         if (inputs.size == 1) {
             val i = inputs.single()
             if (!nodes[i].enabled) return Action(Kind.WAIT,code="SEARCH_NOT_ACTIONABLE")
-            if (!nodes[i].focused) return Action(Kind.FOCUS,i)
-            if (nodes[i].text != target) return Action(Kind.QUERY, i)
+            if (nodes[i].text != target) return Action(if(nodes[i].focused) Kind.QUERY else Kind.FOCUS, i)
             if (discovery) {
                 // Only visible, explicit identities in Gold leverage-product rows.
                 // This is a bounded candidate sample, never a complete catalog or
@@ -206,8 +206,9 @@ internal object MorningReadPolicy {
                         Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future)\\b").containsMatchIn(row) &&
                         !Regex("(?iu)\\b(faktor|factor|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b").containsMatchIn(row) }
                 }.distinct().take(12)
-                return if(candidates.isNotEmpty()) Action(Kind.COLLECT,isins=candidates)
-                    else Action(if(nodes[i].imeEnter) Kind.SUBMIT else Kind.WAIT,index=i,code="GOLD_IDENTITIES_MISSING")
+                if(candidates.isNotEmpty()) return Action(Kind.COLLECT,isins=candidates)
+                goldCategory(nodes)?.let { return it }
+                return Action(if(nodes[i].imeEnter) Kind.SUBMIT else Kind.WAIT,index=i,code="GOLD_IDENTITIES_MISSING")
             }
             val candidates = nodes.indices.filter { j ->
                 val n = nodes[j]
@@ -248,6 +249,25 @@ internal object MorningReadPolicy {
             nodes.all { it.text.isBlank() && it.description.isBlank() && it.hint.isBlank() } -> "SEARCH_TREE_EMPTY"
             else -> "SEARCH_MISSING"
         })
+    }
+
+    private fun goldCategory(nodes:List<Node>):Action? {
+        val labels=setOf("alle","aktien","etfs","anleihen","investmentfonds","hebelprodukte","zertifikate","optionen","futures")
+        fun parts(n:Node)=listOf(n.text,n.description,n.hint,n.row).flatMap { it.lines() }
+            .map { normalized(it).lowercase() }.filter(String::isNotBlank).distinct()
+        fun safe(n:Node)=n.enabled && !n.editable && !n.containsInput && !n.password && !n.sensitive
+        val tabs=innermost(nodes,nodes.indices.filter { safe(nodes[it]) && canClick(nodes[it]) && parts(nodes[it])==listOf("hebelprodukte") })
+        if(tabs.size>1) return Action(Kind.WAIT,code="CATEGORY_AMBIGUOUS")
+        tabs.singleOrNull()?.let { return if(nodes[it].selected) Action(Kind.WAIT,code="CATEGORY_RESULTS_PENDING") else Action(Kind.CATEGORY,it) }
+        val strips=innermost(nodes,nodes.indices.filter {
+            val n=nodes[it];val names=parts(n)
+            safe(n) && n.scrollRight && names.size>=2 && names.all { name -> name in labels }
+        })
+        return when(strips.size) {
+            1 -> Action(Kind.CATEGORY_SCROLL,strips.single())
+            0 -> null
+            else -> Action(Kind.WAIT,code="CATEGORY_STRIP_AMBIGUOUS")
+        }
     }
 }
 
