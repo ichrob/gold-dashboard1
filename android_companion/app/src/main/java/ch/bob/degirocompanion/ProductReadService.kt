@@ -435,15 +435,17 @@ class ProductReadService : AccessibilityService() {
                 check(depth<=30 && nodes.size<500)
                 if(!n.isVisibleToUser || n.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return ""
                 val sensitiveNode=n.isPassword || (android.os.Build.VERSION.SDK_INT>=34 && n.isAccessibilityDataSensitive)
+                val writtenQueryExpected=n.isEditable && writtenSearchQuery.isNotEmpty()
+                val writtenQueryPresent=writtenQueryExpected && n.text?.toString()==writtenSearchQuery
+                val writtenNodeIdentity=writtenQueryPresent && n==writtenSearchNode &&
+                    n.windowId==writtenSearchNode?.windowId
                 val hint=if(sensitiveNode) "" else MorningReadPolicy.inputHint(
                     n.hintText?.toString().orEmpty(),
                     n.text?.toString().orEmpty(),
                     n.isShowingHintText).ifBlank {
                     // Retain only the exact input Bob just wrote, and only while
                     // it still contains that exact query. All page guards run again.
-                    if(n.isEditable && n==writtenSearchNode && n.windowId==writtenSearchNode?.windowId &&
-                        n.text?.toString()==writtenSearchQuery && writtenSearchQuery.isNotEmpty())
-                        "Mit Namen, ISIN oder Symbol suchen" else ""
+                    if(writtenNodeIdentity) "Mit Namen, ISIN oder Symbol suchen" else ""
                 }
                 val id=n.viewIdResourceName.orEmpty()
                 val description=if(sensitiveNode) "" else n.contentDescription?.toString().orEmpty().take(2000)
@@ -452,7 +454,9 @@ class ProductReadService : AccessibilityService() {
                 val index=nodes.size;nodes+=AccessibilityNodeInfo.obtain(n)
                 descriptions+=MorningReadPolicy.Node(text,id,n.isClickable,n.isEditable,sensitiveNode,description=description,hint=hint,password=n.isPassword,
                     clickAction=n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_CLICK },enabled=n.isEnabled,parent=parent,
-                    imeEnter=android.os.Build.VERSION.SDK_INT>=30 && n.isFocused && n.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id })
+                    imeEnter=android.os.Build.VERSION.SDK_INT>=30 && n.isFocused && n.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id },
+                    writtenQueryExpected=writtenQueryExpected,writtenQueryPresent=writtenQueryPresent,
+                    writtenNodeIdentity=writtenNodeIdentity)
                 val children=mutableListOf<String>()
                 if(!sensitiveNode && !n.isEditable) for(i in 0 until n.childCount) {
                     val child=n.getChild(i) ?: continue
@@ -482,7 +486,7 @@ class ProductReadService : AccessibilityService() {
                 else MorningReadPolicy.discoverGold(descriptions)
             val decision=remoteSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
             if(decision.kind==MorningReadPolicy.Kind.BLOCK) {
-                if(decision.code=="PROTECTED_ORDER_CONFIRM") ProductReadDiagnostics.launcher(MorningReadPolicy.launcherSearchIssue(descriptions))
+                if(decision.code=="PROTECTED_ORDER_CONFIRM") ProductReadDiagnostics.launcher(MorningReadPolicy.launcherSearchIssue(descriptions),descriptions)
                 return observation(decision.code.ifBlank { "PROTECTED_VIEW" })
             }
             val ids=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(descriptions.filterNot { it.editable }.joinToString("\n") { it.text.uppercase() })
@@ -607,7 +611,7 @@ class ProductReadService : AccessibilityService() {
             }
             when(action.kind) {
                 MorningReadPolicy.Kind.BLOCK -> {
-                    if(action.code=="PROTECTED_ORDER_CONFIRM") ProductReadDiagnostics.launcher(MorningReadPolicy.launcherSearchIssue(descriptions))
+                    if(action.code=="PROTECTED_ORDER_CONFIRM") ProductReadDiagnostics.launcher(MorningReadPolicy.launcherSearchIssue(descriptions),descriptions)
                     if(gold) { lastNavigationIssue=action.code;record(action.code) }
                     else MorningReadRun.stop(this,action.code)
                     ProductReadRequest.cancel()

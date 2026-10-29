@@ -4,6 +4,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ProductReadDiagnosticsTest {
+    @Test fun inputLabelDiagnosticsSeparateTrackedNodeChangesWithoutRawQuery() {
+        ProductReadDiagnostics.reset(100)
+        val nodes=listOf(MorningReadPolicy.Node(
+            text="",editable=true,writtenQueryExpected=true,writtenQueryPresent=true,
+            writtenNodeIdentity=false
+        ))
+        ProductReadDiagnostics.launcher(MorningReadPolicy.LauncherIssue.INPUT_LABEL,nodes)
+        val report=ProductReadDiagnostics.report(101)
+        assertTrue(report.contains("SEARCH_GUARD_INPUT_LABEL: 1"))
+        assertTrue(report.contains("SEARCH_INPUT_TRACKED_QUERY_NODE_CHANGED: 1"))
+        assertFalse(report.contains("Gold"))
+        assertFalse(report.contains("DE000"))
+    }
+
+    @Test fun inputLabelDiagnosticsKeepUnknownMetadataClosedAndRedacted() {
+        ProductReadDiagnostics.reset(200)
+        val nodes=listOf(MorningReadPolicy.Node(
+            text="",id="private-value",editable=true
+        ))
+        ProductReadDiagnostics.launcher(MorningReadPolicy.LauncherIssue.INPUT_LABEL,nodes)
+        val report=ProductReadDiagnostics.report(201)
+        assertTrue(report.contains("SEARCH_INPUT_OTHER_METADATA: 1"))
+        assertFalse(report.contains("private-value"))
+    }
+
     @Test fun inlineQuoteNodesIdentifyProductScrollSurfaceWithoutUsingChartOrAccount() {
         for (row in listOf("Geld € 11,40", "Brief CHF 11,41", "Geld € 11,40 Brief € 11,41",
                 "Zuletzt € 11,40 27/10/2026 17:32", "Kursdaten\nGeld € 11,40")) {
