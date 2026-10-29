@@ -38,7 +38,17 @@ internal object MorningReadPolicy {
         }
     }
     private fun search(n: Node) = searchLabel(n.text) || searchLabel(n.description) || searchLabel(n.hint) ||
-        Regex("(?iu)(^|[/_:])(search|search_input|search_src_text|search_field|search_button|search_view)([/:_]|$)").containsMatchIn(n.id)
+        searchResource(n.id)
+    // Android resource names and WebView IDs use different separators and casing.
+    // Inspect the resource name, never a package name or arbitrary substring.
+    private fun searchResource(id:String):Boolean {
+        val name=id.substringAfterLast('/').substringAfterLast(':')
+        val words=name.replace(Regex("([a-z0-9])([A-Z])"),"$1_$2")
+            .lowercase().split(Regex("[^a-z0-9]+"))
+        return "search" in words || words.any {
+            Regex("^(product|instrument)?search(input|field|text|query|view|box|bar)$").matches(it)
+        }
+    }
     // Retry enclosing wrappers, then one independently labelled Markets search.
     // Aggregate pages, order launchers and coordinates are never fallbacks.
     fun searchClickChain(nodes: List<Node>, action: Action): List<Int> {
