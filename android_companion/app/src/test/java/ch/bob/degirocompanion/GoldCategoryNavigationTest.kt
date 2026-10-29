@@ -39,4 +39,20 @@ class GoldCategoryNavigationTest {
         assertNotEquals(MorningReadPolicy.Kind.CATEGORY, MorningReadPolicy.discoverGold(listOf(input,all.copy(row="Alle Ergebnisse in Hebelprodukte\nKaufen"))).kind)
         assertEquals(MorningReadPolicy.Kind.BLOCK, MorningReadPolicy.discoverGold(listOf(input,all,MorningReadPolicy.Node("Order bestätigen"))).kind)
     }
+    @Test fun capturedListContinuesWithoutSearchHeaderButNeverAnOrderForm() {
+        val rows=listOf(tab.copy(selected=true),MorningReadPolicy.Node("Order platzieren",clickable=true),
+            MorningReadPolicy.Node("SG Gold Future Faktor Long HB 15 | DE000FG8K0P8"),
+            MorningReadPolicy.Node("Gold Turbo DE000FD0S0G4"))
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.captureGoldList(rows,false).kind)
+        val result=MorningReadPolicy.captureGoldList(rows,true)
+        assertEquals(MorningReadPolicy.Kind.COLLECT,result.kind)
+        assertEquals(listOf("DE000FG8K0P8","DE000FD0S0G4"),result.isins)
+        assertEquals(listOf("DE000FG8K0P8"),MorningReadPolicy.captureGoldList(rows.dropLast(1)+rows.last().copy(captureComplete=false),true).isins)
+        for(extra in listOf(MorningReadPolicy.Node("Order bestätigen"),MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("",password=true),MorningReadPolicy.Node("",editable=true,id="quantity")))
+            assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.captureGoldList(rows+extra,true).kind)
+        assertNotEquals(MorningReadPolicy.Kind.COLLECT,MorningReadPolicy.captureGoldList(rows.drop(1),true).kind)
+        // Ordinary product discovery still excludes factors.
+        assertEquals(listOf("DE000FD0S0G4"),MorningReadPolicy.discoverGold(listOf(input)+rows).isins)
+    }
 }
