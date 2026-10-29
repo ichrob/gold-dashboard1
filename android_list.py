@@ -7,7 +7,7 @@ import struct
 from datetime import datetime
 from android_telemetry import token_hash
 
-MAX_BODY=4100000
+MAX_BODY=8100000
 
 def validate(value, now):
     if not isinstance(value,dict) or set(value)!={'batchId','sessionId','images'}:
@@ -15,7 +15,7 @@ def validate(value, now):
     if any(not isinstance(value[k],str) or not re.fullmatch('[a-f0-9]{32}',value[k]) for k in ('batchId','sessionId')):
         raise ValueError('Invalid list identity')
     images=value['images']
-    if not isinstance(images,list) or len(images)!=2:raise ValueError('Two images required')
+    if not isinstance(images,list) or not 1<=len(images)<=4:raise ValueError('One to four images required')
     seen=set();previous=0
     for image in images:
         if not isinstance(image,dict) or set(image)!={'at','png'}:raise ValueError('Invalid image')

@@ -168,5 +168,19 @@ const html=b.renderDegiroListEvidence({isin:a},now,archive);assert(html.includes
  assert.equal(merged.filter(x=>x.isin===a).length,1,'overlap must not duplicate a product');
  await assert.rejects(()=>b.readListBatch([{name:'first.png',row:other,continuation},{name:'next.png',row:other}],structured),/Abgeschnittene/,'missing continuation must retain the previous list');
  await assert.rejects(()=>b.readListBatch([{name:'first.png',row:other,continuation:{...continuation,direction:'SHORT'}},{name:'next.png',row:item}],structured),/Abgeschnittene/,'direction conflicts must not be accepted');
+ // Automatic Top-10 series, including persisted/retried image files: never
+ // accept a shorter set or silently trim a longer catalog selection.
+ const ten=Array.from({length:11},(_,i)=>{
+  const prefix='DE000AA'+String(i).padStart(4,'0');
+  const isin=Array.from({length:10},(_,d)=>prefix+d).find(b.validIsin);
+  return b.agreedDegiroListRow([row(isin),row(isin)]);
+ });
+ const topFiles=[{name:'DEGIRO-TOP10-first.png',rows:ten.slice(0,4)},
+  {name:'DEGIRO-TOP10-second.png',rows:ten.slice(3,8)},
+  {name:'DEGIRO-TOP10-third.png',rows:ten.slice(7,10)}];
+ const readTop=async f=>({data:{listItems:f.rows}});
+ assert.equal((await b.readListBatch(topFiles,readTop)).length,10);
+ await assert.rejects(()=>b.readListBatch(topFiles.slice(0,2),readTop),/genau zehn/);
+ await assert.rejects(()=>b.readListBatch([{name:'DEGIRO-TOP10-catalog.png',rows:ten}],readTop),/genau zehn/);
  console.log('DEGIRO list grammar, independent votes, changed daily values, boundaries, duplicates, evidence and expiry passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

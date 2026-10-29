@@ -13,7 +13,9 @@ internal object MorningReadUiPolicy {
                   version:String,lastAttempt:String):Boolean = enabled && autoReturn && !running && interactive && !locked &&
         version.isNotEmpty() && version!=lastAttempt
     fun reason(code:String):String=when(code) {
-        "LIST_IMAGES_DELIVERED" -> "Zwei Listenbilder an Bob übertragen; Bilderkennung und Listenübernahme werden im Browser geprüft"
+        "LIST_TOP_RESULTS_MISSING" -> "Top-Ergebnisliste nicht erkannt; Gesamtkatalog wird nicht geöffnet"
+        "LIST_TOP_RESULTS_OVERFLOW", "LIST_TOP_RESULTS_INCOMPLETE" -> "Zehn Top Ergebnisse noch nicht vollständig erfasst; keine neue Morgenliste übernommen"
+        "LIST_IMAGES_DELIVERED" -> "Listenbilder der zehn Top Ergebnisse an Bob übertragen; Bilderkennung und Listenübernahme werden im Browser geprüft"
         "LIST_FIRST_CAPTURED" -> "Erstes Listenbild gespeichert; weiter scrollen"
         "LIST_UPLOAD_FAILED" -> "Listenbilder lokal gespeichert; Übertragung nicht bestätigt"
         "LIST_SCROLL_UNAVAILABLE", "LIST_SCROLL_REJECTED", "LIST_SCROLL_NO_PROGRESS" -> "Liste konnte nicht nachweisbar gescrollt werden; keine neue Morgenliste übernommen"

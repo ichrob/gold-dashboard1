@@ -1,4 +1,4 @@
 <resources>
     <string name="product_reader_label">Bob: Produktseite einmal lesen</string>
-    <string name="product_reader_description">Liest nach deinem Start sichtbare DEGIRO-Produktfelder und bedient die Produktsuche. Falls Suchklicks wirkungslos bleiben, ist ein gezielter Bildschirmtipp auf die erkannte Suche möglich. Nach Start werden zwei Bilder der Gold-Hebelproduktliste aufgenommen, gescrollt und an deinen privaten Bob übertragen. Keine Orders oder Passwörter. STOPP oder Sperren beendet die Prüfung.</string>
+    <string name="product_reader_description">Liest nach deinem Start sichtbare DEGIRO-Produktfelder und bedient die Produktsuche. Falls Suchklicks wirkungslos bleiben, ist ein gezielter Bildschirmtipp auf die erkannte Suche möglich. Nach Start werden bis zu vier Bilder der zehn Gold-Hebel-Top-Ergebnisse aufgenommen, gescrollt und an deinen privaten Bob übertragen. Keine Orders oder Passwörter. STOPP oder Sperren beendet die Prüfung.</string>
 </resources>

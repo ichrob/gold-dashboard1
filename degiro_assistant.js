@@ -4921,6 +4921,7 @@ async function readListBatch(files,recognize,progress=()=>{}){
  };
  if(partialRows.some(ref=>!matchesContinuation(ref)))throw Error('Abgeschnittene Produktzeile: bitte auch das anschließende Listenbild auswählen.');
  if(items.length>12)throw Error('Mehr als 12 Produkte erkannt; Liste wird nicht unbemerkt gekürzt.');
+ if(files.some(f=>String(f.name||'').startsWith('DEGIRO-TOP10-')) && items.length!==10)throw Error('Handy-Morgenliste: genau zehn Top Ergebnisse erwartet; erkannt: '+items.length);
  return items;
 }
 // Separate research panel. These are issuer-checked historical candidates,
@@ -5322,13 +5323,13 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
    const response=await fetch('/api/android-list/latest?batchId='+match[1],{credentials:'same-origin',cache:'no-store'});
    if(!response.ok)throw Error('Handy-Bilder konnten nicht abgerufen werden.');
    const {batch}=await response.json();
-   if(!batch||batch.batchId!==match[1]||!Array.isArray(batch.images)||batch.images.length!==2)throw Error('Handy-Bildserie fehlt.');
+   if(!batch||batch.batchId!==match[1]||!Array.isArray(batch.images)||batch.images.length<1||batch.images.length>4)throw Error('Handy-Bildserie fehlt.');
    const transfer=new DataTransfer();
    for(const [i,image] of batch.images.entries()){
     const at=Date.parse(image.at);
     if(!Number.isFinite(at)||Date.now()-at>86400000||at>Date.now()+5000||typeof image.png!=='string'||image.png.length>2000000)throw Error('Ungültige Handy-Bildserie.');
     const bytes=Uint8Array.from(atob(image.png),c=>c.charCodeAt(0));
-    transfer.items.add(new File([bytes],'DEGIRO-'+image.at.replace(/[:.]/g,'-')+'-'+(i+1)+'.png',{type:'image/png',lastModified:at}));
+    transfer.items.add(new File([bytes],'DEGIRO-TOP10-'+image.at.replace(/[:.]/g,'-')+'-'+(i+1)+'.png',{type:'image/png',lastModified:at}));
    }
    listUploadMode='replace';stagedListImages=[];upload.files=transfer.files;
    history.replaceState(null,'',location.pathname+location.search);
