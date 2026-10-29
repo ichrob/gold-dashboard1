@@ -26,7 +26,6 @@ class ProductReadActivity : Activity() {
             statusHandler.postDelayed(this, 1000)
         }
     }
-    private val automaticTransfer=Runnable { runCatching { MorningReadTransfer.automaticResults(this) } }
     private lateinit var result: TextView
     private lateinit var diagnostics: TextView
     private lateinit var primary: Button
@@ -69,7 +68,7 @@ class ProductReadActivity : Activity() {
             var startedHere=false
             runCatching {
                 check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
-                check(!MorningReadRun.running && !GoldSearchRun.running && MorningReadRun.pending(this)==null) { "Lauf zuerst beenden und gespeicherte Ergebnisse übertragen." }
+                check(!MorningReadRun.running && !GoldSearchRun.running) { "Lauf zuerst beenden." }
                 val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt")
                 ProductReadRequest.cancel();ProductReadSession.clear()
                 GoldSearchRun.start()
@@ -162,9 +161,8 @@ class ProductReadActivity : Activity() {
     }
     override fun onResume() {
         super.onResume();PhoneDiagnostics.queue(this);refresh();statusHandler.post(statusTick)
-        statusHandler.postDelayed(automaticTransfer,600)
     }
-    override fun onPause() { statusHandler.removeCallbacks(automaticTransfer);statusHandler.removeCallbacks(statusTick); super.onPause() }
+    override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
     /** One explicit start authorizes the bounded local test and its remote observation. */
     private fun startAutomaticTest() {
         var startedHere=false
@@ -172,7 +170,6 @@ class ProductReadActivity : Activity() {
             check(!PhoneRemote.active() && !GoldSearchRun.running && !MorningReadRun.running) { "Test läuft bereits. DEGIRO öffnen und abwarten." }
             check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Unter Einrichtung den Lesedienst einmalig einschalten." }
             check(PhoneDiagnostics.paired(this)) { "Unter Einrichtung die automatische Diagnose einmalig verbinden." }
-            check(MorningReadRun.pending(this)==null) { "Gespeicherten Listenlauf unter Einrichtung zuerst an Bob übertragen." }
             check(packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)!=null) { "DEGIRO-App fehlt." }
             PhoneRemote.start(this)
             startedHere=true
@@ -193,7 +190,7 @@ class ProductReadActivity : Activity() {
     private fun primaryAction() {
         runCatching {
             check(!GoldSearchRun.running) { "Goldsuche läuft bereits. Zuerst stoppen oder Abschluss abwarten." }
-            when(MorningReadUiPolicy.action(MorningReadRun.running,MorningReadRun.pending(this)!=null,
+            when(MorningReadUiPolicy.action(MorningReadRun.running,false,
                 preferences.getBoolean("enabled",false),serviceEnabled() && ProductReadDiagnostics.connected)) {
                 MorningReadUiPolicy.Action.OPEN -> {
                     val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App nicht gefunden.")
