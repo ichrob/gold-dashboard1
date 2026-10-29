@@ -465,7 +465,7 @@ class ProductReadService : AccessibilityService() {
             val proposed=if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
                 else MorningReadPolicy.discoverGold(descriptions)
             val decision=remoteSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
-            if(decision.kind==MorningReadPolicy.Kind.BLOCK)return observation("PROTECTED_VIEW")
+            if(decision.kind==MorningReadPolicy.Kind.BLOCK)return observation(decision.code.ifBlank { "PROTECTED_VIEW" })
             val ids=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(descriptions.filterNot { it.editable }.joinToString("\n") { it.text.uppercase() })
                 .map { it.value }.filter { SeriesEvidence.validIsin(it) }.distinct().take(12).toList()
             val result=observation(decision.code.ifBlank { decision.kind.name }).put("nodeCount",nodes.size).put("isins",org.json.JSONArray(ids))
