@@ -108,13 +108,13 @@ def remote_push_rpc(name, args):
     return result
 
 
-def android_diagnostic_rpc(payload):
+def android_diagnostic_rpc(payload, remote=False):
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:raise RuntimeError('Diagnostics unavailable')
     base=PUSH_SERVICE_URL.rstrip('/')
     if not base.startswith(('https://','http://')):base='https://'+base
-    request=Request(base+'/android-diagnostics',data=json.dumps(payload).encode(),method='POST',
+    request=Request(base+('/android-remote' if remote else '/android-diagnostics'),data=json.dumps(payload).encode(),method='POST',
         headers={'X-Bob-Push-Token':PUSH_SERVICE_TOKEN,'Content-Type':'application/json'})
-    with urlopen(request,timeout=8) as response:return json.loads(response.read(8192))
+    with urlopen(request,timeout=8) as response:return json.loads(response.read(200000))
 
 
 def read_private_product_audit_for_mcp():
@@ -2038,7 +2038,8 @@ class Handler(BaseHTTPRequestHandler):
                 or (self.headers.get("Authorization", "").startswith("Basic ") and self.authenticated()))
             diagnostics_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.DIAGNOSTICS_SCOPE)
             push_test_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.PUSH_TEST_SCOPE)
-            if not products_allowed and not diagnostics_allowed and not push_test_allowed:
+            phone_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.PHONE_SCOPE)
+            if not products_allowed and not diagnostics_allowed and not push_test_allowed and not phone_allowed:
                 self.send_response(401)
                 self.send_header("WWW-Authenticate", bob_oauth.challenge_header())
                 self.send_header("Cache-Control", "no-store")
@@ -2054,6 +2055,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(int(length)).decode("utf-8"))
                 status, output = bob_mcp.handle(payload, read_private_product_audit_for_mcp,
                     read_diagnostics_for_mcp if diagnostics_allowed else None, products=products_allowed,
+                    remote_phone=True, phone_handler=(lambda name,args:android_diagnostic_rpc({'action':'mcp','name':name,'arguments':args},remote=True)) if phone_allowed else None,
                     remote_push=True, push_reader=remote_push_rpc if diagnostics_allowed else None,
                     push_sender=remote_push_rpc if push_test_allowed else None,
                     signal_history_reader=(lambda args:read_private_report_for_mcp("/signal-history", args)) if diagnostics_allowed else None,

@@ -1,3 +1,36 @@
+# Direkte ChatGPT-Handy-Sitzung (Geräteabnahme ausstehend)
+
+Neue getrennte Funktion: **ChatGPT-Handy-Sitzung starten · 15 Minuten**. Benötigt
+bestehende Diagnose-Kopplung, eingeschalteten Lesedienst und eine neue ausdrückliche
+OAuth-Freigabe `bob:phone:control` in ChatGPT. Alte Lesetokens erhalten keine Steuerrechte.
+Der Knopf öffnet DEGIRO; Login bleibt manuell. Danach Handy entsperrt lassen.
+STOPP, Sperren, Dienstende oder eigene Touch-Bedienung beendet die Sitzung.
+
+`bob_phone_status` liefert die letzte Produktbeobachtung mit Originalzeit,
+ISINs, strukturiertem Produktentwurf und festen Diagnosezählern. Keine Vollbild-
+Screenshots, Kontoansichten oder freien Bildschirmtexte. `bob_phone_command`
+erlaubt `inspect`, `search_gold`, `search_isin`, `read_page`, `stop` mit einer
+Sitzungs-ID und einer stabilen Request-ID (32 kleingeschriebene Hexzeichen).
+Suchaufträge führen genau EINEN durch die bestehende Suchpolicy geprüften Schritt
+aus. Danach Status neu lesen. `ACTION_ACCEPTED` bedeutet Android hat die Aktion
+angenommen, nicht dass das Ziel bereits sichtbar ist. `read_page` startet den
+bestehenden begrenzten Produktleser samt Scrollen. Produktnachweise bleiben
+Beobachtungen, ohne Handelsfreigabe oder Änderung der aktiven Produktliste.
+
+Gerät pollt während der Sitzung alle zwei Sekunden; Aufträge verfallen nach
+20 Sekunden, höchstens 120 je Sitzung. Server markiert vor der Zustellung als
+`delivered`, Gerät verbraucht die Request-ID vor der Ausführung. Bei verlorener
+Antwort wird nicht blind wiederholt; neuer Status und neuer Auftrag erforderlich.
+`queued`/`delivered` sind KEIN Ausführungsnachweis. Ausführung erst durch separate
+Gerätequittung. Kein automatischer Sitzungsstart nach Neustart.
+
+Prüfung am Samsung noch erforderlich: neue APK installieren, Sitzung starten,
+Status über ChatGPT lesen, Suchschritte und Produktlesen prüfen, STOPP/Sperre
+prüfen. CI ersetzt diese Abnahme nicht. Android-Berechtigungen bleiben auf die
+bestehende DEGIRO-Bedienungshilfe beschränkt; keine Gesten oder Bildschirmaufnahme.
+
+---
+
 ## Goldsuche und ISIN-Leselauf (29.10.2026)
 
 Neu: **Gold-Produkte suchen und auslesen** in Bob Handy. Nach bewusstem Start öffnet

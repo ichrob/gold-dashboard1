@@ -102,8 +102,8 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('ProductReadRequest.attempt(SystemClock.elapsedRealtime())', service)
         self.assertIn('flagRetrieveInteractiveWindows', config)
         self.assertIn('ProductWindowPolicy.select', service)
-        self.assertEqual(service.count('performAction('), 3)
-        single_page = service[:service.index('private fun navigateMorning(')]
+        self.assertEqual(service.count('performAction('), 5)
+        single_page = service[:service.index('private fun navigationTree(')]
         self.assertNotIn('ACTION_CLICK', single_page)
         self.assertNotIn('ACTION_SET_TEXT', single_page)
         self.assertIn('MorningReadPolicy.decide(descriptions,MorningReadRun.target)', service)

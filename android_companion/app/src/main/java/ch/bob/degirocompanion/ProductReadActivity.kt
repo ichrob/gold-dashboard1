@@ -22,7 +22,7 @@ class ProductReadActivity : Activity() {
     private val statusHandler = Handler(Looper.getMainLooper())
     private val statusTick = object : Runnable {
         override fun run() {
-            if (MorningReadRun.running || GoldSearchRun.running || displayedRequestActive != ProductReadRequest.active(SystemClock.elapsedRealtime())) refresh()
+            if (PhoneRemote.active() || MorningReadRun.running || GoldSearchRun.running || displayedRequestActive != ProductReadRequest.active(SystemClock.elapsedRealtime())) refresh()
             statusHandler.postDelayed(this, 1000)
         }
     }
@@ -57,7 +57,19 @@ class ProductReadActivity : Activity() {
                 result.text=it.message
             }
         }
+        button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {
+            AlertDialog.Builder(this).setTitle("Produktsuche mit ChatGPT bedienen")
+                .setMessage("Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
+                .setNegativeButton("Abbrechen",null).setPositiveButton("Sitzung starten") { _,_ ->
+                    runCatching {
+                        check(preferences.getBoolean("enabled",false)) { "Lesedienst zuerst einschalten." }
+                        val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO fehlt")
+                        PhoneRemote.start(this);startActivity(launch)
+                    }.onFailure { PhoneRemote.stop(this,"START_FAILED");result.text=it.message }
+                }.show()
+        }
         button("Prüfung stoppen") {
+            PhoneRemote.stop(this,"USER_STOP")
             GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
             MorningReadRun.stop(this,"USER_STOP")
             preferences.edit().putBoolean("enabled", false).apply()
@@ -187,7 +199,7 @@ class ProductReadActivity : Activity() {
             MorningReadUiPolicy.Action.SETUP -> "Lesedienst einmalig einschalten"
             MorningReadUiPolicy.Action.START -> "Automatisch prüfen · Morgenliste"
         }
-        result.text=(if(GoldSearchRun.running) "Goldsuche läuft · sichtbare ISIN-Kandidaten erfassen" else if(GoldSearchRun.lastCode!=null) "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty()) else MorningReadRun.summary())+"\n"+MorningReadRun.savedStatus(this)+"\n\n"+PhoneDiagnostics.status(this)
+        result.text=(if(GoldSearchRun.running) "Goldsuche läuft · sichtbare ISIN-Kandidaten erfassen" else if(GoldSearchRun.lastCode!=null) "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty()) else MorningReadRun.summary())+"\n"+MorningReadRun.savedStatus(this)+"\n\n"+PhoneDiagnostics.status(this)+"\n\n"+PhoneRemote.message
         diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }

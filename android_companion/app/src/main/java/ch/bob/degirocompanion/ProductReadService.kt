@@ -34,6 +34,7 @@ class ProductReadService : AccessibilityService() {
                 handler.postDelayed({ runCatching { MorningReadTransfer.automaticResults(this@ProductReadService) } },1000)
                 return
             }
+            if(intent?.action==Intent.ACTION_SCREEN_OFF)PhoneRemote.stop(this@ProductReadService,"SCREEN_LOCKED")
             if (intent?.action != Intent.ACTION_SCREEN_OFF || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return
             MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
             GoldSearchRun.stop("SCREEN_LOCKED",Instant.now().toString())
@@ -97,6 +98,8 @@ class ProductReadService : AccessibilityService() {
         override fun onClicked(controller: AccessibilityButtonController) { readOnce() }
     }
     override fun onServiceConnected() {
+        PhoneRemote.reader={command -> remoteRead(command)}
+        PhoneRemote.onStop={ ProductReadRequest.cancel() }
         ProductReadDiagnostics.connected = true
         ProductReadDiagnostics.canRead = (serviceInfo.capabilities and AccessibilityServiceInfo.CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT) != 0
         ProductReadDiagnostics.windowAccess = (serviceInfo.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) != 0
@@ -158,6 +161,7 @@ class ProductReadService : AccessibilityService() {
     }
     // Only package/type metadata is used. Never read or retain event text.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if(PhoneRemote.active() && event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START)PhoneRemote.stop(this,"USER_INTERRUPTED")
         if (!ProductReadRequest.active(SystemClock.elapsedRealtime())) return
         if((MorningReadRun.running || GoldSearchRun.running) && event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
             GoldSearchRun.stop("USER_INTERRUPTED",Instant.now().toString())
@@ -180,8 +184,8 @@ class ProductReadService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         queueRead(400)
     }
-    override fun onInterrupt() { GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
-    override fun onDestroy() {
+    override fun onInterrupt() { PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
+    override fun onDestroy() { PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
@@ -377,7 +381,7 @@ class ProductReadService : AccessibilityService() {
         if (result.draft.isNotBlank()) {
             if (MorningReadRun.running) { finishBatchProduct("READ",result.draft);return }
             ProductReadRequest.cancel()
-            if (automatic && getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("auto_return", true)) {
+            if (automatic && !PhoneRemote.active() && getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("auto_return", true)) {
                 runCatching {
                     startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
                         android.net.Uri.parse("https://bob-private-scanner.onrender.com/#bob-ocr=" + android.net.Uri.encode(result.draft)))
@@ -404,11 +408,7 @@ class ProductReadService : AccessibilityService() {
         }
     }
 
-    /** Search actions use semantic nodes only, never coordinates or order buttons. */
-    private fun navigateMorning(root: AccessibilityNodeInfo, gold: Boolean = false): Boolean {
-        val nodes=mutableListOf<AccessibilityNodeInfo>()
-        val descriptions=mutableListOf<MorningReadPolicy.Node>()
-        try {
+    private fun navigationTree(root:AccessibilityNodeInfo,nodes:MutableList<AccessibilityNodeInfo>,descriptions:MutableList<MorningReadPolicy.Node>) {
             fun walk(n: AccessibilityNodeInfo, depth: Int, parent: Int = -1): String {
                 check(depth<=30 && nodes.size<500)
                 if(!n.isVisibleToUser || n.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return ""
@@ -434,6 +434,69 @@ class ProductReadService : AccessibilityService() {
                 return row
             }
             walk(root,0)
+    }
+    /** Product-only remote observation and ONE guarded semantic action. No raw screen upload. */
+    private fun remoteRead(command:org.json.JSONObject?):org.json.JSONObject {
+        fun observation(code:String)=PhoneRemote.empty(code)
+        if(!PhoneRemote.active())return observation("SESSION_EXPIRED")
+        if(!getSharedPreferences("product_reader",MODE_PRIVATE).getBoolean("enabled",false))return observation("SERVICE_MISSING")
+        if(!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive || (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked)return observation("SCREEN_LOCKED")
+        val root=productRoot(true) ?: return observation("NO_ROOT")
+        val nodes=mutableListOf<AccessibilityNodeInfo>()
+        val descriptions=mutableListOf<MorningReadPolicy.Node>()
+        try {
+            if(root.packageName?.toString()!=ProductScreenEvidence.PACKAGE)return observation("OTHER_APP")
+            navigationTree(root,nodes,descriptions)
+            val actionName=command?.optString("action") ?: "inspect"
+            val target=command?.optString("isin").orEmpty()
+            val decision=if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
+                else MorningReadPolicy.discoverGold(descriptions)
+            if(decision.kind==MorningReadPolicy.Kind.BLOCK)return observation("PROTECTED_VIEW")
+            val ids=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(descriptions.filterNot { it.editable }.joinToString("\n") { it.text.uppercase() })
+                .map { it.value }.filter { SeriesEvidence.validIsin(it) }.distinct().take(12).toList()
+            val result=observation(decision.code.ifBlank { decision.kind.name }).put("nodeCount",nodes.size).put("isins",org.json.JSONArray(ids))
+            if(descriptions.none { it.editable || it.sensitive }) {
+                val lines=nodes.mapNotNull { node ->
+                    val bounds=Rect();node.getBoundsInScreen(bounds)
+                    val value=(node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
+                    if(value.isBlank() || bounds.isEmpty)null else QuoteLayout.Line(value.take(2000),bounds.left,bounds.top,bounds.right,bounds.bottom)
+                }
+                val data=ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,lines,Instant.now().toString(),false)
+                result.put("draft",data.draft.take(8000))
+            }
+            val collected=ProductReadSession.get(SystemClock.elapsedRealtime()).draft
+            if(ids.size==1 && collected.contains(ids.single()))result.put("draft",collected.take(8000))
+            if(command==null || actionName=="inspect")return result
+            if(ProductReadRequest.active(SystemClock.elapsedRealtime()) || MorningReadRun.running || GoldSearchRun.running)return result.put("code","BUSY")
+            val current=productRoot(false)
+            val safe=current?.windowId==root.windowId && current?.packageName?.toString()==ProductScreenEvidence.PACKAGE
+            current?.recycle()
+            if(!safe)return result.put("code","VIEW_CHANGED")
+            if(actionName=="read_page") {
+                if(ids.size!=1 || descriptions.any { it.editable } || MorningReadPolicy.decide(descriptions,ids.single()).kind!=MorningReadPolicy.Kind.READ)return result.put("code","PRODUCT_IDENTITY_REQUIRED")
+                ProductReadSession.clear();ProductReadRequest.start(SystemClock.elapsedRealtime())
+                return result.put("code","READ_STARTED")
+            }
+            if(actionName !in setOf("search_gold","search_isin"))return result.put("code","INVALID_ACTION")
+            val success=when(decision.kind) {
+                MorningReadPolicy.Kind.SEARCH, MorningReadPolicy.Kind.RESULT -> nodes[decision.index].performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                MorningReadPolicy.Kind.QUERY -> nodes[decision.index].performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,android.os.Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(actionName=="search_gold") "Gold" else target)
+                })
+                MorningReadPolicy.Kind.BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
+                else -> return result
+            }
+            lastNavigation=SystemClock.elapsedRealtime()
+            return result.put("code",if(success) "ACTION_ACCEPTED" else "ACTION_REJECTED")
+        } finally { nodes.forEach { it.recycle() };root.recycle() }
+    }
+
+    /** Search actions use semantic nodes only, never coordinates or order buttons. */
+    private fun navigateMorning(root: AccessibilityNodeInfo, gold: Boolean = false): Boolean {
+        val nodes=mutableListOf<AccessibilityNodeInfo>()
+        val descriptions=mutableListOf<MorningReadPolicy.Node>()
+        try {
+            navigationTree(root,nodes,descriptions)
             val action=if(gold) MorningReadPolicy.discoverGold(descriptions) else MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
                 symbolMemory.getString(it, null)
             }
