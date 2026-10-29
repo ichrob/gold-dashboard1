@@ -781,6 +781,25 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
     return result
 
 
+def comparison_gap_evidence(conn, samples):
+    """Bounded SELECT-only archive probes, isolated from live heartbeats."""
+    evidence={}
+    probes=(('spotGapArchive','paper_gap_archive','report'),
+            ('analysisGapArchive','paper_gap_analysis_archive','report'),
+            ('paperInputArchive','paper_input_evidence','report'),
+            ('paperInputLatest','paper_input_evidence','latest'))
+    for key,module,method in probes:
+        try:
+            with conn.transaction():
+                conn.execute("SET LOCAL statement_timeout='500ms'")
+                fn=getattr(__import__(module),method)
+                evidence[key]=fn(conn) if method=='latest' else fn(conn,samples)
+                conn.execute("SET LOCAL statement_timeout='3s'")
+        except Exception:
+            evidence[key]={'status':'unavailable','readOnly':True,'reason':'archive-inspection-unavailable'}
+    return evidence
+
+
 def comparison_status(conn, portfolios):
     """Independent bounded stored evidence; never hides live simulation status."""
     comparison = __import__('comparison_health').report(conn)
@@ -813,6 +832,7 @@ def comparison_status(conn, portfolios):
             'comparisonHealth':comparison,
             'entryBlockEvidence':blocks,
             'accountSamples':samples,
+            'gapEvidence':comparison_gap_evidence(conn,samples),
             'scope':'bounded-stored-comparisons-and-latest-case-evidence',
             'note':'Stored evidence is not a completed study, executable trade or profit proof.'}
 
@@ -916,7 +936,7 @@ def stored_details(conn):
     })
 
 
-def simulation_evidence_snapshot(simulation):
+def simulation_evidence_snapshot(simulation, comparison=None):
     """Bounded read-only evidence about recent virtual cases, never broker fills.
 
     Correlate exact *recorded* gap event clocks across independently simulated
@@ -926,6 +946,11 @@ def simulation_evidence_snapshot(simulation):
     if not isinstance(simulation,dict) or simulation.get('status')!='observed':
         return {'status':'unavailable','readOnly':True,
                 'reason':'simulation-source-unavailable'}
+    simulation=dict(simulation)
+    archives=(comparison or {}).get('gapEvidence') if isinstance(comparison,dict) else None
+    if isinstance(archives,dict):
+        for key in ('spotGapArchive','analysisGapArchive','paperInputArchive','paperInputLatest'):
+            if isinstance(archives.get(key),dict):simulation[key]=archives[key]
     accounts=simulation.get('accounts')
     if not isinstance(accounts,list) or not accounts:
         return {'status':'unavailable','readOnly':True,
@@ -1643,6 +1668,7 @@ def bounded_report(report, max_bytes):
         areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
         result['omittedAreas'].append(name)
     return result
+
 
 
 

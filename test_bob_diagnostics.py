@@ -947,4 +947,8 @@ class FastSimulationStatusTests(unittest.TestCase):
         selects=[call.args[0] for call in conn.execute.call_args_list
                  if call.args and call.args[0].startswith('SELECT')]
         self.assertEqual(selects,[
-            'SELECT payload FROM bob_paper_balanced_cases ORDER BY started_at DESC LIMIT 5'])
+            'SELECT payload FROM bob_paper_balanced_cases ORDER BY started_at DESC LIMIT 5',
+            """SELECT observed_at, payload FROM bob_diagnostic_history
+WHERE stage='paper-input' AND recorded_at >= now() - interval '7 days'
+ORDER BY recorded_at DESC LIMIT 1"""])
+        self.assertIn('paperInputLatest',result['gapEvidence'])

@@ -29,7 +29,9 @@ QUERIES = {
 }
 LABELS = frozenset(('eligible','not-evaluable','outcome-recorded','outcome-not-recorded',
     'paired-observation','terminal-not-necessarily-comparable','pending','comparable',
-    'incomplete','collection','selection','validation','monitoring','cooldown','paused','training'))
+    'incomplete','collection','selection','validation','monitoring','cooldown','paused','training',
+    'market-not-ready','no-comparable-products','insufficient-comparison-products',
+    'entry-evidence-missing','outcome-evidence-missing'))
 
 
 def summarize(rows, now):
@@ -57,7 +59,14 @@ def report(conn, now=None):
     for currency in ('EUR','CHF'):
         # Literal allowlist only; never interpolate request input.
         queries['ranking-'+currency] = """SELECT slot, CASE WHEN outcome->>'complete'='true'
-            THEN 'comparable' WHEN outcome IS NULL THEN 'pending' ELSE 'incomplete' END
+            THEN 'comparable'
+            WHEN payload->>'marketReady'='false' THEN 'market-not-ready'
+            WHEN jsonb_array_length(payload->'missing')>0 THEN 'entry-evidence-missing'
+            WHEN jsonb_array_length(payload->'candidates')=0 THEN 'no-comparable-products'
+            WHEN jsonb_array_length(payload->'candidates')=1 THEN 'insufficient-comparison-products'
+            WHEN outcome IS NULL THEN 'pending'
+            WHEN jsonb_array_length(outcome->'missing')>0 THEN 'outcome-evidence-missing'
+            ELSE 'incomplete' END
             FROM bob_ranking_samples WHERE currency='"""+currency+"' ORDER BY slot DESC LIMIT 101"
         queries['ranking-exits-'+currency] = """SELECT checked_at, CASE WHEN result->>'complete'='true'
             THEN 'comparable' WHEN complete THEN 'incomplete' ELSE 'pending' END
@@ -80,6 +89,11 @@ def report(conn, now=None):
                                studyCompletedVerified=False)
     items['legacy-fast-cautious']['collectionWindowEnded'] = now >= intraday_comparison.END
     items['legacy-fast-cautious']['newCasesExpected'] = intraday_comparison.active(now)
+    import adaptive_learning
+    for currency in ('EUR','CHF'):
+        slot=__import__('rule_learning').slot_at(now)
+        items['ranking-'+currency]['captureWindowOpen']=bool(adaptive_learning.eligible(slot) and 0<=now-slot<300000)
+        items['ranking-'+currency]['samplingNote']='One fixed sample per two-hour slot, within its first five minutes; no continuous entry study.'
     evaluations = {}
     try:
         with conn.transaction():
@@ -108,3 +122,4 @@ def report(conn, now=None):
         note='Stored outcomes and terminal cases are not verified profitable or completed research studies. '
              'No-records is not success. Latest clocks refer only to the disclosed bounded sample; '
              'three-stop and correction samples are in ID order, not recency order.')
+

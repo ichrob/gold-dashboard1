@@ -179,7 +179,7 @@ def read_diagnostics_for_mcp():
     report['areas']['newFeatures'] = bob_diagnostics.new_feature_snapshot(
         report['areas'], mobile_asset_loaded=bool(BOB_UNIFIED_WORKSPACE_JS))
     report['areas']['simulationEvidence'] = bob_diagnostics.simulation_evidence_snapshot(
-        report['areas'].get('simulationAndPush'))
+        report['areas'].get('simulationAndPush'), comparison)
     report['areas']['diagnosticTriage'] = bob_diagnostics.triage_snapshot(report['areas'])
     report['areas']['operationsSummary'] = __import__('bob_operations').snapshot(report)
     report['summary'] = bob_diagnostics.summary(report['areas'])
@@ -2527,6 +2527,7 @@ if __name__ == "__main__":
     BobHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
+
 
 
 
