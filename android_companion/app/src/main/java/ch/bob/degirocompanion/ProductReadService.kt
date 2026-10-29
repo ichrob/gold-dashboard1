@@ -453,7 +453,8 @@ class ProductReadService : AccessibilityService() {
                 val text=if(sensitiveNode || (n.isEditable && !searchInput)) "" else n.text?.toString().orEmpty().ifBlank { description }.take(2000)
                 val index=nodes.size;nodes+=AccessibilityNodeInfo.obtain(n)
                 descriptions+=MorningReadPolicy.Node(text,id,n.isClickable,n.isEditable,sensitiveNode,description=description,hint=hint,password=n.isPassword,
-                    clickAction=n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_CLICK },enabled=n.isEnabled,parent=parent,
+                    clickAction=n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_CLICK },enabled=n.isEnabled,parent=parent,focused=n.isFocused,
+                    focusAction=n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_FOCUS },
                     imeEnter=android.os.Build.VERSION.SDK_INT>=30 && n.isFocused && n.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id },
                     writtenQueryExpected=writtenQueryExpected,writtenQueryPresent=writtenQueryPresent,
                     writtenNodeIdentity=writtenNodeIdentity)
@@ -467,6 +468,12 @@ class ProductReadService : AccessibilityService() {
                 return row
             }
             walk(root,0)
+            for(index in SearchInputCluster.identify(descriptions)) {
+                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SEARCH_INPUT_CLUSTER)
+                val n=nodes[index]
+                descriptions[index]=descriptions[index].copy(hint="Mit Namen, ISIN oder Symbol suchen",
+                    text=n.text?.toString().orEmpty().take(2000))
+            }
     }
     /** Product-only remote observation and ONE guarded semantic action. No raw screen upload. */
     private fun remoteRead(command:org.json.JSONObject?):org.json.JSONObject {
@@ -520,6 +527,7 @@ class ProductReadService : AccessibilityService() {
                 MorningReadPolicy.Kind.QUERY -> nodes[decision.index].performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,android.os.Bundle().apply {
                     putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(actionName=="search_gold") "Gold" else target)
                 })
+                MorningReadPolicy.Kind.FOCUS -> focusSearch(nodes[decision.index])
                 MorningReadPolicy.Kind.SUBMIT -> submitSearch(nodes[decision.index])
                 MorningReadPolicy.Kind.BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
                 else -> return result
@@ -590,6 +598,13 @@ class ProductReadService : AccessibilityService() {
         } finally { live.forEach { it.recycle() };root.recycle() }
     }
 
+    private fun focusSearch(node: AccessibilityNodeInfo): Boolean =
+        node.isEditable && node.isEnabled && !node.isPassword &&
+            node.actionList.any { it.id==AccessibilityNodeInfo.ACTION_FOCUS } &&
+            node.performAction(AccessibilityNodeInfo.ACTION_FOCUS).also { accepted ->
+                ProductReadDiagnostics.record(if(accepted) ProductReadDiagnostics.Outcome.SEARCH_FOCUS_ACCEPTED else ProductReadDiagnostics.Outcome.SEARCH_FOCUS_REJECTED)
+            }
+
     private fun submitSearch(node: AccessibilityNodeInfo): Boolean =
         android.os.Build.VERSION.SDK_INT>=30 && node.isEditable && node.isFocused &&
             node.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id } &&
@@ -647,7 +662,8 @@ class ProductReadService : AccessibilityService() {
                     val success=if(action.kind==MorningReadPolicy.Kind.QUERY) {
                         val args=android.os.Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(gold) "Gold" else MorningReadRun.target) }
                         node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)
-                    } else if(action.kind==MorningReadPolicy.Kind.SUBMIT) submitSearch(node)
+                    } else if(action.kind==MorningReadPolicy.Kind.FOCUS) focusSearch(node)
+                    else if(action.kind==MorningReadPolicy.Kind.SUBMIT) submitSearch(node)
                     else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     if(success && action.kind==MorningReadPolicy.Kind.QUERY)
                         rememberWrittenSearch(node,if(gold) "Gold" else MorningReadRun.target)

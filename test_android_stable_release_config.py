@@ -102,7 +102,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('ProductReadRequest.attempt(SystemClock.elapsedRealtime())', service)
         self.assertIn('flagRetrieveInteractiveWindows', config)
         self.assertIn('ProductWindowPolicy.select', service)
-        self.assertEqual(service.count('performAction('), 6)
+        self.assertEqual(service.count('performAction('), 7)
         self.assertEqual(service.count('dispatchGesture('), 1)
         tap = service.split('private fun tapRecognizedSearch(', 1)[1].split('private fun submitSearch(', 1)[0]
         for guard in ['PhoneRemote.active()', 'ProductReadRequest.active(', 'isKeyguardLocked',
