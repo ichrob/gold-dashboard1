@@ -101,21 +101,32 @@ internal object MorningReadPolicy {
     /** Search pages retain the global order launcher. Recognize only its exact,
      * isolated label beside one explicitly labelled product input. Keep indexes
      * unchanged and re-run every protection against the remaining nodes. */
-    private fun productSearchWithoutLauncher(nodes: List<Node>): List<Node>? {
+    enum class LauncherIssue { NONE, INPUT_COUNT, INPUT_DISABLED, INPUT_LABEL, MARKER_COUNT,
+        LAUNCHER_UNSAFE, LAUNCHER_LABEL, LAUNCHER_ROW, RELATED_TARGETS }
+    fun launcherSearchIssue(nodes: List<Node>): LauncherIssue {
+        var issue=LauncherIssue.NONE
+        productSearchWithoutLauncher(nodes) { issue=it }
+        return issue
+    }
+    private fun productSearchWithoutLauncher(nodes: List<Node>, rejected: (LauncherIssue) -> Unit = {}): List<Node>? {
+        fun reject(issue: LauncherIssue): List<Node>? { rejected(issue); return null }
         val inputs=nodes.filter { it.editable }
-        if (inputs.size != 1 || !inputs.single().enabled) return null
+        if (inputs.size != 1) return reject(LauncherIssue.INPUT_COUNT)
+        if (!inputs.single().enabled) return reject(LauncherIssue.INPUT_DISABLED)
         val input=inputs.single()
         if (listOf(input.description,input.hint).none {
-                normalized(it).equals("Mit Namen, ISIN oder Symbol suchen",ignoreCase=true) }) return null
+                normalized(it).equals("Mit Namen, ISIN oder Symbol suchen",ignoreCase=true) }) return reject(LauncherIssue.INPUT_LABEL)
         val marked=nodes.indices.filter { i ->
             listOf(nodes[i].text,nodes[i].description,nodes[i].hint).any(orderMarkers.first().second::containsMatchIn)
         }
-        val index=marked.singleOrNull() ?: return null
+        val index=marked.singleOrNull() ?: return reject(LauncherIssue.MARKER_COUNT)
         val launcher=nodes[index]
         val exact=Regex("(?iu)^(order platzieren|place order)$")
-        if (!canClick(launcher) || launcher.editable || launcher.containsInput || launcher.password || launcher.sensitive) return null
-        if (listOf(launcher.text,launcher.description,launcher.hint,launcher.row).filter(String::isNotBlank)
-                .any { !exact.matches(normalized(it)) }) return null
+        if (!canClick(launcher) || launcher.editable || launcher.containsInput || launcher.password || launcher.sensitive) return reject(LauncherIssue.LAUNCHER_UNSAFE)
+        if (listOf(launcher.text,launcher.description,launcher.hint).filter(String::isNotBlank)
+                .any { !exact.matches(normalized(it)) }) return reject(LauncherIssue.LAUNCHER_LABEL)
+        if (launcher.row.lines().filter(String::isNotBlank).any { !exact.matches(normalized(it)) })
+            return reject(LauncherIssue.LAUNCHER_ROW)
         // The search must not be nested in the launcher (or vice versa).
         fun below(child: Int, ancestor: Int): Boolean {
             var cursor=nodes[child].parent
@@ -127,7 +138,7 @@ internal object MorningReadPolicy {
             return false
         }
         val inputIndex=nodes.indexOf(input)
-        if(below(inputIndex,index) || below(index,inputIndex)) return null
+        if(below(inputIndex,index) || below(index,inputIndex)) return reject(LauncherIssue.RELATED_TARGETS)
         return nodes.mapIndexed { i,n -> if(i==index) Node("") else n }
     }
     private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?): Action {

@@ -182,6 +182,19 @@ class MorningReadPolicyTest {
         assertEquals(MorningReadPolicy.Kind.BACK,MorningReadPolicy.decide(listOf(node("DE000FG77MY4"),node("Übersicht")),isin).kind)
         assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(node("KAUF",true)),isin).kind)
     }
+    @Test fun repeatedLauncherRowLabelsAreNotAnOrderForm() {
+        val input=node("").copy(editable=true,hint="Mit Namen, ISIN oder Symbol suchen")
+        val launcher=node("Order platzieren",true).copy(description="Order platzieren",
+            row="Order platzieren\nOrder platzieren")
+        assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.discoverGold(listOf(launcher,input)).kind)
+        assertEquals(MorningReadPolicy.LauncherIssue.NONE,MorningReadPolicy.launcherSearchIssue(listOf(launcher,input)))
+        val mixed=launcher.copy(row="Order platzieren\nOrder bestätigen")
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(listOf(mixed,input)).kind)
+        assertEquals(MorningReadPolicy.LauncherIssue.LAUNCHER_ROW,MorningReadPolicy.launcherSearchIssue(listOf(mixed,input)))
+        assertEquals(MorningReadPolicy.LauncherIssue.INPUT_COUNT,MorningReadPolicy.launcherSearchIssue(listOf(launcher)))
+        assertEquals(MorningReadPolicy.LauncherIssue.INPUT_LABEL,MorningReadPolicy.launcherSearchIssue(listOf(launcher,input.copy(hint="Suche"))))
+        assertEquals(MorningReadPolicy.LauncherIssue.MARKER_COUNT,MorningReadPolicy.launcherSearchIssue(listOf(launcher,launcher,input)))
+    }
     @Test fun knownSymbolHandsDetailToReaderButNeverOverridesVisibleIdentityOrProtection() {
         val header=node("12345678 • Societe Generale OTC | R")
         val page=listOf(header,node("Übersicht"),node("KAUF",true))
