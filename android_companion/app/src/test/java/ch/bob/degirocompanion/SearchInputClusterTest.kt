@@ -2,6 +2,24 @@ package ch.bob.degirocompanion
 import org.junit.Assert.*
 import org.junit.Test
 class SearchInputClusterTest {
+    @Test fun spatialPromptRequiresContainmentAndOneSmallVisibleInput() {
+        val screen=SearchInputCluster.Box(0,0,700,1500)
+        val field=SearchInputCluster.Box(24,200,680,290)
+        val prompt=SearchInputCluster.Box(100,220,600,270)
+        val nodes=listOf(MorningReadPolicy.Node("",editable=true,id="generic-input"),
+            MorningReadPolicy.Node("Mit Namen, ISIN oder Symbol suchen"))
+        assertEquals(setOf(0),SearchInputCluster.spatial(nodes,listOf(field,prompt),screen))
+        assertTrue(SearchInputCluster.spatial(nodes,listOf(field,prompt.copy(top=300,bottom=330)),screen).isEmpty())
+        assertTrue(SearchInputCluster.spatial(nodes,listOf(screen,prompt),screen).isEmpty())
+        assertTrue(SearchInputCluster.spatial(nodes+nodes[0],listOf(field,prompt,field),screen).isEmpty())
+        for(n in listOf(nodes[0].copy(password=true),nodes[0].copy(sensitive=true),nodes[0].copy(enabled=false)))
+            assertTrue(SearchInputCluster.spatial(listOf(n,nodes[1]),listOf(field,prompt),screen).isEmpty())
+        // Inferred identity must not erase a conflicting form label.
+        val marked=nodes[0].copy(id="bob:search_input",hint="Limitpreis")
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(listOf(marked,nodes[1])).kind)
+        assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.discoverGold(listOf(marked.copy(hint=""),nodes[1])).kind)
+        assertEquals(MorningReadPolicy.Kind.SUBMIT,MorningReadPolicy.discoverGold(listOf(marked.copy(hint="",text="Gold",imeEnter=true))).kind)
+    }
     private val wrapper=MorningReadPolicy.Node("")
     private val input=MorningReadPolicy.Node("",editable=true,parent=0)
     private val label=MorningReadPolicy.Node("Mit Namen, ISIN oder Symbol suchen",parent=0)
