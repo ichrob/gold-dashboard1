@@ -71,6 +71,7 @@ def status(conn):
         FROM bob_android_diagnostic_devices ORDER BY created_at DESC LIMIT 20''').fetchall()
     now=datetime.now(timezone.utc)
     return {'status':'observed' if rows else 'not-paired','readOnly':True,'remoteControl':False,
+        'listImports':__import__('android_list').status(conn),
         'devices':[{'deviceId':r[0][:12],'revoked':r[1],'expiresAt':r[2].isoformat(),
           'receivedAt':r[3].isoformat() if r[3] else None,
           'fresh':bool(not r[1] and r[2]>now and r[3] and (now-r[3]).total_seconds()<1800 and r[4] and -60<=(now-timestamp(r[4]['observedAt'])).total_seconds()<1800),

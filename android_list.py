@@ -36,9 +36,37 @@ def init(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_android_list_images (
         batch_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL REFERENCES bob_android_diagnostic_devices(token_hash) ON DELETE CASCADE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(), payload JSONB NOT NULL)''')
+    conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS import_receipt JSONB")
+
+IMPORT_STAGES = frozenset(('fetching','images-ready','reading','stored','synced','fetch-failed','read-failed','store-failed'))
+
+def receipt(value, now):
+    if not isinstance(value,dict) or set(value)!={'batchId','stage','count'}:
+        raise ValueError('Invalid import receipt')
+    if not isinstance(value['batchId'],str) or not re.fullmatch('[a-f0-9]{32}',value['batchId']):
+        raise ValueError('Invalid batch')
+    if value['stage'] not in IMPORT_STAGES or type(value['count']) is not int or not 0<=value['count']<=10:
+        raise ValueError('Invalid import stage')
+    return {**value,'at':datetime.fromtimestamp(now).astimezone().isoformat()}
+
+def status(conn):
+    if not conn.execute("SELECT to_regclass('bob_android_list_images')").fetchone()[0]:return []
+    rows=conn.execute("""SELECT i.batch_id, i.created_at, jsonb_array_length(i.payload->'images'), i.import_receipt
+        FROM bob_android_list_images i JOIN bob_android_diagnostic_devices d USING(token_hash)
+        WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
+        ORDER BY i.created_at DESC LIMIT 5""").fetchall()
+    return [{'batchId':r[0],'uploadedAt':r[1].isoformat(),'imageCount':r[2],'import':r[3]} for r in rows]
 
 def handle(conn,payload,now):
     conn.execute("DELETE FROM bob_android_list_images WHERE created_at<now()-interval '24 hours'")
+    if payload['action']=='list-receipt':
+        value=receipt(payload.get('value'),now)
+        row=conn.execute('''UPDATE bob_android_list_images i SET import_receipt=%s::jsonb
+            FROM bob_android_diagnostic_devices d WHERE i.token_hash=d.token_hash AND i.batch_id=%s
+            AND NOT d.revoked AND d.expires_at>now() RETURNING i.batch_id''',
+            (json.dumps(value),value['batchId'])).fetchone()
+        if not row:raise ValueError('Unknown batch')
+        return {'ok':True}
     if payload['action']=='list-get':
         batch=payload.get('batchId')
         if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')

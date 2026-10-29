@@ -60,4 +60,18 @@ class ListTests(unittest.TestCase):
         h=Handler({},auth=True);h.path='/api/android-list/latest?batchId='+'a'*32
         http.route(h,'GET','/api/android-list/latest',lambda p,remote=False:sent.append((p,remote)) or {})
         self.assertEqual(sent[1][0],{'action':'list-get','batchId':'a'*32})
+    def test_receipt_is_bounded_and_browser_authenticated(self):
+        value={'batchId':'a'*32,'stage':'reading','count':0}
+        self.assertEqual(images.receipt(value,NOW)['stage'],'reading')
+        for change in ({'stage':'raw account text'},{'count':11},{'count':True},{'batchId':'bad'},{'extra':'text'}):
+            with self.assertRaises(ValueError):images.receipt({**value,**change},NOW)
+        for auth,origin,code in ((False,'https://bob.example',401),(True,'https://other.example',403)):
+            h=Handler(value,auth=auth,headers={'Host':'bob.example','Origin':origin})
+            http.route(h,'POST','/api/android-list/receipt',lambda *_:self.fail('unauthorized receipt'))
+            self.assertEqual(h.code,code)
+        sent=[];h=Handler(value,auth=True,headers={'Host':'bob.example','Origin':'https://bob.example'})
+        http.route(h,'POST','/api/android-list/receipt',lambda p,remote=False:sent.append(p) or {'ok':True})
+        self.assertEqual(h.code,200)
+        self.assertEqual(sent,[{'action':'list-receipt','value':value}])
+
 if __name__=='__main__':unittest.main()

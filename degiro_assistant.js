@@ -5261,6 +5261,18 @@ async function inject(){
  });
 const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgListUploadButton'),addButton=b.querySelector('#dgListAddButton'),uploadStatus=b.querySelector('#dgCentralStatus');
  let listUploadMode='replace',stagedListImages=[],pendingRetryBusy=false;
+ let handsetImportId='',handsetRetryTimer=null,handsetReceiptQueue=Promise.resolve();
+ const handsetBatchId=()=>{
+  const query=new URLSearchParams(location.search).get('handset-list')||'';
+  return /^[a-f0-9]{32}$/.test(query)?query:(location.hash.match(/^#bob-morning-images=([a-f0-9]{32})$/)?.[1]||'');
+ };
+ const handsetReceipt=(stage,count=0)=>{
+  if(!handsetImportId)return;
+  const body=JSON.stringify({batchId:handsetImportId,stage,count});
+  handsetReceiptQueue=handsetReceiptQueue.then(()=>fetch('/api/android-list/receipt',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+   signal:AbortSignal.timeout(8000),body})).catch(()=>{});
+ };
+
  uploadStatus.dataset.listReaderVersion='20261026-reviewed-list-retry-v2';
  uploadButton.addEventListener('click',()=>{listUploadMode='replace';stagedListImages=[];upload.click();});
  addButton.addEventListener('click',()=>{listUploadMode='append';upload.click();});
@@ -5275,8 +5287,10 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
    if(prior===null)throw Error('Kein heutiges erstes Listenbild gefunden. Bitte mit „Neue DEGIRO-Liste hochladen“ beginnen.');
    files=[...prior.map(x=>x.blob?.name?x.blob:new File([x.blob],x.name,{type:x.blob?.type||'image/png'})),...chosen];
    if(files.length>12)throw Error('Zu viele Listenbilder. Bitte mit einer neuen Liste beginnen und höchstens zwölf Bilder auswählen.');
+   handsetReceipt('reading');
    const items=await readListBatch(files,recognizeOcr,(i,total,name)=>{uploadStatus.textContent='📷 Bild '+i+' von '+total+' wird gelesen: '+name;});
    await saveReplacementListArchive(files,items);
+   handsetReceipt('stored',items.length);
    stagedListImages=[];
    await clearPendingDegiroList().catch(()=>{});
    // The old screenshot universe is now replaced. Its manual KO and PDF
@@ -5287,6 +5301,7 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
    populateCandidateRows(items);
    // Persist the new generation before any normal/periodic background snapshot.
    const backgroundSynced=await window.BobPaperSimulation?.sync?.(buildPaperListEvidence(),true);
+   if(backgroundSynced)handsetReceipt('synced',items.length);
    rankUI();
    uploadStatus.textContent='✅ '+(listUploadMode==='append'?'Listenbild ergänzt':'Neue Liste übernommen')+': '+files.length+' Bild(er) · '+items.length+' unterschiedliche Produkte. Liste vollständig geprüft und gespeichert; ältere Nachweise bleiben nur historisch. Kurszeiten werden unabhängig geprüft.';
    uploadStatus.textContent+=backgroundSynced?' Hintergrundübernahme bestätigt.':' ⚠️ Hintergrundübernahme noch offen; automatischer Abgleich läuft.';
@@ -5296,6 +5311,7 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
    // ordinary 60-second cadence. Never send removed ISINs from the old list.
    refreshImportedProducts(true).then(()=>refreshImportedProducts());
   }catch(e){
+   handsetReceipt('read-failed');
    const message=e?.message||'Bilder konnten nicht gelesen werden';
    // Store only in-memory originals of an incomplete multi-image set.
    // Do not commit a partial list or mutate old DEGIRO/KO evidence.
@@ -5318,15 +5334,20 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
  async function importHandsetList(){
   // The query survives password login and UI hash routing. Neither identifier
   // grants access: the image endpoint still requires the normal Bob session.
-  const requestedBatch=new URLSearchParams(location.search).get('handset-list')||'';
-  const match=/^[a-f0-9]{32}$/.test(requestedBatch)?[null,requestedBatch]:location.hash.match(/^#bob-morning-images=([a-f0-9]{32})$/);
-  if(!match||handsetListBusy||upload.disabled||document.hidden)return;
-  handsetListBusy=true;
+  const batchId=handsetBatchId();
+  if(!batchId||handsetListBusy||document.hidden)return;
+  if(upload.disabled){
+   clearTimeout(handsetRetryTimer);handsetRetryTimer=setTimeout(importHandsetList,1000);return;
+  }
+  handsetListBusy=true;handsetImportId=batchId;
+  document.querySelector('#bobNavigation [data-view="products"]')?.click();
+  uploadStatus.textContent='📷 Handy-Bilder werden von Bob abgerufen …';
+  handsetReceipt('fetching');
   try{
-   const response=await fetch('/api/android-list/latest?batchId='+match[1],{credentials:'same-origin',cache:'no-store'});
+   const response=await fetch('/api/android-list/latest?batchId='+batchId,{credentials:'same-origin',cache:'no-store'});
    if(!response.ok)throw Error('Handy-Bilder konnten nicht abgerufen werden.');
    const {batch}=await response.json();
-   if(!batch||batch.batchId!==match[1]||!Array.isArray(batch.images)||batch.images.length<1||batch.images.length>4)throw Error('Handy-Bildserie fehlt.');
+   if(!batch||batch.batchId!==batchId||!Array.isArray(batch.images)||batch.images.length<1||batch.images.length>4)throw Error('Handy-Bildserie fehlt.');
    const transfer=new DataTransfer();
    for(const [i,image] of batch.images.entries()){
     const at=Date.parse(image.at);
@@ -5335,11 +5356,12 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
     transfer.items.add(new File([bytes],'DEGIRO-TOP10-'+image.at.replace(/[:.]/g,'-')+'-'+(i+1)+'.png',{type:'image/png',lastModified:at}));
    }
    listUploadMode='replace';stagedListImages=[];upload.files=transfer.files;
+   handsetReceipt('images-ready');
    const cleanUrl=new URL(location.href);cleanUrl.searchParams.delete('handset-list');cleanUrl.hash='';
    history.replaceState(null,'',cleanUrl.pathname+cleanUrl.search);
    document.querySelector('#bobNavigation [data-view="products"]')?.click();
    upload.dispatchEvent(new Event('change'));
-  }catch(e){uploadStatus.textContent='⚠️ '+e.message+' Die bisherige Liste bleibt erhalten.';}
+  }catch(e){handsetReceipt('fetch-failed');uploadStatus.textContent='⚠️ '+e.message+' Die bisherige Liste bleibt erhalten.';}
   finally{handsetListBusy=false;}
  }
  window.addEventListener('hashchange',importHandsetList);
@@ -5348,7 +5370,7 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
  // Retry the uncommitted screenshot batch at startup after a new code release.
  // Only an entirely valid batch may replace the user's active saved list.
  const retryPendingList=async()=>{
-  if(pendingRetryBusy||upload.disabled||document.hidden)return false;
+  if(handsetBatchId()||handsetListBusy||pendingRetryBusy||upload.disabled||document.hidden)return false;
   pendingRetryBusy=true;
   const generation=listRevision;
   upload.disabled=true;uploadButton.disabled=true;addButton.disabled=true;
@@ -5385,7 +5407,7 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
  };
  setTimeout(()=>retryPendingList().catch(()=>{}),800);
  const retrySavedList=async()=>{
-  if(document.hidden||upload.disabled||activeProductImports.size)return;
+  if(handsetBatchId()||handsetListBusy||document.hidden||upload.disabled||activeProductImports.size)return;
   try{
    const recovered=await recoverArchivedList(recognizeOcr);
    if(!recovered)return;
