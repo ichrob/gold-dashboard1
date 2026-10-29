@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import threading
+import math
 
 _state = {"state": "not-started", "checkedAt": None, "error": None}
 _state_lock = threading.Lock()
@@ -23,6 +24,13 @@ def status():
     return value
 
 
+def ocr_size(width, height, scale):
+    # Full-resolution phone images must not be enlarged into tens of millions
+    # of pixels on the shared small server. Preserve aspect ratio and originals.
+    factor=min(scale, 1200/width, math.sqrt(1600000/(width*height)))
+    return max(1,round(width*factor)),max(1,round(height*factor))
+
+
 def recognize(images):
     from PIL import Image, ImageOps
     import numpy as np
@@ -36,8 +44,9 @@ def recognize(images):
             if source.format!='PNG' or source.width*source.height>16000000:raise ValueError('Image bounds')
             original=source.convert('RGB')
         passes=[]
-        for scale,contrast in ((1.5,False),(2,False),(2.5,True)):
-            im=original.resize((round(original.width*scale),round(original.height*scale)))
+        for scale,contrast in ((.85,False),(1,False),(1,True)):
+            im=original.resize(ocr_size(original.width,original.height,scale))
+            actual_scale=im.width/original.width
             if contrast:im=ImageOps.autocontrast(im.convert('L')).convert('RGB')
             rows,_=engine(np.asarray(im)[:,:,::-1],use_cls=False)
             rows=[r for r in (rows or []) if float(r[2])>=.7]
@@ -46,7 +55,7 @@ def recognize(images):
             lines=[]
             for points,text,_ in rows:
                 y=sum(p[1] for p in points)/4
-                if lines and abs(lines[-1][0]-y)<14*scale:lines[-1][1]+=' '+text
+                if lines and abs(lines[-1][0]-y)<14*actual_scale:lines[-1][1]+=' '+text
                 else:lines.append([y,text])
             passes.append('\n'.join(line[1] for line in lines))
         result.append(passes)
@@ -66,17 +75,24 @@ def process(payload,at):
 def tick(connect,runner=process):
     observe("checking")
     with connect() as conn:
+        # A process killed during OCR cannot write its failure receipt. End the
+        # bounded retry series explicitly once its lease has expired.
+        conn.execute("""UPDATE bob_android_list_images SET import_receipt=jsonb_build_object(
+            'batchId',batch_id,'stage','read-failed','count',0,'error','InterruptedWorker')
+            WHERE processing_attempts>=3 AND import_receipt->>'stage'='reading'
+            AND processing_at<now()-interval '4 minutes'""")
         row=conn.execute("""SELECT i.batch_id,i.payload,i.created_at FROM bob_android_list_images i
             JOIN bob_android_diagnostic_devices d USING(token_hash)
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
-            AND i.processing_attempts<3 AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
+            AND (i.processing_attempts<3 OR (i.processing_attempts=3 AND i.import_receipt IS NULL))
+            AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
             ORDER BY i.created_at DESC LIMIT 1 FOR UPDATE OF i SKIP LOCKED""").fetchone()
         if not row:
             observe("idle")
             return False
         batch,payload,created=row
-        conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1 WHERE batch_id=%s",(batch,))
+        conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1,import_receipt=%s::jsonb WHERE batch_id=%s",(json.dumps({'batchId':batch,'stage':'reading','count':0}),batch))
         conn.commit()
     observe("reading")
     try:

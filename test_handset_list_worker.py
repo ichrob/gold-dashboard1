@@ -5,6 +5,14 @@ from unittest.mock import patch
 import handset_list_worker as worker
 
 class WorkerTests(unittest.TestCase):
+    def test_phone_ocr_size_is_bounded_without_changing_original(self):
+        for width,height in [(1080,2400),(1440,3200),(5000,3000),(709,1536)]:
+            for scale in (.85,1,2.5):
+                w,h=worker.ocr_size(width,height,scale)
+                self.assertLessEqual(w,1200)
+                self.assertLessEqual(w*h,1602500)
+                self.assertAlmostEqual(w/h,width/height,delta=.002)
+
     def test_worker_status_reports_queue_failure_without_private_error_text(self):
         def broken():raise RuntimeError('private database information')
         with patch('video_ocr.tick', return_value='idle'), patch('handset_list_worker.time.sleep',side_effect=InterruptedError):
@@ -46,13 +54,14 @@ console.log(JSON.stringify(out));
             def execute(self,sql,args=()):
                 if sql.startswith('SELECT i.batch_id'):return Result(('a'*32,{'images':[{'at':'2026-10-29T19:00:00Z'}]},None))
                 if sql.startswith('SELECT i.import_receipt'):return Result((None,))
+                if 'processing_attempts=processing_attempts+1' in sql:self.receipts.append(json.loads(args[0]))
                 if 'SET parsed_items=' in sql:self.receipts.append(json.loads(args[1]))
-                if 'SET import_receipt=' in sql:self.receipts.append(json.loads(args[0]))
+                if 'SET import_receipt=%s' in sql:self.receipts.append(json.loads(args[0]))
                 return Result(None)
         db=DB()
         with patch('paper_simulation.sync',return_value={'ok':True,'products':10}) as sync:
             worker.tick(lambda:db,lambda p,at:{'items':[{'isin':str(n)} for n in range(10)],'evidence':{'listUploadedAt':at,'products':[{'isin':str(n)} for n in range(10)]}})
-            self.assertTrue(sync.called);self.assertEqual(db.receipts[-1]['stage'],'synced');self.assertEqual(db.commits,2)
+            self.assertTrue(sync.called);self.assertEqual(db.receipts[0]['stage'],'reading');self.assertEqual(db.receipts[-1]['stage'],'synced');self.assertEqual(db.commits,2)
         db=DB()
         def fail(*_):raise ValueError('private image text must never leak')
         worker.tick(lambda:db,fail)
@@ -88,6 +97,7 @@ class DatabaseTests(unittest.TestCase):
                 state={'sessionId':value['sessionId'],'active':True,'expiresAt':now+900,'seenAt':now}
                 conn.execute('INSERT INTO bob_android_remote VALUES(%s,%s::jsonb)',(android_telemetry.token_hash('a'*64),json.dumps(state)))
                 android_list.handle(conn,{'action':'list-upload','token':'a'*64,'value':value},now)
+                conn.execute("UPDATE bob_android_list_images SET processing_attempts=3,processing_at=now()-interval '5 minutes' WHERE batch_id=%s",(value['batchId'],))
             products=[{'isin':str(n),'name':'test'} for n in range(10)]
             parsed={'items':products,'evidence':{'products':products,'listUploadedAt':value['images'][-1]['at']}}
             def sync(conn,payload):
@@ -98,6 +108,7 @@ class DatabaseTests(unittest.TestCase):
                 own=android_list.handle(conn,{'action':'list-status','token':'a'*64,'value':{'batchId':value['batchId']}},now)
                 other=android_list.handle(conn,{'action':'list-status','token':'b'*64,'value':{'batchId':value['batchId']}},now)
                 self.assertEqual(own['import']['stage'],'synced')
+                self.assertEqual(conn.execute('SELECT processing_attempts FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0],4)
                 self.assertIsNone(other['import']);self.assertEqual(other['detailIsins'],[])
                 android_list.handle(conn,{'action':'list-receipt','value':{'batchId':value['batchId'],'stage':'reading','count':0}},now)
                 again=android_list.handle(conn,{'action':'list-status','token':'a'*64,'value':{'batchId':value['batchId']}},now)
