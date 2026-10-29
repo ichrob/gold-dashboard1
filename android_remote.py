@@ -91,7 +91,7 @@ def init(conn):
 
 def handle(conn,payload):
     now=int(time.time());op=payload.get('action')
-    if op in ('list-upload','list-get'):return __import__('android_list').handle(conn,payload,now)
+    if op in ('list-upload','list-get','list-receipt'):return __import__('android_list').handle(conn,payload,now)
     if op=='exchange':
         digest=token_hash(payload.get('token'))
         device=conn.execute('SELECT token_hash FROM bob_android_diagnostic_devices WHERE token_hash=%s AND NOT revoked AND expires_at>now() FOR UPDATE',(digest,)).fetchone()

@@ -19,6 +19,19 @@ def route(h, method, path, forward):
         h.send_header('Cache-Control','no-store');h.send_header('Referrer-Policy','no-referrer')
         h.send_header('Content-Security-Policy',"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
         h.send_header('Content-Length',str(len(PAGE)));h.end_headers();h.wfile.write(PAGE);return True
+    if path=='/api/android-list/receipt':
+        if method!='POST':send(h,405,{'error':'POST required'});return True
+        if not h.authenticated():send(h,401,{'error':'Login required'});return True
+        if not bob_auth.same_origin(h.headers):send(h,403,{'error':'Same origin required'});return True
+        try:
+            size=int(h.headers.get('Content-Length','0'))
+            if not 0<size<=1024:raise ValueError('Invalid size')
+            value=json.loads(h.rfile.read(size))
+            __import__('android_list').receipt(value,__import__('time').time())
+        except (ValueError,TypeError,KeyError):send(h,400,{'error':'Invalid receipt'});return True
+        try:send(h,200,forward({'action':'list-receipt','value':value},remote=True))
+        except Exception:send(h,503,{'error':'Receipt unavailable'})
+        return True
     if path=='/api/android-list/latest':
         if method!='GET':send(h,405,{'error':'GET required'});return True
         if not h.authenticated():send(h,401,{'error':'Login required'});return True
