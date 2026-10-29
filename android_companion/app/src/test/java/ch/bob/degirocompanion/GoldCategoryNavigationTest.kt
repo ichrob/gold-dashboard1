@@ -55,4 +55,19 @@ class GoldCategoryNavigationTest {
         // Ordinary product discovery still excludes factors.
         assertEquals(listOf("DE000FD0S0G4"),MorningReadPolicy.discoverGold(listOf(input)+rows).isins)
     }
+    @Test fun webViewTabWithoutSelectedFlagCanContinueOnlyCapturedTopResults() {
+        val row=MorningReadPolicy.Node("Gold Turbo DE000FD0S0G4")
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        val scrolled=listOf(tab,row,launcher)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.captureGoldList(scrolled,false).kind)
+        assertEquals(MorningReadPolicy.Kind.COLLECT,MorningReadPolicy.captureGoldList(scrolled,true).kind)
+        assertNotEquals(MorningReadPolicy.Kind.COLLECT,MorningReadPolicy.captureGoldList(scrolled+tab,true).kind)
+        assertNotEquals(MorningReadPolicy.Kind.COLLECT,MorningReadPolicy.captureGoldList(scrolled.drop(1),true).kind)
+        for(extra in listOf(MorningReadPolicy.Node("Order bestätigen"),MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("",password=true),MorningReadPolicy.Node("",editable=true,id="quantity")))
+            assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.captureGoldList(scrolled+extra,true).kind)
+        val first=listOf(input,tab,MorningReadPolicy.Node("Top Ergebnisse"),launcher,
+            MorningReadPolicy.Node("Gold Future Faktor Long DE000FG8K0P8"),row)
+        assertEquals(listOf("DE000FG8K0P8","DE000FD0S0G4"),MorningReadPolicy.captureGoldList(first,false).isins)
+    }
 }
