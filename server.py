@@ -161,6 +161,8 @@ def read_diagnostics_for_mcp():
         'androidTelemetry':lambda:read_private_report_for_mcp('/android-diagnostic-status'),
         'androidReader':lambda:read_private_report_for_mcp('/android-read-status'),
         'simulationAndPush':lambda:read_private_report_for_mcp('/simulation-status'),
+        'riskPaper':lambda:bob_diagnostics.risk_paper_snapshot(
+            read_private_report_for_mcp('/risk-paper')),
         # Stored comparisons are isolated from the live heartbeat so either
         # report can fail truthfully without erasing the other observation.
         'comparisonEvidence':lambda:read_private_report_for_mcp('/comparison-status'),
@@ -2519,6 +2521,7 @@ if __name__ == "__main__":
     BobHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
+
 
 
 
