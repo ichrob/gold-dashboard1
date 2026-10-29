@@ -1283,6 +1283,7 @@ class Handler(BaseHTTPRequestHandler):
                 self,
                 "Passwort geändert. Bitte mit deinem neuen Passwort anmelden." if query.get("reset") == ["1"] else "",
                 view=query.get("view", [""])[0],
+                handset_batch=query.get("handset-list", [""])[0],
             )
             return
         if path.startswith("/handy/"):
@@ -1300,10 +1301,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html", "/bob-live", "/bob-v12") and not self.authenticated():
             # Browser fragments are invisible to servers. The Android companion
             # therefore sends the intended tab as an allowlisted ?view= value.
-            requested_view = bob_auth.safe_return_view(
-                parse_qs(urlparse(self.path).query).get("view", [""])[0]
-            )
-            location = "/login?view=" + requested_view if requested_view else "/login"
+            location = bob_auth.login_redirect(urlparse(self.path).query)
             bob_auth.send(self, 303, location=location)
             return
         # Sensitive data APIs must be authenticated before any data generation.
@@ -2001,10 +1999,7 @@ class Handler(BaseHTTPRequestHandler):
             bob_auth.send(self, 200)
             return
         if path in ("/", "/index.html") and not self.authenticated():
-            requested_view = bob_auth.safe_return_view(
-                parse_qs(urlparse(self.path).query).get("view", [""])[0]
-            )
-            location = "/login?view=" + requested_view if requested_view else "/login"
+            location = bob_auth.login_redirect(urlparse(self.path).query)
             bob_auth.send(self, 303, location=location)
             return
         if path in ("/", "/index.html"):

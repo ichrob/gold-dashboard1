@@ -58,6 +58,22 @@ class LoginViewTests(unittest.TestCase):
         self.assertIn('name="return_view" value=""', page)
         self.assertNotIn("<script>alert(1)</script>", page)
 
+    def test_handset_images_survive_login_and_invalid_ids_are_rejected(self):
+        batch = "0123456789abcdef" * 2
+        self.assertEqual(bob_auth.login_redirect("handset-list=" + batch),
+                         "/login?view=products&handset-list=" + batch)
+        self.assertEqual(bob_auth.login_destination({}, "products", batch),
+                         "/?view=products&handset-list=" + batch + "#bob-morning-images=" + batch)
+        handler = FakeHandler()
+        bob_auth.login_page(handler, handset_batch=batch)
+        self.assertIn('name="handset_batch" value="' + batch + '"', handler.wfile.getvalue().decode())
+        with patch("bob_oauth.resume_location", return_value="/oauth/resume"):
+            self.assertEqual(bob_auth.login_destination({}, "products", batch), "/oauth/resume")
+        for invalid in ("../", "https://example.com", "a"*31, "a"*33, "A"*32, '<script>', None):
+            self.assertEqual(bob_auth.safe_handset_batch(invalid), "")
+            self.assertEqual(bob_auth.login_destination({}, "products", invalid), "/?view=products#products")
+        self.assertEqual(bob_auth.login_redirect("handset-list=bad&view=products"), "/login?view=products")
+
 
 if __name__ == "__main__":
     unittest.main()

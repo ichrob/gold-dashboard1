@@ -5316,7 +5316,10 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
  // batch. Reuse the exact existing image importer and all its atomic validation.
  let handsetListBusy=false;
  async function importHandsetList(){
-  const match=location.hash.match(/^#bob-morning-images=([a-f0-9]{32})$/);
+  // The query survives password login and UI hash routing. Neither identifier
+  // grants access: the image endpoint still requires the normal Bob session.
+  const requestedBatch=new URLSearchParams(location.search).get('handset-list')||'';
+  const match=/^[a-f0-9]{32}$/.test(requestedBatch)?[null,requestedBatch]:location.hash.match(/^#bob-morning-images=([a-f0-9]{32})$/);
   if(!match||handsetListBusy||upload.disabled||document.hidden)return;
   handsetListBusy=true;
   try{
@@ -5332,7 +5335,8 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
     transfer.items.add(new File([bytes],'DEGIRO-TOP10-'+image.at.replace(/[:.]/g,'-')+'-'+(i+1)+'.png',{type:'image/png',lastModified:at}));
    }
    listUploadMode='replace';stagedListImages=[];upload.files=transfer.files;
-   history.replaceState(null,'',location.pathname+location.search);
+   const cleanUrl=new URL(location.href);cleanUrl.searchParams.delete('handset-list');cleanUrl.hash='';
+   history.replaceState(null,'',cleanUrl.pathname+cleanUrl.search);
    document.querySelector('#bobNavigation [data-view="products"]')?.click();
    upload.dispatchEvent(new Event('change'));
   }catch(e){uploadStatus.textContent='⚠️ '+e.message+' Die bisherige Liste bleibt erhalten.';}
