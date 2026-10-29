@@ -57,13 +57,14 @@ def recognize(images):
             rows,_=engine(np.asarray(im)[:,:,::-1],use_cls=False)
             rows=[r for r in (rows or []) if float(r[2])>=.7]
             # OCR lines in screen reading order; currency on the same footer row.
-            rows.sort(key=lambda r:(round(min(p[1] for p in r[0])/18),min(p[0] for p in r[0])))
+            rows.sort(key=lambda r:sum(p[1] for p in r[0])/4)
             lines=[]
             for points,text,_ in rows:
                 y=sum(p[1] for p in points)/4
-                if lines and abs(lines[-1][0]-y)<14*actual_scale:lines[-1][1]+=' '+text
-                else:lines.append([y,text])
-            passes.append('\n'.join(line[1] for line in lines))
+                fragment=(min(p[0] for p in points),text)
+                if lines and abs(lines[-1][0]-y)<14*actual_scale:lines[-1][1].append(fragment)
+                else:lines.append([y,[fragment]])
+            passes.append('\n'.join(' '.join(t for _,t in sorted(parts)) for _,parts in lines))
             del im, rows
             __import__('gc').collect()
             __import__('memory_watch').release_free_pages()
@@ -113,6 +114,10 @@ def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, c
     return subprocess.CompletedProcess(args,code,stdout,stderr)
 
 
+class OcrChildError(RuntimeError):pass
+class ListVerificationError(ValueError):pass
+
+
 def process(payload,at):
     env={k:v for k,v in os.environ.items() if k in ('PATH','LANG','LD_LIBRARY_PATH')}
     env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
@@ -121,11 +126,17 @@ def process(payload,at):
     # Share subprocess admission with Node analyses, releasing it after each
     # image. Never overlap a native OCR model with a heavy JS evaluator.
     for image in payload['images']:
-        child=evaluator_runtime.run([sys.executable,__file__,'--ocr'],priority=2,runner=guarded_ocr_run,
-            input=json.dumps([image]),text=True,capture_output=True,timeout=35,check=True,env=env,close_fds=True)
+        try:
+            child=evaluator_runtime.run([sys.executable,__file__,'--ocr'],priority=2,runner=guarded_ocr_run,
+                input=json.dumps([image]),text=True,capture_output=True,timeout=35,check=True,env=env,close_fds=True)
+        except subprocess.CalledProcessError as exc:
+            raise OcrChildError('Isolated image recognition failed') from exc
         if len(child.stdout)>100000:raise ValueError('OCR output limit')
         images.extend(json.loads(child.stdout))
-    result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':images,'at':at}),text=True,capture_output=True,timeout=20,check=True)
+    try:
+        result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':images,'at':at}),text=True,capture_output=True,timeout=20,check=True)
+    except subprocess.CalledProcessError as exc:
+        raise ListVerificationError('Ten-row list verification failed') from exc
     return json.loads(result.stdout)
 
 
@@ -143,7 +154,8 @@ def tick(connect,runner=process):
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
             AND (i.processing_attempts<3 OR (i.processing_attempts=3 AND i.import_receipt IS NULL)
-                OR (i.processing_attempts=4 AND i.import_receipt->>'error'='InterruptedWorker'))
+                OR (i.processing_attempts=4 AND i.import_receipt->>'error'='InterruptedWorker')
+                OR (i.processing_attempts=5 AND i.import_receipt->>'error'='CalledProcessError'))
             AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
             ORDER BY i.created_at DESC LIMIT 1 FOR UPDATE OF i SKIP LOCKED""").fetchone()
         if not row:
