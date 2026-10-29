@@ -57,7 +57,11 @@ def transition(previous, checked, now=None):
         market_issue = bool(checked.get('gateReasons')) or any(
             re.search(r'Marktsignal|Marktrichtung|Momentum|MTF|Marktprüfung', str(r), re.I)
             for r in reasons)
-        title = ('Marktlage geändert – Einstieg erneut prüfen' if market_issue
+        expiry_only = checked.get('expiryOnly') is True or (
+            checked.get('expiresAt', 0) <= now and not checked.get('reasons')
+            and not checked.get('productIssues') and not checked.get('gateReasons'))
+        title = ('Markt- und Produktprüfung wird erneuert' if expiry_only else
+                 'Marktlage geändert – Einstieg erneut prüfen' if market_issue
                  else 'Produktprüfung – Klärung erforderlich')
         kind = 'product-withdrawn'
         issues = {p.get('isin'): p.get('reasons') or [] for p in checked.get('productIssues', [])}
@@ -65,7 +69,9 @@ def transition(previous, checked, now=None):
         for product in previous.get('products', []):
             own_reasons = issues.get(product['isin']) or reasons
             details.append(product['isin'] + ': ' + '; '.join(str(r) for r in own_reasons))
-        action = ('Aktuelle Marktanalyse in Bob prüfen.' if market_issue else
+        action = ('Bob prüft Markt und Produktdaten im Hintergrund erneut. '
+                  'Der Ablauf allein belegt keinen Fehler der Produktangaben.' if expiry_only else
+                  'Aktuelle Marktanalyse in Bob prüfen.' if market_issue else
                   'Betroffene Angaben auf der Emittentenseite prüfen; Kurs- oder Datennachweis '
                   'per Screenshot oder automatischem Abruf aktualisieren.')
         body = (' | '.join(details) + '. ' + action
@@ -77,3 +83,4 @@ def transition(previous, checked, now=None):
     return state, {'title': title, 'body': body[:1000], 'tag': 'bob-product-selection',
                    'data': {'kind': kind, 'url': '/', 'checkedAt': now,
                             'expiresAt': checked.get('expiresAt', now) if products else now+300000}}
+
