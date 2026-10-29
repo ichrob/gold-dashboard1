@@ -233,6 +233,26 @@ def _condition_value(quote, key, now_ms):
     return item.get('value')
 
 
+def _term_time_evidence(quote, key, now_ms):
+    """Expose the accepted series basis without inventing an issuer date."""
+    condition = (quote.get('conditions') or {}).get(key) or {}
+    out = {name: condition[name] for name in
+           ('value', 'source', 'at', 'dateText', 'sourceTimeRaw', 'sourceField',
+            'reviewedAt', 'conditionVerified', 'validityUnconfirmed') if name in condition}
+    series = condition.get('validitySeries') or {}
+    accepted = (condition.get('validityUnconfirmed') is True
+                and _condition_value(quote, key, now_ms) is not None
+                and (key != 'ko' or _dated_barrier(quote, quote.get('metadata') or {}, now_ms)))
+    if accepted:
+        observed = _time_ms(series.get('observedAt'))
+        if observed is not None:
+            out.update(validityBasis='declared-series-v1', policyAccepted=True,
+                       policyObservedAt=series['observedAt'],
+                       policyValidUntil=datetime.fromtimestamp(
+                           (observed + BARRIER_MAX_MS)/1000, timezone.utc).isoformat())
+    return out
+
+
 def _backup_pair(quote, isin, now_ms):
     """A dated issuer LiveTrading pair supplies data, never DEGIRO execution."""
     from swissquote_quotes import current_pair
@@ -469,9 +489,7 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
                 'original-issuer-time' if _recent(issuer_leverage_at, now_ms, QUOTE_MAX_MS) else
                 'shared-issuer-observation' if shared_leverage and shared_leverage['current'] else
                 'calculated-input-times' if calculated_leverage else 'unconfirmed'),
-            "terms": {key: {name: condition.get(name) for name in
-                ('value', 'source', 'at', 'dateText', 'sourceTimeRaw', 'sourceField',
-                 'reviewedAt', 'conditionVerified', 'validityUnconfirmed') if name in condition}
+            "terms": {key: _term_time_evidence(quote, key, now_ms)
                 for key in ('ko', 'strike')
                 if verified and isinstance(condition := (quote.get('conditions') or {}).get(key), dict)},
         },
@@ -733,3 +751,4 @@ def public_help_codes(report):
         if missing & {"identity", "list-identity", "direction", "underlying", "currency", "strike", "ratio", "maturity"}:
             codes.add("product-terms-evidence-missing")
     return sorted(codes & PUBLIC_HELP_CODES)
+

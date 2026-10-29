@@ -1125,7 +1125,8 @@ def product_snapshot(value):
             leverageObservation=shape('value','leverage','source','at','current','calculated','method','kind','researchOnly','label'),
             timeEvidence=shape('leverageBasis', terms={key:shape(
                 'at','dateText','reviewedAt','sourceField','sourceTimeRaw',
-                'conditionVerified','validityUnconfirmed') for key in ('ko','strike')}),
+                'conditionVerified','validityUnconfirmed','validityBasis','policyAccepted',
+                'policyObservedAt','policyValidUntil') for key in ('ko','strike')}),
             sourceObservations=[shape('source','at','bidAt','askAt','bid','ask','currency','kind','priceKind','isExecutableQuote')],
             fieldRecovery=shape('status','state','source','checkedAt','reason',
                 conflicts=[None], unresolvedConflicts=[None],
@@ -1160,8 +1161,22 @@ def summary(areas):
             findings.append({'area':path,'state':'incomplete'})
         if (path.startswith('products.items.') and '.timeEvidence.terms.' in path
                 and value.get('validityUnconfirmed') is True):
-            findings.append({'area':path,'state':'incomplete',
-                             'meaning':'original-term-validity-unconfirmed'})
+            # The audit already validated exact ISIN/source/value coherence.
+            # Preserve the missing issuer date, but distinguish a currently
+            # accepted user-policy series from an actual missing proof.
+            accepted = False
+            try:
+                observed = datetime.fromisoformat(value.get('policyObservedAt', '').replace('Z', '+00:00')).timestamp()
+                until = datetime.fromisoformat(value.get('policyValidUntil', '').replace('Z', '+00:00')).timestamp()
+                accepted = (value.get('policyAccepted') is True
+                            and value.get('validityBasis') == 'declared-series-v1'
+                            and 0 < until - observed <= 8 * 3600
+                            and observed <= time.time() < until)
+            except (TypeError, ValueError, AttributeError, OverflowError):
+                pass
+            findings.append({'area':path,'state':'observed' if accepted else 'incomplete',
+                             'meaning':('accepted-series-original-issuer-date-unavailable' if accepted
+                                        else 'original-term-validity-unconfirmed')})
         for key,item in value.items():
             # The outage event log is historical evidence. Its old "stale" /
             # "incomplete" transitions must not be counted as LIVE alerts.
@@ -1206,6 +1221,8 @@ def summary(areas):
     for item in findings:
         if (item.get('meaning') == 'response-size-omission-not-source-failure'
                 and item.get('sourceStatus') == 'observed'):
+            item['severity']='info'
+        elif item.get('meaning') == 'accepted-series-original-issuer-date-unavailable':
             item['severity']='info'
         elif item.get('sourceRole')=='alternate':
             item['severity']='info'
@@ -1626,6 +1643,7 @@ def bounded_report(report, max_bytes):
         areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
         result['omittedAreas'].append(name)
     return result
+
 
 
 
