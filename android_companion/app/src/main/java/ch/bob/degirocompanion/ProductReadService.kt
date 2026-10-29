@@ -27,6 +27,7 @@ class ProductReadService : AccessibilityService() {
     private var lastNavigationIssue = ""
     private val pageReader = ProductPageReader()
     private val remoteSearchProgress = SearchClickProgress()
+    private val automaticSearchProgress = SearchClickProgress()
     private val handler = Handler(Looper.getMainLooper())
     private var screenReceiverRegistered = false
     private val screenOff = object : BroadcastReceiver() {
@@ -100,7 +101,12 @@ class ProductReadService : AccessibilityService() {
     }
     override fun onServiceConnected() {
         PhoneRemote.reader={command -> remoteRead(command)}
-        PhoneRemote.onStop={ remoteSearchProgress.clear(); ProductReadRequest.cancel() }
+        PhoneRemote.onStop={
+            remoteSearchProgress.clear(); automaticSearchProgress.clear()
+            GoldSearchRun.stop("STOPPED",Instant.now().toString())
+            MorningReadRun.stop(this,"STOPPED")
+            ProductReadRequest.cancel()
+        }
         ProductReadDiagnostics.connected = true
         ProductReadDiagnostics.canRead = (serviceInfo.capabilities and AccessibilityServiceInfo.CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT) != 0
         ProductReadDiagnostics.windowAccess = (serviceInfo.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) != 0
@@ -149,6 +155,7 @@ class ProductReadService : AccessibilityService() {
             PhoneDiagnostics.queue(this)
         }
         ProductReadRequest.onStarted = {
+            automaticSearchProgress.clear()
             lastNavigationIssue=""
             pageReader.reset()
             handler.removeCallbacks(pendingRead)
@@ -505,9 +512,10 @@ class ProductReadService : AccessibilityService() {
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         try {
             navigationTree(root,nodes,descriptions)
-            val action=if(gold) MorningReadPolicy.discoverGold(descriptions) else MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
+            val proposed=if(gold) MorningReadPolicy.discoverGold(descriptions) else MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
                 symbolMemory.getString(it, null)
             }
+            val action=automaticSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
             fun record(code:String) {
                 if(gold) { GoldSearchRun.event(code,Instant.now().toString());PhoneDiagnostics.queue(this) }
                 else MorningReadRun.event(this,code)
@@ -546,6 +554,7 @@ class ProductReadService : AccessibilityService() {
                         val args=android.os.Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(gold) "Gold" else MorningReadRun.target) }
                         node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)
                     } else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if(action.kind==MorningReadPolicy.Kind.SEARCH)automaticSearchProgress.record(action.index,lastNavigation)
                     if(!success) {
                         lastNavigationIssue="NAVIGATION_REJECTED"
                         record(lastNavigationIssue)
