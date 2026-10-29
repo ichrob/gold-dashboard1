@@ -37,12 +37,13 @@ def route(h, method, path, forward):
         if not h.authenticated():send(h,401,{'error':'Login required'});return True
         from urllib.parse import urlparse,parse_qs
         batch=parse_qs(urlparse(h.path).query).get('batchId',[''])[0]
-        if not re.fullmatch('[a-f0-9]{32}',batch):send(h,400,{'error':'Invalid batch'});return True
+        if batch!='current' and not re.fullmatch('[a-f0-9]{32}',batch):send(h,400,{'error':'Invalid batch'});return True
         try:send(h,200,forward({'action':'list-get','batchId':batch},remote=True))
         except Exception:send(h,503,{'error':'List handoff unavailable'})
         return True
     list_upload=path=='/api/android-list/upload'
-    remote=path=='/api/android-remote/exchange' or list_upload
+    list_status=path=='/api/android-list/status'
+    remote=path=='/api/android-remote/exchange' or list_upload or list_status
     if path not in ('/api/android-diagnostics/pair','/api/android-diagnostics/report') and not remote:return False
     if method!='POST':send(h,405,{'error':'POST required'});return True
     pairing=path.endswith('/pair')
@@ -61,7 +62,7 @@ def route(h, method, path, forward):
             if not isinstance(value,dict) or value.get('action') not in ('register','revokeAll'):raise ValueError()
             request=value
         else:request={'action':'report','token':credential[7:],'report':value}
-        if remote:request={'action':'list-upload' if list_upload else 'exchange','token':credential[7:],'value':value}
+        if remote:request={'action':'list-upload' if list_upload else 'list-status' if list_status else 'exchange','token':credential[7:],'value':value}
         send(h,200,forward(request,remote=True) if remote else forward(request))
     except HTTPError as exc:
         send(h,exc.code if exc.code in (400,401,403,429) else 503,{'error':'Diagnostic request rejected'})

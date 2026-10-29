@@ -49,7 +49,7 @@ class ProductReadActivity : Activity() {
         result=TextView(this).apply { textSize=18f;setTextIsSelectable(true) }
         container.addView(result)
         container.addView(TextView(this).apply { text="Morgenliste: Gold suchen, Hebelprodukte öffnen, Tastatur schließen, bis zu vier Listenbilder der zehn Top Ergebnisse mit Scrollen aufnehmen und an Bob übertragen. Android 14 oder neuer erforderlich." })
-        container.addView(TextView(this).apply { text="Start drücken. DEGIRO wird automatisch geöffnet. Bob öffnet die Gold-Hebelproduktliste und überträgt die Screenshots der zehn Top Ergebnisse an den privaten Bob-Listenimport. Die Kontokopfzeile wird abgeschnitten. Eine unvollständige oder fehlerhafte Erkennung ersetzt die bisherige Liste nicht. Die gestartete Handy-Sitzung erlaubt ChatGPT bis zu 15 Minuten Produktdaten und Diagnose zu lesen sowie begrenzte Produktsuchschritte auszuführen. DEGIRO muss angemeldet sein. Handy entsperrt lassen und während des Tests nicht bedienen. STOPP oder Sperrtaste beendet den Test. Keine Orders. Ergebnisse werden bei aktivierter Rückgabe an Bob übergeben; die Browser-Übergabe kann einen Tipp benötigen." })
+        container.addView(TextView(this).apply { text="Start drücken. DEGIRO wird automatisch geöffnet. Bob öffnet die Gold-Hebelproduktliste und überträgt die Screenshots der zehn Top Ergebnisse an den privaten Bob-Listenimport. Die Kontokopfzeile wird abgeschnitten. Eine unvollständige oder fehlerhafte Erkennung ersetzt die bisherige Liste nicht. Die gestartete Handy-Sitzung erlaubt ChatGPT bis zu 15 Minuten Produktdaten und Diagnose zu lesen sowie begrenzte Produktsuchschritte auszuführen. DEGIRO muss angemeldet sein. Handy entsperrt lassen und während des Tests nicht bedienen. STOPP oder Sperrtaste beendet den Test. Keine Orders. Ergebnisse werden bei aktivierter Rückgabe an Bob übergeben; die Serverübernahme wird auf dem Handy bestätigt." })
         val advanced=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=android.view.View.GONE }
         button("Einrichtung und weitere Möglichkeiten") {
             advanced.visibility=if(advanced.visibility==android.view.View.GONE) android.view.View.VISIBLE else android.view.View.GONE
@@ -216,8 +216,17 @@ class ProductReadActivity : Activity() {
         displayedRequestActive = ProductReadRequest.active(SystemClock.elapsedRealtime())
         val value = ProductReadSession.get(SystemClock.elapsedRealtime())
         primary.text=if(PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running) "Test läuft · DEGIRO öffnen" else "Start"
-        result.text=(if(GoldSearchRun.running) "Goldsuche läuft · sichtbare ISIN-Kandidaten erfassen" else if(GoldSearchRun.lastCode!=null) "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty()) else MorningReadRun.summary())+"\n"+MorningReadRun.savedStatus(this)+"\n\n"+PhoneDiagnostics.status(this)+"\n\n"+PhoneRemote.message
-        diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + value.message +
+        val delivery=MorningListDelivery.status(this)
+        val current=when {
+            GoldSearchRun.running -> "Goldsuche läuft · zehn Top Ergebnisse erfassen"
+            MorningReadRun.running -> delivery+"\n\nFehlende Produktangaben lesen: "+MorningReadRun.summary()
+            delivery.isNotBlank() -> delivery
+            GoldSearchRun.lastCode!=null -> "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty())
+            else -> MorningReadRun.summary()
+        }
+        result.text=current+"\n\n"+PhoneDiagnostics.status(this)+"\n\n"+PhoneRemote.message
+
+        diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + MorningReadRun.savedStatus(this) + "\n\n" + value.message +
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }
 }

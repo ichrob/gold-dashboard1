@@ -3064,17 +3064,17 @@ function showListArchive(){
   const img=document.createElement('img');img.src=url;img.alt=file.name;img.style.cssText='max-width:140px;max-height:180px;margin:6px';a.append(img);previews.append(a);
  }
 }
-async function saveReplacementListArchive(files,items){
+async function saveReplacementListArchive(files,items,storedAt){
  // Revoke old-generation attestations before committing a replacement list.
  // If persistence fails, preserve the active list instead of carrying old KO proof.
  if(!window.BobCombined.resetFixedList())throw Error('KO-Nachweishistorie konnte nicht sicher gespeichert werden; Liste nicht ersetzt');
- return saveListArchive(files,items);
+ return saveListArchive(files,items,storedAt);
 }
-async function saveListArchive(files,items){
+async function saveListArchive(files,items,storedAt){
  if(!Array.isArray(items)||!items.some(p=>validIsin(p?.isin)))throw Error('Keine gültige Produkt-ISIN erkannt. Alte Liste bleibt erhalten.');
  const previousArchive=listArchive;
  listRevision++;
- const record={files:files.map(file=>({name:file.name,blob:file})),items,storedAt:new Date().toISOString()};
+ const record={files:files.map(file=>({name:file.name,blob:file})),items,storedAt:storedAt||new Date().toISOString()};
  await archiveTransaction('readwrite',store=>{store.put(JSON.stringify({version:2,products:items.map(cleanStoredProduct).filter(Boolean),listUploadedAt:record.storedAt}),'products');return store.put(record,'list');});
  // Archive both generations at the import boundary, even before the next UI repaint.
  // History remains optional metadata and never grants current broker eligibility.
@@ -5367,6 +5367,34 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
  window.addEventListener('hashchange',importHandsetList);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)importHandsetList();});
  setTimeout(importHandsetList,1000);
+ // Server-confirmed batches do not depend on a phone/browser handoff. Import
+ // the original images for review without re-running OCR or inventing a date.
+ async function restoreServerHandsetList(){
+  if(handsetBatchId()||handsetListBusy||upload.disabled||document.hidden)return;
+  handsetListBusy=true;upload.disabled=true;
+  try{
+   const response=await fetch('/api/android-list/latest?batchId=current',{credentials:'same-origin',cache:'no-store'});
+   if(!response.ok)return;
+   const data=await response.json(),batch=data.batch,items=data.items;
+   if(data.import?.stage!=='synced'||data.import?.count!==10||!batch||!Array.isArray(items)||items.length!==10
+     ||new Set(items.map(x=>x.isin)).size!==10||items.some(x=>!validIsin(x.isin))
+     ||!Array.isArray(batch.images)||batch.images.length<1||batch.images.length>4)return;
+   const at=batch.images.at(-1).at,time=Date.parse(at);
+   if(!Number.isFinite(time)||time>Date.now()+5000||Date.now()-time>86400000||time<=Date.parse(listArchive?.storedAt||'1970-01-01'))return;
+   const files=batch.images.map((image,i)=>{
+    if(typeof image.png!=='string'||image.png.length>2000000)throw Error('Bildgrenze');
+    return new File([Uint8Array.from(atob(image.png),c=>c.charCodeAt(0))],'DEGIRO-TOP10-'+(i+1)+'.png',{type:'image/png'});
+   });
+   await saveReplacementListArchive(files,items,at);
+   stagedListImages=[];await clearPendingDegiroList().catch(()=>{});
+   populateCandidateRows(items);rankUI();
+   uploadStatus.textContent='✅ Serverübernahme bestätigt: 10 unterschiedliche Produkte · '+files.length+' Originalbilder. Erfasst: '+new Date(at).toLocaleString('de-CH')+'.';
+  }catch(_){/* Preserve the previous list when originals cannot be restored. */}
+  finally{handsetListBusy=false;upload.disabled=false;}
+ }
+ setTimeout(restoreServerHandsetList,3000);
+ setInterval(restoreServerHandsetList,30000);
+
  // Retry the uncommitted screenshot batch at startup after a new code release.
  // Only an entirely valid batch may replace the user's active saved list.
  const retryPendingList=async()=>{
