@@ -10,9 +10,14 @@ internal object ProductReadDiagnostics {
     private val counts = mutableMapOf<Outcome, Int>()
     private val pageCauses = mutableMapOf<ProductPageReader.Cause, Int>()
     private val reasons = mutableMapOf<ProductScreenEvidence.Reason, Int>()
+    private val launcherIssues = mutableMapOf<MorningReadPolicy.LauncherIssue, Int>()
+    fun launcher(issue: MorningReadPolicy.LauncherIssue) {
+        if(issue != MorningReadPolicy.LauncherIssue.NONE)
+            launcherIssues[issue] = ((launcherIssues[issue] ?: 0) + 1).coerceAtMost(999)
+    }
     private var startedAt: Long? = null
-    fun reset(now: Long) { counts.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
-    fun clear() { counts.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
+    fun reset(now: Long) { counts.clear(); launcherIssues.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
+    fun clear() { counts.clear(); launcherIssues.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
     fun record(outcome: Outcome) { counts[outcome] = ((counts[outcome] ?: 0) + 1).coerceAtMost(999) }
     fun page(cause: ProductPageReader.Cause) {
         if (cause != ProductPageReader.Cause.NONE) pageCauses[cause] = ((pageCauses[cause] ?: 0) + 1).coerceAtMost(999)
@@ -28,6 +33,7 @@ internal object ProductReadDiagnostics {
             appendLine("Dienst verbunden: $connected · Textzugriff: $canRead · Fensterzugriff: $windowAccess")
             if (counts.isEmpty()) append("Noch keine Diagnosemessung.")
             else for (outcome in Outcome.values()) counts[outcome]?.let { appendLine("${outcome.name}: $it") }
+            for (issue in MorningReadPolicy.LauncherIssue.values()) launcherIssues[issue]?.let { appendLine("SEARCH_GUARD_${issue.name}: $it") }
             for (cause in ProductPageReader.Cause.values()) pageCauses[cause]?.let { appendLine("PAGE_${cause.name}: $it") }
             for (reason in ProductScreenEvidence.Reason.values()) reasons[reason]?.let { appendLine("FIELD_${reason.name}: $it") }
         }.trim()
