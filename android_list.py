@@ -4,10 +4,38 @@ import hashlib
 import json
 import re
 import struct
+import math
 from datetime import datetime
 from android_telemetry import token_hash
 
 MAX_BODY=8100000
+
+def detail_plan(items, products, now):
+    """Keep list order and request only incomplete or expired product details."""
+    from product_quotes import valid_isin
+    by_id={p.get('isin'):p for p in products if isinstance(p,dict)}
+    result=[];seen=set()
+    def positive(v):
+        return type(v) in (int,float) and math.isfinite(v) and v>0
+    for item in items:
+        isin=item.get('isin')
+        if not isinstance(isin,str) or not valid_isin(isin) or isin in seen or item.get('listRow',{}).get('excluded'):continue
+        seen.add(isin)
+        p=by_id.get(isin,{})
+        missing=[label for key,label in (('leverage','Hebel'),('ko','KO-Schwelle'),('basisPrice','Basispreis'),('ratio','Bv')) if not positive(p.get(key))]
+        if p.get('currency') not in ('EUR','CHF'):missing.append('Währung')
+        q=p.get('quote') if isinstance(p.get('quote'),dict) else {}
+        for key,label in (('bid','Geld'),('ask','Brief')):
+            if not positive(q.get(key)):missing.append(label)
+        if positive(q.get('bid')) and positive(q.get('ask')) and q['bid']>q['ask']:missing.append('Widersprüchliche Kurse')
+        try:
+            at=datetime.fromisoformat(q.get('quoteAt','').replace('Z','+00:00'))
+            fresh=at.tzinfo is not None and 0<=now-at.timestamp()<=14*3600
+        except (ValueError,TypeError,AttributeError):fresh=False
+        if not fresh:missing.append('Anzeigezeit')
+        if missing:result.append({'isin':isin,'missingFields':missing})
+        if len(result)==10:break
+    return result
 
 def validate(value, now):
     if not isinstance(value,dict) or set(value)!={'batchId','sessionId','images'}:
@@ -86,18 +114,26 @@ def handle(conn,payload,now):
     digest=token_hash(payload.get('token'))
     device=conn.execute('SELECT token_hash FROM bob_android_diagnostic_devices WHERE token_hash=%s AND NOT revoked AND expires_at>now() FOR UPDATE',(digest,)).fetchone()
     if not device:raise PermissionError('Device not paired')
+    if payload['action']=='list-details':
+        value=payload.get('value')
+        if not isinstance(value,dict) or set(value)!={'batchId','run'} or not isinstance(value['batchId'],str) or not re.fullmatch('[a-f0-9]{32}',value['batchId']):raise ValueError('Invalid detail batch')
+        row=conn.execute('SELECT import_receipt, parsed_items FROM bob_android_list_images WHERE batch_id=%s AND token_hash=%s',(value['batchId'],digest)).fetchone()
+        if not row or not row[0] or row[0].get('stage') not in ('synced','superseded'):raise PermissionError('No owned imported list')
+        run=value['run']
+        candidates={x['isin'] for x in (row[1] or []) if not x.get('listRow',{}).get('excluded')}
+        if not isinstance(run,dict) or not isinstance(run.get('isins'),list) or not run['isins'] or any(not isinstance(i,str) or i not in candidates for i in run['isins']):raise ValueError('Details outside imported list')
+        # Store original observations, never turn receipt time into quote time.
+        return __import__('android_observations').handle(conn,{'action':'save','run':run})
     if payload['action']=='list-status':
         batch=payload.get('value',{}).get('batchId')
         if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')
         row=conn.execute('SELECT import_receipt, parsed_items FROM bob_android_list_images WHERE batch_id=%s AND token_hash=%s',(batch,digest)).fetchone()
-        details=[]
+        plan=[]
         if row and row[0] and row[0].get('stage')=='synced':
             saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
             products=(saved[0] or {}).get('products',[]) if saved else []
-            candidates={x['isin'] for x in (row[1] or []) if not x.get('listRow',{}).get('excluded')}
-            details=[p['isin'] for p in products if p.get('isin') in candidates
-                     and any(not isinstance(p.get(k),(int,float)) or isinstance(p.get(k),bool) or p[k]<=0 for k in ('price','leverage','ko'))]
-        return {'ok':True,'batchId':batch,'import':row[0] if row else None,'detailIsins':details}
+            plan=detail_plan(row[1] or [],products,now)
+        return {'ok':True,'batchId':batch,'import':row[0] if row else None,'detailIsins':[x['isin'] for x in plan],'detailPlan':plan}
     value=validate(payload.get('value'),now)
     row=conn.execute('SELECT state FROM bob_android_remote WHERE token_hash=%s FOR UPDATE',(digest,)).fetchone()
     state=row[0] if row else {}

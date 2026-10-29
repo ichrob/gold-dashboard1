@@ -67,7 +67,9 @@ function mount(){
  function show(run){
   rows.replaceChildren();
   if(run.listSource==='degiro-gold-search'){const note=root.document.createElement('p');note.textContent='Kandidaten aus sichtbaren Gold-Suchtreffern · unvollständige Stichprobe. Getrennte Lesebeobachtungen; die bestätigte Produktliste bleibt unverändert.';rows.append(note);}
-  for(const isin of run.isins){const row=run.results.find(x=>x.isin===isin),p=root.document.createElement('p');const missing=row?.observation?.missingFields||row?.missingFields||[];p.textContent=isin+' · '+(row?.code||'noch nicht gelesen')+(missing.length?' · fehlt: '+missing.join(', '):'');rows.append(p);}
+  for(const isin of run.isins){const row=run.results.find(x=>x.isin===isin),p=root.document.createElement('p');const missing=row?.observation?.missingFields||row?.missingFields||[];p.textContent=isin+' · '+(row?.code||'noch nicht gelesen')+(missing.length?' · fehlt: '+missing.join(', '):'');rows.append(p);
+   if(row?.observation){const o=row.observation,details=root.document.createElement('p');details.textContent='DEGIRO-App · erfasst '+o.observedAt+' · Bildschirmwerte ungeprüft: '+Object.entries(o.fields||{}).map(([k,v])=>k+': '+v).join(' · ');rows.append(details);}
+  }
   if(run.events?.length){const p=root.document.createElement('p');p.textContent='Letzter Protokolleintrag: '+run.events.at(-1).code+' · '+run.events.at(-1).isin;rows.append(p);}
  }
  function openApp(url,text){handoff.href=url;handoff.textContent=text;status.textContent+=' Falls Bob Handy nicht automatisch öffnet, den Link antippen.';try{root.location.assign(url);}catch(_){/* Visible link is the fallback. */}}

@@ -72,13 +72,15 @@ internal object MorningReadRun {
         running=true
         PhoneDiagnostics.queue(c)
     }
-    fun beginDiscovered(c: Context, values: List<String>) {
+    fun beginDiscovered(c: Context, values: List<String>, listBatchId: String? = null) {
         check(!running) { "Listenlauf läuft bereits." }
         check(values.size in 1..12 && values.distinct()==values && values.all { SeriesEvidence.validIsin(it) })
+        check(listBatchId==null || listBatchId.matches(Regex("[a-f0-9]{32}")))
         data=JSONObject().put("batchId",UUID.randomUUID().toString().replace("-",""))
             .put("listUploadedAt",Instant.now().toString()).put("listSource","degiro-gold-search")
             .put("appVersionCode",c.packageManager.getPackageInfo(c.packageName,0).versionCode)
             .put("revision",0).put("isins",JSONArray(values)).put("results",JSONArray()).put("events",JSONArray())
+        if(listBatchId!=null)data!!.put("listBatchId",listBatchId)
         index=0;attempt=1;reading=false;backSteps=0;started=SystemClock.elapsedRealtime()
         persist(c, newRun=true)
         running=true

@@ -54,6 +54,10 @@ class MorningReadTransfer : Activity() {
             if(GoldSearchRun.running || ProductReadRequest.active(SystemClock.elapsedRealtime())) return false
             val raw=MorningReadRun.pending(c) ?: return false
             val data=org.json.JSONObject(raw)
+            if(data.optString("listBatchId").matches(Regex("[a-f0-9]{32}")) && PhoneDiagnostics.paired(c)) {
+                ProductDetailDelivery.start(c)
+                return true
+            }
             val version=data.optString("batchId")+":"+data.optInt("revision")
             val prefs=c.getSharedPreferences("product_reader",Context.MODE_PRIVATE)
             val power=c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager

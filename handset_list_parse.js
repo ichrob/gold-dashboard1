@@ -31,7 +31,9 @@ function parse(images,at){
  const rows=[...items.values()],archive={storedAt:at,files:images.map(()=>({})),items:rows};
  return {items:rows,evidence:{origin:'degiro-screenshot',listUploadedAt:at,references:[],fixedBarriers:{},products:rows.map(x=>({
   isin:x.isin,name:x.name,productDirection:x.direction,price:null,leverage:null,ko:x.listRow.ko||null,
-  isinConfirmed:false,quote:null,snapshot:null,currency:x.listRow.currency,listVenueEvidence:b.listVenueForSync(x.isin,archive)
+  isinConfirmed:false,quote:null,snapshot:null,currency:x.listRow.currency,
+  basisPrice:x.listRow.strike||null,ratio:x.listRow.ratio||null,maturity:x.listRow.maturity||null,
+  listVenueEvidence:b.listVenueForSync(x.isin,archive)
  }))}};
 }
 module.exports={parse};

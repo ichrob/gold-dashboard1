@@ -66,6 +66,7 @@ internal object PhoneDiagnostics {
     fun remoteExchange(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-remote/exchange",false)
     fun uploadList(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-list/upload",true)
     fun listStatus(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-list/status",false)
+    fun uploadDetails(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-list/details",false)
     private fun sendDevice(c:Context, body:JSONObject, path:String, list:Boolean):JSONObject {
         check(paired(c))
         val credential=token(c)
@@ -75,7 +76,7 @@ internal object PhoneDiagnostics {
             conn.requestMethod="POST";conn.doOutput=true
             conn.setRequestProperty("Authorization","Bearer "+credential)
             conn.setRequestProperty("Content-Type","application/json")
-            val bytes=body.toString().toByteArray(Charsets.UTF_8);check(bytes.size<=if(list) 8100000 else 24576)
+            val bytes=body.toString().toByteArray(Charsets.UTF_8);check(bytes.size<=if(list) 8100000 else if(path=="/api/android-list/details") 66000 else 24576)
             conn.setFixedLengthStreamingMode(bytes.size)
             check(paired(c) && token(c)==credential)
             conn.outputStream.use { it.write(bytes) }
