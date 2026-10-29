@@ -15,7 +15,7 @@ class PhoneDiagnosticJob:JobService() {
             val retry=PhoneDiagnostics.deliver(applicationContext,report)
             Handler(Looper.getMainLooper()).post {
                 if(active.remove(params.jobId,params)) {
-                    jobFinished(params,retry)
+                    ProductDetailDelivery.start(applicationContext) { jobFinished(params,retry) }
                     if(!retry && PhoneDiagnostics.enabled(this) && PhoneDiagnostics.hasPending(this)) {
                         // One follow-up for a state change during a successful send, not auth retry loops.
                         val prefs=getSharedPreferences("phone_diagnostics_v1",MODE_PRIVATE)

@@ -127,9 +127,9 @@ class ProductReadService : AccessibilityService() {
     }
     override fun onServiceConnected() {
         PhoneRemote.reader={command -> remoteRead(command)}
-        MorningListDelivery.onConfirmed={ ids ->
+        MorningListDelivery.onConfirmed={ ids, batch ->
             if(ids.isNotEmpty() && PhoneRemote.active()) {
-                MorningReadRun.beginDiscovered(this,ids)
+                MorningReadRun.beginDiscovered(this,ids,batch)
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
             } else PhoneRemote.stop(this,"COMPLETE")
         }

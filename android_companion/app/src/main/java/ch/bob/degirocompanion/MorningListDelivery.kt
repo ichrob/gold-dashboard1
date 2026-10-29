@@ -15,7 +15,7 @@ internal object MorningListDelivery {
     private val network=Executors.newSingleThreadExecutor()
     private var generation=0
     var waiting=false; private set
-    var onConfirmed:((List<String>)->Unit)?=null
+    var onConfirmed:((List<String>,String)->Unit)?=null
     private fun file(c:Context)=AtomicFile(File(c.filesDir,"morning-list-pending.json"))
     private fun prefs(c:Context)=c.getSharedPreferences("morning_list_delivery",Context.MODE_PRIVATE)
     fun status(c:Context)=prefs(c).getString("status","").orEmpty()
@@ -63,7 +63,7 @@ internal object MorningListDelivery {
                         val ids=response.optJSONArray("detailIsins")
                         val values=if(ids==null) emptyList() else (0 until ids.length()).map { ids.getString(it) }
                         if(PhoneRemote.active() && PhoneRemote.sessionId()==session && values.size<=10 && values.distinct()==values && values.all { SeriesEvidence.validIsin(it) }) {
-                            runCatching { onConfirmed?.invoke(values) }.onFailure {
+                            runCatching { onConfirmed?.invoke(values,batch) }.onFailure {
                                 status(c,"✅ Liste in Bob gespeichert. Detailprüfung konnte nicht gestartet werden.")
                                 PhoneRemote.stop(c,"STORAGE_ERROR")
                             }
