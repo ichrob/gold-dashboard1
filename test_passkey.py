@@ -207,12 +207,18 @@ class PasskeyHTTPTests(unittest.TestCase):
         with patch.dict(os.environ,{'BOB_MCP_SERVICE_TOKEN':token}),patch.object(bob_passkey,'rpc',return_value={'enabled':True,'verified':False}):
             response=self.request('POST','/mcp',headers,body)
             self.assertEqual(response[0],200)
-            self.assertEqual({t['name'] for t in json.loads(response[2])['result']['tools']},{'bob_product_audit','bob_product_gaps','bob_diagnostics','bob_signal_history','bob_push_history','bob_push_devices','bob_push_test','bob_push_test_status'})
+            self.assertEqual({t['name'] for t in json.loads(response[2])['result']['tools']},{'bob_product_audit','bob_product_gaps','bob_diagnostics','bob_signal_history','bob_push_history','bob_push_devices','bob_push_test','bob_push_test_status','bob_phone_status','bob_phone_command'})
             test_body=json.dumps({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'bob_push_test','arguments':{'deviceId':'device-1','requestId':'a'*32}}})
             with patch.object(self.server,'remote_push_rpc') as sender:
                 denied=json.loads(self.request('POST','/mcp',headers,test_body)[2])['result']
                 self.assertTrue(denied['isError'])
                 self.assertIn('bob:push:test',denied['_meta']['mcp/www_authenticate'][0])
+                sender.assert_not_called()
+            phone_body=json.dumps({'jsonrpc':'2.0','id':4,'method':'tools/call','params':{'name':'bob_phone_command','arguments':{'deviceId':'a'*12,'sessionId':'b'*32,'requestId':'c'*32,'action':'search_gold'}}})
+            with patch.object(self.server,'android_diagnostic_rpc') as sender:
+                denied=json.loads(self.request('POST','/mcp',headers,phone_body)[2])['result']
+                self.assertTrue(denied['isError'])
+                self.assertIn('bob:phone:control',denied['_meta']['mcp/www_authenticate'][0])
                 sender.assert_not_called()
             diagnostic_body=json.dumps({'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'bob_diagnostics'}})
             with patch.object(self.server,'read_diagnostics_for_mcp') as reader:

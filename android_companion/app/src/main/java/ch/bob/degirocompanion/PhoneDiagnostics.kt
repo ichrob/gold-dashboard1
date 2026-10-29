@@ -32,6 +32,7 @@ internal object PhoneDiagnostics {
     private const val NOW=8202
     private val lock=Any()
     private fun prefs(c:Context)=c.getSharedPreferences("phone_diagnostics_v1",Context.MODE_PRIVATE)
+    fun paired(c:Context)=enabled(c) && prefs(c).getBoolean("paired",false)
     fun enabled(c:Context)=prefs(c).getBoolean("enabled",false)
     private fun key():SecretKey {
         val ks=KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -62,7 +63,30 @@ internal object PhoneDiagnostics {
         queue(c)
         c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(BASE+"/handy/diagnostics#"+hash)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
+    fun remoteExchange(c:Context, body:JSONObject):JSONObject {
+        check(paired(c))
+        val credential=token(c)
+        val conn=URL(BASE+"/api/android-remote/exchange").openConnection() as HttpsURLConnection
+        try {
+            conn.instanceFollowRedirects=false;conn.connectTimeout=8000;conn.readTimeout=8000
+            conn.requestMethod="POST";conn.doOutput=true
+            conn.setRequestProperty("Authorization","Bearer "+credential)
+            conn.setRequestProperty("Content-Type","application/json")
+            val bytes=body.toString().toByteArray(Charsets.UTF_8);check(bytes.size<=24576)
+            conn.setFixedLengthStreamingMode(bytes.size)
+            check(paired(c) && token(c)==credential)
+            conn.outputStream.use { it.write(bytes) }
+            check(conn.responseCode==200)
+            val text=conn.inputStream.use { stream ->
+                val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(1024)
+                while(true) { val n=stream.read(buffer);if(n<0)break;check(out.size()+n<=32768);out.write(buffer,0,n) }
+                String(out.toByteArray(),Charsets.UTF_8)
+            }
+            return JSONObject(text).also { check(it.optBoolean("ok")) }
+        } finally { conn.disconnect() }
+    }
     fun disable(c:Context) = synchronized(lock) {
+        PhoneRemote.stop(c,"PAIRING_DISABLED")
         // Local opt-out takes effect before any further worker may send.
         prefs(c).edit().clear().putString("delivery","Ausgeschaltet").commit()
         val jobs=c.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
