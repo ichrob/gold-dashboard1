@@ -40,6 +40,27 @@ def snapshot(report, now):
             comparableCases=None,completed=False,truncated=True,
             missing='Abschluss und vollständige Nettoauswertung separat prüfen.',
             note='Aktuelle Eingangsprüfung beweist keinen Einstieg oder Gewinn.'))
+    # The independent 2,000 EUR risk study is a real registered test family,
+    # not one of the seven main paper ledgers. Keep all three expected delay
+    # variants in the inventory even when a variant is missing or stale.
+    risk=areas.get('riskPaper') or {}
+    risk_accounts={a.get('delaySeconds'):a for a in (risk.get('accounts') or [])
+                   if isinstance(a,dict) and a.get('delaySeconds') in (0,30,60)}
+    risk_at=risk.get('checkedAt')
+    risk_fresh=(risk.get('status') in ('observed','partial')
+                and fresh(risk_at,now,120))
+    for delay in (0,30,60):
+        account=risk_accounts.get(delay) or {}
+        observed=risk_fresh and account.get('status')=='observed'
+        rows.append(dict(id='risk-paper-'+str(delay),
+            label='2.000-Euro-Risikostudie '+str(delay)+' s',
+            state='checked' if observed else 'unavailable',
+            startedAt=risk.get('startedAt'),lastObservedAt=risk_at,
+            sampledRecords=count(account.get('closed')) if observed else None,
+            comparableCases=None,completed=False,truncated=True,
+            missing='Abschluss und vollständige Nettoauswertung separat prüfen.',
+            note='Gespeicherter Modellstand mit angenommenen Kosten; kein Broker-Fill, '
+                 'kein verifizierter Gewinn und kein Beleg kontinuierlicher Ausführung.'))
     chain_accounts=(evidence.get('accountSamples') or
                     (areas.get('simulationAndPush') or {}).get('accounts',[]))
     chains=[c.get('evidenceChain') for a in chain_accounts
