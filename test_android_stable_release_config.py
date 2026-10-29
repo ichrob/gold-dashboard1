@@ -102,7 +102,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('ProductReadRequest.attempt(SystemClock.elapsedRealtime())', service)
         self.assertIn('flagRetrieveInteractiveWindows', config)
         self.assertIn('ProductWindowPolicy.select', service)
-        self.assertEqual(service.count('performAction('), 7)
+        self.assertEqual(service.count('performAction('), 8)
         self.assertEqual(service.count('dispatchGesture('), 1)
         tap = service.split('private fun tapRecognizedSearch(', 1)[1].split('private fun submitSearch(', 1)[0]
         for guard in ['PhoneRemote.active()', 'ProductReadRequest.active(', 'isKeyguardLocked',
@@ -113,7 +113,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
             self.assertIn(guard, tap)
         self.assertIn('action.code=="SEARCH_NO_PROGRESS" && !searchTapAttempted', service)
         self.assertIn('searchTapAttempted=true', service)
-        submit = service.split('private fun submitSearch(', 1)[1].split('/** Search actions', 1)[0]
+        submit = service.split('private fun submitSearch(', 1)[1].split('private fun scrollCategories(', 1)[0]
         self.assertIn('android.os.Build.VERSION.SDK_INT>=30', submit)
         self.assertIn('node.isEditable && node.isFocused', submit)
         self.assertIn('node.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id }', submit)
