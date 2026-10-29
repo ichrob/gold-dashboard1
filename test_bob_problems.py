@@ -139,6 +139,26 @@ class BobProblemsTests(unittest.TestCase):
         row["user"] = {"login": "unknown-public-author"}
         self.assertEqual(problems.from_issues([row])["problems"][0]["kiStatus"], "new")
 
+
+    def test_long_owner_issue_status_is_not_reset_to_new(self):
+        # Real issue #1022 exceeds 8,000 characters; only its final marker is
+        # parsed, and preceding issue prose remains private.
+        row=issue("paper-unhealthy",1022)
+        row.update(title="[Bob KI-Hilfe] Android-Produktleser nachprüfen",
+                   user={"login":"ichrob"},
+                   body="PRIVATE_LONG_REPORT_" + "x"*10200 +
+                        "\n<!-- BOB_KI_STATUS:testing -->")
+        result=problems.from_issues([row])["problems"][0]
+        self.assertEqual(result["kiStatus"],"testing")
+        self.assertNotIn("PRIVATE_LONG_REPORT_",str(result))
+        row["body"]="PRIVATE_LONG_REPORT_" + "x"*10200 + "\nNot a marker <!-- BOB_KI_STATUS:testing -->"
+        self.assertEqual(problems.from_issues([row])["problems"][0]["kiStatus"],"new")
+        row["body"]="PRIVATE_LONG_REPORT_" + "x"*10200 + "\n<!-- BOB_KI_STATUS:testing -->"
+        row["user"]={"login":"untrusted"}
+        self.assertEqual(problems.ki_status(row),"new")
+        self.assertIn("markerBody.matchAll(",problems.PANEL)
+        self.assertIn("issue.body.slice(-8000)",problems.PANEL)
+
     def test_untrusted_status_text_and_browser_fallback_sanitization(self):
         row = issue("scanner-degraded", 34)
         row["user"] = {"login": "ichrob"}
@@ -146,7 +166,7 @@ class BobProblemsTests(unittest.TestCase):
         self.assertEqual(problems.from_issues([row])["problems"][0]["kiStatus"], "new")
         row["body"] = "<!-- BOB_KI_STATUS:testing -->"
         self.assertEqual(problems.from_issues([row])["problems"][0]["kiStatus"], "testing")
-        self.assertIn("issue.body.matchAll(", problems.PANEL)
+        self.assertIn("markerBody.matchAll(", problems.PANEL)
         self.assertIn("kiStatusLabels[kiStatus]", problems.PANEL)
         self.assertIn("issue.kiStatusLabel||kiStatusLabels.new", problems.PANEL)
 
