@@ -42,8 +42,9 @@ class ProductReadService : AccessibilityService() {
     private val listImages = org.json.JSONArray()
     private var listBatch = ""
     private var listResumeChecked = false
+    private var listTopSeekSteps = 0
     private fun resetListCapture() {
-        listGeneration++; listResumeChecked=false; listBusy=false; listScrolled=false; listScrollTries=0
+        listGeneration++; listResumeChecked=false; listTopSeekSteps=0; listBusy=false; listScrolled=false; listScrollTries=0
         listFirstIds=emptyList(); listSeenIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
     }
@@ -866,6 +867,31 @@ class ProductReadService : AccessibilityService() {
                 ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_HEADER_SCROLLED_AWAY)
                 if(descriptions.none { it.selected && it.text.trim().equals("Hebelprodukte",true) })
                     ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_TAB_SELECTION_UNREPORTED)
+            }
+            // A fresh run can begin on yesterday's scrolled list. Only scroll
+            // backwards here; no capture is accepted before Top Ergebnisse is visible.
+            if(gold && listImages.length()==0 && descriptions.none { it.text.trim().equals("Top Ergebnisse",true) }) {
+                val seek=MorningReadPolicy.captureGoldList(descriptions,true)
+                if(seek.kind==MorningReadPolicy.Kind.COLLECT) {
+                    val targets=nodes.indices.filter { i ->
+                        val n=nodes[i]
+                        n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
+                            n.className?.toString()!="android.widget.HorizontalScrollView" &&
+                            n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD } &&
+                            seek.isins.any { descriptions[i].row.contains(it) }
+                    }
+                    val inner=targets.filter { parent -> targets.none { child ->
+                        var at=descriptions[child].parent;var steps=0;var found=false
+                        while(at in descriptions.indices && steps++<descriptions.size) {
+                            if(at==parent) { found=true;break };at=descriptions[at].parent
+                        };child!=parent && found
+                    } }.singleOrNull()
+                    if(inner==null || ++listTopSeekSteps>4 || !nodes[inner].performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
+                        lastNavigationIssue="LIST_TOP_RESULTS_MISSING";ProductReadRequest.cancel()
+                    }
+                    lastNavigation=SystemClock.elapsedRealtime()
+                    return true
+                }
             }
             val proposed=if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
                 symbolMemory.getString(it, null)
