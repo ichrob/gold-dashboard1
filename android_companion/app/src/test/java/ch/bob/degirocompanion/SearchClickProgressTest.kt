@@ -75,4 +75,15 @@ class SearchClickProgressTest {
         val cyclic=listOf(wrapper(1),MorningReadPolicy.Node(label,clickable=true,parent=0))
         assertEquals(listOf(1,0),MorningReadPolicy.searchClickChain(cyclic,MorningReadPolicy.Action(MorningReadPolicy.Kind.SEARCH,1)))
     }
+    @Test fun changingQuoteRowsDoNotRestartTheSameSearchClick() {
+        val p=SearchClickProgress();val original=tree()
+        p.select(original,decide(original),1,0);p.record(1,0)
+        val moved=listOf(MorningReadPolicy.Node("Gold 4000"),wrapper(),
+            MorningReadPolicy.Node(label,clickable=true,parent=1))
+        assertEquals(1,p.select(moved,decide(moved),1,2000).index)
+        p.record(1,2000)
+        val movedAgain=listOf(MorningReadPolicy.Node("Gold 4001"),MorningReadPolicy.Node("+0.2%"),wrapper(),
+            MorningReadPolicy.Node(label,clickable=true,parent=2))
+        assertEquals("SEARCH_NO_PROGRESS",p.select(movedAgain,decide(movedAgain),1,4000).code)
+    }
 }

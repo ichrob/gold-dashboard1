@@ -14,6 +14,9 @@ internal object MorningReadUiPolicy {
         version.isNotEmpty() && version!=lastAttempt
     fun reason(code:String):String=when(code) {
         "STOPPED" -> "Prüfung angehalten; genauer Auslöser nicht protokolliert"
+        "SEARCH_NO_PROGRESS" -> "Suchfläche reagiert nicht; begrenzte Suchversuche ausgeschöpft"
+        "SEARCH_TRANSITION_PENDING" -> "Warte auf das Suchfeld"
+        "SEARCH_RETRY_PARENT" -> "Übergeordnete Suchfläche prüfen"
         "SEARCH_MISSING" -> "DEGIRO-Suche nicht erkannt"
         "SEARCH_TREE_EMPTY" -> "Android liefert keine lesbare Suchbeschriftung"
         "SEARCH_NOT_ACTIONABLE" -> "Suchbeschriftung erkannt, aber keine bedienbare Suchfläche"
