@@ -436,7 +436,8 @@ class ProductReadService : AccessibilityService() {
                 val text=if(sensitiveNode || (n.isEditable && !searchInput)) "" else n.text?.toString().orEmpty().ifBlank { description }.take(2000)
                 val index=nodes.size;nodes+=AccessibilityNodeInfo.obtain(n)
                 descriptions+=MorningReadPolicy.Node(text,id,n.isClickable,n.isEditable,sensitiveNode,description=description,hint=hint,password=n.isPassword,
-                    clickAction=n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_CLICK },enabled=n.isEnabled,parent=parent)
+                    clickAction=n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_CLICK },enabled=n.isEnabled,parent=parent,
+                    imeEnter=android.os.Build.VERSION.SDK_INT>=30 && n.isFocused && n.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id })
                 val children=mutableListOf<String>()
                 if(!sensitiveNode && !n.isEditable) for(i in 0 until n.childCount) {
                     val child=n.getChild(i) ?: continue
@@ -500,14 +501,20 @@ class ProductReadService : AccessibilityService() {
                 MorningReadPolicy.Kind.QUERY -> nodes[decision.index].performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,android.os.Bundle().apply {
                     putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(actionName=="search_gold") "Gold" else target)
                 })
+                MorningReadPolicy.Kind.SUBMIT -> submitSearch(nodes[decision.index])
                 MorningReadPolicy.Kind.BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
                 else -> return result
             }
             lastNavigation=SystemClock.elapsedRealtime()
-            if(decision.kind==MorningReadPolicy.Kind.SEARCH)remoteSearchProgress.record(decision.index,lastNavigation)
+            if(decision.kind in setOf(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.Kind.SUBMIT))remoteSearchProgress.record(decision.index,lastNavigation)
             return result.put("code",if(success) "ACTION_ACCEPTED" else "ACTION_REJECTED")
         } finally { nodes.forEach { it.recycle() };root.recycle() }
     }
+
+    private fun submitSearch(node: AccessibilityNodeInfo): Boolean =
+        android.os.Build.VERSION.SDK_INT>=30 && node.isEditable && node.isFocused &&
+            node.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id } &&
+            node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
 
     /** Search actions use semantic nodes only, never coordinates or order buttons. */
     private fun navigateMorning(root: AccessibilityNodeInfo, gold: Boolean = false): Boolean {
@@ -557,8 +564,9 @@ class ProductReadService : AccessibilityService() {
                     val success=if(action.kind==MorningReadPolicy.Kind.QUERY) {
                         val args=android.os.Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(gold) "Gold" else MorningReadRun.target) }
                         node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)
-                    } else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    if(action.kind==MorningReadPolicy.Kind.SEARCH)automaticSearchProgress.record(action.index,lastNavigation)
+                    } else if(action.kind==MorningReadPolicy.Kind.SUBMIT) submitSearch(node)
+                    else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if(action.kind in setOf(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.Kind.SUBMIT))automaticSearchProgress.record(action.index,lastNavigation)
                     if(!success) {
                         lastNavigationIssue="NAVIGATION_REJECTED"
                         record(lastNavigationIssue)

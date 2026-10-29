@@ -49,7 +49,7 @@ class ProductReadActivity : Activity() {
         result=TextView(this).apply { textSize=18f;setTextIsSelectable(true) }
         container.addView(result)
         container.addView(TextView(this).apply { text="Goldsuche: bis zu zwölf sichtbare Goldhebel-Kandidaten mit ISIN suchen und lesen. Unvollständige Stichprobe; neue Kandidaten bleiben getrennte Lesebeobachtungen." })
-        container.addView(TextView(this).apply { text="Start drücken, dann innerhalb einer Minute DEGIRO öffnen. Bob sucht Goldhebel-Produkte, liest sichtbare ISINs und prüft die gefundenen Produkte automatisch. Die gestartete Handy-Sitzung erlaubt ChatGPT bis zu 15 Minuten Produktdaten und Diagnose zu lesen sowie begrenzte Produktsuchschritte auszuführen. DEGIRO muss angemeldet sein. Handy entsperrt lassen und während des Tests nicht bedienen. STOPP oder Sperrtaste beendet den Test. Keine Orders. Ergebnisse werden bei aktivierter Rückgabe an Bob übergeben; die Browser-Übergabe kann einen Tipp benötigen." })
+        container.addView(TextView(this).apply { text="Start drücken. DEGIRO wird automatisch geöffnet. Bob sucht Goldhebel-Produkte, liest sichtbare ISINs und prüft die gefundenen Produkte automatisch. Die gestartete Handy-Sitzung erlaubt ChatGPT bis zu 15 Minuten Produktdaten und Diagnose zu lesen sowie begrenzte Produktsuchschritte auszuführen. DEGIRO muss angemeldet sein. Handy entsperrt lassen und während des Tests nicht bedienen. STOPP oder Sperrtaste beendet den Test. Keine Orders. Ergebnisse werden bei aktivierter Rückgabe an Bob übergeben; die Browser-Übergabe kann einen Tipp benötigen." })
         val advanced=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=android.view.View.GONE }
         button("Einrichtung und weitere Möglichkeiten") {
             advanced.visibility=if(advanced.visibility==android.view.View.GONE) android.view.View.VISIBLE else android.view.View.GONE
@@ -170,14 +170,15 @@ class ProductReadActivity : Activity() {
             check(!PhoneRemote.active() && !GoldSearchRun.running && !MorningReadRun.running) { "Test läuft bereits. DEGIRO öffnen und abwarten." }
             check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Unter Einrichtung den Lesedienst einmalig einschalten." }
             check(PhoneDiagnostics.paired(this)) { "Unter Einrichtung die automatische Diagnose einmalig verbinden." }
-            check(packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)!=null) { "DEGIRO-App fehlt." }
+            val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
             PhoneRemote.start(this)
             startedHere=true
             check(PhoneRemote.active()) { PhoneRemote.message }
             GoldSearchRun.start()
             ProductReadRequest.start(SystemClock.elapsedRealtime())
             refresh()
-            result.text="Jetzt DEGIRO öffnen. Bob übernimmt die Suche und das Lesen automatisch. Handy entsperrt lassen; nicht weiter bedienen."
+            result.text="DEGIRO wird geöffnet. Bob sucht und liest automatisch. Handy entsperrt lassen; nicht weiter bedienen."
+            startActivity(launch)
         }.onFailure {
             if(startedHere) {
                 PhoneRemote.stop(this,"START_FAILED")
