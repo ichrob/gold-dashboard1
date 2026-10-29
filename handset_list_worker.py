@@ -9,6 +9,7 @@ import sys
 import time
 import threading
 import math
+import tempfile
 
 _state = {"state": "not-started", "checkedAt": None, "error": None}
 _state_lock = threading.Lock()
@@ -62,13 +63,52 @@ def recognize(images):
     return result
 
 
+
+OCR_CONTAINER_LIMIT = 400 * 1024 * 1024
+
+def container_memory_bytes():
+    """Current container memory, or None when no enforceable cgroup counter exists."""
+    for path in ('/sys/fs/cgroup/memory.current','/sys/fs/cgroup/memory/memory.usage_in_bytes'):
+        try:
+            value=int(Path(path).read_text().strip())
+            if value>0:return value
+        except (OSError,ValueError):
+            pass
+    return None
+
+def wait_ocr(child,memory_reader=container_memory_bytes,clock=time.monotonic,sleep=time.sleep):
+    """Fail closed before local OCR can kill the shared 512-MiB service."""
+    deadline=clock()+120
+    while child.poll() is None:
+        used=memory_reader()
+        if used is None or used>=OCR_CONTAINER_LIMIT or clock()>=deadline:
+            child.kill()
+            try:child.wait(timeout=5)
+            except subprocess.TimeoutExpired:pass
+            if used is None:raise RuntimeError('OCR memory counter unavailable')
+            if used>=OCR_CONTAINER_LIMIT:raise MemoryError('OCR container budget')
+            raise subprocess.TimeoutExpired(child.args,120)
+        sleep(.05)
+    return child.returncode
+
+
 def process(payload,at):
     env={k:v for k,v in os.environ.items() if k in ('PATH','LANG','LD_LIBRARY_PATH')}
     env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
-    child=subprocess.run([sys.executable,__file__,'--ocr'],input=json.dumps(payload['images']),text=True,capture_output=True,timeout=120,check=True,env=env)
-    if len(child.stdout)>300000:raise ValueError('OCR output limit')
+    # File-backed pipes avoid retaining a second image copy in the parent.
+    with tempfile.TemporaryFile(mode='w+',encoding='utf-8') as source, \
+         tempfile.TemporaryFile(mode='w+',encoding='utf-8') as output, \
+         tempfile.TemporaryFile(mode='w+',encoding='utf-8') as errors:
+        json.dump(payload['images'],source,separators=(',',':'));source.seek(0)
+        child=subprocess.Popen([sys.executable,__file__,'--ocr'],stdin=source,stdout=output,stderr=errors,
+                               text=True,env=env,start_new_session=True)
+        code=wait_ocr(child)
+        output.seek(0);stdout=output.read(300001)
+        errors.seek(0);stderr=errors.read(300001)
+    if code:raise subprocess.CalledProcessError(code,child.args,stdout,stderr)
+    if len(stdout)>300000:raise ValueError('OCR output limit')
     import evaluator_runtime
-    result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':json.loads(child.stdout),'at':at}),text=True,capture_output=True,timeout=20,check=True)
+    result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':json.loads(stdout),'at':at}),text=True,capture_output=True,timeout=20,check=True)
     return json.loads(result.stdout)
 
 
