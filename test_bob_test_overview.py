@@ -6,7 +6,7 @@ import bob_test_overview as overview
 class RiskPaperOverviewTests(unittest.TestCase):
     def report(self, status='observed'):
         return {'areas':{'riskPaper':{
-            'status':status,'checkedAt':1000000,'startedAt':900000,
+            'status':status,'checkedAt':1000,'startedAt':900,
             'accounts':[
                 {'status':'observed','delaySeconds':0,'closed':2,
                  'reviewReady':True,'position':{'private':'hidden'}},
