@@ -134,6 +134,15 @@ internal object MorningReadPolicy {
             val n=nodes[it]
             canClick(n) && !n.containsInput && (search(n) || (n.text.isBlank() && rowSearch(n)))
         })
+        // Markets exposes both a toolbar magnifier and the explicitly labelled
+        // product-search bar. Prefer that unique bar over generic search icons.
+        val explicit=buttons.filter { index ->
+            val n=nodes[index]
+            listOf(n.text,n.description,n.hint,n.row).any {
+                normalized(it).equals("Mit Namen, ISIN oder Symbol suchen",ignoreCase=true)
+            }
+        }
+        if(explicit.size==1) return Action(Kind.SEARCH,explicit.single())
         if (buttons.size == 1) return Action(Kind.SEARCH, buttons.single())
         if (buttons.size > 1) return Action(Kind.WAIT, code="SEARCH_AMBIGUOUS")
         return if (detail) Action(Kind.BACK) else Action(Kind.WAIT, code=when {

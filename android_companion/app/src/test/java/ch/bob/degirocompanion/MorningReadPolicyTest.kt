@@ -28,6 +28,10 @@ class MorningReadPolicyTest {
         assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.decide(listOf(outer.copy(containsInput=true),input),isin).kind)
         // A wholly blank wrapper does not make an unrelated clickable parent a search.
         assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(node("",true),node(label).copy(parent=0)),isin).kind)
+        val market=listOf(node("Märkte"),node("Suche",true),node(label,true))
+        assertEquals(2,MorningReadPolicy.decide(market,isin).index)
+        assertEquals(2,MorningReadPolicy.discoverGold(market).index)
+        assertEquals("SEARCH_AMBIGUOUS",MorningReadPolicy.decide(market+node(label,true),isin).code)
     }
     @Test fun onlySearchFieldCanReceiveIsin() {
         val input=MorningReadPolicy.Node("",id="nl.degiro.trader:id/search_src_text",editable=true)
