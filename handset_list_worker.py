@@ -9,7 +9,6 @@ import sys
 import time
 import threading
 import math
-import tempfile
 
 _state = {"state": "not-started", "checkedAt": None, "error": None}
 _state_lock = threading.Lock()
@@ -59,56 +58,26 @@ def recognize(images):
                 if lines and abs(lines[-1][0]-y)<14*actual_scale:lines[-1][1]+=' '+text
                 else:lines.append([y,text])
             passes.append('\n'.join(line[1] for line in lines))
+            del im, rows
+            __import__('gc').collect()
+            __import__('memory_watch').release_free_pages()
         result.append(passes)
     return result
-
-
-
-OCR_CONTAINER_LIMIT = 400 * 1024 * 1024
-
-def container_memory_bytes():
-    """Current container memory, or None when no enforceable cgroup counter exists."""
-    for path in ('/sys/fs/cgroup/memory.current','/sys/fs/cgroup/memory/memory.usage_in_bytes'):
-        try:
-            value=int(Path(path).read_text().strip())
-            if value>0:return value
-        except (OSError,ValueError):
-            pass
-    return None
-
-def wait_ocr(child,memory_reader=container_memory_bytes,clock=time.monotonic,sleep=time.sleep):
-    """Fail closed before local OCR can kill the shared 512-MiB service."""
-    deadline=clock()+120
-    while child.poll() is None:
-        used=memory_reader()
-        if used is None or used>=OCR_CONTAINER_LIMIT or clock()>=deadline:
-            child.kill()
-            try:child.wait(timeout=5)
-            except subprocess.TimeoutExpired:pass
-            if used is None:raise RuntimeError('OCR memory counter unavailable')
-            if used>=OCR_CONTAINER_LIMIT:raise MemoryError('OCR container budget')
-            raise subprocess.TimeoutExpired(child.args,120)
-        sleep(.05)
-    return child.returncode
 
 
 def process(payload,at):
     env={k:v for k,v in os.environ.items() if k in ('PATH','LANG','LD_LIBRARY_PATH')}
     env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
-    # File-backed pipes avoid retaining a second image copy in the parent.
-    with tempfile.TemporaryFile(mode='w+',encoding='utf-8') as source, \
-         tempfile.TemporaryFile(mode='w+',encoding='utf-8') as output, \
-         tempfile.TemporaryFile(mode='w+',encoding='utf-8') as errors:
-        json.dump(payload['images'],source,separators=(',',':'));source.seek(0)
-        child=subprocess.Popen([sys.executable,__file__,'--ocr'],stdin=source,stdout=output,stderr=errors,
-                               text=True,env=env,start_new_session=True)
-        code=wait_ocr(child)
-        output.seek(0);stdout=output.read(300001)
-        errors.seek(0);stderr=errors.read(300001)
-    if code:raise subprocess.CalledProcessError(code,child.args,stdout,stderr)
-    if len(stdout)>300000:raise ValueError('OCR output limit')
     import evaluator_runtime
-    result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':json.loads(stdout),'at':at}),text=True,capture_output=True,timeout=20,check=True)
+    images=[]
+    # Share subprocess admission with Node analyses, releasing it after each
+    # image. Never overlap a native OCR model with a heavy JS evaluator.
+    for image in payload['images']:
+        child=evaluator_runtime.run([sys.executable,__file__,'--ocr'],priority=2,
+            input=json.dumps([image]),text=True,capture_output=True,timeout=35,check=True,env=env,close_fds=True)
+        if len(child.stdout)>100000:raise ValueError('OCR output limit')
+        images.extend(json.loads(child.stdout))
+    result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':images,'at':at}),text=True,capture_output=True,timeout=20,check=True)
     return json.loads(result.stdout)
 
 
@@ -125,7 +94,8 @@ def tick(connect,runner=process):
             JOIN bob_android_diagnostic_devices d USING(token_hash)
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
-            AND (i.processing_attempts<3 OR (i.processing_attempts=3 AND i.import_receipt IS NULL))
+            AND (i.processing_attempts<3 OR (i.processing_attempts=3 AND i.import_receipt IS NULL)
+                OR (i.processing_attempts=4 AND i.import_receipt->>'error'='InterruptedWorker'))
             AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
             ORDER BY i.created_at DESC LIMIT 1 FOR UPDATE OF i SKIP LOCKED""").fetchone()
         if not row:
@@ -177,10 +147,12 @@ def loop(connect):
         time.sleep(10)
 
 if __name__=='__main__' and '--ocr' in sys.argv:
+    from ocr_sandbox import deny_network
+    deny_network()  # Fail closed before native imports or threads.
     import socket, resource
     def no_network(*args,**kwargs):raise RuntimeError('Local OCR network disabled')
     socket.socket.connect=no_network
-    resource.setrlimit(resource.RLIMIT_CPU,(110,110))
+    resource.setrlimit(resource.RLIMIT_CPU,(30,30))
     raw=sys.stdin.read(8100001)
     if len(raw)>8100000:raise ValueError('Image input limit')
     print(json.dumps(recognize(json.loads(raw))))

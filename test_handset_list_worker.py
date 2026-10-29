@@ -5,23 +5,20 @@ from unittest.mock import patch
 import handset_list_worker as worker
 
 class WorkerTests(unittest.TestCase):
-    def test_ocr_child_is_killed_before_shared_container_limit(self):
-        class Child:
-            args=['ocr']
-            returncode=None
-            killed=False
-            waited=False
-            def poll(self):return self.returncode
-            def kill(self):self.killed=True;self.returncode=-9
-            def wait(self,timeout=None):self.waited=timeout;return self.returncode
-        child=Child()
-        with self.assertRaises(MemoryError):
-            worker.wait_ocr(child,lambda:worker.OCR_CONTAINER_LIMIT,clock=lambda:0,sleep=lambda _:None)
-        self.assertTrue(child.killed);self.assertEqual(child.waited,5)
-        child=Child()
-        with self.assertRaises(RuntimeError):
-            worker.wait_ocr(child,lambda:None,clock=lambda:0,sleep=lambda _:None)
-        self.assertTrue(child.killed)
+    def test_ocr_images_share_admission_and_release_between_images(self):
+        from types import SimpleNamespace
+        with patch('evaluator_runtime.run',side_effect=[
+            SimpleNamespace(stdout='[["a","a","a"]]'),
+            SimpleNamespace(stdout='[["b","b","b"]]'),
+            SimpleNamespace(stdout='{"items":[]}')]) as run:
+            worker.process({'images':[{'png':'one'},{'png':'two'}]},'2026-10-29T20:00:00Z')
+        self.assertEqual(run.call_count,3)
+        for call in run.call_args_list[:2]:
+            self.assertEqual(len(json.loads(call.kwargs['input'])),1)
+            self.assertEqual(call.kwargs['priority'],2)
+            self.assertEqual(call.kwargs['timeout'],35)
+            self.assertTrue(call.kwargs['close_fds'])
+        self.assertEqual(run.call_args_list[-1].args[0][0],'node')
 
     def test_phone_ocr_size_is_bounded_without_changing_original(self):
         for width,height in [(1080,2400),(1440,3200),(5000,3000),(709,1536)]:
