@@ -447,10 +447,11 @@ class ProductReadService : AccessibilityService() {
                     // it still contains that exact query. All page guards run again.
                     if(writtenNodeIdentity) "Mit Namen, ISIN oder Symbol suchen" else ""
                 }
-                val id=n.viewIdResourceName.orEmpty()
+                val id=if(writtenNodeIdentity) "bob:search_input" else n.viewIdResourceName.orEmpty()
                 val description=if(sensitiveNode) "" else n.contentDescription?.toString().orEmpty().take(2000)
                 val searchInput=n.isEditable && MorningReadPolicy.isSearchInput(id,description,hint)
-                val text=if(sensitiveNode || (n.isEditable && !searchInput)) "" else n.text?.toString().orEmpty().ifBlank { description }.take(2000)
+                val explicitPrompt=SearchInputCluster.explicitPrompt(n.text?.toString().orEmpty())
+                val text=if(sensitiveNode || (n.isEditable && !searchInput && !explicitPrompt)) "" else n.text?.toString().orEmpty().ifBlank { description }.take(2000)
                 val index=nodes.size;nodes+=AccessibilityNodeInfo.obtain(n)
                 descriptions+=MorningReadPolicy.Node(text,id,n.isClickable,n.isEditable,sensitiveNode,description=description,hint=hint,password=n.isPassword,
                     clickAction=n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_CLICK },enabled=n.isEnabled,parent=parent,focused=n.isFocused,
@@ -468,6 +469,16 @@ class ProductReadService : AccessibilityService() {
                 return row
             }
             walk(root,0)
+            fun box(n:AccessibilityNodeInfo):SearchInputCluster.Box {
+                val r=android.graphics.Rect();n.getBoundsInScreen(r)
+                return SearchInputCluster.Box(r.left,r.top,r.right,r.bottom)
+            }
+            for(index in SearchInputCluster.spatial(descriptions,nodes.map(::box),box(root))) {
+                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SEARCH_INPUT_SPATIAL)
+                // Preserve original labels so login/order guards still inspect them.
+                descriptions[index]=descriptions[index].copy(id="bob:search_input",
+                    text=nodes[index].text?.toString().orEmpty().take(2000))
+            }
             for(index in SearchInputCluster.identify(descriptions)) {
                 ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SEARCH_INPUT_CLUSTER)
                 val n=nodes[index]
