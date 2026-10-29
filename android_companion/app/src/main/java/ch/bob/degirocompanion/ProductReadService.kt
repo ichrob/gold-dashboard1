@@ -37,11 +37,12 @@ class ProductReadService : AccessibilityService() {
     private var listScrollTries = 0
     private var listFirstIds = emptyList<String>()
     private val listSeenIds = mutableSetOf<String>()
+    private var listCropTop: Int? = null
     private val listImages = org.json.JSONArray()
     private var listBatch = ""
     private fun resetListCapture() {
         listGeneration++; listBusy=false; listScrolled=false; listScrollTries=0
-        listFirstIds=emptyList(); listSeenIds.clear(); while(listImages.length()>0) listImages.remove(0)
+        listFirstIds=emptyList(); listSeenIds.clear(); listCropTop=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
     }
     private var batchTransition = false
@@ -505,6 +506,18 @@ class ProductReadService : AccessibilityService() {
                 val r=android.graphics.Rect();n.getBoundsInScreen(r)
                 return SearchInputCluster.Box(r.left,r.top,r.right,r.bottom)
             }
+            // Count only identities whose complete label fits between the sticky
+            // category strip and the bottom navigation, not clipped last rows.
+            val rootBounds=Rect();root.getBoundsInScreen(rootBounds)
+            fun bounds(i:Int)=Rect().also { nodes[i].getBoundsInScreen(it) }
+            val top=descriptions.indices.filter { descriptions[it].selected && descriptions[it].text.trim().equals("Hebelprodukte",true) }
+                .maxOfOrNull { bounds(it).bottom } ?: rootBounds.top
+            val bottom=descriptions.indices.filter { descriptions[it].text.trim() in setOf("Märkte","Favoriten","Portfolio","Inbox") }
+                .map { bounds(it).top }.filter { it>rootBounds.centerY() }.minOrNull() ?: rootBounds.bottom
+            descriptions.indices.forEach { i ->
+                val r=bounds(i)
+                descriptions[i]=descriptions[i].copy(captureComplete=r.height()>0 && r.top>=top && r.bottom<=bottom)
+            }
             for(index in SearchInputCluster.spatial(descriptions,nodes.map(::box),box(root))) {
                 ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SEARCH_INPUT_SPATIAL)
                 // Preserve original labels so login/order guards still inspect them.
@@ -690,9 +703,10 @@ class ProductReadService : AccessibilityService() {
         val windowId=root.windowId;val generation=listGeneration
         val rect=Rect();root.getBoundsInScreen(rect)
         val input=descriptions.indexOfFirst { it.editable }
-        if(input<0) { fail("LIST_CAPTURE_SEARCH_MISSING");return }
-        val search=Rect();nodes[input].getBoundsInScreen(search)
-        val cropTop=search.top-rect.top
+        val cropTop=if(input>=0) {
+            val search=Rect();nodes[input].getBoundsInScreen(search)
+            search.top-rect.top
+        } else listCropTop ?: run { fail("LIST_CAPTURE_SEARCH_MISSING");return }
         if(rect.width()<=0 || cropTop<0 || cropTop>=rect.height()/2) { fail("LIST_CAPTURE_BOUNDS");return }
         val current=windows
         val safe=try {
@@ -718,7 +732,7 @@ class ProductReadService : AccessibilityService() {
                     val refs=mutableListOf<AccessibilityNodeInfo>();val view=mutableListOf<MorningReadPolicy.Node>()
                     val unchanged=try {
                         navigationTree(live,refs,view)
-                        val decision=MorningReadPolicy.discoverGold(view)
+                        val decision=MorningReadPolicy.captureGoldList(view,listImages.length()>0)
                         live.windowId==windowId && live.packageName?.toString()==ProductScreenEvidence.PACKAGE &&
                             decision.kind==MorningReadPolicy.Kind.COLLECT && decision.isins==ids
                     } finally { refs.forEach { it.recycle() };live.recycle() }
@@ -734,6 +748,7 @@ class ProductReadService : AccessibilityService() {
                         check(bytes.size<=1500000)
                         val image=org.json.JSONObject().put("at",capturedAt).put("png",android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP))
                         listImages.put(image)
+                        listCropTop=cropTop
                         listFirstIds=ids;listSeenIds.addAll(ids);listScrolled=false;listScrollTries=0
                     } finally { bitmap.recycle() }
                     if(listSeenIds.size==10) deliverMorningList(generation)
@@ -794,7 +809,7 @@ class ProductReadService : AccessibilityService() {
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         try {
             navigationTree(root,nodes,descriptions)
-            val proposed=if(gold) MorningReadPolicy.discoverGold(descriptions) else MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
+            val proposed=if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
                 symbolMemory.getString(it, null)
             }
             val action=automaticSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())

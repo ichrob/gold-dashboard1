@@ -10,7 +10,7 @@ internal object MorningReadPolicy {
                     val enabled: Boolean = true, val parent: Int = -1, val imeEnter: Boolean = false,
                     val writtenQueryExpected: Boolean = false, val writtenQueryPresent: Boolean = false,
                     val writtenNodeIdentity: Boolean = false, val focused: Boolean = true, val focusAction: Boolean = false,
-                    val selected: Boolean = false, val scrollRight: Boolean = false)
+                    val selected: Boolean = false, val scrollRight: Boolean = false, val captureComplete: Boolean = true)
     enum class Kind { WAIT, SEARCH, FOCUS, QUERY, SUBMIT, CATEGORY, CATEGORY_SCROLL, RESULT, READ, BACK, BLOCK, COLLECT }
     data class Action(val kind: Kind, val index: Int = -1, val code: String = "", val isins: List<String> = emptyList())
     private val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
@@ -130,7 +130,20 @@ internal object MorningReadPolicy {
         if (!SeriesEvidence.validIsin(target)) return Action(Kind.BLOCK, code="INVALID_VIEW")
         return navigate(nodes,target,false,lookupSymbol)
     }
-    fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true) { null }
+    fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })
+    /** Continue only an already captured Top Results list. The search header may
+     * scroll out of the accessibility tree. A synthetic context node is used only
+     * for policy validation; no action can target it or any product row. */
+    fun captureGoldList(nodes: List<Node>, continuing: Boolean): Action {
+        val selected=nodes.count { it.selected && normalized(it.text).equals("Hebelprodukte",true) } == 1
+        if (!selected) return discoverGold(nodes)
+        val context=if(continuing && nodes.none { it.editable })
+            nodes + Node("Gold",id="search-input",editable=true) else nodes
+        val action=navigate(context,"Gold",true,{ null },captureAll=true)
+        if(context !== nodes && action.kind !in setOf(Kind.COLLECT,Kind.BLOCK))
+            return Action(Kind.WAIT,code="GOLD_IDENTITIES_MISSING")
+        return action
+    }
     /** Search pages retain the global order launcher. Recognize only its exact,
      * isolated label beside one explicitly labelled product input. Keep indexes
      * unchanged and re-run every protection against the remaining nodes. */
@@ -176,13 +189,13 @@ internal object MorningReadPolicy {
         if(below(inputIndex,index) || below(index,inputIndex)) return reject(LauncherIssue.RELATED_TARGETS)
         return nodes.mapIndexed { i,n -> if(i==index) Node("") else n }
     }
-    private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?): Action {
+    private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?, captureAll: Boolean = false): Action {
         if (nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
         protection(nodes)?.let { cause ->
             if (cause == "PROTECTED_ORDER_CONFIRM") {
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 productSearchWithoutLauncher(nodes)?.let { searchNodes ->
-                    val action=navigate(searchNodes,target,discovery,lookupSymbol)
+                    val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll)
                     if(action.kind in setOf(Kind.FOCUS,Kind.QUERY,Kind.SUBMIT,Kind.CATEGORY,Kind.CATEGORY_SCROLL,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
                 }
             }
@@ -198,13 +211,13 @@ internal object MorningReadPolicy {
                 // Only visible, explicit identities in Gold leverage-product rows.
                 // This is a bounded candidate sample, never a complete catalog or
                 // proof of the underlying, quote freshness, or trade approval.
-                val candidates=nodes.filter { it.enabled && !it.editable && !it.containsInput }.mapNotNull { n ->
+                val candidates=nodes.filter { it.enabled && !it.editable && !it.containsInput && (!captureAll || it.captureComplete) }.mapNotNull { n ->
                     val row=n.row
                     val found=ids.findAll(row.uppercase()).map { it.value }.toSet().singleOrNull()
                     found?.takeIf { SeriesEvidence.validIsin(it) &&
                         Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(row) &&
-                        Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future)\\b").containsMatchIn(row) &&
-                        !Regex("(?iu)\\b(faktor|factor|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b").containsMatchIn(row) }
+                        Regex(if(captureAll) "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future|faktor|factor)\\b" else "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future)\\b").containsMatchIn(row) &&
+                        !Regex(if(captureAll) "(?iu)\\b(kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b" else "(?iu)\\b(faktor|factor|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b").containsMatchIn(row) }
                 }.distinct().take(12)
                 if(candidates.isNotEmpty()) return Action(Kind.COLLECT,isins=candidates)
                 goldCategory(nodes)?.let { return it }
