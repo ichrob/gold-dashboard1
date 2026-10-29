@@ -6,7 +6,7 @@
     android:packageNames="nl.degiro.trader"
     android:accessibilityFlags="flagRequestAccessibilityButton|flagRetrieveInteractiveWindows|flagReportViewIds|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
-    android:canPerformGestures="false"
+    android:canPerformGestures="true"
     android:canTakeScreenshot="false"
     android:notificationTimeout="100"
     android:isAccessibilityTool="false"
