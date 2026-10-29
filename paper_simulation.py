@@ -818,13 +818,15 @@ def newer_queued_paper_bundle(current, candidate, now_ms):
 _guard=threading.Lock();_latest=None;_thread=None
 _bundle_ready=threading.Event()
 _pool=None;_pending={};_quotes={};_requested={}
+_observed_snapshot={}
 def observed_quotes(products):
     """Read completed raw issuer observations without network work or paper projection."""
-    return {p['isin']: copy.deepcopy(_quotes[p['isin']])
-            for p in products if p.get('isin') in _quotes}
+    with _guard:
+        return {p['isin']: copy.deepcopy(_observed_snapshot[p['isin']])
+                for p in products if p.get('isin') in _observed_snapshot}
 
 def quote_cache(products, active, now):
-    global _pool
+    global _pool, _observed_snapshot
     if _pool is None:_pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix='bob-paper-quotes')
     for isin,future in list(_pending.items()):
         if not future.done():continue
@@ -854,6 +856,7 @@ def quote_cache(products, active, now):
     from comdirect_fields import apply as refresh_fields
     from hybrid_product_price import apply as refresh_calculated_price
     observations={}
+    observed={}
     for isin in isins:
         raw=_quotes.get(isin,by_isin.get(isin))
         # Independently harvest the shared nonblocking source cache even while
@@ -863,11 +866,24 @@ def quote_cache(products, active, now):
         raw=enrich('comdirect-terms',isin,refresh_fields,raw if isinstance(raw,dict) else {'isin':isin},recovery)
         refreshed=enrich('comdirect-quote',isin,refresh_backup,raw,recovery)
         refreshed=enrich('swissquote-quote',isin,refresh_third_source,refreshed,recovery)
-        observations[isin]=refresh_calculated_price(refresh_leverage(refreshed)) if isinstance(refreshed,dict) else refreshed
+        # Push receives the same refreshed source evidence, before paper-only
+        # price projection. Publish a complete batch atomically below.
+        if isinstance(refreshed, dict):
+            refreshed = refresh_leverage(refreshed)
+            observed[isin] = copy.deepcopy(refreshed)
+            observations[isin] = refresh_calculated_price(copy.deepcopy(refreshed))
+        else:
+            observations[isin] = refreshed
         if recovery:
             observations[isin]['sourceRecovery']=recovery
             if any(event['state'] in ('failed','waiting') for event in recovery):
                 observations[isin]['eligible']=False
+            if isin in observed:
+                observed[isin]['sourceRecovery'] = copy.deepcopy(recovery)
+                if any(event['state'] in ('failed','waiting') for event in recovery):
+                    observed[isin]['eligible'] = False
+    with _guard:
+        _observed_snapshot = observed
     return observations
 
 # Morning research-only preparation. Never creates/changes paper positions,
@@ -1099,5 +1115,6 @@ def enqueue(bundle, db):
         _bundle_ready.set()
         if _thread is None or not _thread.is_alive():
             _thread=threading.Thread(target=_worker,args=(db,),daemon=True,name='bob-paper-simulation');_thread.start()
+
 
 

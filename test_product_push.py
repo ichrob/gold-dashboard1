@@ -6,6 +6,24 @@ class ProductPushTransitions(unittest.TestCase):
     now=1800000000000
     def checked(self, count=1, **kwargs):
         return {'products':[{'isin':str(i),'name':'Turbo','direction':'LONG','scope':'XAU/USD','reasons':['KO-Puffer ausreichend']} for i in range(count)], 'expiresAt':self.now+30000, **kwargs}
+    def test_expiry_is_not_a_missing_product_evidence_claim(self):
+        state,_=transition(None,self.checked(),self.now)
+        expired={'products': [], 'expiresAt': self.now+31000, 'expiryOnly': True,
+                 'reasons': ['Zeitfenster der letzten Markt- und Produktprüfung abgelaufen']}
+        state,message=transition(state,expired,self.now+31000)
+        self.assertEqual(state['products'], [])
+        self.assertFalse(state['notified'])
+        self.assertIn('wird erneuert', message['title'])
+        self.assertIn('im Hintergrund', message['body'])
+        self.assertNotIn('Screenshot', message['body'])
+        self.assertIsNone(transition(state,expired,self.now+32000)[1])
+
+    def test_real_product_gap_still_requests_evidence(self):
+        state,_=transition(None,self.checked(),self.now)
+        _,message=transition(state,self.checked(0,reasons=['KO-Nachweis fehlt']),self.now+1000)
+        self.assertIn('Klärung erforderlich', message['title'])
+        self.assertIn('Screenshot', message['body'])
+
     def test_python_to_shared_js_runtime(self):
         checked=evaluate({'products': [], 'capturedAt': int(time.time()*1000)})
         self.assertEqual(checked['products'],[])
@@ -73,3 +91,4 @@ class ProductPushTransitions(unittest.TestCase):
         self.assertIsNotNone(transition(state,self.checked(expiresAt=self.now+400000),self.now+300001)[1])
 
 if __name__=='__main__':unittest.main()
+

@@ -447,7 +447,7 @@ def expire_product_selections():
     with db() as conn:
         rows = conn.execute("SELECT id, subscription, product_selection FROM subscriptions WHERE general_enabled=TRUE AND product_selection IS NOT NULL AND (product_selection->>'notified')::boolean=TRUE AND (product_selection->>'expiresAt')::bigint<=%s FOR UPDATE", (now,)).fetchall()
         for row in rows:
-            deliver_product_selection(conn, row, {'products': [], 'expiresAt': now, 'reasons': ['Aktuelle Bestätigung abgelaufen; Bob öffnen und erneut prüfen']})
+            deliver_product_selection(conn, row, {'products': [], 'expiresAt': now, 'expiryOnly': True, 'reasons': ['Zeitfenster der letzten Markt- und Produktprüfung abgelaufen']})
         conn.commit()
 
 
@@ -1722,6 +1722,7 @@ if __name__ == "__main__":
     import video_ocr
     threading.Thread(target=video_ocr.loop,args=(db,),name="bob-video-ocr",daemon=True).start()
     BobHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+
 
 
 
