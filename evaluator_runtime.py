@@ -19,11 +19,11 @@ def status():
         return dict(_STATS, busy=_BUSY, waiting=len(_WAITERS), inFlight=len(_FLIGHTS))
 
 
-def run(args, priority=1, **kwargs):
+def run(args, priority=1, runner=None, **kwargs):
     global _BUSY
     started = monotonic()
     # Include the full payload (trade settings, clocks and data) and process options.
-    key = hashlib.sha256(repr((list(args), sorted(kwargs.items()))).encode()).digest()
+    key = hashlib.sha256(repr((list(args), sorted(kwargs.items()), runner)).encode()).digest()
     with _CONDITION:
         flight = _FLIGHTS.get(key)
         if flight is not None:
@@ -48,7 +48,7 @@ def run(args, priority=1, **kwargs):
         wait_ms = round((monotonic()-started)*1000)
         command = list(args)
         if command and command[0] == 'node': command.insert(1, '--v8-pool-size=1')
-        result = subprocess.run(command, **kwargs)
+        result = (runner or subprocess.run)(command, **kwargs)
         with _CONDITION:
             flight['result'] = result
             _STATS['failed' if getattr(result, 'returncode', 0) else 'completed'] += 1
