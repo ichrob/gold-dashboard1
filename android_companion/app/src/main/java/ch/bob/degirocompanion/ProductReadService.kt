@@ -753,7 +753,7 @@ class ProductReadService : AccessibilityService() {
                     ProductReadRequest.cancel();PhoneDiagnostics.queue(this)
                     if(delivered) {
                         file.delete()
-                        startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://bob-private-scanner.onrender.com/#bob-morning-images="+id)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://bob-private-scanner.onrender.com/?handset-list="+id+"#bob-morning-images="+id)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     }
                 }
             };executor.shutdown()
