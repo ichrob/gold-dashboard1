@@ -4,6 +4,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SearchClickProgressTest {
+    @Test fun marketsCanTryOneIsolatedToolbarSearchAfterBarFails() {
+        val nodes=listOf(MorningReadPolicy.Node("Märkte"),MorningReadPolicy.Node("Indizes"),
+            MorningReadPolicy.Node("Mit Namen, ISIN oder Symbol suchen",clickable=true),
+            MorningReadPolicy.Node("",description="Suche",clickable=true),
+            MorningReadPolicy.Node("",description="Order platzieren",clickable=true))
+        val p=SearchClickProgress()
+        val action=decide(nodes)
+        assertEquals(2,p.select(nodes,action,1,0).index);p.record(2,0)
+        assertEquals(3,p.select(nodes,action,1,2000).index);p.record(3,2000)
+        assertEquals("SEARCH_NO_PROGRESS",p.select(nodes,action,1,4000).code)
+        for(bad in listOf(nodes+nodes[3],nodes.take(3)+nodes[3].copy(row="Suche\nPortfolio")+nodes[4],
+                nodes.take(3)+nodes[3].copy(enabled=false)+nodes[4]))
+            assertEquals(listOf(2),MorningReadPolicy.searchClickChain(bad,decide(bad)))
+        for(extra in listOf("Limitpreis","Order bestätigen","Passwort")) {
+            val blocked=nodes+MorningReadPolicy.Node(extra)
+            assertEquals(MorningReadPolicy.Kind.BLOCK,decide(blocked).kind)
+            assertEquals(emptyList<Int>(),MorningReadPolicy.searchClickChain(blocked,decide(blocked)))
+        }
+    }
     private val label = "Mit Namen, ISIN oder Symbol suchen"
     private fun wrapper(parent: Int = -1) = MorningReadPolicy.Node("", row=label, clickAction=true, parent=parent)
     private fun tree() = listOf(wrapper(), MorningReadPolicy.Node(label,clickable=true,parent=0))

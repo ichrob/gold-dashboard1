@@ -37,8 +37,8 @@ internal object MorningReadPolicy {
     }
     private fun search(n: Node) = searchLabel(n.text) || searchLabel(n.description) || searchLabel(n.hint) ||
         Regex("(?iu)(^|[/_:])(search|search_input|search_src_text|search_field|search_button|search_view)([/:_]|$)").containsMatchIn(n.id)
-    // Only retry enclosing wrappers of the already selected search. A toolbar
-    // sibling, aggregate page, order launcher or coordinate is never a fallback.
+    // Retry enclosing wrappers, then one independently labelled Markets search.
+    // Aggregate pages, order launchers and coordinates are never fallbacks.
     fun searchClickChain(nodes: List<Node>, action: Action): List<Int> {
         if (action.kind != Kind.SEARCH || action.index !in nodes.indices) return emptyList()
         val result = mutableListOf(action.index)
@@ -51,7 +51,25 @@ internal object MorningReadPolicy {
             if (canClick(n)) result += parent
             parent = n.parent
         }
+        marketToolbarSearch(nodes, action)?.let { if(it !in result) result += it }
         return result
+    }
+    private fun marketToolbarSearch(nodes: List<Node>, action: Action): Int? {
+        if(nodes.any { it.editable || it.containsInput || it.password || it.sensitive }) return null
+        if(!nodes.any { it.text.trim()=="Märkte" } || !nodes.any { it.text.trim()=="Indizes" }) return null
+        val selected=nodes[action.index]
+        val label="Mit Namen, ISIN oder Symbol suchen"
+        if(listOf(selected.text,selected.description,selected.hint,selected.row).none { normalized(it).equals(label,true) }) return null
+        val cause=protection(nodes)
+        if(cause!=null && (cause!="PROTECTED_ORDER_CONFIRM" || marketSearchBesideLauncher(nodes)!=action.index)) return null
+        val generic=Regex("(?iu)^(suche|suchen|search)$")
+        val candidates=nodes.indices.filter { i ->
+            val n=nodes[i]
+            val values=listOf(n.text,n.description,n.hint).filter(String::isNotBlank)
+            i!=action.index && canClick(n) && values.isNotEmpty() && values.all { generic.matches(normalized(it)) } &&
+                n.row.lines().filter(String::isNotBlank).all { generic.matches(normalized(it)) }
+        }
+        return innermost(nodes,candidates).singleOrNull()
     }
     fun isSearchInput(id: String, description: String, hint: String): Boolean =
         search(Node("", id=id, description=description, hint=hint))
