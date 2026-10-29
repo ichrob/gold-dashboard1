@@ -24,7 +24,8 @@ class GoldSearchRunTest {
             assertTrue(action.isins.isEmpty())
         }
         val candidate=row("Knock-out Gold $isin")
-        assertEquals("GOLD_IDENTITIES_MISSING",MorningReadPolicy.discoverGold(listOf(input("Gold"),candidate.copy(clickable=false))).code)
+        assertEquals(listOf(isin),MorningReadPolicy.discoverGold(listOf(input("Gold"),candidate.copy(clickable=false))).isins)
+        assertEquals("GOLD_IDENTITIES_MISSING",MorningReadPolicy.discoverGold(listOf(input("Gold"),candidate.copy(enabled=false))).code)
         assertEquals("GOLD_IDENTITIES_MISSING",MorningReadPolicy.discoverGold(listOf(input("Gold"),candidate.copy(containsInput=true))).code)
         for(protected in listOf(row("Order bestätigen"),row("Anmelden"),row("").copy(password=true),row("").copy(sensitive=true)))
             assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(listOf(input("Gold"),candidate,protected)).kind)
