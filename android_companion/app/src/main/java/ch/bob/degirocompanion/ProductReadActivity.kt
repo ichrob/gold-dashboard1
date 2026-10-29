@@ -176,6 +176,7 @@ class ProductReadActivity : Activity() {
             check(packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)!=null) { "DEGIRO-App fehlt." }
             PhoneRemote.start(this)
             startedHere=true
+            check(PhoneRemote.active()) { PhoneRemote.message }
             GoldSearchRun.start()
             ProductReadRequest.start(SystemClock.elapsedRealtime())
             refresh()
