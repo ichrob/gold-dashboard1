@@ -33,3 +33,29 @@ const html=r.markup({...state,reason:'<script>bad()</script>'},ranked,{},'SHORT'
 const page=fs.readFileSync('Bob.html','utf8');for(const m of page.matchAll(/<script>([\s\S]*?)<\/script>/g))new vm.Script(m[1]);
 assert(page.includes("['risk','⚡','Risiko']"));assert(page.includes('mount(panels.risk)'));assert(fs.readFileSync('server.py','utf8').includes('"/risk_workspace.js"'));
 console.log('Risk: direction, stale/future/gapped data, KO/factor/identity filters, top-two leverage, LONG/SHORT trailing stops, latched exit, escaping and integration passed.');
+
+
+// Actual minute-boundary mismatch: quote 09:59:39, latest candle closes 10:00.
+for(const dir of ['LONG','SHORT']){
+ const clock=now+30000,b=bundle();
+ const bars=Array.from({length:22},(_,i)=>({openTime:now-(22-i)*60000,instrument:'XAU/USD',open:4000,high:4002,low:3998,close:4000}));
+ bars.at(-1).close=dir==='LONG'?4001:3999;
+ b.history.bars_by_tf['1m']=bars;
+ b.spots.xaus=dir==='LONG'?4000.2:3999.8;b.spots.spot_price_as_of=new Date(now-21000).toISOString();
+ assert.equal(r.analyze(b,clock).ready,false);
+ const estimate=r.analyzePaper(b,clock);
+ assert.equal(estimate.ready,true);assert.equal(estimate.dataMode,'estimate');assert.equal(estimate.direction,dir);
+ assert.equal(estimate.sourceAt,now-21000);assert.equal(estimate.at,now);assert.equal(estimate.computedAt,clock);
+ assert.equal(estimate.stage,'VORWARNUNG');
+ assert.equal(r.analyze(b,now).ready,true,'as-of candle selection avoids looking ahead at a later close');
+ assert.equal(r.analyzePaper(b,clock+180001).ready,false,'no unlimited model continuation');
+ const broken=JSON.parse(JSON.stringify(b));broken.history.bars_by_tf['1m'][10].openTime-=60000;
+ assert.equal(r.analyzePaper(broken,clock).ready,false,'model cannot fill candle gaps');
+ const backup={...b,risk_spot_backup:{price:dir==='LONG'?4001.2:3998.8,at:new Date(now+10000).toISOString(),observed:true,instrument:'XAU/USD',source:'XAUS · XAU/USD Spot'}};
+ assert.equal(r.analyzePaper(backup,clock).dataMode,'backup','observed backup precedes estimate');
+ const real={...backup,spots:{...backup.spots,xaus:backup.risk_spot_backup.price,spot_price_as_of:backup.risk_spot_backup.at}};
+ assert.equal(r.analyzePaper(real,clock).dataMode,'original','original precedes backup');
+ const unconfirmed=JSON.parse(JSON.stringify(b));unconfirmed.history.bars_by_tf['1m'].at(-1).providerIsOpen=true;
+ assert.equal(r.analyzePaper(unconfirmed,clock).ready,false,'provider-open candles never support a model');
+}
+console.log('Risk paper: original/backup/model hierarchy, LONG/SHORT estimates, clocks and bounded validity passed.');

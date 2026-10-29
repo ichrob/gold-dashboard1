@@ -126,3 +126,33 @@ Abgeschlossene Fälle vollständig in `bob_risk_paper_cases`; letzte 20 pro Kont
 im privaten, authentifizierten `/api/risk-paper`-Bericht und im Risiko-Reiter.
 Keine öffentlichen Kurslisten, keine Orders, keine Testtrade-Pushes.
 
+
+
+## Datenfolge für den 2.000-EUR-Test (29.10.2026)
+
+`observed-backup-estimate-v1`: Original-Spot → beobachteter XAUS-Ersatzkurs →
+Schätzung. Alle drei dürfen dieselben virtuellen Einstiegs-/Ausstiegsregeln
+ansteuern. Die Produktkäufe/-verkäufe brauchen weiterhin beobachtete Geld-/Briefkurse.
+Manuelle Trade-Warnungen verwenden keine Schätzung.
+
+Kerzen werden zum Spot-Zeitpunkt ausgewählt, ohne später geschlossene Kerzen
+vorwegzunehmen. XAUS wird im begrenzten parallelen Abruf mit höchstens einem
+Versuch pro 30 Sekunden geladen (2s Timeout, Retry-After beachten). Nur XAU/USD
+pro Unze, übereinstimmende Preise und frische Originalzeit werden zugelassen.
+Quelle: https://xaus.com/api/openapi.json. Bei Ausfall des primären Spot kann ein
+frischer XAUS-Originalkurs auch den regulären Bundle-Spot ersetzen.
+
+Schätzung `spot-candle-ratio-v1`: letzter Original-Spot × neuester bestätigter
+Minuten-Schluss / letzter bestätigter Minuten-Schluss vor dem Original-Spot.
+Das ist eine Näherung; die Teilminutenbewegung am Originalzeitpunkt ist unbekannt.
+Keine Zukunftsprojektion: effektive Modellzeit ist der jüngste bestätigte
+Kerzenschluss. Original maximal 180s alt, Überbrückung maximal 120s, Modellzeit
+maximal 60s alt; 21 durchgängige plausible bestätigte Minutenkerzen erforderlich.
+Kein Ersatz einer Kerzenlücke durch erfundene OHLC-Daten.
+
+Eintritt, Austritt und verwendete Datenarten werden am Fall gespeichert:
+`entryDataMode`, `entryMarketEvidence`, `exitDataMode`, `exitMarketEvidence`,
+`dataModesUsed`. Modelle enthalten Originalzeit, Berechnungszeit, Ankerkerze,
+Referenzpreise und Formelversion. UI und Diagnose nennen die Datenart.
+Historische Fälle werden nicht nachträglich als Original/Schätzung umetikettiert.
+

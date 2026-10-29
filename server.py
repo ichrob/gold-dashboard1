@@ -913,9 +913,10 @@ def build_live_bundle():
         # source: ThreadPoolExecutor's context manager would otherwise wait for slow
         # Yahoo/FX requests at shutdown and keep /api/live hanging.
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-        pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="bob-live")
+        pool = ThreadPoolExecutor(max_workers=9, thread_name_prefix="bob-live")
         futures = {
             pool.submit(fetch_spot): "spot",
+            pool.submit(__import__("xaus_spot").current, fetch_json): "risk_spot_backup",
             pool.submit(fetch_technical_history, "5m", "5d"): "5m",
             pool.submit(fetch_technical_history, "1h", "3mo"): "1h",
             pool.submit(fetch_technical_history, "15m", "5d"): "15m",
@@ -1009,6 +1010,13 @@ def build_live_bundle():
              is_spot, spot_price_as_of) = recheck_spot_before_bundle(
                  (goldprice_price, goldprice_age, spot_error, spot_source,
                   is_spot, spot_price_as_of))
+        backup_spot = results.get('risk_spot_backup')
+        if goldprice_price is None and isinstance(backup_spot, dict) and backup_spot.get('observed') is True:
+            backup_age = time.time()-datetime.fromisoformat(backup_spot['at']).timestamp()
+            if 0 <= backup_age <= 60:
+                goldprice_price, goldprice_age = backup_spot['price'], backup_age
+                spot_source, spot_price_as_of = backup_spot['source'], backup_spot['at']
+                spot_error, is_spot = None, True
         if goldprice_price is None:
             # Never promote technical/futures history to the XAU/USD spot field.
             # A GC=F close is a futures reference, not a spot price, and must not
@@ -1049,6 +1057,7 @@ def build_live_bundle():
         status = "fresh" if goldprice_age is not None and 0 <= goldprice_age <= 60 else "partial"
         bundle = {
             "fetched_at": int(time.time()),
+            "risk_spot_backup": results.get("risk_spot_backup") if isinstance(results.get("risk_spot_backup"), dict) else None,
             "spots": {
                 "xaus": goldprice_price,
                 "goldprice": goldprice_price,
@@ -2523,6 +2532,7 @@ if __name__ == "__main__":
     BobHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
+
 
 
 
