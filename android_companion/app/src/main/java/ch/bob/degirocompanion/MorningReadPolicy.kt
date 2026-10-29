@@ -98,11 +98,47 @@ internal object MorningReadPolicy {
         return navigate(nodes,target,false,lookupSymbol)
     }
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true) { null }
+    /** Search pages retain the global order launcher. Recognize only its exact,
+     * isolated label beside one explicitly labelled product input. Keep indexes
+     * unchanged and re-run every protection against the remaining nodes. */
+    private fun productSearchWithoutLauncher(nodes: List<Node>): List<Node>? {
+        val inputs=nodes.filter { it.editable }
+        if (inputs.size != 1 || !inputs.single().enabled) return null
+        val input=inputs.single()
+        if (listOf(input.description,input.hint).none {
+                normalized(it).equals("Mit Namen, ISIN oder Symbol suchen",ignoreCase=true) }) return null
+        val marked=nodes.indices.filter { i ->
+            listOf(nodes[i].text,nodes[i].description,nodes[i].hint).any(orderMarkers.first().second::containsMatchIn)
+        }
+        val index=marked.singleOrNull() ?: return null
+        val launcher=nodes[index]
+        val exact=Regex("(?iu)^(order platzieren|place order)$")
+        if (!canClick(launcher) || launcher.editable || launcher.containsInput || launcher.password || launcher.sensitive) return null
+        if (listOf(launcher.text,launcher.description,launcher.hint,launcher.row).filter(String::isNotBlank)
+                .any { !exact.matches(normalized(it)) }) return null
+        // The search must not be nested in the launcher (or vice versa).
+        fun below(child: Int, ancestor: Int): Boolean {
+            var cursor=nodes[child].parent
+            var steps=0
+            while(cursor in nodes.indices && steps++ < nodes.size) {
+                if(cursor==ancestor) return true
+                cursor=nodes[cursor].parent
+            }
+            return false
+        }
+        val inputIndex=nodes.indexOf(input)
+        if(below(inputIndex,index) || below(index,inputIndex)) return null
+        return nodes.mapIndexed { i,n -> if(i==index) Node("") else n }
+    }
     private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?): Action {
         if (nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
         protection(nodes)?.let { cause ->
             if (cause == "PROTECTED_ORDER_CONFIRM") {
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
+                productSearchWithoutLauncher(nodes)?.let { searchNodes ->
+                    val action=navigate(searchNodes,target,discovery,lookupSymbol)
+                    if(action.kind in setOf(Kind.QUERY,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
+                }
             }
             return Action(Kind.BLOCK, code=cause)
         }
