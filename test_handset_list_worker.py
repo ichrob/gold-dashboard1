@@ -5,6 +5,17 @@ from unittest.mock import patch
 import handset_list_worker as worker
 
 class WorkerTests(unittest.TestCase):
+    def test_worker_status_reports_queue_failure_without_private_error_text(self):
+        def broken():raise RuntimeError('private database information')
+        with patch('video_ocr.tick', return_value='idle'), patch('handset_list_worker.time.sleep',side_effect=InterruptedError):
+            with self.assertRaises(InterruptedError):worker.loop(broken)
+        result=worker.status()
+        self.assertEqual(result['state'],'queue-error')
+        self.assertEqual(result['error'],'RuntimeError')
+        self.assertTrue(result['fresh'])
+        self.assertNotIn('private',json.dumps(result))
+
+
     def test_shared_parser_requires_ten_agreed_rows_and_preserves_quote_gaps(self):
         script=r'''
 const {parse}=require('./handset_list_parse');

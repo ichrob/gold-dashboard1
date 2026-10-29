@@ -7,6 +7,20 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import threading
+
+_state = {"state": "not-started", "checkedAt": None, "error": None}
+_state_lock = threading.Lock()
+
+def observe(state, error=None):
+    with _state_lock:
+        _state.update(state=state, checkedAt=time.time(), error=error)
+
+def status():
+    with _state_lock:
+        value=dict(_state)
+    value["fresh"]=value["checkedAt"] is not None and time.time()-value["checkedAt"]<180
+    return value
 
 
 def recognize(images):
@@ -50,6 +64,7 @@ def process(payload,at):
 
 
 def tick(connect,runner=process):
+    observe("checking")
     with connect() as conn:
         row=conn.execute("""SELECT i.batch_id,i.payload,i.created_at FROM bob_android_list_images i
             JOIN bob_android_diagnostic_devices d USING(token_hash)
@@ -57,10 +72,13 @@ def tick(connect,runner=process):
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
             AND i.processing_attempts<3 AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
             ORDER BY i.created_at DESC LIMIT 1 FOR UPDATE OF i SKIP LOCKED""").fetchone()
-        if not row:return False
+        if not row:
+            observe("idle")
+            return False
         batch,payload,created=row
         conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1 WHERE batch_id=%s",(batch,))
         conn.commit()
+    observe("reading")
     try:
         parsed=runner(payload,payload['images'][-1]['at'])
         if len(parsed.get('items',[]))!=10 or len({x.get('isin') for x in parsed['items']})!=10:
@@ -77,7 +95,9 @@ def tick(connect,runner=process):
             receipt={'batchId':batch,'stage':stage,'count':10,'at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}
             conn.execute('UPDATE bob_android_list_images SET parsed_items=%s::jsonb,import_receipt=%s::jsonb WHERE batch_id=%s',(json.dumps(parsed['items']),json.dumps(receipt),batch))
             conn.commit()
+        observe(stage)
     except Exception as exc:
+        observe("read-failed", type(exc).__name__)
         with connect() as conn:
             conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','')!='synced'",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__}),batch))
             conn.commit()
@@ -91,7 +111,9 @@ def loop(connect):
     last_video=0.0
     while True:
         try:tick(connect)
-        except Exception:pass  # Fixed receipts expose failures without screenshot text in logs.
+        except Exception as exc:
+            observe("queue-error", type(exc).__name__)
+            print("BOB_HANDSET_LIST error="+type(exc).__name__,flush=True)
         if time.monotonic()-last_video>=120:
             try:print('BOB_VIDEO_OCR status='+video_ocr.tick(connect),flush=True)
             except Exception as exc:print('BOB_VIDEO_OCR error='+type(exc).__name__,flush=True)
