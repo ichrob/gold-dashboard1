@@ -15,6 +15,27 @@ internal object ProductReadDiagnostics {
         TRACKED_QUERY_IDENTITY, TRACKED_QUERY_NODE_CHANGED, TRACKED_QUERY_MISSING,
         NO_METADATA, OTHER_METADATA }
     private val searchInputEvidence = mutableMapOf<SearchInputEvidence, Int>()
+    enum class SearchSource { INPUT_TEXT, INPUT_HINT, INPUT_DESCRIPTION, INPUT_ID, PAGE_LABEL }
+    enum class SearchFeature { PRESENT, EXACT_PROMPT, PROMPT_WORDS, SEARCH_WORD, ISIN_WORD, SYMBOL_WORD }
+    private val searchShape = mutableMapOf<Pair<SearchSource, SearchFeature>, Int>()
+    /** Convert field metadata to fixed flags immediately; never retain its value. */
+    fun searchShape(source:SearchSource, value:String) {
+        val normalized=value.take(2000).lowercase().replace(Regex("[\\s\\p{Zs}]+")," ").trim()
+        if(normalized.isEmpty()) return
+        fun flag(feature:SearchFeature) {
+            val key=source to feature
+            searchShape[key]=((searchShape[key] ?: 0)+1).coerceAtMost(999)
+        }
+        flag(SearchFeature.PRESENT)
+        if(normalized=="mit namen, isin oder symbol suchen") flag(SearchFeature.EXACT_PROMPT)
+        val isin=Regex("\\bisin\\b").containsMatchIn(normalized)
+        val symbol=Regex("\\bsymbol\\b").containsMatchIn(normalized)
+        val search=Regex("suche|search").containsMatchIn(normalized)
+        if(isin) flag(SearchFeature.ISIN_WORD)
+        if(symbol) flag(SearchFeature.SYMBOL_WORD)
+        if(search) flag(SearchFeature.SEARCH_WORD)
+        if(isin && symbol && search) flag(SearchFeature.PROMPT_WORDS)
+    }
     private fun classifySearchInput(nodes: List<MorningReadPolicy.Node>): SearchInputEvidence {
         val inputs=nodes.filter { it.editable }
         if(inputs.isEmpty()) return SearchInputEvidence.NO_EDITABLE
@@ -37,8 +58,8 @@ internal object ProductReadDiagnostics {
         }
     }
     private var startedAt: Long? = null
-    fun reset(now: Long) { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
-    fun clear() { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
+    fun reset(now: Long) { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
+    fun clear() { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
     fun record(outcome: Outcome) { counts[outcome] = ((counts[outcome] ?: 0) + 1).coerceAtMost(999) }
     fun page(cause: ProductPageReader.Cause) {
         if (cause != ProductPageReader.Cause.NONE) pageCauses[cause] = ((pageCauses[cause] ?: 0) + 1).coerceAtMost(999)
@@ -56,6 +77,8 @@ internal object ProductReadDiagnostics {
             else for (outcome in Outcome.values()) counts[outcome]?.let { appendLine("${outcome.name}: $it") }
             for (issue in MorningReadPolicy.LauncherIssue.values()) launcherIssues[issue]?.let { appendLine("SEARCH_GUARD_${issue.name}: $it") }
             for (evidence in SearchInputEvidence.values()) searchInputEvidence[evidence]?.let { appendLine("SEARCH_INPUT_${evidence.name}: $it") }
+            for (source in SearchSource.values()) for(feature in SearchFeature.values())
+                searchShape[source to feature]?.let { appendLine("SEARCH_SHAPE_${source.name}_${feature.name}: $it") }
             for (cause in ProductPageReader.Cause.values()) pageCauses[cause]?.let { appendLine("PAGE_${cause.name}: $it") }
             for (reason in ProductScreenEvidence.Reason.values()) reasons[reason]?.let { appendLine("FIELD_${reason.name}: $it") }
         }.trim()
