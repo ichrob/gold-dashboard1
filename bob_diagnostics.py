@@ -702,6 +702,50 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
     return result
 
 
+def risk_paper_snapshot(value, now=None):
+    """Bounded stored 2,000 EUR study state; a heartbeat never proves a fill."""
+    base = {'status':'unavailable', 'readOnly':True, 'realOrders':False,
+            'scope':'stored-risk-paper-state-not-broker-execution',
+            'continuousExecutionVerified':False}
+    if not isinstance(value, dict):
+        return base
+    if value.get('status') == 'not-started':
+        return dict(base, reason='risk-paper-not-started')
+    if value.get('version') != 'risk-paper-2000-v1' or value.get('realOrders') is not False:
+        return dict(base, reason='risk-paper-state-invalid')
+    now = time.time()*1000 if now is None else now
+    at = value.get('checkedAt')
+    valid_clock = (type(at) in (int, float) and math.isfinite(at)
+                   and 0 < at <= now)
+    age = (now-at)/1000 if valid_clock else None
+    raw = value.get('accounts')
+    if not isinstance(raw, dict):
+        return dict(base, reason='risk-paper-accounts-missing')
+    accounts = []
+    for key in ('0', '30', '60'):
+        item = raw.get(key)
+        if not isinstance(item, dict) or item.get('delaySeconds') != int(key):
+            accounts.append({'delaySeconds':int(key), 'status':'unavailable'})
+            continue
+        accounts.append({
+            'status':'observed',
+            **fields(item, ('delaySeconds','reason','cash','equity','realized',
+                            'closed','wins','incomplete','maxDrawdown','reviewReady',
+                            'lastDataAt')),
+            'positionOpen':isinstance(item.get('position'), dict),
+            'entryPending':isinstance(item.get('pending'), dict),
+        })
+    complete = all(a['status'] == 'observed' for a in accounts)
+    return {**base,
+            'status':('unavailable' if not valid_clock else 'stale' if age > 120
+                      else 'observed' if complete else 'partial'),
+            **fields(value, ('version','startedAt','checkedAt','costAssumptionPerSide')),
+            'ageSeconds':age, 'staleAfterSeconds':120, 'accounts':accounts,
+            'reason':None if valid_clock else 'risk-paper-heartbeat-unconfirmed',
+            'note':'Stored virtual accounts with assumed costs. A fresh check does not '
+                   'prove an entry, continuous monitoring or verified returns.'}
+
+
 def simulation_status(conn, evaluator, paper_health, portfolios):
     """Fast live controls and today's indexed case sample; no history scans."""
     from zoneinfo import ZoneInfo
@@ -1193,7 +1237,7 @@ def broker_sync_snapshot(value):
 DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
                     'sources', 'research', 'repairs', 'mobile', 'products')
 _FOCUS_AREAS = {
-    'simulation': ('simulationEvidence', 'simulationAndPush', 'comparisonEvidence',
+    'simulation': ('simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
                    'comparisonHealth', 'entryBlockEvidence', 'background', 'collection',
                    'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'sources': ('market', 'sourceReliability', 'collection', 'background', 'analysis'),
@@ -1575,5 +1619,6 @@ def bounded_report(report, max_bytes):
         areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
         result['omittedAreas'].append(name)
     return result
+
 
 
