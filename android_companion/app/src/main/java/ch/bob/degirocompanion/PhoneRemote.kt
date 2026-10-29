@@ -52,7 +52,7 @@ internal object PhoneRemote {
         if(session!=id)return
         if(!active() || !PhoneDiagnostics.paired(c)) { stop(c,"SESSION_EXPIRED");return }
         val observation=runCatching { reader?.invoke(null) ?: empty("SERVICE_MISSING") }.getOrElse { empty("READ_ERROR") }
-        if(observation.optString("code") in setOf("SCREEN_LOCKED","PROTECTED_VIEW","SERVICE_MISSING")) { stop(c,observation.optString("code"));return }
+        if(PhoneObservationPolicy.mustStop(observation.optString("code"))) { stop(c,observation.optString("code"));return }
         val body=payload(id,true,observation);busy=true
         network.execute {
             val result=runCatching { PhoneDiagnostics.remoteExchange(c,body) }
