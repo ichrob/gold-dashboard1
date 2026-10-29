@@ -132,8 +132,10 @@ internal object MorningReadPolicy {
         if (inputs.size != 1) return reject(LauncherIssue.INPUT_COUNT)
         if (!inputs.single().enabled) return reject(LauncherIssue.INPUT_DISABLED)
         val input=inputs.single()
-        if (listOf(input.description,input.hint).none {
-                normalized(it).equals("Mit Namen, ISIN oder Symbol suchen",ignoreCase=true) }) return reject(LauncherIssue.INPUT_LABEL)
+        // Use the same semantic input identity as navigationTree and the normal
+        // query path: Android may expose a search resource ID or short hint.
+        // User-entered text alone never establishes a search input here.
+        if (!isSearchInput(input.id,input.description,input.hint)) return reject(LauncherIssue.INPUT_LABEL)
         val marked=nodes.indices.filter { i ->
             listOf(nodes[i].text,nodes[i].description,nodes[i].hint).any(orderMarkers.first().second::containsMatchIn)
         }
