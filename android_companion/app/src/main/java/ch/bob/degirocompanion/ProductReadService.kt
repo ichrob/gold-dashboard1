@@ -22,6 +22,12 @@ import java.time.Instant
 /** Explicit one-minute reading request or accessibility button; only bounded scroll actions on validated product pages. */
 class ProductReadService : AccessibilityService() {
     private val symbolMemory by lazy { getSharedPreferences("degiro_symbol_identity_v1", MODE_PRIVATE) }
+    private var writtenSearchNode: AccessibilityNodeInfo? = null
+    private var writtenSearchQuery = ""
+    private fun clearWrittenSearch() { writtenSearchNode?.recycle(); writtenSearchNode=null; writtenSearchQuery="" }
+    private fun rememberWrittenSearch(node: AccessibilityNodeInfo, query: String) {
+        clearWrittenSearch(); writtenSearchNode=AccessibilityNodeInfo.obtain(node); writtenSearchQuery=query
+    }
     private var searchTapAttempted = false
     private var batchTransition = false
     private var lastNavigation = 0L
@@ -103,7 +109,7 @@ class ProductReadService : AccessibilityService() {
     override fun onServiceConnected() {
         PhoneRemote.reader={command -> remoteRead(command)}
         PhoneRemote.onStop={ code ->
-            remoteSearchProgress.clear(); automaticSearchProgress.clear()
+            remoteSearchProgress.clear(); automaticSearchProgress.clear(); clearWrittenSearch()
             GoldSearchRun.stop(code,Instant.now().toString())
             MorningReadRun.stop(this,code)
             ProductReadRequest.cancel()
@@ -156,6 +162,7 @@ class ProductReadService : AccessibilityService() {
             PhoneDiagnostics.queue(this)
         }
         ProductReadRequest.onStarted = {
+            clearWrittenSearch()
             searchTapAttempted = false
             automaticSearchProgress.clear()
             lastNavigationIssue=""
@@ -430,8 +437,14 @@ class ProductReadService : AccessibilityService() {
                 val sensitiveNode=n.isPassword || (android.os.Build.VERSION.SDK_INT>=34 && n.isAccessibilityDataSensitive)
                 val hint=if(sensitiveNode) "" else MorningReadPolicy.inputHint(
                     n.hintText?.toString().orEmpty(),
-                    if(n.isShowingHintText) n.text?.toString().orEmpty() else "",
-                    n.isShowingHintText)
+                    n.text?.toString().orEmpty(),
+                    n.isShowingHintText).ifBlank {
+                    // Retain only the exact input Bob just wrote, and only while
+                    // it still contains that exact query. All page guards run again.
+                    if(n.isEditable && n==writtenSearchNode && n.windowId==writtenSearchNode?.windowId &&
+                        n.text?.toString()==writtenSearchQuery && writtenSearchQuery.isNotEmpty())
+                        "Mit Namen, ISIN oder Symbol suchen" else ""
+                }
                 val id=n.viewIdResourceName.orEmpty()
                 val description=if(sensitiveNode) "" else n.contentDescription?.toString().orEmpty().take(2000)
                 val searchInput=n.isEditable && MorningReadPolicy.isSearchInput(id,description,hint)
@@ -507,6 +520,8 @@ class ProductReadService : AccessibilityService() {
                 MorningReadPolicy.Kind.BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
                 else -> return result
             }
+            if(success && decision.kind==MorningReadPolicy.Kind.QUERY)
+                rememberWrittenSearch(nodes[decision.index],if(actionName=="search_gold") "Gold" else target)
             lastNavigation=SystemClock.elapsedRealtime()
             if(decision.kind in setOf(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.Kind.SUBMIT))remoteSearchProgress.record(decision.index,lastNavigation)
             return result.put("code",if(success) "ACTION_ACCEPTED" else "ACTION_REJECTED")
@@ -630,6 +645,8 @@ class ProductReadService : AccessibilityService() {
                         node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)
                     } else if(action.kind==MorningReadPolicy.Kind.SUBMIT) submitSearch(node)
                     else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if(success && action.kind==MorningReadPolicy.Kind.QUERY)
+                        rememberWrittenSearch(node,if(gold) "Gold" else MorningReadRun.target)
                     if(action.kind in setOf(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.Kind.SUBMIT))automaticSearchProgress.record(action.index,lastNavigation)
                     if(!success) {
                         lastNavigationIssue="NAVIGATION_REJECTED"
