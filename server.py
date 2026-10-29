@@ -114,7 +114,7 @@ def android_diagnostic_rpc(payload, remote=False):
     if not base.startswith(('https://','http://')):base='https://'+base
     request=Request(base+('/android-remote' if remote else '/android-diagnostics'),data=json.dumps(payload).encode(),method='POST',
         headers={'X-Bob-Push-Token':PUSH_SERVICE_TOKEN,'Content-Type':'application/json'})
-    with urlopen(request,timeout=8) as response:return json.loads(response.read(200000))
+    with urlopen(request,timeout=8) as response:return json.loads(response.read(4200000))
 
 
 def read_private_product_audit_for_mcp():

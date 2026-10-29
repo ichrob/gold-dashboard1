@@ -23,6 +23,7 @@ internal object PhoneRemote {
     var onStop:((String)->Unit)?=null
     var message="Handy-Sitzung ausgeschaltet."
         private set
+    fun sessionId()=session
     fun active()=session.isNotEmpty() && SystemClock.elapsedRealtime()<deadline
     fun empty(code:String)=JSONObject().put("at",System.currentTimeMillis()/1000).put("code",code)
         .put("nodeCount",0).put("isins",JSONArray()).put("draft","")

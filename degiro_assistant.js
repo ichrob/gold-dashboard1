@@ -5311,6 +5311,35 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
   }
   finally{upload.value='';upload.disabled=false;uploadButton.disabled=false;addButton.disabled=false;setTimeout(retrySavedList,1000);}
  });
+ // An explicit handset completion link identifies one authenticated private
+ // batch. Reuse the exact existing image importer and all its atomic validation.
+ let handsetListBusy=false;
+ async function importHandsetList(){
+  const match=location.hash.match(/^#bob-morning-images=([a-f0-9]{32})$/);
+  if(!match||handsetListBusy||upload.disabled||document.hidden)return;
+  handsetListBusy=true;
+  try{
+   const response=await fetch('/api/android-list/latest?batchId='+match[1],{credentials:'same-origin',cache:'no-store'});
+   if(!response.ok)throw Error('Handy-Bilder konnten nicht abgerufen werden.');
+   const {batch}=await response.json();
+   if(!batch||batch.batchId!==match[1]||!Array.isArray(batch.images)||batch.images.length!==2)throw Error('Handy-Bildserie fehlt.');
+   const transfer=new DataTransfer();
+   for(const [i,image] of batch.images.entries()){
+    const at=Date.parse(image.at);
+    if(!Number.isFinite(at)||Date.now()-at>86400000||at>Date.now()+5000||typeof image.png!=='string'||image.png.length>2000000)throw Error('Ungültige Handy-Bildserie.');
+    const bytes=Uint8Array.from(atob(image.png),c=>c.charCodeAt(0));
+    transfer.items.add(new File([bytes],'DEGIRO-'+image.at.replace(/[:.]/g,'-')+'-'+(i+1)+'.png',{type:'image/png',lastModified:at}));
+   }
+   listUploadMode='replace';stagedListImages=[];upload.files=transfer.files;
+   history.replaceState(null,'',location.pathname+location.search);
+   document.querySelector('#bobNavigation [data-view="products"]')?.click();
+   upload.dispatchEvent(new Event('change'));
+  }catch(e){uploadStatus.textContent='⚠️ '+e.message+' Die bisherige Liste bleibt erhalten.';}
+  finally{handsetListBusy=false;}
+ }
+ window.addEventListener('hashchange',importHandsetList);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)importHandsetList();});
+ setTimeout(importHandsetList,1000);
  // Retry the uncommitted screenshot batch at startup after a new code release.
  // Only an entirely valid batch may replace the user's active saved list.
  const retryPendingList=async()=>{

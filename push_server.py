@@ -344,7 +344,7 @@ def cors(handler):
 
 def json_body(handler):
     length = int(handler.headers.get("Content-Length", "0") or 0)
-    if length <= 0 or length > (1048576 if urlparse(handler.path).path in ("/market-candles/write", "/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write", "/snaptrade-settings/state-save") else 65536):
+    if length <= 0 or length > (4101000 if urlparse(handler.path).path=="/android-remote" else 1048576 if urlparse(handler.path).path in ("/market-candles/write", "/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write", "/snaptrade-settings/state-save") else 65536):
         raise ValueError("Ungültige Payload-Größe")
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
@@ -859,23 +859,18 @@ class Handler(BaseHTTPRequestHandler):
                 if "offset" in args:
                     args["offset"] = int(args["offset"])
                 args = push_delivery_history.arguments(args)
-                key = "push-delivery-history:" + hashlib.sha256(
-                    json.dumps(args, sort_keys=True).encode()
-                ).hexdigest()
-                def delivery_history_report(conn):
+                with db() as conn:
                     conn.execute("SET TRANSACTION READ ONLY")
-                    return push_delivery_history.report(conn, args)
-                result = read_db_report(key, delivery_history_report)
+                    result = push_delivery_history.report(conn, args)
                 send_json(self, 200, result)
                 return
             if path == "/risk-paper":
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
                     send_json(self,401,{'error':'Unauthorized'});return
-                def risk_paper_report(conn):
+                with db() as conn:
                     conn.execute("SET TRANSACTION READ ONLY")
-                    return __import__('risk_paper').report(conn)
-                result=read_db_report('risk-paper',risk_paper_report)
+                    result=__import__('risk_paper').report(conn)
                 send_json(self,200,result);return
             if path == "/signal-history":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
@@ -889,42 +884,37 @@ class Handler(BaseHTTPRequestHandler):
                 args = {k:v[0] for k,v in query.items()}
                 if 'offset' in args: args['offset']=int(args['offset'])
                 args=signal_history.arguments(args)
-                key='signal-history:'+hashlib.sha256(json.dumps(args,sort_keys=True).encode()).hexdigest()
-                def signal_history_report(conn):
+                with db() as conn:
                     conn.execute("SET TRANSACTION READ ONLY")
-                    return signal_history.report(conn,args)
-                result=read_db_report(key,signal_history_report)
+                    result=signal_history.report(conn,args)
                 send_json(self,200,result)
                 return
             if path == "/android-diagnostic-status":
                 supplied=self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
                     send_json(self,401,{"error":"Unauthorized"});return
-                def android_diagnostic_report(conn):
+                with db() as conn:
                     conn.execute("SET TRANSACTION READ ONLY")
                     conn.execute("SET LOCAL statement_timeout='3s'")
-                    return __import__('android_telemetry').status(conn)
-                result=read_db_report('android-diagnostic-status',android_diagnostic_report)
+                    result=__import__('android_telemetry').status(conn)
                 send_json(self,200,result);return
             if path == "/android-read-status":
                 supplied=self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
                     send_json(self,401,{"error":"Unauthorized"});return
-                def android_read_report(conn):
+                with db() as conn:
                     conn.execute("SET TRANSACTION READ ONLY")
                     conn.execute("SET LOCAL statement_timeout='3s'")
-                    return __import__('android_observations').status(conn)
-                result=read_db_report('android-read-status',android_read_report)
+                    result=__import__('android_observations').status(conn)
                 send_json(self,200,result);return
             if path == "/storage-health":
                 supplied=self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
                     send_json(self,401,{"error":"Unauthorized"});return
-                def storage_health_report(conn):
+                with db() as conn:
                     conn.execute("SET TRANSACTION READ ONLY")
                     conn.execute("SET LOCAL statement_timeout='3s'")
-                    return __import__('storage_budget').report(conn)
-                result=read_db_report('storage-health',storage_health_report)
+                    result=__import__('storage_budget').report(conn)
                 send_json(self,200,result);return
             if path in ("/diagnostics", "/simulation-status", "/comparison-status"):
                 supplied = self.headers.get("X-Bob-Push-Token", "")
@@ -932,17 +922,17 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self, 401, {"error":"Unauthorized"})
                     return
                 import bob_diagnostics, paper_portfolios
-                def diagnostic_report(conn):
+                with db() as conn:
                     # Enforce the read boundary at the database as well.
                     conn.execute("SET TRANSACTION READ ONLY")
                     if path == "/simulation-status":
                         conn.execute("SET LOCAL statement_timeout='3s'")
-                        return bob_diagnostics.simulation_status(conn, evaluator_runtime, paper_health, paper_portfolios)
-                    if path == "/comparison-status":
+                        result = bob_diagnostics.simulation_status(conn, evaluator_runtime, paper_health, paper_portfolios)
+                    elif path == "/comparison-status":
                         conn.execute("SET LOCAL statement_timeout='3s'")
-                        return bob_diagnostics.comparison_status(conn, paper_portfolios)
-                    return bob_diagnostics.push_snapshot(conn, evaluator_runtime, paper_health, paper_portfolios, extended=True)
-                result = read_db_report(path[1:], diagnostic_report)
+                        result = bob_diagnostics.comparison_status(conn, paper_portfolios)
+                    else:
+                        result = bob_diagnostics.push_snapshot(conn, evaluator_runtime, paper_health, paper_portfolios, extended=True)
                 result['runtimeWatchdog'] = __import__('runtime_watchdog').snapshot()
                 send_json(self, 200, result)
                 return
@@ -973,13 +963,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
                     send_json(self, 401, {"error": "Unauthorized"})
                     return
-                def monitor_status_report(conn):
-                    conn.execute("SET TRANSACTION READ ONLY")
+                with db() as conn:
                     count = conn.execute("SELECT count(*) FROM subscriptions WHERE general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)").fetchone()[0]
                     trades = conn.execute("SELECT count(*) FROM subscriptions WHERE trade_enabled=TRUE AND active_trade=TRUE").fetchone()[0]
-                    return {"activeMonitors": count, "activeTrades": trades}
-                result = read_db_report("monitor-status", monitor_status_report)
-                send_json(self, 200, result)
+                send_json(self, 200, {"activeMonitors": count, "activeTrades": trades})
                 return
             if path == "/vapid-public-key":
                 send_json(self, 200, {"publicKey": vapid_public_key()})

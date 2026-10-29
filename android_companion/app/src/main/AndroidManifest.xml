@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">
-    <!-- Network is used only for separately consented, scoped phone diagnostics. OCR remains on-device. -->
+    <!-- Network carries paired diagnostics and explicitly started morning-list images to private Bob. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Bounded screen-on lease during an explicitly started product read. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <queries><package android:name="nl.degiro.trader" /></queries>
-    <!-- Explicit product reader with a bounded search-tap fallback; no screenshots. -->
+    <!-- Explicit product reader and two-image morning-list capture. -->
     <application android:label="${bobAppLabel}"
                  android:allowBackup="false"
                  android:usesCleartextTraffic="false"

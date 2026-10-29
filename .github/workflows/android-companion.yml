@@ -73,7 +73,7 @@ jobs:
           assert 'android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"' in manifest
           config = Path("android_companion/app/src/main/res/xml/product_reader.xml").read_text()
           assert 'android:canPerformGestures="true"' in config
-          assert 'android:canTakeScreenshot="false"' in config
+          assert 'android:canTakeScreenshot="true"' in config
           assert 'android:packageNames="nl.degiro.trader"' in config
           service = Path("android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadService.kt").read_text()
           assert service.count('dispatchGesture(') == 1
