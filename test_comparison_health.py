@@ -62,8 +62,8 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute('CREATE TABLE bob_decision_outcomes (decision_id TEXT, horizon INT, truth JSONB)')
                 conn.execute("INSERT INTO bob_decision_audit VALUES ('secret-id',now(),'{\"marketEvaluable\":true}')")
                 conn.execute("INSERT INTO bob_decision_outcomes VALUES ('secret-id',60,'{}')")
-                conn.execute('CREATE TABLE bob_ranking_samples (currency TEXT,slot BIGINT,outcome JSONB)')
-                conn.execute("INSERT INTO bob_ranking_samples VALUES ('EUR',1000,'{\"complete\":false}'),('CHF',1000,'{\"complete\":true}')")
+                conn.execute('CREATE TABLE bob_ranking_samples (currency TEXT,slot BIGINT,outcome JSONB,payload JSONB)')
+                conn.execute("INSERT INTO bob_ranking_samples VALUES ('EUR',1000,'{\"complete\":false}','{}'),('CHF',1000,'{\"complete\":true}','{}')")
                 conn.execute('CREATE TABLE bob_precision_learning (id TEXT,state JSONB)')
                 conn.execute("INSERT INTO bob_precision_learning VALUES ('private-identity','{\"phase\":\"validation\",\"lastAt\":1000}')")
                 conn.commit()
@@ -73,6 +73,23 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(r['items']['signal-outcomes']['counts'],{'outcome-recorded':1})
                 self.assertEqual(r['items']['ranking-EUR']['counts'],{'incomplete':1})
                 self.assertEqual(r['items']['ranking-CHF']['counts'],{'comparable':1})
+                for slot,payload in enumerate([
+                    {'marketReady':False,'candidates':[]},
+                    {'marketReady':True,'candidates':[]},
+                    {'marketReady':True,'candidates':[{}]},
+                    {'marketReady':True,'candidates':[],'missing':['private-isin']},
+                ],2000):
+                    # Separate write transaction; probes themselves remain read-only.
+                    conn.commit()
+                    conn.execute('INSERT INTO bob_ranking_samples VALUES (%s,%s,%s::jsonb,%s::jsonb)',
+                        ('EUR',slot,json.dumps({'complete':False}),json.dumps(payload)))
+                conn.commit()
+                conn.execute('SET TRANSACTION READ ONLY')
+                details=h.report(conn)
+                self.assertEqual(details['items']['ranking-EUR']['counts'],{
+                    'incomplete':1,'market-not-ready':1,'no-comparable-products':1,
+                    'insufficient-comparison-products':1,'entry-evidence-missing':1})
+                self.assertNotIn('private-isin',json.dumps(details))
                 self.assertEqual(r['items']['price-correction-states']['counts'],{'validation':1})
                 self.assertNotIn('secret-id',json.dumps(r))
                 self.assertNotIn('private-identity',json.dumps(r))
@@ -80,3 +97,4 @@ class DatabaseTests(unittest.TestCase):
             finally:
                 conn.rollback()
                 conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+
