@@ -41,7 +41,10 @@ internal object ProductSymbolMemory {
     }
     fun headerSymbol(text: String): String? = header.matchEntire(text.trim())?.groupValues?.get(1)
     fun resolve(lines: List<QuoteLayout.Line>, lookup: (String) -> String?): String? {
-        val symbols = lines.mapNotNull { headerSymbol(it.text) }.distinct()
+        return resolveTexts(lines.map { it.text }, lookup)
+    }
+    fun resolveTexts(texts: List<String>, lookup: (String) -> String?): String? {
+        val symbols = texts.mapNotNull { headerSymbol(it) }.distinct()
         if (symbols.size != 1) return null
         return lookup(symbols.single())?.takeIf { SeriesEvidence.validIsin(it) }
     }

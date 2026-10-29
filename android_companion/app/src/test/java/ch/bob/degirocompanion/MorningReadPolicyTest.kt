@@ -127,4 +127,41 @@ class MorningReadPolicyTest {
         assertEquals(MorningReadPolicy.Kind.BACK,MorningReadPolicy.decide(listOf(node("DE000FG77MY4"),node("Übersicht")),isin).kind)
         assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(node("KAUF",true)),isin).kind)
     }
+    @Test fun knownSymbolHandsDetailToReaderButNeverOverridesVisibleIdentityOrProtection() {
+        val header=node("12345678 • Societe Generale OTC | R")
+        val page=listOf(header,node("Übersicht"),node("KAUF",true))
+        val lookup: (String)->String? = { if(it=="12345678") isin else null }
+        assertEquals(MorningReadPolicy.Kind.READ,MorningReadPolicy.decide(page,isin,lookup).kind)
+        assertEquals(MorningReadPolicy.Kind.BACK,MorningReadPolicy.decide(page,isin).kind)
+        for (stored in listOf(null,ProductSymbolMemory.CONFLICT,"DE000FG77MY4","DE000FD0S0G5"))
+            assertEquals(MorningReadPolicy.Kind.BACK,MorningReadPolicy.decide(page,isin) { stored }.kind)
+        for (extra in listOf(node("DE000FG77MY4"),node("87654321 • Societe Generale OTC | R")))
+            assertEquals(MorningReadPolicy.Kind.BACK,MorningReadPolicy.decide(page+extra,isin,lookup).kind)
+        for (extra in listOf(node("Anmelden"),node("Order bestätigen"),node("Limitpreis"),node("").copy(sensitive=true)))
+            assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(page+extra,isin,lookup).kind)
+        assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(listOf(header),isin,lookup).kind)
+        assertEquals(MorningReadPolicy.Kind.BACK,MorningReadPolicy.decide(listOf(header.copy(text="",row=header.text),node("Übersicht")),isin,lookup).kind)
+        // Search results must still show the exact ISIN before a click is allowed.
+        val input=node(isin).copy(editable=true,hint="Suche")
+        assertEquals("RESULT_MISSING",MorningReadPolicy.decide(page+input,isin,lookup).code)
+    }
+    @Test fun listNavigationAndReaderRequireVisibleIsinBeforePublishing() {
+        val texts=listOf("12345678 • Societe Generale OTC | R","Übersicht")
+        val lookup: (String)->String? = { isin }
+        assertEquals(MorningReadPolicy.Kind.READ,MorningReadPolicy.decide(texts.map { node(it) },isin,lookup).kind)
+        fun lines(values:List<String>)=values.mapIndexed { index,text -> QuoteLayout.Line(text,0,index*50,250,index*50+30) }
+        val header=lines(texts)
+        val reader=ProductPageReader()
+        val hint=ProductSymbolMemory.resolve(header,lookup)
+        assertEquals(ProductPageReader.Move.FORWARD,reader.inspect(1,header,"",false,true,true,identityHint=hint).move)
+        val quotes=lines(listOf("Geld EUR 10,20","Brief EUR 10,30"))
+        assertEquals(ProductPageReader.Move.BACKWARD,reader.inspect(1,quotes,"",false,true,true).move)
+        val refused=reader.inspect(1,header,"",false,false,false,identityHint=hint)
+        assertEquals(ProductPageReader.Move.ABORT,refused.move)
+        assertEquals("",refused.result.draft)
+        reader.inspect(1,header,"",false,true,true,identityHint=hint)
+        val verified=reader.inspect(1,lines(listOf("Geld EUR 10,20","Brief EUR 10,30",isin)),"",false,true,true)
+        assertEquals(ProductPageReader.Move.FINISHED,verified.move)
+        assertTrue(verified.result.draft.contains("ISIN: $isin"))
+    }
 }

@@ -60,7 +60,7 @@ internal object MorningReadPolicy {
         }
         return searches.singleOrNull()
     }
-    fun decide(nodes: List<Node>, target: String): Action {
+    fun decide(nodes: List<Node>, target: String, lookupSymbol: (String) -> String? = { null }): Action {
         if (!SeriesEvidence.validIsin(target) || nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
         protection(nodes)?.let { cause ->
             if (cause == "PROTECTED_ORDER_CONFIRM") {
@@ -84,6 +84,12 @@ internal object MorningReadPolicy {
         val visibleIds = nodes.filterNot { it.editable }.flatMap { ids.findAll(it.text.uppercase()).map { m -> m.value }.toList() }.toSet()
         val detail = nodes.any { Regex("(?iu)^(übersicht|overview|kursdaten|produktdetails)$").matches(it.text.trim()) }
         if (visibleIds == setOf(target) && detail) return Action(Kind.READ)
+        // A known symbol may open the bounded page reader, but cannot publish
+        // quotes. That reader still requires a real visible ISIN before export.
+        // Use individual non-input labels, never aggregate rows or search results.
+        if (detail && visibleIds.isEmpty() && ProductSymbolMemory.resolveTexts(
+                nodes.filterNot { it.editable || it.containsInput }.map { it.text }, lookupSymbol) == target)
+            return Action(Kind.READ)
         // Some accessibility trees put the search label on a child of the clickable icon.
         // Accept only a single exact search label; never an aggregate page/list row.
         val buttons = nodes.indices.filter {

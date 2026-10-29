@@ -422,7 +422,9 @@ class ProductReadService : AccessibilityService() {
                 return row
             }
             walk(root,0)
-            val action=MorningReadPolicy.decide(descriptions,MorningReadRun.target)
+            val action=MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
+                symbolMemory.getString(it, null)
+            }
             when(action.kind) {
                 MorningReadPolicy.Kind.BLOCK -> { MorningReadRun.stop(this,action.code);ProductReadRequest.cancel() }
                 MorningReadPolicy.Kind.READ -> { lastNavigationIssue="";MorningReadRun.reading=true; return false }
