@@ -54,11 +54,11 @@ def receipt(value, now):
 
 def status(conn):
     if not conn.execute("SELECT to_regclass('bob_android_list_images')").fetchone()[0]:return []
-    rows=conn.execute("""SELECT i.batch_id, i.created_at, jsonb_array_length(i.payload->'images'), i.import_receipt
+    rows=conn.execute("""SELECT i.batch_id, i.created_at, jsonb_array_length(i.payload->'images'), i.import_receipt, i.processing_attempts, i.processing_at
         FROM bob_android_list_images i JOIN bob_android_diagnostic_devices d USING(token_hash)
         WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
         ORDER BY i.created_at DESC LIMIT 5""").fetchall()
-    return [{'batchId':r[0],'uploadedAt':r[1].isoformat(),'imageCount':r[2],'import':r[3]} for r in rows]
+    return [{'batchId':r[0],'uploadedAt':r[1].isoformat(),'imageCount':r[2],'import':r[3],'processingAttempts':r[4],'processingAt':r[5].isoformat() if r[5] else None} for r in rows]
 
 def handle(conn,payload,now):
     conn.execute("DELETE FROM bob_android_list_images WHERE created_at<now()-interval '24 hours'")
