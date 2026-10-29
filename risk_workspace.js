@@ -5,17 +5,17 @@ const positive=x=>typeof x==='number'&&Number.isFinite(x)&&x>0;
 const side=x=>['LONG','SHORT'].includes(x);
 const POLICY={version:'risk-v1',spotMaxAgeMs:60000,confirmationAtr:.15,warningAtr:.5,trailingAtr:1.5,timeLimitMs:5*60000};
 function analyze(bundle,now=Date.now()){return analyzeInput(bundle,now,false);}
-function analyzeInput(bundle,now,estimated){
+function analyzeInput(bundle,now,estimated,maxBarAgeMs=120000){
  const fail=reason=>({ready:false,direction:'ABWARTEN',stage:'DATEN FEHLEN',reason});
  const s=bundle?.spots,at=Date.parse(s?.spot_price_as_of);
  if(typeof s?.spot_price_as_of!=='string'||!/(?:Z|[+-]\d{2}:\d{2})$/i.test(s.spot_price_as_of)||(!estimated&&s?.is_genuine_xauusd_spot!==true)||s.spot_error||!positive(s.xaus)||!Number.isFinite(at)||at>now||now-at>POLICY.spotMaxAgeMs)return fail('Aktueller Gold-Spot mit Originalzeit fehlt.');
  const raw=bundle?.history?.bars_by_tf?.['1m'];
  if(!Array.isArray(raw))return fail('1-Minuten-Kerzen fehlen; kein schnelles Signal.');
- const bars=raw.filter(b=>b.isOpen!==true&&Number.isFinite(b.openTime)&&b.openTime+60000<=Math.min(now,at)).slice(-21);
+ const bars=raw.filter(b=>b.isOpen!==true&&b.providerIsOpen!==true&&Number.isFinite(b.openTime)&&b.openTime+60000<=Math.min(now,at)).slice(-21);
  if(bars.length<21)return fail('Mindestens 21 abgeschlossene 1-Minuten-Kerzen benötigt.');
  if(bars.some((b,i)=>b.instrument!=='XAU/USD'||b.estimated===true||b.openTime%60000!==0||!['open','high','low','close'].every(k=>positive(b[k]))||b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||b.low>b.high||(i&&b.openTime-bars[i-1].openTime!==60000)))return fail('1-Minuten-Kerzen unplausibel oder lückenhaft.');
  const last=bars.at(-1),prev=bars.at(-2);
- if(now-last.openTime>120000||at<last.openTime+60000)return fail('Spot und abgeschlossene Minutenkerzen sind zeitlich nicht aktuell.');
+ if(now-last.openTime>maxBarAgeMs||at<last.openTime+60000)return fail('Spot und abgeschlossene Minutenkerzen sind zeitlich nicht aktuell.');
  const ranges=bars.slice(1).map((b,i)=>Math.max(b.high-b.low,Math.abs(b.high-bars[i].close),Math.abs(b.low-bars[i].close)));
  const atr=ranges.slice(-14).reduce((a,b)=>a+b,0)/14;
  if(!positive(atr)||Math.abs(s.xaus-last.close)>5*atr)return fail('Schwankungsbreite oder Übereinstimmung von Spot und Kerzen prüfen.');
@@ -40,6 +40,24 @@ function analyzePaper(bundle,now=Date.now()){
   if(alternate.ready)return {...alternate,dataMode:'backup',source:backup.source,sourceAt:alternate.at,primaryReason:direct.reason};
  }
  const s=bundle?.spots,sourceAt=Date.parse(s?.spot_price_as_of),raw=bundle?.history?.bars_by_tf?.['1m'];
+ // Paper-only delayed-structure model. A fresh observed spot updates the
+ // unchanged last complete 21-bar structure for at most one extra minute.
+ // No fabricated OHLC, no retimed source observation, no recursive estimates.
+ const candidates=[];
+ if(s?.is_genuine_xauusd_spot===true&&!s.spot_error)candidates.push({spots:s,source:s.source||s.primary||'Gold-API'});
+ if(backup?.observed===true&&backup.instrument==='XAU/USD'&&backup.source==='XAUS · XAU/USD Spot')
+  candidates.push({spots:{xaus:backup.price,spot_price_as_of:backup.at},source:backup.source});
+ for(const candidate of candidates){
+  const latest=Array.isArray(raw)?raw.filter(b=>Number.isFinite(b.openTime)&&b.openTime+60000<=now).at(-1):null;
+  if(!latest||latest.isOpen===true||latest.providerIsOpen===true||now-latest.openTime<=120000||
+     Date.parse(candidate.spots.spot_price_as_of)<latest.openTime+60000)continue;
+  const projected=analyzeInput({...bundle,spots:candidate.spots},now,true,180000);
+  if(projected.ready)return {...projected,dataMode:'estimate',estimated:true,
+   source:'Frischer Spot mit verzögerter Minutenstruktur',sourceAt:projected.at,computedAt:now,
+   estimateMethod:'spot-lagged-minute-context-v1',referenceSource:candidate.source,
+   anchorBarAt:projected.barAt,structureAgeSeconds:(now-projected.barAt-60000)/1000,
+   primaryReason:direct.reason};
+ }
  if(s?.is_genuine_xauusd_spot!==true||s.spot_error||!positive(s.xaus)||!Number.isFinite(sourceAt)||!/(?:Z|[+-]\d{2}:\d{2})$/i.test(s.spot_price_as_of)||now-sourceAt<0||now-sourceAt>180000||!Array.isArray(raw))return direct;
  const bars=raw.filter(b=>b.isOpen!==true&&b.providerIsOpen!==true&&Number.isFinite(b.openTime)&&b.openTime+60000<=now).slice(-21);
  if(bars.length!==21||bars.some((b,i)=>b.instrument!=='XAU/USD'||b.estimated===true||b.openTime%60000!==0||!['open','high','low','close'].every(k=>positive(b[k]))||b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||b.low>b.high||(i&&b.openTime-bars[i-1].openTime!==60000)))return direct;
@@ -258,6 +276,7 @@ function mount(panel){
 const api={POLICY,analyze,analyzePaper,ranking,monitor,advance,markup,update,mount,server};root.BobRisk=api;
 if(typeof module==='object'&&module.exports)module.exports=api;
 })(typeof window==='undefined'?globalThis:window);
+
 
 
 

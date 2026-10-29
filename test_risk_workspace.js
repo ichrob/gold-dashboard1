@@ -59,3 +59,5 @@ for(const dir of ['LONG','SHORT']){
  assert.equal(r.analyzePaper(unconfirmed,clock).ready,false,'provider-open candles never support a model');
 }
 console.log('Risk paper: original/backup/model hierarchy, LONG/SHORT estimates, clocks and bounded validity passed.');
+require('./test_risk_delayed_structure');
+
