@@ -10,6 +10,8 @@ const draft=['BOB APP-LESEENTWURF – NICHT VERIFIZIERT','ISIN: '+isin,'Quelle: 
 const run={batchId:'a'.repeat(32),revision:4,listUploadedAt:at,isins:[isin],results:[{isin,attempts:2,draft,code:'PARTIAL'}],events:[]};
 assert.deepEqual(reader.decode(reader.encode(run)),run);
 assert.equal(reader.validateRun(run,evidence),run);
+assert.equal(reader.validateRun({...run,listSource:'degiro-gold-search'},evidence).listSource,'degiro-gold-search');
+assert.throws(()=>reader.validateRun({...run,listSource:'broker-approved'},evidence));
 assert.throws(()=>reader.validateRun({...run,results:[{...run.results[0],isin:'DE000FG77MY4'}]},evidence));
 const values=new Map(),storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
 reader.keep(storage,run);

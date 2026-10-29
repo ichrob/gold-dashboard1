@@ -54,12 +54,25 @@ internal object MorningReadRun {
         check(ids.length() in 1..12)
         val values = (0 until ids.length()).map { ids.getString(it) }
         check(values.all { SeriesEvidence.validIsin(it) } && values.toSet().size == values.size)
+        GoldSearchRun.clear()
         data = JSONObject().put("batchId", nonce).put("listUploadedAt", at)
             .put("appVersionCode",c.packageManager.getPackageInfo(c.packageName,0).versionCode)
             .put("revision",0).put("isins", JSONArray(values)).put("results", JSONArray()).put("events", JSONArray())
         index=0; attempt=1; reading=false; backSteps=0; started=SystemClock.elapsedRealtime()
         persist(c)
         p.edit().remove("challenge").remove("challengeAt").commit()
+        running=true
+        PhoneDiagnostics.queue(c)
+    }
+    fun beginDiscovered(c: Context, values: List<String>) {
+        check(!running && pending(c)==null) { "Gespeicherten Listenlauf zuerst übertragen." }
+        check(values.size in 1..12 && values.distinct()==values && values.all { SeriesEvidence.validIsin(it) })
+        data=JSONObject().put("batchId",UUID.randomUUID().toString().replace("-",""))
+            .put("listUploadedAt",Instant.now().toString()).put("listSource","degiro-gold-search")
+            .put("appVersionCode",c.packageManager.getPackageInfo(c.packageName,0).versionCode)
+            .put("revision",0).put("isins",JSONArray(values)).put("results",JSONArray()).put("events",JSONArray())
+        index=0;attempt=1;reading=false;backSteps=0;started=SystemClock.elapsedRealtime()
+        persist(c)
         running=true
         PhoneDiagnostics.queue(c)
     }
@@ -109,6 +122,7 @@ internal object MorningReadRun {
         check(System.currentTimeMillis()-Instant.parse(saved.getString("listUploadedAt")).toEpochMilli() in 0..86400000) { "Liste abgelaufen. Ergebnisse zuerst übertragen und neue Liste holen." }
         data=saved;index=0;skipCompleted()
         check(index<count) { "Alle Produkte vollständig. Ergebnisse an Bob übertragen." }
+        GoldSearchRun.clear()
         attempt=1;reading=false;backSteps=0;started=SystemClock.elapsedRealtime();running=true
     }
     fun stop(c: Context, code: String) {

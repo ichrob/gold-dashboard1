@@ -1,14 +1,15 @@
 package ch.bob.degirocompanion
 
-/** Pure navigation policy: a list read can only search and open an exact ISIN. */
+/** Fixed Gold discovery query or exact-ISIN reading; never order navigation. */
 internal object MorningReadPolicy {
     data class Node(val text: String, val id: String = "", val clickable: Boolean = false,
                     val editable: Boolean = false, val sensitive: Boolean = false,
                     val row: String = text, val containsInput: Boolean = false,
                     val description: String = "", val hint: String = "",
-                    val password: Boolean = false)
-    enum class Kind { WAIT, SEARCH, QUERY, RESULT, READ, BACK, BLOCK }
-    data class Action(val kind: Kind, val index: Int = -1, val code: String = "")
+                    val password: Boolean = false, val clickAction: Boolean = false,
+                    val enabled: Boolean = true, val parent: Int = -1)
+    enum class Kind { WAIT, SEARCH, QUERY, RESULT, READ, BACK, BLOCK, COLLECT }
+    data class Action(val kind: Kind, val index: Int = -1, val code: String = "", val isins: List<String> = emptyList())
     private val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
     private val login = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code")
     private val orderMarkers = listOf(
@@ -16,7 +17,24 @@ internal object MorningReadPolicy {
         "PROTECTED_ORDER_TYPE" to Regex("(?iu)orderart|ordertyp"),
         "PROTECTED_ORDER_PRICE" to Regex("(?iu)limitpreis"),
         "PROTECTED_ORDER_QUANTITY" to Regex("(?iu)stückzahl|anzahl kaufen"))
-    private fun searchLabel(value: String) = Regex("(?iu)^(suche|suchen|search|produkt suchen|produkte suchen|search products|search instruments|instrument suchen|instrumente suchen|suchen nach|name, isin oder symbol|name, isin or symbol|mit namen, isin oder symbol suchen)(?:[.…: ]*)$").matches(value.trim())
+    private fun normalized(value: String) = value.replace(Regex("[\\s\\p{Zs}]+"), " ").trim()
+    private fun searchLabel(value: String) = Regex("(?iu)^(suche|suchen|search|produkt suchen|produkte suchen|search products|search instruments|instrument suchen|instrumente suchen|suchen nach|name, isin oder symbol|name, isin or symbol|mit namen, isin oder symbol suchen)(?:[.…: ]*)$").matches(normalized(value))
+    private fun canClick(n: Node) = n.enabled && (n.clickable || n.clickAction)
+    private fun rowSearch(n: Node) = searchLabel(n.row.lines().map { it.trim() }.filter(String::isNotBlank).distinct().joinToString(" "))
+    // Nested clickable wrappers for the same search are one target. Distinct
+    // sibling targets remain ambiguous; never choose by coordinates or list order.
+    private fun innermost(nodes: List<Node>, candidates: List<Int>): List<Int> = candidates.filter { ancestor ->
+        candidates.none { child ->
+            var cursor=nodes[child].parent
+            var steps=0
+            var found=false
+            while(cursor in nodes.indices && steps++ < nodes.size) {
+                if(cursor==ancestor) { found=true;break }
+                cursor=nodes[cursor].parent
+            }
+            child!=ancestor && found
+        }
+    }
     private fun search(n: Node) = searchLabel(n.text) || searchLabel(n.description) || searchLabel(n.hint) ||
         Regex("(?iu)(^|[/_:])(search|search_input|search_src_text|search_field|search_button|search_view)([/:_]|$)").containsMatchIn(n.id)
     fun isSearchInput(id: String, description: String, hint: String): Boolean =
@@ -49,19 +67,23 @@ internal object MorningReadPolicy {
         val marked=nodes.filter { n -> values(n).any(orderMarkers.first().second::containsMatchIn) }
         if (marked.size != 1) return null
         val launcher=marked.single()
-        if (!launcher.clickable || values(launcher).filter(String::isNotBlank).any { !launchLabel.matches(it.trim()) } ||
+        if (!canClick(launcher) || values(launcher).filter(String::isNotBlank).any { !launchLabel.matches(it.trim()) } ||
             launcher.row.lines().filter(String::isNotBlank).any { !launchLabel.matches(it.trim()) }) return null
         val productLabel="Mit Namen, ISIN oder Symbol suchen"
         val searches=nodes.indices.filter { index ->
             val n=nodes[index]
-            n.clickable && values(n).any { exact(it,productLabel) } &&
-                values(n).filter(String::isNotBlank).all { exact(it,productLabel) } &&
-                n.row.lines().filter(String::isNotBlank).all { exact(it,productLabel) }
+            canClick(n) && (values(n).any { exact(normalized(it),productLabel) } || exact(normalized(n.row),productLabel)) &&
+                values(n).filter(String::isNotBlank).all { exact(normalized(it),productLabel) } && rowSearch(n)
         }
-        return searches.singleOrNull()
+        return innermost(nodes, searches).singleOrNull()
     }
     fun decide(nodes: List<Node>, target: String, lookupSymbol: (String) -> String? = { null }): Action {
-        if (!SeriesEvidence.validIsin(target) || nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
+        if (!SeriesEvidence.validIsin(target)) return Action(Kind.BLOCK, code="INVALID_VIEW")
+        return navigate(nodes,target,false,lookupSymbol)
+    }
+    fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true) { null }
+    private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?): Action {
+        if (nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
         protection(nodes)?.let { cause ->
             if (cause == "PROTECTED_ORDER_CONFIRM") {
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
@@ -72,10 +94,26 @@ internal object MorningReadPolicy {
         if (inputs.size > 1) return Action(Kind.WAIT, code="SEARCH_AMBIGUOUS")
         if (inputs.size == 1) {
             val i = inputs.single()
+            if (!nodes[i].enabled) return Action(Kind.WAIT,code="SEARCH_NOT_ACTIONABLE")
             if (nodes[i].text != target) return Action(Kind.QUERY, i)
+            if (discovery) {
+                // Only visible, explicit identities in Gold leverage-product rows.
+                // This is a bounded candidate sample, never a complete catalog or
+                // proof of the underlying, quote freshness, or trade approval.
+                val candidates=nodes.filter { canClick(it) && !it.editable && !it.containsInput }.mapNotNull { n ->
+                    val row=n.row
+                    val found=ids.findAll(row.uppercase()).map { it.value }.toSet().singleOrNull()
+                    found?.takeIf { SeriesEvidence.validIsin(it) &&
+                        Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(row) &&
+                        Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future)\\b").containsMatchIn(row) &&
+                        !Regex("(?iu)\\b(faktor|factor|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b").containsMatchIn(row) }
+                }.distinct().take(12)
+                return if(candidates.isNotEmpty()) Action(Kind.COLLECT,isins=candidates)
+                    else Action(Kind.WAIT,code="GOLD_IDENTITIES_MISSING")
+            }
             val candidates = nodes.indices.filter { j ->
                 val n = nodes[j]
-                n.clickable && !n.editable && !n.containsInput && ids.findAll(n.row.uppercase()).map { it.value }.toSet() == setOf(target) &&
+                canClick(n) && !n.editable && !n.containsInput && ids.findAll(n.row.uppercase()).map { it.value }.toSet() == setOf(target) &&
                     !Regex("(?iu)\\b(kauf|verkauf|buy|sell|order)\\b").containsMatchIn(n.row)
             }
             val smallest = candidates.minByOrNull { nodes[it].row.length }
@@ -92,12 +130,16 @@ internal object MorningReadPolicy {
             return Action(Kind.READ)
         // Some accessibility trees put the search label on a child of the clickable icon.
         // Accept only a single exact search label; never an aggregate page/list row.
-        val buttons = nodes.indices.filter {
+        val buttons = innermost(nodes, nodes.indices.filter {
             val n=nodes[it]
-            n.clickable && !n.containsInput && (search(n) || (n.text.isBlank() && n.row.lines().filter(String::isNotBlank).size==1 && search(n.copy(text=n.row.trim(),id=""))))
-        }
+            canClick(n) && !n.containsInput && (search(n) || (n.text.isBlank() && rowSearch(n)))
+        })
         if (buttons.size == 1) return Action(Kind.SEARCH, buttons.single())
         if (buttons.size > 1) return Action(Kind.WAIT, code="SEARCH_AMBIGUOUS")
-        return if (detail) Action(Kind.BACK) else Action(Kind.WAIT, code="SEARCH_MISSING")
+        return if (detail) Action(Kind.BACK) else Action(Kind.WAIT, code=when {
+            nodes.any { search(it) || rowSearch(it) } -> "SEARCH_NOT_ACTIONABLE"
+            nodes.all { it.text.isBlank() && it.description.isBlank() && it.hint.isBlank() } -> "SEARCH_TREE_EMPTY"
+            else -> "SEARCH_MISSING"
+        })
     }
 }

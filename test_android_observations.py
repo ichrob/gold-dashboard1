@@ -23,6 +23,16 @@ class MemoryDb:
     def fetchone(self):return self.result
 
 class AndroidObservations(unittest.TestCase):
+    def test_gold_discovery_is_saved_as_unverified_candidates(self):
+        payload=run();payload['listSource']='degiro-gold-search'
+        saved=a.prepare(payload,{},NOW)
+        self.assertEqual(saved['listSource'],'degiro-gold-search')
+        self.assertFalse(saved['results'][0]['matchedCurrentList'])
+        self.assertFalse(saved['tradeApproved'])
+        self.assertFalse(saved['results'][0]['observation']['verified'])
+        self.assertEqual(a.prepare(run(),{},NOW)['listSource'],'bob-saved-list')
+        payload['listSource']='broker-approved'
+        with self.assertRaises(ValueError):a.prepare(payload,{},NOW)
     def test_app_version_is_optional_bounded_and_survives_private_status(self):
         self.assertIsNone(a.prepare(run(),{},NOW)['appVersionCode'])
         payload=run();payload['appVersionCode']=10210

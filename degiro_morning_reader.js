@@ -14,6 +14,7 @@ function listPayload(list,evidence,now=Date.now()){
 function validateRun(run,evidence){
  if(!run||typeof run!=='object'||JSON.stringify(run).length>65536||!/^[a-f0-9]{32}$/.test(run.batchId)||!Number.isInteger(run.revision)||run.revision<1||run.revision>10000||!Number.isFinite(Date.parse(run.listUploadedAt)))throw Error('Ungültiger Leselauf.');
  ids(run.isins,evidence);
+ if(run.listSource!==undefined&&!['bob-saved-list','degiro-gold-search'].includes(run.listSource))throw Error('Unbekannte Listenquelle.');
  if(!Array.isArray(run.results)||run.results.length>12||!Array.isArray(run.events)||run.events.length>48)throw Error('Ungültiges Leseprotokoll.');
  const seen=new Set();
  for(const row of run.results){
@@ -65,6 +66,7 @@ function mount(){
  let busy=false;
  function show(run){
   rows.replaceChildren();
+  if(run.listSource==='degiro-gold-search'){const note=root.document.createElement('p');note.textContent='Kandidaten aus sichtbaren Gold-Suchtreffern · unvollständige Stichprobe. Getrennte Lesebeobachtungen; die bestätigte Produktliste bleibt unverändert.';rows.append(note);}
   for(const isin of run.isins){const row=run.results.find(x=>x.isin===isin),p=root.document.createElement('p');const missing=row?.observation?.missingFields||row?.missingFields||[];p.textContent=isin+' · '+(row?.code||'noch nicht gelesen')+(missing.length?' · fehlt: '+missing.join(', '):'');rows.append(p);}
   if(run.events?.length){const p=root.document.createElement('p');p.textContent='Letzter Protokolleintrag: '+run.events.at(-1).code+' · '+run.events.at(-1).isin;rows.append(p);}
  }
