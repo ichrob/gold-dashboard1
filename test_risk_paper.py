@@ -85,6 +85,31 @@ class RiskPaperTests(unittest.TestCase):
             self.assertEqual(s['accounts']['0']['position']['direction'],direction)
             self.assertEqual(s['accounts']['30']['pending']['signal']['stage'],'VORWARNUNG')
 
+    def test_estimated_minute_engine_enters_with_same_admission_and_saves_evidence(self):
+        import json, subprocess
+        for direction,spot in (('LONG',4000.2),('SHORT',3999.8)):
+            bars=[dict(openTime=NOW-(22-i)*60000,instrument='XAU/USD',
+                       open=4000.,high=4001.,low=3999.,close=4000.) for i in range(22)]
+            bars[-1]['close']=4000.8 if direction=='LONG' else 3999.2
+            bundle={'spots':{'is_genuine_xauusd_spot':True,'xaus':spot,
+                            'spot_price_as_of':__import__('datetime').datetime.fromtimestamp(
+                                (NOW-21000)/1000,__import__('datetime').timezone.utc).isoformat()},
+                    'history':{'bars_by_tf':{'1m':bars}}}
+            actual=json.loads(subprocess.check_output(
+                ['node','-e',"const fs=require('fs'),r=require('./risk_workspace.js');const x=JSON.parse(fs.readFileSync(0));process.stdout.write(JSON.stringify(r.analyzePaper(x.bundle,x.now)))"],
+                input=json.dumps({'bundle':bundle,'now':NOW+30000}),text=True))
+            self.assertEqual(actual['dataMode'],'estimate')
+            self.assertEqual(actual['sourceAt'],NOW-21000)
+            self.assertEqual(actual['stage'],'VORWARNUNG')
+            self.assertEqual(actual['direction'],direction)
+            x={'signal':actual,'choices':[choice(direction)]}
+            q=quote(NOW+30000,side=direction,ko=3900. if direction=='LONG' else 4100.)
+            s,_=r.advance(r.seed(NOW),x,{ISIN:q},NOW+30000)
+            self.assertEqual(s['accounts']['0']['position']['direction'],direction)
+            self.assertEqual(s['accounts']['0']['position']['entryDataMode'],'estimate')
+            self.assertEqual(s['accounts']['0']['position']['entryMarketEvidence']['sourceAt'],NOW-21000)
+            self.assertEqual(s['accounts']['30']['pending']['signal']['stage'],'VORWARNUNG')
+
     def test_warning_confirmation_keeps_frozen_signal_and_delay(self):
         x=result();x['signal']['stage']='VORWARNUNG'
         s,_=r.advance(r.seed(NOW),x,{ISIN:quote()},NOW)
@@ -179,4 +204,5 @@ class RiskPaperDatabaseTests(unittest.TestCase):
                 r.tick(conn,{}, {'products':[]},{ISIN:quote(at,bid=11)},at)
             self.assertEqual(conn.execute('SELECT count(*) FROM bob_risk_paper_cases').fetchone()[0],1)
             self.assertEqual(r.report(conn)['accounts']['0']['closed'],1)
+
 

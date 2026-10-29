@@ -60,7 +60,7 @@ function evaluate(input,now=Date.now()){
     isinConfirmed:api.automaticIdentity({...p,quote:q,price:q.price??p.price,leverage:q.leverage??p.leverage,ko:q.conditions?.ko?.value??q.ko??m.ko??p.ko})||p.isinConfirmed===true};
   });
   if(input.riskOnly===true){
-   const signal=Risk.analyze(input.bundle,now);
+   const signal=Risk.analyzePaper(input.bundle,now);
    return {signal,choices:Risk.ranking(products,signal,context,api,now).filter(r=>r.p.quote?.productVerified===true&&!r.p.quote.sourceDisabled&&api.productTermsStatus(r.p,now).complete).map(r=>({isin:r.p.isin,direction:r.p.productDirection,scope:'XAU/USD',leverage:r.p.leverage,ko:r.p.ko})),
     watches:Object.fromEntries(Object.entries(input.positions||{}).map(([key,p])=>[key,Risk.monitor(p.watch,{active:true,tradeId:p.id,dir:p.direction,entry:p.goldEntry,stop:p.goldStop},signal,now)]))};
   }
@@ -94,3 +94,4 @@ function evaluate(input,now=Date.now()){
 }
 module.exports={evaluate,selectionQuote};
 if(require.main===module){try{process.stdout.write(JSON.stringify(evaluate(JSON.parse(fs.readFileSync(0,'utf8')))));}catch(e){process.stderr.write(e.name+': '+String(e.message).slice(0,200));process.exitCode=1;}}
+

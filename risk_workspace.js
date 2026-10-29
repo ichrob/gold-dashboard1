@@ -4,13 +4,14 @@
 const positive=x=>typeof x==='number'&&Number.isFinite(x)&&x>0;
 const side=x=>['LONG','SHORT'].includes(x);
 const POLICY={version:'risk-v1',spotMaxAgeMs:60000,confirmationAtr:.15,warningAtr:.5,trailingAtr:1.5,timeLimitMs:5*60000};
-function analyze(bundle,now=Date.now()){
+function analyze(bundle,now=Date.now()){return analyzeInput(bundle,now,false);}
+function analyzeInput(bundle,now,estimated){
  const fail=reason=>({ready:false,direction:'ABWARTEN',stage:'DATEN FEHLEN',reason});
  const s=bundle?.spots,at=Date.parse(s?.spot_price_as_of);
- if(typeof s?.spot_price_as_of!=='string'||!/(?:Z|[+-]\d{2}:\d{2})$/i.test(s.spot_price_as_of)||s?.is_genuine_xauusd_spot!==true||s.spot_error||!positive(s.xaus)||!Number.isFinite(at)||at>now||now-at>POLICY.spotMaxAgeMs)return fail('Aktueller Gold-Spot mit Originalzeit fehlt.');
+ if(typeof s?.spot_price_as_of!=='string'||!/(?:Z|[+-]\d{2}:\d{2})$/i.test(s.spot_price_as_of)||(!estimated&&s?.is_genuine_xauusd_spot!==true)||s.spot_error||!positive(s.xaus)||!Number.isFinite(at)||at>now||now-at>POLICY.spotMaxAgeMs)return fail('Aktueller Gold-Spot mit Originalzeit fehlt.');
  const raw=bundle?.history?.bars_by_tf?.['1m'];
  if(!Array.isArray(raw))return fail('1-Minuten-Kerzen fehlen; kein schnelles Signal.');
- const bars=raw.filter(b=>b.isOpen!==true&&Number.isFinite(b.openTime)&&b.openTime+60000<=now).slice(-21);
+ const bars=raw.filter(b=>b.isOpen!==true&&Number.isFinite(b.openTime)&&b.openTime+60000<=Math.min(now,at)).slice(-21);
  if(bars.length<21)return fail('Mindestens 21 abgeschlossene 1-Minuten-Kerzen benötigt.');
  if(bars.some((b,i)=>b.instrument!=='XAU/USD'||b.estimated===true||b.openTime%60000!==0||!['open','high','low','close'].every(k=>positive(b[k]))||b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||b.low>b.high||(i&&b.openTime-bars[i-1].openTime!==60000)))return fail('1-Minuten-Kerzen unplausibel oder lückenhaft.');
  const last=bars.at(-1),prev=bars.at(-2);
@@ -27,6 +28,32 @@ function analyze(bundle,now=Date.now()){
  else if(s.xaus>last.close&&s.xaus-low>=POLICY.warningAtr*atr&&last.close>=prev.close){direction='LONG';stage='VORWARNUNG';reason='Kurzer Aufwärtsimpuls; noch keine bestätigte Fortsetzung.';}
  else if(s.xaus<last.close&&high-s.xaus>=POLICY.warningAtr*atr&&last.close<=prev.close){direction='SHORT';stage='VORWARNUNG';reason='Kurzer Rücksetzer; noch keine bestätigte Fortsetzung.';}
  return {ready:true,direction,stage,reason,spot:s.xaus,at,barAt:last.openTime,atr,high,low,ageSeconds:Math.round((now-at)/1000)};
+}
+// Paper-only hierarchy: original observation, independent original, bounded model.
+// Live/manual trade warnings continue to use analyze(), never this estimate.
+function analyzePaper(bundle,now=Date.now()){
+ const direct=analyze(bundle,now);
+ if(direct.ready)return {...direct,dataMode:(bundle.spots.primary||bundle.spots.source||'').includes('XAUS')?'backup':'original',source:bundle.spots.source||bundle.spots.primary||'Gold-API',sourceAt:direct.at};
+ const backup=bundle?.risk_spot_backup;
+ if(backup?.observed===true&&backup.instrument==='XAU/USD'&&backup.source==='XAUS · XAU/USD Spot'){
+  const alternate=analyze({...bundle,spots:{xaus:backup.price,spot_price_as_of:backup.at,is_genuine_xauusd_spot:true}},now);
+  if(alternate.ready)return {...alternate,dataMode:'backup',source:backup.source,sourceAt:alternate.at,primaryReason:direct.reason};
+ }
+ const s=bundle?.spots,sourceAt=Date.parse(s?.spot_price_as_of),raw=bundle?.history?.bars_by_tf?.['1m'];
+ if(s?.is_genuine_xauusd_spot!==true||s.spot_error||!positive(s.xaus)||!Number.isFinite(sourceAt)||!/(?:Z|[+-]\d{2}:\d{2})$/i.test(s.spot_price_as_of)||now-sourceAt<0||now-sourceAt>180000||!Array.isArray(raw))return direct;
+ const bars=raw.filter(b=>b.isOpen!==true&&b.providerIsOpen!==true&&Number.isFinite(b.openTime)&&b.openTime+60000<=now).slice(-21);
+ if(bars.length!==21||bars.some((b,i)=>b.instrument!=='XAU/USD'||b.estimated===true||b.openTime%60000!==0||!['open','high','low','close'].every(k=>positive(b[k]))||b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)||b.low>b.high||(i&&b.openTime-bars[i-1].openTime!==60000)))return direct;
+ const last=bars.at(-1),anchor=bars.filter(b=>b.openTime+60000<=sourceAt).at(-1),at=last.openTime+60000;
+ // Translate the observed broker-candle movement onto the last original spot.
+ // Approximation: the intraminute movement before the spot tick is not known.
+ // No extrapolation beyond the newest confirmed candle or beyond two minutes.
+ if(!anchor||bars.filter(b=>b.openTime>=anchor.openTime).some(b=>b.source!==anchor.source)||at<=sourceAt||at-sourceAt>120000||sourceAt-(anchor.openTime+60000)>=60000||now-last.openTime>120000)return direct;
+ const price=s.xaus*last.close/anchor.close;
+ const modeled=analyzeInput({...bundle,spots:{xaus:price,spot_price_as_of:new Date(at).toISOString(),is_genuine_xauusd_spot:false}},now,true);
+ if(!modeled.ready)return direct;
+ return {...modeled,dataMode:'estimate',estimated:true,source:'Spot-Schätzung aus bestätigter Minutenbewegung',sourceAt,computedAt:now,
+  estimateMethod:'spot-candle-ratio-v1',anchorBarAt:anchor.openTime,referenceSpot:s.xaus,referenceClose:anchor.close,
+  observedClose:last.close,primaryReason:direct.reason};
 }
 function ranking(products,state,context,api,now=Date.now()){
  if(!state.ready||!side(state.direction)||!api?.earlyWarningRanking)return [];
@@ -195,6 +222,7 @@ function refresh(){
  if(host._riskHtml!==html){host.innerHTML=html;host._riskHtml=html;}
 }
 function update(snapshot){input=snapshot;refresh();}
+const dataModeLabel=mode=>({original:'Originalkurs',backup:'Ersatzquelle',estimate:'Schätzung'})[mode]||'Frühere Datengrundlage';
 let paperBusy=false;
 async function refreshPaper(){
  const el=root.document?.getElementById('bobRiskPaper');
@@ -206,9 +234,9 @@ async function refreshPaper(){
   const data=await response.json();if(!data.accounts)throw Error('Simulation noch nicht gestartet.');
   const euros=x=>typeof x==='number'&&Number.isFinite(x)?x.toFixed(2)+' €':'unbewertet';
   const checked=data.checkedAt, fresh=Number.isFinite(checked)&&checked<=Date.now()&&Date.now()-checked<=120000;
-  el.innerHTML='<h3>Virtuelles Testkonto · 2.000 €</h3><p>'+ (fresh?'Letzte Prüfung: ':'Keine aktuelle Prüfung bestätigt: ')+esc(checked?new Date(checked).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch offen')+'</p><p class="small">Drei unabhängige Vergleichskonten mit je 2.000 €; maximal 1.000 € inklusive Einstiegsgebühr je Position. Einstieg '+(data.entryPolicy==='risk-early-intraday-v2'?'ab VORWARNUNG für kurze Intraday-Rücksetzer und kleine Bewegungen; BESTÄTIGT bleibt zulässig':'nach bisheriger bestätigter Regel')+', Produkt auf Platz 1. Keine Orders. 0/30/60 Sekunden zusätzliche Wartezeit, tatsächliche Ausführung erst beim nächsten passenden beobachteten Kurs.</p>'+Object.values(data.accounts).map(a=>{
+  el.innerHTML='<h3>Virtuelles Testkonto · 2.000 €</h3><p>'+ (fresh?'Letzte Prüfung: ':'Keine aktuelle Prüfung bestätigt: ')+esc(checked?new Date(checked).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch offen')+'</p><p class="small">Drei unabhängige Vergleichskonten mit je 2.000 €; maximal 1.000 € inklusive Einstiegsgebühr je Position. Einstieg '+(data.entryPolicy==='risk-early-intraday-v2'?'ab VORWARNUNG für kurze Intraday-Rücksetzer und kleine Bewegungen; BESTÄTIGT bleibt zulässig':'nach bisheriger bestätigter Regel')+', Produkt auf Platz 1. Keine Orders. 0/30/60 Sekunden zusätzliche Wartezeit, tatsächliche Ausführung erst beim nächsten passenden beobachteten Kurs.</p><p>Datengrundlage: <b>'+esc(dataModeLabel(data.signal?.dataMode))+'</b>. Originalkurs → Ersatzquelle → Schätzung. Alle drei dürfen im Test Einstiege auslösen; Produktkäufe/-verkäufe benötigen weiterhin beobachtete Kurse.</p>'+Object.values(data.accounts).map(a=>{
    const p=a.position;
-   return '<article><h4>'+esc(a.delaySeconds)+' s Verzögerung</h4><p>Modell-Kontowert: <b>'+euros(a.equity)+'</b> · frei '+euros(a.cash)+'</p><p>Realisierter Modellerfolg: '+euros(a.realized)+' · Rendite auf Startkapital '+(a.realized/2000*100).toFixed(2)+' %</p><p>'+a.closed+' abgeschlossen · '+a.incomplete+' davon mit Beobachtungslücken · Trefferquote '+(a.closed?(100*a.wins/a.closed).toFixed(1)+' %':'noch offen')+' · größter beobachteter Rückgang '+euros(a.maxDrawdown)+'</p><p>'+esc(a.reason)+'</p>'+(p?'<p>Virtuell: '+esc(p.direction)+' · '+esc(p.isin)+' · '+p.units+' Stück</p>':'')+'<p class="small">'+(a.reviewReady?'100 lückenfrei beobachtete Abschlüsse erreicht; erste Auswertung möglich, kein Profitabilitätsnachweis.':'Erste Auswertung ab 100 Abschlüssen ohne dokumentierte Beobachtungslücken.')+'</p><details><summary>Letzte Abschlüsse und Kursbelege</summary>'+a.recent.map(c=>'<p>'+esc(c.isin)+' · '+esc(c.direction)+' · '+esc(c.entrySignalStage||c.signal?.stage||'Signalstufe unbekannt')+' · '+(c.entryPolicy==='risk-early-intraday-v2'?'Vorwarnregel':'Bisherige Bestätigungsregel')+' · '+euros(c.modelNet)+' · '+esc(c.exitReason)+'<br>Brief '+esc(c.entryQuote.ask)+' ('+esc(c.entryQuote.askAt||c.entryQuote.quoteAt)+') → Geld '+esc(c.exitQuote.bid)+' ('+esc(c.exitQuote.bidAt||c.exitQuote.quoteAt)+')<br>'+esc(c.entryQuote.source)+' / '+esc(c.exitQuote.source)+(c.dataGap?' · Datenlücke':'')+'</p>').join('')+'</details></article>';
+   return '<article><h4>'+esc(a.delaySeconds)+' s Verzögerung</h4><p>Modell-Kontowert: <b>'+euros(a.equity)+'</b> · frei '+euros(a.cash)+'</p><p>Realisierter Modellerfolg: '+euros(a.realized)+' · Rendite auf Startkapital '+(a.realized/2000*100).toFixed(2)+' %</p><p>'+a.closed+' abgeschlossen · '+a.incomplete+' davon mit Beobachtungslücken · Trefferquote '+(a.closed?(100*a.wins/a.closed).toFixed(1)+' %':'noch offen')+' · größter beobachteter Rückgang '+euros(a.maxDrawdown)+'</p><p>'+esc(a.reason)+'</p>'+(p?'<p>Virtuell: '+esc(p.direction)+' · '+esc(p.isin)+' · '+p.units+' Stück</p>':'')+'<p class="small">'+(a.reviewReady?'100 lückenfrei beobachtete Abschlüsse erreicht; erste Auswertung möglich, kein Profitabilitätsnachweis.':'Erste Auswertung ab 100 Abschlüssen ohne dokumentierte Beobachtungslücken.')+'</p><details><summary>Letzte Abschlüsse und Kursbelege</summary>'+a.recent.map(c=>'<p>'+esc(c.isin)+' · '+esc(c.direction)+' · '+esc(dataModeLabel(c.entryDataMode))+' · '+esc(c.entrySignalStage||c.signal?.stage||'Signalstufe unbekannt')+' · '+(c.entryPolicy==='risk-early-intraday-v2'?'Vorwarnregel':'Bisherige Bestätigungsregel')+' · '+euros(c.modelNet)+' · '+esc(c.exitReason)+'<br>Brief '+esc(c.entryQuote.ask)+' ('+esc(c.entryQuote.askAt||c.entryQuote.quoteAt)+') → Geld '+esc(c.exitQuote.bid)+' ('+esc(c.exitQuote.bidAt||c.exitQuote.quoteAt)+')<br>'+esc(c.entryQuote.source)+' / '+esc(c.exitQuote.source)+(c.dataGap?' · Datenlücke':'')+'</p>').join('')+'</details></article>';
   }).join('')+(data.entryPolicyStartedAt?'<p class="small">Aktuelle Einstiegsregel seit '+esc(new Date(data.entryPolicyStartedAt).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}))+'. Kontostände und ältere Fälle bleiben erhalten; frühere Regeln getrennt auswerten.</p>':'')+'<p class="small"><b>Kostenmodell:</b> beobachteter Spread plus angenommene 5 € je Kauf/Verkauf. Finanzierung, FX und zusätzliche Slippage nicht vollständig belegt. Modellnetto ist kein bestätigter DEGIRO-Nettogewinn. CHF-Umrechnungs-/Chartkurse werden hier ausgeschlossen. KO ohne Abrechnung bleibt unbewertet. Rückgang nur an beobachteten Zeitpunkten; fehlende Zwischenkurse können Verluste verbergen. Ergebnisse mit Datenlücken sind in den Kontosummen enthalten und separat gezählt.</p>';
  }catch(e){el.textContent='2.000-€-Simulation: '+e.message;}finally{paperBusy=false;}
 }
@@ -227,7 +255,8 @@ function mount(panel){
    root.document.querySelector('#bobNavigation [data-view="risk"]')?.click();
  });
 }
-const api={POLICY,analyze,ranking,monitor,advance,markup,update,mount,server};root.BobRisk=api;
+const api={POLICY,analyze,analyzePaper,ranking,monitor,advance,markup,update,mount,server};root.BobRisk=api;
 if(typeof module==='object'&&module.exports)module.exports=api;
 })(typeof window==='undefined'?globalThis:window);
+
 

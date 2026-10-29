@@ -62,6 +62,7 @@ def advance(old, result, quotes, now, entry_allowed=True):
     ready=(signal.get('ready') is True and isinstance(signal.get('at'),(int,float))
            and 0<=now-signal['at']<=60000)
     state['signal']=signal
+    state['dataPolicy']='observed-backup-estimate-v1'
     market=dict(price=signal.get('spot'),priceFresh=ready,dataAt=signal.get('at'),
                 direction=signal.get('direction'),atr=signal.get('atr'),
                 plan={'unit':'USD/oz','direction':signal.get('direction')})
@@ -75,6 +76,8 @@ def advance(old, result, quotes, now, entry_allowed=True):
             continue
         if p:
             a['reason']='Virtuelle Position offen; kurze Bewegung wird überwacht'
+            if ready:
+                p['dataModesUsed']=list(dict.fromkeys(p.get('dataModesUsed',[])+[signal.get('dataMode','original')]))
             raw=quotes.get(p['isin']) or {}; q=usable(raw,p['isin'],now,p['entryAt'])
             if not ready or (a.get('lastDataAt') and signal['at']-a['lastDataAt']>90000):
                 p['dataGap']=True
@@ -96,7 +99,7 @@ def advance(old, result, quotes, now, entry_allowed=True):
                 if exitq and not blocked and guard and not guard['crossed']:
                     proceeds=p['units']*exitq['bid']-FEE
                     pnl=proceeds-p['debit']
-                    case={**p,'exitAt':now,'exitQuote':exitq,'modelNet':pnl,'gross':p['units']*(exitq['bid']-p['entryQuote']['ask']),
+                    case={**p,'exitDataMode':signal.get('dataMode','original'),'exitMarketEvidence':copy.deepcopy(signal),'exitAt':now,'exitQuote':exitq,'modelNet':pnl,'gross':p['units']*(exitq['bid']-p['entryQuote']['ask']),
                           'costsAssumed':2*FEE,'brokerExecutionVerified':False}
                     a['cash']+=proceeds;a['realized']+=pnl;a['closed']+=1
                     a['wins']+=int(pnl>0);a['incomplete']+=int(bool(p.get('dataGap')))
@@ -150,6 +153,9 @@ def advance(old, result, quotes, now, entry_allowed=True):
                             p=dict(**choice,id=f"risk-{key}-{int(now)}",entryAt=now,entryQuote=q,
                                    entryPolicy=pending.get('entryPolicy',LEGACY_ENTRY_POLICY),
                                    entrySignalStage=pending['signal'].get('stage'),
+                                   entryDataMode=signal.get('dataMode','original'),
+                                   dataModesUsed=[signal.get('dataMode','original')],
+                                   entryMarketEvidence=copy.deepcopy(signal),
                                    signal=pending['signal'],signalAt=pending['signalAt'],delaySeconds=a['delaySeconds'],
                                    units=units,debit=debit,goldEntry=signal['spot'],goldStop=signal['spot']-sign*1.5*signal['atr'],watch={})
                             a['position']=p;a['cash']-=debit;a['pending']=None
@@ -180,4 +186,5 @@ def tick(conn,bundle,evidence,quotes,now):
 def report(conn):
     row=conn.execute('SELECT payload FROM bob_risk_paper WHERE id=1').fetchone()
     return row[0] if row else {'status':'not-started','realOrders':False}
+
 
