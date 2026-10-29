@@ -570,7 +570,7 @@ class ProductReadService : AccessibilityService() {
     }
 
     /** Local-only fallback. No caller-supplied coordinates and no result/order taps. */
-    private fun tapRecognizedSearch(expectedWindow: Int, input: Boolean = false): Boolean {
+    private fun tapRecognizedSearch(expectedWindow: Int, input: Boolean = false, category: Boolean = false): Boolean {
         if(!PhoneRemote.active() || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return false
         if(!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive ||
             (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return false
@@ -584,7 +584,8 @@ class ProductReadService : AccessibilityService() {
             if(root.windowId!=expectedWindow || root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return false
             navigationTree(root,live,descriptions)
             val action=MorningReadPolicy.discoverGold(descriptions)
-            if(action.kind!=if(input) MorningReadPolicy.Kind.FOCUS else MorningReadPolicy.Kind.SEARCH) return false
+            val required=if(category) MorningReadPolicy.Kind.CATEGORY else if(input) MorningReadPolicy.Kind.FOCUS else MorningReadPolicy.Kind.SEARCH
+            if(action.kind!=required || (input && category)) return false
             val target=live[action.index]
             if(!target.isVisibleToUser || !target.isEnabled || target.isEditable!=input || target.isPassword) return false
             val bounds=Rect();target.getBoundsInScreen(bounds)
@@ -714,6 +715,7 @@ class ProductReadService : AccessibilityService() {
                     }
                     else if(action.kind==MorningReadPolicy.Kind.SUBMIT) submitSearch(node)
                     else if(action.kind==MorningReadPolicy.Kind.CATEGORY_SCROLL) scrollCategories(node)
+                    else if(action.kind==MorningReadPolicy.Kind.CATEGORY) tapRecognizedSearch(root.windowId,category=true)
                     else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     if(success && action.kind==MorningReadPolicy.Kind.CATEGORY) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CATEGORY_CLICK_SENT)
                     if(success && action.kind==MorningReadPolicy.Kind.CATEGORY_SCROLL) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CATEGORY_SCROLL_SENT)
