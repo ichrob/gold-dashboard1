@@ -53,15 +53,88 @@ class RiskPaperTests(unittest.TestCase):
         fx=quote();fx['paperFxConversion']={'rate':1.1}
         self.assertIsNone(r.usable(fx,ISIN,NOW,NOW))
 
-    def test_no_entry_on_warning_or_bad_terms_and_immutable_input(self):
+    def test_warning_enters_but_bad_terms_still_block_and_input_is_immutable(self):
         old=r.seed(NOW);before=copy.deepcopy(old)
         x=result();x['signal']['stage']='VORWARNUNG'
         s,_=r.advance(old,x,{ISIN:quote()},NOW)
         self.assertEqual(old,before)
-        self.assertTrue(all(a['position'] is None for a in s['accounts'].values()))
+        self.assertIsNotNone(s['accounts']['0']['position'])
+        self.assertEqual(s['accounts']['0']['position']['entrySignalStage'],'VORWARNUNG')
+        self.assertEqual(s['accounts']['0']['position']['entryPolicy'],r.ENTRY_POLICY)
         q=quote();q['conditions']['ko']['dateText']='11.10.2026'
         s,_=self.step(old,q=q)
         self.assertTrue(all(a['position'] is None for a in s['accounts'].values()))
+
+    def test_real_minute_engine_warning_enters_long_and_short(self):
+        import json, subprocess
+        for direction,spot in (('LONG',4000.2),('SHORT',3999.8)):
+            bars=[dict(openTime=NOW-(21-i)*60000,instrument='XAU/USD',
+                       open=4000.,high=4001.,low=3999.,close=4000.) for i in range(21)]
+            bundle={'spots':{'is_genuine_xauusd_spot':True,'xaus':spot,
+                            'spot_price_as_of':__import__('datetime').datetime.fromtimestamp(
+                                NOW/1000,__import__('datetime').timezone.utc).isoformat()},
+                    'history':{'bars_by_tf':{'1m':bars}}}
+            actual=json.loads(subprocess.check_output(
+                ['node','-e',"const fs=require('fs'),r=require('./risk_workspace.js');const x=JSON.parse(fs.readFileSync(0));process.stdout.write(JSON.stringify(r.analyze(x.bundle,x.now)))"],
+                input=json.dumps({'bundle':bundle,'now':NOW}),text=True))
+            self.assertEqual(actual['stage'],'VORWARNUNG')
+            self.assertEqual(actual['direction'],direction)
+            x={'signal':actual,'choices':[choice(direction)]}
+            q=quote(side=direction,ko=3900. if direction=='LONG' else 4100.)
+            s,_=r.advance(r.seed(NOW),x,{ISIN:q},NOW)
+            self.assertEqual(s['accounts']['0']['position']['direction'],direction)
+            self.assertEqual(s['accounts']['30']['pending']['signal']['stage'],'VORWARNUNG')
+
+    def test_warning_confirmation_keeps_frozen_signal_and_delay(self):
+        x=result();x['signal']['stage']='VORWARNUNG'
+        s,_=r.advance(r.seed(NOW),x,{ISIN:quote()},NOW)
+        first=copy.deepcopy(s['accounts']['0']['position'])
+        s,_=self.step(s,NOW+30000)
+        self.assertEqual(s['accounts']['0']['position']['id'],first['id'])
+        p=s['accounts']['30']['position']
+        self.assertEqual(p['signalAt'],NOW)
+        self.assertEqual(p['entrySignalStage'],'VORWARNUNG')
+        s,_=self.step(s,NOW+60000,'AUSSTIEG PRÜFEN')
+        s,_=self.step(s,NOW+90000)
+        self.assertIsNone(s['accounts']['0']['position'])
+
+    def test_warning_withdrawal_stale_and_session_cancel_pending(self):
+        x=result();x['signal']['stage']='VORWARNUNG'
+        original,_=r.advance(r.seed(NOW),x,{ISIN:quote()},NOW)
+        for kind in ('neutral','stale','session'):
+            later=result(NOW+30000)
+            later['signal']['stage']='VORWARNUNG'
+            if kind=='neutral':later['signal']['direction']='ABWARTEN'
+            if kind=='stale':later['signal']['at']=NOW-60001
+            s,_=r.advance(original,later,{ISIN:quote(NOW+30000)},NOW+30000,
+                          entry_allowed=kind!='session')
+            self.assertIsNone(s['accounts']['30']['pending'])
+            self.assertIsNone(s['accounts']['30']['position'])
+
+    def test_warning_reversal_restarts_delay_for_new_side(self):
+        x=result();x['signal']['stage']='VORWARNUNG'
+        s,_=r.advance(r.seed(NOW),x,{ISIN:quote()},NOW)
+        x={'signal':signal(NOW+30000,'VORWARNUNG','SHORT'),'choices':[choice('SHORT')]}
+        s,_=r.advance(s,x,{ISIN:quote(NOW+30000,side='SHORT',ko=4100.)},NOW+30000)
+        self.assertIsNone(s['accounts']['30']['position'])
+        self.assertEqual(s['accounts']['30']['pending']['due'],NOW+60000)
+        self.assertEqual(s['accounts']['30']['pending']['choice']['direction'],'SHORT')
+
+    def test_rule_migration_preserves_money_history_and_legacy_pending(self):
+        old,_=self.step(r.seed(NOW))
+        old.pop('entryPolicy');old.pop('entryPolicyStartedAt')
+        for a in old['accounts'].values():
+            if a['pending']:a['pending'].pop('entryPolicy')
+            if a['position']:a['position'].pop('entryPolicy')
+            a['recent']=[{'legacy':'untouched'}]
+        s,_=self.step(old,NOW+30000)
+        self.assertEqual(s['entryPolicyStartedAt'],NOW+30000)
+        self.assertEqual(s['accounts']['0']['cash'],old['accounts']['0']['cash'])
+        self.assertNotIn('entryPolicy',s['accounts']['0']['position'])
+        self.assertEqual(s['accounts']['30']['position']['entryPolicy'],r.LEGACY_ENTRY_POLICY)
+        self.assertEqual(s['accounts']['0']['recent'],old['accounts']['0']['recent'])
+        s2,_=self.step(s,NOW+60000)
+        self.assertEqual(s2['entryPolicyStartedAt'],s['entryPolicyStartedAt'])
 
     def test_gap_is_counted_and_never_ready_after_just_one_trade(self):
         s,_=self.step(r.seed(NOW))
@@ -106,3 +179,4 @@ class RiskPaperDatabaseTests(unittest.TestCase):
                 r.tick(conn,{}, {'products':[]},{ISIN:quote(at,bid=11)},at)
             self.assertEqual(conn.execute('SELECT count(*) FROM bob_risk_paper_cases').fetchone()[0],1)
             self.assertEqual(r.report(conn)['accounts']['0']['closed'],1)
+
