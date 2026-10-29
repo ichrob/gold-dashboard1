@@ -22,6 +22,7 @@ import java.time.Instant
 /** Explicit one-minute reading request or accessibility button; only bounded scroll actions on validated product pages. */
 class ProductReadService : AccessibilityService() {
     private val symbolMemory by lazy { getSharedPreferences("degiro_symbol_identity_v1", MODE_PRIVATE) }
+    private var searchTapAttempted = false
     private var batchTransition = false
     private var lastNavigation = 0L
     private var lastNavigationIssue = ""
@@ -155,6 +156,7 @@ class ProductReadService : AccessibilityService() {
             PhoneDiagnostics.queue(this)
         }
         ProductReadRequest.onStarted = {
+            searchTapAttempted = false
             automaticSearchProgress.clear()
             lastNavigationIssue=""
             pageReader.reset()
@@ -511,6 +513,64 @@ class ProductReadService : AccessibilityService() {
         } finally { nodes.forEach { it.recycle() };root.recycle() }
     }
 
+    /** Local-only fallback. No caller-supplied coordinates and no result/order taps. */
+    private fun tapRecognizedSearch(expectedWindow: Int): Boolean {
+        if(!PhoneRemote.active() || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return false
+        if(!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive ||
+            (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return false
+        // Refuse magnification and touch exploration rather than guessing transformed coordinates.
+        if(magnificationController.scale != 1f ||
+            (getSystemService(ACCESSIBILITY_SERVICE) as android.view.accessibility.AccessibilityManager).isTouchExplorationEnabled) return false
+        val root=rootInActiveWindow ?: return false
+        val live=mutableListOf<AccessibilityNodeInfo>()
+        val descriptions=mutableListOf<MorningReadPolicy.Node>()
+        try {
+            if(root.windowId!=expectedWindow || root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return false
+            navigationTree(root,live,descriptions)
+            val action=MorningReadPolicy.discoverGold(descriptions)
+            if(action.kind!=MorningReadPolicy.Kind.SEARCH) return false
+            val target=live[action.index]
+            if(!target.isVisibleToUser || !target.isEnabled || target.isEditable || target.isPassword) return false
+            val bounds=Rect();target.getBoundsInScreen(bounds)
+            val screen=Rect();root.getBoundsInScreen(screen)
+            val point=SearchTapPolicy.center(
+                SearchTapPolicy.Box(bounds.left,bounds.top,bounds.right,bounds.bottom),
+                SearchTapPolicy.Box(screen.left,screen.top,screen.right,screen.bottom)) ?: return false
+            val currentWindows=windows
+            try {
+                val app=currentWindows.singleOrNull { it.id==expectedWindow && it.isActive && it.isFocused &&
+                    it.type==AccessibilityWindowInfo.TYPE_APPLICATION } ?: return false
+                if(android.os.Build.VERSION.SDK_INT>=30 && app.displayId!=android.view.Display.DEFAULT_DISPLAY) return false
+                if(currentWindows.any { window ->
+                    val rect=Rect();window.getBoundsInScreen(rect)
+                    window.id!=app.id && window.layer>=app.layer && rect.contains(point.first,point.second)
+                }) return false
+            } finally { currentWindows.forEach { it.recycle() } }
+            if(!target.refresh()) return false
+            val refreshed=Rect();target.getBoundsInScreen(refreshed)
+            if(refreshed!=bounds || !PhoneRemote.active() || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return false
+            val foreground=rootInActiveWindow
+            val same=foreground?.windowId==expectedWindow && foreground?.packageName?.toString()==ProductScreenEvidence.PACKAGE
+            foreground?.recycle()
+            if(!same) return false
+            val path=android.graphics.Path().apply { moveTo(point.first.toFloat(),point.second.toFloat()) }
+            val gesture=android.accessibilityservice.GestureDescription.Builder().addStroke(
+                android.accessibilityservice.GestureDescription.StrokeDescription(path,0,60)).build()
+            lastNavigation=SystemClock.elapsedRealtime()
+            val accepted=dispatchGesture(gesture,object: GestureResultCallback() {
+                override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                    ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SEARCH_TAP_COMPLETED)
+                    if(ProductReadRequest.active(SystemClock.elapsedRealtime())) queueRead(400)
+                }
+                override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                    ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SEARCH_TAP_CANCELLED)
+                }
+            },handler)
+            if(accepted) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SEARCH_TAP_SENT)
+            return accepted
+        } finally { live.forEach { it.recycle() };root.recycle() }
+    }
+
     private fun submitSearch(node: AccessibilityNodeInfo): Boolean =
         android.os.Build.VERSION.SDK_INT>=30 && node.isEditable && node.isFocused &&
             node.actionList.any { it.id==AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id } &&
@@ -546,6 +606,10 @@ class ProductReadService : AccessibilityService() {
                 }
                 MorningReadPolicy.Kind.READ -> { lastNavigationIssue="";MorningReadRun.reading=true; return false }
                 MorningReadPolicy.Kind.WAIT -> {
+                    if(action.code=="SEARCH_NO_PROGRESS" && !searchTapAttempted) {
+                        searchTapAttempted=true
+                        if(!tapRecognizedSearch(root.windowId)) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SEARCH_TAP_REJECTED)
+                    }
                     if(lastNavigationIssue!=action.code) record(action.code)
                     lastNavigationIssue=action.code
                 }

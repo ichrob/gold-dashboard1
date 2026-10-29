@@ -92,17 +92,27 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('android.permission.BIND_JOB_SERVICE', manifest)
         self.assertIn('android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"', manifest)
         config = (ROOT / "android_companion/app/src/main/res/xml/product_reader.xml").read_text()
-        self.assertIn('android:canPerformGestures="false"', config)
+        self.assertIn('android:canPerformGestures="true"', config)
         self.assertIn('android:canTakeScreenshot="false"', config)
         self.assertIn('android:packageNames="nl.degiro.trader"', config)
         service = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadService.kt").read_text()
-        for forbidden in ['dispatchGesture(', 'takeScreenshot(']:
+        for forbidden in ['takeScreenshot(']:
             self.assertNotIn(forbidden, service)
         self.assertNotIn('event.text', service)
         self.assertIn('ProductReadRequest.attempt(SystemClock.elapsedRealtime())', service)
         self.assertIn('flagRetrieveInteractiveWindows', config)
         self.assertIn('ProductWindowPolicy.select', service)
         self.assertEqual(service.count('performAction('), 6)
+        self.assertEqual(service.count('dispatchGesture('), 1)
+        tap = service.split('private fun tapRecognizedSearch(', 1)[1].split('private fun submitSearch(', 1)[0]
+        for guard in ['PhoneRemote.active()', 'ProductReadRequest.active(', 'isKeyguardLocked',
+                      'MorningReadPolicy.discoverGold(descriptions)', 'MorningReadPolicy.Kind.SEARCH',
+                      'SearchTapPolicy.center(', 'target.refresh()', 'refreshed!=bounds',
+                      'window.layer>=app.layer', 'magnificationController.scale != 1f',
+                      'isTouchExplorationEnabled', 'Display.DEFAULT_DISPLAY']:
+            self.assertIn(guard, tap)
+        self.assertIn('action.code=="SEARCH_NO_PROGRESS" && !searchTapAttempted', service)
+        self.assertIn('searchTapAttempted=true', service)
         submit = service.split('private fun submitSearch(', 1)[1].split('/** Search actions', 1)[0]
         self.assertIn('android.os.Build.VERSION.SDK_INT>=30', submit)
         self.assertIn('node.isEditable && node.isFocused', submit)
