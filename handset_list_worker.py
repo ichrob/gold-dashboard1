@@ -9,6 +9,7 @@ import sys
 import time
 import threading
 import math
+import tempfile
 
 _state = {"state": "not-started", "checkedAt": None, "error": None}
 _state_lock = threading.Lock()
@@ -38,6 +39,11 @@ def recognize(images):
     from video_ocr import offline_engine
     cv2.setNumThreads(1)
     engine=offline_engine()
+    from rapidocr_onnxruntime.ch_ppocr_det.utils import DetPreProcess
+    detector=engine.text_det
+    # The library's default 'min' limit only enlarges images; it is not a cap.
+    # Bound detection tensors, while recognition crops retain source resolution.
+    detector.get_preprocess=lambda _:DetPreProcess(800,'max',detector.mean,detector.std)
     result=[]
     for item in images:
         with Image.open(io.BytesIO(base64.b64decode(item['png'],validate=True))) as source:
@@ -65,6 +71,48 @@ def recognize(images):
     return result
 
 
+OCR_CONTAINER_LIMIT = 400 * 1024 * 1024
+
+def container_memory_bytes():
+    """Current container memory, or None when no enforceable cgroup counter exists."""
+    for path in ('/sys/fs/cgroup/memory.current','/sys/fs/cgroup/memory/memory.usage_in_bytes'):
+        try:
+            value=int(Path(path).read_text().strip())
+            if value>0:return value
+        except (OSError,ValueError):
+            pass
+    return None
+
+def wait_ocr(child,memory_reader=container_memory_bytes,clock=time.monotonic,sleep=time.sleep,timeout=120):
+    """Fail closed before local OCR can kill the shared 512-MiB service."""
+    deadline=clock()+timeout
+    while child.poll() is None:
+        used=memory_reader()
+        if used is None or used>=OCR_CONTAINER_LIMIT or clock()>=deadline:
+            child.kill()
+            try:child.wait(timeout=5)
+            except subprocess.TimeoutExpired:pass
+            if used is None:raise RuntimeError('OCR memory counter unavailable')
+            if used>=OCR_CONTAINER_LIMIT:raise MemoryError('OCR container budget')
+            raise subprocess.TimeoutExpired(child.args,timeout)
+        sleep(.05)
+    return child.returncode
+
+def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, close_fds):
+    # Preserve the cgroup-wide fail-closed guard and file-backed streams.
+    with tempfile.TemporaryFile(mode='w+',encoding='utf-8') as source, \
+         tempfile.TemporaryFile(mode='w+',encoding='utf-8') as output, \
+         tempfile.TemporaryFile(mode='w+',encoding='utf-8') as errors:
+        source.write(input);source.seek(0)
+        child=subprocess.Popen(args,stdin=source,stdout=output,stderr=errors,
+                               text=True,env=env,close_fds=close_fds,start_new_session=True)
+        code=wait_ocr(child,timeout=timeout)
+        output.seek(0);stdout=output.read(100001)
+        errors.seek(0);stderr=errors.read(100001)
+    if code and check:raise subprocess.CalledProcessError(code,args,stdout,stderr)
+    return subprocess.CompletedProcess(args,code,stdout,stderr)
+
+
 def process(payload,at):
     env={k:v for k,v in os.environ.items() if k in ('PATH','LANG','LD_LIBRARY_PATH')}
     env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
@@ -73,7 +121,7 @@ def process(payload,at):
     # Share subprocess admission with Node analyses, releasing it after each
     # image. Never overlap a native OCR model with a heavy JS evaluator.
     for image in payload['images']:
-        child=evaluator_runtime.run([sys.executable,__file__,'--ocr'],priority=2,
+        child=evaluator_runtime.run([sys.executable,__file__,'--ocr'],priority=2,runner=guarded_ocr_run,
             input=json.dumps([image]),text=True,capture_output=True,timeout=35,check=True,env=env,close_fds=True)
         if len(child.stdout)>100000:raise ValueError('OCR output limit')
         images.extend(json.loads(child.stdout))

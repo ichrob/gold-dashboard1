@@ -25,6 +25,21 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(peak,1)
         self.assertEqual(results,['0','1','2','3'])
 
+    def test_guarded_ocr_runner_shares_capacity_and_releases_on_failure(self):
+        entered=threading.Event();release=threading.Event();node_started=threading.Event()
+        def ocr(*args,**kwargs):
+            entered.set();release.wait(2);raise MemoryError('bounded child')
+        def node(*args,**kwargs):node_started.set();return 'ok'
+        with patch.object(r.subprocess,'run',side_effect=node):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                image=pool.submit(r.run,['python','ocr'],runner=ocr,priority=2)
+                self.assertTrue(entered.wait(1))
+                analysis=pool.submit(r.run,['node','analysis'])
+                self.assertFalse(node_started.wait(.03))
+                release.set()
+                with self.assertRaises(MemoryError):image.result()
+                self.assertEqual(analysis.result(),'ok')
+
     def test_timeout_releases_capacity(self):
         with patch.object(r.subprocess,'run',side_effect=subprocess.TimeoutExpired('node',1)):
             with self.assertRaises(subprocess.TimeoutExpired):r.run(['node','worker.js'],timeout=1)
