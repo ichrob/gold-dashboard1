@@ -37,6 +37,22 @@ internal object MorningReadPolicy {
     }
     private fun search(n: Node) = searchLabel(n.text) || searchLabel(n.description) || searchLabel(n.hint) ||
         Regex("(?iu)(^|[/_:])(search|search_input|search_src_text|search_field|search_button|search_view)([/:_]|$)").containsMatchIn(n.id)
+    // Only retry enclosing wrappers of the already selected search. A toolbar
+    // sibling, aggregate page, order launcher or coordinate is never a fallback.
+    fun searchClickChain(nodes: List<Node>, action: Action): List<Int> {
+        if (action.kind != Kind.SEARCH || action.index !in nodes.indices) return emptyList()
+        val result = mutableListOf(action.index)
+        val seen = mutableSetOf(action.index)
+        var parent = nodes[action.index].parent
+        while (parent in nodes.indices && seen.add(parent) && result.size < 3) {
+            val n = nodes[parent]
+            if (n.sensitive || n.password || n.editable || n.containsInput || !rowSearch(n)) break
+            if (listOf(n.text,n.description,n.hint).filter(String::isNotBlank).any { !searchLabel(it) }) break
+            if (canClick(n)) result += parent
+            parent = n.parent
+        }
+        return result
+    }
     fun isSearchInput(id: String, description: String, hint: String): Boolean =
         search(Node("", id=id, description=description, hint=hint))
     // Android may expose a placeholder as text, without hintText or a view ID.
@@ -152,3 +168,4 @@ internal object MorningReadPolicy {
         })
     }
 }
+

@@ -1,3 +1,22 @@
+## Nachweis und begrenzte Wiederholung beim Fern-Suchklick
+
+Ein vom Android-System angenommener Klick ist weiterhin kein Nachweis eines
+geöffneten Suchfelds. Die Fernsitzung merkt sich jetzt lokal die bereits
+betätigten Suchknoten. In den ersten 1,5 Sekunden meldet sie
+`SEARCH_TRANSITION_PENDING`. Bleibt dieselbe Suchstruktur sichtbar, darf der
+nächste ausdrücklich angeforderte Suchschritt höchstens einen eindeutig zur
+selben Suche gehörenden übergeordneten Wrapper anklicken (`SEARCH_RETRY_PARENT`).
+Maximal drei Knoten insgesamt; keine Geschwister, Toolbar-Ausweichklicks,
+Koordinaten, Eingabefelder oder gemischten Seitencontainer. Jeder neue Schritt
+wird erneut durch die bestehende Login-/Order-/Fensterprüfung geprüft.
+
+Sind die zulässigen Knoten verbraucht, meldet der Status `SEARCH_NO_PROGRESS`.
+Es gibt keinen selbsttätigen Ersatzklick. Das Öffnen eines Suchfelds, ein neues
+Fenster oder das Sitzungsende verwirft den alten Versuchszustand. Die Suche und
+das Auslesen sind erst nach einem echten Gerätetest bestätigt. Diese Korrektur
+behandelt wirkungslose innere Suchwrapper; sie beweist nicht, dass DEGIRO jeden
+semantischen Accessibility-Klick ausführt.
+
 # Direkte ChatGPT-Handy-Sitzung (Geräteabnahme ausstehend)
 
 Neue getrennte Funktion: **ChatGPT-Handy-Sitzung starten · 15 Minuten**. Benötigt
@@ -474,3 +493,4 @@ mit Geld und Brief sichtbar, darf Bob höchstens viermal rückwärts zur ISIN
 scrollen. Dabei werden keine Werte zugeordnet oder zwischengespeichert. Ohne
 diese Abschnittsmerkmale wird keine Scrollfläche geraten. Der eigentliche
 Seitenlauf beginnt erst bei sichtbarer gültiger ISIN.
+
