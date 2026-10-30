@@ -76,8 +76,9 @@ class WebTests(unittest.TestCase):
             self.assertTrue(w.route(self.handler(),'user','password'));rpc.assert_not_called()
     def test_cross_origin_and_csrf_rejected(self):
         with patch.object(w.bob_oauth,'configured',return_value=True),patch.object(w.bob_oauth,'browser_ready',return_value=True),patch.object(w,'rpc') as rpc,patch.object(w,'csrf',return_value='expected'):
-            h=self.handler('/archive/connect/begin','POST',{'Origin':'https://evil.example'})
-            w.route(h,'user','password');self.assertEqual(h.status,403)
+            for origin in ('https://evil.example', 'null', ''):
+                h=self.handler('/archive/connect/begin','POST',{'Origin':origin})
+                w.route(h,'user','password');self.assertEqual(h.status,403)
             body=b'csrf=wrong'
             h=self.handler('/archive/connect/begin','POST',{'Origin':c.ORIGIN,'Content-Type':'application/x-www-form-urlencoded','Content-Length':str(len(body))},body)
             w.route(h,'user','password');self.assertEqual(h.status,403);rpc.assert_not_called()
@@ -85,6 +86,7 @@ class WebTests(unittest.TestCase):
         with patch.object(w.bob_oauth,'configured',return_value=True),patch.object(w.bob_oauth,'browser_ready',return_value=True),patch.object(w,'rpc',return_value={'configured':False}),patch.object(w,'csrf',return_value='csrf'):
             h=self.handler();w.route(h,'user','password')
             self.assertEqual(h.status,200);self.assertEqual(h.response_headers['Cache-Control'],'no-store')
+            self.assertEqual(h.response_headers['Referrer-Policy'],'same-origin')
             self.assertIn(c.CALLBACK.encode(),h.wfile.getvalue());self.assertIn(b'type="file"',h.wfile.getvalue())
     def test_strict_cookie_handoff_does_not_exchange_without_login(self):
         with patch.object(w.bob_oauth,'configured',return_value=True),patch.object(w.bob_oauth,'browser_ready') as login,patch.object(w,'rpc') as rpc:
