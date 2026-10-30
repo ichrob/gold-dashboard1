@@ -18,6 +18,28 @@ class GoldCategoryNavigationTest {
             assertNull(MorningReadPolicy.detailSearchRestore(rows+extra,true))
         assertNull(MorningReadPolicy.detailSearchRestore(rows.drop(1),true))
     }
+    @Test fun restoredTopUsesRealSearchAndNeverScrollsAgain() {
+        val rows=listOf(MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node("Order platzieren",clickable=true),
+            MorningReadPolicy.Node("Gold Turbo DE000FD0S0G4"),
+            MorningReadPolicy.Node("Top Ergebnisse"),
+            MorningReadPolicy.Node("Suchen",clickable=true))
+        assertNull(MorningReadPolicy.detailSearchRestore(rows,true))
+        val action=MorningReadPolicy.detailDecision(rows,"DE000FD0S0G4",true)
+        assertEquals(MorningReadPolicy.Kind.SEARCH,action.kind)
+        assertEquals(4,action.index)
+        for(extra in listOf(MorningReadPolicy.Node("Order bestätigen"),MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("",password=true),MorningReadPolicy.Node("",editable=true,id="quantity")))
+            assertEquals(MorningReadPolicy.Kind.BLOCK, MorningReadPolicy.detailDecision(rows+extra,"DE000FD0S0G4",true).kind)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.detailDecision(rows,"invalid",true).kind)
+    }
+    @Test fun detailFocusUsesIsinInsteadOfCompletedGoldQuery() {
+        val nodes=listOf(MorningReadPolicy.Node("Gold",id="search-input",editable=true,focused=false),
+            MorningReadPolicy.Node("Order platzieren",clickable=true),
+            MorningReadPolicy.Node("Gold Turbo DE000FD0S0G4"))
+        assertEquals(MorningReadPolicy.Kind.COLLECT,MorningReadPolicy.discoverGold(nodes).kind)
+        assertEquals(MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.detailDecision(nodes,"DE000FD0S0G4",true).kind)
+    }
     private val input=MorningReadPolicy.Node("Gold",id="search-input",editable=true,focused=false)
     private val tab=MorningReadPolicy.Node("Hebelprodukte",clickable=true)
     @Test fun selectsVisibleCategoryWithoutRefocusingQuery() {
