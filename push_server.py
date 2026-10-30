@@ -234,6 +234,7 @@ def _init_db_once():
         bob_recovery.init(conn)
         bob_passkey_store.init(conn)
         bob_oauth_store.init(conn)
+        __import__("archive_worker").init(conn)
         bob_repair_store.init(conn)
         diagnostic_history.init(conn)
         bob_market_store.init(conn)
@@ -1706,6 +1707,7 @@ if __name__ == "__main__":
     print("BOB_PUSH startup=database", flush=True)
     init_db()
     diagnostic_history.configure(db)
+    __import__("archive_worker").start(db)
     print("BOB_PUSH startup=ready", flush=True)
     # Process/child memory telemetry is read-only and never blocks Push.
     import memory_watch

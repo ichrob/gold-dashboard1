@@ -21,7 +21,7 @@ class DriveSafety(unittest.TestCase):
             def export(dsn,path):
                 Path(path).write_bytes(b'original')
                 return {'sha256':runner.archive.digest(path),'databaseBytes':600_000_000}
-            def verify(path,checksum,dsn):
+            def verify(path,checksum,dsn, **kwargs):
                 if runner.archive.digest(path)!=checksum: raise ValueError('corruption')
                 return {'restoreVerified':True,'deletionPermitted':False}
             with tempfile.TemporaryDirectory() as d, patch.object(runner.archive,'export',side_effect=export), patch.object(runner.archive,'restore_check',side_effect=verify) as check:

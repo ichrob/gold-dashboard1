@@ -1,80 +1,82 @@
-# Private evidence archive — prepared, not activated
+# Private evidence archive
 
-The existing private Drive folder is configured using `BOB_ARCHIVE_DRIVE_FOLDER_ID`;
-its identity must not be committed to this public repository.
-The ChatGPT Drive connection is usable by the connector, but does not provision
-OAuth credentials to a Render process. No runtime credentials, scheduler, new
-service, plan change or production export are installed by this change.
+Implementation includes an internal worker and a zero-additional-service restore
+mode. Production activation is blocked until Bob-specific Google OAuth access is
+securely provisioned. A ChatGPT connector login does not supply runtime credentials.
+No production archive is implied by successful synthetic tests.
 
-## Safety and scope
+## Existing services, private access
 
-`evidence_archive.py` exports an explicitly reviewed table allowlist and all known
-paper portfolio tables. It captures every row and every column of those tables
-in one PostgreSQL REPEATABLE READ, READ ONLY transaction, using PostgreSQL COPY
-text (not lossy Python float/JSON conversion). The manifest lists included,
-absent and excluded tables. Review those lists before claiming complete coverage.
-Credentials, sessions, passkeys, OAuth and subscription tables are excluded.
-This is an evidence archive, not a full application/database disaster-recovery
-backup: constraints, defaults, sequences, privileges and indexes are not restored.
+`archive_worker` runs inside the EXISTING push service using its internal
+DATABASE_URL. No new Render service, paid database, external allowlist opening or
+cron job is needed. It is disabled by default. On activation it waits five minutes
+and claims at most one attempt per UTC day via `bob_archive_runs`. Failed or
+interrupted attempts cannot be automatically replayed on the same day. Small
+operational receipts are separate from original evidence. `/storage-health`
+exposes readiness/current state without secrets.
 
-The ZIP has an external SHA-256; each table has a SHA-256, row count, byte count,
-and ordered column/type definitions. Stable PostgreSQL text ordering permits
-exact comparison after restore, including duplicate records, bytea, Unicode,
-NULLs, timestamps and arbitrary precision numbers. Restore uses only validated
-built-in types and temporary tables in a separately named isolated test database.
-It never executes archived Python or arbitrary SQL. All temporary objects are
-rolled back. A valid file checksum alone is NOT a successful restoration.
+## Export and restore proof
 
-`drive_evidence_archive.py` runs the sequence:
+`evidence_archive.py` exports every row/column of its reviewed evidence allowlist,
+including all known paper portfolios, in one REPEATABLE READ, READ ONLY snapshot.
+PostgreSQL COPY text retains exact numeric, bytea, timestamp, Unicode and JSON
+values. The manifest lists included, absent and excluded tables. Review this
+coverage before claiming completeness. OAuth, credentials, passkeys, subscriptions
+and sessions are excluded. This is an evidence archive, not a full database
+application recovery image: constraints/defaults/indexes/privileges/sequences are
+not recreated.
 
-1. Verify the fixed folder is private and writable and Drive has known capacity.
-2. Export a consistent snapshot with a 512 MiB uncompressed budget, bounded
-   query/lock timeouts and a local free-space check. Abort without a final ZIP
-   if a table is unsupported, export is incomplete, or budget is exceeded.
-3. Restore locally into the isolated test database; compare every table bytewise.
-4. Upload the ZIP without replacing existing files; check metadata and SHA-256.
-5. Download the actual uploaded file and run the full PostgreSQL restore again.
-6. Upload a success receipt only after that remote round trip succeeds. It records
-   archive/file identity, counts, timestamps, logical database size and Drive quota.
+SHA-256 covers the whole ZIP and each table stream; the manifest records ordered
+columns/types, row counts, bytes, database size, timestamp and build. The verifier
+accepts only validated built-in PostgreSQL types and never executes archived code.
+Stable text ordering allows bytewise comparison after PostgreSQL restoration.
 
-Every receipt explicitly has `deletionPermitted=false`. There is NO source delete,
-purge, truncation, retention change, order, email or risk-rule mutation. Failed
-uploads or verification produce no success receipt. Local files and any partial
-Drive copies are retained for diagnosis; retries can create duplicates and must
-be reconciled before scheduling. ZIP compression is lossless, not encryption;
-only the verified private folder is used.
+The internal worker restores into session-local TEMP tables on the existing server.
+It restores, verifies and drops ONE scratch table at a time, always in pg_temp.
+This isolates names/data from original tables; it still shares CPU and disk.
+Query/lock deadlines, a single daily claim, 512 MiB export limit and scratch-space
+checks bound work. Observe real resource impact before relying on ongoing operation.
+The standalone verifier rejects same-database restore unless the explicit
+`temporary_session=True` option is supplied. PostgreSQL major versions must match.
 
-The existing `storage_budget.py` continues its 30-minute samples and database
-500 MB caution / 700 MB action thresholds. The archive runner also checks Drive
-quota and reserves 256 MiB. Database bytes are logical size, NOT physical free
-space. No paid scaling or upgrade occurs. Because originals remain in the database,
-this phase provides a verified external copy, not database space reclamation.
+`drive_evidence_archive.py` verifies that the configured folder is private/writable
+and that Drive has known space plus a 256 MiB reserve. It exports, restores locally,
+uploads without replacing files, checks uploaded metadata/SHA-256, downloads the
+actual remote file, and restores that download again. Only then does it upload a
+success receipt. Failure yields no success receipt. Retrying manually may leave
+orphan/duplicate Drive copies; never delete those or source records automatically.
 
-## Activation prerequisites (still outstanding)
+Every receipt has `deletionPermitted=false`. No source purge, retention change,
+order, email, risk-rule change or paid scaling exists. After a successful remote
+restore AND receipt upload, only redundant local ZIP scratch copies are removed.
+Failed work remains for diagnosis; disk exhaustion blocks further work safely.
+ZIP compression is lossless, not encryption; the Drive folder must remain private.
 
-- An existing authorized execution environment with internal production DB access.
-  Do not open Render's external database allowlist to enable this task.
-- An isolated existing PostgreSQL test database with a distinct database name,
-  sufficient scratch space, and the same supported PostgreSQL major version.
-  Do not create a paid Render database/service.
-- Bob-specific Google OAuth authorization stored securely as
-  `BOB_ARCHIVE_GOOGLE_AUTHORIZED_USER_JSON` (authorized-user JSON with refresh
-  token), scoped to the selected file/folder where possible. Never obtain or
-  print ChatGPT connector tokens, and never put credentials in GitHub/chat.
-- `DATABASE_URL`, `BOB_ARCHIVE_RESTORE_DATABASE_URL`, and
-  `BOB_ARCHIVE_WORK_DIRECTORY` in that execution environment; install
-  `requirements-archive.txt` there, not in either running service by default.
+## Secure activation
 
-Run `python drive_evidence_archive.py` for one bounded trial. CLI output redacts
-failure details. Inspect the local manifest and actual downloaded-archive restore
-receipt. Only after a real successful run, complete coverage review, idempotent
-retry handling and observed resource use may a recurring run be enabled on an
-existing no-additional-cost runner. This commit intentionally installs no cron.
-A future deletion policy requires separately reviewed per-record export coverage
-and proof that mutable/new rows are never removed using an older snapshot.
+Install requirements-archive.txt (included by requirements-push.txt). Configure on
+the existing push service through secure environment settings:
 
-## Verification
+- BOB_ARCHIVE_DRIVE_FOLDER_ID: existing private folder (never commit its identity).
+- BOB_ARCHIVE_GOOGLE_AUTHORIZED_USER_JSON: Google authorized-user JSON including
+  refresh token from a separately authorized OAuth client; never put it in chat,
+  logs or GitHub. Prefer access scoped to the selected files/folder.
+- BOB_ARCHIVE_ENABLED=1 only after valid credentials are configured.
+- BOB_ARCHIVE_WORK_DIRECTORY optionally selects scratch storage (default /tmp/bob-archive).
 
-`python -m unittest test_evidence_archive test_drive_evidence_archive`
-The PostgreSQL integration test runs in the existing CI PostgreSQL 18 service via
-`BOB_TEST_DATABASE_URL`. Synthetic test success is not a production archive proof.
+No extra restore database URL is required for internal mode. The standalone CLI
+can still use a distinct BOB_ARCHIVE_RESTORE_DATABASE_URL. The worker is not enabled
+by this commit. Google client registration and user consent must happen via
+Google's supported setup; ChatGPT connector tokens must never be extracted.
+
+The existing 30-minute database samples and 500/700 MB caution/action thresholds
+continue. Logical database size does not mean physical free disk space. Preserving
+originals means this phase provides external backup, not database reclamation.
+
+## Tests
+
+`python -m unittest test_archive_worker test_evidence_archive test_drive_evidence_archive`
+The existing CI PostgreSQL service checks actual COPY restore, same-database TEMP
+isolation, exact values, duplicate preservation, corruption rejection and untouched
+source rows. Mock tests cover quota failure, remote proof gating and daily claims.
+Synthetic success is not proof of production export or restoration.

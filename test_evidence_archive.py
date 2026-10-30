@@ -66,6 +66,9 @@ class ArchivePostgres(unittest.TestCase):
                 self.assertEqual(proof['absentTables'], ['absent'])
                 with self.assertRaisesRegex(ValueError,'isolated'):
                     archive.restore_check(path, proof['sha256'], dsn)
+                temporary_receipt = archive.restore_check(path, proof['sha256'], dsn, temporary_session=True)
+                self.assertTrue(temporary_receipt['restoreVerified'])
+                self.assertEqual(temporary_receipt['restoreIsolation'], 'session-temporary-tables')
                 # CI itself is isolated. Change ONLY the manifest's source label
                 # to exercise the temp-table restore in this CI database.
                 downloaded = Path(d)/'downloaded.zip'

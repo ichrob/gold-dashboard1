@@ -70,7 +70,7 @@ class GoogleDrive:
                     raise ValueError('Downloaded archive exceeds bounded size')
 
 
-def run(source_dsn, restore_dsn, work_directory, drive):
+def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=False):
     """Retain local evidence on failure; receipt exists only after remote restore.
 
     No schedule is installed by this function. Use an existing authorized runner
@@ -85,11 +85,11 @@ def run(source_dsn, restore_dsn, work_directory, drive):
     result = archive.export(source_dsn, path)
     checksum = result['sha256']
     # Check locally before consuming Drive storage, then restore again from Drive.
-    archive.restore_check(path, checksum, restore_dsn)
+    archive.restore_check(path, checksum, restore_dsn, temporary_session=temporary_session)
     file_id = drive.upload(path, checksum)
     downloaded = work / 'downloaded.zip'
     drive.download(file_id, downloaded)
-    receipt = archive.restore_check(downloaded, checksum, restore_dsn)
+    receipt = archive.restore_check(downloaded, checksum, restore_dsn, temporary_session=temporary_session)
     receipt.update(driveFileId=file_id, driveFolderId=FOLDER_ID,
         remoteDownloadVerified=True, driveQuotaBefore=quota,
         databaseBytes=result['databaseBytes'],
@@ -99,6 +99,10 @@ def run(source_dsn, restore_dsn, work_directory, drive):
     receipt_path.write_text(json.dumps(receipt, sort_keys=True, indent=2))
     os.chmod(receipt_path, 0o600)
     receipt_id = drive.upload(receipt_path, archive.digest(receipt_path))
+    # Only redundant scratch copies after verified remote restore and receipt.
+    # Database originals and the durable Drive archive remain untouched.
+    downloaded.unlink()
+    path.unlink()
     return dict(**receipt, receiptFileId=receipt_id)
 
 

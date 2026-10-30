@@ -134,7 +134,7 @@ def export(dsn, destination, tables=None, schema='public'):
     return dict(sha256=digest(destination), **manifest)
 
 
-def restore_check(archive, expected_sha256, restore_dsn):
+def restore_check(archive, expected_sha256, restore_dsn, *, temporary_session=False):
     import psycopg
     from psycopg import sql
     if digest(archive) != expected_sha256:
@@ -148,9 +148,14 @@ def restore_check(archive, expected_sha256, restore_dsn):
         if manifest.get('version') != VERSION or not manifest.get('tables'):
             raise ValueError('Invalid archive manifest')
         with psycopg.connect(restore_dsn) as conn:
-            if conn.info.dbname == manifest['sourceDatabase']:
+            if conn.info.server_version // 10000 != manifest['postgresVersion'] // 10000:
+                raise ValueError('Matching PostgreSQL major version required')
+            if conn.info.dbname == manifest['sourceDatabase'] and not temporary_session:
                 raise ValueError('Restore requires a separately named isolated test database')
             settings(conn)
+            # Only this session's temporary namespace can receive restored rows.
+            # Restore one table at a time, dropping its scratch copy immediately.
+            conn.execute("SET LOCAL search_path = pg_temp, pg_catalog")
             for i, item in enumerate(manifest['tables']):
                 if item['file'] != f'{i}.copy' or any(not TYPE.fullmatch(t) for _, t in item['columns']):
                     raise ValueError('Unsafe archive schema')
@@ -167,9 +172,11 @@ def restore_check(archive, expected_sha256, restore_dsn):
                     restored = copy_out(conn, copy_query('pg_temp', name, [c[0] for c in item['columns']]), sink, MAX_BYTES)
                 if restored != {k:item[k] for k in ('bytes','rows','sha256')}:
                     raise ValueError('Restored PostgreSQL values differ from original export')
+                conn.execute(sql.SQL('DROP TABLE {}.{}').format(sql.Identifier('pg_temp'), sql.Identifier(name)))
             conn.rollback()  # No permanent objects even in the isolated database.
     return dict(version=VERSION, archiveSha256=expected_sha256, restoreVerified=True,
                 verifiedAt=datetime.now(timezone.utc).isoformat(), tables=len(manifest['tables']),
+                restoreIsolation='session-temporary-tables' if temporary_session else 'separate-database',
                 rows=sum(t['rows'] for t in manifest['tables']), evidenceDeleted=False,
                 deletionPermitted=False, scope=manifest['scope'])
 
