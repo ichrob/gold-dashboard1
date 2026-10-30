@@ -103,6 +103,52 @@ internal object MorningReadPolicy {
         if (nodes.any { it.editable && !search(it) }) return "UNRECOGNIZED_INPUT"
         return null
     }
+    /** Only an isolated global launcher beside an identified read-only product.
+     * This grants READ only; it never returns a click/search/submit target. */
+    fun detailLauncherIndex(nodes: List<Node>, target: String, anchored: Boolean = false): Int? {
+        if(nodes.size>500 || !SeriesEvidence.validIsin(target) ||
+            nodes.any { it.editable || it.containsInput || it.password || it.sensitive }) return null
+        val values: (Node) -> List<String> = { listOf(it.text,it.description,it.hint) }
+        val marked=nodes.indices.filter { i -> values(nodes[i]).any(orderMarkers.first().second::containsMatchIn) }
+        val index=marked.singleOrNull() ?: return null
+        val launcher=nodes[index]
+        val exact=Regex("(?iu)^(order platzieren|place order)$")
+        if(!canClick(launcher) || values(launcher).filter(String::isNotBlank).any { !exact.matches(normalized(it)) } ||
+            launcher.row.lines().filter(String::isNotBlank).any { !exact.matches(normalized(it)) }) return null
+        // No descendant may hide other controls or product content in the launcher.
+        for(i in nodes.indices) {
+            var cursor=nodes[i].parent;var steps=0
+            while(cursor in nodes.indices && steps++<nodes.size) {
+                if(cursor==index) return null
+                cursor=nodes[cursor].parent
+            }
+        }
+        val cleaned=nodes.mapIndexed { i,n -> if(i==index) Node("") else n }
+        if(protection(cleaned)!=null) return null
+        if(cleaned.any { n -> values(n).any { Regex("(?iu)order type|limit price|quantity").containsMatchIn(it) } }) return null
+        val seen=cleaned.flatMap { n -> values(n).flatMap { ids.findAll(it.uppercase()).map { m -> m.value }.toList() } }.toSet()
+        val section=cleaned.any { n -> values(n).any { Regex("(?iu)^(übersicht|overview|kursdaten|produktdetails)$").matches(normalized(it)) } }
+        if(!section) return null
+        val productTitle=cleaned.any { n ->
+            Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.row) &&
+                Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(n.row) &&
+                ids.findAll(n.row.uppercase()).map { it.value }.toSet().let { it.isEmpty() || it==setOf(target) }
+        }
+        // A missing header is allowed only during an already anchored same-window
+        // scroll transaction, with explicit quote-section labels still present.
+        val quoteSection=cleaned.any { normalized(it.text).equals("Kursdaten",true) }
+        fun label(name:String)=cleaned.any { Regex("(?iu)^$name(?:\\s|[:：]|$)").containsMatchIn(normalized(it.text)) }
+        val quotes=quoteSection && label("Geld") && label("Brief")
+        return index.takeIf { (seen==setOf(target) && (productTitle || quotes)) || (anchored && seen.isEmpty() && quotes) }
+    }
+    fun detailReadLines(nodes: List<Node>, lines: List<QuoteLayout.Line>, target: String,
+                        anchored: Boolean = false): List<QuoteLayout.Line> {
+        if(detailLauncherIndex(nodes,target,anchored)==null) return lines
+        // A second traversal must not smuggle a compound order label past the
+        // strict parser. Remove only the exact isolated launcher label.
+        val exact=Regex("(?iu)^(order platzieren|place order)$")
+        return lines.filterNot { exact.matches(normalized(it.text)) }
+    }
     /** A market navigation launcher is not an open order form. This exception
      * permits only opening an isolated, explicit product search on Markets;
      * never entering text, opening results, reading, or activating the launcher. */
@@ -256,6 +302,15 @@ internal object MorningReadPolicy {
         if (nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
         protection(nodes)?.let { cause ->
             if (cause == "PROTECTED_ORDER_CONFIRM") {
+                if(!discovery) {
+                    if(detailLauncherIndex(nodes,target)!=null) return Action(Kind.READ)
+                    // After finishing one item, leave only a separately validated
+                    // product page before searching for the next requested ISIN.
+                    val current=nodes.flatMap { n -> ids.findAll(n.text.uppercase()).map { it.value }.toList() }
+                        .toSet().singleOrNull()
+                    if(current!=null && current!=target && detailLauncherIndex(nodes,current)!=null)
+                        return Action(Kind.BACK)
+                }
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 productSearchWithoutLauncher(nodes)?.let { searchNodes ->
                     val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll)
