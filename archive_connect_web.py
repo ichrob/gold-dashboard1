@@ -88,7 +88,7 @@ def route(handler, user, password):
             else:
                 body+='<p>1. In deinem Google-Web-Client diese autorisierte Weiterleitungs-URI eintragen und speichern:</p><p style="overflow-wrap:anywhere">'+html.escape(CALLBACK)+'</p>'
                 if not status.get('configured'):
-                    body+='<p>2. Die heruntergeladene Web-Client-JSON direkt an Bob übertragen. Sie wird verschlüsselt gespeichert.</p><form id="upload"><input type="file" id="file" accept=".json,application/json" required><input type="hidden" id="csrf" value="'+csrf(handler.headers)+'"><button>Datei sicher speichern</button></form><p id="message" role="status"></p><script src="/archive/connect/upload.js" defer></script>'
+                    body+='<p>2. Die heruntergeladene Web-Client-JSON direkt an Bob übertragen. Sie wird verschlüsselt gespeichert.</p><form id="upload"><input type="file" id="file" required><input type="hidden" id="csrf" value="'+csrf(handler.headers)+'"><button>Datei sicher speichern</button></form><p id="message" role="status"></p><script src="/archive/connect/upload.js" defer></script>'
                 else:
                     body+='<p>Web-Client gespeichert. Google erlaubt Bob nur Zugriff auf mit dieser App erstellte oder ausdrücklich ausgewählte Dateien. Wähle dein Archiv-Konto.</p><form method="post" action="/archive/connect/begin"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'"><button>Bei Google freigeben</button></form>'
             page(handler,body+'<p><a href="/">Zurück zu Bob</a></p>')
