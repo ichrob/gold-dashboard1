@@ -264,6 +264,14 @@ class ProductReadService : AccessibilityService() {
     /** Never inspect a background window or traverse another app's content. */
     private fun productRoot(record: Boolean): AccessibilityNodeInfo? {
         fun note(outcome: ProductReadDiagnostics.Outcome) { if (record) ProductReadDiagnostics.record(outcome) }
+        // WebView scrolls can leave cached offscreen nodes marked visible. Re-read the
+        // tree before detail navigation; never use a failed refresh to authorize a tap.
+        if(record && MorningReadRun.importedListRun() && !MorningReadRun.reading && android.os.Build.VERSION.SDK_INT>=33) {
+            val refreshed=runCatching { clearCache() }.getOrDefault(false)
+            ProductReadDiagnostics.record(if(refreshed) ProductReadDiagnostics.Outcome.NAVIGATION_CACHE_CLEARED
+                else ProductReadDiagnostics.Outcome.NAVIGATION_CACHE_FAILED)
+            if(!refreshed)return null
+        }
         val direct = rootInActiveWindow
         if (direct != null) {
             note(if (direct.packageName?.toString() == ProductScreenEvidence.PACKAGE)
@@ -874,6 +882,7 @@ class ProductReadService : AccessibilityService() {
             }
             // A fresh run can begin on yesterday's scrolled list. Only scroll
             // backwards here; no capture is accepted before Top Ergebnisse is visible.
+            if(!gold) ProductReadDiagnostics.detailHeader(descriptions)
             val detailRestore=MorningReadPolicy.detailSearchRestore(descriptions,MorningReadRun.importedListRun())
             if(detailRestore!=null || (gold && listImages.length()==0 && descriptions.none { it.text.trim().equals("Top Ergebnisse",true) })) {
                 val seek=detailRestore ?: MorningReadPolicy.captureGoldList(descriptions,true)
@@ -891,9 +900,17 @@ class ProductReadService : AccessibilityService() {
                             if(at==parent) { found=true;break };at=descriptions[at].parent
                         };child!=parent && found
                     } }.singleOrNull()
-                    if(inner==null || ++listTopSeekSteps>4 || !nodes[inner].performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
-                        lastNavigationIssue="LIST_TOP_RESULTS_MISSING";ProductReadRequest.cancel()
+                    val failure=when {
+                        inner==null -> "LIST_RESTORE_NO_TARGET"
+                        ++listTopSeekSteps>4 -> "LIST_RESTORE_LIMIT"
+                        !nodes[inner].performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) -> "LIST_RESTORE_REJECTED"
+                        else -> null
                     }
+                    if(failure!=null) {
+                        lastNavigationIssue=failure
+                        if(!gold) MorningReadRun.event(this,failure)
+                        ProductReadRequest.cancel()
+                    } else if(!gold) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.DETAIL_HEADER_SCROLL_SENT)
                     lastNavigation=SystemClock.elapsedRealtime()
                     return true
                 }

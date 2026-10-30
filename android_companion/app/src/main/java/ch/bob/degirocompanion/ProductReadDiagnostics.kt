@@ -2,7 +2,7 @@ package ch.bob.degirocompanion
 
 /** Local counters only: no package names, screen text, ISINs or account values. */
 internal object ProductReadDiagnostics {
-    enum class Outcome { LIST_IMAGE_CAPTURED, LIST_SCROLL_SENT, LIST_HEADER_SCROLLED_AWAY, LIST_TAB_SELECTION_UNREPORTED, CATEGORY_CLICK_SENT, CATEGORY_SCROLL_SENT, SEARCH_INPUT_TAP_SENT, SEARCH_INPUT_TAP_REJECTED, SEARCH_INPUT_SPATIAL, SEARCH_INPUT_CLUSTER, SEARCH_FOCUS_ACCEPTED, SEARCH_FOCUS_REJECTED, SEARCH_TAP_SENT, SEARCH_TAP_COMPLETED, SEARCH_TAP_CANCELLED, SEARCH_TAP_REJECTED, NO_ROOT, NO_FOCUSED_WINDOW, WINDOW_ROOT_MISSING, OTHER_APP,
+    enum class Outcome { NAVIGATION_CACHE_CLEARED, NAVIGATION_CACHE_FAILED, DETAIL_HEADER_SCROLL_SENT, DETAIL_HEADER_LABEL_PRESENT, DETAIL_HEADER_LABEL_MISSING, DETAIL_INPUT_PRESENT, DETAIL_INPUT_MISSING, LIST_IMAGE_CAPTURED, LIST_SCROLL_SENT, LIST_HEADER_SCROLLED_AWAY, LIST_TAB_SELECTION_UNREPORTED, CATEGORY_CLICK_SENT, CATEGORY_SCROLL_SENT, SEARCH_INPUT_TAP_SENT, SEARCH_INPUT_TAP_REJECTED, SEARCH_INPUT_SPATIAL, SEARCH_INPUT_CLUSTER, SEARCH_FOCUS_ACCEPTED, SEARCH_FOCUS_REJECTED, SEARCH_TAP_SENT, SEARCH_TAP_COMPLETED, SEARCH_TAP_CANCELLED, SEARCH_TAP_REJECTED, NO_ROOT, NO_FOCUSED_WINDOW, WINDOW_ROOT_MISSING, OTHER_APP,
         DIRECT_ROOT, WINDOW_ROOT, PROTECTED_VIEW, NO_FIELDS, DRAFT, CHANGED, ERROR, LOCKED, SCREEN_HELD, SCREEN_HOLD_FAILED, WINDOW_RECHECK, USER_INTERRUPTED, APP_LEFT, WINDOW_INTERRUPTED, REQUEST_EXPIRED, REQUEST_ATTEMPT_LIMIT, REQUEST_CLOCK_CHANGED, PAGE_SCROLL, PAGE_ABORT, PAGE_COMPLETE, SCROLL_NO_ACTION, SCROLL_AMBIGUOUS, SCROLL_AVAILABLE, SCROLL_REJECTED, SCROLL_PRODUCT_SCOPED, SCROLL_MARKERS_MISSING, SCROLL_MARKERS_CONFLICT }
     var connected = false
     var canRead = false
@@ -60,6 +60,12 @@ internal object ProductReadDiagnostics {
     private var startedAt: Long? = null
     fun reset(now: Long) { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
     fun clear() { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
+    /** Fixed presence flags for detail navigation; no raw field contents leave the phone. */
+    fun detailHeader(nodes: List<MorningReadPolicy.Node>) {
+        record(if(nodes.any { it.text.replace(Regex("[\\s\\p{Zs}]+")," ").trim().equals("Top Ergebnisse",true) })
+            Outcome.DETAIL_HEADER_LABEL_PRESENT else Outcome.DETAIL_HEADER_LABEL_MISSING)
+        record(if(nodes.any { it.editable }) Outcome.DETAIL_INPUT_PRESENT else Outcome.DETAIL_INPUT_MISSING)
+    }
     fun record(outcome: Outcome) { counts[outcome] = ((counts[outcome] ?: 0) + 1).coerceAtMost(999) }
     fun page(cause: ProductPageReader.Cause) {
         if (cause != ProductPageReader.Cause.NONE) pageCauses[cause] = ((pageCauses[cause] ?: 0) + 1).coerceAtMost(999)

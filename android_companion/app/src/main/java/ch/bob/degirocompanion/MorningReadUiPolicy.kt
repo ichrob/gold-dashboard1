@@ -13,6 +13,9 @@ internal object MorningReadUiPolicy {
                   version:String,lastAttempt:String):Boolean = enabled && autoReturn && !running && interactive && !locked &&
         version.isNotEmpty() && version!=lastAttempt
     fun reason(code:String):String=when(code) {
+        "LIST_RESTORE_NO_TARGET" -> "Suchleiste noch nicht erreichbar; Android meldet kein eindeutiges Scrollziel"
+        "LIST_RESTORE_LIMIT" -> "Suchleiste nach vier Scrollversuchen noch nicht erkannt"
+        "LIST_RESTORE_REJECTED" -> "Android hat das Zurückscrollen zur Suche abgelehnt"
         "LIST_TOP_RESULTS_MISSING" -> "Top-Ergebnisliste nicht erkannt; Gesamtkatalog wird nicht geöffnet"
         "LIST_TOP_RESULTS_OVERFLOW", "LIST_TOP_RESULTS_INCOMPLETE" -> "Zehn Top Ergebnisse noch nicht vollständig erfasst; keine neue Morgenliste übernommen"
         "LIST_IMAGES_DELIVERED" -> "Listenbilder gespeichert; Bob prüft die Übernahme auf dem Server"
