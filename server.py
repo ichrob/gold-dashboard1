@@ -2469,7 +2469,7 @@ def fibonacci_monitor_loop():
                 import diagnostic_history
                 source_trace = diagnostic_history.trace(bundle)
                 diagnostic_history.emit('input', source_trace, {**(bundle.get('spots') or {}), 'fetchedAt':bundle.get('fetched_at')})
-                background_bundle = {**bundle, "history":{**bundle.get("history",{}),"bars_by_tf":{tf:bars.get(tf,[])[-240:] for tf in ("1m","5m","15m","1h","4h")}}}
+                background_bundle = {**bundle, "history":{**bundle.get("history",{}),"bars_by_tf":{tf:bars.get(tf,[])[-240:] for tf in technical_candles.MINUTES}}}
                 request = Request(base+"/background",data=json.dumps({"bundle":background_bundle}).encode(),method="POST",headers={"Content-Type":"application/json","X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
                 try:
                     with urlopen(request,timeout=45) as response:
