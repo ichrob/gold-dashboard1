@@ -127,6 +127,10 @@ def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, c
     # No cache or evidence is deleted, and the 400-MiB kill threshold stays fixed.
     __import__('gc').collect()
     __import__('memory_watch').release_free_pages()
+    # Reserve measured OCR peak plus headroom before starting native models.
+    used=container_memory_bytes()
+    if used is None or used+200*1024*1024>=OCR_CONTAINER_LIMIT:
+        raise OcrMemoryDeferred('OCR awaiting free container memory')
     with tempfile.TemporaryFile(mode='w+',encoding='utf-8') as source, \
          tempfile.TemporaryFile(mode='w+',encoding='utf-8') as output, \
          tempfile.TemporaryFile(mode='w+',encoding='utf-8') as errors:
@@ -142,6 +146,8 @@ def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, c
 
 class OcrChildError(RuntimeError):pass
 class ListVerificationError(ValueError):pass
+class OcrMemoryDeferred(RuntimeError):pass
+
 
 
 def process(payload,at):
@@ -149,9 +155,18 @@ def process(payload,at):
     env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
     import evaluator_runtime
     images=[]
+    prepared=[None]*len(payload['images'])
+    if any('appText' in image for image in payload['images']):
+        # Send bounded text only; screenshots never enter the JS process.
+        result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],
+            input=json.dumps({'mode':'prepare-app','images':[{'appText':i.get('appText')} for i in payload['images']]}),
+            text=True,capture_output=True,timeout=20,check=True)
+        prepared=json.loads(result.stdout)
     # Share subprocess admission with Node analyses, releasing it after each
     # image. Never overlap a native OCR model with a heavy JS evaluator.
-    for image in payload['images']:
+    for index,image in enumerate(payload['images']):
+        if prepared[index] is not None:
+            images.append(prepared[index]);continue
         try:
             child=evaluator_runtime.run([sys.executable,__file__,'--ocr'],priority=2,runner=guarded_ocr_run,
                 input=json.dumps([image]),text=True,capture_output=True,timeout=35,check=True,env=env,close_fds=True)
@@ -160,7 +175,7 @@ def process(payload,at):
         if len(child.stdout)>100000:raise ValueError('OCR output limit')
         images.extend(json.loads(child.stdout))
     try:
-        result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':images,'at':at}),text=True,capture_output=True,timeout=20,check=True)
+        result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':images,'at':at,'appSources':[p is not None for p in prepared]}),text=True,capture_output=True,timeout=20,check=True)
     except subprocess.CalledProcessError as exc:
         raise ListVerificationError('Ten-row list verification failed') from exc
     return json.loads(result.stdout)
@@ -202,7 +217,7 @@ def tick(connect,runner=process):
             JOIN bob_android_diagnostic_devices d USING(token_hash)
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
-            AND (i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error'='MemoryError'))
+            AND (i.import_receipt->>'stage'='waiting-memory' OR i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error'='MemoryError'))
                 OR (i.processing_attempts=4 AND i.import_receipt->>'error' IN ('InterruptedWorker','MemoryError'))
                 OR (i.processing_attempts=5 AND i.import_receipt->>'error' IN ('CalledProcessError','LockNotAvailable','DeadlockDetected','SerializationFailure')))
             AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
@@ -222,6 +237,12 @@ def tick(connect,runner=process):
             raise ValueError('Mismatched evidence')
         stage=persist_parsed(connect,batch,parsed)
         observe(stage)
+    except OcrMemoryDeferred:
+        observe("waiting-memory")
+        with connect() as conn:
+            conn.execute("UPDATE bob_android_list_images SET processing_attempts=GREATEST(processing_attempts-1,0),import_receipt=%s::jsonb WHERE batch_id=%s AND import_receipt->>'stage'='reading'",
+                (json.dumps({'batchId':batch,'stage':'waiting-memory','count':0}),batch))
+            conn.commit()
     except Exception as exc:
         observe("read-failed", type(exc).__name__)
         with connect() as conn:

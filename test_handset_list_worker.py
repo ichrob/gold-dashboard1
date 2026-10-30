@@ -5,6 +5,23 @@ from unittest.mock import patch
 import handset_list_worker as worker
 
 class WorkerTests(unittest.TestCase):
+    def test_semantic_path_never_starts_ocr(self):
+        from types import SimpleNamespace
+        text={'before':['row'],'after':['row']}
+        with patch('evaluator_runtime.run',side_effect=[SimpleNamespace(stdout='[["row","row"]]'),SimpleNamespace(stdout='{"items":[]}')]) as run:
+            worker.process({'images':[{'png':'private image','appText':text}]},'2026-10-30T12:00:00Z')
+        self.assertEqual(run.call_count,2)
+        self.assertTrue(all(c.args[0][0]=='node' for c in run.call_args_list))
+        self.assertNotIn('private image',run.call_args_list[0].kwargs['input'])
+        self.assertEqual(json.loads(run.call_args_list[1].kwargs['input'])['appSources'],[True])
+
+    def test_ocr_defers_before_spawn_when_headroom_is_insufficient(self):
+        with patch.object(worker,'container_memory_bytes',return_value=300*1024*1024),patch('subprocess.Popen') as spawn:
+            with self.assertRaises(worker.OcrMemoryDeferred):
+                worker.guarded_ocr_run(['ocr'],input='[]',text=True,capture_output=True,timeout=35,check=True,env={},close_fds=True)
+            spawn.assert_not_called()
+
+
     def test_persistence_retries_transient_conflicts_after_transaction_exit(self):
         from types import SimpleNamespace
         from contextlib import contextmanager
@@ -108,7 +125,7 @@ class WorkerTests(unittest.TestCase):
 
     def test_shared_parser_requires_ten_agreed_rows_and_preserves_quote_gaps(self):
         script=r'''
-const {parse,normalizeLayout}=require('./handset_list_parse');
+const {parse,normalizeLayout,appImage}=require('./handset_list_parse');
 const fs=require('fs'),vm=require('vm'),c={window:{}};vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),c);
 const valid=c.window.BobDegiro.validIsin;
 function id(n){const prefix='DE000ZZ'+String(n).padStart(4,'0');for(let i=0;i<10;i++)if(valid(prefix+i))return prefix+i;}
@@ -126,10 +143,21 @@ if(out.items.length!==10||out.evidence.products.some(p=>p.price!==null||p.isinCo
 for(const invalid of [images.slice(0,2),images.map(p=>p.slice(0,1)),[...images,[row(4,4100),row(4,4100)]]]){
  let rejected=false;try{parse(invalid,'2026-10-29T19:00:00Z')}catch(_){rejected=true}if(!rejected)throw Error('Unsafe list');
 }
+const app=images.map(p=>({before: p[0].split(/\n(?=SG Gold)/),after:p[0].split(/\n(?=SG Gold)/)}));
+const direct=parse(app.map(appImage),'2026-10-29T19:00:00Z',[true,true,true]);
+if(direct.items.length!==10||direct.items.some(i=>i.listRow.source!=='DEGIRO-App-Text'||i.listRow.crossChecked)||direct.evidence.products.some(p=>p.listVenueEvidence||p.quote||p.price))throw Error('App provenance or approval');
+for(const bad of [{before:[row(1)],after:[row(2)]},{before:[row(1),row(1)],after:[row(1),row(1)]},{before:['bad'],after:['bad']}])if(appImage(bad)!==null)throw Error('Bad semantic text');
 console.log(JSON.stringify(out));
 '''
         result=subprocess.run(['node','-e',script],text=True,capture_output=True,check=True)
-        self.assertEqual(len(json.loads(result.stdout)['items']),10)
+        parsed=json.loads(result.stdout)
+        self.assertEqual(len(parsed['items']),10)
+        rows=[i['name']+' | '+i['isin']+'\n'+i['listRow']['venue']+' '+i['listRow']['currency'] for i in parsed['items']]
+        # Run the actual subprocess protocol end to end. Invalid PNG data proves
+        # that a complete semantic capture never invokes the image decoder.
+        imported=worker.process({'images':[{'png':'not decoded','appText':{'before':rows,'after':rows}}]},'2026-10-29T19:00:00Z')
+        self.assertEqual(len(imported['items']),10)
+        self.assertTrue(all(i['listRow']['source']=='DEGIRO-App-Text' for i in imported['items']))
 
     def test_worker_ack_only_after_persistence_and_keeps_failed_batch(self):
         class Result:

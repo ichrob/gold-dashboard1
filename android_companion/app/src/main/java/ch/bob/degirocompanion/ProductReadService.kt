@@ -784,6 +784,7 @@ class ProductReadService : AccessibilityService() {
         if(!safe) { fail("LIST_CAPTURE_WINDOW_CHANGED");return }
         listBusy=true
         val ids=action.isins.toList();val capturedAt=Instant.now().toString()
+        val textBefore=MorningListText.capture(descriptions,ids)
         takeScreenshotOfWindow(windowId,mainExecutor,object:TakeScreenshotCallback {
             override fun onFailure(errorCode:Int) {
                 if(generation!=listGeneration)return
@@ -796,8 +797,10 @@ class ProductReadService : AccessibilityService() {
                         !ProductReadRequest.active(SystemClock.elapsedRealtime()) || keyboardVisible())return
                     val live=rootInActiveWindow ?: return
                     val refs=mutableListOf<AccessibilityNodeInfo>();val view=mutableListOf<MorningReadPolicy.Node>()
+                    var textAfter:List<String>?=null
                     val unchanged=try {
                         navigationTree(live,refs,view)
+                        textAfter=MorningListText.capture(view,ids)
                         val decision=MorningReadPolicy.captureGoldList(view,listImages.length()>0)
                         live.windowId==windowId && live.packageName?.toString()==ProductScreenEvidence.PACKAGE &&
                             decision.kind==MorningReadPolicy.Kind.COLLECT && decision.isins==ids
@@ -813,6 +816,8 @@ class ProductReadService : AccessibilityService() {
                         } } finally { if(cropped!==bitmap)cropped.recycle() }
                         check(bytes.size<=1500000)
                         val image=org.json.JSONObject().put("at",capturedAt).put("png",android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP))
+                        if(textBefore!=null && textAfter==textBefore) image.put("appText",org.json.JSONObject()
+                            .put("before",org.json.JSONArray(textBefore)).put("after",org.json.JSONArray(textAfter)))
                         listImages.put(image)
                         listCropTop=cropTop
                         listWindowId=windowId
