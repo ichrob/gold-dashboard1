@@ -345,7 +345,7 @@ class ProductReadService : AccessibilityService() {
                     if (!value.isNullOrEmpty() && !bounds.isEmpty) {
                         check(value.length <= 2000)
                         lines += QuoteLayout.Line(value, bounds.left, bounds.top, bounds.right, bounds.bottom)
-                        ProductSymbolMemory.headerSymbol(value)?.let { symbolContainers += it to containers }
+                        ProductSymbolMemory.probeHeaderSymbol(value)?.let { symbolContainers += it to containers }
                         val evidence = ProductScrollPolicy.evidence(value)
                         for (index in containers) capabilities[index] = capabilities[index].copy(evidence = capabilities[index].evidence or evidence)
                     }
@@ -422,6 +422,7 @@ class ProductReadService : AccessibilityService() {
                         requireParameters = MorningReadRun.running, identityHint = identityHint,
                         allowSymbolProbe = MorningReadRun.importedListRun())
                     ProductReadDiagnostics.page(step.cause)
+                    ProductReadDiagnostics.rejected(step.result.reason)
                     when (step.move) {
                         ProductPageReader.Move.FORWARD, ProductPageReader.Move.BACKWARD -> {
                             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.PAGE_SCROLL)
@@ -593,6 +594,7 @@ class ProductReadService : AccessibilityService() {
             val anchoredDetail=MorningReadRun.running && MorningReadRun.reading && pageReader.sameWindow(root.windowId)
             val detailLauncher=MorningReadPolicy.detailLauncherIndex(descriptions,observedTarget,anchoredDetail,
                 symbolProbe=MorningReadRun.importedListRun())
+            ProductReadDiagnostics.detailProduct(descriptions,detailLauncher!=null)
             val restoring=MorningReadPolicy.detailSearchRestore(descriptions,MorningReadRun.importedListRun())
             val proposed=if(actionName=="inspect" && detailLauncher!=null) MorningReadPolicy.Action(MorningReadPolicy.Kind.READ)
                 else if(actionName=="inspect" && restoring!=null) restoring
