@@ -80,6 +80,22 @@ class OffHoursAuditTests(unittest.TestCase):
         self.assertEqual(db.feed, FEED, 'Original timestamps and identity must not change')
         self.assertFalse(db.checked['tradeApproved'])
 
+    def test_existing_worker_schedules_offhours_audit_without_trading(self):
+        class StopLoop(Exception):
+            pass
+
+        def stop(_seconds):
+            raise StopLoop
+
+        with patch.object(sim.background_push, 'degiro_session', return_value='night'), \
+             patch.object(sim.background_push, 'degiro_seconds_to_transition', return_value=3600), \
+             patch.object(sim, 'audit_offhours_once',
+                          return_value={'state': 'already-checked',
+                                        'auditUpdated': False}) as audit:
+            with self.assertRaises(StopLoop):
+                sim._preflight_loop(lambda: None, wait=stop)
+            audit.assert_called_once()
+
     def test_trading_and_preparation_never_use_offhours_path(self):
         for phase in ('trading', 'preparation'):
             with self.subTest(phase=phase), patch.object(sim.background_push, 'degiro_session', return_value=phase):
