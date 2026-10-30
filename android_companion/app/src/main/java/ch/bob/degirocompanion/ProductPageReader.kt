@@ -51,7 +51,7 @@ internal class ProductPageReader {
                 ProductScreenEvidence.Reason.ISIN_AMBIGUOUS)) return stop(direct.message, Cause.UNSAFE_VIEW, direct.reason)
         val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n") { it.text.uppercase() }).map { it.value }.distinct().toList()
         if (seekingSymbol != null && (windowId != seekWindow ||
-                lines.mapNotNull { ProductSymbolMemory.headerSymbol(it.text) }.any { it != seekingSymbol }))
+                lines.mapNotNull { ProductSymbolMemory.probeHeaderSymbol(it.text) }.any { it != seekingSymbol }))
             return stop("Produkt oder Fenster bei der ISIN-Suche gewechselt.", Cause.IDENTITY_CHANGED)
         // Identity changes must be rejected even while the scroll tree is transient.
         if (anchored && (identityHint != null && identityHint != isin || windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)))
@@ -147,7 +147,7 @@ internal class ProductPageReader {
         if (readBackward) {
             if (canBackward && backward < 8) {
                 backward++
-                return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "ISIN erkannt. Bob liest die darüberliegenden Kursdaten."))
+                return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "ISIN erkannt. Bob liest die darüberliegenden Kursdaten.", reason = observed.reason))
             }
             returning = true
             return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters)
@@ -155,7 +155,7 @@ internal class ProductPageReader {
         if (canForward) {
             if (forward >= 8) return stop("Scrollgrenze erreicht. Keine vollständige Seitenprüfung; kein Entwurf übernommen.", Cause.SCROLL_LIMIT)
             forward++
-            return Step(Move.FORWARD, ProductScreenEvidence.Result(message = "Bob liest die Produktseite abschnittsweise. Bitte währenddessen nicht bedienen."))
+            return Step(Move.FORWARD, ProductScreenEvidence.Result(message = "Bob liest die Produktseite abschnittsweise. Bitte währenddessen nicht bedienen.", reason = observed.reason))
         }
         if (forward == 0 && candidate == null) {
             reset()

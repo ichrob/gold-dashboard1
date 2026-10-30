@@ -2,7 +2,7 @@ package ch.bob.degirocompanion
 
 /** Local counters only: no package names, screen text, ISINs or account values. */
 internal object ProductReadDiagnostics {
-    enum class Outcome { RESULT_IDENTITY_PRESENT, RESULT_NAME_PRESENT, RESULT_TARGET_MISSING, NAVIGATION_CACHE_CLEARED, NAVIGATION_CACHE_FAILED, DETAIL_HEADER_SCROLL_SENT, DETAIL_HEADER_LABEL_PRESENT, DETAIL_HEADER_LABEL_MISSING, DETAIL_INPUT_PRESENT, DETAIL_INPUT_MISSING, LIST_IMAGE_CAPTURED, LIST_SCROLL_SENT, LIST_HEADER_SCROLLED_AWAY, LIST_TAB_SELECTION_UNREPORTED, CATEGORY_CLICK_SENT, CATEGORY_SCROLL_SENT, SEARCH_INPUT_TAP_SENT, SEARCH_INPUT_TAP_REJECTED, SEARCH_INPUT_SPATIAL, SEARCH_INPUT_CLUSTER, SEARCH_FOCUS_ACCEPTED, SEARCH_FOCUS_REJECTED, SEARCH_TAP_SENT, SEARCH_TAP_COMPLETED, SEARCH_TAP_CANCELLED, SEARCH_TAP_REJECTED, NO_ROOT, NO_FOCUSED_WINDOW, WINDOW_ROOT_MISSING, OTHER_APP,
+    enum class Outcome { DETAIL_NUMERIC_LABEL, DETAIL_NUMERIC_COMPOSITE, DETAIL_SYMBOL_PROBE_READY, DETAIL_LAUNCHER_READABLE, RESULT_IDENTITY_PRESENT, RESULT_NAME_PRESENT, RESULT_TARGET_MISSING, NAVIGATION_CACHE_CLEARED, NAVIGATION_CACHE_FAILED, DETAIL_HEADER_SCROLL_SENT, DETAIL_HEADER_LABEL_PRESENT, DETAIL_HEADER_LABEL_MISSING, DETAIL_INPUT_PRESENT, DETAIL_INPUT_MISSING, LIST_IMAGE_CAPTURED, LIST_SCROLL_SENT, LIST_HEADER_SCROLLED_AWAY, LIST_TAB_SELECTION_UNREPORTED, CATEGORY_CLICK_SENT, CATEGORY_SCROLL_SENT, SEARCH_INPUT_TAP_SENT, SEARCH_INPUT_TAP_REJECTED, SEARCH_INPUT_SPATIAL, SEARCH_INPUT_CLUSTER, SEARCH_FOCUS_ACCEPTED, SEARCH_FOCUS_REJECTED, SEARCH_TAP_SENT, SEARCH_TAP_COMPLETED, SEARCH_TAP_CANCELLED, SEARCH_TAP_REJECTED, NO_ROOT, NO_FOCUSED_WINDOW, WINDOW_ROOT_MISSING, OTHER_APP,
         DIRECT_ROOT, WINDOW_ROOT, PROTECTED_VIEW, NO_FIELDS, DRAFT, CHANGED, ERROR, LOCKED, SCREEN_HELD, SCREEN_HOLD_FAILED, WINDOW_RECHECK, USER_INTERRUPTED, APP_LEFT, WINDOW_INTERRUPTED, REQUEST_EXPIRED, REQUEST_ATTEMPT_LIMIT, REQUEST_CLOCK_CHANGED, PAGE_SCROLL, PAGE_ABORT, PAGE_COMPLETE, SCROLL_NO_ACTION, SCROLL_AMBIGUOUS, SCROLL_AVAILABLE, SCROLL_REJECTED, SCROLL_PRODUCT_SCOPED, SCROLL_MARKERS_MISSING, SCROLL_MARKERS_CONFLICT }
     var connected = false
     var canRead = false
@@ -10,6 +10,7 @@ internal object ProductReadDiagnostics {
     private val counts = mutableMapOf<Outcome, Int>()
     private val pageCauses = mutableMapOf<ProductPageReader.Cause, Int>()
     private val reasons = mutableMapOf<ProductScreenEvidence.Reason, Int>()
+    private val detailIssues = mutableMapOf<MorningReadPolicy.DetailIssue, Int>()
     private val launcherIssues = mutableMapOf<MorningReadPolicy.LauncherIssue, Int>()
     enum class SearchInputEvidence { NO_EDITABLE, MULTIPLE_EDITABLE, DISABLED,
         TRACKED_QUERY_IDENTITY, TRACKED_QUERY_NODE_CHANGED, TRACKED_QUERY_MISSING,
@@ -58,13 +59,24 @@ internal object ProductReadDiagnostics {
         }
     }
     private var startedAt: Long? = null
-    fun reset(now: Long) { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
-    fun clear() { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
+    fun reset(now: Long) { counts.clear(); detailIssues.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
+    fun clear() { counts.clear(); detailIssues.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
     /** Fixed presence flags for detail navigation; no raw field contents leave the phone. */
     fun detailHeader(nodes: List<MorningReadPolicy.Node>) {
         record(if(nodes.any { it.text.replace(Regex("[\\s\\p{Zs}]+")," ").trim().equals("Top Ergebnisse",true) })
             Outcome.DETAIL_HEADER_LABEL_PRESENT else Outcome.DETAIL_HEADER_LABEL_MISSING)
         record(if(nodes.any { it.editable }) Outcome.DETAIL_INPUT_PRESENT else Outcome.DETAIL_INPUT_MISSING)
+    }
+    /** Shape counters only; no identifier, price or other screen text is retained. */
+    fun detailProduct(nodes: List<MorningReadPolicy.Node>, readable: Boolean) {
+        val texts=nodes.filterNot { it.editable || it.sensitive || it.password }.map { it.text }
+        if(texts.any { Regex("[0-9]{5,12}").matches(it.trim()) }) record(Outcome.DETAIL_NUMERIC_LABEL)
+        if(texts.any { ProductSymbolMemory.headerSymbol(it)!=null }) record(Outcome.DETAIL_NUMERIC_COMPOSITE)
+        if(ProductSymbolMemory.detailSymbol(texts)!=null) record(Outcome.DETAIL_SYMBOL_PROBE_READY)
+        if(readable) record(Outcome.DETAIL_LAUNCHER_READABLE)
+    }
+    fun detailGuard(issue: MorningReadPolicy.DetailIssue) {
+        detailIssues[issue]=((detailIssues[issue] ?: 0)+1).coerceAtMost(999)
     }
     fun record(outcome: Outcome) { counts[outcome] = ((counts[outcome] ?: 0) + 1).coerceAtMost(999) }
     fun page(cause: ProductPageReader.Cause) {
@@ -81,6 +93,7 @@ internal object ProductReadDiagnostics {
             appendLine("Dienst verbunden: $connected · Textzugriff: $canRead · Fensterzugriff: $windowAccess")
             if (counts.isEmpty()) append("Noch keine Diagnosemessung.")
             else for (outcome in Outcome.values()) counts[outcome]?.let { appendLine("${outcome.name}: $it") }
+            for (issue in MorningReadPolicy.DetailIssue.values()) detailIssues[issue]?.let { appendLine("DETAIL_GUARD_${issue.name}: $it") }
             for (issue in MorningReadPolicy.LauncherIssue.values()) launcherIssues[issue]?.let { appendLine("SEARCH_GUARD_${issue.name}: $it") }
             for (evidence in SearchInputEvidence.values()) searchInputEvidence[evidence]?.let { appendLine("SEARCH_INPUT_${evidence.name}: $it") }
             for (source in SearchSource.values()) for(feature in SearchFeature.values())

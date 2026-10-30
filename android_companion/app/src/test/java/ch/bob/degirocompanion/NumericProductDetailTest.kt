@@ -23,6 +23,43 @@ class NumericProductDetailTest {
         }
         assertNull(MorningReadPolicy.detailLauncherIndex(nodes(top.dropLast(1)),isin,symbolProbe=true))
     }
+    @Test fun splitNumericHeaderOnlyPermitsBoundedDiscoveryWithKnownVenue() {
+        val split=listOf("12345678", "Societe Generale OTC", "R")+top.drop(1)
+        assertEquals("12345678",ProductSymbolMemory.detailSymbol(split))
+        assertNull(ProductSymbolMemory.resolveTexts(split) { isin })
+        val n=nodes(split)
+        assertEquals(MorningReadPolicy.Kind.READ,MorningReadPolicy.detailDecision(n,isin,true).kind)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(n,isin).kind)
+        val reader=ProductPageReader()
+        val clean=MorningReadPolicy.detailReadLines(n,lines(n.map { it.text }),isin,symbolProbe=true)
+        val first=reader.inspect(1,clean,at,false,true,true,allowSymbolProbe=true)
+        assertEquals(ProductPageReader.Move.FORWARD,first.move)
+        assertEquals("",first.result.draft)
+        assertFalse(reader.anchored)
+        assertNull(ProductSymbolMemory.detailSymbol(split.filter { it!="Societe Generale OTC" }))
+        assertNull(ProductSymbolMemory.detailSymbol(split+"87654321"))
+        assertNull(ProductSymbolMemory.detailSymbol(split.filter { it!="Übersicht" }))
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.detailDecision(n+MorningReadPolicy.Node("Order bestätigen"),isin,true).kind)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.detailDecision(n+MorningReadPolicy.Node("",editable=true),isin,true).kind)
+        assertEquals(ProductPageReader.Cause.IDENTITY_CHANGED,reader.inspect(1,
+            lines(split.map { it.replace("12345678","87654321") }),at,false,true,true,allowSymbolProbe=true).cause)
+        for(header in listOf("12345678 • Societe Generale OTC", "12345678 · Societe Generale OTC | R"))
+            assertEquals("12345678",ProductSymbolMemory.detailSymbol(listOf(header)+top.drop(1)))
+    }
+    @Test fun detailGuardReportsOnlyFixedCauseWithoutScreenContents() {
+        val rejected=mutableListOf<MorningReadPolicy.DetailIssue>()
+        assertNull(MorningReadPolicy.detailLauncherIndex(nodes(listOf("Übersicht")),isin,
+            symbolProbe=true,rejected={ rejected += it }))
+        assertEquals(listOf(MorningReadPolicy.DetailIssue.IDENTITY_CONTEXT),rejected)
+        rejected.clear()
+        assertNull(MorningReadPolicy.detailLauncherIndex(nodes(top)+MorningReadPolicy.Node("",editable=true),isin,
+            symbolProbe=true,rejected={ rejected += it }))
+        assertEquals(listOf(MorningReadPolicy.DetailIssue.INPUT_OR_TARGET),rejected)
+        rejected.clear()
+        assertNotNull(MorningReadPolicy.detailLauncherIndex(nodes(top),isin,
+            symbolProbe=true,rejected={ rejected += it }))
+        assertTrue(rejected.isEmpty())
+    }
     @Test fun discoveryExportsNothingUntilVisibleIdentityAndReturnCheck() {
         val reader=ProductPageReader()
         val n=nodes(top)
