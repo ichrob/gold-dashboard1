@@ -32,18 +32,30 @@ def ocr_size(width, height, scale):
     return max(1,round(width*factor)),max(1,round(height*factor))
 
 
+def ocr_strips(height):
+    """Overlapping context, but disjoint ownership of each detected line centre."""
+    if height<1:raise ValueError('Image height')
+    starts=[0]
+    while starts[-1]+512<height:starts.append(starts[-1]+384)
+    for k,top in enumerate(starts):
+        bottom=min(top+512,height)
+        lower=0 if k==0 else (top+min(starts[k-1]+512,height))/2
+        upper=height if k==len(starts)-1 else (bottom+starts[k+1])/2
+        yield top,bottom,lower,upper
+
+
 def recognize(images):
     from PIL import Image, ImageOps
     import numpy as np
     import cv2
-    from video_ocr import offline_engine
+    from handset_ocr_engine import offline_engine
     cv2.setNumThreads(1)
     engine=offline_engine()
     from rapidocr_onnxruntime.ch_ppocr_det.utils import DetPreProcess
     detector=engine.text_det
     # The library's default 'min' limit only enlarges images; it is not a cap.
     # Bound detection tensors, while recognition crops retain source resolution.
-    detector.get_preprocess=lambda _:DetPreProcess(704,'max',detector.mean,detector.std)
+    detector.get_preprocess=lambda _:DetPreProcess(448,'max',detector.mean,detector.std)
     result=[]
     for item in images:
         with Image.open(io.BytesIO(base64.b64decode(item['png'],validate=True))) as source:
@@ -54,7 +66,17 @@ def recognize(images):
             im=original.resize(ocr_size(original.width,original.height,scale))
             actual_scale=im.width/original.width
             if contrast:im=ImageOps.autocontrast(im.convert('L')).convert('RGB')
-            rows,_=engine(np.asarray(im)[:,:,::-1],use_cls=False)
+            rows=[]
+            for top,bottom,lower,upper in ocr_strips(im.height):
+                tile=im.crop((0,top,im.width,bottom))
+                found,_=engine(np.asarray(tile)[:,:,::-1],use_cls=False)
+                for points,text,score in found or []:
+                    shifted=[[float(x),float(y)+top] for x,y in points]
+                    center=sum(p[1] for p in shifted)/4
+                    if lower<=center<upper:rows.append([shifted,text,score])
+                del tile,found
+                __import__('gc').collect()
+                __import__('memory_watch').release_free_pages()
             rows=[r for r in (rows or []) if float(r[2])>=.7]
             # OCR lines in screen reading order; currency on the same footer row.
             rows.sort(key=lambda r:sum(p[1] for p in r[0])/4)
@@ -158,7 +180,7 @@ def tick(connect,runner=process):
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
             AND (i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error'='MemoryError'))
-                OR (i.processing_attempts=4 AND i.import_receipt->>'error'='InterruptedWorker')
+                OR (i.processing_attempts=4 AND i.import_receipt->>'error' IN ('InterruptedWorker','MemoryError'))
                 OR (i.processing_attempts=5 AND i.import_receipt->>'error'='CalledProcessError'))
             AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
             ORDER BY i.created_at DESC LIMIT 1 FOR UPDATE OF i SKIP LOCKED""").fetchone()
