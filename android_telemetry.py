@@ -5,12 +5,29 @@ import re
 from datetime import datetime, timezone
 from android_observations import CODES, timestamp
 
+PIN_RESULTS = {'NO_WINDOW', 'NO_INPUT', 'INPUT_PRESENT', 'NUMERIC_PASSWORD_INPUT',
+               'SET_TEXT_OFFERED', 'SENSITIVE_INPUT', 'INCOMPLETE'}
+
+def validate_pin_probe(value, now):
+    if not isinstance(value, dict) or set(value) != {'runId', 'endedAt', 'result', 'completed'}:
+        raise ValueError('Invalid PIN probe fields')
+    if not isinstance(value['runId'], str) or not re.fullmatch('[a-f0-9]{32}', value['runId']):
+        raise ValueError('Invalid PIN probe ID')
+    if not isinstance(value['result'], str) or value['result'] not in PIN_RESULTS:
+        raise ValueError('Invalid PIN probe result')
+    if type(value['completed']) is not bool:
+        raise ValueError('Invalid PIN probe state')
+    at = timestamp(value['endedAt'])
+    if not -60 <= (now-at).total_seconds() <= 86400:
+        raise ValueError('Expired PIN probe')
+    return dict(value)
+
 BOOLS=('serviceEnabled','serviceConnectedInProcess','textAccess','windowAccess','running','pendingRun')
 
 def validate_report(value, now=None):
     now=now or datetime.now(timezone.utc)
     expected={'reportId','observedAt','appVersionCode','lastCode','lastEventAt',*BOOLS}
-    if not isinstance(value,dict) or set(value)!=expected: raise ValueError('Invalid diagnostic fields')
+    if not isinstance(value,dict) or set(value) not in (expected, expected | {'pinProbe'}): raise ValueError('Invalid diagnostic fields')
     if not isinstance(value['reportId'],str) or not re.fullmatch('[a-f0-9]{32}',value['reportId']):raise ValueError('Invalid report ID')
     version=value['appVersionCode']
     if type(version) is not int or not 1<=version<=2100000000:raise ValueError('Invalid version')
@@ -21,6 +38,8 @@ def validate_report(value, now=None):
     if value['lastEventAt'] is not None:
         event=timestamp(value['lastEventAt'])
         if event.year<2020 or (now-event).total_seconds() < -60:raise ValueError('Invalid event time')
+    if 'pinProbe' in value:
+        validate_pin_probe(value['pinProbe'], now)
     return dict(value)
 
 def token_hash(token):
