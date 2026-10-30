@@ -13,6 +13,7 @@ import time
 import product_push
 import fibonacci_monitor
 import background_push
+import background_handoff
 import bob_session_store
 import bob_recovery
 import diagnostic_history
@@ -632,6 +633,16 @@ def audit_outcome_loop():
         time.sleep(120)
 
 
+def deliver_background_inputs(bundle):
+    """No evaluation or provider I/O on the HTTP ingestion path."""
+    import trade_auto_monitor
+    import product_comparison_worker
+    paper_simulation.enqueue(bundle, db)
+    trade_auto_monitor.enqueue(db, bundle)
+    product_comparison_worker.enqueue(db, bundle)
+    manual_paper_watch.enqueue(db)
+
+
 def run_background(bundle):
     sent = 0
     with db() as conn:
@@ -845,7 +856,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception as audit_exc:
                         print("BOB_PRODUCT_AUDIT health_error="+type(audit_exc).__name__, flush=True)
                         product_codes = None  # Unknown is NOT a confirmed repair.
-                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule,"runtimeWatchdog":__import__('runtime_watchdog').snapshot(),"handsetListWorker":__import__('handset_list_worker').status()})
+                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "backgroundProcessing": background_handoff.worker.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule,"runtimeWatchdog":__import__('runtime_watchdog').snapshot(),"handsetListWorker":__import__('handset_list_worker').status()})
                 return
             if path == "/push-delivery-history":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
@@ -1523,14 +1534,9 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self, 401, {"error": "Unauthorized"})
                     return
                 bundle=payload.get('bundle') or {}
-                import trade_auto_monitor
-                trade_auto_monitor.enqueue(db,bundle)
-                import product_comparison_worker
-                product_comparison_worker.enqueue(db,bundle)
-                paper_simulation.enqueue(bundle,db)
-                manual_paper_watch.enqueue(db)
-                sent = run_background(bundle)
-                send_json(self, 200, {'ok': True, 'sent': sent})
+                accepted = background_handoff.worker.submit(bundle, run_background, deliver_background_inputs)
+                # Acknowledge input delivery, not notification completion.
+                send_json(self, 200, {'ok': True, 'accepted': accepted, 'queued': accepted, 'sent': None})
                 return
 
             if path == "/monitor":
