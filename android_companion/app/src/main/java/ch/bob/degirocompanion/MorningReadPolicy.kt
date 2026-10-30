@@ -111,30 +111,33 @@ internal object MorningReadPolicy {
         return labels.containsAll(setOf("notizen", "notiz hinzufügen")) ||
             labels.containsAll(setOf("kontaktdaten", "website", "e-mail", "telefon"))
     }
-    fun detailLauncherIndex(nodes: List<Node>, target: String, anchored: Boolean = false, symbolProbe: Boolean = false): Int? {
+    enum class DetailIssue { INPUT_OR_TARGET, MARKER_COUNT, LAUNCHER_LABEL, LAUNCHER_CHILD,
+        PROTECTED_CONTENT, ORDER_FIELD, SECTION_MISSING, IDENTITY_CONTEXT }
+    fun detailLauncherIndex(nodes: List<Node>, target: String, anchored: Boolean = false, symbolProbe: Boolean = false, rejected: (DetailIssue) -> Unit = {}): Int? {
+        fun reject(issue: DetailIssue): Int? { rejected(issue); return null }
         if(nodes.size>500 || !SeriesEvidence.validIsin(target) ||
-            nodes.any { it.editable || it.containsInput || it.password || it.sensitive }) return null
+            nodes.any { it.editable || it.containsInput || it.password || it.sensitive }) return reject(DetailIssue.INPUT_OR_TARGET)
         val values: (Node) -> List<String> = { listOf(it.text,it.description,it.hint) }
         val marked=nodes.indices.filter { i -> values(nodes[i]).any(orderMarkers.first().second::containsMatchIn) }
-        val index=marked.singleOrNull() ?: return null
+        val index=marked.singleOrNull() ?: return reject(DetailIssue.MARKER_COUNT)
         val launcher=nodes[index]
         val exact=Regex("(?iu)^(order platzieren|place order)$")
         if(!canClick(launcher) || values(launcher).filter(String::isNotBlank).any { !exact.matches(normalized(it)) } ||
-            launcher.row.lines().filter(String::isNotBlank).any { !exact.matches(normalized(it)) }) return null
+            launcher.row.lines().filter(String::isNotBlank).any { !exact.matches(normalized(it)) }) return reject(DetailIssue.LAUNCHER_LABEL)
         // No descendant may hide other controls or product content in the launcher.
         for(i in nodes.indices) {
             var cursor=nodes[i].parent;var steps=0
             while(cursor in nodes.indices && steps++<nodes.size) {
-                if(cursor==index) return null
+                if(cursor==index) return reject(DetailIssue.LAUNCHER_CHILD)
                 cursor=nodes[cursor].parent
             }
         }
         val cleaned=nodes.mapIndexed { i,n -> if(i==index) Node("") else n }
-        if(protection(cleaned)!=null) return null
-        if(cleaned.any { n -> values(n).any { Regex("(?iu)order type|limit price|quantity").containsMatchIn(it) } }) return null
+        if(protection(cleaned)!=null) return reject(DetailIssue.PROTECTED_CONTENT)
+        if(cleaned.any { n -> values(n).any { Regex("(?iu)order type|limit price|quantity").containsMatchIn(it) } }) return reject(DetailIssue.ORDER_FIELD)
         val seen=cleaned.flatMap { n -> values(n).flatMap { ids.findAll(it.uppercase()).map { m -> m.value }.toList() } }.toSet()
         val section=cleaned.any { n -> values(n).any { Regex("(?iu)^(übersicht|overview|kursdaten|produktdetails)$").matches(normalized(it)) } }
-        if(!section) return null
+        if(!section) return reject(DetailIssue.SECTION_MISSING)
         val productTitle=cleaned.any { n ->
             Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.row) &&
                 Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(n.row) &&
@@ -148,7 +151,7 @@ internal object MorningReadPolicy {
         val footer=detailFooter(cleaned.map { it.text })
         return index.takeIf { (seen==setOf(target) && (productTitle || quotes)) ||
             (symbolProbe && seen.isEmpty() && productTitle && ProductSymbolMemory.detailSymbol(cleaned.map { it.text })!=null) ||
-            (anchored && (seen.isEmpty() || seen==setOf(target)) && (quotes || footer)) }
+            (anchored && (seen.isEmpty() || seen==setOf(target)) && (quotes || footer)) } ?: reject(DetailIssue.IDENTITY_CONTEXT)
     }
     fun detailReadLines(nodes: List<Node>, lines: List<QuoteLayout.Line>, target: String,
                         anchored: Boolean = false, symbolProbe: Boolean = false): List<QuoteLayout.Line> {

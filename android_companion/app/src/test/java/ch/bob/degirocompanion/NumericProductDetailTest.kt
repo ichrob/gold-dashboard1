@@ -46,6 +46,20 @@ class NumericProductDetailTest {
         for(header in listOf("12345678 • Societe Generale OTC", "12345678 · Societe Generale OTC | R"))
             assertEquals("12345678",ProductSymbolMemory.detailSymbol(listOf(header)+top.drop(1)))
     }
+    @Test fun detailGuardReportsOnlyFixedCauseWithoutScreenContents() {
+        val rejected=mutableListOf<MorningReadPolicy.DetailIssue>()
+        assertNull(MorningReadPolicy.detailLauncherIndex(nodes(listOf("Übersicht")),isin,
+            symbolProbe=true,rejected={ rejected += it }))
+        assertEquals(listOf(MorningReadPolicy.DetailIssue.IDENTITY_CONTEXT),rejected)
+        rejected.clear()
+        assertNull(MorningReadPolicy.detailLauncherIndex(nodes(top)+MorningReadPolicy.Node("",editable=true),isin,
+            symbolProbe=true,rejected={ rejected += it }))
+        assertEquals(listOf(MorningReadPolicy.DetailIssue.INPUT_OR_TARGET),rejected)
+        rejected.clear()
+        assertNotNull(MorningReadPolicy.detailLauncherIndex(nodes(top),isin,
+            symbolProbe=true,rejected={ rejected += it }))
+        assertTrue(rejected.isEmpty())
+    }
     @Test fun discoveryExportsNothingUntilVisibleIdentityAndReturnCheck() {
         val reader=ProductPageReader()
         val n=nodes(top)

@@ -10,6 +10,7 @@ internal object ProductReadDiagnostics {
     private val counts = mutableMapOf<Outcome, Int>()
     private val pageCauses = mutableMapOf<ProductPageReader.Cause, Int>()
     private val reasons = mutableMapOf<ProductScreenEvidence.Reason, Int>()
+    private val detailIssues = mutableMapOf<MorningReadPolicy.DetailIssue, Int>()
     private val launcherIssues = mutableMapOf<MorningReadPolicy.LauncherIssue, Int>()
     enum class SearchInputEvidence { NO_EDITABLE, MULTIPLE_EDITABLE, DISABLED,
         TRACKED_QUERY_IDENTITY, TRACKED_QUERY_NODE_CHANGED, TRACKED_QUERY_MISSING,
@@ -58,8 +59,8 @@ internal object ProductReadDiagnostics {
         }
     }
     private var startedAt: Long? = null
-    fun reset(now: Long) { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
-    fun clear() { counts.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
+    fun reset(now: Long) { counts.clear(); detailIssues.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
+    fun clear() { counts.clear(); detailIssues.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
     /** Fixed presence flags for detail navigation; no raw field contents leave the phone. */
     fun detailHeader(nodes: List<MorningReadPolicy.Node>) {
         record(if(nodes.any { it.text.replace(Regex("[\\s\\p{Zs}]+")," ").trim().equals("Top Ergebnisse",true) })
@@ -73,6 +74,9 @@ internal object ProductReadDiagnostics {
         if(texts.any { ProductSymbolMemory.headerSymbol(it)!=null }) record(Outcome.DETAIL_NUMERIC_COMPOSITE)
         if(ProductSymbolMemory.detailSymbol(texts)!=null) record(Outcome.DETAIL_SYMBOL_PROBE_READY)
         if(readable) record(Outcome.DETAIL_LAUNCHER_READABLE)
+    }
+    fun detailGuard(issue: MorningReadPolicy.DetailIssue) {
+        detailIssues[issue]=((detailIssues[issue] ?: 0)+1).coerceAtMost(999)
     }
     fun record(outcome: Outcome) { counts[outcome] = ((counts[outcome] ?: 0) + 1).coerceAtMost(999) }
     fun page(cause: ProductPageReader.Cause) {
@@ -89,6 +93,7 @@ internal object ProductReadDiagnostics {
             appendLine("Dienst verbunden: $connected · Textzugriff: $canRead · Fensterzugriff: $windowAccess")
             if (counts.isEmpty()) append("Noch keine Diagnosemessung.")
             else for (outcome in Outcome.values()) counts[outcome]?.let { appendLine("${outcome.name}: $it") }
+            for (issue in MorningReadPolicy.DetailIssue.values()) detailIssues[issue]?.let { appendLine("DETAIL_GUARD_${issue.name}: $it") }
             for (issue in MorningReadPolicy.LauncherIssue.values()) launcherIssues[issue]?.let { appendLine("SEARCH_GUARD_${issue.name}: $it") }
             for (evidence in SearchInputEvidence.values()) searchInputEvidence[evidence]?.let { appendLine("SEARCH_INPUT_${evidence.name}: $it") }
             for (source in SearchSource.values()) for(feature in SearchFeature.values())

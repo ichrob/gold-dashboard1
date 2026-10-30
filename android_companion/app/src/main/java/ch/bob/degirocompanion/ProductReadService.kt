@@ -605,6 +605,8 @@ class ProductReadService : AccessibilityService() {
                 else MorningReadPolicy.discoverGold(descriptions)
             val decision=remoteSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
             if(decision.kind==MorningReadPolicy.Kind.BLOCK) {
+                if(decision.code=="PROTECTED_ORDER_CONFIRM") MorningReadPolicy.detailLauncherIndex(
+                    descriptions,observedTarget,anchoredDetail,MorningReadRun.importedListRun(),ProductReadDiagnostics::detailGuard)
                 if(decision.code=="PROTECTED_ORDER_CONFIRM") ProductReadDiagnostics.launcher(MorningReadPolicy.launcherSearchIssue(descriptions),descriptions)
                 return observation(decision.code.ifBlank { "PROTECTED_VIEW" })
             }
