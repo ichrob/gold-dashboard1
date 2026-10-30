@@ -15,6 +15,14 @@ class FakeDrive:
 
 
 class DriveSafety(unittest.TestCase):
+    def test_transport_leaves_308_for_resumable_upload_handler(self):
+        with patch('google.oauth2.credentials.Credentials.from_authorized_user_info'), patch('googleapiclient.discovery.build') as build:
+            runner.GoogleDrive(info={}, folder_id='fixture')
+            transport = build.call_args.kwargs['http'].http
+            self.assertNotIn(308, transport.redirect_codes)
+            self.assertIn(301, transport.redirect_codes)
+            self.assertEqual(transport.timeout, 30)
+
     def test_restore_download_is_mandatory_for_receipt(self):
         for corrupt in (False, True):
             drive=FakeDrive(corrupt)
