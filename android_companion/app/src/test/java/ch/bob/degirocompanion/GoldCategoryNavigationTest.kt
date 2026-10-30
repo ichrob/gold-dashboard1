@@ -2,6 +2,22 @@ package ch.bob.degirocompanion
 import org.junit.Assert.*
 import org.junit.Test
 class GoldCategoryNavigationTest {
+    @Test fun importedDetailsRestoreScrolledSearchWithoutWeakeningOrderGuards() {
+        val rows=listOf(MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node("Order platzieren",clickable=true),
+            MorningReadPolicy.Node("Gold Turbo DE000FD0S0G4"))
+        assertNull(MorningReadPolicy.detailSearchRestore(rows,false))
+        val restore=MorningReadPolicy.detailSearchRestore(rows,true)!!
+        assertEquals(MorningReadPolicy.Kind.COLLECT,restore.kind)
+        assertEquals(-1,restore.index) // Never target a synthetic input or order launcher.
+        assertEquals(listOf("DE000FD0S0G4"),restore.isins)
+        for(extra in listOf(MorningReadPolicy.Node("Order bestätigen"),MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("",password=true),MorningReadPolicy.Node("",sensitive=true),
+            MorningReadPolicy.Node("Gold",editable=true,id="search-input"),
+            MorningReadPolicy.Node("",editable=true,id="quantity")))
+            assertNull(MorningReadPolicy.detailSearchRestore(rows+extra,true))
+        assertNull(MorningReadPolicy.detailSearchRestore(rows.drop(1),true))
+    }
     private val input=MorningReadPolicy.Node("Gold",id="search-input",editable=true,focused=false)
     private val tab=MorningReadPolicy.Node("Hebelprodukte",clickable=true)
     @Test fun selectsVisibleCategoryWithoutRefocusingQuery() {

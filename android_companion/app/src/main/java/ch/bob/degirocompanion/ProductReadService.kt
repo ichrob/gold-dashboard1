@@ -563,7 +563,10 @@ class ProductReadService : AccessibilityService() {
             navigationTree(root,nodes,descriptions)
             val actionName=command?.optString("action") ?: "inspect"
             val target=command?.optString("isin").orEmpty()
-            val proposed=if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
+            val restoring=MorningReadPolicy.detailSearchRestore(descriptions,MorningReadRun.importedListRun())
+            val proposed=if(actionName=="inspect" && restoring!=null) restoring
+                else if(actionName=="inspect" && MorningReadRun.running) MorningReadPolicy.decide(descriptions,MorningReadRun.target) { symbolMemory.getString(it,null) }
+                else if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
                 else if(((GoldSearchRun.running && listImages.length()>0 && root.windowId==listWindowId) || MorningListDelivery.waiting) && actionName=="inspect")
                     MorningReadPolicy.captureGoldList(descriptions,true)
                 else MorningReadPolicy.discoverGold(descriptions)
@@ -870,8 +873,9 @@ class ProductReadService : AccessibilityService() {
             }
             // A fresh run can begin on yesterday's scrolled list. Only scroll
             // backwards here; no capture is accepted before Top Ergebnisse is visible.
-            if(gold && listImages.length()==0 && descriptions.none { it.text.trim().equals("Top Ergebnisse",true) }) {
-                val seek=MorningReadPolicy.captureGoldList(descriptions,true)
+            val detailRestore=MorningReadPolicy.detailSearchRestore(descriptions,MorningReadRun.importedListRun())
+            if(detailRestore!=null || (gold && listImages.length()==0 && descriptions.none { it.text.trim().equals("Top Ergebnisse",true) })) {
+                val seek=detailRestore ?: MorningReadPolicy.captureGoldList(descriptions,true)
                 if(seek.kind==MorningReadPolicy.Kind.COLLECT) {
                     val targets=nodes.indices.filter { i ->
                         val n=nodes[i]
