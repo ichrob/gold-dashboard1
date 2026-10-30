@@ -131,26 +131,33 @@ internal object MorningReadPolicy {
         return navigate(nodes,target,false,lookupSymbol)
     }
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })
-    /** Only restore the header of a validated list; never act on a synthetic input. */
+    /** A real search control takes precedence over another backward scroll. */
     fun detailSearchRestore(nodes: List<Node>, importedListRun: Boolean): Action? {
-        if(!importedListRun || nodes.any { it.editable } || nodes.any { normalized(it.text).equals("Top Ergebnisse",true) }) return null
+        if(!importedListRun || nodes.any { it.editable } || importedListSearch(nodes)!=null ||
+            nodes.any { normalized(it.text).equals("Top Ergebnisse",true) }) return null
         return captureGoldList(nodes,true).takeIf { it.kind==Kind.COLLECT }
     }
-    /** At the restored top, validate the list context, then use only real search controls. */
+    private fun importedListSearch(nodes: List<Node>): Action? {
+        if(nodes.any { it.editable } || captureGoldList(nodes,true).kind!=Kind.COLLECT) return null
+        val context=nodes + Node("Gold",id="search-input",editable=true)
+        val validated=productSearchWithoutLauncher(context) ?: return null
+        // The synthetic input validates list context only; remove it before choosing a target.
+        val action=navigate(validated.dropLast(1),"",false,{ null })
+        if(action.kind!=Kind.SEARCH || action.index !in nodes.indices) return null
+        val n=nodes[action.index]
+        // Never let a search-labelled aggregate wrapper include a product or order control.
+        if(n.row.lines().filter(String::isNotBlank).any {
+            !searchLabel(it) && !normalized(it).equals("Gold",true)
+        }) return null
+        return action
+    }
     fun detailDecision(nodes: List<Node>, target: String, importedListRun: Boolean,
-                       lookupSymbol: (String) -> String? = { null }): Action {
-        if(importedListRun && SeriesEvidence.validIsin(target) && nodes.none { it.editable } &&
-            nodes.any { normalized(it.text).equals("Top Ergebnisse",true) } &&
-            captureGoldList(nodes,true).kind==Kind.COLLECT) {
-            val context=nodes + Node("Gold",id="search-input",editable=true)
-            val validated=productSearchWithoutLauncher(context)
-            if(validated!=null) {
-                // Remove the validation-only input before selecting any action.
-                val action=decide(validated.dropLast(1),target,lookupSymbol)
-                if(action.kind in setOf(Kind.SEARCH,Kind.WAIT)) return action
-            }
-        }
-        return decide(nodes,target,lookupSymbol)
+                       keyboardReady: Boolean = true, lookupSymbol: (String) -> String? = { null }): Action {
+        if(!SeriesEvidence.validIsin(target)) return Action(Kind.BLOCK,code="INVALID_VIEW")
+        if(importedListRun) importedListSearch(nodes)?.let { return it }
+        val action=decide(nodes,target,lookupSymbol)
+        // A WebView can retain focus after hiding the keyboard. Open it before editing.
+        return if(action.kind==Kind.QUERY && !keyboardReady) action.copy(kind=Kind.FOCUS) else action
     }
     /** Continue only an already captured Top Results list. The search header may
      * scroll out of the accessibility tree. A synthetic context node is used only

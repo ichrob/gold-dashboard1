@@ -40,6 +40,30 @@ class GoldCategoryNavigationTest {
         assertEquals(MorningReadPolicy.Kind.COLLECT,MorningReadPolicy.discoverGold(nodes).kind)
         assertEquals(MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.detailDecision(nodes,"DE000FD0S0G4",true).kind)
     }
+    @Test fun realSearchEndsRestoreEvenWhenTopLabelIsMissingFromTree() {
+        val rows=listOf(MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node("Order platzieren",clickable=true),
+            MorningReadPolicy.Node("Gold Turbo DE000FD0S0G4"),
+            MorningReadPolicy.Node("Suchen",clickable=true))
+        assertNull(MorningReadPolicy.detailSearchRestore(rows,true))
+        val action=MorningReadPolicy.detailDecision(rows,"DE000FD0S0G4",true,false)
+        assertEquals(MorningReadPolicy.Kind.SEARCH,action.kind)
+        assertEquals(3,action.index)
+        val aggregate=rows.dropLast(1)+rows.last().copy(row="Suchen\nOrder platzieren")
+        assertNotEquals(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.detailDecision(aggregate,"DE000FD0S0G4",true,false).kind)
+        for(extra in listOf(MorningReadPolicy.Node("Order bestätigen"),MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("",password=true),MorningReadPolicy.Node("",sensitive=true)))
+            assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.detailDecision(rows+extra,"DE000FD0S0G4",true,false).kind)
+    }
+    @Test fun focusedGoldStillOpensKeyboardBeforeReplacement() {
+        val nodes=listOf(MorningReadPolicy.Node("Gold",id="search-input",editable=true,focused=true,imeEnter=true),
+            MorningReadPolicy.Node("Order platzieren",clickable=true))
+        val target="DE000FD0S0G4"
+        assertEquals(MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.detailDecision(nodes,target,true,false).kind)
+        assertEquals(MorningReadPolicy.Kind.QUERY,MorningReadPolicy.detailDecision(nodes,target,true,true).kind)
+        val written=listOf(nodes.first().copy(text=target),nodes.last())
+        assertEquals(MorningReadPolicy.Kind.SUBMIT,MorningReadPolicy.detailDecision(written,target,true,true).kind)
+    }
     private val input=MorningReadPolicy.Node("Gold",id="search-input",editable=true,focused=false)
     private val tab=MorningReadPolicy.Node("Hebelprodukte",clickable=true)
     @Test fun selectsVisibleCategoryWithoutRefocusingQuery() {
