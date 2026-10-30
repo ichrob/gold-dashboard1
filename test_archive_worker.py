@@ -42,6 +42,31 @@ class WorkerTests(unittest.TestCase):
             worker.cycle(db, fail)
             self.assertEqual(len(runs),1)
 
+    def test_result_write_failure_preserves_primary_error(self):
+        class BrokenReceiptDB(DB):
+            def execute(self, sql, args=()):
+                if 'UPDATE' in sql: raise TimeoutError('private-dsn')
+                return super().execute(sql,args)
+        with self.env():
+            def fail(): raise ValueError('private-original')
+            result = worker.cycle(BrokenReceiptDB(), fail)
+            self.assertEqual(result['errorType'], 'ValueError')
+            self.assertEqual(result['receiptPersistenceErrorType'], 'TimeoutError')
+            self.assertNotIn('private-', str(result))
+
+    def test_invalid_attempt_never_claims(self):
+        with self.env(), patch.dict(os.environ, {'BOB_ARCHIVE_ATTEMPT':'bad value'}):
+            db=DB()
+            self.assertEqual(worker.cycle(db)['status'], 'blocked')
+            self.assertFalse(db.calls)
+
+    def test_explicit_attempt_in_claim_and_result_key(self):
+        with self.env(), patch.dict(os.environ, {'BOB_ARCHIVE_ATTEMPT':'repair-a'}):
+            db=DB(); worker.cycle(db, lambda: {})
+            for sql, args in db.calls:
+                if 'INSERT' in sql or 'UPDATE' in sql:
+                    self.assertEqual(args[-1], 'repair-a')
+
     def test_only_remote_restore_receipt_can_succeed(self):
         with self.env():
             for receipt, expected in [({'restoreVerified':True},'failed'),
