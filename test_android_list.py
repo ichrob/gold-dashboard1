@@ -9,6 +9,13 @@ def batch():
     def png(suffix):return base64.b64encode(b'\x89PNG\r\n\x1a\n'+b'\0\0\0\rIHDR'+struct.pack('>II',709,1200)+b'\x08\x02\0\0\0'+suffix).decode()
     return {'batchId':'a'*32,'sessionId':'b'*32,'images':[{'at':datetime.fromtimestamp(NOW-10+i,timezone.utc).isoformat(),'png':png(bytes([i])*8)} for i in range(2)]}
 class ListTests(unittest.TestCase):
+    def test_text_capture_is_bounded_and_immutable(self):
+        x=batch();x['images'][0]['appText']={'before':['product row'],'after':['product row']}
+        self.assertEqual(images.validate(x,NOW),x)
+        for text in ({'before':['a'],'after':['b']},{'before':['x'*801],'after':['x'*801]}, {'before':[],'after':[]}):
+            x['images'][0]['appText']=text
+            with self.assertRaises(ValueError):images.validate(x,NOW)
+
     def test_bounded_original_series(self):
         self.assertEqual(images.validate(batch(),NOW),batch())
         one=batch();one['images']=one['images'][:1]

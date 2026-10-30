@@ -25,7 +25,22 @@ function normalizeLayout(text){
   .replace(/(Long|Short)(?=HB)/g,'$1 ')
   .replace(/((?<![A-Z])B[vV]\s*)(1|10|100|1000)([0-3]\d\/[01]\d\/20\d{2})(?=\s*\|)/g,'$1$2 $3');
 }
-function parse(images,at){
+function appImage(value){
+ if(!value||!Array.isArray(value.before)||value.before.length<1||value.before.length>10
+    ||JSON.stringify(value.before)!==JSON.stringify(value.after))return null;
+ const seen=new Set();
+ for(const text of value.before){
+  if(typeof text!=='string'||text.length>800)return null;
+  const ids=text.match(/\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/g)||[];
+  const row=b.parseDegiroListRow(text);
+  // Accessibility text is not OCR: never apply character correction.
+  if(ids.length!==1||!b.validIsin(ids[0])||!row||row.isin!==ids[0]||row.identityCorrection
+     ||seen.has(ids[0])||!(row.listRow.complete||b.agreedExcludedDegiroFactorRow([text,text])))return null;
+  seen.add(ids[0]);
+ }
+ return [value.before.join('\n'),value.after.join('\n')];
+}
+function parse(images,at,appSources=[]){
  const items=new Map();
  for(const [index,passes] of images.entries()){
   const votes=new Map();
@@ -41,6 +56,12 @@ function parse(images,at){
   for(const [isin,reads] of votes){
    const row=b.agreedDegiroListRow(reads)||b.agreedExcludedDegiroFactorRow(reads);
    if(!row)continue;
+   if(appSources[index]) {
+    row.listRow.source='DEGIRO-App-Text';
+    row.listRow.crossChecked=false;
+    row.listRow.textCaptureMatched=true;
+    row.listRow.extractionMethod='accessibility-before-after';
+   }
    row.listRow.imageReference='DEGIRO-TOP10-'+(index+1)+'.png';
    const old=items.get(isin);
    const signature=x=>JSON.stringify([x.direction,...['venue','currency','ko','strike','ratio','maturity','excluded'].map(k=>x.listRow[k])]);
@@ -57,5 +78,5 @@ function parse(images,at){
   listVenueEvidence:b.listVenueForSync(x.isin,archive)
  }))}};
 }
-module.exports={parse,normalizeLayout};
-if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(parse(x.images,x.at)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
+module.exports={parse,normalizeLayout,appImage};
+if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)):parse(x.images,x.at,x.appSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}

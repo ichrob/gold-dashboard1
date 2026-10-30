@@ -75,7 +75,7 @@ internal object MorningListDelivery {
                         waiting=false;status(c,"Aufnahme gespeichert. Serverbestätigung noch offen; Start setzt die Übertragung fort.")
                         PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
                     } else {
-                        status(c,if(response==null) "Verbindung unterbrochen · gespeicherte Bilder werden erneut übertragen." else "Bilder bei Bob · Prüfung läuft; noch keine Abschlussbestätigung.")
+                        status(c,if(response==null) "Verbindung unterbrochen · gespeicherte Bilder werden erneut übertragen." else if(receipt?.optString("stage")=="waiting-memory") "Texterfassung unvollständig · Bilderkennung wartet auf freien Serverspeicher." else "Liste bei Bob · Prüfung läuft; noch keine Abschlussbestätigung.")
                         handler.postDelayed({poll(attempt+1,uploaded||response!=null)},5000)
                     }
                 }
