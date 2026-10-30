@@ -1,4 +1,7 @@
 import unittest
+import os
+import uuid
+from unittest.mock import patch
 import storage_maintenance as maintenance
 
 
@@ -66,6 +69,46 @@ class MaintenanceTests(unittest.TestCase):
             maintenance.run_once(lambda: conn)
         self.assertEqual(conn.calls, [])
         self.assertTrue(conn.closed)
+
+
+@unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'), 'CI PostgreSQL integration')
+class PostgreSQLMaintenanceTests(unittest.TestCase):
+    def test_real_vacuum_preserves_live_json_and_releases_session_lock(self):
+        import psycopg
+        name = 'maintenance_test_' + uuid.uuid4().hex
+        dsn = os.environ['BOB_TEST_DATABASE_URL']
+        payload = '{"original": [1, "unchanged", null]}'
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute('CREATE TABLE public.' + name + ' (id int primary key, payload jsonb)')
+            try:
+                admin.execute('INSERT INTO public.' + name + ' VALUES (1,%s::jsonb),(2,%s::jsonb)', (payload, payload))
+                admin.execute('DELETE FROM public.' + name + ' WHERE id=2')
+                before = admin.execute('SELECT * FROM public.' + name).fetchall()
+                class CandidateConnection:
+                    # Statistics updates are asynchronous. Force only candidate
+                    # selection; run the actual lock and VACUUM against PG18.
+                    autocommit = True
+                    def __enter__(self):
+                        self.conn = psycopg.connect(dsn, autocommit=True)
+                        return self
+                    def __exit__(self, *args):
+                        self.conn.close()
+                    def execute(self, statement, params=None):
+                        if statement.startswith('SELECT n_dead_tup'):
+                            class Row:
+                                def fetchone(self):
+                                    return (1,)
+                            return Row()
+                        return self.conn.execute(statement, params)
+                with patch.object(maintenance, '_TABLES', (name,)):
+                    result = maintenance.run_once(CandidateConnection)
+                self.assertEqual(result['tables'], [{'table': name, 'status': 'command-completed'}])
+                self.assertEqual(admin.execute('SELECT * FROM public.' + name).fetchall(), before)
+                acquired = admin.execute("SELECT pg_try_advisory_lock(hashtext('bob_storage_maintenance_v1'))").fetchone()[0]
+                self.assertTrue(acquired)
+                admin.execute("SELECT pg_advisory_unlock(hashtext('bob_storage_maintenance_v1'))")
+            finally:
+                admin.execute('DROP TABLE public.' + name)
 
 
 if __name__ == '__main__':
