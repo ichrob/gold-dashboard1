@@ -48,9 +48,9 @@ def fetch_snapshot(isin):
 
 
 def market_input(kind):
-    # One FX request per 45 seconds across all products/browsers. The cache never
+    # One FX request per 30 seconds across all products/browsers. The cache never
     # changes observation times; a carried input still fails the 60-second gate.
-    ttl = 45 if kind == 'fx' else 15
+    ttl = 30 if kind == 'fx' else 15
     with _INPUT_LOCKS[kind]:
         cached = _INPUT_CACHE.get(kind)
         if cached and time.monotonic()-cached[0] < ttl:

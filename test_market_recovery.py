@@ -28,7 +28,7 @@ class MarketRecoveryTests(unittest.TestCase):
   with patch('background_push.gold_weekend_seconds_remaining',return_value=60),patch.object(m._POOL,'submit') as submit:
    m.tick(0,{'spot':lambda:None});submit.assert_not_called()
  def test_all_adapters_registered(self):
-  self.assertEqual(set(m.operations()),{'spot','fx','cfd','future','history-1m','history-5m','history-15m','history-30m','history-1h','history-4h'} | {'standby-'+tf for tf in ('1m','5m','15m','30m','1h','4h')})
+  self.assertEqual(set(m.operations()),{'spot','spot-backup','fx','fx-backup','cfd','future','history-1m','history-5m','history-15m','history-30m','history-1h','history-4h'} | {'standby-'+tf for tf in ('1m','5m','15m','30m','1h','4h')})
   with patch('server.fetch_technical_history',return_value=['source']) as history:
    self.assertEqual(m.operations()['history-30m'](),['source'])
    history.assert_called_once_with('30m','1mo')

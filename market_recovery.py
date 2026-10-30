@@ -16,8 +16,8 @@ _NEXT = {}
 
 
 def operations():
-    import spot_data, sg_quotes, investing_card, future_analysis, server
-    return {'spot': spot_data.current, 'fx': lambda: sg_quotes.market_input('fx'),
+    import spot_data, xaus_spot, fx_data, sg_quotes, investing_card, future_analysis, server
+    return {'spot': spot_data.current, 'spot-backup': xaus_spot.current, 'fx': lambda: sg_quotes.market_input('fx'), 'fx-backup': fx_data.warm_backup,
             'cfd': investing_card.fetch, 'future': future_analysis.fetch_reference,
             **{'history-'+interval: lambda i=interval, r=span: server.fetch_technical_history(i, r)
                for interval, span in [('1m','1d'),('5m','5d'),('15m','5d'),('30m','1mo'),('1h','3mo'),('4h','3mo')]},

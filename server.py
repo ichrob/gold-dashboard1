@@ -538,7 +538,7 @@ def mark_bar_state(bars, minutes):
 
 def aggregate_bars(bars, minutes):
     """Only aggregate complete, ordered, same-instrument source candles."""
-    base = {5: 1, 15: 5, 30: 5, 240: 60}.get(minutes)
+    base = {5: 1, 15: 5, 30: 5, 60: 5, 240: 60}.get(minutes)
     if base is None:
         raise ValueError('Nicht unterstützte Kerzenaggregation')
     step, source_step = minutes*60000, base*60000
@@ -720,16 +720,16 @@ def fetch_technical_history(interval, range_value):
             if not _ema_history_sufficient(independent, minutes):
                 return _ema200_history_backfill(interval, range_value, independent)
             return independent
-    if interval == '5m':
-        # Recover a stalled native 5m feed from complete, confirmed minute
-        # candles already collected. Never blend providers or invent OHLC.
-        minute_rows = retain_technical_history('1m', [])
-        sources = {b.get('source') for b in minute_rows}
+    lower = {'5m':'1m', '15m':'5m', '30m':'5m', '1h':'5m', '4h':'1h'}.get(interval)
+    if lower:
+        # Use complete single-provider candles, never fabricated OHLC or a
+        # blend of source histories. The shared bundle serves every consumer.
+        rows = retain_technical_history(lower, [])
+        sources = {b.get('source') for b in rows}
         if len(sources) == 1 and None not in sources and '' not in sources:
-            aggregated = aggregate_bars(minute_rows, 5)
-            if _ema_history_sufficient(aggregated, 5, minimum=100):
-                print('BOB_CANDLES recovery=confirmed-1m interval=5m', flush=True)
-                return retain_technical_history('5m', aggregated)
+            aggregated = aggregate_bars(rows, minutes)
+            if _ema_history_sufficient(aggregated, minutes, minimum=100):
+                return retain_technical_history(interval, aggregated)
     if interval in ("1m", "15m", "30m", "4h"):
         return _ema200_history_backfill(interval, range_value, retain_technical_history(interval, independent))
     # XAUS exposes a documented XAU chart proxy. Use it first so Render
@@ -812,15 +812,14 @@ def live_cache_reusable(now=None):
         if stamp.tzinfo is None or not 0 <= now - stamp.timestamp() < 30:
             return False
         frames=(_live_cache.get('history') or {}).get('bars_by_tf') or {}
-        if isinstance(frames.get('1m'),list):
-            # Recovery may already have delivered a newer confirmed minute
-            # while this bundle was waiting on other inputs. Do not add the
-            # bundle TTL on top of that successfully refreshed candle cache.
-            retained=retain_technical_history('1m',[])
-            if (technical_history_fresh(retained,1,now)
-                    and all(b.get('instrument')=='XAU/USD' and not b.get('estimated') for b in retained)
-                    and technical_history_latest(retained,1,now)>
-                        technical_history_latest(frames['1m'],1,now)):
+        for tf, minutes in technical_candles.MINUTES.items():
+            if not isinstance(frames.get(tf), list):
+                continue
+            retained = retain_technical_history(tf, [])
+            if (technical_history_fresh(retained, minutes, now)
+                    and all(b.get('instrument') == 'XAU/USD' and not b.get('estimated') for b in retained)
+                    and technical_history_latest(retained, minutes, now) >
+                        technical_history_latest(frames[tf], minutes, now)):
                 return False
         return True
     except (ValueError, TypeError, AttributeError):
@@ -872,6 +871,38 @@ def recheck_spot_before_bundle(spot_result, now=None):
     return price, age, error, source, is_spot, original_at
 
 
+def shared_fx_snapshot():
+    """Use the same dated original/backup FX input as product models.
+
+    Legacy consumers validate fetchedAt, so it conservatively carries the
+    oldest source clock. receivedAt is the separate local read time.
+    """
+    global _fx_cache_at
+    from sg_quotes import market_input
+    from fx_data import age, stamp
+    try:
+        data = market_input('fx')
+        now = datetime.now(timezone.utc)
+        seconds = age(data, now)
+        if seconds > 90 or data.get('market_session') != 'open' or any(
+                data.get('sources', {}).get(c) != 'live' for c in ('EUR', 'CHF')):
+            raise ValueError('Datierte FX-Quelle nicht aktuell')
+        for ccy in ('EUR', 'CHF'):
+            at = min(stamp(data['data_updated_at']), stamp(data['effective_at'][ccy])).isoformat()
+            rate = float(data['rates'][ccy])
+            _fx_cache[ccy] = rate
+            _fx_meta[ccy] = dict(rate=rate, fetchedAt=at, sourceAt=at,
+                receivedAt=now.isoformat(), source=data.get('provider'),
+                backupActive=bool(data.get('backupActive')), indicative=True, error=None)
+        _fx_cache_at = time.time()
+        return _fx_cache['EUR'], _fx_cache['CHF'], []
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
+        for ccy in ('EUR', 'CHF'):
+            _fx_meta.setdefault(ccy, {})['error'] = 'Datierter Wechselkurs nicht verfügbar'
+        # Retained display values keep their clocks; all model gates see error.
+        return _fx_cache['EUR'], _fx_cache['CHF'], ['Datierter Wechselkurs nicht verfügbar']
+
+
 def build_live_bundle():
     """Build Bob's live bundle without letting slow secondary sources block the spot heartbeat.
 
@@ -899,31 +930,7 @@ def build_live_bundle():
 
 
         def fetch_fx():
-            global _fx_cache, _fx_cache_at
-            if time.time() - _fx_cache_at < FX_CACHE_TTL and any(v is not None for v in _fx_cache.values()):
-                return _fx_cache["EUR"], _fx_cache["CHF"], []
-            rates = {"EUR": None, "CHF": None}
-            errors = []
-            for ccy in ("EUR", "CHF"):
-                try:
-                    fx = fetch_json(
-                        f"https://api.goldprice.dev/v1/convert?from=USD&to={ccy}&amount=1",
-                        retries=1,
-                        user_agent="Bob/1.3",
-                    )
-                    rate = float(fx.get("rate")) if isinstance(fx, dict) else None
-                    if rate and math.isfinite(rate) and rate > 0:
-                        rates[ccy] = rate
-                        _fx_cache[ccy] = rate
-                        _fx_meta[ccy] = {"rate":rate,"fetchedAt":datetime.now(timezone.utc).isoformat(),"sourceAt":None,"source":"GoldPrice.dev conversion API","error":None}
-                    else:
-                        errors.append(f"Ungültige {ccy}-FX-Rate")
-                        _fx_meta.setdefault(ccy,{})["error"]="Ungültige Wechselkursantwort"
-                except Exception as exc:
-                    errors.append(str(exc))
-                    _fx_meta.setdefault(ccy,{})["error"]="Aktualisierung verzögert"
-            _fx_cache_at = time.time()
-            return rates["EUR"] or _fx_cache["EUR"], rates["CHF"] or _fx_cache["CHF"], errors
+            return shared_fx_snapshot()
 
         # The spot price is the primary heartbeat. Do NOT wait for every secondary
         # source: ThreadPoolExecutor's context manager would otherwise wait for slow
@@ -1027,7 +1034,7 @@ def build_live_bundle():
                  (goldprice_price, goldprice_age, spot_error, spot_source,
                   is_spot, spot_price_as_of))
         backup_spot = results.get('risk_spot_backup')
-        if goldprice_price is None and isinstance(backup_spot, dict) and backup_spot.get('observed') is True:
+        if (goldprice_price is None or goldprice_age is None or not 0 <= goldprice_age <= 60) and isinstance(backup_spot, dict) and backup_spot.get('observed') is True:
             backup_age = time.time()-datetime.fromisoformat(backup_spot['at']).timestamp()
             if 0 <= backup_age <= 60:
                 goldprice_price, goldprice_age = backup_spot['price'], backup_age
@@ -2462,7 +2469,7 @@ def fibonacci_monitor_loop():
                 import diagnostic_history
                 source_trace = diagnostic_history.trace(bundle)
                 diagnostic_history.emit('input', source_trace, {**(bundle.get('spots') or {}), 'fetchedAt':bundle.get('fetched_at')})
-                background_bundle = {**bundle, "history":{**bundle.get("history",{}),"bars_by_tf":{tf:bars.get(tf,[])[-240:] for tf in ("1m","5m","15m","1h","4h")}}}
+                background_bundle = {**bundle, "history":{**bundle.get("history",{}),"bars_by_tf":{tf:bars.get(tf,[])[-240:] for tf in technical_candles.MINUTES}}}
                 request = Request(base+"/background",data=json.dumps({"bundle":background_bundle}).encode(),method="POST",headers={"Content-Type":"application/json","X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
                 try:
                     with urlopen(request,timeout=45) as response:

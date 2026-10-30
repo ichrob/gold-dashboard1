@@ -21,7 +21,7 @@ class SharedSpotTests(unittest.TestCase):
             with ThreadPoolExecutor(max_workers=8) as pool:
                 quotes=list(pool.map(lambda _:s.current(),range(8)))
             card=market_cards.fetch_spot();model=future_estimate.fetch_spot_tick()
-            with patch.object(server,'_live_cache',None),patch.object(server,'fetch_json',side_effect=OSError('history unavailable')):
+            with patch.object(server,'_live_cache',None),patch.object(server,'fetch_json',side_effect=OSError('history unavailable')),patch('sg_quotes.market_input',side_effect=OSError('offline')):
                 bundle=server.build_live_bundle()
             self.assertEqual(request.call_count,1)
             for q in quotes+[card,model]:
