@@ -355,6 +355,17 @@ class ProductReadService : AccessibilityService() {
                     }
                 }
                 collect(root, 0, emptyList())
+                val detailNodes=mutableListOf<AccessibilityNodeInfo>()
+                val detailView=mutableListOf<MorningReadPolicy.Node>()
+                try {
+                    navigationTree(root,detailNodes,detailView)
+                    val target=if(MorningReadRun.running) MorningReadRun.target else
+                        Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n") { it.text.uppercase() })
+                            .map { it.value }.toSet().singleOrNull().orEmpty()
+                    val readable=MorningReadPolicy.detailReadLines(detailView,lines,target,
+                        MorningReadRun.running && MorningReadRun.reading && pageReader.sameWindow(root.windowId))
+                    if(readable !== lines) { lines.clear();lines.addAll(readable) }
+                } finally { detailNodes.forEach { it.recycle() } }
                 // Reject navigation during traversal; never combine two screens.
                 val current = productRoot(record = false)
                 val unchanged = current != null && current.windowId == root.windowId &&
@@ -573,8 +584,14 @@ class ProductReadService : AccessibilityService() {
             navigationTree(root,nodes,descriptions)
             val actionName=command?.optString("action") ?: "inspect"
             val target=command?.optString("isin").orEmpty()
+            val observedTarget=if(MorningReadRun.running) MorningReadRun.target else
+                Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(descriptions.joinToString("\n") { it.text.uppercase() })
+                    .map { it.value }.toSet().singleOrNull().orEmpty()
+            val anchoredDetail=MorningReadRun.running && MorningReadRun.reading && pageReader.sameWindow(root.windowId)
+            val detailLauncher=MorningReadPolicy.detailLauncherIndex(descriptions,observedTarget,anchoredDetail)
             val restoring=MorningReadPolicy.detailSearchRestore(descriptions,MorningReadRun.importedListRun())
-            val proposed=if(actionName=="inspect" && restoring!=null) restoring
+            val proposed=if(actionName=="inspect" && detailLauncher!=null) MorningReadPolicy.Action(MorningReadPolicy.Kind.READ)
+                else if(actionName=="inspect" && restoring!=null) restoring
                 else if(actionName=="inspect" && MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible()) { symbolMemory.getString(it,null) }
                 else if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
                 else if(((GoldSearchRun.running && listImages.length()>0 && root.windowId==listWindowId) || MorningListDelivery.waiting) && actionName=="inspect")
@@ -594,7 +611,8 @@ class ProductReadService : AccessibilityService() {
                     val value=(node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
                     if(value.isBlank() || bounds.isEmpty)null else QuoteLayout.Line(value.take(2000),bounds.left,bounds.top,bounds.right,bounds.bottom)
                 }
-                val data=ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,lines,Instant.now().toString(),false)
+                val readable=MorningReadPolicy.detailReadLines(descriptions,lines,observedTarget,anchoredDetail)
+                val data=ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,readable,Instant.now().toString(),false)
                 result.put("draft",data.draft.take(8000))
             }
             val collected=ProductReadSession.get(SystemClock.elapsedRealtime()).draft
