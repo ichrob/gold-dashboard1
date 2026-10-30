@@ -1277,6 +1277,8 @@ class Handler(BaseHTTPRequestHandler):
         return bob_auth.authenticated(self.headers, USER, PASSWORD)
 
     def do_GET(self):
+        if __import__("archive_public").route(self):
+            return
         if __import__('android_telemetry_http').route(self,'GET',urlparse(self.path).path,android_diagnostic_rpc):return
         if archive_connect_web.route(self, USER, PASSWORD):
             return
@@ -1991,6 +1993,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
     def do_HEAD(self):
+        if __import__("archive_public").route(self, head=True):
+            return
         # Render and other HTTP probes use HEAD. Mirror the root/health access
         # policy without generating a response body, so probes do not produce
         # false 501 errors and the private root stays private.
