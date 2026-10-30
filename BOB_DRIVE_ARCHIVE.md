@@ -107,3 +107,20 @@ The changed canonical order uses manifest v2. The worker uses a new
 for diagnosis. This allows one corrected v2 attempt after a failed v1 attempt;
 failed v2 attempts are not automatically repeated on the same UTC day. Safe
 phase names identify export/restore/upload failures without exposing credentials.
+
+## Segmented v3 snapshot
+
+The live v2 export stopped safely at 512 MiB raw COPY bytes. v3 separates the
+512 MiB compressed/download ceiling from a 4 GiB streamed raw snapshot ceiling.
+COPY is split only between complete records into at most 32 MiB segments. Each
+segment is sorted on worker scratch and written into one ZIP (compression level
+1); neither 4 GiB of scratch nor RAM is allocated. Sort scratch and restoration
+remain bounded by one segment. Individual records still have a 16 MiB ceiling.
+
+The source remains one repeatable-read, read-only snapshot. Every segment records
+its table, columns, sequence, row count and SHA-256. Restore validates each segment
+and rolls back its transaction before the next, releasing temporary database disk.
+The receipt reports distinct tables, segments and total rows; it is emitted only
+after *all* segments pass both local and remote-download restoration. No rows are
+skipped to fit a budget. A full or corrupt archive fails without a success receipt.
+The v3 daily ledger retains both earlier ledgers unchanged.
