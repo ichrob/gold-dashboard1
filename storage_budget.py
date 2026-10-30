@@ -106,6 +106,7 @@ def report(conn,now=None):
         largestTableDeltas=relation_deltas[:12],
         largestTables=[dict(table=name,bytes=n,estimatedRows=live,estimatedDeadRows=dead,
             lastAutovacuum=str(vac) if vac else None) for name,n,live,dead,vac in tables],
+        archiveWorker=__import__('archive_worker').status(),
         evidenceDeleted=False,automaticPaidScaling=False,
         note='No test data or storage formats are changed. '
              'Dead-row estimates do not measure reclaimable disk bytes. Capacity forecasts are estimates.')

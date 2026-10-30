@@ -14,3 +14,6 @@ webauthn==3.0.1
 
 # Render eMudhra advisory: use the corrected CA bundle on every rebuild.
 certifi>=2026.10.19
+
+# Internal, opt-in Drive archive worker.
+-r requirements-archive.txt
