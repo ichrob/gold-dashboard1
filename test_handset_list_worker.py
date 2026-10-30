@@ -150,7 +150,14 @@ for(const bad of [{before:[row(1)],after:[row(2)]},{before:[row(1),row(1)],after
 console.log(JSON.stringify(out));
 '''
         result=subprocess.run(['node','-e',script],text=True,capture_output=True,check=True)
-        self.assertEqual(len(json.loads(result.stdout)['items']),10)
+        parsed=json.loads(result.stdout)
+        self.assertEqual(len(parsed['items']),10)
+        rows=[i['name']+' | '+i['isin']+'\n'+i['listRow']['venue']+' '+i['listRow']['currency'] for i in parsed['items']]
+        # Run the actual subprocess protocol end to end. Invalid PNG data proves
+        # that a complete semantic capture never invokes the image decoder.
+        imported=worker.process({'images':[{'png':'not decoded','appText':{'before':rows,'after':rows}}]},'2026-10-29T19:00:00Z')
+        self.assertEqual(len(imported['items']),10)
+        self.assertTrue(all(i['listRow']['source']=='DEGIRO-App-Text' for i in imported['items']))
 
     def test_worker_ack_only_after_persistence_and_keeps_failed_batch(self):
         class Result:
