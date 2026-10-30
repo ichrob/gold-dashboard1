@@ -992,6 +992,8 @@ class ProductReadService : AccessibilityService() {
             }
             when(action.kind) {
                 MorningReadPolicy.Kind.BLOCK -> {
+                    if(!gold && action.code=="PROTECTED_ORDER_CONFIRM") MorningReadPolicy.detailLauncherIndex(
+                        descriptions,MorningReadRun.target,symbolProbe=MorningReadRun.importedListRun(),rejected=ProductReadDiagnostics::detailGuard)
                     if(action.code=="PROTECTED_ORDER_CONFIRM") ProductReadDiagnostics.launcher(MorningReadPolicy.launcherSearchIssue(descriptions),descriptions)
                     if(gold) { lastNavigationIssue=action.code;record(action.code) }
                     else MorningReadRun.stop(this,action.code)
