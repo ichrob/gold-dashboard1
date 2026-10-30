@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import time
+import threading
 from decimal import Decimal, localcontext
 
 VERSION = 'metric-quality-v1'
@@ -17,6 +18,40 @@ LABELS = {'e20':'EMA 20','e50':'EMA 50','e200':'EMA 200','R':'RSI 14',
           'gearing':'Berechneter Hebel','issuerGearing':'Hebel / Emittentenvergleich',
           'koDistance':'KO-Abstand','pnl':'Laufendes Bruttoergebnis / Original-Geldkurs'}
 STEPS = {'1m':60000,'5m':300000,'15m':900000,'30m':1800000,'1h':3600000,'4h':14400000}
+
+# Metric observations are already keyed by (version, scope, bar_at) and
+# immutable. Keep the original 30-day policy, but do not run its DELETE on
+# every capture. Each cleanup is a finite indexed batch, not a large
+# transaction that competes with new market/decision evidence.
+_PRUNE_INTERVAL_SECONDS = 300
+_PRUNE_BATCH_ROWS = 500
+_PRUNE_NEXT_AT = 0.0
+_PRUNE_LOCK = threading.Lock()
+
+
+def _prune_expired_checks(conn, now, monotonic=None):
+    """Discard ONLY metric checks older than the existing 30-day horizon.
+
+    Each call deletes no more than 500 old rows. A process-local cadence
+    suppresses redundant scans; SKIP LOCKED lets a concurrent producer continue.
+    Full original decision/spot/candle/test evidence is never touched.
+    """
+    global _PRUNE_NEXT_AT
+    monotonic = time.monotonic if monotonic is None else monotonic
+    if monotonic() < _PRUNE_NEXT_AT or not _PRUNE_LOCK.acquire(blocking=False):
+        return False
+    try:
+        if monotonic() < _PRUNE_NEXT_AT:
+            return False
+        conn.execute("""DELETE FROM bob_metric_checks WHERE ctid IN (
+            SELECT ctid FROM bob_metric_checks WHERE checked_at<%s
+            ORDER BY checked_at LIMIT %s FOR UPDATE SKIP LOCKED)""",
+            (int(now)-30*86400000, _PRUNE_BATCH_ROWS))
+        _PRUNE_NEXT_AT = monotonic()+_PRUNE_INTERVAL_SECONDS
+        return True
+    finally:
+        _PRUNE_LOCK.release()
+
 
 
 def finite(x):return type(x) in (float,int) and math.isfinite(x)
@@ -103,7 +138,7 @@ def capture(conn,bundle,market,now=None):
         row=compare(bars,actual,frame,now)
         conn.execute('''INSERT INTO bob_metric_checks VALUES(%s,%s,%s,%s,%s::jsonb)
             ON CONFLICT DO NOTHING''',(VERSION,scope,int(row['at'] or now),now,json.dumps(row,allow_nan=False)))
-    conn.execute('DELETE FROM bob_metric_checks WHERE checked_at<%s',(now-30*86400000,))
+    _prune_expired_checks(conn, now)
 
 
 def report(conn,now=None):
