@@ -133,8 +133,7 @@ internal object MorningReadPolicy {
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })
     /** A real search control takes precedence over another backward scroll. */
     fun detailSearchRestore(nodes: List<Node>, importedListRun: Boolean): Action? {
-        if(!importedListRun || nodes.any { it.editable } || importedListSearch(nodes)!=null ||
-            nodes.any { normalized(it.text).equals("Top Ergebnisse",true) }) return null
+        if(!importedListRun || nodes.any { it.editable } || importedListSearch(nodes)!=null) return null
         return captureGoldList(nodes,true).takeIf { it.kind==Kind.COLLECT }
     }
     private fun importedListSearch(nodes: List<Node>): Action? {

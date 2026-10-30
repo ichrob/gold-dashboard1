@@ -64,6 +64,21 @@ class GoldCategoryNavigationTest {
         val written=listOf(nodes.first().copy(text=target),nodes.last())
         assertEquals(MorningReadPolicy.Kind.SUBMIT,MorningReadPolicy.detailDecision(written,target,true,true).kind)
     }
+    @Test fun topResultsHeadingAloneDoesNotMeanSearchIsReachable() {
+        val list=listOf(MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node("Order platzieren",clickable=true),
+            MorningReadPolicy.Node("Top Ergebnisse"),
+            MorningReadPolicy.Node("Gold Turbo DE000FD0S0G4"))
+        val restore=MorningReadPolicy.detailSearchRestore(list,true)!!
+        assertEquals(MorningReadPolicy.Kind.COLLECT,restore.kind)
+        assertEquals(-1,restore.index)
+        assertNull(MorningReadPolicy.detailSearchRestore(list,false))
+        assertNull(MorningReadPolicy.detailSearchRestore(list+MorningReadPolicy.Node("Gold",id="search-input",editable=true),true))
+        assertNull(MorningReadPolicy.detailSearchRestore(list+MorningReadPolicy.Node("Suchen",clickable=true),true))
+        for(extra in listOf(MorningReadPolicy.Node("Order bestätigen"),MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("",password=true),MorningReadPolicy.Node("",sensitive=true)))
+            assertNull(MorningReadPolicy.detailSearchRestore(list+extra,true))
+    }
     private val input=MorningReadPolicy.Node("Gold",id="search-input",editable=true,focused=false)
     private val tab=MorningReadPolicy.Node("Hebelprodukte",clickable=true)
     @Test fun selectsVisibleCategoryWithoutRefocusingQuery() {
