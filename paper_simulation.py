@@ -925,6 +925,41 @@ def preflight_once(database, now_ms=None):
         return {'state': 'research-only', 'auditUpdated': True, 'ordersEnabled': False}
 
 
+
+def audit_offhours_once(database, now_ms=None):
+    """Record missing proof for one newly imported screenshot generation off-hours.
+
+    The ordinary issuer refresh remains restricted to the existing preparation
+    and trading paths. This only creates the current list's fail-closed audit
+    using *no* quote observations, so a midnight image import need not look
+    indefinitely unexamined. It neither fetches providers nor performs orders.
+    One advisory-locked write per generation avoids periodic database growth.
+    """
+    now_ms = int(time.time()*1000) if now_ms is None else now_ms
+    if background_push.degiro_session(now_ms) in ('trading', 'preparation'):
+        return {'state': 'paused', 'auditUpdated': False, 'ordersEnabled': False}
+    with database() as conn:
+        with conn.transaction():
+            locked = conn.execute('SELECT pg_try_advisory_xact_lock(72610408)').fetchone()
+            if not locked or locked[0] is not True:
+                return {'state': 'busy', 'auditUpdated': False, 'ordersEnabled': False}
+            feed = conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
+            evidence = feed[0] if feed else {}
+            if (not isinstance(evidence, dict)
+                    or evidence.get('listOrigin') != 'degiro-screenshot'
+                    or not evidence.get('listUploadedAt')
+                    or not any(isinstance(p, dict) and p.get('isin')
+                               for p in evidence.get('products') or [])):
+                return {'state': 'waiting-for-screenshot', 'auditUpdated': False, 'ordersEnabled': False}
+            latest = conn.execute('SELECT payload FROM bob_degiro_product_audit WHERE id=1').fetchone()
+            if latest and latest[0].get('listUploadedAt') == evidence['listUploadedAt']:
+                return {'state': 'already-checked', 'auditUpdated': False, 'ordersEnabled': False}
+            from degiro_product_audit import store as store_audit
+            store_audit(conn, evidence, {}, now_ms)
+        conn.commit()
+    return {'state': 'evidence-only', 'auditUpdated': True, 'ordersEnabled': False}
+
+
 def _preflight_loop(database, wait=time.sleep):
     """Idle outside preparation. Exact 07:30 and 08:00 boundaries are bounded."""
     while True:
@@ -938,6 +973,16 @@ def _preflight_loop(database, wait=time.sleep):
                 print('BOB_PRODUCT_PREFLIGHT error='+type(exc).__name__, flush=True)
             wait(30)
         else:
+            # The ordinary paper worker pauses off-hours; record the *new*
+            # screenshot's missing-proof state once, without provider calls.
+            # Product detail validity is established only by later real quotes.
+            try:
+                if phase in ('night', 'weekend'):
+                    outcome = audit_offhours_once(database)
+                    if outcome['auditUpdated']:
+                        print('BOB_PRODUCT_PREFLIGHT state=evidence-only', flush=True)
+            except Exception as exc:
+                print('BOB_PRODUCT_PREFLIGHT error='+type(exc).__name__, flush=True)
             wait(max(1, min(300, background_push.degiro_seconds_to_transition())))
 
 
