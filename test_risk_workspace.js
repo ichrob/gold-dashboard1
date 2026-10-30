@@ -56,7 +56,15 @@ for(const dir of ['LONG','SHORT']){
  const real={...backup,spots:{...backup.spots,xaus:backup.risk_spot_backup.price,spot_price_as_of:backup.risk_spot_backup.at}};
  assert.equal(r.analyzePaper(real,clock).dataMode,'original','original precedes backup');
  const unconfirmed=JSON.parse(JSON.stringify(b));unconfirmed.history.bars_by_tf['1m'].at(-1).providerIsOpen=true;
- assert.equal(r.analyzePaper(unconfirmed,clock).ready,false,'provider-open candles never support a model');
+ const bounded=r.analyzePaper(unconfirmed,clock);
+ assert.equal(bounded.ready,true,'earlier complete structure remains available');
+ assert.equal(bounded.estimateMethod,'spot-lagged-minute-context-v1');
+ assert.equal(bounded.barAt,now-120000,'unconfirmed newest candle is not used');
+ assert.equal(bounded.at,now-21000,'no fabricated close timestamp');
+ const omitted=JSON.parse(JSON.stringify(unconfirmed));omitted.history.bars_by_tf['1m'].pop();
+ assert.deepEqual(bounded,r.analyzePaper(omitted,clock),'provider-open candle contributes no evidence');
+ omitted.history.bars_by_tf['1m'].at(-1).providerIsOpen=true;
+ assert.equal(r.analyzePaper(omitted,clock).ready,false,'fewer than 21 confirmed candles still blocks');
 }
 console.log('Risk paper: original/backup/model hierarchy, LONG/SHORT estimates, clocks and bounded validity passed.');
 require('./test_risk_delayed_structure');
