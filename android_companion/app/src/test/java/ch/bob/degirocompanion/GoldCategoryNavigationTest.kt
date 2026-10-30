@@ -179,4 +179,33 @@ class GoldCategoryNavigationTest {
             MorningReadPolicy.Node("Gold Future Faktor Long DE000FG8K0P8"),row)
         assertEquals(listOf("DE000FG8K0P8","DE000FD0S0G4"),MorningReadPolicy.captureGoldList(first,false).isins)
     }
+    @Test fun miniLongAndShortAreCountedInCapturedListsAndCanOpenByIsin() {
+        val target="DE000FD0S0G4"
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        for(kind in listOf("Mini Long","MINI Short","Mini-Long","Mini Future")) {
+            val product=MorningReadPolicy.Node("BNP GOLD $kind SL 3600 STR 3610 R 10 | $target")
+            val first=listOf(input,tab,MorningReadPolicy.Node("Top Ergebnisse"),launcher,product)
+            assertEquals(listOf(target),MorningReadPolicy.captureGoldList(first,false).isins)
+            val bottom=listOf(tab,launcher,product)
+            assertEquals(listOf(target),MorningReadPolicy.captureGoldList(bottom,true).isins)
+            assertEquals(listOf(target),MorningReadPolicy.discoverGold(first).isins)
+            val searched=listOf(input.copy(text=target),launcher,product)
+            assertEquals(2,MorningReadPolicy.resultTapIndex(searched,target))
+            assertTrue(MorningReadPolicy.captureGoldList(bottom.dropLast(1)+product.copy(captureComplete=false),true).isins.isEmpty())
+            for(extra in listOf(MorningReadPolicy.Node("Order bestätigen"),MorningReadPolicy.Node("Limitpreis"),
+                MorningReadPolicy.Node("",password=true),MorningReadPolicy.Node("",editable=true,id="quantity"))) {
+                assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.captureGoldList(bottom+extra,true).kind)
+                assertNull(MorningReadPolicy.resultTapIndex(searched+extra,target))
+            }
+        }
+        for(kind in listOf("Mini","Long","Mini Longish")) {
+            val product=MorningReadPolicy.Node("GOLD $kind | $target")
+            val first=listOf(input,tab,MorningReadPolicy.Node("Top Ergebnisse"),product)
+            assertTrue(MorningReadPolicy.captureGoldList(first,false).isins.isEmpty())
+            assertNull(MorningReadPolicy.resultTapIndex(listOf(input.copy(text=target),product),target))
+        }
+        val factor=MorningReadPolicy.Node("GOLD Mini Long Faktor | $target")
+        assertTrue(MorningReadPolicy.discoverGold(listOf(input,tab,factor)).isins.isEmpty())
+    }
+
 }

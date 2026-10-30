@@ -138,7 +138,7 @@ internal object MorningReadPolicy {
         if(input.text!=target || !isSearchInput(input.id,input.description,input.hint)) return null
         val controls=Regex("(?iu)\\b(k|v|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b")
         fun productName(value:String)=Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(value) &&
-            Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future)\\b").containsMatchIn(value)
+            Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(value)
         fun safe(n:Node)=n.enabled && !n.editable && !n.containsInput && !n.password && !n.sensitive
         val groups=nodes.indices.filter { i ->
             val n=nodes[i]
@@ -279,7 +279,7 @@ internal object MorningReadPolicy {
                     val found=ids.findAll(row.uppercase()).map { it.value }.toSet().singleOrNull()
                     found?.takeIf { SeriesEvidence.validIsin(it) &&
                         Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(row) &&
-                        Regex(if(captureAll) "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future|faktor|factor)\\b" else "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future)\\b").containsMatchIn(row) &&
+                        Regex(if(captureAll) "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short)|faktor|factor)\\b" else "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(row) &&
                         !Regex(if(captureAll) "(?iu)\\b(kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b" else "(?iu)\\b(faktor|factor|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b").containsMatchIn(row) }
                 }.distinct().take(12)
                 if(candidates.isNotEmpty()) return Action(Kind.COLLECT,isins=candidates)
