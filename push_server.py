@@ -637,7 +637,7 @@ def deliver_background_inputs(bundle):
     """No evaluation or provider I/O on the HTTP ingestion path."""
     import trade_auto_monitor
     import product_comparison_worker
-    paper_simulation.enqueue(bundle, db)
+    paper_simulation.enqueue(bundle,db)
     trade_auto_monitor.enqueue(db, bundle)
     product_comparison_worker.enqueue(db, bundle)
     manual_paper_watch.enqueue(db)
