@@ -67,8 +67,8 @@ class OffHoursAuditTests(unittest.TestCase):
             db.checked = {'listUploadedAt': feed['listUploadedAt'],
                           'items': [], 'tradeApproved': False}
 
-        with patch.object(sim.background_push, 'degiro_session', return_value='night'), \\
-             patch.object(sim, 'quote_cache', side_effect=AssertionError('provider called')), \\
+        with patch.object(sim.background_push, 'degiro_session', return_value='night'), \
+             patch.object(sim, 'quote_cache', side_effect=AssertionError('provider called')), \
              patch('degiro_product_audit.store', side_effect=save):
             first = sim.audit_offhours_once(db, now_ms=12345)
             second = sim.audit_offhours_once(db, now_ms=12346)
@@ -91,7 +91,7 @@ class OffHoursAuditTests(unittest.TestCase):
         for feed in (None, {}, {'listOrigin': 'degiro-screenshot',
                                'listUploadedAt': GEN, 'products': []},
                      {'listOrigin': 'external', 'listUploadedAt': GEN, 'products': FEED['products']}):
-            with self.subTest(feed=feed), patch.object(sim.background_push, 'degiro_session', return_value='weekend'), \\
+            with self.subTest(feed=feed), patch.object(sim.background_push, 'degiro_session', return_value='weekend'), \
                  patch('degiro_product_audit.store', side_effect=AssertionError('unexpected audit')):
                 db = Database(feed)
                 result = sim.audit_offhours_once(db, now_ms=12345)
@@ -100,7 +100,7 @@ class OffHoursAuditTests(unittest.TestCase):
 
     def test_busy_lock_does_not_write_or_approve(self):
         db = Database(FEED, lock=False)
-        with patch.object(sim.background_push, 'degiro_session', return_value='night'), \\
+        with patch.object(sim.background_push, 'degiro_session', return_value='night'), \
              patch('degiro_product_audit.store', side_effect=AssertionError('unexpected audit')):
             result = sim.audit_offhours_once(db, now_ms=12345)
         self.assertEqual(result['state'], 'busy')
