@@ -80,3 +80,30 @@ The existing CI PostgreSQL service checks actual COPY restore, same-database TEM
 isolation, exact values, duplicate preservation, corruption rejection and untouched
 source rows. Mock tests cover quota failure, remote proof gating and daily claims.
 Synthetic success is not proof of production export or restoration.
+
+## Owner Google connection page
+
+`https://bob-private-scanner.onrender.com/archive/connect` requires the existing
+Bob browser login and enrolled daily factor. Register the fixed callback
+`https://bob-private-scanner.onrender.com/archive/connect/callback` on the Google
+**Web application** client. Upload its downloaded JSON using the page's file
+picker, never a chat, issue, repository, or email. Endpoint URLs in uploaded JSON
+are ignored. The push service stores only Fernet-encrypted configuration in
+`bob_settings`, using a domain-separated key derived from its existing runtime
+secret. Rotating that secret requires reconnecting Google. Settings are excluded
+from evidence exports.
+
+The owner explicitly starts Google consent. Only `drive.file` is requested, with
+offline consent, PKCE, ten-minute state bound to the Bob browser session, and
+transactional one-use consumption before token exchange. Provider errors and
+credentials are redacted. Upload and start require exact Origin and CSRF checks.
+No new service, paid resource, email, source deletion or archive activation occurs.
+If login expires, log into Bob and reopen `/archive/connect` to restart consent.
+
+This page is the credential bootstrap, **not archive activation**. A successful
+Google callback stores credentials but does not expose them to the current
+worker. The existing private folder still needs an explicit per-file grant (for
+example Google Picker); a folder ID alone does not grant `drive.file` access.
+Connecting that folder, worker credential loading and production export/restore
+acceptance remain separate blocked steps. An OAuth app in Testing also needs its
+publication settings reviewed before describing the refresh permission as durable.

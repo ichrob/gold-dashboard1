@@ -17,3 +17,6 @@ certifi>=2026.10.19
 
 # Internal, opt-in Drive archive worker.
 -r requirements-archive.txt
+
+# Encrypt owner-provided archive OAuth configuration at rest.
+cryptography>=46.0.3
