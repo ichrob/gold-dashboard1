@@ -29,6 +29,7 @@ class ProductReadService : AccessibilityService() {
         clearWrittenSearch(); writtenSearchNode=AccessibilityNodeInfo.obtain(node); writtenSearchQuery=query
     }
     private var searchTapAttempted = false
+    private var resultTapAttempted = false
     private var inputTapAttempted = false
     private var categorySteps = 0
     private var listGeneration = 0
@@ -193,6 +194,7 @@ class ProductReadService : AccessibilityService() {
             clearWrittenSearch()
             searchTapAttempted = false
             inputTapAttempted = false
+            resultTapAttempted = false
             categorySteps = 0
             automaticSearchProgress.clear()
             lastNavigationIssue=""
@@ -629,7 +631,7 @@ class ProductReadService : AccessibilityService() {
     }
 
     /** Local-only fallback. No caller-supplied coordinates and no result/order taps. */
-    private fun tapRecognizedSearch(expectedWindow: Int, input: Boolean = false, category: Boolean = false): Boolean {
+    private fun tapRecognizedSearch(expectedWindow: Int, input: Boolean = false, category: Boolean = false, productResult: Boolean = false): Boolean {
         if(!PhoneRemote.active() || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return false
         if(!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive ||
             (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return false
@@ -645,14 +647,26 @@ class ProductReadService : AccessibilityService() {
             val action=if(MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible())
                 else MorningReadPolicy.discoverGold(descriptions)
             val required=if(category) MorningReadPolicy.Kind.CATEGORY else if(input) MorningReadPolicy.Kind.FOCUS else MorningReadPolicy.Kind.SEARCH
-            if(action.kind!=required || (input && category)) return false
-            val target=live[action.index]
+            val targetIndex=if(productResult) {
+                if(input || category || !MorningReadRun.running) return false
+                MorningReadPolicy.resultTapIndex(descriptions,MorningReadRun.target) ?: return false
+            } else {
+                if(action.kind!=required || (input && category)) return false
+                action.index
+            }
+            val target=live[targetIndex]
             if(!target.isVisibleToUser || !target.isEnabled || target.isEditable!=input || target.isPassword) return false
+            val resultLabel=if(productResult) (target.text ?: target.contentDescription)?.toString() else null
             val bounds=Rect();target.getBoundsInScreen(bounds)
             val screen=Rect();root.getBoundsInScreen(screen)
             val point=SearchTapPolicy.center(
                 SearchTapPolicy.Box(bounds.left,bounds.top,bounds.right,bounds.bottom),
                 SearchTapPolicy.Box(screen.left,screen.top,screen.right,screen.bottom)) ?: return false
+            if(productResult && live.indices.any { i ->
+                val label=descriptions[i].text.trim().lowercase()
+                label in setOf("k","v","kauf","verkauf","kaufen","verkaufen","buy","sell") &&
+                    Rect().also { live[i].getBoundsInScreen(it) }.contains(point.first,point.second)
+            }) return false
             val currentWindows=windows
             try {
                 val app=currentWindows.singleOrNull { it.id==expectedWindow && it.isActive && it.isFocused &&
@@ -664,6 +678,7 @@ class ProductReadService : AccessibilityService() {
                 }) return false
             } finally { currentWindows.forEach { it.recycle() } }
             if(!target.refresh()) return false
+            if(productResult && (target.text ?: target.contentDescription)?.toString()!=resultLabel) return false
             val refreshed=Rect();target.getBoundsInScreen(refreshed)
             if(refreshed!=bounds || !PhoneRemote.active() || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return false
             val foreground=rootInActiveWindow
@@ -927,6 +942,13 @@ class ProductReadService : AccessibilityService() {
                 lastNavigation=SystemClock.elapsedRealtime()
                 if(!performGlobalAction(GLOBAL_ACTION_BACK)) { lastNavigationIssue="KEYBOARD_HIDE_FAILED";ProductReadRequest.cancel() }
                 return true
+            }
+            if(!gold && !resultTapAttempted && MorningReadPolicy.resultTapIndex(descriptions,MorningReadRun.target)!=null) {
+                resultTapAttempted=true
+                val tapped=tapRecognizedSearch(root.windowId,productResult=true)
+                val code=if(tapped) "RESULT_TAP_SENT" else "RESULT_TAP_REJECTED"
+                record(code);lastNavigationIssue=code
+                if(tapped)return true
             }
             when(action.kind) {
                 MorningReadPolicy.Kind.BLOCK -> {
