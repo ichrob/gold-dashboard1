@@ -86,9 +86,15 @@ class WebTests(unittest.TestCase):
             h=self.handler();w.route(h,'user','password')
             self.assertEqual(h.status,200);self.assertEqual(h.response_headers['Cache-Control'],'no-store')
             self.assertIn(c.CALLBACK.encode(),h.wfile.getvalue());self.assertIn(b'type="file"',h.wfile.getvalue())
+    def test_strict_cookie_handoff_does_not_exchange_without_login(self):
+        with patch.object(w.bob_oauth,'configured',return_value=True),patch.object(w.bob_oauth,'browser_ready') as login,patch.object(w,'rpc') as rpc:
+            h=self.handler('/archive/connect/callback?code=test-code&state=nonce');w.route(h,'user','password')
+            self.assertEqual(h.status,200);login.assert_not_called();rpc.assert_not_called()
+            self.assertIn(b'/archive/connect/finish?',h.wfile.getvalue())
+            self.assertEqual(h.response_headers['Referrer-Policy'],'no-referrer')
     def test_callback_failure_is_redacted(self):
         with patch.object(w.bob_oauth,'configured',return_value=True),patch.object(w.bob_oauth,'browser_ready',return_value=True),patch.object(w,'rpc',side_effect=ValueError('secret-response')):
-            h=self.handler('/archive/connect/callback?code=private-code&state=x');w.route(h,'user','password')
+            h=self.handler('/archive/connect/finish?code=private-code&state=x');w.route(h,'user','password')
             self.assertEqual(h.status,400);self.assertNotIn(b'secret',h.wfile.getvalue());self.assertNotIn(b'private-code',h.wfile.getvalue())
 
 if __name__=='__main__':unittest.main()

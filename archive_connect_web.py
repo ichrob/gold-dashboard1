@@ -3,7 +3,7 @@ import hashlib
 import hmac
 import html
 import json
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
 from urllib.request import Request, build_opener, HTTPSHandler
 import bob_auth
 import bob_oauth
@@ -57,6 +57,19 @@ def route(handler, user, password):
     try:
         if not user or not password or not bob_oauth.configured():
             bob_oauth.respond(handler,503,{'error':'unavailable'}); return True
+        if handler.command == 'GET' and path == PATH+'/callback':
+            # Bob's existing cookies stay SameSite=Strict. Google's cross-site
+            # navigation receives no session; a user-activated same-origin link
+            # resumes with the original cookie, then verifies binding and state.
+            if len(handler.path)>8192:
+                raise ValueError('Oversized callback')
+            fields=bob_oauth.form_fields(urlparse(handler.path).query)
+            if 'error' in fields:
+                page(handler,'<p>Google-Freigabe abgebrochen.</p><a href="/archive/connect">Erneut starten</a>')
+            else:
+                destination=PATH+'/finish?'+urlencode({k:fields.get(k,'') for k in ('state','code')})
+                page(handler,'<p>Bestätige die Rückkehr zu deiner angemeldeten Bob-Sitzung.</p><a rel="noreferrer" href="'+html.escape(destination,quote=True)+'">Verbindung in Bob abschließen</a>')
+            return True
         if not bob_oauth.browser_ready(handler,user,password):
             return True
         if handler.command == 'GET' and path == PATH+'/upload.js':
@@ -79,7 +92,7 @@ def route(handler, user, password):
                 else:
                     body+='<p>Web-Client gespeichert. Google erlaubt Bob nur Zugriff auf mit dieser App erstellte oder ausdrücklich ausgewählte Dateien. Wähle dein Archiv-Konto.</p><form method="post" action="/archive/connect/begin"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'"><button>Bei Google freigeben</button></form>'
             page(handler,body+'<p><a href="/">Zurück zu Bob</a></p>')
-        elif handler.command == 'GET' and path == PATH+'/callback':
+        elif handler.command == 'GET' and path == PATH+'/finish':
             if len(handler.path)>8192:
                 raise ValueError('Oversized callback')
             fields=bob_oauth.form_fields(urlparse(handler.path).query)
@@ -102,7 +115,7 @@ def route(handler, user, password):
                 url=result.get('url','')
                 if not url.startswith('https://accounts.google.com/o/oauth2/v2/auth?'):
                     raise ValueError('Unexpected consent URL')
-                bob_oauth.respond(handler,303,location=url)
+                page(handler,'<p>Öffne jetzt Google, um den Dateizugriff zu bestätigen.</p><a rel="noreferrer" href="'+html.escape(url,quote=True)+'">Weiter zu Google</a>')
         else:
             bob_oauth.respond(handler,404,{'error':'not_found'})
     except Exception:
