@@ -52,6 +52,9 @@ internal object PinReadinessProbe {
         }
         val fields = mutableListOf<PinProbePolicy.Field>()
         val keys = mutableListOf<PinKeypadPolicy.Key>()
+        var loginHelp = false
+        var setup = false
+        var deleteTargets = 0
         var count = 0
         var complete = true
         fun visit(node: AccessibilityNodeInfo, depth: Int) {
@@ -66,6 +69,11 @@ internal object PinReadinessProbe {
             // Never read input values or protected descendants. No labels leave this method.
             if (sensitive || node.isPassword || node.isEditable) return
             if (node.childCount == 0 && node.isEnabled) {
+                val markers = setOf(PinLoginEvidence.marker(node.text), PinLoginEvidence.marker(node.contentDescription))
+                loginHelp = loginHelp || PinLoginEvidence.Marker.LOGIN_HELP in markers
+                setup = setup || PinLoginEvidence.Marker.BIOMETRIC_SETUP in markers
+                if (PinLoginEvidence.Marker.DELETE_KEY in markers && node.isClickable &&
+                    node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }) deleteTargets++
                 val digit = PinKeypadPolicy.digit(node.text) ?: PinKeypadPolicy.digit(node.contentDescription)
                 if (digit != null) keys += PinKeypadPolicy.Key(digit,
                     node.isClickable && node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK })
@@ -79,12 +87,16 @@ internal object PinReadinessProbe {
         val outcome = runCatching { visit(root, 0)
             val structural = PinProbePolicy.classify(fields, complete)
             if (structural == PinProbePolicy.Result.NO_INPUT)
-                PinKeypadPolicy.classify(keys) ?: structural else structural }
+                PinLoginEvidence.classify(PinKeypadPolicy.classify(keys) ?: structural,
+                    loginHelp, setup, deleteTargets) else structural }
             .getOrDefault(PinProbePolicy.Result.INCOMPLETE)
         history.observe(outcome)
         message = describe(outcome)
     }
     private fun describe(outcome: PinProbePolicy.Result): String = when (outcome) {
+            PinProbePolicy.Result.LOGIN_SETUP_VISIBLE -> "Biometrie-Einrichtungshinweis noch sichtbar. Keine Anmeldeeingabe freigegeben."
+            PinProbePolicy.Result.LOGIN_DELETE_OFFERED -> "Anmeldehinweis, zehn Zifferntasten und eine Löschtaste mit Klickaktion erkannt. Löschen und Anmeldung noch nicht ausgeführt oder bestätigt."
+            PinProbePolicy.Result.LOGIN_RESET_UNCONFIRMED -> "Anmeldehinweis und zehn Zifferntasten erkannt; keine eindeutige bedienbare Löschtaste. Leere PIN-Eingabe nicht bestätigt."
             PinProbePolicy.Result.KEYPAD_CLICK_OFFERED -> "Alle zehn Zifferntasten bieten eine Klickaktion an. Keine Taste gedrückt; PIN-Anmeldung noch nicht nachgewiesen."
             PinProbePolicy.Result.KEYPAD_VISIBLE -> "Alle zehn Zifferntasten erkannt; nicht alle bieten direkt eine Klickaktion an. Keine Taste gedrückt."
             PinProbePolicy.Result.KEYPAD_AMBIGUOUS -> "Zifferntasten mehrfach vorhanden; keine eindeutige Zuordnung. Keine Taste gedrückt."
