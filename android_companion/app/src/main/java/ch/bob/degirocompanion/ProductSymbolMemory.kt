@@ -40,6 +40,13 @@ internal object ProductSymbolMemory {
         else -> CONFLICT
     }
     fun headerSymbol(text: String): String? = header.matchEntire(text.trim())?.groupValues?.get(1)
+    /** A numeric product header permits identity discovery only, never quote attribution. */
+    fun detailSymbol(texts: List<String>): String? {
+        if (!texts.any { it.trim().equals("Übersicht", true) || it.trim().equals("Overview", true) }) return null
+        if (!texts.any { Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(it) &&
+                Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(it) }) return null
+        return texts.mapNotNull { headerSymbol(it) }.distinct().singleOrNull()
+    }
     fun resolve(lines: List<QuoteLayout.Line>, lookup: (String) -> String?): String? {
         return resolveTexts(lines.map { it.text }, lookup)
     }

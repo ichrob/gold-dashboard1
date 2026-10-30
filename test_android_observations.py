@@ -56,6 +56,19 @@ class AndroidObservations(unittest.TestCase):
             self.assertEqual(status['runs'][0]['events'][0]['code'],code)
             self.assertNotIn('must not be retained',json.dumps(saved))
             self.assertNotIn('screenText',json.dumps(status))
+    def test_navigation_events_preserve_drafts_but_do_not_approve_them(self):
+        for code in ('RESULT_TAP_SENT','RESULT_TAP_REJECTED','LIST_RESTORE_LIMIT','SESSION_EXPIRED'):
+            payload=run();payload['events'][0]['code']=code
+            saved=a.prepare(payload,{},NOW)
+            self.assertEqual(saved['results'][0]['observation']['raw'],DRAFT)
+            self.assertEqual(saved['results'][0]['code'],'PARTIAL')
+            self.assertFalse(saved['tradeApproved'])
+        payload=run();payload['events'][0]['code']='UNTRUSTED_EVENT'
+        with self.assertRaises(ValueError):a.prepare(payload,{},NOW)
+        payload=run();payload['events'][0]['code']='RESULT_TAP_SENT'
+        payload['results'][0]['draft']=DRAFT.replace('13,06','99,99')
+        with self.assertRaises(ValueError):a.prepare(payload,{},NOW)
+
     def test_partial_is_recomputed_and_cannot_be_promoted(self):
         r=a.prepare(run(),{'products':[{'isin':ISIN}]},NOW)
         self.assertEqual(r['results'][0]['code'],'PARTIAL')

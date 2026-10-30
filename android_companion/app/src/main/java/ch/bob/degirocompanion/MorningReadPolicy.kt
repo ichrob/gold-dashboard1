@@ -111,7 +111,7 @@ internal object MorningReadPolicy {
         return labels.containsAll(setOf("notizen", "notiz hinzufügen")) ||
             labels.containsAll(setOf("kontaktdaten", "website", "e-mail", "telefon"))
     }
-    fun detailLauncherIndex(nodes: List<Node>, target: String, anchored: Boolean = false): Int? {
+    fun detailLauncherIndex(nodes: List<Node>, target: String, anchored: Boolean = false, symbolProbe: Boolean = false): Int? {
         if(nodes.size>500 || !SeriesEvidence.validIsin(target) ||
             nodes.any { it.editable || it.containsInput || it.password || it.sensitive }) return null
         val values: (Node) -> List<String> = { listOf(it.text,it.description,it.hint) }
@@ -147,11 +147,12 @@ internal object MorningReadPolicy {
         val quotes=quoteSection && label("Geld") && label("Brief")
         val footer=detailFooter(cleaned.map { it.text })
         return index.takeIf { (seen==setOf(target) && (productTitle || quotes)) ||
+            (symbolProbe && seen.isEmpty() && productTitle && ProductSymbolMemory.detailSymbol(cleaned.map { it.text })!=null) ||
             (anchored && (seen.isEmpty() || seen==setOf(target)) && (quotes || footer)) }
     }
     fun detailReadLines(nodes: List<Node>, lines: List<QuoteLayout.Line>, target: String,
-                        anchored: Boolean = false): List<QuoteLayout.Line> {
-        if(detailLauncherIndex(nodes,target,anchored)==null) return lines
+                        anchored: Boolean = false, symbolProbe: Boolean = false): List<QuoteLayout.Line> {
+        if(detailLauncherIndex(nodes,target,anchored,symbolProbe)==null) return lines
         // A second traversal must not smuggle a compound order label past the
         // strict parser. Remove only the exact isolated launcher label.
         val exact=Regex("(?iu)^(order platzieren|place order)$")
@@ -241,7 +242,7 @@ internal object MorningReadPolicy {
                        keyboardReady: Boolean = true, lookupSymbol: (String) -> String? = { null }): Action {
         if(!SeriesEvidence.validIsin(target)) return Action(Kind.BLOCK,code="INVALID_VIEW")
         if(importedListRun) importedListSearch(nodes)?.let { return it }
-        val action=decide(nodes,target,lookupSymbol)
+        val action=navigate(nodes,target,false,lookupSymbol,symbolProbe=importedListRun)
         // A WebView can retain focus after hiding the keyboard. Open it before editing.
         return if(action.kind==Kind.QUERY && !keyboardReady) action.copy(kind=Kind.FOCUS) else action
     }
@@ -306,12 +307,12 @@ internal object MorningReadPolicy {
         if(below(inputIndex,index) || below(index,inputIndex)) return reject(LauncherIssue.RELATED_TARGETS)
         return nodes.mapIndexed { i,n -> if(i==index) Node("") else n }
     }
-    private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?, captureAll: Boolean = false): Action {
+    private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?, captureAll: Boolean = false, symbolProbe: Boolean = false): Action {
         if (nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
         protection(nodes)?.let { cause ->
             if (cause == "PROTECTED_ORDER_CONFIRM") {
                 if(!discovery) {
-                    if(detailLauncherIndex(nodes,target)!=null) return Action(Kind.READ)
+                    if(detailLauncherIndex(nodes,target,symbolProbe=symbolProbe)!=null) return Action(Kind.READ)
                     // After finishing one item, leave only a separately validated
                     // product page before searching for the next requested ISIN.
                     val current=nodes.flatMap { n -> ids.findAll(n.text.uppercase()).map { it.value }.toList() }
@@ -321,7 +322,7 @@ internal object MorningReadPolicy {
                 }
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 productSearchWithoutLauncher(nodes)?.let { searchNodes ->
-                    val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll)
+                    val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll,symbolProbe)
                     if(action.kind in setOf(Kind.FOCUS,Kind.QUERY,Kind.SUBMIT,Kind.CATEGORY,Kind.CATEGORY_SCROLL,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
                 }
             }
@@ -359,6 +360,7 @@ internal object MorningReadPolicy {
         }
         val visibleIds = nodes.filterNot { it.editable }.flatMap { ids.findAll(it.text.uppercase()).map { m -> m.value }.toList() }.toSet()
         val detail = nodes.any { Regex("(?iu)^(übersicht|overview|kursdaten|produktdetails)$").matches(it.text.trim()) }
+        if (symbolProbe && visibleIds.isEmpty() && ProductSymbolMemory.detailSymbol(nodes.map { it.text })!=null) return Action(Kind.READ)
         if (visibleIds == setOf(target) && detail) return Action(Kind.READ)
         // A known symbol may open the bounded page reader, but cannot publish
         // quotes. That reader still requires a real visible ISIN before export.
