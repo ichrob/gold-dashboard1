@@ -814,6 +814,12 @@ def newer_queued_paper_bundle(current, candidate, now_ms):
             and (old_time is None or new_time>old_time) else current)
 
 
+def late_risk_retry_bundle(current, candidate, now_ms):
+    """Return one newer verified snapshot for a paper-only late retry, else None."""
+    selected=newer_queued_paper_bundle(current,candidate,now_ms)
+    return selected if selected is not current else None
+
+
 # Independent bounded worker: product network calls never delay /background or Push.
 _guard=threading.Lock();_latest=None;_thread=None
 _bundle_ready=threading.Event()
@@ -1135,6 +1141,19 @@ def _worker(db):
                             conn.execute('ROLLBACK TO SAVEPOINT bob_zukunft_capture')
                             conn.execute('RELEASE SAVEPOINT bob_zukunft_capture')
                             print('BOB_ZUKUNFT capture_error='+type(capture_error).__name__,flush=True)
+                        # Quote and portfolio work can overlap the next collector cycle.
+                        # Re-evaluate only the virtual risk paper on one strictly newer,
+                        # complete observed snapshot; all provider-open guards stay intact.
+                        try:
+                            with _guard:
+                                late_candidate=_latest
+                            late_bundle=late_risk_retry_bundle(bundle,late_candidate,time.time()*1000)
+                            if late_bundle is not None:
+                                with conn.transaction():
+                                    __import__('risk_paper').tick(conn,late_bundle,evidence,quotes,time.time()*1000)
+                                print('BOB_RISK_PAPER retried_newer_observed_bundle=1',flush=True)
+                        except Exception as late_risk_exc:
+                            print('BOB_RISK_PAPER late_retry_error='+type(late_risk_exc).__name__,flush=True)
                         conn.commit()
                         # A post-commit observation of the exact input quality passed
                         # to each virtual account. Failure never changes paper ledgers.

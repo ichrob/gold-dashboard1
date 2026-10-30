@@ -45,6 +45,14 @@ class FreshPaperBundleTests(unittest.TestCase):
         self.assertIs(paper.newer_queued_paper_bundle(original,verified,self.NOW),verified)
         self.assertIs(paper.newer_queued_paper_bundle(original,bundle(self.NOW,5,spot=False),self.NOW),original)
 
+    def test_late_risk_retry_requires_a_strictly_newer_complete_snapshot(self):
+        old=bundle(self.NOW,55)
+        new=bundle(self.NOW,5)
+        self.assertIs(paper.late_risk_retry_bundle(old,new,self.NOW),new)
+        self.assertIsNone(paper.late_risk_retry_bundle(old,old,self.NOW))
+        self.assertIsNone(paper.late_risk_retry_bundle(old,bundle(self.NOW,5,spot=False),self.NOW))
+        self.assertIsNone(paper.late_risk_retry_bundle(old,bundle(self.NOW,61),self.NOW))
+
     def test_invalid_time_and_non_numeric_age_do_not_grant_freshness(self):
         old=bundle(self.NOW,50)
         new=bundle(self.NOW,5)
