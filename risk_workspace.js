@@ -55,12 +55,11 @@ function analyzePaperInput(bundle,now,alignSpot){
  for(const candidate of candidates){
   // Match the structure to this observed spot, just as analyzeInput does.
   // A later completed bar must not suppress the earlier bounded context.
+  const newest=Array.isArray(raw)?raw.filter(b=>Number.isFinite(b.openTime)&&b.openTime+60000<=now).at(-1):null;
+  if(newest?.isOpen===true||newest?.providerIsOpen===true)continue;
   const cutoff=alignSpot?Math.min(now,Date.parse(candidate.spots.spot_price_as_of)):now;
-  // At the minute boundary a provider can still flag the newest timestamp-complete
-  // bar as open. Ignore only that bar; the preceding closed structure remains valid.
-  const latest=Array.isArray(raw)?raw.filter(b=>b.isOpen!==true&&b.providerIsOpen!==true&&
-   Number.isFinite(b.openTime)&&b.openTime+60000<=cutoff).at(-1):null;
-  if(!latest||now-latest.openTime<=120000||
+  const latest=Array.isArray(raw)?raw.filter(b=>Number.isFinite(b.openTime)&&b.openTime+60000<=cutoff).at(-1):null;
+  if(!latest||latest.isOpen===true||latest.providerIsOpen===true||now-latest.openTime<=120000||
      Date.parse(candidate.spots.spot_price_as_of)<latest.openTime+60000)continue;
   const projected=analyzeInput({...bundle,spots:candidate.spots},now,true,180000);
   if(projected.ready)return {...projected,dataMode:'estimate',estimated:true,
