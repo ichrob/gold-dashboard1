@@ -7,6 +7,12 @@ import android.view.accessibility.AccessibilityNodeInfo
 /** Explicit local 30-second inspection. Never performs an action or reads node text. */
 internal object PinReadinessProbe {
     private var deadline = 0L
+    var reportId = ""
+        private set
+    var finished = false
+        private set
+    val resultCode get() = history.last?.name ?: "NO_WINDOW"
+    var onTimeout: (() -> Unit)? = null
     private val history = PinProbeHistory()
     var message = "Noch kein PIN-Erkennungstest."
         private set
@@ -16,18 +22,25 @@ internal object PinReadinessProbe {
     fun start() {
         check(onStart != null) { "Lesedienst zuerst verbinden." }
         history.clear()
+        reportId = java.util.UUID.randomUUID().toString().replace("-", "")
+        finished = false
         deadline = SystemClock.elapsedRealtime() + 30_000
-        message = "Prüfung läuft (30 Sekunden). In DEGIRO die PIN-Anmeldung anzeigen, aber keine PIN eingeben. Danach zu Bob zurückkehren."
+        message = "Prüfung läuft (30 Sekunden). In DEGIRO die PIN-Anmeldung anzeigen, aber keine PIN eingeben. Bob versucht danach automatisch zur Ergebnisanzeige zurückzukehren."
         onStart?.invoke()
     }
     fun active(): Boolean {
-        if (running && SystemClock.elapsedRealtime() >= deadline) stop("Zeit beendet. " + message)
+        if (running && SystemClock.elapsedRealtime() >= deadline) {
+            finished = true
+            stop("Zeit beendet. " + message)
+            onTimeout?.invoke()
+        }
         return running
     }
     fun stop(reason: String) {
+        val wasRunning = running
         deadline = 0L
         message = reason
-        onStop?.invoke()
+        if (wasRunning) onStop?.invoke()
     }
     fun inspect(root: AccessibilityNodeInfo?) {
         if (!active()) return

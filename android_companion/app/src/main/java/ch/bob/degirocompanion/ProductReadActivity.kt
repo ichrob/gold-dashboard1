@@ -49,6 +49,7 @@ class ProductReadActivity : Activity() {
         }
         result=TextView(this).apply { textSize=18f;setTextIsSelectable(true) }
         container.addView(result)
+        container.addView(TextView(this).apply { tag = "pin_probe_status"; text = PinReadinessProbe.message; textSize = 18f })
         container.addView(TextView(this).apply { text="Morgenliste: Gold suchen, Hebelprodukte öffnen, Tastatur schließen, bis zu vier Listenbilder der zehn Top Ergebnisse mit Scrollen aufnehmen und an Bob übertragen. Android 14 oder neuer erforderlich." })
         container.addView(TextView(this).apply { text="Start drücken. DEGIRO wird automatisch geöffnet. Bob öffnet die Gold-Hebelproduktliste und überträgt die Screenshots der zehn Top Ergebnisse an den privaten Bob-Listenimport. Die Kontokopfzeile wird abgeschnitten. Eine unvollständige oder fehlerhafte Erkennung ersetzt die bisherige Liste nicht. Die gestartete Handy-Sitzung erlaubt ChatGPT bis zu 15 Minuten Produktdaten und Diagnose zu lesen sowie begrenzte Produktsuchschritte auszuführen. DEGIRO muss angemeldet sein. Handy entsperrt lassen und während des Tests nicht bedienen. STOPP oder Sperrtaste beendet den Test. Keine Orders. Ergebnisse werden bei aktivierter Rückgabe an Bob übergeben; die Serverübernahme wird auf dem Handy bestätigt." })
         val advanced=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=android.view.View.GONE }
@@ -70,9 +71,8 @@ class ProductReadActivity : Activity() {
             }
         }
         container.addView(TextView(this).apply {
-            text = "PIN-Test: DEGIRO wird geöffnet. Dort gegebenenfalls selbst auf PIN-Anmeldung wechseln, aber keine PIN eingeben. Nach wenigen Sekunden zu Bob zurückkehren: Das Ergebnis steht hier. Es werden nur technische Feldmerkmale geprüft, keine Texte, PINs oder Bilder gelesen/gespeichert/übertragen. Maximal 30 Sekunden; keine Klicks oder Eingaben durch Bob. Ein erkennbares Feld beweist noch keine funktionierende Anmeldung."
+            text = "PIN-Test: Bob öffnet DEGIRO. Fingerabdruckdialog abbrechen und den Hinweis schließen; keine PIN eingeben. Nach 30 Sekunden versucht Bob automatisch hierher zurückzukehren. Das Ergebnis steht oben. Bei aktivierter automatischer Diagnose wird nur der technische Ergebniscode mit Testkennung und Abschlusszeit an deinen privaten Bob übertragen; bei Verbindungsproblemen wird automatisch erneut versucht. Keine PINs, Bildschirmtexte oder Bilder. Handy entsperrt lassen. Falls Android die Rückkehr verhindert, Bob selbst öffnen. Ein erkennbares Feld beweist noch keine funktionierende Anmeldung."
         })
-        container.addView(TextView(this).apply { tag = "pin_probe_status"; text = PinReadinessProbe.message; textSize = 17f })
         button("Automatische Diagnose verbinden / Freigabe öffnen") {
             AlertDialog.Builder(this).setTitle("Automatische Diagnose freigeben")
                 .setMessage("Bob Handy darf App-Version, Dienststatus und feste Fehlercodes direkt an deinen privaten Bob senden. Keine Bildschirmtexte, Kontowerte oder Zugangsdaten. Keine Fernsteuerung. Freigabe anschließend im angemeldeten Browser bestätigen. Android-Hintergrundmeldungen können verzögert eintreffen. Jederzeit hier abschaltbar.")

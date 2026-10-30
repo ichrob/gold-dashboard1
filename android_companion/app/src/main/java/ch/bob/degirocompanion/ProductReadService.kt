@@ -145,7 +145,22 @@ class ProductReadService : AccessibilityService() {
         override fun onClicked(controller: AccessibilityButtonController) { if(!PinReadinessProbe.running) readOnce() }
     }
     override fun onServiceConnected() {
-        PinReadinessProbe.onStop = { handler.removeCallbacks(pinProbeTick) }
+        PinReadinessProbe.onStop = {
+            handler.removeCallbacks(pinProbeTick)
+            PhoneDiagnostics.recordPinProbe(this)
+        }
+        PinReadinessProbe.onTimeout = {
+            // Return only from the app explicitly opened for this test, never another foreground app.
+            val unlocked = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive &&
+                !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
+            if (unlocked) runCatching {
+                val foreground = rootInActiveWindow
+                val inDegiro = try { foreground?.packageName?.toString() == ProductScreenEvidence.PACKAGE }
+                    finally { foreground?.recycle() }
+                if (inDegiro) startActivity(Intent(this, ProductReadActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            }
+        }
         PinReadinessProbe.onStart = { handler.removeCallbacks(pinProbeTick); handler.postDelayed(pinProbeTick, 700) }
         PhoneRemote.reader={command -> remoteRead(command)}
         MorningListDelivery.onConfirmed={ ids, batch ->
@@ -273,7 +288,7 @@ class ProductReadService : AccessibilityService() {
         queueRead(400)
     }
     override fun onInterrupt() { if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet."); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
-    override fun onDestroy() { if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.");PinReadinessProbe.onStart=null;PinReadinessProbe.onStop=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
+    override fun onDestroy() { if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.");PinReadinessProbe.onStart=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
