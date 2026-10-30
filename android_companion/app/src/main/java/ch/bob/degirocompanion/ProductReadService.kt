@@ -67,7 +67,7 @@ class ProductReadService : AccessibilityService() {
                 PinReadinessProbe.stop("Lesefreigabe beendet. PIN-Test beendet."); return
             }
             runCatching {
-                val root = rootInActiveWindow
+                val root = productRoot(record = false)
                 try { PinReadinessProbe.inspect(root) } finally { root?.recycle() }
             }.onFailure { PinReadinessProbe.stop("Ansicht nicht zugänglich. PIN-Test beendet.") }
             if (PinReadinessProbe.running) handler.postDelayed(this, 1000)
