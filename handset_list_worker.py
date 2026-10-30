@@ -166,6 +166,29 @@ def process(payload,at):
     return json.loads(result.stdout)
 
 
+def persist_parsed(connect,batch,parsed,sleep=time.sleep):
+    """Retry transient write conflicts with a fresh transaction, never rerun OCR."""
+    for attempt in range(5):
+        try:
+            with connect() as conn:
+                current=conn.execute('SELECT i.import_receipt FROM bob_android_list_images i JOIN bob_android_diagnostic_devices d USING(token_hash) WHERE i.batch_id=%s AND NOT d.revoked AND d.expires_at>now() FOR UPDATE OF i',(batch,)).fetchone()
+                if not current:return 'cancelled'
+                if (current[0] or {}).get('stage') in ('synced','superseded'):return current[0]['stage']
+                import paper_simulation
+                result=paper_simulation.sync(conn,parsed['evidence'])
+                if not result.get('ok') or (not result.get('preserved') and result.get('products')!=10):raise ValueError('Persistence not confirmed')
+                stage='superseded' if result.get('preserved') else 'synced'
+                receipt={'batchId':batch,'stage':stage,'count':10,'at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}
+                conn.execute('UPDATE bob_android_list_images SET parsed_items=%s::jsonb,import_receipt=%s::jsonb WHERE batch_id=%s',(json.dumps(parsed['items']),json.dumps(receipt),batch))
+                conn.commit()
+            return stage
+        except Exception as exc:
+            if getattr(exc,'sqlstate',None) not in ('55P03','40P01','40001') or attempt==4:
+                raise
+            # The failed connection/transaction has exited before waiting.
+            sleep(.25*(2**attempt))
+
+
 def tick(connect,runner=process):
     observe("checking")
     with connect() as conn:
@@ -181,7 +204,7 @@ def tick(connect,runner=process):
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
             AND (i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error'='MemoryError'))
                 OR (i.processing_attempts=4 AND i.import_receipt->>'error' IN ('InterruptedWorker','MemoryError'))
-                OR (i.processing_attempts=5 AND i.import_receipt->>'error'='CalledProcessError'))
+                OR (i.processing_attempts=5 AND i.import_receipt->>'error' IN ('CalledProcessError','LockNotAvailable','DeadlockDetected','SerializationFailure')))
             AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
             ORDER BY i.created_at DESC LIMIT 1 FOR UPDATE OF i SKIP LOCKED""").fetchone()
         if not row:
@@ -197,16 +220,7 @@ def tick(connect,runner=process):
             raise ValueError('Incomplete list')
         if {p.get('isin') for p in parsed.get('evidence',{}).get('products',[])}!={x['isin'] for x in parsed['items']}:
             raise ValueError('Mismatched evidence')
-        with connect() as conn:
-            current=conn.execute('SELECT i.import_receipt FROM bob_android_list_images i JOIN bob_android_diagnostic_devices d USING(token_hash) WHERE i.batch_id=%s AND NOT d.revoked AND d.expires_at>now() FOR UPDATE OF i',(batch,)).fetchone()
-            if not current or (current[0] or {}).get('stage')=='synced':return True
-            import paper_simulation
-            result=paper_simulation.sync(conn,parsed['evidence'])
-            if not result.get('ok') or (not result.get('preserved') and result.get('products')!=10):raise ValueError('Persistence not confirmed')
-            stage='superseded' if result.get('preserved') else 'synced'
-            receipt={'batchId':batch,'stage':stage,'count':10,'at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}
-            conn.execute('UPDATE bob_android_list_images SET parsed_items=%s::jsonb,import_receipt=%s::jsonb WHERE batch_id=%s',(json.dumps(parsed['items']),json.dumps(receipt),batch))
-            conn.commit()
+        stage=persist_parsed(connect,batch,parsed)
         observe(stage)
     except Exception as exc:
         observe("read-failed", type(exc).__name__)

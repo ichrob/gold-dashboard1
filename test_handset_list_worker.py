@@ -5,6 +5,40 @@ from unittest.mock import patch
 import handset_list_worker as worker
 
 class WorkerTests(unittest.TestCase):
+    def test_persistence_retries_transient_conflicts_after_transaction_exit(self):
+        from types import SimpleNamespace
+        from contextlib import contextmanager
+        parsed={'items':[{'isin':str(n)} for n in range(10)],'evidence':{'products':[]}}
+        events=[]
+        class Conflict(Exception):sqlstate='55P03'
+        class Conn:
+            def execute(self,sql,args=()):
+                if sql.startswith('SELECT'):return SimpleNamespace(fetchone=lambda:(None,))
+                events.append('write')
+            def commit(self):events.append('commit')
+        @contextmanager
+        def connect():
+            events.append('enter')
+            try:yield Conn()
+            finally:events.append('exit')
+        def sleep(delay):
+            self.assertEqual(events[-1],'exit')
+            events.append('sleep')
+        with patch('paper_simulation.sync',side_effect=[Conflict(),{'ok':True,'products':10}]) as sync:
+            self.assertEqual(worker.persist_parsed(connect,'a'*32,parsed,sleep),'synced')
+            self.assertEqual(sync.call_count,2)
+        self.assertEqual(events.count('commit'),1)
+        self.assertEqual(events.count('write'),1)
+        events.clear()
+        with patch('paper_simulation.sync',side_effect=Conflict()) as sync:
+            with self.assertRaises(Conflict):worker.persist_parsed(connect,'a'*32,parsed,sleep)
+            self.assertEqual(sync.call_count,5)
+        self.assertEqual(events.count('sleep'),4)
+        self.assertNotIn('commit',events)
+        with patch('paper_simulation.sync',side_effect=ValueError('invalid evidence')) as sync:
+            with self.assertRaises(ValueError):worker.persist_parsed(connect,'a'*32,parsed,sleep)
+            self.assertEqual(sync.call_count,1)
+
     def test_strip_context_overlaps_but_line_ownership_never_doubles(self):
         for height in (1,511,512,513,896,897,1536,2400,3200):
             strips=list(worker.ocr_strips(height))
@@ -177,6 +211,24 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes',import_receipt=%s::jsonb WHERE batch_id=%s",
                     (json.dumps({'stage':'read-failed','error':'MemoryError'}),value['batchId']))
             self.assertFalse(worker.tick(connect,lambda *_:self.fail('Unbounded memory retry')))
+            with connect() as conn:
+                conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb WHERE batch_id=%s",
+                    (json.dumps({'stage':'read-failed','error':'LockNotAvailable'}),value['batchId']))
+                conn.execute('CREATE TABLE retry_probe(id INTEGER PRIMARY KEY)')
+            calls=[]
+            def transient_sync(conn,payload):
+                conn.execute('INSERT INTO retry_probe VALUES(1)')
+                calls.append(1)
+                if len(calls)==1:raise psycopg.errors.LockNotAvailable('test conflict')
+                return {'ok':True,'products':10}
+            with patch('paper_simulation.sync',side_effect=transient_sync):
+                self.assertTrue(worker.tick(connect,lambda *_:parsed))
+            self.assertEqual(len(calls),2,'failed transaction must roll back its first insert')
+            with connect() as conn:
+                self.assertEqual(conn.execute('SELECT count(*) FROM retry_probe').fetchone()[0],1)
+                self.assertEqual(conn.execute('SELECT processing_attempts FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0],6)
+                self.assertEqual(android_list.handle(conn,{'action':'list-status','token':'a'*64,'value':{'batchId':value['batchId']}},now)['import']['stage'],'synced')
+
         finally:
             with psycopg.connect(url) as admin:admin.execute('DROP SCHEMA '+schema+' CASCADE')
 
