@@ -55,6 +55,7 @@ class ProductReadService : AccessibilityService() {
     private val pageReader = ProductPageReader()
     private var batchReadWindow: Int? = null
     private var batchResultOpened = false
+    private val productReturnTransition = ProductReturnTransition()
     private val remoteSearchProgress = SearchClickProgress()
     private val automaticSearchProgress = SearchClickProgress()
     private val handler = Handler(Looper.getMainLooper())
@@ -538,8 +539,9 @@ class ProductReadService : AccessibilityService() {
                     val view=mutableListOf<MorningReadPolicy.Node>()
                     try {
                         navigationTree(root,refs,view)
-                        if (MorningReadPolicy.returnAfterRead(view,priorTarget,root.windowId,priorWindow,code))
-                            performGlobalAction(GLOBAL_ACTION_BACK)
+                        if (MorningReadPolicy.returnAfterRead(view,priorTarget,root.windowId,priorWindow,code) &&
+                            performGlobalAction(GLOBAL_ACTION_BACK))
+                            productReturnTransition.begin(priorTarget,root.windowId,SystemClock.elapsedRealtime())
                     } finally { refs.forEach { it.recycle() };root.recycle() }
                 }
             }
@@ -549,6 +551,7 @@ class ProductReadService : AccessibilityService() {
                 Toast.makeText(this,MorningReadRun.summary(),Toast.LENGTH_SHORT).show()
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
             } else {
+                productReturnTransition.clear()
                 PhoneRemote.stop(this,"COMPLETE")
                 MorningReadTransfer.automaticResults(this)
             }
@@ -651,6 +654,10 @@ class ProductReadService : AccessibilityService() {
         try {
             if(root.packageName?.toString()!=ProductScreenEvidence.PACKAGE)return observation("OTHER_APP")
             navigationTree(root,nodes,descriptions)
+            // Inspect the previous product context while Android finishes BACK.
+            // Return no draft or identifiers from this transitional screen.
+            if(MorningReadRun.running && productReturnTransition.waiting(descriptions,root.windowId,SystemClock.elapsedRealtime()))
+                return observation("BUSY")
             val actionName=command?.optString("action") ?: "inspect"
             val target=command?.optString("isin").orEmpty()
             val observedTarget=if(MorningReadRun.running) MorningReadRun.target else
@@ -984,6 +991,7 @@ class ProductReadService : AccessibilityService() {
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         try {
             navigationTree(root,nodes,descriptions)
+            if(!gold && productReturnTransition.waiting(descriptions,root.windowId,SystemClock.elapsedRealtime())) return true
             if(gold && listImages.length()>0 && root.windowId!=listWindowId) {
                 lastNavigationIssue="LIST_CAPTURE_WINDOW_CHANGED";ProductReadRequest.cancel();return true
             }
