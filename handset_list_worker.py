@@ -43,7 +43,7 @@ def recognize(images):
     detector=engine.text_det
     # The library's default 'min' limit only enlarges images; it is not a cap.
     # Bound detection tensors, while recognition crops retain source resolution.
-    detector.get_preprocess=lambda _:DetPreProcess(800,'max',detector.mean,detector.std)
+    detector.get_preprocess=lambda _:DetPreProcess(704,'max',detector.mean,detector.std)
     result=[]
     for item in images:
         with Image.open(io.BytesIO(base64.b64decode(item['png'],validate=True))) as source:
@@ -101,6 +101,10 @@ def wait_ocr(child,memory_reader=container_memory_bytes,clock=time.monotonic,sle
 
 def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, close_fds):
     # Preserve the cgroup-wide fail-closed guard and file-backed streams.
+    # Return free parent heap pages before loading the child's native models.
+    # No cache or evidence is deleted, and the 400-MiB kill threshold stays fixed.
+    __import__('gc').collect()
+    __import__('memory_watch').release_free_pages()
     with tempfile.TemporaryFile(mode='w+',encoding='utf-8') as source, \
          tempfile.TemporaryFile(mode='w+',encoding='utf-8') as output, \
          tempfile.TemporaryFile(mode='w+',encoding='utf-8') as errors:
@@ -153,7 +157,7 @@ def tick(connect,runner=process):
             JOIN bob_android_diagnostic_devices d USING(token_hash)
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
-            AND (i.processing_attempts<3 OR (i.processing_attempts=3 AND i.import_receipt IS NULL)
+            AND (i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error'='MemoryError'))
                 OR (i.processing_attempts=4 AND i.import_receipt->>'error'='InterruptedWorker')
                 OR (i.processing_attempts=5 AND i.import_receipt->>'error'='CalledProcessError'))
             AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
