@@ -103,6 +103,16 @@ internal object PhoneDiagnostics {
             "\nVergleichscode: "+p.getString("comparison","")+
             (p.getString("lastAck",null)?.let { "\nLetzte Serverbestätigung: $it" } ?: "")
     }
+    /** Fixed technical summary only, under the existing opt-in diagnostic authorization. */
+    fun recordPinProbe(c:Context) {
+        if (!enabled(c) || PinReadinessProbe.reportId.isEmpty()) return
+        val summary = JSONObject().put("runId", PinReadinessProbe.reportId)
+            .put("endedAt", Instant.now().toString())
+            .put("result", PinReadinessProbe.resultCode)
+            .put("completed", PinReadinessProbe.finished)
+        prefs(c).edit().putString("pinProbe", summary.toString()).commit()
+        queue(c)
+    }
     fun snapshot(c:Context):String {
         val p=prefs(c)
         val event=runCatching { JSONObject(MorningReadRun.pending(c) ?: "{}").optJSONArray("events")?.let { it.optJSONObject(it.length()-1) } }.getOrNull()
@@ -120,7 +130,16 @@ internal object PhoneDiagnostics {
             .put("textAccess",ProductReadDiagnostics.canRead).put("windowAccess",ProductReadDiagnostics.windowAccess)
             .put("running",MorningReadRun.running || GoldSearchRun.running).put("pendingRun",MorningReadRun.pending(c)!=null)
             .put("lastCode",p.getString("lastCode","NONE"))
-            .put("lastEventAt",p.getString("lastEventAt",null)?.takeIf { it.isNotBlank() } ?: JSONObject.NULL).toString()
+            .put("lastEventAt",p.getString("lastEventAt",null)?.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+            .also { report ->
+                p.getString("pinProbe", null)?.let { raw ->
+                    runCatching { JSONObject(raw) }.getOrNull()?.let { probe ->
+                        val recent = runCatching { System.currentTimeMillis() -
+                            Instant.parse(probe.getString("endedAt")).toEpochMilli() in 0..86400000 }.getOrDefault(false)
+                        if (recent) report.put("pinProbe", probe)
+                    }
+                }
+            }.toString()
     }
     fun nextReport(c:Context):String {
         val p=prefs(c);val old=p.getString("outbox",null)
