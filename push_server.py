@@ -1737,6 +1737,7 @@ if __name__ == "__main__":
     init_db()
     diagnostic_history.configure(db)
     __import__("archive_worker").start(db)
+    __import__("storage_maintenance").start()
     print("BOB_PUSH startup=ready", flush=True)
     # Process/child memory telemetry is read-only and never blocks Push.
     import memory_watch
