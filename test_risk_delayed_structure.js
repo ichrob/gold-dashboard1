@@ -52,3 +52,26 @@ for(const dir of ['LONG','SHORT']){
  assert.deepEqual(r.analyzePaper(bundle,clock),signal);
  assert.equal(r.analyzePaper(bundle,clock+60001).ready,false);
 }
+
+// A provider may still report the just-ended minute as open. That unconfirmed
+// candle must not invalidate an earlier complete structure in the bounded model.
+for(const dir of ['LONG','SHORT']){
+ for(const flag of ['isOpen','providerIsOpen']){
+  const b=fixture(dir),last=b.history.bars_by_tf['1m'].at(-1).openTime;
+  b.history.bars_by_tf['1m'].push({openTime:last+60000,instrument:'XAU/USD',
+   source:'observed',open:1,high:999999,low:1,close:999999,[flag]:true});
+  const before=JSON.stringify(b),signal=r.analyzePaper(b,now);
+  assert.equal(signal.ready,true);assert.equal(signal.direction,dir);
+  assert.equal(signal.dataMode,'estimate');assert.equal(signal.barAt,last);
+  assert.equal(signal.sourceAt,Date.parse(b.spots.spot_price_as_of));
+  assert.equal(signal.estimateMethod,'spot-lagged-minute-context-v1');
+  assert.equal(JSON.stringify(b),before);
+  // No value from the excluded row can influence the result.
+  b.history.bars_by_tf['1m'].at(-1).close=1;
+  assert.deepEqual(r.analyzePaper(b,now),signal);
+  // Delayed structure expires at the same 180-second bound.
+  b.spots.spot_price_as_of=new Date(now+31000).toISOString();
+  assert.equal(r.analyzePaper(b,now+31000).ready,false);
+ }
+}
+console.log('Pending newer close does not block confirmed bounded context; original clocks and expiry remain intact.');
