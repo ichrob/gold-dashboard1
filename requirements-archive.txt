@@ -1,0 +1,4 @@
+# Optional isolated archive runner only; not added to either live service.
+psycopg[binary]>=3.2,<4
+google-api-python-client>=2,<3
+google-auth>=2,<3
