@@ -79,6 +79,21 @@ class GoldCategoryNavigationTest {
             MorningReadPolicy.Node("",password=true),MorningReadPolicy.Node("",sensitive=true)))
             assertNull(MorningReadPolicy.detailSearchRestore(list+extra,true))
     }
+    @Test fun resultGestureTargetsOnlyUniqueExactProductName() {
+        val target="DE000FD0S0G4"
+        val input=MorningReadPolicy.Node(target,id="search-input",editable=true)
+        val title=MorningReadPolicy.Node("SG Gold Turbo Call | $target")
+        val nodes=listOf(input,MorningReadPolicy.Node("Order platzieren",clickable=true),title,
+            MorningReadPolicy.Node("K",clickable=true),MorningReadPolicy.Node("V",clickable=true))
+        assertEquals(2,MorningReadPolicy.resultTapIndex(nodes,target))
+        assertNull(MorningReadPolicy.resultTapIndex(nodes+title,target))
+        assertNull(MorningReadPolicy.resultTapIndex(nodes.map { if(it==title) it.copy(row=it.row+"\nK\nV") else it },target))
+        assertNull(MorningReadPolicy.resultTapIndex(nodes.map { if(it==input) it.copy(text="Gold") else it },target))
+        for(extra in listOf(MorningReadPolicy.Node("Order bestätigen"),MorningReadPolicy.Node("Limitpreis"),
+            MorningReadPolicy.Node("",password=true),MorningReadPolicy.Node("",sensitive=true)))
+            assertNull(MorningReadPolicy.resultTapIndex(nodes+extra,target))
+        assertNull(MorningReadPolicy.resultTapIndex(nodes,"invalid"))
+    }
     private val input=MorningReadPolicy.Node("Gold",id="search-input",editable=true,focused=false)
     private val tab=MorningReadPolicy.Node("Hebelprodukte",clickable=true)
     @Test fun selectsVisibleCategoryWithoutRefocusingQuery() {

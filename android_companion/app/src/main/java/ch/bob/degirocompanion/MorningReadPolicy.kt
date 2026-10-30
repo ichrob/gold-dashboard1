@@ -130,6 +130,24 @@ internal object MorningReadPolicy {
         if (!SeriesEvidence.validIsin(target)) return Action(Kind.BLOCK, code="INVALID_VIEW")
         return navigate(nodes,target,false,lookupSymbol)
     }
+    /** A gesture may target only a unique product-name label, never the row's K/V controls. */
+    fun resultTapIndex(nodes: List<Node>, target: String): Int? {
+        val action=decide(nodes,target)
+        if(action.kind !in setOf(Kind.RESULT,Kind.WAIT,Kind.SUBMIT)) return null
+        val input=nodes.filter { it.editable }.singleOrNull() ?: return null
+        if(input.text!=target || !isSearchInput(input.id,input.description,input.hint)) return null
+        val controls=Regex("(?iu)\\b(k|v|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b")
+        val candidates=nodes.indices.filter { i ->
+            val n=nodes[i]
+            n.enabled && !n.editable && !n.containsInput && !n.password && !n.sensitive &&
+                ids.findAll(n.text.uppercase()).map { it.value }.toSet()==setOf(target) &&
+                ids.findAll(n.row.uppercase()).map { it.value }.toSet()==setOf(target) &&
+                Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.text) &&
+                Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future)\\b").containsMatchIn(n.text) &&
+                !controls.containsMatchIn(n.row)
+        }
+        return innermost(nodes,candidates).singleOrNull()
+    }
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })
     /** A real search control takes precedence over another backward scroll. */
     fun detailSearchRestore(nodes: List<Node>, importedListRun: Boolean): Action? {
