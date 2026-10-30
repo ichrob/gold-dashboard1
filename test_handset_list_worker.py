@@ -5,6 +5,21 @@ from unittest.mock import patch
 import handset_list_worker as worker
 
 class WorkerTests(unittest.TestCase):
+    def test_strip_context_overlaps_but_line_ownership_never_doubles(self):
+        for height in (1,511,512,513,896,897,1536,2400,3200):
+            strips=list(worker.ocr_strips(height))
+            self.assertEqual(strips[0][0],0)
+            self.assertEqual(strips[-1][1],height)
+            for top,bottom,lower,upper in strips:
+                self.assertLessEqual(bottom-top,512)
+                self.assertLessEqual(top,lower)
+                self.assertLessEqual(upper,bottom)
+            for before,after in zip(strips,strips[1:]):
+                self.assertEqual(before[3],after[2])
+                self.assertGreaterEqual(before[1]-after[0],128)
+            for y in range(height):
+                self.assertEqual(sum(lo<=y<hi for _,_,lo,hi in strips),1)
+
     def test_ocr_child_is_killed_before_shared_container_limit(self):
         class Child:
             args=['ocr']
@@ -68,7 +83,9 @@ const images=[[1,2,3,4],[4,5,6,7],[7,8,9,10]].map(ns=>{let t=ns.map(n=>row(n)).j
 const out=parse(images,'2026-10-29T19:00:00Z');
 const compact=images.map(passes=>passes.map(t=>t.replaceAll('SG Gold Turbo BEST Open-End Call BAR','SGGoldTurboBESTOpen-EndCallBAR')));
 if(parse(compact,'2026-10-29T19:00:00Z').items.length!==10)throw Error('Compact label boundaries');
+if(normalizeLayout('BAR4400BP4400Bv\n1019/03/2027|')!=='BAR4400BP4400Bv\n10 19/03/2027|')throw Error('Compact ratio date');
 if(normalizeLayout('Bv 1019/03/2027 |')!=='Bv 10 19/03/2027 |')throw Error('Ratio date separator');
+if(normalizeLayout('BNPGOLDMiniLongSL3690.3449STR3617.9852 R 10')!=='BNP GOLD Mini Long SL3690.3449STR3617.9852 R 10')throw Error('BNP label boundaries');
 if(normalizeLayout('DE000ZZ00001 3970.33')!=='DE000ZZ00001 3970.33')throw Error('Identity or numbers changed');
 
 if(out.items.length!==10||out.evidence.products.some(p=>p.price!==null||p.isinConfirmed!==false||!p.listVenueEvidence))throw Error('Evidence boundaries');
@@ -151,6 +168,15 @@ class DatabaseTests(unittest.TestCase):
                 android_list.handle(conn,{'action':'list-receipt','value':{'batchId':value['batchId'],'stage':'reading','count':0}},now)
                 again=android_list.handle(conn,{'action':'list-status','token':'a'*64,'value':{'batchId':value['batchId']}},now)
                 self.assertEqual(again['import']['stage'],'synced','late browser receipt cannot undo confirmation')
+                conn.execute("UPDATE bob_android_list_images SET processing_attempts=4,processing_at=now()-interval '5 minutes',import_receipt=%s::jsonb WHERE batch_id=%s",
+                    (json.dumps({'stage':'read-failed','error':'MemoryError'}),value['batchId']))
+            with patch('paper_simulation.sync',return_value={'ok':True,'products':10}):
+                self.assertTrue(worker.tick(connect,lambda *_:parsed))
+            with connect() as conn:
+                self.assertEqual(conn.execute('SELECT processing_attempts FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0],5)
+                conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes',import_receipt=%s::jsonb WHERE batch_id=%s",
+                    (json.dumps({'stage':'read-failed','error':'MemoryError'}),value['batchId']))
+            self.assertFalse(worker.tick(connect,lambda *_:self.fail('Unbounded memory retry')))
         finally:
             with psycopg.connect(url) as admin:admin.execute('DROP SCHEMA '+schema+' CASCADE')
 

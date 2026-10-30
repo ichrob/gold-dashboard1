@@ -8,6 +8,10 @@ function normalizeLayout(text){
  // Restore whitespace at known labels only; never change identity or numbers.
  return String(text).replace(/\bSG(?=Gold)/g,'SG ')
   .replace(/Gold(?=Knock|Turbo|Future)/g,'Gold ')
+  .replace(/\bBNP(?=GOLD)/gi,'BNP ')
+  .replace(/GOLD(?=Mini)/gi,'GOLD ')
+  .replace(/Mini(?=Long|Short)/gi,'Mini ')
+  .replace(/(Long|Short)(?=SL)/gi,'$1 ')
   .replace(/Knock-Out(?=Warrant)/g,'Knock-Out ')
   .replace(/Warrant(?=Open|Call|Put)/g,'Warrant ')
   .replace(/Future(?=Faktor)/g,'Future ')
@@ -19,7 +23,7 @@ function normalizeLayout(text){
   .replace(/Mini(?=Call|Put)/g,'Mini ')
   .replace(/(Call|Put)(?=BAR)/g,'$1 ')
   .replace(/(Long|Short)(?=HB)/g,'$1 ')
-  .replace(/(\bB[vV]\s*)(1|10|100|1000)([0-3]\d\/[01]\d\/20\d{2})(?=\s*\|)/g,'$1$2 $3');
+  .replace(/((?<![A-Z])B[vV]\s*)(1|10|100|1000)([0-3]\d\/[01]\d\/20\d{2})(?=\s*\|)/g,'$1$2 $3');
 }
 function parse(images,at){
  const items=new Map();
