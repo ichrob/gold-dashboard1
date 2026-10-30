@@ -32,6 +32,11 @@ function analyzeInput(bundle,now,estimated,maxBarAgeMs=120000){
 // Paper-only hierarchy: original observation, independent original, bounded model.
 // Live/manual trade warnings continue to use analyze(), never this estimate.
 function analyzePaper(bundle,now=Date.now()){
+ const result=analyzePaperInput(bundle,now,false);
+ // Preserve an existing valid model. Retry only the missing bounded context.
+ return result.ready?result:analyzePaperInput(bundle,now,true);
+}
+function analyzePaperInput(bundle,now,alignSpot){
  const direct=analyze(bundle,now);
  if(direct.ready)return {...direct,dataMode:(bundle.spots.primary||bundle.spots.source||'').includes('XAUS')?'backup':'original',source:bundle.spots.source||bundle.spots.primary||'Gold-API',sourceAt:direct.at};
  const backup=bundle?.risk_spot_backup;
@@ -48,7 +53,12 @@ function analyzePaper(bundle,now=Date.now()){
  if(backup?.observed===true&&backup.instrument==='XAU/USD'&&backup.source==='XAUS · XAU/USD Spot')
   candidates.push({spots:{xaus:backup.price,spot_price_as_of:backup.at},source:backup.source});
  for(const candidate of candidates){
-  const latest=Array.isArray(raw)?raw.filter(b=>Number.isFinite(b.openTime)&&b.openTime+60000<=now).at(-1):null;
+  // Match the structure to this observed spot, just as analyzeInput does.
+  // A later completed bar must not suppress the earlier bounded context.
+  const newest=Array.isArray(raw)?raw.filter(b=>Number.isFinite(b.openTime)&&b.openTime+60000<=now).at(-1):null;
+  if(newest?.isOpen===true||newest?.providerIsOpen===true)continue;
+  const cutoff=alignSpot?Math.min(now,Date.parse(candidate.spots.spot_price_as_of)):now;
+  const latest=Array.isArray(raw)?raw.filter(b=>Number.isFinite(b.openTime)&&b.openTime+60000<=cutoff).at(-1):null;
   if(!latest||latest.isOpen===true||latest.providerIsOpen===true||now-latest.openTime<=120000||
      Date.parse(candidate.spots.spot_price_as_of)<latest.openTime+60000)continue;
   const projected=analyzeInput({...bundle,spots:candidate.spots},now,true,180000);

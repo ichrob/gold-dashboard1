@@ -31,3 +31,24 @@ for(const dir of ['LONG','SHORT']){
  }
 }
 console.log('Delayed structure: LONG/SHORT, backup, immutable source clocks, expiry and invalid data gates passed.');
+
+// At a minute boundary, the newest completed bar can be newer than the spot.
+// A genuine backup must still use its own preceding complete structure.
+for(const dir of ['LONG','SHORT']){
+ const clock=Date.parse('2026-10-30T12:00:10Z'),spotAt=clock-20000;
+ const bars=Array.from({length:23},(_,i)=>({openTime:Date.parse('2026-10-30T11:37:00Z')+i*60000,
+  instrument:'XAU/USD',source:'observed',open:4000,high:4001,low:3999,close:4000}));
+ const bundle={spots:{spot_error:'primary unavailable'},risk_spot_backup:{observed:true,
+  instrument:'XAU/USD',source:'XAUS · XAU/USD Spot',price:dir==='LONG'?4001.2:3998.8,
+  at:new Date(spotAt).toISOString()},history:{bars_by_tf:{'1m':bars}}};
+ const before=JSON.stringify(bundle),signal=r.analyzePaper(bundle,clock);
+ assert.equal(signal.ready,true);assert.equal(signal.direction,dir);
+ assert.equal(signal.dataMode,'estimate');assert.equal(signal.at,spotAt);
+ assert.equal(signal.barAt,Date.parse('2026-10-30T11:58:00Z'));
+ assert.equal(signal.estimateMethod,'spot-lagged-minute-context-v1');
+ assert.equal(JSON.stringify(bundle),before);
+ // Neither a future bar value nor a later close can influence this context.
+ bars.at(-1).close=4000.9;
+ assert.deepEqual(r.analyzePaper(bundle,clock),signal);
+ assert.equal(r.analyzePaper(bundle,clock+60001).ready,false);
+}

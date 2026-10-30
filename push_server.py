@@ -928,6 +928,15 @@ class Handler(BaseHTTPRequestHandler):
                     return __import__('storage_budget').report(conn)
                 result=read_db_report('storage-health',storage_health_report)
                 send_json(self,200,result);return
+            if path == "/research-status":
+                supplied = self.headers.get("X-Bob-Push-Token", "")
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {"error":"Unauthorized"});return
+                # Admission precedes connection acquisition; no market fetch,
+                # worker execution, history scan, repair or archive initialization.
+                result = read_db_report("research-status", __import__('research_readout').bounded_read)
+                send_json(self, 200, result)
+                return
             if path in ("/diagnostics", "/simulation-status", "/comparison-status"):
                 supplied = self.headers.get("X-Bob-Push-Token", "")
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):

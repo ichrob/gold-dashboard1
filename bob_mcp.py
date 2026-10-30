@@ -136,7 +136,7 @@ def error(request_id, code, message):
             "error": {"code": code, "message": message}}
 
 
-def handle(request, report_reader, diagnostics_reader=None, products=True, signal_history_reader=None, push_history_reader=None, remote_push=False, push_reader=None, push_sender=None, remote_phone=False, phone_handler=None):
+def handle(request, report_reader, diagnostics_reader=None, products=True, signal_history_reader=None, push_history_reader=None, remote_push=False, push_reader=None, push_sender=None, remote_phone=False, phone_handler=None, research_reader=None):
     """Return (HTTP status, JSON-RPC result). Only tool calls read the database."""
     if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
         return 400, error(None, -32600, "Invalid Request")
@@ -213,7 +213,8 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
         # this changes no evidence or safety rule and prevents concurrent copies
         # from exhausting the scanner's fixed memory budget.
         with _DIAGNOSTICS_LOCK:
-            full_report = diagnostics_reader()
+            reader = research_reader if args.get('focus') == 'research' and research_reader is not None else diagnostics_reader
+            full_report = reader()
         data = bounded_report(focused_report(
             full_report, args.get("focus","overview")), _MAX_RESULT_BYTES)
     else:
