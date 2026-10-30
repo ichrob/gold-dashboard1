@@ -14,6 +14,32 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(budget.state(700_000_000),'action-required')
         self.assertLess(budget.ACTION_BYTES,budget.ALLOCATION_BYTES)
 
+    def test_archive_status_uses_sanitized_persisted_result(self):
+        class Conn:
+            def execute(self, sql):
+                return self
+            def fetchone(self):
+                return ('verified','2026-10-30 17:20:00+00:00',{
+                    'status':'verified','evidenceDeleted':False,
+                    'receipt':{'restoreVerified':True,'remoteDownloadVerified':True,
+                               'deletionPermitted':False,'driveFileId':'private-file-id'}})
+        with patch('archive_worker.status',return_value={'status':'already-attempted-today'}):
+            result=budget.archive_status(Conn())
+        self.assertEqual(result['status'],'already-attempted-today')
+        self.assertEqual(result['latestPersistedAttempt']['status'],'verified')
+        self.assertTrue(result['latestPersistedAttempt']['restoreVerified'])
+        self.assertTrue(result['latestPersistedAttempt']['remoteDownloadVerified'])
+        self.assertFalse(result['latestPersistedAttempt']['deletionPermitted'])
+        self.assertNotIn('private-file-id',str(result))
+
+    def test_archive_status_falls_back_when_ledger_is_unavailable(self):
+        class Conn:
+            def execute(self, sql):
+                raise RuntimeError('old schema')
+        with patch('archive_worker.status',return_value={'status':'disabled'}) as status:
+            self.assertEqual(budget.archive_status(Conn()),{'status':'disabled'})
+            status.assert_called_once_with()
+
     def test_storage_endpoint_requires_existing_service_auth(self):
         import push_server as p
         h=object.__new__(p.Handler);h.path='/storage-health';h.headers={};h.wfile=io.BytesIO()

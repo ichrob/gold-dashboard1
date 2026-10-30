@@ -55,6 +55,28 @@ def maybe_observe(conn,now=None):
         _LOCK.release()
 
 
+def archive_status(conn):
+    """Combine process state with the latest persisted, sanitized attempt result."""
+    process = __import__('archive_worker').status()
+    try:
+        row = conn.execute('''SELECT status,updated_at,receipt FROM bob_archive_attempts
+            ORDER BY updated_at DESC LIMIT 1''').fetchone()
+    except Exception:
+        row = None
+    if not row:
+        return process
+    stored = row[2] if isinstance(row[2], dict) else {}
+    proof = stored.get('receipt') if isinstance(stored.get('receipt'), dict) else {}
+    return {**process, 'latestPersistedAttempt': {
+        'status': row[0], 'updatedAt': str(row[1]),
+        'phase': stored.get('phase'), 'errorType': stored.get('errorType'),
+        'receiptPersistenceErrorType': stored.get('receiptPersistenceErrorType'),
+        'restoreVerified': proof.get('restoreVerified') is True,
+        'remoteDownloadVerified': proof.get('remoteDownloadVerified') is True,
+        'deletionPermitted': proof.get('deletionPermitted'),
+        'evidenceDeleted': stored.get('evidenceDeleted') is True}}
+
+
 def report(conn,now=None):
     now=time.time() if now is None else now
     size=conn.execute('SELECT pg_database_size(current_database())').fetchone()[0]
@@ -106,7 +128,7 @@ def report(conn,now=None):
         largestTableDeltas=relation_deltas[:12],
         largestTables=[dict(table=name,bytes=n,estimatedRows=live,estimatedDeadRows=dead,
             lastAutovacuum=str(vac) if vac else None) for name,n,live,dead,vac in tables],
-        archiveWorker=__import__('archive_worker').status(),
+        archiveWorker=archive_status(conn),
         evidenceDeleted=False,automaticPaidScaling=False,
         note='No test data or storage formats are changed. '
              'Dead-row estimates do not measure reclaimable disk bytes. Capacity forecasts are estimates.')
