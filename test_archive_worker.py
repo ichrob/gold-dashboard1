@@ -18,12 +18,18 @@ class DB:
 class WorkerTests(unittest.TestCase):
     def env(self):
         return patch.dict(os.environ, {'BOB_ARCHIVE_ENABLED':'1',
-            'DATABASE_URL':'test-only', 'BOB_ARCHIVE_DRIVE_FOLDER_ID':'test-only',
+            'DATABASE_URL':'test-only', 'BOB_ARCHIVE_RESTORE_DATABASE_URL':'restore-only', 'BOB_ARCHIVE_DRIVE_FOLDER_ID':'test-only',
             'BOB_ARCHIVE_GOOGLE_AUTHORIZED_USER_JSON':'test-only'})
 
     def test_disabled_does_not_access_database(self):
         with patch.dict(os.environ, {'BOB_ARCHIVE_ENABLED':'0'}):
             db=DB(); worker.cycle(db)
+            self.assertFalse(db.calls)
+
+    def test_missing_restore_server_blocks_before_claim(self):
+        with self.env(), patch.dict(os.environ, {'BOB_ARCHIVE_RESTORE_DATABASE_URL':''}):
+            db=DB()
+            self.assertEqual(worker.cycle(db)['status'],'blocked')
             self.assertFalse(db.calls)
 
     def test_failure_is_redacted_and_not_repeated(self):

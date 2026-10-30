@@ -76,6 +76,31 @@ class GoogleDrive:
                     raise ValueError('Downloaded archive exceeds bounded size')
 
 
+def verify_restore_isolation(source_dsn, restore_dsn):
+    """Fail before export if configuration aliases the production server.
+
+    Both probes are read-only. No credentials, hostnames or network addresses are
+    returned. A separate database name alone does not isolate disk or compute.
+    """
+    import psycopg
+    from psycopg.conninfo import conninfo_to_dict
+    source = conninfo_to_dict(source_dsn)
+    target = conninfo_to_dict(restore_dsn)
+    if not source.get('host') or not target.get('host') or source['host'] == target['host']:
+        raise ValueError('Separate restore server required')
+    identities = []
+    for dsn in (source_dsn, restore_dsn):
+        with psycopg.connect(dsn, connect_timeout=10, options='-c statement_timeout=10000') as conn:
+            conn.execute('SET TRANSACTION READ ONLY')
+            row = conn.execute('SELECT inet_server_addr()::text, inet_server_port(), current_database(), pg_is_in_recovery()').fetchone()
+            if not row or not row[0] or row[3]:
+                raise ValueError('Writable separate restore server not verified')
+            identities.append(row)
+    if identities[0][0] == identities[1][0] or identities[0][2] == identities[1][2]:
+        raise ValueError('Separate restore server and database required')
+    return 'separate-database-instance'
+
+
 def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=False):
     """Retain local evidence on failure; receipt exists only after remote restore.
 
@@ -88,6 +113,7 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
     now = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     path = work / f'bob-evidence-{now}.zip'
     quota = drive.preflight(archive.MAX_BYTES + 2*1024*1024)
+    isolation = verify_restore_isolation(source_dsn, restore_dsn)
     result = archive.export(source_dsn, path)
     checksum = result['sha256']
     # Check locally before consuming Drive storage, then restore again from Drive.
@@ -96,7 +122,7 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
     downloaded = work / 'downloaded.zip'
     drive.download(file_id, downloaded)
     receipt = archive.restore_check(downloaded, checksum, restore_dsn, temporary_session=temporary_session)
-    receipt.update(driveFileId=file_id, driveFolderId=getattr(drive, 'folder_id', FOLDER_ID),
+    receipt.update(restoreIsolation=isolation, driveFileId=file_id, driveFolderId=getattr(drive, 'folder_id', FOLDER_ID),
         remoteDownloadVerified=True, driveQuotaBefore=quota,
         databaseBytes=result['databaseBytes'],
         storageState=('action-required' if result['databaseBytes'] >= 700_000_000 else

@@ -1,43 +1,22 @@
 # Private evidence archive
 
-Implementation includes an internal worker and a zero-additional-service restore
-mode. Production activation is blocked until Bob-specific Google OAuth access is
-securely provisioned. A ChatGPT connector login does not supply runtime credentials.
+Implementation includes an internal worker. Production activation requires
+Bob-specific Google OAuth access and a separately provisioned restore server.
+The automatic worker never restores into the production database instance. A ChatGPT connector login does not supply runtime credentials.
 No production archive is implied by successful synthetic tests.
 
-## Existing services, private access
+## Existing worker, separate restore server
 
-`archive_worker` runs inside the EXISTING push service using its internal
-DATABASE_URL. No new Render service, paid database, external allowlist opening or
-cron job is needed. It is disabled by default. On activation it waits five minutes
-and claims at most one attempt per UTC day via `bob_archive_runs`. Failed or
-interrupted attempts cannot be automatically replayed on the same day. Small
-operational receipts are separate from original evidence. `/storage-health`
-exposes readiness/current state without secrets.
+`archive_worker` runs inside the existing push service. The source DATABASE_URL
+is used only for read-only snapshot export. BOB_ARCHIVE_RESTORE_DATABASE_URL must
+point to a different server and a differently named database. Before export,
+read-only probes reject equal configured hosts or equal observed server addresses,
+including aliases. No credentials or addresses appear in the receipt.
 
-## Export and restore proof
-
-`evidence_archive.py` exports every row/column of its reviewed evidence allowlist,
-including all known paper portfolios, in one REPEATABLE READ, READ ONLY snapshot.
-PostgreSQL COPY text retains exact numeric, bytea, timestamp, Unicode and JSON
-values. The manifest lists included, absent and excluded tables. Review this
-coverage before claiming completeness. OAuth, credentials, passkeys, subscriptions
-and sessions are excluded. This is an evidence archive, not a full database
-application recovery image: constraints/defaults/indexes/privileges/sequences are
-not recreated.
-
-SHA-256 covers the whole ZIP and each table stream; the manifest records ordered
-columns/types, row counts, bytes, database size, timestamp and build. The verifier
-accepts only validated built-in PostgreSQL types and never executes archived code.
-Stable text ordering allows bytewise comparison after PostgreSQL restoration.
-
-The internal worker restores into session-local TEMP tables on the existing server.
-It restores, verifies and drops ONE scratch table at a time, always in pg_temp.
-This isolates names/data from original tables; it still shares CPU and disk.
-Query/lock deadlines, a single daily claim, 512 MiB export limit and scratch-space
-checks bound work. Observe real resource impact before relying on ongoing operation.
-The standalone verifier rejects same-database restore unless the explicit
-`temporary_session=True` option is supplied. PostgreSQL major versions must match.
+Restoration still creates only session temporary tables, one table at a time,
+and rolls back afterwards. These use the separate test server's disk and compute.
+PostgreSQL major versions must match. A missing restore connection blocks the
+worker before claiming an archive day. No automatic paid provisioning exists.
 
 `drive_evidence_archive.py` verifies that the configured folder is private/writable
 and that Drive has known space plus a 256 MiB reserve. It exports, restores locally,
@@ -61,13 +40,21 @@ the existing push service through secure environment settings:
 - BOB_ARCHIVE_GOOGLE_AUTHORIZED_USER_JSON: Google authorized-user JSON including
   refresh token from a separately authorized OAuth client; never put it in chat,
   logs or GitHub. Prefer access scoped to the selected files/folder.
-- BOB_ARCHIVE_ENABLED=1 only after valid credentials are configured.
+- BOB_ARCHIVE_RESTORE_DATABASE_URL: secure internal URL of the separate test server.
+- BOB_ARCHIVE_ENABLED=1 only after target isolation, capacity and credentials are verified.
 - BOB_ARCHIVE_WORK_DIRECTORY optionally selects scratch storage (default /tmp/bob-archive).
 
-No extra restore database URL is required for internal mode. The standalone CLI
-can still use a distinct BOB_ARCHIVE_RESTORE_DATABASE_URL. The worker is not enabled
-by this commit. Google client registration and user consent must happen via
-Google's supported setup; ChatGPT connector tokens must never be extracted.
+For encrypted owner consent, set BOB_ARCHIVE_CREDENTIAL_SOURCE=encrypted-store
+and BOB_ARCHIVE_PARENT_FOLDER_ID instead of supplying a separate Google JSON.
+BOB_ARCHIVE_PREPARE=1 with BOB_ARCHIVE_ENABLED=0 prepares one empty private
+app-owned folder using a preallocated persisted ID. Move it through the owner's
+Drive connection into the configured private archive parent; Bob verifies the
+exact parent and private writable status. Preparation does not export data.
+
+A free Render Postgres instance can support an initial isolated test, but expires
+after 30 days. It is not a permanent free restore service. An unavailable test
+server fails closed; never silently fall back to production or upgrade the plan.
+Google OAuth in Testing also requires review before claiming durable authorization.
 
 The existing 30-minute database samples and 500/700 MB caution/action thresholds
 continue. Logical database size does not mean physical free disk space. Preserving
@@ -100,10 +87,8 @@ credentials are redacted. Upload and start require exact Origin and CSRF checks.
 No new service, paid resource, email, source deletion or archive activation occurs.
 If login expires, log into Bob and reopen `/archive/connect` to restart consent.
 
-This page is the credential bootstrap, **not archive activation**. A successful
-Google callback stores credentials but does not expose them to the current
-worker. The existing private folder still needs an explicit per-file grant (for
-example Google Picker); a folder ID alone does not grant `drive.file` access.
-Connecting that folder, worker credential loading and production export/restore
-acceptance remain separate blocked steps. An OAuth app in Testing also needs its
-publication settings reviewed before describing the refresh permission as durable.
+This page is the credential bootstrap, not archive activation. The encrypted-store
+runtime bridge loads the credentials internally. A folder ID alone does not grant
+`drive.file` access; the preparation flow creates an app-owned folder and verifies
+its placement. Real production export, remote download and isolated restore must
+still pass before reporting a verified archive. Synthetic tests do not prove it.
