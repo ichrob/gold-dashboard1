@@ -101,26 +101,34 @@ def verify_restore_isolation(source_dsn, restore_dsn):
     return 'separate-database-instance'
 
 
-def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=False):
+def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=False, progress=None):
     """Retain local evidence on failure; receipt exists only after remote restore.
 
     No schedule is installed by this function. Use an existing authorized runner
     only after real export, download and isolated restore have passed.
     """
+    progress = progress or (lambda phase: None)
+    progress('drive-preflight')
     root = Path(work_directory)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     work = Path(tempfile.mkdtemp(prefix='bob-archive-', dir=root))
     now = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     path = work / f'bob-evidence-{now}.zip'
     quota = drive.preflight(archive.MAX_BYTES + 2*1024*1024)
+    progress('restore-isolation-check')
     isolation = verify_restore_isolation(source_dsn, restore_dsn)
+    progress('export')
     result = archive.export(source_dsn, path)
     checksum = result['sha256']
     # Check locally before consuming Drive storage, then restore again from Drive.
+    progress('local-restore')
     archive.restore_check(path, checksum, restore_dsn, temporary_session=temporary_session)
+    progress('upload')
     file_id = drive.upload(path, checksum)
     downloaded = work / 'downloaded.zip'
+    progress('download')
     drive.download(file_id, downloaded)
+    progress('remote-restore')
     receipt = archive.restore_check(downloaded, checksum, restore_dsn, temporary_session=temporary_session)
     receipt.update(restoreIsolation=isolation, driveFileId=file_id, driveFolderId=getattr(drive, 'folder_id', FOLDER_ID),
         remoteDownloadVerified=True, driveQuotaBefore=quota,
@@ -130,6 +138,7 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
     receipt_path = work / f'bob-evidence-{now}-verified.json'
     receipt_path.write_text(json.dumps(receipt, sort_keys=True, indent=2))
     os.chmod(receipt_path, 0o600)
+    progress('receipt-upload')
     receipt_id = drive.upload(receipt_path, archive.digest(receipt_path))
     # Only redundant scratch copies after verified remote restore and receipt.
     # Database originals and the durable Drive archive remain untouched.

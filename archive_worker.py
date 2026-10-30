@@ -27,7 +27,8 @@ def status():
 
 
 def init(conn):
-    conn.execute('''CREATE TABLE IF NOT EXISTS bob_archive_runs (
+    # Keep v1 failures/receipts intact; v2 permits one new-format attempt per day.
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_archive_runs_v2 (
         day DATE PRIMARY KEY, status TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         receipt JSONB NOT NULL DEFAULT '{}'::jsonb)''')
 
@@ -45,7 +46,7 @@ def cycle(db, runner=None):
     try:
         day = datetime.now(timezone.utc).date()
         with db() as conn:
-            claimed = conn.execute('''INSERT INTO bob_archive_runs(day,status)
+            claimed = conn.execute('''INSERT INTO bob_archive_runs_v2(day,status)
                 VALUES(%s,'running') ON CONFLICT DO NOTHING RETURNING day''', (day,)).fetchone()
         if not claimed:
             _STATE = dict(status='already-attempted-today', evidenceDeleted=False)
@@ -62,7 +63,7 @@ def cycle(db, runner=None):
                     else:
                         drive = GoogleDrive()
                     return run(dsn, os.environ['BOB_ARCHIVE_RESTORE_DATABASE_URL'], os.environ.get('BOB_ARCHIVE_WORK_DIRECTORY', '/tmp/bob-archive'),
-                               drive)
+                               drive, progress=lambda phase: _STATE.update(status='running', phase=phase))
             result = runner()
             if not (result.get('restoreVerified') is True and
                     result.get('remoteDownloadVerified') is True and
@@ -71,9 +72,9 @@ def cycle(db, runner=None):
             _STATE = dict(status='verified', receipt=result, evidenceDeleted=False)
         except Exception as error:
             # Never persist/print OAuth responses, DSNs or signed upload URLs.
-            _STATE = dict(status='failed', errorType=type(error).__name__, evidenceDeleted=False)
+            _STATE = dict(status='failed', errorType=type(error).__name__, phase=_STATE.get('phase'), evidenceDeleted=False)
         with db() as conn:
-            conn.execute('''UPDATE bob_archive_runs SET status=%s,updated_at=now(),receipt=%s::jsonb
+            conn.execute('''UPDATE bob_archive_runs_v2 SET status=%s,updated_at=now(),receipt=%s::jsonb
                 WHERE day=%s''', (_STATE['status'], json.dumps(_STATE), day))
         return _STATE
     finally:
