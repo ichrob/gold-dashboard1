@@ -131,6 +131,11 @@ internal object MorningReadPolicy {
         return navigate(nodes,target,false,lookupSymbol)
     }
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })
+    /** Only restore the header of a validated list; never act on a synthetic input. */
+    fun detailSearchRestore(nodes: List<Node>, importedListRun: Boolean): Action? {
+        if(!importedListRun || nodes.any { it.editable }) return null
+        return captureGoldList(nodes,true).takeIf { it.kind==Kind.COLLECT }
+    }
     /** Continue only an already captured Top Results list. The search header may
      * scroll out of the accessibility tree. A synthetic context node is used only
      * for policy validation; no action can target it or any product row. */

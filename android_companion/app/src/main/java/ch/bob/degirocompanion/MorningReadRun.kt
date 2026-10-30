@@ -20,6 +20,7 @@ internal object MorningReadRun {
     private var started = 0L
     val target: String get() = data?.getJSONArray("isins")?.optString(index).orEmpty()
     val count: Int get() = data?.getJSONArray("isins")?.length() ?: 0
+    fun importedListRun() = running && data?.optString("listBatchId").orEmpty().matches(Regex("[a-f0-9]{32}"))
     fun summary(): String = if (running) "Produkt ${index+1} von $count · $target · Versuch $attempt/2" else "Listenlauf nicht aktiv."
     fun expired(now: Long = SystemClock.elapsedRealtime()) = now < started || now-started >= 15*60*1000
     private fun entries(c: Context): Map<String,String> = prefs(c).all.filterKeys {
