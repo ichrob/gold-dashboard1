@@ -61,6 +61,28 @@ class QuoteLayoutTest {
             "3942 BP 3901.07 LV 27.07", "3942 BP 3901.07 Bv 10 LV 27.12345", "3942 BP 3901.07 Bv 10 LV 27e3")) assertTrue(parse(bad).isEmpty())
     }
 
+    @Test fun datedKnockOutTitleAndWrappedLeverageAreReadLiterally() {
+        val header = listOf(
+            QuoteLayout.Line("SG Gold Knock-Out Warrant Put BAR",85,270,680,310),
+            QuoteLayout.Line("4300 BP 4300 Bv 10 18/03/2027 LV",85,325,680,365),
+            QuoteLayout.Line("8.30",85,380,200,420))
+        val fields = QuoteLayout.productParameters(header)
+        assertEquals("4300",fields["KO-Schwelle"])
+        assertEquals("4300",fields["Basispreis"])
+        assertEquals("10",fields["Bv"])
+        assertEquals("8,30",fields["Hebel"])
+        assertTrue(QuoteLayout.productParameters(header.map { it.copy(text=it.text.replace("8.30","-8.30")) }).isEmpty())
+    }
+    @Test fun bnpTermsDoNotInventLeverageOrConvertRatioNotation() {
+        val fields=QuoteLayout.productParameters(listOf(
+            QuoteLayout.Line("BNP GOLD Mini Long SL 3700.1234 STR 3600.1234 R",0,0,680,30),
+            QuoteLayout.Line("10",0,50,100,80)))
+        assertEquals("3700,1234",fields["KO-Schwelle"])
+        assertEquals("3600,1234",fields["Basispreis"])
+        assertNull(fields["Hebel"])
+        assertNull(fields["Bv"])
+    }
+
     @Test fun readsLabelsAndValuesInSeparateVisualColumns() {
         // Synthetic ML Kit line geometry based on the DEGIRO screenshot layout.
         val lines = mutableListOf<QuoteLayout.Line>()
