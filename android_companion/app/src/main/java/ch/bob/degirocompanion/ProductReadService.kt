@@ -943,7 +943,15 @@ class ProductReadService : AccessibilityService() {
                 if(!performGlobalAction(GLOBAL_ACTION_BACK)) { lastNavigationIssue="KEYBOARD_HIDE_FAILED";ProductReadRequest.cancel() }
                 return true
             }
-            if(!gold && !resultTapAttempted && MorningReadPolicy.resultTapIndex(descriptions,MorningReadRun.target)!=null) {
+            val resultTarget=if(!gold) MorningReadPolicy.resultTapIndex(descriptions,MorningReadRun.target) else null
+            if(!gold && action.code=="RESULT_MISSING" && resultTarget==null) {
+                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.RESULT_TARGET_MISSING)
+                if(descriptions.any { !it.editable && it.row.contains(MorningReadRun.target) })
+                    ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.RESULT_IDENTITY_PRESENT)
+                if(descriptions.any { !it.editable && Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(it.text) })
+                    ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.RESULT_NAME_PRESENT)
+            }
+            if(!gold && !resultTapAttempted && resultTarget!=null) {
                 resultTapAttempted=true
                 val tapped=tapRecognizedSearch(root.windowId,productResult=true)
                 val code=if(tapped) "RESULT_TAP_SENT" else "RESULT_TAP_REJECTED"

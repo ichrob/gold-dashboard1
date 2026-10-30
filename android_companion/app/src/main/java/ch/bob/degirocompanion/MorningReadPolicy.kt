@@ -137,17 +137,32 @@ internal object MorningReadPolicy {
         val input=nodes.filter { it.editable }.singleOrNull() ?: return null
         if(input.text!=target || !isSearchInput(input.id,input.description,input.hint)) return null
         val controls=Regex("(?iu)\\b(k|v|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b")
-        val candidates=nodes.indices.filter { i ->
+        fun productName(value:String)=Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(value) &&
+            Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future)\\b").containsMatchIn(value)
+        fun safe(n:Node)=n.enabled && !n.editable && !n.containsInput && !n.password && !n.sensitive
+        val groups=nodes.indices.filter { i ->
             val n=nodes[i]
-            n.enabled && !n.editable && !n.containsInput && !n.password && !n.sensitive &&
-                ids.findAll(n.text.uppercase()).map { it.value }.toSet()==setOf(target) &&
+            safe(n) && n.row.length<=800 &&
                 ids.findAll(n.row.uppercase()).map { it.value }.toSet()==setOf(target) &&
-                Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.text) &&
-                Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?future)\\b").containsMatchIn(n.text) &&
-                !controls.containsMatchIn(n.row)
+                productName(n.row) && !controls.containsMatchIn(n.row)
         }
-        return innermost(nodes,candidates).singleOrNull()
+        val group=innermost(nodes,groups).singleOrNull() ?: return null
+        fun inGroup(i:Int):Boolean {
+            var at=i;var steps=0
+            while(at in nodes.indices && steps++<nodes.size) {
+                if(at==group)return true
+                at=nodes[at].parent
+            }
+            return false
+        }
+        // WebView can expose the highlighted ISIN as a sibling span. Validate the
+        // isolated group, then tap its actual product-name label, never its whole row.
+        return innermost(nodes,nodes.indices.filter { i ->
+            val n=nodes[i]
+            inGroup(i) && safe(n) && productName(n.text) && !controls.containsMatchIn(n.row)
+        }).singleOrNull()
     }
+
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })
     /** A real search control takes precedence over another backward scroll. */
     fun detailSearchRestore(nodes: List<Node>, importedListRun: Boolean): Action? {

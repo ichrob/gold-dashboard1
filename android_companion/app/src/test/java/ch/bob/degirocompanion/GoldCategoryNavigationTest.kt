@@ -94,6 +94,23 @@ class GoldCategoryNavigationTest {
             assertNull(MorningReadPolicy.resultTapIndex(nodes+extra,target))
         assertNull(MorningReadPolicy.resultTapIndex(nodes,"invalid"))
     }
+    @Test fun splitHighlightedIsinUsesOnlyItsOwnProductTitleGroup() {
+        val target="DE000FD0S0G4"
+        val title="SG Gold Turbo BEST Open-End Put BAR 4181.34"
+        val nodes=listOf(MorningReadPolicy.Node(target,id="search-input",editable=true),
+            MorningReadPolicy.Node("Order platzieren",clickable=true),
+            MorningReadPolicy.Node("",row="$title\n$target"),
+            MorningReadPolicy.Node(title,parent=2),
+            MorningReadPolicy.Node(target,parent=2),
+            MorningReadPolicy.Node("K",clickable=true),MorningReadPolicy.Node("V",clickable=true))
+        assertEquals(3,MorningReadPolicy.resultTapIndex(nodes,target))
+        val unsafe=nodes.toMutableList().apply { this[2]=this[2].copy(row=this[2].row+"\nK\nV") }
+        assertNull(MorningReadPolicy.resultTapIndex(unsafe,target))
+        val unrelated=nodes.toMutableList().apply { this[3]=this[3].copy(parent=-1) }
+        assertNull(MorningReadPolicy.resultTapIndex(unrelated,target))
+        val mixed=nodes.toMutableList().apply { this[2]=this[2].copy(row=this[2].row+"\nDE000SQ02JQ6") }
+        assertNull(MorningReadPolicy.resultTapIndex(mixed,target))
+    }
     private val input=MorningReadPolicy.Node("Gold",id="search-input",editable=true,focused=false)
     private val tab=MorningReadPolicy.Node("Hebelprodukte",clickable=true)
     @Test fun selectsVisibleCategoryWithoutRefocusingQuery() {
