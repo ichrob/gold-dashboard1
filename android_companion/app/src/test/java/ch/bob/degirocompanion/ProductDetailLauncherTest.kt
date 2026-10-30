@@ -19,6 +19,7 @@ class ProductDetailLauncherTest {
         assertNull(MorningReadPolicy.resultTapIndex(header,target))
         assertNull(MorningReadPolicy.detailLauncherIndex(header,"DE000FE2JJ20"))
         assertNull(MorningReadPolicy.detailLauncherIndex(header,"invalid"))
+        assertNull(MorningReadPolicy.detailLauncherIndex(listOf(header[0],header[1],launcher),target))
         assertNull(MorningReadPolicy.detailLauncherIndex(header.filter { it.text!="Übersicht" },target))
         assertNull(MorningReadPolicy.detailLauncherIndex(header+MorningReadPolicy.Node("DE000FE2JJ20"),target))
     }

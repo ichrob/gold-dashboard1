@@ -129,12 +129,17 @@ internal object MorningReadPolicy {
         val seen=cleaned.flatMap { n -> values(n).flatMap { ids.findAll(it.uppercase()).map { m -> m.value }.toList() } }.toSet()
         val section=cleaned.any { n -> values(n).any { Regex("(?iu)^(übersicht|overview|kursdaten|produktdetails)$").matches(normalized(it)) } }
         if(!section) return null
-        if(seen==setOf(target)) return index
+        val productTitle=cleaned.any { n ->
+            Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.row) &&
+                Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(n.row) &&
+                ids.findAll(n.row.uppercase()).map { it.value }.toSet().let { it.isEmpty() || it==setOf(target) }
+        }
         // A missing header is allowed only during an already anchored same-window
         // scroll transaction, with explicit quote-section labels still present.
         val quoteSection=cleaned.any { normalized(it.text).equals("Kursdaten",true) }
         fun label(name:String)=cleaned.any { Regex("(?iu)^$name(?:\\s|[:：]|$)").containsMatchIn(normalized(it.text)) }
-        return index.takeIf { anchored && seen.isEmpty() && quoteSection && label("Geld") && label("Brief") }
+        val quotes=quoteSection && label("Geld") && label("Brief")
+        return index.takeIf { (seen==setOf(target) && (productTitle || quotes)) || (anchored && seen.isEmpty() && quotes) }
     }
     fun detailReadLines(nodes: List<Node>, lines: List<QuoteLayout.Line>, target: String,
                         anchored: Boolean = false): List<QuoteLayout.Line> {
