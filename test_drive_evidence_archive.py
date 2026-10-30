@@ -15,6 +15,11 @@ class FakeDrive:
 
 
 class DriveSafety(unittest.TestCase):
+    def test_google_transport_preserves_resumable_308_response(self):
+        http = runner._archive_http()
+        self.assertNotIn(308, http.redirect_codes)
+        self.assertEqual(http.timeout, 30)
+
     def test_restore_download_is_mandatory_for_receipt(self):
         for corrupt in (False, True):
             drive=FakeDrive(corrupt)
