@@ -16,6 +16,16 @@ FOLDER_ID = os.environ.get('BOB_ARCHIVE_DRIVE_FOLDER_ID', '')
 RESERVE_BYTES = 256 * 1024 * 1024
 
 
+def _archive_http():
+    """Use Google's resumable-upload transport semantics with a bounded timeout."""
+    from googleapiclient.http import build_http
+    http = build_http()
+    # build_http excludes 308 from redirects so resumable upload progress reaches
+    # HttpRequest.next_chunk instead of raising httplib2.RedirectMissingLocation.
+    http.timeout = 30
+    return http
+
+
 class GoogleDrive:
     def __init__(self, info=None, folder_id=None, parent_id=None):
         from google.oauth2.credentials import Credentials
@@ -26,8 +36,7 @@ class GoogleDrive:
         self.parent_id = parent_id
         credentials = Credentials.from_authorized_user_info(info)
         from google_auth_httplib2 import AuthorizedHttp
-        from httplib2 import Http
-        self.api = build('drive', 'v3', http=AuthorizedHttp(credentials, http=Http(timeout=30)), cache_discovery=False)
+        self.api = build('drive', 'v3', http=AuthorizedHttp(credentials, http=_archive_http()), cache_discovery=False)
 
     def preflight(self, required_bytes):
         if not self.folder_id:
