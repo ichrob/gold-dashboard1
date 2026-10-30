@@ -27,6 +27,7 @@ PROGRESS = shape('sessions','trades','baselineTrades','candidateIndex','baseline
 REPORT = shape('version','mode','status','brokerConnected','orderExecutionEnabled',
     'affectsLiveSignals','historicalInstrument','barInterval','closedBars',
     'costBpsPerSide','horizonBars','approved','description','note',rangeMs=[None],strategies=[None],
+    foldSelection=shape('policy','available','selected','omittedEarlier','latestTestEndMs','sourceLastBarMs'),
     replay=shape('available','id'),
     folds=[shape('trainEndMs','validationStartMs','testStartMs','testEndMs',
                  'selectedOnValidation','learningFittedOnTrain','selectionUsesTest',
@@ -35,9 +36,11 @@ REPORT = shape('version','mode','status','brokerConnected','orderExecutionEnable
     validationSelected=AGGREGATE,samePeriodBaseline=AGGREGATE,
     evidence=shape('folds','selectedTrades','sufficientForResearch','statisticallyConfirmed',
                    'productNetValidated','liveForwardValidated'),
-    learningCycle=shape('version','status','reason','day','checkpoint','liveRuleChanged',
+    learningCycle=shape('version','status','reason','day','checkpoint','liveRuleChanged','newIndependentEvidence',
         'productNetValidated','automaticOrder',experiments=[None],completedStrategies=[None],
         rejectedStrategies=[None],prospective=PROGRESS,
+        previousProtocolArchive=shape('version','note',prospective=PROGRESS,
+            proposal=shape('strategy','state','proposedOn','frozenAtBar',protocol=PROTOCOL)),
         proposal=shape('strategy','state','proposedOn','frozenAtBar','mode','source','note',protocol=PROTOCOL),
         completed=[shape('strategy','proposedOn','finishedOn','result',prospective=PROGRESS)],
         selfReview=SELF_REVIEW))
@@ -52,3 +55,21 @@ def read(conn):
         scope='latest-stored-reference-research-not-product-execution',limit=1,
         emptyMeans='no-stored-observations',items=[project(row[0],shape(
             'day','calculatedAt','lastBarAt','status',report=REPORT)) for row in rows])
+
+
+def bounded_read(conn):
+    """Independent SELECT-only route; never load operational/paper history.
+
+    The connection is borrowed after report admission. Roll back any failed read
+    before returning a redacted missing result; do not expose exception strings.
+    Replay IDs are references only, not an export or execution verification.
+    """
+    try:
+        with conn.transaction():
+            conn.execute('SET TRANSACTION READ ONLY')
+            conn.execute("SET LOCAL statement_timeout='1500ms'")
+            return read(conn)
+    except Exception:
+        return dict(status='unavailable',readOnly=True,
+            reason='bounded-stored-research-read-failed',
+            scope='latest-stored-reference-research-not-product-execution')
