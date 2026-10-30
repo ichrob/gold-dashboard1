@@ -14,3 +14,11 @@ internal object PinProbePolicy {
         return if (fields.any { it.editable || it.password }) Result.INPUT_PRESENT else Result.NO_INPUT
     }
 }
+
+/** Last observation belongs to this run only; an app switch is not a new DEGIRO result. */
+internal class PinProbeHistory {
+    var last: PinProbePolicy.Result? = null
+        private set
+    fun clear() { last = null }
+    fun observe(value: PinProbePolicy.Result?) { if (value != null) last = value }
+}
