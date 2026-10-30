@@ -93,7 +93,7 @@ internal class ProductPageReader {
             // Carry header parameters only after an explicit symbol/ISIN row confirms the pairing.
             if (seekingSymbol != null) {
                 val pairing = ProductSymbolMemory.observe(lines, sensitive)
-                if (pairing?.symbol == seekingSymbol && pairing.isin == isin)
+                if (pairing != null && pairing.symbol == seekingSymbol && pairing.isin == isin)
                     anchorParameters = seekingParameters + anchorParameters
                 readBackward = true
                 seekingSymbol = null; seekingParameters = emptyMap()
