@@ -133,7 +133,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
         single_page = service[:service.index('private fun navigationTree(')]
         self.assertNotIn('ACTION_CLICK', single_page)
         self.assertNotIn('ACTION_SET_TEXT', single_page)
-        self.assertIn('MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun())', service)
+        self.assertIn('MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible())', service)
         self.assertIn('if (!MorningReadRun.reading && navigateMorning(root))', service)
         self.assertIn('ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(gold) "Gold" else MorningReadRun.target', service)
         self.assertIn('MorningReadPolicy.discoverGold(descriptions)', service)
