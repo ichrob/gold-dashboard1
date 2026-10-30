@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from android_observations import CODES, timestamp
 
 PIN_RESULTS = {'NO_WINDOW', 'NO_INPUT', 'INPUT_PRESENT', 'NUMERIC_PASSWORD_INPUT',
-               'SET_TEXT_OFFERED', 'SENSITIVE_INPUT', 'INCOMPLETE'}
+               'SET_TEXT_OFFERED', 'SENSITIVE_INPUT', 'INCOMPLETE',
+               'KEYPAD_VISIBLE', 'KEYPAD_CLICK_OFFERED', 'KEYPAD_AMBIGUOUS'}
 
 def validate_pin_probe(value, now):
     if not isinstance(value, dict) or set(value) != {'runId', 'endedAt', 'result', 'completed'}:
