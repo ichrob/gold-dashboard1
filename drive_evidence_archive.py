@@ -17,23 +17,29 @@ RESERVE_BYTES = 256 * 1024 * 1024
 
 
 class GoogleDrive:
-    def __init__(self):
+    def __init__(self, info=None, folder_id=None, parent_id=None):
         from google.oauth2.credentials import Credentials
         from googleapiclient.discovery import build
         # Supply through an approved secret store, never logs or repository.
-        info = json.loads(os.environ['BOB_ARCHIVE_GOOGLE_AUTHORIZED_USER_JSON'])
+        info = info if info is not None else json.loads(os.environ['BOB_ARCHIVE_GOOGLE_AUTHORIZED_USER_JSON'])
+        self.folder_id = FOLDER_ID if folder_id is None else folder_id
+        self.parent_id = parent_id
         credentials = Credentials.from_authorized_user_info(info)
-        self.api = build('drive', 'v3', credentials=credentials, cache_discovery=False)
+        from google_auth_httplib2 import AuthorizedHttp
+        from httplib2 import Http
+        self.api = build('drive', 'v3', http=AuthorizedHttp(credentials, http=Http(timeout=30)), cache_discovery=False)
 
     def preflight(self, required_bytes):
-        if not FOLDER_ID:
+        if not self.folder_id:
             raise ValueError('Private archive folder is not configured')
-        folder = self.api.files().get(fileId=FOLDER_ID,
-            fields='id,mimeType,trashed,shared,capabilities(canAddChildren)').execute()
+        folder = self.api.files().get(fileId=self.folder_id,
+            fields='id,mimeType,trashed,shared,parents,capabilities(canAddChildren)').execute()
         if (folder.get('trashed') or folder.get('shared') is not False or
             folder.get('mimeType') != 'application/vnd.google-apps.folder' or
             not folder.get('capabilities', {}).get('canAddChildren')):
             raise ValueError('Private writable archive folder not verified')
+        if self.parent_id is not None and (not self.parent_id or folder.get('parents') != [self.parent_id]):
+            raise ValueError('Archive parent placement not verified')
         quota = self.api.about().get(fields='storageQuota').execute()['storageQuota']
         if 'limit' not in quota or 'usage' not in quota:
             raise ValueError('Drive quota unknown; no upload permitted')
@@ -45,14 +51,14 @@ class GoogleDrive:
     def upload(self, path, checksum):
         from googleapiclient.http import MediaFileUpload
         self.preflight(Path(path).stat().st_size)
-        request = self.api.files().create(body=dict(name=Path(path).name, parents=[FOLDER_ID],
+        request = self.api.files().create(body=dict(name=Path(path).name, parents=[self.folder_id],
             appProperties={'bobArchiveSha256': checksum}),
             media_body=MediaFileUpload(str(path), chunksize=4*1024*1024, resumable=True),
             fields='id,size,parents,shared,sha256Checksum')
         result = None
         while result is None:
             _, result = request.next_chunk(num_retries=2)
-        if (result.get('shared') is not False or result.get('parents') != [FOLDER_ID] or
+        if (result.get('shared') is not False or result.get('parents') != [self.folder_id] or
             int(result.get('size', -1)) != Path(path).stat().st_size or
             result.get('sha256Checksum') != checksum):
             raise ValueError('Uploaded metadata mismatch; no verification receipt')
@@ -90,7 +96,7 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
     downloaded = work / 'downloaded.zip'
     drive.download(file_id, downloaded)
     receipt = archive.restore_check(downloaded, checksum, restore_dsn, temporary_session=temporary_session)
-    receipt.update(driveFileId=file_id, driveFolderId=FOLDER_ID,
+    receipt.update(driveFileId=file_id, driveFolderId=getattr(drive, 'folder_id', FOLDER_ID),
         remoteDownloadVerified=True, driveQuotaBefore=quota,
         databaseBytes=result['databaseBytes'],
         storageState=('action-required' if result['databaseBytes'] >= 700_000_000 else

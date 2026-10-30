@@ -15,7 +15,8 @@ _REQUIRED = ('DATABASE_URL', 'BOB_ARCHIVE_DRIVE_FOLDER_ID',
 def readiness():
     if os.environ.get('BOB_ARCHIVE_ENABLED') != '1':
         return dict(status='disabled', evidenceDeleted=False)
-    missing = [key for key in _REQUIRED if not os.environ.get(key)]
+    required = ('DATABASE_URL', 'BOB_ARCHIVE_PARENT_FOLDER_ID') if os.environ.get('BOB_ARCHIVE_CREDENTIAL_SOURCE') == 'encrypted-store' else _REQUIRED
+    missing = [key for key in required if not os.environ.get(key)]
     return dict(status='blocked' if missing else 'ready', missingConfiguration=missing,
                 evidenceDeleted=False, restoreIsolation='session-temporary-tables',
                 additionalPaidServices=False)
@@ -55,8 +56,13 @@ def cycle(db, runner=None):
                 def runner():
                     # Existing internal DATABASE_URL; restore only in pg_temp.
                     dsn = os.environ['DATABASE_URL']
+                    if os.environ.get('BOB_ARCHIVE_CREDENTIAL_SOURCE') == 'encrypted-store':
+                        from archive_runtime import drive_client
+                        drive = drive_client(db)
+                    else:
+                        drive = GoogleDrive()
                     return run(dsn, dsn, os.environ.get('BOB_ARCHIVE_WORK_DIRECTORY', '/tmp/bob-archive'),
-                               GoogleDrive(), temporary_session=True)
+                               drive, temporary_session=True)
             result = runner()
             if not (result.get('restoreVerified') is True and
                     result.get('remoteDownloadVerified') is True and
@@ -76,17 +82,24 @@ def cycle(db, runner=None):
 
 def start(db):
     global _THREAD, _STATE
-    if _THREAD or readiness()['status'] != 'ready':
+    if _THREAD or (readiness()['status'] != 'ready' and os.environ.get('BOB_ARCHIVE_PREPARE') != '1'):
         return
     _STATE = readiness()
     def loop():
         # Let push/simulation startup finish. Failures never stop live workers.
-        time.sleep(300)
+        time.sleep(60)
         while True:
             try:
-                cycle(db)
+                if os.environ.get('BOB_ARCHIVE_PREPARE') == '1':
+                    from archive_runtime import prepare
+                    prepared = prepare(db)
+                    _STATE.update(prepared)
+                    if readiness()['status'] == 'ready' and prepared['status'] == 'prepared':
+                        cycle(db)
+                else:
+                    cycle(db)
             except Exception as error:
                 _STATE.update(status='failed', errorType=type(error).__name__, evidenceDeleted=False)
-            time.sleep(3600)
+            time.sleep(60 if _STATE.get('status') == 'awaiting-folder-placement' else 3600)
     _THREAD = threading.Thread(target=loop, name='bob-private-archive', daemon=True)
     _THREAD.start()
