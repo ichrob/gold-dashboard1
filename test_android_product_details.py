@@ -45,6 +45,8 @@ class DetailsTest(unittest.TestCase):
                     return self
                 return super().execute(sql,params)
         db=Db();payload={'action':'list-details','token':'a'*64,'value':{'batchId':'b'*32,'run':run()}}
+        # The Android result-tap event used to reject the whole saved run with HTTP 400.
+        payload['value']['run']['events'].insert(0,dict(isin=ISIN,attempt=1,code='RESULT_TAP_SENT',at=datetime.fromtimestamp(NOW,timezone.utc).isoformat()))
         original=__import__('android_observations').prepare
         with patch('android_observations.prepare',side_effect=lambda r,f:original(r,f,datetime.fromtimestamp(NOW,timezone.utc))):
             answer=a.handle(db,payload,NOW)

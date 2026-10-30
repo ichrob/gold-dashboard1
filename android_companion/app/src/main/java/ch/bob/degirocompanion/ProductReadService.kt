@@ -363,7 +363,8 @@ class ProductReadService : AccessibilityService() {
                         Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n") { it.text.uppercase() })
                             .map { it.value }.toSet().singleOrNull().orEmpty()
                     val readable=MorningReadPolicy.detailReadLines(detailView,lines,target,
-                        MorningReadRun.running && MorningReadRun.reading && pageReader.sameWindow(root.windowId))
+                        MorningReadRun.running && MorningReadRun.reading && pageReader.sameWindow(root.windowId),
+                        symbolProbe=MorningReadRun.importedListRun())
                     if(readable !== lines) { lines.clear();lines.addAll(readable) }
                 } finally { detailNodes.forEach { it.recycle() } }
                 // Reject navigation during traversal; never combine two screens.
@@ -385,7 +386,8 @@ class ProductReadService : AccessibilityService() {
                         symbolMemory.getString(it, null)
                     }
                     // Mark only the exact header's ancestors, never unrelated chart containers.
-                    if (identityHint != null) for ((_, containers) in symbolContainers)
+                    if (identityHint != null || (MorningReadRun.importedListRun() && !sensitive &&
+                        ProductSymbolMemory.detailSymbol(lines.map { it.text })!=null)) for ((_, containers) in symbolContainers)
                         for (index in containers) capabilities[index] = capabilities[index].copy(evidence = capabilities[index].evidence or 1)
 
                     // Resolve the product-bearing subtree before considering direction.
@@ -417,7 +419,8 @@ class ProductReadService : AccessibilityService() {
                     val step = pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
                         forwardIndex != null, backwardIndex != null,
                         scrollAmbiguous = capabilities.size > 1 && surface == null,
-                        requireParameters = MorningReadRun.running, identityHint = identityHint)
+                        requireParameters = MorningReadRun.running, identityHint = identityHint,
+                        allowSymbolProbe = MorningReadRun.importedListRun())
                     ProductReadDiagnostics.page(step.cause)
                     when (step.move) {
                         ProductPageReader.Move.FORWARD, ProductPageReader.Move.BACKWARD -> {
@@ -588,7 +591,8 @@ class ProductReadService : AccessibilityService() {
                 Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(descriptions.joinToString("\n") { it.text.uppercase() })
                     .map { it.value }.toSet().singleOrNull().orEmpty()
             val anchoredDetail=MorningReadRun.running && MorningReadRun.reading && pageReader.sameWindow(root.windowId)
-            val detailLauncher=MorningReadPolicy.detailLauncherIndex(descriptions,observedTarget,anchoredDetail)
+            val detailLauncher=MorningReadPolicy.detailLauncherIndex(descriptions,observedTarget,anchoredDetail,
+                symbolProbe=MorningReadRun.importedListRun())
             val restoring=MorningReadPolicy.detailSearchRestore(descriptions,MorningReadRun.importedListRun())
             val proposed=if(actionName=="inspect" && detailLauncher!=null) MorningReadPolicy.Action(MorningReadPolicy.Kind.READ)
                 else if(actionName=="inspect" && restoring!=null) restoring
@@ -611,7 +615,8 @@ class ProductReadService : AccessibilityService() {
                     val value=(node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
                     if(value.isBlank() || bounds.isEmpty)null else QuoteLayout.Line(value.take(2000),bounds.left,bounds.top,bounds.right,bounds.bottom)
                 }
-                val readable=MorningReadPolicy.detailReadLines(descriptions,lines,observedTarget,anchoredDetail)
+                val readable=MorningReadPolicy.detailReadLines(descriptions,lines,observedTarget,anchoredDetail,
+                    symbolProbe=MorningReadRun.importedListRun())
                 val data=ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,readable,Instant.now().toString(),false)
                 result.put("draft",data.draft.take(8000))
             }

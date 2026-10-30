@@ -11,16 +11,19 @@ internal class ProductPageReader {
     private var layoutWaits = 0
     private var seekSteps = 0
     private var seekWindow: Int? = null
+    private var seekingSymbol: String? = null
+    private var seekingParameters: Map<String, String> = emptyMap()
     private var isin: String? = null
     private var window: Int? = null
+    private var readBackward = false
     private var returning = false
     private var forward = 0
     private var backward = 0
     private var anchorParameters: Map<String, String> = emptyMap()
     private var candidate: ProductScreenEvidence.Result? = null
     val anchored get() = isin != null
-    fun sameWindow(windowId: Int): Boolean = anchored && window == windowId
-    fun reset() { rejectedForward = 0; rejectedBackward = 0; layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null; anchorParameters = emptyMap() }
+    fun sameWindow(windowId: Int): Boolean = (anchored && window == windowId) || (seekingSymbol != null && seekWindow == windowId)
+    fun reset() { readBackward = false; seekingSymbol = null; seekingParameters = emptyMap(); rejectedForward = 0; rejectedBackward = 0; layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null; anchorParameters = emptyMap() }
     private fun stop(message: String, cause: Cause, reason: ProductScreenEvidence.Reason = ProductScreenEvidence.Reason.NONE): Step {
         reset(); return Step(Move.ABORT, ProductScreenEvidence.Result(message = message, reason = reason), cause)
     }
@@ -37,16 +40,19 @@ internal class ProductPageReader {
         }
     }
     fun inspect(windowId: Int, lines: List<QuoteLayout.Line>, at: String, sensitive: Boolean,
-                canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false, requireParameters: Boolean = false, identityHint: String? = null): Step {
+                canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false, requireParameters: Boolean = false, identityHint: String? = null, allowSymbolProbe: Boolean = false): Step {
         val direct = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines, at, sensitive)
         // Launch/login transitions must not consume an unanchored request. Read nothing
         // from them; only wait within the existing 60-second request budget.
-        if (!anchored && direct.reason in setOf(ProductScreenEvidence.Reason.PROTECTED, ProductScreenEvidence.Reason.LOGIN_OR_ORDER))
+        if (!anchored && seekingSymbol == null && direct.reason in setOf(ProductScreenEvidence.Reason.PROTECTED, ProductScreenEvidence.Reason.LOGIN_OR_ORDER))
             return Step(Move.NONE, direct.copy(message = "Geschützte oder Login-Ansicht übersprungen. Bob wartet auf die Produktseite; nichts übernommen."), Cause.WAIT_PROTECTED)
         if (direct.reason in setOf(ProductScreenEvidence.Reason.PROTECTED, ProductScreenEvidence.Reason.LOGIN_OR_ORDER,
                 ProductScreenEvidence.Reason.TOO_LARGE, ProductScreenEvidence.Reason.ISIN_INVALID,
                 ProductScreenEvidence.Reason.ISIN_AMBIGUOUS)) return stop(direct.message, Cause.UNSAFE_VIEW, direct.reason)
         val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n") { it.text.uppercase() }).map { it.value }.distinct().toList()
+        if (seekingSymbol != null && (windowId != seekWindow ||
+                lines.mapNotNull { ProductSymbolMemory.headerSymbol(it.text) }.any { it != seekingSymbol }))
+            return stop("Produkt oder Fenster bei der ISIN-Suche gewechselt.", Cause.IDENTITY_CHANGED)
         // Identity changes must be rejected even while the scroll tree is transient.
         if (anchored && (identityHint != null && identityHint != isin || windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)))
             return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
@@ -57,6 +63,20 @@ internal class ProductPageReader {
         }
         layoutWaits = 0
         if (!anchored) {
+            // Discovery never substitutes the requested ISIN or stores prices from an unidentified page.
+            if (allowSymbolProbe && ids.isEmpty()) {
+                val symbol = ProductSymbolMemory.detailSymbol(lines.map { it.text })
+                if (seekingSymbol == null && symbol != null) {
+                    seekingSymbol = symbol; seekWindow = windowId
+                    seekingParameters = QuoteLayout.productParameters(lines)
+                }
+                if (seekingSymbol != null) {
+                    if (!canForward || seekSteps >= 4 || MorningReadPolicy.detailFooter(lines.map { it.text }))
+                        return stop("ISIN nach begrenzter Produktsuche nicht gefunden. Nichts übernommen.", Cause.SEEK_LIMIT)
+                    seekSteps++
+                    return Step(Move.FORWARD, ProductScreenEvidence.Result(message = "Bob sucht die echte ISIN in den Produktdetails; noch keine Werte übernommen."), Cause.SEEK_HEADER)
+                }
+            }
             val anchorIds = if (ids.isEmpty() && identityHint != null && SeriesEvidence.validIsin(identityHint)) listOf(identityHint) else ids
             val visibleText = lines.joinToString("\n") { it.text }
             val quoteSection = Regex("(?i)kursdaten|produktdetails").containsMatchIn(visibleText) &&
@@ -70,17 +90,25 @@ internal class ProductPageReader {
             if (anchorIds.size != 1 || !SeriesEvidence.validIsin(anchorIds.single())) return Step(Move.NONE, direct, Cause.WAIT_IDENTITY)
             isin = anchorIds.single(); window = windowId
             anchorParameters = QuoteLayout.productParameters(lines)
+            // Carry header parameters only after an explicit symbol/ISIN row confirms the pairing.
+            if (seekingSymbol != null) {
+                val pairing = ProductSymbolMemory.observe(lines, sensitive)
+                if (pairing?.symbol == seekingSymbol && pairing.isin == isin)
+                    anchorParameters = seekingParameters + anchorParameters
+                readBackward = true
+                seekingSymbol = null; seekingParameters = emptyMap()
+            }
         }
         if (windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)) return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
         // Informational footers contain no additional quote evidence. Preserve the
         // candidate and return to the original identity within this transaction.
-        if (MorningReadPolicy.detailFooter(lines.map { it.text })) returning = true
+        if (!readBackward && MorningReadPolicy.detailFooter(lines.map { it.text })) returning = true
         if (returning) {
             if (ids.singleOrNull() == isin) {
                 // Read compact parameters only after the original ISIN has been
                 // rechecked on return. Do not reuse a different page's title.
                 val parameters = QuoteLayout.productParameters(lines).ifEmpty { anchorParameters }
-                if (requireParameters && parameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv")).not() && canBackward && backward < 4) {
+                if (!readBackward && requireParameters && parameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv")).not() && canBackward && backward < 4) {
                     backward++
                     return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "Bob sucht die fehlenden Produktparameter in der Kopfzeile."))
                 }
@@ -92,6 +120,11 @@ internal class ProductPageReader {
                 reset()
                 return if (value != null) Step(Move.FINISHED, value.copy(message = "Produktseite automatisch gelesen und ISIN nach Rückkehr erneut geprüft. Werte bleiben ungeprüfte App-Beobachtungen."))
                 else Step(Move.ABORT, ProductScreenEvidence.Result(message = "Seite geprüft, aber kein eindeutig zuordenbarer Kurs gefunden."), Cause.NO_QUOTES)
+            }
+            if (readBackward) {
+                if (!canForward || forward >= 8) return stop("Rückprüfung der ISIN in den Details nicht möglich.", Cause.RETURN_FAILED)
+                forward++
+                return Step(Move.FORWARD, ProductScreenEvidence.Result(message = "Bob prüft die echte ISIN erneut in den Produktdetails."))
             }
             if (!canBackward || backward >= 8) return stop("Rückprüfung der ISIN nicht möglich. Kein Entwurf übernommen.", Cause.RETURN_FAILED)
             backward++
@@ -108,8 +141,16 @@ internal class ProductPageReader {
         // Publication still requires returning to the original visible ISIN.
         if (observed.draft.contains("Geld (") && observed.draft.contains("Brief (")) {
             returning = true
-            val next = inspect(windowId, lines, at, sensitive, false, canBackward, requireParameters = requireParameters)
+            val next = inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters)
             return if (next.move == Move.BACKWARD) next.copy(cause = Cause.QUOTES_CAPTURED) else next
+        }
+        if (readBackward) {
+            if (canBackward && backward < 8) {
+                backward++
+                return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "ISIN erkannt. Bob liest die darüberliegenden Kursdaten."))
+            }
+            returning = true
+            return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters)
         }
         if (canForward) {
             if (forward >= 8) return stop("Scrollgrenze erreicht. Keine vollständige Seitenprüfung; kein Entwurf übernommen.", Cause.SCROLL_LIMIT)
@@ -121,6 +162,6 @@ internal class ProductPageReader {
             return Step(Move.NONE, observed.copy(message = "Produktkennung erkannt, aber noch keine eindeutige Scrollfläche oder verwertbaren Kurse. Bob wartet auf den Seitenaufbau."), Cause.WAIT_SCROLL)
         }
         returning = true
-        return inspect(windowId, lines, at, sensitive, false, canBackward, requireParameters = requireParameters)
+        return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters)
     }
 }
