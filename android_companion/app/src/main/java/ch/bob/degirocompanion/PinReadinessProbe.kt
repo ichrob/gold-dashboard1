@@ -7,6 +7,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 /** Explicit local 30-second inspection. Never performs an action or reads node text. */
 internal object PinReadinessProbe {
     private var deadline = 0L
+    private val history = PinProbeHistory()
     var message = "Noch kein PIN-Erkennungstest."
         private set
     var onStart: (() -> Unit)? = null
@@ -14,6 +15,7 @@ internal object PinReadinessProbe {
     val running get() = deadline != 0L
     fun start() {
         check(onStart != null) { "Lesedienst zuerst verbinden." }
+        history.clear()
         deadline = SystemClock.elapsedRealtime() + 30_000
         message = "Prüfung läuft (30 Sekunden). In DEGIRO die PIN-Anmeldung anzeigen, aber keine PIN eingeben. Danach zu Bob zurückkehren."
         onStart?.invoke()
@@ -30,7 +32,9 @@ internal object PinReadinessProbe {
     fun inspect(root: AccessibilityNodeInfo?) {
         if (!active()) return
         if (root == null || root.packageName?.toString() != ProductScreenEvidence.PACKAGE) {
-            message = "Kein zugängliches DEGIRO-Fenster. PIN-Bedienbarkeit ungeklärt."
+            history.observe(null)
+            message = history.last?.let { "Letzte DEGIRO-Beobachtung (Fenster jetzt nicht zugänglich): " + describe(it) }
+                ?: "Während dieses Tests noch kein zugängliches DEGIRO-Fenster. PIN-Bedienbarkeit ungeklärt."
             return
         }
         val fields = mutableListOf<PinProbePolicy.Field>()
@@ -55,7 +59,10 @@ internal object PinReadinessProbe {
         }
         val outcome = runCatching { visit(root, 0); PinProbePolicy.classify(fields, complete) }
             .getOrDefault(PinProbePolicy.Result.INCOMPLETE)
-        message = when (outcome) {
+        history.observe(outcome)
+        message = describe(outcome)
+    }
+    private fun describe(outcome: PinProbePolicy.Result): String = when (outcome) {
             PinProbePolicy.Result.SET_TEXT_OFFERED -> "Numerisches Passwortfeld bietet Texteingabe an. PIN-Seite und tatsächliche Eingabefunktion sind damit noch nicht bestätigt."
             PinProbePolicy.Result.NUMERIC_PASSWORD_INPUT -> "Numerisches Passwortfeld sichtbar; automatische Eingabe nicht nachgewiesen."
             PinProbePolicy.Result.SENSITIVE_INPUT -> "Android markiert Eingabeelemente als geschützt. Bedienbarkeit ungeklärt."
@@ -63,5 +70,4 @@ internal object PinReadinessProbe {
             PinProbePolicy.Result.NO_INPUT -> "Kein PIN-Eingabefeld erkannt. Eine eigene Bildschirmtastatur oder verdeckte Ansicht bleibt möglich."
             PinProbePolicy.Result.INCOMPLETE -> "Ansicht nicht vollständig prüfbar. Keine Aussage zur PIN-Eingabe."
         }
-    }
 }
