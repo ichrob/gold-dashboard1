@@ -25,11 +25,14 @@ jobs:
       - name: Checkout verification code
         uses: actions/checkout@v4
       - name: Compare latest CI-approved main with both public health builds
+        id: observation
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python -m tools.bob_post_deploy_check
+        run: python -m tools.bob_post_deploy_check --github-actions
       - uses: actions/setup-node@v4
+        if: steps.observation.outputs.state == 'verified'
         with:
           node-version: '22'
       - name: Exercise verified published ranking scripts
+        if: steps.observation.outputs.state == 'verified'
         run: python -m tools.bob_deployed_regressions

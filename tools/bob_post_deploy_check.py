@@ -48,6 +48,8 @@ def classify(main_sha, ci_runs, scanner, push, now, grace_seconds=GRACE_SECONDS)
     if seconds < -60:
         return {"state": "failed", "reason": "ci-time-in-future"}
     in_grace = -60 <= seconds <= grace_seconds
+    if not success and ci.get("status") == "completed":
+        return {"state": "failed", "reason": "ci-not-green"}
     if not success:
         return {"state": "pending" if in_grace else "failed",
                 "reason": "ci-not-green"}
@@ -89,7 +91,7 @@ def read_ci_evidence():
     return main_sha, ci_runs
 
 
-def run():
+def run(github_actions=False):
     checked = datetime.now(timezone.utc)
     try:
         main_sha, ci_runs = read_ci_evidence()
@@ -114,8 +116,16 @@ def run():
                          + "Status: **" + result["state"] + "**\n\n"
                          + "Grund: " + result["reason"] + "\n\n"
                          + "Prüfzeit UTC: " + result["checkedAt"] + "\n")
-    return {"verified": 0, "pending": 2, "failed": 1}[result["state"]]
+    # A scheduled observation can attach to a not-yet-deployed main commit.
+    # It must not create a failing pre-deploy check for a bounded pending state.
+    # The explicit output keeps all actual deployed-code tests skipped until
+    # exact health/build verification succeeds. CLI pending remains nonzero.
+    output_path = os.getenv("GITHUB_OUTPUT") if github_actions else None
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as output:
+            output.write("state=" + result["state"] + "\n")
+    return {"verified": 0, "pending": 0 if github_actions else 2, "failed": 1}[result["state"]]
 
 
 if __name__ == "__main__":
-    sys.exit(run())
+    sys.exit(run(github_actions="--github-actions" in sys.argv[1:]))
