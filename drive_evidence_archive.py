@@ -26,8 +26,12 @@ class GoogleDrive:
         self.parent_id = parent_id
         credentials = Credentials.from_authorized_user_info(info)
         from google_auth_httplib2 import AuthorizedHttp
-        from httplib2 import Http
-        self.api = build('drive', 'v3', http=AuthorizedHttp(credentials, http=Http(timeout=30)), cache_discovery=False)
+        from googleapiclient.http import build_http
+        # Google's transport excludes HTTP 308 from redirects: resumable Drive
+        # uploads use it as progress acknowledgement without a Location header.
+        http = build_http()
+        http.timeout = 30
+        self.api = build('drive', 'v3', http=AuthorizedHttp(credentials, http=http), cache_discovery=False)
 
     def preflight(self, required_bytes):
         if not self.folder_id:
