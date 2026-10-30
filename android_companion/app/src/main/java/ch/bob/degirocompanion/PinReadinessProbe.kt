@@ -4,7 +4,7 @@ import android.os.SystemClock
 import android.text.InputType
 import android.view.accessibility.AccessibilityNodeInfo
 
-/** Explicit local 30-second inspection. Never performs an action or reads node text. */
+/** Explicit local 30-second inspection. Never performs actions. Only non-input leaf labels are locally matched to single digits. */
 internal object PinReadinessProbe {
     private var deadline = 0L
     var reportId = ""
@@ -51,6 +51,7 @@ internal object PinReadinessProbe {
             return
         }
         val fields = mutableListOf<PinProbePolicy.Field>()
+        val keys = mutableListOf<PinKeypadPolicy.Key>()
         var count = 0
         var complete = true
         fun visit(node: AccessibilityNodeInfo, depth: Int) {
@@ -62,20 +63,31 @@ internal object PinReadinessProbe {
                 node.inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_NUMBER,
                 node.isEditable, node.isEnabled,
                 node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SET_TEXT }, sensitive)
-            // No inspection of protected descendants, labels, IDs, descriptions or values.
-            if (sensitive) return
+            // Never read input values or protected descendants. No labels leave this method.
+            if (sensitive || node.isPassword || node.isEditable) return
+            if (node.childCount == 0 && node.isEnabled) {
+                val digit = PinKeypadPolicy.digit(node.text) ?: PinKeypadPolicy.digit(node.contentDescription)
+                if (digit != null) keys += PinKeypadPolicy.Key(digit,
+                    node.isClickable && node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK })
+            }
             for (i in 0 until node.childCount) {
                 if (count >= 300) { complete = false; break }
                 val child = node.getChild(i) ?: continue
                 try { visit(child, depth + 1) } finally { child.recycle() }
             }
         }
-        val outcome = runCatching { visit(root, 0); PinProbePolicy.classify(fields, complete) }
+        val outcome = runCatching { visit(root, 0)
+            val structural = PinProbePolicy.classify(fields, complete)
+            if (structural == PinProbePolicy.Result.NO_INPUT)
+                PinKeypadPolicy.classify(keys) ?: structural else structural }
             .getOrDefault(PinProbePolicy.Result.INCOMPLETE)
         history.observe(outcome)
         message = describe(outcome)
     }
     private fun describe(outcome: PinProbePolicy.Result): String = when (outcome) {
+            PinProbePolicy.Result.KEYPAD_CLICK_OFFERED -> "Alle zehn Zifferntasten bieten eine Klickaktion an. Keine Taste gedrückt; PIN-Anmeldung noch nicht nachgewiesen."
+            PinProbePolicy.Result.KEYPAD_VISIBLE -> "Alle zehn Zifferntasten erkannt; nicht alle bieten direkt eine Klickaktion an. Keine Taste gedrückt."
+            PinProbePolicy.Result.KEYPAD_AMBIGUOUS -> "Zifferntasten mehrfach vorhanden; keine eindeutige Zuordnung. Keine Taste gedrückt."
             PinProbePolicy.Result.SET_TEXT_OFFERED -> "Numerisches Passwortfeld bietet Texteingabe an. PIN-Seite und tatsächliche Eingabefunktion sind damit noch nicht bestätigt."
             PinProbePolicy.Result.NUMERIC_PASSWORD_INPUT -> "Numerisches Passwortfeld sichtbar; automatische Eingabe nicht nachgewiesen."
             PinProbePolicy.Result.SENSITIVE_INPUT -> "Android markiert Eingabeelemente als geschützt. Bedienbarkeit ungeklärt."
