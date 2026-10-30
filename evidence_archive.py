@@ -76,13 +76,25 @@ SORT_CHUNK_BYTES = 2 * 1024 * 1024
 MAX_ROW_BYTES = 16 * 1024 * 1024
 
 
+class ArchiveByteBudgetExceeded(ValueError):
+    pass
+
+
+class ArchiveRowBudgetExceeded(ValueError):
+    pass
+
+
+class ArchiveScratchSpaceInsufficient(ValueError):
+    pass
+
+
 def copy_out(conn, query, output, limit):
     """Canonical COPY bytes with bounded worker-side merge sort, never DB sort."""
     size = rows = 0
     h = hashlib.sha256()
     with tempfile.TemporaryDirectory(prefix='bob-copy-sort-') as directory:
         if shutil.disk_usage(directory).free < 2 * limit + 32 * 1024 * 1024:
-            raise ValueError('Insufficient worker sort space')
+            raise ArchiveScratchSpaceInsufficient('Insufficient worker sort space')
         chunks = []; batch = []; batch_bytes = 0; pending = b''
         def flush():
             nonlocal batch, batch_bytes
@@ -95,14 +107,14 @@ def copy_out(conn, query, output, limit):
             for block in copy:
                 block = bytes(block); size += len(block)
                 if size > limit:
-                    raise ValueError('Archive byte budget exceeded; no deletion allowed')
+                    raise ArchiveByteBudgetExceeded('Archive byte budget exceeded; no deletion allowed')
                 data = pending + block
                 lines = data.split(b'\n'); pending = lines.pop()
                 if len(pending) > MAX_ROW_BYTES:
-                    raise ValueError('COPY row exceeds bounded memory budget')
+                    raise ArchiveRowBudgetExceeded('COPY row exceeds bounded memory budget')
                 for line in lines:
                     if len(line) > MAX_ROW_BYTES:
-                        raise ValueError('COPY row exceeds bounded memory budget')
+                        raise ArchiveRowBudgetExceeded('COPY row exceeds bounded memory budget')
                     line += b'\n'; rows += 1
                     batch.append(line); batch_bytes += len(line)
                     if batch_bytes >= SORT_CHUNK_BYTES: flush()
