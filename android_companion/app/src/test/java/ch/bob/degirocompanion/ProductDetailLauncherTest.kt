@@ -115,6 +115,19 @@ class ProductDetailLauncherTest {
         val done=reader.inspect(1,top,at,false,true,true)
         assertEquals(ProductPageReader.Cause.NO_QUOTES,done.cause)
         assertEquals("",done.result.draft)
+        // A previously observed last price survives the footer, but is published
+        // only after returning to the original identity; no bid/ask is invented.
+        val partialReader=ProductPageReader()
+        partialReader.inspect(1,top,at,false,true,true)
+        val partial=lines(listOf(MorningReadPolicy.Node("Zuletzt EUR 10,20")))
+        partialReader.inspect(1,partial,at,false,true,true)
+        assertEquals(ProductPageReader.Move.BACKWARD,
+            partialReader.inspect(1,end,at,false,true,true).move)
+        val retained=partialReader.inspect(1,top,at,false,true,true)
+        assertEquals(ProductPageReader.Move.FINISHED,retained.move)
+        assertTrue(retained.result.draft.contains("Zuletzt (Anzeige ungeprüft): 10,20"))
+        assertFalse(retained.result.draft.contains("Geld ("))
+        assertFalse(retained.result.draft.contains("Brief ("))
         // An interrupted or changed window cannot inherit the footer exception.
         assertFalse(reader.sameWindow(1))
         reader.inspect(1,top,at,false,true,true)
