@@ -135,6 +135,12 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertNotIn('ACTION_SET_TEXT', single_page)
         self.assertIn('MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible())', service)
         self.assertIn('if (!MorningReadRun.reading && navigateMorning(root))', service)
+        fresh = service.split('private fun productRoot(', 1)[1].split('private fun readOnce(', 1)[0]
+        for guard in ['record && MorningReadRun.importedListRun() && !MorningReadRun.reading',
+                      'android.os.Build.VERSION.SDK_INT>=33', 'clearCache()', 'if(!refreshed)return null']:
+            self.assertIn(guard, fresh)
+        self.assertLess(fresh.index('clearCache()'), fresh.index('val direct = rootInActiveWindow'))
+
         self.assertIn('ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(gold) "Gold" else MorningReadRun.target', service)
         self.assertIn('MorningReadPolicy.discoverGold(descriptions)', service)
         self.assertIn('flagIncludeNotImportantViews', config)

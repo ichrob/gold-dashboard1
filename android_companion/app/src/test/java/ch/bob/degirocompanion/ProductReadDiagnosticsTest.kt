@@ -4,6 +4,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ProductReadDiagnosticsTest {
+    @org.junit.Test fun headerDiagnosticsExposeOnlyPresenceFlags() {
+        ProductReadDiagnostics.reset(1000)
+        ProductReadDiagnostics.detailHeader(listOf(MorningReadPolicy.Node("Top Ergebnisse"),
+            MorningReadPolicy.Node("private query",editable=true)))
+        val report=ProductReadDiagnostics.report(1001)
+        org.junit.Assert.assertTrue(report.contains("DETAIL_HEADER_LABEL_PRESENT: 1"))
+        org.junit.Assert.assertTrue(report.contains("DETAIL_INPUT_PRESENT: 1"))
+        org.junit.Assert.assertFalse(report.contains("private query"))
+        ProductReadDiagnostics.detailHeader(emptyList())
+        val missing=ProductReadDiagnostics.report(1002)
+        org.junit.Assert.assertTrue(missing.contains("DETAIL_HEADER_LABEL_MISSING: 1"))
+        org.junit.Assert.assertTrue(missing.contains("DETAIL_INPUT_MISSING: 1"))
+    }
+
     @Test fun inputLabelDiagnosticsSeparateTrackedNodeChangesWithoutRawQuery() {
         ProductReadDiagnostics.reset(100)
         val nodes=listOf(MorningReadPolicy.Node(
