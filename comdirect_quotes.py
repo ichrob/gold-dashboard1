@@ -145,6 +145,10 @@ def _refresh(isin):
             _CACHE[isin] = (time.monotonic(), result)
             _PENDING.discard(isin)
             _UPDATED.notify_all()
+        # Publish only after the cache is committed and its lock is released.
+        if result.get('quote') and not result.get('retainedAfterFailure') and not result.get('retainedAfterClockRegression'):
+            from quote_updates import updates
+            updates.notify(isin)
 
 
 def get_observation(isin, wait_seconds=0):

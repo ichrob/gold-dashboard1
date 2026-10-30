@@ -199,8 +199,10 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
         result.pop('calculatedProduct',None)
         result.pop('hybridModelState',None)
     model=model_for(result,now)
-    if not model or (result.get('eligible') is True and model.get('provider') != 'BNP'):
+    if not model:
         return result
+    # Keep the original quote in front, but warm its validated model anchor
+    # before a future outage. This already applies to BNP and also covers SG.
     # Legacy fully qualified issuer estimate always has precedence.
     if (result.get('calculatedProduct') or {}).get('available'):
         return result

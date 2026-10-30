@@ -122,6 +122,9 @@ def _refresh(isin):
     finally:
         with _LOCK:
             _PENDING.discard(isin)
+    if evidence.get('state') == 'observed':
+        from quote_updates import updates
+        updates.notify(isin)
 
 
 def eligible_primary(result, isin):

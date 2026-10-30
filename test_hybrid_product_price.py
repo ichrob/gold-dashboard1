@@ -56,6 +56,30 @@ class TestHybridProjection(unittest.TestCase):
             source='https://www.comdirect.de/inf/zertifikate/'+ISIN,checkedAt=at(2),observations=obs)
         return r
 
+    def test_sg_original_prepares_anchor_without_replacing_quote(self):
+        r=record();r.update(found=True,eligible=True)
+        before=copy.deepcopy(r);spot,fx=inputs()
+        direct=h.apply(r,BASE,spot,fx)
+        self.assertEqual(direct,before)
+        self.assertEqual(len(h._ANCHORS),1)
+        later=BASE+dt.timedelta(seconds=120)
+        stale=copy.deepcopy(r);stale.update(eligible=False,fresh=False)
+        stale.pop('chartEvidence')
+        live_spot=lambda:dict(price=4160,at=later.isoformat())
+        live_fx=lambda:dict(fx(),data_updated_at=later.isoformat(),effective_at={'EUR':later.isoformat()})
+        model=h.apply(stale,later,live_spot,live_fx)
+        self.assertTrue(model['calculatedProduct']['available'])
+        self.assertEqual(model['calculatedProduct']['referenceAt'],at(6))
+        self.assertFalse(model['eligible'])
+        self.assertEqual(r,before)
+        # Expired anchors and changed contract identity cannot become a model.
+        expired=BASE+dt.timedelta(seconds=1900)
+        self.assertNotIn('calculatedProduct',h.apply(stale,expired,
+            lambda:dict(price=4160,at=expired.isoformat()),
+            lambda:dict(fx(),data_updated_at=expired.isoformat(),effective_at={'EUR':expired.isoformat()})))
+        changed=copy.deepcopy(stale);changed['metadata']['strike']+=1
+        self.assertNotIn('calculatedProduct',h.apply(changed,later,live_spot,live_fx))
+
     def test_bnp_original_warms_anchor_then_stale_uses_model_and_recovers(self):
         r=self.bnp();s,fx=inputs()
         direct=h.apply(r,BASE,s,fx)
@@ -237,7 +261,8 @@ class TestHybridProjection(unittest.TestCase):
             ('quote',dict(pointAt=at(100))),
             ('quote',dict(pointAt='2026-10-15T17:04:54')),
         ):
-            with self.subTest(field=field,change=p):
+            # Each row tests admission without an earlier valid anchor.
+            with self.subTest(field=field,change=p), patch.object(h,'_ANCHORS',{}):
                 x=copy.deepcopy(r)
                 target=x if field=='root' else x['metadata'] if field=='meta' else x['chartEvidence']
                 target.update(p)

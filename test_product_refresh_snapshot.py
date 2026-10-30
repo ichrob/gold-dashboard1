@@ -4,6 +4,7 @@ import copy
 import threading
 import types
 import unittest
+import quote_updates
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,7 +14,7 @@ class ProductRefreshSnapshot(unittest.TestCase):
         tree = ast.parse(Path(__file__).with_name('paper_simulation.py').read_text())
         functions = [n for n in tree.body if isinstance(n, ast.FunctionDef)
                      and n.name in ('quote_cache', 'observed_quotes')]
-        ns = dict(copy=copy, _guard=threading.Lock(), _pool=object(),
+        ns = dict(copy=copy, quote_updates=types.SimpleNamespace(updates=quote_updates.QuoteUpdates()), _guard=threading.Lock(), _pool=object(),
                   _pending={}, _requested={}, _quotes={'TEST': {'isin': 'TEST', 'askAt': 'old'}},
                   _observed_snapshot={})
         exec(compile(ast.Module(body=functions, type_ignores=[]), '<cache>', 'exec'), ns)

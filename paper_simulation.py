@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 import background_push
 import stop_target_audit
 import paper_ko_guard
+import quote_updates
 
 VERSION = 'paper-lifecycle-v2'
 START = datetime(2026, 10, 8, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000
@@ -822,7 +823,7 @@ def late_risk_retry_bundle(current, candidate, now_ms):
 
 # Independent bounded worker: product network calls never delay /background or Push.
 _guard=threading.Lock();_latest=None;_thread=None
-_bundle_ready=threading.Event()
+_bundle_ready=quote_updates.updates
 _pool=None;_pending={};_quotes={};_requested={}
 _observed_snapshot={}
 def observed_quotes(products):
@@ -841,6 +842,7 @@ def quote_cache(products, active, now):
         del _pending[isin]
     active_isins=active if isinstance(active,(list,tuple,set)) else [active] if active else []
     isins=list(dict.fromkeys([i for i in active_isins if i]+[p.get('isin') for p in products if p.get('isin')]))
+    quote_updates.updates.track(isins)
     from product_quotes import get_quote
     # Oldest request first: slow sources must not repeatedly monopolize the
     # four slots just because their products occur first in the uploaded list.
@@ -851,6 +853,7 @@ def quote_cache(products, active, now):
         if len(_pending)>=4:break
         if now-_requested.get(isin,0)>=30000:
             _requested[isin]=now;_pending[isin]=_pool.submit(get_quote,isin)
+            _pending[isin].add_done_callback(lambda future, key=isin: quote_updates.completed(key, future))
     by_isin={p['isin']:p.get('quote') for p in products if p.get('isin')}
     # Primary issuer work is limited to four products per cycle. Completed
     # backup observations must not wait for that slow rotation to reach the
