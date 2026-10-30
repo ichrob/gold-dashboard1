@@ -35,7 +35,7 @@ POLICIES = {
                      hold_trend=False, bob_stop_reentry=True),
 }
 
-CAMPAIGN_END = int(datetime(2026, 10, 30, 16, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000)
+CAMPAIGN_END = int(datetime(2026, 11, 6, 16, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000)
 for _name, _early in (('early1000oct', True), ('normal1000oct', False)):
     POLICIES[_name] = dict(id=_name, title=('Frühwarnung' if _early else 'Hauptsignal')+' · 1.000 € · bis Fr 16 Uhr',
         initial_capital_eur=1000., exposure_fraction=.65, daily_loss_fraction=.03,
@@ -330,7 +330,7 @@ def report(conn, day=None):
                           'Fehlt der Verkaufskurs, bleibt das Kapital bis zur beobachteten Bewertung gebunden. '
                           'Nur virtuelle Trades, keine DEGIRO-Orders.')
         if policy.get('campaign'):
-            data['note']='1.000 EUR virtuell; '+('angezeigte Frühwarnung LONG/SHORT' if policy.get('early_warning') else 'bestätigtes Hauptsignal LONG/SHORT')+'; gleiche Rangliste, Kosten und Schutzregeln. Ende 30.10.2026 16:00 Europe/Zurich. Fehlende Ausstiegskurse bleiben offen, keine rückdatierten Verkäufe.'
+            data['note']='1.000 EUR virtuell; '+('angezeigte Frühwarnung LONG/SHORT' if policy.get('early_warning') else 'bestätigtes Hauptsignal LONG/SHORT')+'; gleiche Rangliste, Kosten und Schutzregeln. Verlängert bis 06.11.2026 16:00 Europe/Zurich mit bestehendem Kapital und Historie. Fehlende Ausstiegskurse bleiben offen, keine rückdatierten Verkäufe.'
         accounts.append(dict(profile=profile, title=policy['title'],
                              riskPolicy={k: policy[k] for k in ('exposure_fraction',
                                   'daily_loss_fraction','score_long','score_short',

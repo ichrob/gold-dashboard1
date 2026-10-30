@@ -13,7 +13,7 @@ END=profiles.CAMPAIGN_END
 
 class CampaignTests(unittest.TestCase):
     def test_end_and_identical_risk(self):
-        self.assertEqual(END,datetime(2026,10,30,15,tzinfo=timezone.utc).timestamp()*1000)
+        self.assertEqual(END,datetime(2026,11,6,15,tzinfo=timezone.utc).timestamp()*1000)
         a,b=(profiles.POLICIES[n] for n in ('early1000oct','normal1000oct'))
         for field in ('initial_capital_eur','exposure_fraction','daily_loss_fraction','campaign_end','require_trend'):
             self.assertEqual(a[field],b[field])
@@ -79,6 +79,58 @@ class CampaignTests(unittest.TestCase):
                     enter.assert_not_called()
                 self.assertEqual(ledger.control['status'],'completed')
                 self.assertEqual(ledger.control['cash'],1000.)
+
+    def test_completed_accounts_resume_without_reset_and_extension_is_idempotent(self):
+        old_end=datetime(2026,10,30,15,tzinfo=timezone.utc).timestamp()*1000
+        for profile in ('early1000oct','normal1000oct'):
+            ledger=self.ledger()
+            ledger.control.update(startAt=old_end-86400000,endAt=old_end,status='completed',
+                cash=1123.45,equity=1123.45,realizedProfit=123.45,totalProfit=123.45)
+            ledger.completed=[{'id':'original-case','status':'closed'}]
+            original_cases=copy.deepcopy(ledger.completed)
+            # No fresh signal: account resumes waiting without fabricating a trade.
+            for now in (old_end+60000,old_end+90000):
+                with patch('paper_simulation.new_case') as enter:
+                    sim.run_once(ledger,{},market(at=now),{'choices':[]},{},now,profiles.POLICIES[profile])
+                    enter.assert_not_called()
+                self.assertNotEqual(ledger.control['status'],'completed')
+                self.assertEqual(ledger.control['endAt'],END)
+                self.assertEqual(ledger.control['cash'],1123.45)
+                self.assertEqual(ledger.control['realizedProfit'],123.45)
+                self.assertEqual(ledger.completed,original_cases)
+                self.assertEqual(len(ledger.control['campaignExtensions']),1)
+                self.assertEqual(ledger.control['campaignExtensions'][0]['previousEndAt'],old_end)
+
+    def test_fresh_entry_after_old_deadline_uses_remaining_capital(self):
+        from test_paper_ko_guard import choice as safe_choice, quote as safe_quote
+        old_end=END-7*86400000
+        now=old_end+60000
+        for profile in ('early1000oct','normal1000oct'):
+            ledger=self.ledger()
+            ledger.control.update(startAt=old_end-86400000,endAt=old_end,status='completed',
+                cash=1123.45,equity=1123.45,realizedProfit=123.45)
+            m=market(at=now,bar=now-300000)
+            if profile=='early1000oct':m['paperEntrySource']='early-warning-paper-v2'
+            q=safe_quote(at=now,ko=3900.)
+            q['conditions']['ko']['dateText']='30.10.2026'
+            sim.run_once(ledger,{},m,{'choices':[safe_choice()]},{ISIN:q},now,profiles.POLICIES[profile])
+            self.assertIsNotNone(ledger.active,ledger.control.get('reason'))
+            self.assertEqual(ledger.active['startedAt'],now)
+            self.assertEqual(ledger.active['availableAtEntry'],1123.45)
+            self.assertLessEqual(ledger.active['endsAt'],END)
+            self.assertEqual(ledger.control['endAt'],END)
+
+    def test_weekend_extension_preserves_pause_and_disabled_account(self):
+        old_end=END-7*86400000
+        for enabled,phase,expected in ((True,'weekend','market-closed'),(False,'trading','paused')):
+            ledger=self.ledger()
+            ledger.control.update(startAt=old_end-86400000,endAt=old_end,status='completed',enabled=enabled)
+            now=old_end+86400000
+            with patch('paper_simulation.background_push.degiro_session',return_value=phase):
+                sim.run_once(ledger,{},market(at=now),{'choices':[]},{},now,profiles.POLICIES['normal1000oct'])
+            self.assertEqual(ledger.control['status'],expected)
+            self.assertEqual(ledger.control['endAt'],END)
+            self.assertEqual(ledger.control['cash'],1000.)
 
     def test_existing_position_time_exit_and_missing_bid_remains_pending(self):
         for missing in (False,True):

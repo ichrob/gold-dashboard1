@@ -39,7 +39,7 @@ PANEL = r"""
 </section>
 <section class="card" id="bob-portfolio-comparison" style="margin:12px 0;padding:15px;border:1px solid #cbd5e1;border-radius:14px;background:#fff;color:#17263a">
  <h3>Sieben unabhängige Geldsimulationen</h3>
- <p class="small">Vier 100-€-Testkonten und ein 800-€-Trendfolgekonto. Die ersten vier bisherigen Konten starten wie bisher am Montag, 12.10.2026 um 08:00 Uhr (Zürich); das neue Frühimpuls-Testkonto erst ab seiner Aktivierung. Keine echten Orders, kein DEGIRO-Zugriff. Zwei neue 1.000-€-Konten vergleichen Frühwarnung und Hauptsignal bis Freitag, 30.10.2026, 16:00 Uhr Zürich. Alle Konten nutzen dieselben beobachteten Kurse. Der bestehende manuelle 800-Euro-Test unter Mein Trade bleibt vollständig unangetastet.</p>
+ <p class="small">Vier 100-€-Testkonten und ein 800-€-Trendfolgekonto. Die ersten vier bisherigen Konten starten wie bisher am Montag, 12.10.2026 um 08:00 Uhr (Zürich); das neue Frühimpuls-Testkonto erst ab seiner Aktivierung. Keine echten Orders, kein DEGIRO-Zugriff. Die zwei 1.000-€-Konten vergleichen Frühwarnung und Hauptsignal mit bestehendem Kapital und Historie weiter bis Freitag, 06.11.2026, 16:00 Uhr Zürich. Alle Konten nutzen dieselben beobachteten Kurse. Der bestehende manuelle 800-Euro-Test unter Mein Trade bleibt vollständig unangetastet.</p>
  <button type="button" id="bobProfilesRefresh" class="bob-primary">Simulationen prüfen</button>
  <p id="bobProfilesStatus" class="small" role="status">Prüfstand wird geladen …</p>
  <div id="bobProfilesCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:12px"></div>

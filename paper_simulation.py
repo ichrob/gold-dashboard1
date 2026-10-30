@@ -611,6 +611,17 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
     control.update(checkedAt=now,ruleVersion=market.get('ruleVersion'),lastDirection=market.get('direction','NEUTRAL'),lastGold=market.get('price'),goldAt=market.get('dataAt'))
     phase = background_push.degiro_session(now)
     campaign_end=(profile_policy or {}).get('campaign_end')
+    if finite(campaign_end) and control.get('endAt') != campaign_end:
+        previous_end=control.get('endAt')
+        if finite(previous_end) and campaign_end > previous_end:
+            # Record the observed balance at extension; never reseed cash or replay
+            # the interval after the old deadline. Existing cases remain untouched.
+            extensions=list(control.get('campaignExtensions') or [])
+            extensions.append(dict(previousEndAt=previous_end,endAt=campaign_end,appliedAt=now,
+                previousStatus=control.get('status'),cash=control.get('cash'),
+                equity=control.get('equity'),totalProfit=control.get('totalProfit')))
+            control['campaignExtensions']=extensions
+        control['endAt']=campaign_end
     campaign_over=finite(campaign_end) and now>=campaign_end
     if now >= control['startAt'] and control.get('enabled') and phase != 'trading' and not campaign_over:
         control.update(status='market-closed' if phase=='weekend' else 'night-paused' if phase=='night' else 'preparing',
