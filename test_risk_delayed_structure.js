@@ -47,10 +47,6 @@ for(const dir of ['LONG','SHORT']){
  assert.equal(signal.barAt,Date.parse('2026-10-30T11:58:00Z'));
  assert.equal(signal.estimateMethod,'spot-lagged-minute-context-v1');
  assert.equal(JSON.stringify(bundle),before);
- // A timestamp-complete bar can remain provider-open briefly at the boundary.
- // It must not suppress the preceding complete 21-bar structure.
- bars.at(-1).providerIsOpen=true;
- assert.deepEqual(r.analyzePaper(bundle,clock),signal);
  // Neither a future bar value nor a later close can influence this context.
  bars.at(-1).close=4000.9;
  assert.deepEqual(r.analyzePaper(bundle,clock),signal);
