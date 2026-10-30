@@ -13,6 +13,41 @@ import evidence_archive as archive
 
 
 class ArchiveSafety(unittest.TestCase):
+    def copied(self, blocks, limit=10000):
+        class Copy:
+            def __enter__(self): return iter(blocks)
+            def __exit__(self, *args): pass
+        class Connection:
+            def cursor(self): return self
+            def copy(self, query): return Copy()
+        out = io.BytesIO()
+        result = archive.copy_out(Connection(), 'query', out, limit)
+        return out.getvalue(), result
+
+    def test_external_sort_preserves_duplicates_across_blocks_and_merge_rounds(self):
+        raw = b'z\\ntext\nb\na\nb\nc\n\\N\n\n'
+        expected = b''.join(sorted(raw.splitlines(keepends=True)))
+        # One-byte blocks exercise separators and escaped newline boundaries;
+        # tiny chunks force multiple pairwise merge rounds and odd chunk counts.
+        with patch.object(archive, 'SORT_CHUNK_BYTES', 2):
+            data, proof = self.copied([raw[i:i+1] for i in range(len(raw))])
+        self.assertEqual(data, expected)
+        self.assertEqual(proof, dict(bytes=len(raw), rows=7,
+                                    sha256=hashlib.sha256(expected).hexdigest()))
+
+    def test_empty_copy_and_invalid_records(self):
+        self.assertEqual(self.copied([])[0], b'')
+        with self.assertRaisesRegex(ValueError, 'Incomplete'):
+            self.copied([b'partial'])
+        with patch.object(archive, 'MAX_ROW_BYTES', 3):
+            for blocks in ([b'long\n'], [b'lo', b'ng']):
+                with self.assertRaisesRegex(ValueError, 'memory budget'):
+                    self.copied(blocks)
+
+    def test_source_copy_does_not_sort_on_database(self):
+        query = archive.copy_query('public', 'evidence', ['x', 'payload']).as_string()
+        self.assertEqual(query, 'COPY (SELECT "x","payload" FROM "public"."evidence") TO STDOUT')
+
     def test_type_validation_rejects_executable_sql(self):
         for kind in ['jsonb','numeric(30,12)','timestamp with time zone','bytea','text[]']:
             self.assertTrue(archive.TYPE.fullmatch(kind))

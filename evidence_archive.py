@@ -6,6 +6,7 @@ Credentials are environment-only; archives must stay in the private Drive folder
 """
 import argparse
 import hashlib
+import heapq
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,7 @@ import tempfile
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = 'bob-evidence-archive-v1'
+VERSION = 'bob-evidence-archive-v2'
 # Reviewed evidence only: never OAuth, passkeys, sessions, subscriptions or settings.
 TABLES = frozenset('''bob_spot_observations bob_candle_evidence bob_candle_checkpoints
 bob_comparison_predictions bob_comparison_truths bob_decision_audit bob_decision_outcomes
@@ -56,8 +57,8 @@ def digest(path):
 def copy_query(schema, table, columns):
     from psycopg import sql
     cols = sql.SQL(',').join(map(sql.Identifier, columns))
-    # Stable byte ordering, independent of insertion order, locale, indexes.
-    return sql.SQL('COPY (SELECT {cols} FROM {table} AS t ORDER BY ROW({cols})::text COLLATE "C") TO STDOUT').format(
+    # No production-server sort or temp spill. Canonicalize on worker scratch.
+    return sql.SQL('COPY (SELECT {cols} FROM {table}) TO STDOUT').format(
         cols=cols, table=sql.Identifier(schema, table))
 
 
@@ -71,18 +72,63 @@ def settings(conn):
     conn.execute("SET LOCAL lock_timeout='3s'")
 
 
+SORT_CHUNK_BYTES = 2 * 1024 * 1024
+MAX_ROW_BYTES = 16 * 1024 * 1024
+
+
 def copy_out(conn, query, output, limit):
+    """Canonical COPY bytes with bounded worker-side merge sort, never DB sort."""
     size = rows = 0
     h = hashlib.sha256()
-    with conn.cursor().copy(query) as copy:
-        for block in copy:
-            block = bytes(block)
-            size += len(block)
-            if size > limit:
-                raise ValueError('Archive byte budget exceeded; no deletion allowed')
-            rows += block.count(b'\n')  # COPY text escapes embedded line breaks.
-            h.update(block)
-            output.write(block)
+    with tempfile.TemporaryDirectory(prefix='bob-copy-sort-') as directory:
+        if shutil.disk_usage(directory).free < 2 * limit + 32 * 1024 * 1024:
+            raise ValueError('Insufficient worker sort space')
+        chunks = []; batch = []; batch_bytes = 0; pending = b''
+        def flush():
+            nonlocal batch, batch_bytes
+            path = Path(directory) / str(len(chunks))
+            with open(path, 'xb') as part:
+                os.chmod(path, 0o600)
+                part.writelines(sorted(batch))
+            chunks.append(path); batch = []; batch_bytes = 0
+        with conn.cursor().copy(query) as copy:
+            for block in copy:
+                block = bytes(block); size += len(block)
+                if size > limit:
+                    raise ValueError('Archive byte budget exceeded; no deletion allowed')
+                data = pending + block
+                lines = data.split(b'\n'); pending = lines.pop()
+                if len(pending) > MAX_ROW_BYTES:
+                    raise ValueError('COPY row exceeds bounded memory budget')
+                for line in lines:
+                    if len(line) > MAX_ROW_BYTES:
+                        raise ValueError('COPY row exceeds bounded memory budget')
+                    line += b'\n'; rows += 1
+                    batch.append(line); batch_bytes += len(line)
+                    if batch_bytes >= SORT_CHUNK_BYTES: flush()
+        if pending:
+            raise ValueError('Incomplete COPY record')
+        if batch: flush()
+        # Each merge head can be a large row. Pairwise merge bounds open files
+        # and memory, including when many COPY rows approach the row limit.
+        serial = len(chunks)
+        while len(chunks) > 1:
+            merged = []
+            for offset in range(0, len(chunks), 2):
+                pair = chunks[offset:offset+2]
+                if len(pair) == 1:
+                    merged.append(pair[0]); continue
+                path = Path(directory) / str(serial); serial += 1
+                with open(pair[0], 'rb') as left, open(pair[1], 'rb') as right, open(path, 'xb') as dest:
+                    os.chmod(path, 0o600)
+                    dest.writelines(heapq.merge(left, right))
+                for part in pair: part.unlink()
+                merged.append(path)
+            chunks = merged
+        if chunks:
+            with open(chunks[0], 'rb') as canonical:
+                for block in iter(lambda: canonical.read(1024*1024), b''):
+                    h.update(block); output.write(block)
     return dict(bytes=size, rows=rows, sha256=h.hexdigest())
 
 

@@ -92,3 +92,18 @@ runtime bridge loads the credentials internally. A folder ID alone does not gran
 `drive.file` access; the preparation flow creates an app-owned folder and verifies
 its placement. Real production export, remote download and isolated restore must
 still pass before reporting a verified archive. Synthetic tests do not prove it.
+
+## Bounded v2 canonicalization
+
+Source COPY performs no SQL sort. The worker sorts escaped COPY records in
+2 MiB chunks with a 16 MiB single-record ceiling, then pairwise merges scratch
+files. The 512 MiB total raw-byte limit remains enforced; no row is omitted or
+truncated to fit. Export and restore use identical byte ordering, preserving
+duplicates. Insufficient scratch space, oversized rows or incomplete streams fail
+closed. Production never allocates a temporary sort file for this export.
+
+The changed canonical order uses manifest v2. The worker uses a new
+`bob_archive_runs_v2` daily claim ledger, retaining the old v1 ledger unchanged
+for diagnosis. This allows one corrected v2 attempt after a failed v1 attempt;
+failed v2 attempts are not automatically repeated on the same UTC day. Safe
+phase names identify export/restore/upload failures without exposing credentials.
