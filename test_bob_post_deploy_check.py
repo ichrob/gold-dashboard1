@@ -1,5 +1,9 @@
 """Fail-closed scheduled post-deploy status; no external calls."""
 import unittest
+import os
+import tempfile
+import io
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -66,6 +70,31 @@ class DeployClassificationTests(unittest.TestCase):
             "/git/ref/heads/main",
             "/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=5",
         ])
+
+    def test_finished_failed_ci_never_becomes_pending_in_grace_period(self):
+        a, b = self.healthy()
+        self.assertEqual(classify(SHA, run(conclusion="failure", elapsed=1), a, b, NOW)["state"], "failed")
+
+    def test_actions_pending_is_explicit_and_never_runs_deployed_regressions(self):
+        import tools.bob_post_deploy_check as check
+        for state, cli_exit, action_exit in (("verified",0,0),("pending",2,0),("failed",1,1)):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory)/"output"
+                summary = Path(directory)/"summary"
+                with patch.object(check, "read_ci_evidence", return_value=(SHA, run())), \
+                     patch.object(check, "read_health", return_value={}), \
+                     patch.object(check, "classify", return_value={"state":state,"reason":"fixture"}), \
+                     patch.dict(os.environ, {"GITHUB_OUTPUT":str(output), "GITHUB_STEP_SUMMARY":str(summary)}), \
+                     redirect_stdout(io.StringIO()):
+                    self.assertEqual(check.run(), cli_exit)
+                    self.assertFalse(output.exists())
+                    self.assertEqual(check.run(github_actions=True), action_exit)
+                self.assertEqual(output.read_text(), "state="+state+"\n")
+                self.assertIn("Status: **"+state+"**", summary.read_text())
+        yml=(Path(__file__).resolve().parent/".github/workflows/bob-post-deploy-verification.yml").read_text()
+        self.assertIn("id: observation", yml)
+        self.assertEqual(yml.count("if: steps.observation.outputs.state == 'verified'"), 2)
+        self.assertNotIn("continue-on-error", yml)
 
     def test_no_push_trigger_or_broker_access_in_separate_workflow(self):
         yml=(Path(__file__).resolve().parent/".github/workflows/bob-post-deploy-verification.yml").read_text()
