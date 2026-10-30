@@ -184,7 +184,7 @@ class ProductReadService : AccessibilityService() {
                     val code=lastNavigationIssue.ifEmpty { "READ_TIMEOUT" }
                     handler.post { finishBatchProduct(code) }
                 }
-                else MorningReadRun.stop(this, "STOPPED")
+                else MorningReadRun.stop(this, lastNavigationIssue.ifEmpty { "STOPPED" })
             }
             PhoneDiagnostics.queue(this)
         }
@@ -565,7 +565,7 @@ class ProductReadService : AccessibilityService() {
             val target=command?.optString("isin").orEmpty()
             val restoring=MorningReadPolicy.detailSearchRestore(descriptions,MorningReadRun.importedListRun())
             val proposed=if(actionName=="inspect" && restoring!=null) restoring
-                else if(actionName=="inspect" && MorningReadRun.running) MorningReadPolicy.decide(descriptions,MorningReadRun.target) { symbolMemory.getString(it,null) }
+                else if(actionName=="inspect" && MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun()) { symbolMemory.getString(it,null) }
                 else if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
                 else if(((GoldSearchRun.running && listImages.length()>0 && root.windowId==listWindowId) || MorningListDelivery.waiting) && actionName=="inspect")
                     MorningReadPolicy.captureGoldList(descriptions,true)
@@ -634,7 +634,8 @@ class ProductReadService : AccessibilityService() {
         try {
             if(root.windowId!=expectedWindow || root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return false
             navigationTree(root,live,descriptions)
-            val action=MorningReadPolicy.discoverGold(descriptions)
+            val action=if(MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun())
+                else MorningReadPolicy.discoverGold(descriptions)
             val required=if(category) MorningReadPolicy.Kind.CATEGORY else if(input) MorningReadPolicy.Kind.FOCUS else MorningReadPolicy.Kind.SEARCH
             if(action.kind!=required || (input && category)) return false
             val target=live[action.index]
@@ -897,7 +898,7 @@ class ProductReadService : AccessibilityService() {
                     return true
                 }
             }
-            val proposed=if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.decide(descriptions,MorningReadRun.target) {
+            val proposed=if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun()) {
                 symbolMemory.getString(it, null)
             }
             val action=automaticSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
