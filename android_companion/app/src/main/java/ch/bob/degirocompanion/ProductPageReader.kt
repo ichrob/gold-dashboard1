@@ -129,7 +129,7 @@ internal class ProductPageReader {
                 // Read compact parameters only after the original ISIN has been
                 // rechecked on return. Do not reuse a different page's title.
                 val parameters = QuoteLayout.productParameters(lines).ifEmpty { anchorParameters }
-                if (!readBackward && requireParameters && parameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv")).not() && canBackward && backward < 4) {
+                if (!readBackward && requireParameters && parameters.isEmpty() && canBackward && backward < 4) {
                     backward++
                     return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "Bob sucht die fehlenden Produktparameter in der Kopfzeile."))
                 }

@@ -20,6 +20,18 @@ class ProductPageReaderTest {
         assertTrue(done.result.draft.contains("Hebel (Anzeige ungeprüft): 27,07"))
         assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 10,20"))
     }
+    @Test fun explicitlyPartialTitleDoesNotCauseRepeatedScrollingPastHeader() {
+        val r=ProductPageReader()
+        val title=lines("DE000FD0S0G4", "BNP GOLD Mini Long SL 3700 STR 3600 R 10")
+        r.inspect(1,title,at,false,true,true,requireParameters=true)
+        val back=r.inspect(1,quotes,at,false,true,true,requireParameters=true)
+        assertEquals(ProductPageReader.Move.BACKWARD,back.move)
+        val done=r.inspect(1,title,at,false,true,true,requireParameters=true)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("KO-Schwelle (Anzeige ungeprüft): 3700"))
+        assertFalse(done.result.draft.contains("Hebel ("))
+        assertFalse(done.result.draft.contains("Bv ("))
+    }
     @Test fun completeQuotesReturnBeforeFooterEvenWhenForwardActionRemainsAvailable() {
         val r = ProductPageReader()
         step(r, header)
