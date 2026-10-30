@@ -81,6 +81,10 @@ class QuoteLayoutTest {
         assertEquals("3600,1234",fields["Basispreis"])
         assertNull(fields["Hebel"])
         assertNull(fields["Bv"])
+        val withLeverage=QuoteLayout.productParameters(listOf(
+            QuoteLayout.Line("BNP GOLD Mini Long SL 3700 STR 3600 R 10 LV 12.34",0,0,680,30)))
+        assertEquals("12,34",withLeverage["Hebel"])
+        assertNull(withLeverage["Bv"])
     }
 
     @Test fun readsLabelsAndValuesInSeparateVisualColumns() {
