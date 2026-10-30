@@ -98,6 +98,36 @@ class NumericProductDetailTest {
         repeat(4) { assertEquals("",reader.inspect(1,lines(top),at,false,true,true,allowSymbolProbe=true).result.draft) }
         assertEquals(ProductPageReader.Cause.SEEK_LIMIT,reader.inspect(1,lines(top),at,false,true,true,allowSymbolProbe=true).cause)
     }
+    @Test fun numericHeaderIsRevisitedAndRealIsinRecheckedBeforeExport() {
+        val reader=ProductPageReader()
+        fun read(text:List<String>)=reader.inspect(1,lines(text),at,false,true,true,
+            requireParameters=true,allowSymbolProbe=true)
+        read(top)
+        read(listOf("Symbol | ISIN",isin))
+        val quotes=listOf("Kursdaten","Geld EUR 10,20","Brief EUR 10,30")
+        assertEquals(ProductPageReader.Move.BACKWARD,read(quotes).move)
+        val revisited=read(top)
+        assertEquals(ProductPageReader.Move.FORWARD,revisited.move)
+        assertEquals("",revisited.result.draft)
+        val done=read(listOf("Symbol | ISIN",isin))
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("Hebel (Anzeige ungeprüft): 27,07"))
+        assertTrue(done.result.draft.contains("Brief (Anzeige ungeprüft): 10,30"))
+        // Revisited headers never create a durable symbol/ISIN pairing.
+        assertNull(ProductSymbolMemory.observe(lines(top),false))
+    }
+    @Test fun headerRevisitRejectsDifferentSymbolAndFinalIdentity() {
+        for (changedHeader in listOf(true,false)) {
+            val r=ProductPageReader()
+            fun read(text:List<String>)=r.inspect(1,lines(text),at,false,true,true,
+                requireParameters=true,allowSymbolProbe=true)
+            read(top);read(listOf(isin));read(listOf("Geld EUR 10,20","Brief EUR 10,30"))
+            val result=if(changedHeader) read(top.map { it.replace("12345678","87654321") })
+                else { read(top);read(listOf("DE000FE2JJ20")) }
+            assertEquals(ProductPageReader.Cause.IDENTITY_CHANGED,result.cause)
+            assertEquals("",result.result.draft)
+        }
+    }
     @Test fun unpairedHeaderParametersAreNeverCarried() {
         val reader=ProductPageReader()
         reader.inspect(1,lines(top),at,false,true,true,allowSymbolProbe=true)

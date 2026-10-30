@@ -12,6 +12,8 @@ internal class ProductPageReader {
     private var seekSteps = 0
     private var seekWindow: Int? = null
     private var seekingSymbol: String? = null
+    private var verifiedProbeSymbol: String? = null
+    private var collectingHeader = false
     private var seekingParameters: Map<String, String> = emptyMap()
     private var isin: String? = null
     private var window: Int? = null
@@ -23,7 +25,7 @@ internal class ProductPageReader {
     private var candidate: ProductScreenEvidence.Result? = null
     val anchored get() = isin != null
     fun sameWindow(windowId: Int): Boolean = (anchored && window == windowId) || (seekingSymbol != null && seekWindow == windowId)
-    fun reset() { readBackward = false; seekingSymbol = null; seekingParameters = emptyMap(); rejectedForward = 0; rejectedBackward = 0; layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null; anchorParameters = emptyMap() }
+    fun reset() { verifiedProbeSymbol = null; collectingHeader = false; readBackward = false; seekingSymbol = null; seekingParameters = emptyMap(); rejectedForward = 0; rejectedBackward = 0; layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null; anchorParameters = emptyMap() }
     private fun stop(message: String, cause: Cause, reason: ProductScreenEvidence.Reason = ProductScreenEvidence.Reason.NONE): Step {
         reset(); return Step(Move.ABORT, ProductScreenEvidence.Result(message = message, reason = reason), cause)
     }
@@ -95,6 +97,7 @@ internal class ProductPageReader {
                 val pairing = ProductSymbolMemory.observe(lines, sensitive)
                 if (pairing != null && pairing.symbol == seekingSymbol && pairing.isin == isin)
                     anchorParameters = seekingParameters + anchorParameters
+                verifiedProbeSymbol = seekingSymbol
                 readBackward = true
                 seekingSymbol = null; seekingParameters = emptyMap()
             }
@@ -103,12 +106,30 @@ internal class ProductPageReader {
         // Informational footers contain no additional quote evidence. Preserve the
         // candidate and return to the original identity within this transaction.
         if (!readBackward && MorningReadPolicy.detailFooter(lines.map { it.text })) returning = true
+        // Numeric headers have no ISIN. Revisit that exact header after finding
+        // the real identity, then return to the real ISIN before exporting anything.
+        // This is transaction-local evidence, never a durable symbol mapping.
+        if (collectingHeader) {
+            val symbol = ProductSymbolMemory.detailSymbol(lines.map { it.text })
+            val visibleSymbols = lines.mapNotNull { ProductSymbolMemory.probeHeaderSymbol(it.text) }.distinct()
+            if (visibleSymbols.any { it != verifiedProbeSymbol })
+                return stop("Produktkennung bei der Kopfzeilenprüfung gewechselt.", Cause.IDENTITY_CHANGED)
+            if (symbol == verifiedProbeSymbol || !canBackward || backward >= 8) {
+                if (symbol != null && symbol == verifiedProbeSymbol)
+                    anchorParameters = anchorParameters + QuoteLayout.productParameters(lines)
+                collectingHeader = false
+                returning = true
+            } else {
+                backward++
+                return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "Bob liest die Produktparameter im ursprünglichen Kopfbereich."))
+            }
+        }
         if (returning) {
             if (ids.singleOrNull() == isin) {
                 // Read compact parameters only after the original ISIN has been
                 // rechecked on return. Do not reuse a different page's title.
                 val parameters = QuoteLayout.productParameters(lines).ifEmpty { anchorParameters }
-                if (!readBackward && requireParameters && parameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv")).not() && canBackward && backward < 4) {
+                if (!readBackward && requireParameters && parameters.isEmpty() && canBackward && backward < 4) {
                     backward++
                     return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "Bob sucht die fehlenden Produktparameter in der Kopfzeile."))
                 }
@@ -140,7 +161,10 @@ internal class ProductPageReader {
         // scrolling through unrelated footer sections or probing the page bottom.
         // Publication still requires returning to the original visible ISIN.
         if (observed.draft.contains("Geld (") && observed.draft.contains("Brief (")) {
-            returning = true
+            if (readBackward && requireParameters && verifiedProbeSymbol != null &&
+                !anchorParameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv"))) {
+                collectingHeader = true
+            } else returning = true
             val next = inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters)
             return if (next.move == Move.BACKWARD) next.copy(cause = Cause.QUOTES_CAPTURED) else next
         }

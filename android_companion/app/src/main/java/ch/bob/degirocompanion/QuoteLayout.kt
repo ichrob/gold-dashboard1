@@ -26,16 +26,34 @@ internal object QuoteLayout {
     // Read the broker's compact title literally. Bv is an observed notation,
     // not a validated multiplier or a conversion to a product ratio.
     fun productParameters(lines: List<Line>): Map<String, String> {
-        val titles = lines.filter { Regex("(?i)\\bGold\\s+Turbo\\b").containsMatchIn(it.text) }
+        val titles = lines.filter { Regex("(?i)\\bGold\\s+(?:Turbo|Knock[ -]?Out\\s+Warrant)\\b").containsMatchIn(it.text) }
         val values = mutableListOf<Map<String, String>>()
-        val pattern = Regex("(?i)\\bBAR\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+BP\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+Bv\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+LV\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?![0-9A-Za-z.,])")
+        val pattern = Regex("(?i)\\bBAR\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+BP\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+Bv\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?:\\s+[0-9]{2}/[0-9]{2}/20[0-9]{2})?\\s+LV\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?![0-9A-Za-z.,])")
         for (title in titles) {
-            val text = lines.filter { it.top >= title.top && it.top <= title.bottom + 90 }
+            val text = lines.filter { it.top >= title.top && it.top <= title.bottom + max(90, title.height * 3) }
                 .sortedWith(compareBy(Line::top, Line::left)).joinToString(" ") { it.text }
             for (match in pattern.findAll(text)) {
                 val numbers = match.groupValues.drop(1).map { it.replace('.', ',') }
                 if (numbers.any { (it.replace(',', '.').toDoubleOrNull() ?: 0.0) <= 0 }) continue
                 values += listOf("KO-Schwelle", "Basispreis", "Bv", "Hebel").zip(numbers).toMap()
+            }
+        }
+        // BNP uses different literal labels. Preserve SL/STR and explicit LV;
+        // R is not silently converted to the SG Bv notation or an inferred leverage.
+        val bnpTitles = lines.filter { Regex("(?i)^BNP\\s+GOLD\\s+Mini\\s+(?:Long|Short)\\b").containsMatchIn(it.text.trim()) }
+        val bnp = Regex("(?i)\\bSL\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+STR\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+R\\s+[0-9]{1,5}(?:[.,][0-9]{1,4})?(?![0-9A-Za-z.,])")
+        for (title in bnpTitles) {
+            val text = lines.filter { it.top >= title.top && it.top <= title.bottom + max(90, title.height * 3) }
+                .sortedWith(compareBy(Line::top, Line::left)).joinToString(" ") { it.text }
+            for (match in bnp.findAll(text)) {
+                val numbers = match.groupValues.drop(1).map { it.replace('.', ',') }
+                if (numbers.any { (it.replace(',', '.').toDoubleOrNull() ?: 0.0) <= 0 }) continue
+                val fields = listOf("KO-Schwelle", "Basispreis").zip(numbers).toMap().toMutableMap()
+                val leverage = Regex("(?i)^\\s+LV\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?![0-9A-Za-z.,])")
+                    .find(text.substring(match.range.last + 1))?.groupValues?.get(1)
+                if (leverage != null && (leverage.replace(',', '.').toDoubleOrNull() ?: 0.0) > 0)
+                    fields["Hebel"] = leverage.replace('.', ',')
+                values += fields
             }
         }
         return values.distinct().singleOrNull() ?: emptyMap()
