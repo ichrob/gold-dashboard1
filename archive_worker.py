@@ -1,6 +1,7 @@
 """Opt-in internal archive runner. No public endpoint, extra service or deletion."""
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -26,11 +27,28 @@ def status():
     return {**readiness(), **_STATE} if _THREAD else readiness()
 
 
+def metadata_db():
+    """One short-lived connection, sequential with export; no shared pool wait."""
+    import psycopg
+    return psycopg.connect(os.environ['DATABASE_URL'], connect_timeout=10,
+        application_name='bob_archive_metadata',
+        options='-c statement_timeout=10000 -c lock_timeout=3000')
+
+
 def init(conn):
     # Keep earlier failures/receipts intact; v3 permits one segmented attempt per day.
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_archive_runs_v3 (
         day DATE PRIMARY KEY, status TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         receipt JSONB NOT NULL DEFAULT '{}'::jsonb)''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_archive_attempts (
+        day DATE NOT NULL, attempt TEXT NOT NULL, status TEXT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), receipt JSONB NOT NULL DEFAULT '{}'::jsonb,
+        PRIMARY KEY(day,attempt))''')
+    # Preserve existing daily claims, including interrupted runs. A new explicit
+    # operator attempt ID is required to retry today; never reset old evidence.
+    conn.execute('''INSERT INTO bob_archive_attempts(day,attempt,status,updated_at,receipt)
+        SELECT day,'scheduled',status,updated_at,receipt FROM bob_archive_runs_v3
+        ON CONFLICT DO NOTHING''')
 
 
 def cycle(db, runner=None):
@@ -45,9 +63,13 @@ def cycle(db, runner=None):
         return _STATE
     try:
         day = datetime.now(timezone.utc).date()
+        attempt = os.environ.get('BOB_ARCHIVE_ATTEMPT', 'scheduled')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', attempt):
+            _STATE = dict(status='blocked', errorType='InvalidAttemptId', evidenceDeleted=False)
+            return _STATE
         with db() as conn:
-            claimed = conn.execute('''INSERT INTO bob_archive_runs_v3(day,status)
-                VALUES(%s,'running') ON CONFLICT DO NOTHING RETURNING day''', (day,)).fetchone()
+            claimed = conn.execute('''INSERT INTO bob_archive_attempts(day,attempt,status)
+                VALUES(%s,%s,'running') ON CONFLICT DO NOTHING RETURNING day''', (day,attempt)).fetchone()
         if not claimed:
             _STATE = dict(status='already-attempted-today', evidenceDeleted=False)
             return _STATE
@@ -73,9 +95,13 @@ def cycle(db, runner=None):
         except Exception as error:
             # Never persist/print OAuth responses, DSNs or signed upload URLs.
             _STATE = dict(status='failed', errorType=type(error).__name__, phase=_STATE.get('phase'), evidenceDeleted=False)
-        with db() as conn:
-            conn.execute('''UPDATE bob_archive_runs_v3 SET status=%s,updated_at=now(),receipt=%s::jsonb
-                WHERE day=%s''', (_STATE['status'], json.dumps(_STATE), day))
+        try:
+            with db() as conn:
+                conn.execute('''UPDATE bob_archive_attempts SET status=%s,updated_at=now(),receipt=%s::jsonb
+                    WHERE day=%s AND attempt=%s''', (_STATE['status'], json.dumps(_STATE), day, attempt))
+        except Exception as error:
+            # Preserve the primary export/restore error or remote success proof.
+            _STATE['receiptPersistenceErrorType'] = type(error).__name__
         return _STATE
     finally:
         _LOCK.release()
@@ -86,6 +112,7 @@ def start(db):
     if _THREAD or (readiness()['status'] != 'ready' and os.environ.get('BOB_ARCHIVE_PREPARE') != '1'):
         return
     _STATE = readiness()
+    db = metadata_db
     def loop():
         # Let push/simulation startup finish. Failures never stop live workers.
         time.sleep(60)

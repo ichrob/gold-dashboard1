@@ -124,3 +124,17 @@ The receipt reports distinct tables, segments and total rows; it is emitted only
 after *all* segments pass both local and remote-download restoration. No rows are
 skipped to fit a budget. A full or corrupt archive fails without a success receipt.
 The v3 daily ledger retains both earlier ledgers unchanged.
+
+## Archive metadata connection and explicit retry
+
+Short metadata operations use one sequential direct connection with 10-second
+connect/statement and 3-second lock timeouts; they do not borrow from the busy
+application pool. Export and restore connections remain separate and bounded.
+A receipt-write failure is reported separately, preserving the original error
+or verified remote proof. No exception messages or credentials are exposed.
+
+The additive attempt ledger imports prior v3 claims as `scheduled` without
+changing old rows. BOB_ARCHIVE_ATTEMPT defaults to `scheduled`; an operator may
+set a new alphanumeric/dash/underscore attempt ID for a deliberate same-day
+retry. The same ID cannot repeat that day, including across restarts. This is
+not automatic retry after an ambiguous upload or interrupted attempt.
