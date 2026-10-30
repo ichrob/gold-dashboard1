@@ -147,7 +147,7 @@ internal class ProductPageReader {
         if (readBackward) {
             if (canBackward && backward < 8) {
                 backward++
-                return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "ISIN erkannt. Bob liest die darüberliegenden Kursdaten."))
+                return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "ISIN erkannt. Bob liest die darüberliegenden Kursdaten.", reason = observed.reason))
             }
             returning = true
             return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters)
@@ -155,7 +155,7 @@ internal class ProductPageReader {
         if (canForward) {
             if (forward >= 8) return stop("Scrollgrenze erreicht. Keine vollständige Seitenprüfung; kein Entwurf übernommen.", Cause.SCROLL_LIMIT)
             forward++
-            return Step(Move.FORWARD, ProductScreenEvidence.Result(message = "Bob liest die Produktseite abschnittsweise. Bitte währenddessen nicht bedienen."))
+            return Step(Move.FORWARD, ProductScreenEvidence.Result(message = "Bob liest die Produktseite abschnittsweise. Bitte währenddessen nicht bedienen.", reason = observed.reason))
         }
         if (forward == 0 && candidate == null) {
             reset()
