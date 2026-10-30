@@ -153,6 +153,14 @@ internal object MorningReadPolicy {
             (symbolProbe && seen.isEmpty() && productTitle && ProductSymbolMemory.detailSymbol(cleaned.map { it.text })!=null) ||
             (anchored && (seen.isEmpty() || seen==setOf(target)) && (quotes || footer)) } ?: reject(DetailIssue.IDENTITY_CONTEXT)
     }
+    /** One BACK from a previously observed product window, never from an order form. */
+    fun returnAfterRead(nodes: List<Node>, target: String, window: Int, readWindow: Int?, code: String): Boolean {
+        if (readWindow != window || code !in setOf("READ", "NO_QUOTES", "RETURN_FAILED", "SEEK_LIMIT", "SCROLL_LIMIT")) return false
+        if (detailLauncherIndex(nodes, target, anchored=true, symbolProbe=true) != null) return true
+        if (protection(nodes) != null || nodes.size > 500 || !SeriesEvidence.validIsin(target)) return false
+        val action = detailDecision(nodes, target, true)
+        return action.kind == Kind.READ
+    }
     fun detailReadLines(nodes: List<Node>, lines: List<QuoteLayout.Line>, target: String,
                         anchored: Boolean = false, symbolProbe: Boolean = false): List<QuoteLayout.Line> {
         if(detailLauncherIndex(nodes,target,anchored,symbolProbe)==null) return lines
@@ -242,10 +250,13 @@ internal object MorningReadPolicy {
         return action
     }
     fun detailDecision(nodes: List<Node>, target: String, importedListRun: Boolean,
-                       keyboardReady: Boolean = true, lookupSymbol: (String) -> String? = { null }): Action {
+                       keyboardReady: Boolean = true, resultOpened: Boolean = true, lookupSymbol: (String) -> String? = { null }): Action {
         if(!SeriesEvidence.validIsin(target)) return Action(Kind.BLOCK,code="INVALID_VIEW")
         if(importedListRun) importedListSearch(nodes)?.let { return it }
         val action=navigate(nodes,target,false,lookupSymbol,symbolProbe=importedListRun)
+        // Each batch attempt must open its own exact search result. A numeric
+        // header left by the preceding attempt cannot identify the new target.
+        if (!resultOpened && action.kind == Kind.READ) return Action(Kind.BACK)
         // A WebView can retain focus after hiding the keyboard. Open it before editing.
         return if(action.kind==Kind.QUERY && !keyboardReady) action.copy(kind=Kind.FOCUS) else action
     }
