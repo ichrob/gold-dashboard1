@@ -29,7 +29,7 @@ def _poll_interval():
     return NEAR_EXPIRY_RETRY_SECONDS if age >= NEAR_EXPIRY_SECONDS else POLL_SECONDS
 
 
-def current():
+def primary():
     global _quote, _attempted, _error, _route, _retry_at, _near_expiry_retried_at
     # Serialize provider access, including concurrent browser, monitor and model requests.
     with _lock:
@@ -87,3 +87,20 @@ def current():
         if not 0 <= age <= 60:
             raise ValueError('Gemeinsamer Spot-Kurs veraltet oder Kurszeit zukünftig')
         return dict(_quote, refreshWarning='Letzter Abruf fehlgeschlagen; gespeicherter Kurs innerhalb 60 Sekunden' if _error else None)
+
+
+def current():
+    """Shared original/standby selection for every generic spot consumer.
+
+    The backup is warmed independently; fallback never starts blocking I/O.
+    Models tied to a specific provider must still validate that identity.
+    """
+    try:
+        return primary()
+    except (OSError, ValueError, KeyError, TypeError):
+        from xaus_spot import peek
+        backup = peek()
+        if backup is None:
+            raise
+        return dict(backup, underlying='XAU/USD', proxyKind='xaus-spot',
+                    backupActive=True, refreshWarning='Hauptquelle nicht verfügbar; geprüfte XAUS-Ersatzquelle')

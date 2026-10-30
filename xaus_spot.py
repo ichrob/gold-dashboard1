@@ -1,4 +1,4 @@
-"""Bounded observed XAUS spot fallback for the independent risk paper study."""
+"""Bounded observed XAUS spot fallback shared across Bob."""
 import math
 import threading
 import time
@@ -60,3 +60,15 @@ def current(fetch_json=None):
         if not _quote or not 0 <= time.time()-datetime.fromisoformat(_quote['at']).timestamp() <= 60:
             return None
         return dict(_quote)
+
+
+def peek():
+    """Read a warm, fresh original observation without I/O or waiting for a fetch."""
+    if not _lock.acquire(blocking=False):
+        return None
+    try:
+        if _quote and 0 <= time.time()-datetime.fromisoformat(_quote['at']).timestamp() <= 60:
+            return dict(_quote)
+        return None
+    finally:
+        _lock.release()

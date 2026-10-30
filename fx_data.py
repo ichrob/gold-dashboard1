@@ -1,12 +1,48 @@
 """Dated FX failover for indicative calculations; never re-date observations."""
 import copy
 import math
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 PRIMARY = 'https://api.exchangerate.dev/'
 BACKUP = 'https://biquote.io/'
 MAX_AGE = 300
+_standby_lock = threading.Lock()
+_standby = None
+_standby_attempted = float('-inf')
+
+
+def warm_backup():
+    """Keep an independent dated FX candidate ready even while primary works."""
+    global _standby, _standby_attempted
+    if not _standby_lock.acquire(blocking=False):
+        return None
+    try:
+        if time.monotonic()-_standby_attempted >= 30:
+            _standby_attempted = time.monotonic()
+            from product_quotes import issuer_json
+            candidate = backup(issuer_json)
+            if (_standby is None or stamp(candidate['data_updated_at']) >=
+                    stamp(_standby['data_updated_at'])):
+                _standby = candidate
+        return copy.deepcopy(_standby)
+    finally:
+        _standby_lock.release()
+
+
+def peek_backup(now=None):
+    if not _standby_lock.acquire(blocking=False):
+        return None
+    try:
+        if _standby and age(_standby, now or datetime.now(timezone.utc)) <= 90:
+            return copy.deepcopy(_standby)
+        return None
+    except (ValueError, KeyError, TypeError, OverflowError):
+        return None
+    finally:
+        _standby_lock.release()
 
 
 def stamp(value):
@@ -79,7 +115,7 @@ def fetch_rates(fetch, previous=None, now=None):
     except (OSError, ValueError, KeyError, TypeError, OverflowError) as exc:
         errors.append('Hauptquelle: '+type(exc).__name__)
     try:
-        alternative = backup(fetch, now)
+        alternative = peek_backup(clock()) or backup(fetch, now)
         candidates.append((age(alternative, clock()), alternative))
     except (OSError, ValueError, KeyError, TypeError, OverflowError) as exc:
         errors.append('Backup: '+str(exc))
