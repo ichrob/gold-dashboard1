@@ -18,6 +18,11 @@ class ProductDetailLauncherTest {
         assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(header).kind)
         assertNull(MorningReadPolicy.resultTapIndex(header,target))
         assertNull(MorningReadPolicy.detailLauncherIndex(header,"DE000FE2JJ20"))
+        val next=MorningReadPolicy.decide(header,"DE000FE2JJ20")
+        assertEquals(MorningReadPolicy.Kind.BACK,next.kind)
+        assertEquals(-1,next.index)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(
+            header+MorningReadPolicy.Node("Order bestätigen"),"DE000FE2JJ20").kind)
         assertNull(MorningReadPolicy.detailLauncherIndex(header,"invalid"))
         assertNull(MorningReadPolicy.detailLauncherIndex(listOf(header[0],header[1],launcher),target))
         assertNull(MorningReadPolicy.detailLauncherIndex(header.filter { it.text!="Übersicht" },target))

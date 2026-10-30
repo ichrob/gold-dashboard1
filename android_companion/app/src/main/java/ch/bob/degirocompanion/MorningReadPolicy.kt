@@ -302,7 +302,15 @@ internal object MorningReadPolicy {
         if (nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
         protection(nodes)?.let { cause ->
             if (cause == "PROTECTED_ORDER_CONFIRM") {
-                if(!discovery && detailLauncherIndex(nodes,target)!=null) return Action(Kind.READ)
+                if(!discovery) {
+                    if(detailLauncherIndex(nodes,target)!=null) return Action(Kind.READ)
+                    // After finishing one item, leave only a separately validated
+                    // product page before searching for the next requested ISIN.
+                    val current=nodes.flatMap { n -> ids.findAll(n.text.uppercase()).map { it.value }.toList() }
+                        .toSet().singleOrNull()
+                    if(current!=null && current!=target && detailLauncherIndex(nodes,current)!=null)
+                        return Action(Kind.BACK)
+                }
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 productSearchWithoutLauncher(nodes)?.let { searchNodes ->
                     val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll)
