@@ -9,16 +9,16 @@ _LOCK = threading.Lock()
 _THREAD = None
 _STATE = {'status': 'disabled', 'evidenceDeleted': False}
 _REQUIRED = ('DATABASE_URL', 'BOB_ARCHIVE_DRIVE_FOLDER_ID',
-             'BOB_ARCHIVE_GOOGLE_AUTHORIZED_USER_JSON')
+             'BOB_ARCHIVE_GOOGLE_AUTHORIZED_USER_JSON', 'BOB_ARCHIVE_RESTORE_DATABASE_URL')
 
 
 def readiness():
     if os.environ.get('BOB_ARCHIVE_ENABLED') != '1':
         return dict(status='disabled', evidenceDeleted=False)
-    required = ('DATABASE_URL', 'BOB_ARCHIVE_PARENT_FOLDER_ID') if os.environ.get('BOB_ARCHIVE_CREDENTIAL_SOURCE') == 'encrypted-store' else _REQUIRED
+    required = ('DATABASE_URL', 'BOB_ARCHIVE_PARENT_FOLDER_ID', 'BOB_ARCHIVE_RESTORE_DATABASE_URL') if os.environ.get('BOB_ARCHIVE_CREDENTIAL_SOURCE') == 'encrypted-store' else _REQUIRED
     missing = [key for key in required if not os.environ.get(key)]
     return dict(status='blocked' if missing else 'ready', missingConfiguration=missing,
-                evidenceDeleted=False, restoreIsolation='session-temporary-tables',
+                evidenceDeleted=False, restoreIsolation='separate-database-instance',
                 additionalPaidServices=False)
 
 
@@ -54,15 +54,15 @@ def cycle(db, runner=None):
             if runner is None:
                 from drive_evidence_archive import run, GoogleDrive
                 def runner():
-                    # Existing internal DATABASE_URL; restore only in pg_temp.
+                    # Source is read-only; restoration requires a different server.
                     dsn = os.environ['DATABASE_URL']
                     if os.environ.get('BOB_ARCHIVE_CREDENTIAL_SOURCE') == 'encrypted-store':
                         from archive_runtime import drive_client
                         drive = drive_client(db)
                     else:
                         drive = GoogleDrive()
-                    return run(dsn, dsn, os.environ.get('BOB_ARCHIVE_WORK_DIRECTORY', '/tmp/bob-archive'),
-                               drive, temporary_session=True)
+                    return run(dsn, os.environ['BOB_ARCHIVE_RESTORE_DATABASE_URL'], os.environ.get('BOB_ARCHIVE_WORK_DIRECTORY', '/tmp/bob-archive'),
+                               drive)
             result = runner()
             if not (result.get('restoreVerified') is True and
                     result.get('remoteDownloadVerified') is True and

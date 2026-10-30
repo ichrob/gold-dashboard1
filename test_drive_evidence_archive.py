@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import drive_evidence_archive as runner
 
 
@@ -24,7 +24,7 @@ class DriveSafety(unittest.TestCase):
             def verify(path,checksum,dsn, **kwargs):
                 if runner.archive.digest(path)!=checksum: raise ValueError('corruption')
                 return {'restoreVerified':True,'deletionPermitted':False}
-            with tempfile.TemporaryDirectory() as d, patch.object(runner.archive,'export',side_effect=export), patch.object(runner.archive,'restore_check',side_effect=verify) as check:
+            with tempfile.TemporaryDirectory() as d, patch.object(runner,'verify_restore_isolation',return_value='separate-database-instance'), patch.object(runner.archive,'export',side_effect=export), patch.object(runner.archive,'restore_check',side_effect=verify) as check:
                 if corrupt:
                     with self.assertRaisesRegex(ValueError,'corruption'): runner.run('source','restore',d,drive)
                     self.assertEqual(len(drive.files),1)
@@ -35,6 +35,34 @@ class DriveSafety(unittest.TestCase):
                     self.assertEqual(len(drive.files),2)
                     self.assertFalse(json.loads(drive.files['1'])['deletionPermitted'])
                 self.assertEqual(check.call_count,2)
+
+    def test_restore_isolation_rejects_same_host_without_connection(self):
+        import psycopg
+        with patch.object(psycopg,'connect') as connect:
+            with self.assertRaises(ValueError):
+                runner.verify_restore_isolation('host=source dbname=live','host=source dbname=test')
+            connect.assert_not_called()
+
+    def test_restore_alias_rejected_and_separate_instance_accepted(self):
+        import psycopg
+        for target_address, expected in [('10.0.0.1',False),('10.0.0.2',True)]:
+            conns=[]
+            for address,name in [('10.0.0.1','live'),(target_address,'test')]:
+                conn=MagicMock();conn.__enter__.return_value=conn
+                conn.execute.return_value.fetchone.return_value=(address,5432,name,False)
+                conns.append(conn)
+            with patch.object(psycopg,'connect',side_effect=conns):
+                if expected:
+                    self.assertEqual(runner.verify_restore_isolation('host=source','host=target'),'separate-database-instance')
+                else:
+                    with self.assertRaises(ValueError):runner.verify_restore_isolation('host=source','host=alias')
+            for conn in conns:
+                conn.execute.assert_any_call('SET TRANSACTION READ ONLY')
+
+    def test_isolation_failure_prevents_export(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(runner,'verify_restore_isolation',side_effect=ValueError('isolation')), patch.object(runner.archive,'export') as export:
+            with self.assertRaisesRegex(ValueError,'isolation'):runner.run('source','restore',d,FakeDrive())
+            export.assert_not_called()
 
     def test_quota_failure_prevents_export(self):
         drive=FakeDrive()
