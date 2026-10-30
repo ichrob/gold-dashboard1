@@ -66,8 +66,10 @@ class ProductReadService : AccessibilityService() {
             if (!getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false)) {
                 PinReadinessProbe.stop("Lesefreigabe beendet. PIN-Test beendet."); return
             }
-            val root = rootInActiveWindow
-            try { PinReadinessProbe.inspect(root) } finally { root?.recycle() }
+            runCatching {
+                val root = rootInActiveWindow
+                try { PinReadinessProbe.inspect(root) } finally { root?.recycle() }
+            }.onFailure { PinReadinessProbe.stop("Ansicht nicht zugänglich. PIN-Test beendet.") }
             if (PinReadinessProbe.running) handler.postDelayed(this, 1000)
         }
     }
