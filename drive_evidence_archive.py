@@ -118,7 +118,7 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
     progress('restore-isolation-check')
     isolation = verify_restore_isolation(source_dsn, restore_dsn)
     progress('export')
-    result = archive.export(source_dsn, path)
+    result = archive.export(source_dsn, path, progress=progress)
     checksum = result['sha256']
     # Check locally before consuming Drive storage, then restore again from Drive.
     progress('local-restore')

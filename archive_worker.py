@@ -27,8 +27,8 @@ def status():
 
 
 def init(conn):
-    # Keep v1 failures/receipts intact; v2 permits one new-format attempt per day.
-    conn.execute('''CREATE TABLE IF NOT EXISTS bob_archive_runs_v2 (
+    # Keep earlier failures/receipts intact; v3 permits one segmented attempt per day.
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_archive_runs_v3 (
         day DATE PRIMARY KEY, status TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         receipt JSONB NOT NULL DEFAULT '{}'::jsonb)''')
 
@@ -46,7 +46,7 @@ def cycle(db, runner=None):
     try:
         day = datetime.now(timezone.utc).date()
         with db() as conn:
-            claimed = conn.execute('''INSERT INTO bob_archive_runs_v2(day,status)
+            claimed = conn.execute('''INSERT INTO bob_archive_runs_v3(day,status)
                 VALUES(%s,'running') ON CONFLICT DO NOTHING RETURNING day''', (day,)).fetchone()
         if not claimed:
             _STATE = dict(status='already-attempted-today', evidenceDeleted=False)
@@ -74,7 +74,7 @@ def cycle(db, runner=None):
             # Never persist/print OAuth responses, DSNs or signed upload URLs.
             _STATE = dict(status='failed', errorType=type(error).__name__, phase=_STATE.get('phase'), evidenceDeleted=False)
         with db() as conn:
-            conn.execute('''UPDATE bob_archive_runs_v2 SET status=%s,updated_at=now(),receipt=%s::jsonb
+            conn.execute('''UPDATE bob_archive_runs_v3 SET status=%s,updated_at=now(),receipt=%s::jsonb
                 WHERE day=%s''', (_STATE['status'], json.dumps(_STATE), day))
         return _STATE
     finally:

@@ -16,7 +16,7 @@ import tempfile
 import zipfile
 from datetime import datetime, timezone
 
-VERSION = 'bob-evidence-archive-v2'
+VERSION = 'bob-evidence-archive-v3'
 # Reviewed evidence only: never OAuth, passkeys, sessions, subscriptions or settings.
 TABLES = frozenset('''bob_spot_observations bob_candle_evidence bob_candle_checkpoints
 bob_comparison_predictions bob_comparison_truths bob_decision_audit bob_decision_outcomes
@@ -38,7 +38,9 @@ bob_degiro_product_audit bob_storage_samples bob_metric_checks
 bob_diagnostic_history bob_real_trades bob_real_trade_events bob_research_enhancements
 bob_research_transcripts bob_research_priorities bob_youtube_feed_archive bob_video_ocr'''.split())
 TYPE = re.compile(r'^(?:text|boolean|smallint|integer|bigint|real|double precision|bytea|json|jsonb|date|uuid|numeric(?:\(\d+(?:,\d+)?\))?|character varying(?:\(\d+\))?|character(?:\(\d+\))?|timestamp(?:\(\d+\))? (?:with|without) time zone|time(?:\(\d+\))? (?:with|without) time zone|interval)(?:\[\])?$')
-MAX_BYTES = 512 * 1024 * 1024
+MAX_BYTES = 512 * 1024 * 1024  # compressed archive / remote download
+MAX_RAW_BYTES = 4 * 1024 * 1024 * 1024  # streamed, never held together
+SEGMENT_BYTES = 32 * 1024 * 1024
 
 
 def selected_tables():
@@ -88,7 +90,7 @@ class ArchiveScratchSpaceInsufficient(ValueError):
     pass
 
 
-def copy_out(conn, query, output, limit):
+def canonical_copy(blocks, output, limit):
     """Canonical COPY bytes with bounded worker-side merge sort, never DB sort."""
     size = rows = 0
     h = hashlib.sha256()
@@ -103,21 +105,20 @@ def copy_out(conn, query, output, limit):
                 os.chmod(path, 0o600)
                 part.writelines(sorted(batch))
             chunks.append(path); batch = []; batch_bytes = 0
-        with conn.cursor().copy(query) as copy:
-            for block in copy:
-                block = bytes(block); size += len(block)
-                if size > limit:
-                    raise ArchiveByteBudgetExceeded('Archive byte budget exceeded; no deletion allowed')
-                data = pending + block
-                lines = data.split(b'\n'); pending = lines.pop()
-                if len(pending) > MAX_ROW_BYTES:
+        for block in blocks:
+            block = bytes(block); size += len(block)
+            if size > limit:
+                raise ArchiveByteBudgetExceeded('Archive byte budget exceeded; no deletion allowed')
+            data = pending + block
+            lines = data.split(b'\n'); pending = lines.pop()
+            if len(pending) > MAX_ROW_BYTES:
+                raise ArchiveRowBudgetExceeded('COPY row exceeds bounded memory budget')
+            for line in lines:
+                if len(line) > MAX_ROW_BYTES:
                     raise ArchiveRowBudgetExceeded('COPY row exceeds bounded memory budget')
-                for line in lines:
-                    if len(line) > MAX_ROW_BYTES:
-                        raise ArchiveRowBudgetExceeded('COPY row exceeds bounded memory budget')
-                    line += b'\n'; rows += 1
-                    batch.append(line); batch_bytes += len(line)
-                    if batch_bytes >= SORT_CHUNK_BYTES: flush()
+                line += b'\n'; rows += 1
+                batch.append(line); batch_bytes += len(line)
+                if batch_bytes >= SORT_CHUNK_BYTES: flush()
         if pending:
             raise ValueError('Incomplete COPY record')
         if batch: flush()
@@ -144,7 +145,45 @@ def copy_out(conn, query, output, limit):
     return dict(bytes=size, rows=rows, sha256=h.hexdigest())
 
 
-def export(dsn, destination, tables=None, schema='public'):
+def copy_out(conn, query, output, limit):
+    with conn.cursor().copy(query) as copy:
+        return canonical_copy(copy, output, limit)
+
+
+def copy_segments(blocks, limit):
+    """Yield one bounded on-disk segment at a time; never split a COPY row."""
+    total = size = 0
+    pending = b''
+    with tempfile.TemporaryFile() as part:
+        for block in blocks:
+            block = bytes(block)
+            total += len(block)
+            if total > limit:
+                raise ArchiveByteBudgetExceeded('Raw snapshot budget exceeded')
+            lines = (pending + block).split(b'\n')
+            pending = lines.pop()
+            if len(pending) > MAX_ROW_BYTES:
+                raise ArchiveRowBudgetExceeded('COPY row exceeds bounded memory budget')
+            for line in lines:
+                if len(line) > MAX_ROW_BYTES:
+                    raise ArchiveRowBudgetExceeded('COPY row exceeds bounded memory budget')
+                row = line + b'\n'
+                if len(row) > SEGMENT_BYTES:
+                    raise ArchiveRowBudgetExceeded('COPY row exceeds segment budget')
+                if size and size + len(row) > SEGMENT_BYTES:
+                    part.seek(0)
+                    yield part
+                    part.seek(0); part.truncate(0); size = 0
+                part.write(row); size += len(row)
+        if pending:
+            raise ValueError('Incomplete COPY record')
+        # Empty tables still have an explicit zero-row member in the manifest.
+        if size or total == 0:
+            part.seek(0)
+            yield part
+
+
+def export(dsn, destination, tables=None, schema='public', progress=None):
     import psycopg
     destination = Path(destination)
     if destination.exists():
@@ -160,7 +199,7 @@ def export(dsn, destination, tables=None, schema='public'):
                         scope='reviewed-evidence-tables-not-full-database-backup',
                         sourceSchema=schema, tables=[], absentTables=[], evidenceDeleted=False,
                         deletionPermitted=False, restoreVerified=False)
-        with psycopg.connect(dsn) as conn, zipfile.ZipFile(stage, 'w', zipfile.ZIP_DEFLATED) as z:
+        with psycopg.connect(dsn) as conn, zipfile.ZipFile(stage, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as z:
             conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
             settings(conn)
             manifest['sourceDatabase'] = conn.info.dbname
@@ -171,7 +210,7 @@ def export(dsn, destination, tables=None, schema='public'):
             manifest['excludedTables'] = sorted(existing-tables)
             if not tables & existing:
                 raise ValueError('No evidence tables found')
-            remaining = MAX_BYTES
+            remaining = MAX_RAW_BYTES
             for table in sorted(tables & existing):
                 columns = conn.execute('''SELECT a.attname,format_type(a.atttypid,a.atttypmod)
                     FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
@@ -180,12 +219,21 @@ def export(dsn, destination, tables=None, schema='public'):
                     ORDER BY a.attnum''', (schema, table)).fetchall()
                 if not columns or any(not TYPE.fullmatch(t) for _,t in columns):
                     raise ValueError('Unsupported column type; export stopped without deleting data')
-                filename = str(len(manifest['tables'])) + '.copy'
-                with z.open(filename, 'w') as out:
-                    proof = copy_out(conn, copy_query(schema, table, [c[0] for c in columns]), out, remaining)
-                remaining -= proof['bytes']
-                manifest['tables'].append(dict(name=table, columns=columns, file=filename, **proof))
+                query = copy_query(schema, table, [c[0] for c in columns])
+                with conn.cursor().copy(query) as copy:
+                    for segment, part in enumerate(copy_segments(copy, remaining)):
+                        filename = str(len(manifest['tables'])) + '.copy'
+                        with z.open(filename, 'w') as out:
+                            proof = canonical_copy(iter(lambda: part.read(1024*1024), b''), out, SEGMENT_BYTES)
+                        remaining -= proof['bytes']
+                        manifest['tables'].append(dict(name=table, segment=segment, columns=columns, file=filename, **proof))
+                        if stage.stat().st_size > MAX_BYTES:
+                            raise ArchiveByteBudgetExceeded('Compressed archive budget exceeded')
+                        if progress:
+                            progress('export-' + str((MAX_RAW_BYTES-remaining)//(1024*1024)) + '-MiB')
             z.writestr('manifest.json', json.dumps(manifest, sort_keys=True))
+        if stage.stat().st_size > MAX_BYTES:
+            raise ArchiveByteBudgetExceeded('Compressed archive budget exceeded')
         # Hard link is atomic and fails if another process created destination.
         os.chmod(stage, 0o600)
         os.link(stage, destination)
@@ -197,11 +245,15 @@ def restore_check(archive, expected_sha256, restore_dsn, *, temporary_session=Fa
     from psycopg import sql
     if digest(archive) != expected_sha256:
         raise ValueError('Archive checksum mismatch')
+    if Path(archive).stat().st_size > MAX_BYTES:
+        raise ArchiveByteBudgetExceeded('Compressed archive budget exceeded')
     with zipfile.ZipFile(archive) as z:
         if len(z.namelist()) != len(set(z.namelist())):
             raise ValueError('Duplicate archive members')
-        if sum(i.file_size for i in z.infolist()) > MAX_BYTES + 2*1024*1024:
+        if sum(i.file_size for i in z.infolist()) > MAX_RAW_BYTES + 2*1024*1024:
             raise ValueError('Archive expands beyond byte budget')
+        if z.getinfo('manifest.json').file_size > 2*1024*1024:
+            raise ValueError('Manifest too large')
         manifest = json.loads(z.read('manifest.json'))
         if manifest.get('version') != VERSION or not manifest.get('tables'):
             raise ValueError('Invalid archive manifest')
@@ -210,11 +262,13 @@ def restore_check(archive, expected_sha256, restore_dsn, *, temporary_session=Fa
                 raise ValueError('Matching PostgreSQL major version required')
             if conn.info.dbname == manifest['sourceDatabase'] and not temporary_session:
                 raise ValueError('Restore requires a separately named isolated test database')
-            settings(conn)
-            # Only this session's temporary namespace can receive restored rows.
-            # Restore one table at a time, dropping its scratch copy immediately.
-            conn.execute("SET LOCAL search_path = pg_temp, pg_catalog")
+            # Roll back each bounded segment to release its temporary relation
+            # before the next, including PostgreSQL pending-delete disk files.
             for i, item in enumerate(manifest['tables']):
+                settings(conn)
+                conn.execute("SET LOCAL search_path = pg_temp, pg_catalog")
+                if z.getinfo(item['file']).file_size > SEGMENT_BYTES:
+                    raise ArchiveByteBudgetExceeded('Restore segment too large')
                 if item['file'] != f'{i}.copy' or any(not TYPE.fullmatch(t) for _, t in item['columns']):
                     raise ValueError('Unsafe archive schema')
                 name = 'bob_archive_restore_' + str(i)
@@ -227,13 +281,12 @@ def restore_check(archive, expected_sha256, restore_dsn, *, temporary_session=Fa
                 if (size, rows, h.hexdigest()) != (item['bytes'], item['rows'], item['sha256']):
                     raise ValueError('Table checksum or count mismatch')
                 with open(os.devnull, 'wb') as sink:
-                    restored = copy_out(conn, copy_query('pg_temp', name, [c[0] for c in item['columns']]), sink, MAX_BYTES)
+                    restored = copy_out(conn, copy_query('pg_temp', name, [c[0] for c in item['columns']]), sink, SEGMENT_BYTES)
                 if restored != {k:item[k] for k in ('bytes','rows','sha256')}:
                     raise ValueError('Restored PostgreSQL values differ from original export')
-                conn.execute(sql.SQL('DROP TABLE {}.{}').format(sql.Identifier('pg_temp'), sql.Identifier(name)))
-            conn.rollback()  # No permanent objects even in the isolated database.
+                conn.rollback()  # Release all objects and disk for this segment.
     return dict(version=VERSION, archiveSha256=expected_sha256, restoreVerified=True,
-                verifiedAt=datetime.now(timezone.utc).isoformat(), tables=len(manifest['tables']),
+                verifiedAt=datetime.now(timezone.utc).isoformat(), tables=len({t['name'] for t in manifest['tables']}), segments=len(manifest['tables']),
                 restoreIsolation='session-temporary-tables' if temporary_session else 'separate-database',
                 rows=sum(t['rows'] for t in manifest['tables']), evidenceDeleted=False,
                 deletionPermitted=False, scope=manifest['scope'])

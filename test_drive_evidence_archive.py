@@ -18,7 +18,7 @@ class DriveSafety(unittest.TestCase):
     def test_restore_download_is_mandatory_for_receipt(self):
         for corrupt in (False, True):
             drive=FakeDrive(corrupt)
-            def export(dsn,path):
+            def export(dsn,path, **kwargs):
                 Path(path).write_bytes(b'original')
                 return {'sha256':runner.archive.digest(path),'databaseBytes':600_000_000}
             def verify(path,checksum,dsn, **kwargs):

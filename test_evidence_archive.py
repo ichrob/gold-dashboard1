@@ -13,6 +13,20 @@ import evidence_archive as archive
 
 
 class ArchiveSafety(unittest.TestCase):
+    def test_segments_preserve_every_record_and_do_not_split_rows(self):
+        raw = b'bbb\na\ncc\ncc\n\n'
+        with patch.object(archive, 'SEGMENT_BYTES', 6):
+            parts = [part.read() for part in archive.copy_segments(
+                [raw[i:i+1] for i in range(len(raw))], len(raw))]
+        self.assertEqual(b''.join(parts), raw)
+        self.assertTrue(all(len(part) <= 6 and part.endswith(b'\n') for part in parts))
+        self.assertEqual([p.read() for p in archive.copy_segments([], 0)], [b''])
+        with self.assertRaises(archive.ArchiveByteBudgetExceeded):
+            list(archive.copy_segments([raw], len(raw)-1))
+        with patch.object(archive, 'SEGMENT_BYTES', 2):
+            with self.assertRaises(archive.ArchiveRowBudgetExceeded):
+                list(archive.copy_segments([b'big\n'], 4))
+
     def copied(self, blocks, limit=10000):
         class Copy:
             def __enter__(self): return iter(blocks)
@@ -117,6 +131,16 @@ class ArchivePostgres(unittest.TestCase):
                 receipt = archive.restore_check(downloaded, archive.digest(downloaded), dsn)
                 self.assertTrue(receipt['restoreVerified'])
                 self.assertFalse(receipt['deletionPermitted'])
+                # Force the real COPY/restore path through several segments.
+                segmented = Path(d)/'segmented.zip'
+                with patch.object(archive, 'SEGMENT_BYTES', 256):
+                    split_proof = archive.export(dsn, segmented, {'original'}, schema)
+                    self.assertGreater(len(split_proof['tables']), 1)
+                    self.assertEqual(sum(t['rows'] for t in split_proof['tables']), 6)
+                    split_receipt = archive.restore_check(segmented, split_proof['sha256'], dsn, temporary_session=True)
+                    self.assertEqual(split_receipt['tables'], 1)
+                    self.assertEqual(split_receipt['rows'], 6)
+                    self.assertEqual(split_receipt['segments'], len(split_proof['tables']))
                 with psycopg.connect(dsn) as conn:
                     self.assertEqual(conn.execute(sql.SQL('SELECT count(*) FROM {}.original').format(sql.Identifier(schema))).fetchone()[0], 6)
                 with self.assertRaisesRegex(ValueError,'overwrite'):
