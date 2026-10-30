@@ -34,6 +34,7 @@ import bob_auth
 import bob_mcp
 import bob_diagnostics
 import bob_oauth
+import archive_connect_web
 import bob_recovery
 import bob_self_healing
 import bob_problems
@@ -1255,6 +1256,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if __import__('android_telemetry_http').route(self,'GET',urlparse(self.path).path,android_diagnostic_rpc):return
+        if archive_connect_web.route(self, USER, PASSWORD):
+            return
         if bob_oauth.route(self, USER, PASSWORD):
             return
         if bob_passkey.route(self, USER, PASSWORD):
@@ -2030,6 +2033,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if __import__('android_telemetry_http').route(self,'POST',urlparse(self.path).path,android_diagnostic_rpc):return
+        if archive_connect_web.route(self, USER, PASSWORD):
+            return
         if bob_oauth.route(self, USER, PASSWORD):
             return
         if bob_passkey.route(self, USER, PASSWORD):

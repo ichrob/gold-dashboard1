@@ -2,6 +2,7 @@ import candle_reliability
 import bob_passkey_store
 import snaptrade_settings
 import bob_oauth_store
+import archive_connection
 import base64
 import atexit
 import json
@@ -1341,6 +1342,19 @@ class Handler(BaseHTTPRequestHandler):
                     result = snaptrade_settings.handle(conn, path.rsplit('/', 1)[-1], payload)
                     conn.commit()
                 send_json(self, 200, result); return
+            if path.startswith('/archive-connection/'):
+                supplied = self.headers.get('X-Bob-Push-Token', '')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {'error': 'Unauthorized'}); return
+                try:
+                    payload = json_body(self)
+                    with db(auth=True) as conn:
+                        result = archive_connection.handle(conn, path.rsplit('/', 1)[-1], payload)
+                        conn.commit()
+                    send_json(self, 200, result)
+                except Exception:
+                    send_json(self, 400, {'error': 'connection_failed'})
+                return
             if path.startswith('/auth-oauth/'):
                 supplied = self.headers.get('X-Bob-Push-Token', '')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
