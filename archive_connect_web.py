@@ -38,11 +38,11 @@ def rpc(action, headers, **fields):
     return json.loads(raw)
 
 
-def page(handler, body):
+def page(handler, body, *, referrer_policy="no-referrer"):
     data = bob_oauth.page('Bob mit Google Drive verbinden', body).encode()
     handler.send_response(200)
     for key, value in {'Content-Type':'text/html; charset=utf-8', 'Cache-Control':'no-store',
-        'Referrer-Policy':'no-referrer', 'X-Frame-Options':'DENY', 'X-Content-Type-Options':'nosniff',
+        'Referrer-Policy':referrer_policy, 'X-Frame-Options':'DENY', 'X-Content-Type-Options':'nosniff',
         'Content-Security-Policy':"default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
         'Content-Length':str(len(data))}.items():
         handler.send_header(key,value)
@@ -91,7 +91,8 @@ def route(handler, user, password):
                     body+='<p>2. Die heruntergeladene Web-Client-JSON direkt an Bob übertragen. Sie wird verschlüsselt gespeichert.</p><form id="upload"><input type="file" id="file" required><input type="hidden" id="csrf" value="'+csrf(handler.headers)+'"><button>Datei sicher speichern</button></form><p id="message" role="status"></p><script src="/archive/connect/upload.js" defer></script>'
                 else:
                     body+='<p>Web-Client gespeichert. Google erlaubt Bob nur Zugriff auf mit dieser App erstellte oder ausdrücklich ausgewählte Dateien. Wähle dein Archiv-Konto.</p><form method="post" action="/archive/connect/begin"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'"><button>Bei Google freigeben</button></form>'
-            page(handler,body+'<p><a href="/">Zurück zu Bob</a></p>')
+            # Same-origin form POST needs a non-null Origin; callback pages stay no-referrer.
+            page(handler,body+'<p><a href="/">Zurück zu Bob</a></p>', referrer_policy='same-origin')
         elif handler.command == 'GET' and path == PATH+'/finish':
             if len(handler.path)>8192:
                 raise ValueError('Oversized callback')
