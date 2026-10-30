@@ -56,6 +56,23 @@ class ProductReadService : AccessibilityService() {
     private val remoteSearchProgress = SearchClickProgress()
     private val automaticSearchProgress = SearchClickProgress()
     private val handler = Handler(Looper.getMainLooper())
+    private val pinProbeTick = object : Runnable {
+        override fun run() {
+            if (!PinReadinessProbe.active()) return
+            if (!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive ||
+                (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) {
+                PinReadinessProbe.stop("Bildschirm gesperrt. PIN-Test beendet."); return
+            }
+            if (!getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false)) {
+                PinReadinessProbe.stop("Lesefreigabe beendet. PIN-Test beendet."); return
+            }
+            runCatching {
+                val root = rootInActiveWindow
+                try { PinReadinessProbe.inspect(root) } finally { root?.recycle() }
+            }.onFailure { PinReadinessProbe.stop("Ansicht nicht zugänglich. PIN-Test beendet.") }
+            if (PinReadinessProbe.running) handler.postDelayed(this, 1000)
+        }
+    }
     private var screenReceiverRegistered = false
     private val screenOff = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -63,6 +80,7 @@ class ProductReadService : AccessibilityService() {
                 handler.postDelayed({ runCatching { MorningReadTransfer.automaticResults(this@ProductReadService) } },1000)
                 return
             }
+            if(intent?.action==Intent.ACTION_SCREEN_OFF && PinReadinessProbe.running) PinReadinessProbe.stop("Bildschirm ausgeschaltet. PIN-Test beendet.")
             if(intent?.action==Intent.ACTION_SCREEN_OFF)PhoneRemote.stop(this@ProductReadService,"SCREEN_LOCKED")
             if (intent?.action != Intent.ACTION_SCREEN_OFF || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return
             MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
@@ -124,9 +142,11 @@ class ProductReadService : AccessibilityService() {
         }
     }
     private val callback = object : AccessibilityButtonController.AccessibilityButtonCallback() {
-        override fun onClicked(controller: AccessibilityButtonController) { readOnce() }
+        override fun onClicked(controller: AccessibilityButtonController) { if(!PinReadinessProbe.running) readOnce() }
     }
     override fun onServiceConnected() {
+        PinReadinessProbe.onStop = { handler.removeCallbacks(pinProbeTick) }
+        PinReadinessProbe.onStart = { handler.removeCallbacks(pinProbeTick); handler.postDelayed(pinProbeTick, 700) }
         PhoneRemote.reader={command -> remoteRead(command)}
         MorningListDelivery.onConfirmed={ ids, batch ->
             if(ids.isNotEmpty() && PhoneRemote.active()) {
@@ -135,6 +155,7 @@ class ProductReadService : AccessibilityService() {
             } else PhoneRemote.stop(this,"COMPLETE")
         }
         PhoneRemote.onStop={ code ->
+            if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
             MorningListDelivery.cancel()
             remoteSearchProgress.clear(); automaticSearchProgress.clear(); clearWrittenSearch()
             GoldSearchRun.stop(code,Instant.now().toString())
@@ -190,6 +211,7 @@ class ProductReadService : AccessibilityService() {
             PhoneDiagnostics.queue(this)
         }
         ProductReadRequest.onStarted = {
+            if(PinReadinessProbe.running) PinReadinessProbe.stop("Produktprüfung gestartet. PIN-Test beendet.")
             resetListCapture()
             clearWrittenSearch()
             searchTapAttempted = false
@@ -215,6 +237,13 @@ class ProductReadService : AccessibilityService() {
     }
     // Only package/type metadata is used. Never read or retain event text.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (PinReadinessProbe.running) {
+            if (event?.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED &&
+                event.packageName?.toString() == ProductScreenEvidence.PACKAGE) {
+                PinReadinessProbe.stop("Eingabeänderung erkannt. PIN-Test beendet; kein Eingabetext gelesen.")
+            }
+            return
+        }
         if(PhoneRemote.active() && event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
             val foreground=productRoot(false)
             val touchesProduct=foreground?.packageName?.toString()==ProductScreenEvidence.PACKAGE
@@ -243,8 +272,8 @@ class ProductReadService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         queueRead(400)
     }
-    override fun onInterrupt() { PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
-    override fun onDestroy() { MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
+    override fun onInterrupt() { if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet."); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
+    override fun onDestroy() { if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.");PinReadinessProbe.onStart=null;PinReadinessProbe.onStop=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
@@ -1058,4 +1087,5 @@ class ProductReadService : AccessibilityService() {
         } finally { nodes.forEach { it.recycle() } }
     }
 }
+
 

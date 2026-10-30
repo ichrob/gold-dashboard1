@@ -41,6 +41,7 @@ class ProductReadActivity : Activity() {
         primary=Button(this).apply { text="Start";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
         container.addView(primary)
         button("Prüfung stoppen") {
+            if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
             PhoneRemote.stop(this,"USER_STOP")
             GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
             MorningReadRun.stop(this,"USER_STOP")
@@ -56,6 +57,22 @@ class ProductReadActivity : Activity() {
         }
         container.addView(advanced)
         container=advanced
+        button("PIN-Anmeldeseite technisch prüfen · ohne PIN") {
+            runCatching {
+                check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
+                check(!PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime())) { "Laufende Produktprüfung zuerst stoppen." }
+                val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+                PinReadinessProbe.start()
+                startActivity(launch)
+            }.onFailure {
+                if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test konnte nicht gestartet werden.")
+                result.text = it.message
+            }
+        }
+        container.addView(TextView(this).apply {
+            text = "PIN-Test: DEGIRO wird geöffnet. Dort gegebenenfalls selbst auf PIN-Anmeldung wechseln, aber keine PIN eingeben. Nach wenigen Sekunden zu Bob zurückkehren: Das Ergebnis steht hier. Es werden nur technische Feldmerkmale geprüft, keine Texte, PINs oder Bilder gelesen/gespeichert/übertragen. Maximal 30 Sekunden; keine Klicks oder Eingaben durch Bob. Ein erkennbares Feld beweist noch keine funktionierende Anmeldung."
+        })
+        container.addView(TextView(this).apply { tag = "pin_probe_status"; text = PinReadinessProbe.message; textSize = 17f })
         button("Automatische Diagnose verbinden / Freigabe öffnen") {
             AlertDialog.Builder(this).setTitle("Automatische Diagnose freigeben")
                 .setMessage("Bob Handy darf App-Version, Dienststatus und feste Fehlercodes direkt an deinen privaten Bob senden. Keine Bildschirmtexte, Kontowerte oder Zugangsdaten. Keine Fernsteuerung. Freigabe anschließend im angemeldeten Browser bestätigen. Android-Hintergrundmeldungen können verzögert eintreffen. Jederzeit hier abschaltbar.")
@@ -160,7 +177,7 @@ class ProductReadActivity : Activity() {
         setContentView(ScrollView(this).apply { addView(stack) })
     }
     override fun onResume() {
-        super.onResume();PhoneDiagnostics.queue(this);refresh();statusHandler.post(statusTick)
+        super.onResume();if(PinReadinessProbe.running) PinReadinessProbe.stop("Prüfung beendet. " + PinReadinessProbe.message);PhoneDiagnostics.queue(this);refresh();statusHandler.post(statusTick)
     }
     override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
     /** One explicit start authorizes the bounded local test and its remote observation. */
@@ -213,6 +230,7 @@ class ProductReadActivity : Activity() {
                 it.resolveInfo.serviceInfo.name == ProductReadService::class.java.name }
     }
     private fun refresh() {
+        window.decorView.findViewWithTag<TextView>("pin_probe_status")?.text = PinReadinessProbe.message
         displayedRequestActive = ProductReadRequest.active(SystemClock.elapsedRealtime())
         val value = ProductReadSession.get(SystemClock.elapsedRealtime())
         primary.text=if(PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running) "Test läuft · DEGIRO öffnen" else "Start"
@@ -230,3 +248,4 @@ class ProductReadActivity : Activity() {
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }
 }
+
