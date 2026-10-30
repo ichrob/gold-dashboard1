@@ -80,4 +80,47 @@ class ProductDetailLauncherTest {
         assertEquals(ProductScreenEvidence.Reason.LOGIN_OR_ORDER,ProductScreenEvidence.read(
             ProductScreenEvidence.PACKAGE,MorningReadPolicy.detailReadLines(header,changed,target),at).reason)
     }
+    @Test fun footerRequiresExistingAnchorAndKeepsEveryProtection() {
+        val footers=listOf(listOf("Übersicht", "Notizen", "Notiz hinzufügen", target),
+            listOf("Übersicht", "Kontaktdaten", "Website", "E-Mail", "Telefon"))
+        for(labels in footers) {
+            val nodes=labels.map { MorningReadPolicy.Node(it) }+launcher
+            assertNull(MorningReadPolicy.detailLauncherIndex(nodes,target))
+            assertNotNull(MorningReadPolicy.detailLauncherIndex(nodes,target,true))
+            assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(nodes,target).kind)
+            for(extra in listOf(MorningReadPolicy.Node("Order bestätigen"),
+                MorningReadPolicy.Node("Limitpreis"),MorningReadPolicy.Node("quantity"),
+                MorningReadPolicy.Node("",editable=true),MorningReadPolicy.Node("",password=true),
+                MorningReadPolicy.Node("",sensitive=true),MorningReadPolicy.Node("DE000FE2JJ20"))) {
+                val unsafe=nodes+extra
+                assertNull(MorningReadPolicy.detailLauncherIndex(unsafe,target,true))
+                val raw=lines(unsafe)
+                assertSame(raw,MorningReadPolicy.detailReadLines(unsafe,raw,target,true))
+            }
+        }
+        assertFalse(MorningReadPolicy.detailFooter(listOf("Notizen")))
+        assertFalse(MorningReadPolicy.detailFooter(listOf("Kontaktdaten","Website")))
+    }
+    @Test fun anchoredFooterReturnsWithoutInventingQuotesAndRechecksIdentity() {
+        val at="2026-10-30T08:00:00Z"
+        val top=MorningReadPolicy.detailReadLines(header,lines(header),target)
+        val footer=listOf("Übersicht","Kontaktdaten","Website","E-Mail","Telefon")
+            .map { MorningReadPolicy.Node(it) }+launcher
+        val reader=ProductPageReader()
+        assertEquals(ProductPageReader.Move.FORWARD,reader.inspect(1,top,at,false,true,true).move)
+        val end=MorningReadPolicy.detailReadLines(footer,lines(footer),target,reader.sameWindow(1))
+        val back=reader.inspect(1,end,at,false,true,true)
+        assertEquals(ProductPageReader.Move.BACKWARD,back.move)
+        assertEquals("",back.result.draft)
+        val done=reader.inspect(1,top,at,false,true,true)
+        assertEquals(ProductPageReader.Cause.NO_QUOTES,done.cause)
+        assertEquals("",done.result.draft)
+        // An interrupted or changed window cannot inherit the footer exception.
+        assertFalse(reader.sameWindow(1))
+        reader.inspect(1,top,at,false,true,true)
+        assertFalse(reader.sameWindow(2))
+        assertEquals(ProductPageReader.Cause.IDENTITY_CHANGED,
+            reader.inspect(2,end,at,false,true,true).cause)
+    }
+
 }

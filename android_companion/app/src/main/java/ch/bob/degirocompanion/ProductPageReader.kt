@@ -72,6 +72,9 @@ internal class ProductPageReader {
             anchorParameters = QuoteLayout.productParameters(lines)
         }
         if (windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)) return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
+        // Informational footers contain no additional quote evidence. Preserve the
+        // candidate and return to the original identity within this transaction.
+        if (MorningReadPolicy.detailFooter(lines.map { it.text })) returning = true
         if (returning) {
             if (ids.singleOrNull() == isin) {
                 // Read compact parameters only after the original ISIN has been

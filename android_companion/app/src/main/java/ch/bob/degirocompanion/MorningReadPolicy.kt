@@ -105,6 +105,12 @@ internal object MorningReadPolicy {
     }
     /** Only an isolated global launcher beside an identified read-only product.
      * This grants READ only; it never returns a click/search/submit target. */
+    /** Exact informational footer groups; never sufficient to start a read. */
+    fun detailFooter(texts: List<String>): Boolean {
+        val labels=texts.map { normalized(it).lowercase() }.toSet()
+        return labels.containsAll(setOf("notizen", "notiz hinzufügen")) ||
+            labels.containsAll(setOf("kontaktdaten", "website", "e-mail", "telefon"))
+    }
     fun detailLauncherIndex(nodes: List<Node>, target: String, anchored: Boolean = false): Int? {
         if(nodes.size>500 || !SeriesEvidence.validIsin(target) ||
             nodes.any { it.editable || it.containsInput || it.password || it.sensitive }) return null
@@ -135,11 +141,13 @@ internal object MorningReadPolicy {
                 ids.findAll(n.row.uppercase()).map { it.value }.toSet().let { it.isEmpty() || it==setOf(target) }
         }
         // A missing header is allowed only during an already anchored same-window
-        // scroll transaction, with explicit quote-section labels still present.
+        // transaction, with quote labels or an exact informational footer group.
         val quoteSection=cleaned.any { normalized(it.text).equals("Kursdaten",true) }
         fun label(name:String)=cleaned.any { Regex("(?iu)^$name(?:\\s|[:：]|$)").containsMatchIn(normalized(it.text)) }
         val quotes=quoteSection && label("Geld") && label("Brief")
-        return index.takeIf { (seen==setOf(target) && (productTitle || quotes)) || (anchored && seen.isEmpty() && quotes) }
+        val footer=detailFooter(cleaned.map { it.text })
+        return index.takeIf { (seen==setOf(target) && (productTitle || quotes)) ||
+            (anchored && (seen.isEmpty() || seen==setOf(target)) && (quotes || footer)) }
     }
     fun detailReadLines(nodes: List<Node>, lines: List<QuoteLayout.Line>, target: String,
                         anchored: Boolean = false): List<QuoteLayout.Line> {
