@@ -53,6 +53,8 @@ class ProductReadService : AccessibilityService() {
     private var lastNavigation = 0L
     private var lastNavigationIssue = ""
     private val pageReader = ProductPageReader()
+    private var batchReadWindow: Int? = null
+    private var batchResultOpened = false
     private val remoteSearchProgress = SearchClickProgress()
     private val automaticSearchProgress = SearchClickProgress()
     private val handler = Handler(Looper.getMainLooper())
@@ -226,6 +228,8 @@ class ProductReadService : AccessibilityService() {
             PhoneDiagnostics.queue(this)
         }
         ProductReadRequest.onStarted = {
+            batchReadWindow = null
+            batchResultOpened = false
             if(PinReadinessProbe.running) PinReadinessProbe.stop("Produktprüfung gestartet. PIN-Test beendet.")
             resetListCapture()
             clearWrittenSearch()
@@ -460,11 +464,14 @@ class ProductReadService : AccessibilityService() {
                         val ids=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n"){it.text.uppercase()}).map{it.value}.toSet()
                         if(ids.isNotEmpty() && ids!=setOf(MorningReadRun.target)) { finishBatchProduct("IDENTITY_CHANGED");return }
                     }
+                    val previousReadWindow = pageReader.sameWindow(root.windowId)
                     val step = pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
                         forwardIndex != null, backwardIndex != null,
                         scrollAmbiguous = capabilities.size > 1 && surface == null,
                         requireParameters = MorningReadRun.running, identityHint = identityHint,
                         allowSymbolProbe = MorningReadRun.importedListRun())
+                    batchReadWindow = if (!sensitive && (previousReadWindow || pageReader.sameWindow(root.windowId)) &&
+                        step.cause !in setOf(ProductPageReader.Cause.UNSAFE_VIEW, ProductPageReader.Cause.IDENTITY_CHANGED)) root.windowId else null
                     ProductReadDiagnostics.page(step.cause)
                     ProductReadDiagnostics.rejected(step.result.reason)
                     when (step.move) {
@@ -521,7 +528,21 @@ class ProductReadService : AccessibilityService() {
     private fun finishBatchProduct(code: String, draft: String = "") {
         if (!MorningReadRun.running) return
         runCatching {
+            val priorTarget=MorningReadRun.target
+            val priorWindow=batchReadWindow
             val more=MorningReadRun.outcome(this,code,draft)
+            if (more) {
+                val root=productRoot(record=false)
+                if (root!=null) {
+                    val refs=mutableListOf<AccessibilityNodeInfo>()
+                    val view=mutableListOf<MorningReadPolicy.Node>()
+                    try {
+                        navigationTree(root,refs,view)
+                        if (MorningReadPolicy.returnAfterRead(view,priorTarget,root.windowId,priorWindow,code))
+                            performGlobalAction(GLOBAL_ACTION_BACK)
+                    } finally { refs.forEach { it.recycle() };root.recycle() }
+                }
+            }
             batchTransition=true
             try { ProductReadRequest.cancel() } finally { batchTransition=false }
             if(more) {
@@ -642,7 +663,7 @@ class ProductReadService : AccessibilityService() {
             val restoring=MorningReadPolicy.detailSearchRestore(descriptions,MorningReadRun.importedListRun())
             val proposed=if(actionName=="inspect" && detailLauncher!=null) MorningReadPolicy.Action(MorningReadPolicy.Kind.READ)
                 else if(actionName=="inspect" && restoring!=null) restoring
-                else if(actionName=="inspect" && MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible()) { symbolMemory.getString(it,null) }
+                else if(actionName=="inspect" && MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) { symbolMemory.getString(it,null) }
                 else if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
                 else if(((GoldSearchRun.running && listImages.length()>0 && root.windowId==listWindowId) || MorningListDelivery.waiting) && actionName=="inspect")
                     MorningReadPolicy.captureGoldList(descriptions,true)
@@ -1006,7 +1027,7 @@ class ProductReadService : AccessibilityService() {
                     return true
                 }
             }
-            val proposed=if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible()) {
+            val proposed=if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) {
                 symbolMemory.getString(it, null)
             }
             val action=automaticSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
@@ -1032,7 +1053,7 @@ class ProductReadService : AccessibilityService() {
                 val tapped=tapRecognizedSearch(root.windowId,productResult=true)
                 val code=if(tapped) "RESULT_TAP_SENT" else "RESULT_TAP_REJECTED"
                 record(code);lastNavigationIssue=code
-                if(tapped)return true
+                if(tapped) { batchResultOpened=true;return true }
             }
             when(action.kind) {
                 MorningReadPolicy.Kind.BLOCK -> {
@@ -1087,6 +1108,7 @@ class ProductReadService : AccessibilityService() {
                     else if(action.kind==MorningReadPolicy.Kind.CATEGORY_SCROLL) scrollCategories(node)
                     else if(action.kind==MorningReadPolicy.Kind.CATEGORY) tapRecognizedSearch(root.windowId,category=true)
                     else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if(success && action.kind==MorningReadPolicy.Kind.RESULT) batchResultOpened=true
                     if(success && action.kind==MorningReadPolicy.Kind.CATEGORY) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CATEGORY_CLICK_SENT)
                     if(success && action.kind==MorningReadPolicy.Kind.CATEGORY_SCROLL) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CATEGORY_SCROLL_SENT)
                     if(success && action.kind==MorningReadPolicy.Kind.QUERY)
