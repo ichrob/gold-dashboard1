@@ -26,7 +26,8 @@ internal class LocalLoginDialogs {
     private val queries = listOf("PassCode", "TouchID", "Face/Touch ID",
         "Abbrechen", "Cancel", "Schließen", "Bestätigen", "DEGIRO", "Fingerabdruck", "fingerprint",
         "Märkte", "News", "Terminkalender", "Favoriten", "Portfolio",
-        "Mit Namen, ISIN oder Symbol suchen")
+        "Mit Namen, ISIN oder Symbol suchen",
+        "Haben Sie Ihren Code vergessen?", "Forgot your passcode?", "Forgot your code?")
     private fun bounds(n: AccessibilityNodeInfo) = Rect().also { n.getBoundsInScreen(it) }
     private fun safe(n: AccessibilityNodeInfo, pkg: String, window: Int) = n.isVisibleToUser &&
         n.packageName?.toString() == pkg && n.windowId == window && !n.isPassword && !n.isEditable &&
