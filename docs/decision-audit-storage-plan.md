@@ -116,3 +116,36 @@ reading stored JSON/TOAST. If it reaches the cap the count is explicitly a
 independently of the age-cohort profile. In particular, this can identify
 stale `pg_stat` row estimates without a costly unbounded JSON scan.
 Even a precise row count would not establish how much TOAST is reusable.
+
+## Compatible read-through foundation (writer still disabled)
+
+The optional `cold_decision_products.resolve(conn, decision_id, payload)`
+returns every inline original unchanged, with no network or ledger lookup.
+For any future `_bobColdDecisionProductsV1` pointer it requires a stored
+content hash matching the exact decision ID in a read-only reference ledger,
+and a separate object ledger with the Drive file ID, immutable SHA-256, and
+chunk index. The shared chunk is downloaded using the existing checksummed
+bounded cold-metric reader and verified against the original JSON products
+hash before deep-copying the array into the unchanged report shape.
+Absent ledgers/chunks, mismatched decision identity, invalid checksums,
+ambiguous inline-plus-pointer records and corrupted content must all raise
+an explicit incomplete-report error. Never substitute [] or a reconstructed
+price. Read paths touched: current audit report, historical dated pages,
+first-signal history, prospective review and private bounded diagnostics.
+
+The ledger table names are reserved as
+`bob_cold_decision_product_refs(decision_id,content_hash)` and
+`bob_cold_decision_product_objects(content_hash,file_id,sha256,row_index)`;
+this foundation creates **neither** table, writes **no** pointers, and
+performs **no** upload, retention or compaction. A future writer requires
+separate SQL migrations plus a two-service reader-then-writer rollout;
+it must preserve immutable original decision IDs, SQL-dependent inline
+fields, exact product list sequence and all numeric/time values, with CAS
+and verified restore after restart. Historical reports must fail explicitly
+if the Drive archive is unavailable.
+
+Before enabling a writer, enumerate any remaining direct SQL JSON readers
+and record a before/after regression for query predicates, trading-independent
+decision replay, product comparisons, private diagnostic scope, archive
+corruption, and independent volume measurement. No authorization to enable
+the writer is implied by compatible readers.
