@@ -34,6 +34,7 @@ internal class LoginDialogBudget {
     var waiting: LoginDialogPolicy.Kind? = null
         private set
     private var sentAt = 0L
+    private var actionAccepted = false
     fun stable(value: String, now: Long): Boolean {
         if (signature != value) { signature = value; since = now; samples = 1; return false }
         return ++samples >= 3 && now - since >= 2_000
@@ -41,10 +42,17 @@ internal class LoginDialogBudget {
     fun resetObservation() { signature = null; samples = 0 }
     fun reserve(kind: LoginDialogPolicy.Kind, now: Long): Boolean {
         if (waiting != null || !used.add(kind)) return false
-        waiting = kind; sentAt = now; resetObservation(); return true
+        waiting = kind; sentAt = now; actionAccepted = false; resetObservation(); return true
     }
+    fun accepted(kind: LoginDialogPolicy.Kind) {
+        if (waiting == kind) actionAccepted = true
+    }
+    // Wait without reading labels or acting on an unknown owner during the native
+    // fingerprint dismissal. Reservation alone never grants this grace period.
+    fun awaitingFingerprintReturn(now: Long, afterEntry: Boolean) = !afterEntry &&
+        waiting == LoginDialogPolicy.Kind.FINGERPRINT && actionAccepted && now - sentAt in 0L until 3_000L
     fun expired(now: Long) = waiting != null && now - sentAt >= 6_000
-    fun gone() { waiting = null; resetObservation() }
+    fun gone() { waiting = null; actionAccepted = false; resetObservation() }
 }
 
 
