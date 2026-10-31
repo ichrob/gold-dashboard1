@@ -251,17 +251,18 @@ future full backup in a quiet deployment window, or implement separately
 tested durable remote-restore resumption before the next pilot.
 ## Exactly-once single decision pilot (explicitly disabled unless approved)
 
-An optional one-shot coordinator `decision_product_pilot.py` can be invoked
-on startup only when the private environment contains BOTH
-`BOB_COLD_DECISION_PRODUCTS_ENABLED=1` and an exact JSON operator command
-`BOB_DECISION_PRODUCT_PILOT_ONCE={"id":"unique-operator-id",
-"confirmed":true,"maxUpdates":1}`. Missing, malformed or additional keys
-cause no startup worker and no source changes. No public HTTP endpoint
-accepts this command. The default is entirely disabled.
+An optional one-shot coordinator `decision_product_pilot.py` exists
+**only as a manually invoked maintenance function**. It is not imported,
+started or scheduled by either Render service. It still refuses invocation
+unless BOTH `BOB_COLD_DECISION_PRODUCTS_ENABLED=1` and a strict operator
+command `BOB_DECISION_PRODUCT_PILOT_ONCE={"id":"unique-operator-id",
+"confirmed":true,"maxUpdates":1}` are supplied in a private maintenance
+environment. Merely setting environment variables on a web service does
+**not** initiate a migration. No HTTP route accepts this command.
 
-A single bounded run waits until ordinary service startup is complete,
-independently checks a recent verified backup and exact resource-specific
-Render disk headroom, then creates an immutable unique pilot ID claim in
+An explicitly invoked single bounded run checks an independent recent
+verified restore and exact resource-specific Render disk headroom,
+then creates an immutable unique pilot ID claim in
 `bob_cold_decision_pilot_attempts`. The ID can be inserted at most once,
 including after a rolling deploy. A failed/interrupted attempt is never
 automatically retried. The writer performs its own second backup, disk,
@@ -282,6 +283,7 @@ another implicit write, and human/operator examination of ledger and
 archive proof is required before any distinct attempt.
 
 No automated repeat schedule or broad writer enablement is provided.
-After observing one successful result, the operator must explicitly remove
-the two environment opt-ins; the durable historical attempt remains.
+After any manual pilot, the operator must clear the two opt-ins and verify
+that all historic readers still resolve the exact original. The durable
+historical attempt remains. A merge or Render deploy alone never runs it.
 Logical JSON reduction **never** counts as physical Render volume savings.
