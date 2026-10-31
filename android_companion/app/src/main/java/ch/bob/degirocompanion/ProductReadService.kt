@@ -1149,6 +1149,19 @@ class ProductReadService : AccessibilityService() {
                     else performGlobalAction(GLOBAL_ACTION_BACK)
                 }
                 else -> {
+                    // A result card can enclose K/V order controls. The only
+                    // permitted product-result gesture is the independently
+                    // validated isolated title from resultTapIndex above.
+                    // Never fall through to ACTION_CLICK on the aggregate card,
+                    // even after a gesture was already attempted this window.
+                    if(!gold && action.kind==MorningReadPolicy.Kind.RESULT) {
+                        if(resultTarget==null && lastNavigationIssue!="RESULT_TARGET_UNSAFE") {
+                            lastNavigationIssue="RESULT_TARGET_UNSAFE"
+                            record(lastNavigationIssue)
+                            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.RESULT_TARGET_MISSING)
+                        }
+                        return true
+                    }
                     if(action.kind in setOf(MorningReadPolicy.Kind.CATEGORY,MorningReadPolicy.Kind.CATEGORY_SCROLL) && ++categorySteps>4) {
                         lastNavigationIssue="CATEGORY_NO_PROGRESS";record(lastNavigationIssue)
                         ProductReadRequest.cancel();return true
