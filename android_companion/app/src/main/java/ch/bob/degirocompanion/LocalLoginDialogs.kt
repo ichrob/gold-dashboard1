@@ -86,6 +86,10 @@ internal class LocalLoginDialogs {
                 runCatching { service.packageManager.getApplicationInfo(pkg, 0).flags and ApplicationInfo.FLAG_SYSTEM != 0 }.getOrDefault(false)
             if (!degiro && !trustedSystem) {
                 if (!afterEntry && pkg == service.packageName && now - started < 3_000) return true
+                if (budget.awaitingFingerprintReturn(now, afterEntry)) {
+                    budget.resetObservation(); homeSince = 0L
+                    return true
+                }
                 unrecognizedCheck = LoginDialogCheck.ownerRejected(owner, afterEntry)
                 return fail("LOCAL_PIN_DIALOG_UNRECOGNIZED")
             }
@@ -175,6 +179,7 @@ internal class LocalLoginDialogs {
                     if (LoginDialogPolicy.identify(degiro, trustedSystem, associated, currentLabels, afterEntry, owner) != kind)
                         return fail("LOCAL_PIN_DIALOG_BLOCKED")
                     if (!dispatch(service, target, root, foreground, box, trustedSystem)) return fail("LOCAL_PIN_DIALOG_ACTION_FAILED")
+                    budget.accepted(kind)
                     return true
                 } finally { candidates.forEach { it.recycle() } }
             } finally { foreground.recycle() }

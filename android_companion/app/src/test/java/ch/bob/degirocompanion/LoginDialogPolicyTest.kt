@@ -91,4 +91,61 @@ class LoginDialogPolicyTest {
         assertNull(LoginDialogPolicy.identify(false, true, false, (fingerprint - "DEGIRO") + "Other app", false, samsung))
         assertNull(LoginDialogPolicy.identify(false, true, false, (fingerprint - "Cancel") + "Bestätigen", false, samsung))
     }
+
+    @Test fun fingerprintReturnGraceRequiresAcceptedActionAndExpiresWithoutExtension() {
+        val b = LoginDialogBudget()
+        assertFalse(b.awaitingFingerprintReturn(1000, false))
+        b.accepted(LoginDialogPolicy.Kind.FINGERPRINT)
+        assertFalse(b.awaitingFingerprintReturn(1000, false))
+        assertTrue(b.reserve(LoginDialogPolicy.Kind.FINGERPRINT, 1000))
+        assertFalse(b.awaitingFingerprintReturn(1001, false))
+        b.accepted(LoginDialogPolicy.Kind.NOTICE)
+        assertFalse(b.awaitingFingerprintReturn(1001, false))
+        b.accepted(LoginDialogPolicy.Kind.FINGERPRINT)
+        assertFalse(b.awaitingFingerprintReturn(999, false))
+        for (now in listOf(1000L, 2000L, 3999L)) {
+            assertTrue(b.awaitingFingerprintReturn(now, false))
+            b.resetObservation()
+            b.accepted(LoginDialogPolicy.Kind.FINGERPRINT)
+        }
+        assertFalse(b.awaitingFingerprintReturn(4000, false))
+        assertFalse(b.awaitingFingerprintReturn(5000, false))
+        assertTrue(b.expired(7000))
+        assertFalse(b.reserve(LoginDialogPolicy.Kind.FINGERPRINT, 8000))
+    }
+    @Test fun returnGraceCannotApplyAfterPinOrOtherDialogActions() {
+        for (kind in LoginDialogPolicy.Kind.values()) {
+            val b = LoginDialogBudget()
+            assertTrue(b.reserve(kind, 1000)); b.accepted(kind)
+            assertFalse(b.awaitingFingerprintReturn(1001, true))
+            if (kind != LoginDialogPolicy.Kind.FINGERPRINT)
+                assertFalse(b.awaitingFingerprintReturn(1001, false))
+            b.gone()
+            assertFalse(b.awaitingFingerprintReturn(1002, false))
+            assertFalse(b.reserve(kind, 1003))
+        }
+    }
+    @Test fun returnedNoticeNeedsCompleteMarkersAndFreshStableTargetBeforeClosing() {
+        val b = LoginDialogBudget()
+        assertTrue(b.reserve(LoginDialogPolicy.Kind.FINGERPRINT, 1000))
+        b.accepted(LoginDialogPolicy.Kind.FINGERPRINT)
+        assertTrue(b.awaitingFingerprintReturn(2000, false))
+        // An unknown owner still cannot identify a notice or authorize a close.
+        assertNull(LoginDialogPolicy.identify(false, false, false, notice, false, LoginDialogCheck.Owner.OTHER))
+        for (label in notice)
+            assertNull(LoginDialogPolicy.identify(true, false, true, notice - label, false))
+        assertEquals(LoginDialogPolicy.Kind.NOTICE,
+            LoginDialogPolicy.identify(true, false, true, notice, false, LoginDialogCheck.Owner.DEGIRO))
+        b.gone()
+        assertFalse(b.awaitingFingerprintReturn(2500, false))
+        assertFalse(b.stable("notice", 2500))
+        assertFalse(b.stable("notice", 3500))
+        assertTrue(b.stable("notice", 4500))
+        assertTrue(b.reserve(LoginDialogPolicy.Kind.NOTICE, 4500))
+        b.accepted(LoginDialogPolicy.Kind.NOTICE)
+        assertFalse(b.awaitingFingerprintReturn(4501, false))
+        b.gone()
+        assertFalse(b.reserve(LoginDialogPolicy.Kind.FINGERPRINT, 5000))
+        assertFalse(b.reserve(LoginDialogPolicy.Kind.NOTICE, 5000))
+    }
 }
