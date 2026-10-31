@@ -281,4 +281,49 @@ class MorningReadPolicyTest {
         assertEquals(ProductPageReader.Move.FINISHED,verified.move)
         assertTrue(verified.result.draft.contains("ISIN: $isin"))
     }
+
+    @Test fun samsungSingleIsinResultUsesNameInsteadOfCardWithKAndV() {
+        val target="DE000SQ02JQ6"
+        val title="SG Gold Turbo Unlimited Mini Call BAR 2144 BP 2122.67 Bv 10"
+        val row="$title | $target\\nSociete Generale OTC EUR\\nK\\nV"
+        val view=listOf(
+            MorningReadPolicy.Node(target,editable=true,hint="Mit Namen, ISIN oder Symbol suchen"),
+            MorningReadPolicy.Node(""),
+            MorningReadPolicy.Node("Hebelprodukte",parent=1),
+            MorningReadPolicy.Node("",row=row,parent=1,clickable=true),
+            MorningReadPolicy.Node(title,row=title,parent=3),
+            MorningReadPolicy.Node(target,parent=3),
+            MorningReadPolicy.Node("Societe Generale OTC EUR",parent=3),
+            MorningReadPolicy.Node("K",clickable=true,parent=3),
+            MorningReadPolicy.Node("V",clickable=true,parent=3))
+        assertEquals("RESULT_MISSING",MorningReadPolicy.decide(view,target).code)
+        assertEquals(4,MorningReadPolicy.resultTapIndex(view,target))
+        for (change in listOf(
+            view.toMutableList().also { it[0]=it[0].copy(text="DE000FD0S0G4") },
+            view.toMutableList().also { it[2]=it[2].copy(text="Alle") },
+            view.toMutableList().also { it[3]=it[3].copy(row=title+"\\nK\\nV") },
+            view.toMutableList().also { it[4]=it[4].copy(text=title+" Kaufen") },
+            view.toMutableList().also { it[4]=it[4].copy(row=title+"\\nK") },
+            view.toMutableList().also { it[5]=it[5].copy(text="DE000FD0S0G4") },
+            view.toMutableList().also { it[0]=it[0].copy(password=true) },
+            view.toMutableList().also { it[0]=it[0].copy(hint="Limitpreis") },
+            view+MorningReadPolicy.Node("Order bestätigen"),
+            view+MorningReadPolicy.Node(title,row=title,parent=3))) {
+            assertNull("Unsafe DEGIRO result must not be tapped",MorningReadPolicy.resultTapIndex(change,target))
+        }
+    }
+
+    @Test fun isolatedTitleWithInlineIsinCanBeTappedButNotTradingControls() {
+        val target="DE000SQ02JQ6"
+        val title="SG Gold Turbo Unlimited Mini Call BAR 2144 BP 2122.67 Bv 10 | $target"
+        val view=listOf(
+            MorningReadPolicy.Node(target,editable=true,hint="Suche"),
+            MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node(title,clickable=true,row=title),
+            MorningReadPolicy.Node("K",clickable=true),
+            MorningReadPolicy.Node("V",clickable=true))
+        assertEquals(2,MorningReadPolicy.resultTapIndex(view,target))
+        assertNull(MorningReadPolicy.resultTapIndex(view+MorningReadPolicy.Node("Passwort"),target))
+        assertNull(MorningReadPolicy.resultTapIndex(view+MorningReadPolicy.Node("Limitpreis"),target))
+    }
 }
