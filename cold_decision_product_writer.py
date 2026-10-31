@@ -288,6 +288,23 @@ def run_once(*,factory=codec.connect,approval=None,now=None):
     if os.environ.get('BOB_COLD_DECISION_PRODUCTS_ENABLED')!='1' or not _approved(approval,seconds):
         return {'status':'disabled','movedRows':0}
     with factory() as conn:
+        # Never trust a caller's assertion alone: independently read the
+        # persisted, remote-restored backup receipt before creating any table.
+        from storage_budget import archive_status
+        with conn.transaction():
+            proof = archive_status(conn)
+        if _proof_state(proof, seconds) != 'verified-fresh':
+            return {'status':'backup-proof-not-fresh','movedRows':0}
+        volume = __import__('render_disk_metrics').report()
+        observed = volume.get('observedAt')
+        if (volume.get('status') != 'observed' or
+                volume.get('resource') != 'dpg-datjno1srm7s738vv500-a' or
+                volume.get('unit') != 'bytes' or
+                type(observed) not in (int,float) or
+                not 0 <= seconds-observed <= 300 or
+                type(volume.get('diskUsage')) is not int or
+                volume['diskUsage'] > 750_000_000):
+            return {'status':'fresh-volume-proof-unavailable','movedRows':0}
         if not conn.execute("SELECT pg_try_advisory_lock(hashtext(%s))",(LOCK,)).fetchone()[0]:
             return {'status':'busy','movedRows':0}
         init(conn)
