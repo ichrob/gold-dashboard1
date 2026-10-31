@@ -74,11 +74,12 @@ PIN_DIALOG_BOOLS = {'systemVerified', 'degiroContext', 'degiroLabel', 'biometric
 PIN_DIALOG_ROOT_KINDS = {'EMPTY', 'BOB', 'DEGIRO', 'SYSTEM_UI', 'SAMSUNG_BIOMETRICS', 'ANDROID_FRAMEWORK', 'PERMISSION_CONTROLLER', 'OTHER', 'UNAVAILABLE', 'AMBIGUOUS'}
 PIN_DIALOG_FINGERPRINT_PROGRESS = {'NOT_REQUESTED', 'REQUESTED', 'ACCEPTED_WAIT', 'ACCEPTED_EXPIRED', 'RETURNED'}
 
+PIN_DIALOG_DEGIRO_SCANS = {'NOT_SEEN', 'WAIT_FOCUS', 'NO_MARKERS', 'NOTICE_TEXT_ONLY', 'CLOSE_ONLY', 'NOTICE_MATCH', 'OTHER_MARKERS'}
 PIN_DIALOG_PACKAGE_RESOLUTIONS = {'INSTALLED_SYSTEM', 'INSTALLED_APP', 'NOT_RESOLVED'}
 
 def validate_pin_owner_context(value, owner, stage):
     expected = {'rootKind', 'focusedKind', 'sameWindow', 'fingerprintProgress'}
-    if stage != 'OWNER_CHECK' or not isinstance(value, dict) or set(value) not in (expected, expected | {'packageEvidence'}):
+    if stage != 'OWNER_CHECK' or not isinstance(value, dict) or not expected <= set(value) or not set(value) <= expected | {'packageEvidence', 'lastDegiroScan'}:
         raise ValueError('Invalid owner context fields')
     for key, allowed in (('rootKind', PIN_DIALOG_ROOT_KINDS - {'UNAVAILABLE', 'AMBIGUOUS'}),
                          ('focusedKind', PIN_DIALOG_ROOT_KINDS),
@@ -92,6 +93,8 @@ def validate_pin_owner_context(value, owner, stage):
         raise ValueError('Inconsistent owner context')
     if value['focusedKind'] == 'AMBIGUOUS' and value['sameWindow']:
         raise ValueError('Ambiguous owner context cannot match one window')
+    if 'lastDegiroScan' in value and (not isinstance(value['lastDegiroScan'], str) or value['lastDegiroScan'] not in PIN_DIALOG_DEGIRO_SCANS):
+        raise ValueError('Invalid preceding DEGIRO scan stage')
     if 'packageEvidence' in value:
         evidence = value['packageEvidence']
         if value['rootKind'] != 'OTHER' or owner != 'OTHER' or not isinstance(evidence, dict) or set(evidence) != {'name', 'resolution'}:
