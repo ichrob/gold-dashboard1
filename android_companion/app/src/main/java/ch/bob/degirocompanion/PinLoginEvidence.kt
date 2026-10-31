@@ -8,7 +8,7 @@ internal object PinLoginEvidence {
         val label = value.toString().trim().lowercase(java.util.Locale.ROOT).replace(Regex("\\s+"), " ")
         return when (label) {
             "haben sie ihren code vergessen?", "forgot your passcode?", "forgot your code?" -> Marker.LOGIN_HELP
-            "löschen", "delete", "backspace", "rücktaste", "delete digit", "ziffer löschen" -> Marker.DELETE_KEY
+            "löschen", "delete", "backspace", "rücktaste", "delete digit", "ziffer löschen", "⌫" -> Marker.DELETE_KEY
             "bitte geben sie ihren passcode ein, um touchid / faceid einzurichten" -> Marker.BIOMETRIC_SETUP
             else -> Marker.NONE
         }
