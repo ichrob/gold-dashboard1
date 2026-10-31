@@ -12,6 +12,7 @@ internal object PinReadinessProbe {
     var finished = false
         private set
     val resultCode get() = history.last?.name ?: "NO_WINDOW"
+    val symbolFlags get() = history.symbolFlags
     var onTimeout: (() -> Unit)? = null
     private val history = PinProbeHistory()
     var message = "Noch kein PIN-Erkennungstest."
@@ -111,6 +112,7 @@ internal object PinReadinessProbe {
                 try { visit(child, depth + 1, owner, actionDepth) } finally { child.recycle() }
             }
         }
+        var symbolObservation: PinSymbolProbe.Observation? = null
         val outcome = runCatching { visit(root, 0)
             val structural = PinProbePolicy.classify(fields, complete)
             if (structural == PinProbePolicy.Result.NO_INPUT)
@@ -119,11 +121,11 @@ internal object PinReadinessProbe {
                     if (it == PinProbePolicy.Result.LOGIN_RESET_UNCONFIRMED) {
                         val reset = resetEvidence.diagnosis()
                         if (reset == PinProbePolicy.Result.LOGIN_DELETE_LABEL_UNRECOGNIZED)
-                            PinSymbolProbe.classify(symbols) else reset
+                            PinSymbolProbe.observe(symbols).also { symbolObservation = it }.result else reset
                     } else it
                 } else structural }
             .getOrDefault(PinProbePolicy.Result.INCOMPLETE)
-        history.observe(outcome)
+        history.observe(outcome, symbolObservation?.takeIf { it.result == outcome }?.flags)
         message = describe(outcome)
     }
     private fun describe(outcome: PinProbePolicy.Result): String = when (outcome) {
@@ -158,3 +160,4 @@ internal object PinReadinessProbe {
             PinProbePolicy.Result.INCOMPLETE -> "Ansicht nicht vollständig prüfbar. Keine Aussage zur PIN-Eingabe."
         }
 }
+
