@@ -13,11 +13,14 @@ internal object PinReadinessProbe {
     var finished = false
         private set
     private var exercise: PinKeypadExercise? = null
+    private var login: LocalPinLogin? = null
+    val loginArmed get() = login?.armed == true
+    val loginTouchExpected get() = login?.touchExpected == true
     private val exerciseLayout = PinStableObservation<Pair<Int, List<PinSymbolProbe.Node>>>()
     val exerciseArmed get() = exercise?.armed == true
     val exerciseTrace get() = exercise?.trace
-    val resultCode get() = exercise?.code ?: history.last?.name ?: "NO_WINDOW"
-    val symbolFlags get() = if (exercise == null) history.symbolFlags else null
+    val resultCode get() = login?.code ?: exercise?.code ?: history.last?.name ?: "NO_WINDOW"
+    val symbolFlags get() = if (exercise == null && login == null) history.symbolFlags else null
     var onTimeout: (() -> Unit)? = null
     private val history = PinProbeHistory()
     var message = "Noch kein PIN-Erkennungstest."
@@ -25,10 +28,16 @@ internal object PinReadinessProbe {
     var onStart: (() -> Unit)? = null
     var onDigitTouch: ((AccessibilityNodeInfo, Rect, Int, (Boolean) -> Unit) -> Boolean)? = null
     var onDeleteTouch: ((AccessibilityNodeInfo, Rect, Int, (Boolean) -> Unit) -> Boolean)? = null
+    var onLoginTouch: ((AccessibilityNodeInfo, Rect, Int, (Boolean) -> Unit) -> Boolean)? = null
     var onStop: (() -> Unit)? = null
     val running get() = deadline != 0L
-    fun start(confirmedEmptyExercise: Boolean = false) {
+    fun start(confirmedEmptyExercise: Boolean = false) = startInternal(confirmedEmptyExercise, null)
+    fun startLocalLogin(pin: ByteArray) = startInternal(false, pin)
+    private fun startInternal(confirmedEmptyExercise: Boolean, pin: ByteArray?) {
         check(!running) { "PIN-Test läuft bereits." }
+        check(onStart != null && (pin == null || onLoginTouch != null)) { "Lesedienst zuerst verbinden." }
+        login?.abort()
+        login = if (pin != null) LocalPinLogin(pin, onLoginTouch) else null
         exercise?.abort()
         exercise = if (confirmedEmptyExercise) PinKeypadExercise(true, onDigitTouch, onDeleteTouch) else null
         check(onStart != null) { "Lesedienst zuerst verbinden." }
@@ -36,30 +45,44 @@ internal object PinReadinessProbe {
         exerciseLayout.clear()
         reportId = java.util.UUID.randomUUID().toString().replace("-", "")
         finished = false
-        deadline = SystemClock.elapsedRealtime() + if (confirmedEmptyExercise) 60_000 else 30_000
+        deadline = SystemClock.elapsedRealtime() + if (confirmedEmptyExercise || pin != null) 60_000 else 30_000
         message = "Prüfung läuft (30 Sekunden). In DEGIRO die PIN-Anmeldung anzeigen, aber keine PIN eingeben. Bob versucht danach automatisch zur Ergebnisanzeige zurückzukehren."
         if (exercise != null) message = "Bedienungstest: nur eine Testziffer und ein Löschversuch, keine Anmeldung. Nach dem Schließen der Dialoge nicht weiter bedienen. Maximal 60 Sekunden."
+        if (login != null) message = login!!.message
         onStart?.invoke()
     }
     fun active(): Boolean {
         if (running && SystemClock.elapsedRealtime() >= deadline) {
+            login?.abort("LOCAL_PIN_TIMEOUT")
             exercise?.abort("KEYPAD_TEST_TIMEOUT", PinKeypadExerciseTrace.Reason.TIMEOUT)
             finished = true
-            stop("Zeit beendet. " + (exercise?.message ?: message))
-            onTimeout?.invoke()
+            stop("Zeit beendet. " + (login?.message ?: exercise?.message ?: message))
+            if (login == null) onTimeout?.invoke()
         }
         return running
     }
     fun stop(reason: String, exerciseReason: PinKeypadExerciseTrace.Reason = PinKeypadExerciseTrace.Reason.STOPPED) {
         val wasRunning = running
+        login?.abort()
         exercise?.abort(reason = exerciseReason)
         deadline = 0L
         exerciseLayout.clear()
         message = reason
         if (wasRunning) onStop?.invoke()
     }
+    fun loginWindowChanged() {
+        login?.windowChanged()
+        finished = true
+        stop(login?.message ?: "Lokale Anmeldung beendet.")
+    }
     fun inspect(root: AccessibilityNodeInfo?) {
         if (!active()) return
+        if (loginArmed) {
+            login?.inspect(root)
+            message = login?.message.orEmpty()
+            if (login?.done == true) { finished = true; stop(message) }
+            return
+        }
         if (exerciseArmed) {
             // After input, only cached control metadata is inspected. No labels or input tree traversal.
             exercise?.inspect(root)
@@ -129,7 +152,7 @@ internal object PinReadinessProbe {
                 node.isEnabled, node.isClickable,
                 node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK },
                 parentOwner != null && depth - ownerDepth in 1..2)
-            if (exercise != null) symbolNodes += AccessibilityNodeInfo.obtain(node)
+            if (exercise != null || login != null) symbolNodes += AccessibilityNodeInfo.obtain(node)
             if (node.childCount == 0 && node.isEnabled) {
                 val digit = PinKeypadPolicy.digit(node.text) ?: PinKeypadPolicy.digit(node.contentDescription)
                 if (digit != null) keys += PinKeypadPolicy.Key(digit,
@@ -160,18 +183,26 @@ internal object PinReadinessProbe {
             val now = SystemClock.elapsedRealtime()
             val candidate = symbolObservation?.candidateIndex
             val zero = symbols.indexOfFirst { it.digit == 0 }
-            val eligible = exercise != null && outcome == PinProbePolicy.Result.SYMBOL_DISABLED &&
-                now + 15_000 < deadline && candidate != null && zero >= 0 &&
+            val eligible = (exercise != null || login != null) && outcome == PinProbePolicy.Result.SYMBOL_DISABLED &&
+                now + (if (login != null) 23_000 else 15_000) < deadline && candidate != null && zero >= 0 &&
                 symbols.size == symbolNodes.size &&
                 symbolObservation?.flags?.let { !it.labelled && it.clickableFlag && it.clickAction && !it.nearbyParentAction } == true
             if (eligible && candidate != null) {
                 val signature = root.windowId to (symbols.filter { it.digit != null }.sortedBy { it.digit } + symbols[candidate])
                 if (exerciseLayout.observe(signature, now)) {
-                    exercise?.begin(root, symbolNodes[zero], symbolNodes[candidate])
-                    if (!exerciseArmed) exerciseLayout.clear()
-                    message = exercise?.message.orEmpty()
-                    if (exercise?.done == true) { finished = true; stop(message); onTimeout?.invoke() }
-                } else message = "Warte auf eine unveränderte PIN-Tastatur (mindestens zwei Sekunden). Noch keine Testziffer gedrückt."
+                    if (login != null) {
+                        val digits = (0..9).map { digit -> symbolNodes[symbols.indexOfFirst { it.digit == digit }] }
+                        login?.begin(root, digits)
+                        if (!loginArmed) exerciseLayout.clear()
+                        message = login?.message.orEmpty()
+                        if (login?.done == true) { finished = true; stop(message) }
+                    } else {
+                        exercise?.begin(root, symbolNodes[zero], symbolNodes[candidate])
+                        if (!exerciseArmed) exerciseLayout.clear()
+                        message = exercise?.message.orEmpty()
+                        if (exercise?.done == true) { finished = true; stop(message); onTimeout?.invoke() }
+                    }
+                } else message = "Warte auf eine unveränderte PIN-Tastatur (mindestens zwei Sekunden). Noch keine Eingabe ausgelöst."
             } else exerciseLayout.clear()
         } finally { symbolNodes.forEach { it.recycle() } }
     }
@@ -207,5 +238,3 @@ internal object PinReadinessProbe {
             PinProbePolicy.Result.INCOMPLETE -> "Ansicht nicht vollständig prüfbar. Keine Aussage zur PIN-Eingabe."
         }
 }
-
-
