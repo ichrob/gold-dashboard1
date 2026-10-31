@@ -7,8 +7,10 @@ import android.view.accessibility.AccessibilityNodeInfo
 import ch.bob.degirocompanion.PinKeypadExerciseTrace.Reason
 import ch.bob.degirocompanion.PinKeypadExerciseTrace.Stage
 
-/** Uses only direct node actions. After the single test digit, never reads text or traverses the tree. */
-internal class PinKeypadExercise(private val confirmedEmpty: Boolean) {
+/** One bounded touch on the validated zero node; deletion remains a direct node action.
+ * After dispatch, never reads input text or traverses the tree. */
+internal class PinKeypadExercise(private val confirmedEmpty: Boolean,
+    private val digitTouch: ((AccessibilityNodeInfo, Rect, Int, (Boolean) -> Unit) -> Boolean)?) {
     private val policy = PinKeypadExercisePolicy()
     val trace = PinKeypadExerciseTrace()
     private var target: AccessibilityNodeInfo? = null
@@ -52,7 +54,11 @@ internal class PinKeypadExercise(private val confirmedEmpty: Boolean) {
         boundsRecovery = PinBoundsRecovery(Rect(targetBounds), SystemClock.elapsedRealtime() + 12_000)
         code = "KEYPAD_TEST_DIGIT_SENT"
         trace.advance(Stage.DIGIT_REQUESTED)
-        if (!zero.performAction(AccessibilityNodeInfo.ACTION_CLICK)) abort("KEYPAD_TEST_DIGIT_REJECTED", Reason.DIGIT_REJECTED)
+        val accepted = digitTouch?.invoke(zero, Rect(zeroBounds), window) { completed ->
+            policy.digitCompleted(completed)
+            if (!completed) abort(reason = Reason.DIGIT_TOUCH_CANCELLED)
+        } == true
+        if (!accepted) abort("KEYPAD_TEST_DIGIT_REJECTED", Reason.DIGIT_REJECTED)
         else trace.advance(Stage.DIGIT_ACCEPTED)
     }
 
@@ -112,3 +118,4 @@ internal class PinKeypadExercise(private val confirmedEmpty: Boolean) {
         else -> "Bedienungstest: $code. Schritt: ${trace.stage}; Grund: ${trace.reason}. Keine Wiederholung. Bitte in DEGIRO prüfen und eine eventuell verbliebene Testziffer selbst löschen."
     }
 }
+

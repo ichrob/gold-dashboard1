@@ -9,7 +9,7 @@ internal class PinKeypadExerciseTrace {
         TARGET_PROTECTED, TARGET_ACTION_UNAVAILABLE, TARGET_BOUNDS_CHANGED, TARGET_CLASS_CHANGED,
         TARGET_ID_CHANGED, STATE_TIMEOUT, DIGIT_REJECTED, DELETE_REJECTED, EXCEPTION,
         USER_TOUCH, WINDOW_EVENT, SCREEN_LOCKED, ACCESS_DISABLED, SERVICE_STOPPED, STOPPED,
-        TIMEOUT, STATE_CYCLE
+        TIMEOUT, STATE_CYCLE, DIGIT_TOUCH_CANCELLED
     }
     var stage = Stage.WAITING
         private set
@@ -24,3 +24,4 @@ internal class PinKeypadExerciseTrace {
         if (reason == Reason.NONE) reason = value
     }
 }
+

@@ -3,9 +3,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PinKeypadExercisePolicyTest {
+    @Test fun pendingAndCancelledTouchesCannotDeleteRepeatOrResurrect() {
+        val pending = PinKeypadExercisePolicy()
+        assertEquals(PinKeypadExercisePolicy.Action.DIGIT, pending.begin(true, true))
+        repeat(3) {
+            assertEquals(PinKeypadExercisePolicy.Action.NONE, pending.observe(true, true))
+            assertEquals(PinKeypadExercisePolicy.Action.NONE, pending.begin(true, true))
+        }
+        pending.digitCompleted(true)
+        assertEquals(PinKeypadExercisePolicy.Action.DELETE, pending.observe(true, true))
+        pending.digitCompleted(true)
+        assertEquals(PinKeypadExercisePolicy.Action.NONE, pending.observe(true, true))
+        for (cancel in listOf(true, false)) {
+            val stopped = PinKeypadExercisePolicy(); stopped.begin(true, true)
+            if (cancel) stopped.digitCompleted(false) else stopped.stop()
+            stopped.digitCompleted(true)
+            assertEquals(PinKeypadExercisePolicy.Action.NONE, stopped.observe(true, true))
+            assertEquals(PinKeypadExercisePolicy.Action.NONE, stopped.begin(true, true))
+        }
+    }
+
     @Test fun movementDoesNotRepeatActionsOrReusePriorDisabledSample() {
         val p = PinKeypadExercisePolicy()
         assertEquals(PinKeypadExercisePolicy.Action.DIGIT, p.begin(true, true))
+        p.digitCompleted(true)
         assertEquals(PinKeypadExercisePolicy.Action.DELETE, p.observe(true, true))
         assertEquals(PinKeypadExercisePolicy.Action.NONE, p.observe(true, false))
         p.pauseObservation()
@@ -22,6 +43,7 @@ class PinKeypadExercisePolicyTest {
     @Test fun emitsOnlyOneDigitAndOneDeleteThenRequiresStableDisabledObservation() {
         val p = PinKeypadExercisePolicy()
         assertEquals(PinKeypadExercisePolicy.Action.DIGIT, p.begin(true, true))
+        p.digitCompleted(true)
         repeat(5) { assertEquals(PinKeypadExercisePolicy.Action.NONE, p.begin(true, true)) }
         assertEquals(PinKeypadExercisePolicy.Action.NONE, p.observe(true, false))
         assertEquals(PinKeypadExercisePolicy.Action.DELETE, p.observe(true, true))
@@ -44,3 +66,4 @@ class PinKeypadExercisePolicyTest {
         assertEquals(PinKeypadExercisePolicy.Action.NONE, p.observe(true, true))
     }
 }
+

@@ -1,6 +1,7 @@
 package ch.bob.degirocompanion
 
 import android.os.SystemClock
+import android.graphics.Rect
 import android.text.InputType
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -22,12 +23,13 @@ internal object PinReadinessProbe {
     var message = "Noch kein PIN-Erkennungstest."
         private set
     var onStart: (() -> Unit)? = null
+    var onDigitTouch: ((AccessibilityNodeInfo, Rect, Int, (Boolean) -> Unit) -> Boolean)? = null
     var onStop: (() -> Unit)? = null
     val running get() = deadline != 0L
     fun start(confirmedEmptyExercise: Boolean = false) {
         check(!running) { "PIN-Test läuft bereits." }
         exercise?.abort()
-        exercise = if (confirmedEmptyExercise) PinKeypadExercise(true) else null
+        exercise = if (confirmedEmptyExercise) PinKeypadExercise(true, onDigitTouch) else null
         check(onStart != null) { "Lesedienst zuerst verbinden." }
         history.clear()
         exerciseLayout.clear()
@@ -204,3 +206,4 @@ internal object PinReadinessProbe {
             PinProbePolicy.Result.INCOMPLETE -> "Ansicht nicht vollständig prüfbar. Keine Aussage zur PIN-Eingabe."
         }
 }
+
