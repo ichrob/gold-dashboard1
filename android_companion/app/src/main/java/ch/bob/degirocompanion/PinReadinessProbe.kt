@@ -12,6 +12,7 @@ internal object PinReadinessProbe {
     var finished = false
         private set
     private var exercise: PinKeypadExercise? = null
+    private val exerciseLayout = PinStableObservation<Pair<Int, List<PinSymbolProbe.Node>>>()
     val exerciseArmed get() = exercise?.armed == true
     val exerciseTrace get() = exercise?.trace
     val resultCode get() = exercise?.code ?: history.last?.name ?: "NO_WINDOW"
@@ -29,6 +30,7 @@ internal object PinReadinessProbe {
         exercise = if (confirmedEmptyExercise) PinKeypadExercise(true) else null
         check(onStart != null) { "Lesedienst zuerst verbinden." }
         history.clear()
+        exerciseLayout.clear()
         reportId = java.util.UUID.randomUUID().toString().replace("-", "")
         finished = false
         deadline = SystemClock.elapsedRealtime() + if (confirmedEmptyExercise) 60_000 else 30_000
@@ -49,6 +51,7 @@ internal object PinReadinessProbe {
         val wasRunning = running
         exercise?.abort(reason = exerciseReason)
         deadline = 0L
+        exerciseLayout.clear()
         message = reason
         if (wasRunning) onStop?.invoke()
     }
@@ -66,6 +69,7 @@ internal object PinReadinessProbe {
             return
         }
         if (root == null || root.packageName?.toString() != ProductScreenEvidence.PACKAGE) {
+            exerciseLayout.clear()
             history.observe(null)
             message = history.last?.let { "Letzte DEGIRO-Beobachtung (Fenster jetzt nicht zugänglich): " + describe(it) }
                 ?: "Während dieses Tests noch kein zugängliches DEGIRO-Fenster. PIN-Bedienbarkeit ungeklärt."
@@ -150,17 +154,22 @@ internal object PinReadinessProbe {
         history.observe(outcome, symbolObservation?.takeIf { it.result == outcome }?.flags)
         message = describe(outcome)
         try {
-            if (exercise != null && outcome == PinProbePolicy.Result.SYMBOL_DISABLED &&
-                SystemClock.elapsedRealtime() + 15_000 < deadline) {
-                val candidate = symbolObservation?.candidateIndex
-                val zero = symbols.indexOfFirst { it.digit == 0 }
-                if (candidate != null && zero >= 0 && symbols.size == symbolNodes.size &&
-                    symbolObservation?.flags?.let { !it.labelled && it.clickableFlag && it.clickAction && !it.nearbyParentAction } == true) {
+            val now = SystemClock.elapsedRealtime()
+            val candidate = symbolObservation?.candidateIndex
+            val zero = symbols.indexOfFirst { it.digit == 0 }
+            val eligible = exercise != null && outcome == PinProbePolicy.Result.SYMBOL_DISABLED &&
+                now + 15_000 < deadline && candidate != null && zero >= 0 &&
+                symbols.size == symbolNodes.size &&
+                symbolObservation?.flags?.let { !it.labelled && it.clickableFlag && it.clickAction && !it.nearbyParentAction } == true
+            if (eligible && candidate != null) {
+                val signature = root.windowId to (symbols.filter { it.digit != null }.sortedBy { it.digit } + symbols[candidate])
+                if (exerciseLayout.observe(signature, now)) {
                     exercise?.begin(root, symbolNodes[zero], symbolNodes[candidate])
+                    if (!exerciseArmed) exerciseLayout.clear()
                     message = exercise?.message.orEmpty()
                     if (exercise?.done == true) { finished = true; stop(message); onTimeout?.invoke() }
-                }
-            }
+                } else message = "Warte auf eine unveränderte PIN-Tastatur (mindestens zwei Sekunden). Noch keine Testziffer gedrückt."
+            } else exerciseLayout.clear()
         } finally { symbolNodes.forEach { it.recycle() } }
     }
     private fun describe(outcome: PinProbePolicy.Result): String = when (outcome) {

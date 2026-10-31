@@ -3,6 +3,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PinKeypadExercisePolicyTest {
+    @Test fun movementDoesNotRepeatActionsOrReusePriorDisabledSample() {
+        val p = PinKeypadExercisePolicy()
+        assertEquals(PinKeypadExercisePolicy.Action.DIGIT, p.begin(true, true))
+        assertEquals(PinKeypadExercisePolicy.Action.DELETE, p.observe(true, true))
+        assertEquals(PinKeypadExercisePolicy.Action.NONE, p.observe(true, false))
+        p.pauseObservation()
+        assertEquals(PinKeypadExercisePolicy.Action.NONE, p.begin(true, true))
+        assertEquals(PinKeypadExercisePolicy.Action.NONE, p.observe(true, false))
+        assertEquals(PinKeypadExercisePolicy.Action.FINISH, p.observe(true, false))
+    }
     @Test fun requiresConfirmationAndValidBaseline() {
         val p = PinKeypadExercisePolicy()
         assertEquals(PinKeypadExercisePolicy.Action.NONE, p.begin(false, true))

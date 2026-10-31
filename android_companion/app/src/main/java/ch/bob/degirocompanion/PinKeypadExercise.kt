@@ -16,7 +16,7 @@ internal class PinKeypadExercise(private val confirmedEmpty: Boolean) {
     private var targetClass: String? = null
     private var targetViewId: String? = null
     private var window = -1
-    private var expires = 0L
+    private var boundsRecovery: PinBoundsRecovery<Rect>? = null
     var code = "KEYPAD_TEST_WAITING"
         private set
     var done = false
@@ -49,7 +49,7 @@ internal class PinKeypadExercise(private val confirmedEmpty: Boolean) {
         targetClass = delete.className?.toString()
         targetViewId = delete.viewIdResourceName
         delete.getBoundsInScreen(targetBounds)
-        expires = SystemClock.elapsedRealtime() + 12_000
+        boundsRecovery = PinBoundsRecovery(Rect(targetBounds), SystemClock.elapsedRealtime() + 12_000)
         code = "KEYPAD_TEST_DIGIT_SENT"
         trace.advance(Stage.DIGIT_REQUESTED)
         if (!zero.performAction(AccessibilityNodeInfo.ACTION_CLICK)) abort("KEYPAD_TEST_DIGIT_REJECTED", Reason.DIGIT_REJECTED)
@@ -72,14 +72,22 @@ internal class PinKeypadExercise(private val confirmedEmpty: Boolean) {
             !node.isVisibleToUser -> Reason.TARGET_HIDDEN
             node.isPassword || node.isEditable || (Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive) -> Reason.TARGET_PROTECTED
             !clickOffered(node) -> Reason.TARGET_ACTION_UNAVAILABLE
-            bounds(node) != targetBounds -> Reason.TARGET_BOUNDS_CHANGED
             node.className?.toString() != targetClass -> Reason.TARGET_CLASS_CHANGED
             node.viewIdResourceName != targetViewId -> Reason.TARGET_ID_CHANGED
             else -> Reason.NONE
         }
         if (reason != Reason.NONE) { abort(reason = reason); return }
-        if (SystemClock.elapsedRealtime() >= expires) { abort("KEYPAD_TEST_NO_STATE_CHANGE", Reason.STATE_TIMEOUT); return }
         checkNotNull(node)
+        val recovery = checkNotNull(boundsRecovery)
+        when (recovery.observe(bounds(node), SystemClock.elapsedRealtime())) {
+            PinBoundsRecovery.Decision.WAIT -> { policy.pauseObservation(); return }
+            PinBoundsRecovery.Decision.EXPIRED -> {
+                if (recovery.movementPending) abort(reason = Reason.TARGET_BOUNDS_CHANGED)
+                else abort("KEYPAD_TEST_NO_STATE_CHANGE", Reason.STATE_TIMEOUT)
+                return
+            }
+            PinBoundsRecovery.Decision.READY -> Unit
+        }
         when (policy.observe(true, node.isEnabled)) {
             PinKeypadExercisePolicy.Action.DELETE -> {
                 code = "KEYPAD_TEST_DELETE_SENT"
