@@ -96,7 +96,10 @@ internal object PinReadinessProbe {
                 PinKeypadPolicy.digit(node.text) ?: PinKeypadPolicy.digit(node.contentDescription) else null
             symbols += PinSymbolProbe.Node(bounds.exactCenterX(), bounds.exactCenterY(),
                 bounds.width().toFloat(), bounds.height().toFloat(), symbolDigit,
-                !node.text.isNullOrBlank() || !node.contentDescription.isNullOrBlank(), clickable)
+                !node.text.isNullOrBlank() || !node.contentDescription.isNullOrBlank(), clickable,
+                node.isEnabled, node.isClickable,
+                node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK },
+                parentOwner != null && depth - ownerDepth in 1..2)
             if (node.childCount == 0 && node.isEnabled) {
                 val digit = PinKeypadPolicy.digit(node.text) ?: PinKeypadPolicy.digit(node.contentDescription)
                 if (digit != null) keys += PinKeypadPolicy.Key(digit,
@@ -127,6 +130,12 @@ internal object PinReadinessProbe {
             PinProbePolicy.Result.SYMBOL_LAYOUT_UNCONFIRMED -> "Ziffernraster nicht eindeutig; Symbolbereich nicht geprüft."
             PinProbePolicy.Result.SYMBOL_NODE_UNAVAILABLE -> "Im Bereich rechts neben Null kein passendes zugängliches Element. Löschfunktion ungeklärt."
             PinProbePolicy.Result.SYMBOL_NODES_MULTIPLE -> "Im Bereich rechts neben Null mehrere Elemente; Löschfunktion ungeklärt."
+            PinProbePolicy.Result.SYMBOL_DISABLED -> "Element rechts neben Null ist deaktiviert. Das beweist keine leere PIN-Eingabe."
+            PinProbePolicy.Result.SYMBOL_PARENT_ACTION_OBSERVED -> "Element rechts neben Null ohne direkte Aktion; nahes übergeordnetes Element bietet eine Aktion an. Zuordnung und Löschfunktion nicht bestätigt."
+            PinProbePolicy.Result.SYMBOL_CLICK_FLAG_ONLY -> "Element rechts neben Null ist als klickbar markiert, bietet aber keine Klickaktion an."
+            PinProbePolicy.Result.SYMBOL_ACTION_ONLY -> "Element rechts neben Null bietet eine Klickaktion an, ist aber nicht als klickbar markiert."
+            PinProbePolicy.Result.SYMBOL_LABELLED_PASSIVE -> "Beschriftetes Element rechts neben Null ohne direkte Klickmerkmale und ohne nahe übergeordnete Aktion."
+            PinProbePolicy.Result.SYMBOL_UNLABELLED_PASSIVE -> "Unbeschriftetes Element rechts neben Null ohne direkte Klickmerkmale und ohne nahe übergeordnete Aktion."
             PinProbePolicy.Result.SYMBOL_NO_ACTION -> "Element rechts neben Null erkannt, aber keine direkte aktive Klickaktion. Löschfunktion ungeklärt."
             PinProbePolicy.Result.SYMBOL_LABELLED_ACTION -> "Beschriftetes Element mit Klickaktion rechts neben Null erkannt; Beschriftung nicht als Löschen erkannt. Keine Taste gedrückt."
             PinProbePolicy.Result.SYMBOL_UNLABELLED_ACTION -> "Unbeschriftetes Element mit Klickaktion rechts neben Null erkannt. Position beweist keine Löschfunktion; keine Taste gedrückt."
