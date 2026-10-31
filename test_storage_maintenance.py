@@ -42,7 +42,7 @@ class MaintenanceTests(unittest.TestCase):
         conn = Connection()
         result = maintenance.run_once(lambda: conn)
         commands = [sql for sql, _ in conn.calls if sql.startswith('VACUUM')]
-        self.assertEqual(len(commands), 3)
+        self.assertEqual(len(commands), 4)
         for sql, table in zip(commands, maintenance._TABLES):
             self.assertEqual(sql, 'VACUUM (SKIP_LOCKED, TRUNCATE FALSE, PARALLEL 0) ONLY public.' + table)
         self.assertIsNone(result['diskBytesFreed'])
@@ -57,7 +57,7 @@ class MaintenanceTests(unittest.TestCase):
     def test_errors_sanitized_and_connection_closed(self):
         conn = Connection(fail=True)
         result = maintenance.run_once(lambda: conn)
-        self.assertEqual(len(result['tables']), 3)
+        self.assertEqual(len(result['tables']), 4)
         self.assertTrue(all(r['status'] == 'deferred' for r in result['tables']))
         self.assertNotIn('secret', str(result))
         self.assertTrue(conn.closed)
@@ -81,6 +81,17 @@ class MaintenanceTests(unittest.TestCase):
         self.assertNotIn('observedRelationBytesDecrease', result['tables'][-1])
         self.assertNotIn('secret', str(result))
         self.assertTrue(conn.closed)
+
+    def test_new_tail_targets_are_bounded_and_explicit(self):
+        for flag, table in [('reclaim_analysis_tail','bob_diagnostic_history'),
+                            ('reclaim_observation_tail','bob_improvement_observations')]:
+            conn=Connection(candidates=False)
+            base=conn.fetchone
+            conn.fetchone=lambda: (1000,) if 'pg_total_relation_size' in conn.calls[-1][0] else base()
+            result=maintenance.run_once(lambda:conn, **{flag:True})
+            commands=[sql for sql,_ in conn.calls if sql.startswith('VACUUM')]
+            self.assertEqual(commands,['VACUUM (SKIP_LOCKED, TRUNCATE TRUE, PARALLEL 0) ONLY public.'+table])
+            self.assertEqual(result['tables'][0]['observedRelationBytesDecrease'],0)
 
     def test_pooled_transaction_connection_rejected(self):
         conn = Connection()
@@ -113,7 +124,8 @@ class PostgreSQLMaintenanceTests(unittest.TestCase):
                         self.conn.close()
                     def execute(self, statement, params=None):
                         # Exercise production SQL against an isolated test table.
-                        return self.conn.execute(statement.replace('public.bob_metric_checks', 'public.' + name), params)
+                        mapped = tuple('public.' + name if p == 'public.bob_metric_checks' else p for p in params) if params else params
+                        return self.conn.execute(statement.replace('public.bob_metric_checks', 'public.' + name), mapped)
                 with patch.object(maintenance, '_TABLES', ('bob_metric_checks',)):
                     result = maintenance.run_once(TailConnection, reclaim_metric_tail=True)
                 self.assertEqual(result['tables'][0]['status'], 'command-completed')

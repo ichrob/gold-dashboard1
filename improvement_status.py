@@ -57,6 +57,6 @@ def read(conn, report, now=None):
             outcomes.setdefault(key,{})[horizon]=truth
     latest=conn.execute('SELECT payload FROM bob_improvement_observations WHERE campaign=%s ORDER BY slot DESC LIMIT 1',
                         (report['protocol']['version'],)).fetchone()
-    current={**report,'latestCapture':latest[0] if latest else {}}
+    current={**report,'latestCapture':__import__('cold_observations').resolve(conn,latest[0]) if latest else {}}
     return summarize(current,paper_health.snapshot(conn,now),
                      [(r,outcomes.get(key,{})) for key,r in decisions],now)

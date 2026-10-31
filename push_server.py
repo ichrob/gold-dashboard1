@@ -1740,6 +1740,7 @@ if __name__ == "__main__":
     __import__("storage_maintenance").start()
     __import__("cold_metrics").start()
     __import__("cold_analysis").start()
+    __import__("cold_observations").start()
     __import__("metric_compaction").start()
     print("BOB_PUSH startup=ready", flush=True)
     # Process/child memory telemetry is read-only and never blocks Push.

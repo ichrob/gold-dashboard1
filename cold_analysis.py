@@ -145,7 +145,7 @@ def run_once(factory=codec.connect):
         for _ in range(64):
             result=offload_batch(conn,drive);results.append(result)
             if not result.get('movedRows') or time.monotonic()>=deadline:break
-        return {'status':'checked','batches':results}
+        return {'status':'checked','batches':results,'pressure':__import__('storage_pressure').observe(conn)}
 
 
 def start():
@@ -157,8 +157,11 @@ def start():
             try:
                 if __import__('archive_worker').status().get('status')=='running':
                     result={'status':'archive-running'}
-                else:result=run_once()
+                else:
+                    result=run_once()
+                    if result.get('status')=='checked':
+                        result['maintenance']=__import__('storage_maintenance').run_once(reclaim_analysis_tail=True)
             except Exception as exc:result={'status':'deferred','errorType':type(exc).__name__}
             print('BOB_COLD_ANALYSIS '+json.dumps(result,sort_keys=True),flush=True)
-            time.sleep(60 if result.get('status')=='archive-running' else 3600)
+            time.sleep(__import__('storage_pressure').delay(result))
     _THREAD=threading.Thread(target=loop,name='bob-cold-analysis',daemon=True);_THREAD.start()
