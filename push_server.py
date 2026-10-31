@@ -1737,6 +1737,9 @@ if __name__ == "__main__":
     init_db()
     diagnostic_history.configure(db)
     __import__("archive_worker").start(db)
+    # One explicit operator-approved ID, durable claim, no repeat on redeploy.
+    if os.environ.get('BOB_DECISION_PRODUCT_PILOT_ONCE'):
+        __import__("decision_product_pilot").start()
     __import__("storage_maintenance").start()
     __import__("cold_metrics").start()
     __import__("cold_analysis").start()
