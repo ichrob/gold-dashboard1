@@ -76,6 +76,9 @@ PIN_DIALOG_FINGERPRINT_PROGRESS = {'NOT_REQUESTED', 'REQUESTED', 'ACCEPTED_WAIT'
 
 PIN_DIALOG_DEGIRO_SCANS = {'NOT_SEEN', 'WAIT_FOCUS', 'NO_MARKERS', 'NOTICE_TEXT_ONLY', 'CLOSE_ONLY', 'NOTICE_MATCH', 'OTHER_MARKERS'}
 PIN_DIALOG_PACKAGE_RESOLUTIONS = {'INSTALLED_SYSTEM', 'INSTALLED_APP', 'NOT_RESOLVED'}
+PIN_MARKET_STATUSES = {'NOT_OBSERVED', 'NOT_DEGIRO', 'UNFOCUSED',
+    'MARKER_COUNT_EXCEEDED', 'INCOMPLETE_TREE', 'PROTECTED_INPUT', 'BLOCKED_DIALOG',
+    'SEARCH_PROMPT_MISSING', 'MARKET_CONTEXT_MISSING', 'SETTLING', 'VERIFIED'}
 
 def validate_pin_owner_context(value, owner, stage):
     expected = {'rootKind', 'focusedKind', 'sameWindow', 'fingerprintProgress'}
@@ -128,8 +131,16 @@ def validate_pin_dialog_check(value, result):
 
 def validate_pin_probe(value, now):
     required = {'runId', 'endedAt', 'result', 'completed'}
-    if not isinstance(value, dict) or set(value) not in (required, required | {'symbolFlags'}, required | {'exerciseTrace'}, required | {'dialogCheck'}):
+    if not isinstance(value, dict):
         raise ValueError('Invalid PIN probe fields')
+    base = set(value) - {'marketStatus'}
+    if base not in (required, required | {'symbolFlags'}, required | {'exerciseTrace'}, required | {'dialogCheck'}):
+        raise ValueError('Invalid PIN probe fields')
+    if 'marketStatus' in value and (type(value['marketStatus']) is not str or
+            value['marketStatus'] not in PIN_MARKET_STATUSES or
+            not isinstance(value.get('result'), str) or
+            not value['result'].startswith('LOCAL_PIN_')):
+        raise ValueError('Invalid PIN market stage')
     if not isinstance(value['runId'], str) or not re.fullmatch('[a-f0-9]{32}', value['runId']):
         raise ValueError('Invalid PIN probe ID')
     if not isinstance(value['result'], str) or value['result'] not in PIN_RESULTS:
