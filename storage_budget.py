@@ -6,6 +6,7 @@ Database size excludes WAL and other databases; never label it disk free space.
 import json
 import threading
 import time
+from contextlib import nullcontext
 
 # Confirmed Render allocation, 2026-10-27. Conservative decimal GB.
 ALLOCATION_BYTES=1_000_000_000
@@ -59,8 +60,11 @@ def archive_status(conn):
     """Combine process state with the latest persisted, sanitized attempt result."""
     process = __import__('archive_worker').status()
     try:
-        row = conn.execute('''SELECT status,updated_at,receipt FROM bob_archive_attempts
-            ORDER BY updated_at DESC LIMIT 1''').fetchone()
+        # Older schemas may lack the ledger. Keep that optional read from
+        # aborting the caller's transaction and subsequent cold-tier telemetry.
+        with conn.transaction() if hasattr(conn, 'transaction') else nullcontext():
+            row = conn.execute('''SELECT status,updated_at,receipt FROM bob_archive_attempts
+                ORDER BY updated_at DESC LIMIT 1''').fetchone()
     except Exception:
         row = None
     if not row:
@@ -129,6 +133,7 @@ def report(conn,now=None):
         largestTables=[dict(table=name,bytes=n,estimatedRows=live,estimatedDeadRows=dead,
             lastAutovacuum=str(vac) if vac else None) for name,n,live,dead,vac in tables],
         archiveWorker=archive_status(conn),
+        coldMetrics=__import__('cold_metrics').status(conn),
         evidenceDeleted=False,automaticPaidScaling=False,
-        note='No test data or storage formats are changed. '
+        note='Cold metric payloads retain their keys and verified private archive references. '
              'Dead-row estimates do not measure reclaimable disk bytes. Capacity forecasts are estimates.')

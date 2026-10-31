@@ -42,7 +42,7 @@ class MaintenanceTests(unittest.TestCase):
         conn = Connection()
         result = maintenance.run_once(lambda: conn)
         commands = [sql for sql, _ in conn.calls if sql.startswith('VACUUM')]
-        self.assertEqual(len(commands), 2)
+        self.assertEqual(len(commands), 3)
         for sql, table in zip(commands, maintenance._TABLES):
             self.assertEqual(sql, 'VACUUM (SKIP_LOCKED, TRUNCATE FALSE, PARALLEL 0) ONLY public.' + table)
         self.assertIsNone(result['diskBytesFreed'])
@@ -57,7 +57,7 @@ class MaintenanceTests(unittest.TestCase):
     def test_errors_sanitized_and_connection_closed(self):
         conn = Connection(fail=True)
         result = maintenance.run_once(lambda: conn)
-        self.assertEqual(len(result['tables']), 2)
+        self.assertEqual(len(result['tables']), 3)
         self.assertTrue(all(r['status'] == 'deferred' for r in result['tables']))
         self.assertNotIn('secret', str(result))
         self.assertTrue(conn.closed)

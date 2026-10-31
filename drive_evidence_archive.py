@@ -68,7 +68,7 @@ class GoogleDrive:
             raise ValueError('Uploaded metadata mismatch; no verification receipt')
         return result['id']
 
-    def download(self, file_id, destination):
+    def download(self, file_id, destination, max_bytes=None):
         from googleapiclient.http import MediaIoBaseDownload
         with open(destination, 'xb') as out:
             os.chmod(destination, 0o600)
@@ -76,7 +76,7 @@ class GoogleDrive:
             done = False
             while not done:
                 _, done = request.next_chunk(num_retries=2)
-                if out.tell() > archive.MAX_BYTES + 2*1024*1024:
+                if out.tell() > (archive.MAX_BYTES + 2*1024*1024 if max_bytes is None else max_bytes):
                     raise ValueError('Downloaded archive exceeds bounded size')
 
 
