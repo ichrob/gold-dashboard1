@@ -5,7 +5,7 @@ Private HTML requires the ordinary Bob session. Static install metadata carries
 no private data. No database writes, orders, or archival operations occur here.
 """
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 import bob_auth
 
 ROOT = Path(__file__).resolve().parent / "zentrale"
@@ -23,18 +23,39 @@ CSP = ("default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';
        "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 
 
+def safe_tracking(query):
+    """Only bounded standard marketing parameters may redirect to a clean URL."""
+    if not query or len(query) > 256:
+        return False
+    try:
+        pairs = parse_qsl(query, keep_blank_values=True, strict_parsing=True, max_num_fields=6)
+    except ValueError:
+        return False
+    allowed = {"utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "utm_id"}
+    return bool(pairs) and all(key in allowed and len(value) <= 128 for key, value in pairs)
+
+
 def route(handler, user, password, *, head=False):
     """Return True when this exact GET/HEAD URL belongs to Bob Zentrale."""
     parsed = urlparse(handler.path)
     asset = ASSETS.get(parsed.path)
     if asset is None:
         return False
-    if parsed.query or parsed.params or parsed.fragment:
+    if parsed.params or parsed.fragment:
         bob_auth.send(handler, 404)
         return True
     filename, content_type, private = asset
+    if parsed.query:
+        # ChatGPT's browser appends ?utm_source=chatgpt.com to clicked links.
+        # Strip marketing data rather than failing with 404, without leaking
+        # anything into the install URL or treating arbitrary queries as valid.
+        if private and safe_tracking(parsed.query):
+            bob_auth.send(handler, 303, location="/zentrale/")
+        else:
+            bob_auth.send(handler, 404)
+        return True
     if private and not bob_auth.authenticated(handler.headers, user, password):
-        bob_auth.send(handler, 303, location="/login")
+        bob_auth.send(handler, 303, location="/login?view=zentrale")
         return True
     try:
         content = (ROOT / filename).read_bytes()
