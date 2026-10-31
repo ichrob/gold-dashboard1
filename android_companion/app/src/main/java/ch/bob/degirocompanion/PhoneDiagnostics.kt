@@ -115,6 +115,9 @@ internal object PhoneDiagnostics {
                 .put("labelled", flags.labelled).put("clickableFlag", flags.clickableFlag)
                 .put("clickAction", flags.clickAction).put("nearbyParentAction", flags.nearbyParentAction))
         }
+        PinReadinessProbe.exerciseTrace?.let { trace ->
+            summary.put("exerciseTrace", JSONObject().put("stage", trace.stage.name).put("reason", trace.reason.name))
+        }
         prefs(c).edit().putString("pinProbe", summary.toString()).commit()
         queue(c)
     }
@@ -210,4 +213,3 @@ internal object PhoneDiagnostics {
         } finally { connection?.disconnect() }
     }
 }
-
