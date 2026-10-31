@@ -189,4 +189,18 @@ class LoginDialogPolicyTest {
         assertFalse(b.awaitingFingerprintReturn(5001, false))
         assertFalse(b.reserve(LoginDialogPolicy.Kind.FINGERPRINT, 5001))
     }
+
+    @Test fun rejectedPackageMetadataIsBoundedAndNeverAcceptsInputOrScreenText() {
+        for (name in listOf<String?>(null, "", "12345", "Schließen", "Bitte geben Sie Ihren PassCode ein",
+            "user@example.test", "com.example app", "com.example\\n", "com..example",
+            "com.1example", "com." + "a".repeat(201), "a.".repeat(17) + "a")) {
+            assertFalse(LoginPackageEvidence.validName(name))
+            assertNull(LoginPackageEvidence.create(name, LoginPackageEvidence.Resolution.NOT_RESOLVED))
+        }
+        for (resolution in LoginPackageEvidence.Resolution.values()) {
+            val evidence = LoginPackageEvidence.create("com.example.dialog", resolution)
+            assertNotNull(evidence); assertEquals("com.example.dialog", evidence!!.name)
+            assertEquals(resolution, evidence.resolution)
+        }
+    }
 }

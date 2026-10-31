@@ -74,9 +74,11 @@ PIN_DIALOG_BOOLS = {'systemVerified', 'degiroContext', 'degiroLabel', 'biometric
 PIN_DIALOG_ROOT_KINDS = {'EMPTY', 'BOB', 'DEGIRO', 'SYSTEM_UI', 'SAMSUNG_BIOMETRICS', 'ANDROID_FRAMEWORK', 'PERMISSION_CONTROLLER', 'OTHER', 'UNAVAILABLE', 'AMBIGUOUS'}
 PIN_DIALOG_FINGERPRINT_PROGRESS = {'NOT_REQUESTED', 'REQUESTED', 'ACCEPTED_WAIT', 'ACCEPTED_EXPIRED', 'RETURNED'}
 
+PIN_DIALOG_PACKAGE_RESOLUTIONS = {'INSTALLED_SYSTEM', 'INSTALLED_APP', 'NOT_RESOLVED'}
+
 def validate_pin_owner_context(value, owner, stage):
     expected = {'rootKind', 'focusedKind', 'sameWindow', 'fingerprintProgress'}
-    if stage != 'OWNER_CHECK' or not isinstance(value, dict) or set(value) != expected:
+    if stage != 'OWNER_CHECK' or not isinstance(value, dict) or set(value) not in (expected, expected | {'packageEvidence'}):
         raise ValueError('Invalid owner context fields')
     for key, allowed in (('rootKind', PIN_DIALOG_ROOT_KINDS - {'UNAVAILABLE', 'AMBIGUOUS'}),
                          ('focusedKind', PIN_DIALOG_ROOT_KINDS),
@@ -90,6 +92,15 @@ def validate_pin_owner_context(value, owner, stage):
         raise ValueError('Inconsistent owner context')
     if value['focusedKind'] == 'AMBIGUOUS' and value['sameWindow']:
         raise ValueError('Ambiguous owner context cannot match one window')
+    if 'packageEvidence' in value:
+        evidence = value['packageEvidence']
+        if value['rootKind'] != 'OTHER' or owner != 'OTHER' or not isinstance(evidence, dict) or set(evidence) != {'name', 'resolution'}:
+            raise ValueError('Invalid rejected package metadata')
+        name = evidence['name']
+        if not isinstance(name, str) or len(name) > 200 or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*){1,15}', name):
+            raise ValueError('Invalid rejected package identifier')
+        if not isinstance(evidence['resolution'], str) or evidence['resolution'] not in PIN_DIALOG_PACKAGE_RESOLUTIONS:
+            raise ValueError('Invalid rejected package resolution')
 
 def validate_pin_dialog_check(value, result):
     expected = {'phase', 'owner', 'stage'} | PIN_DIALOG_BOOLS

@@ -80,6 +80,35 @@ class PinTelemetry(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_pin_dialog_check(self.dialog_check() | {'ownerContext':context}, 'LOCAL_PIN_DIALOG_UNRECOGNIZED')
 
+    def test_rejected_package_metadata_is_bounded_optional_and_not_click_authority(self):
+        from android_telemetry import validate_pin_dialog_check, PIN_DIALOG_BOOLS, PIN_DIALOG_PACKAGE_RESOLUTIONS
+        base = self.dialog_check(owner='OTHER', stage='OWNER_CHECK', **{k:False for k in PIN_DIALOG_BOOLS})
+        context = dict(rootKind='OTHER', focusedKind='UNAVAILABLE', sameWindow=True, fingerprintProgress='RETURNED')
+        for resolution in PIN_DIALOG_PACKAGE_RESOLUTIONS:
+            check = base | {'ownerContext':context | {'packageEvidence':dict(name='com.example.dialog', resolution=resolution)}}
+            report = dict(self.report(), pinProbe=dict(self.probe(), result='LOCAL_PIN_DIALOG_UNRECOGNIZED', dialogCheck=check))
+            self.assertEqual(validate_report(report)['pinProbe']['dialogCheck'], check)
+        valid = dict(name='com.example.dialog', resolution='NOT_RESOLVED')
+        invalid = [None, [], {}, valid | {'text':'private'}, valid | {'pin':'synthetic'},
+                   valid | {'resolution':1}, valid | {'resolution':'TRUSTED_FOR_CLICK'}]
+        invalid += [valid | {'name':name} for name in (None, [], '', '12345', 'Schließen',
+                    'user@example.test', 'com.example app', 'com.example\n', 'com..example', 'com.1example',
+                    'com.' + 'a'*201, 'a.'*17+'a')]
+        for evidence in invalid:
+            with self.subTest(evidence=evidence), self.assertRaises(ValueError):
+                validate_pin_dialog_check(base | {'ownerContext':context | {'packageEvidence':evidence}}, 'LOCAL_PIN_DIALOG_UNRECOGNIZED')
+        for root_kind in ('BOB', 'EMPTY', 'ANDROID_FRAMEWORK'):
+            with self.subTest(root_kind=root_kind), self.assertRaises(ValueError):
+                validate_pin_dialog_check(base | {'ownerContext':context | {'rootKind':root_kind, 'packageEvidence':valid}}, 'LOCAL_PIN_DIALOG_UNRECOGNIZED')
+
+    def test_package_resolution_enum_contract_matches_android(self):
+        import re
+        from pathlib import Path
+        from android_telemetry import PIN_DIALOG_PACKAGE_RESOLUTIONS
+        source=(Path(__file__).parent/'android_companion/app/src/main/java/ch/bob/degirocompanion/LoginDialogPolicy.kt').read_text()
+        block=re.search(r'enum class Resolution\s*\{([^}]+)', source).group(1)
+        self.assertEqual(set(re.findall(r'\b[A-Z_]+\b', block)), PIN_DIALOG_PACKAGE_RESOLUTIONS)
+
     def test_owner_context_enum_contract_matches_android(self):
         import re
         from pathlib import Path

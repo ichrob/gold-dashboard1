@@ -67,7 +67,7 @@ internal class LoginDialogBudget {
 }
 
 
-/** Fixed metadata only: no package strings, screen text, identifiers, coordinates or input values. */
+/** Diagnostic metadata only: no screen text, window identifiers, coordinates or input values. */
 internal data class LoginDialogCheck private constructor(
     val phase: Phase, val owner: Owner, val stage: Stage,
     val systemVerified: Boolean = false, val degiroContext: Boolean = false,
@@ -93,10 +93,11 @@ internal data class LoginDialogCheck private constructor(
     }
 }
 
-/** Package names are reduced locally to fixed categories. No labels or input values. */
+/** Fixed categories plus optional bounded Android package metadata for an unclassified root. */
 internal data class LoginOwnerContext(
     val rootKind: RootKind, val focusedKind: RootKind,
-    val sameWindow: Boolean, val fingerprintProgress: FingerprintProgress
+    val sameWindow: Boolean, val fingerprintProgress: FingerprintProgress,
+    val packageEvidence: LoginPackageEvidence? = null
 ) {
     enum class RootKind { EMPTY, BOB, DEGIRO, SYSTEM_UI, SAMSUNG_BIOMETRICS, ANDROID_FRAMEWORK, PERMISSION_CONTROLLER, OTHER, UNAVAILABLE, AMBIGUOUS }
     enum class FingerprintProgress { NOT_REQUESTED, REQUESTED, ACCEPTED_WAIT, ACCEPTED_EXPIRED, RETURNED }
@@ -111,5 +112,16 @@ internal data class LoginOwnerContext(
             pkg in setOf("com.android.permissioncontroller", "com.google.android.permissioncontroller") -> RootKind.PERMISSION_CONTROLLER
             else -> RootKind.OTHER
         }
+    }
+}
+
+/** Only root.packageName may supply this value; never labels, text or contentDescription. */
+internal data class LoginPackageEvidence private constructor(val name: String, val resolution: Resolution) {
+    enum class Resolution { INSTALLED_SYSTEM, INSTALLED_APP, NOT_RESOLVED }
+    companion object {
+        fun validName(value: String?) = value != null && value.length <= 200 &&
+            Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*){1,15}").matches(value)
+        fun create(value: String?, resolution: Resolution): LoginPackageEvidence? =
+            if (validName(value)) LoginPackageEvidence(value!!, resolution) else null
     }
 }

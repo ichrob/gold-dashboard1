@@ -12,7 +12,7 @@ import android.view.Display
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 
-/** Local-only exact dialog matching. No input traversal, screenshots, raw telemetry or generic back. */
+/** Local-only exact dialog matching. No input traversal, screenshots or generic back. */
 internal class LocalLoginDialogs {
     private val budget = LoginDialogBudget()
     var unrecognizedCheck: LoginDialogCheck? = null
@@ -204,8 +204,20 @@ internal class LocalLoginDialogs {
                 }
             } finally { shown.forEach { it.recycle() } }
         }
-        return LoginOwnerContext(LoginOwnerContext.classify(root.packageName?.toString(), service.packageName),
-            focusedKind, sameWindow, budget.fingerprintProgress(now))
+        val pkg = root.packageName?.toString()
+        val kind = LoginOwnerContext.classify(pkg, service.packageName)
+        // The OTHER category hid the remaining cause. Record only this root's Android
+        // package metadata; no app inventory, labels or field contents are inspected.
+        val packageEvidence = if (kind == LoginOwnerContext.RootKind.OTHER && LoginPackageEvidence.validName(pkg)) {
+            val info = runCatching { service.packageManager.getApplicationInfo(pkg!!, 0) }.getOrNull()
+            val resolution = when {
+                info == null || info.packageName != pkg -> LoginPackageEvidence.Resolution.NOT_RESOLVED
+                info.flags and ApplicationInfo.FLAG_SYSTEM != 0 -> LoginPackageEvidence.Resolution.INSTALLED_SYSTEM
+                else -> LoginPackageEvidence.Resolution.INSTALLED_APP
+            }
+            LoginPackageEvidence.create(pkg, resolution)
+        } else null
+        return LoginOwnerContext(kind, focusedKind, sameWindow, budget.fingerprintProgress(now), packageEvidence)
     }
     private fun dispatch(service: AccessibilityService, target: AccessibilityNodeInfo, root: AccessibilityNodeInfo,
         foreground: AccessibilityWindowInfo, box: Rect, system: Boolean): Boolean {
