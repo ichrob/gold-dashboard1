@@ -12,6 +12,8 @@ import cold_metrics as codec
 
 TAG = '_bobColdObservationV1'
 _THREAD = None
+PAGE_ROWS = 20
+MAX_PAYLOAD_TEXT_BYTES = 262144
 
 
 def init(conn):
@@ -20,6 +22,8 @@ def init(conn):
         row_index INTEGER NOT NULL, verified_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         moved_rows BIGINT NOT NULL DEFAULT 0, original_json_bytes BIGINT NOT NULL DEFAULT 0,
         reference_json_bytes BIGINT NOT NULL DEFAULT 0)''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_cold_observation_scan (
+        id INTEGER PRIMARY KEY CHECK(id=1), campaign TEXT NOT NULL, slot BIGINT NOT NULL)''')
     conn.execute('''CREATE INDEX IF NOT EXISTS bob_improvement_observations_cold_order
         ON bob_improvement_observations(slot,campaign)''')
 
@@ -57,24 +61,44 @@ def resolve(conn, payload, *, drive=None, verified=None):
 def offload_batch(conn,drive,now=None):
     if not conn.autocommit:raise ValueError('Dedicated autocommit connection required')
     now=int(time.time()*1000) if now is None else now
-    candidates=conn.execute('''SELECT campaign,slot,payload FROM bob_improvement_observations
-        WHERE slot<%s AND payload ? 'evidence' AND NOT(payload ? %s)
-        AND pg_column_size(payload)>512
-        ORDER BY slot,campaign LIMIT %s''',(now-86400000,TAG,codec.MAX_ROWS)).fetchall()
+    cursor=conn.execute('SELECT campaign,slot FROM bob_cold_observation_scan WHERE id=1').fetchone()
+    # Bound keys BEFORE touching large JSON/TOAST values. The primary key is
+    # (campaign,slot); a slot-first sort previously scanned the whole archive.
+    with conn.transaction():
+        conn.execute('SET LOCAL enable_seqscan=off')
+        candidates=conn.execute("""WITH page AS MATERIALIZED (
+            SELECT campaign,slot FROM bob_improvement_observations
+            WHERE slot<%s AND (campaign,slot)>(%s,%s)
+            ORDER BY campaign,slot LIMIT %s)
+            SELECT p.campaign,p.slot,CASE WHEN a.payload ? 'evidence' AND NOT(a.payload ? %s)
+                AND pg_column_size(a.payload)>512 AND octet_length(a.payload::text)<%s
+                THEN a.payload ELSE NULL END
+            FROM page p JOIN bob_improvement_observations a USING(campaign,slot)
+            ORDER BY p.campaign,p.slot""",(now-86400000,*(cursor or ('',-9223372036854775808)),PAGE_ROWS,TAG,MAX_PAYLOAD_TEXT_BYTES)).fetchall()
+    if not candidates:
+        conn.execute('DELETE FROM bob_cold_observation_scan WHERE id=1')
+        return {'status':'sweep-completed','movedRows':0,'scannedRows':0}
+    last=candidates[-1][:2]
+    def advance():
+        conn.execute('''INSERT INTO bob_cold_observation_scan VALUES(1,%s,%s)
+            ON CONFLICT(id) DO UPDATE SET campaign=EXCLUDED.campaign,slot=EXCLUDED.slot''',last)
     selected=[];unique={};size=100
     for campaign,slot,payload in candidates:
-        raw_payload=codec.encoded(payload)
-        if len(raw_payload)>=65536:continue
+        if payload is None:continue
         value=payload['evidence'];key=codec.digest(codec.encoded(value))
         pointer={k:v for k,v in payload.items() if k!='evidence'};pointer[TAG]=key
-        if len(codec.encoded(pointer))>=len(raw_payload):continue
+        if len(codec.encoded(pointer))>=len(codec.encoded(payload)):continue
         if key not in unique:
             row=[key,'observation-evidence',0,None,{'evidence':value}]
             n=len(codec.encoded(row))+1
-            if size+n>codec.MAX_RAW:break
+            if size+n>codec.MAX_RAW:
+                last=selected[-1][:2]
+                break
             size+=n;unique[key]=row
         selected.append((campaign,slot,payload,key,pointer))
-    if not selected:return {'status':'no-eligible-rows','movedRows':0}
+    if not selected:
+        advance()
+        return {'status':'page-scanned','movedRows':0,'scannedRows':len(candidates)}
     existing=dict((r[0],r[1:]) for r in conn.execute('''SELECT content_hash,file_id,sha256,row_index
         FROM bob_cold_observation_objects WHERE content_hash=ANY(%s::text[])''',(list(unique),)).fetchall())
     verified={key:evidence(conn,key,drive) for key in existing}
@@ -113,9 +137,10 @@ def offload_batch(conn,drive,now=None):
                 original_json_bytes=original_json_bytes+%s,reference_json_bytes=reference_json_bytes+%s
                 WHERE content_hash=%s''',(a,b,key))
             moved+=1;original+=a;references+=b
+        advance()
     return {'status':'verified-offload','movedRows':moved,'newUniqueObjects':len(locations),
             'reusedUniqueObjects':len(existing),'originalJsonBytes':original,'referenceJsonBytes':references,
-            'readThroughVerified':True,'diskBytesFreed':None}
+            'readThroughVerified':True,'diskBytesFreed':None,'scannedRows':len(candidates)}
 
 
 def status(conn):
@@ -134,7 +159,7 @@ def run_once(factory=codec.connect):
         init(conn);drive=codec.runtime_drive(conn);results=[];deadline=time.monotonic()+120
         for _ in range(32):
             result=offload_batch(conn,drive);results.append(result)
-            if not result.get('movedRows') or time.monotonic()>=deadline:break
+            if not result.get('scannedRows') or time.monotonic()>=deadline:break
         return {'status':'checked','batches':results,'pressure':__import__('storage_pressure').observe(conn)}
 
 
@@ -142,7 +167,7 @@ def start():
     global _THREAD
     if os.environ.get('BOB_COLD_OBSERVATIONS_ENABLED')!='1' or _THREAD is not None:return
     def loop():
-        time.sleep(420)
+        time.sleep(90)
         while True:
             try:
                 if __import__('archive_worker').status().get('status')=='running':result={'status':'archive-running'}

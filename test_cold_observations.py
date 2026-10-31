@@ -13,14 +13,20 @@ class ReferenceTests(unittest.TestCase):
         self.assertIs(cold.resolve(None,hot),hot)
         for payload in ({cold.TAG:'bad'},{cold.TAG:'a'*64,'evidence':None}):
             with self.assertRaises(cold.codec.ColdArchiveUnavailable):cold.resolve(None,payload)
-    def test_candidate_scan_avoids_unbounded_json_text_cast(self):
+    def test_candidate_scan_bounds_keys_before_json_text_cast(self):
+        from contextlib import nullcontext
         class Conn:
             autocommit=True
-            def __init__(self):self.sql=None
-            def execute(self,sql,params):self.sql=sql;return self
+            def __init__(self):self.queries=[]
+            def transaction(self):return nullcontext()
+            def execute(self,sql,params=None):self.queries.append(sql);return self
+            def fetchone(self):return None
             def fetchall(self):return []
         conn=Conn();self.assertEqual(cold.offload_batch(conn,Drive(),now=200000000)['movedRows'],0)
-        self.assertNotIn('payload::text',conn.sql)
+        query=next(q for q in conn.queries if 'MATERIALIZED' in q)
+        key_page=query.split('LIMIT %s)')[0]
+        self.assertNotIn('payload',key_page)
+        self.assertIn('ORDER BY campaign,slot',key_page)
 
     def test_content_hash_verified(self):
         value={'number':9007199254740993,'nested':[False,None,3.25]}
@@ -84,8 +90,28 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(cold.offload_batch(self.c,self.drive,now=200000000)['movedRows'],2)
         self.assertEqual(self.read(199999999),self.payload)
         self.assertEqual(self.read(3000),{'evidence':None});self.assertEqual(self.read(4000),{'at':10})
+    def test_pages_skip_small_rows_and_continue_without_starving_eligible_rows(self):
+        self.c.execute('DELETE FROM bob_improvement_observations')
+        for i in range(cold.PAGE_ROWS):self.put(i,{'evidence':None})
+        self.put(1000)
+        first=cold.offload_batch(self.c,self.drive,now=200000000)
+        self.assertEqual(first['movedRows'],0);self.assertEqual(first['scannedRows'],cold.PAGE_ROWS)
+        second=cold.offload_batch(self.c,self.drive,now=200000000)
+        self.assertEqual(second['movedRows'],1)
+        self.assertEqual(self.read(1000),self.payload)
+        self.assertEqual(cold.offload_batch(self.c,self.drive,now=200000000)['status'],'sweep-completed')
+        self.assertIsNone(self.c.execute('SELECT * FROM bob_cold_observation_scan').fetchone())
+
+    def test_large_original_evidence_remains_supported(self):
+        self.c.execute('DELETE FROM bob_improvement_observations')
+        payload={**self.payload,'evidence':{'large':[hashlib.sha256(str(i).encode()).hexdigest() for i in range(1500)]}}
+        self.assertGreater(len(json.dumps(payload)),65536)
+        self.put(1000,payload)
+        self.assertEqual(cold.offload_batch(self.c,self.drive,now=200000000)['movedRows'],1)
+        self.assertEqual(self.read(1000),payload)
+
     def test_order_index_and_oversize_payload_remain_lossless(self):
-        oversized={**self.payload,'evidence':{'large':'x'*66000}}
+        oversized={**self.payload,'evidence':{'large':'x'*(cold.MAX_PAYLOAD_TEXT_BYTES+1)}}
         self.put(5000,oversized)
         self.assertEqual(cold.offload_batch(self.c,self.drive,now=200000000)['movedRows'],2)
         self.assertEqual(self.read(5000),oversized)
