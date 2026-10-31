@@ -77,7 +77,7 @@ internal class LocalPinLogin(pin: ByteArray,
     }
     val message get() = when (code) {
         "LOCAL_PIN_WAITING" -> "Warte auf die eindeutige PIN-Tastatur. Bekannte Biometrie-Dialoge werden einmal geschlossen. Handy nicht bedienen."
-        "LOCAL_PIN_HOME_VISIBLE" -> "DEGIRO-Marktseite nach der einmaligen Eingabe erkannt. Keine Orders und kein automatischer Produktstart."
+        "LOCAL_PIN_HOME_VISIBLE" -> "DEGIRO-Marktseite bestätigt. Ein ausdrücklich gestarteter Gesamttest darf jetzt die Goldproduktsuche beginnen; keine Orders."
         "LOCAL_PIN_ENTERING" -> "Einmalige lokale PIN-Eingabe läuft. Handy nicht bedienen."
         "LOCAL_PIN_ENTRY_SENT", "LOCAL_PIN_RESULT_UNVERIFIED" -> "Einmalige Eingabe beendet. Bitte in DEGIRO prüfen, ob die Anmeldung gelang. Keine automatische Wiederholung und noch kein bestätigter Login."
         else -> "Lokale PIN-Eingabe gestoppt: $code. Bitte DEGIRO selbst prüfen und verbliebene Eingaben löschen. Kein erneuter Versuch durch Bob."

@@ -25,7 +25,9 @@ internal class LocalLoginDialogs {
     private var lastDegiroScan = LoginOwnerContext.DegiroScan.NOT_SEEN
     private val queries = listOf("PassCode", "TouchID", "Face/Touch ID",
         "Abbrechen", "Cancel", "Schließen", "Bestätigen", "DEGIRO", "Fingerabdruck", "fingerprint",
-        "Märkte", "News", "Terminkalender", "Favoriten", "Portfolio")
+        "Märkte", "News", "Terminkalender", "Favoriten", "Portfolio",
+        "Mit Namen, ISIN oder Symbol suchen",
+        "Haben Sie Ihren Code vergessen?", "Forgot your passcode?", "Forgot your code?")
     private fun bounds(n: AccessibilityNodeInfo) = Rect().also { n.getBoundsInScreen(it) }
     private fun safe(n: AccessibilityNodeInfo, pkg: String, window: Int) = n.isVisibleToUser &&
         n.packageName?.toString() == pkg && n.windowId == window && !n.isPassword && !n.isEditable &&
@@ -136,8 +138,11 @@ internal class LocalLoginDialogs {
                     }
                     unknownSince = 0L
                     if (waiting != null) budget.gone()
-                    if (afterEntry) {
-                        val home = degiro && labels.containsAll(setOf("Märkte", "News", "Terminkalender", "Favoriten", "Portfolio"))
+                    val home = degiro && LoginDialogPolicy.verifiedMarkets(labels, afterEntry)
+                    // Logged-in DEGIRO can already be showing Markets at Start:
+                    // let the one-start flow proceed without touching any PIN key.
+                    // Otherwise use the existing local one-attempt login flow.
+                    if (afterEntry || home) {
                         if (!home) homeSince = 0L
                         else if (homeSince == 0L) homeSince = now
                         else if (now - homeSince >= 1_000) return fail("LOCAL_PIN_HOME_VISIBLE")

@@ -203,4 +203,20 @@ class LoginDialogPolicyTest {
             assertEquals(resolution, evidence.resolution)
         }
     }
+
+    @Test fun alreadyLoggedInMarketsRequiresExactVisibleProductSearchBeforePin() {
+        val nav = setOf("Märkte", "News", "Terminkalender", "Favoriten", "Portfolio")
+        assertFalse(LoginDialogPolicy.verifiedMarkets(nav, false))
+        assertTrue(LoginDialogPolicy.verifiedMarkets(nav, true))
+        val markets = nav + "Mit Namen, ISIN oder Symbol suchen"
+        assertTrue(LoginDialogPolicy.verifiedMarkets(markets, false))
+        for (marker in markets) assertFalse(LoginDialogPolicy.verifiedMarkets(markets - marker, false))
+        assertFalse(LoginDialogPolicy.verifiedMarkets(
+            setOf("PassCode", "Abbrechen", "DEGIRO"), false))
+        for (login in listOf("Haben Sie Ihren Code vergessen?", "Forgot your passcode?",
+            "Forgot your code?", "PassCode", LoginDialogPolicy.NOTICE, LoginDialogPolicy.OFFER)) {
+            assertFalse(LoginDialogPolicy.verifiedMarkets(markets + login, false))
+            assertFalse(LoginDialogPolicy.verifiedMarkets(markets + login, true))
+        }
+    }
 }

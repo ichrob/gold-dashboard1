@@ -6,6 +6,13 @@ internal object LoginDialogPolicy {
     const val NOTICE = "Bitte geben Sie Ihren PassCode ein, um TouchID / FaceID einzurichten"
     const val OFFER = "TouchID / FaceID aktivieren"
     const val BODY = "Wenn Face/Touch ID aktiviert ist, können Sie sich mit Face/Touch ID anmelden."
+    /** A pre-login bypass requires the real Markets search on the same focused
+     * DEGIRO window, not just navigation labels lingering behind a login modal. */
+    fun verifiedMarkets(labels: Set<String>, afterEntry: Boolean): Boolean =
+        labels.containsAll(setOf("Märkte", "News", "Terminkalender", "Favoriten", "Portfolio")) &&
+            labels.none { it in setOf("Haben Sie Ihren Code vergessen?", "Forgot your passcode?",
+                "Forgot your code?", "PassCode", NOTICE, OFFER) } &&
+            (afterEntry || "Mit Namen, ISIN oder Symbol suchen" in labels)
     fun normalize(value: CharSequence?) = value?.toString()?.trim()?.replace(Regex("\\s+"), " ").orEmpty()
     fun identify(degiro: Boolean, trustedSystem: Boolean, associated: Boolean,
         labels: Set<String>, afterEntry: Boolean, owner: LoginDialogCheck.Owner? = null): Kind? {
