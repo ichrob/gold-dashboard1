@@ -74,6 +74,39 @@ internal class LocalLoginDialogs {
             return false
         } finally { current?.recycle() }
     }
+    /** Android input placeholders may be exposed through hintText rather than
+     * node.text; text-search does not cover those hints. Read only exact fixed
+     * hints of visible editable inputs, never entered values or descendants. */
+    private fun marketInputHints(root: AccessibilityNodeInfo): Pair<Boolean, Boolean> {
+        var seen = 0
+        var complete = true
+        var found = false
+        var protectedInput = false
+        fun visit(n: AccessibilityNodeInfo, depth: Int) {
+            if (!complete || ++seen > 500 || depth > 30) { complete = false; return }
+            if (!n.isVisibleToUser || n.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
+            val sensitive = n.isPassword ||
+                (Build.VERSION.SDK_INT >= 34 && n.isAccessibilityDataSensitive)
+            if (sensitive) { protectedInput = true; return }
+            if (n.isEditable) {
+                val matched = LoginMarketPromptPolicy.isExactPrompt(
+                    n.hintText, n.contentDescription,
+                    if (n.isShowingHintText) n.text else null,
+                    true, n.isPassword, sensitive)
+                if (matched) found = true else protectedInput = true
+                return
+            }
+            for (i in 0 until n.childCount) {
+                val child = n.getChild(i) ?: run { complete = false; return }
+                try { visit(child, depth + 1) } finally { child.recycle() }
+                if (!complete) return
+            }
+        }
+        visit(root, 0)
+        return LoginMarketPromptPolicy.usable(found, complete, protectedInput) to
+            (complete && !protectedInput)
+    }
+
     /** Fast bounded witness for complex WebViews with more than 300 nodes.
      * Query Android only for fixed market / dialog markers. This neither
      * clicks the search nor reads/edit any PIN field. */
@@ -105,9 +138,11 @@ internal class LocalLoginDialogs {
                 }
             } finally { matches.forEach { it.recycle() } }
         }
+        val (promptFromHint, inputsSafe) = marketInputHints(root)
+        if (promptFromHint) observed += "Mit Namen, ISIN oder Symbol suchen"
         val clearOfDialogs = blockers.none { it in observed }
         val state = marketsReadiness.observe(now, root.windowId,
-            foreground && bounded && clearOfDialogs, observed)
+            foreground && bounded && clearOfDialogs && inputsSafe, observed)
         if (state == LoginMarketsReadiness.State.VERIFIED) {
             PinReadinessProbe.finishLogin("LOCAL_PIN_HOME_VISIBLE")
             return true
