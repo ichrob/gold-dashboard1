@@ -225,3 +225,27 @@ is created by the preview.
 The no-write rehearsal is intended to decide *whether* a first controlled
 production archive batch makes sense. A separate explicit execution workflow
 with proven rollback is still necessary before any pointer is committed.
+## Interrupted full backup during rolling Render deploy (2026-10-31)
+
+An explicit new full database export was successfully started at 18:54 UTC;
+the process reached local restore, Drive upload/download and remote restore.
+A separate Bob Handy code release deployed a new push-service process
+at 19:02 UTC while remote restore was running. The original attempt
+remains persisted as `running`, without a final restored receipt. This is
+**not** a fresh verified backup and must not authorize archive source updates.
+The successful earlier verified receipt remains factually valid at its
+original date, but is **stale** for the six-hour writer gate.
+
+`storage_budget.archive_status` now reports both the latest attempted run
+and the latest successfully verified attempt, with sanitized identifiers.
+A nonterminal claim older than ten minutes is a review candidate, not
+proof that the old process failed. The new decision writer proof gate reads
+the last independently verified restore timestamp, always applies its
+six-hour freshness and still requires a separate short-lived manual approval
+and Render disk observation. This is a read-only status correction.
+
+The original database remains unchanged. Do not reset the incomplete
+attempt row or pretend the uploaded but unverified Drive file is a
+recoverable/verified source. Use a **new distinct attempt ID** for a
+future full backup in a quiet deployment window, or implement separately
+tested durable remote-restore resumption before the next pilot.
