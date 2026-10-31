@@ -37,9 +37,12 @@ separate measurements. There is no guarantee of staying below 500 MB.
 Decision-audit offload remains a separate task because its many JSON SQL
 predicates and history readers require coordinated compatibility changes.
 
-The observation worker starts after 90 seconds. It scans at most 100 primary-key
+The observation worker starts after 90 seconds. It scans at most 20 primary-key
 ordered rows per query, materializing keys before examining JSON. A persisted
 cursor advances only after a successful page/transaction and resets at the end
 of a sweep. Small/already archived rows do not stop a sweep. The 32-page/120s
 pass limits and SQL timeouts remain unchanged. This avoids a full JSON archive
 scan and sort on each batch.
+
+Each selected JSON payload is limited to 256 KiB; 20-row pages bound fetched
+JSON to about 5 MiB while supporting larger original learning snapshots.

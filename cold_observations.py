@@ -12,6 +12,8 @@ import cold_metrics as codec
 
 TAG = '_bobColdObservationV1'
 _THREAD = None
+PAGE_ROWS = 20
+MAX_PAYLOAD_TEXT_BYTES = 262144
 
 
 def init(conn):
@@ -65,12 +67,12 @@ def offload_batch(conn,drive,now=None):
         candidates=conn.execute("""WITH page AS MATERIALIZED (
             SELECT campaign,slot FROM bob_improvement_observations
             WHERE slot<%s AND (campaign,slot)>(%s,%s)
-            ORDER BY campaign,slot LIMIT 100)
+            ORDER BY campaign,slot LIMIT %s)
             SELECT p.campaign,p.slot,CASE WHEN a.payload ? 'evidence' AND NOT(a.payload ? %s)
-                AND pg_column_size(a.payload)>512 AND octet_length(a.payload::text)<65536
+                AND pg_column_size(a.payload)>512 AND octet_length(a.payload::text)<%s
                 THEN a.payload ELSE NULL END
             FROM page p JOIN bob_improvement_observations a USING(campaign,slot)
-            ORDER BY p.campaign,p.slot""",(now-86400000,*(cursor or ('',-9223372036854775808)),TAG)).fetchall()
+            ORDER BY p.campaign,p.slot""",(now-86400000,*(cursor or ('',-9223372036854775808)),PAGE_ROWS,TAG,MAX_PAYLOAD_TEXT_BYTES)).fetchall()
     if not candidates:
         conn.execute('DELETE FROM bob_cold_observation_scan WHERE id=1')
         return {'status':'sweep-completed','movedRows':0,'scannedRows':0}

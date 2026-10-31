@@ -77,15 +77,23 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(self.read(3000),{'evidence':None});self.assertEqual(self.read(4000),{'at':10})
     def test_pages_skip_small_rows_and_continue_without_starving_eligible_rows(self):
         self.c.execute('DELETE FROM bob_improvement_observations')
-        for i in range(100):self.put(i,{'evidence':None})
+        for i in range(cold.PAGE_ROWS):self.put(i,{'evidence':None})
         self.put(1000)
         first=cold.offload_batch(self.c,self.drive,now=200000000)
-        self.assertEqual(first['movedRows'],0);self.assertEqual(first['scannedRows'],100)
+        self.assertEqual(first['movedRows'],0);self.assertEqual(first['scannedRows'],cold.PAGE_ROWS)
         second=cold.offload_batch(self.c,self.drive,now=200000000)
         self.assertEqual(second['movedRows'],1)
         self.assertEqual(self.read(1000),self.payload)
         self.assertEqual(cold.offload_batch(self.c,self.drive,now=200000000)['status'],'sweep-completed')
         self.assertIsNone(self.c.execute('SELECT * FROM bob_cold_observation_scan').fetchone())
+
+    def test_large_original_evidence_remains_supported(self):
+        self.c.execute('DELETE FROM bob_improvement_observations')
+        payload={**self.payload,'evidence':{'large':[hashlib.sha256(str(i).encode()).hexdigest() for i in range(1500)]}}
+        self.assertGreater(len(json.dumps(payload)),65536)
+        self.put(1000,payload)
+        self.assertEqual(cold.offload_batch(self.c,self.drive,now=200000000)['movedRows'],1)
+        self.assertEqual(self.read(1000),payload)
 
     def test_corrupt_read_is_explicit(self):
         cold.offload_batch(self.c,self.drive,now=200000000)
