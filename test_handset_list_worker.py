@@ -144,10 +144,11 @@ class WorkerTests(unittest.TestCase):
             worker.tick(lambda:db,runner)
             self.assertEqual(db.writes[-1]['error'],'ListVerificationError')
             return calls
-        self.assertEqual(attempt(2,'ListVerificationError'),['enhanced'])
+        self.assertEqual(attempt(3,'ListVerificationError'),['enhanced'])
         self.assertEqual(attempt(1,'ListVerificationError'),[None])
-        self.assertEqual(attempt(2,'OcrChildError'),[None])
-        self.assertEqual(attempt(3,'ListVerificationError'),[None])
+        self.assertEqual(attempt(2,'ListVerificationError'),[None])
+        self.assertEqual(attempt(3,'OcrChildError'),[None])
+        self.assertEqual(attempt(4,'ListVerificationError'),[None])
 
     def test_phone_ocr_size_is_bounded_without_changing_original(self):
         for width,height in [(1080,2400),(1440,3200),(5000,3000),(709,1536)]:
@@ -284,6 +285,21 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes',import_receipt=%s::jsonb WHERE batch_id=%s",
                     (json.dumps({'stage':'read-failed','error':'MemoryError'}),value['batchId']))
             self.assertFalse(worker.tick(connect,lambda *_:self.fail('Unbounded memory retry')))
+            # A previous run with exactly three failed ten-row validations
+            # may use one enhanced pass; a fourth such failure terminates.
+            with connect() as conn:
+                conn.execute("UPDATE bob_android_list_images SET processing_attempts=3,processing_at=now()-interval '5 minutes',import_receipt=%s::jsonb WHERE batch_id=%s",
+                    (json.dumps({'stage':'read-failed','error':'ListVerificationError'}),value['batchId']))
+            observed=[]
+            def enhanced_runner(payload,at):
+                observed.append(payload.get('_ocr_mode'))
+                raise worker.ListVerificationError('Not enough complete distinct rows')
+            self.assertTrue(worker.tick(connect,enhanced_runner))
+            self.assertEqual(observed,['enhanced'])
+            with connect() as conn:
+                state=conn.execute("SELECT processing_attempts,import_receipt->>'error' FROM bob_android_list_images WHERE batch_id=%s",(value['batchId'],)).fetchone()
+                self.assertEqual(state,(4,'ListVerificationError'))
+            self.assertFalse(worker.tick(connect,lambda *_:self.fail('No fifth OCR verification attempt')))
             with connect() as conn:
                 conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb WHERE batch_id=%s",
                     (json.dumps({'stage':'read-failed','error':'LockNotAvailable'}),value['batchId']))
