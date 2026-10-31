@@ -127,6 +127,7 @@ internal object PhoneDiagnostics {
                 .put("labelled", flags.labelled).put("clickableFlag", flags.clickableFlag)
                 .put("clickAction", flags.clickAction).put("nearbyParentAction", flags.nearbyParentAction))
         }
+        PinReadinessProbe.loginMarketStatus?.let { summary.put("marketStatus", it) }
         PinReadinessProbe.loginDialogCheck?.let { check ->
             summary.put("dialogCheck", JSONObject().put("phase", check.phase.name)
                 .put("owner", check.owner.name).put("stage", check.stage.name)

@@ -13,6 +13,31 @@ class PinTelemetry(unittest.TestCase):
             with self.subTest(extra=extra), self.assertRaises(ValueError):
                 validate_report(dict(report, pinProbe=report['pinProbe'] | extra))
 
+    def test_market_gate_status_strictly_sanitized_and_local_login_only(self):
+        from android_telemetry import PIN_MARKET_STATUSES
+        for status in PIN_MARKET_STATUSES:
+            report=dict(self.report(),pinProbe=dict(self.probe(),
+                result='LOCAL_PIN_RESULT_UNVERIFIED',marketStatus=status))
+            self.assertEqual(validate_report(report)['pinProbe']['marketStatus'],status)
+        bad=('Mit Namen, ISIN oder Symbol suchen', 'CHF 504,74',
+             'MARKETS_LOGIN_SUCCESS', '', None, [], 1)
+        for status in bad:
+            report=dict(self.report(),pinProbe=dict(self.probe(),
+                result='LOCAL_PIN_RESULT_UNVERIFIED',marketStatus=status))
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                validate_report(report)
+        report=dict(self.report(),pinProbe=dict(self.probe(),
+            result='KEYPAD_TEST_INTERRUPTED',marketStatus='VERIFIED'))
+        with self.assertRaises(ValueError): validate_report(report)
+
+    def test_market_status_enum_contract_matches_android(self):
+        import re
+        from pathlib import Path
+        from android_telemetry import PIN_MARKET_STATUSES
+        source=(Path(__file__).parent/'android_companion/app/src/main/java/ch/bob/degirocompanion/LocalLoginDialogs.kt').read_text()
+        block=re.search(r'enum class MarketStatus\s*\{([^}]+)',source).group(1)
+        self.assertEqual(set(re.findall(r'\b[A-Z_]+\b',block)),PIN_MARKET_STATUSES)
+
     def test_dialog_outcomes_contain_no_screen_text_or_credentials(self):
         for result in ('LOCAL_PIN_HOME_VISIBLE', 'LOCAL_PIN_DIALOG_UNCHANGED',
                        'LOCAL_PIN_DIALOG_UNRECOGNIZED', 'LOCAL_PIN_DIALOG_BLOCKED',

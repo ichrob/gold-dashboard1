@@ -16,6 +16,11 @@ import android.view.accessibility.AccessibilityWindowInfo
 internal class LocalLoginDialogs {
     private val budget = LoginDialogBudget()
     private val marketsReadiness = LoginMarketsReadiness()
+    enum class MarketStatus { NOT_OBSERVED, NOT_DEGIRO, UNFOCUSED,
+        MARKER_COUNT_EXCEEDED, INCOMPLETE_TREE, PROTECTED_INPUT, BLOCKED_DIALOG,
+        SEARCH_PROMPT_MISSING, MARKET_CONTEXT_MISSING, SETTLING, VERIFIED }
+    var marketStatus = MarketStatus.NOT_OBSERVED
+        private set
     // Exact, predetermined labels only. Never inspect balances, usernames,
     // account numbers, PIN values, arbitrary node text or screenshot pixels.
     private val marketsMarkers = listOf("Märkte", "Indizes", "News", "Terminkalender",
@@ -74,12 +79,56 @@ internal class LocalLoginDialogs {
             return false
         } finally { current?.recycle() }
     }
+    /** Android input placeholders may be exposed through hintText rather than
+     * node.text; text-search does not cover those hints. Read only exact fixed
+     * hints of visible editable inputs, never entered values or descendants. */
+    private data class MarketScan(val hintFound: Boolean, val complete: Boolean,
+        val protectedInput: Boolean, val markers: Set<String>)
+    private fun marketInputHints(root: AccessibilityNodeInfo): MarketScan {
+        var seen = 0
+        var complete = true
+        var found = false
+        var protectedInput = false
+        val collected = mutableSetOf<String>()
+        val fixed = (marketsMarkers + blockers).toSet()
+        fun visit(n: AccessibilityNodeInfo, depth: Int) {
+            if (!complete || ++seen > 500 || depth > 30) { complete = false; return }
+            if (!n.isVisibleToUser || n.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
+            val sensitive = n.isPassword ||
+                (Build.VERSION.SDK_INT >= 34 && n.isAccessibilityDataSensitive)
+            if (sensitive) { protectedInput = true; return }
+            if (n.isEditable) {
+                val matched = LoginMarketPromptPolicy.isExactPrompt(
+                    n.hintText, n.contentDescription,
+                    if (n.isShowingHintText) n.text else null,
+                    true, n.isPassword, sensitive)
+                if (matched) found = true else protectedInput = true
+                return
+            }
+            // WebViews sometimes expose market captions as contentDescription
+            // rather than searchable node.text. Retain only exact fixed labels.
+            listOf(n.text, n.contentDescription).forEach { label ->
+                LoginMarketPromptPolicy.exactFixedLabel(label, fixed)?.let(collected::add)
+            }
+            for (i in 0 until n.childCount) {
+                val child = n.getChild(i) ?: run { complete = false; return }
+                try { visit(child, depth + 1) } finally { child.recycle() }
+                if (!complete) return
+            }
+        }
+        visit(root, 0)
+        return MarketScan(
+            LoginMarketPromptPolicy.usable(found, complete, protectedInput),
+            complete, protectedInput, collected)
+    }
+
     /** Fast bounded witness for complex WebViews with more than 300 nodes.
      * Query Android only for fixed market / dialog markers. This neither
      * clicks the search nor reads/edit any PIN field. */
     private fun marketsVisible(service: AccessibilityService, root: AccessibilityNodeInfo, now: Long): Boolean {
         if (root.packageName?.toString() != ProductScreenEvidence.PACKAGE ||
             !safe(root, ProductScreenEvidence.PACKAGE, root.windowId)) {
+            marketStatus = MarketStatus.NOT_DEGIRO
             marketsReadiness.clear()
             return false
         }
@@ -87,7 +136,7 @@ internal class LocalLoginDialogs {
         val foreground = try {
             windows.count { it.id == root.windowId && it.isActive && it.isFocused } == 1
         } finally { windows.forEach { it.recycle() } }
-        if (!foreground) { marketsReadiness.clear(); return false }
+        if (!foreground) { marketStatus = MarketStatus.UNFOCUSED; marketsReadiness.clear(); return false }
         val observed = mutableSetOf<String>()
         var bounded = true
         for (marker in marketsMarkers + blockers) {
@@ -105,9 +154,22 @@ internal class LocalLoginDialogs {
                 }
             } finally { matches.forEach { it.recycle() } }
         }
+        val scan = marketInputHints(root)
+        observed += scan.markers
+        if (scan.hintFound) observed += "Mit Namen, ISIN oder Symbol suchen"
         val clearOfDialogs = blockers.none { it in observed }
-        val state = marketsReadiness.observe(now, root.windowId,
-            foreground && bounded && clearOfDialogs, observed)
+        val valid = foreground && bounded && clearOfDialogs && scan.complete && !scan.protectedInput
+        val state = marketsReadiness.observe(now, root.windowId, valid, observed)
+        marketStatus = when {
+            !bounded -> MarketStatus.MARKER_COUNT_EXCEEDED
+            !scan.complete -> MarketStatus.INCOMPLETE_TREE
+            scan.protectedInput -> MarketStatus.PROTECTED_INPUT
+            !clearOfDialogs -> MarketStatus.BLOCKED_DIALOG
+            "Mit Namen, ISIN oder Symbol suchen" !in observed -> MarketStatus.SEARCH_PROMPT_MISSING
+            !LoginDialogPolicy.verifiedMarkets(observed, false) -> MarketStatus.MARKET_CONTEXT_MISSING
+            state == LoginMarketsReadiness.State.VERIFIED -> MarketStatus.VERIFIED
+            else -> MarketStatus.SETTLING
+        }
         if (state == LoginMarketsReadiness.State.VERIFIED) {
             PinReadinessProbe.finishLogin("LOCAL_PIN_HOME_VISIBLE")
             return true
@@ -121,7 +183,11 @@ internal class LocalLoginDialogs {
         val now = SystemClock.elapsedRealtime()
         if (afterEntry && postSince == 0L) postSince = now
         if (pending) return true
-        val root = service.rootInActiveWindow ?: run { homeSince = 0L; return true }
+        val root = service.rootInActiveWindow ?: run {
+            marketStatus = MarketStatus.NOT_OBSERVED
+            homeSince = 0L
+            return true
+        }
         val nodes = mutableListOf<AccessibilityNodeInfo>()
         try {
             val pkg = root.packageName?.toString().orEmpty()
