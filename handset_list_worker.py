@@ -226,7 +226,7 @@ def tick(connect,runner=process):
             JOIN bob_android_diagnostic_devices d USING(token_hash)
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
-            AND (i.import_receipt->>'stage'='waiting-memory' OR i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error'='MemoryError'))
+            AND (i.import_receipt->>'stage'='waiting-memory' OR i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error' IN ('MemoryError','ListVerificationError')))
                 OR (i.processing_attempts=4 AND i.import_receipt->>'error' IN ('InterruptedWorker','MemoryError'))
                 OR (i.processing_attempts=5 AND i.import_receipt->>'error' IN ('CalledProcessError','LockNotAvailable','DeadlockDetected','SerializationFailure')))
             AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
@@ -235,10 +235,10 @@ def tick(connect,runner=process):
             observe("idle")
             return False
         batch,payload,created,attempts,previous=row
-        # A single alternate OCR pass is permitted while the original
-        # bounded queue still admits a third attempt. Other error classes
-        # and all prior full successes remain unchanged.
-        alternate=(attempts==2 and (previous or {}).get('stage')=='read-failed'
+        # One enhanced pass after three failed list-verification attempts.
+        # It is never repeated for a second verification failure.
+        # The original evidence and strict 10-ISIN gate remain unchanged.
+        alternate=(attempts==3 and (previous or {}).get('stage')=='read-failed'
             and (previous or {}).get('error')=='ListVerificationError')
         conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1,import_receipt=%s::jsonb WHERE batch_id=%s",(json.dumps({'batchId':batch,'stage':'reading','count':0}),batch))
         conn.commit()
