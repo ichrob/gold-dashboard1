@@ -74,6 +74,30 @@ internal class LocalLoginDialogs {
             return false
         } finally { current?.recycle() }
     }
+    /** Android may expose the search placeholder solely via hintText on
+     * an editable WebView node. The text-query API does not find such hints.
+     * Inspect ONLY the hint, never any entered text, and do not descend
+     * through protected nodes. This is a positive witness, not a click. */
+    private fun searchPromptHint(root: AccessibilityNodeInfo): Boolean {
+        var visited = 0
+        fun visit(node: AccessibilityNodeInfo, depth: Int): Boolean {
+            if (++visited > 1200 || depth > 30 ||
+                !node.isVisibleToUser ||
+                node.packageName?.toString() != ProductScreenEvidence.PACKAGE) return false
+            val sensitive = Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive
+            if (MarketsSearchHintEvidence.isPromptHint(node.isVisibleToUser, node.isEnabled,
+                    node.isEditable, node.isPassword, sensitive, node.hintText)) return true
+            if (sensitive || node.isPassword) return false
+            for (index in 0 until node.childCount) {
+                val child = node.getChild(index) ?: continue
+                try { if (visit(child, depth + 1)) return true }
+                finally { child.recycle() }
+            }
+            return false
+        }
+        return visit(root, 0)
+    }
+
     /** Fast bounded witness for complex WebViews with more than 300 nodes.
      * Query Android only for fixed market / dialog markers. This neither
      * clicks the search nor reads/edit any PIN field. */
@@ -105,6 +129,12 @@ internal class LocalLoginDialogs {
                 }
             } finally { matches.forEach { it.recycle() } }
         }
+        // The Markets search can be an editable Android field whose visible
+        // placeholder is stored as hintText rather than a text node. A fixed
+        // exact-match hint is safe evidence; the input value is never read.
+        if (MarketsSearchHintEvidence.PROMPT !in observed && bounded &&
+            blockers.none { it in observed } && searchPromptHint(root))
+            observed += MarketsSearchHintEvidence.PROMPT
         val clearOfDialogs = blockers.none { it in observed }
         val state = marketsReadiness.observe(now, root.windowId,
             foreground && bounded && clearOfDialogs, observed)
