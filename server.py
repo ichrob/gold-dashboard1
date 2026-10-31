@@ -5,6 +5,7 @@ import candle_reliability
 import bob_passkey
 import bob_handy_landing
 import bob_app_links
+import bob_zentrale
 import degiro_readonly
 import degiro_preflight
 import degiro_sync
@@ -1277,6 +1278,8 @@ class Handler(BaseHTTPRequestHandler):
         return bob_auth.authenticated(self.headers, USER, PASSWORD)
 
     def do_GET(self):
+        if bob_zentrale.route(self, USER, PASSWORD):
+            return
         if __import__("archive_public").route(self):
             return
         if __import__('android_telemetry_http').route(self,'GET',urlparse(self.path).path,android_diagnostic_rpc):return
@@ -1993,6 +1996,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
     def do_HEAD(self):
+        if bob_zentrale.route(self, USER, PASSWORD, head=True):
+            return
         if __import__("archive_public").route(self, head=True):
             return
         # Render and other HTTP probes use HEAD. Mirror the root/health access
