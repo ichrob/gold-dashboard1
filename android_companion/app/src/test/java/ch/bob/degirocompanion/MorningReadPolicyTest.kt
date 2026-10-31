@@ -285,7 +285,7 @@ class MorningReadPolicyTest {
     private fun samsungSearchResult():List<MorningReadPolicy.Node> {
         val target="DE000SQ02JQ6"
         val title="SG Gold Turbo Unlimited Mini Call BAR 2144 BP 2122.67 Bv 10"
-        val card="$title | $target\\nSociete Generale OTC EUR\\nK\\nV"
+        val card="$title | $target\nSociete Generale OTC EUR\nK\nV"
         return listOf(
             MorningReadPolicy.Node(target,editable=true,hint="Mit Namen, ISIN oder Symbol suchen"),
             MorningReadPolicy.Node(""),
@@ -312,7 +312,7 @@ class MorningReadPolicyTest {
         assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
     }
     @Test fun samsungRejectsCardLacksIsin() {
-        val view=samsungSearchResult().toMutableList().also { it[3]=it[3].copy(row="SG Gold Turbo Unlimited Mini Call BAR 2144 BP 2122.67 Bv 10\\nK\\nV") }
+        val view=samsungSearchResult().toMutableList().also { it[3]=it[3].copy(row="SG Gold Turbo Unlimited Mini Call BAR 2144 BP 2122.67 Bv 10\nK\nV") }
         assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
     }
     @Test fun samsungRejectsTitleContainsBuy() {
@@ -320,7 +320,7 @@ class MorningReadPolicyTest {
         assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
     }
     @Test fun samsungRejectsTitleRowContainsTradeControl() {
-        val view=samsungSearchResult().toMutableList().also { it[4]=it[4].copy(row=it[4].row+"\\nK") }
+        val view=samsungSearchResult().toMutableList().also { it[4]=it[4].copy(row=it[4].row+"\nK") }
         assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
     }
     @Test fun samsungRejectsMismatchedVisibleIsin() {
