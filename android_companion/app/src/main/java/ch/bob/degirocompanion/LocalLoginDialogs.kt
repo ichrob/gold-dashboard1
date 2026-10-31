@@ -15,6 +15,15 @@ import android.view.accessibility.AccessibilityWindowInfo
 /** Local-only exact dialog matching. No input traversal, screenshots or generic back. */
 internal class LocalLoginDialogs {
     private val budget = LoginDialogBudget()
+    private val marketsReadiness = LoginMarketsReadiness()
+    // Exact, predetermined labels only. Never inspect balances, usernames,
+    // account numbers, PIN values, arbitrary node text or screenshot pixels.
+    private val marketsMarkers = listOf("Märkte", "News", "Terminkalender",
+        "Favoriten", "Portfolio", "Mit Namen, ISIN oder Symbol suchen")
+    private val blockers = listOf("Haben Sie Ihren Code vergessen?",
+        "Forgot your passcode?", "Forgot your code?", "PassCode",
+        LoginDialogPolicy.NOTICE, LoginDialogPolicy.OFFER,
+        "Abbrechen", "Cancel", "Schließen", "Order bestätigen")
     var unrecognizedCheck: LoginDialogCheck? = null
         private set
     private val started = SystemClock.elapsedRealtime()
@@ -65,7 +74,47 @@ internal class LocalLoginDialogs {
             return false
         } finally { current?.recycle() }
     }
-    private fun fail(code: String): Boolean { PinReadinessProbe.finishLogin(code); return true }
+    /** Fast bounded witness for complex WebViews with more than 300 nodes.
+     * Query Android only for fixed market / dialog markers. This neither
+     * clicks the search nor reads/edit any PIN field. */
+    private fun marketsVisible(service: AccessibilityService, root: AccessibilityNodeInfo, now: Long): Boolean {
+        if (root.packageName?.toString() != ProductScreenEvidence.PACKAGE ||
+            !safe(root, ProductScreenEvidence.PACKAGE, root.windowId)) {
+            marketsReadiness.clear()
+            return false
+        }
+        val windows = service.windows
+        val foreground = try {
+            windows.count { it.id == root.windowId && it.isActive && it.isFocused } == 1
+        } finally { windows.forEach { it.recycle() } }
+        if (!foreground) { marketsReadiness.clear(); return false }
+        val observed = mutableSetOf<String>()
+        var bounded = true
+        for (marker in marketsMarkers + blockers) {
+            val matches = root.findAccessibilityNodeInfosByText(marker)
+            try {
+                if (matches.size > 32) { bounded = false; break }
+                for (node in matches) {
+                    if (safe(node, ProductScreenEvidence.PACKAGE, root.windowId) &&
+                        listOf(node.text, node.contentDescription).any {
+                            LoginDialogPolicy.normalize(it).equals(marker, ignoreCase = true)
+                        }) {
+                        observed += marker
+                        break
+                    }
+                }
+            } finally { matches.forEach { it.recycle() } }
+        }
+        val clearOfDialogs = blockers.none { it in observed }
+        val state = marketsReadiness.observe(now, root.windowId,
+            foreground && bounded && clearOfDialogs, observed)
+        if (state == LoginMarketsReadiness.State.VERIFIED) {
+            PinReadinessProbe.finishLogin("LOCAL_PIN_HOME_VISIBLE")
+            return true
+        }
+        return state == LoginMarketsReadiness.State.SETTLING
+    }
+    private fun fail(code: String): Boolean { marketsReadiness.clear(); PinReadinessProbe.finishLogin(code); return true }
     /** true consumes this tick, including unknown/blocked dialogs. */
     fun inspect(service: AccessibilityService, afterEntry: Boolean): Boolean {
         if (!PinReadinessProbe.loginDialogsAllowed) return false
@@ -110,6 +159,10 @@ internal class LocalLoginDialogs {
                 }
             } finally { shown.forEach { it.recycle() } }
             try {
+                // Prefer a verified, stable Markets witness before scanning the
+                // whole accessibility tree. Large legitimate market pages can
+                // exceed the bounded 300-node dialog scanner.
+                if (degiro && marketsVisible(service, root, now)) return true
                 val complete = LoginDialogNodeScan.collect(root, object : LoginDialogNodeScan.Access<AccessibilityNodeInfo> {
                     override fun safe(node: AccessibilityNodeInfo) = this@LocalLoginDialogs.safe(node, pkg, root.windowId)
                     override fun labels(node: AccessibilityNodeInfo) = listOf(node.text, node.contentDescription)
