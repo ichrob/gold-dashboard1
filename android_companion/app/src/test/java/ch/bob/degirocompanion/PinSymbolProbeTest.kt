@@ -13,7 +13,7 @@ class PinSymbolProbeTest {
         assertEquals(PinProbePolicy.Result.SYMBOL_NODE_UNAVAILABLE, PinSymbolProbe.classify(keys()))
         assertEquals(PinProbePolicy.Result.SYMBOL_UNLABELLED_ACTION, PinSymbolProbe.classify(keys()+icon()))
         assertEquals(PinProbePolicy.Result.SYMBOL_LABELLED_ACTION, PinSymbolProbe.classify(keys()+icon(true)))
-        assertEquals(PinProbePolicy.Result.SYMBOL_NO_ACTION, PinSymbolProbe.classify(keys()+icon(action=false)))
+        assertEquals(PinProbePolicy.Result.SYMBOL_UNLABELLED_PASSIVE, PinSymbolProbe.classify(keys()+icon(action=false)))
     }
     @Test fun refusesMissingDuplicateOrShuffledKeypads() {
         assertEquals(PinProbePolicy.Result.SYMBOL_LAYOUT_UNCONFIRMED, PinSymbolProbe.classify(keys().drop(1)))
@@ -28,6 +28,18 @@ class PinSymbolProbeTest {
             PinSymbolProbe.classify(keys()+icon().copy(y=-300f)))
         assertEquals(PinProbePolicy.Result.SYMBOL_NODES_MULTIPLE,
             PinSymbolProbe.classify(keys()+icon()+icon().copy(width=30f)))
+    }
+    @Test fun distinguishesDisabledFlagsAndParentWithoutCreatingActionTargets() {
+        val cases=listOf(
+            icon().copy(enabled=false) to PinProbePolicy.Result.SYMBOL_DISABLED,
+            icon().copy(clickableFlag=false, clickAction=false, nearbyParentAction=true) to PinProbePolicy.Result.SYMBOL_PARENT_ACTION_OBSERVED,
+            icon().copy(clickAction=false) to PinProbePolicy.Result.SYMBOL_CLICK_FLAG_ONLY,
+            icon().copy(clickableFlag=false) to PinProbePolicy.Result.SYMBOL_ACTION_ONLY,
+            icon(true, false) to PinProbePolicy.Result.SYMBOL_LABELLED_PASSIVE,
+            icon(false, false) to PinProbePolicy.Result.SYMBOL_UNLABELLED_PASSIVE)
+        for ((node, expected) in cases) assertEquals(expected, PinSymbolProbe.classify(keys()+node))
+        assertEquals(PinProbePolicy.Result.SYMBOL_DISABLED,
+            PinSymbolProbe.classify(keys()+icon().copy(enabled=false, nearbyParentAction=true)))
     }
     @Test fun worksAfterScalingAndTranslation() {
         val nodes=(keys()+icon()).map { it.copy(x=it.x*2+70,y=it.y*2+120,width=it.width*2,height=it.height*2) }
