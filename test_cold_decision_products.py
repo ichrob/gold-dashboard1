@@ -36,6 +36,26 @@ class DecisionProductsReaderTests(unittest.TestCase):
             self.assertEqual(conn.execute.call_args_list[0].args[1],(decision_id,))
             download.assert_called_once_with(None,'example-file',file_hash,conn=conn)
 
+    def test_already_download_verified_content_keeps_identity_and_digest_gate(self):
+        import cold_metrics as codec
+        products=[{'isin':'EXAMPLE','quote':9007199254740993}]
+        h=codec.digest(codec.encoded(products))
+        conn=Mock()
+        conn.execute.side_effect=[
+            Mock(fetchone=lambda:(h,)),
+            Mock(fetchone=lambda:('example-file','a'*64,0))]
+        with patch.object(codec,'read_chunk') as download:
+            actual=cold.resolve(conn,'decision',{cold.TAG:h,'direction':'SHORT'},
+                                verified={h:products})
+        self.assertEqual(actual['products'],products)
+        download.assert_not_called()
+        conn.execute.reset_mock()
+        conn.execute.side_effect=[
+            Mock(fetchone=lambda:(h,)),
+            Mock(fetchone=lambda:('example-file','a'*64,0))]
+        with self.assertRaises(codec.ColdArchiveUnavailable):
+            cold.resolve(conn,'decision',{cold.TAG:h},verified={h:[]})
+
     def test_identity_mismatch_corruption_missing_chunk_or_invalid_pointer_fails_closed(self):
         import cold_metrics as codec
         products=[{'isin':'EXAMPLE','price':1}]
