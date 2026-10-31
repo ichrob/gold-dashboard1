@@ -17,15 +17,15 @@ class PoolFailureTests(unittest.TestCase):
         """The expensive archive read must not leave planner settings changed."""
         from unittest.mock import MagicMock
         conn = MagicMock()
-        conn.execute.return_value.fetchall.return_value = [('row', None)]
+        conn.execute.return_value.fetchall.return_value = [('decision-id', {'direction':'row'}, None)]
         with patch.object(decision_audit, '_prospective_query',
-                          return_value=('SELECT payload FROM fixture', ('rule',))):
+                          return_value=('SELECT id,payload,truth FROM fixture', ('rule',))):
             self.assertEqual(decision_audit._load_prospective_rows(conn),
-                             [('row', None)])
+                             [({'direction':'row'}, None)])
         calls = conn.execute.call_args_list
         self.assertEqual(calls[0].args, ('SET LOCAL enable_seqscan=off',))
         self.assertEqual(calls[1].args,
-                         ('SELECT payload FROM fixture', ('rule',)))
+                         ('SELECT id,payload,truth FROM fixture', ('rule',)))
         self.assertEqual(calls[2].args, ('SET LOCAL enable_seqscan=on',))
 
     def test_service_init_never_builds_prospective_index(self):

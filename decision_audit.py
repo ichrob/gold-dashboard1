@@ -11,6 +11,7 @@ import intraday_comparison
 import signal_review
 import adaptive_learning as rule_learning
 import audit_history
+import cold_decision_products
 import decision_evidence
 import stop_target_audit
 import paper_simulation
@@ -599,7 +600,7 @@ def _load_report_rows(conn, limit=None):
         for key, payload in conn.execute(
                 "SELECT id,payload FROM bob_decision_audit WHERE id = ANY(%s::text[])",
                 (batch,)).fetchall():
-            payloads[key] = payload
+            payloads[key] = cold_decision_products.resolve(conn,key,payload)
         for decision_id, horizon, truth in conn.execute(
                 """SELECT decision_id,horizon,truth FROM bob_decision_outcomes
                    WHERE decision_id = ANY(%s::text[]) AND horizon IN (1,5,15,30,60,240)""",
@@ -754,7 +755,7 @@ def _prospective_query(recent=False):
               AND """ + eligible + """
             ORDER BY recorded_at,id LIMIT 1
         ) next_hour
-    ) SELECT a.payload,o.truth FROM sampled s
+    ) SELECT a.id,a.payload,o.truth FROM sampled s
       JOIN bob_decision_audit a ON a.id=s.id
       LEFT JOIN bob_decision_outcomes o ON o.decision_id=s.id AND o.horizon=60
       ORDER BY s.recorded_at"""
@@ -789,7 +790,8 @@ def _load_prospective_rows(conn, recent=False):
     conn.execute('SET LOCAL enable_seqscan=off')
     rows = conn.execute(sql, params).fetchall()
     conn.execute('SET LOCAL enable_seqscan=on')
-    return rows
+    return [(cold_decision_products.resolve(conn,record_id,payload),truth)
+            for record_id,payload,truth in rows]
 
 def product_review(records, now=None):
     """Compare real bid/ask observations; never turn estimated prices into ground truth."""

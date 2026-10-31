@@ -902,9 +902,12 @@ def analysis_snapshot():
 
 def stored_details(conn):
     """Bounded SELECTs in savepoints isolate unavailable tables. No repair calls."""
-    def rows(sql, schema):
+    def rows(sql, schema, *, decision_archive=False):
         with conn.transaction():
             values = conn.execute(sql).fetchall()
+        if decision_archive:
+            import cold_decision_products
+            values = [(cold_decision_products.resolve(conn,row[0],row[1]),) for row in values]
         return {'status':'observed','items':[project(row[0],schema) for row in values],
                 'bounded':True, 'emptyMeans':'no-stored-observations'}
     def gap_models():
@@ -915,11 +918,11 @@ def stored_details(conn):
         with conn.transaction():return read(conn)
     return collect({
         'gapModels':gap_models,
-        'decisionArchive':lambda:rows("SELECT payload FROM bob_decision_audit ORDER BY recorded_at DESC LIMIT 20",
+        'decisionArchive':lambda:rows("SELECT id,payload FROM bob_decision_audit ORDER BY recorded_at DESC LIMIT 20",
             shape('recordedAt','barAt','priceAt','price','direction','baseDirection','shadowDirection','reason','score','ruleVersion','build','origin','marketEvaluable',
                 decisionContext=shape('version','ready','priceFresh',indicators=shape('timeframe','barAt','score','rsi','macd','signal','hist','atr','adx','ema20','ema50','ema200','bbPos'),
                     entryTiming=shape('allowed','reason','status'),session=shape('entryAllowed','reason','phase'),dmi=shape('available','mode','direction','reason')),
-                indicators=INDICATORS,gateReasons=[None],plan=shape('kind','direction','entry','stop','target','unit','at'))),
+                indicators=INDICATORS,gateReasons=[None],plan=shape('kind','direction','entry','stop','target','unit','at')),decision_archive=True),
         'tradeMonitoring':lambda:rows("SELECT jsonb_build_object('updatedAt',updated_at,'active',active,'direction',snapshot->'dir','product',snapshot->'product','state',state) FROM bob_real_trades ORDER BY updated_at DESC LIMIT 10",
             shape('updatedAt','active','direction',product=shape('isin','currency','entry'),state=STATE)),
         'tradeEvents':lambda:rows("SELECT jsonb_build_object('at',recorded_at,'kind',kind,'evidence',payload) FROM bob_real_trade_events ORDER BY seq DESC LIMIT 20",
