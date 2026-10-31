@@ -65,3 +65,34 @@ Logs record total relation bytes before and after a completed attempt. Their
 decrease is an observed relation-size change, not total volume free space;
 concurrent writes can affect it. Empty space within the table remains reusable
 but cannot be released by tail truncation. No shrink is guaranteed.
+
+## One-time physical compaction
+
+`BOB_METRIC_COMPACTION_ONCE` is unset by default. An explicit JSON configuration
+contains `id`, `observedAt` (Unix seconds), `freeBytes` (a conservative, externally
+observed free-space lower bound, at most 200 MB), and `databaseBytes` at observation.
+The observation expires after one hour, even across restarts. Never substitute
+allocation minus logical database size for observed free space. The current
+operator evidence is the 2026-10-31 08:45 Europe/Zurich Render Disk Usage graph
+at about 75–76%; use 200 MB, below the approximately 240 MB shown as free.
+
+The push service starts the one-shot task after 120 seconds. It requires a
+verified backup with both restore/download proofs within 24 hours, skips a running
+archive, and takes both maintenance/cold-writer advisory locks. A committed
+attempt record prevents replay after success, failure, or interrupted execution.
+No auto-retry or table deletion is performed. Ordinary hourly maintenance remains
+separate and never uses FULL.
+
+Only the metric table is allowed (maximum 120 MB). Rebuild its two valid indexes
+one at a time when the observed budget exceeds three times the index size plus
+50 MB. If either operation fails, stop. Then estimate the expanded live tuple and
+current index footprint; FULL is allowed only if twice that estimate plus a 50 MB
+reserve fits the remaining budget. Logical DB growth since observation reduces
+the budget, but apparent shrink does not increase it. These conservative estimates
+are not direct filesystem/WAL measurements. Each command has a 30-second statement
+and 1-second lock timeout. REINDEX may pause writes; FULL blocks reads/writes while
+it holds its exclusive lock. PostgreSQL rolls back an interrupted command.
+
+`BOB_METRIC_COMPACTION` logs and `bob_metric_compaction_attempts.result` hold the
+sanitized before/after relation size and outcome. This proves relation shrink,
+not total volume free bytes. Clear the environment value after the attempt.
