@@ -35,8 +35,8 @@ class PinTelemetry(unittest.TestCase):
         from pathlib import Path
         from android_telemetry import PIN_MARKET_STATUSES
         source=(Path(__file__).parent/'android_companion/app/src/main/java/ch/bob/degirocompanion/LocalLoginDialogs.kt').read_text()
-        block=re.search(r'enum class MarketStatus\\s*\\{([^}]+)',source).group(1)
-        self.assertEqual(set(re.findall(r'\\b[A-Z_]+\\b',block)),PIN_MARKET_STATUSES)
+        block=re.search(r'enum class MarketStatus\s*\{([^}]+)',source).group(1)
+        self.assertEqual(set(re.findall(r'\b[A-Z_]+\b',block)),PIN_MARKET_STATUSES)
 
     def test_dialog_outcomes_contain_no_screen_text_or_credentials(self):
         for result in ('LOCAL_PIN_HOME_VISIBLE', 'LOCAL_PIN_DIALOG_UNCHANGED',
