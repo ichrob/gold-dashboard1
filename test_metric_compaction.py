@@ -1,8 +1,32 @@
 import os
 import unittest
 import uuid
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import metric_compaction as compact
+
+
+class CompactionCoordinationTests(unittest.TestCase):
+    def test_explicit_compactor_runs_after_backup_check_and_before_cold_observations(self):
+        self.assertGreater(compact.COMPACTION_START_DELAY_SECONDS, 60)
+        self.assertLess(compact.COMPACTION_START_DELAY_SECONDS, 90)
+
+    def test_lock_conflict_identifies_fixed_category_without_consuming_attempt(self):
+        config = {'id': 'one', 'observedAt': 4000, 'freeBytes': 200_000_000,
+                  'databaseBytes': 600_000_000}
+        for blocked_index, (expected, _) in enumerate(compact.LOCKS):
+            with self.subTest(expected=expected):
+                conn = MagicMock()
+                conn.autocommit = True
+                conn.__enter__.return_value = conn
+                conn.execute.return_value.fetchone.side_effect = [(True,)] * blocked_index + [(False,)]
+                with patch('archive_worker.status', return_value={'status': 'idle'}):
+                    result = compact.run_once(config, factory=lambda: conn, now=4000)
+                self.assertEqual(result, {'status': 'busy', 'blockedBy': expected})
+                calls = [args[0][0] for args in conn.execute.call_args_list]
+                self.assertEqual(len(calls), blocked_index + 1)
+                self.assertTrue(all(sql.startswith('SELECT pg_try_advisory_lock') for sql in calls))
+                self.assertNotIn('databaseBytes', result)
+                self.assertNotIn('freeBytes', result)
 
 
 class GuardTests(unittest.TestCase):

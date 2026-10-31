@@ -76,7 +76,7 @@ allocation minus logical database size for observed free space. The current
 operator evidence is the 2026-10-31 08:45 Europe/Zurich Render Disk Usage graph
 at about 75–76%; use 200 MB, below the approximately 240 MB shown as free.
 
-The push service starts the one-shot task after 120 seconds. It requires a
+The push service starts an explicitly configured one-shot task after 75 seconds, after the 60-second archive startup gate and before the regular 90-second observation-offload worker. This avoids a deterministic startup race but cannot exclude locks held by an older rolling instance or a long-running task. On a lock conflict the task exits safely with a fixed `blockedBy` category (`maintenance`, `cold-metrics`, `cold-analysis` or `cold-observations`); no claim is consumed and no automatic retry is scheduled. Only a new operator-controlled run using fresh disk and backup evidence may retry. It requires a
 verified backup with both restore/download proofs within 24 hours, skips a running
 archive, and takes both maintenance/cold-writer advisory locks. A committed
 attempt record prevents replay after success, failure, or interrupted execution.

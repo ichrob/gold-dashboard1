@@ -12,6 +12,16 @@ TARGETS = {
     'diagnostic': ('public.bob_diagnostic_history', tuple('public.bob_diagnostic_history'+suffix
         for suffix in ('_pkey','_time','_stage','_source_window','_trace')), 200*M),
 }
+# Reserved worker startup: archive 60s, observations 90s, metric offload 240s.
+# Only explicitly enabled compaction starts here, after the archive gate but
+# before the long-running observation worker can take its advisory lock.
+COMPACTION_START_DELAY_SECONDS = 75
+LOCKS = (
+    ('maintenance', 'bob_storage_maintenance_v1'),
+    ('cold-metrics', 'bob_cold_metrics_v1'),
+    ('cold-analysis', 'bob_cold_analysis_v1'),
+    ('cold-observations', 'bob_cold_observations_v1'),
+)
 
 
 def connect():
@@ -114,9 +124,12 @@ def run_once(config, factory=connect, now=None):
     with factory() as conn:
         if not conn.autocommit:
             raise ValueError('Dedicated autocommit connection required')
-        for key in ('bob_storage_maintenance_v1', 'bob_cold_metrics_v1', 'bob_cold_analysis_v1', 'bob_cold_observations_v1'):
+        for label, key in LOCKS:
             if not conn.execute('SELECT pg_try_advisory_lock(hashtext(%s))', (key,)).fetchone()[0]:
-                return {'status': 'busy'}
+                # Fixed labels only; no SQL text, database credentials or data.
+                # No attempt claim has been written, so an operator can decide
+                # whether a new fresh-observation run is safe.
+                return {'status': 'busy', 'blockedBy': label}
         proof = conn.execute('''SELECT receipt FROM bob_archive_attempts WHERE status='verified'
             AND updated_at>now()-interval '24 hours' ORDER BY updated_at DESC LIMIT 1''').fetchone()
         receipt = (proof[0] or {}).get('receipt', {}) if proof else {}
@@ -153,7 +166,7 @@ def start():
     if not raw:
         return
     def work():
-        time.sleep(120)
+        time.sleep(COMPACTION_START_DELAY_SECONDS)
         try:
             result = run_once(json.loads(raw))
         except Exception as exc:
