@@ -77,11 +77,15 @@ internal class LocalLoginDialogs {
     /** Android input placeholders may be exposed through hintText rather than
      * node.text; text-search does not cover those hints. Read only exact fixed
      * hints of visible editable inputs, never entered values or descendants. */
-    private fun marketInputHints(root: AccessibilityNodeInfo): Pair<Boolean, Boolean> {
+    private data class MarketScan(val hintFound: Boolean, val safe: Boolean,
+        val markers: Set<String>)
+    private fun marketInputHints(root: AccessibilityNodeInfo): MarketScan {
         var seen = 0
         var complete = true
         var found = false
         var protectedInput = false
+        val collected = mutableSetOf<String>()
+        val fixed = (marketsMarkers + blockers).toSet()
         fun visit(n: AccessibilityNodeInfo, depth: Int) {
             if (!complete || ++seen > 500 || depth > 30) { complete = false; return }
             if (!n.isVisibleToUser || n.packageName?.toString() != ProductScreenEvidence.PACKAGE) return
@@ -96,6 +100,11 @@ internal class LocalLoginDialogs {
                 if (matched) found = true else protectedInput = true
                 return
             }
+            // WebViews sometimes expose market captions as contentDescription
+            // rather than searchable node.text. Retain only exact fixed labels.
+            listOf(n.text, n.contentDescription).forEach { label ->
+                LoginMarketPromptPolicy.exactFixedLabel(label, fixed)?.let(collected::add)
+            }
             for (i in 0 until n.childCount) {
                 val child = n.getChild(i) ?: run { complete = false; return }
                 try { visit(child, depth + 1) } finally { child.recycle() }
@@ -103,8 +112,9 @@ internal class LocalLoginDialogs {
             }
         }
         visit(root, 0)
-        return LoginMarketPromptPolicy.usable(found, complete, protectedInput) to
-            (complete && !protectedInput)
+        return MarketScan(
+            LoginMarketPromptPolicy.usable(found, complete, protectedInput),
+            complete && !protectedInput, collected)
     }
 
     /** Fast bounded witness for complex WebViews with more than 300 nodes.
@@ -138,11 +148,12 @@ internal class LocalLoginDialogs {
                 }
             } finally { matches.forEach { it.recycle() } }
         }
-        val (promptFromHint, inputsSafe) = marketInputHints(root)
-        if (promptFromHint) observed += "Mit Namen, ISIN oder Symbol suchen"
+        val scan = marketInputHints(root)
+        observed += scan.markers
+        if (scan.hintFound) observed += "Mit Namen, ISIN oder Symbol suchen"
         val clearOfDialogs = blockers.none { it in observed }
         val state = marketsReadiness.observe(now, root.windowId,
-            foreground && bounded && clearOfDialogs && inputsSafe, observed)
+            foreground && bounded && clearOfDialogs && scan.safe, observed)
         if (state == LoginMarketsReadiness.State.VERIFIED) {
             PinReadinessProbe.finishLogin("LOCAL_PIN_HOME_VISIBLE")
             return true
