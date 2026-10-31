@@ -3,7 +3,9 @@ package ch.bob.degirocompanion
 /** Geometry-only observation of the lower-right keypad region. NEVER a click target or login authorization. */
 internal object PinSymbolProbe {
     data class Node(val x: Float, val y: Float, val width: Float, val height: Float,
-        val digit: Int?, val labelled: Boolean, val action: Boolean)
+        val digit: Int?, val labelled: Boolean, val action: Boolean,
+        val enabled: Boolean = true, val clickableFlag: Boolean = action,
+        val clickAction: Boolean = action, val nearbyParentAction: Boolean = false)
     fun classify(nodes: List<Node>): PinProbePolicy.Result {
         val digits = nodes.filter { it.digit != null }
         if (digits.size != 10 || digits.map { it.digit }.toSet() != (0..9).toSet())
@@ -26,8 +28,15 @@ internal object PinSymbolProbe {
         if (matches.isEmpty()) return PinProbePolicy.Result.SYMBOL_NODE_UNAVAILABLE
         if (matches.size != 1) return PinProbePolicy.Result.SYMBOL_NODES_MULTIPLE
         val node=matches.single()
-        return if (!node.action) PinProbePolicy.Result.SYMBOL_NO_ACTION
-            else if (node.labelled) PinProbePolicy.Result.SYMBOL_LABELLED_ACTION
-            else PinProbePolicy.Result.SYMBOL_UNLABELLED_ACTION
+        return when {
+            !node.enabled -> PinProbePolicy.Result.SYMBOL_DISABLED
+            node.clickableFlag && node.clickAction -> if (node.labelled)
+                PinProbePolicy.Result.SYMBOL_LABELLED_ACTION else PinProbePolicy.Result.SYMBOL_UNLABELLED_ACTION
+            node.nearbyParentAction -> PinProbePolicy.Result.SYMBOL_PARENT_ACTION_OBSERVED
+            node.clickableFlag -> PinProbePolicy.Result.SYMBOL_CLICK_FLAG_ONLY
+            node.clickAction -> PinProbePolicy.Result.SYMBOL_ACTION_ONLY
+            node.labelled -> PinProbePolicy.Result.SYMBOL_LABELLED_PASSIVE
+            else -> PinProbePolicy.Result.SYMBOL_UNLABELLED_PASSIVE
+        }
     }
 }
