@@ -4,7 +4,7 @@ import android.os.SystemClock
 import android.text.InputType
 import android.view.accessibility.AccessibilityNodeInfo
 
-/** Explicit local 30-second inspection. Never performs actions. Only non-input leaf labels are locally matched to single digits. */
+/** Explicit local 30-second inspection. Never performs actions. Only fixed non-input UI markers are matched locally. */
 internal object PinReadinessProbe {
     private var deadline = 0L
     var reportId = ""
@@ -54,10 +54,10 @@ internal object PinReadinessProbe {
         val keys = mutableListOf<PinKeypadPolicy.Key>()
         var loginHelp = false
         var setup = false
-        var deleteTargets = 0
+        val resetEvidence = PinResetEvidence()
         var count = 0
         var complete = true
-        fun visit(node: AccessibilityNodeInfo, depth: Int) {
+        fun visit(node: AccessibilityNodeInfo, depth: Int, parentOwner: Int? = null, ownerDepth: Int = 0) {
             if (++count > 300 || depth > 25) { complete = false; return }
             if (!node.isVisibleToUser) return
             if (node.packageName?.toString() != ProductScreenEvidence.PACKAGE) { complete = false; return }
@@ -67,13 +67,29 @@ internal object PinReadinessProbe {
                 node.isEditable, node.isEnabled,
                 node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SET_TEXT }, sensitive)
             // Never read input values or protected descendants. No labels leave this method.
-            if (sensitive || node.isPassword || node.isEditable) return
-            if (node.childCount == 0 && node.isEnabled) {
-                val markers = setOf(PinLoginEvidence.marker(node.text), PinLoginEvidence.marker(node.contentDescription))
+            if (sensitive || node.isPassword || node.isEditable) {
+                resetEvidence.block(parentOwner)
+                return
+            }
+            val clickable = node.isEnabled && node.isClickable &&
+                node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }
+            // A container with a separate clickable descendant cannot own that descendant's label.
+            if (clickable) resetEvidence.block(parentOwner)
+            val owner = if (clickable) count else parentOwner
+            val actionDepth = if (clickable) depth else ownerDepth
+            if (!node.isEnabled) resetEvidence.block(owner)
+            if (node.isEnabled) {
+                val labels = listOf(node.text, node.contentDescription)
+                val markers = labels.map { PinLoginEvidence.marker(it) }
                 loginHelp = loginHelp || PinLoginEvidence.Marker.LOGIN_HELP in markers
                 setup = setup || PinLoginEvidence.Marker.BIOMETRIC_SETUP in markers
-                if (PinLoginEvidence.Marker.DELETE_KEY in markers && node.isClickable &&
-                    node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }) deleteTargets++
+                val unrelated = labels.indices.any { i ->
+                    !labels[i].isNullOrBlank() && markers[i] != PinLoginEvidence.Marker.DELETE_KEY
+                }
+                resetEvidence.observe(owner, depth - actionDepth,
+                    PinLoginEvidence.Marker.DELETE_KEY in markers, unrelated)
+            }
+            if (node.childCount == 0 && node.isEnabled) {
                 val digit = PinKeypadPolicy.digit(node.text) ?: PinKeypadPolicy.digit(node.contentDescription)
                 if (digit != null) keys += PinKeypadPolicy.Key(digit,
                     node.isClickable && node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK })
@@ -81,14 +97,14 @@ internal object PinReadinessProbe {
             for (i in 0 until node.childCount) {
                 if (count >= 300) { complete = false; break }
                 val child = node.getChild(i) ?: continue
-                try { visit(child, depth + 1) } finally { child.recycle() }
+                try { visit(child, depth + 1, owner, actionDepth) } finally { child.recycle() }
             }
         }
         val outcome = runCatching { visit(root, 0)
             val structural = PinProbePolicy.classify(fields, complete)
             if (structural == PinProbePolicy.Result.NO_INPUT)
                 PinLoginEvidence.classify(PinKeypadPolicy.classify(keys) ?: structural,
-                    loginHelp, setup, deleteTargets) else structural }
+                    loginHelp, setup, resetEvidence.count()) else structural }
             .getOrDefault(PinProbePolicy.Result.INCOMPLETE)
         history.observe(outcome)
         message = describe(outcome)
