@@ -16,21 +16,29 @@ daily backups.
 
 ## Rollout
 
-1. Deploy the reader to both existing services and pass PostgreSQL integration
+1. Set `BOB_COLD_METRIC_ENABLED=0` on the writer before upgrading reference
+   formats. Deploy the reader to both existing services and pass PostgreSQL integration
    tests (including unchanged report results, restart reads, corruption,
    concurrent update and transaction rollback).
 2. Only then set `BOB_COLD_METRIC_ENABLED=1` on the push service. Leave it unset
    on the web service. Existing encrypted Drive credentials/folder are reused.
 3. The first run starts 240 seconds after process start, then hourly. It skips
    while the existing local archive worker reports a running export.
-4. Each run moves at most eight batches of 500 rows, with 2 MiB raw JSON per
+4. Each run moves at most 32 batches of 500 rows, with 2 MiB raw JSON per
    batch. It keeps the most recent 24 hours hot, ignores individual JSON values
-   >=64 KiB, and selects payloads occupying more than 512 PostgreSQL bytes.
+   >=64 KiB, and selects payloads occupying more than 192 PostgreSQL bytes.
    Source transactions never span network I/O. Only matching original values
    are replaced, and every replacement is read back before commit.
 5. Observe `BOB_COLD_METRICS` logs and `storage.coldMetrics` aggregate receipts.
    JSON byte reduction is not disk space freed. Ordinary VACUUM reuses dead-row
    space; it does not promise a physical database shrink.
+
+V1 references remain readable. V2 stores only a random batch key and row index
+per payload. The immutable batch ledger holds the file ID and SHA-256 once per
+batch. Every V2 read compares the original version, scope, bar time and check
+time to the retained SQL columns, so a pointer cannot silently select a different
+row. Reference lookup and chunk caches are bounded. Ledger insertion and pointer
+updates commit atomically; neither cache is required after a process restart.
 
 ## Stop / recovery
 

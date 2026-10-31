@@ -17,6 +17,7 @@ import uuid
 from collections import OrderedDict
 
 TAG = '_bobColdMetricV1'
+COMPACT_TAG = '_bobColdMetricV2'
 FORMAT = 'bob-cold-metrics-v1'
 MAX_RAW = 2 * 1024 * 1024
 MAX_FILE = MAX_RAW + 65536
@@ -24,6 +25,7 @@ MAX_ROWS = 500
 MIN_AGE_MS = 86400000  # Keep the latest full day hot; clocks/keys always remain.
 _CACHE = OrderedDict()
 _CACHE_LOCK = threading.Lock()
+_INDEX_CACHE = OrderedDict()
 _THREAD = None
 _START_LOCK = threading.Lock()
 
@@ -46,6 +48,9 @@ def init(conn):
         verified_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         moved_rows INTEGER NOT NULL, original_json_bytes BIGINT NOT NULL,
         reference_json_bytes BIGINT NOT NULL)''')
+    conn.execute('ALTER TABLE bob_cold_metric_batches ADD COLUMN IF NOT EXISTS batch_key TEXT')
+    conn.execute('''CREATE UNIQUE INDEX IF NOT EXISTS bob_cold_metric_batch_key
+        ON bob_cold_metric_batches(batch_key) WHERE batch_key IS NOT NULL''')
 
 
 def runtime_drive(conn):
@@ -64,7 +69,7 @@ def read_chunk(drive, file_id, checksum, *, cached=True, conn=None):
         with _CACHE_LOCK:
             if key in _CACHE:
                 _CACHE.move_to_end(key)
-                return _CACHE[key]
+                return _CACHE[key][0]
     try:
         if drive is None:
             drive = runtime_drive(conn)
@@ -83,23 +88,55 @@ def read_chunk(drive, file_id, checksum, *, cached=True, conn=None):
             if result.get('format') != FORMAT or not isinstance(rows, list) or not 1 <= len(rows) <= MAX_ROWS:
                 raise ValueError('Archive shape mismatch')
             if any(not isinstance(row, list) or len(row) != 5 or not isinstance(row[4], dict)
-                   or TAG in row[4] for row in rows):
+                   or TAG in row[4] or COMPACT_TAG in row[4] for row in rows):
                 raise ValueError('Archive row mismatch')
     except Exception:
         raise ColdArchiveUnavailable('Historical metric archive could not be verified') from None
     if cached:
         with _CACHE_LOCK:
-            _CACHE[key] = rows
-            # At most four bounded chunks per process, including report reads.
-            while len(_CACHE) > 4:
+            _CACHE[key] = (rows, len(raw))
+            # Small metric chunks should remain cached across complete reports.
+            # Preserve the same 8 MiB raw-data ceiling instead of four files.
+            while len(_CACHE) > 64 or sum(item[1] for item in _CACHE.values()) > 8 * 1024 * 1024:
                 _CACHE.popitem(last=False)
     return rows
 
 
-def resolve(conn, payload, scope=None, *, drive=None, verified_rows=None):
-    if not isinstance(payload, dict) or TAG not in payload:
+def resolve(conn, payload, scope=None, *, drive=None, verified_rows=None, identity=None):
+    if not isinstance(payload, dict) or not ({TAG, COMPACT_TAG} & payload.keys()):
         return payload
     try:
+        if COMPACT_TAG in payload:
+            if set(payload) != {COMPACT_TAG} or identity is None or len(identity) != 4:
+                raise ValueError('Original row identity required')
+            compact = payload[COMPACT_TAG]
+            if (not isinstance(compact, list) or len(compact) != 2 or
+                    not isinstance(compact[0], str) or not re.fullmatch(r'[a-f0-9]{32}', compact[0]) or
+                    type(compact[1]) is not int or not 0 <= compact[1] < MAX_ROWS):
+                raise ValueError('Invalid compact reference')
+            batch_key, index = compact
+            if verified_rows is None:
+                with _CACHE_LOCK:
+                    location = _INDEX_CACHE.get(batch_key)
+                if location is None:
+                    location = conn.execute('''SELECT file_id,sha256 FROM bob_cold_metric_batches
+                        WHERE batch_key=%s''', (batch_key,)).fetchone()
+                    if not location:
+                        raise ValueError('Archive index missing')
+                    with _CACHE_LOCK:
+                        _INDEX_CACHE[batch_key] = location
+                        while len(_INDEX_CACHE) > 64:
+                            _INDEX_CACHE.popitem(last=False)
+                rows = read_chunk(drive, *location, conn=conn)
+            else:
+                rows = verified_rows
+            row = rows[index]
+            # Identity comes from retained SQL columns, never the archive pointer.
+            # Whole-file SHA-256 plus the complete original key/clock comparison
+            # replaces the repeated file/row hashes in each individual pointer.
+            if row[:4] != list(identity) or (scope is not None and row[1] != scope):
+                raise ValueError('Original identity mismatch')
+            return copy.deepcopy(row[4])
         if set(payload) != {TAG}:
             raise ValueError('Mixed payload')
         ref = payload[TAG]
@@ -117,9 +154,9 @@ def resolve(conn, payload, scope=None, *, drive=None, verified_rows=None):
 
 def get(conn, version, scope, bar_at):
     """Exact historical lookup, including checks outside the 30-day report."""
-    row = conn.execute('''SELECT payload FROM bob_metric_checks
+    row = conn.execute('''SELECT checked_at,payload FROM bob_metric_checks
         WHERE version=%s AND scope=%s AND bar_at=%s''', (version, scope, bar_at)).fetchone()
-    return resolve(conn, row[0], scope) if row else None
+    return resolve(conn, row[1], scope, identity=(version,scope,bar_at,row[0])) if row else None
 
 
 def offload_batch(conn, drive, now=None):
@@ -132,16 +169,19 @@ def offload_batch(conn, drive, now=None):
         raise ValueError('Dedicated autocommit connection required')
     now = int(time.time() * 1000) if now is None else now
     candidates = conn.execute('''SELECT version,scope,bar_at,checked_at,payload
-        FROM bob_metric_checks WHERE checked_at<%s AND NOT (payload ? %s)
-        AND pg_column_size(payload)>512
+        FROM bob_metric_checks WHERE checked_at<%s AND NOT (payload ? %s) AND NOT (payload ? %s)
+        AND pg_column_size(payload)>192
         AND octet_length(payload::text)<65536
-        ORDER BY checked_at,version,scope,bar_at LIMIT %s''', (now-MIN_AGE_MS, TAG, MAX_ROWS)).fetchall()
+        ORDER BY checked_at,version,scope,bar_at LIMIT %s''', (now-MIN_AGE_MS, TAG, COMPACT_TAG, MAX_ROWS)).fetchall()
     rows = []
+    raw_size = len(encoded({'format': FORMAT, 'rows': []}))
     for candidate in candidates:
-        trial = rows + [list(candidate)]
-        if len(encoded({'format': FORMAT, 'rows': trial})) > MAX_RAW:
+        item = list(candidate)
+        size = len(encoded(item)) + (1 if rows else 0)
+        if raw_size + size > MAX_RAW:
             break
-        rows = trial
+        rows.append(item)
+        raw_size += size
     if not rows:
         return {'status': 'no-eligible-rows', 'movedRows': 0}
     raw = encoded({'format': FORMAT, 'rows': rows})
@@ -158,10 +198,10 @@ def offload_batch(conn, drive, now=None):
     if encoded(restored) != encoded(rows):
         raise ColdArchiveUnavailable('Remote original values differ')
     moved = original_bytes = reference_bytes = 0
+    batch_key = uuid.uuid4().hex
     with conn.transaction():
         for index, row in enumerate(rows):
-            pointer = {TAG: {'file': file_id, 'sha256': checksum, 'index': index,
-                             'rowSha256': digest(encoded(row))}}
+            pointer = {COMPACT_TAG: [batch_key, index]}
             # Keep keys/clocks and duplicate-suppression semantics. Concurrent
             # edits cannot be lost: the original JSON value is part of the CAS.
             updated = conn.execute('''UPDATE bob_metric_checks SET payload=%s::jsonb
@@ -170,14 +210,14 @@ def offload_batch(conn, drive, now=None):
                 (encoded(pointer).decode(), *row[:4], encoded(row[4]).decode())).fetchone()
             if updated:
                 # Resolve through the same path used by reports, before commit.
-                if encoded(resolve(conn, updated[0], row[1], verified_rows=restored)) != encoded(row[4]):
+                if encoded(resolve(conn, updated[0], row[1], verified_rows=restored, identity=row[:4])) != encoded(row[4]):
                     raise ColdArchiveUnavailable('Read-through comparison failed')
                 moved += 1
                 original_bytes += len(encoded(row[4]))
                 reference_bytes += len(encoded(pointer))
         conn.execute('''INSERT INTO bob_cold_metric_batches
-            (file_id,sha256,moved_rows,original_json_bytes,reference_json_bytes)
-            VALUES(%s,%s,%s,%s,%s)''', (file_id, checksum, moved, original_bytes, reference_bytes))
+            (file_id,sha256,moved_rows,original_json_bytes,reference_json_bytes,batch_key)
+            VALUES(%s,%s,%s,%s,%s,%s)''', (file_id, checksum, moved, original_bytes, reference_bytes,batch_key))
     return {'status': 'verified-offload', 'movedRows': moved,
             'originalJsonBytes': original_bytes, 'referenceJsonBytes': reference_bytes,
             'diskBytesFreed': None, 'readThroughVerified': True}
@@ -196,7 +236,7 @@ def run_once(factory=connect):
         init(conn)
         drive = runtime_drive(conn)
         results = []
-        for _ in range(8):
+        for _ in range(32):
             result = offload_batch(conn, drive)
             results.append(result)
             if not result.get('movedRows'):
