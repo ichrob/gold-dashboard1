@@ -36,9 +36,33 @@ def validate_pin_symbol_flags(value, result):
     if result != expected:
         raise ValueError('Inconsistent PIN symbol result')
 
+PIN_EXERCISE_STAGES = ['DELETE_ACCEPTED', 'DELETE_REQUESTED', 'DIGIT_ACCEPTED', 'DIGIT_REQUESTED', 'WAITING']
+PIN_EXERCISE_REASONS = ['ACCESS_DISABLED', 'DELETE_REJECTED', 'DIGIT_REJECTED', 'EXCEPTION', 'NONE', 'ROOT_HIDDEN', 'ROOT_MISSING', 'ROOT_PACKAGE', 'ROOT_PROTECTED', 'ROOT_WINDOW', 'SCREEN_LOCKED', 'SERVICE_STOPPED', 'STATE_CYCLE', 'STATE_TIMEOUT', 'STOPPED', 'TARGET_ACTION_UNAVAILABLE', 'TARGET_BOUNDS_CHANGED', 'TARGET_CLASS_CHANGED', 'TARGET_HIDDEN', 'TARGET_ID_CHANGED', 'TARGET_MISSING', 'TARGET_PACKAGE', 'TARGET_PROTECTED', 'TARGET_REFRESH_FAILED', 'TARGET_WINDOW', 'TIMEOUT', 'USER_TOUCH', 'WINDOW_EVENT']
+
+def validate_pin_exercise_trace(value, result):
+    if not isinstance(value, dict) or set(value) != {'stage', 'reason'}:
+        raise ValueError('Invalid exercise trace fields')
+    stage, reason = value['stage'], value['reason']
+    if not isinstance(stage, str) or stage not in PIN_EXERCISE_STAGES or not isinstance(reason, str) or reason not in PIN_EXERCISE_REASONS:
+        raise ValueError('Invalid exercise trace values')
+    if not result.startswith('KEYPAD_TEST_'):
+        raise ValueError('Exercise trace on unrelated result')
+    expected = {
+        'KEYPAD_TEST_STATE_CYCLE_OBSERVED': ('DELETE_ACCEPTED', 'STATE_CYCLE'),
+        'KEYPAD_TEST_DIGIT_REJECTED': ('DIGIT_REQUESTED', 'DIGIT_REJECTED'),
+        'KEYPAD_TEST_DELETE_REJECTED': ('DELETE_REQUESTED', 'DELETE_REJECTED'),
+    }
+    if result in expected and (stage, reason) != expected[result]:
+        raise ValueError('Inconsistent exercise result')
+    terminal = {'STATE_CYCLE': 'KEYPAD_TEST_STATE_CYCLE_OBSERVED', 'DIGIT_REJECTED': 'KEYPAD_TEST_DIGIT_REJECTED',
+                'DELETE_REJECTED': 'KEYPAD_TEST_DELETE_REJECTED', 'TIMEOUT': 'KEYPAD_TEST_TIMEOUT',
+                'STATE_TIMEOUT': 'KEYPAD_TEST_NO_STATE_CHANGE'}
+    if reason in terminal and result != terminal[reason]:
+        raise ValueError('Inconsistent exercise reason')
+
 def validate_pin_probe(value, now):
     required = {'runId', 'endedAt', 'result', 'completed'}
-    if not isinstance(value, dict) or set(value) not in (required, required | {'symbolFlags'}):
+    if not isinstance(value, dict) or set(value) not in (required, required | {'symbolFlags'}, required | {'exerciseTrace'}):
         raise ValueError('Invalid PIN probe fields')
     if not isinstance(value['runId'], str) or not re.fullmatch('[a-f0-9]{32}', value['runId']):
         raise ValueError('Invalid PIN probe ID')
@@ -51,6 +75,8 @@ def validate_pin_probe(value, now):
         raise ValueError('Expired PIN probe')
     if 'symbolFlags' in value:
         validate_pin_symbol_flags(value['symbolFlags'], value['result'])
+    if 'exerciseTrace' in value:
+        validate_pin_exercise_trace(value['exerciseTrace'], value['result'])
     return dict(value)
 
 BOOLS=('serviceEnabled','serviceConnectedInProcess','textAccess','windowAccess','running','pendingRun')
