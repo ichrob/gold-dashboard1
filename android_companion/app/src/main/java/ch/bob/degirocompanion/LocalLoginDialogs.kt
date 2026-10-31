@@ -172,7 +172,19 @@ internal class LocalLoginDialogs {
                 }, { value -> queries.any { value.contains(it, ignoreCase = true) } }) { node ->
                     nodes += AccessibilityNodeInfo.obtain(node)
                 }
-                if (!complete) return fail("LOCAL_PIN_DIALOG_BLOCKED")
+                if (!complete) {
+                    // The full Markets WebView may exceed the deliberately
+                    // small *dialog* scan limit while it settles. During the
+                    // explicitly armed one-start flow, wait for the independent
+                    // fixed-label Markets witness on the next bounded tick.
+                    // No dialog or PIN action is dispatched from an incomplete
+                    // tree. Unknown views still time out and stop safely.
+                    if (degiro && LoginToReadHandoff.pending(now)) {
+                        marketsReadiness.clear()
+                        return true
+                    }
+                    return fail("LOCAL_PIN_DIALOG_BLOCKED")
+                }
                 val labels = nodes.flatMap { listOf(LoginDialogPolicy.normalize(it.text), LoginDialogPolicy.normalize(it.contentDescription)) }.toSet()
                 if (degiro) lastDegiroScan = LoginOwnerContext.scanStage(labels)
                 val kind = LoginDialogPolicy.identify(degiro, trustedSystem, associated, labels, afterEntry, owner)
