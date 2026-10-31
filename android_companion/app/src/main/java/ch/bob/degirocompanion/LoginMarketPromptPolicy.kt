@@ -14,6 +14,11 @@ internal object LoginMarketPromptPolicy {
         }
     }
 
+    /** Only fixed, exact navigation/dialog labels may leave a local traversal.
+     * Balance and free-form screen text are never retained or exported. */
+    fun exactFixedLabel(value: CharSequence?, allowed: Set<String>): String? =
+        LoginDialogPolicy.normalize(value).takeIf { it in allowed }
+
     fun usable(found: Boolean, complete: Boolean, protectedInput: Boolean): Boolean =
         found && complete && !protectedInput
 }
