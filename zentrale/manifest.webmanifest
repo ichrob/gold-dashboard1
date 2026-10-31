@@ -1,0 +1,13 @@
+{
+  "name": "Bob Zentrale",
+  "short_name": "Bob Zentrale",
+  "description": "Getrennte, schreibgeschützte Übersicht für Bob-Simulationen und Prüfungen",
+  "id": "/zentrale/",
+  "start_url": "/zentrale/",
+  "scope": "/zentrale/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c1321",
+  "theme_color": "#111827",
+  "icons": [{"src":"/zentrale/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]
+}
