@@ -3,7 +3,7 @@
     android:description="@string/product_reader_description"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewClicked|typeViewLongClicked|typeTouchInteractionStart"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:packageNames="nl.degiro.trader,com.android.systemui,com.samsung.android.biometrics.app.setting"
+    android:packageNames="nl.degiro.trader"
     android:accessibilityFlags="flagRequestAccessibilityButton|flagRetrieveInteractiveWindows|flagReportViewIds|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="true"
