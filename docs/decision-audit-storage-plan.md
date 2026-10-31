@@ -24,7 +24,7 @@ Any generic replacement with a Drive reference would silently change:
 - Exact record and evidence consumers in other subsystems that must be
   enumerated before a write-side change.
 
-Historical decisions may be used to compare simulation and product selection.
+The private reader `bob_diagnostics.stored_details` also performs a bounded full-payload SQL read of the newest 20 decisions; it must stay compatible with any cold references. `stop_target_audit` maintains a foreign-key reference to decision IDs, so those IDs must remain in PostgreSQL.\n\nHistorical decisions may be used to compare simulation and product selection.
 Do not modify original timings, numeric values, eligibility, directions, or
 gates as part of storage optimization.
 
