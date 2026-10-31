@@ -136,7 +136,8 @@ internal object PhoneDiagnostics {
                     check.ownerContext?.let { context ->
                         detail.put("ownerContext", JSONObject().put("rootKind", context.rootKind.name)
                             .put("focusedKind", context.focusedKind.name).put("sameWindow", context.sameWindow)
-                            .put("fingerprintProgress", context.fingerprintProgress.name).also { owner ->
+                            .put("fingerprintProgress", context.fingerprintProgress.name)
+                            .put("lastDegiroScan", context.lastDegiroScan.name).also { owner ->
                                 context.packageEvidence?.let { evidence ->
                                     owner.put("packageEvidence", JSONObject().put("name", evidence.name)
                                         .put("resolution", evidence.resolution.name))

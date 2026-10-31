@@ -22,6 +22,7 @@ internal class LocalLoginDialogs {
     private var postSince = 0L
     private var homeSince = 0L
     private var pending = false
+    private var lastDegiroScan = LoginOwnerContext.DegiroScan.NOT_SEEN
     private val queries = listOf("PassCode", "TouchID", "Face/Touch ID",
         "Abbrechen", "Cancel", "Schließen", "Bestätigen", "DEGIRO", "Fingerabdruck", "fingerprint",
         "Märkte", "News", "Terminkalender", "Favoriten", "Portfolio")
@@ -94,6 +95,7 @@ internal class LocalLoginDialogs {
                 return fail("LOCAL_PIN_DIALOG_UNRECOGNIZED")
             }
             if (!safe(root, pkg, root.windowId)) return fail("LOCAL_PIN_DIALOG_BLOCKED")
+            if (degiro) lastDegiroScan = LoginOwnerContext.DegiroScan.WAIT_FOCUS
             val shown = service.windows
             val foreground: AccessibilityWindowInfo
             val associated: Boolean
@@ -106,14 +108,18 @@ internal class LocalLoginDialogs {
                 }
             } finally { shown.forEach { it.recycle() } }
             try {
-                for (query in queries) {
-                    // Query known static labels only. Never enumerate fields or inspect event text.
-                    val matches = root.findAccessibilityNodeInfosByText(query).orEmpty()
-                    for (n in matches) {
-                        if (nodes.size < 80 && inRoot(n, root, pkg) && nodes.none { it == n }) nodes += n else n.recycle()
-                    }
+                val complete = LoginDialogNodeScan.collect(root, object : LoginDialogNodeScan.Access<AccessibilityNodeInfo> {
+                    override fun safe(node: AccessibilityNodeInfo) = this@LocalLoginDialogs.safe(node, pkg, root.windowId)
+                    override fun labels(node: AccessibilityNodeInfo) = listOf(node.text, node.contentDescription)
+                    override fun childCount(node: AccessibilityNodeInfo) = node.childCount
+                    override fun child(node: AccessibilityNodeInfo, index: Int) = node.getChild(index)
+                    override fun release(node: AccessibilityNodeInfo) { node.recycle() }
+                }, { value -> queries.any { value.contains(it, ignoreCase = true) } }) { node ->
+                    nodes += AccessibilityNodeInfo.obtain(node)
                 }
+                if (!complete) return fail("LOCAL_PIN_DIALOG_BLOCKED")
                 val labels = nodes.flatMap { listOf(LoginDialogPolicy.normalize(it.text), LoginDialogPolicy.normalize(it.contentDescription)) }.toSet()
+                if (degiro) lastDegiroScan = LoginOwnerContext.scanStage(labels)
                 val kind = LoginDialogPolicy.identify(degiro, trustedSystem, associated, labels, afterEntry, owner)
                 if (kind == null) {
                     budget.resetObservation()
@@ -217,7 +223,7 @@ internal class LocalLoginDialogs {
             }
             LoginPackageEvidence.create(pkg, resolution)
         } else null
-        return LoginOwnerContext(kind, focusedKind, sameWindow, budget.fingerprintProgress(now), packageEvidence)
+        return LoginOwnerContext(kind, focusedKind, sameWindow, budget.fingerprintProgress(now), packageEvidence, lastDegiroScan)
     }
     private fun dispatch(service: AccessibilityService, target: AccessibilityNodeInfo, root: AccessibilityNodeInfo,
         foreground: AccessibilityWindowInfo, box: Rect, system: Boolean): Boolean {
