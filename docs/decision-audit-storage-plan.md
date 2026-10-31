@@ -195,3 +195,33 @@ verify one shared object for repeated arrays, exact original precision and
 order, read-only archived readback, corrupt-download rollback, CAS under
 concurrent modification and no-configuration no-op behavior. No real
 product originals, account credentials or broker calls appear in fixtures.
+## Live dry-run preflight and independent operational gates
+
+An authenticated private storage report now exposes `decisionProductsPreview`,
+which reads at most the 20 oldest decision IDs older than 14 days using the
+existing recorded-time index. It reports only the number of eligible
+product-bearing decisions, distinct array hashes as **counts**, reused-array
+counts and logical before/after JSON sizes; it returns no ISIN, product price,
+original record ID, SHA-256 string, credential or precise decision timestamp.
+It never creates any ledger, uploads a file, calls a writer, or changes any row.
+The preview is biased toward the oldest page, not a population estimate.
+
+Most importantly, the private storage report attaches the **persisted**
+backup receipt to the preview: `verified-fresh` requires an explicit verified
+remote download and successful isolated restore, with the persisted receipt
+no older than six hours. Earlier verification remains historically valid but
+does not authorize current source updates. An unavailable or stale proof
+causes the manual writer to exit **before** its table initialization.
+
+Beyond the manual flag and caller-supplied approval, `run_once` independently
+re-reads that persisted restore receipt and requires a live, under-five-minute
+Render volume observation for the exact production Postgres resource with
+usage <=750 MB (decimal). Missing telemetry or excessive disk usage blocks
+writing. These are deliberately conservative short-term maintenance gates,
+not permission to delete source data, claim free physical storage, or bypass
+the verified Drive read-through. No public or automated writer invocation
+is created by the preview.
+
+The no-write rehearsal is intended to decide *whether* a first controlled
+production archive batch makes sense. A separate explicit execution workflow
+with proven rollback is still necessary before any pointer is committed.
