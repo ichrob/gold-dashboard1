@@ -86,13 +86,13 @@ products occupy 59% of the table or that removing products will return
 physical disk capacity. The entire decision audit still includes a
 122.8 MB TOAST relation whose live/dead page composition is not known.
 
-`storage.layout.decisionProductsCohorts` therefore reads at most eight IDs
-per indexed window: oldest, newest, most recent before 24 hours, and most
-recent before seven days. Windows can overlap. Only aggregate JSON text
+`storage.layout.decisionProductsCohorts` reads at most eight IDs per indexed
+window: oldest, newest, most recent before 24 hours, before seven days,
+before 14 days, and before 30 days. Windows can overlap. Only aggregate JSON text
 bytes, counts of populated product arrays, distinct arrays within each
 window, and the unique sampled row count are returned. Neither original
 products nor hashes/IDs/timestamps are exported. This is a biased diagnostic
-sample of at most 32 selections, not a random or full archive survey.
+sample of at most 48 selections, not a random or full archive survey.
 A failed/missing-table query returns `not-observed`, without corrupting
 the containing storage report or making write-side changes.
 
@@ -109,3 +109,10 @@ This change **does not** enable any product offload, backlog deletion,
 automatic FULL/VACUUM, trade mutation or paid scaling. Compare independent
 physical-volume measurements only *after* a separate fully verified,
 operator-budgeted maintenance step.
+
+A separate bounded heap-only SELECT counts at most **10,001** row entries without
+reading stored JSON/TOAST. If it reaches the cap the count is explicitly a
+**lower bound**, not a population total. Counting can be unavailable
+independently of the age-cohort profile. In particular, this can identify
+stale `pg_stat` row estimates without a costly unbounded JSON scan.
+Even a precise row count would not establish how much TOAST is reusable.
