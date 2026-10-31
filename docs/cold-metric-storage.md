@@ -96,3 +96,12 @@ it holds its exclusive lock. PostgreSQL rolls back an interrupted command.
 `BOB_METRIC_COMPACTION` logs and `bob_metric_compaction_attempts.result` hold the
 sanitized before/after relation size and outcome. This proves relation shrink,
 not total volume free bytes. Clear the environment value after the attempt.
+
+An explicitly configured `resumeFrom` may reference a previous persisted attempt
+whose two indexes completed and whose FULL ended with QueryCanceled. Only that
+verified case skips reindexing and gives FULL 90 seconds. All fresh-observation,
+backup, budget, and single-attempt guards still apply. The operator must first
+check that interrupted-rewrite files have been cleaned up and WAL is recycled;
+do not blindly reuse old headroom. The 2026-10-31 08:02:59 and 08:07:59 UTC database
+checkpoints reported 3 and 1 WAL files recycled respectively, zero files added.
+No automated retry is introduced.
