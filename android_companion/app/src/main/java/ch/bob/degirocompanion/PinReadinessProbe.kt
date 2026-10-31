@@ -17,8 +17,12 @@ internal object PinReadinessProbe {
     private var loginDialogs: LocalLoginDialogs? = null
     val localLoginActive get() = running && login != null
     val loginDialogsAllowed get() = localLoginActive && login?.done == false && (!loginArmed || login?.afterEntry == true)
-    fun inspectLoginDialogs(service: android.accessibilityservice.AccessibilityService): Boolean =
-        loginDialogsAllowed && loginDialogs?.inspect(service, login?.afterEntry == true) == true
+    fun inspectLoginDialogs(service: android.accessibilityservice.AccessibilityService): Boolean {
+        val handled = loginDialogsAllowed && loginDialogs?.inspect(service, login?.afterEntry == true) == true
+        // Require a fresh uninterrupted stability interval after any dialog or missing foreground.
+        if (handled && !loginArmed) exerciseLayout.clear()
+        return handled
+    }
     fun finishLogin(code: String) {
         if (!localLoginActive) return
         login?.abort(code); finished = true; stop(login?.message.orEmpty())
