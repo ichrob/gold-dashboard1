@@ -312,4 +312,27 @@ class ProductPageReaderTest {
         assertEquals(ProductPageReader.Move.BACKWARD, safe.move)
         assertEquals("", safe.result.draft)
     }
+
+    @Test fun aLaterPartialScreenDoesNotEraseARecordedQuoteLabel() {
+        val reader=ProductPageReader()
+        assertEquals(ProductPageReader.Move.FORWARD,step(reader,header).move)
+        assertEquals(ProductPageReader.Move.FORWARD,step(reader,lines("Zuletzt EUR 10,20")).move)
+        assertEquals(ProductPageReader.Move.FORWARD,step(reader,lines("Geld EUR 10,15")).move)
+        assertEquals(ProductPageReader.Move.BACKWARD,step(reader,lines("Notizen","Notiz hinzufügen")).move)
+        val done=step(reader,header)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("Zuletzt (Anzeige ungeprüft): 10,20"))
+        assertFalse(done.result.draft.contains("Geld (Anzeige ungeprüft): 10,15"))
+    }
+
+    @Test fun matchingBidAskPairStillUpgradesEarlierSingleQuote() {
+        val reader=ProductPageReader()
+        assertEquals(ProductPageReader.Move.FORWARD,step(reader,header).move)
+        assertEquals(ProductPageReader.Move.FORWARD,step(reader,lines("Zuletzt EUR 10,20")).move)
+        assertEquals(ProductPageReader.Move.BACKWARD,step(reader,quotes).move)
+        val done=step(reader,header)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 10,20"))
+        assertTrue(done.result.draft.contains("Brief (Anzeige ungeprüft): 10,30"))
+    }
 }
