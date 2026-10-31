@@ -228,6 +228,11 @@ def reconcile(conn,now):
 
 
 def tick(conn,now=None):
+    # Shared transaction lock permits parallel readers but excludes the bounded
+    # storage compactor. Never cancel repairs or advance their queue when busy.
+    if not conn.execute('SELECT pg_try_advisory_xact_lock_shared(hashtext(%s))',
+                        ('bob_storage_maintenance_v1',)).fetchone()[0]:
+        return dict(processed=0,status='maintenance-busy')
     now=int(time.time()*1000) if now is None else now
     reconcile(conn,now)
     discover(conn,now)

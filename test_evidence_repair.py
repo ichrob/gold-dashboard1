@@ -6,6 +6,16 @@ from unittest.mock import patch
 import evidence_repair as repair
 
 class RepairTests(unittest.TestCase):
+    def test_compaction_defers_repair_without_touching_queue(self):
+        from unittest.mock import MagicMock
+        conn=MagicMock()
+        conn.execute.return_value.fetchone.return_value=(False,)
+        with patch.object(repair,'reconcile') as reconcile, patch.object(repair,'discover') as discover:
+            self.assertEqual(repair.tick(conn,1000),{'processed':0,'status':'maintenance-busy'})
+            reconcile.assert_not_called()
+            discover.assert_not_called()
+        self.assertEqual(conn.execute.call_count,1)
+
     def test_late_archive_retry_reclassifies_technical_failure_without_recovery(self):
         from unittest.mock import MagicMock
         conn=MagicMock()
@@ -72,6 +82,7 @@ class RepairTests(unittest.TestCase):
                 if sql.startswith('UPDATE bob_test_repairs'):
                     self.status,self.attempts,self.next,raw,_=args;self.payload=json.loads(raw)
                 return self
+            def fetchone(self):return (True,)
             def fetchall(self):return [('x','signal',{},self.attempts,self.payload)] if self.status=='trying' else []
         conn=Conn()
         with patch.object(repair,'reconcile'),patch.object(repair,'discover'),patch.object(repair,'retry_signal',return_value=(False,False,'Originalkurs fehlt')):
@@ -104,6 +115,22 @@ class RepairTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class RepairPersistenceTests(unittest.TestCase):
+    def test_repair_transaction_and_compaction_exclude_each_other(self):
+        import psycopg
+        key=('bob_storage_maintenance_v1',)
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as reader, psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'],autocommit=True) as writer:
+            self.assertTrue(reader.execute('SELECT pg_try_advisory_xact_lock_shared(hashtext(%s))',key).fetchone()[0])
+            self.assertFalse(writer.execute('SELECT pg_try_advisory_lock(hashtext(%s))',key).fetchone()[0])
+            reader.rollback()
+            self.assertTrue(writer.execute('SELECT pg_try_advisory_lock(hashtext(%s))',key).fetchone()[0])
+            try:
+                self.assertEqual(repair.tick(reader,1000),{'processed':0,'status':'maintenance-busy'})
+                reader.rollback()
+            finally:
+                writer.execute('SELECT pg_advisory_unlock(hashtext(%s))',key)
+            self.assertTrue(reader.execute('SELECT pg_try_advisory_xact_lock_shared(hashtext(%s))',key).fetchone()[0])
+            reader.rollback()
+
     def test_technical_archive_failure_keeps_technical_group(self):
         import psycopg,uuid
         from psycopg import sql
