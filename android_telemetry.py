@@ -71,9 +71,29 @@ PIN_DIALOG_OWNERS = {'DEGIRO', 'SYSTEM_UI', 'SAMSUNG_BIOMETRICS', 'OTHER'}
 PIN_DIALOG_STAGES = {'OWNER_CHECK', 'MARKER_CHECK'}
 PIN_DIALOG_BOOLS = {'systemVerified', 'degiroContext', 'degiroLabel', 'biometricLabel', 'cancelLabel', 'cancelAmbiguous'}
 
+PIN_DIALOG_ROOT_KINDS = {'EMPTY', 'BOB', 'DEGIRO', 'SYSTEM_UI', 'SAMSUNG_BIOMETRICS', 'ANDROID_FRAMEWORK', 'PERMISSION_CONTROLLER', 'OTHER', 'UNAVAILABLE', 'AMBIGUOUS'}
+PIN_DIALOG_FINGERPRINT_PROGRESS = {'NOT_REQUESTED', 'REQUESTED', 'ACCEPTED_WAIT', 'ACCEPTED_EXPIRED', 'RETURNED'}
+
+def validate_pin_owner_context(value, owner, stage):
+    expected = {'rootKind', 'focusedKind', 'sameWindow', 'fingerprintProgress'}
+    if stage != 'OWNER_CHECK' or not isinstance(value, dict) or set(value) != expected:
+        raise ValueError('Invalid owner context fields')
+    for key, allowed in (('rootKind', PIN_DIALOG_ROOT_KINDS - {'UNAVAILABLE', 'AMBIGUOUS'}),
+                         ('focusedKind', PIN_DIALOG_ROOT_KINDS),
+                         ('fingerprintProgress', PIN_DIALOG_FINGERPRINT_PROGRESS)):
+        if not isinstance(value[key], str) or value[key] not in allowed:
+            raise ValueError('Invalid owner context enum')
+    if type(value['sameWindow']) is not bool:
+        raise ValueError('Invalid owner context window flag')
+    mapped = value['rootKind'] if value['rootKind'] in PIN_DIALOG_OWNERS else 'OTHER'
+    if mapped != owner:
+        raise ValueError('Inconsistent owner context')
+    if value['focusedKind'] == 'AMBIGUOUS' and value['sameWindow']:
+        raise ValueError('Ambiguous owner context cannot match one window')
+
 def validate_pin_dialog_check(value, result):
     expected = {'phase', 'owner', 'stage'} | PIN_DIALOG_BOOLS
-    if result != 'LOCAL_PIN_DIALOG_UNRECOGNIZED' or not isinstance(value, dict) or set(value) != expected:
+    if result != 'LOCAL_PIN_DIALOG_UNRECOGNIZED' or not isinstance(value, dict) or set(value) not in (expected, expected | {'ownerContext'}):
         raise ValueError('Invalid login dialog diagnostic fields')
     for key, allowed in (('phase', PIN_DIALOG_PHASES), ('owner', PIN_DIALOG_OWNERS), ('stage', PIN_DIALOG_STAGES)):
         if not isinstance(value[key], str) or value[key] not in allowed:
@@ -88,6 +108,8 @@ def validate_pin_dialog_check(value, result):
     elif value['owner'] == 'OTHER' or (value['owner'] == 'DEGIRO' and
             (value['systemVerified'] or not value['degiroContext'])) or (value['owner'] != 'DEGIRO' and not value['systemVerified']):
         raise ValueError('Invalid inspected dialog owner')
+    if 'ownerContext' in value:
+        validate_pin_owner_context(value['ownerContext'], value['owner'], value['stage'])
     return dict(value)
 
 def validate_pin_probe(value, now):
