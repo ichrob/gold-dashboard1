@@ -267,4 +267,49 @@ class ProductPageReaderTest {
         assertEquals(ProductPageReader.Cause.RETURN_FAILED, aborted.cause)
         assertEquals("", aborted.result.draft)
     }
+
+    @Test fun readsParametersFromSecondHeaderOnlyWithMatchingVisibleIsin() {
+        val reader = ProductPageReader()
+        val bare = lines("DE000FD0S0G4", "EUR")
+        val detailed = lines("DE000FD0S0G4",
+            "SG Gold Turbo Unlimited Mini Call BAR", "3942 BP 3901.07 Bv 10 LV 27.07")
+        assertEquals(ProductPageReader.Move.FORWARD,
+            reader.inspect(1, bare, at, false, true, true, requireParameters=true).move)
+        assertEquals(ProductPageReader.Move.FORWARD,
+            reader.inspect(1, detailed, at, false, true, true, requireParameters=true).move)
+        val afterQuotes=reader.inspect(1, quotes, at, false, true, true, requireParameters=true)
+        assertEquals(ProductPageReader.Move.BACKWARD, afterQuotes.move)
+        assertEquals("", afterQuotes.result.draft)
+        val done=reader.inspect(1, bare, at, false, true, true, requireParameters=true)
+        assertEquals(ProductPageReader.Move.FINISHED, done.move)
+        for(field in listOf("KO-Schwelle (Anzeige ungeprüft): 3942",
+                "Basispreis (Anzeige ungeprüft): 3901,07", "Bv (Anzeige ungeprüft): 10",
+                "Hebel (Anzeige ungeprüft): 27,07"))
+            assertTrue("Missing $field", done.result.draft.contains(field))
+    }
+
+    @Test fun ignoresParametersWithoutVisibleIsinAndConflictingHeaders() {
+        val bare = lines("DE000FD0S0G4", "EUR")
+        val headerA = lines("DE000FD0S0G4", "SG Gold Turbo Unlimited Mini Call BAR",
+            "3942 BP 3901.07 Bv 10 LV 27.07")
+        val headerB = lines("DE000FD0S0G4", "SG Gold Turbo Unlimited Mini Call BAR",
+            "3999 BP 3990.07 Bv 12 LV 30.07")
+        val reader = ProductPageReader()
+        reader.inspect(1, bare, at, false, true, true, requireParameters=true)
+        reader.inspect(1, headerA, at, false, true, true, requireParameters=true)
+        reader.inspect(1, headerB, at, false, true, true, requireParameters=true)
+        reader.inspect(1, quotes, at, false, true, true, requireParameters=true)
+        val done=reader.inspect(1, bare, at, false, true, true, requireParameters=true)
+        assertEquals(ProductPageReader.Move.FINISHED, done.move)
+        assertTrue(done.result.draft.contains("KO-Schwelle (Anzeige ungeprüft): 3942"))
+        assertFalse(done.result.draft.contains("3999"))
+
+        val unpaired = ProductPageReader()
+        unpaired.inspect(1, bare, at, false, true, true, requireParameters=true)
+        unpaired.inspect(1, headerA.drop(1), at, false, true, true, requireParameters=true)
+        unpaired.inspect(1, quotes, at, false, true, true, requireParameters=true)
+        val safe=unpaired.inspect(1, bare, at, false, true, true, requireParameters=true)
+        assertEquals(ProductPageReader.Move.BACKWARD, safe.move)
+        assertEquals("", safe.result.draft)
+    }
 }

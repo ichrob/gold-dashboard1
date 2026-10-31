@@ -116,7 +116,13 @@ internal object MorningReadRun {
         if(previous == null) results.put(entry)
         else {
             val prior=results.getJSONObject(previous)
-            if(prior.optString("draft").isEmpty() || (draft.isNotEmpty() && missing.size<=prior.getJSONArray("missingFields").length())) results.put(previous,entry)
+            // A retry must not replace observed fields with a different partial
+            // set of equal size. Keep the prior observation unless the new one
+            // contains *all* its fields; never join quotes from different reads.
+            val priorMissing=prior.getJSONArray("missingFields")
+            val priorNames=(0 until priorMissing.length()).map { priorMissing.getString(it) }
+            if(prior.optString("draft").isEmpty() || (draft.isNotEmpty() &&
+                    ProductDraftQuality.noRegression(priorNames, missing))) results.put(previous,entry)
             else prior.put("attempts",attempt)
         }
         event(c,finalCode)
