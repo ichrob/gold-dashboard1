@@ -8,13 +8,17 @@ internal object LoginDialogPolicy {
     const val BODY = "Wenn Face/Touch ID aktiviert ist, können Sie sich mit Face/Touch ID anmelden."
     fun normalize(value: CharSequence?) = value?.toString()?.trim()?.replace(Regex("\\s+"), " ").orEmpty()
     fun identify(degiro: Boolean, trustedSystem: Boolean, associated: Boolean,
-        labels: Set<String>, afterEntry: Boolean): Kind? {
+        labels: Set<String>, afterEntry: Boolean, owner: LoginDialogCheck.Owner? = null): Kind? {
         val cancel = labels.count { it == "Abbrechen" || it == "Cancel" } == 1
         val kinds = mutableListOf<Kind>()
         if (degiro && !afterEntry && NOTICE in labels && "Schließen" in labels) kinds += Kind.NOTICE
         if (degiro && afterEntry && OFFER in labels && BODY in labels && "Bestätigen" in labels && cancel)
             kinds += Kind.OFFER
-        if (trustedSystem && associated && !afterEntry && "DEGIRO" in labels && cancel &&
+        // The observed Samsung-owned prompt exposes its DEGIRO label and negative action,
+        // while the underlying app-window association is unavailable. Only this verified
+        // biometric component may use the visible dialog label as app context.
+        val fingerprintContext = associated || owner == LoginDialogCheck.Owner.SAMSUNG_BIOMETRICS
+        if (trustedSystem && fingerprintContext && !afterEntry && "DEGIRO" in labels && cancel &&
             labels.any { it.contains("Fingerabdruck", ignoreCase = true) || it.contains("fingerprint", ignoreCase = true) })
             kinds += Kind.FINGERPRINT
         return kinds.singleOrNull()

@@ -69,4 +69,26 @@ class LoginDialogPolicyTest {
         assertTrue(ambiguous.cancelAmbiguous); assertFalse(ambiguous.cancelLabel)
         assertNull(LoginDialogPolicy.identify(false, true, true, fingerprint + "Abbrechen", false))
     }
+    @Test fun observedSamsungPromptUsesItsVisibleDegiroLabelWithoutBackgroundWindow() {
+        val owner = LoginDialogCheck.Owner.SAMSUNG_BIOMETRICS
+        val diagnostic = LoginDialogCheck.markersRejected(owner, false, true, false, fingerprint)
+        assertTrue(diagnostic.systemVerified); assertFalse(diagnostic.degiroContext)
+        assertTrue(diagnostic.degiroLabel); assertTrue(diagnostic.biometricLabel)
+        assertTrue(diagnostic.cancelLabel); assertFalse(diagnostic.cancelAmbiguous)
+        assertEquals(LoginDialogPolicy.Kind.FINGERPRINT,
+            LoginDialogPolicy.identify(false, true, false, fingerprint, false, owner))
+    }
+    @Test fun samsungVisibleContextStillRequiresEveryMarkerOwnerAndPreEntryPhase() {
+        val samsung = LoginDialogCheck.Owner.SAMSUNG_BIOMETRICS
+        for (owner in listOf(null, LoginDialogCheck.Owner.SYSTEM_UI, LoginDialogCheck.Owner.DEGIRO, LoginDialogCheck.Owner.OTHER))
+            assertNull(LoginDialogPolicy.identify(false, true, false, fingerprint, false, owner))
+        assertNull(LoginDialogPolicy.identify(false, false, false, fingerprint, false, samsung))
+        assertNull(LoginDialogPolicy.identify(false, true, false, fingerprint, true, samsung))
+        for (label in fingerprint)
+            assertNull(LoginDialogPolicy.identify(false, true, false, fingerprint - label, false, samsung))
+        assertNull(LoginDialogPolicy.identify(false, true, false, fingerprint + "Abbrechen", false, samsung))
+        assertNull(LoginDialogPolicy.identify(false, true, false, (fingerprint - "Cancel") + "Cancel order", false, samsung))
+        assertNull(LoginDialogPolicy.identify(false, true, false, (fingerprint - "DEGIRO") + "Other app", false, samsung))
+        assertNull(LoginDialogPolicy.identify(false, true, false, (fingerprint - "Cancel") + "Bestätigen", false, samsung))
+    }
 }

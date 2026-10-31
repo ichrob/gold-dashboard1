@@ -110,7 +110,7 @@ internal class LocalLoginDialogs {
                     }
                 }
                 val labels = nodes.flatMap { listOf(LoginDialogPolicy.normalize(it.text), LoginDialogPolicy.normalize(it.contentDescription)) }.toSet()
-                val kind = LoginDialogPolicy.identify(degiro, trustedSystem, associated, labels, afterEntry)
+                val kind = LoginDialogPolicy.identify(degiro, trustedSystem, associated, labels, afterEntry, owner)
                 if (kind == null) {
                     budget.resetObservation()
                     val waiting = budget.waiting
@@ -172,7 +172,7 @@ internal class LocalLoginDialogs {
                         return fail("LOCAL_PIN_DIALOG_BLOCKED")
                     val currentLabels = nodes.filter { it.refresh() && inRoot(it, root, pkg) }.flatMap {
                         listOf(LoginDialogPolicy.normalize(it.text), LoginDialogPolicy.normalize(it.contentDescription)) }.toSet()
-                    if (LoginDialogPolicy.identify(degiro, trustedSystem, associated, currentLabels, afterEntry) != kind)
+                    if (LoginDialogPolicy.identify(degiro, trustedSystem, associated, currentLabels, afterEntry, owner) != kind)
                         return fail("LOCAL_PIN_DIALOG_BLOCKED")
                     if (!dispatch(service, target, root, foreground, box, trustedSystem)) return fail("LOCAL_PIN_DIALOG_ACTION_FAILED")
                     return true
