@@ -169,11 +169,13 @@ def _validate_row(key,arr,row):
         raise codec.ColdArchiveUnavailable('Verified decision original differs')
 
 
-def offload_batch(conn,drive,*,approval=None,now=None):
+def offload_batch(conn,drive,*,approval=None,now=None,max_updates=None):
     """Upload and verify outside SQL tx, then pointer/reference CAS in one tx."""
     seconds=time.time() if now is None else now
     if os.environ.get('BOB_COLD_DECISION_PRODUCTS_ENABLED')!='1' or not _approved(approval,seconds):
         return {'status':'disabled','movedRows':0}
+    if max_updates is not None and (type(max_updates) is not int or max_updates != 1):
+        raise ValueError('Single-decision pilot limit must be exactly one')
     if not conn.autocommit:
         raise ValueError('Dedicated autocommit connection required')
     cutoff=datetime.fromtimestamp(seconds-MIN_AGE_SECONDS,timezone.utc)
@@ -200,6 +202,8 @@ def offload_batch(conn,drive,*,approval=None,now=None):
                     unique[key]=row
                 pending.append((at,decision_id,payload,key,new_pointer))
         last=(at,decision_id)
+        if max_updates is not None and len(pending) >= max_updates:
+            break
     if last is None:
         raise codec.ColdArchiveUnavailable('Unbounded decision product row')
     def advance():
@@ -286,7 +290,7 @@ def offload_batch(conn,drive,*,approval=None,now=None):
             'diskBytesFreed':None}
 
 
-def run_once(*,factory=codec.connect,approval=None,now=None):
+def run_once(*,factory=codec.connect,approval=None,now=None,max_updates=None):
     """Manual-only invocation. No startup hook, polling or default writer."""
     seconds=time.time() if now is None else now
     if os.environ.get('BOB_COLD_DECISION_PRODUCTS_ENABLED')!='1' or not _approved(approval,seconds):
@@ -312,7 +316,8 @@ def run_once(*,factory=codec.connect,approval=None,now=None):
         if not conn.execute("SELECT pg_try_advisory_lock(hashtext(%s))",(LOCK,)).fetchone()[0]:
             return {'status':'busy','movedRows':0}
         init(conn)
-        return offload_batch(conn,codec.runtime_drive(conn),approval=approval,now=seconds)
+        return offload_batch(conn,codec.runtime_drive(conn),approval=approval,now=seconds,
+                             max_updates=max_updates)
 
 
 def status(conn):
