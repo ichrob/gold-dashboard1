@@ -3,6 +3,16 @@ from datetime import datetime, timezone, timedelta
 from android_telemetry import validate_report, PIN_RESULTS, BOOLS
 
 class PinTelemetry(unittest.TestCase):
+    def test_cancelled_delete_touch_never_reports_a_cycle_or_an_earlier_stage(self):
+        from android_telemetry import validate_pin_exercise_trace
+        trace={'stage':'DELETE_ACCEPTED','reason':'DELETE_TOUCH_CANCELLED'}
+        validate_pin_exercise_trace(trace, 'KEYPAD_TEST_INTERRUPTED')
+        for result, stage in [('KEYPAD_TEST_STATE_CYCLE_OBSERVED','DELETE_ACCEPTED'),
+                              ('KEYPAD_TEST_INTERRUPTED','DIGIT_ACCEPTED'),
+                              ('KEYPAD_TEST_INTERRUPTED','DELETE_REQUESTED')]:
+            with self.subTest(result=result, stage=stage), self.assertRaises(ValueError):
+                validate_pin_exercise_trace(dict(trace, stage=stage), result)
+
     def test_cancelled_touch_cannot_claim_delete_or_state_cycle(self):
         from android_telemetry import validate_pin_exercise_trace
         trace={'stage':'DIGIT_ACCEPTED','reason':'DIGIT_TOUCH_CANCELLED'}
@@ -92,4 +102,5 @@ class PinTelemetry(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
 
