@@ -17,8 +17,22 @@ import android.view.accessibility.AccessibilityWindowInfo
  * No remembered coordinates, alternate targets, fallback click, retries or input reads.
  * All checks run before dispatch. Existing touch/window interruption handling stays active. */
 internal fun AccessibilityService.dispatchPinTestZero(node: AccessibilityNodeInfo, expectedBounds: Rect,
-    expectedWindow: Int, completed: (Boolean) -> Unit): Boolean {
+    expectedWindow: Int, completed: (Boolean) -> Unit): Boolean =
+    dispatchPinExerciseTouch(node, expectedBounds, expectedWindow, true, completed)
+
+/** Only the cached, enabled delete control whose original identity/bounds were revalidated.
+ * The shared dispatcher never reads its label or traverses the input tree. */
+internal fun AccessibilityService.dispatchPinTestDelete(node: AccessibilityNodeInfo, expectedBounds: Rect,
+    expectedWindow: Int, completed: (Boolean) -> Unit): Boolean =
+    dispatchPinExerciseTouch(node, expectedBounds, expectedWindow, false, completed)
+
+private fun AccessibilityService.dispatchPinExerciseTouch(node: AccessibilityNodeInfo, expectedBounds: Rect,
+    expectedWindow: Int, zero: Boolean, completed: (Boolean) -> Unit): Boolean {
+    val expectedStage = if (zero) PinKeypadExerciseTrace.Stage.DIGIT_REQUESTED else PinKeypadExerciseTrace.Stage.DELETE_REQUESTED
+    val expectedClass = node.className?.toString()
+    val expectedViewId = node.viewIdResourceName
     fun active() = PinReadinessProbe.running && PinReadinessProbe.exerciseArmed &&
+        PinReadinessProbe.exerciseTrace?.stage == expectedStage &&
         !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running &&
         !ProductReadRequest.active(SystemClock.elapsedRealtime()) &&
         getSharedPreferences("product_reader", Context.MODE_PRIVATE).getBoolean("enabled", false) &&
@@ -27,11 +41,12 @@ internal fun AccessibilityService.dispatchPinTestZero(node: AccessibilityNodeInf
     fun allowed(n: AccessibilityNodeInfo) = n.packageName?.toString() == ProductScreenEvidence.PACKAGE &&
         n.windowId == expectedWindow && n.isVisibleToUser && !n.isPassword && !n.isEditable &&
         !(Build.VERSION.SDK_INT >= 34 && n.isAccessibilityDataSensitive)
-    fun validZero() = node.refresh() && allowed(node) && node.isEnabled && node.isClickable &&
+    fun validTarget() = node.refresh() && allowed(node) && node.isEnabled && node.isClickable &&
+        node.className?.toString() == expectedClass && node.viewIdResourceName == expectedViewId &&
         node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK } &&
-        (PinKeypadPolicy.digit(node.text) ?: PinKeypadPolicy.digit(node.contentDescription)) == 0 &&
+        (!zero || (PinKeypadPolicy.digit(node.text) ?: PinKeypadPolicy.digit(node.contentDescription)) == 0) &&
         Rect().also { node.getBoundsInScreen(it) } == expectedBounds
-    if (!active() || !validZero()) return false
+    if (!active() || !validTarget()) return false
     val root = rootInActiveWindow ?: return false
     try {
         if (!allowed(root)) return false
@@ -47,7 +62,7 @@ internal fun AccessibilityService.dispatchPinTestZero(node: AccessibilityNodeInf
             if (currentWindows.any { w -> w.id != app.id && w.layer >= app.layer &&
                     Rect().also { w.getBoundsInScreen(it) }.contains(point.first, point.second) }) return false
         } finally { currentWindows.forEach { it.recycle() } }
-        if (!active() || !validZero()) return false
+        if (!active() || !validTarget()) return false
         val foreground = rootInActiveWindow
         val same = foreground?.let { allowed(it) } == true
         foreground?.recycle()
@@ -60,3 +75,4 @@ internal fun AccessibilityService.dispatchPinTestZero(node: AccessibilityNodeInf
         }, null)
     } finally { root.recycle() }
 }
+
