@@ -52,6 +52,86 @@ def _approved(approval, now_seconds):
             0 <= now_seconds-approval['observedAt'] <= 900)
 
 
+def _proof_state(proof, seconds, max_age_seconds=6*3600):
+    """Only a persisted restore/download receipt, never caller-provided claims."""
+    receipt = (proof or {}).get('latestPersistedAttempt') or {}
+    if (receipt.get('status') != 'verified' or
+            receipt.get('restoreVerified') is not True or
+            receipt.get('remoteDownloadVerified') is not True or
+            receipt.get('evidenceDeleted') is True):
+        return 'no-verified-restore'
+    try:
+        updated = datetime.fromisoformat(str(receipt['updatedAt']).replace('Z', '+00:00'))
+        if updated.tzinfo is None:
+            return 'timestamp-unavailable'
+        age = seconds - updated.timestamp()
+    except (ValueError, TypeError, KeyError, OverflowError):
+        return 'timestamp-unavailable'
+    return 'verified-fresh' if 0 <= age <= max_age_seconds else 'verified-but-stale'
+
+
+def preview(conn, *, now=None, archive_proof=None):
+    """Bounded, nonmutating rehearsal on live old decisions; no Drive traffic.
+
+    This is **not** authorization to call run_once. It does not create ledgers,
+    inspect archives, derive missing prices, or compute physical disk savings.
+    A distinct true backup proof is required for a subsequent manual run.
+    """
+    seconds=time.time() if now is None else now
+    proof_state=_proof_state(archive_proof,seconds)
+    try:
+        cutoff=datetime.fromtimestamp(seconds-MIN_AGE_SECONDS,timezone.utc)
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='2s'")
+            rows=conn.execute("""WITH page AS MATERIALIZED (
+                SELECT recorded_at,id FROM bob_decision_audit
+                WHERE recorded_at<%s ORDER BY recorded_at,id LIMIT %s)
+                SELECT a.payload FROM page p
+                JOIN bob_decision_audit a ON a.id=p.id
+                ORDER BY p.recorded_at,p.id""",(cutoff,PAGE_ROWS)).fetchall()
+        selected=0;original=0;references=0;arrays=set();max_array=0
+        for (payload,) in rows:
+            if type(payload) is not dict or reader.TAG in payload:
+                continue
+            products=payload.get('products')
+            if type(products) is not list or not products:
+                continue
+            array=codec.encoded(products)
+            key=codec.digest(array)
+            pointer=_pointer(payload,key)
+            current=codec.encoded(payload)
+            compact=codec.encoded(pointer)
+            if len(array)<MIN_PRODUCT_JSON_BYTES or len(compact)>=len(current):
+                continue
+            selected+=1
+            original+=len(current)
+            references+=len(compact)
+            max_array=max(max_array,len(array))
+            arrays.add(key)
+        return dict(
+            status='sampled',readOnly=True,sourceChanges=0,uploadedFiles=0,
+            method='oldest-index-page-max-20-older-than-14d',
+            scannedRows=len(rows),eligibleRows=selected,
+            distinctProductArrays=len(arrays),
+            sharedArrayRows=max(0,selected-len(arrays)),
+            originalJsonBytes=original,referenceJsonBytes=references,
+            sampleJsonByteDifference=max(0,original-references),
+            largestProductArrayJsonBytes=max_array,
+            backupProofState=proof_state,
+            writerConfigurationEnabled=(os.environ.get('BOB_COLD_DECISION_PRODUCTS_ENABLED')=='1'),
+            manualRunAuthorized=False,
+            diskBytesFreed=None,
+            note='Only logical sizes on up to twenty oldest rows. No new SQL '
+                 'table, Google Drive access, updates, or physical space claim. '
+                 'A fresh verified restore and distinct manual authorization '
+                 'are required before any productive offload.'
+        )
+    except Exception:
+        return dict(status='not-observed',readOnly=True,sourceChanges=0,
+                    uploadedFiles=0,backupProofState=proof_state,
+                    manualRunAuthorized=False,diskBytesFreed=None)
+
+
 def _page(conn, cutoff):
     cursor = conn.execute("""SELECT recorded_at,decision_id
         FROM bob_cold_decision_product_scan WHERE id=1""").fetchone()
@@ -208,6 +288,23 @@ def run_once(*,factory=codec.connect,approval=None,now=None):
     if os.environ.get('BOB_COLD_DECISION_PRODUCTS_ENABLED')!='1' or not _approved(approval,seconds):
         return {'status':'disabled','movedRows':0}
     with factory() as conn:
+        # Never trust a caller's assertion alone: independently read the
+        # persisted, remote-restored backup receipt before creating any table.
+        from storage_budget import archive_status
+        with conn.transaction():
+            proof = archive_status(conn)
+        if _proof_state(proof, seconds) != 'verified-fresh':
+            return {'status':'backup-proof-not-fresh','movedRows':0}
+        volume = __import__('render_disk_metrics').report()
+        observed = volume.get('observedAt')
+        if (volume.get('status') != 'observed' or
+                volume.get('resource') != 'dpg-datjno1srm7s738vv500-a' or
+                volume.get('unit') != 'bytes' or
+                type(observed) not in (int,float) or
+                not 0 <= seconds-observed <= 300 or
+                type(volume.get('diskUsage')) is not int or
+                volume['diskUsage'] > 750_000_000):
+            return {'status':'fresh-volume-proof-unavailable','movedRows':0}
         if not conn.execute("SELECT pg_try_advisory_lock(hashtext(%s))",(LOCK,)).fetchone()[0]:
             return {'status':'busy','movedRows':0}
         init(conn)

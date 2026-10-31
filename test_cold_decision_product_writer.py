@@ -120,6 +120,54 @@ class WriterPGTests(unittest.TestCase):
                 self.assertEqual(p,original)
         self.assertEqual(writer.status(self.conn)['offloadedRows'],2)
 
+    def test_readonly_live_preview_counts_duplicate_old_lists_without_mutation(self):
+        first=self.put('old-1',22,self.sample)
+        second=self.put('old-2',21,self.sample)
+        recent=self.put('new',1,self.sample)
+        self.put('empty',20,[])
+        when=datetime.fromtimestamp(self.now,tz=timezone.utc).isoformat()
+        proof={'latestPersistedAttempt':{
+            'status':'verified','restoreVerified':True,'remoteDownloadVerified':True,
+            'updatedAt':when,'evidenceDeleted':False}}
+        with patch.dict(os.environ,{'BOB_COLD_DECISION_PRODUCTS_ENABLED':'0'}):
+            with self.conn.transaction():
+                self.conn.execute('SET TRANSACTION READ ONLY')
+                plan=writer.preview(self.conn,now=self.now,archive_proof=proof)
+        self.assertEqual(plan['status'],'sampled')
+        self.assertTrue(plan['readOnly'])
+        self.assertEqual(plan['scannedRows'],3)
+        self.assertEqual(plan['eligibleRows'],2)
+        self.assertEqual(plan['distinctProductArrays'],1)
+        self.assertEqual(plan['sharedArrayRows'],1)
+        self.assertEqual(plan['backupProofState'],'verified-fresh')
+        self.assertEqual(plan['sourceChanges'],0)
+        self.assertEqual(plan['uploadedFiles'],0)
+        self.assertFalse(plan['manualRunAuthorized'])
+        self.assertIsNone(plan['diskBytesFreed'])
+        import json
+        summary=json.dumps(plan)
+        self.assertNotIn('SAMPLE0',summary)
+        self.assertNotIn('9007199254740993',summary)
+        self.assertEqual(self.conn.execute(
+            'SELECT payload FROM bob_decision_audit WHERE id=%s',('old-1',)).fetchone()[0],first)
+        self.assertEqual(self.conn.execute(
+            'SELECT payload FROM bob_decision_audit WHERE id=%s',('old-2',)).fetchone()[0],second)
+        self.assertEqual(self.conn.execute(
+            'SELECT payload FROM bob_decision_audit WHERE id=%s',('new',)).fetchone()[0],recent)
+        self.assertEqual(self.conn.execute(
+            'SELECT count(*) FROM bob_cold_decision_product_refs').fetchone()[0],0)
+
+    def test_preview_stale_backup_does_not_claim_permission(self):
+        self.put('old-1',22,self.sample)
+        result=writer.preview(self.conn,now=self.now,archive_proof={
+            'latestPersistedAttempt':{
+                'status':'verified','restoreVerified':True,
+                'remoteDownloadVerified':True,
+                'updatedAt':datetime.fromtimestamp(self.now-86400,tz=timezone.utc).isoformat()}})
+        self.assertEqual(result['status'],'sampled')
+        self.assertEqual(result['backupProofState'],'verified-but-stale')
+        self.assertFalse(result['manualRunAuthorized'])
+
     def test_failed_remote_verification_leaves_original_and_no_refs(self):
         original=self.put('old-1',22,self.sample)
         fake=FakePrivateDrive()
@@ -145,3 +193,45 @@ class WriterPGTests(unittest.TestCase):
         self.assertEqual(self.conn.execute(
             "SELECT payload FROM bob_decision_audit WHERE id='old-1'").fetchone()[0],modified)
         self.assertEqual(self.conn.execute('SELECT count(*) FROM bob_cold_decision_product_refs').fetchone()[0],0)
+
+class IndependentProductionGates(unittest.TestCase):
+    def test_stale_persisted_restore_stops_before_init_or_disk_lookup(self):
+        from unittest.mock import MagicMock
+        now=100000
+        conn=MagicMock()
+        conn.__enter__.return_value=conn
+        factory=Mock(return_value=conn)
+        old=datetime.fromtimestamp(now-86400,tz=timezone.utc).isoformat()
+        with patch.dict(os.environ,{'BOB_COLD_DECISION_PRODUCTS_ENABLED':'1'}), \
+             patch('storage_budget.archive_status',return_value={
+                 'latestPersistedAttempt':{'status':'verified','updatedAt':old,
+                     'restoreVerified':True,'remoteDownloadVerified':True}}), \
+             patch('render_disk_metrics.report') as volume, \
+             patch.object(writer,'init') as init:
+            result=writer.run_once(factory=factory,now=now,approval={
+                'restoreVerified':True,'remoteDownloadVerified':True,'observedAt':now})
+        self.assertEqual(result['status'],'backup-proof-not-fresh')
+        volume.assert_not_called()
+        init.assert_not_called()
+        conn.execute.assert_not_called()
+
+    def test_fresh_restore_without_recent_disk_is_not_authorized(self):
+        from unittest.mock import MagicMock
+        now=100000
+        conn=MagicMock()
+        conn.__enter__.return_value=conn
+        proof={'latestPersistedAttempt':{
+            'status':'verified','updatedAt':datetime.fromtimestamp(
+                now,tz=timezone.utc).isoformat(),
+            'restoreVerified':True,'remoteDownloadVerified':True}}
+        with patch.dict(os.environ,{'BOB_COLD_DECISION_PRODUCTS_ENABLED':'1'}), \
+             patch('storage_budget.archive_status',return_value=proof), \
+             patch('render_disk_metrics.report',return_value={
+                 'status':'observed','resource':'dpg-datjno1srm7s738vv500-a',
+                 'unit':'bytes','observedAt':now-900,'diskUsage':690000000}), \
+             patch.object(writer,'init') as init:
+            result=writer.run_once(factory=lambda:conn,now=now,approval={
+                'restoreVerified':True,'remoteDownloadVerified':True,'observedAt':now})
+        self.assertEqual(result['status'],'fresh-volume-proof-unavailable')
+        init.assert_not_called()
+        conn.execute.assert_not_called()
