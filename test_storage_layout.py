@@ -93,3 +93,34 @@ class DecisionAuditFootprintTests(unittest.TestCase):
                 self.assertEqual(result['fields'],[])
             finally:
                 c.execute('DROP SCHEMA '+schema+' CASCADE')
+
+
+class DecisionFootprintLogTests(unittest.TestCase):
+    def test_sanitized_bounded_one_shot_log(self):
+        from unittest.mock import patch
+        import json
+        sample={'status':'sampled','sampledRecords':8,
+                'fields':[{'fieldGroup':'decisionContext','observedFieldValues':8,
+                           'summedNestedBytes':1024,'maximumNestedBytes':256}]}
+        before=storage_layout._DECISION_LOGGED
+        try:
+            storage_layout._DECISION_LOGGED=False
+            with patch('builtins.print') as output:
+                storage_layout._log_decision_sample_once({
+                    **sample,'fields':[{'fieldGroup':'private-account-key',
+                                        'observedFieldValues':8,'summedNestedBytes':900,
+                                        'maximumNestedBytes':200}]})
+                output.assert_not_called()
+                storage_layout._log_decision_sample_once(sample)
+                storage_layout._log_decision_sample_once(sample)
+                self.assertEqual(output.call_count,1)
+                logged=output.call_args.args[0]
+                self.assertTrue(logged.startswith('BOB_DECISION_FOOTPRINT '))
+                values=json.loads(logged.split(' ',1)[1])
+                self.assertEqual(values['sampledRecords'],8)
+                self.assertEqual(values['fields'][0]['field'],'decisionContext')
+                self.assertIsNone(values['diskBytesFreed'])
+                self.assertNotIn('private-account-key',logged)
+                self.assertNotIn('payload',logged)
+        finally:
+            storage_layout._DECISION_LOGGED=before
