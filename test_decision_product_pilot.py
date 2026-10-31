@@ -60,6 +60,11 @@ class PilotClaimPGTests(unittest.TestCase):
             conn.execute('CREATE SCHEMA '+schema)
             try:
                 conn.execute('SET search_path TO '+schema)
+                # Each independent pilot invocation owns and closes its own
+                # connection; never reuse a connection closed by `with`.
+                def factory():
+                    return psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'],
+                        autocommit=True,options='-c search_path='+schema)
                 expected={'status':'verified-offload','movedRows':1,'readThroughVerified':True}
                 invoke=Mock(return_value=expected)
                 with patch.dict(os.environ,{
@@ -67,8 +72,8 @@ class PilotClaimPGTests(unittest.TestCase):
                          'BOB_COLD_DECISION_PRODUCTS_ENABLED':'1'}), \
                      patch.object(pilot,'_preflight',
                                   return_value='approved-for-single-row-pilot'):
-                    first=pilot.run_once(connect=lambda:conn,invoke=invoke,now=100000)
-                    second=pilot.run_once(connect=lambda:conn,invoke=invoke,now=100000)
+                    first=pilot.run_once(connect=factory,invoke=invoke,now=100000)
+                    second=pilot.run_once(connect=factory,invoke=invoke,now=100000)
                 self.assertEqual(first['status'],'verified-offload')
                 self.assertEqual(first['movedRows'],1)
                 self.assertEqual(second,{'status':'already-claimed','movedRows':0})
@@ -93,14 +98,19 @@ class PilotClaimPGTests(unittest.TestCase):
             conn.execute('CREATE SCHEMA '+schema)
             try:
                 conn.execute('SET search_path TO '+schema)
+                # Each independent pilot invocation owns and closes its own
+                # connection; never reuse a connection closed by `with`.
+                def factory():
+                    return psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'],
+                        autocommit=True,options='-c search_path='+schema)
                 invoke=Mock(side_effect=RuntimeError('secret-DSN'))
                 with patch.dict(os.environ,{
                         'BOB_DECISION_PRODUCT_PILOT_ONCE':json.dumps(cfg),
                         'BOB_COLD_DECISION_PRODUCTS_ENABLED':'1'}), \
                      patch.object(pilot,'_preflight',
                                   return_value='approved-for-single-row-pilot'):
-                    result=pilot.run_once(connect=lambda:conn,invoke=invoke,now=100000)
-                    retry=pilot.run_once(connect=lambda:conn,invoke=invoke,now=100000)
+                    result=pilot.run_once(connect=factory,invoke=invoke,now=100000)
+                    retry=pilot.run_once(connect=factory,invoke=invoke,now=100000)
                 self.assertEqual(result['status'],'failed')
                 self.assertEqual(result['errorType'],'RuntimeError')
                 self.assertNotIn('secret-DSN',json.dumps(result))
