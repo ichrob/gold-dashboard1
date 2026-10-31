@@ -9,6 +9,15 @@ import decision_product_pilot as pilot
 
 
 class PilotControlsTests(unittest.TestCase):
+    def test_render_startup_has_no_archive_pilot_hook(self):
+        import inspect
+        from pathlib import Path
+        startup=Path(__file__).with_name('push_server.py').read_text(encoding='utf-8')
+        self.assertNotIn('decision_product_pilot").start(',startup)
+        self.assertNotIn('decision_product_pilot\').start(',startup)
+        self.assertFalse(hasattr(pilot,'start'))
+        self.assertIn('def run_once(',inspect.getsource(pilot))
+
     def test_disabled_without_strict_operator_command(self):
         connect=Mock()
         with patch.dict(os.environ,{
