@@ -258,9 +258,18 @@ class ProductReadService : AccessibilityService() {
     // Only package/type metadata is used. Never read or retain event text.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (PinReadinessProbe.running) {
+            if (PinReadinessProbe.exerciseArmed && event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                PinReadinessProbe.stop("Fensterwechsel erkannt. Bedienungstest beendet; Eingabe selbst prüfen.")
+                return
+            }
+            if (PinReadinessProbe.exerciseArmed && event?.eventType == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
+                PinReadinessProbe.stop("Berührung erkannt. Bedienungstest beendet; eventuell verbliebene Testziffer selbst löschen.")
+                return
+            }
             if (event?.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED &&
                 event.packageName?.toString() == ProductScreenEvidence.PACKAGE) {
-                PinReadinessProbe.stop("Eingabeänderung erkannt. PIN-Test beendet; kein Eingabetext gelesen.")
+                if (!PinReadinessProbe.exerciseArmed)
+                    PinReadinessProbe.stop("Eingabeänderung erkannt. PIN-Test beendet; kein Eingabetext gelesen.")
             }
             return
         }
@@ -1132,5 +1141,3 @@ class ProductReadService : AccessibilityService() {
         } finally { nodes.forEach { it.recycle() } }
     }
 }
-
-
