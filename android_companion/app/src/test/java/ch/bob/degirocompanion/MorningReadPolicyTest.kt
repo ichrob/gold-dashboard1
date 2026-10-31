@@ -282,37 +282,68 @@ class MorningReadPolicyTest {
         assertTrue(verified.result.draft.contains("ISIN: $isin"))
     }
 
-    @Test fun samsungSingleIsinResultUsesNameInsteadOfCardWithKAndV() {
+    private fun samsungSearchResult():List<MorningReadPolicy.Node> {
         val target="DE000SQ02JQ6"
         val title="SG Gold Turbo Unlimited Mini Call BAR 2144 BP 2122.67 Bv 10"
-        val row="$title | $target\\nSociete Generale OTC EUR\\nK\\nV"
-        val view=listOf(
+        val card="$title | $target\\nSociete Generale OTC EUR\\nK\\nV"
+        return listOf(
             MorningReadPolicy.Node(target,editable=true,hint="Mit Namen, ISIN oder Symbol suchen"),
             MorningReadPolicy.Node(""),
             MorningReadPolicy.Node("Hebelprodukte",parent=1),
-            MorningReadPolicy.Node("",row=row,parent=1),
+            MorningReadPolicy.Node("",row=card,parent=1),
             MorningReadPolicy.Node(title,row=title,parent=3),
             MorningReadPolicy.Node(target,parent=3),
             MorningReadPolicy.Node("Societe Generale OTC EUR",parent=3),
             MorningReadPolicy.Node("K",clickable=true,parent=3),
             MorningReadPolicy.Node("V",clickable=true,parent=3))
+    }
+    @Test fun samsungResultTitleIsSafeTargetNotKOrV() {
+        val target="DE000SQ02JQ6"
+        val view=samsungSearchResult()
         assertEquals("RESULT_MISSING",MorningReadPolicy.decide(view,target).code)
         assertEquals(4,MorningReadPolicy.resultTapIndex(view,target))
-        for ((case,change) in listOf(
-            view.toMutableList().also { it[0]=it[0].copy(text="DE000FD0S0G4") },
-            view.toMutableList().also { it[2]=it[2].copy(text="Alle") },
-            view.toMutableList().also { it[3]=it[3].copy(row=title+"\\nK\\nV") },
-            view.toMutableList().also { it[4]=it[4].copy(text=title+" Kaufen") },
-            view.toMutableList().also { it[4]=it[4].copy(row=title+"\\nK") },
-            view.toMutableList().also { it[5]=it[5].copy(text="DE000FD0S0G4") },
-            view.toMutableList().also { it[0]=it[0].copy(password=true) },
-            view.toMutableList().also { it[0]=it[0].copy(hint="Limitpreis") },
-            view+MorningReadPolicy.Node("Order bestätigen"),
-            view+MorningReadPolicy.Node(title,row=title,parent=3)).withIndex()) {
-            assertNull("Unsafe DEGIRO result case $case must not be tapped",MorningReadPolicy.resultTapIndex(change,target))
-        }
     }
-
+    @Test fun samsungRejectsWrongSearchInput() {
+        val view=samsungSearchResult().toMutableList().also { it[0]=it[0].copy(text="DE000FD0S0G4") }
+        assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
+    }
+    @Test fun samsungRejectsNoLeverageCategory() {
+        val view=samsungSearchResult().toMutableList().also { it[2]=it[2].copy(text="Alle") }
+        assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
+    }
+    @Test fun samsungRejectsCardLacksIsin() {
+        val view=samsungSearchResult().toMutableList().also { it[3]=it[3].copy(row="SG Gold Turbo Unlimited Mini Call BAR 2144 BP 2122.67 Bv 10\\nK\\nV") }
+        assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
+    }
+    @Test fun samsungRejectsTitleContainsBuy() {
+        val view=samsungSearchResult().toMutableList().also { it[4]=it[4].copy(text=it[4].text+" Kaufen") }
+        assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
+    }
+    @Test fun samsungRejectsTitleRowContainsTradeControl() {
+        val view=samsungSearchResult().toMutableList().also { it[4]=it[4].copy(row=it[4].row+"\\nK") }
+        assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
+    }
+    @Test fun samsungRejectsMismatchedVisibleIsin() {
+        val view=samsungSearchResult().toMutableList().also { it[5]=it[5].copy(text="DE000FD0S0G4") }
+        assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
+    }
+    @Test fun samsungRejectsPasswordInput() {
+        val view=samsungSearchResult().toMutableList().also { it[0]=it[0].copy(password=true) }
+        assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
+    }
+    @Test fun samsungRejectsUnrecognizedInput() {
+        val view=samsungSearchResult().toMutableList().also { it[0]=it[0].copy(hint="Limitpreis") }
+        assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
+    }
+    @Test fun samsungRejectsOrderConfirmation() {
+        assertNull(MorningReadPolicy.resultTapIndex(
+            samsungSearchResult()+MorningReadPolicy.Node("Order bestätigen"),"DE000SQ02JQ6"))
+    }
+    @Test fun samsungRejectsDuplicatedProductTitle() {
+        val view=samsungSearchResult()
+        assertNull(MorningReadPolicy.resultTapIndex(
+            view+view[4].copy(parent=3),"DE000SQ02JQ6"))
+    }
     @Test fun isolatedTitleWithInlineIsinCanBeTappedButNotTradingControls() {
         val target="DE000SQ02JQ6"
         val title="SG Gold Turbo Unlimited Mini Call BAR 2144 BP 2122.67 Bv 10 | $target"
