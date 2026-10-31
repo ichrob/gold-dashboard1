@@ -78,7 +78,7 @@ internal object PinReadinessProbe {
             val owner = if (clickable) count else parentOwner
             val actionDepth = if (clickable) depth else ownerDepth
             if (!node.isEnabled) resetEvidence.block(owner)
-            if (node.isEnabled) {
+            run {
                 val labels = listOf(node.text, node.contentDescription)
                 val markers = labels.map { PinLoginEvidence.marker(it) }
                 loginHelp = loginHelp || PinLoginEvidence.Marker.LOGIN_HELP in markers
@@ -87,7 +87,7 @@ internal object PinReadinessProbe {
                     !labels[i].isNullOrBlank() && markers[i] != PinLoginEvidence.Marker.DELETE_KEY
                 }
                 resetEvidence.observe(owner, depth - actionDepth,
-                    PinLoginEvidence.Marker.DELETE_KEY in markers, unrelated)
+                    PinLoginEvidence.Marker.DELETE_KEY in markers, unrelated, node.isEnabled)
             }
             if (node.childCount == 0 && node.isEnabled) {
                 val digit = PinKeypadPolicy.digit(node.text) ?: PinKeypadPolicy.digit(node.contentDescription)
@@ -104,12 +104,19 @@ internal object PinReadinessProbe {
             val structural = PinProbePolicy.classify(fields, complete)
             if (structural == PinProbePolicy.Result.NO_INPUT)
                 PinLoginEvidence.classify(PinKeypadPolicy.classify(keys) ?: structural,
-                    loginHelp, setup, resetEvidence.count()) else structural }
+                    loginHelp, setup, resetEvidence.count()).let {
+                    if (it == PinProbePolicy.Result.LOGIN_RESET_UNCONFIRMED) resetEvidence.diagnosis() else it
+                } else structural }
             .getOrDefault(PinProbePolicy.Result.INCOMPLETE)
         history.observe(outcome)
         message = describe(outcome)
     }
     private fun describe(outcome: PinProbePolicy.Result): String = when (outcome) {
+            PinProbePolicy.Result.LOGIN_DELETE_LABEL_UNRECOGNIZED -> "Keine bekannte Löschtasten-Beschriftung zugänglich. Die Taste kann unbeschriftet, anders beschriftet oder nicht zugänglich sein."
+            PinProbePolicy.Result.LOGIN_DELETE_DISABLED -> "Löschtasten-Beschriftung erkannt, aber Element deaktiviert. Das beweist allein keine leere PIN-Eingabe."
+            PinProbePolicy.Result.LOGIN_DELETE_NO_ACTION -> "Löschtasten-Beschriftung erkannt; keine zugehörige Klickaktion innerhalb der geprüften zwei Ebenen."
+            PinProbePolicy.Result.LOGIN_DELETE_SHARED_TARGET -> "Löschtasten-Beschriftung erkannt; Klickziel wegen weiterer Inhalte oder Unterelemente nicht eindeutig zuordenbar."
+            PinProbePolicy.Result.LOGIN_DELETE_AMBIGUOUS -> "Mehrere unterschiedliche Löschtasten-Klickziele erkannt. Keine Taste gedrückt."
             PinProbePolicy.Result.LOGIN_SETUP_VISIBLE -> "Biometrie-Einrichtungshinweis noch sichtbar. Keine Anmeldeeingabe freigegeben."
             PinProbePolicy.Result.LOGIN_DELETE_OFFERED -> "Anmeldehinweis, zehn Zifferntasten und eine Löschtaste mit Klickaktion erkannt. Löschen und Anmeldung noch nicht ausgeführt oder bestätigt."
             PinProbePolicy.Result.LOGIN_RESET_UNCONFIRMED -> "Anmeldehinweis und zehn Zifferntasten erkannt; keine eindeutige bedienbare Löschtaste. Leere PIN-Eingabe nicht bestätigt."
