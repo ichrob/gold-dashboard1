@@ -24,5 +24,6 @@ internal class PinKeypadExercisePolicy {
         }
         return Action.NONE
     }
+    fun pauseObservation() { disabledSamples = 0 }
     fun stop() { stage = Stage.STOPPED }
 }
