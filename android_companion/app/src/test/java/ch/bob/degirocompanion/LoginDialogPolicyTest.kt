@@ -213,5 +213,10 @@ class LoginDialogPolicyTest {
         for (marker in markets) assertFalse(LoginDialogPolicy.verifiedMarkets(markets - marker, false))
         assertFalse(LoginDialogPolicy.verifiedMarkets(
             setOf("PassCode", "Abbrechen", "DEGIRO"), false))
+        for (login in listOf("Haben Sie Ihren Code vergessen?", "Forgot your passcode?",
+            "Forgot your code?", "PassCode", LoginDialogPolicy.NOTICE, LoginDialogPolicy.OFFER)) {
+            assertFalse(LoginDialogPolicy.verifiedMarkets(markets + login, false))
+            assertFalse(LoginDialogPolicy.verifiedMarkets(markets + login, true))
+        }
     }
 }
