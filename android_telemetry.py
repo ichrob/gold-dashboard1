@@ -8,7 +8,9 @@ from android_observations import CODES, timestamp
 PIN_RESULTS = {'NO_WINDOW', 'NO_INPUT', 'INPUT_PRESENT', 'NUMERIC_PASSWORD_INPUT',
                'SET_TEXT_OFFERED', 'SENSITIVE_INPUT', 'INCOMPLETE',
                'KEYPAD_VISIBLE', 'KEYPAD_CLICK_OFFERED', 'KEYPAD_AMBIGUOUS',
-               'LOGIN_SETUP_VISIBLE', 'LOGIN_DELETE_OFFERED', 'LOGIN_RESET_UNCONFIRMED'}
+               'LOGIN_SETUP_VISIBLE', 'LOGIN_DELETE_OFFERED', 'LOGIN_RESET_UNCONFIRMED',
+               'LOGIN_DELETE_AMBIGUOUS', 'LOGIN_DELETE_SHARED_TARGET', 'LOGIN_DELETE_NO_ACTION',
+               'LOGIN_DELETE_DISABLED', 'LOGIN_DELETE_LABEL_UNRECOGNIZED'}
 
 def validate_pin_probe(value, now):
     if not isinstance(value, dict) or set(value) != {'runId', 'endedAt', 'result', 'completed'}:
