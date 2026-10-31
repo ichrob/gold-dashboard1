@@ -6,14 +6,21 @@ internal object LoginDialogPolicy {
     const val NOTICE = "Bitte geben Sie Ihren PassCode ein, um TouchID / FaceID einzurichten"
     const val OFFER = "TouchID / FaceID aktivieren"
     const val BODY = "Wenn Face/Touch ID aktiviert ist, können Sie sich mit Face/Touch ID anmelden."
-    /** A pre-login bypass requires the real Markets search on the same focused
-     * DEGIRO window, not just navigation labels lingering behind a login modal. */
-    fun verifiedMarkets(labels: Set<String>, afterEntry: Boolean): Boolean =
-        labels.containsAll(setOf("Märkte", "News", "Terminkalender", "Favoriten", "Portfolio")) &&
-            labels.none { it in setOf("Haben Sie Ihren Code vergessen?", "Forgot your passcode?",
-                "Forgot your code?", "PassCode", NOTICE, OFFER,
-                "Abbrechen", "Cancel", "Schließen", "Order bestätigen") } &&
-            (afterEntry || "Mit Namen, ISIN oder Symbol suchen" in labels)
+    /** The actual DEGIRO Markets view keeps the heading and search visible,
+     * while bottom tabs can disappear from Android's accessibility tree.
+     * Require independent market context, an isolated product-search prompt,
+     * and no PIN, biometric, popup or order markers. A PIN dispatch alone is
+     * never evidence that login succeeded. */
+    fun verifiedMarkets(labels: Set<String>, afterEntry: Boolean): Boolean {
+        val prompt = "Mit Namen, ISIN oder Symbol suchen"
+        val blockers = setOf("Haben Sie Ihren Code vergessen?", "Forgot your passcode?",
+            "Forgot your code?", "PassCode", NOTICE, OFFER,
+            "Abbrechen", "Cancel", "Schließen", "Order bestätigen")
+        if (labels.any { it in blockers }) return false
+        val navigation = listOf("News", "Terminkalender", "Favoriten", "Portfolio")
+        return prompt in labels && "Märkte" in labels && "Indizes" in labels &&
+            navigation.count { it in labels } >= 2
+    }
     fun normalize(value: CharSequence?) = value?.toString()?.trim()?.replace(Regex("\\s+"), " ").orEmpty()
     fun identify(degiro: Boolean, trustedSystem: Boolean, associated: Boolean,
         labels: Set<String>, afterEntry: Boolean, owner: LoginDialogCheck.Owner? = null): Kind? {
