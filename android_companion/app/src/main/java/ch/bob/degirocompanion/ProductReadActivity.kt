@@ -229,7 +229,24 @@ class ProductReadActivity : Activity() {
             text = "Einmalig: Leseprüfung und Android-Dienst aktivieren. Die Männchen-Taste ist optional.\n\n1. Prüfung starten.\n2. In DEGIRO das Produkt mit sichtbarer ISIN öffnen. Bob scrollt und liest automatisch, höchstens 60 Sekunden. Bob hält den Bildschirm während dieser Prüfung automatisch wach. Währenddessen bitte nicht bedienen; die Sperrtaste bricht ab.\n3. Bob öffnet sich nach erfolgreichem Lesen automatisch und speichert die Beobachtung beim passenden Listeneintrag. Falls die Rückgabe scheitert, bleibt der Entwurf hier über ‚Gelesene Werte in Bob prüfen‘ erreichbar.\n\nEinzelseitenprüfung: nur Scrollen der geöffneten Seite. Die Morgenlisten-Funktion oben übernimmt zusätzlich die ISIN-Suche. Keine Orderbedienung. Anmeldung selbst durchführen. Bei Zeitablauf erneut starten. Ohne zugängliche Bildschirmtexte: Screenshot teilen. Entwurf verfällt nach fünf Minuten."
             textSize = 16f
         })
-        setContentView(ScrollView(this).apply { addView(stack) })
+        val scroll = ScrollView(this).apply {
+            addView(stack)
+            // Keep the first/last controls outside system bars and cutouts on edge-to-edge Android.
+            // Replace padding on every dispatch; never accumulate it when bars or rotation change.
+            setOnApplyWindowInsetsListener { view, insets ->
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or
+                        android.view.WindowInsets.Type.displayCutout())
+                    view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                } else {
+                    view.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop,
+                        insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+                }
+                insets
+            }
+        }
+        setContentView(scroll)
+        scroll.requestApplyInsets()
     }
     override fun onResume() {
         super.onResume();if(PinReadinessProbe.running) PinReadinessProbe.stop("Prüfung beendet. " + PinReadinessProbe.message);PhoneDiagnostics.queue(this);refresh();statusHandler.post(statusTick)
