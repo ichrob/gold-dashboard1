@@ -1,5 +1,4 @@
 """Explicit, expiring, single-attempt metric compaction; never deletes live rows."""
-import datetime as dt
 import json
 import os
 import threading
@@ -21,19 +20,20 @@ def size(conn):
     return conn.execute("SELECT pg_total_relation_size('public.bob_metric_checks')").fetchone()[0]
 
 
-def compact(conn, budget):
+def compact(conn, budget, *, resume=False):
     """One index at a time, then rewrite only when conservatively budgeted.
 
     Budget is a fresh operator-observed free-space lower bound, not DB allocation
     minus pg_database_size. Estimates cannot measure WAL recycling or filesystem
     overhead; reserve 50 MB and budget two copies of the expanded live footprint.
-    Every command has the dedicated connection's 30s timeout and 1s lock timeout.
+    Ordinary commands have a 30s timeout and 1s lock timeout. An explicitly
+    resumed, proven timed-out FULL gets 90s; successful indexes are not rebuilt.
     """
     before = size(conn)
     if before > 120*M:
         return {'status': 'table-too-large', 'relationBytesBefore': before}
     operations = []
-    for index in INDEXES:
+    for index in (() if resume else INDEXES):
         row = conn.execute('''SELECT pg_relation_size(i.indexrelid) FROM pg_index i
             WHERE i.indexrelid=to_regclass(%s) AND i.indrelid=to_regclass(%s)
             AND i.indisvalid''', (index, TABLE)).fetchone()
@@ -59,6 +59,8 @@ def compact(conn, budget):
         result['status'] = 'rewrite-budget-insufficient'
     else:
         try:
+            if resume:
+                conn.execute("SET statement_timeout = '90s'")
             conn.execute('VACUUM (FULL) ONLY public.bob_metric_checks')
             result['status'] = 'completed'
         except Exception as exc:
@@ -68,6 +70,13 @@ def compact(conn, budget):
     # A database relation decrease is not a measured whole-volume free-space value.
     result['diskBytesFreed'] = None
     return result
+
+
+def resumable(result):
+    return (isinstance(result, dict) and result.get('status') == 'deferred'
+            and result.get('errorType') == 'QueryCanceled'
+            and result.get('operations') == [
+                {'index': index, 'status': 'completed'} for index in INDEXES])
 
 
 def run_once(config, factory=connect, now=None):
@@ -100,12 +109,19 @@ def run_once(config, factory=connect, now=None):
         budget -= max(0, current-baseline)
         conn.execute('''CREATE TABLE IF NOT EXISTS bob_metric_compaction_attempts (
             id TEXT PRIMARY KEY, attempted_at TIMESTAMPTZ NOT NULL DEFAULT now(), result JSONB NOT NULL)''')
+        resume = False
+        if config.get('resumeFrom'):
+            previous = conn.execute('SELECT result FROM bob_metric_compaction_attempts WHERE id=%s',
+                                    (config['resumeFrom'],)).fetchone()
+            if not previous or not resumable(previous[0]):
+                return {'status': 'resume-proof-required'}
+            resume = True
         claimed = conn.execute('''INSERT INTO bob_metric_compaction_attempts(id,result)
             VALUES(%s,'{"status":"started"}') ON CONFLICT DO NOTHING RETURNING id''', (config['id'],)).fetchone()
         if not claimed:
             return {'status': 'already-attempted'}
         try:
-            result = compact(conn, budget)
+            result = compact(conn, budget, resume=True) if resume else compact(conn, budget)
         except Exception as exc:
             result = {'status': 'deferred', 'errorType': type(exc).__name__}
         conn.execute('UPDATE bob_metric_compaction_attempts SET result=%s::jsonb WHERE id=%s',

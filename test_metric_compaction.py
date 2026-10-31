@@ -6,6 +6,14 @@ import metric_compaction as compact
 
 
 class GuardTests(unittest.TestCase):
+    def test_resume_requires_both_successful_indexes_and_full_timeout(self):
+        proof={'status':'deferred','errorType':'QueryCanceled',
+               'operations':[{'index':i,'status':'completed'} for i in compact.INDEXES]}
+        self.assertTrue(compact.resumable(proof))
+        for change in ({'status':'completed'}, {'errorType':'DiskFull'}, {'operations':[]},
+                       {'operations':[{'index':compact.INDEXES[0],'status':'completed'}]}):
+            self.assertFalse(compact.resumable({**proof,**change}))
+
     def test_missing_expired_and_future_observation_never_connect(self):
         def forbidden():
             raise AssertionError('must not connect')
@@ -48,6 +56,11 @@ class DatabaseTests(unittest.TestCase):
                 with self.assertRaises(psycopg.errors.UniqueViolation):
                     conn.execute("INSERT INTO bob_metric_checks SELECT * FROM bob_metric_checks LIMIT 1")
                 self.assertIsNone(result['diskBytesFreed'])
+                resumed=compact.compact(Isolated(),200_000_000,resume=True)
+                self.assertEqual(resumed['status'],'completed')
+                self.assertEqual(resumed['operations'],[])
+                self.assertEqual(conn.execute('SHOW statement_timeout').fetchone()[0],'90s')
+                self.assertEqual(conn.execute('SELECT * FROM bob_metric_checks ORDER BY bar_at').fetchall(),before)
             finally:
                 conn.execute('DROP SCHEMA '+schema+' CASCADE')
 
