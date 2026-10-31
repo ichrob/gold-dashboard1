@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from collections import Counter
 import math
 import stop_target_audit
+import cold_decision_products
 
 ZONE = ZoneInfo('Europe/Zurich')
 
@@ -66,10 +67,13 @@ def report(conn, payload):
         FROM bob_decision_audit a '''
     rows = conn.execute(full_query+'''WHERE a.recorded_at >= %s AND a.recorded_at < %s
         ORDER BY a.recorded_at,a.id LIMIT 100 OFFSET %s''', (start,end,offset)).fetchall()
+    rows = [(rid,at,cold_decision_products.resolve(conn,rid,p),truth)
+            for rid,at,p,truth in rows]
     if first_ids:
         first_rows = conn.execute(full_query+'WHERE a.id = ANY(%s) ORDER BY a.recorded_at,a.id',
                                   (first_ids,)).fetchall()
-        summary['firstSignals'] = [compact(r) for r in first_rows]
+        summary['firstSignals'] = [compact((rid,at,cold_decision_products.resolve(conn,rid,p),truth))
+                                   for rid,at,p,truth in first_rows]
     quote_rows = conn.execute('''SELECT date_trunc('hour',quote_at),count(*),min(price),max(price),
         min(quote_at),max(quote_at),count(DISTINCT date_trunc('minute',quote_at))
         FROM bob_spot_observations WHERE stream='gold-api-xau-usd-v1' AND quote_at >= %s AND quote_at < %s
