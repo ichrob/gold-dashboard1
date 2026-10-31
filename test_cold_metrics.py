@@ -79,6 +79,15 @@ class ReaderTests(unittest.TestCase):
         with patch.object(cold, 'runtime_drive', side_effect=AssertionError('no network')):
             self.assertEqual(cold.resolve(None, self.row[4]), self.row[4])
 
+    def test_small_report_chunks_do_not_thrash_download_cache(self):
+        blob = self.drive.files['file-1']
+        for i in range(25):
+            self.drive.files['report-' + str(i)] = blob
+        for _ in range(2):
+            for i in range(25):
+                self.assertEqual(cold.read_chunk(self.drive, 'report-' + str(i), cold.digest(blob)), [self.row])
+        self.assertEqual(self.drive.downloads, 25)
+
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'), 'CI PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):

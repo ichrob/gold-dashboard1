@@ -69,7 +69,7 @@ def read_chunk(drive, file_id, checksum, *, cached=True, conn=None):
         with _CACHE_LOCK:
             if key in _CACHE:
                 _CACHE.move_to_end(key)
-                return _CACHE[key]
+                return _CACHE[key][0]
     try:
         if drive is None:
             drive = runtime_drive(conn)
@@ -94,9 +94,10 @@ def read_chunk(drive, file_id, checksum, *, cached=True, conn=None):
         raise ColdArchiveUnavailable('Historical metric archive could not be verified') from None
     if cached:
         with _CACHE_LOCK:
-            _CACHE[key] = rows
-            # At most four bounded chunks per process, including report reads.
-            while len(_CACHE) > 4:
+            _CACHE[key] = (rows, len(raw))
+            # Small metric chunks should remain cached across complete reports.
+            # Preserve the same 8 MiB raw-data ceiling instead of four files.
+            while len(_CACHE) > 64 or sum(item[1] for item in _CACHE.values()) > 8 * 1024 * 1024:
                 _CACHE.popitem(last=False)
     return rows
 
