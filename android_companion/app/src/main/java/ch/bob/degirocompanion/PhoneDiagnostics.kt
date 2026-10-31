@@ -103,8 +103,20 @@ internal object PhoneDiagnostics {
             "\nVergleichscode: "+p.getString("comparison","")+
             (p.getString("lastAck",null)?.let { "\nLetzte Serverbestätigung: $it" } ?: "")
     }
+    /** Local capability evidence only; no PIN or remote trigger. Migrates the completed 10338 test. */
+    fun keypadTestVerified(c: Context): Boolean {
+        val p = prefs(c)
+        if (p.getBoolean("localKeypadVerified", false)) return true
+        val old = runCatching { JSONObject(p.getString("pinProbe", "{}") ?: "{}") }.getOrNull()
+        val valid = old != null && old.optString("result") == "KEYPAD_TEST_STATE_CYCLE_OBSERVED" && old.optBoolean("completed") &&
+            old.optJSONObject("exerciseTrace")?.optString("reason") == "STATE_CYCLE"
+        if (valid) p.edit().putBoolean("localKeypadVerified", true).commit()
+        return valid
+    }
     /** Fixed technical summary only, under the existing opt-in diagnostic authorization. */
     fun recordPinProbe(c:Context) {
+        if (PinReadinessProbe.finished && PinReadinessProbe.resultCode == "KEYPAD_TEST_STATE_CYCLE_OBSERVED")
+            prefs(c).edit().putBoolean("localKeypadVerified", true).commit()
         if (!enabled(c) || PinReadinessProbe.reportId.isEmpty()) return
         val summary = JSONObject().put("runId", PinReadinessProbe.reportId)
             .put("endedAt", Instant.now().toString())
