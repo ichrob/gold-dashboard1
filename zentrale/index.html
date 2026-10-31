@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="Bob Zentrale: geschützte Statusübersicht für Tests, Simulationen und Fehler – nur lesend.">
+  <link rel="manifest" href="/zentrale/manifest.webmanifest">
+  <link rel="icon" href="/zentrale/icon.svg" type="image/svg+xml">
+  <title>Bob Zentrale</title>
+  <style>
+    :root{color-scheme:dark;font:16px system-ui,-apple-system,sans-serif;background:#0c1321;color:#f1f5f9}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+    main{max-width:780px;margin:auto;padding:22px 16px 48px}header{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+    .mark{display:grid;place-items:center;width:56px;height:56px;border-radius:16px;background:#d4aa53;color:#172033;font-weight:800}
+    h1{font-size:1.45rem;margin:0}h2{font-size:1.03rem;margin:0 0 12px}p{line-height:1.5;margin:8px 0;color:#bbc8d9}
+    .sub{font-size:.84rem;color:#9fb0c7}.panel{background:#151f31;border:1px solid #29374e;border-radius:17px;padding:18px;margin:14px 0}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+    .metric{border:1px solid #2c3b52;border-radius:12px;padding:14px;background:#101a2b}
+    .metric b{display:block;font-size:.85rem;color:#a7b8ce;margin-bottom:7px}.metric span{font-size:1.05rem}
+    button,.action{display:inline-block;border:0;border-radius:11px;padding:12px 16px;background:#d4aa53;color:#152038;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}
+    button:disabled{opacity:.6;cursor:wait}.action.secondary{background:#263850;color:#f1f5f9}
+    a:not(.action){color:#f2cf81} .actions{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0}
+    ul{padding-left:20px;margin:10px 0}li{margin:7px 0;line-height:1.4}
+    .notice{border-left:3px solid #d4aa53;padding-left:12px}.error{color:#ffc2b9}.muted{color:#9fb0c7}
+  </style>
+  <script src="/zentrale/app.js" defer></script>
+</head>
+<body>
+<main>
+  <header><div class="mark" aria-hidden="true">BZ</div><div><h1>Bob Zentrale</h1><div class="sub">Getrennte Verwaltung · nur Lesezugriff</div></div></header>
+  <section class="panel">
+    <h2>Technische Übersicht</h2>
+    <p>Diese schlanke App zeigt vorhandene Bob-Prüfergebnisse. Sie startet keine Tests, repariert nichts und führt keine Orders aus. Auch ein grüner Status bestätigt keinen lückenlosen Simulationsbetrieb.</p>
+    <div class="actions"><button type="button" id="refresh">Status jetzt prüfen</button><a class="action secondary" href="/">Bob Assistent öffnen</a></div>
+    <p id="status" role="status" aria-live="polite" class="sub">Noch nicht abgefragt.</p>
+    <div class="grid">
+      <div class="metric"><b>Simulationen</b><span id="simulation">Nicht geprüft</span></div>
+      <div class="metric"><b>Überwachung</b><span id="monitor">Nicht geprüft</span></div>
+      <div class="metric"><b>Fehler und Reparaturen</b><span id="problems">Nicht geprüft</span></div>
+      <div class="metric"><b>Produktnachweise</b><span id="products">Nicht geprüft</span></div>
+    </div>
+  </section>
+  <section class="panel"><h2>Tests und Studien</h2><p class="sub">Der angezeigte Status ist eine Stichprobe, kein Abschluss- oder Gewinnnachweis.</p><ul id="tests"><li>Zum Abrufen „Status jetzt prüfen“ verwenden.</li></ul></section>
+  <section class="panel"><h2>Arbeitsschritte</h2><div class="actions">
+    <a class="action secondary" href="/?view=simulation#simulation">Simulationen in Bob</a>
+    <a class="action secondary" href="/?view=problems#problems">Probleme in Bob</a>
+    <a class="action secondary" href="/?view=research#research">Recherche in Bob</a>
+  </div>
+  <p class="notice">Die bisherige Bob-App und ihre Hintergrunddienste bleiben unverändert. Datenbanken und Archive werden durch diese Aufteilung noch nicht verkleinert.</p></section>
+</main>
+</body>
+</html>
