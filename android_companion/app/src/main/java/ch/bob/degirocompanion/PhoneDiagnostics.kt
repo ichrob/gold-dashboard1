@@ -110,6 +110,11 @@ internal object PhoneDiagnostics {
             .put("endedAt", Instant.now().toString())
             .put("result", PinReadinessProbe.resultCode)
             .put("completed", PinReadinessProbe.finished)
+        PinReadinessProbe.symbolFlags?.let { flags ->
+            summary.put("symbolFlags", JSONObject().put("enabled", flags.enabled)
+                .put("labelled", flags.labelled).put("clickableFlag", flags.clickableFlag)
+                .put("clickAction", flags.clickAction).put("nearbyParentAction", flags.nearbyParentAction))
+        }
         prefs(c).edit().putString("pinProbe", summary.toString()).commit()
         queue(c)
     }
@@ -205,3 +210,4 @@ internal object PhoneDiagnostics {
         } finally { connection?.disconnect() }
     }
 }
+
