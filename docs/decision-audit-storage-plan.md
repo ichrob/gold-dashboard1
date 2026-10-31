@@ -24,7 +24,9 @@ Any generic replacement with a Drive reference would silently change:
 - Exact record and evidence consumers in other subsystems that must be
   enumerated before a write-side change.
 
-The private reader `bob_diagnostics.stored_details` also performs a bounded full-payload SQL read of the newest 20 decisions; it must stay compatible with any cold references. `stop_target_audit` maintains a foreign-key reference to decision IDs, so those IDs must remain in PostgreSQL.\n\nHistorical decisions may be used to compare simulation and product selection.
+The private reader `bob_diagnostics.stored_details` also performs a bounded full-payload SQL read of the newest 20 decisions; it must stay compatible with any cold references. `stop_target_audit` maintains a foreign-key reference to decision IDs, so those IDs must remain in PostgreSQL.
+
+Historical decisions may be used to compare simulation and product selection.
 Do not modify original timings, numeric values, eligibility, directions, or
 gates as part of storage optimization.
 
@@ -73,3 +75,37 @@ and empty-table handling.
 There is **no audit archive writer or automatic compaction enabled** by this
 measurement-only change. It performs no orders, data deletion, paid scaling or
 retention shortening.
+
+
+## Age-cohort sample before product-field migration
+
+The first eight-row production observation on 31 October measured
+26,398 serialized nested JSONB bytes for products out of approximately
+44,700 bytes of sampled child fields (about 59%). It is *not* proof that
+products occupy 59% of the table or that removing products will return
+physical disk capacity. The entire decision audit still includes a
+122.8 MB TOAST relation whose live/dead page composition is not known.
+
+`storage.layout.decisionProductsCohorts` therefore reads at most eight IDs
+per indexed window: oldest, newest, most recent before 24 hours, and most
+recent before seven days. Windows can overlap. Only aggregate JSON text
+bytes, counts of populated product arrays, distinct arrays within each
+window, and the unique sampled row count are returned. Neither original
+products nor hashes/IDs/timestamps are exported. This is a biased diagnostic
+sample of at most 32 selections, not a random or full archive survey.
+A failed/missing-table query returns `not-observed`, without corrupting
+the containing storage report or making write-side changes.
+
+`products` is visible directly in `audit_history.compact` and
+`decision_audit.product_review` (including quotes, selection and original
+reasons), while the private diagnostics and aggregate research reports
+consume the full decision JSON. An optimization must not replace product
+values with an opaque pointer until each affected consumer uses a verified,
+exact read-through, with immutable row identity, original sequence,
+precision and timestamps. A seemingly repeated array is not permission
+to deduplicate without full original comparison and identity isolation.
+
+This change **does not** enable any product offload, backlog deletion,
+automatic FULL/VACUUM, trade mutation or paid scaling. Compare independent
+physical-volume measurements only *after* a separate fully verified,
+operator-budgeted maintenance step.

@@ -62,6 +62,7 @@ def report(conn):
                            for table,name,size,valid in indexes],
                 'diagnosticPayloadSample':diagnostic_sample(conn),
                 'decisionPayloadSample':decision_payload_sample(conn),
+                'decisionProductsCohorts':decision_products_cohorts(conn),
                 'reclaimableBytes':None,
                 'note':'Allocated relation sizes include live and reusable space; not a bloat measurement.'}
     except Exception:
@@ -136,5 +137,82 @@ def decision_payload_sample(conn):
                        'all-row coverage, or a permitted offload budget.'}
         _log_decision_sample_once(result)
         return result
+    except Exception:
+        return {'status':'not-observed','readOnly':True,'reclaimableBytes':None}
+
+
+def decision_products_cohorts(conn):
+    """Read-only, index-bounded age cohorts of immutable decision products.
+
+    Four ordered index windows each select no more than eight ids; overlapping
+    rows across cohorts are explicitly counted. No original JSON leaves SQL.
+    Serialized JSON size describes the sample, never physical TOAST usage.
+    """
+    try:
+        with conn.transaction():
+            rows = conn.execute("""WITH picked AS MATERIALIZED (
+                  SELECT 'oldest'::text cohort,id FROM (
+                    SELECT id FROM bob_decision_audit
+                    ORDER BY recorded_at,id LIMIT 8
+                  ) old
+                  UNION ALL
+                  SELECT 'newest'::text cohort,id FROM (
+                    SELECT id FROM bob_decision_audit
+                    ORDER BY recorded_at DESC,id DESC LIMIT 8
+                  ) recent
+                  UNION ALL
+                  SELECT 'before-24h'::text cohort,id FROM (
+                    SELECT id FROM bob_decision_audit
+                    WHERE recorded_at < now()-interval '24 hours'
+                    ORDER BY recorded_at DESC,id DESC LIMIT 8
+                  ) day_old
+                  UNION ALL
+                  SELECT 'before-7d'::text cohort,id FROM (
+                    SELECT id FROM bob_decision_audit
+                    WHERE recorded_at < now()-interval '7 days'
+                    ORDER BY recorded_at DESC,id DESC LIMIT 8
+                  ) week_old
+                ), sized AS MATERIALIZED (
+                  SELECT p.cohort,p.id,
+                    octet_length(a.payload::text) AS whole_bytes,
+                    CASE WHEN jsonb_typeof(a.payload->'products')='array'
+                      THEN octet_length((a.payload->'products')::text)
+                      ELSE 0 END AS product_bytes,
+                    CASE WHEN jsonb_typeof(a.payload->'products')='array'
+                      THEN jsonb_array_length(a.payload->'products')
+                      ELSE 0 END AS product_count,
+                    CASE WHEN jsonb_typeof(a.payload->'products')='array'
+                      THEN a.payload->'products'
+                      ELSE NULL END AS product_array
+                  FROM picked p JOIN bob_decision_audit a ON a.id=p.id
+                )
+                SELECT cohort,count(*),coalesce(sum(whole_bytes),0),
+                  coalesce(sum(product_bytes),0),coalesce(max(product_bytes),0),
+                  count(*) FILTER (WHERE product_count>0),
+                  coalesce(sum(product_count),0),
+                  count(DISTINCT product_array) FILTER (WHERE product_count>0),
+                  (SELECT count(DISTINCT id) FROM picked)
+                FROM sized GROUP BY cohort ORDER BY cohort""").fetchall()
+        return dict(
+            status='sampled' if rows else 'empty',
+            readOnly=True,
+            method='indexed-four-age-windows-max-eight-rows-each',
+            maxSelectedRows=32,
+            uniqueSampledRecords=int(rows[0][8]) if rows else 0,
+            cohorts=[
+                dict(ageWindow=cohort,selectedRows=int(count),
+                     totalJsonTextBytes=int(whole),
+                     productsJsonTextBytes=int(products),
+                     maximumProductsJsonTextBytes=int(maximum),
+                     nonEmptyProductRows=int(nonempty),
+                     numberOfProducts=int(items),
+                     distinctNonEmptyArrays=int(unique))
+                for cohort,count,whole,products,maximum,nonempty,items,unique,_ in rows
+            ],
+            reclaimableBytes=None,
+            note='Overlapping age cohorts are not independent or a representative '
+                 'population estimate. Serialized JSON text sizes are not live '
+                 'TOAST storage, database free space, or an offload permission.'
+        )
     except Exception:
         return {'status':'not-observed','readOnly':True,'reclaimableBytes':None}
