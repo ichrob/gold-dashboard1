@@ -68,7 +68,7 @@ class ProductReadActivity : Activity() {
         }
         button("Gespeicherte PIN einmal eingeben") {
             AlertDialog.Builder(this).setTitle("Einmalige lokale PIN-Eingabe")
-                .setMessage("Nur starten, wenn die gespeicherte PIN korrekt ist und alle fünf DEGIRO-Felder leer sind. Bob versucht höchstens diese eine PIN. Fingerabdruckdialog abbrechen und Hinweis schließen, danach nicht bedienen. Keine Wiederholung bei Fehlern. Bei einer Unterbrechung verbliebene Eingaben selbst löschen. Das Ergebnis der Anmeldung anschließend in DEGIRO prüfen; Produktlesen startet separat.")
+                .setMessage("Nur starten, wenn die gespeicherte PIN korrekt ist und alle fünf DEGIRO-Felder leer sind. Bob versucht höchstens diese eine PIN. Bob schließt eindeutig erkannte Fingerabdruck-, Hinweis- und TouchID/FaceID-Einrichtungsdialoge. Handy nicht bedienen. Bei unzugänglichen oder unbekannten Dialogen stoppt Bob. Keine Wiederholung bei Fehlern. Bei einer Unterbrechung verbliebene Eingaben selbst löschen. Die Marktseite muss anschließend tatsächlich erscheinen; Produktlesen startet separat.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Fünf Felder leer · einmal starten") { _, _ ->
                     var secret: ByteArray? = null

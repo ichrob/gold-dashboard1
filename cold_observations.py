@@ -24,6 +24,8 @@ def init(conn):
         reference_json_bytes BIGINT NOT NULL DEFAULT 0)''')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_cold_observation_scan (
         id INTEGER PRIMARY KEY CHECK(id=1), campaign TEXT NOT NULL, slot BIGINT NOT NULL)''')
+    conn.execute('''CREATE INDEX IF NOT EXISTS bob_improvement_observations_cold_order
+        ON bob_improvement_observations(slot,campaign)''')
 
 
 def evidence(conn, key, drive=None, verified=None):

@@ -70,8 +70,10 @@ class ProductReadService : AccessibilityService() {
                 PinReadinessProbe.stop("Lesefreigabe beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.ACCESS_DISABLED); return
             }
             runCatching {
-                val root = productRoot(record = false)
-                try { PinReadinessProbe.inspect(root) } finally { root?.recycle() }
+                if (!PinReadinessProbe.inspectLoginDialogs(this@ProductReadService)) {
+                    val root = productRoot(record = false)
+                    try { PinReadinessProbe.inspect(root) } finally { root?.recycle() }
+                }
             }.onFailure { PinReadinessProbe.stop("Ansicht nicht zugänglich. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.EXCEPTION) }
             if (PinReadinessProbe.running) handler.postDelayed(this, 1000)
         }
@@ -147,11 +149,20 @@ class ProductReadService : AccessibilityService() {
     private val callback = object : AccessibilityButtonController.AccessibilityButtonCallback() {
         override fun onClicked(controller: AccessibilityButtonController) { if(!PinReadinessProbe.running) readOnce() }
     }
+    private fun localLoginEventScope(active: Boolean) {
+        // System event metadata is needed only for cancellation/user-interruption in the explicit local run.
+        val info = serviceInfo
+        info.packageNames = if (active) arrayOf(ProductScreenEvidence.PACKAGE,
+            "com.android.systemui", "com.samsung.android.biometrics.app.setting")
+            else arrayOf(ProductScreenEvidence.PACKAGE)
+        serviceInfo = info
+    }
     override fun onServiceConnected() {
         PinReadinessProbe.onLoginTouch = { node, bounds, window, completed -> dispatchLocalPinTouch(node, bounds, window, completed) }
         PinReadinessProbe.onDigitTouch = { node, bounds, window, completed -> dispatchPinTestZero(node, bounds, window, completed) }
         PinReadinessProbe.onDeleteTouch = { node, bounds, window, completed -> dispatchPinTestDelete(node, bounds, window, completed) }
         PinReadinessProbe.onStop = {
+            runCatching { localLoginEventScope(false) }
             handler.removeCallbacks(pinProbeTick)
             PhoneDiagnostics.recordPinProbe(this)
         }
@@ -167,7 +178,12 @@ class ProductReadService : AccessibilityService() {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
             }
         }
-        PinReadinessProbe.onStart = { handler.removeCallbacks(pinProbeTick); handler.postDelayed(pinProbeTick, 700) }
+        PinReadinessProbe.onStart = {
+            handler.removeCallbacks(pinProbeTick)
+            if (runCatching { localLoginEventScope(PinReadinessProbe.localLoginActive) }.isSuccess)
+                handler.postDelayed(pinProbeTick, 700)
+            else PinReadinessProbe.stop("Dialogfreigabe nicht verfügbar. Lokale Anmeldung beendet.")
+        }
         PhoneRemote.reader={command -> remoteRead(command)}
         MorningListDelivery.onConfirmed={ ids, batch ->
             if(ids.isNotEmpty() && PhoneRemote.active()) {
@@ -268,7 +284,7 @@ class ProductReadService : AccessibilityService() {
                 PinReadinessProbe.stop("Fensterwechsel erkannt. Bedienungstest beendet; Eingabe selbst prüfen.", PinKeypadExerciseTrace.Reason.WINDOW_EVENT)
                 return
             }
-            if ((PinReadinessProbe.exerciseArmed || PinReadinessProbe.loginArmed) && event?.eventType == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
+            if ((PinReadinessProbe.exerciseArmed || PinReadinessProbe.localLoginActive) && event?.eventType == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
                 PinReadinessProbe.stop("Berührung erkannt. Bedienungstest beendet; eventuell verbliebene Testziffer selbst löschen.", PinKeypadExerciseTrace.Reason.USER_TOUCH)
                 return
             }

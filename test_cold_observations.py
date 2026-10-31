@@ -13,6 +13,21 @@ class ReferenceTests(unittest.TestCase):
         self.assertIs(cold.resolve(None,hot),hot)
         for payload in ({cold.TAG:'bad'},{cold.TAG:'a'*64,'evidence':None}):
             with self.assertRaises(cold.codec.ColdArchiveUnavailable):cold.resolve(None,payload)
+    def test_candidate_scan_bounds_keys_before_json_text_cast(self):
+        from contextlib import nullcontext
+        class Conn:
+            autocommit=True
+            def __init__(self):self.queries=[]
+            def transaction(self):return nullcontext()
+            def execute(self,sql,params=None):self.queries.append(sql);return self
+            def fetchone(self):return None
+            def fetchall(self):return []
+        conn=Conn();self.assertEqual(cold.offload_batch(conn,Drive(),now=200000000)['movedRows'],0)
+        query=next(q for q in conn.queries if 'MATERIALIZED' in q)
+        key_page=query.split('LIMIT %s)')[0]
+        self.assertNotIn('payload',key_page)
+        self.assertIn('ORDER BY campaign,slot',key_page)
+
     def test_content_hash_verified(self):
         value={'number':9007199254740993,'nested':[False,None,3.25]}
         key=cold.codec.digest(cold.codec.encoded(value))
@@ -94,6 +109,14 @@ class DatabaseTests(unittest.TestCase):
         self.put(1000,payload)
         self.assertEqual(cold.offload_batch(self.c,self.drive,now=200000000)['movedRows'],1)
         self.assertEqual(self.read(1000),payload)
+
+    def test_order_index_and_oversize_payload_remain_lossless(self):
+        oversized={**self.payload,'evidence':{'large':'x'*(cold.MAX_PAYLOAD_TEXT_BYTES+1)}}
+        self.put(5000,oversized)
+        self.assertEqual(cold.offload_batch(self.c,self.drive,now=200000000)['movedRows'],2)
+        self.assertEqual(self.read(5000),oversized)
+        index=self.c.execute("SELECT indexdef FROM pg_indexes WHERE schemaname=current_schema() AND indexname='bob_improvement_observations_cold_order'").fetchone()
+        self.assertIsNotNone(index);self.assertIn('(slot, campaign)',index[0])
 
     def test_corrupt_read_is_explicit(self):
         cold.offload_batch(self.c,self.drive,now=200000000)
