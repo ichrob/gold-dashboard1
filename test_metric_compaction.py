@@ -86,3 +86,47 @@ class DatabaseTests(unittest.TestCase):
                     operation.assert_called_once()
             finally:
                 admin.execute('DROP SCHEMA '+schema+' CASCADE')
+
+class TargetGuardTests(unittest.TestCase):
+    def test_arbitrary_table_is_rejected_before_connect(self):
+        def forbidden():raise AssertionError('must not connect')
+        config={'id':'x','observedAt':4000,'freeBytes':250000000,'databaseBytes':600000000}
+        for target in ('public.bob_decision_audit','diagnostic;DROP TABLE x','unknown'):
+            self.assertEqual(compact.run_once({**config,'target':target},forbidden,now=4000)['status'],'invalid-target')
+    def test_resume_cannot_cross_target(self):
+        proof={'status':'deferred','errorType':'QueryCanceled',
+            'operations':[{'index':i,'status':'completed'} for i in compact.INDEXES]}
+        self.assertFalse(compact.resumable(proof,'diagnostic'))
+
+@unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'), 'CI PostgreSQL integration')
+class DiagnosticCompactionTests(unittest.TestCase):
+    def test_diagnostic_rewrite_preserves_all_original_values_and_indexes(self):
+        import psycopg
+        schema='diag_compact_'+uuid.uuid4().hex
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'],autocommit=True) as conn:
+            conn.execute('CREATE SCHEMA '+schema)
+            try:
+                conn.execute('SET search_path TO '+schema)
+                conn.execute('''CREATE TABLE bob_diagnostic_history(id text primary key,recorded_at timestamptz,
+                    stage text,observed_at double precision,trace_id text,payload jsonb)''')
+                for suffix,cols in [('_time','recorded_at'),('_stage','stage,recorded_at'),('_source_window','stage,observed_at'),('_trace','trace_id,recorded_at')]:
+                    conn.execute('CREATE INDEX bob_diagnostic_history'+suffix+' ON bob_diagnostic_history('+cols+')')
+                conn.execute("INSERT INTO bob_diagnostic_history SELECT i::text,now(),'analysis',i,'trace',jsonb_build_object('original',repeat(md5(i::text),60),'number',9007199254740993) FROM generate_series(1,4000) i")
+                conn.execute("UPDATE bob_diagnostic_history SET payload=jsonb_build_object('reference',id) WHERE id::int%10<>0")
+                before=conn.execute('SELECT * FROM bob_diagnostic_history ORDER BY id').fetchall()
+                class Isolated:
+                    def execute(self,sql,params=None):
+                        sql=sql.replace('public.bob_diagnostic',schema+'.bob_diagnostic')
+                        params=tuple(p.replace('public.bob_diagnostic',schema+'.bob_diagnostic') if isinstance(p,str) else p for p in params) if params else params
+                        return conn.execute(sql,params)
+                result=compact.compact(Isolated(),250000000,target='diagnostic')
+                self.assertEqual(result['status'],'completed')
+                self.assertLess(result['observedBudgetBytes'],250000000)
+                self.assertGreater(result['observedRelationBytesDecrease'],0)
+                self.assertEqual(conn.execute('SELECT * FROM bob_diagnostic_history ORDER BY id').fetchall(),before)
+                self.assertTrue(conn.execute("SELECT bool_and(indisvalid) FROM pg_index WHERE indrelid='bob_diagnostic_history'::regclass").fetchone()[0])
+                self.assertEqual(conn.execute('SHOW statement_timeout').fetchone()[0],'90s')
+                self.assertIsNone(result['diskBytesFreed'])
+                with self.assertRaises(psycopg.errors.UniqueViolation):
+                    conn.execute('INSERT INTO bob_diagnostic_history SELECT * FROM bob_diagnostic_history LIMIT 1')
+            finally:conn.execute('DROP SCHEMA '+schema+' CASCADE')
