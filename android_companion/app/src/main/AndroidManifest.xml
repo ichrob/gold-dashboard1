@@ -15,6 +15,7 @@
                  android:networkSecurityConfig="@xml/diagnostic_network"
                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <service android:name=".PhoneDiagnosticJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <activity android:name=".LocalPinActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".ProductReadActivity" android:exported="false" />
         <activity android:name=".MorningReadTransfer" android:exported="true">
             <intent-filter>

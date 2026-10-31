@@ -16,6 +16,8 @@ PIN_RESULTS = {'NO_WINDOW', 'NO_INPUT', 'INPUT_PRESENT', 'NUMERIC_PASSWORD_INPUT
 
 PIN_RESULTS.update({'KEYPAD_TEST_DELETE_REJECTED', 'KEYPAD_TEST_WAITING', 'KEYPAD_TEST_NO_STATE_CHANGE', 'KEYPAD_TEST_STATE_CYCLE_OBSERVED', 'KEYPAD_TEST_INTERRUPTED', 'KEYPAD_TEST_DIGIT_SENT', 'KEYPAD_TEST_DELETE_SENT', 'KEYPAD_TEST_DIGIT_REJECTED', 'KEYPAD_TEST_TIMEOUT'})
 
+PIN_RESULTS.update({'LOCAL_PIN_WAITING', 'LOCAL_PIN_ENTERING', 'LOCAL_PIN_ENTRY_SENT', 'LOCAL_PIN_RESULT_UNVERIFIED', 'LOCAL_PIN_INTERRUPTED', 'LOCAL_PIN_TIMEOUT', 'LOCAL_PIN_LAYOUT_CHANGED', 'LOCAL_PIN_TOUCH_CANCELLED', 'LOCAL_PIN_TOUCH_REJECTED'})
+
 PIN_SYMBOL_FLAGS = {'enabled', 'labelled', 'clickableFlag', 'clickAction', 'nearbyParentAction'}
 
 def validate_pin_symbol_flags(value, result):
@@ -156,5 +158,3 @@ def status(conn):
           'receivedAt':r[3].isoformat() if r[3] else None,
           'fresh':bool(not r[1] and r[2]>now and r[3] and (now-r[3]).total_seconds()<1800 and r[4] and -60<=(now-timestamp(r[4]['observedAt'])).total_seconds()<1800),
           'report':r[4]} for r in rows]}
-
-

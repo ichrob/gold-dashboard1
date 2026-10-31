@@ -3,6 +3,16 @@ from datetime import datetime, timezone, timedelta
 from android_telemetry import validate_report, PIN_RESULTS, BOOLS
 
 class PinTelemetry(unittest.TestCase):
+    def test_local_login_only_accepts_fixed_result_without_credentials_or_success_claim(self):
+        report=self.report()
+        report['pinProbe']={**self.probe(), 'result':'LOCAL_PIN_ENTRY_SENT'}
+        self.assertEqual(validate_report(report)['pinProbe']['result'], 'LOCAL_PIN_ENTRY_SENT')
+        for extra in ({'pin':'synthetic'}, {'digits':[0,1,2,3,4]}, {'account':'synthetic'},
+                      {'exerciseTrace':{'stage':'DELETE_ACCEPTED','reason':'STATE_CYCLE'}},
+                      {'result':'LOCAL_PIN_LOGIN_SUCCESS'}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                validate_report(dict(report, pinProbe=report['pinProbe'] | extra))
+
     def test_cancelled_delete_touch_never_reports_a_cycle_or_an_earlier_stage(self):
         from android_telemetry import validate_pin_exercise_trace
         trace={'stage':'DELETE_ACCEPTED','reason':'DELETE_TOUCH_CANCELLED'}
@@ -102,5 +112,3 @@ class PinTelemetry(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
-
