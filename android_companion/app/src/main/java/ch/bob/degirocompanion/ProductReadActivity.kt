@@ -73,6 +73,23 @@ class ProductReadActivity : Activity() {
         container.addView(TextView(this).apply {
             text = "PIN-Test: Bob öffnet DEGIRO. Fingerabdruckdialog abbrechen und den Hinweis schließen; keine PIN eingeben. Nach 30 Sekunden versucht Bob automatisch hierher zurückzukehren. Das Ergebnis steht oben. Bei aktivierter automatischer Diagnose wird nur der technische Ergebniscode mit Testkennung und Abschlusszeit an deinen privaten Bob übertragen; bei Verbindungsproblemen wird automatisch erneut versucht. Ziffernbeschriftungen, der feste Anmeldehinweis und die Löschtasten-Beschriftung werden nur lokal erkannt; keine Tasten gedrückt. Keine PINs, Bildschirmtexte oder Bilder werden gespeichert oder übertragen. Handy entsperrt lassen. Falls Android die Rückkehr verhindert, Bob selbst öffnen. Ein erkennbares Feld beweist noch keine funktionierende Anmeldung."
         })
+        button("Eine Testziffer eingeben und löschen") {
+            AlertDialog.Builder(this).setTitle("Einmaliger Tastaturtest · keine Anmeldung")
+                .setMessage("Nur starten, wenn du zuvor in DEGIRO alle fünf PIN-Felder geleert und die Löschtaste rechts neben der Null geprüft hast. Bob drückt höchstens einmal 0 und versucht diese Testziffer einmal zu löschen. Keine echte PIN eingeben. Nach dem Abbrechen des Fingerabdruckdialogs und Schließen des Hinweises nicht weiter berühren. Bei einem Abbruch kann die Testziffer stehen bleiben: anschließend selbst prüfen und löschen. Es wird kein Eingabetext gelesen. Der Test bestätigt noch keine sichere automatische Anmeldung.")
+                .setNegativeButton("Abbrechen", null)
+                .setPositiveButton("Fünf Felder leer · Test starten") { _, _ ->
+                    runCatching {
+                        check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
+                        check(!PinReadinessProbe.running && !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime())) { "Laufende Prüfung zuerst stoppen." }
+                        val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+                        PinReadinessProbe.start(confirmedEmptyExercise = true)
+                        startActivity(launch)
+                    }.onFailure {
+                        if (PinReadinessProbe.running) PinReadinessProbe.stop("Bedienungstest nicht gestartet; Eingabe selbst prüfen.")
+                        result.text = it.message
+                    }
+                }.show()
+        }
         button("Automatische Diagnose verbinden / Freigabe öffnen") {
             AlertDialog.Builder(this).setTitle("Automatische Diagnose freigeben")
                 .setMessage("Bob Handy darf App-Version, Dienststatus und feste Fehlercodes direkt an deinen privaten Bob senden. Keine Bildschirmtexte, Kontowerte oder Zugangsdaten. Keine Fernsteuerung. Freigabe anschließend im angemeldeten Browser bestätigen. Android-Hintergrundmeldungen können verzögert eintreffen. Jederzeit hier abschaltbar.")
@@ -248,4 +265,3 @@ class ProductReadActivity : Activity() {
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }
 }
-
