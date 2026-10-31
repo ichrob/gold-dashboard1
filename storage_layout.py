@@ -144,8 +144,9 @@ def decision_payload_sample(conn):
 def decision_products_cohorts(conn):
     """Read-only, index-bounded age cohorts of immutable decision products.
 
-    Four ordered index windows each select no more than eight ids; overlapping
-    rows across cohorts are explicitly counted. No original JSON leaves SQL.
+    Six ordered index windows each select no more than eight ids; overlapping
+    rows across cohorts are explicitly counted. A separate cap-limited count reads
+    only heap keys, never original JSON. No original JSON leaves SQL.
     Serialized JSON size describes the sample, never physical TOAST usage.
     """
     try:
@@ -172,6 +173,18 @@ def decision_products_cohorts(conn):
                     WHERE recorded_at < now()-interval '7 days'
                     ORDER BY recorded_at DESC,id DESC LIMIT 8
                   ) week_old
+                  UNION ALL
+                  SELECT 'before-14d'::text cohort,id FROM (
+                    SELECT id FROM bob_decision_audit
+                    WHERE recorded_at < now()-interval '14 days'
+                    ORDER BY recorded_at DESC,id DESC LIMIT 8
+                  ) two_weeks
+                  UNION ALL
+                  SELECT 'before-30d'::text cohort,id FROM (
+                    SELECT id FROM bob_decision_audit
+                    WHERE recorded_at < now()-interval '30 days'
+                    ORDER BY recorded_at DESC,id DESC LIMIT 8
+                  ) month_old
                 ), sized AS MATERIALIZED (
                   SELECT p.cohort,p.id,
                     octet_length(a.payload::text) AS whole_bytes,
@@ -193,11 +206,26 @@ def decision_products_cohorts(conn):
                   count(DISTINCT product_array) FILTER (WHERE product_count>0),
                   (SELECT count(DISTINCT id) FROM picked)
                 FROM sized GROUP BY cohort ORDER BY cohort""").fetchall()
+        # A bounded heap-only count distinguishes a stale pg_stat estimate
+        # from thousands of live decisions, without reading their TOAST JSON.
+        # Failure is isolated; the cohort sample remains available.
+        try:
+            with conn.transaction():
+                observed_count = conn.execute("""SELECT count(*) FROM (
+                    SELECT 1 FROM bob_decision_audit LIMIT 10001
+                ) bounded""").fetchone()[0]
+            if type(observed_count) is not int or observed_count < 0:
+                observed_count = None
+        except Exception:
+            observed_count = None
         return dict(
             status='sampled' if rows else 'empty',
             readOnly=True,
-            method='indexed-four-age-windows-max-eight-rows-each',
-            maxSelectedRows=32,
+            method='indexed-six-age-windows-max-eight-rows-each',
+            maxSelectedRows=48,
+            boundedRecordCount=observed_count,
+            boundedRecordCountCap=10001,
+            recordCountIsLowerBound=(observed_count == 10001) if observed_count is not None else None,
             uniqueSampledRecords=int(rows[0][8]) if rows else 0,
             cohorts=[
                 dict(ageWindow=cohort,selectedRows=int(count),
