@@ -13,6 +13,8 @@ internal class LocalPinLogin(pin: ByteArray,
     private val targets = mutableListOf<Target>()
     private var window = -1
     private var expires = 0L
+    var afterEntry = false
+        private set
     var armed = false
         private set
     var done = false
@@ -38,7 +40,7 @@ internal class LocalPinLogin(pin: ByteArray,
         inspect(root)
     }
     fun inspect(root: AccessibilityNodeInfo?) {
-        if (!armed || done) return
+        if (!armed || done || afterEntry) return
         if (SystemClock.elapsedRealtime() >= expires) { abort("LOCAL_PIN_TIMEOUT"); return }
         if (root == null || !allowed(root) || targets.any { t ->
                 !t.node.refresh() || !allowed(t.node) || !t.node.isEnabled || !t.node.isClickable ||
@@ -54,19 +56,28 @@ internal class LocalPinLogin(pin: ByteArray,
             if (!done) {
                 sequence.completed(ticket, completed)
                 if (!completed) abort("LOCAL_PIN_TOUCH_CANCELLED")
-                else if (sequence.complete) abort("LOCAL_PIN_ENTRY_SENT")
+                else if (sequence.complete) finishEntry("LOCAL_PIN_ENTRY_SENT")
             }
         } == true
         if (!accepted) abort("LOCAL_PIN_TOUCH_REJECTED")
     }
-    fun windowChanged() { abort(if (sequence.lastReserved) "LOCAL_PIN_RESULT_UNVERIFIED" else "LOCAL_PIN_INTERRUPTED") }
+    private fun finishEntry(result: String) {
+        if (done || afterEntry) return
+        afterEntry = true; code = result; sequence.cancel()
+        targets.forEach { it.node.recycle() }; targets.clear()
+    }
+    fun windowChanged() {
+        if (afterEntry || done) return
+        if (sequence.lastReserved) finishEntry("LOCAL_PIN_RESULT_UNVERIFIED") else abort("LOCAL_PIN_INTERRUPTED")
+    }
     fun abort(result: String = "LOCAL_PIN_INTERRUPTED") {
         if (done) return
         done = true; code = result; sequence.cancel()
         targets.forEach { it.node.recycle() }; targets.clear()
     }
     val message get() = when (code) {
-        "LOCAL_PIN_WAITING" -> "Warte auf die eindeutige, ruhende PIN-Tastatur. Dialoge selbst schließen."
+        "LOCAL_PIN_WAITING" -> "Warte auf die eindeutige PIN-Tastatur. Bekannte Biometrie-Dialoge werden einmal geschlossen. Handy nicht bedienen."
+        "LOCAL_PIN_HOME_VISIBLE" -> "DEGIRO-Marktseite nach der einmaligen Eingabe erkannt. Keine Orders und kein automatischer Produktstart."
         "LOCAL_PIN_ENTERING" -> "Einmalige lokale PIN-Eingabe läuft. Handy nicht bedienen."
         "LOCAL_PIN_ENTRY_SENT", "LOCAL_PIN_RESULT_UNVERIFIED" -> "Einmalige Eingabe beendet. Bitte in DEGIRO prüfen, ob die Anmeldung gelang. Keine automatische Wiederholung und noch kein bestätigter Login."
         else -> "Lokale PIN-Eingabe gestoppt: $code. Bitte DEGIRO selbst prüfen und verbliebene Eingaben löschen. Kein erneuter Versuch durch Bob."

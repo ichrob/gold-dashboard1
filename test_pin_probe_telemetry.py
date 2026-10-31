@@ -13,6 +13,16 @@ class PinTelemetry(unittest.TestCase):
             with self.subTest(extra=extra), self.assertRaises(ValueError):
                 validate_report(dict(report, pinProbe=report['pinProbe'] | extra))
 
+    def test_dialog_outcomes_contain_no_screen_text_or_credentials(self):
+        for result in ('LOCAL_PIN_HOME_VISIBLE', 'LOCAL_PIN_DIALOG_UNCHANGED',
+                       'LOCAL_PIN_DIALOG_UNRECOGNIZED', 'LOCAL_PIN_DIALOG_BLOCKED',
+                       'LOCAL_PIN_DIALOG_REPEATED', 'LOCAL_PIN_DIALOG_ACTION_FAILED'):
+            report = dict(self.report(), pinProbe=dict(self.probe(), result=result))
+            self.assertEqual(validate_report(report)['pinProbe']['result'], result)
+            for extra in ({'dialogText':'synthetic'}, {'pin':'synthetic'}, {'bounds':[1,2,3,4]}):
+                with self.assertRaises(ValueError):
+                    validate_report(dict(report, pinProbe=report['pinProbe'] | extra))
+
     def test_cancelled_delete_touch_never_reports_a_cycle_or_an_earlier_stage(self):
         from android_telemetry import validate_pin_exercise_trace
         trace={'stage':'DELETE_ACCEPTED','reason':'DELETE_TOUCH_CANCELLED'}

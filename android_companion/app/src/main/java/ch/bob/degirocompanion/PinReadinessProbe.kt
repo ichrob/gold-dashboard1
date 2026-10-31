@@ -14,6 +14,15 @@ internal object PinReadinessProbe {
         private set
     private var exercise: PinKeypadExercise? = null
     private var login: LocalPinLogin? = null
+    private var loginDialogs: LocalLoginDialogs? = null
+    val localLoginActive get() = running && login != null
+    val loginDialogsAllowed get() = localLoginActive && login?.done == false && (!loginArmed || login?.afterEntry == true)
+    fun inspectLoginDialogs(service: android.accessibilityservice.AccessibilityService): Boolean =
+        loginDialogsAllowed && loginDialogs?.inspect(service, login?.afterEntry == true) == true
+    fun finishLogin(code: String) {
+        if (!localLoginActive) return
+        login?.abort(code); finished = true; stop(login?.message.orEmpty())
+    }
     val loginArmed get() = login?.armed == true
     val loginTouchExpected get() = login?.touchExpected == true
     private val exerciseLayout = PinStableObservation<Pair<Int, List<PinSymbolProbe.Node>>>()
@@ -38,6 +47,7 @@ internal object PinReadinessProbe {
         check(onStart != null && (pin == null || onLoginTouch != null)) { "Lesedienst zuerst verbinden." }
         login?.abort()
         login = if (pin != null) LocalPinLogin(pin, onLoginTouch) else null
+        loginDialogs = if (pin != null) LocalLoginDialogs() else null
         exercise?.abort()
         exercise = if (confirmedEmptyExercise) PinKeypadExercise(true, onDigitTouch, onDeleteTouch) else null
         check(onStart != null) { "Lesedienst zuerst verbinden." }
@@ -72,8 +82,7 @@ internal object PinReadinessProbe {
     }
     fun loginWindowChanged() {
         login?.windowChanged()
-        finished = true
-        stop(login?.message ?: "Lokale Anmeldung beendet.")
+        if (login?.done == true) { finished = true; stop(login?.message ?: "Lokale Anmeldung beendet.") }
     }
     fun inspect(root: AccessibilityNodeInfo?) {
         if (!active()) return

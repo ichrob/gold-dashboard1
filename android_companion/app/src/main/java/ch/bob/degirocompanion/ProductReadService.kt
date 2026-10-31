@@ -70,8 +70,10 @@ class ProductReadService : AccessibilityService() {
                 PinReadinessProbe.stop("Lesefreigabe beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.ACCESS_DISABLED); return
             }
             runCatching {
-                val root = productRoot(record = false)
-                try { PinReadinessProbe.inspect(root) } finally { root?.recycle() }
+                if (!PinReadinessProbe.inspectLoginDialogs(this@ProductReadService)) {
+                    val root = productRoot(record = false)
+                    try { PinReadinessProbe.inspect(root) } finally { root?.recycle() }
+                }
             }.onFailure { PinReadinessProbe.stop("Ansicht nicht zugänglich. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.EXCEPTION) }
             if (PinReadinessProbe.running) handler.postDelayed(this, 1000)
         }
@@ -268,7 +270,7 @@ class ProductReadService : AccessibilityService() {
                 PinReadinessProbe.stop("Fensterwechsel erkannt. Bedienungstest beendet; Eingabe selbst prüfen.", PinKeypadExerciseTrace.Reason.WINDOW_EVENT)
                 return
             }
-            if ((PinReadinessProbe.exerciseArmed || PinReadinessProbe.loginArmed) && event?.eventType == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
+            if ((PinReadinessProbe.exerciseArmed || PinReadinessProbe.localLoginActive) && event?.eventType == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
                 PinReadinessProbe.stop("Berührung erkannt. Bedienungstest beendet; eventuell verbliebene Testziffer selbst löschen.", PinKeypadExerciseTrace.Reason.USER_TOUCH)
                 return
             }
