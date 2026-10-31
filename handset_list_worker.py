@@ -44,8 +44,8 @@ def ocr_strips(height):
         yield top,bottom,lower,upper
 
 
-def recognize(images):
-    from PIL import Image, ImageOps
+def recognize(images, enhanced=False):
+    from PIL import Image, ImageOps, ImageEnhance
     import numpy as np
     import cv2
     from handset_ocr_engine import offline_engine
@@ -62,10 +62,15 @@ def recognize(images):
             if source.format!='PNG' or source.width*source.height>16000000:raise ValueError('Image bounds')
             original=source.convert('RGB')
         passes=[]
-        for scale,contrast in ((.85,False),(1,False),(1,True)):
+        # An explicit failed-verification retry varies optical preprocessing,
+        # without weakening the ten distinct, checked product-row criteria.
+        settings=((.95,'sharpen'),(1.,'sharpen'),(1.,'contrast')) if enhanced else (
+            (.85,'plain'),(1.,'plain'),(1.,'contrast'))
+        for scale,transform in settings:
             im=original.resize(ocr_size(original.width,original.height,scale))
             actual_scale=im.width/original.width
-            if contrast:im=ImageOps.autocontrast(im.convert('L')).convert('RGB')
+            if transform=='contrast':im=ImageOps.autocontrast(im.convert('L')).convert('RGB')
+            elif transform=='sharpen':im=ImageEnhance.Sharpness(im).enhance(1.6)
             rows=[]
             for top,bottom,lower,upper in ocr_strips(im.height):
                 tile=im.crop((0,top,im.width,bottom))
@@ -151,6 +156,9 @@ class OcrMemoryDeferred(RuntimeError):pass
 
 
 def process(payload,at):
+    # An internal, bounded second pass only for a verification failure.
+    # Original screenshot bytes are never changed or persisted in this mode.
+    enhanced=payload.get('_ocr_mode')=='enhanced'
     env={k:v for k,v in os.environ.items() if k in ('PATH','LANG','LD_LIBRARY_PATH')}
     env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
     import evaluator_runtime
@@ -168,7 +176,8 @@ def process(payload,at):
         if prepared[index] is not None:
             images.append(prepared[index]);continue
         try:
-            child=evaluator_runtime.run([sys.executable,__file__,'--ocr'],priority=2,runner=guarded_ocr_run,
+            child=evaluator_runtime.run([sys.executable,__file__,'--ocr']+
+                (['--enhanced'] if enhanced else []),priority=2,runner=guarded_ocr_run,
                 input=json.dumps([image]),text=True,capture_output=True,timeout=35,check=True,env=env,close_fds=True)
         except subprocess.CalledProcessError as exc:
             raise OcrChildError('Isolated image recognition failed') from exc
@@ -213,7 +222,7 @@ def tick(connect,runner=process):
             'batchId',batch_id,'stage','read-failed','count',0,'error','InterruptedWorker')
             WHERE processing_attempts>=3 AND import_receipt->>'stage'='reading'
             AND processing_at<now()-interval '4 minutes'""")
-        row=conn.execute("""SELECT i.batch_id,i.payload,i.created_at FROM bob_android_list_images i
+        row=conn.execute("""SELECT i.batch_id,i.payload,i.created_at,i.processing_attempts,i.import_receipt FROM bob_android_list_images i
             JOIN bob_android_diagnostic_devices d USING(token_hash)
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
@@ -225,12 +234,19 @@ def tick(connect,runner=process):
         if not row:
             observe("idle")
             return False
-        batch,payload,created=row
+        batch,payload,created,attempts,previous=row
+        # A single alternate OCR pass is permitted while the original
+        # bounded queue still admits a third attempt. Other error classes
+        # and all prior full successes remain unchanged.
+        alternate=(attempts==2 and (previous or {}).get('stage')=='read-failed'
+            and (previous or {}).get('error')=='ListVerificationError')
         conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1,import_receipt=%s::jsonb WHERE batch_id=%s",(json.dumps({'batchId':batch,'stage':'reading','count':0}),batch))
         conn.commit()
     observe("reading")
     try:
-        parsed=runner(payload,payload['images'][-1]['at'])
+        request=dict(payload)
+        if alternate:request['_ocr_mode']='enhanced'
+        parsed=runner(request,payload['images'][-1]['at'])
         if len(parsed.get('items',[]))!=10 or len({x.get('isin') for x in parsed['items']})!=10:
             raise ValueError('Incomplete list')
         if {p.get('isin') for p in parsed.get('evidence',{}).get('products',[])}!={x['isin'] for x in parsed['items']}:
@@ -276,4 +292,4 @@ if __name__=='__main__' and '--ocr' in sys.argv:
     resource.setrlimit(resource.RLIMIT_CPU,(30,30))
     raw=sys.stdin.read(8100001)
     if len(raw)>8100000:raise ValueError('Image input limit')
-    print(json.dumps(recognize(json.loads(raw))))
+    print(json.dumps(recognize(json.loads(raw),enhanced='--enhanced' in sys.argv)))
