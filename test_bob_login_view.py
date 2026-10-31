@@ -31,6 +31,9 @@ class LoginViewTests(unittest.TestCase):
             self.assertEqual(bob_auth.safe_return_view(view), view)
             self.assertEqual(bob_auth.login_destination({}, view),
                              "/?view=" + view + "#" + view)
+        self.assertEqual(bob_auth.safe_return_view("zentrale"),"zentrale")
+        self.assertEqual(bob_auth.login_redirect("view=zentrale"),"/login?view=zentrale")
+        self.assertEqual(bob_auth.login_destination({}, "zentrale"),"/zentrale/")
         for value in ("", "https://example.com", "//other.example",
                       "products&redirect=evil", "products#wrong",
                       "products-long/orders", "products-long?buy=true",
