@@ -132,7 +132,13 @@ internal object PhoneDiagnostics {
                 .put("owner", check.owner.name).put("stage", check.stage.name)
                 .put("systemVerified", check.systemVerified).put("degiroContext", check.degiroContext)
                 .put("degiroLabel", check.degiroLabel).put("biometricLabel", check.biometricLabel)
-                .put("cancelLabel", check.cancelLabel).put("cancelAmbiguous", check.cancelAmbiguous))
+                .put("cancelLabel", check.cancelLabel).put("cancelAmbiguous", check.cancelAmbiguous).also { detail ->
+                    check.ownerContext?.let { context ->
+                        detail.put("ownerContext", JSONObject().put("rootKind", context.rootKind.name)
+                            .put("focusedKind", context.focusedKind.name).put("sameWindow", context.sameWindow)
+                            .put("fingerprintProgress", context.fingerprintProgress.name))
+                    }
+                })
         }
         PinReadinessProbe.exerciseTrace?.let { trace ->
             summary.put("exerciseTrace", JSONObject().put("stage", trace.stage.name).put("reason", trace.reason.name))

@@ -57,6 +57,38 @@ class PinTelemetry(unittest.TestCase):
                     dialogCheck=self.dialog_check(), symbolFlags=self.flags()))
         with self.assertRaises(ValueError): validate_report(report)
 
+    def test_owner_context_is_optional_strict_metadata_and_owner_failure_only(self):
+        from android_telemetry import validate_pin_dialog_check, PIN_DIALOG_BOOLS
+        base = self.dialog_check(owner='OTHER', stage='OWNER_CHECK', **{k:False for k in PIN_DIALOG_BOOLS})
+        context = dict(rootKind='BOB', focusedKind='DEGIRO', sameWindow=False, fingerprintProgress='NOT_REQUESTED')
+        self.assertEqual(validate_pin_dialog_check(base, 'LOCAL_PIN_DIALOG_UNRECOGNIZED'), base)
+        for kind in ('EMPTY', 'BOB', 'ANDROID_FRAMEWORK', 'PERMISSION_CONTROLLER', 'OTHER'):
+            check = base | {'ownerContext':context | {'rootKind':kind}}
+            self.assertEqual(validate_pin_dialog_check(check, 'LOCAL_PIN_DIALOG_UNRECOGNIZED'), check)
+        for progress in ('NOT_REQUESTED', 'REQUESTED', 'ACCEPTED_WAIT', 'ACCEPTED_EXPIRED', 'RETURNED'):
+            validate_pin_dialog_check(base | {'ownerContext': context | {'fingerprintProgress':progress}},
+                                      'LOCAL_PIN_DIALOG_UNRECOGNIZED')
+        invalid = [None, [], {}, context | {'pin':'synthetic'}, context | {'packageName':'private'},
+                   context | {'text':'private'}, context | {'rootKind':'nl.degiro.trader'},
+                   context | {'rootKind':'UNAVAILABLE'}, context | {'rootKind':'AMBIGUOUS'},
+                   context | {'rootKind':'DEGIRO'}, context | {'rootKind':'SYSTEM_UI'},
+                   context | {'focusedKind':[]}, context | {'fingerprintProgress':'SUCCESS'},
+                   context | {'sameWindow':1}, context | {'sameWindow':True, 'focusedKind':'AMBIGUOUS'}]
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_pin_dialog_check(base | {'ownerContext':value}, 'LOCAL_PIN_DIALOG_UNRECOGNIZED')
+        with self.assertRaises(ValueError):
+            validate_pin_dialog_check(self.dialog_check() | {'ownerContext':context}, 'LOCAL_PIN_DIALOG_UNRECOGNIZED')
+
+    def test_owner_context_enum_contract_matches_android(self):
+        import re
+        from pathlib import Path
+        from android_telemetry import PIN_DIALOG_ROOT_KINDS, PIN_DIALOG_FINGERPRINT_PROGRESS
+        source=(Path(__file__).parent/'android_companion/app/src/main/java/ch/bob/degirocompanion/LoginDialogPolicy.kt').read_text()
+        for name, expected in [('RootKind', PIN_DIALOG_ROOT_KINDS), ('FingerprintProgress', PIN_DIALOG_FINGERPRINT_PROGRESS)]:
+            block=re.search(r'enum class '+name+r'\s*\{([^}]+)', source).group(1)
+            self.assertEqual(set(re.findall(r'\b[A-Z_]+\b', block)), set(expected))
+
     def test_dialog_check_enum_contract_matches_android(self):
         import re
         from pathlib import Path

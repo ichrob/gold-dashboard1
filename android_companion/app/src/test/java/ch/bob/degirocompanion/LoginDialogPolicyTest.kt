@@ -148,4 +148,45 @@ class LoginDialogPolicyTest {
         assertFalse(b.reserve(LoginDialogPolicy.Kind.FINGERPRINT, 5000))
         assertFalse(b.reserve(LoginDialogPolicy.Kind.NOTICE, 5000))
     }
+
+    @Test fun ownerDiagnosticClassifiesMetadataWithoutRetainingPackageNames() {
+        val own = "ch.bob.test"
+        val cases = mapOf<String?, LoginOwnerContext.RootKind>(
+            null to LoginOwnerContext.RootKind.EMPTY, "" to LoginOwnerContext.RootKind.EMPTY,
+            own to LoginOwnerContext.RootKind.BOB,
+            "nl.degiro.trader" to LoginOwnerContext.RootKind.DEGIRO,
+            "android" to LoginOwnerContext.RootKind.ANDROID_FRAMEWORK,
+            "com.android.systemui" to LoginOwnerContext.RootKind.SYSTEM_UI,
+            "com.samsung.android.biometrics.app.setting" to LoginOwnerContext.RootKind.SAMSUNG_BIOMETRICS,
+            "com.android.permissioncontroller" to LoginOwnerContext.RootKind.PERMISSION_CONTROLLER,
+            "com.google.android.permissioncontroller" to LoginOwnerContext.RootKind.PERMISSION_CONTROLLER,
+            "private.other.application" to LoginOwnerContext.RootKind.OTHER)
+        for ((pkg, expected) in cases) {
+            val kind = LoginOwnerContext.classify(pkg, own)
+            assertEquals(expected, kind)
+            val context = LoginOwnerContext(kind, LoginOwnerContext.RootKind.UNAVAILABLE, false,
+                LoginOwnerContext.FingerprintProgress.NOT_REQUESTED)
+            val check = LoginDialogCheck.ownerRejected(LoginDialogCheck.Owner.OTHER, false, context)
+            assertEquals(context, check.ownerContext)
+            assertFalse(check.toString().contains("private.other.application"))
+            assertFalse(check.degiroLabel); assertFalse(check.cancelLabel)
+        }
+    }
+    @Test fun fingerprintDiagnosticDistinguishesNoActionReservationAcceptanceAndReturn() {
+        val b = LoginDialogBudget()
+        assertEquals(LoginOwnerContext.FingerprintProgress.NOT_REQUESTED, b.fingerprintProgress(1000))
+        b.accepted(LoginDialogPolicy.Kind.FINGERPRINT)
+        assertEquals(LoginOwnerContext.FingerprintProgress.NOT_REQUESTED, b.fingerprintProgress(1000))
+        assertTrue(b.reserve(LoginDialogPolicy.Kind.FINGERPRINT, 1000))
+        assertEquals(LoginOwnerContext.FingerprintProgress.REQUESTED, b.fingerprintProgress(1000))
+        b.accepted(LoginDialogPolicy.Kind.FINGERPRINT)
+        assertEquals(LoginOwnerContext.FingerprintProgress.ACCEPTED_WAIT, b.fingerprintProgress(3999))
+        assertEquals(LoginOwnerContext.FingerprintProgress.ACCEPTED_EXPIRED, b.fingerprintProgress(4000))
+        b.gone()
+        assertEquals(LoginOwnerContext.FingerprintProgress.RETURNED, b.fingerprintProgress(4001))
+        assertTrue(b.reserve(LoginDialogPolicy.Kind.NOTICE, 5000)); b.accepted(LoginDialogPolicy.Kind.NOTICE)
+        assertEquals(LoginOwnerContext.FingerprintProgress.RETURNED, b.fingerprintProgress(5001))
+        assertFalse(b.awaitingFingerprintReturn(5001, false))
+        assertFalse(b.reserve(LoginDialogPolicy.Kind.FINGERPRINT, 5001))
+    }
 }

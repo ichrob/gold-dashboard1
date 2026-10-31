@@ -90,7 +90,7 @@ internal class LocalLoginDialogs {
                     budget.resetObservation(); homeSince = 0L
                     return true
                 }
-                unrecognizedCheck = LoginDialogCheck.ownerRejected(owner, afterEntry)
+                unrecognizedCheck = LoginDialogCheck.ownerRejected(owner, afterEntry, ownerContext(service, root, now))
                 return fail("LOCAL_PIN_DIALOG_UNRECOGNIZED")
             }
             if (!safe(root, pkg, root.windowId)) return fail("LOCAL_PIN_DIALOG_BLOCKED")
@@ -184,6 +184,28 @@ internal class LocalLoginDialogs {
                 } finally { candidates.forEach { it.recycle() } }
             } finally { foreground.recycle() }
         } finally { nodes.forEach { it.recycle() }; root.recycle() }
+    }
+    // Failure-only metadata: do not query labels or search for actionable nodes in another app.
+    private fun ownerContext(service: AccessibilityService, root: AccessibilityNodeInfo, now: Long): LoginOwnerContext {
+        var focusedKind = LoginOwnerContext.RootKind.UNAVAILABLE
+        var sameWindow = false
+        runCatching {
+            val shown = service.windows
+            try {
+                val focused = shown.filter { it.isActive && it.isFocused }
+                if (focused.size > 1) focusedKind = LoginOwnerContext.RootKind.AMBIGUOUS
+                else focused.singleOrNull()?.let { window ->
+                    sameWindow = window.id == root.windowId
+                    val focusedRoot = window.root
+                    try {
+                        if (focusedRoot != null) focusedKind = LoginOwnerContext.classify(
+                            focusedRoot.packageName?.toString(), service.packageName)
+                    } finally { focusedRoot?.recycle() }
+                }
+            } finally { shown.forEach { it.recycle() } }
+        }
+        return LoginOwnerContext(LoginOwnerContext.classify(root.packageName?.toString(), service.packageName),
+            focusedKind, sameWindow, budget.fingerprintProgress(now))
     }
     private fun dispatch(service: AccessibilityService, target: AccessibilityNodeInfo, root: AccessibilityNodeInfo,
         foreground: AccessibilityWindowInfo, box: Rect, system: Boolean): Boolean {
