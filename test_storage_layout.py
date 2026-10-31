@@ -154,12 +154,14 @@ class DecisionProductsCohortTests(unittest.TestCase):
                     conn.execute('SET TRANSACTION READ ONLY')
                     sample=storage_layout.decision_products_cohorts(conn)
                 self.assertEqual(sample['status'],'sampled')
-                self.assertEqual(sample['maxSelectedRows'],32)
-                self.assertEqual(sample['method'],'indexed-four-age-windows-max-eight-rows-each')
+                self.assertEqual(sample['maxSelectedRows'],48)
+                self.assertEqual(sample['method'],'indexed-six-age-windows-max-eight-rows-each')
                 groups={x['ageWindow']:x for x in sample['cohorts']}
-                self.assertEqual(set(groups),{'oldest','newest','before-24h','before-7d'})
+                self.assertEqual(set(groups),{'oldest','newest','before-24h','before-7d','before-14d','before-30d'})
                 self.assertTrue(all(group['selectedRows']==8 for group in groups.values()))
-                self.assertLessEqual(sample['uniqueSampledRecords'],32)
+                self.assertLessEqual(sample['uniqueSampledRecords'],48)
+                self.assertEqual(sample['boundedRecordCount'],48)
+                self.assertFalse(sample['recordCountIsLowerBound'])
                 self.assertGreaterEqual(sample['uniqueSampledRecords'],16)
                 for group in groups.values():
                     self.assertLessEqual(group['nonEmptyProductRows'],group['selectedRows'])
@@ -185,6 +187,8 @@ class DecisionProductsCohortTests(unittest.TestCase):
                 result=storage_layout.decision_products_cohorts(conn)
                 self.assertEqual(result['status'],'empty')
                 self.assertEqual(result['uniqueSampledRecords'],0)
+                self.assertEqual(result['boundedRecordCount'],0)
+                self.assertFalse(result['recordCountIsLowerBound'])
                 self.assertEqual(result['cohorts'],[])
                 conn.execute('DROP TABLE bob_decision_audit')
                 with conn.transaction():
@@ -192,5 +196,32 @@ class DecisionProductsCohortTests(unittest.TestCase):
                     result=storage_layout.decision_products_cohorts(conn)
                 self.assertEqual(result['status'],'not-observed')
                 self.assertEqual(conn.execute('SELECT 1').fetchone()[0],1)
+            finally:
+                conn.execute('DROP SCHEMA '+schema+' CASCADE')
+
+
+    def test_row_count_caps_before_unbounded_archive_scan(self):
+        import psycopg
+        schema='audit_count_cap_'+uuid.uuid4().hex
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'],autocommit=True) as conn:
+            conn.execute('CREATE SCHEMA '+schema)
+            try:
+                conn.execute('SET search_path TO '+schema)
+                conn.execute('''CREATE TABLE bob_decision_audit (
+                    id text primary key, recorded_at timestamptz not null, payload jsonb not null)''')
+                conn.execute('CREATE INDEX audit_count_time ON bob_decision_audit(recorded_at,id)')
+                conn.execute("""INSERT INTO bob_decision_audit
+                    SELECT i::text,now()-i*interval '1 minute','{"products":[]}'::jsonb
+                    FROM generate_series(1,10021) i""")
+                with conn.transaction():
+                    conn.execute('SET TRANSACTION READ ONLY')
+                    result=storage_layout.decision_products_cohorts(conn)
+                self.assertEqual(result['status'],'sampled')
+                self.assertEqual(result['boundedRecordCount'],10001)
+                self.assertTrue(result['recordCountIsLowerBound'])
+                self.assertEqual(result['boundedRecordCountCap'],10001)
+                self.assertLessEqual(result['uniqueSampledRecords'],48)
+                self.assertIsNone(result['reclaimableBytes'])
+                self.assertEqual(conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0],10021)
             finally:
                 conn.execute('DROP SCHEMA '+schema+' CASCADE')
