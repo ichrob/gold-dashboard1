@@ -46,4 +46,27 @@ class LoginDialogPolicyTest {
         assertEquals("TouchID / FaceID aktivieren", LoginDialogPolicy.normalize(" TouchID / FaceID\n aktivieren "))
         assertNotEquals("Abbrechen", LoginDialogPolicy.normalize("Bestätigen"))
     }
+    @Test fun diagnosticKeepsAllMissingMarkersWithoutRetainingLabels() {
+        val labels = setOf("Cancel", "Fingerabdruck scannen", "synthetic private text")
+        val check = LoginDialogCheck.markersRejected(LoginDialogCheck.Owner.SAMSUNG_BIOMETRICS,
+            false, true, false, labels)
+        assertEquals(LoginDialogCheck.Stage.MARKER_CHECK, check.stage)
+        assertEquals(LoginDialogCheck.Phase.BEFORE_PIN, check.phase)
+        assertTrue(check.systemVerified); assertFalse(check.degiroContext); assertFalse(check.degiroLabel)
+        assertTrue(check.biometricLabel); assertTrue(check.cancelLabel); assertFalse(check.cancelAmbiguous)
+        assertFalse(check.toString().contains("synthetic private text"))
+        assertFalse(check.toString().contains("Fingerabdruck scannen"))
+        assertNull(LoginDialogPolicy.identify(false, true, false, labels, false))
+    }
+    @Test fun diagnosticDistinguishesOwnerFailureFromUnqueriedMarkersAndAmbiguity() {
+        val owner = LoginDialogCheck.ownerRejected(LoginDialogCheck.Owner.OTHER, true)
+        assertEquals(LoginDialogCheck.Stage.OWNER_CHECK, owner.stage)
+        assertEquals(LoginDialogCheck.Phase.AFTER_PIN, owner.phase)
+        assertFalse(owner.systemVerified); assertFalse(owner.degiroContext); assertFalse(owner.degiroLabel)
+        assertFalse(owner.biometricLabel); assertFalse(owner.cancelLabel); assertFalse(owner.cancelAmbiguous)
+        val ambiguous = LoginDialogCheck.markersRejected(LoginDialogCheck.Owner.SYSTEM_UI,
+            false, true, true, fingerprint + "Abbrechen")
+        assertTrue(ambiguous.cancelAmbiguous); assertFalse(ambiguous.cancelLabel)
+        assertNull(LoginDialogPolicy.identify(false, true, true, fingerprint + "Abbrechen", false))
+    }
 }
