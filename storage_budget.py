@@ -117,6 +117,9 @@ def report(conn,now=None):
                     relation_deltas.append(dict(table=name,bytesBefore=before,
                         bytesAfter=after,bytesDelta=after-before))
             relation_deltas.sort(key=lambda item:(abs(item['bytesDelta']),item['table']),reverse=True)
+    persisted_archive = archive_status(conn)
+    decision_preview = __import__('cold_decision_product_writer').preview(
+        conn, now=now, archive_proof=persisted_archive)
     return dict(status='observed',readOnly=True,observedAt=now,
         databaseBytes=size,configuredAllocationBytes=ALLOCATION_BYTES,
         budgetState=state(size),cautionBytes=CAUTION_BYTES,actionBytes=ACTION_BYTES,
@@ -132,7 +135,8 @@ def report(conn,now=None):
         largestTableDeltas=relation_deltas[:12],
         largestTables=[dict(table=name,bytes=n,estimatedRows=live,estimatedDeadRows=dead,
             lastAutovacuum=str(vac) if vac else None) for name,n,live,dead,vac in tables],
-        archiveWorker=archive_status(conn),
+        archiveWorker=persisted_archive,
+        decisionProductsPreview=decision_preview,
         coldMetrics=__import__('cold_metrics').status(conn),
         layout=__import__('storage_layout').report(conn),
         renderVolume=__import__('render_disk_metrics').report(),
