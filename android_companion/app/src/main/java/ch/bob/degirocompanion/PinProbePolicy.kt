@@ -19,6 +19,11 @@ internal object PinProbePolicy {
 internal class PinProbeHistory {
     var last: PinProbePolicy.Result? = null
         private set
-    fun clear() { last = null }
-    fun observe(value: PinProbePolicy.Result?) { if (value != null) last = value }
+    var symbolFlags: PinSymbolProbe.Flags? = null
+        private set
+    fun clear() { last = null; symbolFlags = null }
+    fun observe(value: PinProbePolicy.Result?, flags: PinSymbolProbe.Flags? = null) {
+        if (value != null) { last = value; symbolFlags = flags }
+    }
 }
+

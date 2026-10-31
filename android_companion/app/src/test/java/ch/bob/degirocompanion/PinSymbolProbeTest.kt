@@ -45,4 +45,14 @@ class PinSymbolProbeTest {
         val nodes=(keys()+icon()).map { it.copy(x=it.x*2+70,y=it.y*2+120,width=it.width*2,height=it.height*2) }
         assertEquals(PinProbePolicy.Result.SYMBOL_UNLABELLED_ACTION, PinSymbolProbe.classify(nodes))
     }
+    @Test fun disabledResultPreservesIndependentFlagsWithoutIdentifyingDelete() {
+        val node = icon(true).copy(enabled=false, nearbyParentAction=true)
+        val observation = PinSymbolProbe.observe(keys()+node)
+        assertEquals(PinProbePolicy.Result.SYMBOL_DISABLED, observation.result)
+        assertEquals(PinSymbolProbe.Flags(false, true, true, true, true), observation.flags)
+        assertNull(PinSymbolProbe.observe(keys().drop(1)+node).flags)
+        assertNull(PinSymbolProbe.observe(keys()+node+node).flags)
+        assertNull(PinSymbolProbe.observe(keys()).flags)
+    }
 }
+
