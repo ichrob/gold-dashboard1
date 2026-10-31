@@ -50,3 +50,18 @@ payload references remain. The ledger and each row pointer contain file and
 SHA-256 identities; no credentials are stored in those records. A failed upload,
 download, comparison or transaction preserves source values. An uploaded but
 unreferenced chunk after a failure is intentionally retained for investigation.
+
+## Bounded tail reclamation
+
+After each completed cold-worker pass, maintenance may truncate empty pages at
+the end of `bob_metric_checks`, even if autovacuum ran recently. This is ordinary
+VACUUM, not FULL: it never rewrites the table or removes live rows. The command
+has a 10-second statement timeout and the dedicated connection retains its
+1-second lock timeout. Busy locks or timeouts defer the work. Other tables retain
+TRUNCATE FALSE and their existing six-hour cooldown. The local archive-running
+guard and maintenance advisory lock still apply.
+
+Logs record total relation bytes before and after a completed attempt. Their
+decrease is an observed relation-size change, not total volume free space;
+concurrent writes can affect it. Empty space within the table remains reusable
+but cannot be released by tail truncation. No shrink is guaranteed.
