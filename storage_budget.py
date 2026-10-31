@@ -135,6 +135,7 @@ def report(conn,now=None):
         archiveWorker=archive_status(conn),
         coldMetrics=__import__('cold_metrics').status(conn),
         layout=__import__('storage_layout').report(conn),
+        renderVolume=__import__('render_disk_metrics').report(),
         coldAnalysis=__import__('cold_analysis').status(conn),
         coldObservations=__import__('cold_observations').status(conn),
         offloadPolicy=__import__('storage_pressure').policy(size),
