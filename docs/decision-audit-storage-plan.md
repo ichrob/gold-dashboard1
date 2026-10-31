@@ -149,3 +149,49 @@ and record a before/after regression for query predicates, trading-independent
 decision replay, product comparisons, private diagnostic scope, archive
 corruption, and independent volume measurement. No authorization to enable
 the writer is implied by compatible readers.
+## Manual-only cold product writer (default OFF)
+
+`cold_decision_product_writer.py` supplies an *unregistered* manual writer.
+It is not imported by push/scanner startup, background loops, or public routes.
+`BOB_COLD_DECISION_PRODUCTS_ENABLED` defaults to absent/OFF. Even with the
+flag enabled, `run_once` requires an explicit in-memory approval with fresh
+`observedAt` (<=15 minutes), confirmed restore and confirmed remote download.
+The caller, not the module, is responsible for obtaining independently
+verified backup proof; no browser or external user action can authorize
+writing by setting a flag in an HTTP request. This is **not** automatic rollout.
+
+An explicit first-time `init` creates only the content-addressed object
+ledger, per-decision reference ledger and durable scan cursor. It never
+deletes audit source rows. An optional one-off batch scans at most twenty
+ordered keys older than fourteen days, with a persistent cursor so sparse
+product-bearing rows cannot cause repeated full JSONB scans. Empty or small
+product lists are left inline. Selected nonempty lists are hashed using
+the canonical JSON codec; identical hashes reuse a verified archived array.
+New arrays are packed into a bounded gzip chunk (2 MiB raw, 500 entries),
+uploaded to private Drive and re-downloaded with a verified complete SHA-256
+before beginning any SQL update transaction.
+
+The transaction inserts immutable object addresses, compare-and-swap updates
+original decision rows by exact ID, timestamp and full original JSONB, and
+inserts the decision-to-content-hash reference; the *same* exact read-through
+adapter reconstructs and compares the preexisting decision before commit.
+An unmatched concurrent update remains intact. An error rolls the whole
+transaction back; remote unused uploads may remain and are **not** deleted
+automatically. Previous and current SQL-indexed directional fields, clocks,
+market conditions and outcomes remain inline. A failure to retrieve the
+original archived list produces an explicit incomplete result, not `[]`.
+
+The manual writer has no ability to release disk-space allocations by itself.
+Archive JSON savings do not equal reduced TOAST pages, database size, or
+Render physical volume. No REINDEX/VACUUM FULL is started. Never use this
+writer in production before independently confirming all reader paths on
+both services, database backups, Drive restore, live data counts, and a
+maintenance budget with explicit approval. An enabled flag without proof
+does not allow writes; only a deliberately invoked manual run with the
+two-factor guards can proceed.
+
+PostgreSQL integration tests use a locally simulated private Drive. They
+verify one shared object for repeated arrays, exact original precision and
+order, read-only archived readback, corrupt-download rollback, CAS under
+concurrent modification and no-configuration no-op behavior. No real
+product originals, account credentials or broker calls appear in fixtures.
