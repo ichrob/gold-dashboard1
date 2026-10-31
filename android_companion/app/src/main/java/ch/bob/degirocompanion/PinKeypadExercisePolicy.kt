@@ -3,7 +3,7 @@ package ch.bob.degirocompanion
 /** One explicit local exercise. No credentials, retries, login or empty-input inference. */
 internal class PinKeypadExercisePolicy {
     enum class Action { NONE, DIGIT, DELETE, FINISH }
-    private enum class Stage { NEW, DIGIT_PENDING, ACTIVE_WAIT, DISABLED_WAIT, DONE, STOPPED }
+    private enum class Stage { NEW, DIGIT_PENDING, ACTIVE_WAIT, DELETE_PENDING, DISABLED_WAIT, DONE, STOPPED }
     private var stage = Stage.NEW
     private var disabledSamples = 0
     val issuedDigit get() = stage != Stage.NEW
@@ -15,10 +15,13 @@ internal class PinKeypadExercisePolicy {
     fun digitCompleted(completed: Boolean) {
         if (stage == Stage.DIGIT_PENDING) stage = if (completed) Stage.ACTIVE_WAIT else Stage.STOPPED
     }
+    fun deleteCompleted(completed: Boolean) {
+        if (stage == Stage.DELETE_PENDING) stage = if (completed) Stage.DISABLED_WAIT else Stage.STOPPED
+    }
     fun observe(valid: Boolean, enabled: Boolean): Action {
         if (!valid) { stop(); return Action.NONE }
         if (stage == Stage.ACTIVE_WAIT && enabled) {
-            stage = Stage.DISABLED_WAIT
+            stage = Stage.DELETE_PENDING
             return Action.DELETE
         }
         if (stage == Stage.DISABLED_WAIT) {
@@ -30,4 +33,5 @@ internal class PinKeypadExercisePolicy {
     fun pauseObservation() { disabledSamples = 0 }
     fun stop() { stage = Stage.STOPPED }
 }
+
 
