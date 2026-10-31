@@ -204,19 +204,25 @@ class LoginDialogPolicyTest {
         }
     }
 
-    @Test fun alreadyLoggedInMarketsRequiresExactVisibleProductSearchBeforePin() {
+    @Test fun confirmedMarketsMatchesTheActualSamsungViewWithoutBottomBarLabels() {
+        // The screenshot shows Markets/News/Calendar, Indices and the full
+        // product-search prompt. Android may omit the bottom tab buttons.
+        val screen = setOf("Märkte", "News", "Terminkalender", "Indizes",
+            "Mit Namen, ISIN oder Symbol suchen")
+        assertTrue(LoginDialogPolicy.verifiedMarkets(screen, false))
+        assertTrue(LoginDialogPolicy.verifiedMarkets(screen, true))
+        assertTrue(LoginDialogPolicy.verifiedMarkets(screen + "Favoriten" + "Portfolio", false))
+        for (required in listOf("Märkte", "Indizes", "Mit Namen, ISIN oder Symbol suchen",
+                "News", "Terminkalender"))
+            assertFalse(LoginDialogPolicy.verifiedMarkets(screen - required, false))
         val nav = setOf("Märkte", "News", "Terminkalender", "Favoriten", "Portfolio")
-        assertFalse(LoginDialogPolicy.verifiedMarkets(nav, false))
-        assertTrue(LoginDialogPolicy.verifiedMarkets(nav, true))
-        val markets = nav + "Mit Namen, ISIN oder Symbol suchen"
-        assertTrue(LoginDialogPolicy.verifiedMarkets(markets, false))
-        for (marker in markets) assertFalse(LoginDialogPolicy.verifiedMarkets(markets - marker, false))
-        assertFalse(LoginDialogPolicy.verifiedMarkets(
-            setOf("PassCode", "Abbrechen", "DEGIRO"), false))
+        assertFalse(LoginDialogPolicy.verifiedMarkets(nav, true))
+        assertFalse(LoginDialogPolicy.verifiedMarkets(screen - "Indizes", true))
         for (login in listOf("Haben Sie Ihren Code vergessen?", "Forgot your passcode?",
-            "Forgot your code?", "PassCode", LoginDialogPolicy.NOTICE, LoginDialogPolicy.OFFER)) {
-            assertFalse(LoginDialogPolicy.verifiedMarkets(markets + login, false))
-            assertFalse(LoginDialogPolicy.verifiedMarkets(markets + login, true))
+            "Forgot your code?", "PassCode", LoginDialogPolicy.NOTICE, LoginDialogPolicy.OFFER,
+            "Schließen", "Abbrechen", "Order bestätigen")) {
+            assertFalse(LoginDialogPolicy.verifiedMarkets(screen + login, false))
+            assertFalse(LoginDialogPolicy.verifiedMarkets(screen + login, true))
         }
     }
 }

@@ -18,7 +18,7 @@ internal class LocalLoginDialogs {
     private val marketsReadiness = LoginMarketsReadiness()
     // Exact, predetermined labels only. Never inspect balances, usernames,
     // account numbers, PIN values, arbitrary node text or screenshot pixels.
-    private val marketsMarkers = listOf("Märkte", "News", "Terminkalender",
+    private val marketsMarkers = listOf("Märkte", "Indizes", "News", "Terminkalender",
         "Favoriten", "Portfolio", "Mit Namen, ISIN oder Symbol suchen")
     private val blockers = listOf("Haben Sie Ihren Code vergessen?",
         "Forgot your passcode?", "Forgot your code?", "PassCode",
@@ -34,7 +34,7 @@ internal class LocalLoginDialogs {
     private var lastDegiroScan = LoginOwnerContext.DegiroScan.NOT_SEEN
     private val queries = listOf("PassCode", "TouchID", "Face/Touch ID",
         "Abbrechen", "Cancel", "Schließen", "Bestätigen", "DEGIRO", "Fingerabdruck", "fingerprint",
-        "Märkte", "News", "Terminkalender", "Favoriten", "Portfolio",
+        "Märkte", "Indizes", "News", "Terminkalender", "Favoriten", "Portfolio",
         "Mit Namen, ISIN oder Symbol suchen",
         "Haben Sie Ihren Code vergessen?", "Forgot your passcode?", "Forgot your code?")
     private fun bounds(n: AccessibilityNodeInfo) = Rect().also { n.getBoundsInScreen(it) }
@@ -120,7 +120,6 @@ internal class LocalLoginDialogs {
         if (!PinReadinessProbe.loginDialogsAllowed) return false
         val now = SystemClock.elapsedRealtime()
         if (afterEntry && postSince == 0L) postSince = now
-        if (afterEntry && now - postSince >= 15_000) return fail("LOCAL_PIN_RESULT_UNVERIFIED")
         if (pending) return true
         val root = service.rootInActiveWindow ?: run { homeSince = 0L; return true }
         val nodes = mutableListOf<AccessibilityNodeInfo>()
@@ -162,6 +161,11 @@ internal class LocalLoginDialogs {
                 // whole accessibility tree. Large legitimate market pages can
                 // exceed the bounded 300-node dialog scanner.
                 if (degiro && marketsVisible(service, root, now)) return true
+                // A successful local PIN entry must not be declared verified
+                // until a real market-search view is seen. Allow the WebView
+                // extra bounded time to load, without ever repeating the PIN.
+                if (afterEntry && now - postSince >= 30_000)
+                    return fail("LOCAL_PIN_RESULT_UNVERIFIED")
                 // A verified Markets transition may follow an acknowledged
                 // dialog close. Check that transition before treating the
                 // previous dialog's timeout as an unchanged visible dialog.

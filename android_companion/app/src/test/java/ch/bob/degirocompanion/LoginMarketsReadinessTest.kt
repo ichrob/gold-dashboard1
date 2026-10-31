@@ -5,7 +5,7 @@ import org.junit.Test
 
 class LoginMarketsReadinessTest {
     private val markets = setOf("Märkte", "News", "Terminkalender",
-        "Favoriten", "Portfolio", "Mit Namen, ISIN oder Symbol suchen")
+        "Indizes", "Mit Namen, ISIN oder Symbol suchen")
 
     @Test fun onlyStableFocusedMarketsCanConfirmAndStartReader() {
         val gate=LoginMarketsReadiness()
