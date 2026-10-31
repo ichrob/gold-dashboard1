@@ -135,6 +135,7 @@ def report(conn,now=None):
         archiveWorker=archive_status(conn),
         coldMetrics=__import__('cold_metrics').status(conn),
         layout=__import__('storage_layout').report(conn),
+        coldAnalysis=__import__('cold_analysis').status(conn),
         evidenceDeleted=False,automaticPaidScaling=False,
         note='Cold metric payloads retain their keys and verified private archive references. '
              'Dead-row estimates do not measure reclaimable disk bytes. Capacity forecasts are estimates.')

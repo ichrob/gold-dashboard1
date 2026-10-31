@@ -355,7 +355,7 @@ def _report(conn):
         CROSS JOIN LATERAL (SELECT * FROM bob_diagnostic_history WHERE stage=stages.stage
             AND recorded_at >= now()-interval '7 days'
             ORDER BY recorded_at DESC LIMIT 20) h ORDER BY h.recorded_at DESC""").fetchall()
-    events=[dict(id=r[0],traceId=r[1],decisionId=r[2],stage=r[3],observedAt=r[4],build=r[5],payload=diag.project(r[6],SCHEMAS[r[3]])) for r in rows]
+    events=[dict(id=r[0],traceId=r[1],decisionId=r[2],stage=r[3],observedAt=r[4],build=r[5],payload=diag.project(__import__('cold_analysis').resolve(conn,r[6],(r[0],r[3],r[4],r[5])),SCHEMAS[r[3]])) for r in rows]
     repairs=conn.execute('''SELECT e.code,e.kind,e.event_at,
         count(*) FILTER (WHERE h.payload->>'evidenceVersion'='2' AND h.payload->'goodCodes' ? e.code),
         count(*) FILTER (WHERE h.payload->'badCodes' ? e.code),

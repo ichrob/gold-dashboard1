@@ -45,7 +45,7 @@ SEGMENT_BYTES = 32 * 1024 * 1024
 
 def selected_tables():
     from paper_portfolios import POLICIES, names
-    return TABLES | {'bob_cold_metric_batches'} | {table for profile in POLICIES for table in names(profile).values()}
+    return TABLES | {'bob_cold_metric_batches','bob_cold_analysis_batches'} | {table for profile in POLICIES for table in names(profile).values()}
 
 
 def digest(path):
