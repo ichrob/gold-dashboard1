@@ -194,6 +194,27 @@ class WriterPGTests(unittest.TestCase):
             "SELECT payload FROM bob_decision_audit WHERE id='old-1'").fetchone()[0],modified)
         self.assertEqual(self.conn.execute('SELECT count(*) FROM bob_cold_decision_product_refs').fetchone()[0],0)
 
+class RetainedArchiveProofTests(unittest.TestCase):
+    def test_interrupted_latest_attempt_uses_last_verified_but_checks_age(self):
+        from datetime import datetime, timezone
+        now=100000
+        proof={'latestPersistedAttempt':{
+            'status':'running',
+            'updatedAt':datetime.fromtimestamp(now-60,timezone.utc).isoformat(),
+            'restoreVerified':False,'remoteDownloadVerified':False},
+            'latestVerifiedAttempt':{
+            'status':'verified',
+            'updatedAt':datetime.fromtimestamp(now-86400,timezone.utc).isoformat(),
+            'restoreVerified':True,'remoteDownloadVerified':True,
+            'evidenceDeleted':False}}
+        self.assertEqual(writer._proof_state(proof,now),'verified-but-stale')
+        proof['latestVerifiedAttempt']['updatedAt']=datetime.fromtimestamp(
+            now-1800,timezone.utc).isoformat()
+        self.assertEqual(writer._proof_state(proof,now),'verified-fresh')
+        proof['latestVerifiedAttempt']['restoreVerified']=False
+        self.assertEqual(writer._proof_state(proof,now),'no-verified-restore')
+
+
 class IndependentProductionGates(unittest.TestCase):
     def test_stale_persisted_restore_stops_before_init_or_disk_lookup(self):
         from unittest.mock import MagicMock

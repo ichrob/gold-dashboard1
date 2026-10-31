@@ -54,7 +54,11 @@ def _approved(approval, now_seconds):
 
 def _proof_state(proof, seconds, max_age_seconds=6*3600):
     """Only a persisted restore/download receipt, never caller-provided claims."""
-    receipt = (proof or {}).get('latestPersistedAttempt') or {}
+    # Never let an incomplete rolling-deploy attempt erase the older, genuine
+    # verified receipt. The timestamp window still applies, so stale backups
+    # cannot grant write permission.
+    receipt = ((proof or {}).get('latestVerifiedAttempt') or
+               (proof or {}).get('latestPersistedAttempt') or {})
     if (receipt.get('status') != 'verified' or
             receipt.get('restoreVerified') is not True or
             receipt.get('remoteDownloadVerified') is not True or
