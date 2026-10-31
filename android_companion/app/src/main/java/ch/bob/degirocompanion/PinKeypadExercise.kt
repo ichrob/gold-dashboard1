@@ -7,10 +7,11 @@ import android.view.accessibility.AccessibilityNodeInfo
 import ch.bob.degirocompanion.PinKeypadExerciseTrace.Reason
 import ch.bob.degirocompanion.PinKeypadExerciseTrace.Stage
 
-/** One bounded touch on the validated zero node; deletion remains a direct node action.
+/** One bounded touch on the validated zero node and one on the original cached delete control.
  * After dispatch, never reads input text or traverses the tree. */
 internal class PinKeypadExercise(private val confirmedEmpty: Boolean,
-    private val digitTouch: ((AccessibilityNodeInfo, Rect, Int, (Boolean) -> Unit) -> Boolean)?) {
+    private val digitTouch: ((AccessibilityNodeInfo, Rect, Int, (Boolean) -> Unit) -> Boolean)?,
+    private val deleteTouch: ((AccessibilityNodeInfo, Rect, Int, (Boolean) -> Unit) -> Boolean)?) {
     private val policy = PinKeypadExercisePolicy()
     val trace = PinKeypadExerciseTrace()
     private var target: AccessibilityNodeInfo? = null
@@ -98,7 +99,11 @@ internal class PinKeypadExercise(private val confirmedEmpty: Boolean,
             PinKeypadExercisePolicy.Action.DELETE -> {
                 code = "KEYPAD_TEST_DELETE_SENT"
                 trace.advance(Stage.DELETE_REQUESTED)
-                if (!node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) abort("KEYPAD_TEST_DELETE_REJECTED", Reason.DELETE_REJECTED)
+                val accepted = deleteTouch?.invoke(node, Rect(targetBounds), window) { completed ->
+                    policy.deleteCompleted(completed)
+                    if (!completed) abort(reason = Reason.DELETE_TOUCH_CANCELLED)
+                } == true
+                if (!accepted) abort("KEYPAD_TEST_DELETE_REJECTED", Reason.DELETE_REJECTED)
                 else trace.advance(Stage.DELETE_ACCEPTED)
             }
             PinKeypadExercisePolicy.Action.FINISH -> {
@@ -118,4 +123,5 @@ internal class PinKeypadExercise(private val confirmedEmpty: Boolean,
         else -> "Bedienungstest: $code. Schritt: ${trace.stage}; Grund: ${trace.reason}. Keine Wiederholung. Bitte in DEGIRO prüfen und eine eventuell verbliebene Testziffer selbst löschen."
     }
 }
+
 
