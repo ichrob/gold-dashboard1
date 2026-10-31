@@ -3,6 +3,29 @@ from datetime import datetime, timezone, timedelta
 from android_telemetry import validate_report, PIN_RESULTS, BOOLS
 
 class PinTelemetry(unittest.TestCase):
+    def flags(self, **changes):
+        return dict(enabled=False, labelled=False, clickableFlag=True,
+                    clickAction=True, nearbyParentAction=False) | changes
+    def test_symbol_flags_roundtrip_and_disabled_keeps_parent_information(self):
+        report=self.report()
+        report['pinProbe']={**self.probe(), 'result':'SYMBOL_DISABLED',
+                            'symbolFlags':self.flags(nearbyParentAction=True)}
+        self.assertEqual(validate_report(report)['pinProbe'], report['pinProbe'])
+    def test_symbol_flags_reject_content_extra_keys_types_and_mismatched_result(self):
+        cases=[self.flags(pin='12345'), self.flags(labelled='secret'),
+               self.flags(enabled=0), self.flags(clickAction=None),
+               self.flags(bounds=[1,2,3,4]), {}, [], 'text',
+               self.flags(enabled=True)]
+        for flags in cases:
+            report=self.report()
+            report['pinProbe']={**self.probe(), 'result':'SYMBOL_DISABLED', 'symbolFlags':flags}
+            with self.subTest(flags=flags), self.assertRaises(ValueError):
+                validate_report(report)
+        for result in ('SENSITIVE_INPUT', 'INCOMPLETE', 'SYMBOL_NODES_MULTIPLE', 'LOGIN_DELETE_OFFERED'):
+            report=self.report()
+            report['pinProbe']={**self.probe(), 'result':result, 'symbolFlags':self.flags()}
+            with self.subTest(result=result), self.assertRaises(ValueError):
+                validate_report(report)
     def report(self):
         return dict(reportId='a'*32, observedAt=datetime.now(timezone.utc).isoformat(),
             appVersionCode=10315, lastCode='NONE', lastEventAt=None, **{k:False for k in BOOLS})
@@ -31,3 +54,4 @@ class PinTelemetry(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
