@@ -290,7 +290,7 @@ class MorningReadPolicyTest {
             MorningReadPolicy.Node(target,editable=true,hint="Mit Namen, ISIN oder Symbol suchen"),
             MorningReadPolicy.Node(""),
             MorningReadPolicy.Node("Hebelprodukte",parent=1),
-            MorningReadPolicy.Node("",row=row,parent=1,clickable=true),
+            MorningReadPolicy.Node("",row=row,parent=1),
             MorningReadPolicy.Node(title,row=title,parent=3),
             MorningReadPolicy.Node(target,parent=3),
             MorningReadPolicy.Node("Societe Generale OTC EUR",parent=3),
