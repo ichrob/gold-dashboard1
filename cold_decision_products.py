@@ -12,7 +12,7 @@ SCOPE = 'decision-products'
 _HASH = re.compile(r'[a-f0-9]{64}\Z')
 
 
-def resolve(conn, decision_id, payload, *, drive=None):
+def resolve(conn, decision_id, payload, *, drive=None, verified=None):
     """Resolve an immutable archived product list, or pass inline JSON through.
 
     The future writer must atomically commit a decision->content-hash ledger,
@@ -44,8 +44,15 @@ def resolve(conn, decision_id, payload, *, drive=None):
                 not 0 <= location[2] < codec.MAX_ROWS):
             raise ValueError('Cold decision object location missing')
 
-        rows = codec.read_chunk(drive, location[0], location[1], conn=conn)
-        row = rows[location[2]]
+        if verified is None:
+            rows = codec.read_chunk(drive, location[0], location[1], conn=conn)
+            row = rows[location[2]]
+        else:
+            # Only a writer which already downloaded and verified remote chunks
+            # may supply this pre-verified in-memory array inside its CAS tx.
+            if type(verified) is not dict or content_hash not in verified:
+                raise ValueError('Verified original product content missing')
+            row = [content_hash, SCOPE, 0, None, {'products':verified[content_hash]}]
         if (not isinstance(row, list) or len(row) != 5 or
                 row[:4] != [content_hash, SCOPE, 0, None] or
                 type(row[4]) is not dict or set(row[4]) != {'products'} or
