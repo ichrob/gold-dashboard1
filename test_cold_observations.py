@@ -75,6 +75,18 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(cold.offload_batch(self.c,self.drive,now=200000000)['movedRows'],2)
         self.assertEqual(self.read(199999999),self.payload)
         self.assertEqual(self.read(3000),{'evidence':None});self.assertEqual(self.read(4000),{'at':10})
+    def test_pages_skip_small_rows_and_continue_without_starving_eligible_rows(self):
+        self.c.execute('DELETE FROM bob_improvement_observations')
+        for i in range(100):self.put(i,{'evidence':None})
+        self.put(1000)
+        first=cold.offload_batch(self.c,self.drive,now=200000000)
+        self.assertEqual(first['movedRows'],0);self.assertEqual(first['scannedRows'],100)
+        second=cold.offload_batch(self.c,self.drive,now=200000000)
+        self.assertEqual(second['movedRows'],1)
+        self.assertEqual(self.read(1000),self.payload)
+        self.assertEqual(cold.offload_batch(self.c,self.drive,now=200000000)['status'],'sweep-completed')
+        self.assertIsNone(self.c.execute('SELECT * FROM bob_cold_observation_scan').fetchone())
+
     def test_corrupt_read_is_explicit(self):
         cold.offload_batch(self.c,self.drive,now=200000000)
         cold.codec._CACHE.clear();self.drive.corrupt=True
