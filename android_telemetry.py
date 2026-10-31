@@ -37,7 +37,7 @@ def validate_pin_symbol_flags(value, result):
         raise ValueError('Inconsistent PIN symbol result')
 
 PIN_EXERCISE_STAGES = ['DELETE_ACCEPTED', 'DELETE_REQUESTED', 'DIGIT_ACCEPTED', 'DIGIT_REQUESTED', 'WAITING']
-PIN_EXERCISE_REASONS = ['ACCESS_DISABLED', 'DELETE_REJECTED', 'DIGIT_REJECTED', 'DIGIT_TOUCH_CANCELLED', 'EXCEPTION', 'NONE', 'ROOT_HIDDEN', 'ROOT_MISSING', 'ROOT_PACKAGE', 'ROOT_PROTECTED', 'ROOT_WINDOW', 'SCREEN_LOCKED', 'SERVICE_STOPPED', 'STATE_CYCLE', 'STATE_TIMEOUT', 'STOPPED', 'TARGET_ACTION_UNAVAILABLE', 'TARGET_BOUNDS_CHANGED', 'TARGET_CLASS_CHANGED', 'TARGET_HIDDEN', 'TARGET_ID_CHANGED', 'TARGET_MISSING', 'TARGET_PACKAGE', 'TARGET_PROTECTED', 'TARGET_REFRESH_FAILED', 'TARGET_WINDOW', 'TIMEOUT', 'USER_TOUCH', 'WINDOW_EVENT']
+PIN_EXERCISE_REASONS = ['ACCESS_DISABLED', 'DELETE_REJECTED', 'DELETE_TOUCH_CANCELLED', 'DIGIT_REJECTED', 'DIGIT_TOUCH_CANCELLED', 'EXCEPTION', 'NONE', 'ROOT_HIDDEN', 'ROOT_MISSING', 'ROOT_PACKAGE', 'ROOT_PROTECTED', 'ROOT_WINDOW', 'SCREEN_LOCKED', 'SERVICE_STOPPED', 'STATE_CYCLE', 'STATE_TIMEOUT', 'STOPPED', 'TARGET_ACTION_UNAVAILABLE', 'TARGET_BOUNDS_CHANGED', 'TARGET_CLASS_CHANGED', 'TARGET_HIDDEN', 'TARGET_ID_CHANGED', 'TARGET_MISSING', 'TARGET_PACKAGE', 'TARGET_PROTECTED', 'TARGET_REFRESH_FAILED', 'TARGET_WINDOW', 'TIMEOUT', 'USER_TOUCH', 'WINDOW_EVENT']
 
 def validate_pin_exercise_trace(value, result):
     if not isinstance(value, dict) or set(value) != {'stage', 'reason'}:
@@ -47,6 +47,8 @@ def validate_pin_exercise_trace(value, result):
         raise ValueError('Invalid exercise trace values')
     if reason == 'DIGIT_TOUCH_CANCELLED' and (result != 'KEYPAD_TEST_INTERRUPTED' or stage != 'DIGIT_ACCEPTED'):
         raise ValueError('Inconsistent touch cancellation')
+    if reason == 'DELETE_TOUCH_CANCELLED' and (result != 'KEYPAD_TEST_INTERRUPTED' or stage != 'DELETE_ACCEPTED'):
+        raise ValueError('Inconsistent delete touch cancellation')
     if not result.startswith('KEYPAD_TEST_'):
         raise ValueError('Exercise trace on unrelated result')
     expected = {
@@ -154,4 +156,5 @@ def status(conn):
           'receivedAt':r[3].isoformat() if r[3] else None,
           'fresh':bool(not r[1] and r[2]>now and r[3] and (now-r[3]).total_seconds()<1800 and r[4] and -60<=(now-timestamp(r[4]['observedAt'])).total_seconds()<1800),
           'report':r[4]} for r in rows]}
+
 
