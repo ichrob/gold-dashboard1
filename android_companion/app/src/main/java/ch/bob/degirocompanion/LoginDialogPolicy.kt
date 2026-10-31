@@ -42,3 +42,29 @@ internal class LoginDialogBudget {
     fun expired(now: Long) = waiting != null && now - sentAt >= 6_000
     fun gone() { waiting = null; resetObservation() }
 }
+
+
+/** Fixed metadata only: no package strings, screen text, identifiers, coordinates or input values. */
+internal data class LoginDialogCheck private constructor(
+    val phase: Phase, val owner: Owner, val stage: Stage,
+    val systemVerified: Boolean = false, val degiroContext: Boolean = false,
+    val degiroLabel: Boolean = false, val biometricLabel: Boolean = false,
+    val cancelLabel: Boolean = false, val cancelAmbiguous: Boolean = false
+) {
+    enum class Phase { BEFORE_PIN, AFTER_PIN }
+    enum class Owner { DEGIRO, SYSTEM_UI, SAMSUNG_BIOMETRICS, OTHER }
+    enum class Stage { OWNER_CHECK, MARKER_CHECK }
+    companion object {
+        private fun phase(afterEntry: Boolean) = if (afterEntry) Phase.AFTER_PIN else Phase.BEFORE_PIN
+        fun ownerRejected(owner: Owner, afterEntry: Boolean) =
+            LoginDialogCheck(phase(afterEntry), owner, Stage.OWNER_CHECK)
+        fun markersRejected(owner: Owner, afterEntry: Boolean, systemVerified: Boolean,
+            degiroContext: Boolean, labels: Set<String>): LoginDialogCheck {
+            val negatives = labels.count { it == "Abbrechen" || it == "Cancel" }
+            return LoginDialogCheck(phase(afterEntry), owner, Stage.MARKER_CHECK,
+                systemVerified, degiroContext, "DEGIRO" in labels,
+                labels.any { it.contains("Fingerabdruck", ignoreCase = true) || it.contains("fingerprint", ignoreCase = true) },
+                negatives == 1, negatives > 1)
+        }
+    }
+}

@@ -66,9 +66,33 @@ def validate_pin_exercise_trace(value, result):
     if reason in terminal and result != terminal[reason]:
         raise ValueError('Inconsistent exercise reason')
 
+PIN_DIALOG_PHASES = {'BEFORE_PIN', 'AFTER_PIN'}
+PIN_DIALOG_OWNERS = {'DEGIRO', 'SYSTEM_UI', 'SAMSUNG_BIOMETRICS', 'OTHER'}
+PIN_DIALOG_STAGES = {'OWNER_CHECK', 'MARKER_CHECK'}
+PIN_DIALOG_BOOLS = {'systemVerified', 'degiroContext', 'degiroLabel', 'biometricLabel', 'cancelLabel', 'cancelAmbiguous'}
+
+def validate_pin_dialog_check(value, result):
+    expected = {'phase', 'owner', 'stage'} | PIN_DIALOG_BOOLS
+    if result != 'LOCAL_PIN_DIALOG_UNRECOGNIZED' or not isinstance(value, dict) or set(value) != expected:
+        raise ValueError('Invalid login dialog diagnostic fields')
+    for key, allowed in (('phase', PIN_DIALOG_PHASES), ('owner', PIN_DIALOG_OWNERS), ('stage', PIN_DIALOG_STAGES)):
+        if not isinstance(value[key], str) or value[key] not in allowed:
+            raise ValueError('Invalid login dialog diagnostic enum')
+    if any(type(value[k]) is not bool for k in PIN_DIALOG_BOOLS):
+        raise ValueError('Invalid login dialog diagnostic flags')
+    if value['cancelLabel'] and value['cancelAmbiguous']:
+        raise ValueError('Conflicting login dialog negative labels')
+    if value['stage'] == 'OWNER_CHECK':
+        if value['owner'] == 'DEGIRO' or any(value[k] for k in PIN_DIALOG_BOOLS):
+            raise ValueError('Owner rejection cannot contain inspected marker evidence')
+    elif value['owner'] == 'OTHER' or (value['owner'] == 'DEGIRO' and
+            (value['systemVerified'] or not value['degiroContext'])) or (value['owner'] != 'DEGIRO' and not value['systemVerified']):
+        raise ValueError('Invalid inspected dialog owner')
+    return dict(value)
+
 def validate_pin_probe(value, now):
     required = {'runId', 'endedAt', 'result', 'completed'}
-    if not isinstance(value, dict) or set(value) not in (required, required | {'symbolFlags'}, required | {'exerciseTrace'}):
+    if not isinstance(value, dict) or set(value) not in (required, required | {'symbolFlags'}, required | {'exerciseTrace'}, required | {'dialogCheck'}):
         raise ValueError('Invalid PIN probe fields')
     if not isinstance(value['runId'], str) or not re.fullmatch('[a-f0-9]{32}', value['runId']):
         raise ValueError('Invalid PIN probe ID')
@@ -83,6 +107,8 @@ def validate_pin_probe(value, now):
         validate_pin_symbol_flags(value['symbolFlags'], value['result'])
     if 'exerciseTrace' in value:
         validate_pin_exercise_trace(value['exerciseTrace'], value['result'])
+    if 'dialogCheck' in value:
+        validate_pin_dialog_check(value['dialogCheck'], value['result'])
     return dict(value)
 
 BOOLS=('serviceEnabled','serviceConnectedInProcess','textAccess','windowAccess','running','pendingRun')

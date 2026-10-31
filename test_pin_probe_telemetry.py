@@ -23,6 +23,49 @@ class PinTelemetry(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_report(dict(report, pinProbe=report['pinProbe'] | extra))
 
+    def dialog_check(self, **changes):
+        return dict(phase='BEFORE_PIN', owner='SAMSUNG_BIOMETRICS', stage='MARKER_CHECK',
+                    systemVerified=True, degiroContext=False, degiroLabel=False,
+                    biometricLabel=True, cancelLabel=True, cancelAmbiguous=False) | changes
+
+    def test_dialog_check_roundtrip_and_owner_vs_marker_distinction(self):
+        from android_telemetry import PIN_DIALOG_BOOLS
+        cases=[self.dialog_check(), self.dialog_check(owner='DEGIRO', systemVerified=False, degiroContext=True),
+               self.dialog_check(owner='OTHER', stage='OWNER_CHECK', **{k:False for k in PIN_DIALOG_BOOLS}),
+               self.dialog_check(cancelLabel=False, cancelAmbiguous=True, phase='AFTER_PIN')]
+        for check in cases:
+            report=dict(self.report(), pinProbe=dict(self.probe(), result='LOCAL_PIN_DIALOG_UNRECOGNIZED', dialogCheck=check))
+            with self.subTest(check=check):
+                self.assertEqual(validate_report(report)['pinProbe']['dialogCheck'], check)
+
+    def test_dialog_check_rejects_text_credentials_bad_types_and_inconsistent_evidence(self):
+        from android_telemetry import validate_pin_dialog_check
+        bad=[self.dialog_check(text='private'), self.dialog_check(pin='synthetic'),
+             self.dialog_check(packageName='arbitrary'), self.dialog_check(bounds=[1,2,3,4]),
+             self.dialog_check(owner='arbitrary'), self.dialog_check(phase=[]), self.dialog_check(stage=0),
+             self.dialog_check(systemVerified=1), self.dialog_check(cancelLabel='true'),
+             self.dialog_check(stage='OWNER_CHECK'), self.dialog_check(owner='OTHER'),
+             self.dialog_check(systemVerified=False), self.dialog_check(cancelAmbiguous=True),
+             self.dialog_check(owner='DEGIRO', degiroContext=True), {}, [], None]
+        for check in bad:
+            with self.subTest(check=check), self.assertRaises(ValueError):
+                validate_pin_dialog_check(check, 'LOCAL_PIN_DIALOG_UNRECOGNIZED')
+        for result in ('LOCAL_PIN_HOME_VISIBLE', 'LOCAL_PIN_ENTRY_SENT', 'LOCAL_PIN_WAITING', 'LOCAL_PIN_DIALOG_BLOCKED'):
+            with self.subTest(result=result), self.assertRaises(ValueError):
+                validate_pin_dialog_check(self.dialog_check(), result)
+        report=dict(self.report(), pinProbe=dict(self.probe(), result='LOCAL_PIN_DIALOG_UNRECOGNIZED',
+                    dialogCheck=self.dialog_check(), symbolFlags=self.flags()))
+        with self.assertRaises(ValueError): validate_report(report)
+
+    def test_dialog_check_enum_contract_matches_android(self):
+        import re
+        from pathlib import Path
+        from android_telemetry import PIN_DIALOG_PHASES, PIN_DIALOG_OWNERS, PIN_DIALOG_STAGES
+        source=(Path(__file__).parent/'android_companion/app/src/main/java/ch/bob/degirocompanion/LoginDialogPolicy.kt').read_text()
+        for name, expected in [('Phase', PIN_DIALOG_PHASES), ('Owner', PIN_DIALOG_OWNERS), ('Stage', PIN_DIALOG_STAGES)]:
+            block=re.search(r'enum class '+name+r'\s*\{([^}]+)', source).group(1)
+            self.assertEqual(set(re.findall(r'\b[A-Z_]+\b', block)), set(expected))
+
     def test_cancelled_delete_touch_never_reports_a_cycle_or_an_earlier_stage(self):
         from android_telemetry import validate_pin_exercise_trace
         trace={'stage':'DELETE_ACCEPTED','reason':'DELETE_TOUCH_CANCELLED'}

@@ -127,6 +127,13 @@ internal object PhoneDiagnostics {
                 .put("labelled", flags.labelled).put("clickableFlag", flags.clickableFlag)
                 .put("clickAction", flags.clickAction).put("nearbyParentAction", flags.nearbyParentAction))
         }
+        PinReadinessProbe.loginDialogCheck?.let { check ->
+            summary.put("dialogCheck", JSONObject().put("phase", check.phase.name)
+                .put("owner", check.owner.name).put("stage", check.stage.name)
+                .put("systemVerified", check.systemVerified).put("degiroContext", check.degiroContext)
+                .put("degiroLabel", check.degiroLabel).put("biometricLabel", check.biometricLabel)
+                .put("cancelLabel", check.cancelLabel).put("cancelAmbiguous", check.cancelAmbiguous))
+        }
         PinReadinessProbe.exerciseTrace?.let { trace ->
             summary.put("exerciseTrace", JSONObject().put("stage", trace.stage.name).put("reason", trace.reason.name))
         }

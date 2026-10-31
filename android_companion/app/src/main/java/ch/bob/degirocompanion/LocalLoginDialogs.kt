@@ -15,6 +15,8 @@ import android.view.accessibility.AccessibilityWindowInfo
 /** Local-only exact dialog matching. No input traversal, screenshots, raw telemetry or generic back. */
 internal class LocalLoginDialogs {
     private val budget = LoginDialogBudget()
+    var unrecognizedCheck: LoginDialogCheck? = null
+        private set
     private val started = SystemClock.elapsedRealtime()
     private var unknownSince = 0L
     private var postSince = 0L
@@ -74,10 +76,17 @@ internal class LocalLoginDialogs {
         try {
             val pkg = root.packageName?.toString().orEmpty()
             val degiro = pkg == ProductScreenEvidence.PACKAGE
+            val owner = when (pkg) {
+                ProductScreenEvidence.PACKAGE -> LoginDialogCheck.Owner.DEGIRO
+                "com.android.systemui" -> LoginDialogCheck.Owner.SYSTEM_UI
+                "com.samsung.android.biometrics.app.setting" -> LoginDialogCheck.Owner.SAMSUNG_BIOMETRICS
+                else -> LoginDialogCheck.Owner.OTHER
+            }
             val trustedSystem = pkg in setOf("com.android.systemui", "com.samsung.android.biometrics.app.setting") &&
                 runCatching { service.packageManager.getApplicationInfo(pkg, 0).flags and ApplicationInfo.FLAG_SYSTEM != 0 }.getOrDefault(false)
             if (!degiro && !trustedSystem) {
                 if (!afterEntry && pkg == service.packageName && now - started < 3_000) return true
+                unrecognizedCheck = LoginDialogCheck.ownerRejected(owner, afterEntry)
                 return fail("LOCAL_PIN_DIALOG_UNRECOGNIZED")
             }
             if (!safe(root, pkg, root.windowId)) return fail("LOCAL_PIN_DIALOG_BLOCKED")
@@ -109,7 +118,10 @@ internal class LocalLoginDialogs {
                     if (suspicious) {
                         homeSince = 0L
                         if (unknownSince == 0L) unknownSince = now
-                        if (now - unknownSince >= 6_000) return fail("LOCAL_PIN_DIALOG_UNRECOGNIZED")
+                        if (now - unknownSince >= 6_000) {
+                            unrecognizedCheck = LoginDialogCheck.markersRejected(owner, afterEntry, trustedSystem, associated, labels)
+                            return fail("LOCAL_PIN_DIALOG_UNRECOGNIZED")
+                        }
                         return true
                     }
                     unknownSince = 0L

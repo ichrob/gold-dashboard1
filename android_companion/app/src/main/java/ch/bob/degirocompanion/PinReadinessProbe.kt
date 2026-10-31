@@ -33,6 +33,7 @@ internal object PinReadinessProbe {
     val exerciseArmed get() = exercise?.armed == true
     val exerciseTrace get() = exercise?.trace
     val resultCode get() = login?.code ?: exercise?.code ?: history.last?.name ?: "NO_WINDOW"
+    val loginDialogCheck get() = if (resultCode == "LOCAL_PIN_DIALOG_UNRECOGNIZED") loginDialogs?.unrecognizedCheck else null
     val symbolFlags get() = if (exercise == null && login == null) history.symbolFlags else null
     var onTimeout: (() -> Unit)? = null
     private val history = PinProbeHistory()
