@@ -20,6 +20,8 @@ def init(conn):
         row_index INTEGER NOT NULL, verified_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         moved_rows BIGINT NOT NULL DEFAULT 0, original_json_bytes BIGINT NOT NULL DEFAULT 0,
         reference_json_bytes BIGINT NOT NULL DEFAULT 0)''')
+    conn.execute('''CREATE INDEX IF NOT EXISTS bob_improvement_observations_cold_order
+        ON bob_improvement_observations(slot,campaign)''')
 
 
 def evidence(conn, key, drive=None, verified=None):
@@ -57,13 +59,15 @@ def offload_batch(conn,drive,now=None):
     now=int(time.time()*1000) if now is None else now
     candidates=conn.execute('''SELECT campaign,slot,payload FROM bob_improvement_observations
         WHERE slot<%s AND payload ? 'evidence' AND NOT(payload ? %s)
-        AND pg_column_size(payload)>512 AND octet_length(payload::text)<65536
+        AND pg_column_size(payload)>512
         ORDER BY slot,campaign LIMIT %s''',(now-86400000,TAG,codec.MAX_ROWS)).fetchall()
     selected=[];unique={};size=100
     for campaign,slot,payload in candidates:
+        raw_payload=codec.encoded(payload)
+        if len(raw_payload)>=65536:continue
         value=payload['evidence'];key=codec.digest(codec.encoded(value))
         pointer={k:v for k,v in payload.items() if k!='evidence'};pointer[TAG]=key
-        if len(codec.encoded(pointer))>=len(codec.encoded(payload)):continue
+        if len(codec.encoded(pointer))>=len(raw_payload):continue
         if key not in unique:
             row=[key,'observation-evidence',0,None,{'evidence':value}]
             n=len(codec.encoded(row))+1
