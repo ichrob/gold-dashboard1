@@ -6,6 +6,7 @@ from unittest.mock import patch
 import bob_zentrale
 
 class FakeHandler:
+    command = "GET"
     def __init__(self, path):
         self.path=path
         self.headers={}
