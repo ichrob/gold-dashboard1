@@ -103,6 +103,16 @@ internal class ProductPageReader {
             }
         }
         if (windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)) return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
+        // A header may appear across several scroll windows. Save additional
+        // parameter evidence only when the *real* ISIN is visibly present in
+        // this same window. Do not infer ownership from a search target or
+        // merge contradictory readings into one apparent complete observation.
+        if (ids.singleOrNull() == isin) {
+            val observedParameters = QuoteLayout.productParameters(lines)
+            if (observedParameters.all { (key, value) ->
+                    anchorParameters[key]?.let { it == value } ?: true
+                }) anchorParameters = anchorParameters + observedParameters
+        }
         // Informational footers contain no additional quote evidence. Preserve the
         // candidate and return to the original identity within this transaction.
         if (!readBackward && MorningReadPolicy.detailFooter(lines.map { it.text })) returning = true
@@ -128,7 +138,12 @@ internal class ProductPageReader {
             if (ids.singleOrNull() == isin) {
                 // Read compact parameters only after the original ISIN has been
                 // rechecked on return. Do not reuse a different page's title.
-                val parameters = QuoteLayout.productParameters(lines).ifEmpty { anchorParameters }
+                val currentParameters = QuoteLayout.productParameters(lines)
+                // The first and the returned header can contain complementary
+                // fields. Keep the original evidence if a value conflicts.
+                val parameters = if (currentParameters.all { (key, value) ->
+                        anchorParameters[key]?.let { it == value } ?: true
+                    }) anchorParameters + currentParameters else anchorParameters
                 if (!readBackward && requireParameters && parameters.isEmpty() && canBackward && backward < 4) {
                     backward++
                     return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "Bob sucht die fehlenden Produktparameter in der Kopfzeile."))
