@@ -4,7 +4,7 @@ package ch.bob.degirocompanion
 internal object PinProbePolicy {
     data class Field(val password: Boolean, val numeric: Boolean, val editable: Boolean,
         val enabled: Boolean, val setText: Boolean, val sensitive: Boolean)
-    enum class Result { NO_INPUT, INPUT_PRESENT, NUMERIC_PASSWORD_INPUT, SET_TEXT_OFFERED, SENSITIVE_INPUT, INCOMPLETE, KEYPAD_VISIBLE, KEYPAD_CLICK_OFFERED, KEYPAD_AMBIGUOUS, LOGIN_SETUP_VISIBLE, LOGIN_DELETE_OFFERED, LOGIN_RESET_UNCONFIRMED }
+    enum class Result { NO_INPUT, INPUT_PRESENT, NUMERIC_PASSWORD_INPUT, SET_TEXT_OFFERED, SENSITIVE_INPUT, INCOMPLETE, KEYPAD_VISIBLE, KEYPAD_CLICK_OFFERED, KEYPAD_AMBIGUOUS, LOGIN_SETUP_VISIBLE, LOGIN_DELETE_OFFERED, LOGIN_RESET_UNCONFIRMED, LOGIN_DELETE_AMBIGUOUS, LOGIN_DELETE_SHARED_TARGET, LOGIN_DELETE_NO_ACTION, LOGIN_DELETE_DISABLED, LOGIN_DELETE_LABEL_UNRECOGNIZED }
     fun classify(fields: List<Field>, complete: Boolean): Result {
         if (!complete) return Result.INCOMPLETE
         if (fields.any { it.sensitive }) return Result.SENSITIVE_INPUT
