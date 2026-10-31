@@ -101,6 +101,26 @@ class PinTelemetry(unittest.TestCase):
             with self.subTest(root_kind=root_kind), self.assertRaises(ValueError):
                 validate_pin_dialog_check(base | {'ownerContext':context | {'rootKind':root_kind, 'packageEvidence':valid}}, 'LOCAL_PIN_DIALOG_UNRECOGNIZED')
 
+    def test_prior_degiro_scan_survives_later_owner_failure_without_screen_text(self):
+        from android_telemetry import validate_pin_dialog_check, PIN_DIALOG_BOOLS, PIN_DIALOG_DEGIRO_SCANS
+        base = self.dialog_check(owner='OTHER', stage='OWNER_CHECK', **{k:False for k in PIN_DIALOG_BOOLS})
+        context = dict(rootKind='OTHER', focusedKind='OTHER', sameWindow=True, fingerprintProgress='RETURNED')
+        for stage in PIN_DIALOG_DEGIRO_SCANS:
+            for extra in ({}, {'packageEvidence':dict(name='com.example.launcher', resolution='INSTALLED_SYSTEM')}):
+                check = base | {'ownerContext':context | {'lastDegiroScan':stage} | extra}
+                self.assertEqual(validate_pin_dialog_check(check, 'LOCAL_PIN_DIALOG_UNRECOGNIZED'), check)
+        for stage in (None, 1, [], 'Schließen', 'LOGIN_SUCCESS'):
+            with self.subTest(stage=stage), self.assertRaises(ValueError):
+                validate_pin_dialog_check(base | {'ownerContext':context | {'lastDegiroScan':stage}}, 'LOCAL_PIN_DIALOG_UNRECOGNIZED')
+
+    def test_scan_stage_enum_contract_matches_android(self):
+        import re
+        from pathlib import Path
+        from android_telemetry import PIN_DIALOG_DEGIRO_SCANS
+        source=(Path(__file__).parent/'android_companion/app/src/main/java/ch/bob/degirocompanion/LoginDialogPolicy.kt').read_text()
+        block=re.search(r'enum class DegiroScan\s*\{([^}]+)', source).group(1)
+        self.assertEqual(set(re.findall(r'\b[A-Z_]+\b', block)), PIN_DIALOG_DEGIRO_SCANS)
+
     def test_package_resolution_enum_contract_matches_android(self):
         import re
         from pathlib import Path

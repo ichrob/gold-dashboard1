@@ -97,11 +97,20 @@ internal data class LoginDialogCheck private constructor(
 internal data class LoginOwnerContext(
     val rootKind: RootKind, val focusedKind: RootKind,
     val sameWindow: Boolean, val fingerprintProgress: FingerprintProgress,
-    val packageEvidence: LoginPackageEvidence? = null
+    val packageEvidence: LoginPackageEvidence? = null,
+    val lastDegiroScan: DegiroScan = DegiroScan.NOT_SEEN
 ) {
     enum class RootKind { EMPTY, BOB, DEGIRO, SYSTEM_UI, SAMSUNG_BIOMETRICS, ANDROID_FRAMEWORK, PERMISSION_CONTROLLER, OTHER, UNAVAILABLE, AMBIGUOUS }
     enum class FingerprintProgress { NOT_REQUESTED, REQUESTED, ACCEPTED_WAIT, ACCEPTED_EXPIRED, RETURNED }
+    enum class DegiroScan { NOT_SEEN, WAIT_FOCUS, NO_MARKERS, NOTICE_TEXT_ONLY, CLOSE_ONLY, NOTICE_MATCH, OTHER_MARKERS }
     companion object {
+        fun scanStage(labels: Set<String>): DegiroScan = when {
+            LoginDialogPolicy.NOTICE in labels && "Schließen" in labels -> DegiroScan.NOTICE_MATCH
+            LoginDialogPolicy.NOTICE in labels -> DegiroScan.NOTICE_TEXT_ONLY
+            "Schließen" in labels -> DegiroScan.CLOSE_ONLY
+            labels.isEmpty() -> DegiroScan.NO_MARKERS
+            else -> DegiroScan.OTHER_MARKERS
+        }
         fun classify(pkg: String?, ownPackage: String): RootKind = when {
             pkg.isNullOrEmpty() -> RootKind.EMPTY
             pkg == ownPackage -> RootKind.BOB
