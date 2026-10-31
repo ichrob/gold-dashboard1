@@ -52,6 +52,7 @@ internal object PinReadinessProbe {
         }
         val fields = mutableListOf<PinProbePolicy.Field>()
         val keys = mutableListOf<PinKeypadPolicy.Key>()
+        val symbols = mutableListOf<PinSymbolProbe.Node>()
         var loginHelp = false
         var setup = false
         val resetEvidence = PinResetEvidence()
@@ -89,6 +90,13 @@ internal object PinReadinessProbe {
                 resetEvidence.observe(owner, depth - actionDepth,
                     PinLoginEvidence.Marker.DELETE_KEY in markers, unrelated, node.isEnabled)
             }
+            val bounds = android.graphics.Rect()
+            node.getBoundsInScreen(bounds)
+            val symbolDigit = if (node.childCount == 0 && node.isEnabled)
+                PinKeypadPolicy.digit(node.text) ?: PinKeypadPolicy.digit(node.contentDescription) else null
+            symbols += PinSymbolProbe.Node(bounds.exactCenterX(), bounds.exactCenterY(),
+                bounds.width().toFloat(), bounds.height().toFloat(), symbolDigit,
+                !node.text.isNullOrBlank() || !node.contentDescription.isNullOrBlank(), clickable)
             if (node.childCount == 0 && node.isEnabled) {
                 val digit = PinKeypadPolicy.digit(node.text) ?: PinKeypadPolicy.digit(node.contentDescription)
                 if (digit != null) keys += PinKeypadPolicy.Key(digit,
@@ -105,13 +113,23 @@ internal object PinReadinessProbe {
             if (structural == PinProbePolicy.Result.NO_INPUT)
                 PinLoginEvidence.classify(PinKeypadPolicy.classify(keys) ?: structural,
                     loginHelp, setup, resetEvidence.count()).let {
-                    if (it == PinProbePolicy.Result.LOGIN_RESET_UNCONFIRMED) resetEvidence.diagnosis() else it
+                    if (it == PinProbePolicy.Result.LOGIN_RESET_UNCONFIRMED) {
+                        val reset = resetEvidence.diagnosis()
+                        if (reset == PinProbePolicy.Result.LOGIN_DELETE_LABEL_UNRECOGNIZED)
+                            PinSymbolProbe.classify(symbols) else reset
+                    } else it
                 } else structural }
             .getOrDefault(PinProbePolicy.Result.INCOMPLETE)
         history.observe(outcome)
         message = describe(outcome)
     }
     private fun describe(outcome: PinProbePolicy.Result): String = when (outcome) {
+            PinProbePolicy.Result.SYMBOL_LAYOUT_UNCONFIRMED -> "Ziffernraster nicht eindeutig; Symbolbereich nicht geprüft."
+            PinProbePolicy.Result.SYMBOL_NODE_UNAVAILABLE -> "Im Bereich rechts neben Null kein passendes zugängliches Element. Löschfunktion ungeklärt."
+            PinProbePolicy.Result.SYMBOL_NODES_MULTIPLE -> "Im Bereich rechts neben Null mehrere Elemente; Löschfunktion ungeklärt."
+            PinProbePolicy.Result.SYMBOL_NO_ACTION -> "Element rechts neben Null erkannt, aber keine direkte aktive Klickaktion. Löschfunktion ungeklärt."
+            PinProbePolicy.Result.SYMBOL_LABELLED_ACTION -> "Beschriftetes Element mit Klickaktion rechts neben Null erkannt; Beschriftung nicht als Löschen erkannt. Keine Taste gedrückt."
+            PinProbePolicy.Result.SYMBOL_UNLABELLED_ACTION -> "Unbeschriftetes Element mit Klickaktion rechts neben Null erkannt. Position beweist keine Löschfunktion; keine Taste gedrückt."
             PinProbePolicy.Result.LOGIN_DELETE_LABEL_UNRECOGNIZED -> "Keine bekannte Löschtasten-Beschriftung zugänglich. Die Taste kann unbeschriftet, anders beschriftet oder nicht zugänglich sein."
             PinProbePolicy.Result.LOGIN_DELETE_DISABLED -> "Löschtasten-Beschriftung erkannt, aber Element deaktiviert. Das beweist allein keine leere PIN-Eingabe."
             PinProbePolicy.Result.LOGIN_DELETE_NO_ACTION -> "Löschtasten-Beschriftung erkannt; keine zugehörige Klickaktion innerhalb der geprüften zwei Ebenen."
