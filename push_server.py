@@ -1737,6 +1737,8 @@ if __name__ == "__main__":
     init_db()
     diagnostic_history.configure(db)
     __import__("archive_worker").start(db)
+    # Decision-product pilot is intentionally NOT a startup worker.
+    # Manual offline maintenance only; no env-triggered production migration.
     __import__("storage_maintenance").start()
     __import__("cold_metrics").start()
     __import__("cold_analysis").start()

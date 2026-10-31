@@ -168,6 +168,36 @@ class WriterPGTests(unittest.TestCase):
         self.assertEqual(result['backupProofState'],'verified-but-stale')
         self.assertFalse(result['manualRunAuthorized'])
 
+    def test_one_row_pilot_does_not_skip_other_old_decisions(self):
+        first=self.put('old-1',22,self.sample)
+        second=self.put('old-2',21,self.sample)
+        fake=FakePrivateDrive()
+        with patch.dict(os.environ,{'BOB_COLD_DECISION_PRODUCTS_ENABLED':'1'}):
+            result=writer.offload_batch(self.conn,fake,approval=self.approval,
+                                        now=self.now,max_updates=1)
+        self.assertEqual(result['status'],'verified-offload')
+        self.assertEqual(result['movedRows'],1)
+        self.assertEqual(self.conn.execute(
+            'SELECT count(*) FROM bob_cold_decision_product_refs').fetchone()[0],1)
+        row1=self.conn.execute(
+            "SELECT payload FROM bob_decision_audit WHERE id='old-1'").fetchone()[0]
+        row2=self.conn.execute(
+            "SELECT payload FROM bob_decision_audit WHERE id='old-2'").fetchone()[0]
+        self.assertNotIn('products',row1)
+        self.assertEqual(row2,second)
+        with self.conn.transaction():
+            self.conn.execute('SET TRANSACTION READ ONLY')
+            recovered=reader.resolve(self.conn,'old-1',row1,drive=fake)
+        self.assertEqual(codec.encoded(recovered),codec.encoded(first))
+        # Running another explicit, separately approved test may process the
+        # next row; a single invocation can never update two originals.
+        with patch.dict(os.environ,{'BOB_COLD_DECISION_PRODUCTS_ENABLED':'1'}):
+            again=writer.offload_batch(self.conn,fake,approval=self.approval,
+                                       now=self.now,max_updates=1)
+        self.assertEqual(again['movedRows'],1)
+        self.assertEqual(again['newUniqueObjects'],0)
+        self.assertEqual(len(fake.files),1)
+
     def test_failed_remote_verification_leaves_original_and_no_refs(self):
         original=self.put('old-1',22,self.sample)
         fake=FakePrivateDrive()

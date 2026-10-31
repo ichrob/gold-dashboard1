@@ -249,3 +249,41 @@ attempt row or pretend the uploaded but unverified Drive file is a
 recoverable/verified source. Use a **new distinct attempt ID** for a
 future full backup in a quiet deployment window, or implement separately
 tested durable remote-restore resumption before the next pilot.
+## Exactly-once single decision pilot (explicitly disabled unless approved)
+
+An optional one-shot coordinator `decision_product_pilot.py` exists
+**only as a manually invoked maintenance function**. It is not imported,
+started or scheduled by either Render service. It still refuses invocation
+unless BOTH `BOB_COLD_DECISION_PRODUCTS_ENABLED=1` and a strict operator
+command `BOB_DECISION_PRODUCT_PILOT_ONCE={"id":"unique-operator-id",
+"confirmed":true,"maxUpdates":1}` are supplied in a private maintenance
+environment. Merely setting environment variables on a web service does
+**not** initiate a migration. No HTTP route accepts this command.
+
+An explicitly invoked single bounded run checks an independent recent
+verified restore and exact resource-specific Render disk headroom,
+then creates an immutable unique pilot ID claim in
+`bob_cold_decision_pilot_attempts`. The ID can be inserted at most once,
+including after a rolling deploy. A failed/interrupted attempt is never
+automatically retried. The writer performs its own second backup, disk,
+archive lock and caller-approval checks before any product changes.
+
+The optional `max_updates=1` writer argument stops after the first eligible
+historical decision in an indexed 20-row page, preserving the durable scan
+cursor at that decision (never skipping the remaining eligible rows). It
+may upload and replace exactly one old product array with a verified
+content-addressed reference. On successful SQL commit it records the
+read-through result in the pilot ledger. Failures retain their status
+and exception *type* only, never a Drive file ID, ISIN or original value.
+
+The private storage report exposes only the sanitized most recent pilot
+state, row count and timestamp; it does not expose the command ID. If the
+pilot is interrupted midflight the persistent `running` claim prevents
+another implicit write, and human/operator examination of ledger and
+archive proof is required before any distinct attempt.
+
+No automated repeat schedule or broad writer enablement is provided.
+After any manual pilot, the operator must clear the two opt-ins and verify
+that all historic readers still resolve the exact original. The durable
+historical attempt remains. A merge or Render deploy alone never runs it.
+Logical JSON reduction **never** counts as physical Render volume savings.
