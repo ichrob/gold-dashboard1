@@ -14,8 +14,29 @@ PIN_RESULTS = {'NO_WINDOW', 'NO_INPUT', 'INPUT_PRESENT', 'NUMERIC_PASSWORD_INPUT
                'SYMBOL_LAYOUT_UNCONFIRMED', 'SYMBOL_NODE_UNAVAILABLE', 'SYMBOL_NODES_MULTIPLE', 'SYMBOL_NO_ACTION', 'SYMBOL_LABELLED_ACTION', 'SYMBOL_UNLABELLED_ACTION',
                'SYMBOL_DISABLED', 'SYMBOL_PARENT_ACTION_OBSERVED', 'SYMBOL_CLICK_FLAG_ONLY', 'SYMBOL_ACTION_ONLY', 'SYMBOL_LABELLED_PASSIVE', 'SYMBOL_UNLABELLED_PASSIVE'}
 
+PIN_SYMBOL_FLAGS = {'enabled', 'labelled', 'clickableFlag', 'clickAction', 'nearbyParentAction'}
+
+def validate_pin_symbol_flags(value, result):
+    if not isinstance(value, dict) or set(value) != PIN_SYMBOL_FLAGS or any(type(v) is not bool for v in value.values()):
+        raise ValueError('Invalid PIN symbol flags')
+    if not value['enabled']:
+        expected = 'SYMBOL_DISABLED'
+    elif value['clickableFlag'] and value['clickAction']:
+        expected = 'SYMBOL_LABELLED_ACTION' if value['labelled'] else 'SYMBOL_UNLABELLED_ACTION'
+    elif value['nearbyParentAction']:
+        expected = 'SYMBOL_PARENT_ACTION_OBSERVED'
+    elif value['clickableFlag']:
+        expected = 'SYMBOL_CLICK_FLAG_ONLY'
+    elif value['clickAction']:
+        expected = 'SYMBOL_ACTION_ONLY'
+    else:
+        expected = 'SYMBOL_LABELLED_PASSIVE' if value['labelled'] else 'SYMBOL_UNLABELLED_PASSIVE'
+    if result != expected:
+        raise ValueError('Inconsistent PIN symbol result')
+
 def validate_pin_probe(value, now):
-    if not isinstance(value, dict) or set(value) != {'runId', 'endedAt', 'result', 'completed'}:
+    required = {'runId', 'endedAt', 'result', 'completed'}
+    if not isinstance(value, dict) or set(value) not in (required, required | {'symbolFlags'}):
         raise ValueError('Invalid PIN probe fields')
     if not isinstance(value['runId'], str) or not re.fullmatch('[a-f0-9]{32}', value['runId']):
         raise ValueError('Invalid PIN probe ID')
@@ -26,6 +47,8 @@ def validate_pin_probe(value, now):
     at = timestamp(value['endedAt'])
     if not -60 <= (now-at).total_seconds() <= 86400:
         raise ValueError('Expired PIN probe')
+    if 'symbolFlags' in value:
+        validate_pin_symbol_flags(value['symbolFlags'], value['result'])
     return dict(value)
 
 BOOLS=('serviceEnabled','serviceConnectedInProcess','textAccess','windowAccess','running','pendingRun')
@@ -101,3 +124,4 @@ def status(conn):
           'receivedAt':r[3].isoformat() if r[3] else None,
           'fresh':bool(not r[1] and r[2]>now and r[3] and (now-r[3]).total_seconds()<1800 and r[4] and -60<=(now-timestamp(r[4]['observedAt'])).total_seconds()<1800),
           'report':r[4]} for r in rows]}
+
