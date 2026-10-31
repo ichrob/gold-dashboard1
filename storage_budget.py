@@ -164,6 +164,7 @@ def report(conn,now=None):
             lastAutovacuum=str(vac) if vac else None) for name,n,live,dead,vac in tables],
         archiveWorker=persisted_archive,
         decisionProductsPreview=decision_preview,
+        decisionProductsPilot=__import__('decision_product_pilot').status(conn),
         coldMetrics=__import__('cold_metrics').status(conn),
         layout=__import__('storage_layout').report(conn),
         renderVolume=__import__('render_disk_metrics').report(),
