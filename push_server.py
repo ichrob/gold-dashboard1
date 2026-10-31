@@ -1244,7 +1244,17 @@ class Handler(BaseHTTPRequestHandler):
                 ):
                     payload['origin']='browser'
                 if path.endswith('/read'):
-                    result=read_audit_report(payload)
+                    try:
+                        result=read_audit_report(payload)
+                    except TimeoutError:
+                        # The bounded admission gate can temporarily be full.
+                        # A missing historical result is not an empty archive
+                        # or a proven completed analysis. Never retry a write.
+                        print('BOB_AUDIT read_deferred reason=report-capacity',flush=True)
+                        send_json(self,503,{
+                            'error':'Historische Auswertung vorübergehend belegt',
+                            'retryable':True,'dataComplete':False})
+                        return
                 else:
                     with db() as conn:
                         result=decision_audit.handle(conn,'write',payload)
