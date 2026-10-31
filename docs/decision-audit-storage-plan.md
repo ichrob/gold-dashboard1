@@ -38,6 +38,13 @@ outside the fixed allowlist, ISIN, price, credential or payload. It returns
 `not-observed` if the table is absent or the query fails. This is not an
 exact survey or direct physical TOAST storage measurement.
 
+Because the private MCP projection can omit newly added optional report fields,
+`BOB_DECISION_FOOTPRINT` emits **one** size-only sanitized summary per process
+to private Render app logs after a successful sample, never raw evidence. Only
+the fixed field-group allowlist, bounded counts and aggregated sizes are logged;
+unrecognized keys or invalid sizes abort logging. This does not send Push,
+email or market data, and never authorizes archival or compaction.
+
 PostgreSQL integration regressions assert an eight-record bound, the absence
 of original values in the result, read-only behavior, missing-table isolation,
 and empty-table handling.
