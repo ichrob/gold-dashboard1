@@ -298,7 +298,7 @@ class MorningReadPolicyTest {
             MorningReadPolicy.Node("V",clickable=true,parent=3))
         assertEquals("RESULT_MISSING",MorningReadPolicy.decide(view,target).code)
         assertEquals(4,MorningReadPolicy.resultTapIndex(view,target))
-        for (change in listOf(
+        for ((case,change) in listOf(
             view.toMutableList().also { it[0]=it[0].copy(text="DE000FD0S0G4") },
             view.toMutableList().also { it[2]=it[2].copy(text="Alle") },
             view.toMutableList().also { it[3]=it[3].copy(row=title+"\\nK\\nV") },
@@ -308,8 +308,8 @@ class MorningReadPolicyTest {
             view.toMutableList().also { it[0]=it[0].copy(password=true) },
             view.toMutableList().also { it[0]=it[0].copy(hint="Limitpreis") },
             view+MorningReadPolicy.Node("Order bestätigen"),
-            view+MorningReadPolicy.Node(title,row=title,parent=3))) {
-            assertNull("Unsafe DEGIRO result must not be tapped",MorningReadPolicy.resultTapIndex(change,target))
+            view+MorningReadPolicy.Node(title,row=title,parent=3)).withIndex()) {
+            assertNull("Unsafe DEGIRO result case $case must not be tapped",MorningReadPolicy.resultTapIndex(change,target))
         }
     }
 
