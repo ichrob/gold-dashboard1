@@ -170,8 +170,7 @@ internal class ProductPageReader {
         val sample = if (ids.isEmpty()) lines + QuoteLayout.Line("ISIN: $isin", -100, -100, -1, -1) else lines
         val observed = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, sample, at, sensitive)
         if (observed.reason == ProductScreenEvidence.Reason.QUOTES_INVALID) return stop(observed.message, Cause.INVALID_QUOTES, observed.reason)
-        fun score(value: ProductScreenEvidence.Result) = listOf("Geld (", "Brief (", "Zuletzt (").count { value.draft.contains(it) }
-        if (observed.draft.isNotBlank() && (candidate == null || score(observed) >= score(candidate!!))) candidate = observed
+        if (ProductDraftQuality.preferScreen(candidate?.draft.orEmpty(), observed.draft)) candidate = observed
         // A complete labelled quote pair is the useful end of this read. Avoid
         // scrolling through unrelated footer sections or probing the page bottom.
         // Publication still requires returning to the original visible ISIN.
