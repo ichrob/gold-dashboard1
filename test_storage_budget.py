@@ -32,6 +32,37 @@ class BudgetTests(unittest.TestCase):
         self.assertFalse(result['latestPersistedAttempt']['deletionPermitted'])
         self.assertNotIn('private-file-id',str(result))
 
+    def test_interrupted_claim_does_not_hide_last_verified_restore(self):
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        last = now - timedelta(minutes=20)
+        prior = now - timedelta(hours=19)
+        class Conn:
+            def __init__(self):
+                self.calls = []
+            def execute(self, sql):
+                self.calls.append(sql)
+                return self
+            def fetchone(self):
+                if "WHERE status='verified'" in self.calls[-1]:
+                    return ('verified',prior.isoformat(),{
+                        'receipt':{'restoreVerified':True,
+                                   'remoteDownloadVerified':True,
+                                   'driveFileId':'sensitive-drive-id'},
+                        'evidenceDeleted':False})
+                return ('running',last.isoformat(),{
+                    'status':'running','phase':None,
+                    'stagedFileId':'private-unverified-file'})
+        with patch('archive_worker.status',return_value={'status':'already-attempted-today'}):
+            result=budget.archive_status(Conn())
+        self.assertEqual(result['latestPersistedAttempt']['status'],'running')
+        self.assertEqual(result['latestVerifiedAttempt']['status'],'verified')
+        self.assertEqual(result['incompleteClaimReview'],'nonterminal-overdue')
+        self.assertTrue(result['latestVerifiedAttempt']['restoreVerified'])
+        self.assertTrue(result['latestVerifiedAttempt']['remoteDownloadVerified'])
+        self.assertNotIn('sensitive-drive-id',str(result))
+        self.assertNotIn('private-unverified-file',str(result))
+
     def test_archive_status_falls_back_when_ledger_is_unavailable(self):
         class Conn:
             def execute(self, sql):
