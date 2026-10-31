@@ -116,11 +116,11 @@ def capture(conn,bundle,market,now=None):
 
 def report(conn,now=None):
     now=int(time.time()*1000) if now is None else now
-    rows=conn.execute('''SELECT scope,payload FROM bob_metric_checks WHERE version=%s
+    rows=conn.execute('''SELECT version,scope,bar_at,checked_at,payload FROM bob_metric_checks WHERE version=%s
         AND checked_at>=%s ORDER BY checked_at DESC LIMIT 10000''',(VERSION,now-30*86400000)).fetchall()
     groups={}
-    for scope,row in rows:
-        row = __import__('cold_metrics').resolve(conn, row, scope)
+    for version,scope,bar_at,checked_at,row in rows:
+        row = __import__('cold_metrics').resolve(conn, row, scope, identity=(version,scope,bar_at,checked_at))
         for key in (row.get('metrics') or {k:None for k in LABELS if k not in ('gearing','issuerGearing','koDistance','pnl')}):
             if key not in LABELS:continue
             g=groups.setdefault((scope,key),dict(id=scope+':'+key,label=LABELS[key]+' · '+scope,

@@ -36,6 +36,7 @@ class Drive:
 class ReaderTests(unittest.TestCase):
     def setUp(self):
         cold._CACHE.clear()
+        cold._INDEX_CACHE.clear()
         self.drive = Drive()
         self.row = ['v', 'scope', 123, 456, {'unicode': 'äöß', 'nested': [None, True, 1.25, 9007199254740993]}]
         blob = gzip.compress(cold.encoded({'format': cold.FORMAT, 'rows': [self.row]}), mtime=0)
@@ -114,15 +115,16 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result['movedRows'], 1)
         self.assertTrue(result['readThroughVerified'])
         self.assertGreater(result['originalJsonBytes'], result['referenceJsonBytes'])
-        self.assertIn(cold.TAG, self.stored())
+        self.assertIn(cold.COMPACT_TAG, self.stored())
         cold._CACHE.clear()
+        cold._INDEX_CACHE.clear()
         with patch.object(cold, 'runtime_drive', return_value=self.drive):
             self.assertEqual(metric_quality.report(self.conn, self.now), before)
             self.assertEqual(cold.get(self.conn, metric_quality.VERSION, 'display:1m', self.old), self.payload)
         # A producer replay cannot recreate a full duplicate of an archived row.
         self.conn.execute('''INSERT INTO bob_metric_checks VALUES (%s,%s,%s,%s,%s::jsonb)
             ON CONFLICT DO NOTHING''', (metric_quality.VERSION, 'display:1m', self.old, self.old, '{}'))
-        self.assertIn(cold.TAG, self.stored())
+        self.assertIn(cold.COMPACT_TAG, self.stored())
         self.assertEqual(cold.offload_batch(self.conn, self.drive, self.now)['movedRows'], 0)
         self.assertEqual(self.conn.execute('SELECT count(*) FROM bob_metric_checks').fetchone()[0], 2)
         # Neither payloads nor references expire when outside the report window.
@@ -154,6 +156,39 @@ class DatabaseTests(unittest.TestCase):
         cold.offload_batch(self.conn, self.drive, self.now)
         cold._CACHE.clear()
         self.drive.files.clear()
+        with patch.object(cold, 'runtime_drive', return_value=self.drive):
+            with self.assertRaises(cold.ColdArchiveUnavailable):
+                metric_quality.report(self.conn, self.now)
+
+    def test_small_payloads_save_real_jsonb_space_with_compact_reference(self):
+        payload = {'checkedAt': self.old, 'metrics': {}, 'original': uuid.uuid4().hex * 4}
+        self.conn.execute('UPDATE bob_metric_checks SET payload=%s::jsonb WHERE bar_at=%s',
+                          (cold.encoded(payload).decode(), self.old))
+        before = self.conn.execute('SELECT pg_column_size(payload) FROM bob_metric_checks WHERE bar_at=%s', (self.old,)).fetchone()[0]
+        self.assertGreater(before, 192)
+        self.assertLessEqual(before, 512)
+        self.assertEqual(cold.offload_batch(self.conn, self.drive, self.now)['movedRows'], 1)
+        after = self.conn.execute('SELECT pg_column_size(payload) FROM bob_metric_checks WHERE bar_at=%s', (self.old,)).fetchone()[0]
+        self.assertLess(after, before)
+        cold._CACHE.clear()
+        cold._INDEX_CACHE.clear()
+        with patch.object(cold, 'runtime_drive', return_value=self.drive):
+            self.assertEqual(cold.get(self.conn, metric_quality.VERSION, 'display:1m', self.old), payload)
+
+    def test_compact_reference_cannot_be_rebound_to_a_different_sql_identity(self):
+        cold.offload_batch(self.conn, self.drive, self.now)
+        self.conn.execute('UPDATE bob_metric_checks SET bar_at=bar_at+1 WHERE bar_at=%s', (self.old,))
+        cold._CACHE.clear()
+        cold._INDEX_CACHE.clear()
+        with patch.object(cold, 'runtime_drive', return_value=self.drive):
+            with self.assertRaises(cold.ColdArchiveUnavailable):
+                cold.get(self.conn, metric_quality.VERSION, 'display:1m', self.old+1)
+
+    def test_missing_compact_index_fails_closed_after_restart(self):
+        cold.offload_batch(self.conn, self.drive, self.now)
+        self.conn.execute('DELETE FROM bob_cold_metric_batches')
+        cold._CACHE.clear()
+        cold._INDEX_CACHE.clear()
         with patch.object(cold, 'runtime_drive', return_value=self.drive):
             with self.assertRaises(cold.ColdArchiveUnavailable):
                 metric_quality.report(self.conn, self.now)
