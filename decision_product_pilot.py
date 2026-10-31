@@ -1,22 +1,19 @@
 """Single-ID one-shot coordinator for optional historical decision product pilot.
 
-Absent an exact explicit operator env command, startup is a complete no-op.
+No server startup hook, HTTP route, or scheduler is registered.
 A durable primary-key claim makes a restart incapable of repeating a pilot.
-Only one historical original may be replaced after independent restore and
-disk checks by the existing verified archive writer.
+An explicitly invoked manual routine can replace at most one original after
+independent restore and disk checks by the verified archive writer.
 """
 import json
 import os
 import re
-import threading
 import time
 
 import cold_metrics as codec
 import cold_decision_product_writer as writer
 
-_THREAD = None
 _ID = re.compile(r'[A-Za-z0-9_-]{1,64}\Z')
-_MAX_START_DELAY = 75
 
 
 def configuration():
@@ -135,19 +132,3 @@ def run_once(*,connect=codec.connect,invoke=writer.run_once,now=None):
                     'diskBytesFreed':None}
 
 
-def start():
-    global _THREAD
-    if _THREAD is not None or configuration() is None:
-        return
-    def work():
-        time.sleep(_MAX_START_DELAY)
-        try:
-            output=run_once()
-        except Exception as exc:
-            output={'status':'failed','errorType':type(exc).__name__,
-                    'movedRows':0,'diskBytesFreed':None}
-        # Fixed categories/counts only; no SQL text, credentials, row IDs or ISINs.
-        print('BOB_DECISION_PRODUCT_PILOT '+
-              json.dumps(output,sort_keys=True),flush=True)
-    _THREAD=threading.Thread(target=work,name='bob-decision-product-pilot',daemon=True)
-    _THREAD.start()
