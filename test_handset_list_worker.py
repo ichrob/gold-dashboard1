@@ -104,6 +104,51 @@ class WorkerTests(unittest.TestCase):
             self.assertTrue(call.kwargs['close_fds'])
         self.assertEqual(run.call_args_list[-1].args[0][0],'node')
 
+    def test_alt_ocr_is_used_only_for_locally_tagged_retry(self):
+        from types import SimpleNamespace
+        def outputs():
+            return [SimpleNamespace(stdout='[["a","a","a"]]'),
+                    SimpleNamespace(stdout='{"items":[]}')]
+        base={'images':[{'png':'not transmitted'}]}
+        for payload, expected in ((base,False),
+                (dict(base,_ocr_mode='enhanced'),True)):
+            with patch('evaluator_runtime.run',side_effect=outputs()) as run:
+                worker.process(payload,'2026-10-31T19:13:55Z')
+            command=run.call_args_list[0].args[0]
+            self.assertEqual('--enhanced' in command,expected)
+            self.assertEqual(command[2],'--ocr')
+            self.assertEqual(len(json.loads(run.call_args_list[0].kwargs['input'])),1)
+
+    def test_list_verification_failure_gets_one_bounded_alternate_try(self):
+        class Result:
+            def __init__(self,value):self.value=value
+            def fetchone(self):return self.value
+        class DB:
+            def __init__(self,attempts,error):
+                self.attempts=attempts;self.error=error;self.writes=[]
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def commit(self):pass
+            def execute(self,sql,args=()):
+                if sql.startswith('SELECT i.batch_id'):
+                    return Result(('a'*32,{'images':[{'at':'2026-10-31T19:13:55Z'}]},
+                        None,self.attempts,{'stage':'read-failed','error':self.error}))
+                if sql.startswith('SELECT i.import_receipt'):return Result((None,))
+                if 'import_receipt=%s' in sql:self.writes.append(json.loads(args[0]))
+                return Result(None)
+        def attempt(attempts,error):
+            db=DB(attempts,error);calls=[]
+            def runner(payload,at):
+                calls.append(payload.get('_ocr_mode'))
+                raise worker.ListVerificationError('Do not log private OCR text')
+            worker.tick(lambda:db,runner)
+            self.assertEqual(db.writes[-1]['error'],'ListVerificationError')
+            return calls
+        self.assertEqual(attempt(2,'ListVerificationError'),['enhanced'])
+        self.assertEqual(attempt(1,'ListVerificationError'),[None])
+        self.assertEqual(attempt(2,'OcrChildError'),[None])
+        self.assertEqual(attempt(3,'ListVerificationError'),[None])
+
     def test_phone_ocr_size_is_bounded_without_changing_original(self):
         for width,height in [(1080,2400),(1440,3200),(5000,3000),(709,1536)]:
             for scale in (.85,1,2.5):
@@ -169,7 +214,7 @@ console.log(JSON.stringify(out));
             def __exit__(self,*_):pass
             def commit(self):self.commits+=1
             def execute(self,sql,args=()):
-                if sql.startswith('SELECT i.batch_id'):return Result(('a'*32,{'images':[{'at':'2026-10-29T19:00:00Z'}]},None))
+                if sql.startswith('SELECT i.batch_id'):return Result(('a'*32,{'images':[{'at':'2026-10-29T19:00:00Z'}]},None,0,None))
                 if sql.startswith('SELECT i.import_receipt'):return Result((None,))
                 if 'processing_attempts=processing_attempts+1' in sql:self.receipts.append(json.loads(args[0]))
                 if 'SET parsed_items=' in sql:self.receipts.append(json.loads(args[1]))
