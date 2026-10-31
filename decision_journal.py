@@ -56,7 +56,7 @@ def read(conn,campaign,now):
             candidates=conn.execute('''SELECT payload FROM bob_improvement_observations
                 WHERE campaign=%s AND valid AND slot BETWEEN %s AND %s ORDER BY slot LIMIT 8''',
                 (campaign,due//30000*30000,due+180000)).fetchall()
-            followup=next((p for (p,) in candidates if valid_followup(base,p)),None)
+            followup=next((__import__('cold_observations').resolve(conn,p) for (p,) in candidates if valid_followup(base,p)),None)
         rows.append(entry(phase,base,outcome,followup,now))
     return dict(items=rows,limit=30,horizonMinutes=60,
         note='Letzte 30 fest geplante Prüffälle im Zweistundentakt, keine vollständige Signalliste. Entwicklung und spätere unabhängige Prüfung bleiben getrennt. Ergebnisse beziehen sich auf Gold-Spot nach 60 Minuten; 0,04 % Standardkosten sind eine Annahme, keine Produktrendite. Einzelne Fälle ändern keine Regel. Ob ein Einstieg zu spät war, lässt sich aus diesem Endpunkt allein nicht beurteilen.')

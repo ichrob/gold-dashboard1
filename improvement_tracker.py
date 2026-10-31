@@ -248,7 +248,7 @@ def report(conn,now=None,include_history=True):
         before=conn.execute('''SELECT payload FROM bob_improvement_observations WHERE campaign=%s
           AND slot BETWEEN %s AND %s AND (payload->>'at')::bigint<=%s ORDER BY slot DESC LIMIT 1''',
           (VERSION,bought-90000,bought,bought)).fetchone()
-        if before:evidence[snapshot.get('tradeId')]=before[0]
+        if before:evidence[snapshot.get('tradeId')]=__import__('cold_observations').resolve(conn,before[0])
     result=summarize(*stats,rows,real_results([s[0] for s in snapshots],evidence,validation_at),now,validation_at)
     import improvement_operations
     improvement_operations.attach(conn,result,rows,[s[0] for s in snapshots],now,START)

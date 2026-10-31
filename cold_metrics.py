@@ -241,7 +241,7 @@ def run_once(factory=connect):
             results.append(result)
             if not result.get('movedRows'):
                 break
-        return {'status': 'checked', 'batches': results}
+        return {'status': 'checked', 'batches': results, 'pressure': __import__('storage_pressure').observe(conn)}
 
 
 def status(conn):
@@ -280,6 +280,6 @@ def start():
                 except Exception as exc:
                     result = {'status': 'deferred', 'errorType': type(exc).__name__}
                 print('BOB_COLD_METRICS ' + json.dumps(result, sort_keys=True), flush=True)
-                time.sleep(60 if result.get('status') == 'archive-running' else 3600)
+                time.sleep(__import__('storage_pressure').delay(result))
         _THREAD = threading.Thread(target=loop, name='bob-cold-metrics', daemon=True)
         _THREAD.start()
