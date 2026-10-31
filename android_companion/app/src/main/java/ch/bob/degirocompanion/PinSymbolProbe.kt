@@ -1,6 +1,6 @@
 package ch.bob.degirocompanion
 
-/** Geometry-only observation of the lower-right keypad region. NEVER a click target or login authorization. */
+/** Geometry-only observation, never login authorization. The separate confirmed exercise may use its unique node index. */
 internal object PinSymbolProbe {
     data class Node(val x: Float, val y: Float, val width: Float, val height: Float,
         val digit: Int?, val labelled: Boolean, val action: Boolean,
@@ -9,7 +9,7 @@ internal object PinSymbolProbe {
     /** Fixed booleans only; no node, label, coordinate or input value escapes inspection. */
     data class Flags(val enabled: Boolean, val labelled: Boolean, val clickableFlag: Boolean,
         val clickAction: Boolean, val nearbyParentAction: Boolean)
-    data class Observation(val result: PinProbePolicy.Result, val flags: Flags? = null)
+    data class Observation(val result: PinProbePolicy.Result, val flags: Flags? = null, val candidateIndex: Int? = null)
     fun classify(nodes: List<Node>) = observe(nodes).result
     fun observe(nodes: List<Node>): Observation {
         val digits = nodes.filter { it.digit != null }
@@ -44,7 +44,6 @@ internal object PinSymbolProbe {
             else -> PinProbePolicy.Result.SYMBOL_UNLABELLED_PASSIVE
         }
         return Observation(result, Flags(node.enabled, node.labelled, node.clickableFlag,
-            node.clickAction, node.nearbyParentAction))
+            node.clickAction, node.nearbyParentAction), nodes.indexOf(node))
     }
 }
-
