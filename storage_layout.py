@@ -21,6 +21,7 @@ def report(conn):
                 'indexes':[{'table':table,'index':name,'bytes':size,'valid':valid}
                            for table,name,size,valid in indexes],
                 'diagnosticPayloadSample':diagnostic_sample(conn),
+                'decisionPayloadSample':decision_payload_sample(conn),
                 'reclaimableBytes':None,
                 'note':'Allocated relation sizes include live and reusable space; not a bloat measurement.'}
     except Exception:
@@ -40,3 +41,58 @@ def diagnostic_sample(conn):
                 'note':'Block sample is not an exact population count or savings estimate.'}
     except Exception:
         return {'status':'not-observed'}
+
+
+# Strictly bounded exploratory accounting. Audit JSON is part of several SQL
+# predicates and direct readers, so it must NOT be replaced by cold pointers
+# until every dependency can resolve the exact original.
+_DECISION_FIELD_KEYS = (
+    'decisionContext', 'reviewVariants', 'products', 'indicators',
+    'marketOptimization', 'entryQuality', 'minuteEntry', 'earlyWarning',
+    'analysisSnapshot', 'intraday', 'plan',
+)
+
+
+def decision_payload_sample(conn):
+    """Aggregate child JSONB sizes for up to 8 immutable decisions, no raw values.
+
+    Oldest and newest indexed keys are sampled separately. Child JSONB sizes
+    are exploratory logical measures, NOT reclaimable TOAST or disk bytes.
+    """
+    try:
+        with conn.transaction():
+            rows = conn.execute("""WITH picked AS MATERIALIZED (
+                  SELECT id FROM (
+                    SELECT id FROM bob_decision_audit
+                    ORDER BY recorded_at ASC,id ASC LIMIT 4
+                  ) oldest
+                  UNION
+                  SELECT id FROM (
+                    SELECT id FROM bob_decision_audit
+                    ORDER BY recorded_at DESC,id DESC LIMIT 4
+                  ) newest
+                ), selected AS MATERIALIZED (
+                  SELECT a.id,a.payload FROM bob_decision_audit a
+                  JOIN picked p ON a.id=p.id
+                )
+                SELECT CASE WHEN e.key=ANY(%s::text[]) THEN e.key
+                            ELSE 'other-fields' END AS field_group,
+                       count(*),coalesce(sum(pg_column_size(e.value)),0),
+                       max(pg_column_size(e.value)),
+                       (SELECT count(*) FROM selected)
+                FROM selected s CROSS JOIN LATERAL jsonb_each(s.payload) e
+                GROUP BY 1 ORDER BY 3 DESC,1""",
+                (list(_DECISION_FIELD_KEYS),)).fetchall()
+        return {'status':'sampled' if rows else 'empty', 'readOnly':True,
+                'method':'indexed-oldest-four-and-newest-four-max-eight-unique-rows',
+                'sampledRecords':int(rows[0][4]) if rows else 0,
+                'fields':[{'fieldGroup':field,'observedFieldValues':int(count),
+                           'summedNestedBytes':int(total),
+                           'maximumNestedBytes':int(maximum)}
+                          for field,count,total,maximum,_ in rows],
+                'reclaimableBytes':None,
+                'note':'Only aggregate sizes of up to eight decisions, no payload contents. '
+                       'JSONB child sizes are not physical TOAST usage, free space, '
+                       'all-row coverage, or a permitted offload budget.'}
+    except Exception:
+        return {'status':'not-observed','readOnly':True,'reclaimableBytes':None}
