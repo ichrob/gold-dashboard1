@@ -13,6 +13,7 @@ internal object PinReadinessProbe {
         private set
     private var exercise: PinKeypadExercise? = null
     val exerciseArmed get() = exercise?.armed == true
+    val exerciseTrace get() = exercise?.trace
     val resultCode get() = exercise?.code ?: history.last?.name ?: "NO_WINDOW"
     val symbolFlags get() = if (exercise == null) history.symbolFlags else null
     var onTimeout: (() -> Unit)? = null
@@ -37,16 +38,16 @@ internal object PinReadinessProbe {
     }
     fun active(): Boolean {
         if (running && SystemClock.elapsedRealtime() >= deadline) {
-            exercise?.abort("KEYPAD_TEST_TIMEOUT")
+            exercise?.abort("KEYPAD_TEST_TIMEOUT", PinKeypadExerciseTrace.Reason.TIMEOUT)
             finished = true
             stop("Zeit beendet. " + (exercise?.message ?: message))
             onTimeout?.invoke()
         }
         return running
     }
-    fun stop(reason: String) {
+    fun stop(reason: String, exerciseReason: PinKeypadExerciseTrace.Reason = PinKeypadExerciseTrace.Reason.STOPPED) {
         val wasRunning = running
-        exercise?.abort()
+        exercise?.abort(reason = exerciseReason)
         deadline = 0L
         message = reason
         if (wasRunning) onStop?.invoke()
