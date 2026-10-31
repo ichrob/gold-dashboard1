@@ -58,6 +58,44 @@ class ProductReadActivity : Activity() {
         }
         container.addView(advanced)
         container=advanced
+        button("DEGIRO-PIN nur auf diesem Handy einrichten") {
+            when {
+                PinReadinessProbe.running || PhoneRemote.active() || MorningReadRun.running || GoldSearchRun.running || ProductReadRequest.active(SystemClock.elapsedRealtime()) -> result.text = "Laufende Prüfung zuerst stoppen."
+                !PhoneDiagnostics.keypadTestVerified(this) -> result.text = "Zuerst den Ein-Ziffer-Test erfolgreich abschließen."
+                !LocalPinVault.available(this) -> result.text = "Für die lokale PIN werden Android 15 oder neuer und ein entsperrtes Handy mit Gerätesperre benötigt."
+                else -> startActivity(Intent(this, LocalPinActivity::class.java))
+            }
+        }
+        button("Gespeicherte PIN einmal eingeben") {
+            AlertDialog.Builder(this).setTitle("Einmalige lokale PIN-Eingabe")
+                .setMessage("Nur starten, wenn die gespeicherte PIN korrekt ist und alle fünf DEGIRO-Felder leer sind. Bob versucht höchstens diese eine PIN. Fingerabdruckdialog abbrechen und Hinweis schließen, danach nicht bedienen. Keine Wiederholung bei Fehlern. Bei einer Unterbrechung verbliebene Eingaben selbst löschen. Das Ergebnis der Anmeldung anschließend in DEGIRO prüfen; Produktlesen startet separat.")
+                .setNegativeButton("Abbrechen", null)
+                .setPositiveButton("Fünf Felder leer · einmal starten") { _, _ ->
+                    var secret: ByteArray? = null
+                    var started = false
+                    try {
+                        check(preferences.getBoolean("enabled", false) && serviceEnabled() && ProductReadDiagnostics.connected)
+                        check(!PinReadinessProbe.running && !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime()))
+                        check(PhoneDiagnostics.keypadTestVerified(this) && LocalPinVault.available(this))
+                        val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("App unavailable")
+                        secret = LocalPinVault.load(this)
+                        started = true
+                        PinReadinessProbe.startLocalLogin(secret)
+                        startActivity(launch)
+                    } catch (_: Exception) {
+                        if (started) PinReadinessProbe.stop("Lokale PIN-Eingabe gestoppt. Bitte DEGIRO prüfen.")
+                        result.text = "Lokale PIN-Eingabe konnte nicht gestartet werden. Einrichtung, Gerätesperre und Lesedienst prüfen."
+                    } finally { secret?.fill(0) }
+                }.show()
+        }
+        button("Gespeicherte DEGIRO-PIN löschen") {
+            AlertDialog.Builder(this).setTitle("Lokale PIN entfernen?")
+                .setMessage("Entfernt die gespeicherte PIN und ihren Schlüssel von diesem Handy.")
+                .setNegativeButton("Abbrechen", null).setPositiveButton("Löschen") { _, _ ->
+                    if (PinReadinessProbe.running) PinReadinessProbe.stop("Lokale PIN-Einrichtung gelöscht.")
+                    result.text = if (runCatching { LocalPinVault.delete(this) }.isSuccess) "Lokale PIN gelöscht." else "Löschen nicht vollständig bestätigt."
+                }.show()
+        }
         button("PIN-Anmeldeseite technisch prüfen · ohne PIN") {
             runCatching {
                 check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
@@ -265,4 +303,3 @@ class ProductReadActivity : Activity() {
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }
 }
-
