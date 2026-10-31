@@ -56,29 +56,56 @@ def maybe_observe(conn,now=None):
         _LOCK.release()
 
 
-def archive_status(conn):
-    """Combine process state with the latest persisted, sanitized attempt result."""
-    process = __import__('archive_worker').status()
-    try:
-        # Older schemas may lack the ledger. Keep that optional read from
-        # aborting the caller's transaction and subsequent cold-tier telemetry.
-        with conn.transaction() if hasattr(conn, 'transaction') else nullcontext():
-            row = conn.execute('''SELECT status,updated_at,receipt FROM bob_archive_attempts
-                ORDER BY updated_at DESC LIMIT 1''').fetchone()
-    except Exception:
-        row = None
+def _sanitized_archive_attempt(row):
+    """Never expose Drive file identifiers, auth metadata or original receipts."""
     if not row:
-        return process
+        return None
     stored = row[2] if isinstance(row[2], dict) else {}
     proof = stored.get('receipt') if isinstance(stored.get('receipt'), dict) else {}
-    return {**process, 'latestPersistedAttempt': {
-        'status': row[0], 'updatedAt': str(row[1]),
-        'phase': stored.get('phase'), 'errorType': stored.get('errorType'),
-        'receiptPersistenceErrorType': stored.get('receiptPersistenceErrorType'),
-        'restoreVerified': proof.get('restoreVerified') is True,
-        'remoteDownloadVerified': proof.get('remoteDownloadVerified') is True,
-        'deletionPermitted': proof.get('deletionPermitted'),
-        'evidenceDeleted': stored.get('evidenceDeleted') is True}}
+    return {'status': row[0], 'updatedAt': str(row[1]),
+            'phase': stored.get('phase'), 'errorType': stored.get('errorType'),
+            'receiptPersistenceErrorType': stored.get('receiptPersistenceErrorType'),
+            'restoreVerified': proof.get('restoreVerified') is True,
+            'remoteDownloadVerified': proof.get('remoteDownloadVerified') is True,
+            'deletionPermitted': proof.get('deletionPermitted'),
+            'evidenceDeleted': stored.get('evidenceDeleted') is True}
+
+
+def archive_status(conn):
+    """Show latest claim and last verified restore separately, including rollouts.
+
+    Interrupted attempts must remain visible but must not hide an earlier
+    verified original or turn that old receipt into fresh permission. No retry,
+    ledger mutation, token exposure or external archive read is performed.
+    """
+    process = __import__('archive_worker').status()
+    try:
+        with conn.transaction() if hasattr(conn, 'transaction') else nullcontext():
+            latest = conn.execute('''SELECT status,updated_at,receipt FROM bob_archive_attempts
+                ORDER BY updated_at DESC LIMIT 1''').fetchone()
+            verified = conn.execute('''SELECT status,updated_at,receipt FROM bob_archive_attempts
+                WHERE status='verified' ORDER BY updated_at DESC LIMIT 1''').fetchone()
+    except Exception:
+        return process
+    if not latest:
+        return process
+    output = {**process,
+              'latestPersistedAttempt':_sanitized_archive_attempt(latest)}
+    if verified:
+        output['latestVerifiedAttempt'] = _sanitized_archive_attempt(verified)
+    if latest[0] == 'running':
+        # An old 'running' claim can mean a rolling service deploy interrupted
+        # the process. Only mark it as a *review candidate*, not a proven error.
+        from datetime import datetime, timezone
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(
+                str(latest[1]).replace('Z','+00:00'))).total_seconds()
+        except (ValueError, TypeError, OverflowError):
+            age = None
+        output['incompleteClaimReview'] = (
+            'nonterminal-overdue' if age is not None and age > 600 else
+            'running-or-recent' if age is not None else 'unknown')
+    return output
 
 
 def report(conn,now=None):
