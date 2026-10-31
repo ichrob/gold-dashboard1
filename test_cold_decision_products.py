@@ -84,7 +84,7 @@ class DecisionProductsIntegrationTests(unittest.TestCase):
         import os
         import psycopg
         from psycopg.types.json import Jsonb
-        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'],autocommit=True) as conn:
             conn.execute('CREATE TEMP TABLE bob_decision_audit (id text PRIMARY KEY,payload jsonb)')
             original={'products':[{'isin':'EXAMPLE','entry':9007199254740993}],
                       'marketEvaluable':True,'recordedAt':1790854200000}
