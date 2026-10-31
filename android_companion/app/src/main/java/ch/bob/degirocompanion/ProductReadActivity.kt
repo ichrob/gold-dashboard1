@@ -75,7 +75,7 @@ class ProductReadActivity : Activity() {
         })
         button("Eine Testziffer eingeben und löschen") {
             AlertDialog.Builder(this).setTitle("Einmaliger Tastaturtest · keine Anmeldung")
-                .setMessage("Nur starten, wenn du zuvor in DEGIRO alle fünf PIN-Felder geleert und die Löschtaste rechts neben der Null geprüft hast. Bob drückt höchstens einmal 0 und versucht diese Testziffer einmal zu löschen. Keine echte PIN eingeben. Nach dem Abbrechen des Fingerabdruckdialogs und Schließen des Hinweises nicht weiter berühren. Bei einem Abbruch kann die Testziffer stehen bleiben: anschließend selbst prüfen und löschen. Es wird kein Eingabetext gelesen. Der Test bestätigt noch keine sichere automatische Anmeldung.")
+                .setMessage("Nur starten, wenn du zuvor in DEGIRO alle fünf PIN-Felder geleert und die Löschtaste rechts neben der Null geprüft hast. Bob berührt höchstens einmal die eindeutig erkannte Nulltaste und versucht diese Testziffer einmal zu löschen. Kein zweiter Zifferndruck. Keine echte PIN eingeben. Nach dem Abbrechen des Fingerabdruckdialogs und Schließen des Hinweises nicht weiter berühren. Bei einem Abbruch kann die Testziffer stehen bleiben: anschließend selbst prüfen und löschen. Es wird kein Eingabetext gelesen. Der Test bestätigt noch keine sichere automatische Anmeldung.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Fünf Felder leer · Test starten") { _, _ ->
                     runCatching {
@@ -265,3 +265,4 @@ class ProductReadActivity : Activity() {
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }
 }
+
