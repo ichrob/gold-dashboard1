@@ -301,7 +301,7 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(state,(4,'ListVerificationError'))
             self.assertFalse(worker.tick(connect,lambda *_:self.fail('No fifth OCR verification attempt')))
             with connect() as conn:
-                conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb WHERE batch_id=%s",
+                conn.execute("UPDATE bob_android_list_images SET processing_attempts=5,processing_at=now()-interval '5 minutes',import_receipt=%s::jsonb WHERE batch_id=%s",
                     (json.dumps({'stage':'read-failed','error':'LockNotAvailable'}),value['batchId']))
                 conn.execute('CREATE TABLE retry_probe(id INTEGER PRIMARY KEY)')
             calls=[]
