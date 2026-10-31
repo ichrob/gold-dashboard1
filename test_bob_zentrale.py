@@ -23,7 +23,7 @@ class ZentraleTests(unittest.TestCase):
         with patch("bob_auth.authenticated", return_value=False):
             self.assertTrue(bob_zentrale.route(h,"demo","pw"))
         self.assertEqual(h.status,303)
-        self.assertEqual(h.response_headers.get("Location"),"/login")
+        self.assertEqual(h.response_headers.get("Location"),"/login?view=zentrale")
         self.assertEqual(h.wfile.getvalue(),b"")
 
     def test_private_shell_get_head_and_response_policy(self):
@@ -54,11 +54,34 @@ class ZentraleTests(unittest.TestCase):
         self.assertNotIn(b"method:\"POST\"",app.wfile.getvalue())
         self.assertNotIn(b"innerHTML",app.wfile.getvalue())
 
+    def test_chatgpt_attribution_redirect_is_bounded_and_keeps_login_destination(self):
+        for path in ("/zentrale/?utm_source=chatgpt.com",
+                     "/zentrale/?utm_source=chatgpt.com&utm_medium=referral",
+                     "/zentrale/index.html?utm_source=chatgpt.com"):
+            h=FakeHandler(path)
+            self.assertTrue(bob_zentrale.route(h,"u","p"))
+            self.assertEqual(h.status,303)
+            self.assertEqual(h.response_headers.get("Location"),"/zentrale/")
+            self.assertEqual(h.wfile.getvalue(),b"")
+            self.assertEqual(h.response_headers.get("Cache-Control"),"no-store")
+        with patch("bob_auth.authenticated",return_value=False):
+            clean=FakeHandler("/zentrale/")
+            self.assertTrue(bob_zentrale.route(clean,"u","p"))
+        self.assertEqual(clean.response_headers.get("Location"),"/login?view=zentrale")
+
     def test_unknown_and_query_do_not_leak_private_content(self):
         self.assertFalse(bob_zentrale.route(FakeHandler("/zentrale/delete"),"u","p"))
         h=FakeHandler("/zentrale/?x=1")
         self.assertTrue(bob_zentrale.route(h,"u","p"))
         self.assertEqual(h.status,404)
         self.assertEqual(h.wfile.getvalue(),b"")
+        for path in ("/zentrale/?next=https://evil.example",
+                     "/zentrale/?utm_source=chatgpt.com&next=/",
+                     "/zentrale/app.js?utm_source=chatgpt.com",
+                     "/zentrale/?utm_source",
+                     "/zentrale/?utm_source=" + "x"*300):
+            h=FakeHandler(path)
+            self.assertTrue(bob_zentrale.route(h,"u","p"))
+            self.assertEqual(h.status,404)
 
 if __name__=="__main__": unittest.main()
