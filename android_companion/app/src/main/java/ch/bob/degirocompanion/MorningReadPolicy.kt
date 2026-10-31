@@ -212,21 +212,69 @@ internal object MorningReadPolicy {
                 ids.findAll(n.row.uppercase()).map { it.value }.toSet()==setOf(target) &&
                 productName(n.row) && !controls.containsMatchIn(n.row)
         }
-        val group=innermost(nodes,groups).singleOrNull() ?: return null
-        fun inGroup(i:Int):Boolean {
-            var at=i;var steps=0
+        val group=innermost(nodes,groups).singleOrNull()
+        fun ancestorOf(ancestor:Int, child:Int):Boolean {
+            var at=child;var steps=0
             while(at in nodes.indices && steps++<nodes.size) {
-                if(at==group)return true
+                if(at==ancestor)return true
                 at=nodes[at].parent
             }
             return false
         }
-        // WebView can expose the highlighted ISIN as a sibling span. Validate the
-        // isolated group, then tap its actual product-name label, never its whole row.
-        return innermost(nodes,nodes.indices.filter { i ->
-            val n=nodes[i]
-            inGroup(i) && safe(n) && productName(n.text) && !controls.containsMatchIn(n.row)
-        }).singleOrNull()
+        // Prefer the original isolated product group when it has no trading
+        // controls. Never tap its wrapper: only its exact product-name label.
+        if(group!=null) {
+            innermost(nodes,nodes.indices.filter { i ->
+                val n=nodes[i]
+                ancestorOf(group,i) && safe(n) && !n.containsInput &&
+                    productName(n.text) && !controls.containsMatchIn(n.row)
+            }).singleOrNull()?.let { return it }
+        }
+        // Samsung DEGIRO also renders a single product title/ISIN and separate
+        // K/V trading buttons inside the SAME WebView card. In that case the
+        // original group filter correctly refuses the aggregate row; however a
+        // unique isolated name label is still a safe read-only gesture target.
+        //
+        // Demand one verified result, one exact input, the leverage category,
+        // no order/login form, and a nearby enclosing product identity. Neither
+        // the K/V nodes nor their enclosing row may ever be a tap target.
+        if(nodes.any { it.password || it.sensitive } || protection(nodes)!=null ||
+            nodes.none { normalized(it.text).equals("Hebelprodukte",ignoreCase=true) }) return null
+        val visible=nodes.filterNot { it.editable }.flatMap { n ->
+            ids.findAll(n.text.uppercase()).map { it.value }.toList()
+        }.toSet()
+        if(visible!=setOf(target))return null
+        val isolated=innermost(nodes,nodes.indices.filter { i ->
+            val name=nodes[i]
+            if(!safe(name) || name.containsInput || !productName(name.text) ||
+                controls.containsMatchIn(name.text) ||
+                controls.containsMatchIn(name.description) ||
+                controls.containsMatchIn(name.hint) ||
+                controls.containsMatchIn(name.row))return@filter false
+            // Never use a name node that encloses any trading button.
+            if(nodes.indices.any { j -> j!=i && ancestorOf(i,j) &&
+                listOf(nodes[j].text,nodes[j].description).any(controls::containsMatchIn) })return@filter false
+            var parent=i;var steps=0;var linked=false
+            while(parent in nodes.indices && steps++<6) {
+                val container=nodes[parent]
+                // The root may contain unrelated navigation and trade actions.
+                if((parent==i || container.parent in nodes.indices) &&
+                    container.row.length in 1..800 &&
+                    ids.findAll(container.row.uppercase()).map { it.value }.toSet()==setOf(target) &&
+                    productName(container.row)) {
+                    // If K/V is visible in the card, it must be isolated in
+                    // child controls, never baked into this title label.
+                    if(!controls.containsMatchIn(container.row) || nodes.indices.any { j ->
+                        ancestorOf(parent,j) && !ancestorOf(i,j) &&
+                        normalized(nodes[j].text).lowercase() in setOf("k","v","kauf","verkauf","buy","sell")
+                    })linked=true
+                }
+                if(linked)break
+                parent=container.parent
+            }
+            linked
+        })
+        return isolated.singleOrNull()
     }
 
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })
