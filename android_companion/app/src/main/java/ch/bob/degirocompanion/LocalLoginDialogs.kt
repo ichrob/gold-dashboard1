@@ -121,7 +121,6 @@ internal class LocalLoginDialogs {
         val now = SystemClock.elapsedRealtime()
         if (afterEntry && postSince == 0L) postSince = now
         if (afterEntry && now - postSince >= 15_000) return fail("LOCAL_PIN_RESULT_UNVERIFIED")
-        if (budget.expired(now)) return fail("LOCAL_PIN_DIALOG_UNCHANGED")
         if (pending) return true
         val root = service.rootInActiveWindow ?: run { homeSince = 0L; return true }
         val nodes = mutableListOf<AccessibilityNodeInfo>()
@@ -163,6 +162,10 @@ internal class LocalLoginDialogs {
                 // whole accessibility tree. Large legitimate market pages can
                 // exceed the bounded 300-node dialog scanner.
                 if (degiro && marketsVisible(service, root, now)) return true
+                // A verified Markets transition may follow an acknowledged
+                // dialog close. Check that transition before treating the
+                // previous dialog's timeout as an unchanged visible dialog.
+                if (budget.expired(now)) return fail("LOCAL_PIN_DIALOG_UNCHANGED")
                 val complete = LoginDialogNodeScan.collect(root, object : LoginDialogNodeScan.Access<AccessibilityNodeInfo> {
                     override fun safe(node: AccessibilityNodeInfo) = this@LocalLoginDialogs.safe(node, pkg, root.windowId)
                     override fun labels(node: AccessibilityNodeInfo) = listOf(node.text, node.contentDescription)
