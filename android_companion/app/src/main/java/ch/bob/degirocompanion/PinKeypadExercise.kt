@@ -26,15 +26,20 @@ internal class PinKeypadExercise(private val confirmedEmpty: Boolean) {
         !(Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive)
     private fun clickOffered(node: AccessibilityNodeInfo) = node.isClickable &&
         node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }
+    private fun bounds(node: AccessibilityNodeInfo) = Rect().also { node.getBoundsInScreen(it) }
 
     fun begin(root: AccessibilityNodeInfo, zero: AccessibilityNodeInfo, delete: AccessibilityNodeInfo) {
         if (armed || done) return
         val id = root.windowId
+        val zeroBounds = bounds(zero)
+        val deleteBounds = bounds(delete)
         // The caller already checked a complete login scene, unique regular 0..9 grid,
         // direct digit actions and the exact user-confirmed lower-right symbol position.
         val valid = allowed(root, id) && zero.refresh() && delete.refresh() &&
             allowed(zero, id) && allowed(delete, id) && zero.isEnabled && !delete.isEnabled &&
-            clickOffered(zero) && clickOffered(delete)
+            clickOffered(zero) && clickOffered(delete) && bounds(zero) == zeroBounds &&
+            bounds(delete) == deleteBounds &&
+            (PinKeypadPolicy.digit(zero.text) ?: PinKeypadPolicy.digit(zero.contentDescription)) == 0
         if (policy.begin(confirmedEmpty, valid) != PinKeypadExercisePolicy.Action.DIGIT) return
         window = id
         target = AccessibilityNodeInfo.obtain(delete)
