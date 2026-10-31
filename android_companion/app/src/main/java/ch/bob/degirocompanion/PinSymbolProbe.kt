@@ -6,29 +6,34 @@ internal object PinSymbolProbe {
         val digit: Int?, val labelled: Boolean, val action: Boolean,
         val enabled: Boolean = true, val clickableFlag: Boolean = action,
         val clickAction: Boolean = action, val nearbyParentAction: Boolean = false)
-    fun classify(nodes: List<Node>): PinProbePolicy.Result {
+    /** Fixed booleans only; no node, label, coordinate or input value escapes inspection. */
+    data class Flags(val enabled: Boolean, val labelled: Boolean, val clickableFlag: Boolean,
+        val clickAction: Boolean, val nearbyParentAction: Boolean)
+    data class Observation(val result: PinProbePolicy.Result, val flags: Flags? = null)
+    fun classify(nodes: List<Node>) = observe(nodes).result
+    fun observe(nodes: List<Node>): Observation {
         val digits = nodes.filter { it.digit != null }
         if (digits.size != 10 || digits.map { it.digit }.toSet() != (0..9).toSet())
-            return PinProbePolicy.Result.SYMBOL_LAYOUT_UNCONFIRMED
+            return Observation(PinProbePolicy.Result.SYMBOL_LAYOUT_UNCONFIRMED)
         fun key(n: Int) = digits.single { it.digit == n }
         val dx = (key(3).x-key(1).x)/2
         val dy = (key(7).y-key(1).y)/2
-        if (dx <= 0 || dy <= 0) return PinProbePolicy.Result.SYMBOL_LAYOUT_UNCONFIRMED
+        if (dx <= 0 || dy <= 0) return Observation(PinProbePolicy.Result.SYMBOL_LAYOUT_UNCONFIRMED)
         for (n in 0..9) {
             val col = if(n == 0) 1 else (n-1)%3
             val row = if(n == 0) 3 else (n-1)/3
             if (kotlin.math.abs(key(n).x-(key(1).x+col*dx)) > dx*.2f ||
                 kotlin.math.abs(key(n).y-(key(1).y+row*dy)) > dy*.2f)
-                return PinProbePolicy.Result.SYMBOL_LAYOUT_UNCONFIRMED
+                return Observation(PinProbePolicy.Result.SYMBOL_LAYOUT_UNCONFIRMED)
         }
         val matches = nodes.filter { it.digit == null && it.width > 0 && it.height > 0 &&
             it.width <= dx*1.2f && it.height <= dy*1.2f &&
             kotlin.math.abs(it.x-key(3).x) <= dx*.3f &&
             kotlin.math.abs(it.y-key(0).y) <= dy*.3f }
-        if (matches.isEmpty()) return PinProbePolicy.Result.SYMBOL_NODE_UNAVAILABLE
-        if (matches.size != 1) return PinProbePolicy.Result.SYMBOL_NODES_MULTIPLE
+        if (matches.isEmpty()) return Observation(PinProbePolicy.Result.SYMBOL_NODE_UNAVAILABLE)
+        if (matches.size != 1) return Observation(PinProbePolicy.Result.SYMBOL_NODES_MULTIPLE)
         val node=matches.single()
-        return when {
+        val result = when {
             !node.enabled -> PinProbePolicy.Result.SYMBOL_DISABLED
             node.clickableFlag && node.clickAction -> if (node.labelled)
                 PinProbePolicy.Result.SYMBOL_LABELLED_ACTION else PinProbePolicy.Result.SYMBOL_UNLABELLED_ACTION
@@ -38,5 +43,8 @@ internal object PinSymbolProbe {
             node.labelled -> PinProbePolicy.Result.SYMBOL_LABELLED_PASSIVE
             else -> PinProbePolicy.Result.SYMBOL_UNLABELLED_PASSIVE
         }
+        return Observation(result, Flags(node.enabled, node.labelled, node.clickableFlag,
+            node.clickAction, node.nearbyParentAction))
     }
 }
+
