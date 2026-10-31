@@ -64,15 +64,15 @@ class ProductReadService : AccessibilityService() {
             if (!PinReadinessProbe.active()) return
             if (!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive ||
                 (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) {
-                PinReadinessProbe.stop("Bildschirm gesperrt. PIN-Test beendet."); return
+                PinReadinessProbe.stop("Bildschirm gesperrt. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SCREEN_LOCKED); return
             }
             if (!getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false)) {
-                PinReadinessProbe.stop("Lesefreigabe beendet. PIN-Test beendet."); return
+                PinReadinessProbe.stop("Lesefreigabe beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.ACCESS_DISABLED); return
             }
             runCatching {
                 val root = productRoot(record = false)
                 try { PinReadinessProbe.inspect(root) } finally { root?.recycle() }
-            }.onFailure { PinReadinessProbe.stop("Ansicht nicht zugänglich. PIN-Test beendet.") }
+            }.onFailure { PinReadinessProbe.stop("Ansicht nicht zugänglich. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.EXCEPTION) }
             if (PinReadinessProbe.running) handler.postDelayed(this, 1000)
         }
     }
@@ -83,7 +83,7 @@ class ProductReadService : AccessibilityService() {
                 handler.postDelayed({ runCatching { MorningReadTransfer.automaticResults(this@ProductReadService) } },1000)
                 return
             }
-            if(intent?.action==Intent.ACTION_SCREEN_OFF && PinReadinessProbe.running) PinReadinessProbe.stop("Bildschirm ausgeschaltet. PIN-Test beendet.")
+            if(intent?.action==Intent.ACTION_SCREEN_OFF && PinReadinessProbe.running) PinReadinessProbe.stop("Bildschirm ausgeschaltet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SCREEN_LOCKED)
             if(intent?.action==Intent.ACTION_SCREEN_OFF)PhoneRemote.stop(this@ProductReadService,"SCREEN_LOCKED")
             if (intent?.action != Intent.ACTION_SCREEN_OFF || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return
             MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
@@ -259,11 +259,11 @@ class ProductReadService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (PinReadinessProbe.running) {
             if (PinReadinessProbe.exerciseArmed && event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-                PinReadinessProbe.stop("Fensterwechsel erkannt. Bedienungstest beendet; Eingabe selbst prüfen.")
+                PinReadinessProbe.stop("Fensterwechsel erkannt. Bedienungstest beendet; Eingabe selbst prüfen.", PinKeypadExerciseTrace.Reason.WINDOW_EVENT)
                 return
             }
             if (PinReadinessProbe.exerciseArmed && event?.eventType == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
-                PinReadinessProbe.stop("Berührung erkannt. Bedienungstest beendet; eventuell verbliebene Testziffer selbst löschen.")
+                PinReadinessProbe.stop("Berührung erkannt. Bedienungstest beendet; eventuell verbliebene Testziffer selbst löschen.", PinKeypadExerciseTrace.Reason.USER_TOUCH)
                 return
             }
             if (event?.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED &&
@@ -301,8 +301,8 @@ class ProductReadService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         queueRead(400)
     }
-    override fun onInterrupt() { if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet."); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
-    override fun onDestroy() { if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.");PinReadinessProbe.onStart=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
+    override fun onInterrupt() { if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
+    override fun onDestroy() { if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")

@@ -3,6 +3,34 @@ from datetime import datetime, timezone, timedelta
 from android_telemetry import validate_report, PIN_RESULTS, BOOLS
 
 class PinTelemetry(unittest.TestCase):
+    def test_interruption_preserves_progress_and_fixed_reason(self):
+        from android_telemetry import PIN_EXERCISE_STAGES
+        for stage in PIN_EXERCISE_STAGES:
+            report=self.report()
+            report['pinProbe']={**self.probe(), 'result':'KEYPAD_TEST_INTERRUPTED',
+                'exerciseTrace':{'stage':stage, 'reason':'TARGET_REFRESH_FAILED'}}
+            self.assertEqual(validate_report(report)['pinProbe']['exerciseTrace']['stage'], stage)
+    def test_trace_rejects_free_text_and_false_action_success(self):
+        bad=[{'stage':'secret', 'reason':'STOPPED'}, {'stage':'WAITING', 'reason':[]},
+             {'stage':0, 'reason':'STOPPED'}, {'stage':'WAITING', 'reason':'text from screen'},
+             {'stage':'WAITING', 'reason':'STOPPED', 'pin':'12345'}]
+        for trace in bad:
+            report=self.report()
+            report['pinProbe']={**self.probe(), 'result':'KEYPAD_TEST_INTERRUPTED', 'exerciseTrace':trace}
+            with self.subTest(trace=trace), self.assertRaises(ValueError): validate_report(report)
+        for result in ('NO_INPUT', 'KEYPAD_TEST_STATE_CYCLE_OBSERVED', 'KEYPAD_TEST_DIGIT_REJECTED'):
+            report=self.report()
+            report['pinProbe']={**self.probe(), 'result':result,
+                'exerciseTrace':{'stage':'WAITING','reason':'STOPPED'}}
+            with self.subTest(result=result), self.assertRaises(ValueError): validate_report(report)
+    def test_trace_enum_contract_matches_android(self):
+        import re
+        from pathlib import Path
+        from android_telemetry import PIN_EXERCISE_STAGES, PIN_EXERCISE_REASONS
+        source=(Path(__file__).parent/'android_companion/app/src/main/java/ch/bob/degirocompanion/PinKeypadExerciseTrace.kt').read_text()
+        for name, expected in [('Stage', PIN_EXERCISE_STAGES), ('Reason', PIN_EXERCISE_REASONS)]:
+            block=re.search(r'enum class '+name+r'\s*\{([^}]+)', source).group(1)
+            self.assertEqual(set(re.findall(r'\b[A-Z_]+\b', block)), set(expected))
     def flags(self, **changes):
         return dict(enabled=False, labelled=False, clickableFlag=True,
                     clickAction=True, nearbyParentAction=False) | changes
@@ -54,4 +82,3 @@ class PinTelemetry(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-

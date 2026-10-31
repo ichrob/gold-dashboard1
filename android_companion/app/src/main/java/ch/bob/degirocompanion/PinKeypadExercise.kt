@@ -4,10 +4,13 @@ import android.graphics.Rect
 import android.os.Build
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
+import ch.bob.degirocompanion.PinKeypadExerciseTrace.Reason
+import ch.bob.degirocompanion.PinKeypadExerciseTrace.Stage
 
 /** Uses only direct node actions. After the single test digit, never reads text or traverses the tree. */
 internal class PinKeypadExercise(private val confirmedEmpty: Boolean) {
     private val policy = PinKeypadExercisePolicy()
+    val trace = PinKeypadExerciseTrace()
     private var target: AccessibilityNodeInfo? = null
     private var targetBounds = Rect()
     private var targetClass: String? = null
@@ -48,39 +51,56 @@ internal class PinKeypadExercise(private val confirmedEmpty: Boolean) {
         delete.getBoundsInScreen(targetBounds)
         expires = SystemClock.elapsedRealtime() + 12_000
         code = "KEYPAD_TEST_DIGIT_SENT"
-        if (!zero.performAction(AccessibilityNodeInfo.ACTION_CLICK)) abort("KEYPAD_TEST_DIGIT_REJECTED")
+        trace.advance(Stage.DIGIT_REQUESTED)
+        if (!zero.performAction(AccessibilityNodeInfo.ACTION_CLICK)) abort("KEYPAD_TEST_DIGIT_REJECTED", Reason.DIGIT_REJECTED)
+        else trace.advance(Stage.DIGIT_ACCEPTED)
     }
 
     fun inspect(root: AccessibilityNodeInfo?) {
         if (!armed || done) return
         val node = target
-        if (root == null || node == null || !allowed(root, window) || !node.refresh() ||
-            !allowed(node, window) || !clickOffered(node)) {
-            abort("KEYPAD_TEST_INTERRUPTED"); return
+        val reason = when {
+            root == null -> Reason.ROOT_MISSING
+            root.packageName?.toString() != ProductScreenEvidence.PACKAGE -> Reason.ROOT_PACKAGE
+            root.windowId != window -> Reason.ROOT_WINDOW
+            !root.isVisibleToUser -> Reason.ROOT_HIDDEN
+            root.isPassword || root.isEditable || (Build.VERSION.SDK_INT >= 34 && root.isAccessibilityDataSensitive) -> Reason.ROOT_PROTECTED
+            node == null -> Reason.TARGET_MISSING
+            !node.refresh() -> Reason.TARGET_REFRESH_FAILED
+            node.packageName?.toString() != ProductScreenEvidence.PACKAGE -> Reason.TARGET_PACKAGE
+            node.windowId != window -> Reason.TARGET_WINDOW
+            !node.isVisibleToUser -> Reason.TARGET_HIDDEN
+            node.isPassword || node.isEditable || (Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive) -> Reason.TARGET_PROTECTED
+            !clickOffered(node) -> Reason.TARGET_ACTION_UNAVAILABLE
+            bounds(node) != targetBounds -> Reason.TARGET_BOUNDS_CHANGED
+            node.className?.toString() != targetClass -> Reason.TARGET_CLASS_CHANGED
+            node.viewIdResourceName != targetViewId -> Reason.TARGET_ID_CHANGED
+            else -> Reason.NONE
         }
-        val bounds = Rect(); node.getBoundsInScreen(bounds)
-        if (bounds != targetBounds || node.className?.toString() != targetClass ||
-            node.viewIdResourceName != targetViewId) { abort("KEYPAD_TEST_INTERRUPTED"); return }
-        if (SystemClock.elapsedRealtime() >= expires) { abort("KEYPAD_TEST_NO_STATE_CHANGE"); return }
+        if (reason != Reason.NONE) { abort(reason = reason); return }
+        if (SystemClock.elapsedRealtime() >= expires) { abort("KEYPAD_TEST_NO_STATE_CHANGE", Reason.STATE_TIMEOUT); return }
+        checkNotNull(node)
         when (policy.observe(true, node.isEnabled)) {
             PinKeypadExercisePolicy.Action.DELETE -> {
                 code = "KEYPAD_TEST_DELETE_SENT"
-                if (!node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) abort("KEYPAD_TEST_DELETE_REJECTED")
+                trace.advance(Stage.DELETE_REQUESTED)
+                if (!node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) abort("KEYPAD_TEST_DELETE_REJECTED", Reason.DELETE_REJECTED)
+                else trace.advance(Stage.DELETE_ACCEPTED)
             }
             PinKeypadExercisePolicy.Action.FINISH -> {
-                code = "KEYPAD_TEST_STATE_CYCLE_OBSERVED"; done = true; release()
+                code = "KEYPAD_TEST_STATE_CYCLE_OBSERVED"; trace.end(Reason.STATE_CYCLE); done = true; release()
             }
             else -> Unit
         }
     }
-    fun abort(reason: String = "KEYPAD_TEST_INTERRUPTED") {
-        if (!done) { code = reason; done = true; policy.stop() }
+    fun abort(resultCode: String = "KEYPAD_TEST_INTERRUPTED", reason: Reason = Reason.STOPPED) {
+        if (!done) { code = resultCode; trace.end(reason); done = true; policy.stop() }
         release()
     }
     private fun release() { target?.recycle(); target = null }
     val message get() = when (code) {
         "KEYPAD_TEST_STATE_CYCLE_OBSERVED" -> "Ein Testzifferndruck und ein Löschdruck wurden angenommen; deaktiviert → aktiv → deaktiviert beobachtet. Bitte selbst prüfen, dass alle fünf Felder leer sind. Kein Nachweis einer Anmeldung oder automatisch erkannten leeren Eingabe."
         "KEYPAD_TEST_WAITING" -> "Bedienungstest wartet auf die eindeutig erkennbare PIN-Tastatur mit deaktivierter Löschtaste."
-        else -> "Bedienungstest: $code. Keine Wiederholung. Bitte in DEGIRO prüfen und eine eventuell verbliebene Testziffer selbst löschen."
+        else -> "Bedienungstest: $code. Schritt: ${trace.stage}; Grund: ${trace.reason}. Keine Wiederholung. Bitte in DEGIRO prüfen und eine eventuell verbliebene Testziffer selbst löschen."
     }
 }
