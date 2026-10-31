@@ -129,6 +129,7 @@ def report(conn,now=None):
         largestTables=[dict(table=name,bytes=n,estimatedRows=live,estimatedDeadRows=dead,
             lastAutovacuum=str(vac) if vac else None) for name,n,live,dead,vac in tables],
         archiveWorker=archive_status(conn),
+        coldMetrics=__import__('cold_metrics').status(conn),
         evidenceDeleted=False,automaticPaidScaling=False,
-        note='No test data or storage formats are changed. '
+        note='Cold metric payloads retain their keys and verified private archive references. '
              'Dead-row estimates do not measure reclaimable disk bytes. Capacity forecasts are estimates.')

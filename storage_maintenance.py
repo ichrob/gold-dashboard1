@@ -7,7 +7,7 @@ import time
 _THREAD = None
 _LOCK = threading.Lock()
 # Fixed SQL identifiers: never interpolate user input or catalog names.
-_TABLES = ('bob_diagnostic_history', 'bob_android_list_images')
+_TABLES = ('bob_diagnostic_history', 'bob_android_list_images', 'bob_metric_checks')
 
 
 def connect():
@@ -20,7 +20,7 @@ def connect():
 
 
 def run_once(factory=connect):
-    """A dedicated autocommit connection, at most two time-limited vacuums.
+    """A dedicated autocommit connection, at most three time-limited vacuums.
 
     No FULL or truncation: avoid table rewrites and exclusive truncation locks.
     Completed VACUUM is not proof of freed disk bytes (or all tuples removable).

@@ -7,3 +7,6 @@ cryptography>=46.0.3
 
 # Render eMudhra advisory: use the corrected CA bundle on every rebuild.
 certifi>=2026.10.19
+
+# Historical metric reports can resolve verified private Drive payloads.
+-r requirements-archive.txt
