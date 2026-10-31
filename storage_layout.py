@@ -1,5 +1,45 @@
 """Read-only relation layout and explicitly sampled payload sizes; no free-space claims."""
 
+import json
+import threading
+
+_DECISION_LOG_LOCK = threading.Lock()
+_DECISION_LOGGED = False
+
+
+def _log_decision_sample_once(sample):
+    """Publish one sanitized size summary per process for private Render diagnostics.
+
+    Bob's read-only MCP connection may project away newly added optional fields.
+    Never print raw JSON values, identifiers, dates, credentials, or exceptions.
+    """
+    global _DECISION_LOGGED
+    if not isinstance(sample, dict) or sample.get('status') != 'sampled':
+        return
+    with _DECISION_LOG_LOCK:
+        if _DECISION_LOGGED:
+            return
+        allowed = set(_DECISION_FIELD_KEYS) | {'other-fields'}
+        groups = []
+        for item in sample.get('fields', []):
+            if not isinstance(item,dict) or item.get('fieldGroup') not in allowed:
+                return
+            numbers = (item.get('observedFieldValues'),
+                       item.get('summedNestedBytes'),item.get('maximumNestedBytes'))
+            if any(type(n) is not int or n < 0 for n in numbers):
+                return
+            groups.append(dict(field=item['fieldGroup'],rows=numbers[0],
+                               nestedBytes=numbers[1],maximumBytes=numbers[2]))
+        count = sample.get('sampledRecords')
+        if type(count) is not int or not 1 <= count <= 8 or len(groups)>len(allowed):
+            return
+        _DECISION_LOGGED = True
+        print('BOB_DECISION_FOOTPRINT ' +
+              json.dumps({'status':'sampled','sampledRecords':count,
+                          'fields':groups,'diskBytesFreed':None},
+                         sort_keys=True,separators=(',',':')),flush=True)
+
+
 def report(conn):
     try:
         with conn.transaction():
@@ -83,7 +123,7 @@ def decision_payload_sample(conn):
                 FROM selected s CROSS JOIN LATERAL jsonb_each(s.payload) e
                 GROUP BY 1 ORDER BY 3 DESC,1""",
                 (list(_DECISION_FIELD_KEYS),)).fetchall()
-        return {'status':'sampled' if rows else 'empty', 'readOnly':True,
+        result = {'status':'sampled' if rows else 'empty', 'readOnly':True,
                 'method':'indexed-oldest-four-and-newest-four-max-eight-unique-rows',
                 'sampledRecords':int(rows[0][4]) if rows else 0,
                 'fields':[{'fieldGroup':field,'observedFieldValues':int(count),
@@ -94,5 +134,7 @@ def decision_payload_sample(conn):
                 'note':'Only aggregate sizes of up to eight decisions, no payload contents. '
                        'JSONB child sizes are not physical TOAST usage, free space, '
                        'all-row coverage, or a permitted offload budget.'}
+        _log_decision_sample_once(result)
+        return result
     except Exception:
         return {'status':'not-observed','readOnly':True,'reclaimableBytes':None}
