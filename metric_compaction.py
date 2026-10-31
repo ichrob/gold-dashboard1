@@ -63,9 +63,13 @@ def compact(conn, budget, *, resume=False, target='metric'):
     # of JSONB alone would dangerously understate the rewrite's storage footprint.
     row = conn.execute('SELECT coalesce(sum(pg_column_size(t)+32),0),count(*) FROM ' + table + ' t').fetchone()
     indexes = conn.execute('SELECT pg_indexes_size(%s)', (table,)).fetchone()[0]
-    estimate = int(row[0]*1.5)+indexes
+    toast = conn.execute('''SELECT coalesce(pg_total_relation_size(nullif(reltoastrelid,0)),0)
+        FROM pg_class WHERE oid=to_regclass(%s)''', (table,)).fetchone()[0]
+    # Whole-row sizing must never accidentally omit externally stored values.
+    # Count the complete TOAST relation too, even if this double-counts bytes.
+    estimate = int(row[0]*1.5)+indexes+toast
     result = {'target': target, 'relationBytesBefore': before, 'estimatedRewriteBytes': estimate,
-              'observedBudgetBytes': budget, 'operations': operations}
+              'observedBudgetBytes': budget, 'toastRelationBytes': toast, 'operations': operations}
     if 2*estimate+50*M > budget:
         result['status'] = 'rewrite-budget-insufficient'
     else:
