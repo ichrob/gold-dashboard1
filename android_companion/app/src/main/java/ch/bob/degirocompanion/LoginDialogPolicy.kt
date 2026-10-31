@@ -11,7 +11,8 @@ internal object LoginDialogPolicy {
     fun verifiedMarkets(labels: Set<String>, afterEntry: Boolean): Boolean =
         labels.containsAll(setOf("Märkte", "News", "Terminkalender", "Favoriten", "Portfolio")) &&
             labels.none { it in setOf("Haben Sie Ihren Code vergessen?", "Forgot your passcode?",
-                "Forgot your code?", "PassCode", NOTICE, OFFER) } &&
+                "Forgot your code?", "PassCode", NOTICE, OFFER,
+                "Abbrechen", "Cancel", "Schließen", "Order bestätigen") } &&
             (afterEntry || "Mit Namen, ISIN oder Symbol suchen" in labels)
     fun normalize(value: CharSequence?) = value?.toString()?.trim()?.replace(Regex("\\s+"), " ").orEmpty()
     fun identify(degiro: Boolean, trustedSystem: Boolean, associated: Boolean,
