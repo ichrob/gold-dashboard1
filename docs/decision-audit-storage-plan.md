@@ -249,3 +249,39 @@ attempt row or pretend the uploaded but unverified Drive file is a
 recoverable/verified source. Use a **new distinct attempt ID** for a
 future full backup in a quiet deployment window, or implement separately
 tested durable remote-restore resumption before the next pilot.
+## Exactly-once single decision pilot (explicitly disabled unless approved)
+
+An optional one-shot coordinator `decision_product_pilot.py` can be invoked
+on startup only when the private environment contains BOTH
+`BOB_COLD_DECISION_PRODUCTS_ENABLED=1` and an exact JSON operator command
+`BOB_DECISION_PRODUCT_PILOT_ONCE={"id":"unique-operator-id",
+"confirmed":true,"maxUpdates":1}`. Missing, malformed or additional keys
+cause no startup worker and no source changes. No public HTTP endpoint
+accepts this command. The default is entirely disabled.
+
+A single bounded run waits until ordinary service startup is complete,
+independently checks a recent verified backup and exact resource-specific
+Render disk headroom, then creates an immutable unique pilot ID claim in
+`bob_cold_decision_pilot_attempts`. The ID can be inserted at most once,
+including after a rolling deploy. A failed/interrupted attempt is never
+automatically retried. The writer performs its own second backup, disk,
+archive lock and caller-approval checks before any product changes.
+
+The optional `max_updates=1` writer argument stops after the first eligible
+historical decision in an indexed 20-row page, preserving the durable scan
+cursor at that decision (never skipping the remaining eligible rows). It
+may upload and replace exactly one old product array with a verified
+content-addressed reference. On successful SQL commit it records the
+read-through result in the pilot ledger. Failures retain their status
+and exception *type* only, never a Drive file ID, ISIN or original value.
+
+The private storage report exposes only the sanitized most recent pilot
+state, row count and timestamp; it does not expose the command ID. If the
+pilot is interrupted midflight the persistent `running` claim prevents
+another implicit write, and human/operator examination of ledger and
+archive proof is required before any distinct attempt.
+
+No automated repeat schedule or broad writer enablement is provided.
+After observing one successful result, the operator must explicitly remove
+the two environment opt-ins; the durable historical attempt remains.
+Logical JSON reduction **never** counts as physical Render volume savings.
