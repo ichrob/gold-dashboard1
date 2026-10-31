@@ -19,10 +19,11 @@ def connect():
                 '-c maintenance_work_mem=16384')
 
 
-def run_once(factory=connect):
+def run_once(factory=connect, *, reclaim_metric_tail=False):
     """A dedicated autocommit connection, at most three time-limited vacuums.
 
-    No FULL or truncation: avoid table rewrites and exclusive truncation locks.
+    No FULL: never rewrite tables. After cold offload, metric tail truncation
+    may briefly lock the table; the whole command is limited to ten seconds.
     Completed VACUUM is not proof of freed disk bytes (or all tuples removable).
     PostgreSQL autovacuum remains enabled and responsible for general upkeep.
     """
@@ -39,12 +40,23 @@ def run_once(factory=connect):
                 AND n_dead_tup>0
                 AND (last_vacuum IS NULL OR last_vacuum<now()-interval '6 hours')
                 AND (last_autovacuum IS NULL OR last_autovacuum<now()-interval '6 hours')''', (table,)).fetchone()
-            if not row:
+            reclaim = reclaim_metric_tail and table == 'bob_metric_checks'
+            if not row and not reclaim:
                 continue
             try:
                 # Names are fixed above. ONLY excludes unexpected child tables.
-                conn.execute('VACUUM (SKIP_LOCKED, TRUNCATE FALSE, PARALLEL 0) ONLY public.' + table)
-                results.append({'table': table, 'status': 'command-completed'})
+                before = None
+                if reclaim:
+                    conn.execute("SET statement_timeout = '10s'")
+                    before = conn.execute("SELECT pg_total_relation_size('public.bob_metric_checks')").fetchone()[0]
+                truncate = 'TRUE' if reclaim else 'FALSE'
+                conn.execute('VACUUM (SKIP_LOCKED, TRUNCATE ' + truncate + ', PARALLEL 0) ONLY public.' + table)
+                result = {'table': table, 'status': 'command-completed'}
+                if reclaim:
+                    after = conn.execute("SELECT pg_total_relation_size('public.bob_metric_checks')").fetchone()[0]
+                    result.update(relationBytesBefore=before, relationBytesAfter=after,
+                                  observedRelationBytesDecrease=max(0, before-after))
+                results.append(result)
             except Exception as exc:
                 results.append({'table': table, 'status': 'deferred', 'errorType': type(exc).__name__})
     return {'status': 'checked', 'tables': results, 'evidenceDeleted': False,

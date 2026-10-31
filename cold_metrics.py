@@ -273,10 +273,10 @@ def start():
                         result = {'status': 'archive-running'}
                     else:
                         result = run_once()
-                        if any(batch.get('movedRows', 0) for batch in result.get('batches', [])):
+                        if result.get('status') == 'checked':
                             # The offload connection has closed/committed before
                             # normal maintenance makes old tuple space reusable.
-                            result['maintenance'] = __import__('storage_maintenance').run_once()
+                            result['maintenance'] = __import__('storage_maintenance').run_once(reclaim_metric_tail=True)
                 except Exception as exc:
                     result = {'status': 'deferred', 'errorType': type(exc).__name__}
                 print('BOB_COLD_METRICS ' + json.dumps(result, sort_keys=True), flush=True)

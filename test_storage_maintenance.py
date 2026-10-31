@@ -62,6 +62,26 @@ class MaintenanceTests(unittest.TestCase):
         self.assertNotIn('secret', str(result))
         self.assertTrue(conn.closed)
 
+    def test_tail_reclamation_runs_after_recent_autovacuum(self):
+        conn = Connection(candidates=False)
+        base_fetch = conn.fetchone
+        sizes = iter([81920, 16384])
+        conn.fetchone = lambda: ((next(sizes),) if 'pg_total_relation_size' in conn.calls[-1][0] else base_fetch())
+        result = maintenance.run_once(lambda: conn, reclaim_metric_tail=True)
+        commands = [sql for sql, _ in conn.calls if sql.startswith('VACUUM')]
+        self.assertEqual(commands, ['VACUUM (SKIP_LOCKED, TRUNCATE TRUE, PARALLEL 0) ONLY public.bob_metric_checks'])
+        self.assertIn(("SET statement_timeout = '10s'", None), conn.calls)
+        self.assertEqual(result['tables'][0]['observedRelationBytesDecrease'], 65536)
+        self.assertIsNone(result['diskBytesFreed'])
+
+    def test_tail_timeout_is_deferred_without_false_savings(self):
+        conn = Connection(fail=True)
+        result = maintenance.run_once(lambda: conn, reclaim_metric_tail=True)
+        self.assertEqual(result['tables'][-1]['status'], 'deferred')
+        self.assertNotIn('observedRelationBytesDecrease', result['tables'][-1])
+        self.assertNotIn('secret', str(result))
+        self.assertTrue(conn.closed)
+
     def test_pooled_transaction_connection_rejected(self):
         conn = Connection()
         conn.autocommit = False
@@ -73,6 +93,35 @@ class MaintenanceTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'), 'CI PostgreSQL integration')
 class PostgreSQLMaintenanceTests(unittest.TestCase):
+    def test_real_tail_reclamation_preserves_live_row_and_measures_shrink(self):
+        import psycopg
+        name = 'tail_test_' + uuid.uuid4().hex
+        dsn = os.environ['BOB_TEST_DATABASE_URL']
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute('CREATE TABLE public.' + name + ' (id int, payload text)')
+            try:
+                admin.execute('INSERT INTO public.' + name + " SELECT i, repeat(md5(i::text), 40) FROM generate_series(1,2000) i")
+                admin.execute('DELETE FROM public.' + name + ' WHERE id>1')
+                before = admin.execute('SELECT * FROM public.' + name).fetchall()
+                class TailConnection:
+                    autocommit = True
+                    def __enter__(self):
+                        self.conn = psycopg.connect(dsn, autocommit=True,
+                            options='-c lock_timeout=1000')
+                        return self
+                    def __exit__(self, *args):
+                        self.conn.close()
+                    def execute(self, statement, params=None):
+                        # Exercise production SQL against an isolated test table.
+                        return self.conn.execute(statement.replace('public.bob_metric_checks', 'public.' + name), params)
+                with patch.object(maintenance, '_TABLES', ('bob_metric_checks',)):
+                    result = maintenance.run_once(TailConnection, reclaim_metric_tail=True)
+                self.assertEqual(result['tables'][0]['status'], 'command-completed')
+                self.assertGreater(result['tables'][0]['observedRelationBytesDecrease'], 0)
+                self.assertEqual(admin.execute('SELECT * FROM public.' + name).fetchall(), before)
+            finally:
+                admin.execute('DROP TABLE public.' + name)
+
     def test_real_vacuum_preserves_live_json_and_releases_session_lock(self):
         import psycopg
         name = 'maintenance_test_' + uuid.uuid4().hex
