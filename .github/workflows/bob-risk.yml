@@ -10,6 +10,12 @@ on:
       - 'background_analysis.js'
       - 'background_push.py'
       - 'push_server.py'
+      # Archival changes can alter historical paper evidence: run risk regressions.
+      - 'decision_product_pilot.py'
+      - 'decision_product_pilot_cli.py'
+      - 'cold_decision_product_writer.py'
+      - 'cold_decision_products.py'
+      - 'test_decision_product_pilot*'
       - 'push_manager.js'
       - 'sw.js'
       - 'browser_risk_workspace.cjs'
