@@ -93,6 +93,35 @@ class AndroidObservations(unittest.TestCase):
         entry=a.prepare(payload,{},NOW)['results'][0]
         self.assertEqual(entry['observation']['raw'],DRAFT)
 
+    def test_missing_terms_can_be_recorded_without_displayed_quotes_only_by_plan(self):
+        draft='\\n'.join(['BOB APP-LESEENTWURF – NICHT VERIFIZIERT',
+            f'ISIN: {ISIN}', 'Quelle: DEGIRO-App',
+            'Erfasst: 2026-10-28T10:59:00Z',
+            'Währung (Anzeige ungeprüft): EUR',
+            'KO-Schwelle (Anzeige ungeprüft): 3942',
+            'Hinweis (Anzeige ungeprüft): Keine Aussage zur Handelbarkeit',
+            'Kein automatischer Handelsnachweis, keine Freigabe, keine Order.'])
+        with self.assertRaises(ValueError):
+            a.parse_draft(draft,ISIN,NOW)
+        observation=a.parse_draft(draft,ISIN,NOW,['KO-Schwelle'])
+        self.assertFalse(observation['verified'])
+        self.assertFalse(observation['executable'])
+        self.assertIsNone(observation['sourceTime'])
+        payload=run()
+        payload['requestedFields']={ISIN:['KO-Schwelle']}
+        payload['results'][0]['draft']=draft
+        saved=a.prepare(payload,{},NOW)
+        assert saved['results'][0]['code']=='COMPLETE'
+        assert saved['results'][0]['observation']['missingFields']==[]
+        assert not saved['tradeApproved']
+        payload['requestedFields']={ISIN:['Geld']}
+        with self.assertRaises(ValueError):
+            a.prepare(payload,{},NOW)
+        payload['requestedFields']={ISIN:['KO-Schwelle']}
+        payload['results'][0]['draft']=draft.replace('KO-Schwelle','Orderart')
+        with self.assertRaises(ValueError):
+            a.prepare(payload,{},NOW)
+
     def test_partial_is_recomputed_and_cannot_be_promoted(self):
         r=a.prepare(run(),{'products':[{'isin':ISIN}]},NOW)
         self.assertEqual(r['results'][0]['code'],'PARTIAL')
