@@ -150,7 +150,9 @@ internal object MorningReadRun {
             else prior.put("attempts",attempt)
         }
         event(c,finalCode)
-        if(finalCode!="COMPLETE" && attempt<2) { attempt++; reading=false;backSteps=0;return true }
+        if(MorningReadRetryPolicy.retry(finalCode,draft.isNotEmpty(),missing,attempt)) {
+            attempt++; reading=false;backSteps=0;return true
+        }
         index++;skipCompleted();attempt=1;reading=false;backSteps=0
         if(index>=count) { running=false;return false }
         return true
