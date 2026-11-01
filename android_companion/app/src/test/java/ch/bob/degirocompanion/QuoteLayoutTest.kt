@@ -61,6 +61,22 @@ class QuoteLayoutTest {
             "3942 BP 3901.07 LV 27.07", "3942 BP 3901.07 Bv 10 LV 27.12345", "3942 BP 3901.07 Bv 10 LV 27e3")) assertTrue(parse(bad).isEmpty())
     }
 
+    @Test fun sgMiniFutureWithoutLvYieldsOnlyLiteralBarrierStrikeAndRatio() {
+        val example = listOf(
+            QuoteLayout.Line("CHF 504,74",0,40,400,74),
+            QuoteLayout.Line("SG Gold Mini-Future Call BAR 3852 BP",85,270,680,305),
+            QuoteLayout.Line("3813.35 Bv 10",85,325,650,360),
+            QuoteLayout.Line("CHF 5,20",0,400,200,430))
+        val fields=QuoteLayout.productParameters(example)
+        assertEquals("3852",fields["KO-Schwelle"])
+        assertEquals("3813,35",fields["Basispreis"])
+        assertEquals("10",fields["Bv"])
+        assertNull(fields["Hebel"])
+        assertNull(QuoteLayout.extract(example)["Geld"])
+        assertTrue(QuoteLayout.productParameters(example.filterNot { it.text.contains("Gold Mini-Future") }).isEmpty())
+        assertTrue(QuoteLayout.productParameters(example.map { it.copy(text=it.text.replace("Bv 10","Bv 0")) }).isEmpty())
+    }
+
     @Test fun datedKnockOutTitleAndWrappedLeverageAreReadLiterally() {
         val header = listOf(
             QuoteLayout.Line("SG Gold Knock-Out Warrant Put BAR",85,270,680,310),
