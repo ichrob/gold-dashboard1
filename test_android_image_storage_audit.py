@@ -45,7 +45,7 @@ class AuditUnitTests(unittest.TestCase):
             first=audit.report(conn,now=1000000)
             second=audit.report(conn,now=1000060)
             self.assertEqual(first,second)
-            self.assertEqual(len(conn.calls),3)
+            self.assertEqual(len(conn.calls),6)  # aggregate plus bounded exact pass, cached once
         self.assertEqual(first['status'],'sampled')
         self.assertIn("LIMIT 8",audit._SQL)
         self.assertIn("created_at >= now()-interval '24 hours'",audit._SQL)
