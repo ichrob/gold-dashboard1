@@ -17,6 +17,7 @@ _TARGETS = {
     "bob_diagnostic_history": "reclaim_analysis_tail",
     "bob_improvement_observations": "reclaim_observation_tail",
     "bob_metric_checks": "reclaim_metric_tail",
+    "bob_android_list_images": "reclaim_image_tail",
 }
 _RESOURCE = "dpg-datjno1srm7s738vv500-a"
 
