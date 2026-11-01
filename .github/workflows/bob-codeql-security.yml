@@ -31,6 +31,8 @@ on:
       - "android_image_storage_audit.py"
       - "android_image_reference_shadow.py"
       - "android_image_readthrough.py"
+      - "android_image_recovery_bundle.py"
+      - "test_android_image_recovery_bundle.py"
       - "test_android_image_readthrough.py"
       - "android_list.py"
       - "handset_list_worker.py"
