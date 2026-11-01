@@ -6,12 +6,14 @@ operator must separately run this inside a protected Bob runtime with source
 read access, independent restore server and private Drive runtime credentials.
 """
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
 import shutil
 import tempfile
 import uuid
+from datetime import datetime, timezone
 
 import android_image_backup_prepare as prep
 import android_image_recovery_bundle as recovery
@@ -139,17 +141,46 @@ def run_once(source_dsn, restore_dsn, drive, key, batch_id, device_scope,
             _, current_sha = prep.pack_active_source_readonly(conn,batch_id,device_scope)
         if current_sha!=source_sha:
             raise ValueError('Original image record changed since backup')
-    return {
-        'status':'independent-encrypted-original-verified',
-        'encryptionVerified':True,
-        'remoteDownloadVerified':True,
-        'independentServerVerified':True,
-        'fullBatchRoundTripVerified':True,
-        'allReferencesVerified':True,
-        'sourcePreserved':True,
-        'restoredImages':restored_images,
-        'sourceModified':False,
-        'imageMigrationAuthorized':False,
-        'deletionAuthorized':False,
-        'diskBytesFreed':None,
-    }
+        receipt = {
+            'version':'bob-private-image-recovery-receipt-v1',
+            'status':'independent-encrypted-original-verified',
+            'verifiedAt':datetime.now(timezone.utc).isoformat(),
+            'archiveDriveFileId':file_id,
+            'encryptedSha256':cipher_sha,
+            'encryptedBytes':downloaded_size,
+            'originalBundleSha256':source_sha,
+            'encryptionVerified':True,
+            'remoteDownloadVerified':True,
+            'independentServerVerified':True,
+            'fullBatchRoundTripVerified':True,
+            'allReferencesVerified':True,
+            'sourcePreserved':True,
+            'restoredImages':restored_images,
+            'sourceModified':False,
+            'imageMigrationAuthorized':False,
+            'deletionAuthorized':False,
+            'diskBytesFreed':None,
+        }
+        # A success receipt is only published after ALL checks pass. It
+        # contains no PNG, app text, device scope, session ID or account.
+        receipt_path=Path(root)/'image-recovery-verified.json'
+        receipt_data=json.dumps(receipt,sort_keys=True,separators=(',',':')).encode()
+        if len(receipt_data)>4096:
+            raise ValueError('Private image receipt exceeds limit')
+        with open(receipt_path,'xb') as writer:
+            os.chmod(receipt_path,0o600)
+            writer.write(receipt_data)
+        receipt_sha=hashlib.sha256(receipt_data).hexdigest()
+        receipt_id=drive.upload(receipt_path,receipt_sha)
+        if type(receipt_id) is not str or not re.fullmatch(r'[A-Za-z0-9_-]{10,200}', receipt_id):
+            raise ValueError('Private image verification receipt invalid')
+        fetched_receipt=Path(root)/'image-recovery-verified-remote.json'
+        drive.download(receipt_id,fetched_receipt,max_bytes=4096)
+        receipt_check,size=_file_sha256(fetched_receipt,4096)
+        if receipt_check!=receipt_sha or size!=len(receipt_data):
+            raise ValueError('Private image verification receipt changed')
+    # Return only sanitized proof flags; archive/receipt IDs and private
+    # checksums remain in the verified private Drive receipt.
+    return {k:v for k,v in receipt.items() if k not in
+            ('archiveDriveFileId','encryptedSha256','originalBundleSha256',
+             'encryptedBytes')}
