@@ -22,6 +22,43 @@ class ProductPageReaderTest {
         val strict=ProductPageReader().inspect(1,detail,at,false,true,true,requireParameters=true)
         assertNotEquals(ProductPageReader.Move.FINISHED,strict.move)
     }
+    @Test fun explicitlyRequestedUnpricedLeverageNeedsTheRealIsinAndStaysUnapproved() {
+        val r=ProductPageReader()
+        val terms=lines("DE000FE2JJ20","Hebel: 17,45","CHF 900 Account balance")
+        val done=r.inspect(1,terms,at,false,true,true,requestedTermsOnly=setOf("Hebel"))
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("ISIN: DE000FE2JJ20"))
+        assertTrue(done.result.draft.contains("Hebel (Anzeige ungeprüft): 17,45"))
+        assertFalse(done.result.draft.contains("Währung (Anzeige ungeprüft): "))
+        assertFalse(done.result.draft.contains("Geld ("))
+        assertTrue(done.result.draft.contains("keine Order"))
+        val strict=ProductPageReader().inspect(1,terms,at,false,true,true)
+        assertNotEquals(ProductPageReader.Move.FINISHED,strict.move)
+        val wrong=ProductPageReader().inspect(1,terms+lines("DE000FD0S0G4"),
+            at,false,true,true,requestedTermsOnly=setOf("Hebel"))
+        assertEquals(ProductPageReader.Move.NONE,wrong.move)
+        assertEquals("",wrong.result.draft)
+    }
+
+    @Test fun aVisibleExactIsinCanFinishDespiteAmbiguousReturnScrollArea() {
+        val r=ProductPageReader()
+        assertEquals(ProductPageReader.Move.FORWARD,step(r,header).move)
+        assertEquals(ProductPageReader.Move.BACKWARD,step(r,quotes).move)
+        val done=r.inspect(1,header,at,false,true,true,scrollAmbiguous=true)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("ISIN: DE000FD0S0G4"))
+        val protected=ProductPageReader()
+        step(protected,header);step(protected,quotes)
+        val rejected=protected.inspect(1,header+lines("Order bestätigen"),at,false,true,true,scrollAmbiguous=true)
+        assertEquals(ProductPageReader.Cause.UNSAFE_VIEW,rejected.cause)
+        assertEquals("",rejected.result.draft)
+        val switched=ProductPageReader()
+        step(switched,header);step(switched,quotes)
+        val wrong=switched.inspect(1,lines("DE000FE2JJ20"),at,false,true,true,scrollAmbiguous=true)
+        assertEquals(ProductPageReader.Cause.IDENTITY_CHANGED,wrong.cause)
+        assertEquals("",wrong.result.draft)
+    }
+
     @Test fun requestedLeverageReadsPastTheQuotePairWithSameRealIsin() {
         val r=ProductPageReader()
         val first=lines("DE000FE2JJ20 CHF","Geld CHF 0,518","Brief CHF 0,528")
