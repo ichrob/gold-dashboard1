@@ -205,8 +205,28 @@ internal object MorningReadPolicy {
         // A real order form, compound launcher, extra input or confirmation
         // remains protected; no other order marker may be stripped.
         val initial=decide(nodes,target)
-        val validated=if(initial.kind==Kind.BLOCK && initial.code=="PROTECTED_ORDER_CONFIRM")
-            productSearchWithoutLauncher(nodes) ?: return null else nodes
+        val validated=if(initial.kind==Kind.BLOCK && initial.code=="PROTECTED_ORDER_CONFIRM") {
+            // A genuine global launcher is outside the individual product card.
+            // Refuse a launcher nested inside an identified result even if its
+            // isolated button label is otherwise valid.
+            val launcherIds=nodes.indices.filter { i ->
+                listOf(nodes[i].text,nodes[i].description,nodes[i].hint).any {
+                    normalized(it).equals("Order platzieren",true) ||
+                        normalized(it).equals("Place order",true)
+                }
+            }
+            val launcherIndex=launcherIds.singleOrNull() ?: return null
+            var parent=nodes[launcherIndex].parent
+            var steps=0
+            while(parent in nodes.indices && steps++<nodes.size) {
+                val n=nodes[parent]
+                if(n.parent !in nodes.indices) break // page root is not a card
+                val idMatches=ids.findAll(n.row.uppercase()).map { it.value }.toSet()
+                if(target in idMatches) return null
+                parent=n.parent
+            }
+            productSearchWithoutLauncher(nodes) ?: return null
+        } else nodes
         val action=if(validated===nodes) initial else decide(validated,target)
         if(action.kind !in setOf(Kind.RESULT,Kind.WAIT,Kind.SUBMIT)) return null
         val input=validated.filter { it.editable }.singleOrNull() ?: return null
