@@ -142,5 +142,86 @@ class PostgresForensicTests(unittest.TestCase):
                 c.execute('DROP SCHEMA '+name+' CASCADE')
 
 
+
+class RecentAllocationTests(unittest.TestCase):
+    def test_two_and_six_hour_windows_use_real_slots(self):
+        before = {
+            'bob_diagnostic_history': 400,
+            'bob_android_list_images': 100,
+            'bob_metric_checks': 300,
+            'bob_oauth_secret': 50,
+        }
+        middle = {**before, 'bob_diagnostic_history': 460,
+                  'bob_android_list_images': 120}
+        latest = {**middle, 'bob_diagnostic_history': 480,
+                  'bob_android_list_images': 150,
+                  'bob_metric_checks': 250, 'bob_oauth_secret': 900}
+        samples = [
+            (21600, 1600, latest, {}),
+            (14400, 1300, middle, {}),
+            (0, 1000, before, {}),
+        ]
+        windows = forensic.recent_windows(samples)
+        two = windows['twoHours']
+        six = windows['sixHours']
+        self.assertEqual(two['status'], 'observed')
+        self.assertEqual(two['elapsedSeconds'], 7200)
+        self.assertEqual(two['databaseBytesDelta'], 300)
+        self.assertEqual(six['elapsedSeconds'], 21600)
+        self.assertEqual(six['databaseBytesDelta'], 600)
+        self.assertEqual(six['commonRelationBytesDelta'], 930)
+        self.assertIn({'table':'bob_android_list_images','allocatedBytesDelta':50},
+                      two['growingTables'])
+        self.assertIn({'table':'bob_metric_checks','allocatedBytesDelta':-50},
+                      two['shrinkingTables'])
+        self.assertNotIn('bob_oauth_secret',str(windows))
+        self.assertIsNone(two['diskBytesFreed'])
+        self.assertNotIn('physicalVolumeBytesDelta',two)
+
+    def test_missing_window_is_not_fabricated_from_multi_day_snapshot(self):
+        windows = forensic.recent_windows([(86400,300,{'bob_metric_checks':300}),
+                                           (0,100,{'bob_metric_checks':100})])
+        self.assertEqual(windows['twoHours']['status'],'needs-snapshots')
+        self.assertEqual(windows['sixHours']['status'],'needs-snapshots')
+        self.assertIsNone(windows['twoHours']['diskBytesFreed'])
+
+    def test_new_and_disappeared_relations_are_not_counted_as_zero(self):
+        windows = forensic.recent_windows([
+            (7200, 550, {'bob_diagnostic_history':200,'bob_new_table':200}),
+            (0, 400, {'bob_diagnostic_history':100,'bob_old_table':300}),
+        ])
+        two = windows['twoHours']
+        self.assertEqual(two['commonRelationBytesDelta'],100)
+        self.assertEqual(two['comparableRelations'],1)
+        self.assertEqual(two['nonComparableRelations'],2)
+        self.assertEqual(two['growingTables'],[
+            {'table':'bob_diagnostic_history','allocatedBytesDelta':100}
+        ])
+        self.assertEqual(windows['sixHours']['status'],'needs-snapshots')
+
+    def test_twelve_entries_max_and_bad_types_rejected(self):
+        old={'bob_table_'+str(i):100 for i in range(20)}
+        new={'bob_table_'+str(i):150+i for i in range(20)}
+        old.update({'bob_settings':100,'bob_x-unsafe':10})
+        new.update({'bob_settings':10000,'bob_x-unsafe':10000,
+                    'bob_invalid_boolean':True})
+        two=forensic.recent_windows([
+            (7200,1000,new),
+            (0,800,old),
+        ])['twoHours']
+        self.assertEqual(len(two['growingTables']),12)
+        self.assertEqual(two['truncatedGrowingCount'],8)
+        self.assertNotIn('bob_settings',json.dumps(two))
+        self.assertNotIn('bob_x-unsafe',json.dumps(two))
+        self.assertEqual(two['nonComparableRelations'],1)
+        self.assertEqual(two['status'],'observed')
+
+    def test_no_valid_snapshots_do_not_claim_space(self):
+        out=forensic.recent_windows([])
+        self.assertEqual(out['twoHours']['status'],'needs-snapshots')
+        self.assertEqual(out['sixHours']['status'],'needs-snapshots')
+        self.assertIsNone(out['twoHours']['diskBytesFreed'])
+
+
 if __name__=='__main__':
     unittest.main()
