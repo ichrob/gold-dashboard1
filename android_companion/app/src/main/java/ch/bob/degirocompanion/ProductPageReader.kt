@@ -64,12 +64,25 @@ internal class ProductPageReader {
         // Identity changes must be rejected even while the scroll tree is transient.
         if (anchored && (identityHint != null && identityHint != isin || windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)))
             return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
+        // Only the broker's literal same-row Symbol | ISIN pairing can
+        // connect a previously seen numeric product header to an ISIN.
+        // A remembered symbol, a search target or a chart price is not proof.
+        val footerPair = if (allowSymbolProbe && seekingSymbol != null && ids.size == 1)
+            ProductSymbolMemory.observe(lines, sensitive)?.takeIf {
+                it.symbol == seekingSymbol && it.isin == ids.single() &&
+                    (identityHint == null || identityHint == it.isin)
+            } else null
+        val verifiedPairedQuote = footerPair != null && requireParameters &&
+            seekingParameters.isNotEmpty() && direct.draft.isNotBlank() &&
+            listOf("Geld", "Brief", "Zuletzt").any {
+                direct.draft.contains("$it (Anzeige ungeprüft): ")
+            }
         // A return has already been requested and the original exact ISIN
         // is visible again. No scroll target is needed to finish this read.
         // An ambiguous scroll container must not discard the verified round
         // trip; protected/changed-product checks above remain mandatory.
         val originalIdentityRechecked = returning && candidate != null && ids.singleOrNull() == isin
-        if (scrollAmbiguous && !originalIdentityRechecked) {
+        if (scrollAmbiguous && !originalIdentityRechecked && !verifiedPairedQuote) {
             if (anchored && ++layoutWaits > 5)
                 return stop("Scrollbereich nach fünf Nachprüfungen weiterhin uneindeutig. Kein Entwurf übernommen.", Cause.SCROLL_LAYOUT_CHANGED)
             return Step(Move.NONE, direct.copy(draft = "", message = "Seitenaufbau noch nicht eindeutig. Bob wartet innerhalb des 60-Sekunden-Limits auf den Produktbereich."), Cause.WAIT_SCROLL_LAYOUT)
@@ -111,9 +124,27 @@ internal class ProductPageReader {
             anchorParameters = scopedParameters(lines)
             // Carry header parameters only after an explicit symbol/ISIN row confirms the pairing.
             if (seekingSymbol != null) {
-                val pairing = ProductSymbolMemory.observe(lines, sensitive)
-                if (pairing != null && pairing.symbol == seekingSymbol && pairing.isin == isin)
-                    anchorParameters = seekingParameters + anchorParameters
+                if (footerPair != null) {
+                    // A labelled one-sided historical quote and exact visible
+                    // Symbol|ISIN can complete this single-window transaction
+                    // without reversing the scrolling direction twice.
+                    // Never fabricate the missing Brief or a leverage.
+                    val terms = scopedParameters(lines)
+                    if (terms.any { (key, value) ->
+                        seekingParameters[key]?.let { it != value } ?: false
+                    }) return stop("Widersprüchliche Produktparameter im identischen Symbol.", Cause.IDENTITY_CHANGED)
+                    anchorParameters = seekingParameters + terms
+                    if (verifiedPairedQuote) {
+                        val extra = anchorParameters.filterKeys {
+                            !direct.draft.contains("$it (Anzeige ungeprüft): ")
+                        }.map { (key, value) -> "$key (Anzeige ungeprüft): $value" }.joinToString("\n")
+                        val answer = if (extra.isEmpty()) direct
+                            else direct.copy(draft = direct.draft + "\n" + extra)
+                        reset()
+                        return Step(Move.FINISHED, answer.copy(
+                            message = "Originalsymbol und ISIN auf einer sichtbaren Kursseite bestätigt. Historische, gegebenenfalls einseitige App-Werte bleiben ungeprüft."))
+                    }
+                }
                 verifiedProbeSymbol = seekingSymbol
                 readBackward = true
                 seekingSymbol = null; seekingParameters = emptyMap()

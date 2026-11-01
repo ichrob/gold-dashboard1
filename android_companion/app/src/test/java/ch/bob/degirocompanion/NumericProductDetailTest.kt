@@ -119,6 +119,74 @@ class NumericProductDetailTest {
         assertEquals(ProductPageReader.Cause.IDENTITY_CHANGED,changed.cause)
         assertEquals("",changed.result.draft)
     }
+    @Test fun exactSymbolIsinFooterKeepsOneSidedHistoricalQuoteWithoutReverseScroll() {
+        // Reproduces the two user-provided views of DE000FE6B3G9:
+        // BAR/BP/Bv in the numeric header and Geld/Zuletzt plus real
+        // Symbol|ISIN in the lower Kursdaten section; Brief is unavailable.
+        val reader=ProductPageReader()
+        val header=lines(listOf("156825577 • Societe Generale OTC | R",
+            "Übersicht", "SG Gold Mini-Future Call BAR 3852 BP",
+            "3813.35 Bv 10", "CHF 5,20"))
+        val first=reader.inspect(11,header,at,false,true,true,
+            requireParameters=true,allowSymbolProbe=true,seekLeverage=true)
+        assertEquals(ProductPageReader.Move.FORWARD,first.move)
+        assertEquals("",first.result.draft)
+        assertFalse(reader.anchored)
+        val footer=lines(listOf("Kursdaten","Zuletzt CHF 5,20","Geld CHF 5,20",
+            "Brief CHF —","Symbol | ISIN 156825577 | DE000FE6B3G9"))
+        val done=reader.inspect(11,footer,at,false,false,false,scrollAmbiguous=true,
+            requireParameters=true,allowSymbolProbe=true,seekLeverage=true)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        val draft=done.result.draft
+        assertTrue(draft.contains("ISIN: DE000FE6B3G9"))
+        assertTrue(draft.contains("Geld (Anzeige ungeprüft): 5,20"))
+        assertTrue(draft.contains("Zuletzt (Anzeige ungeprüft): 5,20"))
+        assertTrue(draft.contains("KO-Schwelle (Anzeige ungeprüft): 3852"))
+        assertTrue(draft.contains("Basispreis (Anzeige ungeprüft): 3813,35"))
+        assertTrue(draft.contains("Bv (Anzeige ungeprüft): 10"))
+        assertFalse(draft.contains("Brief (Anzeige ungeprüft):"))
+        assertFalse(draft.contains("Hebel (Anzeige ungeprüft):"))
+        assertTrue(draft.contains("keine Order"))
+        assertFalse(reader.anchored)
+    }
+
+    @Test fun brokerSymbolShortcutFailsClosedForOtherIsinOrUnsafeView() {
+        val original=lines(listOf("156825577 • Societe Generale OTC | R",
+            "Übersicht", "SG Gold Mini-Future Call BAR 3852 BP 3813.35 Bv 10"))
+        val footer=lines(listOf("Kursdaten","Zuletzt CHF 5,20","Geld CHF 5,20",
+            "Symbol | ISIN 156825577 | DE000FE6B3G9"))
+        fun armed():ProductPageReader {
+            val r=ProductPageReader()
+            assertEquals(ProductPageReader.Move.FORWARD,
+                r.inspect(11,original,at,false,true,true,requireParameters=true,
+                    allowSymbolProbe=true).move)
+            return r
+        }
+        val other=armed().inspect(11,footer.map {
+            it.copy(text=it.text.replace("DE000FE6B3G9","DE000FD0S0G4"))
+        },at,false,true,true,requireParameters=true,allowSymbolProbe=true,
+            identityHint="DE000FE6B3G9")
+        assertNotEquals(ProductPageReader.Move.FINISHED,other.move)
+        assertEquals("",other.result.draft)
+        val mismatchedSymbol=armed().inspect(11,footer.map {
+            it.copy(text=it.text.replace("156825577 |","87654321 |"))
+        },at,false,true,true,requireParameters=true,allowSymbolProbe=true)
+        assertNotEquals(ProductPageReader.Move.FINISHED,mismatchedSymbol.move)
+        assertEquals("",mismatchedSymbol.result.draft)
+        val unsafe=armed().inspect(11,footer+lines(listOf("Order bestätigen")),
+            at,false,true,true,requireParameters=true,allowSymbolProbe=true)
+        assertEquals(ProductPageReader.Move.ABORT,unsafe.move)
+        assertEquals("",unsafe.result.draft)
+        val noTerms=ProductPageReader()
+        noTerms.inspect(11,lines(listOf("156825577 • Societe Generale OTC | R",
+            "Übersicht", "SG Gold Mini-Future Call")),at,false,true,true,
+            requireParameters=true,allowSymbolProbe=true)
+        val notDone=noTerms.inspect(11,footer,at,false,true,true,
+            requireParameters=true,allowSymbolProbe=true)
+        assertNotEquals(ProductPageReader.Move.FINISHED,notDone.move)
+        assertEquals("",notDone.result.draft)
+    }
+
     @Test fun numericHeaderIsRevisitedAndRealIsinRecheckedBeforeExport() {
         val reader=ProductPageReader()
         fun read(text:List<String>)=reader.inspect(1,lines(text),at,false,true,true,
