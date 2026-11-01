@@ -603,6 +603,7 @@ class ProductReadService : AccessibilityService() {
             val priorTarget=MorningReadRun.target
             val priorWindow=batchReadWindow
             val more=MorningReadRun.outcome(this,code,draft)
+            var returnAcknowledged=false
             if (more) {
                 val root=productRoot(record=false)
                 if (root!=null) {
@@ -612,13 +613,23 @@ class ProductReadService : AccessibilityService() {
                         navigationTree(root,refs,view)
                         if (MorningReadPolicy.returnAfterRead(view,priorTarget,root.windowId,priorWindow,code) &&
                             performGlobalAction(GLOBAL_ACTION_BACK))
-                            productReturnTransition.begin(priorTarget,root.windowId,SystemClock.elapsedRealtime())
+                            {
+                                productReturnTransition.begin(priorTarget,root.windowId,SystemClock.elapsedRealtime())
+                                returnAcknowledged=true
+                            }
                     } finally { refs.forEach { it.recycle() };root.recycle() }
                 }
             }
             batchTransition=true
             try { ProductReadRequest.cancel() } finally { batchTransition=false }
             if(more) {
+                // A failed/unsafe BACK must never open the following ISIN from
+                // the previous product's detail or an unverified order surface.
+                if(!returnAcknowledged) {
+                    MorningReadRun.stop(this,"RETURN_NOT_CONFIRMED")
+                    ProductReadRequest.cancel()
+                    return
+                }
                 Toast.makeText(this,MorningReadRun.summary(),Toast.LENGTH_SHORT).show()
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
             } else {
@@ -727,8 +738,17 @@ class ProductReadService : AccessibilityService() {
             navigationTree(root,nodes,descriptions)
             // Inspect the previous product context while Android finishes BACK.
             // Return no draft or identifiers from this transitional screen.
-            if(MorningReadRun.running && productReturnTransition.waiting(descriptions,root.windowId,SystemClock.elapsedRealtime()))
-                return observation("BUSY")
+            if(MorningReadRun.running) {
+                when(productReturnTransition.poll(descriptions,root.windowId,SystemClock.elapsedRealtime())) {
+                    ProductReturnTransition.State.WAITING -> return observation("BUSY")
+                    ProductReturnTransition.State.FAILED -> {
+                        MorningReadRun.stop(this,"RETURN_NOT_CONFIRMED")
+                        ProductReadRequest.cancel()
+                        return observation("RETURN_NOT_CONFIRMED")
+                    }
+                    else -> Unit
+                }
+            }
             val actionName=command?.optString("action") ?: "inspect"
             val target=command?.optString("isin").orEmpty()
             val observedTarget=if(MorningReadRun.running) MorningReadRun.target else
@@ -1104,7 +1124,17 @@ class ProductReadService : AccessibilityService() {
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         try {
             navigationTree(root,nodes,descriptions)
-            if(!gold && productReturnTransition.waiting(descriptions,root.windowId,SystemClock.elapsedRealtime())) return true
+            if(!gold) {
+                when(productReturnTransition.poll(descriptions,root.windowId,SystemClock.elapsedRealtime())) {
+                    ProductReturnTransition.State.WAITING -> return true
+                    ProductReturnTransition.State.FAILED -> {
+                        MorningReadRun.stop(this,"RETURN_NOT_CONFIRMED")
+                        ProductReadRequest.cancel()
+                        return true
+                    }
+                    else -> Unit
+                }
+            }
             if(gold && listImages.length()>0 && root.windowId!=listWindowId) {
                 lastNavigationIssue="LIST_CAPTURE_WINDOW_CHANGED";ProductReadRequest.cancel();return true
             }
