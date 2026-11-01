@@ -1,0 +1,160 @@
+"""Bounded read-only PostgreSQL allocation and writer-counter forensics.
+
+Only fixed public schema relation names and numeric sizes/counters. Never selects
+raw audit, simulation, price, or account values. No page sampling, pgstattuple,
+table rewrite, EXPLAIN ANALYZE, VACUUM, or estimate of reclaimable free bytes.
+"""
+from datetime import datetime, timezone
+
+# Keep stats storage bounded: 10 fixed names, not a growing catalog dump.
+WATCHED = (
+    'bob_decision_audit',
+    'bob_diagnostic_history',
+    'bob_improvement_observations',
+    'bob_decision_outcomes',
+    'bob_metric_checks',
+    'bob_candle_evidence',
+    'bob_test_repairs',
+    'bob_list_price_pairs',
+    'bob_future_predictions',
+    'bob_cold_observation_objects',
+)
+COUNTERS = ('inserted', 'updated', 'deleted', 'hotUpdated')
+DAY = 86400
+# Fixed 30-minute slots, tolerate missed snapshots and variable scheduler delay.
+MIN_DAY = 23 * 3600
+MAX_DAY = 25 * 3600
+
+
+def _valid_uint(x):
+    return type(x) is int and x >= 0
+
+
+def snapshot_counters(conn):
+    """Small metadata-only SELECT for the existing half-hour storage snapshot."""
+    with conn.transaction():
+        rows = conn.execute("""SELECT relname,n_tup_ins,n_tup_upd,n_tup_del,n_tup_hot_upd
+            FROM pg_stat_user_tables
+            WHERE schemaname=current_schema() AND relname=ANY(%s::text[])
+            ORDER BY relname LIMIT 10""", (list(WATCHED),)).fetchall()
+    result = {}
+    for name, ins, upd, dele, hot in rows:
+        values = (ins, upd, dele, hot)
+        if name in WATCHED and all(_valid_uint(v) for v in values):
+            result[name] = dict(zip(COUNTERS, values))
+    return result
+
+
+def _daily_pair(samples):
+    """Find actual near-24-hour snapshot, not the oldest observed point."""
+    valid = [r for r in samples if len(r) >= 3
+             and _valid_uint(r[0]) and type(r[2]) is dict]
+    if not valid:
+        return None
+    latest = max(valid, key=lambda r: r[0])
+    eligible = [r for r in valid if MIN_DAY <= latest[0] - r[0] <= MAX_DAY]
+    if not eligible:
+        return (latest, None)
+    baseline = min(eligible, key=lambda r: (abs(latest[0]-r[0]-DAY),-r[0]))
+    return (latest, baseline)
+
+
+def daily(samples):
+    pair = _daily_pair(samples)
+    if pair is None:
+        return {'status': 'needs-24h-pair', 'writeCountersStatus': 'needs-two-counter-snapshots',
+                'tables': [], 'diskBytesFreed': None}
+    latest, previous = pair
+    if previous is None:
+        return {'status': 'needs-24h-pair', 'latestSlot': latest[0],
+                'writeCountersStatus': 'needs-two-counter-snapshots',
+                'tables': [], 'diskBytesFreed': None}
+
+    first_sizes, last_sizes = previous[2], latest[2]
+    old_writes = previous[3] if len(previous) >= 4 and type(previous[3]) is dict else {}
+    new_writes = latest[3] if len(latest) >= 4 and type(latest[3]) is dict else {}
+    rows = []
+    states = []
+    for name in WATCHED:
+        before, after = first_sizes.get(name), last_sizes.get(name)
+        if not _valid_uint(before) or not _valid_uint(after):
+            continue
+        old = old_writes.get(name)
+        new = new_writes.get(name)
+        state = 'needs-two-counter-snapshots'
+        delta = None
+        if type(old) is dict and type(new) is dict and all(
+                _valid_uint(old.get(key)) and _valid_uint(new.get(key))
+                for key in COUNTERS):
+            values = [new[key]-old[key] for key in COUNTERS]
+            if all(v >= 0 for v in values):
+                state = 'observed-cumulative-counter-delta'
+                delta = dict(zip(COUNTERS, values))
+            else:
+                # pg_stat_reset or a single-table counter reset; never label as
+                # negative SQL writes or pretend the trend is complete.
+                state = 'counter-reset-or-wrap'
+        states.append(state)
+        rows.append({'table': name,
+                     'allocatedBytesBefore': before,
+                     'allocatedBytesAfter': after,
+                     'netAllocatedBytes': after-before,
+                     'counterState': state,
+                     'writeCounters': delta})
+    rows.sort(key=lambda r: (-max(0,r['netAllocatedBytes']),r['table']))
+    overall = ('observed' if states and all(s == 'observed-cumulative-counter-delta' for s in states)
+               else 'counter-reset-or-wrap' if 'counter-reset-or-wrap' in states
+               else 'partial-counters' if 'observed-cumulative-counter-delta' in states
+               else 'needs-two-counter-snapshots')
+    return {'status': 'observed' if rows else 'no-common-relations',
+            'startSlot': previous[0], 'endSlot': latest[0],
+            'elapsedSeconds': latest[0]-previous[0],
+            'writeCountersStatus': overall,
+            'tables': rows, 'diskBytesFreed': None,
+            'scope': '24h-comparable-allocation-and-postgres-cumulative-write-counters',
+            'note': 'Allocation deltas are not net inserts, reclaimed disk, or table bloat. '
+                    'PostgreSQL cumulative tuple counters count estimated operations since resets; '
+                    'deltas are not per-day bytes written or WAL bytes.'}
+
+
+def report(conn, samples):
+    """Metadata size and counter report, safe inside authenticated read-only SQL."""
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='2s'")
+            rows = conn.execute("""SELECT s.relname,pg_relation_size(s.relid),
+                  pg_indexes_size(s.relid),
+                  CASE WHEN c.reltoastrelid=0 THEN 0
+                       ELSE pg_total_relation_size(c.reltoastrelid) END,
+                  pg_total_relation_size(s.relid),
+                  pg_relation_size(s.relid,'fsm'),
+                  pg_relation_size(s.relid,'vm'),
+                  s.n_live_tup,s.n_dead_tup,s.n_tup_ins,s.n_tup_upd,s.n_tup_del
+                FROM pg_stat_user_tables s
+                JOIN pg_class c ON c.oid=s.relid
+                WHERE s.schemaname=current_schema()
+                  AND s.relname=ANY(%s::text[])
+                ORDER BY pg_total_relation_size(s.relid) DESC LIMIT 10""",
+                (list(WATCHED),)).fetchall()
+        items = []
+        for (name, heap, indexes, toast, total, fsm, vm,
+             live, dead, inserted, updated, deleted) in rows:
+            numbers = (heap,indexes,toast,total,fsm,vm,live,dead,inserted,updated,deleted)
+            if name not in WATCHED or not all(_valid_uint(x) for x in numbers):
+                continue
+            items.append({'table': name,'totalBytes':total,'heapBytes':heap,
+                'indexBytes':indexes,'toastBytes':toast,
+                'otherAllocatedBytes':max(0,total-heap-indexes-toast),
+                'freeSpaceMapBytes':fsm,'visibilityMapBytes':vm,
+                'estimatedLiveTuples':live,'estimatedDeadTuples':dead})
+        return {'status':'observed','readOnly':True,
+                'layout':items, 'day':daily(samples),
+                'reclaimableBytes':None,'rebuildAuthorized':False,
+                'method':'fixed-10-relation-catalog-read-no-page-scan',
+                'note':'FSM/VM sizes describe metadata allocation, NOT the quantity of free pages. '
+                       'Dead-tuple estimates, TOAST size, allocated heap and index sizes '
+                       'do not prove free bytes, bloat or benefit from VACUUM FULL.'}
+    except Exception:
+        return {'status':'not-observed','readOnly':True,
+                'day':{'status':'not-observed','tables':[]},
+                'reclaimableBytes':None,'rebuildAuthorized':False}
