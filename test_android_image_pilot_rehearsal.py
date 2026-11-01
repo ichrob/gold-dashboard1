@@ -86,6 +86,25 @@ class TestSchemaPilotTests(unittest.TestCase):
         self.assertEqual(self.conn.execute(
             "SELECT count(*) FROM bob_android_shadow_objects").fetchone()[0],1)
 
+    def test_reader_failure_after_pointer_swap_rolls_back_atomic_update(self):
+        from unittest.mock import patch
+        original=self.source()
+        with patch.object(rehearsal.reader,'materialize',
+                          side_effect=ValueError('private broken reader')):
+            with self.assertRaisesRegex(ValueError,'Isolated image CAS rehearsal invalid'):
+                rehearsal.rehearse_test_schema(self.conn,self.blob,self.sha)
+        # A failing reader must never commit the transient pointer.
+        self.assertEqual(self.source(),original)
+
+    def test_browser_failure_after_pointer_swap_rolls_back_atomic_update(self):
+        from unittest.mock import patch
+        original=self.source()
+        with patch.object(rehearsal.android_list,'handle',
+                          side_effect=ValueError('synthetic browser error')):
+            with self.assertRaises(ValueError):
+                rehearsal.rehearse_test_schema(self.conn,self.blob,self.sha)
+        self.assertEqual(self.source(),original)
+
     def test_revoked_device_never_replaces_source(self):
         original=self.source()
         self.conn.execute("UPDATE bob_android_diagnostic_devices SET revoked=TRUE")
