@@ -118,7 +118,9 @@ def historical_reference(result, now=None):
     if not isinstance(result, dict) or result.get('productVerified') is not True:
         return None
     meta = result.get('metadata') or {}
-    if meta.get('status') != 1 or not q.valid_isin(result.get('isin', '')):
+    isin = result.get('isin')
+    if (meta.get('status') != 1 or not isinstance(isin, str)
+            or not q.valid_isin(isin)):
         return None
 
     def when(raw):
