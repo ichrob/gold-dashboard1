@@ -199,6 +199,33 @@ def recent_windows(samples):
     return windows
 
 
+
+def wal_directory_observation(conn):
+    """Optional aggregate pg_wal file allocation; no names or maintenance.
+
+    Some Render plans/roles do not grant pg_ls_waldir. Lack of permission
+    must not invalidate the rest of the authenticated storage report.
+    Files can be preallocated/recycled, so bytes are never reclaimableBytes.
+    """
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='1s'")
+            result=conn.execute("""SELECT count(*)::bigint,
+                coalesce(sum(size),0)::bigint FROM pg_ls_waldir()""").fetchone()
+        if (result is None or len(result)!=2 or
+                not _valid_uint(result[0]) or not _valid_uint(result[1])):
+            return {'status':'not-observed','bytes':None}
+        return {'status':'observed','fileCount':result[0],
+                'allocatedFileBytes':result[1],'reclaimableBytes':None,
+                'scope':'pg-wal-directory-files-not-total-volume',
+                'note':'Preallocated/recycled WAL files are not free or safely '
+                       'reclaimable bytes. No checkpoint or file deletion.'}
+    except Exception:
+        return {'status':'not-observed','bytes':None,
+                'reclaimableBytes':None}
+
+
+
 def report(conn, samples):
     """Metadata size and counter report, safe inside authenticated read-only SQL."""
     try:
@@ -232,6 +259,7 @@ def report(conn, samples):
         return {'status':'observed','readOnly':True,
                 'layout':items, 'day':daily(samples),
                 'recentWindows':recent_windows(samples),
+                'walDirectory':wal_directory_observation(conn),
                 'reclaimableBytes':None,'rebuildAuthorized':False,
                 'method':'fixed-10-relation-catalog-read-no-page-scan',
                 'note':'FSM/VM sizes describe metadata allocation, NOT the quantity of free pages. '
@@ -241,4 +269,5 @@ def report(conn, samples):
         return {'status':'not-observed','readOnly':True,
                 'day':{'status':'not-observed','tables':[]},
                 'recentWindows':{'status':'not-observed'},
+                'walDirectory':{'status':'not-observed'},
                 'reclaimableBytes':None,'rebuildAuthorized':False}
