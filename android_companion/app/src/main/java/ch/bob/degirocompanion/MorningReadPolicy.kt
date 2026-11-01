@@ -215,26 +215,26 @@ internal object MorningReadPolicy {
         fun productName(value:String)=Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(value) &&
             Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(value)
         fun safe(n:Node)=n.enabled && !n.editable && !n.containsInput && !n.password && !n.sensitive
-        val groups=nodes.indices.filter { i ->
-            val n=nodes[i]
+        val groups=validated.indices.filter { i ->
+            val n=validated[i]
             safe(n) && n.row.length<=800 &&
                 ids.findAll(n.row.uppercase()).map { it.value }.toSet()==setOf(target) &&
                 productName(n.row) && !controls.containsMatchIn(n.row)
         }
-        val group=innermost(nodes,groups).singleOrNull()
+        val group=innermost(validated,groups).singleOrNull()
         fun ancestorOf(ancestor:Int, child:Int):Boolean {
             var at=child;var steps=0
-            while(at in nodes.indices && steps++<nodes.size) {
+            while(at in validated.indices && steps++<validated.size) {
                 if(at==ancestor)return true
-                at=nodes[at].parent
+                at=validated[at].parent
             }
             return false
         }
         // Prefer the original isolated product group when it has no trading
         // controls. Never tap its wrapper: only its exact product-name label.
         if(group!=null) {
-            innermost(nodes,nodes.indices.filter { i ->
-                val n=nodes[i]
+            innermost(validated,validated.indices.filter { i ->
+                val n=validated[i]
                 ancestorOf(group,i) && safe(n) && !n.containsInput &&
                     productName(n.text) && !controls.containsMatchIn(n.row)
             }).singleOrNull()?.let { return it }
@@ -246,36 +246,36 @@ internal object MorningReadPolicy {
         //
         // Demand one verified result, one exact input, the leverage category,
         // no order/login form, and a nearby enclosing product identity. Neither
-        // the K/V nodes nor their enclosing row may ever be a tap target.
-        if(nodes.any { it.password || it.sensitive } || protection(nodes)!=null ||
-            nodes.none { normalized(it.text).equals("Hebelprodukte",ignoreCase=true) }) return null
-        val visible=nodes.filterNot { it.editable }.flatMap { n ->
+        // the K/V validated nor their enclosing row may ever be a tap target.
+        if(validated.any { it.password || it.sensitive } || protection(validated)!=null ||
+            validated.none { normalized(it.text).equals("Hebelprodukte",ignoreCase=true) }) return null
+        val visible=validated.filterNot { it.editable }.flatMap { n ->
             ids.findAll(n.text.uppercase()).map { it.value }.toList()
         }.toSet()
         if(visible!=setOf(target))return null
-        val isolated=innermost(nodes,nodes.indices.filter { i ->
-            val name=nodes[i]
+        val isolated=innermost(validated,validated.indices.filter { i ->
+            val name=validated[i]
             if(!safe(name) || name.containsInput || !productName(name.text) ||
                 controls.containsMatchIn(name.text) ||
                 controls.containsMatchIn(name.description) ||
                 controls.containsMatchIn(name.hint) ||
                 controls.containsMatchIn(name.row))return@filter false
             // Never use a name node that encloses any trading button.
-            if(nodes.indices.any { j -> j!=i && ancestorOf(i,j) &&
-                listOf(nodes[j].text,nodes[j].description).any(controls::containsMatchIn) })return@filter false
+            if(validated.indices.any { j -> j!=i && ancestorOf(i,j) &&
+                listOf(validated[j].text,validated[j].description).any(controls::containsMatchIn) })return@filter false
             var parent=i;var steps=0;var linked=false
-            while(parent in nodes.indices && steps++<6) {
-                val container=nodes[parent]
+            while(parent in validated.indices && steps++<6) {
+                val container=validated[parent]
                 // The root may contain unrelated navigation and trade actions.
-                if((parent==i || container.parent in nodes.indices) &&
+                if((parent==i || container.parent in validated.indices) &&
                     container.row.length in 1..800 &&
                     ids.findAll(container.row.uppercase()).map { it.value }.toSet()==setOf(target) &&
                     productName(container.row)) {
                     // If K/V is visible in the card, it must be isolated in
                     // child controls, never baked into this title label.
-                    if(!controls.containsMatchIn(container.row) || nodes.indices.any { j ->
+                    if(!controls.containsMatchIn(container.row) || validated.indices.any { j ->
                         ancestorOf(parent,j) && !ancestorOf(i,j) &&
-                        normalized(nodes[j].text).lowercase() in setOf("k","v","kauf","verkauf","buy","sell")
+                        normalized(validated[j].text).lowercase() in setOf("k","v","kauf","verkauf","buy","sell")
                     })linked=true
                 }
                 if(linked)break
