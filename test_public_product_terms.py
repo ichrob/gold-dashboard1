@@ -75,6 +75,29 @@ class PublicTermsTests(unittest.TestCase):
             r=q.get_quote('DE000FG7MTA6')
             network.assert_not_called();issuer.assert_not_called()
         self.assertEqual(r['metadata']['status'],2);self.assertFalse(r['eligible'])
+    def test_verified_sg_knockouts_are_terminal_without_new_broker_or_quote_data(self):
+        expected = {
+            'DE000FD0S0G4': ('2026-10-30','14:06','/fd0s0g'),
+            'DE000FA96FJ2': ('2026-10-30','13:42','/fa96fj'),
+        }
+        for isin,(when,time,path) in expected.items():
+            with self.subTest(isin=isin),patch.object(p,'open_public_page') as network, \
+                    patch.object(q,'get_issuer_quote') as issuer:
+                result=q.get_quote(isin)
+                network.assert_not_called()
+                issuer.assert_not_called()
+            self.assertTrue(result['productVerified'])
+            self.assertEqual(result['metadata']['status'],2)
+            self.assertFalse(result['eligible'])
+            self.assertFalse(result['found'])
+            self.assertEqual(result['terminalEvidence']['confirmedOn'],when)
+            self.assertEqual(result['terminalEvidence']['eventTimeText'],time)
+            self.assertTrue(result['sourceUrl'].endswith(path))
+            self.assertFalse(result['terminalEvidence']['tradeApproved'])
+            self.assertNotIn('leverage',result)
+            self.assertNotIn('askAt',result)
+        self.assertNotIn('DE000FE2JJ20',p.TERMINAL)
+
     def test_no_more_stuttgart_requests(self):
         terms=p.parse_page(PAGE,ISIN,NOW)
         with patch.object(p,'get_product',return_value=terms),patch.object(q,'get_issuer_quote',return_value={'found':False}),patch('stuttgart_products.urlopen') as old,patch('onvista_backup.fetch',return_value=None):
