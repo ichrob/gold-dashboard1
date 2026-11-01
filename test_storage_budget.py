@@ -124,6 +124,16 @@ class StorageTests(unittest.TestCase):
                 conn.commit();conn.execute('SET TRANSACTION READ ONLY')
                 result=budget.report(conn)
                 self.assertTrue(result['readOnly'])
+                # Existing archiveWorker is a projected private field; ensure
+                # one-batch readiness survives without turning other archives
+                # into an independently verified original PNG backup.
+                image = result['archiveWorker']['originalImageBackupReadiness']
+                self.assertEqual(image,result['androidImageBackupReadiness'])
+                self.assertTrue(image['readOnly'])
+                self.assertIsNone(image['remoteOriginalBatchBackupVerified'])
+                self.assertIsNone(image['independentOriginalBatchRestoreVerified'])
+                self.assertFalse(image['originalImageDeletionAuthorized'])
+                self.assertIsNone(image['diskBytesFreed'])
                 self.assertFalse(result['evidenceDeleted'])
                 self.assertEqual(result['growthStatus'],'needs-at-least-24-hours')
                 self.assertEqual(result['relationGrowthStatus'],'observed')
