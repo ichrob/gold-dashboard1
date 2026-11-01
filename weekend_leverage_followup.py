@@ -16,6 +16,7 @@ LATER_RETRY_MS = 60 * 60_000
 MAX_LOOKUP = 3
 MAX_RUN_AGE_MS = 6 * 60 * 60_000
 MAX_LIST_SKEW_MS = 10 * 60_000
+SOURCE_POLICY_VERSION = 2  # one guarded recheck of new official issuer-end proofs
 
 
 def timestamp(value):
@@ -72,7 +73,8 @@ def plan(feed, run, audit, now_ms):
         previous = item.get('weekendLeverageFollowup') or {}
         if (item.get('state') in ('terminated', 'excluded-factor') or
                 not {'leverage', 'leverage-time'}.intersection(item.get('missing', [])) or
-                item.get('leverageReference') or (type(previous.get('retryAfterMs')) in (int, float) and now_ms < previous['retryAfterMs'])):
+                item.get('leverageReference') or (previous.get('policyVersion') == SOURCE_POLICY_VERSION and
+                    type(previous.get('retryAfterMs')) in (int, float) and now_ms < previous['retryAfterMs'])):
             continue
         selected.append(isin)
     return selected
@@ -105,7 +107,33 @@ def update(audit, feed, selected, quotes, now_ms):
             continue
         isin = item['isin']
         prior = item.get('weekendLeverageFollowup') or {}
-        value = evidence(quotes.get(isin), isin, now_ms)
+        quote = quotes.get(isin) or {}
+        # Only an exact issuer/exchange-confirmed, irreversible product end
+        # ends the leverage lookup. Do not promote a broker-search failure,
+        # a stale chart or a secondary "inactive" hint into a Knock-out.
+        terminal = (isinstance(quote, dict) and quote.get('productVerified') is True
+                    and quote.get('isin') == isin and
+                    (quote.get('metadata') or {}).get('status') == 2 and
+                    isinstance(quote.get('terminalEvidence'), dict) and
+                    quote['terminalEvidence'].get('status') == 'knocked_out' and
+                    quote['terminalEvidence'].get('sourceUrl') == quote.get('sourceUrl'))
+        if terminal:
+            from degiro_product_audit import examine
+            product = next((p for p in feed.get('products', [])
+                            if isinstance(p, dict) and p.get('isin') == isin), None)
+            if product is not None:
+                verified = examine(product, quote, now_ms, feed.get('listUploadedAt'))
+                if verified.get('state') == 'terminated':
+                    item.clear()
+                    item.update(verified)
+                    item['weekendLeverageFollowup'] = dict(
+                        state='issuer-terminal',
+                        checkedAt=datetime.fromtimestamp(now_ms / 1000, timezone.utc).isoformat(),
+                        attempts=min(20, prior.get('attempts', 0) + 1),
+                        policyVersion=SOURCE_POLICY_VERSION,
+                        researchOnly=True, tradeApproved=False)
+                    continue
+        value = evidence(quote, isin, now_ms)
         attempts = min(20, prior.get('attempts', 0) + 1)
         if value:
             item['leverageReference'] = value
@@ -113,6 +141,7 @@ def update(audit, feed, selected, quotes, now_ms):
             'state': 'historical-reference' if value else 'source-evidence-unavailable',
             'checkedAt': datetime.fromtimestamp(now_ms / 1000, timezone.utc).isoformat(),
             'attempts': attempts,
+            'policyVersion': SOURCE_POLICY_VERSION,
             'retryAfterMs': now_ms + (LATER_RETRY_MS if attempts >= 3 else RETRY_MS),
             'researchOnly': True, 'tradeApproved': False
         }
