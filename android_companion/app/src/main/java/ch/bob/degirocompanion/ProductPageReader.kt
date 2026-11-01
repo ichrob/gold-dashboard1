@@ -84,7 +84,13 @@ internal class ProductPageReader {
                     seekingParameters = QuoteLayout.productParameters(lines)
                 }
                 if (seekingSymbol != null) {
-                    if (!canForward || seekSteps >= 4 || MorningReadPolicy.detailFooter(lines.map { it.text }))
+                    // A verified product-symbol header with explicit product
+                    // parameters may need two additional bounded sections to
+                    // reach its real ISIN in DEGIRO's long detail layout.
+                    // A symbol alone still gets only four steps. Neither case
+                    // substitutes the requested ISIN or publishes a draft.
+                    val limit = if (seekingParameters.isNotEmpty()) 6 else 4
+                    if (!canForward || seekSteps >= limit || MorningReadPolicy.detailFooter(lines.map { it.text }))
                         return stop("ISIN nach begrenzter Produktsuche nicht gefunden. Nichts übernommen.", Cause.SEEK_LIMIT)
                     seekSteps++
                     return Step(Move.FORWARD, ProductScreenEvidence.Result(message = "Bob sucht die echte ISIN in den Produktdetails; noch keine Werte übernommen."), Cause.SEEK_HEADER)
