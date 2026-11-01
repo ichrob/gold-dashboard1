@@ -716,7 +716,10 @@ def build(feed, quotes, now_ms=None, previous=None):
         items.append(item)
     checked = datetime.fromtimestamp(now_ms/1000,timezone.utc).isoformat()
     incomplete = sum(item["state"] == "incomplete" for item in items)
+    market_closed_weekend = datetime.fromtimestamp(now_ms/1000, ZURICH).weekday() >= 5
     return {"status": "ok" if items else "waiting-for-screenshot", "lastCheckedAt": checked,
+            "marketContext": ("DEGIRO-Wochenende · letzter datierter Handelswert bleibt historisch"
+                              if market_closed_weekend else "Handelszeit und Quellzeit je Produkt getrennt prüfen"),
             "listUploadedAt": generation, "total": len(items), "incomplete": incomplete,
             "needsHelp": sum(item["needsKiHelp"] for item in items), "items": items,
             "terminated": sum(item["state"] == "terminated" for item in items),
