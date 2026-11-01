@@ -287,3 +287,42 @@ After any manual pilot, the operator must clear the two opt-ins and verify
 that all historic readers still resolve the exact original. The durable
 historical attempt remains. A merge or Render deploy alone never runs it.
 Logical JSON reduction **never** counts as physical Render volume savings.
+
+## Explicit terminal maintenance command (does not run automatically)
+
+The terminal-only module `decision_product_pilot_cli.py` is deliberately
+not imported by push/scanner startup, background workers or web routes.
+It accepts only three exact commands from a **private, authenticated
+maintenance shell** with the existing application database and archive
+credentials available to the process:
+
+```sh
+python -m decision_product_pilot_cli status
+python -m decision_product_pilot_cli preflight
+python -m decision_product_pilot_cli execute --acknowledge-one-row-only
+```
+
+`status` queries only the optional pilot claim receipt; `preflight`
+independently checks backup and disk proof without any ledger creation,
+writer invocation or upload. Preflight returning
+`approved-for-single-row-pilot` means only that this *one read-only
+probe* passed; it is **not** authorization to migrate. Only the exact
+`execute` command can call `run_once`, and this additionally requires
+the original strict `BOB_COLD_DECISION_PRODUCTS_ENABLED=1` opt-in and
+`BOB_DECISION_PRODUCT_PILOT_ONCE` JSON with distinct claim ID,
+`confirmed=true`, `maxUpdates=1`. These secrets and IDs must not be
+pasted into a chat, a GitHub issue or command arguments.
+
+The coordinator and writer then recheck the independent restore receipt,
+the five-minute resource-specific Render disk proof, the durable one-use
+claim and single-row CAS/read-through verification. A previous claimed
+attempt is never silently retried. The command prints only an allowlisted
+sanitized result (never an ISIN, claim ID, credentials, Drive file ID,
+payload, SQL or exception message). It returns nonzero for any skipped,
+failed or unverified write. No command frees allocated PostgreSQL volume
+by itself. Do not execute during a deploy or a live full archive restore;
+record before/after Render volume and PostgreSQL sizes independently.
+
+The current connected Render management interface cannot execute a
+remote shell command. Deployment, setting environment variables or merging
+this command is **not** a substitute and must never launch a migration.
