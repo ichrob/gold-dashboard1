@@ -42,8 +42,10 @@ internal class ProductPageReader {
         }
     }
     fun inspect(windowId: Int, lines: List<QuoteLayout.Line>, at: String, sensitive: Boolean,
-                canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false, requireParameters: Boolean = false, identityHint: String? = null, allowSymbolProbe: Boolean = false): Step {
-        val direct = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines, at, sensitive)
+                canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false, requireParameters: Boolean = false, identityHint: String? = null,
+                allowSymbolProbe: Boolean = false, requestedTermsOnly: Set<String> = emptySet()): Step {
+        val direct = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines, at, sensitive,
+            allowTermsOnly = requestedTermsOnly.isNotEmpty())
         // Launch/login transitions must not consume an unanchored request. Read nothing
         // from them; only wait within the existing 60-second request budget.
         if (!anchored && seekingSymbol == null && direct.reason in setOf(ProductScreenEvidence.Reason.PROTECTED, ProductScreenEvidence.Reason.LOGIN_OR_ORDER))
@@ -168,9 +170,21 @@ internal class ProductPageReader {
         }
         // Identity is carried only within this uninterrupted, same-window scroll transaction.
         val sample = if (ids.isEmpty()) lines + QuoteLayout.Line("ISIN: $isin", -100, -100, -1, -1) else lines
-        val observed = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, sample, at, sensitive)
+        val observed = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, sample, at, sensitive,
+            allowTermsOnly = requestedTermsOnly.isNotEmpty())
         if (observed.reason == ProductScreenEvidence.Reason.QUOTES_INVALID) return stop(observed.message, Cause.INVALID_QUOTES, observed.reason)
         if (ProductDraftQuality.preferScreen(candidate?.draft.orEmpty(), observed.draft)) candidate = observed
+        // A single, authentic identity header with ALL requested term fields
+        // can complete a bounded read without an unavailable bid/ask pair.
+        // No inferred source time or trade execution accompanies the draft.
+        if (requestedTermsOnly.isNotEmpty() && ids.singleOrNull() == isin &&
+            observed.draft.isNotBlank() && requestedTermsOnly.all {
+                observed.draft.contains("$it (Anzeige ungeprüft): ")
+            }) {
+            returning = true
+            return inspect(windowId, lines, at, sensitive, canForward, canBackward,
+                requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly)
+        }
         // A complete labelled quote pair is the useful end of this read. Avoid
         // scrolling through unrelated footer sections or probing the page bottom.
         // Publication still requires returning to the original visible ISIN.
@@ -179,7 +193,7 @@ internal class ProductPageReader {
                 !anchorParameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv"))) {
                 collectingHeader = true
             } else returning = true
-            val next = inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters)
+            val next = inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly)
             return if (next.move == Move.BACKWARD) next.copy(cause = Cause.QUOTES_CAPTURED) else next
         }
         if (readBackward) {
@@ -188,7 +202,7 @@ internal class ProductPageReader {
                 return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "ISIN erkannt. Bob liest die darüberliegenden Kursdaten.", reason = observed.reason))
             }
             returning = true
-            return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters)
+            return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly)
         }
         if (canForward) {
             if (forward >= 8) return stop("Scrollgrenze erreicht. Keine vollständige Seitenprüfung; kein Entwurf übernommen.", Cause.SCROLL_LIMIT)
@@ -200,6 +214,6 @@ internal class ProductPageReader {
             return Step(Move.NONE, observed.copy(message = "Produktkennung erkannt, aber noch keine eindeutige Scrollfläche oder verwertbaren Kurse. Bob wartet auf den Seitenaufbau."), Cause.WAIT_SCROLL)
         }
         returning = true
-        return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters)
+        return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly)
     }
 }

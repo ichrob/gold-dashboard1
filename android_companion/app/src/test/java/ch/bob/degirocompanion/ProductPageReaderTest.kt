@@ -9,6 +9,19 @@ class ProductPageReaderTest {
     private val header = lines("DE000FD0S0G4", "EUR")
     private val quotes = lines("Geld EUR 10,20", "Brief EUR 10,30")
     private fun step(reader: ProductPageReader, data: List<QuoteLayout.Line>, forward: Boolean = true, backward: Boolean = true, window: Int = 1, sensitive: Boolean = false) = reader.inspect(window, data, at, sensitive, forward, backward)
+    @Test fun missingKoCanCompleteWithoutQuoteAfterRealIdentityCheck() {
+        val r=ProductPageReader()
+        val detail=lines("DE000FD0S0G4 EUR",
+            "SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3901.07 Bv 10 LV 27.07")
+        val done=r.inspect(1,detail,at,false,true,true,requireParameters=true,
+            requestedTermsOnly=setOf("KO-Schwelle"))
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("KO-Schwelle (Anzeige ungeprüft): 3942"))
+        assertFalse(done.result.draft.contains("Geld ("))
+        assertFalse(r.anchored)
+        val strict=ProductPageReader().inspect(1,detail,at,false,true,true,requireParameters=true)
+        assertNotEquals(ProductPageReader.Move.FINISHED,strict.move)
+    }
     @Test fun morningReadSeeksMissingHeaderParametersAfterQuoteIdentity() {
         val r=ProductPageReader()
         val first=r.inspect(1,header+quotes,at,false,true,true,requireParameters=true)

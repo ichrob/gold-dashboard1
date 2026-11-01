@@ -71,6 +71,28 @@ class ProductScreenEvidenceTest {
         assertEquals("", read(lines("EUR", "Geld 10,20", "Brief 10,30")).draft)
         assertEquals("", read(lines("ISIN DE000FD0S0G4", "EUR", "10,20")).draft)
     }
+    @Test fun metadataOnlyReadNeedsExplicitOptInRealIsinAndProductCurrency() {
+        val detail=lines("DE000FD0S0G4 EUR",
+            "SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3901.07 Bv 10 LV 27.07",
+            "CHF 900 Account balance")
+        assertEquals(ProductScreenEvidence.Reason.QUOTES_MISSING,read(detail).reason)
+        val safe=ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,detail,at,false,allowTermsOnly=true)
+        assertEquals(ProductScreenEvidence.Reason.NONE,safe.reason)
+        assertTrue(safe.draft.contains("KO-Schwelle (Anzeige ungeprüft): 3942"))
+        assertTrue(safe.draft.contains("Basispreis (Anzeige ungeprüft): 3901,07"))
+        assertFalse(safe.draft.contains("Geld ("))
+        assertFalse(safe.draft.contains("900"))
+        assertEquals(ProductScreenEvidence.Reason.CURRENCY_AMBIGUOUS,
+            ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,
+                lines("DE000FD0S0G4","SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3901.07 Bv 10 LV 27.07",
+                    "CHF 900 Account balance"),at,false,allowTermsOnly=true).reason)
+        assertEquals(ProductScreenEvidence.Reason.LOGIN_OR_ORDER,
+            ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,detail+lines("Order bestätigen"),
+                at,false,allowTermsOnly=true).reason)
+        assertEquals(ProductScreenEvidence.Reason.ISIN_AMBIGUOUS,
+            ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,detail+lines("DE000FG77MY4"),
+                at,false,allowTermsOnly=true).reason)
+    }
     @Test fun boundedMemoryAndFailureClearPreviousDraft() {
         ProductReadSession.put(read(), 1000)
         assertTrue(ProductReadSession.get(2000).draft.isNotEmpty())

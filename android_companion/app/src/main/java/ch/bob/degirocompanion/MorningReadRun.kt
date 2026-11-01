@@ -21,6 +21,15 @@ internal object MorningReadRun {
     val target: String get() = data?.getJSONArray("isins")?.optString(index).orEmpty()
     val count: Int get() = data?.getJSONArray("isins")?.length() ?: 0
     fun importedListRun() = running && data?.optString("listBatchId").orEmpty().matches(Regex("[a-f0-9]{32}"))
+    /** Only a server-planned, authenticated list follow-up may omit a quote pair. */
+    fun requestedTermsOnly(): Set<String> {
+        if(!importedListRun()) return emptySet()
+        val values=data?.optJSONObject("requestedFields")?.optJSONArray(target) ?: return emptySet()
+        val names=(0 until values.length()).map { values.optString(it) }.toSet()
+        val terms=setOf("Hebel","KO-Schwelle","Basispreis","Bv","Währung")
+        if(names.isEmpty() || !terms.containsAll(names)) return emptySet()
+        return names
+    }
     fun summary(): String = if (running) "Produkt ${index+1} von $count · $target · Versuch $attempt/2" else "Listenlauf nicht aktiv."
     fun expired(now: Long = SystemClock.elapsedRealtime()) = now < started || now-started >= 15*60*1000
     private fun entries(c: Context): Map<String,String> = prefs(c).all.filterKeys {
