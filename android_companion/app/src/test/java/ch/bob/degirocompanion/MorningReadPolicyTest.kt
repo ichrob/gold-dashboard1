@@ -404,7 +404,7 @@ class MorningReadPolicyTest {
     private fun degiroFd0InlineIsinResult():List<MorningReadPolicy.Node> {
         val isin="DE000FD0S0G4"
         val title="SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3902.92 Bv 10 | $isin"
-        val aggregate="$title\\nSociete Generale OTC EUR\\nK\\nV"
+        val aggregate="$title\nSociete Generale OTC EUR\nK\nV"
         return listOf(
             MorningReadPolicy.Node(isin,editable=true,hint="Mit Namen, ISIN oder Symbol suchen"),
             MorningReadPolicy.Node("Hebelprodukte"),
@@ -425,7 +425,7 @@ class MorningReadPolicyTest {
             view.mapIndexed { i,n -> if(i==3)n.copy(text=n.text.replace(isin,"DE000FE6B3G9")) else n },
             view.mapIndexed { i,n -> if(i==3)n.copy(text=n.text+" Kaufen") else n },
             view.mapIndexed { i,n -> if(i==3)n.copy(description="Kaufen") else n },
-            view.mapIndexed { i,n -> if(i==3)n.copy(row=n.row.replace("\\nK\\nV","\\nKauf\\nV")) else n },
+            view.mapIndexed { i,n -> if(i==3)n.copy(row=n.row.replace("\nK\nV","\nKauf\nV")) else n },
             view.mapIndexed { i,n -> if(i==4)n.copy(clickable=false) else n },
             view.mapIndexed { i,n -> if(i==4)n.copy(parent=3) else n },
             view.mapIndexed { i,n -> if(i==1)n.copy(text="Alle") else n },
