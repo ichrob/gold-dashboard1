@@ -84,7 +84,8 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_new_tail_targets_are_bounded_and_explicit(self):
         for flag, table in [('reclaim_analysis_tail','bob_diagnostic_history'),
-                            ('reclaim_observation_tail','bob_improvement_observations')]:
+                            ('reclaim_observation_tail','bob_improvement_observations'),
+                            ('reclaim_image_tail','bob_android_list_images')]:
             conn=Connection(candidates=False)
             base=conn.fetchone
             conn.fetchone=lambda: (1000,) if 'pg_total_relation_size' in conn.calls[-1][0] else base()
