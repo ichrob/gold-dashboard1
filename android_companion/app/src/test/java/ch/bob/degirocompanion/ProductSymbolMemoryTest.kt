@@ -40,6 +40,11 @@ class ProductSymbolMemoryTest {
         assertEquals(ProductPageReader.Move.FORWARD,reader.inspect(1,header,"",false,true,true,identityHint=isin).move)
         val quotes = listOf(line("Geld EUR 10,20"),line("Brief EUR 10,30",0,50))
         assertEquals(ProductPageReader.Move.BACKWARD,reader.inspect(1,quotes,"",false,true,true).move)
+        repeat(3) {
+            val wait=reader.inspect(1,header,"",false,false,false,identityHint=isin)
+            assertEquals(ProductPageReader.Move.NONE,wait.move)
+            assertEquals("",wait.result.draft)
+        }
         val unverified = reader.inspect(1,header,"",false,false,false,identityHint=isin)
         assertEquals(ProductPageReader.Move.ABORT,unverified.move)
         assertEquals("",unverified.result.draft)
