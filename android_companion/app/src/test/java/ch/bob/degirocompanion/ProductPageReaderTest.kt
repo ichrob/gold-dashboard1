@@ -36,7 +36,8 @@ class ProductPageReaderTest {
         assertNotEquals(ProductPageReader.Move.FINISHED,strict.move)
         val wrong=ProductPageReader().inspect(1,terms+lines("DE000FD0S0G4"),
             at,false,true,true,requestedTermsOnly=setOf("Hebel"))
-        assertEquals(ProductPageReader.Move.NONE,wrong.move)
+        assertEquals(ProductPageReader.Move.ABORT,wrong.move)
+        assertEquals(ProductPageReader.Cause.UNSAFE_VIEW,wrong.cause)
         assertEquals("",wrong.result.draft)
     }
 
