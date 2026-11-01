@@ -113,7 +113,7 @@ class WeekendTests(unittest.TestCase):
         self.assertEqual(wk.once(db,SUNDAY,collect=lambda *_:self.fail('duplicate network')),
                          dict(state='no-missing-targets',checked=0,ordersEnabled=False))
         self.assertEqual(db.writes,1)
-        self.assertEqual(wk.once(db,SUNDAY-DAY,collect=lambda *_:self.fail('weekday network'))['state'],'paused')
+        self.assertEqual(wk.once(db,SUNDAY-2*DAY,collect=lambda *_:self.fail('weekday network'))['state'],'paused')
         db.feed['listUploadedAt']='2026-11-01T09:00:00Z'
         self.assertEqual(wk.once(db,SUNDAY+wk.RETRY_MS+1,
                                  collect=lambda *_:self.fail('changed list'))['checked'],0)
