@@ -141,6 +141,18 @@ internal object MorningReadPolicy {
             return false
         }
         if(nodes.indices.any { it!=launcherIndex && descends(it,launcherIndex) }) return null
+        // A button nested under a product row is not a global launcher.
+        // Never let it authorize touching the Markets search bar.
+        var cursor=launcher.parent
+        var depth=0
+        while(cursor in nodes.indices && depth++<nodes.size) {
+            val ancestor=nodes[cursor]
+            if(ids.containsMatchIn(ancestor.text.uppercase()) ||
+                (Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(ancestor.text) &&
+                 Regex("(?iu)\\b(turbo|mini[ -]?future|knock[ -]?out)\\b").containsMatchIn(ancestor.text)))
+                return null
+            cursor=ancestor.parent
+        }
         val prompt="Mit Namen, ISIN oder Symbol suchen"
         val search=innermost(nodes,nodes.indices.filter { i ->
             val n=nodes[i]
