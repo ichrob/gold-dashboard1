@@ -105,3 +105,47 @@ volume decreased. A later content-addressed implementation would
 require its own new PR, safe compatibility and restore tests, a small
 explicit opt-in pilot, original batch identifiers and screenshot clocks
 retained, and a measured physical-volume benefit before expansion.
+
+
+## Offline reference-codec foundation (not wired into production)
+
+The isolated `android_image_reference_codec.py` provides two **pure**
+functions to test the exact original-read invariant before any live schema
+or storage change: `pack_batch(original, authenticated_device_scope)`
+returns a deep-copied JSON batch containing private PNG references plus
+an **in-memory** mapping from reference hashes to original base64 text.
+`restore_batch(pointer_batch, objects, authenticated_device_scope)`
+returns the byte-for-byte original batch representation or refuses
+a missing, altered or cross-device object. Existing image timestamps,
+batch/session IDs, appText, PNG encodings and the original PNG bytes
+remain unchanged. No input dictionary is mutated.
+
+Reference IDs use SHA-256 with a versioned domain separator, the
+authenticated device's fixed 64-hex hash scope, and the decoded PNG
+bytes. Cross-device screenshots deliberately receive **different**
+reference IDs even when the pixels are identical: private device data
+must not become cross-account deduplicated or discoverable by guessed
+hashes. Full reconstruction checks original PNG header, dimensions,
+base64 validity and the device-scoped content hash; any missing or
+ambiguous pointer fails closed. The current within-batch duplicate
+prohibition is preserved.
+
+**Critically: This file is not imported by the Bob server, phone
+uploader, list worker, storage scheduler or live readers.** It creates
+no database table, Google Drive object, production flag, HTTP handler
+or migration. Unit tests prove identical PNGs in two different batches
+produce the same device-private reference and exact metadata+image
+round-trip; different devices, missing objects, tampering and duplicate
+images within a batch are rejected.
+
+The next *separately reviewed* production stage would need a single
+encrypted/private image-object store, content/reference ledgers with
+explicit ownership and lifecycle, backward-compatible read-through for
+**every** existing SQL and API consumer of `bob_android_list_images`,
+unique claims and recoverable CAS, verified download/restore of both
+objects and their ledgers, 24-hour original read availability, and a
+strictly limited opt-in migration of one nonactive batch. Only after
+all of those are proven and independent Render-volume measurements show
+a safe net benefit could production rows be compacted. This offline
+codec alone **does not free physical storage** and cannot authorize
+running a migration, shortening retention or removing originals.
