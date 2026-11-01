@@ -122,3 +122,24 @@ short-horizon view is intended to isolate which of the smaller
 relations grew during that same recent period before authorizing any
 lossless writer adjustment or offline physical maintenance. It does
 not itself reclaim volume space.
+
+
+### Optional PostgreSQL WAL-directory allocation check
+
+The forensic report also attempts one read-only, one-second-bounded
+aggregate `SELECT count(*),sum(size) FROM pg_ls_waldir()` against the
+current PostgreSQL instance. File names, paths, archive receipts and WAL
+contents are never returned. Managed Render roles may lack permission;
+then `walDirectory.status=not-observed`, without breaking the main
+storage report or claiming zero WAL.
+
+An observed `allocatedFileBytes` value measures current files in the
+`pg_wal` directory, including reusable or preallocated segments. It is
+**not** measured physical Render free space, permission to delete WAL,
+or a prediction that `CHECKPOINT` or `VACUUM` will reduce it. The
+independent Render volume reading remains the only provider-level
+physical-usage observation. The current approximately 110 MB difference
+between `pg_database_size` and Render volume is not automatically all
+WAL: temporary data, other database/system files and accounting scope
+can contribute. No WAL recycling, checkpoint, shell command or SQL
+maintenance is performed by the diagnostic.
