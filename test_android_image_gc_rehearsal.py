@@ -113,6 +113,18 @@ class OrphanGcPostgresTests(unittest.TestCase):
             gc.prune_orphans_in_test_schema(self.conn)
         self.assertEqual(self.counts(),before)
 
+    def test_cross_device_reference_owner_mismatch_blocks_gc(self):
+        self.conn.execute("DELETE FROM bob_android_list_images WHERE batch_id=%s",
+                          (self.a3['batchId'],))
+        # FK only keys by batch ID in the isolated ledger; never assume its
+        # device scope is trustworthy without comparing the source owner.
+        self.conn.execute("""UPDATE bob_android_shadow_batch_refs
+            SET token_hash=%s WHERE batch_id=%s""",(B,self.a1['batchId']))
+        before=self.counts()
+        with self.assertRaises(ValueError):
+            gc.prune_orphans_in_test_schema(self.conn)
+        self.assertEqual(self.counts(),before)
+
     def test_bad_pointer_ledger_fails_before_cleanup(self):
         self.conn.execute("DELETE FROM bob_android_list_images WHERE batch_id=%s",
                           (self.a3['batchId'],))
