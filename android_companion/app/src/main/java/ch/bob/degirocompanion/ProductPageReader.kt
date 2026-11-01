@@ -105,7 +105,13 @@ internal class ProductPageReader {
                     adjacentCurrency.matches(value.text.trim())
                 }
             }
-        val sameScreenQuote = requireParameters && allowSymbolProbe &&
+        val pairConflict = ProductSymbolMemory.observe(lines, sensitive)?.let { pair ->
+            (seekingSymbol != null && pair.symbol != seekingSymbol) ||
+                (verifiedProbeSymbol != null && pair.symbol != verifiedProbeSymbol) ||
+                lines.mapNotNull { ProductSymbolMemory.probeHeaderSymbol(it.text) }
+                    .any { it != pair.symbol }
+        } ?: false
+        val sameScreenQuote = !pairConflict && requireParameters && allowSymbolProbe &&
             expectedIsin != null && ids.singleOrNull() == expectedIsin &&
             direct.draft.isNotBlank() && labelledCurrencyQuote &&
             lines.any { it.text.trim().equals("Kursdaten", true) } &&
