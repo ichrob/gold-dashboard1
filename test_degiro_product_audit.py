@@ -67,15 +67,16 @@ class ProductAuditTests(unittest.TestCase):
 
     def test_sunday_retains_friday_issuer_hebel_as_explicitly_historical(self):
         from datetime import timedelta
-        later = NOW + 2*24*3600*1000
-        friday = audit.build(feed(), {ISIN: provider()}, NOW)
+        friday_at = datetime(2026, 10, 30, 12, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000
+        later = friday_at + 2*24*3600*1000
+        friday = audit.build(feed(), {ISIN: provider(friday_at)}, friday_at)
         self.assertIsNone(friday['items'][0]['leverageReference'])
         sunday = audit.build(feed(), {ISIN: {}}, later, friday)
         item = sunday['items'][0]
         reference = item['leverageReference']
         self.assertEqual(reference['kind'], 'historical-issuer-leverage')
         self.assertEqual(reference['value'], 18.4)
-        self.assertEqual(reference['at'], iso(NOW-3000))
+        self.assertEqual(reference['at'], iso(friday_at-3000))
         self.assertFalse(reference['current'])
         self.assertTrue(reference['researchOnly'])
         self.assertFalse(reference['tradeApproved'])
@@ -89,31 +90,32 @@ class ProductAuditTests(unittest.TestCase):
         altered = feed()
         altered['listUploadedAt']='2026-10-14T07:00:00+00:00'
         self.assertIsNone(audit.build(altered, {ISIN: {}}, later, sunday)['items'][0]['leverageReference'])
-        self.assertIsNone(audit.build(feed(), {ISIN: {}}, NOW+5*24*3600*1000,
+        self.assertIsNone(audit.build(feed(), {ISIN: {}}, friday_at+5*24*3600*1000,
                                        friday)['items'][0]['leverageReference'])
 
     def test_sunday_keeps_prior_calculated_hebel_as_research_only(self):
         from leverage_backup import calculate
-        friday_quote=provider()
+        friday_at = datetime(2026, 10, 30, 12, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000
+        friday_quote=provider(friday_at)
         friday_quote['leverageEstimated']=True
         friday_quote['metadata']['simpleNonQuantoTurbo']=True
-        at=iso(NOW-3000)
+        at=iso(friday_at-3000)
         basis=dict(price=4000,at=at,underlying='XAU/USD',source='Gold')
         fx=dict(result='success',base='USD',rates={'EUR':.9},data_updated_at=at,
                 effective_at={'EUR':at},source='live',sources={'EUR':'live'},
                 market_session='open')
         friday_quote['leverageCalculation']=calculate(friday_quote,basis,fx,
-             datetime.fromtimestamp(NOW/1000,ZoneInfo('UTC')))
-        before=audit.build(feed(),{ISIN:friday_quote},NOW)
+             datetime.fromtimestamp(friday_at/1000,ZoneInfo('UTC')))
+        before=audit.build(feed(),{ISIN:friday_quote},friday_at)
         self.assertEqual(before['items'][0]['timeEvidence']['leverageBasis'],'calculated-input-times')
-        weekend=audit.build(feed(),{ISIN:{}},NOW+2*24*3600*1000,before)
+        weekend=audit.build(feed(),{ISIN:{}},friday_at+2*24*3600*1000,before)
         ref=weekend['items'][0]['leverageReference']
         self.assertEqual(ref['kind'],'historical-calculated-gearing')
         self.assertEqual(ref['value'],friday_quote['leverageCalculation']['value'])
         self.assertIn('leverage-time',weekend['items'][0]['missing'])
         self.assertFalse(ref['current'])
         self.assertFalse(weekend['items'][0]['tradeApproved'])
-        ended=provider()
+        ended=provider(friday_at)
         ended['metadata']['status']=2
         self.assertIsNone(audit.build(feed(),{ISIN:ended},NOW+2*24*3600*1000,
                                      before)['items'][0]['leverageReference'])
