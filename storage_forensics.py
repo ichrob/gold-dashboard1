@@ -117,6 +117,88 @@ def daily(samples):
                     'deltas are not per-day bytes written or WAL bytes.'}
 
 
+
+# These windows use only the already-persisted, fixed half-hour catalog
+# observations. They must not issue extra production SQL, add a writer or
+# infer free disk bytes from PostgreSQL relation allocation changes.
+_SHORT_WINDOWS = (('twoHours', 7200), ('sixHours', 21600))
+_WINDOW_TOLERANCE = 1800
+_MAX_NAMED = 12
+
+
+def _safe_relation_name(name):
+    # Only structural Bob table names. Never echo arbitrary, sensitive,
+    # quoted or unusually long catalog identifiers in private reports.
+    if type(name) is not str or len(name) > 64 or not name.startswith('bob_'):
+        return False
+    if not all(c in 'abcdefghijklmnopqrstuvwxyz0123456789_' for c in name):
+        return False
+    return not any(part in name for part in ('oauth', 'secret', 'token',
+                                            'credential', 'session', 'passkey',
+                                            'password', 'setting'))
+
+
+def recent_windows(samples):
+    """Exact 2h/6h allocation comparisons; sizes are NOT disk-free bytes.
+
+    A source relation must exist at both observed times to be comparable.
+    New/disappeared relations are not silently treated as zero-sized.
+    """
+    valid = [s for s in samples if len(s) >= 3 and _valid_uint(s[0])
+             and _valid_uint(s[1]) and type(s[2]) is dict]
+    if not valid:
+        return {key: {'status': 'needs-snapshots', 'diskBytesFreed': None}
+                for key, _ in _SHORT_WINDOWS}
+    latest = max(valid, key=lambda r: r[0])
+    windows = {}
+    for label, duration in _SHORT_WINDOWS:
+        prior = [s for s in valid if
+                 duration - _WINDOW_TOLERANCE <= latest[0] - s[0]
+                 <= duration + _WINDOW_TOLERANCE]
+        if not prior:
+            windows[label] = {
+                'status': 'needs-snapshots', 'latestSlot': latest[0],
+                'diskBytesFreed': None}
+            continue
+        baseline = min(prior, key=lambda s:
+                       (abs(latest[0] - s[0] - duration), -s[0]))
+        old, new = baseline[2], latest[2]
+        common = set(old) & set(new)
+        comparable = {
+            k: new[k] - old[k] for k in common
+            if _valid_uint(old[k]) and _valid_uint(new[k])
+        }
+        named = [(k, delta) for k, delta in comparable.items()
+                 if _safe_relation_name(k)]
+        increasing = sorted((x for x in named if x[1] > 0),
+                            key=lambda x: (-x[1], x[0]))
+        decreasing = sorted((x for x in named if x[1] < 0),
+                            key=lambda x: (x[1], x[0]))
+        database_delta = latest[1] - baseline[1]
+        windows[label] = {
+            'status': 'observed',
+            'startSlot': baseline[0], 'endSlot': latest[0],
+            'elapsedSeconds': latest[0] - baseline[0],
+            'databaseBytesDelta': database_delta,
+            'commonRelationBytesDelta': sum(comparable.values()),
+            'comparableRelations': len(comparable),
+            'nonComparableRelations': len(set(old) | set(new)) - len(comparable),
+            'growingTables': [{'table': k, 'allocatedBytesDelta': v}
+                              for k, v in increasing[:_MAX_NAMED]],
+            'shrinkingTables': [{'table': k, 'allocatedBytesDelta': v}
+                                for k, v in decreasing[:_MAX_NAMED]],
+            'truncatedGrowingCount': max(0, len(increasing) - _MAX_NAMED),
+            'truncatedShrinkingCount': max(0, len(decreasing) - _MAX_NAMED),
+            'diskBytesFreed': None,
+            'scope': 'short-window-allocation-only-not-physical-volume',
+            'note': 'Net database and relation allocations need not match; '
+                    'unlisted/system relations and file metadata differ. '
+                    'These deltas are not WAL, physical free disk, tuple writes '
+                    'or a measure of rebuildable bloat.'
+        }
+    return windows
+
+
 def report(conn, samples):
     """Metadata size and counter report, safe inside authenticated read-only SQL."""
     try:
@@ -149,6 +231,7 @@ def report(conn, samples):
                 'estimatedLiveTuples':live,'estimatedDeadTuples':dead})
         return {'status':'observed','readOnly':True,
                 'layout':items, 'day':daily(samples),
+                'recentWindows':recent_windows(samples),
                 'reclaimableBytes':None,'rebuildAuthorized':False,
                 'method':'fixed-10-relation-catalog-read-no-page-scan',
                 'note':'FSM/VM sizes describe metadata allocation, NOT the quantity of free pages. '
@@ -157,4 +240,5 @@ def report(conn, samples):
     except Exception:
         return {'status':'not-observed','readOnly':True,
                 'day':{'status':'not-observed','tables':[]},
+                'recentWindows':{'status':'not-observed'},
                 'reclaimableBytes':None,'rebuildAuthorized':False}
