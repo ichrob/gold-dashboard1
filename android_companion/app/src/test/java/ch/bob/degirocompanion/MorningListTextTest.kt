@@ -22,6 +22,29 @@ class MorningListTextTest {
             assertNull(MorningListText.capture(page()+extra,listOf(isin)))
         assertNull(MorningListText.capture(page().drop(1),listOf(isin)))
     }
+    @Test fun samsungAggregateWebViewCanSupplyTwoDistinctExactProductRows() {
+        val other="DE000SQ02JQ6"
+        val title1="SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3901.07 Bv 10 | $isin"
+        val title2="SG Gold Turbo Unlimited Mini Call BAR 2144 BP 2122.67 Bv 10 | $other"
+        val row1="$title1\nSociete Generale OTC EUR K V"
+        val row2="$title2\nSociete Generale OTC EUR K V"
+        val nodes=listOf(
+            MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node("Order platzieren",clickable=true),
+            MorningReadPolicy.Node("",row="$row1\n$row2"),
+            MorningReadPolicy.Node(title1,parent=2),
+            MorningReadPolicy.Node(title2,parent=2),
+            MorningReadPolicy.Node("CHF 504.74 account"))
+        val found=MorningListText.capture(nodes,listOf(isin,other))!!
+        assertEquals(2,found.size)
+        assertTrue(found[0].contains(isin))
+        assertTrue(found[1].contains(other))
+        assertTrue(found.all { it.endsWith("OTC EUR") })
+        assertTrue(found.none { it.contains("account") || it.contains("K V") })
+        assertNull(MorningListText.capture(nodes,listOf(other,isin)))
+        assertNull(MorningListText.capture(nodes+
+            MorningReadPolicy.Node("Order bestätigen"),listOf(isin,other)))
+    }
     @Test fun splitTitleIsinAndVenueAreReadFromTheirProductContainer() {
         val nodes=page().dropLast(1)+MorningReadPolicy.Node("",row=text)+
             MorningReadPolicy.Node("SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3901.07 Bv 10",parent=2)+
