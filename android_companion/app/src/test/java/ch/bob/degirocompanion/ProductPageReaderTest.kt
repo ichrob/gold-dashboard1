@@ -35,6 +35,23 @@ class ProductPageReaderTest {
         assertTrue(done.result.draft.contains("Brief (Anzeige ungeprüft): 0,528"))
     }
 
+    @Test fun leverageCannotBorrowFromAnotherProductOrUnidentifiedSection() {
+        val first=lines("DE000FE2JJ20 CHF","Geld CHF 0,518","Brief CHF 0,528")
+        val r=ProductPageReader()
+        r.inspect(1,first,at,false,true,true,seekLeverage=true)
+        val wrong=r.inspect(1,lines("DE000FE6B3G9 CHF","Hebel: 99,99"),
+            at,false,true,true,seekLeverage=true)
+        assertEquals(ProductPageReader.Cause.IDENTITY_CHANGED,wrong.cause)
+        assertEquals("",wrong.result.draft)
+
+        val safe=ProductPageReader()
+        safe.inspect(1,first,at,false,true,true,seekLeverage=true)
+        for(i in 1..3) safe.inspect(1,lines("Hebel: 99,99"),at,false,true,true,seekLeverage=true)
+        val done=safe.inspect(1,first,at,false,true,true,seekLeverage=true)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertFalse(done.result.draft.contains("Hebel ("))
+    }
+
     @Test fun morningReadSeeksMissingHeaderParametersAfterQuoteIdentity() {
         val r=ProductPageReader()
         val first=r.inspect(1,header+quotes,at,false,true,true,requireParameters=true)
