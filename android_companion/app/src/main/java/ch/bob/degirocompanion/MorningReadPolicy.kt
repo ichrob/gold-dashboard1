@@ -105,6 +105,67 @@ internal object MorningReadPolicy {
     }
     /** Only an isolated global launcher beside an identified read-only product.
      * This grants READ only; it never returns a click/search/submit target. */
+    /** The DEGIRO Markets landing page can expose a separate global "Order
+     * platzieren" accessibility button next to its RECENT products. The
+     * presence of that button does not turn the read-only recent-list page into
+     * an order form. Only its isolated, uniquely labelled search BAR may be
+     * clicked. The order launcher and K/V buttons are never action targets. */
+    private fun recentMarketSearchBesideLauncher(nodes: List<Node>): Int? {
+        if(nodes.size>500 || nodes.any { it.editable || it.containsInput || it.password || it.sensitive }) return null
+        val values: (Node)->List<String> = { listOf(it.text,it.description,it.hint) }
+        if(nodes.any { n -> values(n).any(login::containsMatchIn) ||
+            orderMarkers.drop(1).any { (_,marker) -> values(n).any(marker::containsMatchIn) } }) return null
+        fun has(label:String)=nodes.any { normalized(it.text).equals(label,true) }
+        if(!has("Märkte") || !has("Nach Produkttyp durchsuchen") ||
+            !has("Zuletzt") || !has("Alle löschen")) return null
+        // A genuine product detail or order form is never a Markets landing.
+        if(nodes.any { n -> normalized(n.text).lowercase() in setOf(
+                "kursdaten","produktdetails","order bestätigen","orderdetails",
+                "orderübersicht","orderzusammenfassung","orderart","limitpreis","stückzahl") }) return null
+        val marked=nodes.indices.filter { i ->
+            values(nodes[i]).any(orderMarkers.first().second::containsMatchIn)
+        }
+        val launcherIndex=marked.singleOrNull() ?: return null
+        val launcher=nodes[launcherIndex]
+        val exactOrder=Regex("(?iu)^order platzieren$")
+        if(!canClick(launcher) || values(launcher).filter(String::isNotBlank).any {
+                !exactOrder.matches(normalized(it)) } ||
+            launcher.row.lines().filter(String::isNotBlank).any { !exactOrder.matches(normalized(it)) })
+            return null
+        fun descends(child:Int,parent:Int):Boolean {
+            var cursor=nodes[child].parent;var count=0
+            while(cursor in nodes.indices && count++<nodes.size) {
+                if(cursor==parent)return true
+                cursor=nodes[cursor].parent
+            }
+            return false
+        }
+        if(nodes.indices.any { it!=launcherIndex && descends(it,launcherIndex) }) return null
+        // A button nested under a product row is not a global launcher.
+        // Never let it authorize touching the Markets search bar.
+        var cursor=launcher.parent
+        var depth=0
+        while(cursor in nodes.indices && depth++<nodes.size) {
+            val ancestor=nodes[cursor]
+            if(ids.containsMatchIn(ancestor.text.uppercase()) ||
+                (Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(ancestor.text) &&
+                 Regex("(?iu)\\b(turbo|mini[ -]?future|knock[ -]?out)\\b").containsMatchIn(ancestor.text)))
+                return null
+            cursor=ancestor.parent
+        }
+        val prompt="Mit Namen, ISIN oder Symbol suchen"
+        val search=innermost(nodes,nodes.indices.filter { i ->
+            val n=nodes[i]
+            i!=launcherIndex && canClick(n) && !n.editable && !n.containsInput &&
+                !n.password && !n.sensitive && !descends(i,launcherIndex) &&
+                !descends(launcherIndex,i) &&
+                values(n).filter(String::isNotBlank).let { it.isNotEmpty() &&
+                    it.all { value -> normalized(value).equals(prompt,true) } } &&
+                n.row.lines().filter(String::isNotBlank).all { normalized(it).equals(prompt,true) }
+        }).singleOrNull()
+        return search
+    }
+
     /** Exact informational footer groups; never sufficient to start a read. */
     fun detailFooter(texts: List<String>): Boolean {
         val labels=texts.map { normalized(it).lowercase() }.toSet()
@@ -468,10 +529,17 @@ internal object MorningReadPolicy {
                     // product page before searching for the next requested ISIN.
                     val current=nodes.flatMap { n -> ids.findAll(n.text.uppercase()).map { it.value }.toList() }
                         .toSet().singleOrNull()
-                    if(current!=null && current!=target && detailLauncherIndex(nodes,current)!=null)
+                    // Recent-search lists contain other product ISINs but
+                    // are not the opened detail of that product. A synthetic
+                    // detail label in the same tree must not trigger BACK.
+                    val recentList=nodes.any { normalized(it.text).equals("ZULETZT",true) } ||
+                        nodes.any { normalized(it.text).equals("Nach Produkttyp durchsuchen",true) }
+                    if(!recentList && current!=null && current!=target &&
+                        detailLauncherIndex(nodes,current)!=null)
                         return Action(Kind.BACK)
                 }
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
+                recentMarketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 productSearchWithoutLauncher(nodes)?.let { searchNodes ->
                     val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll,symbolProbe)
                     if(action.kind in setOf(Kind.FOCUS,Kind.QUERY,Kind.SUBMIT,Kind.CATEGORY,Kind.CATEGORY_SCROLL,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action

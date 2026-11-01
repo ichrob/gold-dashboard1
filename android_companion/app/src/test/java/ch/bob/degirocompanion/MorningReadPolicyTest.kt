@@ -200,6 +200,69 @@ class MorningReadPolicyTest {
         // An order launcher on product/results views remains blocked.
         assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(listOf(node(isin),node("Übersicht"),launcher),isin).kind)
     }
+    private fun recentProductsMarketHome():List<MorningReadPolicy.Node> {
+        val launcher=MorningReadPolicy.Node("Order platzieren",
+            clickable=true,row="Order platzieren")
+        val title="SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3902.92 Bv 10"
+        return listOf(
+            MorningReadPolicy.Node("Märkte"),
+            MorningReadPolicy.Node("Nach Produkttyp durchsuchen"),
+            MorningReadPolicy.Node("ZULETZT"),
+            MorningReadPolicy.Node("Alle löschen",clickable=true),
+            MorningReadPolicy.Node("Mit Namen, ISIN oder Symbol suchen",
+                clickable=true,row="Mit Namen, ISIN oder Symbol suchen"),
+            MorningReadPolicy.Node(title+"\\nDE000FD0S0G4",row=title+"\\nDE000FD0S0G4"),
+            MorningReadPolicy.Node("K",clickable=true),
+            MorningReadPolicy.Node("V",clickable=true),
+            launcher)
+    }
+    @Test fun normalRecentProductsPageWithGlobalLauncherRestoresOnlySearch() {
+        val landing=recentProductsMarketHome()
+        val action=MorningReadPolicy.detailDecision(landing,"DE000FE6B3G9",true,
+            resultOpened=false)
+        assertEquals(MorningReadPolicy.Kind.SEARCH,action.kind)
+        assertEquals(4,action.index)
+        assertEquals(MorningReadPolicy.Kind.SEARCH,
+            MorningReadPolicy.decide(landing,"DE000FE6B3G9").kind)
+        // Different target after an earlier partial product must use the same
+        // safe, explicitly labelled search. No product/K/V/order click.
+        assertEquals(4,MorningReadPolicy.detailDecision(landing,
+            "DE000FG77MY4",true).index)
+    }
+    @Test fun recentMarketExceptionFailsClosedForOrderFormsAndAmbiguity() {
+        val view=recentProductsMarketHome()
+        val target="DE000FE6B3G9"
+        val unsafe=listOf(
+            view+MorningReadPolicy.Node("Order bestätigen"),
+            view+MorningReadPolicy.Node("Limitpreis"),
+            view+MorningReadPolicy.Node("Stückzahl"),
+            view+MorningReadPolicy.Node("Ordertyp"),
+            view+MorningReadPolicy.Node("",password=true),
+            view+MorningReadPolicy.Node("",sensitive=true),
+            view+MorningReadPolicy.Node("",editable=true,hint="Betrag"),
+            view+view[8],
+            view.mapIndexed { i,n -> if(i==8)n.copy(clickable=false) else n },
+            view.mapIndexed { i,n -> if(i==8)n.copy(row="Order platzieren\\nKauf") else n },
+            view.mapIndexed { i,n -> if(i==8)n.copy(description="Order bestätigen") else n },
+            view.mapIndexed { i,n -> if(i==4)n.copy(row=n.row+"\\nK") else n },
+            view.mapIndexed { i,n -> if(i==4)n.copy(clickable=false) else n },
+            view.mapIndexed { i,n -> if(i==4)n.copy(text="Suche",row="Suche") else n },
+            view.mapIndexed { i,n -> if(i==2)n.copy(text="Übersicht") else n },
+            view.mapIndexed { i,n -> if(i==0)n.copy(text="Portfolio") else n },
+            view.mapIndexed { i,n -> if(i==8)n.copy(parent=5) else n },
+            view+MorningReadPolicy.Node("Orderdetails"),
+            view+MorningReadPolicy.Node("Kursdaten"))
+        for ((i,bad) in unsafe.withIndex()) {
+            val action=MorningReadPolicy.detailDecision(bad,target,true)
+            // Unsafe views may WAIT or BACK safely, but may never start a
+            // search, product read or trading-related click. Genuine forms
+            // must fail closed rather than be interpreted as recent Markets.
+            assertTrue("unsafe recent page case $i: ${action.kind}",
+                action.kind in setOf(MorningReadPolicy.Kind.BLOCK,
+                    MorningReadPolicy.Kind.WAIT,MorningReadPolicy.Kind.BACK))
+        }
+    }
+
     @Test fun explicitProductInputWorksBesideIsolatedGlobalLauncher() {
         val input=node("").copy(editable=true,hint="Mit Namen, ISIN oder Symbol suchen")
         val launcher=node("",true).copy(description="Order platzieren")
