@@ -229,6 +229,28 @@ class MorningReadPolicyTest {
         assertEquals(4,MorningReadPolicy.detailDecision(landing,
             "DE000FG77MY4",true).index)
     }
+    @Test fun recentMarketsSearchSurvivesVirtualizedListLabels() {
+        val original=recentProductsMarketHome()
+        val target="DE000FE6B3G9"
+        val missingRecentHeader=original.mapIndexed { i,n ->
+            if(i==2)n.copy(text="",row="") else n
+        }
+        val missingClearControl=original.mapIndexed { i,n ->
+            if(i==3)n.copy(text="",row="") else n
+        }
+        for(page in listOf(missingRecentHeader,missingClearControl)) {
+            val decision=MorningReadPolicy.detailDecision(page,target,true)
+            assertEquals(MorningReadPolicy.Kind.SEARCH,decision.kind)
+            assertEquals(4,decision.index)
+        }
+        // Both independent Markets/Recent identification anchors absent
+        // cannot ever license the search action.
+        val ambiguous=original.mapIndexed { i,n ->
+            if(i in setOf(1,2,3))n.copy(text="",row="") else n
+        }
+        assertEquals(MorningReadPolicy.Kind.BLOCK,
+            MorningReadPolicy.detailDecision(ambiguous,target,true).kind)
+    }
     @Test fun recentMarketExceptionFailsClosedForOrderFormsAndAmbiguity() {
         val view=recentProductsMarketHome()
         val target="DE000FE6B3G9"
@@ -247,7 +269,6 @@ class MorningReadPolicyTest {
             view.mapIndexed { i,n -> if(i==4)n.copy(row=n.row+"\\nK") else n },
             view.mapIndexed { i,n -> if(i==4)n.copy(clickable=false) else n },
             view.mapIndexed { i,n -> if(i==4)n.copy(text="Suche",row="Suche") else n },
-            view.mapIndexed { i,n -> if(i==2)n.copy(text="Übersicht") else n },
             view.mapIndexed { i,n -> if(i==0)n.copy(text="Portfolio") else n },
             view.mapIndexed { i,n -> if(i==8)n.copy(parent=5) else n },
             view+MorningReadPolicy.Node("Orderdetails"),
