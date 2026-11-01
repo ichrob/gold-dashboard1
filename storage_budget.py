@@ -20,11 +20,14 @@ def init(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_storage_samples (
         slot BIGINT PRIMARY KEY, sampled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         database_bytes BIGINT NOT NULL,
-        relation_bytes JSONB NOT NULL DEFAULT '{}'::jsonb)''')
+        relation_bytes JSONB NOT NULL DEFAULT '{}'::jsonb,
+        writer_stats JSONB NOT NULL DEFAULT '{}'::jsonb)''')
     # Existing installations predate fixed per-relation snapshots.  Keep all
     # historical database-size samples and add only the missing observation
     # column; no evidence table or retention rule is changed.
     conn.execute("ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS relation_bytes JSONB NOT NULL DEFAULT '{}'::jsonb")
+    # Only ten fixed per-table counter tuples per half-hour slot, never raw data.
+    conn.execute("ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS writer_stats JSONB NOT NULL DEFAULT '{}'::jsonb")
 
 
 def state(size):
@@ -45,9 +48,11 @@ def maybe_observe(conn,now=None):
                 FROM pg_stat_user_tables WHERE schemaname=current_schema()''').fetchall()
             relation_bytes={name:value for name,value in relations
                 if isinstance(name,str) and isinstance(value,int) and value>=0}
-            conn.execute('''INSERT INTO bob_storage_samples(slot,database_bytes,relation_bytes)
-                VALUES(%s,%s,%s::jsonb) ON CONFLICT DO NOTHING''',
-                (int(now//1800)*1800,size,json.dumps(relation_bytes,sort_keys=True)))
+            counters=__import__('storage_forensics').snapshot_counters(conn)
+            conn.execute('''INSERT INTO bob_storage_samples(slot,database_bytes,relation_bytes,writer_stats)
+                VALUES(%s,%s,%s::jsonb,%s::jsonb) ON CONFLICT DO NOTHING''',
+                (int(now//1800)*1800,size,json.dumps(relation_bytes,sort_keys=True),
+                 json.dumps(counters,sort_keys=True)))
             # Only capacity telemetry expires. Never delete test/market evidence.
             conn.execute('DELETE FROM bob_storage_samples WHERE slot<%s',(int(now)-90*86400,))
     except Exception:
@@ -116,7 +121,7 @@ def report(conn,now=None):
         n_live_tup,n_dead_tup,last_autovacuum
         FROM pg_stat_user_tables WHERE schemaname=current_schema()
         ORDER BY pg_total_relation_size(relid) DESC LIMIT 12''').fetchall()
-    samples=conn.execute('''SELECT slot,database_bytes,relation_bytes
+    samples=conn.execute('''SELECT slot,database_bytes,relation_bytes,writer_stats
         FROM bob_storage_samples ORDER BY slot DESC LIMIT 336''').fetchall()
     growth=None;days=None
     if len(samples)>1:
@@ -160,6 +165,7 @@ def report(conn,now=None):
         relationLatestSampleAt=relation_last_at,
         relationElapsedSeconds=relation_elapsed,
         largestTableDeltas=relation_deltas[:12],
+        storageForensics=__import__('storage_forensics').report(conn,samples),
         largestTables=[dict(table=name,bytes=n,estimatedRows=live,estimatedDeadRows=dead,
             lastAutovacuum=str(vac) if vac else None) for name,n,live,dead,vac in tables],
         archiveWorker=persisted_archive,
