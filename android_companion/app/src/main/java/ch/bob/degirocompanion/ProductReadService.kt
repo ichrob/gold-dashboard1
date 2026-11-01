@@ -533,8 +533,17 @@ class ProductReadService : AccessibilityService() {
                         requestedTermsOnly = MorningReadRun.requestedTermsOnly(),
                         seekLeverage = MorningReadRun.requestedLeverage(),
                         expectedIsin = if (MorningReadRun.running) MorningReadRun.target else null)
-                    batchReadWindow = if (!sensitive && (previousReadWindow || pageReader.sameWindow(root.windowId)) &&
-                        step.cause !in setOf(ProductPageReader.Cause.UNSAFE_VIEW, ProductPageReader.Cause.IDENTITY_CHANGED)) root.windowId else null
+                    // Move.FINISHED resets ProductPageReader's anchor. Retain
+                    // this verified product window before the next request,
+                    // otherwise the guarded BACK cannot leave the completed
+                    // detail and the new target sees a stale order launcher.
+                    val validFinishedRead = step.move == ProductPageReader.Move.FINISHED
+                    batchReadWindow = if (ProductBatchReadWindow.keep(
+                            previousReadWindow,pageReader.sameWindow(root.windowId),
+                            validFinishedRead,step.result.draft,MorningReadRun.target,
+                            sensitive,step.cause in setOf(
+                                ProductPageReader.Cause.UNSAFE_VIEW,
+                                ProductPageReader.Cause.IDENTITY_CHANGED))) root.windowId else null
                     ProductReadDiagnostics.page(step.cause)
                     ProductReadDiagnostics.rejected(step.result.reason)
                     when (step.move) {

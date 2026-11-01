@@ -23,6 +23,30 @@ class ProductReturnTransitionTest {
         assertFalse(t.waiting(search,7,1200))
         assertFalse(t.waiting(oldPage,7,1300))
     }
+    @Test fun partiallyRebuiltPreviousOverviewGetsOnlyShortPassiveGrace() {
+        val previous=listOf(MorningReadPolicy.Node("Übersicht"),
+            MorningReadPolicy.Node(isin),
+            MorningReadPolicy.Node("Order platzieren",clickable=true))
+        val transition=ProductReturnTransition()
+        transition.begin(isin,7,1000)
+        assertTrue(transition.waiting(previous,7,1100))
+        assertTrue(transition.waiting(previous,7,2399))
+        assertFalse(transition.waiting(previous,7,2400))
+        assertFalse(transition.waiting(previous,7,2500))
+    }
+    @Test fun partialTransitionNeverHidesRealOrderFormOrDifferentIdentity() {
+        val previous=listOf(MorningReadPolicy.Node("Übersicht"),
+            MorningReadPolicy.Node(isin),
+            MorningReadPolicy.Node("Order platzieren",clickable=true))
+        for (extra in listOf(MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Limitpreis"),MorningReadPolicy.Node("Passwort"),
+            MorningReadPolicy.Node("",editable=true),
+            MorningReadPolicy.Node("",sensitive=true),
+            MorningReadPolicy.Node("DE000FE6B3G9"))) {
+            val transition=ProductReturnTransition();transition.begin(isin,7,1000)
+            assertFalse(transition.waiting(previous+extra,7,1100))
+        }
+    }
     @Test fun protectedOrChangedViewsAreNeverHiddenByWaiting() {
         for(extra in listOf(MorningReadPolicy.Node("Order bestätigen"),MorningReadPolicy.Node("Limitpreis"),
             MorningReadPolicy.Node("Passwort"),MorningReadPolicy.Node("",sensitive=true),
