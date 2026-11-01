@@ -82,6 +82,7 @@ class ProductAuditTests(unittest.TestCase):
         self.assertIn('leverage-time', item['missing'])
         self.assertFalse(item['tradeApproved'])
         self.assertIsNone(item['leverageSourceAt'])
+        self.assertIn('Wochenende', sunday['marketContext'])
         repeated = audit.build(feed(), {ISIN: {}}, later + 3600000, sunday)
         self.assertEqual(repeated['items'][0]['leverageReference']['at'], reference['at'])
         # New product generation never silently inherits yesterday's proof.
