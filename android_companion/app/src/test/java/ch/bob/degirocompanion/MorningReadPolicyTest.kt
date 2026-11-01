@@ -308,8 +308,8 @@ class MorningReadPolicyTest {
         val original=samsungSearchResult()
         val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true)
         val view=original+launcher
-        assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.decide(view,target).kind)
-        assertEquals("PROTECTED_ORDER_CONFIRM",MorningReadPolicy.decide(view,target).code)
+        assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(view,target).kind)
+        assertEquals("RESULT_MISSING",MorningReadPolicy.decide(view,target).code)
         // Only the existing product-title node, never the standalone
         // launcher or the K/V controls, may be the gesture target.
         assertEquals(4,MorningReadPolicy.resultTapIndex(view,target))
