@@ -42,7 +42,7 @@ def targets(feed, run, now_ms):
             or not 0 <= now_ms - run_at <= MAX_RUN_AGE_MS):
         return []
     current = {p.get('isin') for p in feed.get('products', [])
-               if isinstance(p, dict) and valid_isin(p.get('isin'))}
+               if isinstance(p, dict) and isinstance(p.get('isin'), str) and valid_isin(p['isin'])}
     missing = []
     for row in run.get('results', [])[:12]:
         if not isinstance(row, dict) or row.get('code') != 'PARTIAL':
@@ -72,7 +72,7 @@ def plan(feed, run, audit, now_ms):
         previous = item.get('weekendLeverageFollowup') or {}
         if (item.get('state') in ('terminated', 'excluded-factor') or
                 not {'leverage', 'leverage-time'}.intersection(item.get('missing', [])) or
-                item.get('leverageReference') or now_ms < previous.get('retryAfterMs', 0)):
+                item.get('leverageReference') or (type(previous.get('retryAfterMs')) in (int, float) and now_ms < previous['retryAfterMs'])):
             continue
         selected.append(isin)
     return selected
@@ -121,7 +121,7 @@ def update(audit, feed, selected, quotes, now_ms):
 
 def once(database, now_ms=None, collect=None):
     """Single advisory-locked, read-only sourcing cycle. Never opens DEGIRO."""
-    from paper_simulation import quote_cache, stamp
+    from paper_simulation import quote_cache
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000) if now_ms is None else now_ms
     if datetime.fromtimestamp(now_ms / 1000, ZURICH).weekday() < 5:
         return dict(state='paused', checked=0, ordersEnabled=False)
