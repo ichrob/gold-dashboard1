@@ -14,11 +14,23 @@ from urllib.error import HTTPError, URLError
 ORIGIN='https://www.comdirect.de/'
 _CACHE={}
 _LOCK=threading.Lock()
-# Terminal event explicitly confirmed on the exchange product page on 2026-10-03.
-# A later missing page must never reactivate an already knocked-out product.
+# Irreversible product-end evidence from one exact issuer/exchange page.
+# Event dates remain source dates, never fresh trade clocks. An outage cannot
+# reactivate the identified instrument or produce new leverage/quotes.
 TERMINAL={
  'DE000FG7MTA6':dict(status='knocked_out',confirmedOn='2026-10-03',
-    source='Börse Stuttgart',sourceUrl='https://www.boerse-stuttgart.de/de-de/produkte/hebelprodukte/knock-out-produkte/stuttgart/fg7mta/')
+    source='Börse Stuttgart',sourceUrl='https://www.boerse-stuttgart.de/de-de/produkte/hebelprodukte/knock-out-produkte/stuttgart/fg7mta/',
+    direction='LONG',ko=4143.437,strike=4143.437,ratio=.1),
+ 'DE000FD0S0G4':dict(status='knocked_out',confirmedOn='2026-10-30',
+    source='Société Générale · offizielle Produktseite',
+    sourceUrl='https://www.sg-zertifikate.de/product-details/fd0s0g',
+    eventDateText='30.10.2026',eventTimeText='14:06',
+    direction='LONG',ko=3942.0,strike=3902.9191,ratio=.1),
+ 'DE000FA96FJ2':dict(status='knocked_out',confirmedOn='2026-10-30',
+    source='Société Générale · offizielle Produktseite',
+    sourceUrl='https://www.sg-zertifikate.at/product-details/fa96fj',
+    eventDateText='30.10.2026',eventTimeText='13:42',
+    direction='LONG',ko=3956.0887,strike=3956.0887,ratio=.1),
 }
 
 def plain(html):
@@ -106,8 +118,10 @@ def get_product(isin):
                     source=r['source'],sourceUrl=r['sourceUrl'],checkedAt=None,
                     conditions={},observedTerms={},reason='Bestätigtes Knock-out: Produkt dauerhaft ausgeschlossen',
                     metadata=dict(status=2,tradingHalted=True,termsDated=False,
-                        direction='LONG',underlying='XAU/USD',underlyingType='SPOT',
-                        ko=4143.437,strike=4143.437,ratio=.1,contract=None),terminalEvidence=r)
+                        direction=r['direction'],underlying='XAU/USD',underlyingType='SPOT',
+                        currency='EUR',ko=r['ko'],strike=r['strike'],ratio=r['ratio'],contract=None),
+                    terminalEvidence=dict(r,isin=isin,originalEventDate=r['confirmedOn'],
+                        researchOnly=True,tradeApproved=False))
     with _LOCK:
         item=_CACHE.get(isin)
         if item and time.monotonic()-item[0]<900:return item[1]
