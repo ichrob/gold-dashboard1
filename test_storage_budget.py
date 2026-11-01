@@ -96,6 +96,7 @@ class StorageTests(unittest.TestCase):
                 columns={row[0] for row in conn.execute('''SELECT column_name FROM information_schema.columns
                     WHERE table_schema=current_schema() AND table_name='bob_storage_samples' ''').fetchall()}
                 self.assertIn('relation_bytes',columns)
+                self.assertIn('writer_stats',columns)
                 conn.execute('CREATE TABLE bob_decision_audit (id INT PRIMARY KEY,payload JSONB)')
                 payload={'observations':[{'source':'gold-reference','value':4000,'valid':True} for _ in range(12)]}
                 conn.execute('INSERT INTO bob_decision_audit VALUES (1,%s::jsonb)',(json.dumps(payload),))
@@ -104,6 +105,10 @@ class StorageTests(unittest.TestCase):
                 with patch.object(budget,'_NEXT',0):budget.maybe_observe(conn,1_800_000_000)
                 with patch.object(budget,'_NEXT',0):budget.maybe_observe(conn,1_800_001_800)
                 self.assertEqual(conn.execute('SELECT count(*) FROM bob_storage_samples').fetchone()[0],2)
+                writer_row=conn.execute('SELECT writer_stats FROM bob_storage_samples ORDER BY slot DESC LIMIT 1').fetchone()[0]
+                self.assertIsInstance(writer_row,dict)
+                self.assertLessEqual(len(writer_row),10)
+                self.assertNotIn('bob_settings',writer_row)
                 # Telemetry retention never touches test data.
                 self.assertEqual(conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0],2)
                 import candle_reliability as candles_store
@@ -126,6 +131,11 @@ class StorageTests(unittest.TestCase):
                 self.assertTrue(any(item['table']=='bob_decision_audit'
                     for item in result['largestTableDeltas']))
                 self.assertIn('not-total-disk',result['scope'])
+                self.assertEqual(result['storageForensics']['status'],'observed')
+                self.assertTrue(result['storageForensics']['readOnly'])
+                self.assertIsNone(result['storageForensics']['reclaimableBytes'])
+                self.assertFalse(result['storageForensics']['rebuildAuthorized'])
+                self.assertIn(result['storageForensics']['day']['status'],('observed','no-common-relations','needs-24h-pair'))
                 conn.commit()
             finally:
                 conn.rollback();conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)));conn.commit()
