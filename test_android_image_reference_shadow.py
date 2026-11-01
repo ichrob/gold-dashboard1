@@ -175,7 +175,7 @@ class DatabaseShadowTests(unittest.TestCase):
                 with patch.object(shadow,'_cache',None),patch.object(shadow,'_cache_at',0):
                     with conn.transaction():
                         conn.execute('SET TRANSACTION READ ONLY')
-                        result=shadow.report(conn,now=now)
+                        result=shadow.report(conn,now=time.time())
                 self.assertEqual(result['status'],'verified-in-memory')
                 self.assertEqual(result['repeatedImageReferences'],1)
                 self.assertEqual(result['deviceScopeCount'],2)
