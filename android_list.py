@@ -146,16 +146,17 @@ def handle(conn,payload,now):
     if payload['action']=='list-get':
         batch=payload.get('batchId')
         if batch=='current':
-            row=conn.execute("""SELECT i.payload,i.parsed_items,i.import_receipt FROM bob_android_list_images i
+            row=conn.execute("""SELECT i.batch_id,i.payload,i.parsed_items,i.import_receipt FROM bob_android_list_images i
                 JOIN bob_android_diagnostic_devices d USING(token_hash)
                 WHERE NOT d.revoked AND d.expires_at>now() AND i.import_receipt->>'stage'='synced'
                 AND i.parsed_items IS NOT NULL ORDER BY i.created_at DESC LIMIT 1""").fetchone()
         else:
             if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')
-            row=conn.execute("""SELECT i.payload,i.parsed_items,i.import_receipt FROM bob_android_list_images i
+            row=conn.execute("""SELECT i.batch_id,i.payload,i.parsed_items,i.import_receipt FROM bob_android_list_images i
                 JOIN bob_android_diagnostic_devices d USING(token_hash)
                 WHERE i.batch_id=%s AND NOT d.revoked AND d.expires_at>now()""",(batch,)).fetchone()
-        return {'ok':True,'batch':row[0] if row else None,'items':row[1] if row else None,'import':row[2] if row else None}
+        restored=__import__('android_image_readthrough').materialize(conn,row[0],row[1]) if row else None
+        return {'ok':True,'batch':restored,'items':row[2] if row else None,'import':row[3] if row else None}
     digest=token_hash(payload.get('token'))
     device=conn.execute('SELECT token_hash FROM bob_android_diagnostic_devices WHERE token_hash=%s AND NOT revoked AND expires_at>now() FOR UPDATE',(digest,)).fetchone()
     if not device:raise PermissionError('Device not paired')
