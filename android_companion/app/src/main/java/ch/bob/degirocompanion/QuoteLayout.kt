@@ -171,7 +171,37 @@ internal object QuoteLayout {
             }
         }
         addIfUnique("Anzeigezeit", displayedTimes)
-        results.putAll(productParameters(sorted))
+        // Product leverage can appear as a separate, explicitly labelled
+        // field rather than "LV" in a compact title. Never use an unlabelled
+        // chart/account number; never interpret prices or volumes as leverage.
+        val leverageLabel=Regex("(?i)^(Hebel|Leverage)\\s*[:：]?$")
+        val leverageInline=Regex("(?i)^(?:Hebel|Leverage)\\s*[:：]?\\s*(?:x\\s*)?([0-9]{1,5}(?:[,.][0-9]{1,4})?)\\s*x?$")
+        val leverageNumber=Regex("(?i)^\\s*(?:x\\s*)?([0-9]{1,5}(?:[,.][0-9]{1,4})?)\\s*x?\\s*$")
+        val observedLeverage=mutableListOf<String>()
+        for (line in sorted) {
+            val current=line.text.trim()
+            leverageInline.matchEntire(current)?.let { observedLeverage+=it.groupValues[1].replace('.', ',') }
+            if(!leverageLabel.matches(current)) continue
+            val nearby=sorted.filter { value ->
+                value !== line && value.left>=line.right &&
+                value.left-line.right<=540 &&
+                abs(value.centerY-line.centerY)<=max(16,line.height) &&
+                leverageNumber.matches(value.text.trim())
+            }.sortedBy { it.left-line.right }
+            nearby.firstOrNull()?.let {
+                observedLeverage+=leverageNumber.matchEntire(it.text.trim())!!.groupValues[1].replace('.', ',')
+            }
+        }
+        val explicitLeverage=observedLeverage.distinct().singleOrNull()?.takeIf {
+            (it.replace(',', '.').toDoubleOrNull() ?: 0.0)>0
+        }
+        val compact=productParameters(sorted)
+        results.putAll(compact)
+        // Contradicting two labelled observations are not one valid value.
+        if(observedLeverage.distinct().size>1 || (explicitLeverage!=null &&
+                compact["Hebel"]!=null && compact["Hebel"]!=explicitLeverage))
+            results.remove("Hebel")
+        else if(explicitLeverage!=null) results["Hebel"]=explicitLeverage
         return results
     }
 }
