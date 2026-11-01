@@ -411,7 +411,7 @@ class MorningReadPolicyTest {
         assertNull(MorningReadPolicy.listReturnScrollTarget(nodes,setOf(1),captured.drop(1).toSet()))
         assertNull(MorningReadPolicy.listReturnScrollTarget(nodes,setOf(1),captured-"DE000FB0CVV9"+"DE000FD0S0G4"))
         assertNull(MorningReadPolicy.listReturnScrollTarget(nodes,setOf(0),captured))
-        assertNull(MorningReadPolicy.listReturnScrollTarget(nodes,setOf(1,2),captured))
+        assertNull(MorningReadPolicy.listReturnScrollTarget(nodes+nodes[1].copy(parent=-1),setOf(1,3),captured))
         assertNull(MorningReadPolicy.listReturnScrollTarget(nodes+MorningReadPolicy.Node("Gold",editable=true,hint="Suche"),setOf(1),captured))
         assertNull(MorningReadPolicy.listReturnScrollTarget(nodes+MorningReadPolicy.Node("Order bestätigen"),setOf(1),captured))
         assertNull(MorningReadPolicy.listReturnScrollTarget(nodes+MorningReadPolicy.Node("",password=true),setOf(1),captured))
