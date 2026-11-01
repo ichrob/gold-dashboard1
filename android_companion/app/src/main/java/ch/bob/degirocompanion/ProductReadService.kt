@@ -1056,7 +1056,7 @@ class ProductReadService : AccessibilityService() {
         ProductReadRequest.cancel();PhoneDiagnostics.queue(this)
         // Do not wait for native OCR just to scroll back up. Still require
         // the server's ten-row receipt before touching any ISIN search.
-        handler.postDelayed({ returnToSearchWhileImporting(capturedWindow,captured,0) },650)
+        if(capturedWindow!=null) handler.postDelayed({ returnToSearchWhileImporting(capturedWindow,captured,0) },650)
     }
 
     private fun focusSearch(node: AccessibilityNodeInfo): Boolean =
