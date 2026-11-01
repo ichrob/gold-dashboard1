@@ -75,6 +75,22 @@ class ArchiveSafety(unittest.TestCase):
         for profile in POLICIES:
             self.assertTrue(set(names(profile).values()) <= tables)
 
+    def test_decision_product_pointers_have_restorable_backup_ledgers(self):
+        # A backup of bob_decision_audit alone would preserve the pointer
+        # but lose its content address. Restore must include the immutable
+        # object location, identity link, scan cursor and no-repeat receipt.
+        required = {
+            'bob_decision_audit',
+            'bob_cold_decision_product_objects',
+            'bob_cold_decision_product_refs',
+            'bob_cold_decision_product_scan',
+            'bob_cold_decision_pilot_attempts',
+        }
+        self.assertTrue(required <= archive.selected_tables())
+        # The opt-in archival ledgers are evidence, not account/auth state.
+        self.assertFalse({'bob_settings', 'bob_oauth', 'bob_passkeys',
+                          'bob_browser_sessions'} & archive.selected_tables())
+
     def test_corruption_rejected_before_connect(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d)/'bad.zip'; path.write_bytes(b'bad')
