@@ -69,6 +69,30 @@ class AndroidObservations(unittest.TestCase):
         payload['results'][0]['draft']=DRAFT.replace('13,06','99,99')
         with self.assertRaises(ValueError):a.prepare(payload,{},NOW)
 
+    def test_missing_only_plan_is_kept_as_unverified_reader_metadata(self):
+        payload=run()
+        payload['requestedFields']={ISIN:['Geld']}
+        result=a.prepare(payload,{'products':[{'isin':ISIN}]},NOW)
+        entry=result['results'][0]
+        self.assertEqual(entry['code'],'COMPLETE')
+        self.assertEqual(entry['requestedFields'],['Geld'])
+        self.assertEqual(entry['observation']['missingFields'],[])
+        self.assertFalse(entry['observation']['verified'])
+        self.assertFalse(result['tradeApproved'])
+        self.assertIsNone(entry['observation']['sourceTime'])
+        payload['requestedFields']={ISIN:['KO-Schwelle']}
+        entry=a.prepare(payload,{},NOW)['results'][0]
+        self.assertEqual(entry['code'],'PARTIAL')
+        self.assertEqual(entry['observation']['missingFields'],['KO-Schwelle'])
+        for invalid in [{ISIN:[]},{ISIN:['Geld','Geld']},{ISIN:['Order platzieren']},
+                        {'DE000FG77MY4':['Geld']},{ISIN:'Geld'}]:
+            payload['requestedFields']=invalid
+            with self.assertRaises(ValueError):
+                a.prepare(payload,{},NOW)
+        payload['requestedFields']={ISIN:['Geld']}
+        entry=a.prepare(payload,{},NOW)['results'][0]
+        self.assertEqual(entry['observation']['raw'],DRAFT)
+
     def test_partial_is_recomputed_and_cannot_be_promoted(self):
         r=a.prepare(run(),{'products':[{'isin':ISIN}]},NOW)
         self.assertEqual(r['results'][0]['code'],'PARTIAL')
