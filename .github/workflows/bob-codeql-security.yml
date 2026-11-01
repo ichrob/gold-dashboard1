@@ -35,6 +35,8 @@ on:
       - "android_image_backup_prepare.py"
       - "test_android_image_backup_prepare.py"
       - "android_image_backup_runner.py"
+      - "android_image_backup_cli.py"
+      - "test_android_image_backup_cli.py"
       - "test_android_image_backup_runner.py"
       - "test_android_image_recovery_bundle.py"
       - "test_android_image_readthrough.py"
