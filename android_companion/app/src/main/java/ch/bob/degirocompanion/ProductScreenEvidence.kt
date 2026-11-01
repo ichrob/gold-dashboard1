@@ -56,7 +56,14 @@ internal object ProductScreenEvidence {
         val currency = if (!hasQuote && allowTermsOnly) productCurrency
             else if (quoteCurrencies.isNotEmpty()) quoteCurrencies
             else if (rowCurrencies.isNotEmpty()) rowCurrencies else currencies(text)
-        if (currency.size != 1) return Result(message = "Produktwährung nicht eindeutig sichtbar; nichts übernommen.", reason = Reason.CURRENCY_AMBIGUOUS)
+        // A server-requested, strictly product-identified terms-only read may
+        // retain an explicitly labelled leverage or KO field even when DEGIRO
+        // hides the product currency on a closed-market detail page. Do not
+        // derive currency from an account balance, infer a quote, or allow this
+        // path for normal bid/ask reads. Conflicting product currencies still fail.
+        val unpricedTermsOnly = allowTermsOnly && !hasQuote && currency.isEmpty()
+        if (currency.size != 1 && !unpricedTermsOnly)
+            return Result(message = "Produktwährung nicht eindeutig sichtbar; nichts übernommen.", reason = Reason.CURRENCY_AMBIGUOUS)
         val bid = selected["Geld"]?.replace(',', '.')?.toDoubleOrNull()
         val ask = selected["Brief"]?.replace(',', '.')?.toDoubleOrNull()
         if ((bid != null && bid <= 0) || (ask != null && ask <= 0) || (bid != null && ask != null && bid > ask))
@@ -71,7 +78,8 @@ internal object ProductScreenEvidence {
             appendLine("ISIN: ${ids.single()}")
             appendLine("Quelle: DEGIRO-App")
             appendLine("Erfasst: $observedAt")
-            appendLine("Währung (Anzeige ungeprüft): ${currency.single()}")
+            if (currency.size == 1) appendLine("Währung (Anzeige ungeprüft): ${currency.single()}")
+            else appendLine("Produktwährung nicht nachgewiesen; nur ausdrücklich beschriftete Produktparameter, keine Kurse.")
             for ((key, value) in selected) appendLine("$key (Anzeige ungeprüft): $value")
             appendLine("Hinweis (Anzeige ungeprüft): $warning")
             append("Kein automatischer Handelsnachweis, keine Freigabe, keine Order.")
