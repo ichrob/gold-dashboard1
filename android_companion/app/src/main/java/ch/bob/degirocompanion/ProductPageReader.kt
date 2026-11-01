@@ -73,7 +73,9 @@ internal class ProductPageReader {
                     (expectedIsin == null || expectedIsin == it.isin) &&
                     (identityHint == null || identityHint == it.isin) &&
                     (seekingSymbol == null || seekingSymbol == it.symbol) &&
-                    (verifiedProbeSymbol == null || verifiedProbeSymbol == it.symbol)
+                    (verifiedProbeSymbol == null || verifiedProbeSymbol == it.symbol) &&
+                    lines.mapNotNull { line -> ProductSymbolMemory.probeHeaderSymbol(line.text) }
+                        .all { visible -> visible == it.symbol }
             } else null
         val verifiedPairedQuote = footerPair != null && direct.draft.isNotBlank() &&
             (expectedIsin != null || (seekingSymbol != null && seekingParameters.isNotEmpty())) &&
