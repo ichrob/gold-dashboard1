@@ -31,10 +31,9 @@ def prune_orphans_in_test_schema(conn):
             conn.execute("SET LOCAL statement_timeout='6s'")
             conn.execute("SET LOCAL lock_timeout='500ms'")
             refs = conn.execute("""SELECT r.batch_id,r.token_hash,
-                    r.pointer_payload,i.created_at
+                    r.pointer_payload,i.created_at,i.token_hash
                 FROM bob_android_shadow_batch_refs r
-                JOIN bob_android_list_images i ON i.batch_id=r.batch_id
-                WHERE r.token_hash=i.token_hash
+                LEFT JOIN bob_android_list_images i ON i.batch_id=r.batch_id
                 LIMIT 17""").fetchall()
             objects = conn.execute("""SELECT token_hash,object_key
                 FROM bob_android_shadow_objects LIMIT 65""").fetchall()
@@ -43,8 +42,10 @@ def prune_orphans_in_test_schema(conn):
                 raise ValueError("Orphan verification exceeds safety budget")
             live = set()
             now = datetime.now(timezone.utc)
-            for bid,scope,pointer,uploaded in refs:
+            for bid,scope,pointer,uploaded,source_scope in refs:
                 shadow._require_ids(bid,scope)
+                if source_scope!=scope:
+                    raise ValueError("Reference device mismatches source")
                 if (not isinstance(uploaded,datetime) or uploaded.tzinfo is None
                         or not uploaded <= now
                         or (now-uploaded).total_seconds() >= 86400
@@ -83,7 +84,7 @@ def prune_orphans_in_test_schema(conn):
                 if not removed or removed[0]!=key:
                     raise ValueError("Orphan identity changed")
             # Refuse success unless all live references still reconstruct.
-            for bid,scope,_,_ in refs:
+            for bid,scope,_,_,_ in refs:
                 shadow._resolve(conn,bid,scope)
         return {
             'status':'isolated-orphan-gc-verified',
