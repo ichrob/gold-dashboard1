@@ -274,6 +274,11 @@ class ProductPageReaderTest {
         val r = ProductPageReader()
         assertEquals(ProductPageReader.Move.NONE, step(r, quotes).move)
         step(r, header)
+        repeat(3) {
+            val wait=step(r,quotes,forward=false,backward=false)
+            assertEquals(ProductPageReader.Move.NONE,wait.move)
+            assertEquals("",wait.result.draft)
+        }
         assertEquals(ProductPageReader.Move.ABORT, step(r, quotes, forward = false, backward = false).move)
         assertFalse(r.anchored)
     }
