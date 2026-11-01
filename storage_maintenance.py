@@ -20,7 +20,7 @@ def connect():
 
 
 def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tail=False,
-             reclaim_observation_tail=False, target_table=None):
+             reclaim_observation_tail=False, reclaim_image_tail=False, target_table=None):
     """A dedicated autocommit connection, at most four time-limited vacuums.
 
     No FULL: never rewrite tables. After cold offload, cold-table tail truncation
@@ -46,7 +46,8 @@ def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tai
                 AND (last_autovacuum IS NULL OR last_autovacuum<now()-interval '6 hours')''', (table,)).fetchone()
             reclaim = ((reclaim_metric_tail and table == 'bob_metric_checks')
                        or (reclaim_analysis_tail and table == 'bob_diagnostic_history')
-                       or (reclaim_observation_tail and table == 'bob_improvement_observations'))
+                       or (reclaim_observation_tail and table == 'bob_improvement_observations')
+                       or (reclaim_image_tail and table == 'bob_android_list_images'))
             if not row and not reclaim:
                 continue
             try:

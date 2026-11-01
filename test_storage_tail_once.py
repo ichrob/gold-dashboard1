@@ -62,6 +62,31 @@ class TailSafetyTests(unittest.TestCase):
             with self.subTest(config=config), self.env(config):
                 self.assertIsNone(tail.configuration())
 
+    def test_android_image_tail_is_allowed_but_single_claim_only(self):
+        cfg = {"id": "image-prune-vacuum-test",
+               "table": "bob_android_list_images", "confirmed": True}
+        self.assertIn("bob_android_list_images", maintenance._TABLES)
+        answer = {"status": "checked", "tables": [{
+            "table": "bob_android_list_images",
+            "status": "command-completed",
+            "observedRelationBytesDecrease": 65536}]}
+        conn = FakeConnection()
+        vacuum = Mock(return_value=answer)
+        with self.env(cfg), patch.object(tail, "_preflight",
+             return_value="approved-for-one-table-vacuum"):
+            self.assertEqual(tail.configuration()["table"], "bob_android_list_images")
+            first = tail.run_once(factory=lambda:conn,vacuum=vacuum,now=SUNDAY)
+            second = tail.run_once(factory=lambda:conn,vacuum=vacuum,now=SUNDAY)
+        self.assertEqual(first["status"], "completed")
+        self.assertEqual(first["observedRelationBytesDecrease"], 65536)
+        self.assertIsNone(first["diskBytesFreed"])
+        self.assertFalse(first["evidenceDeleted"])
+        self.assertEqual(second["status"], "already-claimed")
+        vacuum.assert_called_once()
+        self.assertTrue(vacuum.call_args.kwargs["reclaim_image_tail"])
+        self.assertEqual(vacuum.call_args.kwargs["target_table"],
+                         "bob_android_list_images")
+
     def test_market_hours_fail_before_connection(self):
         with self.env():
             factory = Mock()

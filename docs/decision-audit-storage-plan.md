@@ -389,3 +389,33 @@ attempt log must not print command IDs, credentials or database originals.
 Changing the configuration alone can trigger a regular Render redeploy;
 do not enable it during an active archive restoration, unverified release,
 or trading session. No new paid service or public database access is needed.
+
+
+## Single guarded VACUUM for expired Android image-import tail pages
+
+The existing Android list importer `android_list.py` already applies its
+original 24-hour expiry to temporary `bob_android_list_images` entries.
+A private PostgreSQL catalog observation on 1 Nov 2026 showed about 9 MB
+allocated to this table, an estimated 7 live and 5 dead tuples. This is
+a candidate for potential relation-end truncation, **not proof** that
+its last pages are free or that physical Render volume would decrease.
+
+The separately confirmed, default-OFF `BOB_STORAGE_TAIL_RECLAIM_ONCE`
+single-table maintenance policy also permits `bob_android_list_images`
+as a fixed target. It leaves the **existing 24-hour expiry unchanged**
+and never adds a `DELETE`, overwrites saved screenshot values or modifies
+its active product reader. The command is the same ten-second,
+`SKIP_LOCKED`, `PARALLEL 0`, `TRUNCATE TRUE` regular `VACUUM` as the
+prior approved one-row maintenance targets. Its independent restored
+backup, fresh exact Render-volume observation, 750 MB ceiling, weekend
+market closure, unique durable claim and fail-closed error policy are
+unchanged. A new test proves exactly one invocation for that fixed
+table; the existing code forbids arbitrary SQL identifiers.
+
+Only an explicit separate one-time opt-in can trigger this after full
+PR/Main CI, CodeQL, risk and actual Render deployment checks. After an
+attempt, immediately clear the one-time setting and independently
+compare both PostgreSQL relation bytes and Render physical DB volume.
+Even a successfully completed VACUUM with 0 reduction is **not** a space
+recovery. Do not lower image retention, remove original audit evidence,
+rewrite the table or enable a public database connection to pursue it.
