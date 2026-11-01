@@ -131,9 +131,9 @@ class ShadowSafetyTests(unittest.TestCase):
         self.assertIn('LIMIT 8',shadow._SQL)
         self.assertIn('LIMIT 8',shadow._PROBE)
         self.assertIn('14000000',shadow._SQL)
-        self.assertIn("statement_timeout='2500ms'",c.queries)
+        self.assertIn("SET LOCAL statement_timeout='2500ms'",c.queries)
         self.assertIn('coalesce(sum(octet_length(payload::text)),0)',shadow._PROBE)
-        self.assertIn("lock_timeout='500ms'",c.queries)
+        self.assertIn("SET LOCAL lock_timeout='500ms'",c.queries)
         self.assertTrue(all(not any(w in q for w in
                          ('DELETE ','UPDATE ','INSERT ','VACUUM ','CREATE TABLE'))
                          for q in c.queries))
