@@ -212,9 +212,10 @@ class ProductReadService : AccessibilityService() {
             else PinReadinessProbe.stop("Dialogfreigabe nicht verfügbar. Lokale Anmeldung beendet.")
         }
         PhoneRemote.reader={command -> remoteRead(command)}
-        MorningListDelivery.onConfirmed={ ids, batch ->
-            if(ids.isNotEmpty() && PhoneRemote.active()) {
-                MorningReadRun.beginDiscovered(this,ids,batch)
+        MorningListDelivery.onConfirmed={ plan, batch ->
+            if(plan.isNotEmpty() && PhoneRemote.active()) {
+                MorningReadRun.beginDiscovered(this,plan.map { it.isin },batch,
+                    plan.associate { it.isin to it.missingFields })
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
             } else PhoneRemote.stop(this,"COMPLETE")
         }
