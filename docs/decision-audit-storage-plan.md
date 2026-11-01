@@ -326,3 +326,32 @@ record before/after Render volume and PostgreSQL sizes independently.
 The current connected Render management interface cannot execute a
 remote shell command. Deployment, setting environment variables or merging
 this command is **not** a substitute and must never launch a migration.
+
+
+## Recovery completeness after the first product pointer (1 Nov 2026)
+
+The existing reviewed-evidence backup already includes `bob_decision_audit`,
+but before this safeguard it did **not** select the separately created cold
+decision-product address and identity ledgers. Once a decision is represented
+by `_bobColdDecisionProductsV1`, restoring the audit table without
+`bob_cold_decision_product_objects` and
+`bob_cold_decision_product_refs` would leave that historical product list
+unresolvable even if its immutable Google Drive chunk still existed.
+
+The selected evidence tables now also include those two ledgers, the
+`bob_cold_decision_product_scan` cursor, and the
+`bob_cold_decision_pilot_attempts` durable no-repeat receipt. They are
+optional when a system has not performed its first manual product pilot:
+an absent table must remain explicitly absent in the manifest, not turn
+into invented data. OAuth, passkey, session and account-setting tables remain
+outside the reviewed evidence scope. The private Drive archives must still
+be retained and separately retrievable; exporting the DB ledger is **not**
+itself a backup of the referenced Drive object.
+
+A previously verified backup cannot retroactively gain tables added to the
+export selection after it was made. After deployment of this safeguard,
+an independently verified **new** export, download and restore must cover
+any then-existing reference ledgers before further product pointers are
+created. Verify the corresponding Drive chunks too. This remains a
+reviewed-evidence backup, **not a full-database backup** or authorization
+for automatic product archival, compaction, data deletion or paid scaling.
