@@ -82,10 +82,21 @@ class ProductScreenEvidenceTest {
         assertTrue(safe.draft.contains("Basispreis (Anzeige ungeprüft): 3901,07"))
         assertFalse(safe.draft.contains("Geld ("))
         assertFalse(safe.draft.contains("900"))
+        val unpriced = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,
+            lines("DE000FD0S0G4","SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3901.07 Bv 10 LV 27.07",
+                "CHF 900 Account balance"),at,false,allowTermsOnly=true)
+        assertEquals(ProductScreenEvidence.Reason.NONE, unpriced.reason)
+        assertTrue(unpriced.draft.contains("Hebel (Anzeige ungeprüft): 27,07"))
+        assertTrue(unpriced.draft.contains("Produktwährung nicht nachgewiesen"))
+        assertFalse(unpriced.draft.contains("Währung (Anzeige ungeprüft): "))
+        assertFalse(unpriced.draft.contains("CHF 900"))
+        assertFalse(unpriced.draft.contains("Geld ("))
+        // A genuine contradictory product currency is never a terms-only success.
         assertEquals(ProductScreenEvidence.Reason.CURRENCY_AMBIGUOUS,
             ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,
-                lines("DE000FD0S0G4","SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3901.07 Bv 10 LV 27.07",
-                    "CHF 900 Account balance"),at,false,allowTermsOnly=true).reason)
+                lines("DE000FD0S0G4","Produktwährung: EUR","Währung: CHF",
+                    "SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3901.07 Bv 10 LV 27.07"),
+                at,false,allowTermsOnly=true).reason)
         assertEquals(ProductScreenEvidence.Reason.LOGIN_OR_ORDER,
             ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,detail+lines("Order bestätigen"),
                 at,false,allowTermsOnly=true).reason)
