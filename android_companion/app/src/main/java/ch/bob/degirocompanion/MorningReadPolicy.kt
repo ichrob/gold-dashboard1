@@ -116,8 +116,14 @@ internal object MorningReadPolicy {
         if(nodes.any { n -> values(n).any(login::containsMatchIn) ||
             orderMarkers.drop(1).any { (_,marker) -> values(n).any(marker::containsMatchIn) } }) return null
         fun has(label:String)=nodes.any { normalized(it.text).equals(label,true) }
-        if(!has("Märkte") || !has("Nach Produkttyp durchsuchen") ||
-            !has("Zuletzt") || !has("Alle löschen")) return null
+        // Samsung DEGIRO virtualizes the recent-list header as the screen
+        // scrolls. ZULETZT / Alle löschen can disappear from accessibility
+        // even while the exact Markets search bar remains visible.
+        // Require Markets AND at least one independently labelled Markets
+        // landing section, alongside the unique isolated search and launcher
+        // checks below. Missing recent items never authorizes an order click.
+        if(!has("Märkte") || !(has("Nach Produkttyp durchsuchen") ||
+            (has("Zuletzt") && has("Alle löschen")))) return null
         // A genuine product detail or order form is never a Markets landing.
         if(nodes.any { n -> normalized(n.text).lowercase() in setOf(
                 "kursdaten","produktdetails","order bestätigen","orderdetails",
