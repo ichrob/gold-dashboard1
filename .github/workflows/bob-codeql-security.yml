@@ -32,6 +32,8 @@ on:
       - "android_image_reference_shadow.py"
       - "android_image_readthrough.py"
       - "android_image_recovery_bundle.py"
+      - "android_image_backup_prepare.py"
+      - "test_android_image_backup_prepare.py"
       - "test_android_image_recovery_bundle.py"
       - "test_android_image_readthrough.py"
       - "android_list.py"
