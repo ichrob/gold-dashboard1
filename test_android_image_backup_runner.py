@@ -24,21 +24,25 @@ class DummyConnection:
 class MemoryDrive:
     def __init__(self,corrupt=False):
         self.cipher=None
+        self.objects={}
         self.corrupt=corrupt
         self.uploads=0
     def preflight(self, n):
         self.required=n
         return {'availableBytes': 2000000000, 'reserveBytes':268435456}
     def upload(self,path,digest):
-        self.cipher=Path(path).read_bytes()
-        if hashlib.sha256(self.cipher).hexdigest()!=digest:
-            raise AssertionError('Ciphertext upload checksum invalid')
+        data=Path(path).read_bytes()
+        if hashlib.sha256(data).hexdigest()!=digest:
+            raise AssertionError('Private upload checksum invalid')
+        file_id=chr(ord('A')+self.uploads)*24
+        self.objects[file_id]=data
+        if self.uploads==0:
+            self.cipher=data
         self.uploads+=1
-        return 'A'*24
+        return file_id
     def download(self,file_id,destination,max_bytes=None):
-        assert file_id=='A'*24
-        data=self.cipher
-        if self.corrupt:
+        data=self.objects[file_id]
+        if self.corrupt and file_id=='A'*24:
             data=data[:-1]+bytes([data[-1]^1])
         assert len(data)<=max_bytes
         with open(destination,'xb') as file:
@@ -71,7 +75,9 @@ class ManualRunnerTests(unittest.TestCase):
         restored.assert_called_once()
         self.assertEqual(restored.call_args.args[1:],(blob,digest))
         self.assertTrue(all('default_transaction_read_only=on' in a['options'] for a in args))
-        self.assertEqual(drive.uploads,1)
+        self.assertEqual(drive.uploads,2)
+        self.assertIn('B'*24,drive.objects)
+        self.assertIn(b'\"remoteDownloadVerified\":true',drive.objects['B'*24])
         self.assertNotIn(b'private trading app text',drive.cipher)
         self.assertTrue(result['remoteDownloadVerified'])
         self.assertTrue(result['sourcePreserved'])
