@@ -111,7 +111,7 @@ def _verify_exact(conn, summary):
             else:
                 candidates[coarse]=True
             raw=base64.b64decode(encoded,validate=True)
-            if raw[:8] != b'\\x89PNG\\r\\n\\x1a\\n':
+            if raw[:8] != b'\x89PNG\r\n\x1a\n':
                 return {'exactVerificationStatus':'not-observed',
                         'exactDuplicateProven':False}
             digest=hashlib.sha256(raw).digest()
