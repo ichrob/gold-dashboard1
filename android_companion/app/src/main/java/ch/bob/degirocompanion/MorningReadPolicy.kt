@@ -120,7 +120,8 @@ internal object MorningReadPolicy {
             !has("Zuletzt") || !has("Alle löschen")) return null
         // A genuine product detail or order form is never a Markets landing.
         if(nodes.any { n -> normalized(n.text).lowercase() in setOf(
-                "kursdaten","produktdetails","order bestätigen","orderart","limitpreis","stückzahl") }) return null
+                "kursdaten","produktdetails","order bestätigen","orderdetails",
+                "orderübersicht","orderzusammenfassung","orderart","limitpreis","stückzahl") }) return null
         val marked=nodes.indices.filter { i ->
             values(nodes[i]).any(orderMarkers.first().second::containsMatchIn)
         }
