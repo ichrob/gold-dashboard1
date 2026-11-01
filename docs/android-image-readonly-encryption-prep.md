@@ -73,7 +73,13 @@ object, PNG and metadata field. The restore occurs in a randomly named fresh
 `png_restore_<uuid>` schema on the **other** PostgreSQL server and is rolled
 back in the outer transaction: no source or test records are permanently
 replaced. After remote restore, the current source batch is re-read and must
-still equal the initial original snapshot.
+still equal the initial original snapshot. Only then may the runner create a
+small **private** JSON receipt with ciphertext and original archive hashes,
+remote file ID, verified clock and explicit no-delete/no-migration flags.
+The receipt itself is uploaded only to the authorized private Drive folder
+and independently downloaded and SHA-256-verified. Public/user-facing
+status excludes the private file ID and content checksums. A failed remote
+restore, source recheck or receipt upload cannot yield a success status.
 
 If the backup fails after an upload, an orphaned **encrypted** private Drive
 object may remain. It must not be reported as successful and must not be
