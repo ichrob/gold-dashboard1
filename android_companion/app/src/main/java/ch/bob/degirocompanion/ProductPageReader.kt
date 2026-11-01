@@ -64,7 +64,12 @@ internal class ProductPageReader {
         // Identity changes must be rejected even while the scroll tree is transient.
         if (anchored && (identityHint != null && identityHint != isin || windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)))
             return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
-        if (scrollAmbiguous) {
+        // A return has already been requested and the original exact ISIN
+        // is visible again. No scroll target is needed to finish this read.
+        // An ambiguous scroll container must not discard the verified round
+        // trip; protected/changed-product checks above remain mandatory.
+        val originalIdentityRechecked = returning && candidate != null && ids.singleOrNull() == isin
+        if (scrollAmbiguous && !originalIdentityRechecked) {
             if (anchored && ++layoutWaits > 5)
                 return stop("Scrollbereich nach fünf Nachprüfungen weiterhin uneindeutig. Kein Entwurf übernommen.", Cause.SCROLL_LAYOUT_CHANGED)
             return Step(Move.NONE, direct.copy(draft = "", message = "Seitenaufbau noch nicht eindeutig. Bob wartet innerhalb des 60-Sekunden-Limits auf den Produktbereich."), Cause.WAIT_SCROLL_LAYOUT)
