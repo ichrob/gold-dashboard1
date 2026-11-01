@@ -244,6 +244,15 @@ def tick(connect,runner=process):
         conn.commit()
     observe("reading")
     try:
+        # Backward-compatible fast path: original raw PNG rows require no
+        # extra query. Future device-scoped pointer rows must be reconstructed
+        # with their exact original bytes before any OCR or list parsing.
+        # A missing reference becomes a sanitized read-failed receipt.
+        import android_image_readthrough
+        if android_image_readthrough.is_reference(payload):
+            with connect() as evidence_conn:
+                payload=android_image_readthrough.materialize(
+                    evidence_conn,batch,payload)
         request=dict(payload)
         if alternate:request['_ocr_mode']='enhanced'
         parsed=runner(request,payload['images'][-1]['at'])
