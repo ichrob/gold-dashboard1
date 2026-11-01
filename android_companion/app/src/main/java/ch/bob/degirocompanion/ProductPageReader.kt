@@ -21,11 +21,12 @@ internal class ProductPageReader {
     private var returning = false
     private var forward = 0
     private var backward = 0
+    private var returnSurfaceWaits = 0
     private var anchorParameters: Map<String, String> = emptyMap()
     private var candidate: ProductScreenEvidence.Result? = null
     val anchored get() = isin != null
     fun sameWindow(windowId: Int): Boolean = (anchored && window == windowId) || (seekingSymbol != null && seekWindow == windowId)
-    fun reset() { verifiedProbeSymbol = null; collectingHeader = false; readBackward = false; seekingSymbol = null; seekingParameters = emptyMap(); rejectedForward = 0; rejectedBackward = 0; layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; candidate = null; anchorParameters = emptyMap() }
+    fun reset() { verifiedProbeSymbol = null; collectingHeader = false; readBackward = false; seekingSymbol = null; seekingParameters = emptyMap(); rejectedForward = 0; rejectedBackward = 0; layoutWaits = 0; seekSteps = 0; seekWindow = null; isin = null; window = null; returning = false; forward = 0; backward = 0; returnSurfaceWaits = 0; candidate = null; anchorParameters = emptyMap() }
     private fun stop(message: String, cause: Cause, reason: ProductScreenEvidence.Reason = ProductScreenEvidence.Reason.NONE): Step {
         reset(); return Step(Move.ABORT, ProductScreenEvidence.Result(message = message, reason = reason), cause)
     }
@@ -163,11 +164,19 @@ internal class ProductPageReader {
                 else Step(Move.ABORT, ProductScreenEvidence.Result(message = "Seite geprüft, aber kein eindeutig zuordenbarer Kurs gefunden."), Cause.NO_QUOTES)
             }
             if (readBackward) {
+                if (!canForward && forward < 8 && returnSurfaceWaits++ < 3)
+                    return Step(Move.NONE, ProductScreenEvidence.Result(
+                        message="Rückkehrfläche wird erneut geprüft; kein Wert übernommen."), Cause.WAIT_SCROLL_LAYOUT)
                 if (!canForward || forward >= 8) return stop("Rückprüfung der ISIN in den Details nicht möglich.", Cause.RETURN_FAILED)
+                returnSurfaceWaits = 0
                 forward++
                 return Step(Move.FORWARD, ProductScreenEvidence.Result(message = "Bob prüft die echte ISIN erneut in den Produktdetails."))
             }
+            if (!canBackward && backward < 8 && candidate != null && returnSurfaceWaits++ < 3)
+                return Step(Move.NONE, ProductScreenEvidence.Result(
+                    message="Rückwärts-Scrollfläche wird erneut geprüft; kein Wert übernommen."), Cause.WAIT_SCROLL_LAYOUT)
             if (!canBackward || backward >= 8) return stop("Rückprüfung der ISIN nicht möglich. Kein Entwurf übernommen.", Cause.RETURN_FAILED)
+            returnSurfaceWaits = 0
             backward++
             return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "Bob kehrt zur Produktkennung zurück und prüft die Zuordnung."))
         }
