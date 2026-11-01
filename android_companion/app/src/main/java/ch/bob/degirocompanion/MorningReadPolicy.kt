@@ -205,16 +205,20 @@ internal object MorningReadPolicy {
         // A real order form, compound launcher, extra input or confirmation
         // remains protected; no other order marker may be stripped.
         val initial=decide(nodes,target)
-        val validated=if(initial.kind==Kind.BLOCK && initial.code=="PROTECTED_ORDER_CONFIRM") {
+        val launcherIds=nodes.indices.filter { i ->
+            listOf(nodes[i].text,nodes[i].description,nodes[i].hint).any {
+                normalized(it).equals("Order platzieren",true) ||
+                    normalized(it).equals("Place order",true)
+            }
+        }
+        // navigate() can already return WAIT after verifying the separate
+        // launcher (for example RESULT_MISSING on a K/V result card). This
+        // guard must cover that WAIT state, not only BLOCK.
+        val validated=if(launcherIds.isNotEmpty()) {
+            if(initial.kind==Kind.BLOCK && initial.code!="PROTECTED_ORDER_CONFIRM") return null
             // A genuine global launcher is outside the individual product card.
             // Refuse a launcher nested inside an identified result even if its
             // isolated button label is otherwise valid.
-            val launcherIds=nodes.indices.filter { i ->
-                listOf(nodes[i].text,nodes[i].description,nodes[i].hint).any {
-                    normalized(it).equals("Order platzieren",true) ||
-                        normalized(it).equals("Place order",true)
-                }
-            }
             val launcherIndex=launcherIds.singleOrNull() ?: return null
             var parent=nodes[launcherIndex].parent
             var steps=0
