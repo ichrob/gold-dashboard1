@@ -52,7 +52,8 @@ def _encoded_size(obj):
 def _simulate(rows, now):
     """Fail closed if real originals cannot round-trip exactly in memory."""
     if type(rows) is not list or len(rows) > _MAX_BATCHES:
-        return {'status': 'not-observed', 'readOnly': True}
+        return {'status': 'not-observed', 'readOnly': True,
+                'diskBytesFreed':None,'reclaimableBytes':None}
     if not rows:
         return {'status': 'empty','readOnly':True,
                 'sampledBatches':0,'sampledImages':0,
@@ -72,7 +73,7 @@ def _simulate(rows, now):
             scope, uploaded_at, original = row
             if (type(uploaded_at) is not datetime
                     or uploaded_at.tzinfo is None
-                    or not 0 <= now-uploaded_at.timestamp() <= 86400):
+                    or not -2 <= now-uploaded_at.timestamp() <= 86400):
                 raise ValueError('Unverifiable original upload clock')
             if (type(scope) is not str or type(original) is not dict
                     or type(original.get('images')) is not list):
