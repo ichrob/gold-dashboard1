@@ -531,7 +531,8 @@ class ProductReadService : AccessibilityService() {
                         requireParameters = MorningReadRun.running, identityHint = identityHint,
                         allowSymbolProbe = MorningReadRun.importedListRun(),
                         requestedTermsOnly = MorningReadRun.requestedTermsOnly(),
-                        seekLeverage = MorningReadRun.requestedLeverage())
+                        seekLeverage = MorningReadRun.requestedLeverage(),
+                        expectedIsin = if (MorningReadRun.running) MorningReadRun.target else null)
                     batchReadWindow = if (!sensitive && (previousReadWindow || pageReader.sameWindow(root.windowId)) &&
                         step.cause !in setOf(ProductPageReader.Cause.UNSAFE_VIEW, ProductPageReader.Cause.IDENTITY_CHANGED)) root.windowId else null
                     ProductReadDiagnostics.page(step.cause)
