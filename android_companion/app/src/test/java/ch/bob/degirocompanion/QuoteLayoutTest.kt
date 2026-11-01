@@ -111,6 +111,25 @@ class QuoteLayoutTest {
         assertFalse(actual.containsKey("KO-Schwelle"))
     }
 
+    @Test fun separateLeverageLabelsNeverReadUnlabelledAccountOrChartValues() {
+        val rows=listOf(
+            QuoteLayout.Line("DE000FE2JJ20",0,100,185,128),
+            QuoteLayout.Line("CHF 0,518",400,140,590,162),
+            QuoteLayout.Line("Hebel",40,220,110,244),
+            QuoteLayout.Line("x 17,45",230,220,330,244),
+            QuoteLayout.Line("Geld CHF 0,518",40,280,340,310),
+            QuoteLayout.Line("Brief CHF 0,528",380,280,660,310))
+        val captured=QuoteLayout.extract(rows)
+        assertEquals("17,45",captured["Hebel"])
+        assertEquals("0,518",captured["Geld"])
+        assertEquals("0,528",captured["Brief"])
+        assertNull(QuoteLayout.extract(rows.filterNot { it.text=="Hebel" })["Hebel"])
+        assertNull(QuoteLayout.extract(rows + QuoteLayout.Line("Hebel 24,50",40,350,300,380))["Hebel"])
+        assertEquals("13,25",QuoteLayout.extract(listOf(QuoteLayout.Line("Leverage: 13,25",40,0,350,32)))["Hebel"])
+        assertNull(QuoteLayout.extract(listOf(QuoteLayout.Line("Geld Vol. 25K",40,0,350,32),
+            QuoteLayout.Line("Hoch CHF 6,05",40,45,350,76)))["Hebel"])
+    }
+
     @Test fun exactOneLineQuoteAndExplicitVenueAlsoWork() {
         val lines = listOf(
             QuoteLayout.Line("Geld: € 11,31", 30, 90, 215, 110),
