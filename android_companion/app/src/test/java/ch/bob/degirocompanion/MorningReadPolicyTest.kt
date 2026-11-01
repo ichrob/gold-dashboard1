@@ -303,6 +303,45 @@ class MorningReadPolicyTest {
         assertEquals("RESULT_MISSING",MorningReadPolicy.decide(view,target).code)
         assertEquals(4,MorningReadPolicy.resultTapIndex(view,target))
     }
+    @Test fun isolatedGlobalOrderLauncherCannotBlockSafeResultTitle() {
+        val target="DE000SQ02JQ6"
+        val original=samsungSearchResult()
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        val view=original+launcher
+        assertEquals(MorningReadPolicy.Kind.WAIT,MorningReadPolicy.decide(view,target).kind)
+        assertEquals("RESULT_MISSING",MorningReadPolicy.decide(view,target).code)
+        // Only the existing product-title node, never the standalone
+        // launcher or the K/V controls, may be the gesture target.
+        assertEquals(4,MorningReadPolicy.resultTapIndex(view,target))
+        assertEquals(4,MorningReadPolicy.resultTapIndex(original,target))
+    }
+
+    @Test fun orderFormAndAmbiguousLauncherNeverAuthorizeResultTap() {
+        val target="DE000SQ02JQ6"
+        val view=samsungSearchResult()
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        val base=view+launcher
+        val rejected=listOf(
+            base+MorningReadPolicy.Node("Order bestätigen"),
+            base+MorningReadPolicy.Node("Orderart"),
+            base+MorningReadPolicy.Node("Limitpreis"),
+            base+MorningReadPolicy.Node("Stückzahl"),
+            base+MorningReadPolicy.Node("",editable=true,id="order_quantity"),
+            base+MorningReadPolicy.Node("",password=true),
+            base+MorningReadPolicy.Node("",sensitive=true),
+            base+launcher,
+            view+launcher.copy(text="Order bestätigen"),
+            view+launcher.copy(clickable=false),
+            view+launcher.copy(row="Order platzieren\\nKauf"),
+            view+launcher.copy(containsInput=true),
+            view+launcher.copy(parent=0),
+            view+launcher.copy(description="Jetzt kaufen"),
+            view+MorningReadPolicy.Node("Order platzieren",clickable=true,parent=3)
+        )
+        for ((i,unsafe) in rejected.withIndex())
+            assertNull("Unsafe launcher/result case $i",MorningReadPolicy.resultTapIndex(unsafe,target))
+    }
+
     @Test fun samsungRejectsWrongSearchInput() {
         val view=samsungSearchResult().toMutableList().also { it[0]=it[0].copy(text="DE000FD0S0G4") }
         assertNull(MorningReadPolicy.resultTapIndex(view,"DE000SQ02JQ6"))
