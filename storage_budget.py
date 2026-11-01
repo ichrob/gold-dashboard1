@@ -150,6 +150,7 @@ def report(conn,now=None):
                         bytesAfter=after,bytesDelta=after-before))
             relation_deltas.sort(key=lambda item:(abs(item['bytesDelta']),item['table']),reverse=True)
     persisted_archive = archive_status(conn)
+    image_backup_readiness = __import__('android_image_backup_readiness').report()
     decision_preview = __import__('cold_decision_product_writer').preview(
         conn, now=now, archive_proof=persisted_archive)
     return dict(status='observed',readOnly=True,observedAt=now,
@@ -168,10 +169,10 @@ def report(conn,now=None):
         storageForensics=__import__('storage_forensics').report(conn,samples),
         androidImageDuplication=__import__('android_image_storage_audit').report(conn),
         androidImageReferenceShadow=__import__('android_image_reference_shadow').report(conn),
-        androidImageBackupReadiness=__import__('android_image_backup_readiness').report(),
+        androidImageBackupReadiness=image_backup_readiness,
         largestTables=[dict(table=name,bytes=n,estimatedRows=live,estimatedDeadRows=dead,
             lastAutovacuum=str(vac) if vac else None) for name,n,live,dead,vac in tables],
-        archiveWorker=persisted_archive,
+        archiveWorker={**persisted_archive, 'originalImageBackupReadiness': image_backup_readiness},
         decisionProductsPreview=decision_preview,
         decisionProductsPilot=__import__('decision_product_pilot').status(conn),
         coldMetrics=__import__('cold_metrics').status(conn),
