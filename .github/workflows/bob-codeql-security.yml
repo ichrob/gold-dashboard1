@@ -30,6 +30,8 @@ on:
       - "storage_forensics.py"
       - "android_image_storage_audit.py"
       - "android_image_reference_shadow.py"
+      - "android_image_persistent_shadow.py"
+      - "test_android_image_persistent_shadow.py"
       - "test_android_image_reference_shadow.py"
       - "android_image_reference_codec.py"
       - "test_android_image_reference_codec.py"
