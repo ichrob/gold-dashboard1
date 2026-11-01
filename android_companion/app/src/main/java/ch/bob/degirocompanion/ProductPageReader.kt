@@ -82,12 +82,49 @@ internal class ProductPageReader {
             listOf("Geld", "Brief", "Zuletzt").any {
                 direct.draft.contains("$it (Anzeige ungeprüft): ")
             }
+        // A planned read may finish on a single unambiguous DEGIRO Kursdaten
+        // screen even if Android did not expose the numeric Symbol|ISIN pair
+        // as one accessibility node. This is deliberately narrower than
+        // accepting an arbitrary ISIN found in search results: require the
+        // exact planned ISIN, a real Kursdaten heading and an explicitly
+        // currency-labelled Geld/Zuletzt quote in the SAME screenshot tree.
+        // The account's CHF balance alone cannot prove quote currency.
+        val quoteLabels = setOf("Geld", "Zuletzt")
+        val inlineCurrencyQuote = Regex(
+            "(?iu)^(?:Geld|Zuletzt)\\s*[:：]?\\s*(?:(?:CHF|EUR|€)\\s*[0-9]{1,5}[,.][0-9]{2,4}|[0-9]{1,5}[,.][0-9]{2,4}\\s*(?:CHF|EUR|€))\\s*$"
+        )
+        val adjacentCurrency = Regex(
+            "(?iu)^(?:CHF|EUR|€)\\s*[0-9]{1,5}[,.][0-9]{2,4}\\s*$"
+        )
+        val labelledCurrencyQuote = lines.any { inlineCurrencyQuote.matches(it.text.trim()) } ||
+            lines.any { label ->
+                label.text.trim() in quoteLabels && lines.any { value ->
+                    value.left >= label.right && value.left - label.right <= 540 &&
+                    kotlin.math.abs(value.centerY - label.centerY) <=
+                        kotlin.math.max(16, label.height) &&
+                    adjacentCurrency.matches(value.text.trim())
+                }
+            }
+        val pairConflict = ProductSymbolMemory.observe(lines, sensitive)?.let { pair ->
+            (seekingSymbol != null && pair.symbol != seekingSymbol) ||
+                (verifiedProbeSymbol != null && pair.symbol != verifiedProbeSymbol) ||
+                lines.mapNotNull { ProductSymbolMemory.probeHeaderSymbol(it.text) }
+                    .any { it != pair.symbol }
+        } ?: false
+        val sameScreenQuote = !pairConflict && requireParameters && allowSymbolProbe &&
+            expectedIsin != null && ids.singleOrNull() == expectedIsin &&
+            direct.draft.isNotBlank() && labelledCurrencyQuote &&
+            lines.any { it.text.trim().equals("Kursdaten", true) } &&
+            lines.mapNotNull { ProductSymbolMemory.probeHeaderSymbol(it.text) }.all { found ->
+                (seekingSymbol == null || seekingSymbol == found) &&
+                    (verifiedProbeSymbol == null || verifiedProbeSymbol == found)
+            }
         // A return has already been requested and the original exact ISIN
         // is visible again. No scroll target is needed to finish this read.
         // An ambiguous scroll container must not discard the verified round
         // trip; protected/changed-product checks above remain mandatory.
         val originalIdentityRechecked = returning && candidate != null && ids.singleOrNull() == isin
-        if (scrollAmbiguous && !originalIdentityRechecked && !verifiedPairedQuote) {
+        if (scrollAmbiguous && !originalIdentityRechecked && !verifiedPairedQuote && !sameScreenQuote) {
             if (anchored && ++layoutWaits > 5)
                 return stop("Scrollbereich nach fünf Nachprüfungen weiterhin uneindeutig. Kein Entwurf übernommen.", Cause.SCROLL_LAYOUT_CHANGED)
             return Step(Move.NONE, direct.copy(draft = "", message = "Seitenaufbau noch nicht eindeutig. Bob wartet innerhalb des 60-Sekunden-Limits auf den Produktbereich."), Cause.WAIT_SCROLL_LAYOUT)
@@ -97,12 +134,13 @@ internal class ProductPageReader {
         // with its numeric symbol right beside the one-sided CHF quote.
         // That CURRENT screen needs no backward/forward scroll to establish
         // identity. A checked quote is always an unverified historical reading.
-        if (verifiedPairedQuote) {
-            val pair = footerPair!!
+        if (verifiedPairedQuote || sameScreenQuote) {
             val observedTerms = scopedParameters(lines)
             val earlierSymbol = seekingSymbol ?: verifiedProbeSymbol
             val earlierTerms = if (seekingSymbol != null) seekingParameters else anchorParameters
-            val sameHeader = earlierSymbol == pair.symbol &&
+            // An unpaired accessibility tree permits ONLY values on the
+            // current screen. Earlier header terms require a real local pair.
+            val sameHeader = footerPair != null && earlierSymbol == footerPair.symbol &&
                 observedTerms.all { (key,value) -> earlierTerms[key]?.let { it == value } ?: true }
             val terms = if (sameHeader) earlierTerms + observedTerms else observedTerms
             val extras = terms.filterKeys { !direct.draft.contains("$it (Anzeige ungeprüft): ") }

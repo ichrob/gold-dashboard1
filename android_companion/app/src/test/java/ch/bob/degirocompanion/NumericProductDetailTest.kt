@@ -187,6 +187,36 @@ class NumericProductDetailTest {
         assertEquals("",notDone.result.draft)
     }
 
+    @Test fun plannedKursdatenSavesSplitFooterQuoteWithoutScroll() {
+        val quote=lines(listOf("Kursdaten","Zuletzt CHF 5,20","Geld CHF 5,20",
+            "Brief CHF —","Symbol | ISIN","156825577 | DE000FE6B3G9"))
+        val result=ProductPageReader().inspect(37,quote,at,false,false,false,
+            scrollAmbiguous=true,requireParameters=true,allowSymbolProbe=true,
+            expectedIsin="DE000FE6B3G9",seekLeverage=true)
+        assertEquals(ProductPageReader.Move.FINISHED,result.move)
+        assertTrue(result.result.draft.contains("Geld (Anzeige ungeprüft): 5,20"))
+        assertTrue(result.result.draft.contains("ISIN: DE000FE6B3G9"))
+        assertFalse(result.result.draft.contains("Brief (Anzeige ungeprüft):"))
+        assertFalse(result.result.draft.contains("Hebel (Anzeige ungeprüft):"))
+    }
+    @Test fun plannedKursdatenRejectsAccountOnlyCurrencyOrWrongIdentity() {
+        val base=listOf("Kursdaten","Geld CHF 5,20","Symbol | ISIN",
+            "156825577 | DE000FE6B3G9")
+        val variants=listOf(
+            base to "DE000FD0S0G4",
+            (base+"DE000FD0S0G4") to "DE000FE6B3G9",
+            base.map { it.replace("Kursdaten","Übersicht") } to "DE000FE6B3G9",
+            (base.map { it.replace("Geld CHF 5,20","Geld 5,20") }+
+                listOf("CHF 504,74")) to "DE000FE6B3G9")
+        for((content,expected) in variants) {
+            val result=ProductPageReader().inspect(37,lines(content),at,false,false,false,
+                scrollAmbiguous=true,requireParameters=true,allowSymbolProbe=true,
+                expectedIsin=expected)
+            assertNotEquals(ProductPageReader.Move.FINISHED,result.move)
+            assertEquals("",result.result.draft)
+        }
+    }
+
     @Test fun exactPlannedFooterCompletesWithoutPriorHeaderProbeOrReturnScroll() {
         // Real DEGIRO 10404 failure: the quote and literal identity were
         // visible but the transaction did not retain a header-probe symbol.
