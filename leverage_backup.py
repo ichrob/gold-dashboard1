@@ -127,7 +127,7 @@ def historical_reference(result, now=None):
         try:
             at = q.stamp(raw)
             return at if 0 <= (now-at).total_seconds() <= HISTORICAL_REFERENCE_MAX_AGE_SECONDS else None
-        except (ValueError, TypeError, KeyError, OverflowError):
+        except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
             return None
 
     def positive(raw):
@@ -183,7 +183,7 @@ def historical_reference(result, now=None):
                     kind='historical-calculated-gearing', label='Historisch berechneter Hebel',
                     current=False, researchOnly=True, tradeApproved=False,
                     note='Rechnerischer Referenzhebel aus denselben früheren Produkt-, Gold- und FX-Zeitpunkten; nicht aktuell.')
-    except (KeyError, ValueError, TypeError, OverflowError):
+    except (KeyError, ValueError, TypeError, OverflowError, AttributeError):
         return None
 
 def reconcile_model(result, now):
