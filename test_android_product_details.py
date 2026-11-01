@@ -26,6 +26,31 @@ class DetailsTest(unittest.TestCase):
         self.assertEqual(len(a.detail_plan(items*2,[],NOW)),1)
         self.assertEqual(a.detail_plan([{'isin':ISIN,'listRow':{'excluded':True}}],[],NOW),[])
 
+    def test_only_actual_missing_values_are_in_detail_plan(self):
+        p=dict(isin=ISIN,leverage=20,ko=4000,basisPrice=3999,ratio=.1,
+               currency='EUR',quote=dict(bid=10,ask=11,
+               quoteAt=datetime.fromtimestamp(NOW,timezone.utc).isoformat()))
+        items=[{'isin':ISIN}]
+        self.assertEqual(a.detail_plan(items,[p],NOW),[])
+        missing=copy.deepcopy(p);missing['ko']=None
+        self.assertEqual(a.detail_plan(items,[missing],NOW),
+                         [{'isin':ISIN,'missingFields':['KO-Schwelle']}])
+        missing=copy.deepcopy(p);missing['quote']['bid']=None
+        self.assertEqual(a.detail_plan(items,[missing],NOW),
+                         [{'isin':ISIN,'missingFields':['Geld']}])
+        missing=copy.deepcopy(p);missing['quote']['bid']=12
+        self.assertEqual(a.detail_plan(items,[missing],NOW),
+                         [{'isin':ISIN,'missingFields':['Geld','Brief']}])
+        missing=copy.deepcopy(p);missing['quote']['bidAt']='2020-01-01T00:00:00Z'
+        self.assertEqual(a.detail_plan(items,[missing],NOW),
+                         [{'isin':ISIN,'missingFields':['Anzeigezeit']}])
+        missing=copy.deepcopy(p);missing['quote']['quoteAt']=datetime.fromtimestamp(NOW-10,timezone.utc).isoformat()
+        self.assertEqual(a.detail_plan(items,[missing],NOW),[])
+        self.assertEqual(a.detail_plan(items,[p],NOW+14*3600+1),
+                         [{'isin':ISIN,'missingFields':['Anzeigezeit']}])
+        self.assertTrue(all(set(x['missingFields'])<=set(a.DETAIL_FIELDS)
+                        for x in a.detail_plan(items,[{}],NOW)))
+
     def test_details_require_device_credential(self):
         h=Handler({},auth=True)
         http.route(h,'POST','/api/android-list/details',lambda *_:self.fail('cookie cannot upload'))
