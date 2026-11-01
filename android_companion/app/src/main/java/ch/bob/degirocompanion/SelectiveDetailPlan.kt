@@ -8,21 +8,30 @@ internal object SelectiveDetailPlan {
         "KO-Schwelle", "Basispreis", "Bv", "Währung")
     data class Entry(val isin: String, val missingFields: List<String>)
 
-    fun parse(plan: JSONArray?, orderedIsins: List<String>): List<Entry>? {
-        if (plan == null || plan.length() != orderedIsins.size ||
-            orderedIsins.size > 10 || orderedIsins.distinct() != orderedIsins ||
+    /** Pure policy used by local JVM tests without Android's JSON stubs. */
+    fun validate(entries: List<Entry>, orderedIsins: List<String>): List<Entry>? {
+        if (entries.size != orderedIsins.size || orderedIsins.size > 10 ||
+            orderedIsins.distinct() != orderedIsins ||
             orderedIsins.any { !SeriesEvidence.validIsin(it) }) return null
-        val entries = mutableListOf<Entry>()
-        for (index in orderedIsins.indices) {
-            val item = plan.optJSONObject(index) ?: return null
-            if (item.length() != 2 || !item.has("isin") || !item.has("missingFields") ||
-                item.optString("isin") != orderedIsins[index]) return null
-            val values = item.optJSONArray("missingFields") ?: return null
-            if (values.length() !in 1..fields.size) return null
-            val missing = (0 until values.length()).map { values.optString(it) }
-            if (missing.any { it !in fields } || missing.distinct() != missing) return null
-            entries += Entry(orderedIsins[index], missing)
+        for (i in orderedIsins.indices) {
+            val e = entries[i]
+            if (e.isin != orderedIsins[i] || e.missingFields.size !in 1..fields.size ||
+                e.missingFields.any { it !in fields } ||
+                e.missingFields.distinct() != e.missingFields) return null
         }
         return entries
+    }
+
+    fun parse(plan: JSONArray?, orderedIsins: List<String>): List<Entry>? {
+        if (plan == null || plan.length() != orderedIsins.size) return null
+        val entries = mutableListOf<Entry>()
+        for (i in orderedIsins.indices) {
+            val item = plan.optJSONObject(i) ?: return null
+            if (item.length() != 2 || !item.has("isin") || !item.has("missingFields")) return null
+            val values = item.optJSONArray("missingFields") ?: return null
+            entries += Entry(item.optString("isin"),
+                (0 until values.length()).map { values.optString(it) })
+        }
+        return validate(entries, orderedIsins)
     }
 }
