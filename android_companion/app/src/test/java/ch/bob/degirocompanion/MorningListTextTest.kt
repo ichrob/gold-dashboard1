@@ -26,12 +26,12 @@ class MorningListTextTest {
         val other="DE000SQ02JQ6"
         val title1="SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3901.07 Bv 10 | $isin"
         val title2="SG Gold Turbo Unlimited Mini Call BAR 2144 BP 2122.67 Bv 10 | $other"
-        val row1="$title1\\nSociete Generale OTC EUR K V"
-        val row2="$title2\\nSociete Generale OTC EUR K V"
+        val row1="$title1\nSociete Generale OTC EUR K V"
+        val row2="$title2\nSociete Generale OTC EUR K V"
         val nodes=listOf(
             MorningReadPolicy.Node("Hebelprodukte"),
             MorningReadPolicy.Node("Order platzieren",clickable=true),
-            MorningReadPolicy.Node("",row="$row1\\n$row2"),
+            MorningReadPolicy.Node("",row="$row1\n$row2"),
             MorningReadPolicy.Node(title1,parent=2),
             MorningReadPolicy.Node(title2,parent=2),
             MorningReadPolicy.Node("CHF 504.74 account"))
