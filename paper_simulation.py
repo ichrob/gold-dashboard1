@@ -972,9 +972,18 @@ def audit_offhours_once(database, now_ms=None):
                                for p in evidence.get('products') or [])):
                 return {'state': 'waiting-for-screenshot', 'auditUpdated': False, 'ordersEnabled': False}
             latest = conn.execute('SELECT payload FROM bob_degiro_product_audit WHERE id=1').fetchone()
-            if latest and latest[0].get('listUploadedAt') == evidence['listUploadedAt']:
+            # Previously the once-per-generation rule left every Sunday on
+            # Friday's old audit schema even after a safe reference feature was
+            # deployed. Upgrade the *display-only* market context at most once
+            # per off-hours phase; never re-date or refresh product quotes.
+            from degiro_product_audit import store as store_audit, ZURICH
+            local = datetime.fromtimestamp(now_ms/1000, ZURICH)
+            expected_context = ('DEGIRO-Wochenende · letzter datierter Handelswert bleibt historisch'
+                                if local.weekday()>=5
+                                else 'Handelszeit und Quellzeit je Produkt getrennt prüfen')
+            if (latest and latest[0].get('listUploadedAt') == evidence['listUploadedAt']
+                    and latest[0].get('marketContext') == expected_context):
                 return {'state': 'already-checked', 'auditUpdated': False, 'ordersEnabled': False}
-            from degiro_product_audit import store as store_audit
             store_audit(conn, evidence, {}, now_ms)
         conn.commit()
     return {'state': 'evidence-only', 'auditUpdated': True, 'ordersEnabled': False}

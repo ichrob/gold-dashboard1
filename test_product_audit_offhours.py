@@ -65,6 +65,7 @@ class OffHoursAuditTests(unittest.TestCase):
         def save(_, feed, quotes, at):
             captured.append((copy.deepcopy(feed), quotes, at))
             db.checked = {'listUploadedAt': feed['listUploadedAt'],
+                          'marketContext': 'Handelszeit und Quellzeit je Produkt getrennt prüfen',
                           'items': [], 'tradeApproved': False}
 
         with patch.object(sim.background_push, 'degiro_session', return_value='night'), \
@@ -78,6 +79,31 @@ class OffHoursAuditTests(unittest.TestCase):
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0], (FEED, {}, 12345))
         self.assertEqual(db.feed, FEED, 'Original timestamps and identity must not change')
+        self.assertFalse(db.checked['tradeApproved'])
+
+    def test_sunday_migrates_previous_audit_once_without_network_or_quotes(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        sunday = int(datetime(2026, 11, 1, 9, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000)
+        old={'listUploadedAt': GEN, 'items': [{'isin': FEED['products'][0]['isin'],
+             'leverageObservation': {'value': 12.0, 'at': '2026-10-30T08:00:00Z',
+                                     'current': True, 'kind': 'calculated-gearing'}}]}
+        db=Database(FEED, checked=old)
+        events=[]
+        def save(_, feed, quotes, at):
+            events.append((copy.deepcopy(feed), quotes, at))
+            db.checked={'listUploadedAt': feed['listUploadedAt'],
+                        'marketContext': 'DEGIRO-Wochenende · letzter datierter Handelswert bleibt historisch',
+                        'items': old['items'], 'tradeApproved': False}
+        with patch.object(sim.background_push,'degiro_session',return_value='weekend'), \
+             patch.object(sim,'quote_cache',side_effect=AssertionError('weekend network call')), \
+             patch('degiro_product_audit.store',side_effect=save):
+            first=sim.audit_offhours_once(db,now_ms=sunday)
+            second=sim.audit_offhours_once(db,now_ms=sunday+300000)
+        self.assertEqual(first['state'],'evidence-only')
+        self.assertEqual(second['state'],'already-checked')
+        self.assertEqual(len(events),1)
+        self.assertEqual(events[0],(FEED,{},sunday))
         self.assertFalse(db.checked['tradeApproved'])
 
     def test_existing_worker_schedules_offhours_audit_without_trading(self):
