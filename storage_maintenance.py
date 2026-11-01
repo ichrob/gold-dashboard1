@@ -19,7 +19,8 @@ def connect():
                 '-c maintenance_work_mem=16384')
 
 
-def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tail=False, reclaim_observation_tail=False):
+def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tail=False,
+             reclaim_observation_tail=False, target_table=None):
     """A dedicated autocommit connection, at most four time-limited vacuums.
 
     No FULL: never rewrite tables. After cold offload, cold-table tail truncation
@@ -27,6 +28,9 @@ def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tai
     Completed VACUUM is not proof of freed disk bytes (or all tuples removable).
     PostgreSQL autovacuum remains enabled and responsible for general upkeep.
     """
+    # Only the fixed allowlist is ever used in SQL; never accept dynamic names.
+    if target_table is not None and target_table not in _TABLES:
+        raise ValueError('Unapproved maintenance target')
     results = []
     with factory() as conn:
         if not conn.autocommit:
@@ -34,7 +38,7 @@ def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tai
         if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_storage_maintenance_v1'))").fetchone()[0]:
             return {'status': 'busy', 'tables': []}
         # Closing this dedicated connection releases the session advisory lock.
-        for table in _TABLES:
+        for table in ((target_table,) if target_table is not None else _TABLES):
             row = conn.execute('''SELECT n_dead_tup FROM pg_stat_user_tables
                 WHERE schemaname='public' AND relname=%s
                 AND n_dead_tup>0
@@ -81,6 +85,12 @@ def start():
                         result = {'status': 'archive-running'}
                     else:
                         result = run_once()
+                        # Optional single-table tail reclaim: disabled by default,
+                        # weekend-only, independently backed up, durably claimed.
+                        # Not an archive writer, SQL rewrite or startup hook.
+                        import storage_tail_once
+                        if storage_tail_once.configuration() is not None:
+                            result['tailReclaimOnce'] = storage_tail_once.run_once()
                 except Exception as exc:
                     result = {'status': 'deferred', 'errorType': type(exc).__name__}
                 # Error types only: never DSNs, credentials or database payloads.
