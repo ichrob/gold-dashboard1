@@ -225,7 +225,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
         ' · Hebelzeit: '+leverageTimeLabel(item)+
         (Number.isFinite(item.leverageReference?.value)&&item.leverageReference.value>0?
-         '\\nHistorischer Hebel als Recherche-Referenz: '+item.leverageReference.value.toFixed(2)+'x · '+fmt(item.leverageReference.at)+
+         '\nHistorischer Hebel als Recherche-Referenz: '+item.leverageReference.value.toFixed(2)+'x · '+fmt(item.leverageReference.at)+
          ' · '+(item.leverageReference.kind==='historical-issuer-leverage'?'früherer Originalhebel':'historisch berechneter Näherungswert')+
          ' · ausdrücklich nicht aktuell, keine Handelsfreigabe':'')+
         (item.brokerVenueEvidence?'\n✓ DEGIRO-Handelsplatz am Screenshot bestätigt: '+item.brokerVenueEvidence.venue+' · '+item.brokerVenueEvidence.observedMinute.replace('T',' ')+' · gültig bis '+fmt(item.brokerVenueEvidence.validUntil):'')+
