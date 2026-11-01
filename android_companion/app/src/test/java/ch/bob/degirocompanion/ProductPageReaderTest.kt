@@ -99,6 +99,12 @@ class ProductPageReaderTest {
         assertEquals("", changed.result.draft)
         assertFalse(r.sameWindow(1))
         step(r, header)
+        repeat(3) {
+            val waiting = step(r, quotes, backward = false)
+            assertEquals(ProductPageReader.Move.NONE, waiting.move)
+            assertEquals(ProductPageReader.Cause.WAIT_SCROLL_LAYOUT, waiting.cause)
+            assertEquals("", waiting.result.draft)
+        }
         val noReturn = step(r, quotes, backward = false)
         assertEquals(ProductPageReader.Cause.RETURN_FAILED, noReturn.cause)
         assertEquals("", noReturn.result.draft)
@@ -293,6 +299,38 @@ class ProductPageReaderTest {
         assertEquals(ProductPageReader.Move.FINISHED, done.move)
         assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 10,20"))
     }
+    @Test fun transientReturnSurfaceCanRecoverAfterOneSafeRetry() {
+        val r=ProductPageReader()
+        assertEquals(ProductPageReader.Move.FORWARD,step(r,header).move)
+        val waiting=step(r,quotes,backward=false)
+        assertEquals(ProductPageReader.Move.NONE,waiting.move)
+        assertEquals(ProductPageReader.Cause.WAIT_SCROLL_LAYOUT,waiting.cause)
+        assertEquals("",waiting.result.draft)
+        val returned=step(r,quotes,forward=false,backward=true)
+        assertEquals(ProductPageReader.Move.BACKWARD,returned.move)
+        assertEquals("",returned.result.draft)
+        val done=step(r,header)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 10,20"))
+    }
+
+    @Test fun changedIdentityOrProtectedReturnStillFailsWithoutPublishing() {
+        val r=ProductPageReader()
+        step(r,header)
+        assertEquals(ProductPageReader.Cause.WAIT_SCROLL_LAYOUT,
+            step(r,quotes,backward=false).cause)
+        val swapped=step(r,lines("DE000FE2JJ20","Geld EUR 10,20"))
+        assertEquals(ProductPageReader.Move.ABORT,swapped.move)
+        assertEquals(ProductPageReader.Cause.IDENTITY_CHANGED,swapped.cause)
+        assertEquals("",swapped.result.draft)
+        val guard=ProductPageReader()
+        step(guard,header)
+        step(guard,quotes,backward=false)
+        val protected=step(guard,lines("Ordertyp"),sensitive=true)
+        assertEquals(ProductPageReader.Move.ABORT,protected.move)
+        assertEquals("",protected.result.draft)
+    }
+
     @Test fun persistentRejectedReturnDiscardsDraft() {
         val r = ProductPageReader(); step(r, header)
         val partial = lines("Zuletzt EUR 10,20")
