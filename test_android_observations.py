@@ -94,7 +94,7 @@ class AndroidObservations(unittest.TestCase):
         self.assertEqual(entry['observation']['raw'],DRAFT)
 
     def test_missing_terms_can_be_recorded_without_displayed_quotes_only_by_plan(self):
-        draft='\\n'.join(['BOB APP-LESEENTWURF – NICHT VERIFIZIERT',
+        draft='\n'.join(['BOB APP-LESEENTWURF – NICHT VERIFIZIERT',
             f'ISIN: {ISIN}', 'Quelle: DEGIRO-App',
             'Erfasst: 2026-10-28T10:59:00Z',
             'Währung (Anzeige ungeprüft): EUR',
