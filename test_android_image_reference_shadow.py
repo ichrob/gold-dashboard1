@@ -36,10 +36,11 @@ class ShadowSafetyTests(unittest.TestCase):
         now=time.time()
         shared=png(b'a'*4000)
         other=png(b'b'*1000)
-        records=[(A,batch('1',shared,now)),
-                 (A,batch('2',shared,now)),
-                 (B,batch('3',shared,now)),
-                 (A,batch('4',other,now))]
+        at=datetime.fromtimestamp(now,timezone.utc)
+        records=[(A,at,batch('1',shared,now)),
+                 (A,at,batch('2',shared,now)),
+                 (B,at,batch('3',shared,now)),
+                 (A,at,batch('4',other,now))]
         original=copy.deepcopy(records)
         result=shadow._simulate(records,now)
         self.assertEqual(records,original)
@@ -59,13 +60,24 @@ class ShadowSafetyTests(unittest.TestCase):
                         shared[:70],A,B,'fileId','token_hash'):
             self.assertNotIn(private,json.dumps(result))
 
+    def test_stale_or_unauthenticated_clock_fails_closed(self):
+        now=time.time()
+        source=png(b'1'*200)
+        old=datetime.fromtimestamp(now-2*86400,timezone.utc)
+        naive=datetime.fromtimestamp(now)
+        for clock in (old,naive,None):
+            result=shadow._simulate([(A,clock,batch('1',source,now))],now)
+            self.assertEqual(result['status'],'not-observed')
+            self.assertIsNone(result['diskBytesFreed'])
+
     def test_missing_or_bad_scope_fails_closed(self):
         now=time.time()
         sample=png(b'1'*200)
-        for rows in ([('bad',batch('1',sample,now))],
-                     [(A,{'batchId':'bad','images':[]})],
-                     [(A,batch('1',sample,now))]*9,
-                     [(A,batch('1','wrong',now))]):
+        at=datetime.fromtimestamp(now,timezone.utc)
+        for rows in ([('bad',at,batch('1',sample,now))],
+                     [(A,at,{'batchId':'bad','images':[]})],
+                     [(A,at,batch('1',sample,now))]*9,
+                     [(A,at,batch('1','wrong',now))]):
             with self.subTest(num=len(rows)):
                 result=shadow._simulate(rows,now)
             self.assertEqual(result['status'],'not-observed')
@@ -81,7 +93,8 @@ class ShadowSafetyTests(unittest.TestCase):
         alternative=base64.b64encode(original).decode()
         self.assertEqual(source,alternative)
         self.assertEqual(shadow._simulate(
-            [(A,batch('1',source,now)),(A,batch('2',alternative,now))],
+            [(A,datetime.fromtimestamp(now,timezone.utc),batch('1',source,now)),
+             (A,datetime.fromtimestamp(now,timezone.utc),batch('2',alternative,now))],
             now)['status'],'verified-in-memory')
 
     def test_empty_and_oversized_and_invalid_return_no_savings(self):
@@ -89,7 +102,7 @@ class ShadowSafetyTests(unittest.TestCase):
         now=time.time()
         source=png(b'a'*1000)
         with patch.object(shadow,'_MAX_ENCODED',10):
-            result=shadow._simulate([(A,batch('1',source,now))],now)
+            result=shadow._simulate([(A,datetime.fromtimestamp(now,timezone.utc),batch('1',source,now))],now)
         self.assertEqual(result['status'],'sample-too-large')
         self.assertNotIn('serializedJsonDifferenceBytes',result)
 
@@ -104,17 +117,22 @@ class ShadowSafetyTests(unittest.TestCase):
             def execute(self,sql):
                 self.queries.append(sql)
                 return self
+            def fetchone(self):
+                return (1,len(json.dumps(batch('1',source,now)))+10)
             def fetchall(self):
-                return [(A,batch('1',source,now))]
+                return [(A,datetime.fromtimestamp(now,timezone.utc),batch('1',source,now))]
         c=Conn()
         with patch.object(shadow,'_cache',None),patch.object(shadow,'_cache_at',0):
             a=shadow.report(c,now=now)
             b=shadow.report(c,now=now+60)
         self.assertEqual(a,b)
         self.assertEqual(a['status'],'verified-in-memory')
-        self.assertEqual(len(c.queries),3)
+        self.assertEqual(len(c.queries),4)
         self.assertIn('LIMIT 8',shadow._SQL)
+        self.assertIn('LIMIT 8',shadow._PROBE)
+        self.assertIn('14000000',shadow._SQL)
         self.assertIn("statement_timeout='2500ms'",c.queries)
+        self.assertIn('coalesce(sum(octet_length(payload::text)),0)',shadow._PROBE)
         self.assertIn("lock_timeout='500ms'",c.queries)
         self.assertTrue(all(not any(w in q for w in
                          ('DELETE ','UPDATE ','INSERT ','VACUUM ','CREATE TABLE'))
