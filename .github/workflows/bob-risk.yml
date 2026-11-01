@@ -30,6 +30,8 @@ on:
       - 'test_android_image_backup_prepare.py'
       - 'android_image_backup_runner.py'
       - 'android_image_pilot_rehearsal.py'
+      - 'android_image_gc_rehearsal.py'
+      - 'test_android_image_gc_rehearsal.py'
       - 'test_android_image_pilot_rehearsal.py'
       - 'android_image_backup_cli.py'
       - 'android_image_backup_readiness.py'
