@@ -85,3 +85,40 @@ aggregate counters. Missing observations must not imply zero writes.
   n_dead_tup cannot substitute for these conditions.
 - No automatic paid scaling, no open database allowlist, no account or
   trade permissions, and no claim of immediate free disk space.
+
+
+## Short-horizon weekend growth attribution · 1 Nov 2026
+
+The already-saved `bob_storage_samples` half-hour slots now also support
+independent 2-hour and 6-hour **read-only** comparisons, using the nearest
+existing baseline within 30 minutes of the requested duration. These
+shorter windows complement, but do not replace, the exact 24-hour
+insert/update/delete counter comparison.
+
+The new `storageForensics.recentWindows` report includes the actual
+snapshot slots and elapsed seconds, current minus baseline
+`pg_database_size`, the sum of changes in relations present with valid
+sizes at both snapshots, and the largest positive and negative allocated
+relation-size deltas. Up to 12 fixed-format public `bob_*` table names
+are shown in each direction. Private, unusually long or unsafe catalog
+identifiers are never output. Newly created, removed or invalid relations
+are counted as **not comparable**, not treated as zero-size and not
+silently presented as saved disk.
+
+The derived relation and database deltas can differ because not all
+database objects are in the tracked catalog or are directly comparable.
+They exclude physical Render WAL/volume observations. The comparison
+**does not** measure WAL, filesystem free bytes, bloat, logical tuple
+insert/update count, or the effect of a particular change. A missing
+2h/6h baseline is `needs-snapshots`; it must not be extrapolated from
+the oldest available measurement. No new database tables, scheduled
+queries, credentials, retention changes, or writes to historical
+market/simulation/product evidence are required.
+
+This resolves an attribution gap observed on Sunday: the independent
+Render volume moved from about 669.85 MB to 674.85 MB even though
+the *largest* three visible relations had unchanged allocation. The
+short-horizon view is intended to isolate which of the smaller
+relations grew during that same recent period before authorizing any
+lossless writer adjustment or offline physical maintenance. It does
+not itself reclaim volume space.
