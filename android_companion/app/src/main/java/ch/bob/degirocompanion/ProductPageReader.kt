@@ -77,7 +77,7 @@ internal class ProductPageReader {
                     lines.mapNotNull { line -> ProductSymbolMemory.probeHeaderSymbol(line.text) }
                         .all { visible -> visible == it.symbol }
             } else null
-        val verifiedPairedQuote = footerPair != null && direct.draft.isNotBlank() &&
+        val verifiedPairedQuote = requireParameters && footerPair != null && direct.draft.isNotBlank() &&
             (expectedIsin != null || (seekingSymbol != null && seekingParameters.isNotEmpty())) &&
             listOf("Geld", "Brief", "Zuletzt").any {
                 direct.draft.contains("$it (Anzeige ungeprüft): ")
