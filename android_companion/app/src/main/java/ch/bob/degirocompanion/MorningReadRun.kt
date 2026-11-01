@@ -73,15 +73,22 @@ internal object MorningReadRun {
         running=true
         PhoneDiagnostics.queue(c)
     }
-    fun beginDiscovered(c: Context, values: List<String>, listBatchId: String? = null) {
+    fun beginDiscovered(c: Context, values: List<String>, listBatchId: String? = null,
+                        requested: Map<String, List<String>>? = null) {
         check(!running) { "Listenlauf läuft bereits." }
         check(values.size in 1..12 && values.distinct()==values && values.all { SeriesEvidence.validIsin(it) })
         check(listBatchId==null || listBatchId.matches(Regex("[a-f0-9]{32}")))
+        if(requested!=null) check(requested.keys==values.toSet() &&
+            requested.values.all { v -> v.isNotEmpty() && v.size<=SelectiveDetailPlan.fields.size &&
+                v.distinct()==v && v.all { it in SelectiveDetailPlan.fields } })
         data=JSONObject().put("batchId",UUID.randomUUID().toString().replace("-",""))
             .put("listUploadedAt",Instant.now().toString()).put("listSource","degiro-gold-search")
             .put("appVersionCode",c.packageManager.getPackageInfo(c.packageName,0).versionCode)
             .put("revision",0).put("isins",JSONArray(values)).put("results",JSONArray()).put("events",JSONArray())
         if(listBatchId!=null)data!!.put("listBatchId",listBatchId)
+        if(requested!=null) data!!.put("requestedFields",JSONObject().apply {
+            values.forEach { put(it,JSONArray(requested.getValue(it))) }
+        })
         index=0;attempt=1;reading=false;backSteps=0;started=SystemClock.elapsedRealtime()
         persist(c, newRun=true)
         running=true
@@ -105,7 +112,10 @@ internal object MorningReadRun {
     fun outcome(c: Context, code: String, draft: String = ""): Boolean {
         check(running)
         if (draft.isNotEmpty()) check(draft.lineSequence().any { it == "ISIN: $target" })
-        val required=listOf("Geld","Brief","Anzeigezeit","Hebel","KO-Schwelle","Basispreis","Bv")
+        val requested=data!!.optJSONObject("requestedFields")?.optJSONArray(target)
+        val required=if(requested!=null)
+            (0 until requested.length()).map { requested.getString(it) }
+            else listOf("Geld","Brief","Anzeigezeit","Hebel","KO-Schwelle","Basispreis","Bv")
         val missing=required.filterNot { draft.contains("$it (Anzeige ungeprüft): ") }
         val finalCode=if(draft.isNotEmpty()) (if(missing.isEmpty()) "COMPLETE" else "PARTIAL") else code
         val results=data!!.getJSONArray("results")
