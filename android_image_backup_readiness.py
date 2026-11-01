@@ -43,3 +43,32 @@ def report():
             "originalImageDeletionAuthorized": False,
             "diskBytesFreed": None,
         }
+
+
+def synced_source_candidate_present(conn):
+    """Small, index-friendly existence probe; never read PNG or device IDs.
+
+    This is NOT a source validity/authorization/backup proof. Unknown on
+    missing tables, lock contention, error or budget exhaustion.
+    """
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='750ms'")
+            conn.execute("SET LOCAL lock_timeout='200ms'")
+            row=conn.execute("""SELECT EXISTS (
+                SELECT 1 FROM bob_android_list_images i
+                JOIN bob_android_diagnostic_devices d USING(token_hash)
+                WHERE i.created_at > now()-interval '24 hours'
+                  AND i.created_at <= now()
+                  AND NOT d.revoked AND d.expires_at > now()
+                  AND i.import_receipt->>'stage'='synced'
+                  AND i.parsed_items IS NOT NULL
+                LIMIT 1
+            )""").fetchone()
+        if (type(row) not in (tuple,list) or len(row)!=1 or
+                type(row[0]) is not bool):
+            return None
+        return row[0]
+    except Exception:
+        # SQL diagnostics, owners and batch/device values must never escape.
+        return None
