@@ -273,6 +273,11 @@ class MorningReadPolicyTest {
         assertEquals(ProductPageReader.Move.FORWARD,reader.inspect(1,header,"",false,true,true,identityHint=hint).move)
         val quotes=lines(listOf("Geld EUR 10,20","Brief EUR 10,30"))
         assertEquals(ProductPageReader.Move.BACKWARD,reader.inspect(1,quotes,"",false,true,true).move)
+        repeat(3) {
+            val wait=reader.inspect(1,header,"",false,false,false,identityHint=hint)
+            assertEquals(ProductPageReader.Move.NONE,wait.move)
+            assertEquals("",wait.result.draft)
+        }
         val refused=reader.inspect(1,header,"",false,false,false,identityHint=hint)
         assertEquals(ProductPageReader.Move.ABORT,refused.move)
         assertEquals("",refused.result.draft)
