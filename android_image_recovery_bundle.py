@@ -34,7 +34,7 @@ def _canonical(obj):
 def _validate_payload(obj):
     if type(obj) is not dict or set(obj) != {
             'format','deviceScope','batchId','uploadedAt','original',
-            'reference','objects','originalSha256'}:
+            'reference','objects','originalSha256','sourceMetadata'}:
         raise ValueError('Invalid recovery manifest')
     scope,batch_id=obj['deviceScope'],obj['batchId']
     if (type(scope) is not str or not _SCOPE.fullmatch(scope)
@@ -53,6 +53,22 @@ def _validate_payload(obj):
     except (TypeError,ValueError,OverflowError):
         raise ValueError('Invalid original upload clock') from None
     original=obj['original']
+    metadata=obj['sourceMetadata']
+    if (type(metadata) is not dict or set(metadata) != {
+            'importReceipt','parsedItems','processingAt','processingAttempts'}
+            or metadata['importReceipt'] is not None
+               and type(metadata['importReceipt']) is not dict
+            or metadata['parsedItems'] is not None
+               and type(metadata['parsedItems']) is not list
+            or type(metadata['processingAttempts']) is not int
+            or not 0 <= metadata['processingAttempts'] <= 1000):
+        raise ValueError('Invalid source row metadata')
+    if metadata['processingAt'] is not None:
+        try:
+            recorded=datetime.fromisoformat(metadata['processingAt'])
+            if recorded.tzinfo is None:raise ValueError('Naive processing clock')
+        except (TypeError,ValueError,OverflowError):
+            raise ValueError('Invalid processing clock') from None
     if original.get('batchId')!=batch_id:
         raise ValueError('Original batch ID mismatch')
     if hashlib.sha256(_canonical(original)).hexdigest()!=obj['originalSha256']:
@@ -93,11 +109,20 @@ def pack_recovery_bundle(conn,batch_id,scope):
                                  original=(uploaded,original))
         if restored!=original:
             raise ValueError('Source and reference mismatch')
+        meta_row=conn.execute("""SELECT import_receipt,parsed_items,
+            processing_at,processing_attempts FROM bob_android_list_images
+            WHERE batch_id=%s AND token_hash=%s""",(batch_id,scope)).fetchone()
+        if not meta_row or len(meta_row)!=4:
+            raise ValueError('Original row metadata not observed')
+        receipt,items,processed,attempts=meta_row
+        metadata={'importReceipt':receipt,'parsedItems':items,
+                  'processingAt':processed.isoformat() if processed else None,
+                  'processingAttempts':attempts}
         ptr,objs=codec.pack_batch(original,scope)
         payload={
             'format':_FORMAT,'deviceScope':scope,'batchId':batch_id,
             'uploadedAt':uploaded.isoformat(),
-            'original':original,'reference':ptr,
+            'original':original,'sourceMetadata':metadata,'reference':ptr,
             'objects':[{'key':key,'encodedPng':value}
                        for key,value in sorted(objs.items())],
             'originalSha256':hashlib.sha256(_canonical(original)).hexdigest(),
@@ -151,10 +176,17 @@ def restore_to_isolated_test_schema(conn,blob,checksum):
         conn.execute("SET LOCAL statement_timeout='5s'")
         conn.execute("SET LOCAL lock_timeout='1000ms'")
         shadow.init_test_schema(conn)
+        metadata=manifest['sourceMetadata']
+        processing=(datetime.fromisoformat(metadata['processingAt'])
+                    if metadata['processingAt'] else None)
         conn.execute("""INSERT INTO bob_android_list_images
-            (batch_id,token_hash,created_at,payload)
-            VALUES(%s,%s,%s,%s)""",
-            (bid,scope,uploaded,Jsonb(manifest['original'])))
+            (batch_id,token_hash,created_at,payload,import_receipt,
+             parsed_items,processing_at,processing_attempts)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (bid,scope,uploaded,Jsonb(manifest['original']),
+             Jsonb(metadata['importReceipt']) if metadata['importReceipt'] is not None else None,
+             Jsonb(metadata['parsedItems']) if metadata['parsedItems'] is not None else None,
+             processing,metadata['processingAttempts']))
         for item in manifest['objects']:
             conn.execute("""INSERT INTO bob_android_shadow_objects
                 (token_hash,object_key,encoded_png)
@@ -169,9 +201,14 @@ def restore_to_isolated_test_schema(conn,blob,checksum):
                                      original=(uploaded,manifest['original']))
         if reconstructed!=manifest['original']:
             raise ValueError('Isolated original restoration differs')
-        before=conn.execute("""SELECT payload FROM bob_android_list_images
+        before=conn.execute("""SELECT payload,import_receipt,parsed_items,
+            processing_at,processing_attempts FROM bob_android_list_images
             WHERE batch_id=%s AND token_hash=%s""",(bid,scope)).fetchone()
-        if not before or before[0]!=reconstructed:
+        if (not before or before[0]!=reconstructed
+                or before[1]!=metadata['importReceipt']
+                or before[2]!=metadata['parsedItems']
+                or before[3]!=processing
+                or before[4]!=metadata['processingAttempts']):
             raise ValueError('Isolated original row differs')
     return {'status':'isolated-test-restore-verified',
             'restoredImages':len(manifest['original']['images']),
