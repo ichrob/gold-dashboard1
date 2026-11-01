@@ -1010,6 +1010,13 @@ def _preflight_loop(database, wait=time.sleep):
                     outcome = audit_offhours_once(database)
                     if outcome['auditUpdated']:
                         print('BOB_PRODUCT_PREFLIGHT state=evidence-only', flush=True)
+                    if phase == 'weekend':
+                        # Only unresolved leverage fields from the latest owned
+                        # handset run. No new screenshot or DEGIRO login.
+                        from weekend_leverage_followup import once as research_leverage
+                        result = research_leverage(database)
+                        if result['checked']:
+                            print('BOB_WEEKEND_LEVERAGE state=research-only checked='+str(result['checked']),flush=True)
             except Exception as exc:
                 print('BOB_PRODUCT_PREFLIGHT error='+type(exc).__name__, flush=True)
             wait(max(1, min(300, background_push.degiro_seconds_to_transition())))
