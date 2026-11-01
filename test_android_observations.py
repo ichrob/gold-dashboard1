@@ -122,6 +122,53 @@ class AndroidObservations(unittest.TestCase):
         with self.assertRaises(ValueError):
             a.prepare(payload,{},NOW)
 
+    def test_unpriced_requested_leverage_is_preserved_without_quote_or_currency_proof(self):
+        draft='\n'.join(['BOB APP-LESEENTWURF – NICHT VERIFIZIERT',
+            f'ISIN: {ISIN}', 'Quelle: DEGIRO-App',
+            'Erfasst: 2026-10-28T10:59:00Z',
+            'Produktwährung nicht nachgewiesen; nur ausdrücklich beschriftete Produktparameter, keine Kurse.',
+            'Hebel (Anzeige ungeprüft): 17,45',
+            'Hinweis (Anzeige ungeprüft): Keine Aussage zur Handelbarkeit',
+            'Kein automatischer Handelsnachweis, keine Freigabe, keine Order.'])
+        saved=a.parse_draft(draft,ISIN,NOW,['Hebel'])
+        self.assertFalse(saved['currencyVerified'])
+        self.assertFalse(saved['tradeApproved'])
+        self.assertEqual(saved['fields']['Hebel'],'17,45')
+        self.assertNotIn('Währung',saved['fields'])
+        for bad,fields in [(None,['Hebel']),(['Geld'],['Geld']),
+                           (['Hebel'],['Geld','Brief']),(['Währung'],['Währung'])]:
+            if bad is None:
+                with self.assertRaises(ValueError):a.parse_draft(draft,ISIN,NOW)
+                continue
+            with self.assertRaises(ValueError):
+                a.parse_draft(draft,ISIN,NOW,bad)
+        with self.assertRaises(ValueError):
+            a.parse_draft(draft+'\nWährung (Anzeige ungeprüft): EUR',ISIN,NOW,['Hebel'])
+        with self.assertRaises(ValueError):
+            a.parse_draft(draft.replace('Hebel (','Geld ('),ISIN,NOW,['Hebel'])
+
+    def test_research_summary_is_generation_matched_and_never_promotes_market_data(self):
+        run_data=a.prepare({**run(),'listSource':'degiro-gold-search',
+                            'listUploadedAt': '2026-10-28T11:00:30Z'}, {}, NOW)
+        run_data['receivedAt']=NOW.isoformat()
+        class ReadDb:
+            def execute(self,sql):
+                assert 'bob_android_read_runs' in sql
+                return self
+            def fetchall(self): return [(run_data,)]
+        matches=a.research_summary(ReadDb(),'2026-10-28T11:00:00Z',[ISIN],NOW)
+        self.assertEqual(matches[ISIN]['code'],'PARTIAL')
+        self.assertEqual(matches[ISIN]['fields']['Geld'],'13,06')
+        self.assertTrue(matches[ISIN]['researchOnly'])
+        self.assertFalse(matches[ISIN]['verified'])
+        self.assertFalse(matches[ISIN]['tradeApproved'])
+        self.assertIsNone(matches[ISIN]['sourceTime'])
+        self.assertEqual(a.research_summary(ReadDb(),'2026-10-28T10:00:00Z',[ISIN],NOW),{})
+        self.assertEqual(a.research_summary(ReadDb(),'2026-10-28T11:00:00Z',
+                                            ['DE000FE2JJ20'],NOW),{})
+        self.assertEqual(a.research_summary(ReadDb(),'2026-10-28T11:00:00Z',
+                                            [ISIN],NOW.replace(day=30)),{})
+
     def test_partial_is_recomputed_and_cannot_be_promoted(self):
         r=a.prepare(run(),{'products':[{'isin':ISIN}]},NOW)
         self.assertEqual(r['results'][0]['code'],'PARTIAL')
