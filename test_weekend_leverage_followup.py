@@ -64,7 +64,8 @@ class WeekendTests(unittest.TestCase):
         reader['results'][0]['observation']['missingFields']=[]
         self.assertEqual(wk.targets(feed,reader,SUNDAY),ISINS[1:])
         reader['results'][0]['observation']['missingFields']=['Hebel']
-        audit['items'][0]['weekendLeverageFollowup']={'retryAfterMs':SUNDAY+1000}
+        audit['items'][0]['weekendLeverageFollowup']={'retryAfterMs':SUNDAY+1000,
+                                                         'policyVersion':wk.SOURCE_POLICY_VERSION}
         self.assertEqual(wk.plan(feed,reader,audit,SUNDAY),ISINS[1:])
         reader['listUploadedAt']=datetime.fromtimestamp((SUNDAY-2*DAY)/1000,ZoneInfo('Europe/Zurich')).isoformat()
         self.assertEqual(wk.targets(feed,reader,SUNDAY),[])
@@ -104,16 +105,16 @@ class WeekendTests(unittest.TestCase):
         feed,reader,audit=sample()
         earlier=wk.plan(feed,reader,audit,SUNDAY)
         self.assertEqual(earlier,ISINS)
-        for isin in ISINS[:2]:
+        for isin in (ISINS[0],ISINS[2]):
             raw=get_product(isin)
             self.assertTrue(raw['productVerified'])
             self.assertEqual(raw['metadata']['status'],2)
             self.assertEqual(raw['terminalEvidence']['confirmedOn'],'2026-10-30')
             self.assertEqual(raw['terminalEvidence']['isin'],isin)
             self.assertFalse(raw['terminalEvidence']['tradeApproved'])
-        incoming={isin:get_product(isin) for isin in ISINS[:2]}
+        incoming={isin:get_product(isin) for isin in (ISINS[0],ISINS[2])}
         revised=wk.update(audit,feed,ISINS,incoming,SUNDAY)
-        for i in range(2):
+        for i in (0,2):
             ended=revised['items'][i]
             self.assertEqual(ended['state'],'terminated')
             self.assertEqual(ended['weekendLeverageFollowup']['state'],'issuer-terminal')
@@ -121,8 +122,8 @@ class WeekendTests(unittest.TestCase):
             self.assertFalse(ended['tradeApproved'])
             self.assertEqual(ended['sourceStatusEvidence']['issuerTerminal'],True)
             self.assertNotIn('leverage-time',ended['missing'])
-        self.assertEqual(wk.plan(feed,reader,revised,SUNDAY),[ISINS[2]])
-        self.assertEqual(revised['items'][2]['weekendLeverageFollowup']['state'],
+        self.assertEqual(wk.plan(feed,reader,revised,SUNDAY),[ISINS[1]])
+        self.assertEqual(revised['items'][1]['weekendLeverageFollowup']['state'],
                          'source-evidence-unavailable')
 
     def test_secondary_inactive_hint_is_not_knockout_and_policy_upgrade_rechecks_once(self):
