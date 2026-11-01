@@ -102,6 +102,88 @@ def calculate(result, basis, fx, now=None, quote_override=None):
                 note='Rechnerische Näherung mit Delta ±1; kein bestätigter Emittentenhebel oder ausführbarer Kurs.')
 
 
+
+# A bounded historical reference is useful after the last market close, but it
+# must never satisfy the live 90-second leverage clock or executable-price gate.
+HISTORICAL_REFERENCE_MAX_AGE_SECONDS = 4 * 24 * 3600
+
+
+def historical_reference(result, now=None):
+    """Previously issuer-confirmed or reproducibly calculated leverage.
+
+    Never call live feeds, manufacture timestamps, or change result['leverage'].
+    Weekend snapshots are research-only even if their original input was fresh.
+    """
+    now = now or datetime.now(timezone.utc)
+    if not isinstance(result, dict) or result.get('productVerified') is not True:
+        return None
+    meta = result.get('metadata') or {}
+    if meta.get('status') != 1 or not q.valid_isin(result.get('isin', '')):
+        return None
+
+    def when(raw):
+        try:
+            at = q.stamp(raw)
+            return at if 0 <= (now-at).total_seconds() <= HISTORICAL_REFERENCE_MAX_AGE_SECONDS else None
+        except (ValueError, TypeError, KeyError, OverflowError):
+            return None
+
+    def positive(raw):
+        try:
+            value = q.number(raw)
+            return value if math.isfinite(value) and value > 0 else None
+        except (ValueError, TypeError):
+            return None
+
+    original = positive(result.get('leverage'))
+    original_at = when(result.get('leverageAt'))
+    if original and original_at and result.get('leverageEstimated') is not True:
+        return dict(value=original, at=original_at.isoformat(), source=str(result.get('source') or 'Emittent')[:80],
+                    kind='historical-issuer-leverage', label='Letzter Originalhebel',
+                    current=False, researchOnly=True, tradeApproved=False,
+                    note='Ursprünglicher Emittentenzeitpunkt; kein aktueller Hebel oder DEGIRO-Handelskurs.')
+
+    # A prior weekend calculation is accepted only with all immutable inputs
+    # and their ORIGINAL clocks. A fabricated leverageCalculation without a
+    # verified simple non-quanto turbo model cannot become even a reference.
+    calculation = result.get('leverageCalculation') or {}
+    inputs = calculation.get('inputs') or {}
+    if (meta.get('simpleNonQuantoTurbo') is not True
+            or not calculation.get('available') or calculation.get('fresh') is not True
+            or inputs.get('basisEstimated') or inputs.get('basisDelayed')
+            or inputs.get('quoteCurrency') not in ('EUR', 'CHF')
+            or inputs.get('quoteCurrency') != meta.get('currency')
+            or inputs.get('priceKind') in ('calculated', 'model', 'estimated')
+            or meta.get('underlyingType') not in ('SPOT', 'FUTURE')):
+        return None
+    try:
+        original_times = [q.stamp(inputs[name]) for name in ('askAt', 'basisAt', 'fxDataAt', 'fxEffectiveAt')]
+        if not all(when(t.isoformat()) for t in original_times):
+            return None
+        if (max(original_times)-min(original_times)).total_seconds() > MAX_SKEW_SECONDS:
+            return None
+        reference_at = min(original_times)
+        if q.stamp(calculation['at']) != reference_at:
+            return None
+        if q.stamp(calculation['calculatedAt']) < max(original_times) or q.stamp(calculation['calculatedAt']) > now:
+            return None
+        ask, gold, fx, ratio, value = [positive(v) for v in
+            (inputs['askNative'], inputs['basisPriceUsd'], inputs['usdEur'],
+             inputs['ratio'], calculation['value'])]
+        if None in (ask, gold, fx, ratio, value) or ratio != meta.get('ratio'):
+            return None
+        if not math.isclose(value, gold*fx*ratio/ask, rel_tol=1e-9):
+            return None
+        if meta.get('underlyingType') == 'FUTURE' and (not meta.get('contract') or
+                inputs.get('contract') != meta['contract']):
+            return None
+        return dict(value=value, at=reference_at.isoformat(), source=str(inputs.get('priceSource') or 'Bob · Berechnung')[:80],
+                    kind='historical-calculated-gearing', label='Historisch berechneter Hebel',
+                    current=False, researchOnly=True, tradeApproved=False,
+                    note='Rechnerischer Referenzhebel aus denselben früheren Produkt-, Gold- und FX-Zeitpunkten; nicht aktuell.')
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return None
+
 def reconcile_model(result, now):
     """Use explicit same-product comdirect contract proof for an unknown model."""
     out = copy.deepcopy(result)
