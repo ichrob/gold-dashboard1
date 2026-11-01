@@ -580,6 +580,7 @@ def _retain_historical_leverage_reference(item, before, now_ms):
     must never inherit this historical research observation.
     """
     if (item.get('state') in ('terminated', 'excluded-factor')
+            or not any(key in item.get('missing', ()) for key in ('leverage', 'leverage-time'))
             or not valid_isin(item.get('isin')) or item.get('leverageReference')
             or not isinstance(before, dict) or before.get('isin') != item['isin']):
         return
