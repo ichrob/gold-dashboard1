@@ -166,6 +166,7 @@ def report(conn,now=None):
         relationElapsedSeconds=relation_elapsed,
         largestTableDeltas=relation_deltas[:12],
         storageForensics=__import__('storage_forensics').report(conn,samples),
+        androidImageDuplication=__import__('android_image_storage_audit').report(conn),
         largestTables=[dict(table=name,bytes=n,estimatedRows=live,estimatedDeadRows=dead,
             lastAutovacuum=str(vac) if vac else None) for name,n,live,dead,vac in tables],
         archiveWorker=persisted_archive,
