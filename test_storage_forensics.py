@@ -223,5 +223,53 @@ class RecentAllocationTests(unittest.TestCase):
         self.assertIsNone(out['twoHours']['diskBytesFreed'])
 
 
+
+class WalDirectorySafetyTests(unittest.TestCase):
+    def test_aggregate_wal_size_only_never_filenames(self):
+        class FakeConn:
+            def __init__(self):self.calls=[]
+            def transaction(self):return self
+            def __enter__(self):return self
+            def __exit__(self,*a):pass
+            def execute(self,sql):
+                self.calls.append(sql)
+                return self
+            def fetchone(self):return (7,117440512)
+        conn=FakeConn()
+        result=forensic.wal_directory_observation(conn)
+        self.assertEqual(result['status'],'observed')
+        self.assertEqual(result['fileCount'],7)
+        self.assertEqual(result['allocatedFileBytes'],117440512)
+        self.assertIsNone(result['reclaimableBytes'])
+        self.assertNotIn('fileName',str(result))
+        self.assertTrue(any('pg_ls_waldir()' in sql for sql in conn.calls))
+        self.assertTrue(any("statement_timeout='1s'" in sql for sql in conn.calls))
+        self.assertFalse(any('pg_switch_wal' in sql or 'CHECKPOINT' in sql
+                             for sql in conn.calls))
+
+    def test_missing_privilege_does_not_break_storage_report(self):
+        class DeniedConn:
+            def transaction(self):return self
+            def __enter__(self):return self
+            def __exit__(self,*a):return False
+            def execute(self,sql):
+                raise PermissionError('sensitive server path /bad/db')
+        result=forensic.wal_directory_observation(DeniedConn())
+        self.assertEqual(result['status'],'not-observed')
+        self.assertIsNone(result['reclaimableBytes'])
+        self.assertNotIn('sensitive server path',str(result))
+
+    def test_nonnumeric_wal_metadata_is_unknown(self):
+        class BadConn:
+            def transaction(self):return self
+            def __enter__(self):return self
+            def __exit__(self,*a):pass
+            def execute(self,*a):return self
+            def fetchone(self):return (True,-1)
+        result=forensic.wal_directory_observation(BadConn())
+        self.assertEqual(result['status'],'not-observed')
+        self.assertIsNone(result['bytes'])
+
+
 if __name__=='__main__':
     unittest.main()
