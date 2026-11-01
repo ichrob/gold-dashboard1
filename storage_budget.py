@@ -150,7 +150,12 @@ def report(conn,now=None):
                         bytesAfter=after,bytesDelta=after-before))
             relation_deltas.sort(key=lambda item:(abs(item['bytesDelta']),item['table']),reverse=True)
     persisted_archive = archive_status(conn)
-    image_backup_readiness = __import__('android_image_backup_readiness').report()
+    image_module = __import__('android_image_backup_readiness')
+    image_backup_readiness = image_module.report()
+    # Boolean only: this SELECT never reads/returns PNGs, app text, ISINs,
+    # token hashes or batch IDs, and cannot authorize an actual backup.
+    image_backup_readiness['syncedSourceBatchCandidatePresent'] = (
+        image_module.synced_source_candidate_present(conn))
     decision_preview = __import__('cold_decision_product_writer').preview(
         conn, now=now, archive_proof=persisted_archive)
     return dict(status='observed',readOnly=True,observedAt=now,
