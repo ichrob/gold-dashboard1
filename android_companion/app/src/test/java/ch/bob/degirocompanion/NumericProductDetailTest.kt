@@ -222,8 +222,9 @@ class NumericProductDetailTest {
             inspect(footer+lines(listOf("DE000FD0S0G4"))),
             inspect(footer.map { it.copy(text=it.text.replace("156825577 |","87654321 |")) }
                 +lines(listOf("156825577 • Societe Generale OTC | R"))),
-            inspect(footer.map { it.copy(text=it.text.replace("Geld CHF 5,20","Geld Vol. 25K")
-                .replace("Zuletzt CHF 5,20","Schluss CHF 17,29"))) )) {
+            inspect(footer.map { it.copy(text=it.text
+                .replace("Geld CHF 5,20","Geld Vol. 25K")
+                .replace("Zuletzt CHF 5,20","Schluss CHF 17,29")) }) )) {
             assertNotEquals(ProductPageReader.Move.FINISHED,rejected.move)
             assertEquals("",rejected.result.draft)
         }
