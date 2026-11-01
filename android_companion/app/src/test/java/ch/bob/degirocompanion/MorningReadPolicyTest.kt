@@ -396,4 +396,26 @@ class MorningReadPolicyTest {
         assertNull(MorningReadPolicy.resultTapIndex(view+MorningReadPolicy.Node("Passwort"),target))
         assertNull(MorningReadPolicy.resultTapIndex(view+MorningReadPolicy.Node("Limitpreis"),target))
     }
+    @Test fun capturedTenGoldRowsCanScrollToSearchWithoutWaitingForServerOcr() {
+        val captured=setOf("DE000FB0CVV9","DE000SQ02JQ6","DE000FG8NHQ3",
+            "DE000FG0SGZ2","DE000FD0S0G4","DE000FE2JJ20","DE000FG77MY4",
+            "DE000FG8K0P8","DE000PJ8APE4","DE000FD0KVR8")
+        assertEquals(10,captured.size)
+        assertTrue(captured.all { SeriesEvidence.validIsin(it) })
+        val title="SG Gold Turbo BEST Open-End Put BAR 4089.34 BP 4089.34 Bv 10 | DE000FB0CVV9"
+        val nodes=listOf(
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("",row=title),
+            MorningReadPolicy.Node(title,parent=1))
+        assertEquals(1,MorningReadPolicy.listReturnScrollTarget(nodes,setOf(1),captured))
+        assertNull(MorningReadPolicy.listReturnScrollTarget(nodes,setOf(1),captured.drop(1).toSet()))
+        assertNull(MorningReadPolicy.listReturnScrollTarget(nodes,setOf(1),captured-"DE000FB0CVV9"+"DE000FD0S0G4"))
+        assertNull(MorningReadPolicy.listReturnScrollTarget(nodes,setOf(0),captured))
+        assertNull(MorningReadPolicy.listReturnScrollTarget(nodes+nodes[1].copy(parent=-1),setOf(1,3),captured))
+        assertNull(MorningReadPolicy.listReturnScrollTarget(nodes+MorningReadPolicy.Node("Gold",editable=true,hint="Suche"),setOf(1),captured))
+        assertNull(MorningReadPolicy.listReturnScrollTarget(nodes+MorningReadPolicy.Node("Order bestätigen"),setOf(1),captured))
+        assertNull(MorningReadPolicy.listReturnScrollTarget(nodes+MorningReadPolicy.Node("",password=true),setOf(1),captured))
+        assertNull(MorningReadPolicy.listReturnScrollTarget(listOf(MorningReadPolicy.Node("Märkte"),nodes[1],nodes[2]),setOf(1),captured))
+    }
+
 }

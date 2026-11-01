@@ -1007,14 +1007,56 @@ class ProductReadService : AccessibilityService() {
             } finally { refs.forEach { it.recycle() };root.recycle() }
         }
     }
+    /** A validated list has been captured locally. Return to the search header
+     * while remote OCR is pending; DO NOT type any ISIN until ten rows are
+     * confirmed by the existing server gate. Bound the scroll and window. */
+    private fun returnToSearchWhileImporting(expectedWindow:Int, captured:Set<String>, attempt:Int) {
+        if(attempt>=4 || !MorningListDelivery.waiting || !PhoneRemote.active() ||
+            MorningReadRun.running || GoldSearchRun.running) return
+        if(!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive ||
+            (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return
+        val root=productRoot(false) ?: return
+        val live=mutableListOf<AccessibilityNodeInfo>()
+        val descriptions=mutableListOf<MorningReadPolicy.Node>()
+        try {
+            if(root.windowId!=expectedWindow || root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return
+            navigationTree(root,live,descriptions)
+            if(descriptions.any { it.editable && MorningReadPolicy.isSearchInput(it.id,it.description,it.hint) }) return
+            val backward=live.indices.filter { i ->
+                val n=live[i]
+                n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
+                    n.className?.toString()!="android.widget.HorizontalScrollView" &&
+                    n.actionList.any { it.id==AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD }
+            }.toSet()
+            val index=MorningReadPolicy.listReturnScrollTarget(descriptions,backward,captured) ?: return
+            val target=live[index]
+            if(!target.refresh() || !target.isVisibleToUser || !target.isEnabled) return
+            val current=rootInActiveWindow
+            val same=current?.windowId==expectedWindow &&
+                current?.packageName?.toString()==ProductScreenEvidence.PACKAGE
+            current?.recycle()
+            if(!same) return
+            lastNavigation=SystemClock.elapsedRealtime()
+            if(target.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
+                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_RETURN_SCROLL_SENT)
+                handler.postDelayed({ returnToSearchWhileImporting(expectedWindow,captured,attempt+1) },650)
+            }
+        } finally { live.forEach { it.recycle() };root.recycle() }
+    }
+
     private fun deliverMorningList(generation:Int) {
         if(generation!=listGeneration)return
         val body=org.json.JSONObject().put("batchId",listBatch).put("sessionId",PhoneRemote.sessionId())
             .put("images",org.json.JSONArray(listImages.toString()))
+        val captured=listSeenIds.toSet()
+        val capturedWindow=listWindowId
         MorningListDelivery.start(this,body)
         checkpoint().delete()
         GoldSearchRun.stop("LIST_IMAGES_DELIVERED",Instant.now().toString())
         ProductReadRequest.cancel();PhoneDiagnostics.queue(this)
+        // Do not wait for native OCR just to scroll back up. Still require
+        // the server's ten-row receipt before touching any ISIN search.
+        if(capturedWindow!=null) handler.postDelayed({ returnToSearchWhileImporting(capturedWindow,captured,0) },650)
     }
 
     private fun focusSearch(node: AccessibilityNodeInfo): Boolean =
