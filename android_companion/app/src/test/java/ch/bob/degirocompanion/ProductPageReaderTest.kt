@@ -22,6 +22,19 @@ class ProductPageReaderTest {
         val strict=ProductPageReader().inspect(1,detail,at,false,true,true,requireParameters=true)
         assertNotEquals(ProductPageReader.Move.FINISHED,strict.move)
     }
+    @Test fun requestedLeverageReadsPastTheQuotePairWithSameRealIsin() {
+        val r=ProductPageReader()
+        val first=lines("DE000FE2JJ20 CHF","Geld CHF 0,518","Brief CHF 0,528")
+        val step=r.inspect(1,first,at,false,true,true,seekLeverage=true)
+        assertEquals(ProductPageReader.Move.FORWARD,step.move)
+        val second=lines("DE000FE2JJ20 CHF","Hebel: 17,45")
+        val done=r.inspect(1,second,at,false,true,true,seekLeverage=true)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("Hebel (Anzeige ungeprüft): 17,45"))
+        assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 0,518"))
+        assertTrue(done.result.draft.contains("Brief (Anzeige ungeprüft): 0,528"))
+    }
+
     @Test fun morningReadSeeksMissingHeaderParametersAfterQuoteIdentity() {
         val r=ProductPageReader()
         val first=r.inspect(1,header+quotes,at,false,true,true,requireParameters=true)
