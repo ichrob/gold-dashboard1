@@ -65,6 +65,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
     'Geld/Brief-Zeit: '+time(item.quoteSourceAt),
     'Emittentenhebel-Originalzeit: '+time(item.leverageSourceAt),
     'Hebel-Näherung/Zeitart: '+safe(lev.kind)+' · '+time(lev.at),
+    'Historischer Referenzhebel (nicht aktuell, keine Handelsfreigabe): '+(Number.isFinite(item.leverageReference?.value)?item.leverageReference.value.toFixed(2)+'x · '+safe(item.leverageReference.kind)+' · '+time(item.leverageReference.at):'nicht verfügbar'),
     'Handelsplatz: '+safe(item.issuerVenue),
     'Konkreter nächster Schritt: '+(item.venueAction?safe(item.venueAction):item.cardDiscrepancy===true?'Datenstand und Prüflogik der Produktkarte mit dem Serverbericht abgleichen.':'Offene Nachweise anhand ihrer Originalquellen prüfen.'),
     'Nachprüfungsstand: '+(item.needsKiHelp===true?'KI-Hilfe offen':'keine bestätigte KI-Eskalation'),
@@ -200,7 +201,9 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    status.textContent='Prüfung derzeit nicht erreichbar; aktuelle Produktnachweise fehlen.';
   }
   status.className='small '+(good&&incomplete===0?'ok':'bad');
-  updated.textContent='Letzte Hintergrundprüfung (Zürich): '+(r.lastCheckedAt?fmt(r.lastCheckedAt):'noch nicht bestätigt')+' · Listenstand: '+(r.listUploadedAt?fmt(r.listUploadedAt):'nicht bestätigt');
+  updated.textContent='Letzte Hintergrundprüfung (Zürich): '+(r.lastCheckedAt?fmt(r.lastCheckedAt):'noch nicht bestätigt')+
+   ' · Listenstand: '+(r.listUploadedAt?fmt(r.listUploadedAt):'nicht bestätigt')+
+   (typeof r.marketContext==='string'?' · '+r.marketContext:'');
   const help=good?items.filter(i=>i.needsKiHelp):[];
   window.BobProductAuditHelpCount=good?help.length:null;
   window.BobProblems?.badge?.(window.BobProblemsArchiveCount??null);
@@ -221,6 +224,10 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
         ' · Hebelzeit: '+leverageTimeLabel(item)+
+        (Number.isFinite(item.leverageReference?.value)&&item.leverageReference.value>0?
+         '\nHistorischer Hebel als Recherche-Referenz: '+item.leverageReference.value.toFixed(2)+'x · '+fmt(item.leverageReference.at)+
+         ' · '+(item.leverageReference.kind==='historical-issuer-leverage'?'früherer Originalhebel':'historisch berechneter Näherungswert')+
+         ' · ausdrücklich nicht aktuell, keine Handelsfreigabe':'')+
         (item.brokerVenueEvidence?'\n✓ DEGIRO-Handelsplatz am Screenshot bestätigt: '+item.brokerVenueEvidence.venue+' · '+item.brokerVenueEvidence.observedMinute.replace('T',' ')+' · gültig bis '+fmt(item.brokerVenueEvidence.validUntil):'')+
         (item.brokerVenueStatus?.state==='historical'?'\nFrüherer DEGIRO-Handelsplatz: '+item.brokerVenueStatus.historicalEvidence.venue+' · '+item.brokerVenueStatus.historicalEvidence.observedMinute.replace('T',' ')+'. Aktueller Nachweis weiterhin offen.':'')+
         (item.venueAction?'\nHandelsplatzprüfung: '+item.issuerVenue+' · '+item.venueAction:'')+

@@ -10,6 +10,51 @@ class Tests(unittest.TestCase):
   self.r=dict(found=True,productVerified=True,eligible=False,currency='EUR',ask=4,askAt=T,source='Onvista',metadata=dict(status=1,simpleNonQuantoTurbo=True,underlyingType='SPOT',ratio=.01))
   self.g=dict(price=4000,at=T,underlying='XAU/USD',source='Gold')
   self.fx=dict(result='success',base='USD',rates=dict(EUR=1),data_updated_at=T,effective_at=dict(EUR=T),source='live',sources=dict(EUR='live'),market_session='open')
+ def test_last_original_issuer_leverage_is_weekend_reference_not_live(self):
+  from datetime import timedelta
+  original=copy.deepcopy(self.r)
+  original.update(isin='DE000FD0S0G4',leverage=12.4,leverageAt=T,
+                  source='SG',leverageEstimated=False)
+  weekend=N+timedelta(days=2)
+  proof=b.historical_reference(original,weekend)
+  self.assertEqual(proof['value'],12.4)
+  self.assertEqual(proof['kind'],'historical-issuer-leverage')
+  self.assertFalse(proof['current'])
+  self.assertFalse(proof['tradeApproved'])
+  self.assertTrue(proof['researchOnly'])
+  self.assertIsNone(b.current_evidence(original,weekend))
+  for key,val in [('leverageEstimated',True),('leverageAt',None),
+                  ('productVerified',False),('isin','DE000FD0S0G5')]:
+   bad=dict(original,**{key:val})
+   self.assertIsNone(b.historical_reference(bad,weekend))
+  self.assertIsNone(b.historical_reference(original,N+timedelta(days=5)))
+
+ def test_historical_calculation_uses_original_clocks_and_rechecked_formula(self):
+  from datetime import timedelta
+  original=copy.deepcopy(self.r)
+  original.update(isin='DE000FD0S0G4',leverageEstimated=True)
+  original['metadata']['currency']='EUR'
+  original['leverageCalculation']=b.calculate(original,self.g,self.fx,N)
+  at=N+timedelta(days=2)
+  ref=b.historical_reference(original,at)
+  self.assertEqual(ref['kind'],'historical-calculated-gearing')
+  self.assertAlmostEqual(ref['value'],10)
+  self.assertFalse(ref['current'])
+  self.assertIsNone(b.current_evidence(original,at))
+  for key,change in [('value',11),('fresh',False)]:
+   bad=copy.deepcopy(original);bad['leverageCalculation'][key]=change
+   self.assertIsNone(b.historical_reference(bad,at))
+  bad=copy.deepcopy(original)
+  bad['leverageCalculation']['inputs']['basisAt']='2026-10-07T09:40:00Z'
+  self.assertIsNone(b.historical_reference(bad,at))
+  bad=copy.deepcopy(original);bad['metadata']['currency']='CHF'
+  self.assertIsNone(b.historical_reference(bad,at))
+  bad=copy.deepcopy(original);bad['metadata']['simpleNonQuantoTurbo']=False
+  self.assertIsNone(b.historical_reference(bad,at))
+  bad=copy.deepcopy(original);bad['leverageCalculation']['inputs']['basisEstimated']=True
+  self.assertIsNone(b.historical_reference(bad,at))
+  self.assertIsNone(b.historical_reference(original,N+timedelta(days=5)))
+
  def test_stale_eligible_flag_does_not_hide_fresh_backup(self):
   r=copy.deepcopy(self.r)
   r.update(eligible=True,bid=3.99,bidAt='2026-10-07T09:50:00Z',askAt='2026-10-07T09:50:00Z')

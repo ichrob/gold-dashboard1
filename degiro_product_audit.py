@@ -407,8 +407,13 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
     quote_times = (data_pair.get("bidAt"), data_pair.get("askAt"))
     if not all(_recent(at, now_ms, QUOTE_MAX_MS) for at in quote_times):
         missing.append("quote-time")
-    from leverage_backup import current_evidence
-    calculated_leverage = current_evidence(quote, datetime.fromtimestamp(now_ms/1000, timezone.utc)) if verified else None
+    from leverage_backup import current_evidence, historical_reference
+    checked_time = datetime.fromtimestamp(now_ms/1000, timezone.utc)
+    calculated_leverage = current_evidence(quote, checked_time) if verified else None
+    # An old original/derived value is research metadata, not a cure for an
+    # absent original leverage time. On Sunday retain its source date instead
+    # of treating closed-market quotes as broken or re-stamping Friday.
+    historical_leverage = historical_reference(quote, checked_time) if verified else None
     shared_leverage = _shared_leverage(quote, isin, now_ms) if verified else None
     # Bob's calculated gearing may carry a model-input timestamp in leverageAt.
     # That timestamp is NOT the issuer's original leverage clock.
@@ -480,6 +485,7 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
         "executionNote": "Datenabgleich abgeschlossen; keine Bestätigung eines ausführbaren DEGIRO-Kurses",
         "leverageObservation": (shared_leverage if shared_leverage and shared_leverage["current"]
                                 else calculated_leverage or shared_leverage),
+        "leverageReference": historical_leverage if ("leverage" in codes or "leverage-time" in codes) else None,
         # Keep an absent standalone issuer clock distinct from an accepted
         # shared observation/calculation. Never copy that context into the
         # issuer's original timestamp field.
@@ -565,6 +571,56 @@ def _retain_recent_issuer_leverage(item, quote, before, now_ms):
         item["state"] = "issuer-evidence-complete"
 
 
+
+def _retain_historical_leverage_reference(item, before, now_ms):
+    """Keep a previously verified same-list reference, not the live leverage.
+
+    The caller has already checked that previous belongs to the same list
+    generation. A new list, issuer terminal status or expired original clock
+    must never inherit this historical research observation.
+    """
+    if (item.get('state') in ('terminated', 'excluded-factor')
+            or not any(key in item.get('missing', ()) for key in ('leverage', 'leverage-time'))
+            or not valid_isin(item.get('isin')) or item.get('leverageReference')
+            or not isinstance(before, dict) or before.get('isin') != item['isin']):
+        return
+    from leverage_backup import HISTORICAL_REFERENCE_MAX_AGE_SECONDS
+    def acceptable(value):
+        return (_positive(value.get('value')) and
+                _recent(value.get('at'), now_ms, HISTORICAL_REFERENCE_MAX_AGE_SECONDS * 1000) and
+                value.get('kind') in ('historical-issuer-leverage', 'historical-calculated-gearing') and
+                value.get('researchOnly') is True and value.get('tradeApproved') is False and
+                value.get('current') is False and bool(value.get('source')))
+    prior = before.get('leverageReference') or {}
+    if isinstance(prior, dict) and acceptable(prior):
+        item['leverageReference'] = deepcopy(prior)
+        return
+    # Older audits predate the explicit historical field. Their own validated
+    # issuer observation or time-aligned calculation may form the reference.
+    status = before.get('sourceStatusEvidence') or {}
+    if status.get('issuerVerified') is not True:
+        return
+    issuer = before.get('issuerLeverageObservation') or {}
+    if (isinstance(issuer, dict) and _positive(issuer.get('value')) and
+            _recent(issuer.get('at'), now_ms, HISTORICAL_REFERENCE_MAX_AGE_SECONDS * 1000)
+            and issuer.get('source')):
+        item['leverageReference'] = dict(value=issuer['value'], at=issuer['at'],
+            source=str(issuer['source'])[:80], kind='historical-issuer-leverage',
+            label='Letzter Originalhebel', current=False, researchOnly=True, tradeApproved=False,
+            note='Frühere Emittenten-Originalzeit; nicht als aktueller Hebel oder Handelskurs nutzen.')
+        return
+    previous_observation = before.get('leverageObservation') or {}
+    if (isinstance(previous_observation, dict) and previous_observation.get('kind') == 'calculated-gearing'
+            and previous_observation.get('current') is True
+            and (before.get('timeEvidence') or {}).get('leverageBasis') == 'calculated-input-times'
+            and _positive(previous_observation.get('value'))
+            and _recent(previous_observation.get('at'), now_ms, HISTORICAL_REFERENCE_MAX_AGE_SECONDS * 1000)):
+        item['leverageReference'] = dict(value=previous_observation['value'],
+            at=previous_observation['at'], source='Bob · früherer geprüfter Berechnungslauf',
+            kind='historical-calculated-gearing', label='Historisch berechneter Hebel',
+            current=False, researchOnly=True, tradeApproved=False,
+            note='Früherer belegter Analysehebel; Quellenzeit bleibt historisch, Handelsfreigabe bleibt gesperrt.')
+
 def _retain_verified_terminal(item, before, quote):
     """Carry only an exact, previously issuer-verified terminal status.
 
@@ -623,6 +679,7 @@ def build(feed, quotes, now_ms=None, previous=None):
         before = old.get(isin, {})
         _retain_verified_terminal(item, before, quote)
         _retain_recent_issuer_leverage(item, quote, before, now_ms)
+        _retain_historical_leverage_reference(item, before, now_ms)
         # Track each missing proof independently. A changing leverage clock
         # must not reset a persistent quote/identity fault and falsely close it.
         previous_counts = before.get("missingChecks")
@@ -660,7 +717,10 @@ def build(feed, quotes, now_ms=None, previous=None):
         items.append(item)
     checked = datetime.fromtimestamp(now_ms/1000,timezone.utc).isoformat()
     incomplete = sum(item["state"] == "incomplete" for item in items)
+    market_closed_weekend = datetime.fromtimestamp(now_ms/1000, ZURICH).weekday() >= 5
     return {"status": "ok" if items else "waiting-for-screenshot", "lastCheckedAt": checked,
+            "marketContext": ("DEGIRO-Wochenende · letzter datierter Handelswert bleibt historisch"
+                              if market_closed_weekend else "Handelszeit und Quellzeit je Produkt getrennt prüfen"),
             "listUploadedAt": generation, "total": len(items), "incomplete": incomplete,
             "needsHelp": sum(item["needsKiHelp"] for item in items), "items": items,
             "terminated": sum(item["state"] == "terminated" for item in items),
