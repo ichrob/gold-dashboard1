@@ -355,3 +355,37 @@ any then-existing reference ledgers before further product pointers are
 created. Verify the corresponding Drive chunks too. This remains a
 reviewed-evidence backup, **not a full-database backup** or authorization
 for automatic product archival, compaction, data deletion or paid scaling.
+
+
+## One-use weekend tail-space reclaim after verified archival
+
+`storage_tail_once.py` adds a **separate** opt-in to the existing
+hourly storage-maintenance worker for `VACUUM`, not for product migration.
+It is disabled by default. A one-time opt-in has the exact form
+`BOB_STORAGE_TAIL_RECLAIM_ONCE={"id":"unique-maintenance-claim","table":"bob_diagnostic_history","confirmed":true}`.
+Only `bob_diagnostic_history`, `bob_improvement_observations` and
+`bob_metric_checks` are valid target names. No product, decision, order,
+account, or original-archive table can be selected.
+
+It refuses execution outside Saturday or Sunday before 20:00 in Zurich,
+while a full archive run is active, without a persisted independent
+verified download/restore receipt less than six hours old, or when
+resource-specific Render disk telemetry is older than five minutes,
+unknown, or above 750 decimal MB. The single-use ID is durably claimed
+in `bob_storage_tail_reclaim_attempts` **before** the operation, so
+a redeploy, timeout or restart never repeats the same attempt. The caller
+may only select one allowlisted table per claim. The existing dedicated
+connection/advisory lock, `VACUUM (SKIP_LOCKED, TRUNCATE TRUE, PARALLEL 0)`
+and per-command 10-second statement timeout remain in force. It never
+runs `VACUUM FULL`, `CLUSTER`, `REINDEX`, `DELETE` or source mutation.
+Any blocked/failed/no-space run is labeled accordingly, not a success.
+
+The operational receipt reports a size decrease in the **one table's
+allocated relation bytes**, if observed; `diskBytesFreed` intentionally
+remains null. It is not a claim of actual free Render disk bytes.
+A separate, later independent Render volume measurement and original-row
+read verification are needed to confirm physical savings. The maintenance
+attempt log must not print command IDs, credentials or database originals.
+Changing the configuration alone can trigger a regular Render redeploy;
+do not enable it during an active archive restoration, unverified release,
+or trading session. No new paid service or public database access is needed.

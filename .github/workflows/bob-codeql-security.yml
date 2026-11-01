@@ -24,6 +24,9 @@ on:
       - "evidence_archive.py"
       - "drive_evidence_archive.py"
       - "archive_worker.py"
+      - "storage_maintenance.py"
+      - "storage_tail_once.py"
+      - "test_storage_tail_once.py"
       - "test_evidence_archive.py"
       - "test_decision_product_pilot*"
 
