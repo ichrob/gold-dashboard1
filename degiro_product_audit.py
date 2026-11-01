@@ -766,6 +766,23 @@ def read(conn, now_ms=None):
                 "incomplete":None,"needsHelp":None, "items":[],
                 "readOnly":True,"degiroConnected":False}
     report = dict(row[0])
+    # Handset data is an independent, historical, non-trading display layer.
+    # NEVER overwrite issuer quotes, audit missing-codes, or trade approval.
+    try:
+        import android_observations
+        from copy import deepcopy
+        seen = {p.get('isin') for p in feed[0].get('products', []) if isinstance(p, dict)}
+        handset = android_observations.research_summary(
+            conn, generation, seen, datetime.fromtimestamp(now_ms/1000, timezone.utc))
+        if handset:
+            report['items'] = [dict(deepcopy(item), handsetObservation=handset[item['isin']])
+                               if item.get('isin') in handset and item.get('state') != 'terminated'
+                               else item for item in report.get('items', [])]
+            report['handsetResearchOnly'] = True
+            report['handsetReadCount'] = len(handset)
+    except Exception:
+        # Missing read-only diagnostics may never block the genuine audit.
+        report['handsetResearchUnavailable'] = True
     if not _recent(report.get("lastCheckedAt"), now_ms, REPORT_MAX_MS):
         report.update(status="stale", needsHelp=None, incomplete=None)
     else:
