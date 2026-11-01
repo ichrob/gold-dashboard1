@@ -55,3 +55,38 @@ authorized. These are prerequisites to **future** independent Render
 physical-volume measurements; logical JSON bytes are not disk bytes freed.
 
 Related: #1001, #1222, #1218, #1219, #1220.
+
+## Manual remote restore coordinator (still disconnected)
+
+`android_image_backup_runner.run_once` is **a function, not a CLI, app hook,
+service endpoint, scheduler, or automatic job**. It requires separate, caller-
+authorized source and restore DSNs, the exact authenticated active batch/device,
+a 32-byte secret key managed outside GitHub and a preflight-capable private
+Drive adapter. No UI/HTTP method exposes it.
+
+It checks `verify_restore_isolation` against a separate database host **before
+reading images**. Source connections enforce PostgreSQL read-only mode. Only
+encrypted AES-GCM bytes are written to mode-0600 scratch and uploaded; the
+independently downloaded encrypted bytes must match SHA-256, pass GCM tag
+verification, match original compressed SHA-256 and reconstruct every referenced
+object, PNG and metadata field. The restore occurs in a randomly named fresh
+`png_restore_<uuid>` schema on the **other** PostgreSQL server and is rolled
+back in the outer transaction: no source or test records are permanently
+replaced. After remote restore, the current source batch is re-read and must
+still equal the initial original snapshot.
+
+If the backup fails after an upload, an orphaned **encrypted** private Drive
+object may remain. It must not be reported as successful and must not be
+automatically deleted. Do not call the runner until Drive runtime credentials,
+encryption key and independently reachable restore server are authorized and
+verified. This module does not change Render env/secrets and cannot perform
+that setup through a normal code merge; the existing closed IP-Allowlist
+must never be relaxed just to make hosted external SQL tooling work.
+
+The integration test uses the CI PostgreSQL instance solely to prove the
+isolated schema is created, verified and rolled back. The unit transport
+adapter is simulated. **Neither is a live Google Drive remote backup** or a
+true independent-server test; `independentServerVerified=true` in a live
+receipt requires a successful actual verified production-to-separate-server
+runtime invocation. No source cleanup, compacting, replacing or disk saving
+is approved by these tests.
