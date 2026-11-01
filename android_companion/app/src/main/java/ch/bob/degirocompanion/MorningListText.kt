@@ -10,7 +10,11 @@ internal object MorningListText {
             MorningReadPolicy.captureGoldList(nodes,true).let { it.kind!=MorningReadPolicy.Kind.COLLECT || it.isins!=expected }) return null
         return expected.map { isin ->
             val candidates=nodes.filter { !it.editable && !it.containsInput && !it.password && !it.sensitive }
-                .mapNotNull { n -> row.find(n.row.trim())?.value }
+                // Samsung sometimes exposes all visible products under one
+                // aggregate WebView parent while title nodes contain only the
+                // ISIN. Extract EACH exact product-labelled row, never account
+                // headers, K/V controls or an arbitrary free-text span.
+                .flatMap { n -> row.findAll(n.row.trim()).map { it.value }.toList() }
                 .map { it.replace(Regex("\\s+")," ").trim() }
                 .filter { ids.findAll(it).map { m -> m.value }.toList()==listOf(isin) }
                 .distinct()
