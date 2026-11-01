@@ -95,8 +95,29 @@ class NumericProductDetailTest {
             assertTrue(next.move==ProductPageReader.Move.ABORT || next.cause==ProductPageReader.Cause.WAIT_PROTECTED)
         }
         val reader=ProductPageReader()
-        repeat(4) { assertEquals("",reader.inspect(1,lines(top),at,false,true,true,allowSymbolProbe=true).result.draft) }
-        assertEquals(ProductPageReader.Cause.SEEK_LIMIT,reader.inspect(1,lines(top),at,false,true,true,allowSymbolProbe=true).cause)
+        repeat(6) {
+            val step=reader.inspect(1,lines(top),at,false,true,true,allowSymbolProbe=true)
+            assertEquals(ProductPageReader.Move.FORWARD,step.move)
+            assertEquals("",step.result.draft)
+        }
+        assertEquals(ProductPageReader.Cause.SEEK_LIMIT,
+            reader.inspect(1,lines(top),at,false,true,true,allowSymbolProbe=true).cause)
+    }
+    @Test fun confirmedNumericHeaderMayFindRealIsinOnFifthPageWithoutBorrowingIdentity() {
+        val reader=ProductPageReader()
+        repeat(5) {
+            val result=reader.inspect(1,lines(top),at,false,true,true,allowSymbolProbe=true)
+            assertEquals(ProductPageReader.Move.FORWARD,result.move)
+            assertEquals("",result.result.draft)
+        }
+        val real=reader.inspect(1,lines(listOf("Symbol | ISIN 12345678 | $isin")),
+            at,false,true,true,allowSymbolProbe=true)
+        assertTrue(reader.anchored)
+        assertEquals("",real.result.draft)
+        val changed=reader.inspect(1,lines(listOf("DE000FE2JJ20")),at,false,true,true,
+            allowSymbolProbe=true)
+        assertEquals(ProductPageReader.Cause.IDENTITY_CHANGED,changed.cause)
+        assertEquals("",changed.result.draft)
     }
     @Test fun numericHeaderIsRevisitedAndRealIsinRecheckedBeforeExport() {
         val reader=ProductPageReader()

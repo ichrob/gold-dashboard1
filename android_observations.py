@@ -29,6 +29,10 @@ def parse_draft(raw, isin, now, requested_fields=None):
     fixed={}; fields={}
     for line in lines[1:]:
         if line=='Kein automatischer Handelsnachweis, keine Freigabe, keine Order.': continue
+        if line=='Produktwährung nicht nachgewiesen; nur ausdrücklich beschriftete Produktparameter, keine Kurse.':
+            if 'unpriced' in fixed: raise ValueError('Doppelte Währungswarnung')
+            fixed['unpriced']=True
+            continue
         m=re.fullmatch(r'(ISIN|Quelle|Erfasst): (.+)',line)
         if m:
             if m[1] in fixed: raise ValueError('Doppelte Angabe')
@@ -39,18 +43,30 @@ def parse_draft(raw, isin, now, requested_fields=None):
     if fixed.get('ISIN')!=isin or fixed.get('Quelle')!='DEGIRO-App': raise ValueError('Produktkennung stimmt nicht')
     at=timestamp(fixed.get('Erfasst'))
     if at.year<2020 or (now-at).total_seconds() < -60: raise ValueError('Ungültige Erfassungszeit')
-    if fields.get('Währung') not in ('EUR','CHF'): raise ValueError('Währung fehlt')
+    unpriced = fixed.get('unpriced') is True
+    has_quote = any(k in fields for k in ('Geld','Brief','Zuletzt'))
+    requested_terms = (isinstance(requested_fields, list) and bool(requested_fields)
+                       and set(requested_fields) <= {'Hebel','KO-Schwelle','Basispreis','Bv','Währung'}
+                       and bool(set(requested_fields) & set(fields) & {'Hebel','KO-Schwelle','Basispreis','Bv'}))
+    if unpriced:
+        # Only a precisely requested no-quote parameter observation may omit
+        # currency. No quote, product-currency inference or market approval.
+        if has_quote or not requested_terms or 'Währung' in fields:
+            raise ValueError('Unbelegte Produktwährung')
+    elif fields.get('Währung') not in ('EUR','CHF'):
+        raise ValueError('Währung fehlt')
     if fields.get('Hinweis') not in ('Handel eingeschränkt','Kurse verzögert','Keine Aussage zur Handelbarkeit'): raise ValueError('Hinweis fehlt')
     for key in ('Geld','Brief','Zuletzt','Hebel','KO-Schwelle','Basispreis','Bv'):
         if key in fields and (not re.fullmatch(r'\d{1,9}(?:[,.]\d{1,4})?',fields[key]) or float(fields[key].replace(',','.'))<=0): raise ValueError('Ungültige Zahl')
-    if not any(k in fields for k in ('Geld','Brief','Zuletzt')):
+    if not has_quote:
         # No quotes are accepted only when a bounded, explicit missing-field
         # plan requests terms, and at least one requested term is visible.
         # Historical/independent app drafts still need an actual quote.
         terms={'Hebel','KO-Schwelle','Basispreis','Bv','Währung'}
         if (not isinstance(requested_fields,list) or not requested_fields or
                 not set(requested_fields)<=terms or
-                not set(requested_fields)&set(fields)):
+                not set(requested_fields)&set(fields)&{'Hebel','KO-Schwelle','Basispreis','Bv'}):
+
             raise ValueError('Kurs fehlt')
     if 'Geld' in fields and 'Brief' in fields and float(fields['Geld'].replace(',','.'))>float(fields['Brief'].replace(',','.')): raise ValueError('Widersprüchliches Kurspaar')
     if 'Anzeigezeit' in fields:
@@ -58,6 +74,7 @@ def parse_draft(raw, isin, now, requested_fields=None):
     if 'Handelsplatz' in fields and not re.fullmatch(r'[\w ./-]{2,48}',fields['Handelsplatz']): raise ValueError('Handelsplatz ungültig')
     missing=[k for k in REQUIRED if k not in fields]
     return dict(isin=isin,observedAt=at.isoformat(),fields=fields,missingFields=missing,
+                currencyVerified=not unpriced,
                 verified=False,tradeApproved=False,executable=False,sourceTime=None,source='DEGIRO-App',raw=raw,staleAtReceipt=(now-at).total_seconds()>86400)
 
 
@@ -115,6 +132,66 @@ def prepare(payload, feed, now=None):
     return dict(batchId=batch,revision=revision,appVersionCode=version,listUploadedAt=uploaded.isoformat(),listSource=source,isins=ids,requestedFields=requested,results=results,events=safe_events,
                 receivedAt=now.isoformat(),verified=False,tradeApproved=False,realOrders=False,
                 scope='unverified-app-observations-not-market-inputs')
+
+
+
+def research_summary(conn, list_uploaded_at, isins, now=None):
+    """Read-only *display* of the latest matching handset run, never issuer evidence.
+
+    The batch's own list timestamp follows the list-image upload by seconds.
+    Bound that offset and require every requested ISIN to belong to the same
+    screenshot universe; a previous batch must never bleed into a new list.
+    """
+    now = now or datetime.now(timezone.utc)
+    try:
+        list_time = timestamp(list_uploaded_at)
+        universe = {v for v in isins if isinstance(v, str) and valid_isin(v)}
+        if not universe: return {}
+        rows = conn.execute(
+            "SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 4"
+        ).fetchall()
+    except (ValueError, TypeError, AttributeError):
+        return {}
+    for row in rows:
+        run = row[0] if row else {}
+        if not isinstance(run, dict) or run.get('listSource') != 'degiro-gold-search':
+            continue
+        try:
+            when = timestamp(run.get('listUploadedAt'))
+            received = timestamp(run.get('receivedAt'))
+        except (ValueError, TypeError):
+            continue
+        if not (0 <= (when-list_time).total_seconds() <= 900 and
+                0 <= (now-received).total_seconds() <= 86400 and
+                set(run.get('isins', [])) <= universe and
+                isinstance(run.get('results'), list)):
+            continue
+        result = {}
+        for entry in run['results'][:10]:
+            if not isinstance(entry, dict) or entry.get('isin') not in universe:
+                continue
+            isin = entry['isin']
+            obs = entry.get('observation') or {}
+            fields = obs.get('fields') if isinstance(obs, dict) else {}
+            if not isinstance(fields, dict): fields = {}
+            allowed = ('Geld','Brief','Anzeigezeit','Hebel','KO-Schwelle',
+                       'Basispreis','Bv','Währung')
+            # Safe display-only subset from previously validated app observations.
+            shown = {k: str(fields[k])[:60] for k in allowed
+                     if isinstance(fields.get(k), str) and len(fields[k]) <= 60}
+            result[isin] = {
+                'code': entry.get('code') if entry.get('code') in CODES else 'UNAVAILABLE',
+                'fields': shown, 'observedAt': obs.get('observedAt') if shown else None,
+                'requestedFields': [x for x in entry.get('requestedFields', []) if x in REQUESTABLE][:8]
+                    if isinstance(entry.get('requestedFields'), list) else [],
+                'missingFields': [x for x in obs.get('missingFields', []) if x in REQUESTABLE][:8]
+                    if isinstance(obs.get('missingFields'), list) else [],
+                'appVersionCode': run.get('appVersionCode'),
+                'researchOnly': True, 'verified': False, 'tradeApproved': False,
+                'sourceTime': None, 'executionConfirmed': False,
+            }
+        return result
+    return {}
 
 
 def init(conn):

@@ -18,6 +18,11 @@ PANEL = r'''<section id="bobProductAudit" class="card">
 <div id="bobProductAuditItems"></div>
 </div>
 </section>
+<section id="bobHandyReadEvidence" class="card">
+<h3>DEGIRO Handy · gespeicherte Lesewerte</h3>
+<p class="small">Historische App-Anzeigen, ausdrücklich ungeprüft. Keine aktuellen Handelskurse, kein DEGIRO-Ordernachweis und keine Handelsfreigabe.</p>
+<div id="bobHandyReadEvidenceItems" role="status"></div>
+</section>
 <section id="bobProductAuditProblem" class="card">
 <h3>Produktprobleme · KI-Hilfe</h3>
 <p id="bobProductAuditProblemCount"></p>
@@ -170,6 +175,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   const audit=byId('bobProductAudit');
   if(products&&audit)products.after(audit);
   else if(byId('bob-view-products')&&audit)byId('bob-view-products').append(audit);
+  const handset=byId('bobHandyReadEvidence');
+  if(audit&&handset)audit.after(handset);
   const problems=byId('bob-view-problems');
   if(problems)problems.append(byId('bobProductAuditProblem'));
   else {const main=document.querySelector('main');if(main)main.append(byId('bobProductAuditProblem'));}
@@ -184,6 +191,34 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   const opened=new Map([...out.children].map(el=>[el.dataset.isin,el.open]));
   out.replaceChildren();details.replaceChildren();
   const good=r.status==='ok',items=Array.isArray(r.items)?r.items:[],incomplete=Number.isInteger(r.incomplete)?r.incomplete:null;
+  const handset=byId('bobHandyReadEvidenceItems');
+  if(handset){
+   const oldOpen=new Map([...handset.querySelectorAll('details[data-isin]')].map(x=>[x.dataset.isin,x.open]));
+   handset.replaceChildren();
+   const observed=items.filter(item=>item.state!=='terminated'&&item.handsetObservation);
+   const intro=document.createElement('p');intro.className='small';
+   intro.textContent=observed.length?
+    observed.length+' Produktbeobachtungen gespeichert · kein verifizierter Live-Kurs. Werte bleiben vom Emittenten-Nachweis getrennt.':
+    'Noch keine passenden Handy-Lesedaten zur aktuellen DEGIRO-Liste nachgewiesen.';
+   handset.append(intro);
+   for(const item of observed){
+    const read=item.handsetObservation;
+    const row=document.createElement('details');row.dataset.isin=item.isin;row.open=oldOpen.get(item.isin)===true;
+    const summary=document.createElement('summary');
+    summary.textContent=item.isin+' · '+(read.code==='COMPLETE'?'Angeforderte Felder gelesen':read.code==='PARTIAL'?'Teilweise gelesen':'Lesung nicht abgeschlossen');
+    row.append(summary);
+    const display=document.createElement('p');display.className='small';display.style.whiteSpace='pre-line';
+    const vals=read.fields||{};
+    const labels={'Geld':'Geld','Brief':'Brief','Anzeigezeit':'Angezeigte Kurszeit (nicht validiert)','Hebel':'Hebel','KO-Schwelle':'KO-Schwelle','Basispreis':'Basispreis','Bv':'Bezugsverhältnis','Währung':'Währung'};
+    const fieldLines=Object.entries(labels).filter(([k])=>typeof vals[k]==='string')
+     .map(([k,label])=>label+': '+safe(vals[k]));
+    display.textContent='Quelle: DEGIRO-Handy · als ungeprüft erfasst: '+(read.observedAt?fmt(read.observedAt):'nicht bestätigt')+
+     '\n'+(fieldLines.length?fieldLines.join('\n'):'Keine verifizierbaren App-Felder gespeichert')+
+     '\nFehlende angeforderte Werte: '+(Array.isArray(read.missingFields)&&read.missingFields.length?read.missingFields.join(', '):'keine')+
+     '\nKeine Handelsfreigabe. Erfassungszeit ist keine Kurszeit. Emittenten-/KO-Nachweise bleiben separat.';
+    row.append(display);handset.append(row);
+   }
+  }
   // Visible warning even if detail status is hidden by mobile layout.
   const shareHint=byId('bobAuditShareHint');
   if(shareHint)shareHint.textContent=good?

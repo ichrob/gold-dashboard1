@@ -687,6 +687,40 @@ class ProductAuditTests(unittest.TestCase):
         self.assertEqual(outdated["status"],"checking-new-list")
         self.assertEqual(outdated["items"],[])
 
+    def test_historical_handset_overlay_never_changes_issuer_audit_or_ko_gates(self):
+        report=audit.build(feed(),{ISIN:{}},NOW)
+        raw={'listSource':'degiro-gold-search',
+             'listUploadedAt':'2026-10-13T07:00:30+00:00',
+             'receivedAt':iso(NOW),'appVersionCode':10397,
+             'isins':[ISIN],
+             'results':[{'isin':ISIN,'code':'COMPLETE',
+                         'requestedFields':['Geld','Brief','Anzeigezeit','Hebel'],
+                         'observation':{'observedAt':iso(NOW),
+                             'fields':{'Geld':'6,00','Brief':'6,02',
+                                       'Hebel':'18,4','Anzeigezeit':'12/10/2026 11:00'},
+                             'missingFields':[]}}]}
+        class ReaderDb:
+            def execute(self,sql):
+                if 'FROM bob_degiro_product_audit' in sql: self.row=(report,)
+                elif 'FROM bob_paper_products' in sql: self.row=(feed(),)
+                elif 'FROM bob_android_read_runs' in sql: self.rows=[(raw,)]
+                else: raise AssertionError(sql)
+                return self
+            def fetchone(self):return self.row
+            def fetchall(self):return self.rows
+        # Stale issuer information may still show archived research, never a
+        # purportedly fresh quote or a satisfied KO requirement.
+        display=audit.read(ReaderDb(),NOW+audit.REPORT_MAX_MS+10)
+        item=display['items'][0]
+        self.assertEqual(display['status'],'stale')
+        self.assertEqual(item['handsetObservation']['fields']['Hebel'],'18,4')
+        self.assertTrue(item['handsetObservation']['researchOnly'])
+        self.assertFalse(item['handsetObservation']['tradeApproved'])
+        self.assertIsNone(item['handsetObservation']['sourceTime'])
+        self.assertIn('leverage',item['missing'])
+        self.assertFalse(item['tradeApproved'])
+        self.assertIsNone(item['quoteSourceAt'])
+
     def test_private_routes_and_background_protection(self):
         from pathlib import Path
         scanner=Path("server.py").read_text(encoding="utf-8")
