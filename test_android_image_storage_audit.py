@@ -1,4 +1,5 @@
 """No screenshot, digest, session or device identity leaves private diagnostics."""
+import base64
 import json
 import os
 import unittest
@@ -44,7 +45,7 @@ class AuditUnitTests(unittest.TestCase):
             first=audit.report(conn,now=1000000)
             second=audit.report(conn,now=1000060)
             self.assertEqual(first,second)
-            self.assertEqual(len(conn.calls),3)
+            self.assertEqual(len(conn.calls),6)  # aggregate plus bounded exact pass, cached once
         self.assertEqual(first['status'],'sampled')
         self.assertIn("LIMIT 8",audit._SQL)
         self.assertIn("created_at >= now()-interval '24 hours'",audit._SQL)
@@ -52,6 +53,22 @@ class AuditUnitTests(unittest.TestCase):
         self.assertIn("SET LOCAL statement_timeout='1500ms'",conn.calls)
         self.assertFalse(any('DELETE FROM' in s or 'UPDATE ' in s or
                              'VACUUM ' in s or 'CREATE TABLE' in s for s in conn.calls))
+
+    def test_exact_verification_refuses_modified_cohort_and_large_sample(self):
+        summary=audit._counts((2,2,20,1,10),100)
+        class Cohort:
+            def transaction(self):return self
+            def __enter__(self):return self
+            def __exit__(self,*a):return False
+            def execute(self,_):return self
+            def fetchall(self):return [('missing',)]
+        result=audit._verify_exact(Cohort(),summary)
+        self.assertEqual(result['exactVerificationStatus'],'cohort-changed')
+        self.assertFalse(result['exactDuplicateProven'])
+        oversized={**summary,'totalEncodedImageCharacters':12_000_001}
+        self.assertEqual(audit._verify_exact(Cohort(),oversized)['exactVerificationStatus'],
+                         'sample-too-large')
+        self.assertFalse(audit._verify_exact(Cohort(),oversized)['exactDuplicateProven'])
 
     def test_permission_error_never_exposes_original(self):
         class Broken:
@@ -80,12 +97,16 @@ class PostgresAuditTests(unittest.TestCase):
                     batch_id text PRIMARY KEY,
                     created_at timestamptz NOT NULL DEFAULT now(),
                     payload jsonb NOT NULL)''')
-                a='private_png_encoded_same_bytes!'
-                b='private_png_other_bytes'
+                raw_a=bytes.fromhex('89504e470d0a1a0a')+b'private PNG A'
+                raw_b=bytes.fromhex('89504e470d0a1a0a')+b'private PNG B'
+                raw_c=bytes.fromhex('89504e470d0a1a0a')+b'private PNG C'
+                a=base64.b64encode(raw_a).decode()
+                b=base64.b64encode(raw_b).decode()
+                distinct=base64.b64encode(raw_c).decode()
                 data=[
                     {'images':[{'png':a},{'png':b}]},
                     {'images':[{'png':a}]},
-                    {'images':[{'png':b+'!'}]}
+                    {'images':[{'png':distinct}]}
                 ]
                 for idx,row in enumerate(data):
                     c.execute('INSERT INTO bob_android_list_images(batch_id,payload) VALUES(%s,%s)',
@@ -101,10 +122,15 @@ class PostgresAuditTests(unittest.TestCase):
                 self.assertEqual(report['candidateRepeatedImages'],1)
                 self.assertEqual(report['candidateRepeatedEncodedCharacters'],len(a))
                 self.assertEqual(report['totalEncodedImageCharacters'],
-                                 len(a)*2+len(b)+len(b+'!'))
+                                 len(a)*2+len(b)+len(distinct))
                 self.assertNotIn(a,json.dumps(report))
                 self.assertNotIn(b,json.dumps(report))
-                self.assertFalse(report['exactDuplicateProven'])
+                self.assertTrue(report['exactDuplicateProven'])
+                self.assertEqual(report['exactVerificationStatus'],'verified')
+                self.assertEqual(report['exactDuplicateImages'],1)
+                self.assertEqual(report['exactRepeatedEncodedCharacters'],len(a))
+                self.assertEqual(report['exactRepeatedPngBytes'],len(raw_a))
+                self.assertNotIn(distinct,json.dumps(report))
                 self.assertEqual(c.execute('SELECT batch_id,payload FROM bob_android_list_images ORDER BY batch_id').fetchall(),before)
             finally:
                 c.execute('DROP SCHEMA '+schema+' CASCADE')

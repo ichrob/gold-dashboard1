@@ -71,3 +71,37 @@ logical database size, and `bob_android_list_images` at
 **11,411,456 B** allocated. Recent two-hour relation growth remained
 dominated by image imports. These are independent measurements; they
 are **not** proof of recoverable physical capacity.
+
+
+## Exact in-memory proof (second, separately bounded pass)
+
+When the aggregate candidate sample contains at least one repeated fingerprint,
+the private diagnostic can perform a **second read-only pass on the same
+maximum-eight-batch cohort**. This is permitted only when the first pass
+contains at most 12 million encoded characters. The second pass retrieves
+only PNG base64 strings into the existing trusted Bob server memory for
+transient verification. It neither logs nor returns those strings.
+
+Bob decodes each original PNG, checks the PNG magic, calculates SHA-256
+over the actual PNG bytes, and verifies **full byte-for-byte equality**
+against any same-hash earlier PNG before counting it as an exact repeated
+image. To reject a different batch arriving between the two queries,
+the second pass recomputes all first-pass MD5+length aggregate counters
+and the total encoded length and compares them with the first observation.
+Any mismatch is `cohort-changed`, never a successful proof.
+Insufficient rights, malformed PNG, timeout or exceedance of the cap
+returns an explicit incomplete status, not zero duplicates.
+
+The report can then include
+`exactVerificationStatus=verified`,
+`exactDuplicateImages`,
+`exactRepeatedEncodedCharacters`,
+`exactRepeatedPngBytes` and
+`exactDuplicateProven=true` if actual identical bytes are observed.
+These are **potential future storage optimization quantities only**.
+They do not mean those bytes are reclaimable from PostgreSQL, that
+references are safe, that backup chunks exist, or that Render physical
+volume decreased. A later content-addressed implementation would
+require its own new PR, safe compatibility and restore tests, a small
+explicit opt-in pilot, original batch identifiers and screenshot clocks
+retained, and a measured physical-volume benefit before expansion.
