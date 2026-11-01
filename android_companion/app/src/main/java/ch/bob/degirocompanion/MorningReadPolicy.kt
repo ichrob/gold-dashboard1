@@ -517,7 +517,13 @@ internal object MorningReadPolicy {
                     // product page before searching for the next requested ISIN.
                     val current=nodes.flatMap { n -> ids.findAll(n.text.uppercase()).map { it.value }.toList() }
                         .toSet().singleOrNull()
-                    if(current!=null && current!=target && detailLauncherIndex(nodes,current)!=null)
+                    // Recent-search lists contain other product ISINs but
+                    // are not the opened detail of that product. A synthetic
+                    // detail label in the same tree must not trigger BACK.
+                    val recentList=nodes.any { normalized(it.text).equals("ZULETZT",true) } ||
+                        nodes.any { normalized(it.text).equals("Nach Produkttyp durchsuchen",true) }
+                    if(!recentList && current!=null && current!=target &&
+                        detailLauncherIndex(nodes,current)!=null)
                         return Action(Kind.BACK)
                 }
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
