@@ -42,10 +42,48 @@ class Protocol(unittest.TestCase):
         self.assertEqual(r.exchange(s,value(),NOW+2)[1]['command']['action'],'stop')
         self.assertEqual(r.enqueue(s,command(),NOW+33)['status'],'session-offline')
         s=self.state();r.enqueue(s,a,NOW)
-        self.assertIsNone(r.exchange(s,value(),NOW+21)[1]['command'])
+        delayed=value();delayed['observation']['at']=NOW+91
+        self.assertIsNone(r.exchange(s,delayed,NOW+91)[1]['command'])
         s=self.state();r.enqueue(s,a,NOW)
         s,out=r.exchange(s,value(False),NOW+1)
         self.assertIsNone(out['command']);self.assertEqual(s['commands'][0]['status'],'expired')
+    def test_background_poll_after_45_seconds_still_delivers_short_lease(self):
+        # The user can have DEGIRO in the foreground while Android delays
+        # background polling. Queueing is not permission for 90s of execution.
+        s=self.state();a=command('inspect')
+        r.enqueue(s,a,NOW)
+        self.assertEqual(s['commands'][0]['expiresAt'],NOW+r.QUEUE_TTL)
+        v=value();v['observation']['at']=NOW+45
+        s,response=r.exchange(s,v,NOW+45)
+        delivered=response['command']
+        self.assertEqual(delivered['requestId'],a['requestId'])
+        self.assertEqual(delivered['expiresAt'],NOW+45+r.DELIVERY_LEASE)
+        self.assertLessEqual(delivered['expiresAt']-(NOW+45),30)
+        self.assertEqual(s['commands'][0]['status'],'delivered')
+        self.assertEqual(s['commands'][0]['expiresAt'],NOW+r.QUEUE_TTL)
+        # Reconnect/duplicate polling cannot repeat the already delivered
+        # command. Late acknowledgements are linked to the same request.
+        v['observation']['at']=NOW+46
+        self.assertIsNone(r.exchange(s,v,NOW+46)[1]['command'])
+        v['ack']={'requestId':a['requestId'],'code':'SEARCH'}
+        v['observation']['at']=NOW+50
+        s,_=r.exchange(s,v,NOW+50)
+        self.assertEqual(s['commands'][0]['status'],'acknowledged')
+    def test_queued_command_cannot_survive_90_seconds_or_session_expiry(self):
+        s=self.state();a=command('search_gold')
+        r.enqueue(s,a,NOW)
+        v=value();v['observation']['at']=NOW+r.QUEUE_TTL
+        s,out=r.exchange(s,v,NOW+r.QUEUE_TTL)
+        self.assertIsNone(out['command'])
+        self.assertEqual(s['commands'][0]['status'],'expired')
+        s=self.state()
+        s['expiresAt']=NOW+10
+        a=command('inspect')
+        self.assertEqual(r.enqueue(s,a,NOW)['expiresAt'],NOW+10)
+        v=value();v['observation']['at']=NOW+10
+        s,out=r.exchange(s,v,NOW+10)
+        self.assertIsNone(out['command'])
+
     def test_session_replacement_and_no_extension(self):
         s=self.state();r.enqueue(s,command(),NOW)
         v=value();v['expiresAt']+=10
