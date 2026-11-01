@@ -135,8 +135,7 @@ class AndroidObservations(unittest.TestCase):
         self.assertFalse(saved['tradeApproved'])
         self.assertEqual(saved['fields']['Hebel'],'17,45')
         self.assertNotIn('Währung',saved['fields'])
-        for bad,fields in [(None,['Hebel']),(['Geld'],['Geld']),
-                           (['Hebel'],['Geld','Brief']),(['Währung'],['Währung'])]:
+        for bad in (None,['Geld'],['Geld','Brief'],['Währung']):
             if bad is None:
                 with self.assertRaises(ValueError):a.parse_draft(draft,ISIN,NOW)
                 continue
