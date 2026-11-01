@@ -28,6 +28,8 @@ on:
       - "storage_budget.py"
       - "storage_layout.py"
       - "storage_forensics.py"
+      - "android_image_storage_audit.py"
+      - "test_android_image_storage_audit.py"
       - "test_storage_forensics.py"
       - "test_storage_budget.py"
       - "storage_tail_once.py"
