@@ -122,7 +122,10 @@ class WeekendTests(unittest.TestCase):
             self.assertFalse(ended['tradeApproved'])
             self.assertEqual(ended['sourceStatusEvidence']['issuerTerminal'],True)
             self.assertNotIn('leverage-time',ended['missing'])
-        self.assertEqual(wk.plan(feed,reader,revised,SUNDAY),[ISINS[1]])
+        self.assertEqual(wk.plan(feed,reader,revised,SUNDAY),[])
+        # The still-active third product keeps its bounded source retry.
+        self.assertEqual(wk.plan(feed,reader,revised,SUNDAY+wk.RETRY_MS+1),
+                         [ISINS[1]])
         self.assertEqual(revised['items'][1]['weekendLeverageFollowup']['state'],
                          'source-evidence-unavailable')
 
