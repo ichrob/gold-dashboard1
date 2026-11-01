@@ -24,7 +24,13 @@ PostgreSQL sample, *without persisting the result*.
   1–4 screenshots per batch. The in-process encoded image total is capped
   at 12,000,000 characters. Failure/cap returns an explicit incomplete
   status, not partial proof or a space claim.
-- Each original is first checked using `android_list.validate`, then
+- The query first checks aggregate source JSON text size without returning
+  images. Only cohorts with at most eight rows and at most 14 million
+  source JSON characters can be transferred for the shadow, and the decoded
+  PNG/base64 total is independently capped at 12 million characters.
+  Invalid/missing permission or changed row count fails closed.
+- Each original is checked using `android_list.validate` **at its
+  original `created_at` upload time**, not re-dated to the current clock, then
   converted **in memory only** by `pack_batch(original, token_hash)`.
   The authenticated device's existing 64-hex-character token hash is the
   content-addressing domain. Identical PNG bytes belonging to different
