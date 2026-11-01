@@ -533,8 +533,12 @@ class ProductReadService : AccessibilityService() {
                         requestedTermsOnly = MorningReadRun.requestedTermsOnly(),
                         seekLeverage = MorningReadRun.requestedLeverage(),
                         expectedIsin = if (MorningReadRun.running) MorningReadRun.target else null)
-                    batchReadWindow = if (!sensitive && (previousReadWindow || pageReader.sameWindow(root.windowId)) &&
-                        step.cause !in setOf(ProductPageReader.Cause.UNSAFE_VIEW, ProductPageReader.Cause.IDENTITY_CHANGED)) root.windowId else null
+                    val currentReadIds=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
+                        .findAll(lines.joinToString("\n") { it.text.uppercase() })
+                        .map { it.value }.toSet()
+                    batchReadWindow = if (ProductReadReturnEvidence.confirmed(
+                        previousReadWindow,pageReader.sameWindow(root.windowId),step,
+                        currentReadIds,MorningReadRun.target,sensitive)) root.windowId else null
                     ProductReadDiagnostics.page(step.cause)
                     ProductReadDiagnostics.rejected(step.result.reason)
                     when (step.move) {
