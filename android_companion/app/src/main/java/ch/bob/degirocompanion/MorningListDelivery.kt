@@ -30,23 +30,25 @@ internal object MorningListDelivery {
         val body=runCatching { JSONObject(String(file(c).readFully(),Charsets.UTF_8)) }.getOrNull() ?: return false
         val images=body.optJSONArray("images") ?: return false
         val age=runCatching { System.currentTimeMillis()-Instant.parse(images.getJSONObject(0).getString("at")).toEpochMilli() }.getOrDefault(Long.MAX_VALUE)
-        if(age !in 0..86400000) { status(c,"Gespeicherte Aufnahme abgelaufen; neuer Lauf möglich.");file(c).delete();return false }
-        // Only an interrupted recent transfer resumes in place. A historic
-        // outbox must never hold a newly requested morning list hostage.
-        if(age>15*60*1000 || body.optInt("resumeCount")>=2) {
+        val mode=MorningListResumePolicy.mode(age,body.optInt("resumeCount"))
+        if(mode==MorningListResumePolicy.Mode.NEW_LIST) {
             val archive=File(c.filesDir,"morning-list-previous.json")
             archive.writeText(body.toString());file(c).delete()
             status(c,"Frühere Aufnahme gesichert; neuer Listenlauf startet.")
             return false
         }
+        // A new explicit, unlocked start is mandatory. Prior session IDs
+        // never authorize a phone action or quote read.
         val resumes=body.optInt("resumeCount")+1
         body.put("sessionId",PhoneRemote.sessionId()).put("resumeCount",resumes)
-        start(c,body);return true
+        start(c,body,receiptOnly=mode==MorningListResumePolicy.Mode.CHECK_RECEIPT_ONLY)
+        return true
     }
-    fun start(c:Context,body:JSONObject) {
+    fun start(c:Context,body:JSONObject,receiptOnly:Boolean=false) {
         save(c,body);cancel();waiting=true
         val id=++generation;val session=PhoneRemote.sessionId();val batch=body.getString("batchId")
-        status(c,"Listenbilder gespeichert · Übertragung und Serverprüfung laufen.")
+        status(c,if(receiptOnly) "Gespeicherte Goldliste · nur Serverbestätigung prüfen."
+            else "Listenbilder gespeichert · Übertragung und Serverprüfung laufen.")
         fun poll(attempt:Int,uploaded:Boolean) {
             if(id!=generation)return
             network.execute {
@@ -82,6 +84,8 @@ internal object MorningListDelivery {
                 }
             }
         }
-        poll(0,false)
+        // A late confirmed list is checked via the authenticated receipt only:
+        // no second screenshot upload, no silent old-session reuse.
+        poll(0,receiptOnly)
     }
 }
