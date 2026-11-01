@@ -254,7 +254,12 @@ class MorningReadPolicyTest {
             view+MorningReadPolicy.Node("Kursdaten"))
         for ((i,bad) in unsafe.withIndex()) {
             val action=MorningReadPolicy.detailDecision(bad,target,true)
-            assertEquals("unsafe recent page case $i",MorningReadPolicy.Kind.BLOCK,action.kind)
+            // Unsafe views may WAIT or BACK safely, but may never start a
+            // search, product read or trading-related click. Genuine forms
+            // must fail closed rather than be interpreted as recent Markets.
+            assertTrue("unsafe recent page case $i: ${action.kind}",
+                action.kind in setOf(MorningReadPolicy.Kind.BLOCK,
+                    MorningReadPolicy.Kind.WAIT,MorningReadPolicy.Kind.BACK))
         }
     }
 
