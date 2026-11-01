@@ -15,7 +15,7 @@ internal object MorningListDelivery {
     private val network=Executors.newSingleThreadExecutor()
     private var generation=0
     var waiting=false; private set
-    var onConfirmed:((List<String>,String)->Unit)?=null
+    var onConfirmed:((List<SelectiveDetailPlan.Entry>,String)->Unit)?=null
     private fun file(c:Context)=AtomicFile(File(c.filesDir,"morning-list-pending.json"))
     private fun prefs(c:Context)=c.getSharedPreferences("morning_list_delivery",Context.MODE_PRIVATE)
     fun status(c:Context)=prefs(c).getString("status","").orEmpty()
@@ -61,9 +61,10 @@ internal object MorningListDelivery {
                         waiting=false;file(c).delete()
                         status(c,"✅ Fertig: 10 unterschiedliche Produkte in Bob gespeichert und bestätigt.")
                         val ids=response.optJSONArray("detailIsins")
-                        val values=if(ids==null) emptyList() else (0 until ids.length()).map { ids.getString(it) }
-                        if(PhoneRemote.active() && PhoneRemote.sessionId()==session && values.size<=10 && values.distinct()==values && values.all { SeriesEvidence.validIsin(it) }) {
-                            runCatching { onConfirmed?.invoke(values,batch) }.onFailure {
+                        val values=if(ids==null) null else (0 until ids.length()).map { ids.optString(it) }
+                        val plan=values?.let { SelectiveDetailPlan.parse(response.optJSONArray("detailPlan"),it) }
+                        if(PhoneRemote.active() && PhoneRemote.sessionId()==session && plan!=null) {
+                            runCatching { onConfirmed?.invoke(plan,batch) }.onFailure {
                                 status(c,"✅ Liste in Bob gespeichert. Detailprüfung konnte nicht gestartet werden.")
                                 PhoneRemote.stop(c,"STORAGE_ERROR")
                             }

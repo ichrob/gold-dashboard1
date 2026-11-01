@@ -10,31 +10,69 @@ from android_telemetry import token_hash
 
 MAX_BODY=8100000
 
+# Product-screen reading is only supplementary. A complete, non-expired source
+# snapshot is NEVER re-read just because its ISIN appeared in a new list.
+DETAIL_FIELDS = ('Geld', 'Brief', 'Anzeigezeit', 'Hebel', 'KO-Schwelle',
+                 'Basispreis', 'Bv', 'Währung')
+
 def detail_plan(items, products, now):
-    """Keep list order and request only incomplete or expired product details."""
+    """Request only still-missing/expired fields, preserving exact list order.
+
+    This is a read-only *research* plan, never a trading approval. Original
+    source clocks are required; an upload timestamp is not a quote time.
+    """
     from product_quotes import valid_isin
-    by_id={p.get('isin'):p for p in products if isinstance(p,dict)}
-    result=[];seen=set()
+    by_id = {p.get('isin'): p for p in products if isinstance(p, dict)}
+    result, seen = [], set()
+
     def positive(v):
-        return type(v) in (int,float) and math.isfinite(v) and v>0
-    for item in items:
-        isin=item.get('isin')
-        if not isinstance(isin,str) or not valid_isin(isin) or isin in seen or item.get('listRow',{}).get('excluded'):continue
-        seen.add(isin)
-        p=by_id.get(isin,{})
-        missing=[label for key,label in (('leverage','Hebel'),('ko','KO-Schwelle'),('basisPrice','Basispreis'),('ratio','Bv')) if not positive(p.get(key))]
-        if p.get('currency') not in ('EUR','CHF'):missing.append('Währung')
-        q=p.get('quote') if isinstance(p.get('quote'),dict) else {}
-        for key,label in (('bid','Geld'),('ask','Brief')):
-            if not positive(q.get(key)):missing.append(label)
-        if positive(q.get('bid')) and positive(q.get('ask')) and q['bid']>q['ask']:missing.append('Widersprüchliche Kurse')
+        return type(v) in (int, float) and math.isfinite(v) and v > 0
+
+    def recent(raw):
+        if not isinstance(raw, str):
+            return False
         try:
-            at=datetime.fromisoformat(q.get('quoteAt','').replace('Z','+00:00'))
-            fresh=at.tzinfo is not None and 0<=now-at.timestamp()<=14*3600
-        except (ValueError,TypeError,AttributeError):fresh=False
-        if not fresh:missing.append('Anzeigezeit')
-        if missing:result.append({'isin':isin,'missingFields':missing})
-        if len(result)==10:break
+            at = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+            return at.tzinfo is not None and 0 <= now - at.timestamp() <= 14 * 3600
+        except (ValueError, OverflowError):
+            return False
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        isin = item.get('isin')
+        if (not isinstance(isin, str) or not valid_isin(isin) or isin in seen or
+                (isinstance(item.get('listRow'), dict) and item['listRow'].get('excluded'))):
+            continue
+        seen.add(isin)
+        p = by_id.get(isin, {})
+        # Missing input values are independent; don't re-read a proven KO or
+        # ratio just because the current bid/ask pair has expired.
+        missing = [label for key, label in
+                   (('leverage','Hebel'), ('ko','KO-Schwelle'),
+                    ('basisPrice','Basispreis'), ('ratio','Bv'))
+                   if not positive(p.get(key))]
+        if p.get('currency') not in ('EUR', 'CHF'):
+            missing.append('Währung')
+        q = p.get('quote') if isinstance(p.get('quote'), dict) else {}
+        bid, ask = positive(q.get('bid')), positive(q.get('ask'))
+        if not bid:
+            missing.append('Geld')
+        if not ask:
+            missing.append('Brief')
+        if bid and ask and q['bid'] > q['ask']:
+            # Both sides need a new ORIGINAL pair; no arithmetic repair.
+            missing.extend(('Geld', 'Brief'))
+        # Quoted source time is a minimum requirement. If two provider side
+        # clocks are supplied, both must independently be current.
+        clocks = ('quoteAt',) + tuple(k for k in ('bidAt', 'askAt') if k in q)
+        if not all(recent(q.get(k)) for k in clocks):
+            missing.append('Anzeigezeit')
+        needed = [name for name in DETAIL_FIELDS if name in missing]
+        if needed:
+            result.append({'isin': isin, 'missingFields': needed})
+        if len(result) == 10:
+            break
     return result
 
 def validate(value, now):
