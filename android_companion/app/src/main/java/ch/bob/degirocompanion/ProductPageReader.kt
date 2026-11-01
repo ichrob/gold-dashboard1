@@ -45,7 +45,7 @@ internal class ProductPageReader {
     fun inspect(windowId: Int, lines: List<QuoteLayout.Line>, at: String, sensitive: Boolean,
                 canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false, requireParameters: Boolean = false, identityHint: String? = null,
                 allowSymbolProbe: Boolean = false, requestedTermsOnly: Set<String> = emptySet(),
-                seekLeverage: Boolean = false): Step {
+                seekLeverage: Boolean = false, expectedIsin: String? = null): Step {
         fun scopedParameters(values: List<QuoteLayout.Line>) = QuoteLayout.extract(values)
             .filterKeys { it in setOf("Hebel", "KO-Schwelle", "Basispreis", "Bv") }
         val direct = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines, at, sensitive,
@@ -64,16 +64,21 @@ internal class ProductPageReader {
         // Identity changes must be rejected even while the scroll tree is transient.
         if (anchored && (identityHint != null && identityHint != isin || windowId != window || (ids.isNotEmpty() && ids.singleOrNull() != isin)))
             return stop("Produkt oder Fenster gewechselt. Seitenprüfung abgebrochen.", Cause.IDENTITY_CHANGED)
-        // Only the broker's literal same-row Symbol | ISIN pairing can
-        // connect a previously seen numeric product header to an ISIN.
-        // A remembered symbol, a search target or a chart price is not proof.
-        val footerPair = if (allowSymbolProbe && seekingSymbol != null && ids.size == 1)
+        // An explicit same-screen Symbol | ISIN pair is an independent identity
+        // check. It must match the current requested product; a search target
+        // or cached broker symbol alone never authorizes publishing a draft.
+        val footerPair = if (allowSymbolProbe && ids.size == 1)
             ProductSymbolMemory.observe(lines, sensitive)?.takeIf {
-                it.symbol == seekingSymbol && it.isin == ids.single() &&
-                    (identityHint == null || identityHint == it.isin)
+                it.isin == ids.single() &&
+                    (expectedIsin == null || expectedIsin == it.isin) &&
+                    (identityHint == null || identityHint == it.isin) &&
+                    (seekingSymbol == null || seekingSymbol == it.symbol) &&
+                    (verifiedProbeSymbol == null || verifiedProbeSymbol == it.symbol) &&
+                    lines.mapNotNull { line -> ProductSymbolMemory.probeHeaderSymbol(line.text) }
+                        .all { visible -> visible == it.symbol }
             } else null
-        val verifiedPairedQuote = footerPair != null && requireParameters &&
-            seekingParameters.isNotEmpty() && direct.draft.isNotBlank() &&
+        val verifiedPairedQuote = requireParameters && footerPair != null && direct.draft.isNotBlank() &&
+            (expectedIsin != null || (seekingSymbol != null && seekingParameters.isNotEmpty())) &&
             listOf("Geld", "Brief", "Zuletzt").any {
                 direct.draft.contains("$it (Anzeige ungeprüft): ")
             }
@@ -88,6 +93,26 @@ internal class ProductPageReader {
             return Step(Move.NONE, direct.copy(draft = "", message = "Seitenaufbau noch nicht eindeutig. Bob wartet innerhalb des 60-Sekunden-Limits auf den Produktbereich."), Cause.WAIT_SCROLL_LAYOUT)
         }
         layoutWaits = 0
+        // On the actual DEGIRO Mini-Future, the original ISIN is visibly paired
+        // with its numeric symbol right beside the one-sided CHF quote.
+        // That CURRENT screen needs no backward/forward scroll to establish
+        // identity. A checked quote is always an unverified historical reading.
+        if (verifiedPairedQuote) {
+            val pair = footerPair!!
+            val observedTerms = scopedParameters(lines)
+            val earlierSymbol = seekingSymbol ?: verifiedProbeSymbol
+            val earlierTerms = if (seekingSymbol != null) seekingParameters else anchorParameters
+            val sameHeader = earlierSymbol == pair.symbol &&
+                observedTerms.all { (key,value) -> earlierTerms[key]?.let { it == value } ?: true }
+            val terms = if (sameHeader) earlierTerms + observedTerms else observedTerms
+            val extras = terms.filterKeys { !direct.draft.contains("$it (Anzeige ungeprüft): ") }
+                .map { (key,value) -> "$key (Anzeige ungeprüft): $value" }.joinToString("\n")
+            val saved = if (extras.isEmpty()) direct else direct.copy(draft = direct.draft + "\n" + extras)
+            reset()
+            return Step(Move.FINISHED, saved.copy(message =
+                "Sichtbares Symbol und ISIN auf der Kursseite bestätigt. " +
+                "Historische App-Beobachtung, kein Handelsnachweis."))
+        }
         if (!anchored) {
             // Discovery never substitutes the requested ISIN or stores prices from an unidentified page.
             if (allowSymbolProbe && ids.isEmpty()) {

@@ -187,6 +187,53 @@ class NumericProductDetailTest {
         assertEquals("",notDone.result.draft)
     }
 
+    @Test fun exactPlannedFooterCompletesWithoutPriorHeaderProbeOrReturnScroll() {
+        // Real DEGIRO 10404 failure: the quote and literal identity were
+        // visible but the transaction did not retain a header-probe symbol.
+        // Never invent a Brief or infer a leverage from price/graph labels.
+        val footer=lines(listOf("Kursdaten",
+            "Zuletzt CHF 5,20","Geld CHF 5,20","Brief CHF —",
+            "31/10/2026 11:28",
+            "Symbol | ISIN 156825577 | DE000FE6B3G9"))
+        val result=ProductPageReader().inspect(17,footer,at,false,false,false,
+            scrollAmbiguous=true,requireParameters=true,allowSymbolProbe=true,
+            expectedIsin="DE000FE6B3G9",seekLeverage=true)
+        assertEquals(ProductPageReader.Move.FINISHED,result.move)
+        assertTrue(result.result.draft.contains("ISIN: DE000FE6B3G9"))
+        assertTrue(result.result.draft.contains("Geld (Anzeige ungeprüft): 5,20"))
+        assertTrue(result.result.draft.contains("Zuletzt (Anzeige ungeprüft): 5,20"))
+        assertFalse(result.result.draft.contains("Brief (Anzeige ungeprüft):"))
+        assertFalse(result.result.draft.contains("Hebel (Anzeige ungeprüft):"))
+        assertFalse(result.result.draft.contains("KO-Schwelle (Anzeige ungeprüft):"))
+        assertTrue(result.result.draft.contains("keine Order"))
+    }
+
+    @Test fun footerShortcutRequiresExactRequestedIsinAndRejectsProtectedOrAmbiguous() {
+        val footer=lines(listOf("Kursdaten","Zuletzt CHF 5,20",
+            "Geld CHF 5,20","Symbol | ISIN 156825577 | DE000FE6B3G9"))
+        fun inspect(data:List<QuoteLayout.Line>, expected:String="DE000FE6B3G9",
+            sensitive:Boolean=false) = ProductPageReader().inspect(17,data,at,sensitive,
+            false,false,scrollAmbiguous=true,requireParameters=true,
+            allowSymbolProbe=true,expectedIsin=expected)
+        for (rejected in listOf(
+            inspect(footer,expected="DE000FD0S0G4"),
+            inspect(footer,sensitive=true),
+            inspect(footer+lines(listOf("Order bestätigen"))),
+            inspect(footer+lines(listOf("DE000FD0S0G4"))),
+            inspect(footer.map { it.copy(text=it.text.replace("156825577 |","87654321 |")) }
+                +lines(listOf("156825577 • Societe Generale OTC | R"))),
+            inspect(footer.map { it.copy(text=it.text
+                .replace("Geld CHF 5,20","Geld Vol. 25K")
+                .replace("Zuletzt CHF 5,20","Schluss CHF 17,29")) }) )) {
+            assertNotEquals(ProductPageReader.Move.FINISHED,rejected.move)
+            assertEquals("",rejected.result.draft)
+        }
+        assertNotEquals(ProductPageReader.Move.FINISHED,
+            ProductPageReader().inspect(17,footer,at,false,false,false,
+                scrollAmbiguous=true,requireParameters=false,allowSymbolProbe=true,
+                expectedIsin="DE000FE6B3G9").move)
+    }
+
     @Test fun numericHeaderIsRevisitedAndRealIsinRecheckedBeforeExport() {
         val reader=ProductPageReader()
         fun read(text:List<String>)=reader.inspect(1,lines(text),at,false,true,true,
