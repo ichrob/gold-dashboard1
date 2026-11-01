@@ -103,7 +103,23 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('flagRetrieveInteractiveWindows', config)
         self.assertIn('ProductWindowPolicy.select', service)
         # One additional semantic backward scroll seeks the Top Results heading.
-        self.assertEqual(service.count('performAction('), 10)
+        # The extra action only scrolls the verified ten-row DEGIRO result list
+        # back to its search header while private OCR is pending. Count changes
+        # must be accompanied by explicit source/safety-contract verification.
+        self.assertEqual(service.count('performAction('), 11)
+        return_scroll = service.split('private fun returnToSearchWhileImporting(', 1)[1].split(
+            'private fun deliverMorningList(', 1)[0]
+        for guard in [
+            'attempt>=4', 'MorningListDelivery.waiting', 'PhoneRemote.active()',
+            'MorningReadRun.running', 'GoldSearchRun.running', 'isKeyguardLocked',
+            'root.windowId!=expectedWindow', 'ProductScreenEvidence.PACKAGE',
+            'MorningReadPolicy.listReturnScrollTarget(descriptions,backward,captured)',
+            'target.refresh()', 'target.isVisibleToUser', 'rootInActiveWindow',
+            'ACTION_SCROLL_BACKWARD', 'handler.postDelayed('
+        ]:
+            self.assertIn(guard, return_scroll)
+        self.assertEqual(return_scroll.count('performAction('), 1)
+
         seek=service.split('A fresh run can begin on yesterday',1)[1].split('val proposed=',1)[0]
         for guard in ['listImages.length()==0','MorningReadPolicy.captureGoldList(descriptions,true)',
                       'seek.kind==MorningReadPolicy.Kind.COLLECT','listTopSeekSteps>4',
