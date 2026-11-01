@@ -43,7 +43,10 @@ internal class ProductPageReader {
     }
     fun inspect(windowId: Int, lines: List<QuoteLayout.Line>, at: String, sensitive: Boolean,
                 canForward: Boolean, canBackward: Boolean, scrollAmbiguous: Boolean = false, requireParameters: Boolean = false, identityHint: String? = null,
-                allowSymbolProbe: Boolean = false, requestedTermsOnly: Set<String> = emptySet()): Step {
+                allowSymbolProbe: Boolean = false, requestedTermsOnly: Set<String> = emptySet(),
+                seekLeverage: Boolean = false): Step {
+        fun scopedParameters(values: List<QuoteLayout.Line>) = QuoteLayout.extract(values)
+            .filterKeys { it in setOf("Hebel", "KO-Schwelle", "Basispreis", "Bv") }
         val direct = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines, at, sensitive,
             allowTermsOnly = requestedTermsOnly.isNotEmpty())
         // Launch/login transitions must not consume an unanchored request. Read nothing
@@ -93,7 +96,7 @@ internal class ProductPageReader {
             }
             if (anchorIds.size != 1 || !SeriesEvidence.validIsin(anchorIds.single())) return Step(Move.NONE, direct, Cause.WAIT_IDENTITY)
             isin = anchorIds.single(); window = windowId
-            anchorParameters = QuoteLayout.productParameters(lines)
+            anchorParameters = scopedParameters(lines)
             // Carry header parameters only after an explicit symbol/ISIN row confirms the pairing.
             if (seekingSymbol != null) {
                 val pairing = ProductSymbolMemory.observe(lines, sensitive)
@@ -110,7 +113,7 @@ internal class ProductPageReader {
         // this same window. Do not infer ownership from a search target or
         // merge contradictory readings into one apparent complete observation.
         if (ids.singleOrNull() == isin) {
-            val observedParameters = QuoteLayout.productParameters(lines)
+            val observedParameters = scopedParameters(lines)
             if (observedParameters.all { (key, value) ->
                     anchorParameters[key]?.let { it == value } ?: true
                 }) anchorParameters = anchorParameters + observedParameters
@@ -128,7 +131,7 @@ internal class ProductPageReader {
                 return stop("Produktkennung bei der Kopfzeilenprüfung gewechselt.", Cause.IDENTITY_CHANGED)
             if (symbol == verifiedProbeSymbol || !canBackward || backward >= 8) {
                 if (symbol != null && symbol == verifiedProbeSymbol)
-                    anchorParameters = anchorParameters + QuoteLayout.productParameters(lines)
+                    anchorParameters = anchorParameters + scopedParameters(lines)
                 collectingHeader = false
                 returning = true
             } else {
@@ -140,7 +143,7 @@ internal class ProductPageReader {
             if (ids.singleOrNull() == isin) {
                 // Read compact parameters only after the original ISIN has been
                 // rechecked on return. Do not reuse a different page's title.
-                val currentParameters = QuoteLayout.productParameters(lines)
+                val currentParameters = scopedParameters(lines)
                 // The first and the returned header can contain complementary
                 // fields. Keep the original evidence if a value conflicts.
                 val parameters = if (currentParameters.all { (key, value) ->
@@ -183,7 +186,32 @@ internal class ProductPageReader {
             }) {
             returning = true
             return inspect(windowId, lines, at, sensitive, canForward, canBackward,
-                requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly)
+                requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly,
+                seekLeverage = seekLeverage)
+        }
+        // The broker's overview often shows a full dated bid/ask pair but no
+        // leverage. When that field was explicitly requested, read up to three
+        // additional product-scoped sections and return to the real ISIN.
+        // Never combine bid/ask from different screens or guess a leverage.
+        val savedQuote = candidate?.draft.orEmpty().let {
+            it.contains("Geld (Anzeige ungeprüft): ") && it.contains("Brief (Anzeige ungeprüft): ")
+        }
+        if (seekLeverage && savedQuote && !readBackward) {
+            if (anchorParameters.containsKey("Hebel")) {
+                returning = true
+                return inspect(windowId, lines, at, sensitive, canForward, canBackward,
+                    requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly,
+                    seekLeverage = seekLeverage)
+            }
+            if (canForward && forward < 3) {
+                forward++
+                return Step(Move.FORWARD, ProductScreenEvidence.Result(
+                    message = "Bob sucht den ausdrücklich beschrifteten Hebel in den nächsten Produktabschnitten."))
+            }
+            returning = true
+            return inspect(windowId, lines, at, sensitive, canForward, canBackward,
+                requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly,
+                seekLeverage = seekLeverage)
         }
         // A complete labelled quote pair is the useful end of this read. Avoid
         // scrolling through unrelated footer sections or probing the page bottom.
@@ -193,7 +221,8 @@ internal class ProductPageReader {
                 !anchorParameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv"))) {
                 collectingHeader = true
             } else returning = true
-            val next = inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly)
+            val next = inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly,
+                seekLeverage = seekLeverage)
             return if (next.move == Move.BACKWARD) next.copy(cause = Cause.QUOTES_CAPTURED) else next
         }
         if (readBackward) {
@@ -202,7 +231,8 @@ internal class ProductPageReader {
                 return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "ISIN erkannt. Bob liest die darüberliegenden Kursdaten.", reason = observed.reason))
             }
             returning = true
-            return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly)
+            return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly,
+                seekLeverage = seekLeverage)
         }
         if (canForward) {
             if (forward >= 8) return stop("Scrollgrenze erreicht. Keine vollständige Seitenprüfung; kein Entwurf übernommen.", Cause.SCROLL_LIMIT)
@@ -214,6 +244,7 @@ internal class ProductPageReader {
             return Step(Move.NONE, observed.copy(message = "Produktkennung erkannt, aber noch keine eindeutige Scrollfläche oder verwertbaren Kurse. Bob wartet auf den Seitenaufbau."), Cause.WAIT_SCROLL)
         }
         returning = true
-        return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly)
+        return inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly,
+                seekLeverage = seekLeverage)
     }
 }
