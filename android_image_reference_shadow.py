@@ -5,6 +5,7 @@ A safe next step, NOT the database writer. Originals, SQL rows and temporary
 leave this module, never screenshots, hashes or device/batch identities.
 """
 import json
+from datetime import datetime
 import threading
 import time
 
@@ -14,15 +15,31 @@ import android_list
 _MAX_BATCHES = 8
 _MAX_IMAGES = 32
 _MAX_ENCODED = 12_000_000
+_MAX_ROW_JSON = 14_000_000
 _CACHE_SECONDS = 900
 _lock = threading.Lock()
 _cache = None
 _cache_at = 0
 
-_SQL = """SELECT token_hash,payload
+_SAMPLE = """SELECT token_hash,created_at,payload
 FROM bob_android_list_images
 WHERE created_at >= now()-interval '24 hours'
 ORDER BY created_at DESC,batch_id DESC LIMIT 8"""
+
+_PROBE = """WITH newest AS MATERIALIZED (
+    SELECT payload FROM bob_android_list_images
+    WHERE created_at >= now()-interval '24 hours'
+    ORDER BY created_at DESC,batch_id DESC LIMIT 8)
+SELECT count(*)::bigint,coalesce(sum(octet_length(payload::text)),0)::bigint
+FROM newest"""
+
+_SQL = """WITH newest AS MATERIALIZED (
+    SELECT token_hash,created_at,payload FROM bob_android_list_images
+    WHERE created_at >= now()-interval '24 hours'
+    ORDER BY created_at DESC,batch_id DESC LIMIT 8)
+SELECT token_hash,created_at,payload FROM newest
+WHERE (SELECT coalesce(sum(octet_length(payload::text)),0)
+       FROM newest) <= 14000000"""
 
 
 def _encoded_size(obj):
@@ -50,9 +67,13 @@ def _simulate(rows, now):
     device_scopes = set()
     try:
         for row in rows:
-            if type(row) not in (list,tuple) or len(row)!=2:
+            if type(row) not in (list,tuple) or len(row)!=3:
                 raise ValueError('Invalid image row')
-            scope, original = row
+            scope, uploaded_at, original = row
+            if (type(uploaded_at) is not datetime
+                    or uploaded_at.tzinfo is None
+                    or not 0 <= now-uploaded_at.timestamp() <= 86400):
+                raise ValueError('Unverifiable original upload clock')
             if (type(scope) is not str or type(original) is not dict
                     or type(original.get('images')) is not list):
                 raise ValueError('Invalid sample shape')
@@ -71,7 +92,7 @@ def _simulate(rows, now):
 
             # Validate original batch admission rules, including original
             # timestamps. This does not redate or refresh source quotes.
-            android_list.validate(original, now)
+            android_list.validate(original, uploaded_at.timestamp())
             pointer, objects = codec.pack_batch(original,scope)
             before_json += _encoded_size(original)
             after_json += _encoded_size(pointer)
@@ -88,14 +109,14 @@ def _simulate(rows, now):
                     object_store[key]=encoded
                     unique_chars += len(encoded)
             images += count
-            sources.append((pointer, original, scope))
+            sources.append((pointer, original, scope, uploaded_at))
 
-        for pointer, original, scope in sources:
+        for pointer, original, scope, uploaded_at in sources:
             restored=codec.restore_batch(pointer,object_store,scope)
             if restored != original:
                 raise ValueError('Exact image reconstruction mismatch')
             # Round-trip through the existing active importer validator.
-            if android_list.validate(restored,now) != original:
+            if android_list.validate(restored,uploaded_at.timestamp()) != original:
                 raise ValueError('Original import validation mismatch')
         # Store each identical device-scoped image once, but this model does
         # NOT include database row, table, index, WAL or migration costs.
@@ -144,8 +165,22 @@ def report(conn,now=None):
             with conn.transaction():
                 conn.execute("SET LOCAL statement_timeout='2500ms'")
                 conn.execute("SET LOCAL lock_timeout='500ms'")
-                rows=conn.execute(_SQL).fetchall()
-            result=_simulate(rows,at)
+                probe=conn.execute(_PROBE).fetchone()
+                if (type(probe) not in (tuple,list) or len(probe)!=2
+                        or any(type(v) is not int or v < 0 for v in probe)
+                        or probe[0] > _MAX_BATCHES):
+                    result={'status':'not-observed','readOnly':True,
+                            'diskBytesFreed':None,'reclaimableBytes':None}
+                elif probe[1] > _MAX_ROW_JSON:
+                    result={'status':'sample-too-large','readOnly':True,
+                            'diskBytesFreed':None,'reclaimableBytes':None}
+                else:
+                    rows=conn.execute(_SQL).fetchall()
+                    if len(rows)!=probe[0]:
+                        result={'status':'cohort-changed','readOnly':True,
+                                'diskBytesFreed':None,'reclaimableBytes':None}
+                    else:
+                        result=_simulate(rows,at)
         except Exception:
             result={'status':'not-observed','readOnly':True,
                     'diskBytesFreed':None,'reclaimableBytes':None}
