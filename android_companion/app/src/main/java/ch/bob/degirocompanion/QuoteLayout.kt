@@ -30,7 +30,7 @@ internal object QuoteLayout {
         val values = mutableListOf<Map<String, String>>()
         // DEGIRO may show BAR/BP/Bv on an SG Mini-Future header without LV.
         // LV is optional, but NEVER inferred from the price/KO/graph.
-        val pattern = Regex("(?i)\\bBAR\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+BP\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+Bv\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?:\\s+[0-9]{2}/[0-9]{2}/20[0-9]{2})?)(?![0-9A-Za-z.,])")
+        val pattern = Regex("(?i)\\bBAR\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+BP\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+Bv\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?:\\s+[0-9]{2}/[0-9]{2}/20[0-9]{2})?(?![0-9A-Za-z.,])")
         val leverageSuffix = Regex("(?i)^\\s+LV\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?![0-9A-Za-z.,])")
         val leverageMarker = Regex("(?i)^\\s+LV\\b")
         for (title in titles) {
