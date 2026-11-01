@@ -7,6 +7,7 @@ from product_quotes import valid_isin
 
 FIELDS = ('Geld','Brief','Zuletzt','Anzeigezeit','Hebel','KO-Schwelle','Basispreis','Bv','Handelsplatz')
 REQUIRED = ('Geld','Brief','Anzeigezeit','Hebel','KO-Schwelle','Basispreis','Bv')
+REQUESTABLE = REQUIRED + ('Währung',)
 CODES = set('LIST_TOP_RESULTS_MISSING LIST_TOP_RESULTS_OVERFLOW LIST_TOP_RESULTS_INCOMPLETE KEYBOARD_HIDE_FAILED LIST_IMAGES_DELIVERED LIST_FIRST_CAPTURED LIST_UPLOAD_FAILED LIST_SCROLL_UNAVAILABLE LIST_SCROLL_REJECTED LIST_SCROLL_NO_PROGRESS LIST_CAPTURE_FAILED LIST_CAPTURE_ANDROID_VERSION LIST_CAPTURE_SEARCH_MISSING LIST_CAPTURE_BOUNDS LIST_CAPTURE_WINDOW_CHANGED SEARCH_NO_PROGRESS SEARCH_TRANSITION_PENDING SEARCH_RETRY_PARENT COMPLETE PARTIAL READ_TIMEOUT SEARCH_MISSING SEARCH_TREE_EMPTY SEARCH_NOT_ACTIONABLE GOLD_IDENTITIES_MISSING SEARCH_AMBIGUOUS RESULT_MISSING NAVIGATION_REJECTED PROTECTED_VIEW PROTECTED_PASSWORD PROTECTED_LOGIN PROTECTED_ORDER PROTECTED_ORDER_CONFIRM PROTECTED_ORDER_TYPE PROTECTED_ORDER_PRICE PROTECTED_ORDER_QUANTITY PROTECTED_SENSITIVE_INPUT PROTECTED_SENSITIVE_CONTENT UNRECOGNIZED_INPUT INVALID_VIEW IDENTITY_CHANGED NO_QUOTES RETURN_FAILED SCROLL_LIMIT INVALID_QUOTES SEEK_LIMIT SCROLL_LAYOUT_CHANGED UNSAFE_VIEW USER_STOP STOPPED RUN_TIMEOUT USER_INTERRUPTED TRANSFER_ERROR STORAGE_ERROR SCREEN_LOCKED SERVICE_INTERRUPTED'.split())
 
 # Fixed app navigation/stop events can accompany already captured observations.
@@ -67,6 +68,13 @@ def prepare(payload, feed, now=None):
     if source not in ('bob-saved-list','degiro-gold-search'): raise ValueError('Ungültige Listenquelle')
     if uploaded.year<2020 or (now-uploaded).total_seconds() < -60: raise ValueError('Ungültiger Listenstand')
     if not isinstance(rows,list) or len(rows)>12 or not isinstance(events,list) or len(events)>48: raise ValueError('Leselauf unvollständig')
+    requested = payload.get('requestedFields')
+    if requested is not None:
+        if not isinstance(requested,dict) or set(requested)!=set(ids): raise ValueError('Fehlfeldplan widerspricht Liste')
+        for isin, fields in requested.items():
+            if (not isinstance(fields,list) or not 1<=len(fields)<=len(REQUESTABLE) or
+                    any(not isinstance(name,str) or name not in REQUESTABLE for name in fields) or
+                    len(set(fields))!=len(fields)): raise ValueError('Ungültiger Fehlfeldplan')
     current={p.get('isin') for p in feed.get('products',[]) if isinstance(p,dict)}
     results=[];seen=set()
     for row in rows:
@@ -76,9 +84,19 @@ def prepare(payload, feed, now=None):
         if type(attempts) is not int or not 1<=attempts<=2: raise ValueError('Versuchszahl ungültig')
         raw=row.get('draft','')
         observation=parse_draft(raw,row['isin'],now) if raw else None
+        required_fields=requested[row['isin']] if requested is not None else None
+        if observation is not None and required_fields is not None:
+            # Only the fields actually requested by Bob determine whether the
+            # product's bounded follow-up is complete. The original screen
+            # draft stays separate and UNVERIFIED; existing product sources
+            # and quote timestamps are never overwritten by this import.
+            observation['requestedFields']=required_fields
+            observation['missingFields']=[name for name in required_fields
+                                          if name not in observation['fields']]
         code=('PARTIAL' if observation['missingFields'] else 'COMPLETE') if observation else row.get('code')
         if not isinstance(code,str) or code not in CODES or (not observation and code in ('COMPLETE','PARTIAL')): raise ValueError('Unbekannter oder unbelegter Lesestatus')
         results.append(dict(isin=row['isin'],code=code,attempts=attempts,observation=observation,
+                            requestedFields=required_fields,
                             matchedCurrentList=row['isin'] in current))
     safe_events=[]
     for e in events:
@@ -86,7 +104,7 @@ def prepare(payload, feed, now=None):
         at=timestamp(e.get('at'))
         if at.year<2020 or (now-at).total_seconds() < -60: raise ValueError('Protokollzeit ungültig')
         safe_events.append(dict(isin=e['isin'],code=e['code'],attempt=e['attempt'],at=at.isoformat()))
-    return dict(batchId=batch,revision=revision,appVersionCode=version,listUploadedAt=uploaded.isoformat(),listSource=source,isins=ids,results=results,events=safe_events,
+    return dict(batchId=batch,revision=revision,appVersionCode=version,listUploadedAt=uploaded.isoformat(),listSource=source,isins=ids,requestedFields=requested,results=results,events=safe_events,
                 receivedAt=now.isoformat(),verified=False,tradeApproved=False,realOrders=False,
                 scope='unverified-app-observations-not-market-inputs')
 
@@ -132,6 +150,7 @@ def status(conn):
         runs.append(dict(batchId=r['batchId'],revision=r['revision'],receivedAt=r['receivedAt'],
             appVersionCode=r.get('appVersionCode'),listUploadedAt=r['listUploadedAt'],listSource=r.get('listSource','bob-saved-list'),requested=len(r['isins']),
             results=[dict(isin=x['isin'],code=x['code'],attempts=x['attempts'],
+                requestedFields=x.get('requestedFields'),
                 missingFields=(x.get('observation') or {}).get('missingFields',list(REQUIRED)),
                 matchedCurrentList=x['matchedCurrentList']) for x in r['results']],events=r['events'][-12:]))
     return dict(status='observed' if runs else 'not-observed',readOnly=True,runs=runs,
