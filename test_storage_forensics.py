@@ -170,8 +170,10 @@ class RecentAllocationTests(unittest.TestCase):
         self.assertEqual(six['elapsedSeconds'], 21600)
         self.assertEqual(six['databaseBytesDelta'], 600)
         self.assertEqual(six['commonRelationBytesDelta'], 930)
-        self.assertIn({'table':'bob_android_list_images','allocatedBytesDelta':50},
+        self.assertIn({'table':'bob_android_list_images','allocatedBytesDelta':30},
                       two['growingTables'])
+        self.assertIn({'table':'bob_android_list_images','allocatedBytesDelta':50},
+                      six['growingTables'])
         self.assertIn({'table':'bob_metric_checks','allocatedBytesDelta':-50},
                       two['shrinkingTables'])
         self.assertNotIn('bob_oauth_secret',str(windows))
