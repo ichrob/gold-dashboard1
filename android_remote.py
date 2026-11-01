@@ -8,6 +8,11 @@ from android_telemetry import token_hash
 SCOPE='bob:phone:control'
 TOOLS=('bob_phone_status','bob_phone_command')
 ACTIONS=('inspect','search_gold','search_isin','read_page','stop')
+# The handset runs in the background when DEGIRO is in the foreground. Android
+# may delay remote polls for longer than 20s. Keep the *undelivered* request
+# bounded but separate its deadline from the short device execution lease.
+QUEUE_TTL=90
+DELIVERY_LEASE=20
 
 def definitions():
     common={'deviceId':{'type':'string','pattern':'^[a-f0-9]{12}$'}}
@@ -65,7 +70,12 @@ def exchange(state,value,now):
     if state['active'] and state['expiresAt']>now:
         for c in state['commands']:
             if c['status']=='queued':
-                c.update(status='delivered',deliveredAt=now);command=dict(c);break
+                c.update(status='delivered',deliveredAt=now)
+                # PhoneCommandPolicy independently rejects commands whose
+                # execution deadline is >30s away. Delayed queue delivery
+                # must not broaden that on-device protection window.
+                command=dict(c,expiresAt=min(now+DELIVERY_LEASE,c['expiresAt']))
+                break
     return state,{'ok':True,'sessionId':state['sessionId'],'command':command}
 
 def enqueue(state,a,now):
@@ -81,7 +91,7 @@ def enqueue(state,a,now):
         for c in pending:c['status']='cancelled'
     if len(state['commands'])>120 or (len(state['commands'])>=120 and a['action']!='stop'):return {'status':'session-command-limit'}
     c={k:v for k,v in a.items() if k!='deviceId'}
-    c.update(status='queued',createdAt=now,expiresAt=min(now+20,state['expiresAt']))
+    c.update(status='queued',createdAt=now,expiresAt=min(now+QUEUE_TTL,state['expiresAt']))
     state['commands'].append(c)
     return dict(c)
 
