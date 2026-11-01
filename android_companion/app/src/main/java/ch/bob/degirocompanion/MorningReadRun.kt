@@ -30,6 +30,11 @@ internal object MorningReadRun {
         if(names.isEmpty() || !terms.containsAll(names)) return emptySet()
         return names
     }
+    fun requestedLeverage(): Boolean {
+        if(!importedListRun()) return false
+        val arr=data?.optJSONObject("requestedFields")?.optJSONArray(target) ?: return false
+        return (0 until arr.length()).any { arr.optString(it)=="Hebel" }
+    }
     fun summary(): String = if (running) "Produkt ${index+1} von $count · $target · Versuch $attempt/2" else "Listenlauf nicht aktiv."
     fun expired(now: Long = SystemClock.elapsedRealtime()) = now < started || now-started >= 15*60*1000
     private fun entries(c: Context): Map<String,String> = prefs(c).all.filterKeys {
