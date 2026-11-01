@@ -8,7 +8,7 @@ internal object ProductScreenEvidence {
         ISIN_MISSING, ISIN_AMBIGUOUS, ISIN_INVALID, CURRENCY_AMBIGUOUS, QUOTES_MISSING, QUOTES_INVALID }
     data class Result(val draft: String = "", val message: String, val reason: Reason = Reason.NONE)
     fun read(packageName: String, lines: List<QuoteLayout.Line>, observedAt: String,
-             sensitive: Boolean = false): Result {
+             sensitive: Boolean = false, allowTermsOnly: Boolean = false): Result {
         if (packageName != PACKAGE) return Result(message = "Nur eine sichtbare DEGIRO-Produktseite wird gelesen.", reason = Reason.OTHER_APP)
         if (sensitive) return Result(message = "Eingabe-, Login- oder geschützte Ansicht: nichts übernommen.", reason = Reason.PROTECTED)
         if (lines.size > 500 || lines.sumOf { it.text.length } > 20000)
@@ -38,14 +38,25 @@ internal object ProductScreenEvidence {
             other.left >= label.right && other.left - label.right <= 540 &&
                 kotlin.math.abs(other.centerY - label.centerY) <= kotlin.math.max(16, label.height)
         }.flatMap { currencies(it.text) } }.distinct()
-        val currency = if (quoteCurrencies.isNotEmpty()) quoteCurrencies else if (rowCurrencies.isNotEmpty()) rowCurrencies else currencies(text)
-        if (currency.size != 1) return Result(message = "Produktwährung nicht eindeutig sichtbar; nichts übernommen.", reason = Reason.CURRENCY_AMBIGUOUS)
         // QuoteLayout consumes geometry, never arbitrary neighboring text or account data.
         val fields = QuoteLayout.extract(lines.map { it.copy(text = it.text.replace("CHF", "EUR")) })
         val amounts = listOf("Geld", "Brief", "Zuletzt", "Hebel", "KO-Schwelle", "Basispreis", "Bv")
         val selected = fields.filterKeys { it in amounts || it == "Handelsplatz" || it == "Anzeigezeit" }
-        if (selected.keys.none { it == "Geld" || it == "Brief" || it == "Zuletzt" })
-            return Result(message = "ISIN sichtbar, aber keine eindeutig beschrifteten Kurse zugänglich. Screenshot-Teilen bleibt möglich.", reason = Reason.QUOTES_MISSING)
+        val hasQuote = selected.keys.any { it in setOf("Geld", "Brief", "Zuletzt") }
+        if (!hasQuote && (!allowTermsOnly || selected.keys.none {
+                it in setOf("Hebel", "KO-Schwelle", "Basispreis", "Bv")
+            })) return Result(message = "ISIN sichtbar, aber keine eindeutig beschrifteten Kurse zugänglich. Screenshot-Teilen bleibt möglich.", reason = Reason.QUOTES_MISSING)
+        // Without quotes, never infer product currency from account balances.
+        // Require its explicit identity line or a labelled product-currency row.
+        val productCurrency = lines.filter { n ->
+            n.text.uppercase().contains(ids.single()) ||
+                n.text.trim().lowercase().startsWith("produktwährung:") ||
+                n.text.trim().lowercase().startsWith("währung:")
+        }.flatMap { currencies(it.text) }.distinct()
+        val currency = if (!hasQuote && allowTermsOnly) productCurrency
+            else if (quoteCurrencies.isNotEmpty()) quoteCurrencies
+            else if (rowCurrencies.isNotEmpty()) rowCurrencies else currencies(text)
+        if (currency.size != 1) return Result(message = "Produktwährung nicht eindeutig sichtbar; nichts übernommen.", reason = Reason.CURRENCY_AMBIGUOUS)
         val bid = selected["Geld"]?.replace(',', '.')?.toDoubleOrNull()
         val ask = selected["Brief"]?.replace(',', '.')?.toDoubleOrNull()
         if ((bid != null && bid <= 0) || (ask != null && ask <= 0) || (bid != null && ask != null && bid > ask))
