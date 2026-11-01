@@ -67,7 +67,7 @@ internal class ProductPageReader {
         // An explicit same-screen Symbol | ISIN pair is an independent identity
         // check. It must match the current requested product; a search target
         // or cached broker symbol alone never authorizes publishing a draft.
-        val footerPair = if (allowSymbolProbe && requireParameters && ids.size == 1)
+        val footerPair = if (allowSymbolProbe && ids.size == 1)
             ProductSymbolMemory.observe(lines, sensitive)?.takeIf {
                 it.isin == ids.single() &&
                     (expectedIsin == null || expectedIsin == it.isin) &&
