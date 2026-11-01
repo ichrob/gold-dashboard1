@@ -307,7 +307,46 @@ internal object MorningReadPolicy {
             }
             linked
         })
-        return isolated.singleOrNull()
+        isolated.singleOrNull()?.let { return it }
+        // On certain Samsung WebView builds the exact product-name text
+        // includes its ISIN, while the node's recorded *row* also contains
+        // separate sibling K/V controls. Do not tap the row or either control.
+        // Select only that single isolated title, and only when the K/V
+        // controls are independent clickable siblings within the same card.
+        // The later gesture layer additionally rejects any coordinates
+        // overlapping a trading control.
+        val inlineTitle=innermost(validated,validated.indices.filter { i ->
+            val title=validated[i]
+            if(!safe(title) || title.containsInput || !productName(title.text) ||
+                controls.containsMatchIn(title.text) ||
+                controls.containsMatchIn(title.description) ||
+                controls.containsMatchIn(title.hint) ||
+                title.row.length !in 1..800 ||
+                ids.findAll(title.text.uppercase()).map { it.value }.toSet()!=setOf(target) ||
+                ids.findAll(title.row.uppercase()).map { it.value }.toSet()!=setOf(target))
+                return@filter false
+            // The aggregate row may contain ONLY separately-rendered K/V
+            // labels, never an order form or a compound buy/sell title.
+            val parts=title.row.lines().map(::normalized).filter(String::isNotBlank)
+            val controlParts=parts.filter(controls::containsMatchIn)
+            if(controlParts.toSet()!=setOf("K","V") || controlParts.size!=2) return@filter false
+            if(validated.indices.any { j -> j!=i && ancestorOf(i,j) &&
+                listOf(validated[j].text,validated[j].description).any(controls::containsMatchIn) })
+                return@filter false
+            val parent=title.parent
+            if(parent !in validated.indices || parent==i) return@filter false
+            val card=validated[parent]
+            if(!safe(card) || card.row.length !in 1..800 ||
+                ids.findAll(card.row.uppercase()).map { it.value }.toSet()!=setOf(target) ||
+                !productName(card.row)) return@filter false
+            val siblings=validated.indices.filter { j ->
+                j!=i && validated[j].parent==parent &&
+                    normalized(validated[j].text).uppercase() in setOf("K","V") &&
+                    safe(validated[j]) && canClick(validated[j])
+            }.map { normalized(validated[it].text).uppercase() }
+            siblings.toSet()==setOf("K","V") && siblings.size==2
+        })
+        return inlineTitle.singleOrNull()
     }
 
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })

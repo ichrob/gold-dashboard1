@@ -401,6 +401,41 @@ class MorningReadPolicyTest {
         assertNull(MorningReadPolicy.resultTapIndex(view+MorningReadPolicy.Node("Passwort"),target))
         assertNull(MorningReadPolicy.resultTapIndex(view+MorningReadPolicy.Node("Limitpreis"),target))
     }
+    private fun degiroFd0InlineIsinResult():List<MorningReadPolicy.Node> {
+        val isin="DE000FD0S0G4"
+        val title="SG Gold Turbo Unlimited Mini Call BAR 3942 BP 3902.92 Bv 10 | $isin"
+        val aggregate="$title\nSociete Generale OTC EUR\nK\nV"
+        return listOf(
+            MorningReadPolicy.Node(isin,editable=true,hint="Mit Namen, ISIN oder Symbol suchen"),
+            MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node("",row=aggregate),
+            MorningReadPolicy.Node(title,row=aggregate,parent=2),
+            MorningReadPolicy.Node("K",clickable=true,parent=2),
+            MorningReadPolicy.Node("V",clickable=true,parent=2))
+    }
+    @Test fun visibleExactInlineIsinResultWithSeparateKVCanTapOnlyTitle() {
+        val nodes=degiroFd0InlineIsinResult()
+        assertEquals(3,MorningReadPolicy.resultTapIndex(nodes,"DE000FD0S0G4"))
+    }
+    @Test fun inlineIsinProductResultNeverClicksTradeActionsOrChangedIdentity() {
+        val isin="DE000FD0S0G4"
+        val view=degiroFd0InlineIsinResult()
+        val rejected=listOf(
+            view.mapIndexed { i,n -> if(i==0)n.copy(text="DE000FG8K0P8") else n },
+            view.mapIndexed { i,n -> if(i==3)n.copy(text=n.text.replace(isin,"DE000FE6B3G9")) else n },
+            view.mapIndexed { i,n -> if(i==3)n.copy(text=n.text+" Kaufen") else n },
+            view.mapIndexed { i,n -> if(i==3)n.copy(description="Kaufen") else n },
+            view.mapIndexed { i,n -> if(i==3)n.copy(row=n.row.replace("\nK\nV","\nKauf\nV")) else n },
+            view.mapIndexed { i,n -> if(i==4)n.copy(clickable=false) else n },
+            view.mapIndexed { i,n -> if(i==4)n.copy(parent=3) else n },
+            view.mapIndexed { i,n -> if(i==1)n.copy(text="Alle") else n },
+            view + MorningReadPolicy.Node("Order bestätigen"),
+            view + MorningReadPolicy.Node("",password=true),
+            view + view[3],
+            view + MorningReadPolicy.Node("DE000FE6B3G9"))
+        for((index,nodes) in rejected.withIndex())
+            assertNull("Unsafe inline result $index",MorningReadPolicy.resultTapIndex(nodes,isin))
+    }
     @Test fun capturedTenGoldRowsCanScrollToSearchWithoutWaitingForServerOcr() {
         val captured=setOf("DE000FB0CVV9","DE000SQ02JQ6","DE000FG8NHQ3",
             "DE000FG0SGZ2","DE000FD0S0G4","DE000FE2JJ20","DE000FG77MY4",
