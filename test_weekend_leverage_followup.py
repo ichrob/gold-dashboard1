@@ -64,7 +64,8 @@ class WeekendTests(unittest.TestCase):
         reader['results'][0]['observation']['missingFields']=[]
         self.assertEqual(wk.targets(feed,reader,SUNDAY),ISINS[1:])
         reader['results'][0]['observation']['missingFields']=['Hebel']
-        audit['items'][0]['weekendLeverageFollowup']={'retryAfterMs':SUNDAY+1000}
+        audit['items'][0]['weekendLeverageFollowup']={'retryAfterMs':SUNDAY+1000,
+                                                         'policyVersion':wk.SOURCE_POLICY_VERSION}
         self.assertEqual(wk.plan(feed,reader,audit,SUNDAY),ISINS[1:])
         reader['listUploadedAt']=datetime.fromtimestamp((SUNDAY-2*DAY)/1000,ZoneInfo('Europe/Zurich')).isoformat()
         self.assertEqual(wk.targets(feed,reader,SUNDAY),[])
@@ -98,6 +99,51 @@ class WeekendTests(unittest.TestCase):
         self.assertIn('leverage-time',item['missing'])
         self.assertEqual(result['items'][1],audit['items'][1])
         self.assertEqual(wk.plan(feed,reader,result,SUNDAY),ISINS[1:])
+
+    def test_exact_official_knockout_precedes_missing_leverage_retries(self):
+        from public_product_terms import get_product
+        feed,reader,audit=sample()
+        earlier=wk.plan(feed,reader,audit,SUNDAY)
+        self.assertEqual(earlier,ISINS)
+        for isin in (ISINS[0],ISINS[2]):
+            raw=get_product(isin)
+            self.assertTrue(raw['productVerified'])
+            self.assertEqual(raw['metadata']['status'],2)
+            self.assertEqual(raw['terminalEvidence']['confirmedOn'],'2026-10-30')
+            self.assertEqual(raw['terminalEvidence']['isin'],isin)
+            self.assertFalse(raw['terminalEvidence']['tradeApproved'])
+        incoming={isin:get_product(isin) for isin in (ISINS[0],ISINS[2])}
+        revised=wk.update(audit,feed,ISINS,incoming,SUNDAY)
+        for i in (0,2):
+            ended=revised['items'][i]
+            self.assertEqual(ended['state'],'terminated')
+            self.assertEqual(ended['weekendLeverageFollowup']['state'],'issuer-terminal')
+            self.assertIsNone(ended['leverageReference'])
+            self.assertFalse(ended['tradeApproved'])
+            self.assertEqual(ended['sourceStatusEvidence']['issuerTerminal'],True)
+            self.assertNotIn('leverage-time',ended['missing'])
+        self.assertEqual(wk.plan(feed,reader,revised,SUNDAY),[])
+        # The still-active third product keeps its bounded source retry.
+        self.assertEqual(wk.plan(feed,reader,revised,SUNDAY+wk.RETRY_MS+1),
+                         [ISINS[1]])
+        self.assertEqual(revised['items'][1]['weekendLeverageFollowup']['state'],
+                         'source-evidence-unavailable')
+
+    def test_secondary_inactive_hint_is_not_knockout_and_policy_upgrade_rechecks_once(self):
+        feed,reader,audit=sample()
+        for item in audit['items']:
+            item['weekendLeverageFollowup']={'attempts':3,'retryAfterMs':SUNDAY+3600000}
+        self.assertEqual(wk.plan(feed,reader,audit,SUNDAY),ISINS)
+        raw=dict(isin=ISINS[0],productVerified=True,sourceUrl='https://example.invalid',
+                 terminalEvidence=dict(status='knocked_out',sourceUrl='https://example.invalid'),
+                 metadata=dict(status=1))
+        revised=wk.update(audit,feed,ISINS[:1],{ISINS[0]:raw},SUNDAY)
+        self.assertEqual(revised['items'][0]['state'],'incomplete')
+        self.assertEqual(revised['items'][0]['weekendLeverageFollowup']['policyVersion'],
+                         wk.SOURCE_POLICY_VERSION)
+        self.assertNotIn(ISINS[0],wk.plan(feed,reader,revised,SUNDAY))
+        self.assertEqual(revised['items'][0]['weekendLeverageFollowup']['state'],
+                         'source-evidence-unavailable')
 
     def test_one_bounded_background_round_is_idempotent_with_no_market_orders(self):
         feed,reader,audit=sample();db=DB(feed,reader,audit)
