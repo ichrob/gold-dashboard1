@@ -198,9 +198,18 @@ internal object MorningReadPolicy {
     }
     /** A gesture may target only a unique product-name label, never the row's K/V controls. */
     fun resultTapIndex(nodes: List<Node>, target: String): Int? {
-        val action=decide(nodes,target)
+        // A DEGIRO search results page can retain a separate "Order platzieren"
+        // launcher. It is NOT a permission to touch that button. Validate the
+        // isolated exact launcher and search input, then ignore only that one
+        // launcher while selecting a separately validated product-name label.
+        // A real order form, compound launcher, extra input or confirmation
+        // remains protected; no other order marker may be stripped.
+        val initial=decide(nodes,target)
+        val validated=if(initial.kind==Kind.BLOCK && initial.code=="PROTECTED_ORDER_CONFIRM")
+            productSearchWithoutLauncher(nodes) ?: return null else nodes
+        val action=if(validated===nodes) initial else decide(validated,target)
         if(action.kind !in setOf(Kind.RESULT,Kind.WAIT,Kind.SUBMIT)) return null
-        val input=nodes.filter { it.editable }.singleOrNull() ?: return null
+        val input=validated.filter { it.editable }.singleOrNull() ?: return null
         if(input.text!=target || !isSearchInput(input.id,input.description,input.hint)) return null
         val controls=Regex("(?iu)\\b(k|v|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b")
         fun productName(value:String)=Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(value) &&
