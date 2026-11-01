@@ -16,6 +16,12 @@ on:
       - "bob_oauth*.py"
       - "server.py"
       - "push_server.py"
+      # Manually invoked archive writer/CLI are security-sensitive code paths.
+      - "decision_product_pilot.py"
+      - "decision_product_pilot_cli.py"
+      - "cold_decision_product_writer.py"
+      - "cold_decision_products.py"
+      - "test_decision_product_pilot*"
 
 permissions:
   contents: read
