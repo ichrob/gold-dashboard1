@@ -22,7 +22,7 @@ def timestamp(value):
     return at
 
 
-def parse_draft(raw, isin, now):
+def parse_draft(raw, isin, now, requested_fields=None):
     if not isinstance(raw,str) or len(raw)>8000: raise ValueError('Leseentwurf zu groß')
     lines=raw.splitlines()
     if not lines or lines[0]!='BOB APP-LESEENTWURF – NICHT VERIFIZIERT': raise ValueError('App-Entwurf fehlt')
@@ -43,7 +43,15 @@ def parse_draft(raw, isin, now):
     if fields.get('Hinweis') not in ('Handel eingeschränkt','Kurse verzögert','Keine Aussage zur Handelbarkeit'): raise ValueError('Hinweis fehlt')
     for key in ('Geld','Brief','Zuletzt','Hebel','KO-Schwelle','Basispreis','Bv'):
         if key in fields and (not re.fullmatch(r'\d{1,9}(?:[,.]\d{1,4})?',fields[key]) or float(fields[key].replace(',','.'))<=0): raise ValueError('Ungültige Zahl')
-    if not any(k in fields for k in ('Geld','Brief','Zuletzt')): raise ValueError('Kurs fehlt')
+    if not any(k in fields for k in ('Geld','Brief','Zuletzt')):
+        # No quotes are accepted only when a bounded, explicit missing-field
+        # plan requests terms, and at least one requested term is visible.
+        # Historical/independent app drafts still need an actual quote.
+        terms={'Hebel','KO-Schwelle','Basispreis','Bv','Währung'}
+        if (not isinstance(requested_fields,list) or not requested_fields or
+                not set(requested_fields)<=terms or
+                not set(requested_fields)&set(fields)):
+            raise ValueError('Kurs fehlt')
     if 'Geld' in fields and 'Brief' in fields and float(fields['Geld'].replace(',','.'))>float(fields['Brief'].replace(',','.')): raise ValueError('Widersprüchliches Kurspaar')
     if 'Anzeigezeit' in fields:
         datetime.strptime(fields['Anzeigezeit'],'%d/%m/%Y %H:%M')
@@ -83,8 +91,8 @@ def prepare(payload, feed, now=None):
         attempts=row.get('attempts')
         if type(attempts) is not int or not 1<=attempts<=2: raise ValueError('Versuchszahl ungültig')
         raw=row.get('draft','')
-        observation=parse_draft(raw,row['isin'],now) if raw else None
         required_fields=requested[row['isin']] if requested is not None else None
+        observation=parse_draft(raw,row['isin'],now,required_fields) if raw else None
         if observation is not None and required_fields is not None:
             # Only the fields actually requested by Bob determine whether the
             # product's bounded follow-up is complete. The original screen
