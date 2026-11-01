@@ -341,6 +341,23 @@ internal object MorningReadPolicy {
         // A WebView can retain focus after hiding the keyboard. Open it before editing.
         return if(action.kind==Kind.QUERY && !keyboardReady) action.copy(kind=Kind.FOCUS) else action
     }
+    /** Move back toward the existing search only after ten exact list identities
+     * were captured. This permits SCROLL_BACKWARD, not a product tap, input, or
+     * acceptance of still-pending server OCR. Reject every ambiguous surface. */
+    fun listReturnScrollTarget(nodes: List<Node>, backwardIndices: Set<Int>, capturedIsins: Set<String>): Int? {
+        if (capturedIsins.size != 10 || capturedIsins.any { !SeriesEvidence.validIsin(it) } ||
+            nodes.any { it.editable || it.password || it.sensitive }) return null
+        val action=captureGoldList(nodes,true)
+        if (action.kind!=Kind.COLLECT || action.isins.isEmpty() ||
+            !capturedIsins.containsAll(action.isins)) return null
+        val candidates=backwardIndices.filter { i ->
+            i in nodes.indices && nodes[i].enabled && !nodes[i].containsInput &&
+                !nodes[i].password && !nodes[i].sensitive &&
+                action.isins.any { nodes[i].row.contains(it) }
+        }
+        return innermost(nodes,candidates).singleOrNull()
+    }
+
     /** Continue only an already captured Top Results list. The search header may
      * scroll out of the accessibility tree. A synthetic context node is used only
      * for policy validation; no action can target it or any product row. */
