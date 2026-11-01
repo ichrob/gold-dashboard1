@@ -119,7 +119,10 @@ def _execute():
                       _drive(), key, batch_id, scope)
     if (result.get("status") != "independent-encrypted-original-verified" or
             result.get("deletionAuthorized") is not False or
-            result.get("sourcePreserved") is not True):
+            any(result.get(name) is not True for name in (
+                "sourcePreserved", "encryptionVerified",
+                "remoteDownloadVerified", "independentServerVerified",
+                "fullBatchRoundTripVerified", "allReferencesVerified"))):
         raise ValueError("Private remote proof insufficient")
     return {"status": "verified", "imageBackupExecuted": True,
             "encryptionVerified": True,
