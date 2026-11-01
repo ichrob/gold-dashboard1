@@ -45,7 +45,17 @@ SEGMENT_BYTES = 32 * 1024 * 1024
 
 def selected_tables():
     from paper_portfolios import POLICIES, names
-    return TABLES | {'bob_cold_metric_batches','bob_cold_analysis_batches','bob_cold_observation_objects','bob_cold_observation_scan'} | {table for profile in POLICIES for table in names(profile).values()}
+    # Keep an archived decision's exact content address and per-decision link
+    # in the *same* reviewed evidence snapshot as bob_decision_audit.
+    # These tables are optional before the first explicitly approved pilot.
+    # A restored pointer without its ledger would be unresolvable history.
+    cold_ledgers = {
+        'bob_cold_metric_batches', 'bob_cold_analysis_batches',
+        'bob_cold_observation_objects', 'bob_cold_observation_scan',
+        'bob_cold_decision_product_objects', 'bob_cold_decision_product_refs',
+        'bob_cold_decision_product_scan', 'bob_cold_decision_pilot_attempts',
+    }
+    return TABLES | cold_ledgers | {table for profile in POLICIES for table in names(profile).values()}
 
 
 def digest(path):
