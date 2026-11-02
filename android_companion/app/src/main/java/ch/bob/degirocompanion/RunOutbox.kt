@@ -4,6 +4,20 @@ package ch.bob.degirocompanion
 internal object RunOutbox {
     const val CURRENT = "outbox"
     const val PREFIX = "saved_run_"
+    /** Local-only generation for detecting new evidence in the durable queue.
+     * The digest is never sent to Bob or exposed in logs. */
+    fun generation(entries: Map<String,String>): String {
+        val digest=java.security.MessageDigest.getInstance("SHA-256")
+        entries.toSortedMap().forEach { (key,value) ->
+            fun add(s:String) {
+                val bytes=s.toByteArray(Charsets.UTF_8)
+                digest.update(java.nio.ByteBuffer.allocate(4).putInt(bytes.size).array())
+                digest.update(bytes)
+            }
+            add(key);add(value)
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+    }
     fun candidateKeys(entries: Map<String, String>): List<String> =
         (if (CURRENT in entries) listOf(CURRENT) else emptyList()) +
             entries.keys.filter { it.startsWith(PREFIX) }.sorted()
