@@ -12,6 +12,9 @@ CODES = set('LIST_TOP_RESULTS_MISSING LIST_TOP_RESULTS_OVERFLOW LIST_TOP_RESULTS
 
 # Fixed app navigation/stop events can accompany already captured observations.
 # They never establish quote completeness or loosen draft validation.
+# 10423+ intentionally records this fail-closed handoff when BACK/search cannot
+# be verified. It is a diagnostic result, never a successful read or quote.
+CODES.update("RETURN_NOT_CONFIRMED".split())
 CODES.update("RESULT_TAP_SENT RESULT_TAP_REJECTED LIST_RESTORE_NO_TARGET LIST_RESTORE_LIMIT LIST_RESTORE_REJECTED CATEGORY_NO_PROGRESS CATEGORY_AMBIGUOUS CATEGORY_RESULTS_PENDING CATEGORY_STRIP_AMBIGUOUS SESSION_EXPIRED SESSION_MISMATCH REMOTE_STOP SERVICE_STOPPED SERVICE_MISSING READ_ERROR".split())
 
 
