@@ -8,6 +8,9 @@ import hashlib
 import json
 import math
 import re
+import os
+import threading
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -17,6 +20,8 @@ _PROFILES = ("conservative", "balanced", "offensive", "early100",
 _PAGE = 8
 _RECEIPT = "model-gross-arithmetic-consistent-v1"
 _DAY = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
+_THREAD = None
+_START_LOCK = threading.Lock()
 
 
 def init(conn):
@@ -217,3 +222,50 @@ def report(conn):
     except Exception:
         return {"status": "not-observed", "readOnly": True,
                 "deletionAuthorized": False, "physicalBytesFreed": None}
+
+
+def run_once(factory=None):
+    """Own database connection; never block a market or diagnostic writer."""
+    if factory is None:
+        factory = __import__("cold_metrics").connect
+    with factory() as conn:
+        if not conn.autocommit:
+            raise ValueError("Dedicated autocommit connection required")
+        if not conn.execute("""SELECT pg_try_advisory_lock(
+            hashtext('bob-paper-final-receipts-v1'))""").fetchone()[0]:
+            return {"status": "busy", "sourceWrites": 0}
+        return capture(conn)
+
+
+def start():
+    """Periodic bounded reader/writer separate from all live trade workers."""
+    global _THREAD
+    if (not os.environ.get("DATABASE_URL")
+            or os.environ.get("BOB_PAPER_FINAL_RECEIPTS_DISABLED") == "1"):
+        return
+    with _START_LOCK:
+        if _THREAD is not None:
+            return
+        def loop():
+            time.sleep(240)
+            while True:
+                try:
+                    if __import__("archive_worker").status().get("status") == "running":
+                        outcome = {"status": "archive-running"}
+                    else:
+                        outcome = run_once()
+                except Exception as exc:
+                    outcome = {"status": "deferred", "errorType": type(exc).__name__}
+                # No source IDs, prices, receipts, device data or secrets in logs.
+                statuses = outcome.get("areas") or {}
+                print("BOB_PAPER_FINAL_RECEIPTS "
+                      + json.dumps({"status": outcome["status"],
+                                    "ledgersChecked": sum(
+                                        v.get("status") == "checked" for v in statuses.values()),
+                                    "ledgerConflicts": sum(
+                                        v.get("conflicts", 0) for v in statuses.values())},
+                                   sort_keys=True), flush=True)
+                time.sleep(1800)
+        _THREAD = threading.Thread(target=loop, name="bob-paper-final-receipts",
+                                   daemon=True)
+        _THREAD.start()
