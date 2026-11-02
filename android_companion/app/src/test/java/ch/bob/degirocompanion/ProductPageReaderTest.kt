@@ -60,6 +60,56 @@ class ProductPageReaderTest {
         assertEquals("",wrong.result.draft)
     }
 
+    @Test fun verifiedFooterQuoteMustNotFinishBeforeRequestedHeaderLv() {
+        // Same DEGIRO product, but on two different visible scroll sections:
+        // bottom Kursdaten has exact ISIN and current quotes; header has LV.
+        val footer=lines("DE000SX7PE82 EUR", "Kursdaten",
+            "Geld € 40,66", "Brief € 40,67", "Zuletzt € 40,66")
+        val header=lines("DE000SX7PE82", "SG Gold Turbo BEST Open-End Call",
+            "BAR 3501.67 BP 3501.67 Bv 10 LV 8.71")
+        val r=ProductPageReader()
+        val seek=r.inspect(1,footer,at,false,canForward=false,canBackward=true,
+            requireParameters=true,allowSymbolProbe=true,seekLeverage=true,
+            expectedIsin="DE000SX7PE82")
+        assertEquals(ProductPageReader.Move.BACKWARD,seek.move)
+        assertEquals("",seek.result.draft)
+        val done=r.inspect(1,header,at,false,canForward=true,canBackward=false,
+            requireParameters=true,allowSymbolProbe=true,seekLeverage=true,
+            expectedIsin="DE000SX7PE82")
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        for (value in listOf("ISIN: DE000SX7PE82",
+            "Geld (Anzeige ungeprüft): 40,66",
+            "Brief (Anzeige ungeprüft): 40,67",
+            "Hebel (Anzeige ungeprüft): 8,71",
+            "KO-Schwelle (Anzeige ungeprüft): 3501,67"))
+            assertTrue("Not captured: $value",done.result.draft.contains(value))
+        assertFalse(r.anchored)
+    }
+
+    @Test fun quoteHeaderSeekNeverBorrowsAnotherIsinOrUnlabelledChartNumber() {
+        val footer=lines("DE000SX7PE82 EUR", "Kursdaten",
+            "Geld € 40,66", "Brief € 40,67")
+        fun start(): ProductPageReader = ProductPageReader().also {
+            val seek=it.inspect(1,footer,at,false,false,true,
+                requireParameters=true,allowSymbolProbe=true,seekLeverage=true,
+                expectedIsin="DE000SX7PE82")
+            assertEquals(ProductPageReader.Move.BACKWARD,seek.move)
+        }
+        val wrong=start().inspect(1,lines("DE000FB0CVV9",
+            "SG Gold Turbo BEST Open-End Put BAR 4088.97 BP 4088.97 Bv 10 LV 28.52"),
+            at,false,true,true,requireParameters=true,allowSymbolProbe=true,
+            seekLeverage=true,expectedIsin="DE000SX7PE82")
+        assertEquals(ProductPageReader.Move.ABORT,wrong.move)
+        assertEquals("",wrong.result.draft)
+        val correctButNoLv=start().inspect(1,lines("DE000SX7PE82",
+            "SG Gold Turbo BEST Open-End Call BAR 3501.67 BP 3501.67 Bv 10",
+            "Chart 42.04", "Account CHF 504,76"),
+            at,false,true,false,requireParameters=true,allowSymbolProbe=true,
+            seekLeverage=true,expectedIsin="DE000SX7PE82")
+        assertEquals(ProductPageReader.Move.FINISHED,correctButNoLv.move)
+        assertFalse(correctButNoLv.result.draft.contains("Hebel (Anzeige ungeprüft):"))
+    }
+
     @Test fun requestedLeverageReadsPastTheQuotePairWithSameRealIsin() {
         val r=ProductPageReader()
         val first=lines("DE000FE2JJ20 CHF","Geld CHF 0,518","Brief CHF 0,528")
