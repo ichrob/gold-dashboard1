@@ -195,7 +195,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   if(handset){
    const oldOpen=new Map([...handset.querySelectorAll('details[data-isin]')].map(x=>[x.dataset.isin,x.open]));
    handset.replaceChildren();
-   const observed=items.filter(item=>item.state!=='terminated'&&item.handsetObservation);
+   const observed=items.filter(item=>item.handsetObservation&&item.state!=='excluded-factor');
    const intro=document.createElement('p');intro.className='small';
    intro.textContent=observed.length?
     observed.length+' Produktbeobachtungen gespeichert · kein verifizierter Live-Kurs. Werte bleiben vom Emittenten-Nachweis getrennt.':
@@ -205,14 +205,15 @@ PANEL = r'''<section id="bobProductAudit" class="card">
     const read=item.handsetObservation;
     const row=document.createElement('details');row.dataset.isin=item.isin;row.open=oldOpen.get(item.isin)===true;
     const summary=document.createElement('summary');
-    summary.textContent=item.isin+' · '+(read.code==='COMPLETE'?'Angeforderte Felder gelesen':read.code==='PARTIAL'?'Teilweise gelesen':'Lesung nicht abgeschlossen');
+    summary.textContent=item.isin+' · '+(item.state==='terminated'?'Beendet · historische Handy-Beobachtung':read.code==='COMPLETE'?'Angeforderte Felder gelesen':read.code==='PARTIAL'?'Teilweise gelesen':'Lesung nicht abgeschlossen');
     row.append(summary);
     const display=document.createElement('p');display.className='small';display.style.whiteSpace='pre-line';
     const vals=read.fields||{};
     const labels={'Geld':'Geld','Brief':'Brief','Anzeigezeit':'Angezeigte Kurszeit (nicht validiert)','Hebel':'Hebel','KO-Schwelle':'KO-Schwelle','Basispreis':'Basispreis','Bv':'Bezugsverhältnis','Währung':'Währung'};
     const fieldLines=Object.entries(labels).filter(([k])=>typeof vals[k]==='string')
      .map(([k,label])=>label+': '+safe(vals[k]));
-    display.textContent='Quelle: DEGIRO-Handy · als ungeprüft erfasst: '+(read.observedAt?fmt(read.observedAt):'nicht bestätigt')+
+    display.textContent=(item.state==='terminated'?'⚠ Produkt vom Emittenten als beendet gemeldet. Nachfolgende alte App-Kurse sind nicht aktuell oder handelbar.\n':'')+
+     'Quelle: DEGIRO-Handy · als ungeprüft erfasst: '+(read.observedAt?fmt(read.observedAt):'nicht bestätigt')+
      '\n'+(fieldLines.length?fieldLines.join('\n'):'Keine verifizierbaren App-Felder gespeichert')+
      '\nFehlende angeforderte Werte: '+(Array.isArray(read.missingFields)&&read.missingFields.length?read.missingFields.join(', '):'keine')+
      '\nKeine Handelsfreigabe. Erfassungszeit ist keine Kurszeit. Emittenten-/KO-Nachweise bleiben separat.';
@@ -259,6 +260,14 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
         ' · Hebelzeit: '+leverageTimeLabel(item)+
+        // Public portal values without their own original timestamp are
+        // useful research references, never current gearing or proof of
+        // marketability. They must not clear any audit missing-code.
+        (typeof item.fieldRecovery?.observations?.leverage?.value==='number'&&
+         Number.isFinite(item.fieldRecovery.observations.leverage.value)&&
+         item.fieldRecovery.observations.leverage.value>0&&
+         !item.fieldRecovery.observations.leverage.at?
+         '\nUndatierter Portal-Hebel (nur Recherche): '+item.fieldRecovery.observations.leverage.value.toFixed(2)+'x · Zeitbezug fehlt, keine Handelsfreigabe.':'')+
         (Number.isFinite(item.leverageReference?.value)&&item.leverageReference.value>0?
          '\nHistorischer Hebel als Recherche-Referenz: '+item.leverageReference.value.toFixed(2)+'x · '+fmt(item.leverageReference.at)+
          ' · '+(item.leverageReference.kind==='historical-issuer-leverage'?'früherer Originalhebel':'historisch berechneter Näherungswert')+

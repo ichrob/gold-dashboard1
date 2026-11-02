@@ -775,9 +775,19 @@ def read(conn, now_ms=None):
         handset = android_observations.research_summary(
             conn, generation, seen, datetime.fromtimestamp(now_ms/1000, timezone.utc))
         if handset:
-            report['items'] = [dict(deepcopy(item), handsetObservation=handset[item['isin']])
-                               if item.get('isin') in handset and item.get('state') != 'terminated'
-                               else item for item in report.get('items', [])]
+            # The audit and the original device observation are independent.
+            # A later issuer terminal status must not erase a historical, already
+            # saved screen observation. However this layer can NEVER establish a
+            # current market quote, execution venue, leverage time or approval.
+            report['items'] = [
+                dict(deepcopy(item), handsetObservation=dict(
+                    deepcopy(handset[item['isin']]),
+                    historicalOnly=True,
+                    terminalAtAudit=item.get('state') == 'terminated',
+                ))
+                if item.get('isin') in handset and item.get('state') != 'excluded-factor'
+                else item for item in report.get('items', [])
+            ]
             report['handsetResearchOnly'] = True
             report['handsetReadCount'] = len(handset)
     except Exception:
