@@ -170,7 +170,7 @@ def update_signal_study(conn,control,study,decision,quality,now):
         if outcome is None:
             pending.append(item)
             continue
-        item={**item,**outcome,closedAt=now}
+        item={**item,**outcome,"closedAt":now}
         close_case(conn,item,now)
         control["casesPriced" if item["status"]=="priced-reference-spot-only"
                 else "casesInconclusive"]+=1
