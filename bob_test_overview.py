@@ -61,6 +61,30 @@ def snapshot(report, now):
             missing='Abschluss und vollständige Nettoauswertung separat prüfen.',
             note='Gespeicherter Modellstand mit angenommenen Kosten; kein Broker-Fill, '
                  'kein verifizierter Gewinn und kein Beleg kontinuierlicher Ausführung.'))
+    # The three new studies belong in the existing test inventory. They are
+    # independently journalled, not extra live trading portfolios.
+    shadow=(areas.get('simulationAndPush') or {}).get('shadowStudies') or {}
+    found={item.get('study'):item for item in shadow.get('studies',[])
+           if isinstance(item,dict) and item.get('study') in
+           ('regime-routing','wait-vs-enter','product-e2e')}
+    phase=((areas.get('simulationAndPush') or {}).get('paper') or {}).get('sessionMode')
+    for study,label in (
+        ('regime-routing','Marktphasen-Vergleich'),
+        ('wait-vs-enter','Abwarten gegen Einsteigen'),
+        ('product-e2e','1.000 € · vollständiger Goldprodukt-Modellverlauf')):
+        data=found.get(study) or {}
+        observed=shadow.get('status') in ('observed','partial') and bool(data)
+        recent=observed and fresh(data.get('checkedAt'),now,120)
+        state=('checked' if recent else 'night-paused'
+               if observed and phase in ('night','weekend') else 'unavailable')
+        rows.append(dict(id='shadow-'+study,label=label,state=state,
+            startedAt=data.get('startedAt'),lastObservedAt=data.get('checkedAt'),
+            sampledRecords=count(data.get('eventsRecorded')) if observed else None,
+            comparableCases=count(data.get('casesPriced')) if observed else None,
+            completed=False,truncated=False,
+            missing='Vorwärtsvergleich mit Originalzeitstempeln, ohne Broker-Ausführungsbeleg.',
+            note='Jede Papier-Auswertung dauerhaft protokolliert; kein Echtgeld, '
+                 'keine bestätigte Nettorendite. Ungeklärte Fälle bleiben ungeklärt.'))
     chain_accounts=(evidence.get('accountSamples') or
                     (areas.get('simulationAndPush') or {}).get('accounts',[]))
     chains=[c.get('evidenceChain') for a in chain_accounts

@@ -29,6 +29,36 @@ class RiskPaperOverviewTests(unittest.TestCase):
         self.assertNotIn('hidden',str(result))
         self.assertEqual(report,before)
 
+    def test_new_full_journal_studies_are_in_test_overview(self):
+        source=self.report()
+        source['areas']['simulationAndPush']={
+            'paper':{'sessionMode':'trading'},
+            'shadowStudies':{'status':'observed',
+                             'studies':[{'study':'regime-routing','startedAt':800,
+                                         'checkedAt':1000,'eventCount':4,'eventsRecorded':9,
+                                         'casesPriced':2},
+                                        {'study':'wait-vs-enter','startedAt':800,
+                                         'checkedAt':1000,'eventsRecorded':9,
+                                         'casesPriced':0},
+                                        {'study':'product-e2e','startedAt':800,
+                                         'checkedAt':1000,'eventsRecorded':9,
+                                         'casesPriced':1}]}}
+        before=copy.deepcopy(source)
+        rows={r['id']:r for r in overview.snapshot(source,1001)['items']
+              if r['id'].startswith('shadow-')}
+        self.assertEqual(set(rows),{'shadow-regime-routing','shadow-wait-vs-enter',
+                                    'shadow-product-e2e'})
+        self.assertEqual(rows['shadow-regime-routing']['state'],'checked')
+        self.assertEqual(rows['shadow-product-e2e']['comparableCases'],1)
+        self.assertEqual(rows['shadow-regime-routing']['sampledRecords'],9)
+        self.assertTrue(all(not r['completed'] and not r['truncated']
+                            for r in rows.values()))
+        self.assertEqual(source,before)
+        source['areas']['simulationAndPush']['paper']['sessionMode']='night'
+        rows={r['id']:r for r in overview.snapshot(source,200000)['items']
+              if r['id'].startswith('shadow-')}
+        self.assertTrue(all(r['state']=='night-paused' for r in rows.values()))
+
     def test_missing_variant_stays_visible_and_unavailable(self):
         report=self.report(status='partial')
         del report['areas']['riskPaper']['accounts'][1]

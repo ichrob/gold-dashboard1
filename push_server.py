@@ -233,6 +233,7 @@ def _init_db_once():
         bob_session_store.init(conn)
         __import__("remote_push").init(conn)
         __import__("risk_paper").init(conn)
+        __import__("paper_shadow_studies").init(conn)
         bob_recovery.init(conn)
         bob_passkey_store.init(conn)
         bob_oauth_store.init(conn)

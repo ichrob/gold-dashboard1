@@ -191,6 +191,7 @@ def init(conn):
     import paper_portfolios
     paper_portfolios.init(conn)
     paper_stop_study.init(conn)
+    __import__('paper_shadow_studies').init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -1213,6 +1214,16 @@ def _worker(db):
                             paper_input_evidence.capture(bundle,input_observations,time.time()*1000)
                         except Exception:
                             print('BOB_PAPER_INPUT_AUDIT unavailable',flush=True)
+                        # Durable normal ledgers are already COMMITTED before
+                        # any optional full-evidence study writes begin. A
+                        # study failure cannot roll them back or forge fills.
+                        try:
+                            import paper_shadow_studies
+                            with conn.transaction():
+                                paper_shadow_studies.tick(
+                                    conn,bundle,market,selection,quotes,time.time()*1000)
+                        except Exception as shadow_exc:
+                            print('BOB_SHADOW_STUDIES error='+type(shadow_exc).__name__,flush=True)
                         print('BOB_PAPER checked profiles='+str(outcomes)+
                               ' direction='+str(market.get('direction'))+
                               ' ready='+str(market.get('ready'))+
