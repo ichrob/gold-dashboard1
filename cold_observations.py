@@ -173,8 +173,8 @@ def start():
                 if __import__('archive_worker').status().get('status')=='running':result={'status':'archive-running'}
                 else:
                     result=run_once()
-                    if result.get('status')=='checked':
-                        result['maintenance']=__import__('storage_maintenance').run_once(reclaim_observation_tail=True)
+                    # Defer maintenance to the separately scheduled worker:
+                    # no per-archive-cycle table-tail vacuum or extra lock.
             except Exception as exc:result={'status':'deferred','errorType':type(exc).__name__}
             print('BOB_COLD_OBSERVATIONS '+json.dumps(result,sort_keys=True),flush=True)
             time.sleep(__import__('storage_pressure').delay(result))

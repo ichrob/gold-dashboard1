@@ -273,10 +273,9 @@ def start():
                         result = {'status': 'archive-running'}
                     else:
                         result = run_once()
-                        if result.get('status') == 'checked':
-                            # The offload connection has closed/committed before
-                            # normal maintenance makes old tuple space reusable.
-                            result['maintenance'] = __import__('storage_maintenance').run_once(reclaim_metric_tail=True)
+                        # Only the independent bounded storage-maintenance
+                        # worker may vacuum. Re-running tail VACUUM every time
+                        # no cold rows qualify causes unnecessary lock pressure.
                 except Exception as exc:
                     result = {'status': 'deferred', 'errorType': type(exc).__name__}
                 print('BOB_COLD_METRICS ' + json.dumps(result, sort_keys=True), flush=True)
