@@ -1770,6 +1770,11 @@ if __name__ == "__main__":
     # source update; its separate flag is off by default.
     import storage_repack_bloat_probe
     storage_repack_bloat_probe.start_if_enabled()
+    # Explicitly opted, single-table physical reclaim. Its off-hours window,
+    # verified backup, measured bloat, WAL/scratch capacity and durable claim
+    # all fail closed. Never a public HTTP route or live paper-trade action.
+    import storage_repack_improvement_once
+    storage_repack_improvement_once.start_if_enabled()
     # Process/child memory telemetry is read-only and never blocks Push.
     import memory_watch
     # Reclaim only already-freed glibc allocator pages under sustained pressure.
