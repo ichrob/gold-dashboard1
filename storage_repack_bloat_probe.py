@@ -11,7 +11,8 @@ import time
 
 _TARGET = "public.bob_improvement_observations"
 # Only these exact tables may be probed. No caller-provided SQL identifiers.
-_TARGETS = {"improvement": _TARGET, "metric": "public.bob_metric_checks"}
+_TARGETS = {"improvement": _TARGET, "metric": "public.bob_metric_checks",
+            "diagnostic": "public.bob_diagnostic_history"}
 
 
 def selected_target():
@@ -21,6 +22,7 @@ def selected_target():
     return _TARGETS[name]
 
 _LIMIT_BYTES = 100_000_000
+_DIAGNOSTIC_LIMIT_BYTES = 200_000_000  # Only for the fixed journal
 _LOCK = threading.Lock()
 
 
@@ -69,6 +71,8 @@ def inspect_once():
     if not _volume_gate():
         raise ValueError("Provider volume gate unavailable")
     target=selected_target()
+    limit = (_DIAGNOSTIC_LIMIT_BYTES if target ==
+             _TARGETS["diagnostic"] else _LIMIT_BYTES)
     conn=_connect()
     initial_installed=None
     try:
@@ -84,7 +88,7 @@ def inspect_once():
             FROM pg_class c
             WHERE c.oid=%s::regclass""",(target,)).fetchone()
         if (not row or len(row)!=3 or type(row[2]) is not int or
-                not 0<row[2]<_LIMIT_BYTES or not row[1]):
+                not 0<row[2]<limit or not row[1]):
             raise ValueError("Target beyond safe scan size")
         # PostgreSQL supports transactional CREATE EXTENSION. We MUST roll
         # this transaction back, including after a successful probe.
