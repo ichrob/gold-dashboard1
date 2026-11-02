@@ -61,6 +61,37 @@ class FoldTests(unittest.TestCase):
 
 
 class SimulationSourcesTests(unittest.TestCase):
+    def test_full_per_ledger_page_never_claims_complete_history(self):
+        class Fake:
+            def __init__(self): self.number = 0
+            def execute(self, sql, params=()):
+                self.number += 1
+                self.last = (sql, params)
+                return self
+            def fetchall(self):
+                if self.number == 1:
+                    return [("c"+str(i), "legacy", "closed") for i in range(7)]
+                return []
+        rows, coverage = k.sample_simulations(Fake())
+        self.assertEqual(len(rows), 7)
+        self.assertTrue(coverage["moreSourceRowsMayExist"])
+        self.assertFalse(coverage["netReturnVerified"])
+
+    def test_full_risk_page_marks_potential_older_cases(self):
+        class Fake:
+            def __init__(self): self.number = 0
+            def execute(self, sql, params=()):
+                self.number += 1
+                return self
+            def fetchall(self):
+                if self.number == 9:
+                    return [("risk-"+str(i), "risk2000", "closed") for i in range(8)]
+                return []
+        rows, coverage = k.sample_simulations(Fake())
+        self.assertEqual(len(rows), 8)
+        self.assertTrue(coverage["moreSourceRowsMayExist"])
+        self.assertFalse(coverage["strategyWinnerConfirmed"])
+
     def test_all_isolated_accounts_are_read_not_merged(self):
         import paper_portfolios
         self.assertEqual(set(k._PROFILE_NAMES), set(paper_portfolios.POLICIES))
@@ -77,6 +108,7 @@ class SimulationSourcesTests(unittest.TestCase):
         rows, coverage = k.sample_simulations(fake)
         self.assertEqual(rows, [])
         self.assertEqual(coverage["ledgersInspected"], 9)
+        self.assertFalse(coverage["moreSourceRowsMayExist"])
         self.assertEqual(len(fake.tables), 9)
         self.assertIn("bob_paper_normal1000oct_cases", " ".join(fake.tables))
         self.assertIn("bob_risk_paper_cases", " ".join(fake.tables))
@@ -226,6 +258,8 @@ class PostgresKnowledgeTests(unittest.TestCase):
                 sim = report["areas"]["simulations"]
                 self.assertEqual(sim["simulationCoverage"]["ledgersInspected"], 9)
                 self.assertEqual(sim["simulationCoverage"]["sampledPerLedger"]["normal1000oct"], 1)
+                self.assertFalse(sim["simulationCoverage"]["moreSourceRowsMayExist"])
+                self.assertFalse(sim["moreSourceRowsMayExist"])
                 self.assertEqual(sim["simulationCoverage"]["sampledPerLedger"]["risk2000"], 1)
                 self.assertEqual(sim["outcomes"]["inconclusive"], 1)
                 self.assertFalse(sim["simulationCoverage"]["netReturnVerified"])
