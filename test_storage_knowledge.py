@@ -14,7 +14,7 @@ class FoldTests(unittest.TestCase):
             "diagnoses": [("secret-trace", "analysis-failed", "failed")],
             "decisions": [("secret-decision", "LONG", "true")],
             "improvements": [("private-campaign", "observation", "verified")],
-            "simulations": [("private-trade", "closed", "completed")],
+            "simulations": [("private-trade", "normal1000oct", "inconclusive")],
             "quality": [("private-metric", "metric", "mismatch")],
         }
         for area, rows in examples.items():
@@ -31,7 +31,7 @@ class FoldTests(unittest.TestCase):
 
     def test_unknown_labels_never_leak_and_no_false_profit(self):
         original = "possibly-sensitive-token"
-        summary = k.fold("simulations", [("ref", "closed", original)])
+        summary = k.fold("simulations", [("ref", "risk2000", original)])
         self.assertEqual(summary["outcomes"], {"unclassified": 1})
         self.assertNotIn(original, json.dumps(summary))
         self.assertNotIn("profit", json.dumps(summary).lower())
@@ -45,6 +45,29 @@ class FoldTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             k.fold("unknown", [])
         self.assertEqual(k.fold("quality", [])["status"], "observed-empty")
+
+
+class SimulationSourcesTests(unittest.TestCase):
+    def test_all_isolated_accounts_are_read_not_merged(self):
+        import paper_portfolios
+        self.assertEqual(set(k._PROFILE_NAMES), set(paper_portfolios.POLICIES))
+        self.assertEqual(8 * k._SIM_PER_LEDGER + k._RISK_SAMPLE, k.SAMPLE_CAP)
+        class Fake:
+            def __init__(self):
+                self.tables = []
+            def execute(self, sql, params=()):
+                self.tables.append(sql)
+                return self
+            def fetchall(self):
+                return []
+        fake = Fake()
+        rows, coverage = k.sample_simulations(fake)
+        self.assertEqual(rows, [])
+        self.assertEqual(coverage["ledgersInspected"], 9)
+        self.assertEqual(len(fake.tables), 9)
+        self.assertIn("bob_paper_normal1000oct_cases", " ".join(fake.tables))
+        self.assertIn("bob_risk_paper_cases", " ".join(fake.tables))
+        self.assertFalse(coverage["strategyWinnerConfirmed"])
 
 
 class CaptureTests(unittest.TestCase):
@@ -70,13 +93,15 @@ class CaptureTests(unittest.TestCase):
                 if area:
                     self.rows = [(area + "-private", {
                         "diagnoses": "input", "decisions": "SHORT",
-                        "improvements": "observation", "simulations": "open",
+                        "improvements": "observation", "simulations": "legacy",
                         "quality": "metric",
                     }[area], {
                         "diagnoses": "ok", "decisions": "false",
                         "improvements": "pending", "simulations": "pending",
                         "quality": "matched",
                     }[area])]
+                elif "FROM bob_paper_" in sql or "FROM bob_risk_paper_cases" in sql:
+                    self.rows = []
                 return self
             if "INSERT INTO bob_knowledge_snapshots" in sql:
                 self.writes.append(params)
@@ -129,6 +154,14 @@ class PostgresKnowledgeTests(unittest.TestCase):
                 conn.execute("""CREATE TABLE bob_metric_checks (
                     version TEXT,scope TEXT,bar_at BIGINT,checked_at BIGINT,
                     payload JSONB,PRIMARY KEY(version,scope,bar_at))""")
+                import paper_portfolios
+                for name in paper_portfolios.POLICIES:
+                    table = paper_portfolios.names(name)["bob_paper_cases"]
+                    conn.execute("""CREATE TABLE """ + table + """ (
+                        id TEXT PRIMARY KEY,day TEXT,started_at TIMESTAMPTZ,
+                        closed_at TIMESTAMPTZ,payload JSONB)""")
+                conn.execute("""CREATE TABLE bob_risk_paper_cases (
+                    id TEXT PRIMARY KEY,payload JSONB)""")
                 k.init(conn)
                 conn.execute("""INSERT INTO bob_diagnostic_history(id,stage,payload)
                     VALUES('d1','input','{"outcome":"ok"}')""")
@@ -140,6 +173,14 @@ class PostgresKnowledgeTests(unittest.TestCase):
                     VALUES('p1','2026-11-02',now(),NULL,'{"status":"pending"}')""")
                 conn.execute("""INSERT INTO bob_metric_checks
                     VALUES('v1','15m',1,1793645640000,'{"status":"matched"}')""")
+                conn.execute("""INSERT INTO bob_metric_checks
+                    VALUES('v2','15m',2,1793645640001,
+                           '{"_bobColdMetricV2":["internal-example",0]}')""")
+                conn.execute("""INSERT INTO bob_paper_normal1000oct_cases
+                    VALUES('profile-1','2026-11-02',now(),now(),
+                           '{"status":"inconclusive"}')""")
+                conn.execute("""INSERT INTO bob_risk_paper_cases
+                    VALUES('risk-1','{"status":"closed"}')""")
                 original = [conn.execute("SELECT count(*) FROM " + table).fetchone()[0]
                     for table in ("bob_diagnostic_history", "bob_decision_audit",
                                   "bob_improvement_observations", "bob_paper_cases",
@@ -157,6 +198,14 @@ class PostgresKnowledgeTests(unittest.TestCase):
                 report = k.report(conn)
                 self.assertEqual(report["status"], "observed")
                 self.assertEqual(set(report["areas"]), set(k.AREAS))
+                sim = report["areas"]["simulations"]
+                self.assertEqual(sim["simulationCoverage"]["ledgersInspected"], 9)
+                self.assertEqual(sim["simulationCoverage"]["sampledPerLedger"]["normal1000oct"], 1)
+                self.assertEqual(sim["simulationCoverage"]["sampledPerLedger"]["risk2000"], 1)
+                self.assertEqual(sim["outcomes"]["inconclusive"], 1)
+                self.assertFalse(sim["simulationCoverage"]["netReturnVerified"])
+                self.assertFalse(sim["simulationCoverage"]["strategyWinnerConfirmed"])
+                self.assertEqual(report["areas"]["quality"]["outcomes"]["archived-original-not-inline"], 1)
                 self.assertFalse(report["deletionAuthorized"])
                 conn.execute("ROLLBACK")
             finally:
