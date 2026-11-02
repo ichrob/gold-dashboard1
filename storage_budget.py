@@ -28,6 +28,8 @@ def init(conn):
     conn.execute("ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS relation_bytes JSONB NOT NULL DEFAULT '{}'::jsonb")
     # Only ten fixed per-table counter tuples per half-hour slot, never raw data.
     conn.execute("ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS writer_stats JSONB NOT NULL DEFAULT '{}'::jsonb")
+    # Tiny derived daily snapshots for five areas; no evidence or source deletion.
+    __import__('storage_knowledge').init(conn)
 
 
 def state(size):
@@ -55,6 +57,12 @@ def maybe_observe(conn,now=None):
                  json.dumps(counters,sort_keys=True)))
             # Only capacity telemetry expires. Never delete test/market evidence.
             conn.execute('DELETE FROM bob_storage_samples WHERE slot<%s',(int(now)-90*86400,))
+        # Separate bounded savepoints: failed/slow summaries never undo telemetry,
+        # block diagnostic delivery, or alter original market/test evidence.
+        try:
+            __import__('storage_knowledge').capture(conn, now)
+        except Exception:
+            pass
     except Exception:
         _NEXT=now+300
     finally:
@@ -182,6 +190,7 @@ def report(conn,now=None):
         decisionProductsPilot=__import__('decision_product_pilot').status(conn),
         coldMetrics=__import__('cold_metrics').status(conn),
         layout=__import__('storage_layout').report(conn),
+        knowledgeSummaries=__import__('storage_knowledge').report(conn),
         renderVolume=__import__('render_disk_metrics').report(),
         coldAnalysis=__import__('cold_analysis').status(conn),
         coldObservations=__import__('cold_observations').status(conn),
