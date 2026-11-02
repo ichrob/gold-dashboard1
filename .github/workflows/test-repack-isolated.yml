@@ -39,19 +39,13 @@ jobs:
           docker exec -u root bob-pgdg-repack-ci bash -euo pipefail -c '
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
-            apt-get install -y -qq --no-install-recommends \
-              ca-certificates curl gnupg
-            curl --fail --silent --show-error --location \
-              --proto "=https" --tlsv1.2 \
-              https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-              -o /tmp/pgdg-repack-test.asc
-            gpg --show-keys --with-colons /tmp/pgdg-repack-test.asc | \
+            apt-get install -y -qq --no-install-recommends gnupg
+            # The official postgres:18-bookworm image already contains
+            # signed PGDG APT sources. Verify its pinned official key
+            # instead of installing a duplicate Signed-By entry.
+            test -f /usr/local/share/keyrings/postgres.gpg.asc
+            gpg --show-keys --with-colons /usr/local/share/keyrings/postgres.gpg.asc | \
               grep -q "^fpr:::::::::B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8:"
-            gpg --dearmor -o /usr/share/keyrings/pgdg-repack-test.gpg \
-              /tmp/pgdg-repack-test.asc
-            printf "%s\n" \
-              "deb [arch=amd64 signed-by=/usr/share/keyrings/pgdg-repack-test.gpg] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
-              > /etc/apt/sources.list.d/pgdg-repack-test.list
             apt-get update -qq
             apt-get install -y -qq --no-install-recommends \
               postgresql-18-repack=1.5.3-1.pgdg12+2
