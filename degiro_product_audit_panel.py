@@ -260,6 +260,14 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
         ' · Hebelzeit: '+leverageTimeLabel(item)+
+        // Public portal values without their own original timestamp are
+        // useful research references, never current gearing or proof of
+        // marketability. They must not clear any audit missing-code.
+        (typeof item.fieldRecovery?.observations?.leverage?.value==='number'&&
+         Number.isFinite(item.fieldRecovery.observations.leverage.value)&&
+         item.fieldRecovery.observations.leverage.value>0&&
+         !item.fieldRecovery.observations.leverage.at?
+         '\\nUndatierter Portal-Hebel (nur Recherche): '+item.fieldRecovery.observations.leverage.value.toFixed(2)+'x · Zeitbezug fehlt, keine Handelsfreigabe.':'')+
         (Number.isFinite(item.leverageReference?.value)&&item.leverageReference.value>0?
          '\nHistorischer Hebel als Recherche-Referenz: '+item.leverageReference.value.toFixed(2)+'x · '+fmt(item.leverageReference.at)+
          ' · '+(item.leverageReference.kind==='historical-issuer-leverage'?'früherer Originalhebel':'historisch berechneter Näherungswert')+
