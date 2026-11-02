@@ -160,10 +160,28 @@ def validate_pin_probe(value, now):
 
 BOOLS=('serviceEnabled','serviceConnectedInProcess','textAccess','windowAccess','running','pendingRun')
 
+DETAIL_STATES=frozenset(('SENDING','SAVED','NO_NEW','DEFERRED','LIMIT','BLOCKED','NOT_READY','NOT_CONFIRMED','ACK_MISMATCH'))
+
+def validate_detail_transfer(value, now):
+    """Only a fixed aggregate from an opted-in device, never its local UI text."""
+    if not isinstance(value,dict) or set(value)!={'state','saved','deferred','at'}:
+        raise ValueError('Invalid detail transfer fields')
+    if not isinstance(value['state'],str) or value['state'] not in DETAIL_STATES:
+        raise ValueError('Invalid detail transfer state')
+    for field in ('saved','deferred'):
+        if type(value[field]) is not int or not 0<=value[field]<=120:
+            raise ValueError('Invalid detail transfer count')
+    at=timestamp(value['at'])
+    if not -60 <= (now-at).total_seconds() <= 86400:
+        raise ValueError('Stale detail transfer status')
+    return dict(value)
+
 def validate_report(value, now=None):
     now=now or datetime.now(timezone.utc)
     expected={'reportId','observedAt','appVersionCode','lastCode','lastEventAt',*BOOLS}
-    if not isinstance(value,dict) or set(value) not in (expected, expected | {'pinProbe'}): raise ValueError('Invalid diagnostic fields')
+    optional=(set(),{'pinProbe'},{'detailTransfer'},{'pinProbe','detailTransfer'})
+    if not isinstance(value,dict) or not any(set(value)==(expected|extra) for extra in optional):
+        raise ValueError('Invalid diagnostic fields')
     if not isinstance(value['reportId'],str) or not re.fullmatch('[a-f0-9]{32}',value['reportId']):raise ValueError('Invalid report ID')
     version=value['appVersionCode']
     if type(version) is not int or not 1<=version<=2100000000:raise ValueError('Invalid version')
@@ -176,6 +194,8 @@ def validate_report(value, now=None):
         if event.year<2020 or (now-event).total_seconds() < -60:raise ValueError('Invalid event time')
     if 'pinProbe' in value:
         validate_pin_probe(value['pinProbe'], now)
+    if 'detailTransfer' in value:
+        validate_detail_transfer(value['detailTransfer'],now)
     return dict(value)
 
 def token_hash(token):

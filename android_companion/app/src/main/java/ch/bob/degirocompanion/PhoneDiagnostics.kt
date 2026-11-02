@@ -172,6 +172,9 @@ internal object PhoneDiagnostics {
             .put("lastCode",p.getString("lastCode","NONE"))
             .put("lastEventAt",p.getString("lastEventAt",null)?.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
             .also { report ->
+                // Strictly bounded aggregate only, sent under already opted-in
+                // technical diagnostics. Never attach screen text or product IDs.
+                ProductDetailDelivery.diagnostic(c)?.let { report.put("detailTransfer",it) }
                 p.getString("pinProbe", null)?.let { raw ->
                     runCatching { JSONObject(raw) }.getOrNull()?.let { probe ->
                         val recent = runCatching { System.currentTimeMillis() -
