@@ -1,0 +1,108 @@
+name: Prove physical pg_repack reclaim only in disposable PostgreSQL 18
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/test-repack-isolated.yml'
+      - 'docs/storage-repack-disposable-test.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local_repack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Boot isolated test-only PostgreSQL 18
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name bob-pgdg-repack-ci \
+            -e POSTGRES_PASSWORD=ci-repack-only -e POSTGRES_DB=ci_repack \
+            postgres:18-bookworm
+          for i in {1..30}; do
+            if docker exec -u postgres bob-pgdg-repack-ci pg_isready -U postgres -d ci_repack >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo 'Isolated PostgreSQL 18 did not become healthy' >&2
+          exit 1
+      - name: Install only official pinned PGDG 1.5.3 inside disposable test container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec -u root bob-pgdg-repack-ci bash -euo pipefail -c '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends gnupg
+            # The official postgres:18-bookworm image already contains
+            # signed PGDG APT sources. Verify its pinned official key
+            # instead of installing a duplicate Signed-By entry.
+            test -f /usr/local/share/keyrings/postgres.gpg.asc
+            gpg --show-keys --with-colons /usr/local/share/keyrings/postgres.gpg.asc | \
+              grep -q "^fpr:::::::::B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8:"
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends \
+              postgresql-18-repack=1.5.3-1.pgdg12+2
+            /usr/lib/postgresql/18/bin/pg_repack --version | grep -Fx "pg_repack 1.5.3"
+          '
+          docker exec -u postgres bob-pgdg-repack-ci \
+            psql -X -v ON_ERROR_STOP=1 -U postgres -d ci_repack \
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_repack;'
+      - name: Create synthetic original rows and deliberately create reclaimable TOAST bloat
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec -i -u postgres bob-pgdg-repack-ci \
+            psql -X -v ON_ERROR_STOP=1 -U postgres -d ci_repack <<'SQL'
+          CREATE TABLE synthetic_repack_target (id int PRIMARY KEY, payload text NOT NULL);
+          INSERT INTO synthetic_repack_target
+          SELECT i, string_agg(md5((i::text || ':' || j::text || ':' || random()::text)), '')
+          FROM generate_series(1,1000) i
+          CROSS JOIN generate_series(1,140) j
+          GROUP BY i;
+          UPDATE synthetic_repack_target SET payload=payload || md5(random()::text);
+          UPDATE synthetic_repack_target SET payload=payload || md5(random()::text);
+          UPDATE synthetic_repack_target SET payload=payload || md5(random()::text);
+          SQL
+          docker exec -u postgres bob-pgdg-repack-ci \
+            psql -X -v ON_ERROR_STOP=1 -U postgres -d ci_repack \
+            -c 'VACUUM (TRUNCATE FALSE, ANALYZE) synthetic_repack_target;'
+          docker exec -u postgres bob-pgdg-repack-ci \
+            psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d ci_repack \
+            -c "SELECT count(*) || ':' || md5(string_agg(id::text || ':' || md5(payload), ',' ORDER BY id)) FROM synthetic_repack_target" > /tmp/bob-repack-rows-before.txt
+          docker exec -u postgres bob-pgdg-repack-ci \
+            psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d ci_repack \
+            -c "SELECT pg_total_relation_size('synthetic_repack_target')" > /tmp/bob-repack-bytes-before.txt
+          cat /tmp/bob-repack-bytes-before.txt
+      - name: Repack only synthetic disposable table and compare byte counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec -u postgres bob-pgdg-repack-ci \
+            /usr/lib/postgresql/18/bin/pg_repack -k -D -T 2 -j 1 -n -N \
+            --table=public.synthetic_repack_target --dbname=ci_repack
+          timeout --signal=TERM --kill-after=5s 120s \
+            docker exec -u postgres bob-pgdg-repack-ci \
+              /usr/lib/postgresql/18/bin/pg_repack -k -D -T 2 -j 1 -n \
+              --table=public.synthetic_repack_target --dbname=ci_repack
+          docker exec -u postgres bob-pgdg-repack-ci \
+            psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d ci_repack \
+            -c "SELECT count(*) || ':' || md5(string_agg(id::text || ':' || md5(payload), ',' ORDER BY id)) FROM synthetic_repack_target" > /tmp/bob-repack-rows-after.txt
+          docker exec -u postgres bob-pgdg-repack-ci \
+            psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d ci_repack \
+            -c "SELECT pg_total_relation_size('synthetic_repack_target')" > /tmp/bob-repack-bytes-after.txt
+          diff -u /tmp/bob-repack-rows-before.txt /tmp/bob-repack-rows-after.txt
+          before=$(cat /tmp/bob-repack-bytes-before.txt)
+          after=$(cat /tmp/bob-repack-bytes-after.txt)
+          test "$after" -lt "$before"
+          echo "ISOLATED_REPACK_SUCCESS before=$before after=$after syntheticBytesReclaimed=$((before-after)) productionBytesReclaimed=unknown"
+      - name: Remove isolated test container
+        if: always()
+        shell: bash
+        run: docker rm -f bob-pgdg-repack-ci || true
