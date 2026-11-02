@@ -122,13 +122,14 @@ def price_signal_case(case, observed, now):
     target=case["entryAt"]+HORIZON_MS
     at=observed.get("sourceAt")
     if number(at) and observed.get("verified") and target<=at<=target+TOLERANCE_MS:
-        sign=1 if case["candidate"]=="LONG" else -1
-        movement=100*sign*(observed["price"]/case["entryPrice"]-1)
-        candidate=movement-SIGNAL_COST_PCT
-        baseline=0.0 if case["study"]=="wait-vs-enter" else (
-            movement-SIGNAL_COST_PCT if case["baseline"] in ("LONG","SHORT") else 0.0)
-        if case["study"]=="regime-routing" and case["candidate"]=="ABWARTEN":
-            candidate=0.0
+        def directional_return(direction):
+            if direction not in ("LONG","SHORT"):
+                return 0.0
+            sign=1 if direction=="LONG" else -1
+            return (100*sign*(observed["price"]/case["entryPrice"]-1)
+                    -SIGNAL_COST_PCT)
+        candidate=directional_return(case["candidate"])
+        baseline=directional_return(case["baseline"])
         return dict(status="priced-reference-spot-only",pricedAt=at,
                     exitPrice=observed["price"],baselinePct=baseline,
                     candidatePct=candidate,
