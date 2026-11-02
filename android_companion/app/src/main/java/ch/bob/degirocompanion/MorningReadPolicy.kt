@@ -252,7 +252,7 @@ internal object MorningReadPolicy {
         if (protection(nodes) != null || nodes.any {
                 it.editable || it.containsInput || it.password || it.sensitive
             }) return false
-        val shown = ids.findAll(nodes.joinToString("\\n") { it.text.uppercase() })
+        val shown = ids.findAll(nodes.joinToString("\n") { it.text.uppercase() })
             .map { it.value }.toSet()
         val section=nodes.any {
             normalized(it.text).lowercase() in setOf("übersicht", "overview",
