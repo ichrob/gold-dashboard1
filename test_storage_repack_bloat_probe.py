@@ -21,7 +21,7 @@ class FakeConnection:
     def execute(self,sql,params=None):
         self.sql.append(sql)
         if sql.startswith("SET LOCAL"):return Result(None)
-        if "FROM pg_available_extensions" in sql:return Result((None,))
+        if "pg_available_extensions" in sql:return Result((None,))
         if "FROM pg_class c" in sql:return Result((777,888,66_838_528))
         if sql.startswith("CREATE EXTENSION"):return Result(None)
         if "pgstattuple_approx" in sql:
