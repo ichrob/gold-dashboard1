@@ -766,6 +766,17 @@ def read(conn, now_ms=None):
                 "incomplete":None,"needsHelp":None, "items":[],
                 "readOnly":True,"degiroConnected":False}
     report = dict(row[0])
+    # The SG quote routine is an informational clock, NOT new quote evidence.
+    # Recompute on read so a daytime audit cannot report overnight rates live.
+    from issuer_quote_window import advisory as sg_quote_advisory
+    report['sgQuoteRoutine'] = sg_quote_advisory(
+        datetime.fromtimestamp(now_ms/1000, timezone.utc))
+    if report['sgQuoteRoutine']['scheduledPause']:
+        report['marketContext'] = (
+            'Außerhalb regulärer SG-Kursstellung (08:00–22:00 Uhr Zürich) · '
+            'Geld/Brief und Hebel nur mit Originalzeit historisch; '
+            'andere Emittenten und Gold-Spot separat prüfen. '
+            'Kein bestätigter Handelsstatus.')
     # Handset data is an independent, historical, non-trading display layer.
     # NEVER overwrite issuer quotes, audit missing-codes, or trade approval.
     try:
