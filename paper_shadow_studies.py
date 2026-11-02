@@ -320,6 +320,30 @@ def product_study(conn,control,quality,market,selection,quotes,now):
     return record
 
 
+def mark_product_equity(control,quality,market,quotes,now):
+    """Only observed issuer bids mark an open position; never assume a fill."""
+    import paper_simulation
+    import paper_ko_guard
+    p=control.get("position")
+    if not p:
+        equity=control["cash"]
+    elif p.get("settlementUnknown") or not quality.get("verified"):
+        equity=None
+    else:
+        raw=quotes.get(p["isin"]) or {}
+        q=paper_simulation.fresh_quote(raw,now,p["isin"])
+        guard,blocked=paper_ko_guard.assess(p,raw,market,now)
+        equity=(control["cash"]+p["units"]*q["bid"]*(1-PRODUCT_SLIPPAGE)
+                -PRODUCT_FEE_EUR if q and guard and blocked is None
+                and not guard["crossed"] else None)
+    control["equity"]=equity
+    if equity is not None:
+        control["peak"]=max(control["peak"],equity)
+        control["observedMaxDrawdown"]=max(control["observedMaxDrawdown"],
+                                            control["peak"]-equity)
+    return equity
+
+
 def tick(conn,bundle,market,selection,quotes,now=None):
     """One atomic journal of all three studies; called after normal ledgers.
 
@@ -338,6 +362,8 @@ def tick(conn,bundle,market,selection,quotes,now=None):
         control=copy.deepcopy(row[0])
         if study=="product-e2e":
             result=product_study(conn,control,quality,market,selection,quotes,now)
+            result["modelEquityEur"]=mark_product_equity(
+                control,quality,market,quotes,now)
         else:
             result=update_signal_study(conn,control,study,decisions[study],quality,now)
         control["checkedAt"]=now
@@ -391,7 +417,10 @@ def report(conn):
             casesStarted=control.get("casesStarted"),casesPriced=control.get("casesPriced"),
             casesInconclusive=control.get("casesInconclusive"),
             openCases=len(control.get("openCases") or [])+(1 if p else 0),
-            modelCapitalEur=control.get("cash") if study=="product-e2e" else None,
+            modelCashEur=control.get("cash") if study=="product-e2e" else None,
+            modelEquityEur=control.get("equity") if study=="product-e2e" else None,
+            observedMaxDrawdownEur=(control.get("observedMaxDrawdown")
+                                    if study=="product-e2e" else None),
             modelProfitEur=control.get("profit") if study=="product-e2e" else None,
             realizedResultVerified=False,realOrders=False))
     return dict(status="observed" if len(result)==len(STUDIES) else "partial",
