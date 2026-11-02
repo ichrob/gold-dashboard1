@@ -95,15 +95,14 @@ def capture(conn, now):
     """Store tiny daily per-area snapshots; failures leave originals intact.
 
     The caller owns the normal half-hour storage sampler cadence. Each source
-    is isolated in its own transaction/savepoint, with short SQL timeouts so a
-    missing or slow table cannot block diagnostics or other summaries.
+    is isolated in its own transaction/savepoint and inherits the caller's
+    existing SQL timeout so a failure never changes session-level limits.
     """
     slot = int(now // 86400) * 86400
     statuses = {}
     for area in AREAS:
         try:
             with conn.transaction():
-                conn.execute("SET LOCAL statement_timeout='800ms'")
                 rows = conn.execute(QUERIES[area], (SAMPLE_CAP,)).fetchall()
                 summary = fold(area, rows)
                 conn.execute("""INSERT INTO bob_knowledge_snapshots(area,slot,summary)
@@ -123,7 +122,6 @@ def report(conn):
     """Read only five latest aggregate receipts, never evidence or IDs."""
     try:
         with conn.transaction():
-            conn.execute("SET LOCAL statement_timeout='800ms'")
             rows = conn.execute("""SELECT DISTINCT ON (area) area,slot,summary
                 FROM bob_knowledge_snapshots
                 ORDER BY area,slot DESC LIMIT 5""").fetchall()
