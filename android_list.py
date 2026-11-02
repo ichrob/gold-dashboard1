@@ -5,7 +5,7 @@ import json
 import re
 import struct
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from android_telemetry import token_hash
 
 MAX_BODY=8100000
@@ -22,6 +22,8 @@ def detail_plan(items, products, now):
     source clocks are required; an upload timestamp is not a quote time.
     """
     from product_quotes import valid_isin
+    from issuer_quote_window import filter_handset_fields
+    local_now = datetime.fromtimestamp(now, timezone.utc)
     by_id = {p.get('isin'): p for p in products if isinstance(p, dict)}
     result, seen = [], set()
 
@@ -69,6 +71,7 @@ def detail_plan(items, products, now):
         if not all(recent(q.get(k)) for k in clocks):
             missing.append('Anzeigezeit')
         needed = [name for name in DETAIL_FIELDS if name in missing]
+        needed = filter_handset_fields(needed, local_now, item, p)
         if needed:
             result.append({'isin': isin, 'missingFields': needed})
         if len(result) == 10:
@@ -179,7 +182,9 @@ def handle(conn,payload,now):
             saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
             products=(saved[0] or {}).get('products',[]) if saved else []
             plan=detail_plan(row[1] or [],products,now)
-        return {'ok':True,'batchId':batch,'import':row[0] if row else None,'detailIsins':[x['isin'] for x in plan],'detailPlan':plan}
+        from issuer_quote_window import advisory
+        return {'ok':True,'batchId':batch,'import':row[0] if row else None,'detailIsins':[x['isin'] for x in plan],'detailPlan':plan,
+                'sgQuoteRoutine': advisory(datetime.fromtimestamp(now,timezone.utc))}
     value=validate(payload.get('value'),now)
     row=conn.execute('SELECT state FROM bob_android_remote WHERE token_hash=%s FOR UPDATE',(digest,)).fetchone()
     state=row[0] if row else {}
