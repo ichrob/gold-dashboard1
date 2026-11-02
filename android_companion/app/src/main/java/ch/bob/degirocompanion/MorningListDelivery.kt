@@ -64,7 +64,7 @@ internal object MorningListDelivery {
                         val ids=response.optJSONArray("detailIsins")
                         val values=if(ids==null) null else (0 until ids.length()).map { ids.optString(it) }
                         val plan=values?.let { SelectiveDetailPlan.parse(response.optJSONArray("detailPlan"),it) }
-                        val afterHours=response.optJSONObject("sgQuoteRoutine")
+                        val afterHours=response?.optJSONObject("sgQuoteRoutine")
                             ?.optBoolean("scheduledPause",false)==true
                         if(PhoneRemote.active() && PhoneRemote.sessionId()==session && plan!=null && plan.isNotEmpty()) {
                             status(c,"✅ Goldliste: 10 Produkte bei Bob bestätigt. " +
