@@ -19,6 +19,26 @@ class FinalReadReturnPolicyTest {
     ) = FinalReadReturnPolicy.allowed(code, evidence, expected, previous,
         current, pkg, awake, locked, session)
 
+    @Test fun abortedReadReturnsOnlyWithAnExplicitSafeLocalStatusScope() {
+        assertTrue(FinalReadReturnPolicy.allowedAbort("RETURN_NOT_CONFIRMED",
+            ProductScreenEvidence.PACKAGE,true,false,true,true))
+        for(code in listOf("COMPLETE","USER_INTERRUPTED","SCREEN_LOCKED",
+            "PROTECTED_VIEW","RETURN_FAILED")) {
+            assertFalse(FinalReadReturnPolicy.allowedAbort(code,
+                ProductScreenEvidence.PACKAGE,true,false,true,true))
+        }
+        assertFalse(FinalReadReturnPolicy.allowedAbort("RETURN_NOT_CONFIRMED",
+            ProductScreenEvidence.PACKAGE,true,false,true,false))
+        assertFalse(FinalReadReturnPolicy.allowedAbort("RETURN_NOT_CONFIRMED",
+            "com.android.systemui",true,false,true,true))
+        assertFalse(FinalReadReturnPolicy.allowedAbort("RETURN_NOT_CONFIRMED",
+            ProductScreenEvidence.PACKAGE,false,false,true,true))
+        assertFalse(FinalReadReturnPolicy.allowedAbort("RETURN_NOT_CONFIRMED",
+            ProductScreenEvidence.PACKAGE,true,true,true,true))
+        assertFalse(FinalReadReturnPolicy.allowedAbort("RETURN_NOT_CONFIRMED",
+            ProductScreenEvidence.PACKAGE,true,false,false,true))
+    }
+
     @Test fun successfulLastProductCanReturnToLocalStatusWithoutBrokerBack() {
         assertTrue(allowed())
     }
