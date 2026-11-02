@@ -102,6 +102,11 @@ def sample_simulations(conn):
         "sampledPerLedger": sizes,
         "ledgersInspected": len(sizes),
         "emptyLedgerSamples": sorted(x for x, n in sizes.items() if n == 0),
+        # A full individual page may hide older rows, even when the combined
+        # total remains below the overall sample cap.
+        "moreSourceRowsMayExist": any(
+            n >= (_RISK_SAMPLE if name == "risk2000" else _SIM_PER_LEDGER)
+            for name, n in sizes.items()),
         "scope": "each-ledger-bounded-recent-cases-no-complete-performance",
         "netReturnVerified": False,
         "strategyWinnerConfirmed": False,
@@ -173,6 +178,8 @@ def capture(conn, now):
                 summary = fold(area, rows)
                 if area == "simulations":
                     summary["simulationCoverage"] = coverage
+                    summary["moreSourceRowsMayExist"] = (
+                        coverage["moreSourceRowsMayExist"])
                 conn.execute("""INSERT INTO bob_knowledge_snapshots(area,slot,summary)
                     VALUES(%s,%s,%s::jsonb)
                     ON CONFLICT(area,slot) DO UPDATE SET
