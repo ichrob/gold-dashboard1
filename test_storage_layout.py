@@ -65,7 +65,8 @@ class DiagnosticStageSampleTests(unittest.TestCase):
         self.assertIn('ORDER BY recorded_at DESC LIMIT %s', conn.sql)
         self.assertNotIn('payload', conn.sql)
         self.assertNotIn('trace_id', conn.sql)
-        self.assertNotIn('24h INSERT counters', json.dumps(result))
+        self.assertIn('neither 24h INSERT counters', result['note'])
+        self.assertNotIn('secret-private-payload', json.dumps(result))
 
     def test_untrusted_stage_or_failure_is_not_published(self):
         from contextlib import nullcontext
