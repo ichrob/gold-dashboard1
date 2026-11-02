@@ -64,7 +64,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker exec -u postgres bob-pgdg-repack-ci \
+          docker exec -i -u postgres bob-pgdg-repack-ci \
             psql -X -v ON_ERROR_STOP=1 -U postgres -d ci_repack <<'SQL'
           CREATE TABLE synthetic_repack_target (id int PRIMARY KEY, payload text NOT NULL);
           INSERT INTO synthetic_repack_target
