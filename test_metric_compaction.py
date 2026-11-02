@@ -52,12 +52,12 @@ class ImprovementReclaimGuardTests(unittest.TestCase):
              'databaseBytes':605_000_000}
         self.assertEqual(compact.run_once({**cfg,'observedAt':active},
             forbidden,now=active)['status'],'market-hours-deferred')
-        with patch('archive_worker.status',return_value={'status':'idle'}), \\
+        with patch('archive_worker.status',return_value={'status':'idle'}), \
              patch.object(compact,'_improvement_volume',return_value=None):
             self.assertEqual(compact.run_once(cfg,forbidden,now=evening)
                 ['status'],'fresh-volume-proof-unavailable')
-        with patch('archive_worker.status',return_value={'status':'idle'}), \\
-             patch.object(compact,'_improvement_volume',return_value=715_000_000), \\
+        with patch('archive_worker.status',return_value={'status':'idle'}), \
+             patch.object(compact,'_improvement_volume',return_value=715_000_000), \
              patch.object(compact,'_improvement_bloat',return_value=False):
             self.assertEqual(compact.run_once(cfg,forbidden,now=evening)
                 ['status'],'verified-bloat-proof-unavailable')
