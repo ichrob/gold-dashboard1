@@ -27,6 +27,8 @@ on:
       - 'android_image_readthrough.py'
       - 'android_image_recovery_bundle.py'
       - 'android_image_backup_prepare.py'
+      - 'android_image_backup_binding.py'
+      - 'test_android_image_backup_binding.py'
       - 'test_android_image_backup_prepare.py'
       - 'android_image_backup_runner.py'
       - 'android_image_pilot_rehearsal.py'
@@ -66,7 +68,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   risk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
