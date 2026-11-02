@@ -69,6 +69,29 @@ class AndroidObservations(unittest.TestCase):
         payload['results'][0]['draft']=DRAFT.replace('13,06','99,99')
         with self.assertRaises(ValueError):a.prepare(payload,{},NOW)
 
+    def test_fail_closed_return_does_not_reject_saved_prior_observations(self):
+        # PR #1230 sends this fixed stop reason after failed/unsafe BACK.
+        # Save earlier readable results, never convert the stop into an approval.
+        payload=run()
+        payload['listSource']='degiro-gold-search'
+        payload['appVersionCode']=10429
+        payload['events'].append(dict(isin=ISIN,attempt=2,
+                                      code='RETURN_NOT_CONFIRMED',at=NOW.isoformat()))
+        saved=a.prepare(payload,{'products':[{'isin':ISIN}]},NOW)
+        self.assertEqual(saved['events'][-1]['code'],'RETURN_NOT_CONFIRMED')
+        self.assertEqual(saved['results'][0]['code'],'PARTIAL')
+        self.assertFalse(saved['tradeApproved'])
+        self.assertFalse(saved['results'][0]['observation']['verified'])
+        # A product may have no draft when the return verification aborts.
+        payload['results']=[dict(isin=ISIN,attempts=2,draft='',
+                                 code='RETURN_NOT_CONFIRMED')]
+        stopped=a.prepare(payload,{},NOW)
+        self.assertEqual(stopped['results'][0]['code'],'RETURN_NOT_CONFIRMED')
+        self.assertIsNone(stopped['results'][0]['observation'])
+        self.assertFalse(stopped['tradeApproved'])
+        payload['events'][-1]['code']='UNSAFE_UNRECOGNIZED_ACTION'
+        with self.assertRaises(ValueError):a.prepare(payload,{},NOW)
+
     def test_missing_only_plan_is_kept_as_unverified_reader_metadata(self):
         payload=run()
         payload['requestedFields']={ISIN:['Geld']}
