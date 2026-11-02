@@ -22,6 +22,8 @@ on:
       - 'test_cold_analysis.py'
       - 'storage_maintenance.py'
       - 'storage_budget.py'
+      - 'storage_knowledge.py'
+      - 'test_storage_knowledge.py'
       - 'storage_layout.py'
       - 'storage_forensics.py'
       - 'android_image_storage_audit.py'
