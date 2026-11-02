@@ -41,7 +41,7 @@ internal object ProductDetailDelivery {
             .putInt("deferred",deferred.coerceIn(0,120))
             .putString("at",at).commit())
         // One status at start and one at completion, not per archived batch.
-        if(state!=State.SENDING || previous!=State.SENDING) PhoneDiagnostics.queue(c)
+        if(state!=State.SENDING || previous!=State.SENDING.name) PhoneDiagnostics.queue(c)
     }
 
     private enum class Outcome { SAVED, UNAVAILABLE, NOT_READY, NOT_CONFIRMED }
