@@ -49,7 +49,7 @@ Downsampling-Reduktion oder Verdichtung** dieser Studien.
 Gemeinsame archivierte Goldkerzen werden gelesen, nicht mit erfundenen Kursen
 aufgefüllt. Die Quellzeiten und das originale 15-Minuten-Analysefenster werden
 mit jedem Ereignis verknüpft. Die drei Studien führen keinerlei eigene
-Marktabfragen aus; ihre Fehler werden mit einem separaten SQL-Savepoint isoliert.
+Marktabfragen aus; ihre Schreibvorgänge beginnen erst nach dem Commit der bestehenden sieben Simulationskonten. Fehler können diesen bestätigten Kontostand nicht zurückrollen.
 Der private authentifizierte `/simulation-status` liefert einen
 `shadowStudies`-Status samt tatsächlicher Relationengröße in Byte.
 
