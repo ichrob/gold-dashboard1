@@ -15,11 +15,13 @@ class Result:
 class FakeConnection:
     def __init__(self,fail_toast=False):
         self.sql=[]
+        self.params=[]
         self.rollback_calls=0
         self.closed=False
         self.fail_toast=fail_toast
     def execute(self,sql,params=None):
         self.sql.append(sql)
+        self.params.append(params)
         if sql.startswith("SET LOCAL"):return Result(None)
         if "pg_available_extensions" in sql:return Result((None,))
         if "FROM pg_class c" in sql:return Result((777,888,66_838_528))
@@ -69,6 +71,29 @@ class ProbeTests(unittest.TestCase):
         self.assertIsNone(result["diskBytesFreed"])
         self.assertNotIn("delete from"," ".join(source.sql).lower())
         self.assertNotIn("vacuum "," ".join(source.sql).lower())
+
+    def test_exact_metric_target_only_and_bound_query_parameter(self):
+        with patch.dict(os.environ,{"BOB_BLOAT_PROBE_TARGET":"metric"}):
+            self.assertEqual(probe.selected_target(),"public.bob_metric_checks")
+            source=FakeConnection()
+            with patch.object(probe,"_volume_gate",return_value=True), \
+                 patch("archive_worker.status",return_value={"status":"ready"}), \
+                 patch.dict(os.environ,{"DATABASE_URL":"synthetic-no-network"}), \
+                 patch.object(probe,"_connect",return_value=source), \
+                 patch("psycopg.connect",return_value=FakeVerifier()):
+                outcome=probe.inspect_once()
+        self.assertEqual(outcome["table"],"public.bob_metric_checks")
+        self.assertTrue(outcome["rollbackVerified"])
+        assert "public.bob_metric_checks" not in " ".join(source.sql)
+        self.assertIn(("public.bob_metric_checks",),source.params)
+        self.assertEqual(source.rollback_calls,1)
+
+    def test_reject_any_unapproved_target_before_opening_db(self):
+        with patch.dict(os.environ,{"BOB_BLOAT_PROBE_TARGET":"metric;DROP TABLE"}), \
+             patch.object(probe,"_connect") as db:
+            with self.assertRaises(ValueError):
+                probe.inspect_once()
+            db.assert_not_called()
 
     def test_toast_error_always_rolls_back(self):
         source=FakeConnection(fail_toast=True)
