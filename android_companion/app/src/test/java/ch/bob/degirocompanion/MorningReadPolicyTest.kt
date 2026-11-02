@@ -13,7 +13,7 @@ class MorningReadPolicyTest {
         assertFalse(MorningReadPolicy.returnAfterRead(page,isin,7,8,"RETURN_FAILED"))
         assertFalse(MorningReadPolicy.returnAfterRead(page,isin,7,7,"IDENTITY_CHANGED"))
         assertFalse(MorningReadPolicy.returnAfterRead(page,isin,7,7,"USER_STOP"))
-        assertFalse(MorningReadPolicy.returnAfterRead(page+"x".let { MorningReadPolicy.Node("DE000SX7PE82") },isin,7,7,"RETURN_FAILED"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("DE000SX7PE82"),isin,7,7,"RETURN_FAILED"))
         assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("Order bestätigen"),isin,7,7,"RETURN_FAILED"))
         assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("Limitpreis"),isin,7,7,"RETURN_FAILED"))
         assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("Passwort"),isin,7,7,"RETURN_FAILED"))
