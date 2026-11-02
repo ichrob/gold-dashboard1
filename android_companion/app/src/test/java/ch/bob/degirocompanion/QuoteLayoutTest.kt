@@ -49,6 +49,39 @@ class QuoteLayoutTest {
         assertTrue(QuoteLayout.productParameters(header + QuoteLayout.Line("BAR 4181.33 BP 4181.33 Bv 10 LV 31.00", 85, 365, 680, 390)).isEmpty())
     }
 
+    @Test fun wrappedSamsungGoldBestHeaderKeepsExplicitLvAndNeverUsesChartPrice() {
+        val lines=listOf(
+            QuoteLayout.Line("CHF 504,76", 140, 60, 470, 110),
+            QuoteLayout.Line("DE000SX7PE82 • Societe Generale OTC", 24, 205, 560, 235),
+            QuoteLayout.Line("SG Gold Turbo BEST Open-End Call", 85, 260, 625, 297),
+            QuoteLayout.Line("BAR 3501.67 BP 3501.67 Bv 10", 85, 329, 565, 367),
+            QuoteLayout.Line("LV", 505, 391, 548, 419),
+            QuoteLayout.Line("8.71", 557, 391, 620, 419),
+            QuoteLayout.Line("€ 40,69", 27, 476, 255, 524),
+            QuoteLayout.Line("42.04", 560, 780, 650, 810))
+        val result=QuoteLayout.extract(lines)
+        assertEquals("3501,67", result["KO-Schwelle"])
+        assertEquals("3501,67", result["Basispreis"])
+        assertEquals("10", result["Bv"])
+        assertEquals("8,71", result["Hebel"])
+        assertNull(result["Geld"])
+        assertNull(result["Brief"])
+        assertNull(QuoteLayout.extract(lines.filterNot { it.text=="LV" })["Hebel"])
+        assertNull(QuoteLayout.extract(lines.filterNot { it.text.startsWith("SG Gold") })["Hebel"])
+    }
+
+    @Test fun compatibleRepeatedTitleNodesMergeOnlyNonConflictingExplicitFields() {
+        val title=QuoteLayout.Line("SG Gold Turbo BEST Open-End Call", 85, 260, 625, 297)
+        val partial=QuoteLayout.Line("BAR 3501.67 BP 3501.67 Bv 10", 85, 329, 565, 367)
+        val full=QuoteLayout.Line("BAR 3501.67 BP 3501.67 Bv 10 LV 8.71", 85, 378, 635, 405)
+        val input=listOf(title,partial,full)
+        assertEquals("8,71", QuoteLayout.productParameters(input)["Hebel"])
+        val conflict=input+QuoteLayout.Line("BAR 3501.67 BP 3501.67 Bv 10 LV 9.11",85,410,635,438)
+        assertTrue(QuoteLayout.productParameters(conflict).isEmpty())
+        val invalid=input+QuoteLayout.Line("BAR 3501.67 BP 3501.67 Bv 10 LV 0.00",85,410,635,438)
+        assertTrue(QuoteLayout.productParameters(invalid).isEmpty())
+    }
+
     @Test fun compactMiniCallAcceptsWholeBarrierWithoutLosingOtherParameters() {
         fun parse(sequence: String) = QuoteLayout.productParameters(listOf(
             QuoteLayout.Line("SG Gold Turbo Unlimited Mini Call BAR", 85, 270, 680, 305),
