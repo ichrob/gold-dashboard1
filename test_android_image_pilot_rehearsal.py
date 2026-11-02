@@ -105,6 +105,63 @@ class TestSchemaPilotTests(unittest.TestCase):
                 rehearsal.rehearse_test_schema(self.conn,self.blob,self.sha)
         self.assertEqual(self.source(),original)
 
+    def test_concurrent_writer_lock_blocks_pilot_then_unlock_allows_it(self):
+        import psycopg
+        # Another OCR/import transaction owns this source row. The
+        # rehearsal must fail quickly without bypassing that row lock.
+        original=self.source()
+        holder=psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
+                               autocommit=True)
+        try:
+            holder.execute("SET search_path TO "+self.schema)
+            with holder.transaction():
+                locked=holder.execute("""SELECT batch_id FROM
+                    bob_android_list_images FOR UPDATE""").fetchone()
+                self.assertEqual(locked[0],self.manifest['batchId'])
+                with self.assertRaisesRegex(
+                        ValueError,"Isolated image CAS rehearsal invalid"):
+                    rehearsal.rehearse_test_schema(self.conn,self.blob,self.sha)
+                self.assertEqual(self.source(),original)
+            # A failed, contended run must not poison the next manual,
+            # independent attempt after the other writer finishes.
+            status=rehearsal.rehearse_test_schema(self.conn,self.blob,self.sha)
+            self.assertTrue(status['sourceRestored'])
+            self.assertEqual(self.source(),original)
+        finally:
+            holder.close()
+
+    def test_uncommitted_pointer_never_reaches_other_reader(self):
+        import psycopg
+        from psycopg.types.json import Jsonb
+        initial=self.source()
+        writer=psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
+                               autocommit=True)
+        reader=psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
+                               autocommit=True)
+        class RollbackFixture(Exception):pass
+        try:
+            for conn in (writer,reader):
+                conn.execute("SET search_path TO "+self.schema)
+            try:
+                with writer.transaction():
+                    writer.execute("""UPDATE bob_android_list_images
+                        SET payload=%s WHERE batch_id=%s""",
+                        (Jsonb(self.manifest['reference']),
+                         self.manifest['batchId']))
+                    other=reader.execute("""SELECT payload
+                        FROM bob_android_list_images WHERE batch_id=%s""",
+                        (self.manifest['batchId'],)).fetchone()
+                    # PostgreSQL MVCC shows the last *committed*
+                    # original, not an uncommitted transient pointer.
+                    self.assertEqual(other[0],self.manifest['original'])
+                    raise RollbackFixture()
+            except RollbackFixture:
+                pass
+            self.assertEqual(self.source(),initial)
+        finally:
+            writer.close()
+            reader.close()
+
     def test_revoked_device_never_replaces_source(self):
         original=self.source()
         self.conn.execute("UPDATE bob_android_diagnostic_devices SET revoked=TRUE")
