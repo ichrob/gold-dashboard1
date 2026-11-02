@@ -224,7 +224,7 @@ def run_once(*,now=None,connect=_connect,runner=None):
                 "SELECT count(*) FROM public.bob_improvement_observations").fetchone()[0]
             if final_count<original_count or _proof_rows(conn)!=sample:
                 state="source-verification-mismatch"
-            elif after>relation[0]:
+            elif after>=relation[0]:
                 state="no-reduction-observed"
             else:
                 state="verified-relation-reduction"
@@ -246,9 +246,10 @@ def run_once(*,now=None,connect=_connect,runner=None):
                     if type(after) is int else None,
                 "observedVolumeBytesBefore":v[0],
                 "observedVolumeBytesAfter":volume_after,
-                "diskBytesFreed":max(0,v[0]-volume_after)
+                "observedNetVolumeDecreaseBytes":max(0,v[0]-volume_after)
                     if (type(volume_after) is int and volume_after<v[0])
                     else None,
+                "diskBytesFreed":None,
                 "sourceRowsPreserved":state=="verified-relation-reduction",
                 "errorType":error_type,"evidenceDeleted":False,
                 "realOrders":False}
