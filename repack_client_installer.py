@@ -70,12 +70,12 @@ def _verified_binary(path):
     if path.is_symlink() or not path.is_file() or not (0 < path.stat().st_size < 2_000_000):
         raise ValueError("Invalid binary file")
     with path.open("rb") as file:
-        if file.read(4)!=b"\\x7fELF":
+        if file.read(4)!=b"\x7fELF":
             raise ValueError("Not a native executable")
     proc=subprocess.run([str(path),"--version"],check=True,timeout=5,
                         capture_output=True,text=True,
                         env={"PATH":os.environ.get("PATH","/usr/bin"),"LANG":"C"})
-    if not re.search(r"\\b1\\.5\\.3\\b",proc.stdout):
+    if not re.search(r"\b1\.5\.3\b",proc.stdout):
         raise ValueError("pg_repack client version mismatch")
 
 
