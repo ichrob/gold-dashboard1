@@ -9,6 +9,25 @@ def batch():
     def png(suffix):return base64.b64encode(b'\x89PNG\r\n\x1a\n'+b'\0\0\0\rIHDR'+struct.pack('>II',709,1200)+b'\x08\x02\0\0\0'+suffix).decode()
     return {'batchId':'a'*32,'sessionId':'b'*32,'images':[{'at':datetime.fromtimestamp(NOW-10+i,timezone.utc).isoformat(),'png':png(bytes([i])*8)} for i in range(2)]}
 class ListTests(unittest.TestCase):
+    def test_sg_offhours_detail_plan_defers_quotes_but_not_static_terms(self):
+        from zoneinfo import ZoneInfo
+        z=ZoneInfo('Europe/Zurich')
+        times=lambda h:int(datetime(2026,11,2,h,tzinfo=z).timestamp())
+        def product(ko=3501):
+            return dict(isin='DE000SX7PE82',name='SG Gold Turbo BEST Open-End Call',
+                currency='EUR',ko=ko,basisPrice=3501,ratio=10,
+                quote={'bid':39.40,'ask':39.41,'quoteAt':'2026-11-02T20:59:00Z'})
+        items=[dict(isin='DE000SX7PE82',name='SG Gold Turbo BEST Open-End Call')]
+        day=images.detail_plan(items,[product()],times(20))
+        self.assertEqual(day,[dict(isin='DE000SX7PE82',missingFields=['Anzeigezeit','Hebel'])])
+        night=images.detail_plan(items,[product()],times(23))
+        self.assertEqual(night,[], 'No repeated mutable SG quote requests after 22:00')
+        terms=images.detail_plan(items,[product(ko=None)],times(23))
+        self.assertEqual(terms,[dict(isin='DE000SX7PE82',missingFields=['KO-Schwelle'])])
+        bnp=[dict(isin='DE000SX7PE82',name='BNP GOLD Mini Long')]
+        self.assertEqual(images.detail_plan(bnp,[dict(product(),name='BNP GOLD Mini Long')],times(23)),day)
+        self.assertEqual(product()['quote']['quoteAt'],'2026-11-02T20:59:00Z')
+
     def test_text_capture_is_bounded_and_immutable(self):
         x=batch();x['images'][0]['appText']={'before':['product row'],'after':['product row']}
         self.assertEqual(images.validate(x,NOW),x)
