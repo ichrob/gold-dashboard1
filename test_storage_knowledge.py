@@ -37,6 +37,18 @@ class FoldTests(unittest.TestCase):
         self.assertNotIn(original, json.dumps(summary))
         self.assertNotIn("profit", json.dumps(summary).lower())
 
+    def test_observed_or_per_metric_only_not_misreported_as_pass(self):
+        s = k.fold("quality", [
+            ("check-1", "metric", "observed"),
+            ("check-2", "metric", "individual-metrics-no-overall-status"),
+            ("check-3", "metric", "archived-original-not-inline"),
+        ])
+        self.assertEqual(s["outcomes"]["observed"], 1)
+        self.assertEqual(s["outcomes"]["individual-metrics-no-overall-status"], 1)
+        self.assertEqual(s["outcomes"]["archived-original-not-inline"], 1)
+        self.assertNotIn("matched", s["outcomes"])
+        self.assertFalse(s["deletionAuthorized"])
+
     def test_repeated_ids_unbounded_rows_and_bad_areas_fail(self):
         with self.assertRaises(ValueError):
             k.fold("diagnoses", [("same", "input", "ok")] * 2)
@@ -183,6 +195,12 @@ class PostgresKnowledgeTests(unittest.TestCase):
                 conn.execute("""INSERT INTO bob_metric_checks
                     VALUES('v2','15m',2,1793645640001,
                            '{"_bobColdMetricV2":["internal-example",0]}')""")
+                conn.execute("""INSERT INTO bob_metric_checks
+                    VALUES('v3','product:example',3,1793645640002,
+                           '{"metrics":{"adx":{"status":"matched"}},"status":"observed"}')""")
+                conn.execute("""INSERT INTO bob_metric_checks
+                    VALUES('v4','trade:example',4,1793645640003,
+                           '{"metrics":{"pnl":{"status":"mismatch"}}}')""")
                 conn.execute("""INSERT INTO bob_paper_normal1000oct_cases
                     VALUES('profile-1','2026-11-02',now(),now(),
                            '{"status":"inconclusive"}')""")
@@ -213,6 +231,11 @@ class PostgresKnowledgeTests(unittest.TestCase):
                 self.assertFalse(sim["simulationCoverage"]["netReturnVerified"])
                 self.assertFalse(sim["simulationCoverage"]["strategyWinnerConfirmed"])
                 self.assertEqual(report["areas"]["quality"]["outcomes"]["archived-original-not-inline"], 1)
+                self.assertEqual(report["areas"]["quality"]["outcomes"]["observed"], 1)
+                self.assertEqual(report["areas"]["quality"]["outcomes"]["individual-metrics-no-overall-status"], 1)
+                self.assertEqual(report["areas"]["quality"]["outcomes"]["matched"], 1)
+                # A source's metric subfield is not a verified overall verdict.
+                self.assertEqual(report["areas"]["quality"]["sampledRows"], 4)
                 self.assertFalse(report["deletionAuthorized"])
                 conn.execute("ROLLBACK")
             finally:
