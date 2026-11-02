@@ -8,9 +8,10 @@ internal class ProductReturnTransition {
     private var target: String? = null
     private var window: Int? = null
     private var started = 0L
+    private var backRetried = false
 
     fun begin(previousTarget: String, previousWindow: Int, now: Long) {
-        target=previousTarget;window=previousWindow;started=now
+        target=previousTarget;window=previousWindow;started=now;backRetried=false
     }
 
     private fun searchReady(nodes: List<MorningReadPolicy.Node>, previous: String): Boolean {
@@ -65,5 +66,22 @@ internal class ProductReturnTransition {
         return State.WAITING
     }
 
-    fun clear() { target=null;window=null;started=0L }
+    /** One optional extra system BACK after a confirmed initial BACK when
+     * the exact SAME previous product is still visible. This never authorizes
+     * searching, tapping or continuing to the next product.
+     * Unknown screens, order forms, or identity changes remain fail-closed. */
+    fun safeBackRetry(nodes: List<MorningReadPolicy.Node>, currentWindow: Int, now: Long): Boolean {
+        val previous=target ?: return false
+        if (backRetried || now-started !in 1200..3000 || window != currentWindow) return false
+        val visible=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
+            .findAll(nodes.joinToString("\n") { it.text.uppercase() }).map { it.value }.toSet()
+        if (visible != setOf(previous) ||
+            !MorningReadPolicy.returnAfterRead(nodes,previous,currentWindow,window,"READ")) return false
+        // Mark the retry before any gesture; never send two for the same back.
+        backRetried=true
+        started=now
+        return true
+    }
+
+    fun clear() { target=null;window=null;started=0L;backRetried=false }
 }

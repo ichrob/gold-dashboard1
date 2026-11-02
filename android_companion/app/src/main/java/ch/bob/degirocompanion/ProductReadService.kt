@@ -740,7 +740,21 @@ class ProductReadService : AccessibilityService() {
             // Return no draft or identifiers from this transitional screen.
             if(MorningReadRun.running) {
                 when(productReturnTransition.poll(descriptions,root.windowId,SystemClock.elapsedRealtime())) {
-                    ProductReturnTransition.State.WAITING -> return observation("BUSY")
+                    ProductReturnTransition.State.WAITING -> {
+                        // Android WebView sometimes acknowledges BACK but stays
+                        // on the same safe detail. One further BACK is allowed
+                        // only after the old exact ISIN and the product's
+                        // protected-form checks pass again, in the same window.
+                        if(productReturnTransition.safeBackRetry(descriptions,root.windowId,
+                                SystemClock.elapsedRealtime())) {
+                            val current=productRoot(false)
+                            val safe=current?.windowId==root.windowId &&
+                                current?.packageName?.toString()==ProductScreenEvidence.PACKAGE
+                            current?.recycle()
+                            if(safe) performGlobalAction(GLOBAL_ACTION_BACK)
+                        }
+                        return observation("BUSY")
+                    }
                     ProductReturnTransition.State.FAILED -> {
                         MorningReadRun.stop(this,"RETURN_NOT_CONFIRMED")
                         ProductReadRequest.cancel()

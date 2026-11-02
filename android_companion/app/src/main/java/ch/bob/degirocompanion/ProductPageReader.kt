@@ -136,8 +136,14 @@ internal class ProductPageReader {
         // identity. A checked quote is always an unverified historical reading.
         // A verified quote page is not a completed LV read if the explicitly
         // requested leverage is still absent and a bounded header return exists.
+        // A previously observed product title belongs to the quote ONLY if
+        // this same window now shows its exact Symbol | ISIN pairing. The
+        // displayed title itself is not sufficient identity evidence.
+        val trustedPriorLeverage = footerPair != null &&
+            seekingSymbol == footerPair.symbol && "Hebel" in seekingParameters
         if ((verifiedPairedQuote || sameScreenQuote) &&
-            !(seekLeverage && canBackward && "Hebel" !in scopedParameters(lines) &&
+            !(seekLeverage && canBackward && !trustedPriorLeverage &&
+                "Hebel" !in scopedParameters(lines) &&
                 !direct.draft.contains("Hebel (Anzeige ungeprüft): "))) {
             val observedTerms = scopedParameters(lines)
             val earlierSymbol = seekingSymbol ?: verifiedProbeSymbol
@@ -201,7 +207,8 @@ internal class ProductPageReader {
                         seekingParameters[key]?.let { it != value } ?: false
                     }) return stop("Widersprüchliche Produktparameter im identischen Symbol.", Cause.IDENTITY_CHANGED)
                     anchorParameters = seekingParameters + terms
-                    if (verifiedPairedQuote) {
+                    if (verifiedPairedQuote &&
+                        (!seekLeverage || anchorParameters.containsKey("Hebel"))) {
                         val extra = anchorParameters.filterKeys {
                             !direct.draft.contains("$it (Anzeige ungeprüft): ")
                         }.map { (key, value) -> "$key (Anzeige ungeprüft): $value" }.joinToString("\n")
@@ -344,7 +351,8 @@ internal class ProductPageReader {
         // Publication still requires returning to the original visible ISIN.
         if (observed.draft.contains("Geld (") && observed.draft.contains("Brief (")) {
             if (readBackward && requireParameters && verifiedProbeSymbol != null &&
-                !anchorParameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv"))) {
+                (!anchorParameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv")) ||
+                 (seekLeverage && !anchorParameters.containsKey("Hebel")))) {
                 collectingHeader = true
             } else returning = true
             val next = inspect(windowId, lines, at, sensitive, canForward, canBackward, requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly,
