@@ -119,6 +119,16 @@ def prepare_once():
     return _clean_status("client-verified")
 
 
+
+def client_available():
+    """Pure private binary check for existing read-only storage preflight."""
+    try:
+        _verified_binary(_HOME/"pg_repack")
+        return True
+    except Exception:
+        return False
+
+
 def start_if_enabled():
     """Fire-and-forget one opt-in, nonblocking startup probe, without DB I/O."""
     if os.environ.get("BOB_REPACK_CLIENT_PREPARE")!="1":
