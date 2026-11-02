@@ -32,6 +32,8 @@ on:
       - "storage_maintenance.py"
       - "storage_budget.py"
       - "storage_knowledge.py"
+      - "storage_case_results.py"
+      - "test_storage_case_results.py"
       - "test_storage_knowledge.py"
       - "storage_layout.py"
       - "storage_forensics.py"
