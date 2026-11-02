@@ -19,6 +19,7 @@ class EngineTests(unittest.TestCase):
                 self.assertEqual(opt.graph_optimization_level,'basic')
                 self.assertFalse(opt.enable_mem_pattern)
                 self.assertFalse(opt.enable_cpu_mem_arena)
+                self.assertEqual(opt.graph_optimization_level,'basic')
                 self.assertEqual(opt.threads,1)
                 if fail:raise RuntimeError('engine unavailable')
                 return 'engine'
