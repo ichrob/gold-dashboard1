@@ -27,6 +27,38 @@ class Boundary(unittest.TestCase):
         for key,value in [('screenText','account'),('token','secret'),('appVersionCode',True),('lastCode','raw screen text'),('running',1),('observedAt',(NOW-timedelta(days=2)).isoformat()),('lastEventAt','bad')]:
             p=report();p[key]=value
             with self.subTest(key=key),self.assertRaises(ValueError):a.validate_report(p)
+    def test_paired_detail_transfer_aggregate_is_read_only_and_bounded(self):
+        for state in a.DETAIL_STATES:
+            p=report()
+            p['detailTransfer']={'state':state,'saved':0,'deferred':8,
+                                  'at':datetime.now(timezone.utc).isoformat()}
+            self.assertEqual(a.validate_report(p)['detailTransfer']['state'],state)
+            self.assertFalse('listBatchId' in json.dumps(p))
+        p=report()
+        valid={'state':'DEFERRED','saved':0,'deferred':8,
+               'at':datetime.now(timezone.utc).isoformat()}
+        for bad in [
+            dict(valid,screenText='account information'),
+            dict(valid,state='Raw error: Token 123'),
+            dict(valid,saved=True),
+            dict(valid,deferred=121),
+            dict(valid,deferred=-1),
+            dict(valid,saved=1.5),
+            dict(valid,at=(datetime.now(timezone.utc)-timedelta(days=2)).isoformat())
+        ]:
+            p['detailTransfer']=bad
+            with self.subTest(bad=bad),self.assertRaises(ValueError):
+                a.validate_report(p)
+        p['detailTransfer']=valid
+        p['detailTransfer']['batchId']='a'*32
+        with self.assertRaises(ValueError):
+            a.validate_report(p)
+        p=report()
+        p['pinProbe']='not a valid probe'
+        p['detailTransfer']=valid
+        with self.assertRaises(ValueError):
+            a.validate_report(p)
+
     def test_token_must_be_high_entropy_shape(self):
         for token in ['',None,'password','a'*63,'A'*64]:
             with self.assertRaises(PermissionError):a.token_hash(token)
