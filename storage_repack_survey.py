@@ -32,6 +32,10 @@ _EXT_SQL = """SELECT name,default_version,installed_version
 FROM pg_available_extensions
 WHERE name IN ('pg_repack','pgstattuple') ORDER BY name"""
 _WAL_SQL = "SELECT wal_bytes::numeric,stats_reset FROM pg_stat_wal"
+# Fixed read-only directory aggregate, never names or raw WAL bytes. Some
+# managed database roles cannot call pg_ls_waldir; that fails closed.
+_WAL_DIR_SQL = """SELECT count(*)::integer,coalesce(sum(size),0)::bigint
+    FROM pg_ls_waldir()"""
 
 
 def _connect():
@@ -66,9 +70,16 @@ def _snapshot():
         except Exception:
             # autocommit=True: one rejected read does not affect others
             wal=None
+        try:
+            wal_dir=conn.execute(_WAL_DIR_SQL).fetchone()
+            if (not wal_dir or len(wal_dir)!=2 or
+                    any(type(v) is not int or v<0 for v in wal_dir)):
+                wal_dir=None
+        except Exception:
+            wal_dir=None
         # pgstattuple_approx may still scan pages; never auto-run it in an
         # operational HTTP report or against a live unbounded table.
-    return row,extensions,wal
+    return row,extensions,wal,wal_dir
 
 
 def _safe_volume():
@@ -89,8 +100,8 @@ def _safe_volume():
 
 def evaluate(first,second,elapsed,volume,client_present):
     """Interpret aggregate catalog and cumulative WAL counters; never infer bloat."""
-    row,ext,wal=first
-    _,_,later_wal=second
+    row,ext,wal,wal_dir=first
+    _,_,later_wal,later_wal_dir=second
     if (type(elapsed) not in (int,float) or not 10<=elapsed<=90
             or type(row) not in (tuple,list) or len(row)!=9):
         raise ValueError("Invalid bounded survey")
@@ -122,6 +133,11 @@ def evaluate(first,second,elapsed,volume,client_present):
         "walObservationSeconds":round(elapsed,1),
         "walGeneratedBytesInWindow":wal_bytes,
         "walCounterStatus":"observed" if wal_bytes is not None else "not-observed",
+        "walDirectoryObservedBytes":(later_wal_dir[1] if
+            later_wal_dir is not None else None),
+        "walDirectoryObservationStatus":("observed" if
+            later_wal_dir is not None else "not-observed"),
+        "walFileCount":later_wal_dir[0] if later_wal_dir is not None else None,
         "physicalRenderVolumeBytes":volume,
         "actualTableBloatBytes":None,
         "walFreeHeadroomBytes":None,

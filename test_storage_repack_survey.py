@@ -18,11 +18,14 @@ class SurveyTests(unittest.TestCase):
 
     def test_counter_delta_not_a_bloat_or_disk_savings_claim(self):
         row,ext=self.fixture()
-        report=survey.evaluate((row,ext,(1000,"fixed-reset")),
-                      (row,ext,(1700,"fixed-reset")),15,
+        report=survey.evaluate((row,ext,(1000,"fixed-reset"),(2,33_554_432)),
+                      (row,ext,(1700,"fixed-reset"),(3,50_331_648)),15,
                       687_841_300,True)
         self.assertEqual(report["walGeneratedBytesInWindow"],700)
         self.assertEqual(report["walCounterStatus"],"observed")
+        self.assertEqual(report["walDirectoryObservedBytes"],50_331_648)
+        self.assertEqual(report["walFileCount"],3)
+        self.assertEqual(report["walDirectoryObservationStatus"],"observed")
         self.assertEqual(report["totalRelationBytes"],66_838_528)
         self.assertEqual(report["toastBytes"],52_912_128)
         self.assertFalse(report["pgRepackExtensionInstalled"])
@@ -45,7 +48,7 @@ class SurveyTests(unittest.TestCase):
             ((100,"A"),None)
         ):
             with self.subTest(first=first,second=second):
-                result=survey.evaluate((row,ext,first),(row,ext,second),
+                result=survey.evaluate((row,ext,first,None),(row,ext,second,None),
                                        15,None,False)
                 self.assertIsNone(result["walGeneratedBytesInWindow"])
                 self.assertEqual(result["walCounterStatus"],"not-observed")
@@ -54,7 +57,7 @@ class SurveyTests(unittest.TestCase):
     def test_invalid_window_never_claims_approval(self):
         row,ext=self.fixture()
         with self.assertRaises(ValueError):
-            survey.evaluate((row,ext,None),(row,ext,None),1,1000,False)
+            survey.evaluate((row,ext,None,None),(row,ext,None,None),1,1000,False)
 
     def test_disabled_flag_no_db_or_background_work(self):
         with patch.dict(os.environ,{"BOB_REPACK_SURVEY_ONCE":""}), \
@@ -81,15 +84,18 @@ class SurveyTests(unittest.TestCase):
                                    ("pgstattuple","1.5",None)])
                 if q==survey._WAL_SQL:
                     return Cursor((100,"2026-11-02T06:00Z"))
+                if q==survey._WAL_DIR_SQL:
+                    return Cursor((3,50_331_648))
                 raise AssertionError("Unexpected query")
         conn=Conn()
         with patch.object(survey,"_connect",return_value=conn):
-            a,b,c=survey._snapshot()
+            a,b,c,d=survey._snapshot()
         self.assertEqual(a,row)
         self.assertTrue(b["pg_repack"]["available"])
         self.assertFalse(b["pg_repack"]["installed"])
         self.assertEqual(c[0],100)
-        self.assertEqual(len(conn.sql),3)
+        self.assertEqual(d,(3,50_331_648))
+        self.assertEqual(len(conn.sql),4)
         self.assertTrue(all(x.lstrip().startswith("SELECT") for x in conn.sql))
         sql=" ".join(conn.sql).lower()
         for forbidden in ("delete from","update bob_","vacuum ","pg_repack --",
