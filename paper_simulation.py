@@ -191,6 +191,7 @@ def init(conn):
     import paper_portfolios
     paper_portfolios.init(conn)
     paper_stop_study.init(conn)
+    __import__('paper_shadow_studies').init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -1181,6 +1182,18 @@ def _worker(db):
                         try:
                             with conn.transaction():paper_stop_study.tick(conn,market,quotes,time.time()*1000)
                         except Exception as exc:print('BOB_STOP_STUDY error='+type(exc).__name__,flush=True)
+                        # Separate original-evidence studies: an audit failure can
+                        # never interrupt the seven existing virtual accounts.
+                        conn.execute('SAVEPOINT bob_shadow_studies')
+                        try:
+                            import paper_shadow_studies
+                            paper_shadow_studies.tick(
+                                conn,bundle,market,selection,quotes,time.time()*1000)
+                            conn.execute('RELEASE SAVEPOINT bob_shadow_studies')
+                        except Exception as shadow_exc:
+                            conn.execute('ROLLBACK TO SAVEPOINT bob_shadow_studies')
+                            conn.execute('RELEASE SAVEPOINT bob_shadow_studies')
+                            print('BOB_SHADOW_STUDIES error='+type(shadow_exc).__name__,flush=True)
                         # Observational research MUST NOT interrupt existing paper ledgers.
                         # A PostgreSQL savepoint contains all collector failures.
                         conn.execute('SAVEPOINT bob_zukunft_capture')
