@@ -83,7 +83,8 @@ def original_input(bundle, market, now):
     good=(spots.get("is_genuine_xauusd_spot") is True
           and spots.get("xaus_is_spot") is True
           and positive(source_price) and positive(price)
-          and abs(source_price-price)<=0.0001
+          # The JS evaluator may represent the same USD price as float32.
+          and abs(source_price-price)<=0.001
           and market.get("ready") is True
           and market.get("priceFresh") is True
           and positive(price) and number(data_at) and number(at)
