@@ -107,7 +107,16 @@ class MainActivity : Activity() {
         }
         label(appHeadline)
         button("🛑 NOT-STOPP – alle Handy- und Fernaufträge sperren") { emergencyStop() }
-        button("DEGIRO-Produktseite lesen") {
+        // One explicit local tap starts the entire bounded, read-only workflow:
+        // encrypted on-device PIN (when enrolled) -> verified DEGIRO Markets ->
+        // Gold leveraged-product list -> authenticated missing-field detail plan.
+        // ProductReadActivity is not exported; no deep link or remote command
+        // can set this private start instruction.
+        button("▶ Bob starten · DEGIRO, Gold und fehlende Werte") {
+            startActivity(Intent(this, ProductReadActivity::class.java)
+                .putExtra(ProductReadActivity.EXTRA_START_COMPLETE_FLOW, true))
+        }
+        button("DEGIRO-Leser · Einrichtung und Einzelprüfungen") {
             startActivity(Intent(this, ProductReadActivity::class.java))
         }
         button("📋 Kopierten ChatGPT-Auftrag prüfen") {
