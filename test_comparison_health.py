@@ -18,6 +18,16 @@ class HealthTests(unittest.TestCase):
         self.assertNotIn('private-secret',json.dumps(r))
         self.assertEqual(h.summarize([],3000)['status'],'no-records')
 
+    def test_fresh_signal_outcome_waits_for_60_minute_horizon(self):
+        query = h.QUERIES['signal-outcomes']
+        self.assertIn("a.recorded_at > now() - interval '60 minutes'", query)
+        self.assertLess(query.index("'outcome-recorded'"), query.index("'pending-horizon'"))
+        self.assertLess(query.index("'pending-horizon'"), query.index("'outcome-not-recorded'"))
+        counts = h.summarize([(1000, 'pending-horizon'), (1000, 'outcome-not-recorded'),
+                              (1000, 'outcome-recorded')], 2000)['counts']
+        self.assertEqual(counts, {'pending-horizon': 1, 'outcome-not-recorded': 1,
+                                  'outcome-recorded': 1})
+
     def test_bounded_sample_rejects_future_clock(self):
         r=h.summarize([(4000,'pending')]*101,3000)
         self.assertTrue(r['truncated'])
@@ -71,6 +81,16 @@ class DatabaseTests(unittest.TestCase):
                 r=h.report(conn)
                 self.assertEqual(r['items']['signals']['counts'],{'eligible':1})
                 self.assertEqual(r['items']['signal-outcomes']['counts'],{'outcome-recorded':1})
+                # A fresh, not-yet-due outcome is pending rather than missing.
+                # Only an overdue unrecorded decision is a real evidence gap.
+                conn.commit()
+                conn.execute("INSERT INTO bob_decision_audit VALUES ('pending-id',now() - interval '30 minutes','{}')")
+                conn.execute("INSERT INTO bob_decision_audit VALUES ('overdue-id',now() - interval '75 minutes','{}')")
+                conn.commit()
+                conn.execute('SET TRANSACTION READ ONLY')
+                horizons = h.report(conn)['items']['signal-outcomes']['counts']
+                self.assertEqual(horizons, {
+                    'outcome-recorded': 1, 'pending-horizon': 1, 'outcome-not-recorded': 1})
                 self.assertEqual(r['items']['ranking-EUR']['counts'],{'incomplete':1})
                 self.assertEqual(r['items']['ranking-CHF']['counts'],{'comparable':1})
                 for slot,payload in enumerate([
