@@ -65,6 +65,8 @@ on:
       - 'storage_repack_preflight.py'
       - 'storage_repack_survey.py'
       - 'storage_repack_bloat_probe.py'
+      - 'storage_repack_improvement_once.py'
+      - 'test_storage_repack_improvement_once.py'
       - 'test_storage_repack_bloat_probe.py'
       - 'test_storage_repack_survey.py'
       - 'repack_client_installer.py'
