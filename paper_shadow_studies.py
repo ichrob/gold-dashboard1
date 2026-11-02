@@ -363,6 +363,15 @@ def report(conn):
             WHERE study=ANY(%s::text[])""",(list(STUDIES),)).fetchall()
     except Exception:
         return dict(status="unavailable",readOnly=True,reason="study-report-query-failed")
+    # One read-only catalogue measurement, not a scan of full private events.
+    try:
+        size=conn.execute("""SELECT
+            pg_total_relation_size('bob_shadow_study_control'::regclass)
+            + pg_total_relation_size('bob_shadow_study_events'::regclass)
+            + pg_total_relation_size('bob_shadow_study_cases'::regclass)""").fetchone()
+        storage_bytes=int(size[0]) if size and size[0] is not None else None
+    except Exception:
+        storage_bytes=None
     result=[]
     for study,control in rows:
         p=control.get("position")
@@ -377,6 +386,8 @@ def report(conn):
             realizedResultVerified=False,realOrders=False))
     return dict(status="observed" if len(result)==len(STUDIES) else "partial",
         version=VERSION,studies=result,readOnly=True,realOrders=False,
+        storageBytes=storage_bytes,permanentEventJournal=True,
+        sampleEveryPaperEvaluation=True,automaticExpiry=False,
         scope="prospective-original-evidence-with-full-event-journal",
         note="Three independent observations, no broker fills or verified net profit. "
              "A source gap never becomes an inferred exit.")
