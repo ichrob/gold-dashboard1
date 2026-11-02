@@ -15,7 +15,7 @@ internal object ProductDetailDelivery {
     private var busy=false
 
     private enum class State {
-        SENDING, SAVED, DEFERRED, LIMIT, BLOCKED, NOT_READY, NOT_CONFIRMED, ACK_MISMATCH
+        SENDING, SAVED, NO_NEW, DEFERRED, LIMIT, BLOCKED, NOT_READY, NOT_CONFIRMED, ACK_MISMATCH
     }
     private fun pref(c:Context)=c.getSharedPreferences("detail_delivery_status",Context.MODE_PRIVATE)
     fun status(c:Context):String=pref(c).getString("status","").orEmpty()
@@ -24,7 +24,7 @@ internal object ProductDetailDelivery {
     fun diagnostic(c:Context):JSONObject? {
         val p=pref(c)
         val state=p.getString("state",null) ?: return null
-        if(State.entries.none { it.name==state }) return null
+        if(State.values().none { it.name==state }) return null
         val at=p.getString("at",null) ?: return null
         val age=runCatching { System.currentTimeMillis()-Instant.parse(at).toEpochMilli() }
             .getOrDefault(Long.MAX_VALUE)
@@ -67,7 +67,8 @@ internal object ProductDetailDelivery {
         },when {
             limited -> State.LIMIT
             p.deferred>0 -> State.DEFERRED
-            else -> State.SAVED
+            p.saved>0 -> State.SAVED
+            else -> State.NO_NEW
         },p.saved,p.deferred)
         completed?.invoke()
     }
