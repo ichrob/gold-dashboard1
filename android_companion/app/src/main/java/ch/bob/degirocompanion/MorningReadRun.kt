@@ -41,6 +41,7 @@ internal object MorningReadRun {
         it == RunOutbox.CURRENT || it.startsWith(RunOutbox.PREFIX)
     }.mapValues { it.value as String }
     fun pending(c: Context): String? = entries(c).let { it[RunOutbox.pendingKey(it)] }
+    fun outboxGeneration(c: Context): String = RunOutbox.generation(entries(c))
     /** An upload attempt may skip an unavailable historical batch in memory
      * without deleting or rewriting any saved original observation. */
     fun pendingForDelivery(c: Context, excludedKeys: Set<String>): Pair<String,String>? {

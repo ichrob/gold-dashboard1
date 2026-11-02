@@ -55,8 +55,7 @@ class MorningReadTransfer : Activity() {
             val raw=MorningReadRun.pending(c) ?: return false
             val data=org.json.JSONObject(raw)
             if(data.optString("listBatchId").matches(Regex("[a-f0-9]{32}")) && PhoneDiagnostics.paired(c)) {
-                ProductDetailDelivery.start(c)
-                return true
+                return ProductDetailDelivery.autoStart(c)
             }
             val version=data.optString("batchId")+":"+data.optInt("revision")
             val prefs=c.getSharedPreferences("product_reader",Context.MODE_PRIVATE)

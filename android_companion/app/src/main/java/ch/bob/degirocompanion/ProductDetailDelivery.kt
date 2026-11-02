@@ -47,6 +47,18 @@ internal object ProductDetailDelivery {
     private enum class Outcome { SAVED, UNAVAILABLE, NOT_READY, NOT_CONFIRMED }
     private data class Progress(var saved:Int=0, var deferred:Int=0)
 
+    /** Automatic callers must not continuously retry old batches whose
+     * authenticated original receipt is unavailable. New outbox content and
+     * every explicit user button press remain immediately eligible. */
+    fun autoStart(c:Context):Boolean {
+        val p=pref(c)
+        val sameOutbox=p.getString("lastDeferredGeneration",null)==MorningReadRun.outboxGeneration(c)
+        if(!DetailAutoRetryPolicy.allowed(p.getString("state",null),
+            p.getLong("lastDeferredAtMillis",0L),sameOutbox,System.currentTimeMillis())) return false
+        start(c)
+        return true
+    }
+
     fun start(c:Context, completed:(()->Unit)? = null) {
         if(busy) { completed?.invoke();return }
         if(MorningReadRun.running || !PhoneDiagnostics.paired(c)) {
@@ -59,6 +71,11 @@ internal object ProductDetailDelivery {
 
     private fun finish(c:Context,p:Progress,completed:(()->Unit)?,limited:Boolean=false) {
         busy=false
+        if(p.deferred>0) {
+            val prefs=pref(c)
+            check(prefs.edit().putString("lastDeferredGeneration",MorningReadRun.outboxGeneration(c))
+                .putLong("lastDeferredAtMillis",System.currentTimeMillis()).commit())
+        }
         record(c,when {
             limited -> "Übertragungsprüfung begrenzt. ${p.saved} Bericht(e) bestätigt, ${p.deferred} ältere zurückgestellt. Alle übrigen Berichte bleiben lokal gespeichert."
             p.deferred>0 -> "${p.saved} Detailbericht(e) von Bob bestätigt; ${p.deferred} ältere ohne gültigen ursprünglichen Listen-Nachweis zurückgestellt. Originale bleiben lokal gespeichert."
