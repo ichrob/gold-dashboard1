@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'ops/repack_client/**'
+      - 'repack_client_installer.py'
+      - 'test_repack_client_installer.py'
       - '.github/workflows/verify-pgdg-repack.yml'
   workflow_dispatch:
 
