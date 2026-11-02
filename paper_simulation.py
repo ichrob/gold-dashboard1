@@ -1182,18 +1182,6 @@ def _worker(db):
                         try:
                             with conn.transaction():paper_stop_study.tick(conn,market,quotes,time.time()*1000)
                         except Exception as exc:print('BOB_STOP_STUDY error='+type(exc).__name__,flush=True)
-                        # Separate original-evidence studies: an audit failure can
-                        # never interrupt the seven existing virtual accounts.
-                        conn.execute('SAVEPOINT bob_shadow_studies')
-                        try:
-                            import paper_shadow_studies
-                            paper_shadow_studies.tick(
-                                conn,bundle,market,selection,quotes,time.time()*1000)
-                            conn.execute('RELEASE SAVEPOINT bob_shadow_studies')
-                        except Exception as shadow_exc:
-                            conn.execute('ROLLBACK TO SAVEPOINT bob_shadow_studies')
-                            conn.execute('RELEASE SAVEPOINT bob_shadow_studies')
-                            print('BOB_SHADOW_STUDIES error='+type(shadow_exc).__name__,flush=True)
                         # Observational research MUST NOT interrupt existing paper ledgers.
                         # A PostgreSQL savepoint contains all collector failures.
                         conn.execute('SAVEPOINT bob_zukunft_capture')
@@ -1226,6 +1214,16 @@ def _worker(db):
                             paper_input_evidence.capture(bundle,input_observations,time.time()*1000)
                         except Exception:
                             print('BOB_PAPER_INPUT_AUDIT unavailable',flush=True)
+                        # Durable normal ledgers are already COMMITTED before
+                        # any optional full-evidence study writes begin. A
+                        # study failure cannot roll them back or forge fills.
+                        try:
+                            import paper_shadow_studies
+                            with conn.transaction():
+                                paper_shadow_studies.tick(
+                                    conn,bundle,market,selection,quotes,time.time()*1000)
+                        except Exception as shadow_exc:
+                            print('BOB_SHADOW_STUDIES error='+type(shadow_exc).__name__,flush=True)
                         print('BOB_PAPER checked profiles='+str(outcomes)+
                               ' direction='+str(market.get('direction'))+
                               ' ready='+str(market.get('ready'))+
