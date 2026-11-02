@@ -29,7 +29,7 @@ class OneTapCompleteFlowTest(unittest.TestCase):
         self.assertIn('savedInstanceState == null &&', activity)
         self.assertIn('intent.getBooleanExtra(EXTRA_START_COMPLETE_FLOW, false)', activity)
         self.assertIn('intent.removeExtra(EXTRA_START_COMPLETE_FLOW)', activity)
-        self.assertIn("startCompleteFlowOnFirstResume = false\\n            startAutomaticTest()", activity)
+        self.assertIn("startCompleteFlowOnFirstResume = false\n            startAutomaticTest()", activity)
         resume = activity.split('override fun onResume()', 1)[1].split('override fun onPause()', 1)[0]
         self.assertLess(resume.index('PinReadinessProbe.stop('),
                         resume.index('startAutomaticTest()'))
