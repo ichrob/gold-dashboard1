@@ -30,6 +30,7 @@ def init(conn):
     conn.execute("ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS writer_stats JSONB NOT NULL DEFAULT '{}'::jsonb")
     # Tiny derived daily snapshots for five areas; no evidence or source deletion.
     __import__('storage_knowledge').init(conn)
+    __import__('storage_case_results').init(conn)
 
 
 def state(size):
@@ -191,6 +192,7 @@ def report(conn,now=None):
         coldMetrics=__import__('cold_metrics').status(conn),
         layout=__import__('storage_layout').report(conn),
         knowledgeSummaries=__import__('storage_knowledge').report(conn),
+        paperFinalReceipts=__import__('storage_case_results').report(conn),
         renderVolume=__import__('render_disk_metrics').report(),
         coldAnalysis=__import__('cold_analysis').status(conn),
         coldObservations=__import__('cold_observations').status(conn),
