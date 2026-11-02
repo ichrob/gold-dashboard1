@@ -117,7 +117,7 @@ class ProductPageReaderTest {
         assertEquals(ProductPageReader.Move.FORWARD,
             r.inspect(1,start,at,false,true,true,requireParameters=true,allowSymbolProbe=true,
                 seekLeverage=true,expectedIsin="DE000SX7PE82").move)
-        val paired=lines("Symbol | ISIN", "1234567 | DE000SX7PE82",
+        val paired=lines("Symbol | ISIN 1234567 | DE000SX7PE82",
             "Geld EUR 39,40", "Brief EUR 39,41")
         val done=r.inspect(1,paired,at,false,true,true,requireParameters=true,
             allowSymbolProbe=true,seekLeverage=true,expectedIsin="DE000SX7PE82")
