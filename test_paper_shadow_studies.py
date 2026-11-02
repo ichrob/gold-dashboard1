@@ -157,6 +157,15 @@ class ShadowStudiesTests(unittest.TestCase):
         self.assertEqual(control["casesPriced"],1)
         self.assertGreater(control["profit"],0)
 
+    def test_optional_study_writes_only_after_existing_paper_commit(self):
+        import inspect
+        import paper_simulation
+        code=inspect.getsource(paper_simulation._worker)
+        original=code.index("conn.commit()")
+        journal=code.index("paper_shadow_studies.tick(")
+        self.assertLess(original,journal)
+        self.assertIn("with conn.transaction():",code[journal-200:journal])
+
     def test_stored_journal_is_append_only_and_reporting_not_execution(self):
         conn=RecordingConnection()
         shadow.init(conn)
