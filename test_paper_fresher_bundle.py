@@ -39,6 +39,32 @@ class FreshPaperBundleTests(unittest.TestCase):
         self.assertIs(paper.newer_queued_paper_bundle(old,None,self.NOW),old)
         self.assertIs(paper.newer_queued_paper_bundle(old,{'spots':{}},self.NOW),old)
 
+    def test_newer_spot_must_carry_observed_closed_15m_bars(self):
+        old=bundle(self.NOW,45)
+        for frames in (
+                {},
+                {'15m': []},
+                {'15m': [{'openTime':self.NOW-300000,'isOpen':True}]},
+                {'15m': [{'openTime':self.NOW-300000,'providerIsOpen':True}]},
+                {'15m': [{'openTime':self.NOW-300000,'estimated':True}]},
+                {'15m': [{'openTime':'not-a-clock'}]},
+                {'15m': [None]}):
+            candidate=bundle(self.NOW,5)
+            candidate['history']['bars_by_tf']=frames
+            self.assertIs(paper.newer_queued_paper_bundle(old,candidate,self.NOW),old)
+            self.assertIsNone(paper.late_risk_retry_bundle(old,candidate,self.NOW))
+
+    def test_spot_refresh_never_rolls_back_existing_15m_bar(self):
+        old=bundle(self.NOW,45)
+        newer=bundle(self.NOW,5)
+        newer['history']['bars_by_tf']['15m'][0]['openTime']=self.NOW-1200000
+        self.assertIs(paper.newer_queued_paper_bundle(old,newer,self.NOW),old)
+        self.assertIsNone(paper.late_risk_retry_bundle(old,newer,self.NOW))
+        # A genuinely newer matching closed bar remains usable.
+        newer['history']['bars_by_tf']['15m'][0]['openTime']=self.NOW-100000
+        self.assertIs(paper.newer_queued_paper_bundle(old,newer,self.NOW),newer)
+        self.assertIs(paper.late_risk_retry_bundle(old,newer,self.NOW),newer)
+
     def test_missing_old_input_can_only_be_replaced_with_verified_source(self):
         original={'spots':{'spot_price_as_of':'invalid'},'history':{}}
         verified=bundle(self.NOW,5)

@@ -796,14 +796,30 @@ def newer_queued_paper_bundle(current, candidate, now_ms):
     replace a stale worker input with a newer timestamped collector bundle
     that satisfies the unchanged 60-second input-age requirement.
     """
+    def closed_15m_at(bundle):
+        # An empty/partial late collector snapshot must not replace a usable
+        # one just because its spot clock advanced. Never invent missing bars.
+        history=bundle.get('history') if isinstance(bundle,dict) else None
+        frames=history.get('bars_by_tf') if isinstance(history,dict) else None
+        bars=frames.get('15m') if isinstance(frames,dict) else None
+        if not isinstance(bars,list) or not bars:
+            return None
+        for bar in reversed(bars):
+            if not isinstance(bar,dict):
+                continue
+            at=bar.get('openTime')
+            if (type(at) in (int,float) and math.isfinite(at) and at>0
+                    and bar.get('isOpen') is not True
+                    and bar.get('providerIsOpen') is not True
+                    and bar.get('estimated') is not True):
+                return at
+        return None
+
     def source_at(bundle):
         if not isinstance(bundle,dict):
             return None
         spots=bundle.get('spots')
-        history=bundle.get('history')
-        if not isinstance(spots,dict) or not isinstance(history,dict):
-            return None
-        if not isinstance(history.get('bars_by_tf'),dict):
+        if not isinstance(spots,dict) or closed_15m_at(bundle) is None:
             return None
         if spots.get('is_genuine_xauusd_spot') is not True or spots.get('xaus_is_spot') is not True:
             return None
@@ -822,6 +838,11 @@ def newer_queued_paper_bundle(current, candidate, now_ms):
         return current
     new_time=source_at(candidate)
     old_time=source_at(current)
+    new_bar_at=closed_15m_at(candidate)
+    old_bar_at=closed_15m_at(current)
+    # A newer spot cannot silently roll back the 15m analysis input.
+    if old_bar_at is not None and (new_bar_at is None or new_bar_at<old_bar_at):
+        return current
     return (candidate if new_time is not None and 0<=now_ms-new_time<=60000
             and (old_time is None or new_time>old_time) else current)
 
