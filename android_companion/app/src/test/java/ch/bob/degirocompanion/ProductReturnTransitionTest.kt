@@ -19,6 +19,32 @@ class ProductReturnTransitionTest {
         return t.poll(nodes,window,time)
     }
 
+    @Test fun boundedSecondBackRequiresSameVisibleProductAndSafeReadOnlyPage() {
+        val t=ProductReturnTransition()
+        t.begin(isin,7,1000)
+        assertEquals(ProductReturnTransition.State.WAITING,t.poll(oldPage,7,1200))
+        assertFalse(t.safeBackRetry(oldPage,7,1800))
+        assertTrue(t.safeBackRetry(oldPage,7,2400))
+        assertFalse(t.safeBackRetry(oldPage,7,3700))
+        assertEquals(ProductReturnTransition.State.WAITING,t.poll(oldPage,7,4300))
+        assertEquals(ProductReturnTransition.State.FAILED,t.poll(oldPage,7,7400))
+    }
+
+    @Test fun retryNeverActsOnOtherIsinWindowOrderOrSearch() {
+        fun allowed(nodes:List<MorningReadPolicy.Node>,window:Int=7):Boolean {
+            val t=ProductReturnTransition();t.begin(isin,7,1000)
+            t.poll(nodes,window,2400)
+            return t.safeBackRetry(nodes,window,2400)
+        }
+        assertFalse(allowed(search))
+        assertFalse(allowed(oldPage,8))
+        assertFalse(allowed(oldPage+MorningReadPolicy.Node("DE000FE2JJ20")))
+        assertFalse(allowed(oldPage+MorningReadPolicy.Node("Order bestätigen")))
+        assertFalse(allowed(oldPage+MorningReadPolicy.Node("Passwort")))
+        assertFalse(allowed(oldPage+MorningReadPolicy.Node("",editable=true)))
+        assertFalse(allowed(oldPage.filterNot { it.text==isin }))
+    }
+
     @Test fun previousProductIsNeverPassedToNextTargetEvenOnTimeout() {
         val t=ProductReturnTransition()
         assertEquals(ProductReturnTransition.State.IDLE,t.poll(oldPage,7,1000))
