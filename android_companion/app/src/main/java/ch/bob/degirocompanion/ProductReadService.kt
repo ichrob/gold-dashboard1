@@ -597,6 +597,34 @@ class ProductReadService : AccessibilityService() {
         if (!automatic || result.draft.isNotBlank()) Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
     }
 
+    /** Do not leave a user-opened remote session alive after a fail-closed
+     * product transition. The original result archive is stored first, and
+     * automatic transfer remains in the onStopped callback. Opening ONLY our
+     * local status activity is optional and requires a safe DEGIRO surface. */
+    private fun stopAbortedBatchToStatus(
+        code: String, foregroundPackage: String?, safeSurface: Boolean
+    ) {
+        val power=getSystemService(POWER_SERVICE) as PowerManager
+        val keyguard=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        val showLocalStatus=FinalReadReturnPolicy.allowedAbort(code,
+            foregroundPackage,power.isInteractive,keyguard.isKeyguardLocked,
+            PhoneRemote.active(),safeSurface)
+        // Persist the actual abort and transfer prior completed observations;
+        // never invent an extra COMPLETE result or erase the local outbox.
+        MorningReadRun.stop(this,code)
+        PhoneRemote.stop(this,code)
+        ProductReadRequest.cancel()
+        if(showLocalStatus) runCatching {
+            startActivity(Intent(this,ProductReadActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        }.onFailure {
+            Toast.makeText(this,
+                "Berichte gesichert; Bob-Handy-Status konnte nicht geöffnet werden.",
+                Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun finishBatchProduct(code: String, draft: String = "") {
         if (!MorningReadRun.running) return
         runCatching {
@@ -604,6 +632,8 @@ class ProductReadService : AccessibilityService() {
             val priorWindow=batchReadWindow
             val more=MorningReadRun.outcome(this,code,draft)
             var returnAcknowledged=false
+            var failedReturnSafe=false
+            var failedReturnPackage:String?=null
             if (more) {
                 val root=productRoot(record=false)
                 if (root!=null) {
@@ -611,6 +641,8 @@ class ProductReadService : AccessibilityService() {
                     val view=mutableListOf<MorningReadPolicy.Node>()
                     try {
                         navigationTree(root,refs,view)
+                        failedReturnPackage=root.packageName?.toString()
+                        failedReturnSafe=MorningReadPolicy.safeStatusReturn(view,priorTarget)
                         if (MorningReadPolicy.returnAfterRead(view,priorTarget,root.windowId,priorWindow,code) &&
                             performGlobalAction(GLOBAL_ACTION_BACK))
                             {
@@ -626,8 +658,8 @@ class ProductReadService : AccessibilityService() {
                 // A failed/unsafe BACK must never open the following ISIN from
                 // the previous product's detail or an unverified order surface.
                 if(!returnAcknowledged) {
-                    MorningReadRun.stop(this,"RETURN_NOT_CONFIRMED")
-                    ProductReadRequest.cancel()
+                    stopAbortedBatchToStatus("RETURN_NOT_CONFIRMED",
+                        failedReturnPackage,failedReturnSafe)
                     return
                 }
                 Toast.makeText(this,MorningReadRun.summary(),Toast.LENGTH_SHORT).show()
@@ -780,8 +812,13 @@ class ProductReadService : AccessibilityService() {
                         return observation("BUSY")
                     }
                     ProductReturnTransition.State.FAILED -> {
-                        MorningReadRun.stop(this,"RETURN_NOT_CONFIRMED")
-                        ProductReadRequest.cancel()
+                        // Reached a non-search state after an accepted BACK.
+                        // Stop the session, preserve partial results, and return
+                        // to Bob only if this is a recognized safe broker view.
+                        val safeSurface=MorningReadPolicy.safeStatusReturn(
+                            descriptions,MorningReadRun.target)
+                        stopAbortedBatchToStatus("RETURN_NOT_CONFIRMED",
+                            root.packageName?.toString(),safeSurface)
                         return observation("RETURN_NOT_CONFIRMED")
                     }
                     else -> Unit
