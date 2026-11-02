@@ -3,6 +3,8 @@ import json
 import os
 import threading
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 M = 1_000_000
 TABLE = 'public.bob_metric_checks'
@@ -11,6 +13,9 @@ TARGETS = {
     'metric': (TABLE, INDEXES, 120*M),
     'diagnostic': ('public.bob_diagnostic_history', tuple('public.bob_diagnostic_history'+suffix
         for suffix in ('_pkey','_time','_stage','_source_window','_trace')), 200*M),
+    # A previously verified 47MB TOAST-bloat source. A one-table FULL rebuild
+    # uses less scratch than pg_repack but requires a quiet exclusive lock.
+    'improvement': ('public.bob_improvement_observations', (), 80*M),
 }
 # Reserved worker startup: archive 60s, observations 90s, metric offload 240s.
 # Only explicitly enabled compaction starts here, after the archive gate but
@@ -31,6 +36,62 @@ def connect():
         '-c lock_timeout=1000 -c maintenance_work_mem=16384 -c work_mem=4096')
 
 
+
+def _improvement_quiet(now):
+    clock=datetime.fromtimestamp(now, ZoneInfo('Europe/Zurich'))
+    return clock.hour>=22 or clock.hour<7
+
+
+def _improvement_volume(now):
+    """Separate provider physical volume, NOT pg_database_size arithmetic."""
+    import render_disk_metrics
+    v=render_disk_metrics.report()
+    observed=v.get('observedAt')
+    if (v.get('status')!='observed' or
+            v.get('resource')!='dpg-datjno1srm7s738vv500-a' or
+            v.get('unit')!='bytes' or
+            type(observed) not in (int,float) or
+            not 0<=now-observed<=300 or
+            type(v.get('diskUsage')) is not int or
+            v['diskUsage']>725_000_000):
+        return None
+    return v['diskUsage']
+
+
+def _improvement_wal_rate(conn):
+    """Recent WAL write rate only; headroom comes from physical reserve."""
+    try:
+        a=conn.execute('SELECT wal_bytes::numeric,stats_reset FROM pg_stat_wal').fetchone()
+        time.sleep(2)
+        b=conn.execute('SELECT wal_bytes::numeric,stats_reset FROM pg_stat_wal').fetchone()
+        if (not a or not b or a[0] is None or b[0] is None or
+                a[1] != b[1] or not 0<=int(b[0]-a[0])<=4_000_000):
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _improvement_bloat():
+    """Current rollback-only measurement; no trusted caller-supplied flag."""
+    try:
+        proof=__import__('storage_repack_bloat_probe').inspect_once()
+    except Exception:
+        return False
+    return (proof.get('table')=='public.bob_improvement_observations' and
+        proof.get('rollbackVerified') is True and
+        proof.get('databaseRowsModified') is False and
+        type(proof.get('combinedDeadAndApproxFreeBytes')) is int and
+        proof['combinedDeadAndApproxFreeBytes']>=30_000_000)
+
+
+def _improvement_sample(conn):
+    """At most 32 source row hashes; never log keys or original evidence."""
+    q='SELECT campaign,slot,md5(payload::text) FROM public.bob_improvement_observations '
+    return set(conn.execute(q+'ORDER BY campaign,slot LIMIT 16').fetchall()+
+               conn.execute(q+'ORDER BY campaign DESC,slot DESC LIMIT 16').fetchall())
+
+
 def size(conn, target='metric'):
     return conn.execute('SELECT pg_total_relation_size(%s)', (TARGETS[target][0],)).fetchone()[0]
 
@@ -48,6 +109,9 @@ def compact(conn, budget, *, resume=False, target='metric'):
         return {'status':'invalid-target'}
     table, allowed_indexes, maximum = TARGETS[target]
     before = size(conn, target)
+    source_sample=_improvement_sample(conn) if target=='improvement' else None
+    source_count=(conn.execute('SELECT count(*) FROM '+table).fetchone()[0]
+                  if target=='improvement' else None)
     if before > maximum:
         return {'status': 'table-too-large', 'relationBytesBefore': before}
     operations = []
@@ -91,6 +155,11 @@ def compact(conn, budget, *, resume=False, target='metric'):
         except Exception as exc:
             result.update(status='deferred', errorType=type(exc).__name__)
     result['relationBytesAfter'] = size(conn, target)
+    if target=='improvement' and result['status']=='completed':
+        new_count=conn.execute('SELECT count(*) FROM '+table).fetchone()[0]
+        if new_count<source_count or _improvement_sample(conn)!=source_sample:
+            result['status']='source-verification-mismatch'
+        result['sourceRowsVerified']=(result['status']=='completed')
     result['observedRelationBytesDecrease'] = max(0, before-result['relationBytesAfter'])
     # A database relation decrease is not a measured whole-volume free-space value.
     result['diskBytesFreed'] = None
@@ -112,6 +181,9 @@ def run_once(config, factory=connect, now=None):
     target = config.get('target','metric')
     if target not in TARGETS:
         return {'status':'invalid-target'}
+    # Never acquire a database connection during Bobs active trading window.
+    if target=='improvement' and not _improvement_quiet(now):
+        return {'status':'market-hours-deferred'}
     observed = config.get('observedAt', 0)
     if not isinstance(observed, (int,float)) or not 0 <= now-observed <= 3600:
         return {'status': 'observation-expired'}
@@ -121,6 +193,11 @@ def run_once(config, factory=connect, now=None):
         return {'status': 'invalid-budget'}
     if __import__('archive_worker').status().get('status') == 'running':
         return {'status': 'archive-running'}
+    volume = _improvement_volume(now) if target=='improvement' else None
+    if target=='improvement' and volume is None:
+        return {'status':'fresh-volume-proof-unavailable'}
+    if target=='improvement' and not _improvement_bloat():
+        return {'status':'verified-bloat-proof-unavailable'}
     with factory() as conn:
         if not conn.autocommit:
             raise ValueError('Dedicated autocommit connection required')
@@ -135,6 +212,14 @@ def run_once(config, factory=connect, now=None):
         receipt = (proof[0] or {}).get('receipt', {}) if proof else {}
         if receipt.get('restoreVerified') is not True or receipt.get('remoteDownloadVerified') is not True:
             return {'status': 'verified-backup-required'}
+        if target=='improvement':
+            relation=size(conn,target)
+            # Provider physical unused space covers both copies plus separate
+            # 120MB WAL/scratch buffer; max fixed relation size is 80MB.
+            if (relation>80*M or
+                    1_000_000_000-volume-2*relation<=120*M or
+                    not _improvement_wal_rate(conn)):
+                return {'status':'improvement-reserve-or-wal-proof-unavailable'}
         current = conn.execute('SELECT pg_database_size(current_database())').fetchone()[0]
         # Account for growth since the measured free-space observation. Never add
         # supposed savings before WAL/filesystem reclamation has been measured.
