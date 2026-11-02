@@ -147,7 +147,10 @@ class ShadowStudiesTests(unittest.TestCase):
         shadow.product_study(conn,control,quality,market,
                              {"choices":[choice()]},{ISIN:quote()},NOW)
         self.assertIsNotNone(control["position"])
-        market2=gold_market(price=4320.,at=NOW+120000)
+        # The main signal has already become NEUTRAL: the frozen
+        # original spot-product direction still requires proper KO checks.
+        market2=gold_market(price=4320.,at=NOW+120000,direction="NEUTRAL")
+        market2["plan"]=None
         market2["analysisBarAt"]=quality["analysisBarAt"]
         quality2=dict(quality,sourceAt=NOW+120000,price=4320.,
                       verified=True)
