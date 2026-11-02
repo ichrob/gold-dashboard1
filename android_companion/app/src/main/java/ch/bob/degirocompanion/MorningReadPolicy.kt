@@ -220,6 +220,22 @@ internal object MorningReadPolicy {
             (symbolProbe && seen.isEmpty() && productTitle && ProductSymbolMemory.detailSymbol(cleaned.map { it.text })!=null) ||
             (anchored && (seen.isEmpty() || seen==setOf(target)) && (quotes || footer)) } ?: reject(DetailIssue.IDENTITY_CONTEXT)
     }
+    /** This only attests that it is safe to LEAVE the broker for Bob's own
+     * status screen after a failed product return. No DEGIRO gesture, quote
+     * reading, or subsequent product is authorized by this test. */
+    fun safeStatusReturn(nodes: List<Node>, previousTarget: String): Boolean {
+        if (!SeriesEvidence.validIsin(previousTarget) || nodes.isEmpty() ||
+            nodes.size > 500 || protection(nodes) != null) return false
+        val visible=ids.findAll(nodes.joinToString("\n") { it.text.uppercase() })
+            .map { it.value }.toSet()
+        fun has(label: String) = nodes.any { normalized(it.text).equals(label,true) }
+        val markets=has("Märkte") && (has("Top Ergebnisse") ||
+            has("Nach Produkttyp durchsuchen") || has("Alle löschen"))
+        val product=(visible == setOf(previousTarget)) &&
+            (has("Übersicht") || has("Kursdaten") || has("Produktdetails"))
+        return markets || product
+    }
+
     /** One BACK from a previously observed product window, never from an order form. */
     fun returnAfterRead(nodes: List<Node>, target: String, window: Int, readWindow: Int?, code: String): Boolean {
         if (readWindow != window || code !in setOf("READ", "NO_QUOTES", "RETURN_FAILED", "SEEK_LIMIT", "SCROLL_LIMIT")) return false
