@@ -217,6 +217,16 @@ def chosen_product(selection,quotes,market,now):
     return None,"no-verified-product-bid-ask-ko"
 
 
+def monitor_market(market,position):
+    """Use the frozen spot-product identity after the entry signal expires.
+
+    This never supplies a price, bypasses KO evidence or grants a new entry.
+    The current gold clock, bid clock and issuer barrier remain authoritative.
+    """
+    return {**market,"plan":{"unit":"USD/oz",
+                             "direction":position["direction"]}}
+
+
 def product_study(conn,control,quality,market,selection,quotes,now):
     import paper_ko_guard
     import paper_simulation
@@ -225,7 +235,8 @@ def product_study(conn,control,quality,market,selection,quotes,now):
                 priceEvidence=copy.deepcopy(quality),positionOpen=bool(p))
     if p:
         raw=quotes.get(p["isin"]) or {}
-        guard,blocked=paper_ko_guard.assess(p,raw,market,now)
+        guard,blocked=paper_ko_guard.assess(
+            p,raw,monitor_market(market,p),now)
         terminal=paper_ko_guard.terminal(raw,p["isin"])
         if terminal or (guard and guard["crossed"]):
             p["settlementUnknown"]=True
@@ -332,7 +343,8 @@ def mark_product_equity(control,quality,market,quotes,now):
     else:
         raw=quotes.get(p["isin"]) or {}
         q=paper_simulation.fresh_quote(raw,now,p["isin"])
-        guard,blocked=paper_ko_guard.assess(p,raw,market,now)
+        guard,blocked=paper_ko_guard.assess(
+            p,raw,monitor_market(market,p),now)
         equity=(control["cash"]+p["units"]*q["bid"]*(1-PRODUCT_SLIPPAGE)
                 -PRODUCT_FEE_EUR if q and guard and blocked is None
                 and not guard["crossed"] else None)
