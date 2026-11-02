@@ -23,10 +23,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm --network bridge debian:bookworm-slim bash -euo pipefail -c '
+          docker run --rm --network bridge -v "$PWD:/src:ro" debian:bookworm-slim bash -euo pipefail -c '
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
-            apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg libpq5
+            apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg libpq5 libpq-dev python3
             curl --fail --silent --show-error --location --proto "=https" --tlsv1.2 \
               https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /tmp/pgdg.asc
             gpg --show-keys --with-colons /tmp/pgdg.asc | \
@@ -44,4 +44,5 @@ jobs:
             dpkg-deb -x postgresql-18-repack_1.5.3-1.pgdg12+2_amd64.deb /tmp/extracted
             test -f /tmp/extracted/usr/lib/postgresql/18/bin/pg_repack
             /tmp/extracted/usr/lib/postgresql/18/bin/pg_repack --version
+            python3 -c "import sys; sys.path.insert(0, \\"/src\\"); import repack_client_installer as r; print(r.prepare_once())"
           '
