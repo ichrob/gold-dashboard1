@@ -1,0 +1,45 @@
+name: Verify pinned PGDG pg_repack client package
+
+on:
+  pull_request:
+    paths:
+      - 'ops/repack_client/**'
+      - '.github/workflows/verify-pgdg-repack.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Validate official signed PGDG Debian 12 package and client
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network bridge debian:bookworm-slim bash -euo pipefail -c '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg
+            curl --fail --silent --show-error --location --proto "=https" --tlsv1.2 \
+              https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /tmp/pgdg.asc
+            gpg --show-keys --with-colons /tmp/pgdg.asc | \
+              grep -q "^fpr:::::::::B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8:"
+            gpg --dearmor -o /usr/share/keyrings/pgdg.gpg /tmp/pgdg.asc
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+              > /etc/apt/sources.list.d/pgdg.list
+            apt-get update -qq
+            mkdir -p /tmp/repack-deb
+            cd /tmp/repack-deb
+            apt-get download postgresql-18-repack=1.5.3-1.pgdg12+2
+            test "$(stat -c %s postgresql-18-repack_1.5.3-1.pgdg12+2_amd64.deb)" -eq 104764
+            sha256sum postgresql-18-repack_1.5.3-1.pgdg12+2_amd64.deb
+            dpkg-deb -f postgresql-18-repack_1.5.3-1.pgdg12+2_amd64.deb Package Version Architecture
+            dpkg-deb -x postgresql-18-repack_1.5.3-1.pgdg12+2_amd64.deb /tmp/extracted
+            test -f /tmp/extracted/usr/lib/postgresql/18/bin/pg_repack
+            /tmp/extracted/usr/lib/postgresql/18/bin/pg_repack --version
+          '
