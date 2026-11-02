@@ -62,6 +62,7 @@ def report(conn):
                            for table,name,size,valid in indexes],
                 'diagnosticPayloadSample':diagnostic_sample(conn),
                 'diagnosticRecentStageSample':recent_diagnostic_stages(conn),
+                'diagnosticPayloadEqualitySample':diagnostic_payload_equality_sample(conn),
                 'decisionPayloadSample':decision_payload_sample(conn),
                 'decisionProductsCohorts':decision_products_cohorts(conn),
                 'reclaimableBytes':None,
@@ -114,6 +115,87 @@ def recent_diagnostic_stages(conn):
                     '24h INSERT counters nor a representative population ratio. '
                     'Original IDs, times and payloads are not returned. '
                     'No duplicate event, removable data or freed disk is proven.',
+        }
+    except Exception:
+        return {'status': 'not-observed', 'readOnly': True}
+
+
+# This is evidence of equal *stored JSONB values*, not of removable events.
+# Event identities, source times and trace IDs remain distinct and are never returned.
+_DIAGNOSTIC_EQUALITY_SAMPLE_CAP = 256
+_DIAGNOSTIC_EQUALITY_STAGES = ('input', 'analysis')
+
+
+def diagnostic_payload_equality_sample(conn):
+    """Exact JSONB equality within the newest 256 persisted event rows only.
+
+    Grouping is performed privately in PostgreSQL on a strictly bounded indexed
+    selection. The returned aggregate contains no payload, hash, trace, ID or
+    timestamp. Rows equal by JSONB alone are not duplicate source events;
+    source-time/trace equality is measured separately but is STILL no permission
+    to skip, delete, rewrite or coalesce an original event.
+    """
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='1500ms'")
+            rows = conn.execute("""WITH recent AS MATERIALIZED (
+                    SELECT stage,payload,trace_id,observed_at
+                    FROM bob_diagnostic_history
+                    ORDER BY recorded_at DESC LIMIT %s
+                ), eligible AS MATERIALIZED (
+                    SELECT stage,payload,trace_id,observed_at FROM recent
+                    WHERE stage=ANY(%s::text[])
+                ), by_payload AS (
+                    SELECT stage,payload,count(*) AS n FROM eligible
+                    GROUP BY stage,payload
+                ), by_context AS (
+                    SELECT stage,payload,trace_id,observed_at,count(*) AS n
+                    FROM eligible GROUP BY stage,payload,trace_id,observed_at
+                ), payload_totals AS (
+                    SELECT stage,sum(n)::bigint AS sampled,
+                        count(*)::bigint AS distinct_payloads,
+                        sum(n-1)::bigint AS repeated_payload_rows
+                    FROM by_payload GROUP BY stage
+                ), context_totals AS (
+                    SELECT stage,sum(n-1)::bigint AS matching_context_rows
+                    FROM by_context GROUP BY stage
+                )
+                SELECT p.stage,p.sampled,p.distinct_payloads,
+                    p.repeated_payload_rows,
+                    coalesce(c.matching_context_rows,0)::bigint
+                FROM payload_totals p LEFT JOIN context_totals c
+                    ON p.stage=c.stage ORDER BY p.stage""",
+                (_DIAGNOSTIC_EQUALITY_SAMPLE_CAP,
+                 list(_DIAGNOSTIC_EQUALITY_STAGES))).fetchall()
+        stages = []
+        overall = 0
+        for stage, sampled, distinct, repeats, same_context in rows:
+            numbers = (sampled, distinct, repeats, same_context)
+            if (stage not in _DIAGNOSTIC_EQUALITY_STAGES
+                    or any(type(v) is not int or v < 0 for v in numbers)
+                    or not 1 <= distinct <= sampled
+                    or repeats != sampled-distinct
+                    or same_context > repeats):
+                return {'status': 'not-observed', 'readOnly': True}
+            overall += sampled
+            stages.append({'stage': stage, 'sampledRows': sampled,
+                           'distinctStoredJsonbPayloads': distinct,
+                           'repeatedStoredJsonbRows': repeats,
+                           'sameTraceTimeAndJsonbExtraRows': same_context})
+        if overall > _DIAGNOSTIC_EQUALITY_SAMPLE_CAP or len(stages) > 2:
+            return {'status': 'not-observed', 'readOnly': True}
+        return {
+            'status': 'sampled' if stages else 'observed-empty',
+            'readOnly': True, 'sampleCapAllStages': _DIAGNOSTIC_EQUALITY_SAMPLE_CAP,
+            'eligibleSampledRows': overall,
+            'selection': 'newest-indexed-persisted-rows-before-stage-filter',
+            'stages': stages, 'diskBytesFreed': None,
+            'reclaimableBytes': None, 'migrationAuthorized': False,
+            'note': 'Exactly equal stored JSONB is not evidence that distinct '
+                    'events are redundant or removable. The smaller same-trace/'
+                    'observed-time count is not proof of safe coalescing either. '
+                    'Sample is neither a full 24h history nor a savings estimate. '
+                    'No payload, trace, event ID, timestamp or hash is returned.',
         }
     except Exception:
         return {'status': 'not-observed', 'readOnly': True}
