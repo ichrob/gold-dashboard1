@@ -159,8 +159,8 @@ def start():
                     result={'status':'archive-running'}
                 else:
                     result=run_once()
-                    if result.get('status')=='checked':
-                        result['maintenance']=__import__('storage_maintenance').run_once(reclaim_analysis_tail=True)
+                    # Do not run an additional tail-truncating VACUUM on every
+                    # cold-analysis cycle. The separate maintenance worker remains.
             except Exception as exc:result={'status':'deferred','errorType':type(exc).__name__}
             print('BOB_COLD_ANALYSIS '+json.dumps(result,sort_keys=True),flush=True)
             time.sleep(__import__('storage_pressure').delay(result))
