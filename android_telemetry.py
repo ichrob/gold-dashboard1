@@ -160,7 +160,7 @@ def validate_pin_probe(value, now):
 
 BOOLS=('serviceEnabled','serviceConnectedInProcess','textAccess','windowAccess','running','pendingRun')
 
-DETAIL_STATES=frozenset(('SENDING','SAVED','DEFERRED','LIMIT','BLOCKED','NOT_READY','NOT_CONFIRMED','ACK_MISMATCH'))
+DETAIL_STATES=frozenset(('SENDING','SAVED','NO_NEW','DEFERRED','LIMIT','BLOCKED','NOT_READY','NOT_CONFIRMED','ACK_MISMATCH'))
 
 def validate_detail_transfer(value, now):
     """Only a fixed aggregate from an opted-in device, never its local UI text."""
