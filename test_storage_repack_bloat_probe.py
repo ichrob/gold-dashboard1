@@ -111,5 +111,36 @@ class ProbeTests(unittest.TestCase):
         self.assertIn('"readyToRepack":false',output.getvalue())
 
 
+@unittest.skipUnless(os.environ.get("BOB_TEST_DATABASE_URL"),
+                     "Isolated PostgreSQL 18 CI only")
+class TransientPgstattuplePostgresTests(unittest.TestCase):
+    def test_extension_is_usable_inside_transaction_but_never_persists(self):
+        import psycopg
+        dsn=os.environ["BOB_TEST_DATABASE_URL"]
+        with psycopg.connect(dsn,autocommit=True) as pre:
+            ext=pre.execute("""SELECT installed_version,default_version
+                FROM pg_available_extensions WHERE name='pgstattuple'""").fetchone()
+        if ext is None:
+            self.skipTest("pgstattuple module unavailable in synthetic CI DB")
+        was_installed=ext[0] is not None
+        c=psycopg.connect(dsn,autocommit=False)
+        try:
+            c.execute("SET LOCAL statement_timeout='4s'")
+            if not was_installed:
+                c.execute("CREATE EXTENSION pgstattuple WITH SCHEMA public")
+            row=c.execute("""SELECT table_len::bigint,dead_tuple_len::bigint,
+                approx_free_space::bigint,scanned_percent::float8
+                FROM public.pgstattuple_approx('pg_catalog.pg_class'::regclass)""").fetchone()
+            self.assertEqual(len(row),4)
+            self.assertGreater(row[0],0)
+        finally:
+            c.rollback()
+            c.close()
+        with psycopg.connect(dsn,autocommit=True) as post:
+            after=post.execute("""SELECT installed_version
+                FROM pg_available_extensions WHERE name='pgstattuple'""").fetchone()
+        self.assertEqual(after[0] is not None,was_installed)
+
+
 if __name__=="__main__":
     unittest.main()
