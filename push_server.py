@@ -1763,6 +1763,10 @@ if __name__ == "__main__":
     # One opt-in, read-only catalog/WAL check, with no maintenance actions.
     import storage_repack_survey
     storage_repack_survey.start_if_enabled()
+    # Optional, rollback-only pgstattuple probe: no permanent extension or
+    # source update; its separate flag is off by default.
+    import storage_repack_bloat_probe
+    storage_repack_bloat_probe.start_if_enabled()
     # Process/child memory telemetry is read-only and never blocks Push.
     import memory_watch
     memory_watch.start()
