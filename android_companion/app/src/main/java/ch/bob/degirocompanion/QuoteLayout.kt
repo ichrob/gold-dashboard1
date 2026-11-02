@@ -28,13 +28,16 @@ internal object QuoteLayout {
     fun productParameters(lines: List<Line>): Map<String, String> {
         val titles = lines.filter { Regex("(?i)\\bGold\\s+(?:Turbo|Knock[ -]?Out\\s+Warrant|Mini[ -]?Future)\\b").containsMatchIn(it.text) }
         val values = mutableListOf<Map<String, String>>()
+        var invalidLabelledLeverage = false
         // DEGIRO may show BAR/BP/Bv on an SG Mini-Future header without LV.
         // LV is optional, but NEVER inferred from the price/KO/graph.
         val pattern = Regex("(?i)\\bBAR\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+BP\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+Bv\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?:\\s+[0-9]{2}/[0-9]{2}/20[0-9]{2})?(?![0-9A-Za-z.,])")
         val leverageSuffix = Regex("(?i)^\\s+LV\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?![0-9A-Za-z.,])")
         val leverageMarker = Regex("(?i)^\\s+LV\\b")
         for (title in titles) {
-            val text = lines.filter { it.top >= title.top && it.top <= title.bottom + max(90, title.height * 3) }
+            // The SG title, BAR/BP/Bv and explicit LV can be separate Samsung
+            // accessibility nodes spread across several visual rows.
+            val text = lines.filter { it.top >= title.top && it.top <= title.bottom + max(160, title.height * 5) }
                 .sortedWith(compareBy(Line::top, Line::left)).joinToString(" ") { it.text }
             for (match in pattern.findAll(text)) {
                 val numbers = match.groupValues.drop(1).map { it.replace('.', ',') }
@@ -43,7 +46,10 @@ internal object QuoteLayout {
                 val labelled = leverageMarker.containsMatchIn(tail)
                 val lv = if (labelled) leverageSuffix.find(tail)?.groupValues?.get(1)?.replace('.', ',') else null
                 // Never strip an invalid LV value and mistake it for a missing LV.
-                if (labelled && (lv == null || (lv.replace(',', '.').toDoubleOrNull() ?: 0.0) <= 0)) continue
+                if (labelled && (lv == null || (lv.replace(',', '.').toDoubleOrNull() ?: 0.0) <= 0)) {
+                    invalidLabelledLeverage = true
+                    continue
+                }
                 val fields = listOf("KO-Schwelle", "Basispreis", "Bv").zip(numbers).toMap().toMutableMap()
                 if (lv != null) fields["Hebel"] = lv
                 values += fields
@@ -67,7 +73,16 @@ internal object QuoteLayout {
                 values += fields
             }
         }
-        return values.distinct().singleOrNull() ?: emptyMap()
+        if (invalidLabelledLeverage || values.isEmpty()) return emptyMap()
+        // A parent BAR/BP/Bv node and child BAR/BP/Bv/LV node may describe the
+        // same product. Merge compatible, explicitly labelled fragments only.
+        // Any conflict in prices, barriers, ratio or LV invalidates this read.
+        val agreed = linkedMapOf<String, String>()
+        for (reading in values) for ((field, value) in reading) {
+            if (agreed[field]?.let { it != value } == true) return emptyMap()
+            agreed[field] = value
+        }
+        return agreed
     }
 
     fun extract(lines: List<Line>): Map<String, String> {
