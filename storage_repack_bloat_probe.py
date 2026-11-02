@@ -12,7 +12,8 @@ import time
 _TARGET = "public.bob_improvement_observations"
 # Only these exact tables may be probed. No caller-provided SQL identifiers.
 _TARGETS = {"improvement": _TARGET, "metric": "public.bob_metric_checks",
-            "diagnostic": "public.bob_diagnostic_history"}
+            "diagnostic": "public.bob_diagnostic_history",
+            "repairs": "public.bob_test_repairs"}
 
 
 def selected_target():
