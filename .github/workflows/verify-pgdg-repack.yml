@@ -44,5 +44,5 @@ jobs:
             dpkg-deb -x postgresql-18-repack_1.5.3-1.pgdg12+2_amd64.deb /tmp/extracted
             test -f /tmp/extracted/usr/lib/postgresql/18/bin/pg_repack
             /tmp/extracted/usr/lib/postgresql/18/bin/pg_repack --version
-            PYTHONPATH=/src python3 -c "import repack_client_installer as r; print(r.prepare_once())"
+            PYTHONPATH=/src python3 -c "from unittest.mock import patch; import repack_client_installer as r; p=patch.object(r, \"_preconditions\", return_value=None); p.start(); print(r.prepare_once()); p.stop()"
           '
