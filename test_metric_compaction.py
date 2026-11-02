@@ -29,6 +29,56 @@ class CompactionCoordinationTests(unittest.TestCase):
                 self.assertNotIn('freeBytes', result)
 
 
+class ImprovementReclaimGuardTests(unittest.TestCase):
+    def test_quiet_hours_follow_swiss_clock(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        d=ZoneInfo('Europe/Zurich')
+        self.assertFalse(compact._improvement_quiet(
+            datetime(2026,11,2,21,tzinfo=d).timestamp()))
+        self.assertTrue(compact._improvement_quiet(
+            datetime(2026,11,2,22,tzinfo=d).timestamp()))
+
+    def test_improvement_preflight_fails_before_opening_db_when_busy_or_stale(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        d=ZoneInfo('Europe/Zurich')
+        evening=datetime(2026,11,2,22,tzinfo=d).timestamp()
+        active=datetime(2026,11,2,21,tzinfo=d).timestamp()
+        forbidden=lambda: (_ for _ in ()).throw(
+            AssertionError('must not open DB'))
+        cfg={'id':'test-once','target':'improvement',
+             'observedAt':evening,'freeBytes':225_000_000,
+             'databaseBytes':605_000_000}
+        self.assertEqual(compact.run_once({**cfg,'observedAt':active},
+            forbidden,now=active)['status'],'market-hours-deferred')
+        with patch('archive_worker.status',return_value={'status':'idle'}), \
+             patch.object(compact,'_improvement_volume',return_value=None):
+            self.assertEqual(compact.run_once(cfg,forbidden,now=evening)
+                ['status'],'fresh-volume-proof-unavailable')
+        with patch('archive_worker.status',return_value={'status':'idle'}), \
+             patch.object(compact,'_improvement_volume',return_value=715_000_000), \
+             patch.object(compact,'_improvement_bloat',return_value=False):
+            self.assertEqual(compact.run_once(cfg,forbidden,now=evening)
+                ['status'],'verified-bloat-proof-unavailable')
+
+    def test_improvement_can_never_resume_with_extended_statement_timeout(self):
+        proof={'status':'deferred','errorType':'QueryCanceled',
+               'target':'improvement','operations':[]}
+        self.assertFalse(compact.resumable(proof,'improvement'))
+
+    def test_bloat_proof_never_accepts_unverified_percent_or_fake_success(self):
+        for value in ({"table":"public.bob_improvement_observations",
+                        "combinedDeadAndApproxFreeBytes":47_000_000,
+                        "rollbackVerified":False,"databaseRowsModified":False},
+                      {"table":"public.bob_improvement_observations",
+                        "combinedDeadAndApproxFreeBytes":True,
+                        "rollbackVerified":True,"databaseRowsModified":False}):
+            with patch('storage_repack_bloat_probe.inspect_once',
+                       return_value=value):
+                self.assertFalse(compact._improvement_bloat())
+
+
 class GuardTests(unittest.TestCase):
     def test_resume_requires_both_successful_indexes_and_full_timeout(self):
         proof={'status':'deferred','errorType':'QueryCanceled',
@@ -85,6 +135,47 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(resumed['operations'],[])
                 self.assertEqual(conn.execute('SHOW statement_timeout').fetchone()[0],'90s')
                 self.assertEqual(conn.execute('SELECT * FROM bob_metric_checks ORDER BY bar_at').fetchall(),before)
+            finally:
+                conn.execute('DROP SCHEMA '+schema+' CASCADE')
+
+    def test_improvement_bloat_copy_returns_real_relation_pages(self):
+        import psycopg
+        schema='improve_compact_'+uuid.uuid4().hex
+        dsn=os.environ['BOB_TEST_DATABASE_URL']
+        with psycopg.connect(dsn,autocommit=True,options=(
+                '-c statement_timeout=30000 -c lock_timeout=1000')) as conn:
+            conn.execute('CREATE SCHEMA '+schema)
+            try:
+                conn.execute('SET search_path TO '+schema)
+                conn.execute("""CREATE TABLE bob_improvement_observations(
+                    campaign TEXT,slot BIGINT,payload JSONB,
+                    PRIMARY KEY(campaign,slot))""")
+                conn.execute("""INSERT INTO bob_improvement_observations
+                    SELECT 'one',i,jsonb_build_object('event',
+                       repeat(md5(i::text),800))
+                    FROM generate_series(1,400) i""")
+                conn.execute('DELETE FROM bob_improvement_observations WHERE slot%5<>0')
+                before=conn.execute("""SELECT campaign,slot,payload FROM
+                    bob_improvement_observations ORDER BY slot""").fetchall()
+                class Isolated:
+                    def execute(self,sql,params=None):
+                        sql=sql.replace('public.bob_improvement_observations',
+                                        schema+'.bob_improvement_observations')
+                        if params:
+                            params=tuple(p.replace(
+                                'public.bob_improvement_observations',
+                                schema+'.bob_improvement_observations')
+                                if isinstance(p,str) else p for p in params)
+                        return conn.execute(sql,params)
+                result=compact.compact(Isolated(),230_000_000,
+                                       target='improvement')
+                self.assertEqual(result['status'],'completed')
+                self.assertTrue(result['sourceRowsVerified'])
+                self.assertGreater(result['observedRelationBytesDecrease'],0)
+                self.assertEqual(conn.execute("""SELECT campaign,slot,payload
+                    FROM bob_improvement_observations ORDER BY slot""").fetchall(),
+                    before)
+                self.assertIsNone(result['diskBytesFreed'])
             finally:
                 conn.execute('DROP SCHEMA '+schema+' CASCADE')
 
