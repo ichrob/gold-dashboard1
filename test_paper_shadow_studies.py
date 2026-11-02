@@ -123,6 +123,9 @@ class ShadowStudiesTests(unittest.TestCase):
         self.assertIsNotNone(control["position"])
         self.assertLess(control["cash"],1000.)
         self.assertEqual(control["casesStarted"],1)
+        self.assertIsNotNone(shadow.mark_product_equity(
+            control,quality,market,{ISIN:product},NOW))
+        self.assertGreater(control["equity"],control["cash"])
         self.assertFalse(control["position"]["brokerExecutionVerified"])
         self.assertEqual(control["position"]["entryKoEvidence"]["termsDate"],
                          "12.10.2026")
@@ -152,6 +155,8 @@ class ShadowStudiesTests(unittest.TestCase):
         out=shadow.product_study(conn,control,quality2,market2,
                                 {},{ISIN:quote(NOW)},NOW+120000)
         self.assertEqual(out["state"],"exit-unpriced")
+        self.assertIsNone(shadow.mark_product_equity(
+            control,quality2,market2,{ISIN:quote(NOW)},NOW+120000))
         self.assertIsNotNone(control["position"])
         self.assertEqual(control["casesPriced"],0)
         # A later datestamped bid is an explicit virtual model close.
@@ -160,6 +165,8 @@ class ShadowStudiesTests(unittest.TestCase):
         self.assertEqual(out["state"],"observed-model-exit")
         self.assertIsNone(control["position"])
         self.assertEqual(control["casesPriced"],1)
+        self.assertEqual(shadow.mark_product_equity(control,quality2,market2,
+                         {},NOW+120000),control["cash"])
         self.assertGreater(control["profit"],0)
 
     def test_optional_study_writes_only_after_existing_paper_commit(self):
