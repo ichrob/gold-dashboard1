@@ -10,6 +10,16 @@ import threading
 import time
 
 _TARGET = "public.bob_improvement_observations"
+# Only these exact tables may be probed. No caller-provided SQL identifiers.
+_TARGETS = {"improvement": _TARGET, "metric": "public.bob_metric_checks"}
+
+
+def selected_target():
+    name = os.environ.get("BOB_BLOAT_PROBE_TARGET", "improvement")
+    if name not in _TARGETS:
+        raise ValueError("Unapproved bloat target")
+    return _TARGETS[name]
+
 _LIMIT_BYTES = 100_000_000
 _LOCK = threading.Lock()
 
@@ -58,6 +68,7 @@ def inspect_once():
         raise ValueError("Archive worker active")
     if not _volume_gate():
         raise ValueError("Provider volume gate unavailable")
+    target=selected_target()
     conn=_connect()
     initial_installed=None
     try:
@@ -71,7 +82,7 @@ def inspect_once():
         row=conn.execute("""SELECT c.oid::oid,c.reltoastrelid::oid,
             pg_total_relation_size(c.oid)::bigint
             FROM pg_class c
-            WHERE c.oid='public.bob_improvement_observations'::regclass""").fetchone()
+            WHERE c.oid=%s::regclass""",(target,)).fetchone()
         if (not row or len(row)!=3 or type(row[2]) is not int or
                 not 0<row[2]<_LIMIT_BYTES or not row[1]):
             raise ValueError("Target beyond safe scan size")
@@ -98,7 +109,7 @@ def inspect_once():
         raise ValueError("Extension rollback cannot be independently confirmed")
     return {
         "status":"rolled-back-approximate-bloat-measurement",
-        "table":_TARGET,
+        "table":target,
         "mainHeap":heap,
         "toast":toast,
         "combinedDeadAndApproxFreeBytes":heap["deadTupleBytes"]+
