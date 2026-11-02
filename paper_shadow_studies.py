@@ -79,8 +79,11 @@ def original_input(bundle, market, now):
                    and b.get("providerIsOpen") is not True
                    and b.get("estimated") is not True]
     matching=any(b["openTime"] == analysis_at for b in verified_bars)
+    source_price=spots.get("xaus")
     good=(spots.get("is_genuine_xauusd_spot") is True
           and spots.get("xaus_is_spot") is True
+          and positive(source_price) and positive(price)
+          and abs(source_price-price)<=0.0001
           and market.get("ready") is True
           and market.get("priceFresh") is True
           and positive(price) and number(data_at) and number(at)
