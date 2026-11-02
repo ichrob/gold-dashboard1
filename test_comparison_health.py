@@ -28,6 +28,21 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(counts, {'pending-horizon': 1, 'outcome-not-recorded': 1,
                                   'outcome-recorded': 1})
 
+    def test_ineligible_improvement_trial_is_not_a_missing_outcome(self):
+        query = h.QUERIES['improvement-trials']
+        self.assertIn("'trial-not-evaluable'", query)
+        self.assertIn("payload->>'ready' IS DISTINCT FROM 'true'", query)
+        self.assertIn("jsonb_typeof(payload->'adx') IS DISTINCT FROM 'number'", query)
+        self.assertIn("jsonb_typeof(payload->'at') IS DISTINCT FROM 'number'", query)
+        self.assertIn("interval '60 minutes'", query)
+        self.assertLess(query.index("'outcome-recorded'"), query.index("'trial-not-evaluable'"))
+        self.assertLess(query.index("'trial-not-evaluable'"), query.index("'pending-horizon'"))
+        self.assertLess(query.index("'pending-horizon'"), query.index("'outcome-not-recorded'"))
+        counts = h.summarize([(1000, 'trial-not-evaluable'), (1000, 'pending-horizon'),
+                              (1000, 'outcome-not-recorded')], 2000)['counts']
+        self.assertEqual(counts, {'trial-not-evaluable': 1, 'pending-horizon': 1,
+                                  'outcome-not-recorded': 1})
+
     def test_bounded_sample_rejects_future_clock(self):
         r=h.summarize([(4000,'pending')]*101,3000)
         self.assertTrue(r['truncated'])
@@ -74,6 +89,22 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute("INSERT INTO bob_decision_outcomes VALUES ('secret-id',60,'{}')")
                 conn.execute('CREATE TABLE bob_ranking_samples (currency TEXT,slot BIGINT,outcome JSONB,payload JSONB)')
                 conn.execute("INSERT INTO bob_ranking_samples VALUES ('EUR',1000,'{\"complete\":false}','{}'),('CHF',1000,'{\"complete\":true}','{}')")
+                conn.execute('CREATE TABLE bob_improvement_trials (campaign TEXT,slot BIGINT,payload JSONB,outcome JSONB)')
+                import improvement_tracker
+                campaign = improvement_tracker.VERSION
+                # Preserve outcome evidence; ineligible neutral cases cannot have
+                # a directional trade result, and recent eligible cases aren't due.
+                cases = (
+                    (1, '{"valid":true,"ready":true,"adx":30,"at":1000}', '{"complete":true}'),
+                    (2, '{"valid":true,"ready":false,"adx":30,"at":1000}', None),
+                    (3, '{"valid":true,"ready":true,"adx":30,"at":1000}', None),
+                )
+                for slot,payload,outcome in cases:
+                    conn.execute('INSERT INTO bob_improvement_trials VALUES (%s,%s,%s::jsonb,%s::jsonb)',
+                                 (campaign,slot,payload,outcome))
+                conn.execute("""INSERT INTO bob_improvement_trials
+                    SELECT %s,4,jsonb_build_object('valid',true,'ready',true,'adx',30,
+                           'at',(extract(epoch FROM now())-30*60)*1000),NULL""",(campaign,))
                 conn.execute('CREATE TABLE bob_precision_learning (id TEXT,state JSONB)')
                 conn.execute("INSERT INTO bob_precision_learning VALUES ('private-identity','{\"phase\":\"validation\",\"lastAt\":1000}')")
                 conn.commit()
@@ -81,6 +112,9 @@ class DatabaseTests(unittest.TestCase):
                 r=h.report(conn)
                 self.assertEqual(r['items']['signals']['counts'],{'eligible':1})
                 self.assertEqual(r['items']['signal-outcomes']['counts'],{'outcome-recorded':1})
+                self.assertEqual(r['items']['improvement-trials']['counts'],{
+                    'outcome-recorded': 1, 'trial-not-evaluable': 1,
+                    'pending-horizon': 1, 'outcome-not-recorded': 1})
                 # A fresh, not-yet-due outcome is pending rather than missing.
                 # Only an overdue unrecorded decision is a real evidence gap.
                 conn.commit()

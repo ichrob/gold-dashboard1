@@ -17,7 +17,16 @@ QUERIES = {
     WHEN a.recorded_at > now() - interval '60 minutes' THEN 'pending-horizon'
     ELSE 'outcome-not-recorded' END
     FROM bob_decision_audit a ORDER BY a.recorded_at DESC LIMIT 101""",
- 'improvement-trials': """SELECT slot, CASE WHEN outcome IS NOT NULL THEN 'outcome-recorded' ELSE 'outcome-not-recorded' END
+ 'improvement-trials': """SELECT slot, CASE
+    WHEN outcome IS NOT NULL THEN 'outcome-recorded'
+    WHEN payload->>'valid' IS DISTINCT FROM 'true'
+      OR payload->>'ready' IS DISTINCT FROM 'true'
+      OR jsonb_typeof(payload->'adx') IS DISTINCT FROM 'number'
+      OR jsonb_typeof(payload->'at') IS DISTINCT FROM 'number'
+      THEN 'trial-not-evaluable'
+    WHEN to_timestamp((payload->>'at')::double precision/1000.0)
+         + interval '60 minutes' > now() THEN 'pending-horizon'
+    ELSE 'outcome-not-recorded' END
     FROM bob_improvement_trials WHERE campaign=%s ORDER BY slot DESC LIMIT 101""",
  'list-price-pairs': """SELECT extract(epoch FROM quote_at)*1000,'paired-observation'
     FROM bob_list_price_pairs ORDER BY quote_at DESC LIMIT 101""",
@@ -30,7 +39,7 @@ QUERIES = {
     FROM bob_intraday_comparison WHERE campaign=%s ORDER BY slot DESC LIMIT 101""",
 }
 LABELS = frozenset(('eligible','not-evaluable','outcome-recorded','outcome-not-recorded',
-    'paired-observation','terminal-not-necessarily-comparable','pending','pending-horizon','comparable',
+    'paired-observation','terminal-not-necessarily-comparable','pending','pending-horizon','trial-not-evaluable','comparable',
     'incomplete','collection','selection','validation','monitoring','cooldown','paused','training',
     'market-not-ready','no-comparable-products','insufficient-comparison-products',
     'entry-evidence-missing','outcome-evidence-missing'))
@@ -122,7 +131,7 @@ def report(conn, now=None):
         sampleLimit=LIMIT, items=items,
         scope='bounded-stored-evidence-not-full-study-completion-or-worker-heartbeat',
         note='Stored outcomes and terminal cases are not verified profitable or completed research studies. '
-             'No-records is not success. A pending 60-minute signal horizon is not a missing result. '
+             'No-records is not success. Pending 60-minute horizons and ineligible trials are not missing results. '
              'Latest clocks refer only to the disclosed bounded sample; '
              'three-stop and correction samples are in ID order, not recency order.')
 
