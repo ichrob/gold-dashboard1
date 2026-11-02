@@ -6,6 +6,21 @@ package ch.bob.degirocompanion
  * different foreground window. No account data, quotes, or credentials.
  */
 internal object FinalReadReturnPolicy {
+    /** Aborted read: reveal the local status only, never navigate in DEGIRO.
+     * The caller must independently attest a recognized, non-sensitive
+     * read-only DEGIRO surface. This does not mark the run COMPLETE. */
+    fun allowedAbort(
+        code: String,
+        foregroundPackage: String?,
+        interactive: Boolean,
+        locked: Boolean,
+        authorizedSession: Boolean,
+        safeSurface: Boolean
+    ): Boolean =
+        code == "RETURN_NOT_CONFIRMED" && authorizedSession &&
+        interactive && !locked && safeSurface &&
+        foregroundPackage == ProductScreenEvidence.PACKAGE
+
     fun allowed(
         code: String,
         draft: String,
