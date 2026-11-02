@@ -633,9 +633,33 @@ class ProductReadService : AccessibilityService() {
                 Toast.makeText(this,MorningReadRun.summary(),Toast.LENGTH_SHORT).show()
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
             } else {
+                // Final item: the report is already persisted by outcome().
+                // The old path closed the phone session but stranded the user
+                // on the last DEGIRO detail. Return to our non-exported status
+                // activity without clicking BACK, search, or any trade control.
+                val authorized=PhoneRemote.active()
+                val foreground=productRoot(record=false)
+                val returnToBob=try {
+                    val power=(getSystemService(POWER_SERVICE) as PowerManager)
+                    val keyguard=(getSystemService(KEYGUARD_SERVICE) as KeyguardManager)
+                    FinalReadReturnPolicy.allowed(code,draft,priorTarget,priorWindow,
+                        foreground?.windowId,foreground?.packageName?.toString(),
+                        power.isInteractive,keyguard.isKeyguardLocked,authorized)
+                } finally { foreground?.recycle() }
                 productReturnTransition.clear()
                 PhoneRemote.stop(this,"COMPLETE")
+                // Start authenticated background transfer BEFORE presenting the
+                // status UI. Failed uploads retain the original local outbox.
                 MorningReadTransfer.automaticResults(this)
+                if(returnToBob) runCatching {
+                    startActivity(Intent(this,ProductReadActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                }.onFailure {
+                    Toast.makeText(this,
+                        "Lesung gespeichert; Bob-Handy-Status konnte nicht geöffnet werden.",
+                        Toast.LENGTH_LONG).show()
+                }
             }
         }.onFailure {
             MorningReadRun.stop(this,"STORAGE_ERROR");ProductReadRequest.cancel()
