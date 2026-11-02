@@ -62,6 +62,11 @@ class ImprovementReclaimGuardTests(unittest.TestCase):
             self.assertEqual(compact.run_once(cfg,forbidden,now=evening)
                 ['status'],'verified-bloat-proof-unavailable')
 
+    def test_improvement_can_never_resume_with_extended_statement_timeout(self):
+        proof={'status':'deferred','errorType':'QueryCanceled',
+               'target':'improvement','operations':[]}
+        self.assertFalse(compact.resumable(proof,'improvement'))
+
     def test_bloat_proof_never_accepts_unverified_percent_or_fake_success(self):
         for value in ({"table":"public.bob_improvement_observations",
                         "combinedDeadAndApproxFreeBytes":47_000_000,
