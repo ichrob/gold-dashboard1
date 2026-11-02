@@ -35,6 +35,103 @@ class LayoutTests(unittest.TestCase):
                 c.execute('DROP SCHEMA '+schema+' CASCADE')
 
 
+class DiagnosticStageSampleTests(unittest.TestCase):
+    def test_index_bounded_sample_is_not_day_writes_or_payloads(self):
+        from contextlib import nullcontext
+        import json
+
+        class Conn:
+            def __init__(self):
+                self.sql = None
+                self.params = None
+
+            def transaction(self):
+                return nullcontext()
+
+            def execute(self, sql, params):
+                self.sql, self.params = sql, params
+                return self
+
+            def fetchall(self):
+                return [('analysis', 310), ('health', 120), ('input', 82)]
+
+        conn = Conn()
+        result = storage_layout.recent_diagnostic_stages(conn)
+        self.assertEqual(result['status'], 'observed')
+        self.assertEqual(result['sampledRows'], 512)
+        self.assertTrue(result['moreOlderEventsMayExist'])
+        self.assertEqual(result['stages'][0]['persistedSampleRows'], 310)
+        self.assertEqual(conn.params, (512,))
+        self.assertIn('ORDER BY recorded_at DESC LIMIT %s', conn.sql)
+        self.assertNotIn('payload', conn.sql)
+        self.assertNotIn('trace_id', conn.sql)
+        self.assertIn('neither 24h INSERT counters', result['note'])
+        self.assertNotIn('secret-private-payload', json.dumps(result))
+
+    def test_untrusted_stage_or_failure_is_not_published(self):
+        from contextlib import nullcontext
+        class Conn:
+            def __init__(self, rows=None, fail=False):
+                self.rows, self.fail = rows, fail
+            def transaction(self):
+                return nullcontext()
+            def execute(self, *_):
+                if self.fail:
+                    raise RuntimeError('secret-private-payload')
+                return self
+            def fetchall(self):
+                return self.rows
+
+        for rows in ([('secret-private-payload', 1)], [('analysis', -1)],
+                     [('analysis', 513)], [('analysis', True)]):
+            with self.subTest(rows=rows):
+                self.assertEqual(storage_layout.recent_diagnostic_stages(Conn(rows))['status'],
+                                 'not-observed')
+        self.assertEqual(storage_layout.recent_diagnostic_stages(Conn(fail=True)),
+                         {'status': 'not-observed', 'readOnly': True})
+        empty = storage_layout.recent_diagnostic_stages(Conn([]))
+        self.assertEqual(empty['status'], 'observed-empty')
+        self.assertEqual(empty['sampledRows'], 0)
+
+
+@unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
+class DiagnosticStagePostgresTests(unittest.TestCase):
+    def test_original_events_unchanged_and_missing_table_fail_closed(self):
+        import psycopg
+        schema = 'diagstage_' + uuid.uuid4().hex
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'], autocommit=True) as c:
+            c.execute('CREATE SCHEMA ' + schema)
+            try:
+                c.execute('SET search_path TO ' + schema)
+                c.execute('''CREATE TABLE bob_diagnostic_history (
+                    id INT PRIMARY KEY, stage TEXT NOT NULL,
+                    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    observed_at DOUBLE PRECISION, payload JSONB NOT NULL)''')
+                c.execute('''CREATE INDEX diagstage_recent_time
+                    ON bob_diagnostic_history(recorded_at DESC)''')
+                c.execute('''INSERT INTO bob_diagnostic_history(id,stage,observed_at,payload)
+                    SELECT i,CASE WHEN i<=12 THEN 'input' ELSE 'analysis' END,
+                           1793620800 + i,jsonb_build_object('private','never-export')
+                    FROM generate_series(1,30) AS i''')
+                original = c.execute('SELECT * FROM bob_diagnostic_history ORDER BY id').fetchall()
+                with c.transaction():
+                    c.execute('SET TRANSACTION READ ONLY')
+                    result = storage_layout.recent_diagnostic_stages(c)
+                self.assertEqual(result['status'], 'observed')
+                self.assertEqual(result['sampledRows'], 30)
+                self.assertFalse(result['moreOlderEventsMayExist'])
+                self.assertEqual({x['stage']: x['persistedSampleRows']
+                                  for x in result['stages']}, {'analysis': 18, 'input': 12})
+                self.assertNotIn('never-export', str(result))
+                self.assertEqual(c.execute('SELECT * FROM bob_diagnostic_history ORDER BY id').fetchall(),
+                                 original)
+                c.execute('DROP TABLE bob_diagnostic_history')
+                self.assertEqual(storage_layout.recent_diagnostic_stages(c)['status'],
+                                 'not-observed')
+            finally:
+                c.execute('DROP SCHEMA ' + schema + ' CASCADE')
+
+
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class DecisionAuditFootprintTests(unittest.TestCase):
     def test_bounded_read_only_aggregation_and_missing_table(self):

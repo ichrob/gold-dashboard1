@@ -61,12 +61,62 @@ def report(conn):
                 'indexes':[{'table':table,'index':name,'bytes':size,'valid':valid}
                            for table,name,size,valid in indexes],
                 'diagnosticPayloadSample':diagnostic_sample(conn),
+                'diagnosticRecentStageSample':recent_diagnostic_stages(conn),
                 'decisionPayloadSample':decision_payload_sample(conn),
                 'decisionProductsCohorts':decision_products_cohorts(conn),
                 'reclaimableBytes':None,
                 'note':'Allocated relation sizes include live and reusable space; not a bloat measurement.'}
     except Exception:
         return {'status':'not-observed','readOnly':True,'reclaimableBytes':None}
+
+
+# Only persisted-stage metadata, not payloads, trace IDs, timings or source rows.
+# Index-backed newest-record sample; a full day of INSERT operations is never inferred.
+_DIAGNOSTIC_STAGE_SAMPLE_CAP = 512
+_DIAGNOSTIC_STAGE_NAMES = frozenset((
+    'input', 'analysis', 'analysis-failed', 'push', 'push-delivery',
+    'paper-input', 'health', 'transport',
+))
+
+
+def recent_diagnostic_stages(conn):
+    """Bounded stage mix for the latest persisted events, not write counters.
+
+    The index on recorded_at DESC makes the small selection independent of the
+    lifetime size of the diagnostic journal. Retention may already have removed
+    older rows. Neither matching stages nor matching payloads mean duplicate
+    events, so this observation must never drive retention or event skipping.
+    """
+    try:
+        with conn.transaction():
+            rows = conn.execute("""SELECT stage,count(*) FROM (
+                SELECT stage FROM bob_diagnostic_history
+                ORDER BY recorded_at DESC LIMIT %s
+                ) AS newest GROUP BY stage ORDER BY stage""",
+                (_DIAGNOSTIC_STAGE_SAMPLE_CAP,)).fetchall()
+        if any(stage not in _DIAGNOSTIC_STAGE_NAMES
+               or type(count) is not int or count <= 0
+               for stage, count in rows):
+            return {'status': 'not-observed', 'readOnly': True}
+        total = sum(count for _, count in rows)
+        if total > _DIAGNOSTIC_STAGE_SAMPLE_CAP:
+            return {'status': 'not-observed', 'readOnly': True}
+        return {
+            'status': 'observed' if rows else 'observed-empty',
+            'readOnly': True,
+            'method': 'indexed-latest-persisted-events',
+            'sampleCap': _DIAGNOSTIC_STAGE_SAMPLE_CAP,
+            'sampledRows': total,
+            'moreOlderEventsMayExist': total == _DIAGNOSTIC_STAGE_SAMPLE_CAP,
+            'stages': [{'stage': stage, 'persistedSampleRows': count}
+                       for stage, count in rows],
+            'note': 'Newest persisted records only; stage counts are neither '
+                    '24h INSERT counters nor a representative population ratio. '
+                    'Original IDs, times and payloads are not returned. '
+                    'No duplicate event, removable data or freed disk is proven.',
+        }
+    except Exception:
+        return {'status': 'not-observed', 'readOnly': True}
 
 
 def diagnostic_sample(conn):
