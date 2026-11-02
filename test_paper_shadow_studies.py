@@ -124,6 +124,11 @@ class ShadowStudiesTests(unittest.TestCase):
         self.assertLess(control["cash"],1000.)
         self.assertEqual(control["casesStarted"],1)
         self.assertFalse(control["position"]["brokerExecutionVerified"])
+        self.assertEqual(control["position"]["entryKoEvidence"]["termsDate"],
+                         "12.10.2026")
+        self.assertEqual(control["position"]["entryIssuerEvidence"]["bidAt"],NOW)
+        self.assertTrue(control["position"]["entryIssuerEvidence"]
+                        ["koCondition"]["conditionVerified"])
         control=shadow.seed("product-e2e",NOW)
         unsafe=quote(ko=3990.)
         result=shadow.product_study(conn,control,quality,market,
