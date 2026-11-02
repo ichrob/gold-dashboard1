@@ -88,6 +88,27 @@ class ProbeTests(unittest.TestCase):
         self.assertIn(("public.bob_metric_checks",),source.params)
         self.assertEqual(source.rollback_calls,1)
 
+    def test_diagnostic_target_has_fixed_bound_and_is_rollback_only(self):
+        with patch.dict(os.environ,{"BOB_BLOAT_PROBE_TARGET":"diagnostic"}):
+            self.assertEqual(probe.selected_target(),
+                             "public.bob_diagnostic_history")
+            self.assertGreater(probe._DIAGNOSTIC_LIMIT_BYTES,
+                               probe._LIMIT_BYTES)
+            self.assertLessEqual(probe._DIAGNOSTIC_LIMIT_BYTES,200_000_000)
+            source=FakeConnection()
+            with patch.object(probe,"_volume_gate",return_value=True), \
+                 patch("archive_worker.status",return_value={"status":"ready"}), \
+                 patch.dict(os.environ,{"DATABASE_URL":"synthetic-no-network"}), \
+                 patch.object(probe,"_connect",return_value=source), \
+                 patch("psycopg.connect",return_value=FakeVerifier()):
+                result=probe.inspect_once()
+        self.assertTrue(result["rollbackVerified"])
+        self.assertFalse(result["databaseRowsModified"])
+        self.assertEqual(result["table"],"public.bob_diagnostic_history")
+        self.assertIn(("public.bob_diagnostic_history",),source.params)
+        self.assertEqual(source.rollback_calls,1)
+        self.assertTrue(source.closed)
+
     def test_reject_any_unapproved_target_before_opening_db(self):
         with patch.dict(os.environ,{"BOB_BLOAT_PROBE_TARGET":"metric;DROP TABLE"}), \
              patch.object(probe,"_connect") as db:
