@@ -138,18 +138,33 @@ class ProductReadActivity : Activity() {
         button("Automatische Diagnose ausschalten") { PhoneDiagnostics.disable(this);refresh() }
         button("Gold-Produkte suchen und auslesen") {
             var startedHere=false
+            var startedPhoneHere=false
             runCatching {
                 check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
                 check(!MorningReadRun.running && !GoldSearchRun.running) { "Lauf zuerst beenden." }
+                // This button starts a locally approved complete list read.
+                // The guarded search-tap fallback and image upload require an
+                // active PhoneRemote session. Never silently start a run that
+                // cannot click the search or deliver its evidence.
+                val session=GoldReadStartPolicy.decide(PhoneDiagnostics.paired(this),PhoneRemote.active())
+                check(session!=GoldReadStartPolicy.Decision.BLOCK) {
+                    "Zuerst die automatische Diagnose verbinden und in Bob freigeben."
+                }
                 val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt")
                 ProductReadRequest.cancel();ProductReadSession.clear()
+                if(session==GoldReadStartPolicy.Decision.START_SESSION) {
+                    PhoneRemote.start(this)
+                    startedPhoneHere=true
+                }
+                check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
                 GoldSearchRun.start()
                 startedHere=true
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
                 startActivity(launch)
             }.onFailure {
                 if(startedHere) { GoldSearchRun.stop("STOPPED",java.time.Instant.now().toString());ProductReadRequest.cancel() }
-                result.text=it.message
+                if(startedPhoneHere) PhoneRemote.stop(this,"START_FAILED")
+                result.text=it.message ?: "Goldsuche konnte nicht gestartet werden."
             }
         }
         button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {
