@@ -4,6 +4,7 @@ import os
 import unittest
 import uuid
 from contextlib import nullcontext
+from unittest.mock import patch
 
 import storage_knowledge as k
 
@@ -111,7 +112,10 @@ class CaptureTests(unittest.TestCase):
 
     def test_captures_five_small_safe_summaries_no_deletion(self):
         c = self.Conn()
-        result = k.capture(c, 1793645640)
+        with patch.object(k, "sample_simulations", return_value=(
+                [("simulations-private", "legacy", "pending")],
+                {"ledgersInspected": 9})): 
+            result = k.capture(c, 1793645640)
         self.assertEqual(set(result), set(k.AREAS))
         self.assertEqual(len(c.writes), 5)
         for area, slot, payload in c.writes:
@@ -122,7 +126,10 @@ class CaptureTests(unittest.TestCase):
 
     def test_one_failing_area_does_not_mark_others_successful_or_delete(self):
         c = self.Conn(bad="improvements")
-        result = k.capture(c, 1793645640)
+        with patch.object(k, "sample_simulations", return_value=(
+                [("simulations-private", "legacy", "pending")],
+                {"ledgersInspected": 9})): 
+            result = k.capture(c, 1793645640)
         self.assertEqual(result["improvements"], "not-observed")
         self.assertEqual(len(c.writes), 4)
 
