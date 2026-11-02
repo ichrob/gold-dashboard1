@@ -2,6 +2,27 @@ package ch.bob.degirocompanion
 import org.junit.Assert.*
 import org.junit.Test
 class MorningReadPolicyTest {
+    @Test fun returnFromExactVisibleQuotePageSurvivesMissingLauncherButNeverWeakensProtection() {
+        val isin="DE000FE6B3G9"
+        val page=listOf(
+            MorningReadPolicy.Node("Kursdaten"),
+            MorningReadPolicy.Node("Symbol | ISIN"),
+            MorningReadPolicy.Node(isin),
+            MorningReadPolicy.Node("Geld CHF 4,84"))
+        assertTrue(MorningReadPolicy.returnAfterRead(page,isin,7,7,"RETURN_FAILED"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page,isin,7,8,"RETURN_FAILED"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page,isin,7,7,"IDENTITY_CHANGED"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page,isin,7,7,"USER_STOP"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page+"x".let { MorningReadPolicy.Node("DE000SX7PE82") },isin,7,7,"RETURN_FAILED"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("Order bestätigen"),isin,7,7,"RETURN_FAILED"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("Limitpreis"),isin,7,7,"RETURN_FAILED"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("Passwort"),isin,7,7,"RETURN_FAILED"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("",editable=true,id="order-quantity"),isin,7,7,"RETURN_FAILED"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("",sensitive=true),isin,7,7,"RETURN_FAILED"))
+        assertFalse(MorningReadPolicy.returnAfterRead(listOf(MorningReadPolicy.Node(isin)),isin,7,7,"RETURN_FAILED"))
+    }
+
+
     @Test fun abortedRunSurfaceRequiresReadOnlyMarketsOrMatchingProduct() {
         fun node(t:String)=MorningReadPolicy.Node(t)
         val isin="DE000FG4JXV7"
