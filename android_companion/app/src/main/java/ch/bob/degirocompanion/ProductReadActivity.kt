@@ -208,7 +208,18 @@ class ProductReadActivity : Activity() {
             }.onFailure { MorningReadRun.stop(this,"TRANSFER_ERROR"); ProductReadRequest.cancel(); result.text=it.message }
         }
         button("Gespeicherten Listenlauf an Bob übertragen / erneut versuchen") {
-            runCatching { MorningReadTransfer.showResults(this) }.onFailure { result.text="Browser nicht erreichbar. Ergebnisse bleiben gespeichert." }
+            runCatching {
+                check(!MorningReadRun.running) { "Leseprüfung läuft noch; gespeicherten Abschluss abwarten." }
+                val raw=MorningReadRun.pending(this)
+                val listBatch=raw?.let { org.json.JSONObject(it).optString("listBatchId") }.orEmpty()
+                if(listBatch.matches(Regex("[a-f0-9]{32}"))) {
+                    // Imported Android-list observations use authenticated
+                    // device upload, not the older browser deep-link.
+                    check(PhoneDiagnostics.paired(this)) { "Automatische Diagnose erneut verbinden; lokale Details bleiben gespeichert." }
+                    ProductDetailDelivery.start(this) { refresh() }
+                    refresh()
+                } else MorningReadTransfer.showResults(this)
+            }.onFailure { result.text=it.message ?: "Übertragung nicht gestartet. Gespeicherte Daten bleiben erhalten." }
         }
         container.addView(TextView(this).apply {
             text="Morgenliste: Bob lädt die zuletzt gespeicherte Liste (höchstens 24 Stunden alt), sucht jede ISIN und liest bis zu zwölf Produkte. DEGIRO muss angemeldet und das Handy entsperrt sein. Höchstens zwei Versuche je Produkt und 15 Minuten insgesamt. Nicht bedienen; STOPP oder Sperrtaste beendet den Lauf. Ergebnisse bleiben bis zur bestätigten Übertragung gespeichert. Login- und Orderansichten halten den Lauf an."
@@ -347,7 +358,9 @@ class ProductReadActivity : Activity() {
             GoldSearchRun.lastCode!=null -> "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty())
             else -> MorningReadRun.summary()
         }
-        result.text=current+"\n\n"+PhoneDiagnostics.status(this)+"\n\n"+PhoneRemote.message
+        val detailDelivery=ProductDetailDelivery.status(this)
+        result.text=current+(if(detailDelivery.isNotBlank()) "\n\n"+detailDelivery else "")+
+            "\n\n"+PhoneDiagnostics.status(this)+"\n\n"+PhoneRemote.message
 
         diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + MorningReadRun.savedStatus(this) + "\n\n" + value.message +
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())

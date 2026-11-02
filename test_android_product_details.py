@@ -59,6 +59,34 @@ class DetailsTest(unittest.TestCase):
         http.route(h,'POST','/api/android-list/details',lambda p,remote=False:sent.append((p,remote)) or {'ok':True})
         self.assertEqual(sent[0][0]['action'],'list-details');self.assertTrue(sent[0][1])
 
+    def test_fail_closed_return_report_from_imported_list_is_accepted_read_only(self):
+        class Db(MemoryDb):
+            def execute(self,sql,params=()):
+                if sql.startswith('DELETE FROM bob_android_list_images'):return self
+                if sql.startswith('SELECT token_hash FROM'):self.result=('device',);return self
+                if sql.startswith('SELECT import_receipt, parsed_items'):
+                    self.result=({'stage':'synced'},[{'isin':ISIN}])
+                    return self
+                return super().execute(sql,params)
+        payload=run()
+        payload['listSource']='degiro-gold-search'
+        payload['appVersionCode']=10429
+        payload['events']=[dict(isin=ISIN,attempt=2,
+            code='RETURN_NOT_CONFIRMED',at=datetime.fromtimestamp(NOW,timezone.utc).isoformat())]
+        db=Db()
+        original=__import__('android_observations').prepare
+        with patch('android_observations.prepare',
+                   side_effect=lambda r,f:original(r,f,datetime.fromtimestamp(NOW,timezone.utc))):
+            saved=a.handle(db,{'action':'list-details','token':'a'*64,
+                               'value':{'batchId':'b'*32,'run':payload}},NOW)
+        self.assertTrue(saved['saved'])
+        self.assertFalse(saved['tradeApproved'])
+        self.assertEqual(len(db.rows),1)
+        run_saved=next(iter(db.rows.values()))
+        self.assertEqual(run_saved['events'][0]['code'],'RETURN_NOT_CONFIRMED')
+        self.assertFalse(run_saved['verified'])
+        self.assertFalse(run_saved['tradeApproved'])
+
     def test_owned_list_only_idempotent_saved_run_and_no_live_session_required(self):
         class Db(MemoryDb):
             owned=True
