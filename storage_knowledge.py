@@ -23,11 +23,14 @@ QUERIES = {
         coalesce(payload->>'status','unclassified')
         FROM bob_improvement_observations
         ORDER BY campaign DESC,slot DESC LIMIT %s""",
-    "simulations": """SELECT id,CASE WHEN closed_at IS NULL THEN 'open' ELSE 'closed' END,
-        coalesce(payload->>'status','unclassified')
-        FROM bob_paper_cases ORDER BY day DESC,started_at DESC LIMIT %s""",
+    # Simulation cases span one legacy ledger, seven isolated portfolio
+    # ledgers and a separate 2000-EUR risk study; see sample_simulations().
+
     "quality": """SELECT version || ':' || scope || ':' || bar_at::text,'metric',
-        coalesce(payload->>'status','unclassified')
+        CASE WHEN payload ? '_bobColdMetricV1' OR
+                  payload ? '_bobColdMetricV2'
+             THEN 'archived-original-not-inline'
+             ELSE coalesce(payload->>'status','unclassified') END
         FROM bob_metric_checks ORDER BY checked_at DESC LIMIT %s""",
 }
 _ALLOWED = {
@@ -39,10 +42,66 @@ _ALLOWED = {
                   {"true", "false"}),
     "improvements": ({"observation"}, {"verified", "rejected", "pending",
                                        "completed", "failed", "testing"}),
-    "simulations": ({"open", "closed"}, {"open", "closed", "completed",
-                                        "pending", "failed", "stopped"}),
-    "quality": ({"metric"}, {"matched", "mismatch", "unavailable"}),
+    "simulations": ({"legacy", "risk2000", "conservative", "balanced",
+                     "offensive", "early100", "trend800",
+                     "early1000oct", "normal1000oct"},
+                    {"open", "closed", "completed", "pending", "failed",
+                     "stopped", "inconclusive", "ending-pending-quotes"}),
+    "quality": ({"metric"}, {"matched", "mismatch", "unavailable",
+                              "archived-original-not-inline"}),
 }
+
+
+# 7 rows per ledger + 8 from the separate risk study = at most 64.
+# No estimated trade returns, fills, or strategy wins are inferred here.
+_SIM_PER_LEDGER = 7
+_RISK_SAMPLE = 8
+_PROFILE_NAMES = ("conservative", "balanced", "offensive", "early100",
+                  "trend800", "early1000oct", "normal1000oct")
+
+
+def sample_simulations(conn):
+    """Keep each virtual account distinct; no false 'zero simulations' result.
+
+    Only a strict code-owned table name allowlist can be interpolated.
+    SQL reads original case status scalars, not raw paper trade JSON.
+    Missing tables raise and the whole area fails closed.
+    """
+    import paper_portfolios
+    if set(paper_portfolios.POLICIES) != set(_PROFILE_NAMES):
+        raise ValueError("Simulation ledger inventory changed")
+    rows = []
+    sizes = {}
+    sources = [("legacy", "bob_paper_cases")] + [
+        (name, paper_portfolios.names(name)["bob_paper_cases"])
+        for name in _PROFILE_NAMES
+    ]
+    for profile, table in sources:
+        batch = conn.execute(
+            "SELECT id,%s::text,coalesce(payload->>'status','unclassified') "
+            "FROM " + table + " ORDER BY started_at DESC LIMIT %s",
+            (profile, _SIM_PER_LEDGER)).fetchall()
+        sizes[profile] = len(batch)
+        rows.extend((profile + ":" + key, category, state)
+                    for key, category, state in batch)
+    risk = conn.execute(
+        "SELECT id,'risk2000'::text,"
+        "coalesce(payload->>'status','unclassified') "
+        "FROM bob_risk_paper_cases ORDER BY id DESC LIMIT %s",
+        (_RISK_SAMPLE,)).fetchall()
+    sizes["risk2000"] = len(risk)
+    rows.extend(("risk2000:" + key, category, state)
+                for key, category, state in risk)
+    if len(rows) > SAMPLE_CAP:
+        raise ValueError("Simulation sample exceeds cap")
+    return rows, {
+        "sampledPerLedger": sizes,
+        "ledgersInspected": len(sizes),
+        "emptyLedgerSamples": sorted(x for x, n in sizes.items() if n == 0),
+        "scope": "each-ledger-bounded-recent-cases-no-complete-performance",
+        "netReturnVerified": False,
+        "strategyWinnerConfirmed": False,
+    }
 
 
 def init(conn):
@@ -103,8 +162,13 @@ def capture(conn, now):
     for area in AREAS:
         try:
             with conn.transaction():
-                rows = conn.execute(QUERIES[area], (SAMPLE_CAP,)).fetchall()
+                if area == "simulations":
+                    rows, coverage = sample_simulations(conn)
+                else:
+                    rows = conn.execute(QUERIES[area], (SAMPLE_CAP,)).fetchall()
                 summary = fold(area, rows)
+                if area == "simulations":
+                    summary["simulationCoverage"] = coverage
                 conn.execute("""INSERT INTO bob_knowledge_snapshots(area,slot,summary)
                     VALUES(%s,%s,%s::jsonb)
                     ON CONFLICT(area,slot) DO UPDATE SET
