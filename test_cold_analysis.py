@@ -16,6 +16,41 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(cold.projection({'result':None}),{})
 
 
+class ColdSchedulerIsolationTests(unittest.TestCase):
+    def test_checked_offload_does_not_invoke_inline_vacuum(self):
+        class EndCycle(Exception):
+            pass
+
+        sleeps = []
+
+        def one_cycle(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 2:
+                raise EndCycle()
+
+        # Exercise the real loop body, but never start a worker or use a DB.
+        with patch.dict(os.environ, {'BOB_COLD_ANALYSIS_ENABLED': '1'}), \
+             patch.object(cold, '_THREAD', None), \
+             patch.object(cold.threading, 'Thread') as thread:
+            cold.start()
+            thread.return_value.start.assert_called_once()
+            target = thread.call_args.kwargs['target']
+
+        with patch('archive_worker.status', return_value={'status': 'idle'}), \
+             patch.object(cold, 'run_once', return_value={'status': 'checked', 'batches': []}) as run, \
+             patch('storage_maintenance.run_once') as maintenance, \
+             patch('storage_pressure.delay', return_value=900), \
+             patch.object(cold.time, 'sleep', side_effect=one_cycle), \
+             patch('builtins.print') as output:
+            with self.assertRaises(EndCycle):
+                target()
+
+        run.assert_called_once()
+        maintenance.assert_not_called()
+        self.assertEqual(sleeps, [300, 900])
+        self.assertIn('"status": "checked"', output.call_args.args[0])
+
+
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
     def setUp(self):
