@@ -2,6 +2,23 @@ package ch.bob.degirocompanion
 import org.junit.Assert.*
 import org.junit.Test
 class MorningReadPolicyTest {
+    @Test fun abortedRunSurfaceRequiresReadOnlyMarketsOrMatchingProduct() {
+        fun node(t:String)=MorningReadPolicy.Node(t)
+        val isin="DE000FG4JXV7"
+        val markets=listOf(node("Märkte"),node("Top Ergebnisse"))
+        val product=listOf(node("Übersicht"),node(isin))
+        assertTrue(MorningReadPolicy.safeStatusReturn(markets,isin))
+        assertTrue(MorningReadPolicy.safeStatusReturn(product,isin))
+        assertFalse(MorningReadPolicy.safeStatusReturn(listOf(node("Übersicht")),isin))
+        assertFalse(MorningReadPolicy.safeStatusReturn(product+node("DE000SX7PE82"),isin))
+        assertFalse(MorningReadPolicy.safeStatusReturn(markets+node("Order bestätigen"),isin))
+        assertFalse(MorningReadPolicy.safeStatusReturn(product+node("Passwort"),isin))
+        assertFalse(MorningReadPolicy.safeStatusReturn(markets+
+            MorningReadPolicy.Node("",editable=true,id="order-quantity"),isin))
+        assertFalse(MorningReadPolicy.safeStatusReturn(product+
+            MorningReadPolicy.Node("",sensitive=true),isin))
+    }
+
     @Test fun exactProductPromptWithoutAndroidHintFlagStillIdentifiesSearch() {
         val prompt="Mit Namen, ISIN oder Symbol suchen"
         val hint=MorningReadPolicy.inputHint("",prompt,false)
