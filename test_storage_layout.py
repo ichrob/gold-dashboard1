@@ -132,6 +132,122 @@ class DiagnosticStagePostgresTests(unittest.TestCase):
                 c.execute('DROP SCHEMA ' + schema + ' CASCADE')
 
 
+class DiagnosticJsonbEqualityTests(unittest.TestCase):
+    def test_aggregate_only_bounded_metadata_with_no_original_values(self):
+        from contextlib import nullcontext
+        import json
+
+        class Conn:
+            def __init__(self):
+                self.queries = []
+            def transaction(self):
+                return nullcontext()
+            def execute(self, sql, params=None):
+                self.queries.append((sql, params))
+                return self
+            def fetchall(self):
+                return [('analysis', 85, 65, 20, 2),
+                        ('input', 105, 20, 85, 7)]
+
+        c = Conn()
+        x = storage_layout.diagnostic_payload_equality_sample(c)
+        self.assertEqual(x['status'], 'sampled')
+        self.assertEqual(x['eligibleSampledRows'], 190)
+        self.assertEqual(x['sampleCapAllStages'], 256)
+        self.assertIsNone(x['diskBytesFreed'])
+        self.assertFalse(x['migrationAuthorized'])
+        self.assertEqual(x['stages'][1]['repeatedStoredJsonbRows'], 85)
+        self.assertEqual(x['stages'][1]['sameTraceTimeAndJsonbExtraRows'], 7)
+        self.assertEqual(c.queries[1][1], (256, ['input', 'analysis']))
+        self.assertIn('ORDER BY recorded_at DESC LIMIT %s', c.queries[1][0])
+        self.assertIn('GROUP BY stage,payload,trace_id,observed_at', c.queries[1][0])
+        self.assertTrue(c.queries[0][0].startswith('SET LOCAL statement_timeout'))
+        result_text = json.dumps(x)
+        for private in ('trace_id', 'observed_at', 'raw-payload', 'secret-token'):
+            self.assertNotIn(private, result_text)
+
+    def test_empty_bad_values_and_query_failure_are_fail_closed(self):
+        from contextlib import nullcontext
+        class Conn:
+            def __init__(self, rows, fail=False):
+                self.rows, self.fail = rows, fail
+            def transaction(self):
+                return nullcontext()
+            def execute(self, *_):
+                if self.fail:
+                    raise RuntimeError('private-source-value')
+                return self
+            def fetchall(self):
+                return self.rows
+
+        self.assertEqual(storage_layout.diagnostic_payload_equality_sample(
+            Conn([]))['status'], 'observed-empty')
+        for bad in ([('private-stage', 2, 1, 1, 0)],
+                    [('input', 4, 2, 1, 0)],
+                    [('input', 4, 2, 2, 3)],
+                    [('input', 257, 256, 1, 0)],
+                    [('input', True, 1, 0, 0)],
+                    [('input', -1, 1, 0, 0)]):
+            with self.subTest(rows=bad):
+                self.assertEqual(storage_layout.diagnostic_payload_equality_sample(
+                    Conn(bad)), {'status': 'not-observed', 'readOnly': True})
+        self.assertEqual(storage_layout.diagnostic_payload_equality_sample(
+            Conn([], fail=True)), {'status': 'not-observed', 'readOnly': True})
+
+
+@unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
+class DiagnosticEqualityPostgresTests(unittest.TestCase):
+    def test_equality_is_not_duplicate_event_and_keeps_source_byte_values(self):
+        import json
+        import psycopg
+        from psycopg.types.json import Jsonb
+
+        schema = 'diag_equal_' + uuid.uuid4().hex
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'], autocommit=True) as c:
+            c.execute('CREATE SCHEMA ' + schema)
+            try:
+                c.execute('SET search_path TO ' + schema)
+                c.execute('''CREATE TABLE bob_diagnostic_history (
+                    id INT PRIMARY KEY, stage TEXT NOT NULL, trace_id TEXT NOT NULL,
+                    observed_at DOUBLE PRECISION NOT NULL, recorded_at
+                    TIMESTAMPTZ NOT NULL DEFAULT now(), payload JSONB NOT NULL)''')
+                c.execute('CREATE INDEX diag_equal_recent ON bob_diagnostic_history(recorded_at DESC)')
+                rows = [
+                    (1, 'input', 'trace-a', 101, {'private': 'never-export', 'value': 1}),
+                    (2, 'input', 'trace-b', 102, {'value': 1, 'private': 'never-export'}),
+                    (3, 'input', 'trace-a', 101, {'private': 'never-export', 'value': 1}),
+                    (4, 'analysis', 'trace-a', 101, {'direction': 'LONG'}),
+                    (5, 'analysis', 'trace-b', 102, {'direction': 'LONG'}),
+                    (6, 'health', 'trace-a', 101, {'private': 'never-export'}),
+                ]
+                for ident, stage, trace, at, payload in rows:
+                    c.execute('''INSERT INTO bob_diagnostic_history
+                        (id,stage,trace_id,observed_at,payload)
+                        VALUES (%s,%s,%s,%s,%s)''',
+                        (ident, stage, trace, at, Jsonb(payload)))
+                before = c.execute('SELECT * FROM bob_diagnostic_history ORDER BY id').fetchall()
+                with c.transaction():
+                    c.execute('SET TRANSACTION READ ONLY')
+                    sample = storage_layout.diagnostic_payload_equality_sample(c)
+                self.assertEqual(sample['status'], 'sampled')
+                self.assertEqual(sample['eligibleSampledRows'], 5)
+                parsed = {s['stage']: s for s in sample['stages']}
+                self.assertEqual(parsed['input']['sampledRows'], 3)
+                self.assertEqual(parsed['input']['distinctStoredJsonbPayloads'], 1)
+                self.assertEqual(parsed['input']['repeatedStoredJsonbRows'], 2)
+                self.assertEqual(parsed['input']['sameTraceTimeAndJsonbExtraRows'], 1)
+                self.assertEqual(parsed['analysis']['repeatedStoredJsonbRows'], 1)
+                self.assertEqual(parsed['analysis']['sameTraceTimeAndJsonbExtraRows'], 0)
+                self.assertNotIn('never-export', json.dumps(sample))
+                self.assertNotIn('trace-a', json.dumps(sample))
+                self.assertEqual(c.execute('SELECT * FROM bob_diagnostic_history ORDER BY id').fetchall(), before)
+                c.execute('DROP TABLE bob_diagnostic_history')
+                self.assertEqual(storage_layout.diagnostic_payload_equality_sample(c)['status'],
+                                 'not-observed')
+            finally:
+                c.execute('DROP SCHEMA ' + schema + ' CASCADE')
+
+
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class DecisionAuditFootprintTests(unittest.TestCase):
     def test_bounded_read_only_aggregation_and_missing_table(self):
