@@ -134,7 +134,11 @@ internal class ProductPageReader {
         // with its numeric symbol right beside the one-sided CHF quote.
         // That CURRENT screen needs no backward/forward scroll to establish
         // identity. A checked quote is always an unverified historical reading.
-        if (verifiedPairedQuote || sameScreenQuote) {
+        // A verified quote page is not a completed LV read if the explicitly
+        // requested leverage is still absent and a bounded header return exists.
+        if ((verifiedPairedQuote || sameScreenQuote) &&
+            !(seekLeverage && canBackward && "Hebel" !in scopedParameters(lines) &&
+                !direct.draft.contains("Hebel (Anzeige ungeprüft): "))) {
             val observedTerms = scopedParameters(lines)
             val earlierSymbol = seekingSymbol ?: verifiedProbeSymbol
             val earlierTerms = if (seekingSymbol != null) seekingParameters else anchorParameters
@@ -255,7 +259,8 @@ internal class ProductPageReader {
                 val parameters = if (currentParameters.all { (key, value) ->
                         anchorParameters[key]?.let { it == value } ?: true
                     }) anchorParameters + currentParameters else anchorParameters
-                if (!readBackward && requireParameters && parameters.isEmpty() && canBackward && backward < 4) {
+                if (!readBackward && requireParameters && canBackward && backward < 4 &&
+                    (parameters.isEmpty() || (seekLeverage && "Hebel" !in parameters))) {
                     backward++
                     return Step(Move.BACKWARD, ProductScreenEvidence.Result(message = "Bob sucht die fehlenden Produktparameter in der Kopfzeile."))
                 }
@@ -311,6 +316,13 @@ internal class ProductPageReader {
             it.contains("Geld (Anzeige ungeprüft): ") && it.contains("Brief (Anzeige ungeprüft): ")
         }
         if (seekLeverage && savedQuote && !readBackward) {
+            if ((verifiedPairedQuote || sameScreenQuote) && canBackward &&
+                "Hebel" !in anchorParameters) {
+                returning = true
+                return inspect(windowId, lines, at, sensitive, canForward, canBackward,
+                    requireParameters = requireParameters, requestedTermsOnly = requestedTermsOnly,
+                    seekLeverage = seekLeverage)
+            }
             if (anchorParameters.containsKey("Hebel")) {
                 returning = true
                 return inspect(windowId, lines, at, sensitive, canForward, canBackward,
