@@ -110,6 +110,35 @@ class ProductPageReaderTest {
         assertFalse(correctButNoLv.result.draft.contains("Hebel (Anzeige ungeprüft):"))
     }
 
+    @Test fun verifiedSymbolPairCarriesPreviouslyReadExplicitLvWithoutExtraUnsafeScroll() {
+        val r=ProductPageReader()
+        val start=lines("Übersicht", "1234567 • Societe Generale OTC | R",
+            "SG Gold Turbo BEST Open-End Call BAR 3501.67 BP 3501.67 Bv 10 LV 8.71")
+        assertEquals(ProductPageReader.Move.FORWARD,
+            r.inspect(1,start,at,false,true,true,requireParameters=true,allowSymbolProbe=true,
+                seekLeverage=true,expectedIsin="DE000SX7PE82").move)
+        val paired=lines("Symbol | ISIN", "1234567 | DE000SX7PE82",
+            "Geld EUR 39,40", "Brief EUR 39,41")
+        val done=r.inspect(1,paired,at,false,true,true,requireParameters=true,
+            allowSymbolProbe=true,seekLeverage=true,expectedIsin="DE000SX7PE82")
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("Hebel (Anzeige ungeprüft): 8,71"))
+        assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 39,40"))
+    }
+
+    @Test fun noMatchingRealSymbolPairCannotBorrowLvFromTitle() {
+        val r=ProductPageReader()
+        val title=lines("Übersicht", "1234567 • Societe Generale OTC | R",
+            "SG Gold Turbo BEST Open-End Call BAR 3501.67 BP 3501.67 Bv 10 LV 8.71")
+        r.inspect(1,title,at,false,true,true,requireParameters=true,allowSymbolProbe=true,
+            seekLeverage=true,expectedIsin="DE000SX7PE82")
+        val quote=lines("DE000SX7PE82 EUR", "Kursdaten","Geld EUR 39,40", "Brief EUR 39,41")
+        val result=r.inspect(1,quote,at,false,true,true,requireParameters=true,
+            allowSymbolProbe=true,seekLeverage=true,expectedIsin="DE000SX7PE82")
+        assertNotEquals(ProductPageReader.Move.FINISHED,result.move)
+        assertFalse(result.result.draft.contains("Hebel (Anzeige ungeprüft):"))
+    }
+
     @Test fun requestedLeverageReadsPastTheQuotePairWithSameRealIsin() {
         val r=ProductPageReader()
         val first=lines("DE000FE2JJ20 CHF","Geld CHF 0,518","Brief CHF 0,528")
