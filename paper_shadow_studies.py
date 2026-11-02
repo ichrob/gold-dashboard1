@@ -211,9 +211,9 @@ def chosen_product(selection,quotes,market,now):
         isin=choice.get("isin")
         raw=quotes.get(isin) or {}
         q=paper_simulation.fresh_quote(raw,now,isin)
-        blocker,_=paper_ko_guard.entry_reason(choice,raw,market,now)
+        blocker,ko_snapshot=paper_ko_guard.entry_reason(choice,raw,market,now)
         if q and blocker is None:
-            return (choice,raw,q),None
+            return (choice,raw,q,ko_snapshot),None
     return None,"no-verified-product-bid-ask-ko"
 
 
@@ -280,7 +280,7 @@ def product_study(conn,control,quality,market,selection,quotes,now):
     if not candidate or bar==control.get("lastBarAt"):
         record["reason"]=reason or "same-bar-no-duplicate-entry"
         return record
-    choice,raw,q=candidate
+    choice,raw,q,entry_ko=candidate
     control["lastBarAt"]=bar
     exposure=min(control["cash"]*.65,650.0)
     full_ask=q["ask"]*(1+PRODUCT_SLIPPAGE)
@@ -299,6 +299,15 @@ def product_study(conn,control,quality,market,selection,quotes,now):
            entryBarAt=bar,entryAsk=q["ask"],entryQuoteAt=paper_simulation.stamp(q.get("askAt")),
            units=units,entryDebit=debit,stop=plan["stop"],target=plan["target"],
            source=q.get("source"),currency="EUR",status="open",
+           entryKoEvidence=copy.deepcopy(entry_ko),
+           entryIssuerEvidence=dict(
+               bid=q.get("bid"),ask=q.get("ask"),
+               bidAt=q.get("bidAt"),askAt=q.get("askAt"),
+               source=q.get("source"),currency=q.get("currency"),
+               leverage=raw.get("leverage"),leverageAt=raw.get("leverageAt"),
+               leverageSource=raw.get("leverageSource"),
+               priceKind=raw.get("priceKind"),
+               koCondition=copy.deepcopy((raw.get("conditions") or {}).get("ko"))),
            completeIssuerQuote=True,assumedCosts=dict(feePerSide=PRODUCT_FEE_EUR,
            slippagePerSide=PRODUCT_SLIPPAGE,spreadIncludedInBidAsk=True),
            entryChoice=copy.deepcopy(choice),brokerExecutionVerified=False)
