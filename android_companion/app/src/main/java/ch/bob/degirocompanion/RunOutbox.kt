@@ -4,8 +4,10 @@ package ch.bob.degirocompanion
 internal object RunOutbox {
     const val CURRENT = "outbox"
     const val PREFIX = "saved_run_"
-    fun pendingKey(entries: Map<String, String>): String? =
-        if (CURRENT in entries) CURRENT else entries.keys.filter { it.startsWith(PREFIX) }.sorted().firstOrNull()
+    fun candidateKeys(entries: Map<String, String>): List<String> =
+        (if (CURRENT in entries) listOf(CURRENT) else emptyList()) +
+            entries.keys.filter { it.startsWith(PREFIX) }.sorted()
+    fun pendingKey(entries: Map<String, String>): String? = candidateKeys(entries).firstOrNull()
     fun start(entries: Map<String, String>, raw: String, archiveKey: String): Map<String, String> {
         require(archiveKey.startsWith(PREFIX) && archiveKey !in entries)
         return entries.toMutableMap().apply {

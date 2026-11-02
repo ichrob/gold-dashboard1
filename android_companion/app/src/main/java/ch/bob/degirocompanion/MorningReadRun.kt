@@ -41,6 +41,13 @@ internal object MorningReadRun {
         it == RunOutbox.CURRENT || it.startsWith(RunOutbox.PREFIX)
     }.mapValues { it.value as String }
     fun pending(c: Context): String? = entries(c).let { it[RunOutbox.pendingKey(it)] }
+    /** An upload attempt may skip an unavailable historical batch in memory
+     * without deleting or rewriting any saved original observation. */
+    fun pendingForDelivery(c: Context, excludedKeys: Set<String>): Pair<String,String>? {
+        val saved=entries(c)
+        val key=RunOutbox.candidateKeys(saved).firstOrNull { it !in excludedKeys } ?: return null
+        return key to saved.getValue(key)
+    }
     private fun saveEntries(c: Context, before: Map<String,String>, after: Map<String,String>): Boolean {
         val edit=prefs(c).edit()
         (before.keys-after.keys).forEach { edit.remove(it) }
