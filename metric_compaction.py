@@ -167,7 +167,8 @@ def compact(conn, budget, *, resume=False, target='metric'):
 
 
 def resumable(result, target='metric'):
-    return (target in TARGETS and isinstance(result, dict) and result.get('target','metric') == target
+    # The improvement table must never use the 90-second resumed FULL timeout.
+    return (target!='improvement' and target in TARGETS and isinstance(result, dict) and result.get('target','metric') == target
             and result.get('status') == 'deferred'
             and result.get('errorType') == 'QueryCanceled'
             and result.get('operations') == [
