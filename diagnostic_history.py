@@ -145,7 +145,14 @@ def write(conn,event):
             _PRUNE_LOCK.release()
 
 
-def prune(conn):
+def prune(conn, archive_cutoff=None):
+    # Optional cutoff is used ONLY by a separate, verified-Drive-backed
+    # retention catch-up. The existing 7-day/60k normal prune is unchanged.
+    if archive_cutoff is not None and (
+            not isinstance(archive_cutoff, datetime) or
+            archive_cutoff.tzinfo is None or
+            archive_cutoff > datetime.now(timezone.utc)):
+        raise ValueError("Invalid archive cutoff")
     # Scanner and push-service share the same journal but run in separate
     # processes, so the in-process mutex above cannot serialize deploy-time
     # retention.  A transaction-scoped, non-blocking PostgreSQL lock makes
@@ -159,10 +166,18 @@ def prune(conn):
     if not locked or locked[0] is not True:
         return 0
     try:
-        old=conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
-            (SELECT id FROM bob_diagnostic_history
-             WHERE recorded_at < now()-interval '7 days'
-             ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""")
+        if archive_cutoff is None:
+            old=conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
+                (SELECT id FROM bob_diagnostic_history
+                 WHERE recorded_at < now()-interval '7 days'
+                 ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""")
+        else:
+            old=conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
+                (SELECT id FROM bob_diagnostic_history
+                 WHERE recorded_at < now()-interval '7 days'
+                   AND recorded_at < %s
+                 ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""",
+                 (archive_cutoff,))
     except Exception as exc:
         raise _PruneStageError('age-delete', exc) from exc
     # Journal rows are append-only. Count only the compact primary-key index
@@ -188,11 +203,19 @@ def prune(conn):
     if excess:
         cap_batch=min(_PRUNE_CAP_BATCH_SIZE,excess)
         try:
-            capped=conn.execute('''DELETE FROM bob_diagnostic_history
-                WHERE ctid = ANY(ARRAY(
-                    SELECT ctid FROM bob_diagnostic_history
-                    ORDER BY recorded_at ASC LIMIT %s))''',
-                (cap_batch,))
+            if archive_cutoff is None:
+                capped=conn.execute('''DELETE FROM bob_diagnostic_history
+                    WHERE ctid = ANY(ARRAY(
+                        SELECT ctid FROM bob_diagnostic_history
+                        ORDER BY recorded_at ASC LIMIT %s))''',
+                    (cap_batch,))
+            else:
+                capped=conn.execute('''DELETE FROM bob_diagnostic_history
+                    WHERE ctid = ANY(ARRAY(
+                        SELECT ctid FROM bob_diagnostic_history
+                        WHERE recorded_at < %s
+                        ORDER BY recorded_at ASC LIMIT %s))''',
+                    (archive_cutoff,cap_batch))
         except Exception as exc:
             raise _PruneStageError('cap-delete', exc) from exc
     counts=(getattr(old,'rowcount',0),getattr(capped,'rowcount',0))
