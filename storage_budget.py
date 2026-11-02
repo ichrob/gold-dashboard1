@@ -64,12 +64,6 @@ def maybe_observe(conn,now=None):
             __import__('storage_knowledge').capture(conn, now)
         except Exception:
             pass
-        # Durable, gross-only model result receipts are kept separately from
-        # full virtual-trade originals; a failed ledger never blocks telemetry.
-        try:
-            __import__('storage_case_results').capture(conn)
-        except Exception:
-            pass
     except Exception:
         _NEXT=now+300
     finally:
