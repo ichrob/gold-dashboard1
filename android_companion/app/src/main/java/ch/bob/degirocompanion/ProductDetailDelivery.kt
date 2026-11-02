@@ -50,12 +50,17 @@ internal object ProductDetailDelivery {
     /** Automatic callers must not continuously retry old batches whose
      * authenticated original receipt is unavailable. New outbox content and
      * every explicit user button press remain immediately eligible. */
-    fun autoStart(c:Context):Boolean {
+    fun autoStart(c:Context, completed:(()->Unit)? = null):Boolean {
         val p=pref(c)
         val sameOutbox=p.getString("lastDeferredGeneration",null)==MorningReadRun.outboxGeneration(c)
         if(!DetailAutoRetryPolicy.allowed(p.getString("state",null),
-            p.getLong("lastDeferredAtMillis",0L),sameOutbox,System.currentTimeMillis())) return false
-        start(c)
+            p.getLong("lastDeferredAtMillis",0L),sameOutbox,System.currentTimeMillis())) {
+            // A JobService completion callback must always be released, even
+            // when an unchanged deferred archive is deliberately throttled.
+            completed?.invoke()
+            return false
+        }
+        start(c,completed)
         return true
     }
 
