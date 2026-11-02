@@ -8,6 +8,8 @@ import hashlib
 import json
 import math
 import re
+from datetime import datetime, timezone
+from decimal import Decimal
 
 # Fixed names only: never construct a table name from a request or stored data.
 _PROFILES = ("conservative", "balanced", "offensive", "early100",
@@ -31,6 +33,10 @@ def init(conn):
         PRIMARY KEY(profile,case_id))""")
     conn.execute("""CREATE INDEX IF NOT EXISTS bob_paper_final_receipts_recent
         ON bob_paper_final_receipts(captured_at DESC)""")
+    # Immutable receipts are separate from the bounded, restartable scan.
+    conn.execute("""CREATE TABLE IF NOT EXISTS bob_paper_final_receipt_scan (
+        profile TEXT PRIMARY KEY, started_at TIMESTAMPTZ NOT NULL,
+        case_id TEXT NOT NULL)""")
 
 
 def _finite(value):
@@ -87,11 +93,11 @@ def qualify(profile, row):
 
 
 def capture(conn):
-    """Bounded one-pass check; never change/delete source cases.
+    """Bounded restartable historical sweep; never change/delete source cases.
 
-    The 7 isolated ledgers and legacy ledger each contribute at most 8 newest
-    cases. A full page is not a full population audit. Failed/missing ledgers
-    remain unavailable and do not lead to a false result or deletion.
+    Each of 7 isolated ledgers and legacy ledger contributes at most 8 source
+    cases per cycle. A full page is not a full population audit. A completed
+    scan restarts from the beginning to catch late-settled older cases.
     """
     import paper_portfolios
     if set(_PROFILES) != set(paper_portfolios.POLICIES):
@@ -105,10 +111,18 @@ def capture(conn):
         try:
             with conn.transaction():
                 conn.execute("SET LOCAL statement_timeout='1s'")
+                cursor = conn.execute(
+                    "SELECT started_at,case_id FROM bob_paper_final_receipt_scan "
+                    "WHERE profile=%s", (profile,)).fetchone()
+                lower = cursor or (datetime(1,1,1,tzinfo=timezone.utc), "")
+                # Oldest-first pages eventually examine historical cases too.
+                # Restarting after each complete sweep also catches cases
+                # that were open when an earlier sweep passed their key.
                 rows = conn.execute(
                     "SELECT id,day,started_at,closed_at,payload FROM "
-                    + table + " ORDER BY started_at DESC LIMIT %s",
-                    (_PAGE,)).fetchall()
+                    + table + " WHERE (started_at,id)>(%s,%s) "
+                    "ORDER BY started_at,id LIMIT %s",
+                    (lower[0], lower[1], _PAGE)).fetchall()
                 written = existing = conflicts = eligible = 0
                 for row in rows:
                     receipt = qualify(profile, row)
@@ -137,12 +151,27 @@ def capture(conn):
                                 or old[1] != receipt["resultKind"]
                                 or old[3] != receipt["startedAt"]
                                 or old[4] != receipt["closedAt"]
-                                or str(old[2]) != receipt["grossPct"]):
+                                or Decimal(str(old[2])) !=
+                                Decimal(receipt["grossPct"])):
                             conflicts += 1
                         else:
                             existing += 1
+                # One bounded cursor change after all original comparisons.
+                # A source mismatch never authorizes any source mutation.
+                if rows:
+                    last = rows[-1]
+                    conn.execute("""INSERT INTO bob_paper_final_receipt_scan
+                        (profile,started_at,case_id) VALUES(%s,%s,%s)
+                        ON CONFLICT(profile) DO UPDATE SET
+                            started_at=excluded.started_at,
+                            case_id=excluded.case_id""",
+                        (profile,last[2],last[0]))
+                else:
+                    conn.execute("DELETE FROM bob_paper_final_receipt_scan "
+                                 "WHERE profile=%s", (profile,))
                 results[profile] = {
                     "status": "source-mismatch" if conflicts else "checked",
+                    "sweepRestarted": not bool(rows),
                     "sampledRows": len(rows), "sampleCap": _PAGE,
                     "moreOlderCasesMayExist": len(rows) == _PAGE,
                     "eligibleGrossOnly": eligible, "newReceipts": written,
@@ -158,7 +187,7 @@ def capture(conn):
             "areas": results,
             "sourceWrites": 0, "deletionAuthorized": False,
             "physicalBytesFreed": None,
-            "scope": "latest-eight-per-paper-ledger-no-full-history-risk2000-excluded",
+            "scope": "restartable-index-cursor-eight-per-paper-ledger-risk2000-excluded",
             "note": "Arithmetic consistency for model gross percentages only. "
                     "No DEGIRO execution, verified net return, complete replay "
                     "or authority to remove original virtual trades."}
