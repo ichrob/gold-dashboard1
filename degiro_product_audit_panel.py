@@ -267,7 +267,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
          Number.isFinite(item.fieldRecovery.observations.leverage.value)&&
          item.fieldRecovery.observations.leverage.value>0&&
          !item.fieldRecovery.observations.leverage.at?
-         '\\nUndatierter Portal-Hebel (nur Recherche): '+item.fieldRecovery.observations.leverage.value.toFixed(2)+'x · Zeitbezug fehlt, keine Handelsfreigabe.':'')+
+         '\nUndatierter Portal-Hebel (nur Recherche): '+item.fieldRecovery.observations.leverage.value.toFixed(2)+'x · Zeitbezug fehlt, keine Handelsfreigabe.':'')+
         (Number.isFinite(item.leverageReference?.value)&&item.leverageReference.value>0?
          '\nHistorischer Hebel als Recherche-Referenz: '+item.leverageReference.value.toFixed(2)+'x · '+fmt(item.leverageReference.at)+
          ' · '+(item.leverageReference.kind==='historical-issuer-leverage'?'früherer Originalhebel':'historisch berechneter Näherungswert')+
