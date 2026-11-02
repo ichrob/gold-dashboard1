@@ -34,6 +34,65 @@ def feed():
 
 
 class ProductAuditTests(unittest.TestCase):
+    def test_terminated_original_handset_history_is_visible_but_not_trade_evidence(self):
+        from unittest.mock import patch
+
+        terminal='DE000FE6B3G9'
+        active='DE000SX7PE82'
+        factor='DE000FG8K0P8'
+        original_terminal={'isin':terminal,'state':'terminated','tradeApproved':False,
+                           'missing':['terminated','venue'],'quoteSourceAt':None,
+                           'sourceStatusEvidence':{'issuerVerified':True,'issuerTerminal':True}}
+        original_active={'isin':active,'state':'incomplete','tradeApproved':False,
+                         'missing':['quote','quote-time','leverage','leverage-time']}
+        original_factor={'isin':factor,'state':'excluded-factor','tradeApproved':False,
+                         'missing':['factor']}
+        source={'status':'ok','lastCheckedAt':iso(NOW),'listUploadedAt':GEN,
+                'readOnly':True,'items':[original_terminal,original_active,original_factor]}
+        stored={'listOrigin':'degiro-screenshot','listUploadedAt':GEN,
+                'products':[{'isin':terminal},{'isin':active},{'isin':factor}]}
+
+        class Db:
+            def execute(self,sql):
+                self.answer=(source,) if 'bob_degiro_product_audit' in sql else (stored,)
+                return self
+            def fetchone(self):
+                return self.answer
+
+        observed={
+            terminal:{'code':'PARTIAL','fields':{'Geld':'4,84','Währung':'CHF'},
+                      'observedAt':iso(NOW-120000),'missingFields':['Brief','Hebel'],
+                      'researchOnly':True,'verified':False,'tradeApproved':False,
+                      'sourceTime':None,'executionConfirmed':False},
+            active:{'code':'PARTIAL','fields':{'Geld':'35,47','Brief':'35,48',
+                      'Währung':'EUR'},'researchOnly':True,'verified':False,
+                      'tradeApproved':False,'sourceTime':None,'executionConfirmed':False},
+            factor:{'code':'COMPLETE','fields':{'Geld':'99,00'},
+                    'researchOnly':True,'tradeApproved':False},
+        }
+        with patch('android_observations.research_summary',return_value=observed),\
+             patch('product_list_study.listed',return_value=[]),\
+             patch('product_list_study.summaries',return_value={}):
+            report=audit.read(Db(), NOW)
+        byisin={row['isin']:row for row in report['items']}
+        ended=byisin[terminal]
+        self.assertEqual(ended['state'],'terminated')
+        self.assertEqual(ended['missing'],['terminated','venue'])
+        self.assertFalse(ended['tradeApproved'])
+        self.assertIsNone(ended['quoteSourceAt'])
+        self.assertTrue(ended['handsetObservation']['historicalOnly'])
+        self.assertTrue(ended['handsetObservation']['terminalAtAudit'])
+        self.assertEqual(ended['handsetObservation']['fields']['Geld'],'4,84')
+        self.assertIsNone(ended['handsetObservation']['sourceTime'])
+        self.assertFalse(ended['handsetObservation']['tradeApproved'])
+        self.assertTrue(byisin[active]['handsetObservation']['historicalOnly'])
+        self.assertFalse(byisin[active]['handsetObservation']['terminalAtAudit'])
+        self.assertNotIn('handsetObservation',byisin[factor])
+        self.assertEqual(report['handsetReadCount'],3)
+        # No persistent source record may be silently mutated by this read.
+        self.assertNotIn('handsetObservation',original_terminal)
+        self.assertEqual(original_terminal['missing'],['terminated','venue'])
+
     def test_all_sources_and_native_chart_survive_reporting(self):
         q=provider()
         q['chartEvidence']=dict(bid=6,ask=6.02,currency='EUR',pointAt=iso(NOW-80000))
