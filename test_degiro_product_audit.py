@@ -34,6 +34,27 @@ def feed():
 
 
 class ProductAuditTests(unittest.TestCase):
+    def test_late_sg_quote_advisory_never_changes_source_evidence(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        at=int(datetime(2026,11,2,23,5,tzinfo=ZoneInfo("Europe/Zurich")).timestamp()*1000)
+        original={"status":"ok","lastCheckedAt":iso(at),
+                  "listUploadedAt":GEN,"items":[{"isin":ISIN,"state":"incomplete",
+                  "missing":["quote","leverage"],"tradeApproved":False}]}
+        class DB:
+            def execute(self, sql, *args):
+                self.row=(original,) if "bob_degiro_product_audit" in sql else (feed(),)
+                return self
+            def fetchone(self):
+                return self.row
+        report=audit.read(DB(),at)
+        self.assertTrue(report["sgQuoteRoutine"]["scheduledPause"])
+        self.assertFalse(report["sgQuoteRoutine"]["marketOpenConfirmed"])
+        self.assertEqual(report["items"][0]["missing"],["quote","leverage"])
+        self.assertFalse(report["items"][0]["tradeApproved"])
+        self.assertNotIn("sgQuoteRoutine",original)
+
+
     def test_terminated_original_handset_history_is_visible_but_not_trade_evidence(self):
         from unittest.mock import patch
 
