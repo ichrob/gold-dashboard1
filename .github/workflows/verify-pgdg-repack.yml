@@ -24,7 +24,7 @@ jobs:
           docker run --rm --network bridge debian:bookworm-slim bash -euo pipefail -c '
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
-            apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg
+            apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg libpq5
             curl --fail --silent --show-error --location --proto "=https" --tlsv1.2 \
               https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /tmp/pgdg.asc
             gpg --show-keys --with-colons /tmp/pgdg.asc | \
