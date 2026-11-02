@@ -30,6 +30,9 @@ QUERIES = {
         CASE WHEN payload ? '_bobColdMetricV1' OR
                   payload ? '_bobColdMetricV2'
              THEN 'archived-original-not-inline'
+             WHEN jsonb_typeof(payload->'metrics')='object'
+                  AND NOT (payload ? 'status')
+             THEN 'individual-metrics-no-overall-status'
              ELSE coalesce(payload->>'status','unclassified') END
         FROM bob_metric_checks ORDER BY checked_at DESC LIMIT %s""",
 }
@@ -48,6 +51,7 @@ _ALLOWED = {
                     {"open", "closed", "completed", "pending", "failed",
                      "stopped", "inconclusive", "ending-pending-quotes"}),
     "quality": ({"metric"}, {"matched", "mismatch", "unavailable",
+                              "observed", "individual-metrics-no-overall-status",
                               "archived-original-not-inline"}),
 }
 
