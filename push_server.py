@@ -1769,7 +1769,10 @@ if __name__ == "__main__":
     storage_repack_bloat_probe.start_if_enabled()
     # Process/child memory telemetry is read-only and never blocks Push.
     import memory_watch
-    memory_watch.start()
+    # Reclaim only already-freed glibc allocator pages under sustained pressure.
+    # This is a bounded 120s opt-in; no live Python objects or product evidence
+    # are removed. Keeps reserve for strict 400-MiB handset OCR admission.
+    memory_watch.start(reclaim=True)
     import runtime_watchdog
     runtime_watchdog.start()
     paper_simulation.start_preflight(db)

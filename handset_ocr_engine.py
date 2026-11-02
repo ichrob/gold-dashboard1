@@ -12,6 +12,11 @@ def offline_engine():
     def options(config):
         value=original(config)
         value.graph_optimization_level=onnxruntime.GraphOptimizationLevel.ORT_ENABLE_BASIC
+        # In the short-lived handset OCR subprocess the default ONNX CPU arena
+        # retains large native allocation pools even though each image is read
+        # separately. Use direct allocations and disable memory patterns.
+        # Keep the existing strict 400-MiB cgroup kill threshold unchanged.
+        value.enable_cpu_mem_arena=False
         value.enable_mem_pattern=False
         return value
     OrtInferSession._init_sess_opts=staticmethod(options)
