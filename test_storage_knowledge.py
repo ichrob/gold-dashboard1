@@ -158,7 +158,7 @@ class CaptureTests(unittest.TestCase):
         c = self.Conn()
         with patch.object(k, "sample_simulations", return_value=(
                 [("simulations-private", "legacy", "pending")],
-                {"ledgersInspected": 9})): 
+                {"ledgersInspected": 9, "moreSourceRowsMayExist": False})): 
             result = k.capture(c, 1793645640)
         self.assertEqual(set(result), set(k.AREAS))
         self.assertEqual(len(c.writes), 5)
@@ -172,7 +172,7 @@ class CaptureTests(unittest.TestCase):
         c = self.Conn(bad="improvements")
         with patch.object(k, "sample_simulations", return_value=(
                 [("simulations-private", "legacy", "pending")],
-                {"ledgersInspected": 9})): 
+                {"ledgersInspected": 9, "moreSourceRowsMayExist": False})): 
             result = k.capture(c, 1793645640)
         self.assertEqual(result["improvements"], "not-observed")
         self.assertEqual(len(c.writes), 4)
