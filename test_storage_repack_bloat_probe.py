@@ -52,6 +52,7 @@ class ProbeTests(unittest.TestCase):
         source=FakeConnection()
         with patch.object(probe,"_volume_gate",return_value=True), \
              patch("archive_worker.status",return_value={"status":"ready"}), \
+             patch.dict(os.environ,{"DATABASE_URL":"synthetic-no-network"}), \
              patch.object(probe,"_connect",return_value=source), \
              patch("psycopg.connect",return_value=FakeVerifier()):
             result=probe.inspect_once()
