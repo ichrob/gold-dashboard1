@@ -100,7 +100,9 @@ def prepare_once():
         info=subprocess.run(["dpkg-deb","-f",str(deb),"Package","Version","Architecture"],
                             check=True,timeout=5,capture_output=True,text=True)
         fields=info.stdout.splitlines()
-        if fields != ["postgresql-18-repack","1.5.3-1.pgdg12+2","amd64"]:
+        if fields != ["Package: postgresql-18-repack",
+                      "Version: 1.5.3-1.pgdg12+2",
+                      "Architecture: amd64"]:
             raise ValueError("Wrong PGDG package identity")
         extracted=work/"unpacked"
         subprocess.run(["dpkg-deb","-x",str(deb),str(extracted)],
