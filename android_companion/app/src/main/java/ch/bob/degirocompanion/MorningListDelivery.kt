@@ -64,9 +64,14 @@ internal object MorningListDelivery {
                         val ids=response.optJSONArray("detailIsins")
                         val values=if(ids==null) null else (0 until ids.length()).map { ids.optString(it) }
                         val plan=values?.let { SelectiveDetailPlan.parse(response.optJSONArray("detailPlan"),it) }
+                        val afterHours=response.optJSONObject("sgQuoteRoutine")
+                            ?.optBoolean("scheduledPause",false)==true
                         if(PhoneRemote.active() && PhoneRemote.sessionId()==session && plan!=null && plan.isNotEmpty()) {
-                            status(c,"✅ Goldliste: 10 Produkte bei Bob bestätigt. Fehlende Felder von " +
-                                plan.size + " Produkten werden jetzt gezielt in DEGIRO nachgelesen.")
+                            status(c,"✅ Goldliste: 10 Produkte bei Bob bestätigt. " +
+                                (if(afterHours) "Außerhalb SG 08–22 Uhr: Kurs-/Hebel-Neulesung zurückgestellt; " +
+                                    "nur fehlende Produktbedingungen werden nachgelesen. Historische Kurse behalten ihre Originalzeit. "
+                                else "") + "Fehlende Felder von " +
+                                plan.size + " Produkten werden gezielt geprüft.")
                             runCatching { onConfirmed?.invoke(plan,batch) }.onFailure {
                                 status(c,"✅ Liste in Bob gespeichert. Detailprüfung konnte nicht gestartet werden; vorhandene Belege bleiben erhalten.")
                                 PhoneRemote.stop(c,"STORAGE_ERROR")
@@ -74,6 +79,7 @@ internal object MorningListDelivery {
                         } else {
                             status(c,when {
                                 plan==null -> "✅ Goldliste mit 10 Produkten bestätigt. Detailplan nicht verifizierbar; Nachlesen gestoppt."
+                                plan.isEmpty() && afterHours -> "✅ Goldliste mit 10 Produkten bestätigt. Außerhalb der regulären SG-Kursstellung (08–22 Uhr Zürich): kein erneuter Live-Kurs-/Hebelabruf erforderlich. Bestehende Werte bleiben historisch mit Originalzeit; Emittentenquellen prüfen separat weiter."
                                 plan.isEmpty() -> "✅ Goldliste mit 10 Produkten bestätigt. Keine fehlenden Felder für einen neuen Detail-Leselauf."
                                 else -> "✅ Goldliste mit 10 Produkten bestätigt. Die Lesesitzung ist abgelaufen; Detailprüfung nicht gestartet."
                             })
