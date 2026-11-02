@@ -6,6 +6,12 @@ import memory_watch as m
 
 
 class MemoryWatchTests(unittest.TestCase):
+    def test_push_service_opts_into_bounded_allocator_reclaim(self):
+        from pathlib import Path
+        code = Path(__file__).with_name("push_server.py").read_text(encoding="utf-8")
+        self.assertIn("memory_watch.start(reclaim=True)", code)
+        self.assertNotIn("memory_watch.start()\\n", code)
+
     def test_reclamation_requires_pressure_and_respects_cooldown(self):
         sample = dict(containerMiB=310, limitMiB=512, parentMiB=280)
         self.assertTrue(m.reclaim_due(sample, 240, 120))
