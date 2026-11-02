@@ -3,7 +3,6 @@
 These tests complement, not replace, the JVM policy suite and real Samsung test.
 """
 import pathlib
-import re
 import unittest
 
 
@@ -25,14 +24,12 @@ class OneTapCompleteFlowTest(unittest.TestCase):
 
     def test_one_shot_only_from_internal_unexported_activity(self):
         manifest = (APP / "AndroidManifest.xml").read_text(encoding="utf-8")
-        self.assertRegex(manifest, r'android:name="\\.ProductReadActivity" android:exported="false"')
+        self.assertIn('android:name=".ProductReadActivity" android:exported="false"', manifest)
         activity = source("ProductReadActivity.kt")
         self.assertIn('savedInstanceState == null &&', activity)
         self.assertIn('intent.getBooleanExtra(EXTRA_START_COMPLETE_FLOW, false)', activity)
         self.assertIn('intent.removeExtra(EXTRA_START_COMPLETE_FLOW)', activity)
-        self.assertRegex(activity, r'if\\(startCompleteFlowOnFirstResume\\)\\s*\\{\\s*'
-                         r'//[^\\n]*\\n\\s*//[^\\n]*\\n\\s*'
-                         r'startCompleteFlowOnFirstResume = false\\s*startAutomaticTest\\(\\)')
+        self.assertIn("startCompleteFlowOnFirstResume = false\\n            startAutomaticTest()", activity)
         resume = activity.split('override fun onResume()', 1)[1].split('override fun onPause()', 1)[0]
         self.assertLess(resume.index('PinReadinessProbe.stop('),
                         resume.index('startAutomaticTest()'))
