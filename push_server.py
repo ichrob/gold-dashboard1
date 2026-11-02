@@ -1755,6 +1755,11 @@ if __name__ == "__main__":
     __import__("cold_observations").start()
     __import__("metric_compaction").start()
     print("BOB_PUSH startup=ready", flush=True)
+    # Optional, nonblocking binary-only pg_repack toolchain provisioning.
+    # No extension install or database maintenance is reachable from this.
+    # Disabled unless the operator explicitly opts in on this service.
+    import repack_client_installer
+    repack_client_installer.start_if_enabled()
     # Process/child memory telemetry is read-only and never blocks Push.
     import memory_watch
     memory_watch.start()

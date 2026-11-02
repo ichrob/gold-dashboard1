@@ -54,6 +54,8 @@ on:
       - 'test_storage_budget.py'
       - 'storage_tail_once.py'
       - 'storage_repack_preflight.py'
+      - 'repack_client_installer.py'
+      - 'test_repack_client_installer.py'
       - 'test_storage_repack_preflight.py'
       - 'test_storage_tail_once.py'
       - 'test_evidence_archive.py'
