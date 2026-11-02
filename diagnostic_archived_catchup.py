@@ -7,6 +7,7 @@ It runs on its own limited DB connection, never during live push delivery.
 """
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, time as day_time, timedelta, timezone
@@ -58,7 +59,7 @@ def backup_cutoff(conn, now=None):
             or proof.get("deletionPermitted") is not False
             or proof.get("evidenceDeleted") is True
             or not isinstance(proof.get("archiveSha256"),str)
-            or len(proof["archiveSha256"])!=64
+            or not re.fullmatch(r"[0-9a-f]{64}",proof["archiveSha256"])
             or not isinstance(proof.get("driveFileId"),str)
             or not proof["driveFileId"]):
         return None
@@ -113,8 +114,9 @@ def run_once(*,factory=connect,now=None,volume=None):
                     "removed":0,"diskBytesFreed":None}
         if type(removed) is not int or not 0<=removed<=1000:
             raise ValueError("Unbounded cleanup result")
-    return {"status":"checked","removed":removed,"diskBytesFreed":None,
-            "evidenceDeleted":False,
+    return {"status":"checked","journalRowsPruned":removed,
+            "removed":removed,"diskBytesFreed":None,
+            "evidenceOutsideJournalDeleted":False,
             "scope":"existing-journal-retention-only-before-proved-cutoff"}
 
 
