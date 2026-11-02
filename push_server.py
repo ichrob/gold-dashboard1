@@ -1760,6 +1760,9 @@ if __name__ == "__main__":
     # Disabled unless the operator explicitly opts in on this service.
     import repack_client_installer
     repack_client_installer.start_if_enabled()
+    # One opt-in, read-only catalog/WAL check, with no maintenance actions.
+    import storage_repack_survey
+    storage_repack_survey.start_if_enabled()
     # Process/child memory telemetry is read-only and never blocks Push.
     import memory_watch
     memory_watch.start()
