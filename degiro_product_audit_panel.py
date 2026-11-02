@@ -196,6 +196,13 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    const oldOpen=new Map([...handset.querySelectorAll('details[data-isin]')].map(x=>[x.dataset.isin,x.open]));
    handset.replaceChildren();
    const observed=items.filter(item=>item.handsetObservation&&item.state!=='excluded-factor');
+   if(r.sgQuoteRoutine?.scheduledPause===true){
+    const pause=document.createElement('p');pause.className='small';
+    pause.textContent='SG-Quotierung außerhalb regulärer Mo–Fr 08:00–22:00 Uhr (Zürich). '+
+      'Handy-Werte nur historisch mit Originalzeit; Emittenten- und Ersatzquellen bleiben maßgeblich. '+
+      'Keine Handelsfreigabe und kein bestätigter ausführbarer Kurs.';
+    handset.append(pause);
+   }
    const intro=document.createElement('p');intro.className='small';
    intro.textContent=observed.length?
     observed.length+' Produktbeobachtungen gespeichert · kein verifizierter Live-Kurs. Werte bleiben vom Emittenten-Nachweis getrennt.':
