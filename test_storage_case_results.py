@@ -1,5 +1,6 @@
 """Safety and PostgreSQL tests for immutable gross-only paper receipts."""
 import copy
+from unittest.mock import patch
 import json
 import os
 import unittest
@@ -74,6 +75,33 @@ class QualificationTests(unittest.TestCase):
         self.assertNotIn("netProfitVerified",data)
         self.assertNotIn("executionConfirmed",data)
         self.assertEqual(data["profile"],"early1000oct")
+
+
+class BackgroundIsolationTests(unittest.TestCase):
+    def test_start_requires_existing_db_and_never_starts_inline_sql(self):
+        with patch.dict(os.environ, {"DATABASE_URL":""}), \
+             patch.object(receipts, "_THREAD", None), \
+             patch.object(receipts.threading, "Thread") as thread:
+            receipts.start()
+            thread.assert_not_called()
+        with patch.dict(os.environ, {"DATABASE_URL":"test-only-url"}), \
+             patch.object(receipts, "_THREAD", None), \
+             patch.object(receipts.threading, "Thread") as thread:
+            receipts.start()
+            self.assertEqual(thread.call_args.kwargs["name"],
+                             "bob-paper-final-receipts")
+            thread.return_value.start.assert_called_once()
+
+    def test_duplicate_worker_skips_busy_session_without_source_writes(self):
+        class Fake:
+            autocommit = True
+            def __enter__(self): return self
+            def __exit__(self,*_): return False
+            def execute(self,query,params=None): return self
+            def fetchone(self): return (False,)
+        result=receipts.run_once(factory=lambda:Fake())
+        self.assertEqual(result["status"],"busy")
+        self.assertEqual(result["sourceWrites"],0)
 
 
 @unittest.skipUnless(os.environ.get("BOB_TEST_DATABASE_URL"),
