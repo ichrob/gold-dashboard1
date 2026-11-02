@@ -778,6 +778,14 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
             account['recentCases'] = {'status':'unavailable', 'day':day,
                 'reason':'current-day-case-read-unavailable'}
     result['recentPaperOutcomes'] = recent_paper_outcomes(result['accounts'])
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            result['shadowStudies'] = __import__('paper_shadow_studies').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        result['shadowStudies'] = {'status':'unavailable','readOnly':True,
+                                   'reason':'shadow-study-report-unavailable'}
     return result
 
 
