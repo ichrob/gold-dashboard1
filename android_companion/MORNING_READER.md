@@ -1,5 +1,38 @@
 # Morgenliste lesen
 
+## Ein Knopf für den gesamten Gold-Produktablauf
+
+Auf der **Startseite von Bob Handy** steht jetzt oben der Knopf
+**„▶ Bob starten · DEGIRO, Gold und fehlende Werte“**.
+Er ist eine ausdrücklich vom Nutzer ausgelöste lokale Aktion, keine Fernanmeldung.
+
+- Wenn die verschlüsselte PIN bereits auf diesem Gerät eingerichtet und der
+  Tastaturtest bestätigt ist, öffnet Bob DEGIRO, schließt ausschließlich bekannte
+  Anmeldedialoge, versucht die gespeicherte PIN genau **einmal** und wartet auf
+  den bestätigten DEGIRO-Marktscreen. Die PIN wird nicht an Bob, GitHub oder
+  Render übertragen. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein.
+- Erst nach dem bestätigten Anmeldeschritt sucht Bob **Gold →
+  Hebelprodukte**, nimmt die zehn Listenbilder-Einträge auf und wartet auf
+  die authentifizierte Serverbestätigung der aktuellen Zehnerliste.
+- Der Server sendet einen **ISIN-genauen Feldplan** für aktuell fehlende
+  Geld-/Briefwerte, Original-Anzeigezeiten, Hebel, KO, Basispreis,
+  Bezugsverhältnis oder Währung zurück. Nur diese ISINs werden anschließend
+  gezielt geöffnet, je höchstens zweimal geprüft und als originalzeitlich
+  gekennzeichnete, ungeprüfte Handy-Beobachtung gespeichert.
+- Nach Abschluss läuft die vorhandene automatische Detailübertragung.
+  Ein abgelehnter oder veralteter Original-Batch bleibt in der lokalen
+  Warteschlange und wird nicht mit einer anderen Liste vermischt.
+- Der gesonderte Knopf **„DEGIRO-Leser · Einrichtung und Einzelprüfungen“**
+  bleibt für Einrichtung, manuelle Wiederaufnahme und technische Diagnose.
+
+Voraussetzungen: eingerichteter Lesedienst, mit Bob gekoppeltes Handy, bei
+PIN-Automatik sicher hinterlegte lokale PIN und erfolgreich geprüfte Tastatur,
+entsperrtes Samsung. STOPP, Sperrtaste, unbekannte Anmeldeseite, fehlende
+Brokeroberfläche oder eine Ordermaske beenden den Lauf; nie mehrfach
+PIN raten, nie Orders auslösen. Jede neue Android-Version braucht die
+signierte APK und eine Prüfung am realen Gerät. CI bestätigt nur den Codepfad,
+nicht den Erfolg auf dem Samsung.
+
 Bob Handy übernimmt die zuletzt bei Bob gespeicherte Morgenliste über den angemeldeten Browser. Die APK bleibt ohne Internetberechtigung. Es werden keine Broker-Orders bedient.
 
 1. Aktuelle signierte Bob-Handy-Version installieren. Android-Lesedienst einschalten; in DEGIRO und im Browser bei Bob anmelden.

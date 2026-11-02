@@ -18,6 +18,11 @@ import android.widget.TextView
 
 /** User-started local reading with optional automatic return of structured fields to Bob. */
 class ProductReadActivity : Activity() {
+    companion object {
+        // Only our non-exported activity may receive this from a local UI tap.
+        internal const val EXTRA_START_COMPLETE_FLOW = "ch.bob.degirocompanion.START_COMPLETE_FLOW"
+    }
+    private var startCompleteFlowOnFirstResume = false
     private var displayedRequestActive = false
     private val statusHandler = Handler(Looper.getMainLooper())
     private val statusTick = object : Runnable {
@@ -32,13 +37,18 @@ class ProductReadActivity : Activity() {
     private val preferences by lazy { getSharedPreferences("product_reader", MODE_PRIVATE) }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Consume the one-shot local request before launching the broker.
+        // A recreation, notification, or return from DEGIRO must not login again.
+        startCompleteFlowOnFirstResume = savedInstanceState == null &&
+            intent.getBooleanExtra(EXTRA_START_COMPLETE_FLOW, false)
+        intent.removeExtra(EXTRA_START_COMPLETE_FLOW)
         val stack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
         var container=stack
         fun button(title: String, action: () -> Unit) {
             container.addView(Button(this).apply { text = title; isAllCaps = false; setOnClickListener { action() } })
         }
         container.addView(TextView(this).apply { text = "DEGIRO lesen · Produkt und Morgenliste"; textSize = 21f })
-        primary=Button(this).apply { text="Start";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
+        primary=Button(this).apply { text="Gesamtablauf starten";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
         container.addView(primary)
         button("Prüfung stoppen") {
             if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
@@ -51,7 +61,7 @@ class ProductReadActivity : Activity() {
         container.addView(result)
         container.addView(TextView(this).apply { tag = "pin_probe_status"; text = PinReadinessProbe.message; textSize = 18f })
         container.addView(TextView(this).apply { text="Morgenliste: Gold suchen, Hebelprodukte öffnen, Tastatur schließen, bis zu vier Listenbilder der zehn Top Ergebnisse mit Scrollen aufnehmen und an Bob übertragen. Android 14 oder neuer erforderlich." })
-        container.addView(TextView(this).apply { text="Start drücken: Bei eingerichteter verschlüsselter PIN erfolgt erst die einmalige lokale Anmeldung und Prüfung der DEGIRO-Marktseite; anschließend beginnt die Goldsuche. Ohne eingerichtete PIN muss DEGIRO bereits angemeldet sein. Bob öffnet die Gold-Hebelproduktliste und überträgt die Screenshots der zehn Top Ergebnisse an den privaten Bob-Listenimport. Die Kontokopfzeile wird abgeschnitten. Eine unvollständige oder fehlerhafte Erkennung ersetzt die bisherige Liste nicht. Die gestartete Handy-Sitzung erlaubt ChatGPT bis zu 15 Minuten Produktdaten und Diagnose zu lesen sowie begrenzte Produktsuchschritte auszuführen. DEGIRO muss angemeldet sein. Handy entsperrt lassen und während des Tests nicht bedienen. STOPP oder Sperrtaste beendet den Test. Keine Orders. Ergebnisse werden bei aktivierter Rückgabe an Bob übergeben; die Serverübernahme wird auf dem Handy bestätigt." })
+        container.addView(TextView(this).apply { text="Ein Start: DEGIRO öffnen, bekannte Fingerabdruck-Hinweise falls möglich schließen und eine sicher eingerichtete PIN einmal nur lokal eingeben. Erst wenn die Marktseite bestätigt ist, Gold und Hebelprodukte suchen, zehn Listenplätze übergeben und anhand des von Bob bestätigten Feldplans ausschließlich noch fehlende Produktangaben nachlesen. Ohne lokal eingerichtete PIN muss DEGIRO bereits angemeldet sein. Kein wiederholter PIN-Versuch. Bei unbekannter Login-Seite, Sperrbildschirm oder Orderansicht wird gestoppt. Die Kontokopfzeile wird bei Bildern ausgeschnitten. Bereits gespeicherte Originalbelege bleiben erhalten; ein fehlerhafter Lauf überschreibt keine gültige Liste. Handy entsperrt lassen, während des Laufs nicht bedienen. STOPP beendet den Ablauf. Keine Orders und keine automatische Handelsfreigabe." })
         val advanced=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=android.view.View.GONE }
         button("Einrichtung und weitere Möglichkeiten") {
             advanced.visibility=if(advanced.visibility==android.view.View.GONE) android.view.View.VISIBLE else android.view.View.GONE
@@ -275,7 +285,17 @@ class ProductReadActivity : Activity() {
         scroll.requestApplyInsets()
     }
     override fun onResume() {
-        super.onResume();if(PinReadinessProbe.running) PinReadinessProbe.stop("Prüfung beendet. " + PinReadinessProbe.message);PhoneDiagnostics.queue(this);refresh();statusHandler.post(statusTick)
+        super.onResume()
+        if(PinReadinessProbe.running) PinReadinessProbe.stop("Prüfung beendet. " + PinReadinessProbe.message)
+        PhoneDiagnostics.queue(this)
+        refresh()
+        statusHandler.post(statusTick)
+        if(startCompleteFlowOnFirstResume) {
+            // Starting in onCreate would run before this existing onResume
+            // PIN-probe cleanup and could cancel the very login we started.
+            startCompleteFlowOnFirstResume = false
+            startAutomaticTest()
+        }
     }
     override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
     /** One explicit start: local, once-only PIN if enrolled; Gold only after
@@ -349,7 +369,7 @@ class ProductReadActivity : Activity() {
         window.decorView.findViewWithTag<TextView>("pin_probe_status")?.text = PinReadinessProbe.message
         displayedRequestActive = ProductReadRequest.active(SystemClock.elapsedRealtime())
         val value = ProductReadSession.get(SystemClock.elapsedRealtime())
-        primary.text=if(PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running) "Test läuft · DEGIRO öffnen" else "Start"
+        primary.text=if(PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running) "Läuft · DEGIRO prüfen" else "Gesamtablauf starten"
         val delivery=MorningListDelivery.status(this)
         val current=when {
             GoldSearchRun.running -> "Goldsuche läuft · zehn Top Ergebnisse erfassen"

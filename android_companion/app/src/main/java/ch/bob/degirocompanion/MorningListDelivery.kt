@@ -61,16 +61,24 @@ internal object MorningListDelivery {
                     val response=result.getOrNull();val receipt=response?.optJSONObject("import")
                     if(response?.optString("batchId")==batch && receipt?.optString("stage")=="synced" && receipt.optInt("count")==10) {
                         waiting=false;file(c).delete()
-                        status(c,"✅ Fertig: 10 unterschiedliche Produkte in Bob gespeichert und bestätigt.")
                         val ids=response.optJSONArray("detailIsins")
                         val values=if(ids==null) null else (0 until ids.length()).map { ids.optString(it) }
                         val plan=values?.let { SelectiveDetailPlan.parse(response.optJSONArray("detailPlan"),it) }
-                        if(PhoneRemote.active() && PhoneRemote.sessionId()==session && plan!=null) {
+                        if(PhoneRemote.active() && PhoneRemote.sessionId()==session && plan!=null && plan.isNotEmpty()) {
+                            status(c,"✅ Goldliste: 10 Produkte bei Bob bestätigt. Fehlende Felder von " +
+                                plan.size + " Produkten werden jetzt gezielt in DEGIRO nachgelesen.")
                             runCatching { onConfirmed?.invoke(plan,batch) }.onFailure {
-                                status(c,"✅ Liste in Bob gespeichert. Detailprüfung konnte nicht gestartet werden.")
+                                status(c,"✅ Liste in Bob gespeichert. Detailprüfung konnte nicht gestartet werden; vorhandene Belege bleiben erhalten.")
                                 PhoneRemote.stop(c,"STORAGE_ERROR")
                             }
-                        } else PhoneRemote.stop(c,"COMPLETE")
+                        } else {
+                            status(c,when {
+                                plan==null -> "✅ Goldliste mit 10 Produkten bestätigt. Detailplan nicht verifizierbar; Nachlesen gestoppt."
+                                plan.isEmpty() -> "✅ Goldliste mit 10 Produkten bestätigt. Keine fehlenden Felder für einen neuen Detail-Leselauf."
+                                else -> "✅ Goldliste mit 10 Produkten bestätigt. Die Lesesitzung ist abgelaufen; Detailprüfung nicht gestartet."
+                            })
+                            PhoneRemote.stop(c,"COMPLETE")
+                        }
                     } else if(receipt?.optString("stage")=="superseded") {
                         waiting=false;file(c).delete();status(c,"Neuere Liste bereits in Bob gespeichert; alte Aufnahme bleibt historisch.")
                         PhoneRemote.stop(c,"COMPLETE")
