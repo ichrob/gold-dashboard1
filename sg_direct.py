@@ -330,7 +330,8 @@ def get_quote(isin, terms_only=False):
                     # Only a missing identity permits one other public market.
                     # Never retry access denials or accept a wrong-channel reply.
                     known = isin in q.SG_DIRECT_PRODUCTS or isin in q.SG_DISCOVERY_PRODUCTS
-                    if exc.code != 404 or known or market[1] != 'CBDE':
+                    if (exc.code != 404 or known or market[1] != 'CBDE'
+                            or isin in q.SG_EUR_DEGIRO_CANDIDATES):
                         raise
                     market = ('https://www.sg-zertifikate.ch/', 'CBSW', 'CHF')
                     origin = market[0]
