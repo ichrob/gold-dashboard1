@@ -107,7 +107,9 @@ def validate(value, now):
     if not isinstance(images,list) or not 1<=len(images)<=4:raise ValueError('One to four images required')
     seen=set();previous=0
     for image in images:
-        if not isinstance(image,dict) or set(image) not in ({'at','png'},{'at','png','appText'}):raise ValueError('Invalid image')
+        if not isinstance(image,dict) or set(image) not in (
+                {'at','png'}, {'at','png','appText'}, {'at','png','localOcr'}):
+            raise ValueError('Invalid image')
         if 'appText' in image:
             text=image['appText']
             if not isinstance(text,dict) or set(text)!={'before','after'}:raise ValueError('Invalid app text')
@@ -115,6 +117,170 @@ def validate(value, now):
                 if not isinstance(readings,list) or not 1<=len(readings)<=10:raise ValueError('Invalid app rows')
                 if any(not isinstance(row,str) or not 1<=len(row)<=800 or '\x00' in row for row in readings):raise ValueError('Invalid app row')
             if text['before']!=text['after']:raise ValueError('App text changed during capture')
+        if 'localOcr' in image:
+            # ML Kit runs on the paired Samsung, offline, over the SAME cropped
+            # PNG at two scales. These are two OCR passes, not independent
+            # issuer/venue sources. Do not accept arbitrary phone-screen text.
+            from product_quotes import valid_isin
+            proof=image['localOcr']
+            if not isinstance(proof,dict) or set(proof)!={'expectedIsins','passes'}:
+                raise ValueError('Invalid phone OCR')
+            ids=proof['expectedIsins']
+            passes=proof['passes']
+            if (not isinstance(ids,list) or not 1<=len(ids)<=10
+                    or any(type(x) is not str or not valid_isin(x) for x in ids)
+                    or len(set(ids))!=len(ids)
+                    or not isinstance(passes,list) or len(passes)!=2):
+                raise ValueError('Invalid phone OCR identities')
+            for rows in passes:
+                if not isinstance(rows,list) or len(rows)!=len(ids):
+                    raise ValueError('Invalid phone OCR rows')
+                for index,row in enumerate(rows):
+                    if type(row) is not str or not 1<=len(row)<=800 or '\x00' in row:
+                        raise ValueError('Invalid phone OCR row')
+                    if not re.match(r'(?iu)^(?:SG|BNP)\s+Gold\b',row):
+                        raise ValueError('OCR row not a gold product')
+                    if re.search(r'(?iu)\b(?:passwort|password|kontostand|portfolio|order bestätigen|stückzahl kaufen)\b',row):
+                        raise ValueError('Protected text in OCR row')
+                    found=re.findall(r'\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b',row)
+                    if found!=[ids[index]] or not re.search(
+                            r'(?iu)(?:Soci[eé]t[eé]\s+G[eé]n[eé]rale|BNP(?:\s+Paribas)?)\s+OTC\s+(?:EUR|CHF)
+        if stamp.tzinfo is None or not now-86400<=stamp.timestamp()<=now+5 or stamp.timestamp()<previous:raise ValueError('Invalid capture time')
+        previous=stamp.timestamp()
+        if not isinstance(image['png'],str) or len(image['png'])>2000000:raise ValueError('Image too large')
+        raw=base64.b64decode(image['png'],validate=True)
+        if len(raw)<33 or raw[:8]!=b'\x89PNG\r\n\x1a\n' or raw[12:16]!=b'IHDR':raise ValueError('PNG required')
+        w,h=struct.unpack('>II',raw[16:24])
+        if not 200<=w<=5000 or not 200<=h<=5000 or w*h>16000000:raise ValueError('Invalid dimensions')
+        digest=hashlib.sha256(raw).hexdigest()
+        if digest in seen:raise ValueError('Duplicate screenshots')
+        seen.add(digest)
+    return value
+
+def init(conn):
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_android_list_images (
+        batch_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL REFERENCES bob_android_diagnostic_devices(token_hash) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(), payload JSONB NOT NULL)''')
+    conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS import_receipt JSONB")
+    conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS parsed_items JSONB")
+    conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS processing_at TIMESTAMPTZ")
+    conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS processing_attempts INTEGER NOT NULL DEFAULT 0")
+
+IMPORT_STAGES = frozenset(('waiting-memory','fetching','images-ready','reading','stored','synced','fetch-failed','read-failed','store-failed','superseded'))
+
+def receipt(value, now):
+    if not isinstance(value,dict) or set(value)!={'batchId','stage','count'}:
+        raise ValueError('Invalid import receipt')
+    if not isinstance(value['batchId'],str) or not re.fullmatch('[a-f0-9]{32}',value['batchId']):
+        raise ValueError('Invalid batch')
+    if value['stage'] not in IMPORT_STAGES or type(value['count']) is not int or not 0<=value['count']<=10:
+        raise ValueError('Invalid import stage')
+    return {**value,'at':datetime.fromtimestamp(now).astimezone().isoformat()}
+
+def status(conn):
+    if not conn.execute("SELECT to_regclass('bob_android_list_images')").fetchone()[0]:return []
+    rows=conn.execute("""SELECT i.batch_id, i.created_at, jsonb_array_length(i.payload->'images'), i.import_receipt, i.processing_attempts, i.processing_at
+        FROM bob_android_list_images i JOIN bob_android_diagnostic_devices d USING(token_hash)
+        WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
+        ORDER BY i.created_at DESC LIMIT 5""").fetchall()
+    return [{'batchId':r[0],'uploadedAt':r[1].isoformat(),'imageCount':r[2],'import':r[3],'processingAttempts':r[4],'processingAt':r[5].isoformat() if r[5] else None} for r in rows]
+
+def handle(conn,payload,now):
+    # Original screenshots with verified parsed fields may carry unique venue
+    # evidence. Never delete them just because another API request arrived.
+    # The background retention worker removes only expired, truly obsolete
+    # unparsed copies under the separate device/day/replacement safety gate.
+    if payload['action']=='list-receipt':
+        value=receipt(payload.get('value'),now)
+        row=conn.execute('''UPDATE bob_android_list_images i SET import_receipt=CASE WHEN i.import_receipt->>'stage' IN ('synced','superseded') THEN i.import_receipt ELSE %s::jsonb END
+            FROM bob_android_diagnostic_devices d WHERE i.token_hash=d.token_hash AND i.batch_id=%s
+            AND NOT d.revoked AND d.expires_at>now() RETURNING i.batch_id''',
+            (json.dumps(value),value['batchId'])).fetchone()
+        if not row:raise ValueError('Unknown batch')
+        return {'ok':True}
+    if payload['action']=='list-get':
+        batch=payload.get('batchId')
+        if batch=='current':
+            row=conn.execute("""SELECT i.batch_id,i.payload,i.parsed_items,i.import_receipt FROM bob_android_list_images i
+                JOIN bob_android_diagnostic_devices d USING(token_hash)
+                WHERE NOT d.revoked AND d.expires_at>now() AND i.import_receipt->>'stage'='synced'
+                AND i.parsed_items IS NOT NULL ORDER BY i.created_at DESC LIMIT 1""").fetchone()
+        else:
+            if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')
+            row=conn.execute("""SELECT i.batch_id,i.payload,i.parsed_items,i.import_receipt FROM bob_android_list_images i
+                JOIN bob_android_diagnostic_devices d USING(token_hash)
+                WHERE i.batch_id=%s AND NOT d.revoked AND d.expires_at>now()""",(batch,)).fetchone()
+        restored=__import__('android_image_readthrough').materialize(conn,row[0],row[1]) if row else None
+        return {'ok':True,'batch':restored,'items':row[2] if row else None,'import':row[3] if row else None}
+    digest=token_hash(payload.get('token'))
+    device=conn.execute('SELECT token_hash FROM bob_android_diagnostic_devices WHERE token_hash=%s AND NOT revoked AND expires_at>now() FOR UPDATE',(digest,)).fetchone()
+    if not device:raise PermissionError('Device not paired')
+    if payload['action']=='list-details':
+        value=payload.get('value')
+        if not isinstance(value,dict) or set(value)!={'batchId','run'} or not isinstance(value['batchId'],str) or not re.fullmatch('[a-f0-9]{32}',value['batchId']):raise ValueError('Invalid detail batch')
+        row=conn.execute('SELECT import_receipt, parsed_items FROM bob_android_list_images WHERE batch_id=%s AND token_hash=%s',(value['batchId'],digest)).fetchone()
+        if not row or not row[0] or row[0].get('stage') not in ('synced','superseded'):raise PermissionError('No owned imported list')
+        run=value['run']
+        candidates={x['isin'] for x in (row[1] or []) if not x.get('listRow',{}).get('excluded')}
+        if not isinstance(run,dict) or not isinstance(run.get('isins'),list) or not run['isins'] or any(not isinstance(i,str) or i not in candidates for i in run['isins']):raise ValueError('Details outside imported list')
+        # Store original observations, never turn receipt time into quote time.
+        return __import__('android_observations').handle(conn,{'action':'save','run':run})
+    if payload['action']=='list-status':
+        batch=payload.get('value',{}).get('batchId')
+        if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')
+        row=conn.execute('SELECT import_receipt, parsed_items, created_at FROM bob_android_list_images WHERE batch_id=%s AND token_hash=%s',(batch,digest)).fetchone()
+        plan=[]
+        reuse_batch=None
+        reuse_plan=[]
+        if row and row[0] and row[0].get('stage')=='synced':
+            saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
+            products=(saved[0] or {}).get('products',[]) if saved else []
+            plan=detail_plan(row[1] or [],products,now)
+        # A native OCR attempt may remain waiting-memory or fail exactly
+        # with MemoryError on the 512-MiB server. These states prove that
+        # this NEW batch was NOT verified. Never weaken the cgroup guard.
+        # Only offer a PREVIOUS,
+        # device-owned, already-synced list from the SAME Zurich calendar day
+        # (at most fourteen hours old), for read-only detail refreshing.
+        # The new images and their truthful waiting-memory receipt are kept.
+        if (row and deferred_ocr_memory_receipt(row[0])
+                and row[2] is not None and 10 <= now-row[2].timestamp() <= 3*3600):
+            previous=conn.execute("""
+                SELECT batch_id, parsed_items FROM bob_android_list_images
+                WHERE token_hash=%s AND batch_id<>%s
+                  AND import_receipt->>'stage'='synced'
+                  AND parsed_items IS NOT NULL
+                  AND jsonb_array_length(parsed_items)=10
+                  AND created_at>now()-interval '14 hours'
+                  AND (created_at AT TIME ZONE 'Europe/Zurich')::date =
+                      (now() AT TIME ZONE 'Europe/Zurich')::date
+                ORDER BY created_at DESC LIMIT 1""",(digest,batch)).fetchone()
+            if previous and reusable_daily_items(previous[1]):
+                saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
+                products=(saved[0] or {}).get('products',[]) if saved else []
+                reuse_plan=detail_plan(previous[1],products,now)
+                if reuse_plan:
+                    reuse_batch=previous[0]
+        return {'ok':True,'batchId':batch,'import':row[0] if row else None,
+                'detailIsins':[x['isin'] for x in plan],'detailPlan':plan,
+                'existingListBatchId':reuse_batch,
+                'existingDetailIsins':[x['isin'] for x in reuse_plan],
+                'existingDetailPlan':reuse_plan}
+    value=validate(payload.get('value'),now)
+    row=conn.execute('SELECT state FROM bob_android_remote WHERE token_hash=%s FOR UPDATE',(digest,)).fetchone()
+    state=row[0] if row else {}
+    if state.get('sessionId')!=value['sessionId'] or not state.get('active') or state.get('expiresAt',0)<=now or now-state.get('seenAt',0)>30:
+        raise PermissionError('No active handset session')
+    old=conn.execute('SELECT token_hash,payload FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()
+    if old:
+        if old[0]!=digest or old[1]['images']!=value['images']:raise ValueError('Conflicting batch')
+    else:
+        count=conn.execute("SELECT count(*) FROM bob_android_list_images WHERE token_hash=%s AND created_at>now()-interval '1 hour'",(digest,)).fetchone()[0]
+        if count>=12:raise ValueError('Capture rate limit')
+        conn.execute('INSERT INTO bob_android_list_images(batch_id,token_hash,payload) VALUES(%s,%s,%s::jsonb)',(value['batchId'],digest,json.dumps(value)))
+    return {'ok':True,'batchId':value['batchId']}
+,row):
+                        raise ValueError('OCR identity or issuer footer invalid')
         stamp=datetime.fromisoformat(image['at'].replace('Z','+00:00'))
         if stamp.tzinfo is None or not now-86400<=stamp.timestamp()<=now+5 or stamp.timestamp()<previous:raise ValueError('Invalid capture time')
         previous=stamp.timestamp()
