@@ -58,6 +58,8 @@ on:
       - 'storage_case_results.py'
       - 'test_storage_case_results.py'
       - 'test_storage_knowledge.py'
+      - 'diagnostic_reference_shadow.py'
+      - 'test_diagnostic_reference_shadow.py'
       - 'storage_layout.py'
       - 'storage_forensics.py'
       - 'android_image_storage_audit.py'
