@@ -143,6 +143,20 @@ class StorageBriefTests(unittest.TestCase):
         source["layout"]["status"] = "not-observed"
         self.assertEqual(storage_brief.project(source)["largestTableBreakdown"], [])
 
+    def test_diagnostic_equality_is_read_only(self):
+        source = self.source()
+        source["layout"] = {"diagnosticPayloadEqualitySample": {
+            "status": "sampled", "stages": [{
+                "stage": "input", "sampledRows": 20,
+                "repeatedStoredJsonbRows": 5,
+                "sameTraceTimeAndJsonbExtraRows": 2}]}}
+        result = storage_brief.project(source)
+        self.assertEqual(result["diagnosticEqualityStatus"], "sampled")
+        self.assertEqual(result["diagnosticEqualityStages"][0]["equalPayloadExtraRows"], 5)
+        self.assertTrue(result["diagnosticEqualityReadOnly"])
+        self.assertIsNone(result["diagnosticEqualityDiskBytesFreed"])
+        self.assertIsNone(result["physicalBytesFreed"])
+
     def test_oversized_storage_omission_still_keeps_small_brief(self):
         source = self.source()
         report = bob_diagnostics.collect({"storage": lambda: source})
