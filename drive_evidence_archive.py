@@ -171,7 +171,7 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
     # Only redundant scratch copies after verified remote restore and receipt.
     # Database originals and the durable Drive archive remain untouched.
     downloaded.unlink()
-    path.unlink()
+    path.unlink(missing_ok=True)
     return dict(**receipt, receiptFileId=receipt_id)
 
 
