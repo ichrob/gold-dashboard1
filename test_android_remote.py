@@ -24,6 +24,18 @@ class Protocol(unittest.TestCase):
             with self.assertRaises(ValueError):r.arguments('bob_phone_command',a)
         self.assertTrue(r.valid_isin(ISIN))
         r.arguments('bob_phone_command',dict(command('search_isin'),isin=ISIN))
+    def test_termux_check_is_bounded_and_not_a_shell(self):
+        accepted=r.arguments('bob_phone_command',command('termux_check'))
+        self.assertEqual(accepted['action'],'termux_check')
+        self.assertNotIn('command',accepted)
+        self.assertNotIn('argv',accepted)
+        for extras in (dict(text='ls -la'),dict(args=['cat','secret']),
+                       dict(commandLine='printenv'),dict(isin=ISIN)):
+            with self.subTest(extras=extras), self.assertRaises(ValueError):
+                r.arguments('bob_phone_command',dict(command('termux_check'),**extras))
+        self.assertIn('termux_check',r.definitions()[1]['inputSchema']
+                      ['properties']['action']['enum'])
+
     def test_queue_delivery_ack_and_no_replay(self):
         s=self.state();a=command();self.assertEqual(r.enqueue(s,a,NOW)['status'],'queued')
         s,out=r.exchange(s,value(),NOW+1);self.assertEqual(out['command']['requestId'],a['requestId'])
