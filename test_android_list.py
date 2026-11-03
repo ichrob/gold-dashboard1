@@ -45,6 +45,30 @@ class ListTests(unittest.TestCase):
         self.assertIn("'import':row[0]",code)
         self.assertIn("AT TIME ZONE 'Europe/Zurich'",code)
 
+    def test_local_ocr_is_strictly_bounded_to_exact_product_rows(self):
+        from product_quotes import valid_isin
+        one='DE000SQ02JQ6'
+        two='DE000FG8NHQ3'
+        self.assertTrue(valid_isin(one) and valid_isin(two))
+        rows=[
+          'SG Gold Turbo Unlimited Mini Call BAR 2166 BP 2125.38 Bv 10 | '+one+' Societe Generale OTC EUR',
+          'SG Gold Knock-Out Warrant Put BAR 4400 BP 4400 Bv 10 | '+two+' Societe Generale OTC CHF']
+        value=batch()
+        value['images'][0]['localOcr']={'expectedIsins':[one,two],'passes':[rows,rows]}
+        self.assertEqual(images.validate(value,NOW),value)
+        from copy import deepcopy
+        for mutate in [
+            lambda a:a['images'][0]['localOcr']['expectedIsins'].reverse(),
+            lambda a:a['images'][0]['localOcr']['passes'][1].pop(),
+            lambda a:a['images'][0]['localOcr']['passes'][0].__setitem__(0,rows[0]+' Kontostand'),
+            lambda a:a['images'][0]['localOcr']['passes'][0].__setitem__(0,rows[0].replace(one,two)),
+            lambda a:a['images'][0]['localOcr']['passes'][0].__setitem__(0,rows[0].replace('Societe Generale OTC EUR','')),
+            lambda a:a['images'][0].update(appText={'before':['x'],'after':['x']})
+        ]:
+            altered=deepcopy(value);mutate(altered)
+            with self.assertRaises((ValueError,TypeError)):
+                images.validate(altered,NOW)
+
     def test_text_capture_is_bounded_and_immutable(self):
         x=batch();x['images'][0]['appText']={'before':['product row'],'after':['product row']}
         self.assertEqual(images.validate(x,NOW),x)

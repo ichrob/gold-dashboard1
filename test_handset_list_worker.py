@@ -15,6 +15,32 @@ class WorkerTests(unittest.TestCase):
         self.assertNotIn('private image',run.call_args_list[0].kwargs['input'])
         self.assertEqual(json.loads(run.call_args_list[1].kwargs['input'])['appSources'],[True])
 
+    def test_phone_mlkit_pair_prevents_heavy_server_ocr_and_keeps_source(self):
+        from product_quotes import valid_isin
+        def identifier(number):
+            stem='DE000ZZ'+str(number).zfill(4)
+            return next(stem+str(x) for x in range(10) if valid_isin(stem+str(x)))
+        def row(number):
+            return ('SG Gold Turbo BEST Open-End Call BAR 4000 BP 4000 Bv 10 | '+
+                identifier(number)+' Societe Generale OTC EUR')
+        images=[]
+        for numbers in ([1,2,3,4],[4,5,6,7],[7,8,9,10]):
+            lines=[row(n) for n in numbers]
+            images.append({'png':'not decoded on semantic fast path',
+                           'localOcr':{'expectedIsins':[identifier(n) for n in numbers],
+                                       'passes':[lines,lines]}})
+        with patch('handset_list_worker.guarded_ocr_run',
+                   side_effect=AssertionError('Native OCR was invoked')) as heavy:
+            result=worker.process({'images':images},'2026-11-03T08:00:00Z')
+        heavy.assert_not_called()
+        self.assertEqual(len(result['items']),10)
+        self.assertTrue(all(x['listRow']['extractionMethod']=='on-device-mlkit-two-scale'
+                            for x in result['items']))
+        self.assertTrue(all(x['listRow']['crossChecked'] for x in result['items']))
+        self.assertTrue(all(x['listRow']['source']=='DEGIRO-Listenbild'
+                            for x in result['items']))
+        self.assertTrue(all(not x['listRow']['isExecutableQuote'] for x in result['items']))
+
     def test_ocr_defers_before_spawn_when_headroom_is_insufficient(self):
         with patch.object(worker,'container_memory_bytes',return_value=300*1024*1024),patch('subprocess.Popen') as spawn:
             with self.assertRaises(worker.OcrMemoryDeferred):

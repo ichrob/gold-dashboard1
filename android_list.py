@@ -107,7 +107,9 @@ def validate(value, now):
     if not isinstance(images,list) or not 1<=len(images)<=4:raise ValueError('One to four images required')
     seen=set();previous=0
     for image in images:
-        if not isinstance(image,dict) or set(image) not in ({'at','png'},{'at','png','appText'}):raise ValueError('Invalid image')
+        if not isinstance(image,dict) or set(image) not in (
+                {'at','png'}, {'at','png','appText'}, {'at','png','localOcr'}):
+            raise ValueError('Invalid image')
         if 'appText' in image:
             text=image['appText']
             if not isinstance(text,dict) or set(text)!={'before','after'}:raise ValueError('Invalid app text')
@@ -115,6 +117,35 @@ def validate(value, now):
                 if not isinstance(readings,list) or not 1<=len(readings)<=10:raise ValueError('Invalid app rows')
                 if any(not isinstance(row,str) or not 1<=len(row)<=800 or '\x00' in row for row in readings):raise ValueError('Invalid app row')
             if text['before']!=text['after']:raise ValueError('App text changed during capture')
+        if 'localOcr' in image:
+            # Two on-device passes of the same cropped PNG, not two issuers.
+            from product_quotes import valid_isin
+            local=image['localOcr']
+            if not isinstance(local,dict) or set(local)!={'expectedIsins','passes'}:
+                raise ValueError('Invalid local OCR')
+            ids=local['expectedIsins']
+            passes=local['passes']
+            if (not isinstance(ids,list) or not 1<=len(ids)<=10
+                    or any(type(v) is not str or not valid_isin(v) for v in ids)
+                    or len(set(ids))!=len(ids)
+                    or not isinstance(passes,list) or len(passes)!=2):
+                raise ValueError('Invalid local OCR identities')
+            for reading in passes:
+                if not isinstance(reading,list) or len(reading)!=len(ids):
+                    raise ValueError('Invalid local OCR rows')
+                for index,row in enumerate(reading):
+                    if type(row) is not str or not 1<=len(row)<=800:
+                        raise ValueError('Invalid local OCR text')
+                    line=row.lower()
+                    if (not line.startswith(('sg gold','bnp gold'))
+                            or not line.upper().endswith(('OTC EUR','OTC CHF'))
+                            or any(word in line for word in (
+                                'passwort','password','kontostand',
+                                'portfolio','order bestätigen','stückzahl kaufen'))):
+                        raise ValueError('OCR row outside permitted product layout')
+                    found=re.findall('[A-Z]{2}[A-Z0-9]{9}[0-9]',row)
+                    if found!=[ids[index]]:
+                        raise ValueError('OCR product identity mismatch')
         stamp=datetime.fromisoformat(image['at'].replace('Z','+00:00'))
         if stamp.tzinfo is None or not now-86400<=stamp.timestamp()<=now+5 or stamp.timestamp()<previous:raise ValueError('Invalid capture time')
         previous=stamp.timestamp()

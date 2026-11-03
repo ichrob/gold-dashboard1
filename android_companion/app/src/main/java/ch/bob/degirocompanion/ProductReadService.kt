@@ -991,6 +991,36 @@ class ProductReadService : AccessibilityService() {
         finally { list.forEach { it.recycle() } }
     }
 
+    private fun acceptCapturedMorningImage(image:org.json.JSONObject,ids:List<String>,
+                                           generation:Int,windowId:Int,cropTop:Int,at:String) {
+        if(generation!=listGeneration)return
+        if(!PhoneRemote.active() || !GoldSearchRun.running ||
+           !ProductReadRequest.active(SystemClock.elapsedRealtime()) || keyboardVisible()) return
+        // On-device OCR may finish after a WebView transition. Never attach
+        // its stale rows to a newly displayed page or a different application.
+        val current=productRoot(false)
+        val safe=try {
+            current?.windowId==windowId &&
+                current.packageName?.toString()==ProductScreenEvidence.PACKAGE
+        } finally { current?.recycle() }
+        if(!safe) {
+            lastNavigationIssue="LIST_CAPTURE_WINDOW_CHANGED"
+            ProductReadRequest.cancel()
+            return
+        }
+        listImages.put(image)
+        listCropTop=cropTop
+        listWindowId=windowId
+        ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_IMAGE_CAPTURED)
+        listFirstIds=ids;listSeenIds.addAll(ids);listScrolled=false;listScrollTries=0
+        saveListCheckpoint()
+        if(listSeenIds.size==10) deliverMorningList(generation)
+        else if(listImages.length()>=4) {
+            lastNavigationIssue="LIST_TOP_RESULTS_INCOMPLETE"
+            ProductReadRequest.cancel()
+        } else GoldSearchRun.event("LIST_FIRST_CAPTURED",at)
+    }
+
     // Capture only the validated product-list window (Android 14+), after the
     // keyboard has disappeared. Never capture the full display or secure windows.
     private fun captureMorningList(root:AccessibilityNodeInfo,nodes:List<AccessibilityNodeInfo>,
@@ -1055,6 +1085,7 @@ class ProductReadService : AccessibilityService() {
             }
             override fun onSuccess(result:ScreenshotResult) {
                 val buffer=result.hardwareBuffer
+                var delegatedToLocalOcr=false
                 try {
                     if(generation!=listGeneration || !PhoneRemote.active() || !GoldSearchRun.running ||
                         !ProductReadRequest.active(SystemClock.elapsedRealtime()) || keyboardVisible())return
@@ -1074,25 +1105,41 @@ class ProductReadService : AccessibilityService() {
                     try {
                         check(bitmap.width==rect.width() && bitmap.height==rect.height())
                         val cropped=android.graphics.Bitmap.createBitmap(bitmap,0,cropTop,bitmap.width,bitmap.height-cropTop)
+                        val semantic=textBefore!=null && textAfter==textBefore
+                        // Keep only a small crop copy on-device for ML Kit.
+                        // The raw PNG continues through the original secured
+                        // list upload for backup and possible forensic review.
+                        val localBitmap=if(semantic) null else
+                            runCatching { cropped.copy(android.graphics.Bitmap.Config.ARGB_8888,false) }.getOrNull()
                         val bytes=try { java.io.ByteArrayOutputStream().use { out ->
                             check(cropped.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out));out.toByteArray()
                         } } finally { if(cropped!==bitmap)cropped.recycle() }
                         check(bytes.size<=1500000)
-                        val image=org.json.JSONObject().put("at",capturedAt).put("png",android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP))
-                        if(textBefore!=null && textAfter==textBefore) image.put("appText",org.json.JSONObject()
-                            .put("before",org.json.JSONArray(textBefore)).put("after",org.json.JSONArray(textAfter)))
-                        listImages.put(image)
-                        listCropTop=cropTop
-                        listWindowId=windowId
-                        ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_IMAGE_CAPTURED)
-                        listFirstIds=ids;listSeenIds.addAll(ids);listScrolled=false;listScrollTries=0
-                        saveListCheckpoint()
+                        val image=org.json.JSONObject().put("at",capturedAt).put("png",
+                            android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP))
+                        if(semantic) image.put("appText",org.json.JSONObject()
+                            .put("before",org.json.JSONArray(textBefore!!)).put("after",org.json.JSONArray(textAfter!!)))
+                        if(localBitmap!=null) {
+                            delegatedToLocalOcr=true
+                            MorningLocalOcr.read(localBitmap,ids) { paired ->
+                                try {
+                                    if(paired!=null) image.put("localOcr",paired)
+                                    acceptCapturedMorningImage(image,ids,generation,windowId,cropTop,capturedAt)
+                                } catch(_:Exception) {
+                                    if(generation==listGeneration)fail("LIST_CAPTURE_FAILED")
+                                } finally {
+                                    if(generation==listGeneration)listBusy=false
+                                }
+                            }
+                        } else {
+                            acceptCapturedMorningImage(image,ids,generation,windowId,cropTop,capturedAt)
+                        }
                     } finally { bitmap.recycle() }
-                    if(listSeenIds.size==10) deliverMorningList(generation)
-                    else if(listImages.length()>=4) fail("LIST_TOP_RESULTS_INCOMPLETE")
-                    else GoldSearchRun.event("LIST_FIRST_CAPTURED",capturedAt)
                 } catch(_:Exception) { if(generation==listGeneration)fail("LIST_CAPTURE_FAILED") }
-                finally { buffer.close();if(generation==listGeneration)listBusy=false }
+                finally {
+                    buffer.close()
+                    if(generation==listGeneration && !delegatedToLocalOcr)listBusy=false
+                }
             }
         })
     }

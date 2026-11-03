@@ -40,7 +40,33 @@ function appImage(value){
  }
  return [value.before.join('\n'),value.after.join('\n')];
 }
-function parse(images,at,appSources=[]){
+// Two differently scaled on-device OCR passes of ONE approved screenshot.
+// This is a faster recognition route, not a second independent source.
+// The server repeats exact identity, product grammar and two-pass agreement.
+function localOcrImage(value) {
+ if(!value || !Array.isArray(value.expectedIsins) ||
+    !Array.isArray(value.passes) || value.passes.length!==2 ||
+    value.expectedIsins.length<1 || value.expectedIsins.length>10 ||
+    new Set(value.expectedIsins).size!==value.expectedIsins.length ||
+    value.expectedIsins.some(id=>typeof id!=='string'||!b.validIsin(id)))
+   return null;
+ for(const pass of value.passes) {
+  if(!Array.isArray(pass) || pass.length!==value.expectedIsins.length)return null;
+  for(let i=0;i<pass.length;i++){
+   const text=pass[i],id=value.expectedIsins[i];
+   if(typeof text!=='string'||text.length<1||text.length>800||
+      /passwort|password|kontostand|portfolio|order bestätigen|stückzahl kaufen/i.test(text))
+     return null;
+   const actual=text.match(/\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/g)||[];
+   if(actual.length!==1||actual[0]!==id)return null;
+   const row=b.parseDegiroListRow(text);
+   if(!row||row.isin!==id ||
+      !(row.listRow.complete||b.agreedExcludedDegiroFactorRow([text,text])))return null;
+  }
+ }
+ return value.passes.map(pass=>pass.join('\n'));
+}
+function parse(images,at,appSources=[],localSources=[]){
  const items=new Map();
  for(const [index,passes] of images.entries()){
   const votes=new Map();
@@ -62,6 +88,13 @@ function parse(images,at,appSources=[]){
     row.listRow.textCaptureMatched=true;
     row.listRow.extractionMethod='accessibility-before-after';
    }
+   else if(localSources[index]) {
+    row.listRow.source='DEGIRO-Listenbild';
+    row.listRow.extractionMethod='on-device-mlkit-two-scale';
+    row.listRow.textCaptureMatched=false;
+    // CrossChecked remains the actual two-pass parser decision; no issuer,
+    // market-time, account or trade authorization is invented.
+   }
    row.listRow.imageReference='DEGIRO-TOP10-'+(index+1)+'.png';
    const old=items.get(isin);
    const signature=x=>JSON.stringify([x.direction,...['venue','currency','ko','strike','ratio','maturity','excluded'].map(k=>x.listRow[k])]);
@@ -78,5 +111,5 @@ function parse(images,at,appSources=[]){
   listVenueEvidence:b.listVenueForSync(x.isin,archive)
  }))}};
 }
-module.exports={parse,normalizeLayout,appImage};
-if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)):parse(x.images,x.at,x.appSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
+module.exports={parse,normalizeLayout,appImage,localOcrImage};
+if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
