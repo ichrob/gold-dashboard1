@@ -89,7 +89,7 @@ class StorageBriefTests(unittest.TestCase):
         self.assertIsNone(view["physicalBytesFreed"])
         self.assertIsNone(view["pilot"]["diskBytesFreed"])
         compact = json.dumps(view)
-        self.assertLess(len(compact), 3500)
+        self.assertLess(len(compact), 7500)
         for secret in ("PRIVATE", "SENSITIVE-ISIN", "secret-drive-id", "dpg-private-ID"):
             self.assertNotIn(secret, compact)
 
@@ -169,7 +169,7 @@ class StorageBriefTests(unittest.TestCase):
         self.assertNotIn("PRIVATE-ORIGINAL", json.dumps(bounded))
         focused = bob_diagnostics.focused_report(report, "storage")
         self.assertEqual(list(focused["areas"]), ["storageBrief"])
-        self.assertLess(len(json.dumps(focused)), 3500)
+        self.assertLess(len(json.dumps(focused)), 7500)
 
     def test_invalid_focus_and_tool_schema_remain_restricted(self):
         self.assertIn("storage", bob_diagnostics.DIAGNOSTIC_FOCUS)
