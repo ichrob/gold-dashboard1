@@ -112,7 +112,34 @@ function stableMail(item){
   digest:/^[a-f0-9]{64}$/.test(digest)?digest:null,
   orderTimeSource:source.clockKind,executedAt:Number.isFinite(isoMs(r.executedAt))?isoMs(r.executedAt):null};
 }
-function compare(csv,transactions,emailReport,now=Date.now()){
+// Existing Mein Trade screenshot review writes parsed BUY evidence into
+// bobTradeEvidenceV1 only after the owner reviewed the OCR fields. We read
+// its reduced values; no screenshot bytes and no new storage keys.
+function screenshotPurchases(storage){
+ let raw;
+ try{raw=storage?.getItem?.('bobTradeEvidenceV1');}
+ catch(_){return [];}
+ if(!raw||raw.length>500000)return [];
+ let data;try{data=JSON.parse(raw);}catch(_){return [];}
+ if(!data||typeof data!=='object'||Array.isArray(data))return [];
+ const entries=Object.entries(data).slice(0,100);
+ const results=[];
+ for(const [key,r] of entries){
+  const isin=text(r?.isin||key,12).toUpperCase();
+  const p=r?.entry;
+  const quantity=Number(p?.quantity),price=Number(p?.price);
+  const matched=String(p?.at||'').match(/^(\d{2})[.\-/](\d{2})[.\-/](\d{4})[, ]+(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if(!validIsin(isin)||key!==isin||!['EUR','CHF'].includes(r.currency)||
+    !Number.isSafeInteger(quantity)||quantity<=0||!Number.isFinite(price)||price<=0||!matched)continue;
+  const date=day(matched[1]+'.'+matched[2]+'.'+matched[3]);
+  const time=clock(matched[4]+':'+matched[5]+(matched[6]?':'+matched[6]:''));
+  if(!date||!time)continue;
+  results.push({isin,side:'BUY',quantity,price,currency:r.currency,
+   date,time,source:'reviewed-screenshot',hasSeconds:!!matched[6]});
+ }
+ return results;
+}
+function compare(csv,transactions,emailReport,now=Date.now(),screenshots=[]){
  const snapshot=csv?.kind==='portfolio'&&Array.isArray(csv.records)&&
   Number.isFinite(Date.parse(csv.importedAt))?csv:null;
  const journal=transactions?.kind==='transactions'&&Array.isArray(transactions.rows)?transactions:null;
@@ -121,7 +148,9 @@ function compare(csv,transactions,emailReport,now=Date.now()){
  const ensure=isin=>{
   if(!rows.has(isin))rows.set(isin,{isin,csvQuantity:null,tradeRows:0,
    matched:0,partialMatches:0,unmatched:0,ambiguous:0,duplicateMails:0,
-   emailBuys:0,emailSells:0,emailNet:0,csvAfterEmailUnknown:true});
+   emailBuys:0,emailSells:0,emailNet:0,csvAfterEmailUnknown:true,
+   screenshotBuys:0,screenshotMailMatched:0,screenshotCsvMatched:0,
+   screenshotUnmatched:0,screenshotTimeUncertain:0});
   return rows.get(isin);
  };
  if(snapshot)for(const r of snapshot.records){
@@ -174,6 +203,30 @@ function compare(csv,transactions,emailReport,now=Date.now()){
   if(snapshot&&mail.executedAt!==null&&mail.executedAt>Date.parse(snapshot.importedAt))
    out.csvAfterEmailUnknown=false;
  }
+ // Screenshots corroborate original purchase evidence, but never add
+ // quantities to holdings, manufacture a sale or replace actual broker fills.
+ for(const shot of (Array.isArray(screenshots)?screenshots.slice(0,100):[])){
+  if(shot?.side!=='BUY'||!validIsin(shot.isin)||
+    !Number.isSafeInteger(shot.quantity)||shot.quantity<=0||
+    !Number.isFinite(shot.price)||shot.price<=0||!day(shot.date)||!clock(shot.time))continue;
+  const out=ensure(shot.isin);
+  out.screenshotBuys++;
+  const same=x=>x.isin===shot.isin&&x.side==='BUY'&&x.quantity===shot.quantity&&
+   x.currency===shot.currency&&Math.abs(x.price-shot.price)<=0.0001&&x.date===shot.date;
+  const matchesCsv=journalRows.filter(same);
+  const matchesMail=allMail.filter(same);
+  // The original screenshot can have only minute precision. Then a
+  // match is a hint rather than a verified one-to-one execution.
+  if(!shot.hasSeconds||shot.time.length!==8){
+   out.screenshotTimeUncertain++;continue;
+  }
+  if(matchesCsv.filter(x=>x.time===shot.time&&x.time.length===8).length===1)
+   out.screenshotCsvMatched++;
+  if(matchesMail.filter(x=>x.time===shot.time).length===1)
+   out.screenshotMailMatched++;
+  if(!matchesCsv.some(x=>x.time===shot.time) &&
+     !matchesMail.some(x=>x.time===shot.time))out.screenshotUnmatched++;
+ }
  for(const out of rows.values()){
   out.emailNet=out.emailBuys-out.emailSells;
   out.state=out.ambiguous?'needs-review':
@@ -212,7 +265,9 @@ function mount(){
   let csv=null,transactions=null;
   try{csv=root.BobDegiroPortfolio?.load(root.localStorage)||null;
       transactions=loadTransactions(root.localStorage);}catch(_){}
-  const report=compare(csv,transactions,inbox);
+  let screenshots=[];
+  try{screenshots=screenshotPurchases(root.localStorage);}catch(_){}
+  const report=compare(csv,transactions,inbox,Date.now(),screenshots);
   list.replaceChildren();
   row(list,report.snapshotAt?'Portfolio-CSV importiert: '+new Date(report.snapshotAt).toLocaleString('de-CH'):
    'Portfolio-CSV fehlt. Unter Mehr → DEGIRO den Portfolioexport einlesen.');
@@ -228,6 +283,11 @@ function mount(){
     ' · Transaktions-CSV: '+r.tradeRows+' Zeilen');
    row(card,'E-Mail-Ausführungen (begrenzter Ausschnitt): Kauf '+r.emailBuys+
     ', Verkauf '+r.emailSells+' · Differenz '+r.emailNet+' Stück');
+   row(card,'Geprüfte Kauf-Screenshots: '+r.screenshotBuys+
+    ' · passt zu Mail: '+r.screenshotMailMatched+
+    ' · passt zu Transaktions-CSV: '+r.screenshotCsvMatched+
+    ' · unklarer Zeitbezug: '+r.screenshotTimeUncertain+
+    ' · nicht zuordenbar: '+r.screenshotUnmatched);
    row(card,'Eindeutige Zeilenpaare CSV ↔ Mail: '+r.matched+
     ' · nur ähnlich: '+r.partialMatches+
     ' · nicht zugeordnet: '+r.unmatched+
@@ -263,12 +323,13 @@ function mount(){
  refresh.addEventListener('click',load);
  wrapper.addEventListener('toggle',()=>{if(wrapper.open){paint();load();}});
  doc.addEventListener('bob-degiro-csv-changed',()=>{if(wrapper.open)paint();});
+ doc.addEventListener('bob-trade-evidence-changed',()=>{if(wrapper.open)paint();});
  root.addEventListener?.('storage',e=>{if(e.key===STORE||e.key===root.BobDegiroPortfolio?.KEY)if(wrapper.open)paint();});
  root.setInterval?.(()=>{if(wrapper.open&&!doc.hidden&&Date.now()-lastRead>=60000)load();},60000);
  paint();
 }
 const api={STORE,normalTransactions,saveTransactions,loadTransactions,clearTransactions,
- receiptLocal,stableMail,compare,mount};
+ screenshotPurchases,receiptLocal,stableMail,compare,mount};
 root.BobDegiroPositionReconcile=api;
 if(typeof module==='object'&&module.exports)module.exports=api;
 if(!root.document)return;
