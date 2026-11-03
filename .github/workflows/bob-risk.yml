@@ -32,6 +32,8 @@ on:
       - 'drive_evidence_archive.py'
       - 'drive_archive_encryption.py'
       - 'bob_offline_key_escrow.py'
+      - 'bob_render_to_offline_escrow.py'
+      - 'test_bob_render_to_offline_escrow.py'
       - 'test_bob_offline_key_escrow.py'
       - 'test_drive_archive_encryption.py'
       - 'test_drive_evidence_archive.py'
