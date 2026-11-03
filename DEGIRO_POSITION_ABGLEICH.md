@@ -7,7 +7,7 @@ Bob soll tatsächlich bestätigte DEGIRO-Käufe und -Verkäufe erkennen und mit 
 ## Vorhandene Quellen
 
 1. **Portfolio-CSV:** Unter `Mehr → DEGIRO` per ausdrücklichem Dateiupload importiert. Lokal im Browser gespeicherter, kompletter Bestand `bob.degiro.csv.depot.v1`; Einlesezeit ist **nicht** die CSV-Export-/Bestandszeit. Keine automatische DEGIRO-Kontoabfrage.
-2. **Transaktions-CSV:** Neuer separater lokaler Speicher `bob.degiro.transactions.csv.v1`; pro Zeile ausschließlich ISIN, BUY/SELL, Stückzahl, Produktwährung, Ausführungspreis, Handelstag und gegebenenfalls Original-Uhrzeit. Neuer Import **ersetzt** die vorherige Transaktions-CSV, verändert aber niemals Portfolio-CSV, Mein Trade oder Orders. Ohne Kurs, ISIN, Menge, Richtung, Datum oder Währung bleibt die Zeile unvollständig.
+2. **Transaktions-CSV (optional zur zusätzlichen Verifikation):** Neuer separater lokaler Speicher `bob.degiro.transactions.csv.v1`; pro Zeile ausschließlich ISIN, BUY/SELL, Stückzahl, Produktwährung, Ausführungspreis, Handelstag und gegebenenfalls Original-Uhrzeit. Neuer Import **ersetzt** die vorherige Transaktions-CSV, verändert aber niemals Portfolio-CSV, Mein Trade oder Orders. Ohne Kurs, ISIN, Menge, Richtung, Datum oder Währung bleibt die Zeile unvollständig.
 3. **DEGIRO-Bestätigungsmail:** Bisheriger geschützter Bob-AgentMail-Eingang mit optionalem PDF-Parser und signiertem Webhook. Original-Mails/PDFs werden nicht in den neuen CSV-Speicher kopiert; `/api/trade-email/read` liefert nur vorgeprüfte, reduzierte Belege, maximal die letzten 30. Die Weiterleitung aus dem eigenen Postfach muss vom Kontoinhaber eingerichtet werden; nur konfigurierte Absender werden angenommen.
 
 
@@ -15,9 +15,11 @@ Bob soll tatsächlich bestätigte DEGIRO-Käufe und -Verkäufe erkennen und mit 
 
 ## Wann wird abgeglichen?
 
-Unter `Mein Trade → Positionsabstimmung · DEGIRO CSV + Bestätigungsmails` öffnen. Das Panel liest beim Öffnen die bereits gespeicherten Quellen und prüft den E-Mail-Eingang im geöffneten, sichtbaren Panel etwa alle 60 Sekunden. Nach neuem CSV-Import wird die lokale Auswertung sofort aktualisiert. Bei geschlossenem Browser empfängt der vorhandene Server nur bei korrekt eingerichteter Weiterleitung weiter E-Mails; ohne neue Portfolio-CSV kennt Bob keinen neuen Depotgesamtbestand.
+Unter `Mein Trade → Positionsabstimmung · DEGIRO CSV + Bestätigungsmails` öffnen. **Keine neue Import- oder Mailweiterleitungsfunktion erforderlich:** Der vorhandene Portfolio-CSV-Import, AgentMail und die bereits manuell geprüften Mein-Trade-Screenshots sind die drei primären Quellen. Ein separat importierter Transaktions-CSV-Export kann die Zuordnung weiter absichern, ist aber nicht zwingend. Das Panel liest beim Öffnen die bereits gespeicherten Quellen und prüft den E-Mail-Eingang im geöffneten, sichtbaren Panel etwa alle 60 Sekunden. Nach neuem CSV-Import wird die lokale Auswertung sofort aktualisiert. Bei geschlossenem Browser empfängt der vorhandene Server nur bei korrekt eingerichteter Weiterleitung weiter E-Mails; ohne neue Portfolio-CSV kennt Bob keinen neuen Depotgesamtbestand.
 
 ## Matching und Sperren
+
+- Ohne zusätzliche Transaktions-CSV kann Bob weiterhin anhand von geprüftem Kauf-/Verkauf-Screenshot und E-Mail die identische Ausführung als `screenshot-mail-corroborated` kennzeichnen. Der CSV-Portfoliobestand wird separat daneben dargestellt, **nicht** als live bewiesen. Eine neue Transaktions-CSV ist optional, nicht Voraussetzung für die Oberfläche.
 
 - Geprüfte Kauf-Screenshots werden nur bei eindeutiger Übereinstimmung von ISIN, BUY, Menge, Währung, Originaldatum, Preis und sekundengenauer Uhrzeit mit Mail bzw. Transaktions-CSV als **zusätzlicher Quellenabgleich** gezählt. Minutenpräzision ist ein unsicherer Hinweis. Keine Zählung der Screenshot-Stückzahl als zusätzliches Depotvolumen, keine angebliche Doppelorder.
 
