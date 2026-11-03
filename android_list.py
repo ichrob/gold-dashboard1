@@ -157,7 +157,10 @@ def status(conn):
     return [{'batchId':r[0],'uploadedAt':r[1].isoformat(),'imageCount':r[2],'import':r[3],'processingAttempts':r[4],'processingAt':r[5].isoformat() if r[5] else None} for r in rows]
 
 def handle(conn,payload,now):
-    conn.execute("DELETE FROM bob_android_list_images WHERE created_at<now()-interval '24 hours'")
+    # Original screenshots with verified parsed fields may carry unique venue
+    # evidence. Never delete them just because another API request arrived.
+    # The background retention worker removes only expired, truly obsolete
+    # unparsed copies under the separate device/day/replacement safety gate.
     if payload['action']=='list-receipt':
         value=receipt(payload.get('value'),now)
         row=conn.execute('''UPDATE bob_android_list_images i SET import_receipt=CASE WHEN i.import_receipt->>'stage' IN ('synced','superseded') THEN i.import_receipt ELSE %s::jsonb END
