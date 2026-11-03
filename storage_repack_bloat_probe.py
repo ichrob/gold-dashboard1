@@ -13,7 +13,8 @@ _TARGET = "public.bob_improvement_observations"
 # Only these exact tables may be probed. No caller-provided SQL identifiers.
 _TARGETS = {"improvement": _TARGET, "metric": "public.bob_metric_checks",
             "diagnostic": "public.bob_diagnostic_history",
-            "repairs": "public.bob_test_repairs"}
+            "repairs": "public.bob_test_repairs",
+            "outcomes": "public.bob_decision_outcomes"}
 
 
 def selected_target():
