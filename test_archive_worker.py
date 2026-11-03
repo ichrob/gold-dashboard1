@@ -67,6 +67,19 @@ class WorkerTests(unittest.TestCase):
                 if 'INSERT' in sql or 'UPDATE' in sql:
                     self.assertEqual(args[-1], 'repair-a')
 
+    def test_encryption_required_when_private_ciphertext_mode_is_enabled(self):
+        valid={'restoreVerified':True,'remoteDownloadVerified':True,
+               'deletionPermitted':False,'receiptFileId':'verified-test'}
+        with self.env(), patch.dict(os.environ,
+             {'BOB_ARCHIVE_ENCRYPT_BEFORE_UPLOAD':'1'}):
+            self.assertEqual(worker.cycle(DB(),lambda:valid)['status'],'failed')
+            self.assertEqual(worker.cycle(DB(),lambda:{**valid,
+                'encryptionVerified':True,
+                'encryptionVersion':'none'})['status'],'failed')
+            self.assertEqual(worker.cycle(DB(),lambda:{**valid,
+                'encryptionVerified':True,
+                'encryptionVersion':'aes-256-gcm-stream-v1'})['status'],'verified')
+
     def test_only_remote_restore_receipt_can_succeed(self):
         with self.env():
             for receipt, expected in [({'restoreVerified':True},'failed'),
