@@ -106,6 +106,28 @@ Referenz-Piloten nur weil eine Brückensitzung oder ein lokales Skript gestartet
 wurde. Kein SSH-Server, kein unbeaufsichtigtes Termux-Programm, keine
 Veränderung an DEGIRO, Marktanalysen oder Echtgeldorders.
 
+## Termux öffnet sich nicht automatisch auf Android 10+
+
+Das lokale Backup in Bob Handy überträgt zunächst einen festen
+`RUN_COMMAND`-Auftrag an Termux. Android kann dessen Terminal-Sitzung erstellen,
+ohne die Termux-Oberfläche sofort in den Vordergrund zu holen. Deshalb
+versucht Bob Handy nun **nach der bewusst bestätigten lokalen
+Backup-Aktion** zusätzlich, ausschließlich die installierte
+`com.termux`-App über den offiziellen Launcher zu öffnen.
+
+Das Öffnen der App beweist noch **keine** erfolgreiche Ausführung und keine
+gesicherte Root. Es werden keine Geheimnisse als Intent-Extras übergeben.
+Diese Aktivierung geschieht **nie** durch ChatGPT-Fernaktionen und verändert
+den isolierten Hintergrund-Verbindungstest nicht.
+
+Falls Android/Samsung den automatischen Vordergrundwechsel weiterhin
+blockiert, muss Termux am Gerät manuell geöffnet und die neueste Sitzung
+gewählt werden. Die offizielle Termux-Dokumentation beschreibt dafür auf
+Android 10+ optional die Android-Sonderberechtigung „Über anderen Apps
+einblenden“ für Termux. Diese Berechtigung ist weitreichend und soll nur
+auf dem vertrauenswürdigen eigenen Gerät bewusst freigegeben werden.
+Die App erzwingt sie nicht und schaltet sie nicht selbst ein.
+
 ## Sicherheitsgrenzen
 
 - `RUN_COMMAND` ist ein weitreichendes Android-Recht. Bob Handy nutzt es
