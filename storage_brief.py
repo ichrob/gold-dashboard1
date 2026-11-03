@@ -161,6 +161,25 @@ def project(storage):
     result["diagnosticEqualityReadOnly"] = True
     result["diagnosticEqualityDiskBytesFreed"] = None
 
+    byte_sample = layout.get("diagnosticPayloadByteSample")
+    byte_sample = byte_sample if isinstance(byte_sample, dict) else {}
+    byte_fields = ("sampledInputRows", "distinctPayloads",
+                   "originalPayloadJsonBytes", "sharedPayloadJsonBytes",
+                   "payloadOnlyLogicalDifferenceBytes")
+    valid_bytes = byte_sample.get("status") == "sampled"
+    numbers = [byte_sample.get(key) for key in byte_fields]
+    valid_bytes = valid_bytes and all(type(v) is int and 0 <= v <= 10**9
+                                      for v in numbers)
+    if valid_bytes:
+        valid_bytes = (numbers[0] <= 256 and numbers[1] <= numbers[0]
+                       and numbers[3] <= numbers[2]
+                       and numbers[4] == numbers[2]-numbers[3])
+    result["diagnosticByteSample"] = (
+        dict(zip(byte_fields, numbers), status="sampled",
+             physicalBytesFreed=None, readOnly=True)
+        if valid_bytes else {"status": "not-observed",
+                             "physicalBytesFreed": None, "readOnly": True})
+
     provider = storage.get("renderVolume")
     provider = provider if isinstance(provider, dict) else {}
     kind = _choice(provider.get("status"), _VOLUME_STATES)
