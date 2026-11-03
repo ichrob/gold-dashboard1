@@ -61,7 +61,7 @@ def tool_definitions(diagnostics=False, products=True, remote_push=False, remote
             "description": "Read operational diagnostics: cached market inputs and timestamps, background workers, paper simulation heartbeat, push monitor counts, research and problem index. Missing or stale observations are not healthy. No orders, mutations, raw logs or credentials.",
             "inputSchema": {"type":"object", "properties":{
                 "focus":{"type":"string","enum":["overview","simulation","trades","signals",
-                                                "sources","research","repairs","mobile","products"],
+                                                "sources","research","repairs","mobile","products","storage"],
                          "description":"Optional fixed read-only diagnostic section. Omit for overview."}},
                 "additionalProperties":False},
             "annotations": {"readOnlyHint":True, "destructiveHint":False, "idempotentHint":True, "openWorldHint":False},
