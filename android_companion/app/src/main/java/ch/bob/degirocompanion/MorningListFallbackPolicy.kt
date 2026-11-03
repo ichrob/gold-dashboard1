@@ -4,6 +4,11 @@ package ch.bob.degirocompanion
  * daily batch when new image recognition is memory-deferred. The pending
  * evidence stays pending; this policy does not approve trading or orders. */
 internal object MorningListFallbackPolicy {
+    /** Only original memory-related OCR receipts may reuse a prior day batch.
+     * Other failed parses, identity errors and protected screens remain blocked. */
+    fun memoryDeferred(stage: String?, error: String?): Boolean =
+        stage == "waiting-memory" || (stage == "read-failed" && error == "MemoryError")
+
     fun allowed(attempt: Int, pendingBatch: String, earlierBatch: String,
                 plan: List<SelectiveDetailPlan.Entry>?, resumedSavedCapture: Boolean = false): Boolean {
         val exactBatch = Regex("[a-f0-9]{32}")
