@@ -108,7 +108,13 @@ assert.equal(result.items[0].partialMatches,1);
 result=p.compare(null,parsed,{configured:true,items:[buy,sell]});
 assert.equal(result.items[0].state,'csv-missing');
 result=p.compare(csv,null,{configured:true,items:[buy]});
-assert.equal(result.items[0].state,'transactions-missing');
+assert.equal(result.items[0].state,'transactions-optional');
+const withoutTransaction=p.compare(csv,null,{configured:true,items:[buy]},Date.now(),screenshots);
+assert.equal(withoutTransaction.items[0].state,'screenshot-mail-corroborated');
+assert.equal(withoutTransaction.items[0].screenshotMailMatched,1);
+assert.equal(withoutTransaction.items[0].csvQuantity,2);
+assert.equal(withoutTransaction.brokerCurrent,false);
+
 const newer={...buy,result:{...buy.result,executedLocal:undefined,
  executedAt:'2026-11-03T02:00:00Z'}};
 result=p.compare(csv,parsed,{configured:true,items:[newer]});
