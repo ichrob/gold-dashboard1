@@ -139,6 +139,28 @@ function screenshotPurchases(storage){
  }
  return results;
 }
+// Previously user-confirmed SALE screenshots are stored in Bob's existing
+// real-trade journal. Extract only the explicitly confirmed receipt.
+function confirmedSaleScreenshots(trades){
+ if(!Array.isArray(trades))return [];
+ const result=[],seen=new Set();
+ for(const row of trades.slice(0,150)){
+  const r=row?.snapshot?.exitReceipt,p=row?.snapshot?.product;
+  if(row?.snapshot?.closureSource!=='confirmed-screenshot'||r?.side!=='SELL')continue;
+  const isin=text(r?.isin,12).toUpperCase(),quantity=r?.quantity,price=r?.price;
+  const transactionId=text(r?.transactionId,80);
+  if(!validIsin(isin)||p?.isin!==isin||!['EUR','CHF'].includes(r?.productCurrency)||
+    !Number.isSafeInteger(quantity)||quantity<=0||!Number.isFinite(price)||price<=0||
+    !/^[0-9a-f]{64}$/.test(text(r?.imageSha256,64))||!transactionId||seen.has(transactionId))continue;
+  const execution=receiptLocal({executedLocal:r.executedLocal});
+  if(!execution)continue;
+  seen.add(transactionId);
+  result.push({isin,side:'SELL',quantity,price,currency:r.productCurrency,
+   date:execution.day,time:execution.time,hasSeconds:execution.time.length===8,
+   source:'user-confirmed-sale-screenshot'});
+ }
+ return result;
+}
 function compare(csv,transactions,emailReport,now=Date.now(),screenshots=[]){
  const snapshot=csv?.kind==='portfolio'&&Array.isArray(csv.records)&&
   Number.isFinite(Date.parse(csv.importedAt))?csv:null;
@@ -149,7 +171,7 @@ function compare(csv,transactions,emailReport,now=Date.now(),screenshots=[]){
   if(!rows.has(isin))rows.set(isin,{isin,csvQuantity:null,tradeRows:0,
    matched:0,partialMatches:0,unmatched:0,ambiguous:0,duplicateMails:0,
    emailBuys:0,emailSells:0,emailNet:0,csvAfterEmailUnknown:true,
-   screenshotBuys:0,screenshotMailMatched:0,screenshotCsvMatched:0,
+   screenshotBuys:0,screenshotSells:0,screenshotMailMatched:0,screenshotCsvMatched:0,
    screenshotUnmatched:0,screenshotTimeUncertain:0});
   return rows.get(isin);
  };
@@ -206,12 +228,12 @@ function compare(csv,transactions,emailReport,now=Date.now(),screenshots=[]){
  // Screenshots corroborate original purchase evidence, but never add
  // quantities to holdings, manufacture a sale or replace actual broker fills.
  for(const shot of (Array.isArray(screenshots)?screenshots.slice(0,100):[])){
-  if(shot?.side!=='BUY'||!validIsin(shot.isin)||
+  if(!['BUY','SELL'].includes(shot?.side)||!validIsin(shot.isin)||
     !Number.isSafeInteger(shot.quantity)||shot.quantity<=0||
     !Number.isFinite(shot.price)||shot.price<=0||!day(shot.date)||!clock(shot.time))continue;
   const out=ensure(shot.isin);
-  out.screenshotBuys++;
-  const same=x=>x.isin===shot.isin&&x.side==='BUY'&&x.quantity===shot.quantity&&
+  if(shot.side==='BUY')out.screenshotBuys++;else out.screenshotSells++;
+  const same=x=>x.isin===shot.isin&&x.side===shot.side&&x.quantity===shot.quantity&&
    x.currency===shot.currency&&Math.abs(x.price-shot.price)<=0.0001&&x.date===shot.date;
   const matchesCsv=journalRows.filter(same);
   const matchesMail=allMail.filter(same);
@@ -256,7 +278,7 @@ function mount(){
  const refresh=doc.createElement('button');refresh.type='button';refresh.textContent='CSV und E-Mail jetzt abgleichen';
  const status=doc.createElement('p');status.className='small';status.setAttribute('role','status');
  const list=doc.createElement('div');wrapper.append(title,explain,refresh,status,list);host.after(wrapper);
- let inbox=null,busy=false,lastRead=0;
+ let inbox=null,saleScreenshots=[],busy=false,lastRead=0;
  const row=(parent,value,strong=false)=>{
   const el=doc.createElement(strong?'strong':'p');el.className=strong?'':'small';
   el.textContent=value;parent.append(el);
@@ -267,7 +289,7 @@ function mount(){
       transactions=loadTransactions(root.localStorage);}catch(_){}
   let screenshots=[];
   try{screenshots=screenshotPurchases(root.localStorage);}catch(_){}
-  const report=compare(csv,transactions,inbox,Date.now(),screenshots);
+  const report=compare(csv,transactions,inbox,Date.now(),screenshots.concat(saleScreenshots));
   list.replaceChildren();
   row(list,report.snapshotAt?'Portfolio-CSV importiert: '+new Date(report.snapshotAt).toLocaleString('de-CH'):
    'Portfolio-CSV fehlt. Unter Mehr → DEGIRO den Portfolioexport einlesen.');
@@ -283,7 +305,7 @@ function mount(){
     ' · Transaktions-CSV: '+r.tradeRows+' Zeilen');
    row(card,'E-Mail-Ausführungen (begrenzter Ausschnitt): Kauf '+r.emailBuys+
     ', Verkauf '+r.emailSells+' · Differenz '+r.emailNet+' Stück');
-   row(card,'Geprüfte Kauf-Screenshots: '+r.screenshotBuys+
+   row(card,'Geprüfte Screenshots: Kauf '+r.screenshotBuys+', Verkauf '+r.screenshotSells+
     ' · passt zu Mail: '+r.screenshotMailMatched+
     ' · passt zu Transaktions-CSV: '+r.screenshotCsvMatched+
     ' · unklarer Zeitbezug: '+r.screenshotTimeUncertain+
@@ -315,6 +337,18 @@ function mount(){
    const data=await res.json();
    if(!Array.isArray(data?.items))throw Error('Mailbericht unvollständig');
    inbox={configured:data.configured===true,items:data.items.slice(0,MAX_EMAILS)};
+   // Optional read of previously confirmed sale screenshots. A failure here
+   // cannot block the email/CSV reconciliation; previous observations are
+   // discarded instead of claiming they are current.
+   saleScreenshots=[];
+   try{
+    const receiptResponse=await fetch('/api/real-trades/read',{method:'POST',credentials:'same-origin',
+     cache:'no-store',headers:{'Content-Type':'application/json'},body:'{}'});
+    if(receiptResponse.ok){
+     const receiptData=await receiptResponse.json();
+     saleScreenshots=confirmedSaleScreenshots(receiptData?.trades);
+    }
+   }catch(_){}
    lastRead=Date.now();status.textContent='Abgleich geprüft '+new Date(lastRead).toLocaleTimeString('de-CH')+
     ' · CSV und E-Mails bleiben Belege, keine Live-Depotabfrage.';
   }catch(_){inbox=null;status.textContent='E-Mail-Eingang derzeit nicht erreichbar. CSV bleibt erhalten; keine Bestandsbestätigung.';}
@@ -329,7 +363,7 @@ function mount(){
  paint();
 }
 const api={STORE,normalTransactions,saveTransactions,loadTransactions,clearTransactions,
- screenshotPurchases,receiptLocal,stableMail,compare,mount};
+ screenshotPurchases,confirmedSaleScreenshots,receiptLocal,stableMail,compare,mount};
 root.BobDegiroPositionReconcile=api;
 if(typeof module==='object'&&module.exports)module.exports=api;
 if(!root.document)return;
