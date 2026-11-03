@@ -157,6 +157,20 @@ class StorageBriefTests(unittest.TestCase):
         self.assertIsNone(result["diagnosticEqualityDiskBytesFreed"])
         self.assertIsNone(result["physicalBytesFreed"])
 
+    def test_diagnostic_byte_aggregate_no_physical_claim(self):
+        source = self.source()
+        source["layout"] = {"diagnosticPayloadByteSample": {
+            "status": "sampled", "sampledInputRows": 10,
+            "distinctPayloads": 3, "originalPayloadJsonBytes": 900,
+            "sharedPayloadJsonBytes": 300,
+            "payloadOnlyLogicalDifferenceBytes": 600}}
+        result = storage_brief.project(source)["diagnosticByteSample"]
+        self.assertEqual(result["payloadOnlyLogicalDifferenceBytes"], 600)
+        self.assertIsNone(result["physicalBytesFreed"])
+        source["layout"]["diagnosticPayloadByteSample"]["sharedPayloadJsonBytes"] = 999
+        self.assertEqual(storage_brief.project(source)["diagnosticByteSample"]["status"],
+                         "not-observed")
+
     def test_oversized_storage_omission_still_keeps_small_brief(self):
         source = self.source()
         report = bob_diagnostics.collect({"storage": lambda: source})
