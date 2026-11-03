@@ -22,6 +22,8 @@
         <service android:name=".PhoneDiagnosticJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <activity android:name=".LocalPinActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".ProductReadActivity" android:exported="false" />
+        <!-- Offline-only test laboratory; never exports an order screen to other apps. -->
+        <activity android:name=".SyntheticOrderSideActivity" android:exported="false" />
         <activity android:name=".MorningReadTransfer" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
