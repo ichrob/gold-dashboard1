@@ -330,6 +330,11 @@ def collect(readers):
         except Exception:
             # Exception messages can contain URLs, credentials or database values.
             areas[name] = {'status':'unavailable'}
+    # Keep a tiny storage status even when the full storage area is later
+    # omitted by the private MCP response-size budget. No extra I/O.
+    # Status is always sourced from this same already collected snapshot.
+    from storage_brief import project as storage_brief
+    areas['storageBrief'] = storage_brief(areas.get('storage'))
     # The web process may not run the evaluator itself. Prefer real observations
     # from the push worker when its local capture is unavailable; never recompute.
     worker_analysis = (areas.get('simulationAndPush') or {}).get('analysis')
@@ -1295,8 +1300,10 @@ def broker_sync_snapshot(value):
 # Stable, permission-preserving views of the *existing sanitized* report.
 # They do not add database queries, OAuth grants, device access, or evaluations.
 DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
-                    'sources', 'research', 'repairs', 'mobile', 'products')
+                    'sources', 'research', 'repairs', 'mobile', 'products',
+                    'storage')
 _FOCUS_AREAS = {
+    'storage': ('storageBrief',),
     'simulation': ('simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
                    'comparisonHealth', 'entryBlockEvidence', 'background', 'collection',
                    'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
@@ -1459,6 +1466,9 @@ def focused_report(report, focus='overview'):
     original = report.get('areas') or {}
     areas = {name: original[name] for name in _FOCUS_AREAS[focus]
              if name in original}
+    if focus == 'storage' and 'storageBrief' not in areas:
+        from storage_brief import project
+        areas['storageBrief'] = project(original.get('storage'))
     if focus in ('trades', 'signals', 'repairs'):
         sim = original.get('simulationAndPush')
         if isinstance(sim, dict):
