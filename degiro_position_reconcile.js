@@ -1,0 +1,273 @@
+/* DEGIRO evidence comparison: local CSV snapshot + local transaction CSV + staged email.
+   Never log raw emails, upload CSV, change real trades, submit orders, or claim live holdings. */
+(function(root){
+'use strict';
+const STORE='bob.degiro.transactions.csv.v1', MAX_ROWS=5000, MAX_EMAILS=30;
+const validIsin=x=>typeof x==='string'&&
+  (root.BobDegiroPortfolio?.validIsin?.(x)===true ||
+   (typeof require==='function'&&require('./degiro_portfolio_store.js').validIsin(x)===true));
+const text=(x,n=120)=>String(x??'').trim().slice(0,n);
+const amount=v=>{
+ if(typeof v==='number')return Number.isFinite(v)?v:null;
+ let s=text(v,64).replace(/[\u00a0\s’']/g,'').replace(/(?:EUR|CHF|€)/gi,'');
+ if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');
+ const n=Number(s);return s&&Number.isFinite(n)?n:null;
+};
+const side=v=>/^(Kauf|Buy)$/i.test(text(v))?'BUY':/^(Verkauf|Sell)$/i.test(text(v))?'SELL':null;
+const day=v=>{
+ const s=text(v,32);
+ let m=s.match(/^(\d{4})[-/](\d{2})[-/](\d{2})$/);
+ if(m)return +m[2]>=1&&+m[2]<=12&&+m[3]>=1&&+m[3]<=31?s.slice(0,10).replace(/\//g,'-'):null;
+ m=s.match(/^(\d{2})[.\-/](\d{2})[.\-/](\d{4})$/);
+ if(m)return +m[2]>=1&&+m[2]<=12&&+m[1]>=1&&+m[1]<=31?m[3]+'-'+m[2]+'-'+m[1]:null;
+ return null;
+};
+const clock=v=>{
+ const m=text(v,20).match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+ if(!m||+m[1]>23||+m[2]>59||+(m[3]||0)>59)return null;
+ return m[1].padStart(2,'0')+':'+m[2]+(m[3]?':'+m[3]:'');
+};
+const isoMs=v=>typeof v==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(v)?
+ Date.parse(v):NaN;
+function receiptLocal(r){
+ if(typeof r?.executedLocal==='string'){
+  const m=r.executedLocal.match(/^(\d{2})[.\-/](\d{2})[.\-/](\d{4})[ ,]+(\d{2}):(\d{2}):(\d{2})$/);
+  if(m&&day(m[1]+'.'+m[2]+'.'+m[3])&&clock(m[4]+':'+m[5]+':'+m[6]))
+   return {day:m[3]+'-'+m[2]+'-'+m[1],time:m[4]+':'+m[5]+':'+m[6],clockKind:'source-local'};
+ }
+ const ms=isoMs(r?.executedAt);
+ if(!Number.isFinite(ms))return null;
+ const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',
+  year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',
+  second:'2-digit',hourCycle:'h23'}).formatToParts(new Date(ms));
+ const p=k=>parts.find(x=>x.type===k)?.value;
+ const result={day:p('year')+'-'+p('month')+'-'+p('day'),
+  time:p('hour')+':'+p('minute')+':'+p('second'),clockKind:'explicit-zone'};
+ return day(result.day)&&clock(result.time)?result:null;
+}
+function normalTransactions(data,importedAt){
+ if(data?.kind!=='transactions'||!Array.isArray(data.records)||!data.records.length||
+   data.records.length>MAX_ROWS||!Number.isFinite(Date.parse(importedAt)))
+  throw Error('Vollständigen DEGIRO-Transaktions-CSV-Export mit gültigem Importzeitpunkt wählen.');
+ let incomplete=0;
+ const rows=[];
+ for(const original of data.records){
+  const isin=text(original?.isin,12).toUpperCase(),
+   qty=amount(original?.quantity),price=amount(original?.price),
+   direction=side(original?.side),date=day(original?.date),time=clock(original?.time),
+   currency=text(original?.currency,3).toUpperCase();
+  if(!validIsin(isin)||!Number.isSafeInteger(qty)||qty<=0||
+     !direction||!date||!['EUR','CHF'].includes(currency)||!price||price<=0){
+   incomplete++;continue;
+  }
+  rows.push({isin,side:direction,quantity:qty,price,currency,date,time});
+ }
+ if(!rows.length)throw Error('Keine eindeutig lesbare Transaktion mit ISIN, Kauf/Verkauf, Anzahl, Kurs und Datum.');
+ return {version:1,kind:'transactions',importedAt:new Date(importedAt).toISOString(),
+  rows,incomplete:incomplete+(data.invalidRows?.length||0),
+  csvOnly:true,accountSynced:false};
+}
+function saveTransactions(storage,data,now=new Date().toISOString()){
+ if(!storage?.setItem||!storage?.getItem)throw Error('Lokaler Speicher fehlt.');
+ const clean=normalTransactions(data,now);
+ storage.setItem(STORE,JSON.stringify(clean));
+ const verified=loadTransactions(storage);
+ if(!verified||verified.importedAt!==clean.importedAt||verified.rows.length!==clean.rows.length)
+  throw Error('Transaktions-CSV konnte nicht überprüft gespeichert werden.');
+ notify();return verified;
+}
+function loadTransactions(storage){
+ try{
+  const raw=storage?.getItem?.(STORE);
+  if(!raw||raw.length>1600000)return null;
+  const x=JSON.parse(raw);
+  if(x?.version!==1||x.kind!=='transactions'||x.csvOnly!==true||
+    x.accountSynced!==false||!Number.isFinite(Date.parse(x.importedAt))||
+    !Array.isArray(x.rows)||x.rows.length>MAX_ROWS)return null;
+  // Revalidate storage on every read instead of trusting modified localStorage.
+  return normalTransactions({kind:'transactions',records:x.rows.map(r=>({
+   ...r,side:r.side==='BUY'?'Buy':r.side==='SELL'?'Sell':'',
+   date:r.date,time:r.time})),invalidRows:[]},x.importedAt);
+ }catch(_){return null;}
+}
+function clearTransactions(storage){
+ storage?.removeItem?.(STORE);notify();
+}
+function notify(){
+ if(root.document&&typeof root.Event==='function')
+  root.document.dispatchEvent(new root.Event('bob-degiro-csv-changed'));
+}
+function stableMail(item){
+ const r=item?.result||{},isin=text(r.isin,12).toUpperCase(),
+  quantity=r.quantity,price=r.priceEur,kind=r.side,source=receiptLocal(r),
+  digest=text(r.orderIdDigest,64);
+ if(r.status!=='pending-review'||!validIsin(isin)||!['BUY','SELL'].includes(kind)||
+   !Number.isSafeInteger(quantity)||quantity<=0||
+   typeof price!=='number'||!Number.isFinite(price)||price<=0||!source)return null;
+ return {isin,side:kind,quantity,price,date:source.day,time:source.time,
+  digest:/^[a-f0-9]{64}$/.test(digest)?digest:null,
+  orderTimeSource:source.clockKind,executedAt:Number.isFinite(isoMs(r.executedAt))?isoMs(r.executedAt):null};
+}
+function compare(csv,transactions,emailReport,now=Date.now()){
+ const snapshot=csv?.kind==='portfolio'&&Array.isArray(csv.records)&&
+  Number.isFinite(Date.parse(csv.importedAt))?csv:null;
+ const journal=transactions?.kind==='transactions'&&Array.isArray(transactions.rows)?transactions:null;
+ const inbox=Array.isArray(emailReport?.items)?emailReport.items.slice(0,MAX_EMAILS):[];
+ const rows=new Map(),allMail=[];
+ const ensure=isin=>{
+  if(!rows.has(isin))rows.set(isin,{isin,csvQuantity:null,tradeRows:0,
+   matched:0,partialMatches:0,unmatched:0,ambiguous:0,duplicateMails:0,
+   emailBuys:0,emailSells:0,emailNet:0,csvAfterEmailUnknown:true});
+  return rows.get(isin);
+ };
+ if(snapshot)for(const r of snapshot.records){
+  const isin=text(r?.isin,12).toUpperCase();
+  if(!validIsin(isin)||!Number.isFinite(Number(r.quantity)))continue;
+  ensure(isin).csvQuantity=Number(r.quantity);
+ }
+ const journalRows=[];
+ if(journal)for(const r of journal.rows){
+  const isin=text(r?.isin,12).toUpperCase();if(!validIsin(isin))continue;
+  const out=ensure(isin);out.tradeRows++;
+  journalRows.push({...r,_used:false});
+ }
+ let invalidMail=0,anonymous=0;
+ const groups=new Map();
+ for(const item of inbox){
+  const r=stableMail(item);
+  if(!r){if(item?.result?.status==='pending-review')invalidMail++;continue;}
+  const out=ensure(r.isin);
+  if(!r.digest){out.ambiguous++;anonymous++;continue;}
+  if(!groups.has(r.digest))groups.set(r.digest,[]);
+  groups.get(r.digest).push(r);
+ }
+ for(const [digest,occurrences] of groups){
+  const first=occurrences[0],row=ensure(first.isin);
+  const identical=occurrences.every(x=>JSON.stringify([x.isin,x.side,x.quantity,x.price,x.date,x.time])===
+   JSON.stringify([first.isin,first.side,first.quantity,first.price,first.date,first.time]));
+  if(!identical){
+   for(const x of occurrences)ensure(x.isin).ambiguous++;
+   continue; // Same order ID with potentially distinct partial fills: no invented net inventory.
+  }
+  row.duplicateMails+=occurrences.length-1;
+  if(first.side==='BUY')row.emailBuys+=first.quantity;
+  else row.emailSells+=first.quantity;
+  allMail.push(first);
+ }
+ for(const mail of allMail){
+  const out=ensure(mail.isin);
+  const candidates=journalRows.filter(x=>!x._used&&x.isin===mail.isin&&
+   x.side===mail.side&&x.quantity===mail.quantity&&x.currency==='EUR'&&
+   Math.abs(x.price-mail.price)<=0.0001&&x.date===mail.date);
+  // Missing or truncated time gives evidence similarity, not an exact execution pair.
+  const exact=candidates.filter(x=>x.time?.length===8&&x.time===mail.time);
+  if(exact.length===1){
+   exact[0]._used=true;out.matched++;
+  }else if(exact.length>1){out.ambiguous++;}
+  else if(candidates.length===1){out.partialMatches++;}
+  else if(candidates.length>1){out.ambiguous++;}
+  else out.unmatched++;
+  if(snapshot&&mail.executedAt!==null&&mail.executedAt>Date.parse(snapshot.importedAt))
+   out.csvAfterEmailUnknown=false;
+ }
+ for(const out of rows.values()){
+  out.emailNet=out.emailBuys-out.emailSells;
+  out.state=out.ambiguous?'needs-review':
+   !snapshot?'csv-missing':
+   !journal?'transactions-missing':
+   out.matched?'partial-verified':
+   (out.unmatched||out.partialMatches)?'unreconciled':
+   'csv-only';
+ }
+ return {status:emailReport?.configured===true?'observed':'email-not-configured',
+  snapshotAt:snapshot?.importedAt||null,
+  transactionImportAt:journal?.importedAt||null,
+  mailWindowLimited:true,sourceComplete:false,brokerCurrent:false,activeTradesModified:false,
+  invalidMail,anonymous,items:[...rows.values()].sort((a,b)=>a.isin.localeCompare(b.isin)),
+  note:'E-Mail-Ausschnitt (max. 30), CSV-Importzeit ist nicht der DEGIRO-Exportzeitpunkt. Keine vollständige Transaktionshistorie und kein Live-Depotnachweis.'};
+}
+function mount(){
+ if(!root.document||root.document.getElementById('bobPositionReconcile'))return;
+ const doc=root.document,host=doc.getElementById('bobTradeUpload')||
+  doc.getElementById('bobExitEstimate')||doc.getElementById('bob-view-trade');
+ if(!host?.parentNode)return;
+ const wrapper=doc.createElement('details');wrapper.id='bobPositionReconcile';
+ wrapper.style.cssText='margin:12px 0;padding:13px;border:1px solid #cbd5e1;border-radius:13px;background:#fff';
+ const title=doc.createElement('summary');title.textContent='Positionsabstimmung · DEGIRO CSV + Bestätigungsmails';
+ const explain=doc.createElement('p');explain.className='small';
+ explain.textContent='Automatischer Abgleich, sobald beide Quellen vorliegen. Portfolio-CSV und Transaktions-CSV bleiben auf diesem Gerät. E-Mail-Ergebnisse werden nur aus Bobs geschütztem Eingang gelesen. Kein Echtgeldhandel und keine automatischen Änderungen an Mein Trade.';
+ const refresh=doc.createElement('button');refresh.type='button';refresh.textContent='CSV und E-Mail jetzt abgleichen';
+ const status=doc.createElement('p');status.className='small';status.setAttribute('role','status');
+ const list=doc.createElement('div');wrapper.append(title,explain,refresh,status,list);host.after(wrapper);
+ let inbox=null,busy=false,lastRead=0;
+ const row=(parent,value,strong=false)=>{
+  const el=doc.createElement(strong?'strong':'p');el.className=strong?'':'small';
+  el.textContent=value;parent.append(el);
+ };
+ function paint(){
+  let csv=null,transactions=null;
+  try{csv=root.BobDegiroPortfolio?.load(root.localStorage)||null;
+      transactions=loadTransactions(root.localStorage);}catch(_){}
+  const report=compare(csv,transactions,inbox);
+  list.replaceChildren();
+  row(list,report.snapshotAt?'Portfolio-CSV importiert: '+new Date(report.snapshotAt).toLocaleString('de-CH'):
+   'Portfolio-CSV fehlt. Unter Mehr → DEGIRO den Portfolioexport einlesen.');
+  row(list,report.transactionImportAt?'Transaktions-CSV importiert: '+new Date(report.transactionImportAt).toLocaleString('de-CH'):
+   'Transaktions-CSV fehlt. Unter Mehr → DEGIRO den Transaktionsexport einlesen.');
+  row(list,inbox?.configured?'E-Mail-Weiterleitung als konfiguriert gemeldet; Belege bleiben ungeprüfte Beobachtungen.':
+   'E-Mail-Eingang nicht konfiguriert oder noch nicht abgefragt.');
+  row(list,report.note);
+  for(const r of report.items.slice(0,35)){
+   const card=doc.createElement('div');card.style.cssText='margin:9px 0;padding:10px;border:1px solid #e2e8f0;border-radius:10px';
+   row(card,r.isin,true);
+   row(card,'CSV-Bestand: '+(r.csvQuantity===null?'nicht vorhanden':r.csvQuantity+' Stück')+
+    ' · Transaktions-CSV: '+r.tradeRows+' Zeilen');
+   row(card,'E-Mail-Ausführungen (begrenzter Ausschnitt): Kauf '+r.emailBuys+
+    ', Verkauf '+r.emailSells+' · Differenz '+r.emailNet+' Stück');
+   row(card,'Eindeutige Zeilenpaare CSV ↔ Mail: '+r.matched+
+    ' · nur ähnlich: '+r.partialMatches+
+    ' · nicht zugeordnet: '+r.unmatched+
+    ' · mehrdeutig: '+r.ambiguous+
+    (r.duplicateMails?' · doppelte Mails ignoriert: '+r.duplicateMails:''));
+   if(!r.csvAfterEmailUnknown)row(card,'Mindestens eine Mailausführung ist neuer als der CSV-Import: neuen Portfolioexport prüfen.');
+   else row(card,r.matched?
+    'Übereinstimmende Ausführungsdaten. Bestand trotzdem nicht als live bestätigt.':
+    'Noch kein ausreichender Ausführungsabgleich. Keine Positionsänderung.');
+   list.append(card);
+  }
+  if(report.items.length>35)row(list,'Weitere Positionen nicht angezeigt; vollständigen CSV-Ausschnitt prüfen.');
+  if(!report.items.length)row(list,'Noch kein abgleichbarer Depotbestand oder Mailbeleg.');
+  if(report.invalidMail||report.anonymous)row(list,
+   report.invalidMail+' unvollständige Ausführungsmails und '+report.anonymous+
+   ' Mails ohne eindeutige Orderkennung bleiben in manueller Prüfung.');
+ }
+ async function load(){
+  if(busy||doc.hidden||!wrapper.open)return;
+  busy=true;refresh.disabled=true;status.textContent='Aktuelle gespeicherte Mailbelege werden gelesen …';
+  try{
+   const res=await fetch('/api/trade-email/read',{method:'POST',credentials:'same-origin',
+    cache:'no-store',headers:{'Content-Type':'application/json'},body:'{}'});
+   if(!res.ok)throw Error('Mailbericht nicht erreichbar ('+res.status+')');
+   const data=await res.json();
+   if(!Array.isArray(data?.items))throw Error('Mailbericht unvollständig');
+   inbox={configured:data.configured===true,items:data.items.slice(0,MAX_EMAILS)};
+   lastRead=Date.now();status.textContent='Abgleich geprüft '+new Date(lastRead).toLocaleTimeString('de-CH')+
+    ' · CSV und E-Mails bleiben Belege, keine Live-Depotabfrage.';
+  }catch(_){inbox=null;status.textContent='E-Mail-Eingang derzeit nicht erreichbar. CSV bleibt erhalten; keine Bestandsbestätigung.';}
+  finally{busy=false;refresh.disabled=false;paint();}
+ }
+ refresh.addEventListener('click',load);
+ wrapper.addEventListener('toggle',()=>{if(wrapper.open){paint();load();}});
+ doc.addEventListener('bob-degiro-csv-changed',()=>{if(wrapper.open)paint();});
+ root.addEventListener?.('storage',e=>{if(e.key===STORE||e.key===root.BobDegiroPortfolio?.KEY)if(wrapper.open)paint();});
+ root.setInterval?.(()=>{if(wrapper.open&&!doc.hidden&&Date.now()-lastRead>=60000)load();},60000);
+ paint();
+}
+const api={STORE,normalTransactions,saveTransactions,loadTransactions,clearTransactions,
+ receiptLocal,stableMail,compare,mount};
+root.BobDegiroPositionReconcile=api;
+if(typeof module==='object'&&module.exports)module.exports=api;
+if(!root.document)return;
+if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',mount);
+else mount();
+})(typeof window!=='undefined'?window:globalThis);
