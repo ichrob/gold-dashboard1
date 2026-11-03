@@ -23,10 +23,24 @@ class ListTests(unittest.TestCase):
         self.assertFalse(images.reusable_daily_items(complete[:9]+[
             {'isin':ids[9]}]))
 
+    def test_only_memory_related_ocr_failures_allow_previous_daily_details(self):
+        self.assertTrue(images.deferred_ocr_memory_receipt(
+            {'stage':'waiting-memory','count':0}))
+        self.assertTrue(images.deferred_ocr_memory_receipt(
+            {'stage':'read-failed','error':'MemoryError','count':0}))
+        for receipt in (None, {}, {'stage':'reading'},
+                {'stage':'synced','count':10},
+                {'stage':'read-failed','error':'ListVerificationError'},
+                {'stage':'read-failed','error':'InterruptedWorker'},
+                {'stage':'read-failed','error':'OcrChildError'},
+                {'stage':'read-failed','error':'MemoryErrorX'}):
+            self.assertFalse(images.deferred_ocr_memory_receipt(receipt))
+
     def test_pending_ocr_is_not_relabelled_as_imported(self):
         import inspect
         code=inspect.getsource(images.handle)
-        self.assertIn("row[0].get('stage')=='waiting-memory'",code)
+        self.assertIn('deferred_ocr_memory_receipt(row[0])',code)
+        self.assertIn('now-row[2].timestamp() <= 3*3600',code)
         self.assertIn("'existingListBatchId':reuse_batch",code)
         self.assertIn("'import':row[0]",code)
         self.assertIn("AT TIME ZONE 'Europe/Zurich'",code)
