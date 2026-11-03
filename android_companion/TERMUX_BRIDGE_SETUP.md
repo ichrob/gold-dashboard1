@@ -64,25 +64,42 @@ Passwortübertragungen werden nicht eingerichtet.
   Gerätekonten oder Secrets können übergeben werden. Ein angenommenes Intent
   ist wiederum **keine** bestätigte Ausführung.
 
-## Tatsächliche Offline-Schlüsselsicherung
+## Tatsächliche Offline-Schlüsselsicherung ohne Kopierbefehle
 
-Nur die lokale Schaltfläche **Archivschlüssel offline sichern – nur lokal**
-öffnet nach einer zweiten expliziten Bestätigung das geprüfte Python-Skript
-im Vordergrund von Termux. Der Originalschlüssel und das **separate**
-Backup-Passwort werden dort verdeckt eingegeben. Kein geheimer Parameter
-gelangt über Bob Handy, ChatGPT, GitHub oder HTTP.
+Die von CI geprüften Python-Skripte `bob_offline_key_escrow.py` und
+`bob_render_to_offline_escrow.py` sind als unveränderliche Assets in der
+offiziell signierten Bob-Handy-APK enthalten. Der Android-Build verweigert
+die Freigabe, falls sie von den geprüften GitHub-Originalen abweichen.
 
-Du musst den exakt ursprünglichen Schlüssel aus dem **autorisierten privaten
-Render-Geheimnisspeicher** auf einem sicheren lokalen Weg haben. Wenn dessen
-Wert nicht mehr lesbar ist, **nicht rotieren, ersetzen oder raten**. Der
-Sicherungsdialog hilft in diesem Fall nicht weiter.
+Nur die **lokale** Schaltfläche **Archivschlüssel offline sichern – nur lokal**
+öffnet nach einer zweiten Bestätigung Termux im Vordergrund. Ein fester
+Python-Bootstrap überträgt die zwei *nicht geheimen*, komprimierten
+APK-Assets und kontrolliert ihre SHA-256-Prüfsummen. Bereits vorhandene,
+abweichende lokale Skripte werden aus Sicherheitsgründen **nicht**
+überschrieben. Das Programm startet dann direkt die sichere Render-Variante.
 
-Der verschlüsselte Beleg wird lokal als
-`~/bob-sicher/bob-archive-root.vault` erstellt. Das ist noch **keine
-USB-Sicherung**. Du musst die Datei über eine vertrauenswürdige Dateiverwaltung
-auf den eigenen USB-Stick kopieren, eine zweite Kopie extern aufbewahren und
-die Wiederherstellung auf einem unabhängigen Gerät tatsächlich testen.
-Passwort getrennt aufbewahren.
+Dort werden ausschließlich lokal, verdeckt und ausdrücklich vom Gerätebesitzer
+eingegeben:
+
+1. Ein kurzfristig berechtigter Render-API-Schlüssel, um direkt den **alten
+   Originalwert** von `PUSH_SERVICE_TOKEN` auf `bob-push-service` per HTTPS
+   abzurufen. Die verbundene ChatGPT-Render-App kann den geheimen Wert
+   selbst nicht auslesen. Ein uneingeschränkter API-Schlüssel ist risikoreich;
+   ihn nach dem Vorgang sofort widerrufen.
+2. Ein **separates, langes Offline-Backup-Passwort**, zweimal zur Bestätigung.
+
+Kein geheimer Parameter und keine Eingabe gelangt über Bob Handy, ChatGPT,
+GitHub oder die Fernsteuerung. Es wird ausschließlich eine lokale AES-GCM-Datei
+`~/bob-sicher/bob-archive-root.vault` mit restriktiven Rechten erzeugt und
+**nur lokal** wieder geöffnet und auf Gleichheit mit dem ursprünglichen
+Schlüssel geprüft. Das ist noch **keine unabhängige USB-Sicherung**.
+
+Anschließend muss der Gerätebesitzer diese verschlüsselte Datei über ein
+vertrauenswürdiges Android-Dateiprogramm auf einen USB-Stick kopieren. Eine
+erneute Prüfung *von der USB-Kopie* gegen das passende verschlüsselte
+Google-Drive-Archiv und dessen Quittungsbeleg bleibt erforderlich, bevor
+`recoveryKeyVerified` als wahr gelten darf. Dafür gibt es keine heimliche
+Fernbedienung oder automatische Löschfreigabe.
 
 Bob setzt **keinesfalls** `recoveryKeyVerified=true` und startet keinen
 Referenz-Piloten nur weil eine Brückensitzung oder ein lokales Skript gestartet
@@ -92,8 +109,9 @@ Veränderung an DEGIRO, Marktanalysen oder Echtgeldorders.
 ## Sicherheitsgrenzen
 
 - `RUN_COMMAND` ist ein weitreichendes Android-Recht. Bob Handy nutzt es
-  ausschließlich mit dem **fest programmierten Python-Pfad** und den beiden
-  festgelegten Befehlsvarianten. Das Dateiziel ist ebenfalls fest.
+  ausschließlich mit dem **fest programmierten Python-Pfad** und dem
+  festgelegten Verbindungstest bzw. dem lokal freigegebenen, aus signierten
+  APK-Assets geprüften Offline-Start. Es gibt keine freien Befehlsparameter.
 - Remote ist ausschließlich `termux_check` möglich; `LOCAL_ESCROW` ist
   nur über den bewusst bestätigten lokalen App-Dialog erreichbar.
 - Beim Hilfetest kann ausschließlich ein fester Exitcode über den
