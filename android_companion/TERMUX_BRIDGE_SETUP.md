@@ -43,13 +43,20 @@ Passwortübertragungen werden nicht eingerichtet.
 
 ## Abnahme in Bob Handy
 
-- Auf `Termux-Verbindung prüfen` tippen. Bob öffnet nur
-  `python ~/bob-sicher/bob_offline_key_escrow.py --help`.
-- Falls diese Berechtigung oder Termux fehlt, meldet Bob einen festen
-  Fehlercode, niemals Dateiinhalte oder einen Schlüssel.
-- Bei `TERMUX_REQUESTED` hat Android lediglich den Startauftrag angenommen;
-  das ist ausdrücklich **kein** Beweis, dass das Python-Skript erfolgreich lief.
-  Das echte Ergebnis muss auf dem Termux-Bildschirm geprüft werden.
+- Auf `Termux-Verbindung prüfen` tippen. Bob startet ausschließlich
+  `python ~/bob-sicher/bob_offline_key_escrow.py --help` im Termux-Hintergrund.
+  Der sehr kurze Hilfebefehl erzeugt normalerweise keine dauerhaft sichtbare
+  Termux-Sitzung.
+- Die offizielle Termux-Rückgabe wird durch einen einmaligen, nicht exportierten
+  Android-Empfänger ausgewertet. Bob Handy liest **nur** die beiden festen
+  Statuszahlen (Termux-internes Ergebnis und Exitcode). Es liest weder stdout
+  noch stderr, Umgebungsvariablen, Token, Dateiinhalte oder Termux-Sitzungen.
+- Erst `TERMUX_CHECK_EXECUTED` mit Termux-Status OK und Exitcode 0 gilt als
+  Ausführungsbeleg des festen Python-Hilfetests. `TERMUX_REQUESTED` bedeutet
+  weiterhin nur, dass Android den Startauftrag angenommen hat.
+- Bei Fehler, ausbleibender Quittung, fehlender Android-Freigabe oder Termux
+  wird ein fester Fehler- oder Unbestätigt-Status angezeigt. Der Test darf
+  jederzeit erneut lokal angestoßen werden.
 - Wenn der private Bob-Handy-Lesedienst verbunden ist und du selbst eine
   **15-Minuten-Handysitzung** gestartet hast, darf ChatGPT über den bestehenden
   kontrollierten Phone-Befehl `termux_check` einmalig denselben fest eingebauten
@@ -89,8 +96,11 @@ Veränderung an DEGIRO, Marktanalysen oder Echtgeldorders.
   festgelegten Befehlsvarianten. Das Dateiziel ist ebenfalls fest.
 - Remote ist ausschließlich `termux_check` möglich; `LOCAL_ESCROW` ist
   nur über den bewusst bestätigten lokalen App-Dialog erreichbar.
-- Es werden weder Termux-Umgebungsvariablen noch Eingabe-, stdout- oder
-  stderr-Inhalte an ChatGPT/Bob übertragen.
+- Beim Hilfetest kann ausschließlich ein fester Exitcode über den
+  nicht exportierten Android-Empfänger an Bob Handy zurückgegeben werden.
+  Bei der geheimen Offline-Sicherung ist überhaupt kein Ergebnisempfänger
+  registriert. Es werden weder Termux-Umgebungsvariablen noch Eingabe-,
+  stdout- oder stderr-Inhalte an ChatGPT/Bob übertragen.
 - Das Stoppen/Sperren der Handysitzung bleibt erhalten. Alte OAuth-Tokens
   erhalten keine neuen Remote-Steuerrechte.
 - Ein fehlender physischer Gerätetest wird niemals als erfolgreiche Kopplung
