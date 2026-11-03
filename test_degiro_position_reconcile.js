@@ -74,6 +74,27 @@ result=p.compare(csv,parsed,{configured:true,items:[buy,conflicting,sell]});
 assert.equal(result.items[0].ambiguous,2);
 assert.equal(result.items[0].matched,1);
 assert.equal(result.items[0].emailNet,-2);
+const sampleSale=[{id:'trade-1',snapshot:{closureSource:'confirmed-screenshot',
+ product:{isin:valid,currency:'EUR'},
+ exitReceipt:{side:'SELL',isin:valid,productCurrency:'EUR',
+ quantity:2,price:13,executedLocal:'02.11.2026 14:07:08',
+ imageSha256:'f'.repeat(64),transactionId:'DEGIRO-sale-1'}}}];
+const sales=p.confirmedSaleScreenshots(sampleSale);
+assert.equal(sales.length,1);
+assert.equal(sales[0].side,'SELL');
+const allEvidence=p.compare(csv,parsed,{configured:true,items:[buy,sell]},
+ Date.now(),screenshots.concat(sales));
+assert.equal(allEvidence.items[0].screenshotBuys,1);
+assert.equal(allEvidence.items[0].screenshotSells,1);
+assert.equal(allEvidence.items[0].screenshotCsvMatched,2);
+assert.equal(allEvidence.items[0].screenshotMailMatched,2);
+assert.equal(allEvidence.items[0].emailNet,2);
+assert.equal(p.confirmedSaleScreenshots(sampleSale.concat(sampleSale)).length,1);
+assert.equal(p.confirmedSaleScreenshots([{snapshot:{...sampleSale[0].snapshot,
+ closureSource:'pending-review'}}]).length,0);
+assert.equal(p.confirmedSaleScreenshots([{snapshot:{...sampleSale[0].snapshot,
+ exitReceipt:{...sampleSale[0].snapshot.exitReceipt,imageSha256:'invalid'}}}]).length,0);
+
 const noId=mail('BUY',4,12.5,'14:05:06',null);
 result=p.compare(csv,parsed,{configured:true,items:[noId]});
 assert.equal(result.items[0].ambiguous,1);
