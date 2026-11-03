@@ -10,11 +10,16 @@ Bob soll tatsächlich bestätigte DEGIRO-Käufe und -Verkäufe erkennen und mit 
 2. **Transaktions-CSV:** Neuer separater lokaler Speicher `bob.degiro.transactions.csv.v1`; pro Zeile ausschließlich ISIN, BUY/SELL, Stückzahl, Produktwährung, Ausführungspreis, Handelstag und gegebenenfalls Original-Uhrzeit. Neuer Import **ersetzt** die vorherige Transaktions-CSV, verändert aber niemals Portfolio-CSV, Mein Trade oder Orders. Ohne Kurs, ISIN, Menge, Richtung, Datum oder Währung bleibt die Zeile unvollständig.
 3. **DEGIRO-Bestätigungsmail:** Bisheriger geschützter Bob-AgentMail-Eingang mit optionalem PDF-Parser und signiertem Webhook. Original-Mails/PDFs werden nicht in den neuen CSV-Speicher kopiert; `/api/trade-email/read` liefert nur vorgeprüfte, reduzierte Belege, maximal die letzten 30. Die Weiterleitung aus dem eigenen Postfach muss vom Kontoinhaber eingerichtet werden; nur konfigurierte Absender werden angenommen.
 
+
+4. **„Mein Trade“-Screenshot:** Der Nutzer kann im vorhandenen Screenshot-Import eine Kaufbestätigung prüfen und speichern. Die schon existierende lokale `bobTradeEvidenceV1`-Struktur enthält ISIN, Produktwährung und geprüfte Einstiegsmengen/-preise und Originalzeit. Die neue Reconciliation liest diese Werte lediglich als **dritten Belegweg**, erzeugt keine neuen Screenshots und übernimmt nicht ungeprüft die Order. Ein Verkaufs-Screenshot wird wie bisher getrennt über die Verkaufsprüfung verarbeitet und ist derzeit noch nicht Teil des Drei-Quellen-Zeilenmatchings.
+
 ## Wann wird abgeglichen?
 
 Unter `Mein Trade → Positionsabstimmung · DEGIRO CSV + Bestätigungsmails` öffnen. Das Panel liest beim Öffnen die bereits gespeicherten Quellen und prüft den E-Mail-Eingang im geöffneten, sichtbaren Panel etwa alle 60 Sekunden. Nach neuem CSV-Import wird die lokale Auswertung sofort aktualisiert. Bei geschlossenem Browser empfängt der vorhandene Server nur bei korrekt eingerichteter Weiterleitung weiter E-Mails; ohne neue Portfolio-CSV kennt Bob keinen neuen Depotgesamtbestand.
 
 ## Matching und Sperren
+
+- Geprüfte Kauf-Screenshots werden nur bei eindeutiger Übereinstimmung von ISIN, BUY, Menge, Währung, Originaldatum, Preis und sekundengenauer Uhrzeit mit Mail bzw. Transaktions-CSV als **zusätzlicher Quellenabgleich** gezählt. Minutenpräzision ist ein unsicherer Hinweis. Keine Zählung der Screenshot-Stückzahl als zusätzliches Depotvolumen, keine angebliche Doppelorder.
 
 - Gleiche gültige ISIN, eindeutiges BUY/SELL, positive ganze Stückzahl, tatsächlich beschrifteter EUR-Preis, Kalenderdatum, Sekundenuhrzeit, nur eine eindeutige CSV-Zeile je Beleg und `orderIdDigest` aus dem bestätigten Dokument.
 - Doppelte identische Mails zu derselben Orderkennung zählen genau einmal.
