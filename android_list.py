@@ -212,7 +212,7 @@ def handle(conn,payload,now):
         # (at most fourteen hours old), for read-only detail refreshing.
         # The new images and their truthful waiting-memory receipt are kept.
         if (row and deferred_ocr_memory_receipt(row[0])
-                and row[2] is not None and 10 <= now-row[2].timestamp() <= 900):
+                and row[2] is not None and 10 <= now-row[2].timestamp() <= 3*3600):
             previous=conn.execute("""
                 SELECT batch_id, parsed_items FROM bob_android_list_images
                 WHERE token_hash=%s AND batch_id<>%s
