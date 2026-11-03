@@ -44,6 +44,58 @@ class DriveSafety(unittest.TestCase):
                     self.assertFalse(json.loads(drive.files['1'])['deletionPermitted'])
                 self.assertEqual(check.call_count,2)
 
+    def test_encrypted_remote_upload_is_ciphertext_and_replays_after_decrypt(self):
+        drive=FakeDrive()
+        original=b"PRIVATE-DIAGNOSIS-RECORD-DO-NOT-UPLOAD"
+        def export(dsn,path,**kwargs):
+            Path(path).write_bytes(original)
+            return {'sha256':runner.archive.digest(path),'databaseBytes':600_000_000}
+        def verify(path,checksum,dsn,**kwargs):
+            self.assertEqual(Path(path).read_bytes(),original)
+            self.assertEqual(runner.archive.digest(path),checksum)
+            return {'restoreVerified':True,'deletionPermitted':False,
+                    'archiveSha256':checksum,'version':'bob-evidence-archive-v3',
+                    'scope':'reviewed-evidence-tables-not-full-database-backup'}
+        with tempfile.TemporaryDirectory() as d, \
+             patch.dict('os.environ',{'BOB_ARCHIVE_ENCRYPT_BEFORE_UPLOAD':'1',
+                       'PUSH_SERVICE_TOKEN':'secure-test-only-'+'v'*48}), \
+             patch.object(runner,'verify_restore_isolation',
+                          return_value='separate-database-instance'), \
+             patch.object(runner.archive,'export',side_effect=export), \
+             patch.object(runner.archive,'restore_check',side_effect=verify) as check:
+            receipt=runner.run('source','restore',d,drive)
+        self.assertEqual(check.call_count,2)
+        self.assertTrue(receipt['encryptionVerified'])
+        self.assertEqual(receipt['encryptionVersion'],'aes-256-gcm-stream-v1')
+        self.assertTrue(receipt['remoteDownloadVerified'])
+        self.assertNotIn(original,drive.files['0'])
+        self.assertTrue(drive.files['0'].startswith(b'BOBAES01'))
+        self.assertTrue(drive.files['1'].startswith(b'{'))
+        persisted=json.loads(drive.files['1'])
+        self.assertTrue(persisted['encryptionVerified'])
+
+    def test_encrypted_corrupted_remote_file_never_creates_restore_receipt(self):
+        drive=FakeDrive(corrupt=True)
+        payload=b"original"
+        def export(dsn,path,**kw):
+            Path(path).write_bytes(payload)
+            return {'sha256':runner.archive.digest(path),'databaseBytes':123}
+        def verify(path,checksum,dsn,**kw):
+            if runner.archive.digest(path)!=checksum:
+                raise ValueError('corrupt local evidence')
+            return {'restoreVerified':True,'deletionPermitted':False}
+        with tempfile.TemporaryDirectory() as d, \
+             patch.dict('os.environ',{'BOB_ARCHIVE_ENCRYPT_BEFORE_UPLOAD':'1',
+                       'PUSH_SERVICE_TOKEN':'secure-test-only-'+'v'*48}), \
+             patch.object(runner,'verify_restore_isolation',
+                          return_value='separate-database-instance'), \
+             patch.object(runner.archive,'export',side_effect=export), \
+             patch.object(runner.archive,'restore_check',side_effect=verify) as check:
+            with self.assertRaises(ValueError):
+                runner.run('source','restore',d,drive)
+        self.assertEqual(check.call_count,1)
+        self.assertEqual(len(drive.files),1)
+
     def test_restore_isolation_rejects_same_host_without_connection(self):
         import psycopg
         with patch.object(psycopg,'connect') as connect:
