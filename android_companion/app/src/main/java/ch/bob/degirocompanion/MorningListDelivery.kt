@@ -88,7 +88,7 @@ internal object MorningListDelivery {
                         val earlier=response?.optString("existingListBatchId").orEmpty()
                         val ids=response?.optJSONArray("existingDetailIsins")
                         val values=if(ids==null) null else (0 until ids.length()).map { ids.optString(it) }
-                        val plan=values?.let { SelectiveDetailPlan.parse(response.optJSONArray("existingDetailPlan"),it) }
+                        val plan=values?.let { SelectiveDetailPlan.parse(response?.optJSONArray("existingDetailPlan"),it) }
                         if(MorningListFallbackPolicy.allowed(attempt,batch,earlier,plan,
                                 resumedSavedCapture=resumeSavedCapture)) {
                             // The currently captured images remain durable and
