@@ -75,6 +75,21 @@ def detail_plan(items, products, now):
             break
     return result
 
+def reusable_daily_items(items):
+    """Validate a PREVIOUS synced ten-row list, never the new pending images."""
+    from product_quotes import valid_isin
+    if not isinstance(items,list) or len(items)!=10:
+        return False
+    ids=[]
+    for item in items:
+        if (not isinstance(item,dict) or not isinstance(item.get('isin'),str)
+                or not valid_isin(item['isin']) or
+                not isinstance(item.get('listRow'),dict)):
+            return False
+        ids.append(item['isin'])
+    return len(set(ids))==10
+
+
 def validate(value, now):
     if not isinstance(value,dict) or set(value)!={'batchId','sessionId','images'}:
         raise ValueError('Invalid list batch')
@@ -173,13 +188,44 @@ def handle(conn,payload,now):
     if payload['action']=='list-status':
         batch=payload.get('value',{}).get('batchId')
         if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')
-        row=conn.execute('SELECT import_receipt, parsed_items FROM bob_android_list_images WHERE batch_id=%s AND token_hash=%s',(batch,digest)).fetchone()
+        row=conn.execute('SELECT import_receipt, parsed_items, created_at FROM bob_android_list_images WHERE batch_id=%s AND token_hash=%s',(batch,digest)).fetchone()
         plan=[]
+        reuse_batch=None
+        reuse_plan=[]
         if row and row[0] and row[0].get('stage')=='synced':
             saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
             products=(saved[0] or {}).get('products',[]) if saved else []
             plan=detail_plan(row[1] or [],products,now)
-        return {'ok':True,'batchId':batch,'import':row[0] if row else None,'detailIsins':[x['isin'] for x in plan],'detailPlan':plan}
+        # A native OCR attempt may remain waiting-memory on the shared
+        # 512-MiB server. Never weaken its cgroup safety threshold or claim
+        # this new screenshot batch was parsed. Only offer a PREVIOUS,
+        # device-owned, already-synced list from the SAME Zurich calendar day
+        # (at most fourteen hours old), for read-only detail refreshing.
+        # The new images and their truthful waiting-memory receipt are kept.
+        if (row and isinstance(row[0],dict)
+                and row[0].get('stage')=='waiting-memory'
+                and row[2] is not None and 90 <= now-row[2].timestamp() <= 900):
+            previous=conn.execute("""
+                SELECT batch_id, parsed_items FROM bob_android_list_images
+                WHERE token_hash=%s AND batch_id<>%s
+                  AND import_receipt->>'stage'='synced'
+                  AND parsed_items IS NOT NULL
+                  AND jsonb_array_length(parsed_items)=10
+                  AND created_at>now()-interval '14 hours'
+                  AND (created_at AT TIME ZONE 'Europe/Zurich')::date =
+                      (now() AT TIME ZONE 'Europe/Zurich')::date
+                ORDER BY created_at DESC LIMIT 1""",(digest,batch)).fetchone()
+            if previous and reusable_daily_items(previous[1]):
+                saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
+                products=(saved[0] or {}).get('products',[]) if saved else []
+                reuse_plan=detail_plan(previous[1],products,now)
+                if reuse_plan:
+                    reuse_batch=previous[0]
+        return {'ok':True,'batchId':batch,'import':row[0] if row else None,
+                'detailIsins':[x['isin'] for x in plan],'detailPlan':plan,
+                'existingListBatchId':reuse_batch,
+                'existingDetailIsins':[x['isin'] for x in reuse_plan],
+                'existingDetailPlan':reuse_plan}
     value=validate(payload.get('value'),now)
     row=conn.execute('SELECT state FROM bob_android_remote WHERE token_hash=%s FOR UPDATE',(digest,)).fetchone()
     state=row[0] if row else {}
