@@ -84,8 +84,8 @@ class DirectEscrowTests(unittest.TestCase):
                 self_req = request
                 assert request.get_method() == "GET"
                 assert request.full_url == transfer.API_HOST + "/v1/services?limit=100"
-                assert self.API not in request.full_url
-                assert request.headers["Authorization"] == "Bearer "+self.API
+                assert DirectEscrowTests.API not in request.full_url
+                assert request.headers["Authorization"] == "Bearer "+DirectEscrowTests.API
                 return FakeResponse()
         value=transfer.read_json(self.API,"/v1/services?limit=100",opener=FakeOpener())
         self.assertEqual(value[0]["service"]["name"],"bob-push-service")
