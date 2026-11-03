@@ -174,3 +174,41 @@ am Gerät noch nicht unabhängig bestätigt.
 Die neue signierte APK darf ausschließlich die exakt bekannten früheren
 signierten Python-Programmdateien aktualisieren. Sie verändert keine
 vorhandene `.vault`-Datei und erweitert keine Fernsteuerrechte.
+
+## Weitere Diagnose 03.11.2026 – TypeError trotz UTF-8-Fix
+
+Auf Samsung v10496 trat `LOCAL_OR_SCHEMA_BLOCKED` mit `TypeError`
+erneut **nach** der Passwortbestätigung auf. Damit ist die ursprüngliche
+Nicht-ASCII-`compare_digest`-Vermutung allein nicht ausreichend;
+die genaue Fehlerstelle wurde nicht aus dem redigierten Screenshot
+ersichtlich. Keine echten Passwörter und Schlüssel wurden eingesehen.
+
+Neuer sicherer Diagnoseweg:
+
+- Bei jedem lokalen Backup-Start wird **vor jeglicher Eingabe** ein
+  flüchtiger AES-256-GCM/Scrypt-Schreib-/Lese-Test mit ausschließlich
+  synthetischen Daten durchgeführt. Die kurzlebige Testdatei liegt
+  isoliert im Termux-Temporärverzeichnis und wird automatisch entfernt.
+  Ein fehlgeschlagener Test beendet den Ablauf **vor** dem Render-API-
+  Schlüsselprompt. Es wird kein produktiver Root gelesen.
+- Der Verschlüsselungshelfer klassifiziert Fehler mit unveränderlichen
+  Phasencodes `LOCAL_KDF_FAILED`, `LOCAL_ENCRYPT_FAILED`,
+  `LOCAL_WRITE_FAILED`, `LOCAL_DECRYPT_FAILED`,
+  `LOCAL_ROUNDTRIP_FAILED`; gespeichert wird ausschließlich
+  die Fehlerklasse (z.B. `TypeError`), **niemals** die Ausnahme-
+  Nachricht, die Eingabe oder ein Stacktrace.
+- Die Ausgabe enthält den ungefährlichen, festen Versionsbeleg
+  `programRevision=termux-local-crypto-selftest-1`, sodass künftig
+  erkennbar ist, ob die neue Software auf Termux ausgeführt wurde.
+- Nur die unveränderten, exakt bekannten signierten Vorgängerdateien
+  dürfen durch die neue signierte Bob-Handy-App automatisch aktualisiert
+  werden. Bereits angelegte `.vault`-Dateien und abweichende
+  benutzerdefinierte Skripte bleiben unberührt.
+- Ein neuer API-Schlüssel oder ein anderes Backup-Passwort ist **keine
+  geeignete Maßnahme** gegen diesen lokalen `TypeError`. Es darf
+  keine blinde Wiederholung oder eine unverschlüsselte Sicherung geben.
+
+Erfolg wird weiterhin ausschließlich bei `escrow-ciphertext-created`
+und `localRoundtripVerified=true` akzeptiert. Ein bestandener
+synthetischer Test ist noch **keine** unabhängige USB-Sicherung und
+keine Freigabe zum Löschen von Originaldaten.
