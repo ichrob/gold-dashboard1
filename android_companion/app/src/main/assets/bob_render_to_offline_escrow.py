@@ -158,7 +158,9 @@ def run_once(*, input_secret=getpass.getpass, fetch=read_json, output=OUTPUT):
         api_token = None
     password = input_secret("New independent offline passphrase (hidden): ")
     repeat = input_secret("Repeat passphrase (hidden): ")
-    if not hmac.compare_digest(password, repeat):
+    # compare_digest(str, str) rejects all non-ASCII strings with TypeError.
+    # UTF-8 bytes preserve the exact passphrase later used by the scrypt KDF.
+    if not hmac.compare_digest(password.encode("utf-8"), repeat.encode("utf-8")):
         raise TransportBlocked("Passphrase confirmation mismatch")
     Path(output).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     result = create_escrow(root, password, output)
