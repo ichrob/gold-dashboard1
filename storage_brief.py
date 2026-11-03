@@ -118,6 +118,16 @@ def project(storage):
                                maximum=20),
         "eligibleRows": _number(preview.get("eligibleRows"), integer=True,
                                 maximum=20),
+        "distinctProductArrays": _number(
+            preview.get("distinctProductArrays"), integer=True, maximum=20),
+        "sharedArrayRows": _number(
+            preview.get("sharedArrayRows"), integer=True, maximum=20),
+        "originalJsonBytes": _number(
+            preview.get("originalJsonBytes"), integer=True, maximum=10**8),
+        "referenceJsonBytes": _number(
+            preview.get("referenceJsonBytes"), integer=True, maximum=10**8),
+        "sampleJsonByteDifference": _number(
+            preview.get("sampleJsonByteDifference"), integer=True, maximum=10**8),
         "manualRunAuthorized": False,
         "diskBytesFreed": None
     }
