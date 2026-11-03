@@ -55,8 +55,8 @@ def _clock(item):
 def project(storage):
     """Return only fixed safe fields; no raw receipt, IDs, prices or secrets."""
     missing = {"status": "not-observed", "readOnly": True,
-               "physicalBytesFreed": None, "sourceRowsDeleted": False,
-               "referenceMigrationApproved": False,
+               "physicalBytesFreed": None, "originalRowsChangedByThisView": False,
+               "decisionProductPilotAuthorized": False,
                "scope": "read-only-sampled-status-not-physical-reclaim-proof"}
     if not isinstance(storage, dict):
         return missing
