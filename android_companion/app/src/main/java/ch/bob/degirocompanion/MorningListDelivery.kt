@@ -41,10 +41,12 @@ internal object MorningListDelivery {
         // never authorize a phone action or quote read.
         val resumes=body.optInt("resumeCount")+1
         body.put("sessionId",PhoneRemote.sessionId()).put("resumeCount",resumes)
-        start(c,body,receiptOnly=mode==MorningListResumePolicy.Mode.CHECK_RECEIPT_ONLY)
+        start(c,body,receiptOnly=mode==MorningListResumePolicy.Mode.CHECK_RECEIPT_ONLY,
+            resumeSavedCapture=true)
         return true
     }
-    fun start(c:Context,body:JSONObject,receiptOnly:Boolean=false) {
+    fun start(c:Context,body:JSONObject,receiptOnly:Boolean=false,
+              resumeSavedCapture:Boolean=false) {
         save(c,body);cancel();waiting=true
         val id=++generation;val session=PhoneRemote.sessionId();val batch=body.getString("batchId")
         status(c,if(receiptOnly) "Gespeicherte Goldliste · nur Serverbestätigung prüfen."
@@ -79,13 +81,16 @@ internal object MorningListDelivery {
                             })
                             PhoneRemote.stop(c,"COMPLETE")
                         }
-                    } else if(receipt?.optString("stage")=="waiting-memory" && attempt>=18
-                        && PhoneRemote.active() && PhoneRemote.sessionId()==session) {
+                    } else if(MorningListFallbackPolicy.memoryDeferred(
+                            receipt?.optString("stage"),receipt?.optString("error")) &&
+                        (attempt>=18 || resumeSavedCapture) &&
+                        PhoneRemote.active() && PhoneRemote.sessionId()==session) {
                         val earlier=response?.optString("existingListBatchId").orEmpty()
                         val ids=response?.optJSONArray("existingDetailIsins")
                         val values=if(ids==null) null else (0 until ids.length()).map { ids.optString(it) }
-                        val plan=values?.let { SelectiveDetailPlan.parse(response.optJSONArray("existingDetailPlan"),it) }
-                        if(MorningListFallbackPolicy.allowed(attempt,batch,earlier,plan)) {
+                        val plan=values?.let { SelectiveDetailPlan.parse(response?.optJSONArray("existingDetailPlan"),it) }
+                        if(MorningListFallbackPolicy.allowed(attempt,batch,earlier,plan,
+                                resumedSavedCapture=resumeSavedCapture)) {
                             // The currently captured images remain durable and
                             // unconfirmed. ONLY the previous verified daily
                             // list supplies the ISINs, attached to its real
@@ -107,7 +112,8 @@ internal object MorningListDelivery {
                         waiting=false;status(c,"Aufnahme gespeichert. Serverbestätigung noch offen; Start setzt die Übertragung fort.")
                         PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
                     } else {
-                        status(c,if(response==null) "Verbindung unterbrochen · gespeicherte Bilder werden erneut übertragen." else if(receipt?.optString("stage")=="waiting-memory") "Texterfassung unvollständig · Bilderkennung wartet auf freien Serverspeicher." else "Liste bei Bob · Prüfung läuft; noch keine Abschlussbestätigung.")
+                        status(c,if(response==null) "Verbindung unterbrochen · gespeicherte Bilder werden erneut übertragen." else if(MorningListFallbackPolicy.memoryDeferred(
+                            receipt?.optString("stage"),receipt?.optString("error"))) "Texterfassung unvollständig · Bilderkennung wartet auf freien Serverspeicher." else "Liste bei Bob · Prüfung läuft; noch keine Abschlussbestätigung.")
                         handler.postDelayed({poll(attempt+1,uploaded||response!=null)},5000)
                     }
                 }

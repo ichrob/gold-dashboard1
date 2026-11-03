@@ -292,6 +292,11 @@ class ProductReadService : AccessibilityService() {
             readQueued = false
             keepScreenForRequest()
             if(GoldSearchRun.running && MorningListDelivery.resume(this)) {
+                // Resuming already uploaded evidence must be visible to the
+                // user and in the redacted diagnostic. No fresh list has
+                // been verified and no search may run before its receipt.
+                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_PENDING_UPLOAD_RESUMED)
+                Toast.makeText(this,"Bob prüft die gespeicherte Goldliste. Nach bestätigtem Tageslisten-Abgleich werden die fehlenden Produktdetails gelesen.",Toast.LENGTH_LONG).show()
                 GoldSearchRun.stop("LIST_IMAGES_DELIVERED",Instant.now().toString())
                 ProductReadRequest.cancel()
             } else {

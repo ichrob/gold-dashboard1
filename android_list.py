@@ -75,6 +75,14 @@ def detail_plan(items, products, now):
             break
     return result
 
+def deferred_ocr_memory_receipt(value):
+    """A memory-deferral receipt is NOT a verified ten-row list."""
+    return (isinstance(value,dict)
+            and (value.get('stage') == 'waiting-memory'
+                 or (value.get('stage') == 'read-failed'
+                     and value.get('error') == 'MemoryError')))
+
+
 def reusable_daily_items(items):
     """Validate a PREVIOUS synced ten-row list, never the new pending images."""
     from product_quotes import valid_isin
@@ -196,15 +204,15 @@ def handle(conn,payload,now):
             saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
             products=(saved[0] or {}).get('products',[]) if saved else []
             plan=detail_plan(row[1] or [],products,now)
-        # A native OCR attempt may remain waiting-memory on the shared
-        # 512-MiB server. Never weaken its cgroup safety threshold or claim
-        # this new screenshot batch was parsed. Only offer a PREVIOUS,
+        # A native OCR attempt may remain waiting-memory or fail exactly
+        # with MemoryError on the 512-MiB server. These states prove that
+        # this NEW batch was NOT verified. Never weaken the cgroup guard.
+        # Only offer a PREVIOUS,
         # device-owned, already-synced list from the SAME Zurich calendar day
         # (at most fourteen hours old), for read-only detail refreshing.
         # The new images and their truthful waiting-memory receipt are kept.
-        if (row and isinstance(row[0],dict)
-                and row[0].get('stage')=='waiting-memory'
-                and row[2] is not None and 90 <= now-row[2].timestamp() <= 900):
+        if (row and deferred_ocr_memory_receipt(row[0])
+                and row[2] is not None and 10 <= now-row[2].timestamp() <= 3*3600):
             previous=conn.execute("""
                 SELECT batch_id, parsed_items FROM bob_android_list_images
                 WHERE token_hash=%s AND batch_id<>%s
