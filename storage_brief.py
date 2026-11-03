@@ -115,6 +115,28 @@ def project(storage):
                        positive_only=True)
         if storage.get("relationGrowthStatus") == "observed" else [])
 
+    # Already measured by storage_layout.report. Distinguish indexes and
+    # TOAST from heap without new SQL or claiming reclaimable disk bytes.
+    layout = storage.get("layout")
+    layout = layout if type(layout) is dict and layout.get("status") == "observed" else {}
+    layout_rows = layout.get("tables")
+    breakdown = []
+    if type(layout_rows) is list:
+        for item in layout_rows[:12]:
+            if type(item) is not dict or item.get("table") not in _VISIBLE_RELATIONS:
+                continue
+            values = [item.get(k) for k in ("totalBytes", "heapBytes",
+                       "indexBytes", "toastBytes", "otherBytes")]
+            if (any(type(v) is not int or not 0 <= v <= 10**12 for v in values)
+                    or sum(values[1:]) != values[0]):
+                continue
+            breakdown.append({"table": item["table"], "totalBytes": values[0],
+                              "heapBytes": values[1], "indexBytes": values[2],
+                              "toastBytes": values[3], "otherBytes": values[4]})
+            if len(breakdown) == 3:
+                break
+    result["largestTableBreakdown"] = breakdown
+
     provider = storage.get("renderVolume")
     provider = provider if isinstance(provider, dict) else {}
     kind = _choice(provider.get("status"), _VOLUME_STATES)
