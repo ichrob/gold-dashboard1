@@ -40,6 +40,10 @@ def _stage(stage, fn):
         return fn()
     except EscrowLocalError:
         raise
+    except FileExistsError:
+        # Preserve the public no-overwrite contract for existing vault files.
+        # Never classify a pre-existing backup as a recoverable write fault.
+        raise
     except Exception as error:
         raise EscrowLocalError(stage, type(error).__name__) from None
 
