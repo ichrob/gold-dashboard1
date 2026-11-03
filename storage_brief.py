@@ -144,6 +144,20 @@ def project(storage):
     result["diagnosticEqualityStatus"] = _choice(
         sample.get("status"), frozenset(("sampled", "observed-empty")),
         "not-observed")
+    rows = sample.get("stages") if sample.get("status") == "sampled" else None
+    result["diagnosticEqualityStages"] = []
+    if isinstance(rows, list):
+        for row in rows[:2]:
+            if not isinstance(row, dict) or row.get("stage") not in ("input", "analysis"):
+                continue
+            total = _number(row.get("sampledRows"), integer=True, maximum=256)
+            equal = _number(row.get("repeatedStoredJsonbRows"), integer=True, maximum=256)
+            same = _number(row.get("sameTraceTimeAndJsonbExtraRows"), integer=True, maximum=256)
+            if total is None or equal is None or same is None or same > equal or equal >= total:
+                continue
+            result["diagnosticEqualityStages"].append({
+                "stage": row["stage"], "sampledRows": total,
+                "equalPayloadExtraRows": equal, "sameContextExtraRows": same})
     result["diagnosticEqualityReadOnly"] = True
     result["diagnosticEqualityDiskBytesFreed"] = None
 
