@@ -12,6 +12,8 @@ on:
       - "requirements-*.txt"
       - "android_companion/**"
       - "bob_mcp.py"
+      - "android_remote.py"
+      - "test_android_remote.py"
       - "bob_auth.py"
       - "bob_oauth*.py"
       - "server.py"
