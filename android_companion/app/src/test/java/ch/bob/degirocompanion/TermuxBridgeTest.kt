@@ -21,6 +21,19 @@ class TermuxBridgeTest {
         }
     }
 
+    @Test fun checkReceiptMustContainActualSuccessfulExitAndTermuxStatus() {
+        assertEquals("TERMUX_CHECK_EXECUTED",
+            TermuxBridge.classifyCheckResult(-1, 0))
+        assertEquals("TERMUX_CHECK_FAILED",
+            TermuxBridge.classifyCheckResult(-1, 2))
+        assertEquals("TERMUX_INTERNAL_ERROR",
+            TermuxBridge.classifyCheckResult(1, 0))
+        assertEquals("TERMUX_RESULT_INCOMPLETE",
+            TermuxBridge.classifyCheckResult(null, 0))
+        assertEquals("TERMUX_RESULT_INCOMPLETE",
+            TermuxBridge.classifyCheckResult(-1, null))
+    }
+
     @Test fun offlineBackupCannotPickRemoteTargetOrCustomCommand() {
         assertTrue(TermuxBridge.SCRIPT.startsWith(
             "/data/data/com.termux/files/home/bob-sicher/"))
