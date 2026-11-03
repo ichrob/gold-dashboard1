@@ -10,8 +10,8 @@ class MorningLocalOcrTest {
     private val secondRow="SG Gold Knock-Out Warrant Put BAR 4400 BP 4400 Bv 10 19/03/2027 | $second Societe Generale OTC CHF K V"
 
     @Test fun onlyProductRowsAreReturnedAndAccountTextStaysLocal() {
-        val frame="Märkte CHF 504,81\\nTop Ergebnisse\\n"+
-            firstRow+"\\n"+secondRow+"\\nPortfolio Kontostand CHF 500"
+        val frame=listOf("Märkte CHF 504,81", "Top Ergebnisse",
+            firstRow, secondRow, "Portfolio Kontostand CHF 500").joinToString(" ")
         val rows=MorningLocalOcr.productRows(frame,listOf(first,second))!!
         assertEquals(2,rows.size)
         assertEquals(true,rows[0].startsWith("SG Gold Turbo"))
@@ -23,7 +23,7 @@ class MorningLocalOcrTest {
     }
 
     @Test fun rejectMissingAmbiguousWrongOrAccountContaminatedRows() {
-        val page=firstRow+"\\n"+secondRow
+        val page=listOf(firstRow,secondRow).joinToString(" ")
         assertNull(MorningLocalOcr.productRows(page,listOf(second,first)))
         assertNull(MorningLocalOcr.productRows(page,listOf(first)))
         assertNull(MorningLocalOcr.productRows(page,listOf(first,first)))
