@@ -786,6 +786,13 @@ class ProductReadService : AccessibilityService() {
         if(!PhoneRemote.active())return observation("SESSION_EXPIRED")
         if(!getSharedPreferences("product_reader",MODE_PRIVATE).getBoolean("enabled",false))return observation("SERVICE_MISSING")
         if(!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive || (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked)return observation("SCREEN_LOCKED")
+        // One remotely requested, hard-coded, non-secret Termux help probe.
+        // The user must have started this time-limited handset session and
+        // granted Android permission. Never run an arbitrary shell command or
+        // remotely start an escrow prompt (local physical confirmation only).
+        if(command?.optString("action")=="termux_check") {
+            return observation(TermuxBridge.launch(this,TermuxBridge.Action.CHECK))
+        }
         val root=productRoot(true) ?: return observation("NO_ROOT")
         val nodes=mutableListOf<AccessibilityNodeInfo>()
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
