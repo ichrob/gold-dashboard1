@@ -9,6 +9,28 @@ def batch():
     def png(suffix):return base64.b64encode(b'\x89PNG\r\n\x1a\n'+b'\0\0\0\rIHDR'+struct.pack('>II',709,1200)+b'\x08\x02\0\0\0'+suffix).decode()
     return {'batchId':'a'*32,'sessionId':'b'*32,'images':[{'at':datetime.fromtimestamp(NOW-10+i,timezone.utc).isoformat(),'png':png(bytes([i])*8)} for i in range(2)]}
 class ListTests(unittest.TestCase):
+    def test_daily_list_reuse_requires_full_verified_evidence(self):
+        ids=['DE000SQ02JQ6','DE000FG8NHQ3','DE000FB0CVV9','DE000FG0SGZ2',
+             'DE000FG8K0P8','DE000FB0CVK2','DE000SX7PE82','DE000PJ8APE4',
+             'DE000FA94U71','DE000FG4JXV7']
+        complete=[{'isin':isin,'listRow':{}} for isin in ids]
+        self.assertTrue(images.reusable_daily_items(complete))
+        self.assertFalse(images.reusable_daily_items(complete[:9]))
+        self.assertFalse(images.reusable_daily_items(complete+[complete[0]]))
+        self.assertFalse(images.reusable_daily_items(complete[:9]+[complete[0]]))
+        self.assertFalse(images.reusable_daily_items(complete[:9]+[
+            {'isin':'not-an-isin','listRow':{}}]))
+        self.assertFalse(images.reusable_daily_items(complete[:9]+[
+            {'isin':ids[9]}]))
+
+    def test_pending_ocr_is_not_relabelled_as_imported(self):
+        import inspect
+        code=inspect.getsource(images.handle)
+        self.assertIn("row[0].get('stage')=='waiting-memory'",code)
+        self.assertIn("'existingListBatchId':reuse_batch",code)
+        self.assertIn("'import':row[0]",code)
+        self.assertIn("AT TIME ZONE 'Europe/Zurich'",code)
+
     def test_text_capture_is_bounded_and_immutable(self):
         x=batch();x['images'][0]['appText']={'before':['product row'],'after':['product row']}
         self.assertEqual(images.validate(x,NOW),x)
