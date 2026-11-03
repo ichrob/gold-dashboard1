@@ -44,7 +44,13 @@ def shadow(events):
         reconstructed.append(_canonical(envelope))
     if reconstructed != originals:
         raise ValueError("Round-trip mismatch")
+    original_bytes = sum(len(value) for value in originals)
+    reference_bytes = sum(len(blob) for blob in blobs.values()) + sum(
+        len(_canonical(record)) for record in records)
     return {"status": "verified-shadow", "readOnly": True,
+            "originalLogicalBytes": original_bytes,
+            "referenceLogicalBytes": reference_bytes,
+            "logicalByteDifference": original_bytes - reference_bytes,
             "originalEvents": len(events), "uniquePayloads": len(blobs),
             "reconstructionVerified": True, "originalRowsChanged": False,
             "physicalBytesFreed": None,
