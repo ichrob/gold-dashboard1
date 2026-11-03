@@ -68,6 +68,49 @@ class StreamingEncryptionTests(unittest.TestCase):
                     seal.seal(input,output,"0"*64)
             self.assertFalse(output.exists())
 
+    def test_escrow_root_recovers_prior_archive_after_active_token_rotation(self):
+        import hashlib
+        payload=os.urandom(1024 * 1024 + 37)
+        checksum=hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{
+                "PUSH_SERVICE_TOKEN":self.TOKEN,
+                "BOB_ARCHIVE_RECOVERY_ROOT_TOKEN":self.TOKEN}):
+            d=Path(folder);src=d/"source.zip";encrypted=d/"backup.aesgcm"
+            src.write_bytes(payload)
+            seal.seal(src,encrypted,checksum)
+            result=seal.verify_recovery(encrypted,checksum)
+            self.assertEqual(result["recoveryKeyVerified"],True)
+            self.assertEqual(result["encryptionVersion"],seal.FORMAT)
+            with patch.dict(os.environ,{"PUSH_SERVICE_TOKEN":"rotated-"+"z"*48}):
+                with self.assertRaises(ValueError):
+                    seal.unseal(encrypted,d/"active-failed.zip",checksum)
+                self.assertFalse((d/"active-failed.zip").exists())
+                recovered=d/"recovered.zip"
+                self.assertTrue(seal.unseal(encrypted,recovered,checksum,recovery=True)
+                                ["encryptionVerified"])
+                self.assertEqual(recovered.read_bytes(),payload)
+
+    def test_missing_wrong_or_modified_recovery_key_fails_closed(self):
+        import hashlib
+        payload=os.urandom(8073)
+        checksum=hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{
+                "PUSH_SERVICE_TOKEN":self.TOKEN,
+                "BOB_ARCHIVE_RECOVERY_ROOT_TOKEN":""}):
+            d=Path(folder);src=d/"source.zip";encrypted=d/"backup.aesgcm"
+            src.write_bytes(payload)
+            seal.seal(src,encrypted,checksum)
+            with self.assertRaises(ValueError):
+                seal.verify_recovery(encrypted,checksum)
+            with patch.dict(os.environ,{"BOB_ARCHIVE_RECOVERY_ROOT_TOKEN":"x"*48}):
+                with self.assertRaises(ValueError):
+                    seal.verify_recovery(encrypted,checksum)
+            broken=bytearray(encrypted.read_bytes());broken[len(seal.MAGIC)+23]^=1
+            encrypted.write_bytes(broken)
+            with patch.dict(os.environ,{"BOB_ARCHIVE_RECOVERY_ROOT_TOKEN":self.TOKEN}):
+                with self.assertRaises(ValueError):
+                    seal.verify_recovery(encrypted,checksum)
+
     def test_inplace_and_oversized_files_are_refused(self):
         import hashlib
         with tempfile.TemporaryDirectory() as folder, \
