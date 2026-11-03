@@ -1748,6 +1748,9 @@ if __name__ == "__main__":
     init_db()
     diagnostic_history.configure(db)
     __import__("archive_worker").start(db)
+    # Optional single short read of the archival attempt receipt (redacted).
+    # No external DB port or HTTP endpoint; opt-in diagnosis only.
+    __import__("archive_receipt_status_probe").start_if_enabled()
     # Optional bounded catch-up of the *existing* diagnostic retention, only
     # after a fresh separate-server Google Drive backup restore receipt.
     __import__("diagnostic_archived_catchup").start()

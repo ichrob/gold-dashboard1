@@ -24,6 +24,8 @@ on:
       - "evidence_archive.py"
       - "drive_evidence_archive.py"
       - "archive_worker.py"
+      - "archive_receipt_status_probe.py"
+      - "test_archive_receipt_status_probe.py"
       - "cold_analysis.py"
       - "cold_metrics.py"
       - "cold_observations.py"
