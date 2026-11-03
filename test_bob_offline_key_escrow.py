@@ -55,6 +55,18 @@ class EscrowTests(unittest.TestCase):
             self.assertNotIn(password,result.getvalue())
             self.assertNotIn(password,output.read_text())
 
+    def test_scrypt_typeerror_reports_fixed_safe_stage_only(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/"offline.vault"
+            with patch.object(escrow.hashlib,"scrypt",
+                              side_effect=TypeError("SENSITIVE-FAKE-VALUE")):
+                with self.assertRaises(escrow.EscrowLocalError) as ctx:
+                    escrow.create_escrow(self.ROOT.encode(),self.PASSWORD,target)
+            self.assertEqual(ctx.exception.stage,"LOCAL_KDF_FAILED")
+            self.assertEqual(ctx.exception.exception_type,"TypeError")
+            self.assertNotIn("SENSITIVE-FAKE",str(ctx.exception))
+            self.assertFalse(target.exists())
+
     def test_wrong_password_tampered_key_and_repeat_write_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp) / "v"
