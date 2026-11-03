@@ -47,8 +47,10 @@ dest.mkdir(mode=0o700,parents=True,exist_ok=True)
 # Only the already published signed v10480 source may be upgraded in place.
 # This is executable source code only, never a token, vault or user document.
 LEGACY_RENDER_BLOBS=('c506752139eb85487bab7ddd5dc8b0e1da46204c',
-                     'd8dede86c3563e28e891df0688e74c6eec8b8665')
-LEGACY_OFFLINE_BLOB='65eeeb4506174e3439097909f4bbb153cec8f483'
+                     'd8dede86c3563e28e891df0688e74c6eec8b8665',
+                     '6e11513401715804ab6612475f34ee192fd6a759')
+LEGACY_OFFLINE_BLOBS=('65eeeb4506174e3439097909f4bbb153cec8f483',
+                      '628971da179ecdf78f11ddd6fc5796af8da4b1b4')
 for i,name in enumerate(names):
     payload=gzip.decompress(base64.b64decode(sys.argv[1+2*i],validate=True))
     expected=sys.argv[2+2*i]
@@ -66,7 +68,7 @@ for i,name in enumerate(names):
             prior_is_signed=(name=='bob_render_to_offline_escrow.py' and
                              old_hash in LEGACY_RENDER_BLOBS) or (
                              name=='bob_offline_key_escrow.py' and
-                             old_hash==LEGACY_OFFLINE_BLOB)
+                             old_hash in LEGACY_OFFLINE_BLOBS)
             if not prior_is_signed:
                 raise ValueError('Existing local source differs; no overwrite')
             fd,tmp=tempfile.mkstemp(prefix='.escrow-code-',suffix='.tmp',dir=dest)
