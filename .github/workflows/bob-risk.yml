@@ -12,6 +12,9 @@ on:
       - 'push_server.py'
       # Archival changes can alter historical paper evidence: run risk regressions.
       - 'decision_product_pilot.py'
+      - 'decision_product_single_rollback.py'
+      - 'decision_product_rollback_cli.py'
+      - 'test_decision_product_single_rollback.py'
       - 'decision_product_pilot_cli.py'
       - 'cold_decision_product_writer.py'
       - 'cold_decision_products.py'

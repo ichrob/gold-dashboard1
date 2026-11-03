@@ -85,6 +85,12 @@ def _sanitized_archive_attempt(row):
                                   ('none','aes-256-gcm-stream-v1') else None),
             'restoreVerified': proof.get('restoreVerified') is True,
             'remoteDownloadVerified': proof.get('remoteDownloadVerified') is True,
+            'recoveryKeyVerified': proof.get('recoveryKeyVerified') is True,
+            'restoreIsolation': (proof.get('restoreIsolation') if
+                                 proof.get('restoreIsolation') ==
+                                 'separate-database-instance' else None),
+            'scope': (proof.get('scope') if proof.get('scope') ==
+                      'reviewed-evidence-tables-not-full-database-backup' else None),
             'deletionPermitted': proof.get('deletionPermitted'),
             'evidenceDeleted': stored.get('evidenceDeleted') is True}
 
