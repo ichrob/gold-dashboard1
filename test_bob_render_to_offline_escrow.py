@@ -43,6 +43,43 @@ class DirectEscrowTests(unittest.TestCase):
             with self.assertRaises(transfer.TransportBlocked):
                 transfer.run_once(input_secret=lambda _:self.API,fetch=self.api,output=output)
 
+    def test_synthetic_local_preflight_without_render_credentials(self):
+        self.assertTrue(transfer.synthetic_local_selftest())
+
+    def test_local_typeerror_stage_is_redacted_before_api_key_prompt(self):
+        import bob_offline_key_escrow as offline
+        import io
+        with tempfile.TemporaryDirectory() as directory:
+            target=Path(directory)/"bob-root.vault"
+            with patch.object(offline.hashlib,"scrypt",
+                              side_effect=TypeError("DO-NOT-EXPOSE-PRIVATE-VALUE")):
+                with self.assertRaises(offline.EscrowLocalError) as failure:
+                    transfer.run_once(
+                        input_secret=lambda _:self.fail("Cannot ask for API key"),
+                        fetch=lambda *_:self.fail("No Render request"),
+                        output=target)
+                self.assertEqual(failure.exception.stage,"LOCAL_KDF_FAILED")
+                self.assertEqual(failure.exception.exception_type,"TypeError")
+                self.assertNotIn("DO-NOT-EXPOSE",str(failure.exception))
+            self.assertFalse(target.exists())
+
+    def test_crypto_typeerror_is_only_stage_not_secret_value(self):
+        import bob_offline_key_escrow as offline
+        import sys
+        import io
+        import tempfile
+        output=io.StringIO()
+        with patch.object(sys,"argv",["bob_render_to_offline_escrow.py"]), \
+             patch.object(transfer,"run_once",
+                          side_effect=offline.EscrowLocalError(
+                              "LOCAL_ENCRYPT_FAILED","TypeError")), \
+             patch("sys.stdout",new=output):
+            self.assertEqual(transfer.main(),1)
+        report=json.loads(output.getvalue())
+        self.assertEqual(report["diagnosticCode"],"LOCAL_ENCRYPT_FAILED")
+        self.assertEqual(report["errorType"],"TypeError")
+        self.assertNotIn("Temporary Render API key",output.getvalue())
+
     def test_utf8_passphrase_with_umlaut_and_emoji_is_accepted_and_verifiable(self):
         # Regression: compare_digest(str, str) throws TypeError for non-ASCII
         # even when the two passphrases match exactly. Bytes are safe.

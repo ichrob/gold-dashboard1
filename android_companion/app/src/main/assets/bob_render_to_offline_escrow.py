@@ -15,9 +15,10 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import tempfile
 from pathlib import Path
 
-from bob_offline_key_escrow import create_escrow, unlock_escrow
+from bob_offline_key_escrow import create_escrow, unlock_escrow, EscrowLocalError
 
 API_HOST = "https://api.render.com"
 TARGET_SERVICE = "bob-push-service"
@@ -25,6 +26,7 @@ TARGET_ENV_KEY = "PUSH_SERVICE_TOKEN"
 OUTPUT = Path.home() / "bob-sicher" / "bob-archive-root.vault"
 _SERVICE_ID = re.compile(r"srv-[a-z0-9]{8,64}\Z")
 MAX_REPLY = 262144
+PROGRAM_REVISION = "termux-local-crypto-selftest-1"
 
 
 class TransportBlocked(Exception):
@@ -144,10 +146,31 @@ def original_root(token, fetch=read_json):
     return root
 
 
+def synthetic_local_selftest():
+    """Exercise actual local Termux KDF, AES-GCM, write and restore with fake data.
+
+    This runs BEFORE requesting any Render credential or backup passphrase.
+    It uses an isolated private temporary directory and deletes its own
+    short-lived synthetic ciphertext on exit. It never reads the live vault.
+    """
+    root = b"BOB-SYNTHETIC-TEST-NOT-A-REAL-SECRET-" + b"0" * 32
+    password = "Bob-Selftest-Äß-🔐-2026-only"
+    with tempfile.TemporaryDirectory(prefix="bob-escrow-selftest-") as folder:
+        vault = Path(folder) / "synthetic.vault"
+        create_escrow(root, password, vault)
+        check = unlock_escrow(vault, password)
+        if not hmac.compare_digest(root, check):
+            raise EscrowLocalError("LOCAL_ROUNDTRIP_FAILED", "ValueError")
+    return True
+
+
 def run_once(*, input_secret=getpass.getpass, fetch=read_json, output=OUTPUT):
     """Private interactive procedure, never called by an Android remote action."""
     if Path(output).exists():
         raise TransportBlocked("Escrow file already exists; do not overwrite")
+    # Fail before fetching ANY credential when Python/Termux cryptography is
+    # unhealthy. This preflight uses only synthetic, non-sensitive data.
+    synthetic_local_selftest()
     api_token = input_secret("Temporary Render API key (hidden): ")
     if not api_token:
         raise TransportBlocked("Missing API credential")
@@ -164,10 +187,14 @@ def run_once(*, input_secret=getpass.getpass, fetch=read_json, output=OUTPUT):
         raise TransportBlocked("Passphrase confirmation mismatch")
     Path(output).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     result = create_escrow(root, password, output)
-    reopened = unlock_escrow(output, password)
+    try:
+        reopened = unlock_escrow(output, password)
+    except Exception:
+        # Preserve the encrypted file for recovery / analysis, and never
+        # overwrite it automatically. No plaintext is saved.
+        raise
     if not hmac.compare_digest(root, reopened):
-        Path(output).unlink(missing_ok=True)
-        raise TransportBlocked("Local escrow roundtrip failed")
+        raise EscrowLocalError("LOCAL_ROUNDTRIP_FAILED", "ValueError")
     return {"status": result["status"],
             "localRoundtripVerified": True,
             "renderEnvSource": TARGET_SERVICE + ":" + TARGET_ENV_KEY,
@@ -185,19 +212,25 @@ def main():
         return 2
     try:
         result = run_once()
-        print(json.dumps(result, sort_keys=True))
+        print(json.dumps(dict(result, programRevision=PROGRAM_REVISION),
+                         sort_keys=True))
         return 0
     except Exception as error:
-        # Only allowlisted fixed diagnostic codes. No exception message,
-        # response payload, URL, environment value or API secret is printed.
+        # Only fixed stage codes and exception CLASS are shared. Never print
+        # exception messages, credentials, filesystem paths, private payloads.
         allowed = {"RENDER_AUTH_REJECTED", "RENDER_ACCESS_DENIED",
                    "RENDER_RESOURCE_NOT_FOUND", "RENDER_RATE_LIMITED",
                    "RENDER_HTTP_ERROR", "RENDER_API_UNREACHABLE",
                    "ENV_VAR_UNAVAILABLE_OR_LINKED_GROUP"}
-        code = (str(error) if isinstance(error, TransportBlocked)
-                and str(error) in allowed else "LOCAL_OR_SCHEMA_BLOCKED")
+        if isinstance(error, EscrowLocalError):
+            code = error.stage
+            kind = error.exception_type
+        else:
+            code = (str(error) if isinstance(error, TransportBlocked)
+                    and str(error) in allowed else "LOCAL_OR_SCHEMA_BLOCKED")
+            kind = type(error).__name__
         print(json.dumps({"status": "blocked", "diagnosticCode": code,
-                          "errorType": type(error).__name__,
+                          "errorType": kind, "programRevision": PROGRAM_REVISION,
                           "productionDataChanged": False}, sort_keys=True))
         return 1
 

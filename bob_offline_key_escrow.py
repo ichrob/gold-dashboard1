@@ -26,11 +26,35 @@ DOMAIN = b"bob-drive-evidence-encryption-v1\x00"
 MAX_SIZE = 512 * 1024 * 1024
 
 
+class EscrowLocalError(RuntimeError):
+    """Static stage and exception type only; no secret or exception text."""
+
+    def __init__(self, stage, exception_type):
+        super().__init__(stage)
+        self.stage = stage
+        self.exception_type = exception_type
+
+
+def _stage(stage, fn):
+    try:
+        return fn()
+    except EscrowLocalError:
+        raise
+    except FileExistsError:
+        # Preserve the public no-overwrite contract for existing vault files.
+        # Never classify a pre-existing backup as a recoverable write fault.
+        raise
+    except Exception as error:
+        raise EscrowLocalError(stage, type(error).__name__) from None
+
+
+
 def _kdf(password, salt):
     if type(password) is not str or not 16 <= len(password) <= 2048:
         raise ValueError("Independent long passphrase required")
-    return hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**15,
-                          r=8, p=1, dklen=32, maxmem=128*1024*1024)
+    return _stage("LOCAL_KDF_FAILED", lambda: hashlib.scrypt(
+        password.encode("utf-8"), salt=salt, n=2**15,
+        r=8, p=1, dklen=32, maxmem=128*1024*1024))
 
 
 def _b64(blob):
@@ -51,21 +75,28 @@ def create_escrow(root, password, output):
     if type(root) is not bytes or not 32 <= len(root) <= 4096 or b"\x00" in root:
         raise ValueError("Invalid original archive root")
     salt, nonce = os.urandom(16), os.urandom(12)
-    payload = AESGCM(_kdf(password, salt)).encrypt(nonce, root, AAD)
+    key = _kdf(password, salt)
+    payload = _stage("LOCAL_ENCRYPT_FAILED",
+                     lambda: AESGCM(key).encrypt(nonce, root, AAD))
     record = {"version": VERSION, "salt": _b64(salt),
               "nonce": _b64(nonce), "ciphertext": _b64(payload)}
     path = Path(output)
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
-    fd = os.open(path, flags, 0o600)
-    try:
-        with os.fdopen(fd, "w", encoding="ascii") as output_stream:
-            json.dump(record, output_stream, sort_keys=True, separators=(",", ":"))
-            output_stream.write("\n")
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
+    def write_ciphertext():
+        fd = os.open(path, flags, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="ascii") as output_stream:
+                json.dump(record, output_stream, sort_keys=True,
+                          separators=(",", ":"))
+                output_stream.write("\n")
+                output_stream.flush()
+                os.fsync(output_stream.fileno())
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+    _stage("LOCAL_WRITE_FAILED", write_ciphertext)
     return {"status": "escrow-ciphertext-created",
             "independentOfflineRetentionVerified": False,
             "recoveryVerified": False, "productionDataChanged": False}
@@ -83,10 +114,14 @@ def unlock_escrow(path, password):
     payload = _decode(record["ciphertext"], 4112)
     if len(salt) != 16 or len(nonce) != 12 or not 48 <= len(payload) <= 4112:
         raise ValueError("Invalid escrow field lengths")
+    key = _kdf(password, salt)
     try:
-        root = AESGCM(_kdf(password, salt)).decrypt(nonce, payload, AAD)
-    except InvalidTag as error:
-        raise ValueError("Wrong passphrase or corrupted escrow") from error
+        root = _stage("LOCAL_DECRYPT_FAILED",
+                      lambda: AESGCM(key).decrypt(nonce, payload, AAD))
+    except EscrowLocalError as error:
+        if error.exception_type == "InvalidTag":
+            raise ValueError("Wrong passphrase or corrupted escrow") from None
+        raise
     if not 32 <= len(root) <= 4096 or b"\x00" in root:
         raise ValueError("Invalid recovered root")
     return root
