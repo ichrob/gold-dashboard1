@@ -181,7 +181,7 @@ def main(argv=None):
                 raise ValueError("Root confirmation mismatch")
             password = getpass.getpass("Separate offline passphrase (hidden): ")
             again = getpass.getpass("Repeat passphrase (hidden): ")
-            if not hmac.compare_digest(password, again):
+            if not hmac.compare_digest(password.encode("utf-8"), again.encode("utf-8")):
                 raise ValueError("Passphrase confirmation mismatch")
             result = create_escrow(root, password, args.output)
         else:
