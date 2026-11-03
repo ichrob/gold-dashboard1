@@ -53,9 +53,13 @@ function normalTransactions(data,importedAt){
  const rows=[];
  for(const original of data.records){
   const isin=text(original?.isin,12).toUpperCase(),
-   qty=amount(original?.quantity),price=amount(original?.price),
+   rawQty=amount(original?.quantity),price=amount(original?.price),
    direction=side(original?.side),date=day(original?.date),time=clock(original?.time),
    currency=text(original?.currency,3).toUpperCase();
+  // Broker exports may express a SALE as negative units; side label must
+  // independently say SELL. Do not let a negative BUY silently flip direction.
+  const qty=direction==='SELL'&&rawQty!==null?Math.abs(rawQty):rawQty;
+  if(direction==='BUY'&&rawQty!==null&&rawQty<=0){incomplete++;continue;}
   if(!validIsin(isin)||!Number.isSafeInteger(qty)||qty<=0||
      !direction||!date||!['EUR','CHF'].includes(currency)||!price||price<=0){
    incomplete++;continue;
