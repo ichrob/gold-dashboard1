@@ -20,10 +20,38 @@ function readChfFx(spots,now=Date.now(),currency='EUR'){
  return {available:true,rate:Number(chf.rate)/Number(eur.rate),
    note:'EUR/CHF aus USD/CHF ÷ USD/EUR; FX-Quellenzeit '+seenAt(chf.fetchedAt)+' / '+seenAt(eur.fetchedAt)};
 }
+// Immutable priority: verified current native issuer -> current dated backup
+// observation -> strictly validated product model. Never prefer newer backup
+// over a still-valid original. No retrieval time can renew an old quote.
+function selectQuoteByPriority(product,now=Date.now()){
+ const isin=product?.isin,q=product?.quote;
+ if(!isin||q?.isin!==isin||q.productVerified!==true)return null;
+ const currency=q.metadata?.currency||q.currency;
+ if(!['EUR','CHF'].includes(currency))return null;
+ const list=root.BobStopAssistant?.compareQuoteSources(q,isin,now,currency)?.quotes||[];
+ const original=list.find(row=>row.kind==='issuer'&&row.origin==='issuer'&&!row.chart);
+ if(original)return {quote:original,tier:1,label:'1 · Originalquelle (Emittent)',calculated:false};
+ const backup=list.find(row=>row.kind==='research'&&!row.chart)||
+  list.find(row=>row.kind==='research');
+ if(backup)return {quote:backup,tier:2,label:'2 · Ersatzquelle / Beobachtung',calculated:false};
+ const model=root.BobDegiro?.calculatedProductDisplay?.(product,now);
+ if(model?.priceKind==='calculated'&&model.isin===isin&&model.currency===currency&&
+    positive(model.bid)&&positive(model.ask)&&model.ask>=model.bid&&
+    fresh(model.at,now,60000)){
+  return {quote:{isin,currency,bid:model.bid,ask:model.ask,
+    at:model.at,askAt:model.at,source:model.source,
+    kind:'calculated',origin:'model',modelVerified:true,
+    validationReady:model.validationReady===true,
+    validationSamples:model.validationSamples,
+    priceKind:'calculated',degiroExecutable:false},
+   tier:3,label:'3 · Berechneter Modellwert',calculated:true};
+ }
+ return null;
+}
 function evaluate({candidate,product,quote,stopPlan,fx,budgetCHF,riskCHF,feesCHF,now=Date.now(),direction}={}){
  const item={isin:String(candidate?.isin||''),direction,available:false,entry:null,stop:null,
   quantity:null,currency:null,totalCHF:null,investedCHF:null,lossCHF:null,reason:'',
-  source:null,quoteAt:null,fxNote:'',priceKind:null,warning:'Richtwerte, keine ausführbaren DEGIRO-Kurse'};
+  source:null,quoteAt:null,fxNote:'',priceKind:null,sourceTier:null,sourceLabel:'',copyAllowed:false,warning:'Richtwerte, keine ausführbaren DEGIRO-Kurse'};
  const block=reason=>({...item,reason});
  if(!candidate||!validSide(direction)||candidate.direction!==direction||
     product?.isin!==item.isin||product.productDirection!==direction||
@@ -32,10 +60,17 @@ function evaluate({candidate,product,quote,stopPlan,fx,budgetCHF,riskCHF,feesCHF
     !positive(Number(quote.ask))||!positive(Number(quote.bid))||Number(quote.ask)<Number(quote.bid)||
     !fresh(quote.at,now,MAX_QUOTE_AGE)||!fresh(quote.askAt,now,MAX_QUOTE_AGE)||
     Math.abs(stamp(quote.askAt)-stamp(quote.at))>30000||
-    !['issuer','research'].includes(quote.kind)||!String(quote.source||'').trim())
+    !['issuer','research','calculated'].includes(quote.kind)||!String(quote.source||'').trim()||
+    (quote.kind==='calculated'&&(quote.modelVerified!==true||quote.validationReady!==true||
+     !Number.isInteger(quote.validationSamples)||quote.validationSamples<20)))
   return block('Kein zeitgleich datiertes, aktuelles Geld-/Briefpaar dieser ISIN.');
  item.entry=Number(quote.ask);item.currency=quote.currency;item.source=quote.source;
  item.quoteAt=quote.askAt;item.priceKind=quote.kind;
+ item.sourceTier=quote.kind==='issuer'?1:quote.kind==='calculated'?3:2;
+ item.sourceLabel=item.sourceTier===1?'1 · Originalquelle (Emittent)':
+  item.sourceTier===2?'2 · Ersatzquelle / Beobachtung':'3 · Berechneter Modellwert';
+ // No calculated or chart-derived number may be copied as a ready order field.
+ item.copyAllowed=quote.kind!=='calculated'&&quote.chart!==true;
  if(!stopPlan?.available||stopPlan.currency!==quote.currency||
     !positive(Number(stopPlan.stop))||!(Number(stopPlan.stop)<item.entry)||
     !fresh(stopPlan.referenceAt,now,MAX_QUOTE_AGE)||
@@ -55,7 +90,9 @@ function evaluate({candidate,product,quote,stopPlan,fx,budgetCHF,riskCHF,feesCHF
  if(!Number.isSafeInteger(quantity)||quantity<=0)return block('Kein ganzes Stück innerhalb von Kapital- und Risikogrenze.');
  item.available=true;item.quantity=quantity;item.investedCHF=quantity*costPerUnit;
  item.totalCHF=item.investedCHF+feesCHF;item.lossCHF=quantity*lossPerUnit+feesCHF;
- item.reason='Manuelle Richtwerte; bei DEGIRO Preis, Menge, Gebühren und separate VERKAUF-Stop-Order prüfen.';
+ item.reason=quote.kind==='calculated'
+  ?'Nur Modellrechnung für den Vergleich, keine ausführbare Preis-/Ordergrundlage; Werte nicht direkt als DEGIRO-Order übernehmen.'
+  :'Manuelle Richtwerte; bei DEGIRO Preis, Menge, Gebühren und separate VERKAUF-Stop-Order prüfen.';
  return item;
 }
 const session={budgetCHF:'',riskCHF:'',feesCHF:'',last:null};
@@ -78,7 +115,7 @@ function ensurePanel(){
   '</div>'+
   '<div data-manual-top3-status class="small" role="status"></div>'+
   '<div data-manual-top3-rows></div>'+
-  '<p class="small">Der Kaufwert ist der beobachtete Briefkurs, **kein** verbindliches DEGIRO-Limit. Ein Schutzstopp ist eine getrennte VERKAUF-Order nach tatsächlichem Kauf; Stop- und KO-Gaps können höhere Verluste verursachen. Stückzahlen sind Planwerte, keine Brokerbestätigung.</p>';
+  '<p class="small">Preisfolge: Originalquelle → Ersatzquelle → Berechnung. Die Berechnung ist kein verbindliches DEGIRO-Limit. Ein Schutzstopp ist eine getrennte VERKAUF-Order nach tatsächlichem Kauf; Stop- und KO-Gaps können höhere Verluste verursachen. Stückzahlen sind Planwerte, keine Brokerbestätigung.</p>';
  anchor.insertAdjacentElement('afterend',panel);
  for(const [id,key] of [['bobManualBudget','budgetCHF'],['bobManualRisk','riskCHF'],['bobManualFees','feesCHF']]){
   const input=panel.querySelector('#'+id);
@@ -111,21 +148,30 @@ function renderFrom(snapshot){
  const offers=selected.map((candidate,i)=>{
   const product=(products||[]).find(p=>p.isin===candidate.isin);
   const currency=product?.quote?.metadata?.currency||product?.quote?.currency;
-  const quote=root.BobStopAssistant?.selectQuote(product?.quote,candidate.isin,now,currency);
-  const stopPlan=product&&market?.available?root.BobDegiro?.productRiskPreview(product,market,now):null;
+  const selectedQuote=selectQuoteByPriority(product,now);
+  const quote=selectedQuote?.quote||null;
+  const stopPlan=product&&quote&&market?.available?
+   root.BobDegiro?.productRiskPreview(product,market,now,quote):null;
   const fx=readChfFx(bundle?.spots,now,quote?.currency||currency);
   const plan=evaluate({candidate,product,quote,stopPlan,fx,budgetCHF,riskCHF,feesCHF,now,direction:side});
   const line=(label,value,copy)=>'<div style="margin:5px 0"><b>'+label+':</b> '+escape(value)+
    (copy!==null&&copy!==undefined?'<button type="button" data-manual-copy="'+escape(copy)+'" style="width:auto;margin-left:8px;padding:5px 9px;font-size:12px;background:#334155">Kopieren</button>':'')+'</div>';
   const entry=plan.entry!==null?fmt(plan.entry,4)+' '+plan.currency+'/Stück':'—';
   const stop=plan.stop!==null?'≈ '+fmt(plan.stop,4)+' '+plan.currency+'/Stück':'—';
+  const orderCopy=plan.available&&plan.copyAllowed;
+  const sourceLine=selectedQuote?.label||'Keine aktuelle belegte Quelle';
+  const calculationNote=selectedQuote?.calculated?
+   '<div class="small" style="color:#92400e"><b>Berechnet – NICHT als DEGIRO-Kaufpreis übernehmen.</b> Stückzahl und Stopp sind nur ein rechnerisches Szenario; keine Kopierfreigabe.</div>':'';
+
   return '<article style="padding:12px;border:1px solid #dde5ef;border-radius:12px;margin-top:10px;background:white">'+
    '<b>Platz '+(i+1)+' · '+escape(candidate.isin)+' · '+escape(side)+'</b>'+
    line('ISIN',candidate.isin,candidate.isin)+
-   line('KAUF · Briefkurs als Limit-Richtwert',entry,plan.entry!==null?String(plan.entry):null)+
-   line('STOP-LOSS · späterer VERKAUF',stop,plan.stop!==null?String(Number(plan.stop.toFixed(4))):null)+
-   line('Stückzahl',plan.available?String(plan.quantity):'—',plan.available?String(plan.quantity):null)+
-   line('Geschätzter Gesamtbetrag',plan.available?fmt(plan.totalCHF)+' CHF':'—',plan.available?String(Number(plan.totalCHF.toFixed(2))):null)+
+   '<div class="small"><b>Preis-Herkunft:</b> '+escape(sourceLine)+'</div>'+
+   line('KAUF · Briefkurs als Limit-Richtwert',entry,orderCopy?String(plan.entry):null)+
+   line('STOP-LOSS · Modell für späteren VERKAUF',stop,orderCopy?String(Number(plan.stop.toFixed(4))):null)+
+   line('Stückzahl',plan.available?String(plan.quantity):'—',orderCopy?String(plan.quantity):null)+
+   line('Geschätzter Gesamtbetrag',plan.available?fmt(plan.totalCHF)+' CHF':'—',orderCopy?String(Number(plan.totalCHF.toFixed(2))):null)+
+   calculationNote+
    (plan.available?'<div class="small">Modellverlust bei Stopp einschließlich eingegebener Gebühren: ≈ '+fmt(plan.lossCHF)+' CHF. Tatsächlicher Verlust kann durch Gaps, KO oder fehlende Ausführung größer sein.</div>':'')+
    '<div class="small" style="margin-top:7px">'+escape(plan.source?'Quelle: '+plan.source+' · Original-Briefkurszeit '+seenAt(plan.quoteAt)+' Zürich. '+plan.fxNote:'Keine aktuelle Original-Kursquelle.')+'</div>'+
    '<div class="small" style="margin-top:5px;color:'+(plan.available?'#166534':'#9a3412')+'">'+escape(plan.reason)+'</div></article>';
@@ -140,7 +186,7 @@ function render(flow,products,bundle){
  session.last={flow,products,bundle};
  renderFrom(session.last);
 }
-const api={evaluate,readChfFx,render};
+const api={evaluate,readChfFx,selectQuoteByPriority,render};
 root.BobManualTop3=api;
 if(typeof module!=='undefined')module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
