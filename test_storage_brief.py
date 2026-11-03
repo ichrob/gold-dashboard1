@@ -35,7 +35,11 @@ class StorageBriefTests(unittest.TestCase):
                     "original": "PRIVATE-ORIGINAL-DO-NOT-EMIT"}},
             "decisionProductsPreview": {
                 "status": "sampled", "backupProofState": "recovery-or-archive-proof-missing",
-                "scannedRows": 20, "eligibleRows": 1, "privateIsin": "SENSITIVE-ISIN",
+                "scannedRows": 20, "eligibleRows": 1,
+                "distinctProductArrays": 1, "sharedArrayRows": 0,
+                "originalJsonBytes": 9000, "referenceJsonBytes": 700,
+                "sampleJsonByteDifference": 8300,
+                "privateIsin": "SENSITIVE-ISIN",
                 "manualRunAuthorized": False},
             "decisionProductsPilot": {
                 "status": "no-attempt", "movedRows": 0, "errorText": "SECRET"},
@@ -55,6 +59,9 @@ class StorageBriefTests(unittest.TestCase):
         self.assertEqual(view["referencePreview"]["backupProofState"],
                          "recovery-or-archive-proof-missing")
         self.assertFalse(view["referencePreview"]["manualRunAuthorized"])
+        self.assertEqual(view["referencePreview"]["sampleJsonByteDifference"], 8300)
+        self.assertEqual(view["referencePreview"]["distinctProductArrays"], 1)
+        self.assertIsNone(view["referencePreview"]["diskBytesFreed"])
         self.assertIsNone(view["physicalBytesFreed"])
         self.assertIsNone(view["pilot"]["diskBytesFreed"])
         compact = json.dumps(view)
@@ -67,11 +74,13 @@ class StorageBriefTests(unittest.TestCase):
         item["renderVolume"]["unit"] = "mystery"
         item["archiveWorker"]["latestVerifiedAttempt"]["encryptionVersion"] = "bad-version"
         item["decisionProductsPreview"]["eligibleRows"] = 900
+        item["decisionProductsPreview"]["sampleJsonByteDifference"] = -20
         view = storage_brief.project(item)
         self.assertEqual(view["renderVolume"]["status"], "invalid-or-unverified-units")
         self.assertIsNone(view["renderVolume"]["usedBytes"])
         self.assertIsNone(view["archive"]["encryptionVersion"])
         self.assertIsNone(view["referencePreview"]["eligibleRows"])
+        self.assertIsNone(view["referencePreview"]["sampleJsonByteDifference"])
         self.assertFalse(view["decisionProductPilotAuthorized"])
         self.assertEqual(storage_brief.project(None)["status"], "not-observed")
 
