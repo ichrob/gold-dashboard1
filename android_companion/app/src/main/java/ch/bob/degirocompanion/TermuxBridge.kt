@@ -6,6 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import java.util.concurrent.atomic.AtomicInteger
+import java.io.ByteArrayOutputStream
+import java.security.MessageDigest
+import java.util.Base64
+import java.util.zip.GZIPOutputStream
 
 /**
  * Fixed, opt-in bridge to Termux's RUN_COMMAND service.
@@ -32,9 +36,51 @@ internal object TermuxBridge {
     private const val RESULT_AT = "at"
     private val requestNumbers = AtomicInteger(401)
 
+    // Only signed app assets may supply the two scripts for local encrypted
+    // Render backup. No remote shell parameters or fetched executable code.
+    // Both sources are compared byte-for-byte with audited main files in CI.
+    private val INSTALL_AND_START = """
+import base64,gzip,hashlib,os,pathlib,sys
+names=('bob_offline_key_escrow.py','bob_render_to_offline_escrow.py')
+dest=pathlib.Path.home()/'bob-sicher'
+dest.mkdir(mode=0o700,parents=True,exist_ok=True)
+for i,name in enumerate(names):
+    payload=gzip.decompress(base64.b64decode(sys.argv[1+2*i],validate=True))
+    expected=sys.argv[2+2*i]
+    if len(payload)>131072 or hashlib.sha256(payload).hexdigest()!=expected:
+        raise ValueError('Signed application source integrity failed')
+    path=dest/name
+    if path.exists():
+        if hashlib.sha256(path.read_bytes()).hexdigest()!=expected:
+            raise ValueError('Existing local source differs; no overwrite')
+    else:
+        fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        with os.fdopen(fd,'wb') as stream:
+            stream.write(payload)
+os.execv(sys.executable,(sys.executable,str(dest/names[1])))
+""".trimIndent()
+
     fun arguments(action: Action): Array<String> = when (action) {
         Action.CHECK -> arrayOf(SCRIPT, "--help")
-        Action.LOCAL_ESCROW -> arrayOf(SCRIPT, "create", "--output", OUTPUT)
+        // LOCAL_ESCROW requires context-specific, immutable signed source assets
+        // added only inside localArguments() after the explicit on-device dialog.
+        Action.LOCAL_ESCROW -> arrayOf("-c", INSTALL_AND_START)
+    }
+
+    private fun localArguments(context: Context): Array<String> {
+        val result = arguments(Action.LOCAL_ESCROW).toMutableList()
+        for (name in listOf("bob_offline_key_escrow.py",
+                            "bob_render_to_offline_escrow.py")) {
+            val bytes = context.assets.open(name).use { it.readBytes() }
+            require(bytes.size in 1..131072) { "Unexpected signed asset size" }
+            val hash = MessageDigest.getInstance("SHA-256").digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+            val zipped = ByteArrayOutputStream()
+            GZIPOutputStream(zipped).use { it.write(bytes) }
+            result.add(Base64.getEncoder().encodeToString(zipped.toByteArray()))
+            result.add(hash)
+        }
+        return result.toTypedArray()
     }
 
     /** Pure, fixed-code classification. No Termux output or error message. */
@@ -89,10 +135,17 @@ internal object TermuxBridge {
             return "TERMUX_NOT_INSTALLED"
         }
         val isCheck = action == Action.CHECK
+        // This local-only source is bundled in the signed APK; never fetched
+        // or executed from an untrusted network endpoint.
+        val argv = try {
+            if (isCheck) arguments(Action.CHECK) else localArguments(context)
+        } catch (_: Exception) {
+            return "TERMUX_LOCAL_SCRIPT_UNAVAILABLE"
+        }
         val request = Intent("com.termux.RUN_COMMAND").apply {
             setClassName(PACKAGE, SERVICE)
             putExtra("com.termux.RUN_COMMAND_PATH", PYTHON)
-            putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arguments(action))
+            putExtra("com.termux.RUN_COMMAND_ARGUMENTS", argv)
             putExtra("com.termux.RUN_COMMAND_WORKDIR",
                 "/data/data/com.termux/files/home")
             putExtra("com.termux.RUN_COMMAND_BACKGROUND", isCheck)
