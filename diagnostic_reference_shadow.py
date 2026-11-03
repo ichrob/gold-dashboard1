@@ -20,6 +20,7 @@ def shadow(events):
     """
     if type(events) not in (list, tuple) or len(events) > 256:
         raise ValueError("Expected at most 256 events")
+    total_size = 0
     blobs = {}
     records = []
     originals = []
@@ -29,6 +30,9 @@ def shadow(events):
         original = _canonical(event)
         if len(original) > 1_000_000:
             raise ValueError("Event exceeds safe shadow size")
+        total_size += len(original)
+        if total_size > 8000000:
+            raise ValueError("Shadow batch too large")
         payload = _canonical(event["payload"])
         key = hashlib.sha256(payload).hexdigest()
         if key in blobs and blobs[key] != payload:
