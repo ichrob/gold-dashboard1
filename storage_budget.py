@@ -191,6 +191,7 @@ def report(conn,now=None):
         relationElapsedSeconds=relation_elapsed,
         largestTableDeltas=relation_deltas[:12],
         storageForensics=__import__('storage_forensics').report(conn,samples),
+        fixedSlotDaily=__import__('storage_daily_compact').report(samples),
         androidImageDuplication=__import__('android_image_storage_audit').report(conn),
         androidImageReferenceShadow=__import__('android_image_reference_shadow').report(conn),
         androidImageBackupReadiness=image_backup_readiness,
