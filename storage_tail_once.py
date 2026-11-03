@@ -54,7 +54,10 @@ def _preflight(conn, seconds):
         if archive_worker.status().get("status") == "running":
             return "archive-running"
         proof = storage_budget.archive_status(conn)
-        if proof_gate._proof_state(proof, seconds) != "verified-fresh":
+        # Physical reclaim of already-dead pages is not an original-pointer
+        # migration; require the existing independent restore, not a new
+        # offload-only key-escrow receipt.
+        if proof_gate._proof_state(proof, seconds, require_recovery=False) != "verified-fresh":
             return "backup-proof-not-fresh"
         volume = render_disk_metrics.report()
         observed = volume.get("observedAt")
