@@ -15,6 +15,22 @@ class StorageBriefTests(unittest.TestCase):
             "configuredAllocationBytes": 1000000000,
             "budgetState": "caution",
             "lastSampleAt": 1793673000,
+            "relationGrowthStatus": "observed",
+            "largestTables": [
+                {"table": "bob_diagnostic_history", "bytes": 45_000_000,
+                 "private": "PRIVATE-ROW"},
+                {"table": "bob_decision_audit", "bytes": 30_000_000},
+                {"table": "bob_oauth_secrets", "bytes": 999_999_999},
+                {"table": "bob_metric_checks", "bytes": 16_000_000},
+                {"table": "bob_decision_outcomes", "bytes": 8_000_000}
+            ],
+            "largestTableDeltas": [
+                {"table": "bob_diagnostic_history", "bytesDelta": 2_500_000},
+                {"table": "bob_improvement_observations", "bytesDelta": -300_000},
+                {"table": "bob_decision_audit", "bytesDelta": 700_000},
+                {"table": "bob_secret_keys", "bytesDelta": 900_000_000},
+                {"table": "bob_metric_checks", "bytesDelta": 100_000}
+            ],
             "sensitiveToken": "PRIVATE-SECRET-NEVER-EMIT",
             "renderVolume": {
                 "status": "observed", "resource": "dpg-private-ID",
@@ -50,6 +66,14 @@ class StorageBriefTests(unittest.TestCase):
         view = storage_brief.project(self.source())
         self.assertEqual(view["status"], "observed")
         self.assertEqual(view["databaseBytes"], 560838335)
+        self.assertEqual(view["largestTables"], [
+            {"table": "bob_diagnostic_history", "allocatedBytes": 45_000_000},
+            {"table": "bob_decision_audit", "allocatedBytes": 30_000_000},
+            {"table": "bob_metric_checks", "allocatedBytes": 16_000_000}])
+        self.assertEqual(view["largestGrowingTables"], [
+            {"table": "bob_diagnostic_history", "allocatedBytesDelta": 2_500_000},
+            {"table": "bob_decision_audit", "allocatedBytesDelta": 700_000},
+            {"table": "bob_metric_checks", "allocatedBytesDelta": 100_000}])
         self.assertEqual(view["renderVolume"]["usedBytes"], 669400000)
         self.assertEqual(view["renderVolume"]["observedAt"], 1793673100.0)
         self.assertEqual(view["archive"]["latestVerifiedState"], "verified")
@@ -83,6 +107,24 @@ class StorageBriefTests(unittest.TestCase):
         self.assertIsNone(view["referencePreview"]["sampleJsonByteDifference"])
         self.assertFalse(view["decisionProductPilotAuthorized"])
         self.assertEqual(storage_brief.project(None)["status"], "not-observed")
+
+    def test_growth_requires_real_snapshots_and_invalid_sizes_are_filtered(self):
+        source = self.source()
+        source["relationGrowthStatus"] = "needs-two-fixed-snapshots"
+        source["largestTables"] = [
+            {"table": "bob_metric_checks", "bytes": True},
+            {"table": "bob_decision_audit", "bytes": -10},
+            {"table": "bob_diagnostic_history", "bytes": 1.5},
+            {"table": "bob_oauth_secrets", "bytes": 100},
+            {"table": "bob_android_list_images", "bytes": 12_345},
+            {"table": "bob_android_list_images", "bytes": 12_345},
+        ]
+        result = storage_brief.project(source)
+        self.assertEqual(result["largestTables"], [
+            {"table": "bob_android_list_images", "allocatedBytes": 12_345}])
+        self.assertEqual(result["largestGrowingTables"], [])
+        self.assertIsNone(result["physicalBytesFreed"])
+        self.assertFalse(result["decisionProductPilotAuthorized"])
 
     def test_oversized_storage_omission_still_keeps_small_brief(self):
         source = self.source()

@@ -25,6 +25,41 @@ _PILOT_STATES = frozenset(("disabled", "no-attempt", "not-observed",
                            "deferred-sweep-completed", "deferred-busy"))
 _ENCRYPTION = "aes-256-gcm-stream-v1"
 
+# Fixed infrastructure relations only; never publish table names supplied by
+# arbitrary receipts, credentials, uploaded files or a dynamic identifier.
+_VISIBLE_RELATIONS = frozenset((
+    "bob_decision_audit", "bob_decision_outcomes", "bob_diagnostic_history",
+    "bob_improvement_observations", "bob_metric_checks", "bob_candle_evidence",
+    "bob_test_repairs", "bob_list_price_pairs", "bob_future_predictions",
+    "bob_cold_observation_objects", "bob_android_list_images",
+))
+
+
+def _relation_rows(source, *, key, value_key, output_key, positive_only=False):
+    """At most three already-measured allocation observations, no extra SQL.
+
+    Relation allocation/delta does not prove bloat or freed disk bytes.
+    """
+    rows = source.get(key)
+    if type(rows) is not list:
+        return []
+    result, seen = [], set()
+    for row in rows[:12]:
+        if type(row) is not dict:
+            continue
+        name, value = row.get("table"), row.get(value_key)
+        if (type(name) is not str or name not in _VISIBLE_RELATIONS
+                or name in seen or type(value) is not int
+                or abs(value) > 10**12
+                or (positive_only and value <= 0)
+                or (not positive_only and value < 0)):
+            continue
+        seen.add(name)
+        result.append({"table": name, output_key: value})
+        if len(result) == 3:
+            break
+    return result
+
 
 def _choice(item, allowed, default="unavailable"):
     return item if type(item) is str and item in allowed else default
@@ -69,6 +104,16 @@ def project(storage):
     result["budgetState"] = _choice(storage.get("budgetState"), _BUDGET_STATES,
                                     "not-observed")
     result["lastSampleAt"] = _number(storage.get("lastSampleAt"), integer=True)
+    # Catalog observations already gathered by storage_budget.report; no
+    # additional queries, no source data, no deletion/repack permission.
+    result["largestTables"] = _relation_rows(
+        storage, key="largestTables", value_key="bytes",
+        output_key="allocatedBytes")
+    result["largestGrowingTables"] = (
+        _relation_rows(storage, key="largestTableDeltas",
+                       value_key="bytesDelta", output_key="allocatedBytesDelta",
+                       positive_only=True)
+        if storage.get("relationGrowthStatus") == "observed" else [])
 
     provider = storage.get("renderVolume")
     provider = provider if isinstance(provider, dict) else {}
