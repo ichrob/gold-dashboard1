@@ -56,6 +56,8 @@ def backup_cutoff(conn, now=None):
             or proof.get("restoreVerified") is not True
             or proof.get("remoteDownloadVerified") is not True
             or proof.get("restoreIsolation")!="separate-database-instance"
+            or proof.get("encryptionVerified") is not True
+            or proof.get("encryptionVersion")!="aes-256-gcm-stream-v1"
             or proof.get("deletionPermitted") is not False
             or proof.get("evidenceDeleted") is True
             or not isinstance(proof.get("archiveSha256"),str)
