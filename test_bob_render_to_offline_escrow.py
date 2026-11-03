@@ -43,6 +43,29 @@ class DirectEscrowTests(unittest.TestCase):
             with self.assertRaises(transfer.TransportBlocked):
                 transfer.run_once(input_secret=lambda _:self.API,fetch=self.api,output=output)
 
+    def test_utf8_passphrase_with_umlaut_and_emoji_is_accepted_and_verifiable(self):
+        # Regression: compare_digest(str, str) throws TypeError for non-ASCII
+        # even when the two passphrases match exactly. Bytes are safe.
+        password="Starkes-Passwort-äÖß-🔐-2026!"
+        with tempfile.TemporaryDirectory() as folder:
+            output=Path(folder)/"bob-root.vault"
+            provided=iter((self.API,password,password))
+            result=transfer.run_once(
+                input_secret=lambda _:next(provided),fetch=self.api,output=output)
+            self.assertTrue(result["localRoundtripVerified"])
+            self.assertEqual(unlock_escrow(output,password),self.ORIGINAL.encode())
+            self.assertNotIn(password,output.read_text())
+            self.assertNotIn(password,json.dumps(result))
+
+    def test_different_utf8_passphrases_do_not_create_vault(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output=Path(folder)/"bob-root.vault"
+            provided=iter((self.API,"Sicher-ä-2026-erstes","Sicher-ä-2026-zweites"))
+            with self.assertRaises(transfer.TransportBlocked):
+                transfer.run_once(input_secret=lambda _:next(provided),
+                                  fetch=self.api,output=output)
+            self.assertFalse(output.exists())
+
     def test_wrong_env_key_or_service_fails_before_escrow(self):
         with tempfile.TemporaryDirectory() as root:
             output = Path(root) / "vault"

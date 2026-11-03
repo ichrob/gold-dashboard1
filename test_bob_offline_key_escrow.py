@@ -39,6 +39,22 @@ class EscrowTests(unittest.TestCase):
             self.assertFalse(proof["independentPostgresRestorePerformed"])
             self.assertNotIn(self.ROOT, json.dumps(proof))
 
+    def test_cli_create_accepts_utf8_passphrase_without_exposing_it(self):
+        import io
+        import sys
+        password="Unabhängig-Sicherung-äöü🔒-Lang-2026"
+        with tempfile.TemporaryDirectory() as folder:
+            output=Path(folder)/"offline.vault"
+            result=io.StringIO()
+            with patch.object(sys,"argv",["escrow","create","--output",str(output)]), \
+                 patch("getpass.getpass",side_effect=[
+                     self.ROOT,self.ROOT,password,password]), \
+                 patch("sys.stdout",new=result):
+                self.assertEqual(escrow.main(),0)
+            self.assertEqual(escrow.unlock_escrow(output,password),self.ROOT.encode())
+            self.assertNotIn(password,result.getvalue())
+            self.assertNotIn(password,output.read_text())
+
     def test_wrong_password_tampered_key_and_repeat_write_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp) / "v"

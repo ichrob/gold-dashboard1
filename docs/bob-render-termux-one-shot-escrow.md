@@ -140,3 +140,37 @@ Programme und bestehende `.vault`-Dateien werden nicht überschrieben.
 Ein erneut gestarteter Sicherungslauf erfordert weiterhin die
 ausdrückliche lokale Bestätigung, einen gültigen privaten Render-API-Key
 und das getrennte Backup-Passwort. API-Key nach der Sicherung widerrufen.
+
+## Korrektur: TypeError nach zweiter Backup-Passworteingabe
+
+Beim Samsung-Gerät meldete Termux am 03.11.2026 nach `Repeat passphrase
+(hidden):` den festen Code `LOCAL_OR_SCHEMA_BLOCKED` und `TypeError`.
+
+Die alte Python-Funktion verglich zwei Strings mit
+`hmac.compare_digest(password, repeat)`. `compare_digest` akzeptiert
+Unicode-Strings nur dann, wenn sie ausschließlich ASCII-Zeichen enthalten:
+bereits ein gleiches Passwort mit `ä`, `Ö` oder einem Emoji löst
+`TypeError` aus. Das passt zum Zeitpunkt des Abbruchs, beweist jedoch
+nicht, welche Zeichen der Nutzer tatsächlich verwendet hat.
+
+Die bestätigte Korrektur vergleicht stattdessen die **UTF-8-codierten
+Bytes** beider Eingaben. Das entspricht genau der bereits von
+`hashlib.scrypt` verwendeten Codierung. Dadurch bleibt das AES-GCM-
+Tresorformat `bob-offline-root-escrow-v1` unverändert und es gibt keine
+Passwort-Normalisierung, Kürzung oder stille Änderung der Schlüsselableitung.
+Abweichende Eingaben werden weiterhin abgelehnt.
+
+Synthetische Tests verwenden Umlaute und Emoji sowohl für das lokale
+Render-Skript als auch für das separat ausführbare Verschlüsselungstool.
+**Kein echtes Passwort wird protokolliert, übertragen oder für Tests benötigt.**
+
+Nach diesem Fehler muss vor dem nächsten Versuch geprüft werden, ob
+`~/bob-sicher/bob-archive-root.vault` bereits existiert; **niemals
+überschreiben**. Das Skript verweigert vorhandene Tresordateien bereits
+vor jeder neuen API-Abfrage. Bei der vermuteten Unicode-Ursache endet
+die Ausführung vor dem Schreiben; ein tatsächlicher Dateistand wurde
+am Gerät noch nicht unabhängig bestätigt.
+
+Die neue signierte APK darf ausschließlich die exakt bekannten früheren
+signierten Python-Programmdateien aktualisieren. Sie verändert keine
+vorhandene `.vault`-Datei und erweitert keine Fernsteuerrechte.

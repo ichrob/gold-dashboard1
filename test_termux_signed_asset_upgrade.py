@@ -16,7 +16,8 @@ from unittest.mock import patch
 
 BRIDGE=pathlib.Path("android_companion/app/src/main/java/ch/bob/degirocompanion/TermuxBridge.kt")
 ASSETS=pathlib.Path("android_companion/app/src/main/assets")
-OLD_GIT_BLOB="c506752139eb85487bab7ddd5dc8b0e1da46204c"
+OLD_RENDER_BLOB="c506752139eb85487bab7ddd5dc8b0e1da46204c"
+OLD_OFFLINE_BLOB="65eeeb4506174e3439097909f4bbb153cec8f483"
 
 
 def source():
@@ -26,7 +27,8 @@ def source():
     # Replace only the fixed final launch; this test exercises installation.
     footer="os.execv(sys.executable,(sys.executable,str(dest/names[1])))"
     assert code.count(footer)==1
-    assert "LEGACY_RENDER_BLOB='"+OLD_GIT_BLOB+"'" in code
+    assert OLD_RENDER_BLOB in code
+    assert OLD_OFFLINE_BLOB in code
     code=code.replace(footer,"pass")
     compile(code,"<bundled-offline-bootstrap>","exec")
     return code
@@ -47,26 +49,33 @@ class SignedAssetUpgradeTests(unittest.TestCase):
                              pathlib.Path(name).read_bytes())
         self.assertNotIn("Temporary Render API key",source())
 
-    def test_known_older_script_can_upgrade_without_changing_any_vault(self):
+    def test_both_known_signed_scripts_can_upgrade_without_touching_vault(self):
         with tempfile.TemporaryDirectory() as tmp:
             home=pathlib.Path(tmp)
             directory=home/"bob-sicher"
             directory.mkdir()
-            old=b"synthetic old signed software only"
-            target=directory/"bob_render_to_offline_escrow.py"
-            target.write_bytes(old)
+            old_render=b"synthetic old signed Render client"
+            old_offline=b"synthetic old signed encryption helper"
+            render_path=directory/"bob_render_to_offline_escrow.py"
+            offline_path=directory/"bob_offline_key_escrow.py"
+            render_path.write_bytes(old_render)
+            offline_path.write_bytes(old_offline)
             original=directory/"bob-archive-root.vault"
             original.write_bytes(b"synthetic encrypted backup keep unchanged")
             code=source()
-            simulated_hash=hashlib.sha1(
-                b"blob "+str(len(old)).encode()+b"\x00"+old).hexdigest()
-            code=code.replace("LEGACY_RENDER_BLOB='"+OLD_GIT_BLOB+"'",
-                              "LEGACY_RENDER_BLOB='"+simulated_hash+"'")
+            old_render_hash=hashlib.sha1(
+                b"blob "+str(len(old_render)).encode()+b"\x00"+old_render).hexdigest()
+            old_offline_hash=hashlib.sha1(
+                b"blob "+str(len(old_offline)).encode()+b"\x00"+old_offline).hexdigest()
+            code=code.replace(OLD_RENDER_BLOB,old_render_hash)
+            code=code.replace(OLD_OFFLINE_BLOB,old_offline_hash)
             with patch.object(pathlib.Path,"home",return_value=home), \
                  patch.object(sys,"argv",self.argv()):
                 exec(compile(code,"<test-bootstrap>","exec"),{})
-            self.assertEqual(target.read_bytes(),
+            self.assertEqual(render_path.read_bytes(),
                              (ASSETS/"bob_render_to_offline_escrow.py").read_bytes())
+            self.assertEqual(offline_path.read_bytes(),
+                             (ASSETS/"bob_offline_key_escrow.py").read_bytes())
             self.assertEqual(original.read_bytes(),
                              b"synthetic encrypted backup keep unchanged")
 
