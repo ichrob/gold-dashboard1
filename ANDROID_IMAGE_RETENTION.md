@@ -12,6 +12,9 @@ Bob behält **nicht** jedes Bild dauerhaft. Er trennt:
 - **Abgelaufen und tatsächlich überflüssig**: mehr als 48 Stunden alte, nie erfolgreich
   geparste Zwischenaufnahmen, **nur** wenn eine spätere, vollständige zehnzeilige
   Liste **desselben gekoppelten Geräts und desselben Zürcher Kalendertags** vorliegt.
+  Zusätzlich muss der Bildinhalt im neu bestätigten Stapel **bytegleich**
+  vorhanden sein. Eine neue Tagesliste mit anderen Produkten oder Preisen
+  ersetzt niemals den einzigartigen alten Beleg.
   Diese vom aktuellen Lesefluss nicht mehr verwendeten Fehlaufnahmen dürfen in
   höchstens acht Datensätzen pro Bereinigungslauf aus dem temporären
   Android-Listenpuffer entfernt werden.
@@ -26,6 +29,8 @@ vor dem Löschen gleichzeitig:
 - Aufnahme mindestens 48 Stunden alt, keine jüngere laufende OCR-Lease,
 - **spätere** `synced`-Tagesliste mit genau zehn geparsten Produktzeilen,
 - gleicher kryptographisch gebundener Gerätebesitzer und gleicher Schweizer Tag,
+- **exakte Gleichheit sämtlicher gespeicherter PNG-Base64-Inhalte in derselben Reihenfolge**
+  mit der später erfolgreich bestätigten Liste, keine bloße ISIN-Übereinstimmung,
 - keine gespeicherten privaten Bildreferenzen in dem zu löschenden Payload.
 
 Fehlt ein einziger Nachweis, bleiben die Bilder erhalten. Insbesondere werden
