@@ -79,6 +79,10 @@ def _sanitized_archive_attempt(row):
     return {'status': row[0], 'updatedAt': str(row[1]),
             'phase': stored.get('phase'), 'errorType': stored.get('errorType'),
             'receiptPersistenceErrorType': stored.get('receiptPersistenceErrorType'),
+            'encryptionVerified': proof.get('encryptionVerified') is True,
+            'encryptionVersion': (proof.get('encryptionVersion') if
+                                  proof.get('encryptionVersion') in
+                                  ('none','aes-256-gcm-stream-v1') else None),
             'restoreVerified': proof.get('restoreVerified') is True,
             'remoteDownloadVerified': proof.get('remoteDownloadVerified') is True,
             'deletionPermitted': proof.get('deletionPermitted'),
