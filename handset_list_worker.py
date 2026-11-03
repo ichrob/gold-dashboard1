@@ -281,11 +281,26 @@ def loop(connect):
     # reader's two-minute cadence, with handset work first in each cycle.
     import video_ocr
     last_video=0.0
+    last_image_gc=0.0
     while True:
         try:tick(connect)
         except Exception as exc:
             observe("queue-error", type(exc).__name__)
             print("BOB_HANDSET_LIST error="+type(exc).__name__,flush=True)
+        # One small cleanup only every ten minutes. No raw image IDs, PNGs,
+        # source values or product identifiers are ever logged. This does not
+        # delay a new authenticated handset import and never scans all images.
+        if time.monotonic()-last_image_gc>=600:
+            try:
+                from android_image_retention import sweep_once
+                freed=sweep_once(connect)
+                if freed['removed']:
+                    print('BOB_ANDROID_IMAGE_EXPIRY rows='+str(freed['removed'])+
+                          ' logicalPayloadBytes='+str(freed['logicalPayloadBytes'])+
+                          ' physicalBytesFreed=unknown',flush=True)
+            except Exception as exc:
+                print('BOB_ANDROID_IMAGE_EXPIRY status=blocked error='+type(exc).__name__,flush=True)
+            last_image_gc=time.monotonic()
         if time.monotonic()-last_video>=120:
             try:print('BOB_VIDEO_OCR status='+video_ocr.tick(connect),flush=True)
             except Exception as exc:print('BOB_VIDEO_OCR error='+type(exc).__name__,flush=True)
