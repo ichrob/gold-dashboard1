@@ -72,7 +72,7 @@ class StorageBriefTests(unittest.TestCase):
         self.assertIsNone(view["renderVolume"]["usedBytes"])
         self.assertIsNone(view["archive"]["encryptionVersion"])
         self.assertIsNone(view["referencePreview"]["eligibleRows"])
-        self.assertFalse(view["referenceMigrationApproved"])
+        self.assertFalse(view["decisionProductPilotAuthorized"])
         self.assertEqual(storage_brief.project(None)["status"], "not-observed")
 
     def test_oversized_storage_omission_still_keeps_small_brief(self):
