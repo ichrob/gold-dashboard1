@@ -13,6 +13,11 @@ const transactions={kind:'transactions',records:[
 const parsed=p.saveTransactions(storage,transactions,'2026-11-03T01:00:00Z');
 assert.equal(parsed.rows.length,2);
 assert.equal(parsed.rows[0].price,12.5);
+const signedSale=p.normalTransactions({kind:'transactions',records:[
+ {...transactions.records[1],quantity:-2}]},'2026-11-03T01:00:00Z');
+assert.equal(signedSale.rows[0].quantity,2);
+assert.throws(()=>p.normalTransactions({kind:'transactions',records:[
+ {...transactions.records[0],quantity:-2}]},'2026-11-03T01:00:00Z'));
 assert.equal(p.loadTransactions(storage).rows.length,2);
 const csv={kind:'portfolio',records:[{isin:valid,quantity:2,currency:'EUR'}],
  importedAt:'2026-11-03T01:00:00Z'};
