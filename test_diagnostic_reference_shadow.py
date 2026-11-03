@@ -23,6 +23,20 @@ class DiagnosticReferenceShadowTests(unittest.TestCase):
         self.assertIsNone(result["physicalBytesFreed"])
         self.assertNotIn("trace", result)
 
+    def test_controlled_logical_size_comparison(self):
+        payload = {"source": "sample", "values": list(range(100)),
+                   "description": "synthetic-data-" * 20}
+        events = [{"id": i, "observedAt": str(i), "payload": payload}
+                  for i in range(40)]
+        result = shadow(events)
+        self.assertEqual(result["originalEvents"], 40)
+        self.assertEqual(result["uniquePayloads"], 1)
+        self.assertTrue(result["reconstructionVerified"])
+        self.assertGreater(result["originalLogicalBytes"], 0)
+        self.assertEqual(result["logicalByteDifference"],
+                         result["originalLogicalBytes"] - result["referenceLogicalBytes"])
+        self.assertIsNone(result["physicalBytesFreed"])
+
     def test_empty_and_fail_closed(self):
         self.assertEqual(shadow([])["uniquePayloads"], 0)
         with self.assertRaises(ValueError):
