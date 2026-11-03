@@ -253,7 +253,7 @@ function compare(csv,transactions,emailReport,now=Date.now(),screenshots=[]){
   out.emailNet=out.emailBuys-out.emailSells;
   out.state=out.ambiguous?'needs-review':
    !snapshot?'csv-missing':
-   !journal?'transactions-missing':
+   !journal?(out.screenshotMailMatched?'screenshot-mail-corroborated':'transactions-optional'):
    out.matched?'partial-verified':
    (out.unmatched||out.partialMatches)?'unreconciled':
    'csv-only';
@@ -274,7 +274,7 @@ function mount(){
  wrapper.style.cssText='margin:12px 0;padding:13px;border:1px solid #cbd5e1;border-radius:13px;background:#fff';
  const title=doc.createElement('summary');title.textContent='Positionsabstimmung · DEGIRO CSV + Bestätigungsmails';
  const explain=doc.createElement('p');explain.className='small';
- explain.textContent='Automatischer Abgleich, sobald beide Quellen vorliegen. Portfolio-CSV und Transaktions-CSV bleiben auf diesem Gerät. E-Mail-Ergebnisse werden nur aus Bobs geschütztem Eingang gelesen. Kein Echtgeldhandel und keine automatischen Änderungen an Mein Trade.';
+ explain.textContent='Bestehende Quellen: Portfolio-CSV, AgentMail-Bestätigungen und geprüfte Mein-Trade-Screenshots. Transaktions-CSV ist eine optionale Zusatzprüfung. CSV bleibt auf diesem Gerät, E-Mail-Belege werden nur lesend verglichen. Keine Brokerorders oder automatischen Bestandsänderungen.';
  const refresh=doc.createElement('button');refresh.type='button';refresh.textContent='CSV und E-Mail jetzt abgleichen';
  const status=doc.createElement('p');status.className='small';status.setAttribute('role','status');
  const list=doc.createElement('div');wrapper.append(title,explain,refresh,status,list);host.after(wrapper);
@@ -294,7 +294,7 @@ function mount(){
   row(list,report.snapshotAt?'Portfolio-CSV importiert: '+new Date(report.snapshotAt).toLocaleString('de-CH'):
    'Portfolio-CSV fehlt. Unter Mehr → DEGIRO den Portfolioexport einlesen.');
   row(list,report.transactionImportAt?'Transaktions-CSV importiert: '+new Date(report.transactionImportAt).toLocaleString('de-CH'):
-   'Transaktions-CSV fehlt. Unter Mehr → DEGIRO den Transaktionsexport einlesen.');
+   'Transaktions-CSV optional: Mit Portfolio-CSV, E-Mail und geprüftem Screenshot ist bereits ein eingeschränkter Abgleich möglich.');
   row(list,inbox?.configured?'E-Mail-Weiterleitung als konfiguriert gemeldet; Belege bleiben ungeprüfte Beobachtungen.':
    'E-Mail-Eingang nicht konfiguriert oder noch nicht abgefragt.');
   row(list,report.note);
