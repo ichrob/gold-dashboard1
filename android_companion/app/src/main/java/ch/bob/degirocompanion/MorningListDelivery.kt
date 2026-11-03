@@ -79,6 +79,27 @@ internal object MorningListDelivery {
                             })
                             PhoneRemote.stop(c,"COMPLETE")
                         }
+                    } else if(receipt?.optString("stage")=="waiting-memory" && attempt>=18
+                        && PhoneRemote.active() && PhoneRemote.sessionId()==session) {
+                        val earlier=response?.optString("existingListBatchId").orEmpty()
+                        val ids=response?.optJSONArray("existingDetailIsins")
+                        val values=if(ids==null) null else (0 until ids.length()).map { ids.optString(it) }
+                        val plan=values?.let { SelectiveDetailPlan.parse(response.optJSONArray("existingDetailPlan"),it) }
+                        if(MorningListFallbackPolicy.allowed(attempt,batch,earlier,plan)) {
+                            // The currently captured images remain durable and
+                            // unconfirmed. ONLY the previous verified daily
+                            // list supplies the ISINs, attached to its real
+                            // batch identifier and original evidence time.
+                            waiting=false
+                            status(c,"⚠️ Neue Goldliste wartet auf Serverspeicher. Bob liest fehlende Felder aus der bereits bestätigten heutigen Zehnerliste nach; neue Bilder bleiben gespeichert.")
+                            runCatching { onConfirmed?.invoke(plan!!,earlier) }.onFailure {
+                                status(c,"Bestätigte Tagesliste erhalten; Detailprüfung konnte nicht gestartet werden.")
+                                PhoneRemote.stop(c,"STORAGE_ERROR")
+                            }
+                        } else {
+                            status(c,"Texterfassung unvollständig · Bilderkennung wartet auf freien Serverspeicher.")
+                            handler.postDelayed({poll(attempt+1,uploaded||response!=null)},5000)
+                        }
                     } else if(receipt?.optString("stage")=="superseded") {
                         waiting=false;file(c).delete();status(c,"Neuere Liste bereits in Bob gespeichert; alte Aufnahme bleibt historisch.")
                         PhoneRemote.stop(c,"COMPLETE")
