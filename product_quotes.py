@@ -26,6 +26,11 @@ SG_CH_PRODUCTS = {'DE000FG34XV8': 7039911, 'DE000FG14AV8': 6901337}
 # SG Products/<ISIN>; never substitute WKN, screen time, or a BNP price.
 SG_DISCOVERY_PRODUCTS = frozenset(('DE000FG7N6Z2', 'DE000FG8NHQ3', 'DE000FB0CVV9'))
 SG_CH_MARKET = frozenset((*SG_CH_PRODUCTS, 'DE000FG8NHQ3'))
+# Exact 03-Nov-2026 DEGIRO-listed EUR Gold products whose identity was
+# independently observed on comdirect. SG still MUST confirm its own exact
+# product ID, EUR/CBDE channel, knockout type and terms before any issuer
+# market data can be accepted. A missing SG record is not proof of delisting.
+SG_EUR_DEGIRO_CANDIDATES = frozenset(('DE000SX7PE82', 'DE000FA94U71'))
 
 def sg_on_demand_candidate(isin):
     """Exact, checksum-valid SG issuer lookup for user-supplied SG-family ISINs.
@@ -35,8 +40,9 @@ def sg_on_demand_candidate(isin):
     SG product response before any prices or metadata can be consumed.
     No scanning/range enumeration or broker-account access is performed.
     """
-    return (isinstance(isin, str) and len(isin) == 12
-            and isin.startswith(('DE000FB', 'DE000FC', 'DE000FD', 'DE000FE', 'DE000FG', 'DE000SQ')) and valid_isin(isin))
+    return (isinstance(isin, str) and len(isin) == 12 and valid_isin(isin)
+            and (isin in SG_EUR_DEGIRO_CANDIDATES
+                or isin.startswith(('DE000FB', 'DE000FC', 'DE000FD', 'DE000FE', 'DE000FG', 'DE000SQ'))))
 
 
 def sg_market(isin):
