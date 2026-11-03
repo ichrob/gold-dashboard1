@@ -23,7 +23,7 @@ API_HOST = "https://api.render.com"
 TARGET_SERVICE = "bob-push-service"
 TARGET_ENV_KEY = "PUSH_SERVICE_TOKEN"
 OUTPUT = Path.home() / "bob-sicher" / "bob-archive-root.vault"
-_SERVICE_ID = re.compile(r"srv-[a-z0-9]{8,64}\\Z")
+_SERVICE_ID = re.compile(r"srv-[a-z0-9]{8,64}\Z")
 MAX_REPLY = 262144
 
 
