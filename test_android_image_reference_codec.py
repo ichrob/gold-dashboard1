@@ -54,6 +54,20 @@ class PureLosslessReferenceCodecTests(unittest.TestCase):
         self.assertEqual(p1['images'][0]['at'],first['images'][0]['at'])
         self.assertEqual(p1['images'][0]['appText'],first['images'][0]['appText'])
 
+    def test_local_mlkit_rows_roundtrip_without_an_image_copy(self):
+        original=batch('1',[png(b'phone mlkit')])
+        row='SG Gold Turbo BEST Open-End Call BAR 4000 BP 4000 Bv 10 | DE000SQ02JQ6 Societe Generale OTC EUR'
+        original['images'][0].pop('appText')
+        original['images'][0]['localOcr']={
+            'expectedIsins':['DE000SQ02JQ6'],'passes':[[row],[row]]}
+        self.assertEqual(android_list.validate(original,NOW),original)
+        pointer,objects=codec.pack_batch(original,OWNER_A)
+        self.assertNotIn('png',pointer['images'][0])
+        self.assertEqual(pointer['images'][0]['localOcr'],original['images'][0]['localOcr'])
+        recovered=codec.restore_batch(pointer,objects,OWNER_A)
+        self.assertEqual(recovered,original)
+        self.assertEqual(android_list.validate(recovered,NOW),original)
+
     def test_different_device_scopes_cannot_cross_read(self):
         original=batch('1',[png(b'private same')])
         pa,oa=codec.pack_batch(original,OWNER_A)
