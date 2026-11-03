@@ -52,7 +52,7 @@ def _approved(approval, now_seconds):
             0 <= now_seconds-approval['observedAt'] <= 900)
 
 
-def _proof_state(proof, seconds, max_age_seconds=6*3600):
+def _proof_state(proof, seconds, max_age_seconds=6*3600, *, require_recovery=True):
     """Only a persisted restore/download receipt, never caller-provided claims."""
     # Never let an incomplete rolling-deploy attempt erase the older, genuine
     # verified receipt. The timestamp window still applies, so stale backups
@@ -67,7 +67,7 @@ def _proof_state(proof, seconds, max_age_seconds=6*3600):
     # A historical product field is not replaced using legacy plaintext
     # backups, an unisolated restore, or an encryption key that has not been
     # independently exercised against the downloaded remote original.
-    if (receipt.get('encryptionVerified') is not True or
+    if require_recovery and (receipt.get('encryptionVerified') is not True or
             receipt.get('encryptionVersion') != 'aes-256-gcm-stream-v1' or
             receipt.get('recoveryKeyVerified') is not True or
             receipt.get('restoreIsolation') != 'separate-database-instance' or
