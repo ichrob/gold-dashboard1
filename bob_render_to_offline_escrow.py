@@ -26,6 +26,7 @@ TARGET_ENV_KEY = "PUSH_SERVICE_TOKEN"
 OUTPUT = Path.home() / "bob-sicher" / "bob-archive-root.vault"
 _SERVICE_ID = re.compile(r"srv-[a-z0-9]{8,64}\Z")
 MAX_REPLY = 262144
+PROGRAM_REVISION = "termux-local-crypto-selftest-1"
 
 
 class TransportBlocked(Exception):
@@ -211,7 +212,8 @@ def main():
         return 2
     try:
         result = run_once()
-        print(json.dumps(result, sort_keys=True))
+        print(json.dumps(dict(result, programRevision=PROGRAM_REVISION),
+                         sort_keys=True))
         return 0
     except Exception as error:
         # Only fixed stage codes and exception CLASS are shared. Never print
@@ -228,8 +230,8 @@ def main():
                     and str(error) in allowed else "LOCAL_OR_SCHEMA_BLOCKED")
             kind = type(error).__name__
         print(json.dumps({"status": "blocked", "diagnosticCode": code,
-                          "errorType": kind, "productionDataChanged": False},
-                         sort_keys=True))
+                          "errorType": kind, "programRevision": PROGRAM_REVISION,
+                          "productionDataChanged": False}, sort_keys=True))
         return 1
 
 
