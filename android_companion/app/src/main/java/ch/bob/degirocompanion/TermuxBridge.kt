@@ -74,7 +74,7 @@ os.execv(sys.executable,(sys.executable,str(dest/names[1])))
             val bytes = context.assets.open(name).use { it.readBytes() }
             require(bytes.size in 1..131072) { "Unexpected signed asset size" }
             val hash = MessageDigest.getInstance("SHA-256").digest(bytes)
-                .joinToString("") { "%02x".format(it) }
+                .joinToString("") { "%02x".format(it.toInt() and 0xff) }
             val zipped = ByteArrayOutputStream()
             GZIPOutputStream(zipped).use { it.write(bytes) }
             result.add(Base64.getEncoder().encodeToString(zipped.toByteArray()))
