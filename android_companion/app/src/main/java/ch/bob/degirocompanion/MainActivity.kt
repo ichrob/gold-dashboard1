@@ -149,14 +149,14 @@ class MainActivity : Activity() {
         }
         button("🔐 Archivschlüssel offline sichern – nur lokal") {
             AlertDialog.Builder(this)
-                .setTitle("Offline-Sicherung in Termux starten?")
-                .setMessage("Nur nach eigener Bestätigung. Der Originalschlüssel und das separate Passwort werden ausschließlich im lokalen Termux-Fenster verdeckt eingegeben. Bob Handy und ChatGPT lesen oder versenden sie nicht. Vorher muss das geprüfte Skript auf dem Gerät eingerichtet sein.")
+                .setTitle("Bestehenden Archivschlüssel lokal sichern?")
+                .setMessage("Bob Handy stellt die geprüften Python-Skripte aus dieser signierten App bereit und startet Termux. Dort musst du einen temporären Render-API-Schlüssel und ein separates Backup-Passwort verdeckt eingeben. Nur Termux liest den ursprünglichen PUSH_SERVICE_TOKEN über HTTPS und verschlüsselt ihn lokal. Bob Handy und ChatGPT lesen keine Geheimnisse. Die USB-Kopie und Archivprüfung erfolgen danach separat.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Termux öffnen") { _, _ ->
                     localEscrowOpening = true
                     val outcome=TermuxBridge.launch(this, TermuxBridge.Action.LOCAL_ESCROW)
                     termuxStatus.text=if (outcome=="TERMUX_REQUESTED")
-                        "Lokale Sicherung angefordert; Abschluss und USB-Kopie sind noch NICHT bestätigt. Die Eingaben erfolgen ausschließlich in Termux."
+                        "Lokale Render-Sicherung in Termux angefordert. API-Schlüssel und Backup-Passwort nur dort eingeben. Abschluss, Archivprüfung und USB-Kopie sind NICHT bestätigt."
                     else "Lokale Sicherung nicht gestartet ($outcome). Schlüssel unverändert."
                 }.show()
         }
