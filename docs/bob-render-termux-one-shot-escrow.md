@@ -101,3 +101,42 @@ python "$HOME/bob-sicher/bob_render_to_offline_escrow.py"
   stattdessen das Originalgeheimnis in der authentifizierten Render-Umgebung
   selbst lokal (ohne Chat-Übertragung) in das bereits vorhandene Offline-
   Sicherungstool eingeben. Keine API-Zugangsdaten übermitteln.
+
+## Korrektur vom 03.11.2026: Einzelwertantwort und sichere Fehlerdiagnose
+
+Die offizielle Render-OpenAPI unterscheidet zwei Antwortformen:
+- `GET /v1/services/{id}/env-vars` (Liste): `[{ "envVar": { "key": "...", "value": "..." }, "cursor": "..." }]`
+- `GET /v1/services/{id}/env-vars/PUSH_SERVICE_TOKEN` (Einzelwert):
+  **direkt** `{ "key": "PUSH_SERVICE_TOKEN", "value": "..." }`.
+
+Die erste Version des lokalen Programms prüfte irrtümlich auch beim
+Einzelwert auf die Listenhülle `envVar` und brach daher mit
+`TransportBlocked` ab, sogar wenn Render 200 zurückgegeben hatte.
+Die korrigierte Version akzeptiert **ausschließlich** die direkte,
+offiziell dokumentierte Einzelwertform.
+
+Außerdem meldet sie jetzt nur fest definierte, gefahrlos teilbare
+Diagnosecodes:
+- `RENDER_AUTH_REJECTED`: HTTP 401, API-Schlüssel ungültig/abgelaufen
+- `RENDER_ACCESS_DENIED`: HTTP 403, benötigter Zugriff fehlt
+- `RENDER_RESOURCE_NOT_FOUND`: HTTP 404, Dienst/Variable nicht gefunden
+  (eine verknüpfte Environment Group wird nicht als Dienstvariable gelesen)
+- `RENDER_RATE_LIMITED`: HTTP 429
+- `RENDER_API_UNREACHABLE`: Netzwerk/TLS/JSON-Antwort unbrauchbar
+- `ENV_VAR_UNAVAILABLE_OR_LINKED_GROUP`: Einzelwert nicht direkt vorhanden
+- `LOCAL_OR_SCHEMA_BLOCKED`: lokale Vorbedingung oder unerwartete
+  Antwortform ohne weitere sensible Details.
+
+Die Ausgabe enthält weiterhin **keinen** Render-Zugangsschlüssel,
+Originalwert, Hostnamen, URL, Response Body oder Umgebungsvariablen.
+Das genaue Problem aus einem alten `TransportBlocked`-Screenshot
+ist nicht eindeutig ableitbar. Ein erfolgreicher Code-Fix beweist auch
+keine erfolgreiche USB-Kopie oder Archiv-Wiederherstellung.
+
+Auf Samsung wird die korrigierte Python-Datei bei einem lokal
+bestätigten Start nur dann automatisch aktualisiert, wenn die vorhandene
+Datei exakt dem bislang signierten App-Code entspricht. Abweichende
+Programme und bestehende `.vault`-Dateien werden nicht überschrieben.
+Ein erneut gestarteter Sicherungslauf erfordert weiterhin die
+ausdrückliche lokale Bestätigung, einen gültigen privaten Render-API-Key
+und das getrennte Backup-Passwort. API-Key nach der Sicherung widerrufen.
