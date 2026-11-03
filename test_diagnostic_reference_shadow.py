@@ -37,6 +37,12 @@ class DiagnosticReferenceShadowTests(unittest.TestCase):
                          result["originalLogicalBytes"] - result["referenceLogicalBytes"])
         self.assertIsNone(result["physicalBytesFreed"])
 
+    def test_aggregate_size_limit(self):
+        events = [{"id": i, "payload": {"text": "x" * 900000}}
+                  for i in range(10)]
+        with self.assertRaises(ValueError):
+            shadow(events)
+
     def test_empty_and_fail_closed(self):
         self.assertEqual(shadow([])["uniquePayloads"], 0)
         with self.assertRaises(ValueError):
