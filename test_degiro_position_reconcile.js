@@ -24,6 +24,15 @@ const csv={kind:'portfolio',records:[{isin:valid,quantity:2,currency:'EUR'}],
 const mail=(side,quantity,price,time,digest)=>({result:{
  status:'pending-review',isin:valid,side,quantity,priceEur:price,
  executedLocal:'02.11.2026 '+time,orderIdDigest:digest}});
+const screenshotStore=store();
+screenshotStore.setItem('bobTradeEvidenceV1',JSON.stringify({
+ [valid]:{isin:valid,currency:'EUR',direction:'SHORT',
+ entry:{price:12.5,quantity:4,at:'02.11.2026 14:05:06',orderId:'screenshot-local'}}
+}));
+const screenshots=p.screenshotPurchases(screenshotStore);
+assert.equal(screenshots.length,1);
+assert.equal(screenshots[0].hasSeconds,true);
+assert.equal(screenshots[0].side,'BUY');
 const buy=mail('BUY',4,12.5,'14:05:06','a'.repeat(64));
 const sell=mail('SELL',2,13,'14:07:08','b'.repeat(64));
 let result=p.compare(csv,parsed,{configured:true,items:[buy,sell]});
@@ -33,6 +42,26 @@ assert.equal(result.items[0].matched,2);
 assert.equal(result.items[0].emailNet,2);
 assert.equal(result.items[0].csvQuantity,2);
 assert.equal(result.items[0].state,'partial-verified');
+const threeSource=p.compare(csv,parsed,{configured:true,items:[buy,sell]},Date.now(),screenshots);
+assert.equal(threeSource.items[0].screenshotBuys,1);
+assert.equal(threeSource.items[0].screenshotCsvMatched,1);
+assert.equal(threeSource.items[0].screenshotMailMatched,1);
+assert.equal(threeSource.items[0].emailNet,2,'Screenshot must not change email net inventory');
+const minutes=store();
+minutes.setItem('bobTradeEvidenceV1',JSON.stringify({
+ [valid]:{isin:valid,currency:'EUR',entry:{price:12.5,quantity:4,at:'02.11.2026 14:05'}}}));
+const min=p.screenshotPurchases(minutes);
+assert.equal(min.length,1);
+assert.equal(min[0].hasSeconds,false);
+const minuteReport=p.compare(csv,parsed,{configured:true,items:[buy,sell]},Date.now(),min);
+assert.equal(minuteReport.items[0].screenshotTimeUncertain,1);
+assert.equal(minuteReport.items[0].screenshotMailMatched,0);
+const wrong=store();
+wrong.setItem('bobTradeEvidenceV1',JSON.stringify({
+ [valid]:{isin:valid,currency:'EUR',entry:{price:-3,quantity:4,at:'02.11.2026 14:05:06'}}}));
+assert.equal(p.screenshotPurchases(wrong).length,0);
+assert.equal(p.screenshotPurchases(store()).length,0);
+
 assert.equal(result.sourceComplete,false);
 assert.equal(result.brokerCurrent,false);
 assert.equal(result.activeTradesModified,false);
