@@ -1118,7 +1118,7 @@ class ProductReadService : AccessibilityService() {
                         val image=org.json.JSONObject().put("at",capturedAt).put("png",
                             android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP))
                         if(semantic) image.put("appText",org.json.JSONObject()
-                            .put("before",org.json.JSONArray(textBefore)).put("after",org.json.JSONArray(textAfter)))
+                            .put("before",org.json.JSONArray(textBefore!!)).put("after",org.json.JSONArray(textAfter!!)))
                         if(localBitmap!=null) {
                             delegatedToLocalOcr=true
                             MorningLocalOcr.read(localBitmap,ids) { paired ->
