@@ -164,10 +164,14 @@ def process(payload,at):
     import evaluator_runtime
     images=[]
     prepared=[None]*len(payload['images'])
-    if any('appText' in image for image in payload['images']):
-        # Send bounded text only; screenshots never enter the JS process.
+    if any('appText' in image or 'localOcr' in image for image in payload['images']):
+        # Prefer paired on-device reading over heavyweight server native OCR.
+        # Only bounded, whitelisted product rows reach the JS parser. Full
+        # screenshots remain in their existing authenticated original batch.
         result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],
-            input=json.dumps({'mode':'prepare-app','images':[{'appText':i.get('appText')} for i in payload['images']]}),
+            input=json.dumps({'mode':'prepare-app','images':[
+                {'appText':i.get('appText'),'localOcr':i.get('localOcr')}
+                for i in payload['images']]}),
             text=True,capture_output=True,timeout=20,check=True)
         prepared=json.loads(result.stdout)
     # Share subprocess admission with Node analyses, releasing it after each
@@ -184,7 +188,9 @@ def process(payload,at):
         if len(child.stdout)>100000:raise ValueError('OCR output limit')
         images.extend(json.loads(child.stdout))
     try:
-        result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':images,'at':at,'appSources':[p is not None for p in prepared]}),text=True,capture_output=True,timeout=20,check=True)
+        result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':images,'at':at,
+            'appSources':[p is not None and 'appText' in image for p,image in zip(prepared,payload['images'])],
+            'localSources':[p is not None and 'localOcr' in image for p,image in zip(prepared,payload['images'])]}),text=True,capture_output=True,timeout=20,check=True)
     except subprocess.CalledProcessError as exc:
         raise ListVerificationError('Ten-row list verification failed') from exc
     return json.loads(result.stdout)
