@@ -69,6 +69,8 @@ class MainActivity : Activity() {
     // Ephemeral, coarse status only: never store transcripts or screenshots.
     private var commandOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
     private var speechOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
+    private var termuxCheckLabel: TextView? = null
+    private var localEscrowOpening = false
     private var imageOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
     private var lastDiagnosticImageCount = 0
 
@@ -80,6 +82,11 @@ class MainActivity : Activity() {
     private fun setCommandTextInternally(text: String) {
         internalCommandChange = true
         try { commandInput.setText(text) } finally { internalCommandChange = false }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!localEscrowOpening) termuxCheckLabel?.text = TermuxBridge.displayStatus(this)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -123,16 +130,21 @@ class MainActivity : Activity() {
         // Termux is NOT an unrestricted remote terminal. This bridge permits
         // only fixed local Python help / offline encrypted backup actions.
         // Passwords remain in Termux's foreground session, never in Bob Handy.
-        val termuxStatus = label("Termux-Verbindung: noch nicht auf diesem Gerät geprüft.")
+        val termuxStatus = label(TermuxBridge.displayStatus(this))
+        termuxCheckLabel = termuxStatus
         button("🔌 Termux-Verbindung prüfen") {
+            localEscrowOpening = false
             val outcome = TermuxBridge.launch(this, TermuxBridge.Action.CHECK)
-            termuxStatus.text = when (outcome) {
-                "TERMUX_REQUESTED" ->
-                    "Termux wurde zum lokalen Verbindungstest aufgefordert. Ergebnis bitte direkt in Termux prüfen; noch kein Ausführungsnachweis."
-                "TERMUX_NOT_INSTALLED" -> "Termux ist auf diesem Gerät nicht sichtbar."
-                "TERMUX_PERMISSION_REQUIRED" ->
-                    "Android-Einstellung: Bob Handy → Berechtigungen → Zusätzliche Berechtigungen → Termux-Befehle erlauben."
-                else -> "Termux-Verbindung nicht gestartet ($outcome). Keine Daten verändert."
+            termuxStatus.text = if (outcome == "TERMUX_REQUESTED")
+                "Festen Termux-Test gestartet. Prüfe den sicheren Rückgabecode …"
+            else TermuxBridge.displayStatus(this)
+            // A foreground CHECK runs too quickly to remain as a terminal
+            // session. Only the private exit-code callback proves execution.
+            for (delay in listOf(1000L, 3500L, 7000L, 16000L)) {
+                termuxStatus.postDelayed({
+                    if (!localEscrowOpening)
+                        termuxStatus.text = TermuxBridge.displayStatus(this)
+                }, delay)
             }
         }
         button("🔐 Archivschlüssel offline sichern – nur lokal") {
@@ -141,6 +153,7 @@ class MainActivity : Activity() {
                 .setMessage("Nur nach eigener Bestätigung. Der Originalschlüssel und das separate Passwort werden ausschließlich im lokalen Termux-Fenster verdeckt eingegeben. Bob Handy und ChatGPT lesen oder versenden sie nicht. Vorher muss das geprüfte Skript auf dem Gerät eingerichtet sein.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Termux öffnen") { _, _ ->
+                    localEscrowOpening = true
                     val outcome=TermuxBridge.launch(this, TermuxBridge.Action.LOCAL_ESCROW)
                     termuxStatus.text=if (outcome=="TERMUX_REQUESTED")
                         "Lokale Sicherung angefordert; Abschluss und USB-Kopie sind noch NICHT bestätigt. Die Eingaben erfolgen ausschließlich in Termux."
