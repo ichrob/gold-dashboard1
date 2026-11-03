@@ -137,6 +137,16 @@ def project(storage):
                 break
     result["largestTableBreakdown"] = breakdown
 
+    layout = storage.get("layout")
+    layout = layout if isinstance(layout, dict) else {}
+    sample = layout.get("diagnosticPayloadEqualitySample")
+    sample = sample if isinstance(sample, dict) else {}
+    result["diagnosticEqualityStatus"] = _choice(
+        sample.get("status"), frozenset(("sampled", "observed-empty")),
+        "not-observed")
+    result["diagnosticEqualityReadOnly"] = True
+    result["diagnosticEqualityDiskBytesFreed"] = None
+
     provider = storage.get("renderVolume")
     provider = provider if isinstance(provider, dict) else {}
     kind = _choice(provider.get("status"), _VOLUME_STATES)
