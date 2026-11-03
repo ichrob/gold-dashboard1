@@ -14,7 +14,7 @@ internal object MorningListFallbackPolicy {
         val exactBatch = Regex("[a-f0-9]{32}")
         // New captures wait for bounded server OCR before falling back.
         // A previous capture explicitly resumed by the user has already
-        // crossed the SERVER's 90-second age gate. It may use that separately
+        // crossed the SERVER's bounded original-image age gate. It may use that separately
         // confirmed earlier list on the very first receipt.
         return (attempt in 18..100 || resumedSavedCapture && attempt in 0..100) &&
             exactBatch.matches(pendingBatch) &&
