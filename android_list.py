@@ -118,33 +118,35 @@ def validate(value, now):
                 if any(not isinstance(row,str) or not 1<=len(row)<=800 or '\x00' in row for row in readings):raise ValueError('Invalid app row')
             if text['before']!=text['after']:raise ValueError('App text changed during capture')
         if 'localOcr' in image:
-            # ML Kit runs on the paired Samsung, offline, over the SAME cropped
-            # PNG at two scales. These are two OCR passes, not independent
-            # issuer/venue sources. Do not accept arbitrary phone-screen text.
+            # Two on-device passes of the same cropped PNG, not two issuers.
             from product_quotes import valid_isin
-            proof=image['localOcr']
-            if not isinstance(proof,dict) or set(proof)!={'expectedIsins','passes'}:
-                raise ValueError('Invalid phone OCR')
-            ids=proof['expectedIsins']
-            passes=proof['passes']
+            local=image['localOcr']
+            if not isinstance(local,dict) or set(local)!={'expectedIsins','passes'}:
+                raise ValueError('Invalid local OCR')
+            ids=local['expectedIsins']
+            passes=local['passes']
             if (not isinstance(ids,list) or not 1<=len(ids)<=10
-                    or any(type(x) is not str or not valid_isin(x) for x in ids)
+                    or any(type(v) is not str or not valid_isin(v) for v in ids)
                     or len(set(ids))!=len(ids)
                     or not isinstance(passes,list) or len(passes)!=2):
-                raise ValueError('Invalid phone OCR identities')
-            for rows in passes:
-                if not isinstance(rows,list) or len(rows)!=len(ids):
-                    raise ValueError('Invalid phone OCR rows')
-                for index,row in enumerate(rows):
-                    if type(row) is not str or not 1<=len(row)<=800 or '\x00' in row:
-                        raise ValueError('Invalid phone OCR row')
-                    if not re.match(r'(?iu)^(?:SG|BNP)\s+Gold\b',row):
-                        raise ValueError('OCR row not a gold product')
-                    if re.search(r'(?iu)\b(?:passwort|password|kontostand|portfolio|order bestätigen|stückzahl kaufen)\b',row):
-                        raise ValueError('Protected text in OCR row')
-                    found=re.findall(r'\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b',row)
-                    if found!=[ids[index]] or not re.search(
-                            r'(?iu)(?:Soci[eé]t[eé]\s+G[eé]n[eé]rale|BNP(?:\s+Paribas)?)\s+OTC\s+(?:EUR|CHF)
+                raise ValueError('Invalid local OCR identities')
+            for reading in passes:
+                if not isinstance(reading,list) or len(reading)!=len(ids):
+                    raise ValueError('Invalid local OCR rows')
+                for index,row in enumerate(reading):
+                    if type(row) is not str or not 1<=len(row)<=800:
+                        raise ValueError('Invalid local OCR text')
+                    line=row.lower()
+                    if (not line.startswith(('sg gold','bnp gold'))
+                            or not line.upper().endswith(('OTC EUR','OTC CHF'))
+                            or any(word in line for word in (
+                                'passwort','password','kontostand',
+                                'portfolio','order bestätigen','stückzahl kaufen'))):
+                        raise ValueError('OCR row outside permitted product layout')
+                    found=re.findall('[A-Z]{2}[A-Z0-9]{9}[0-9]',row)
+                    if found!=[ids[index]]:
+                        raise ValueError('OCR product identity mismatch')
+        stamp=datetime.fromisoformat(image['at'].replace('Z','+00:00'))
         if stamp.tzinfo is None or not now-86400<=stamp.timestamp()<=now+5 or stamp.timestamp()<previous:raise ValueError('Invalid capture time')
         previous=stamp.timestamp()
         if not isinstance(image['png'],str) or len(image['png'])>2000000:raise ValueError('Image too large')
