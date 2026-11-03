@@ -22,7 +22,9 @@ class ImageRetentionUnitTests(unittest.TestCase):
         self.assertIn("FOR UPDATE OF i SKIP LOCKED",sql)
         self.assertIn("'48 hours'",sql)
         self.assertIn("LIMIT %s",sql)
-        self.assertNotIn("VACUUM",sql)
+        # Check only the executable SQL, not the explanatory docstring.
+        db_sql=sql.split('rows=conn.execute(',1)[1].split(').fetchall()',1)[0]
+        self.assertNotIn("VACUUM",db_sql.upper())
 
     def test_absent_image_table_has_no_mutation(self):
         class Query:
