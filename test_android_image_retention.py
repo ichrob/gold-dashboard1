@@ -17,6 +17,8 @@ class ImageRetentionUnitTests(unittest.TestCase):
         self.assertIn("i.parsed_items IS NULL",sql)
         self.assertIn("replacement.token_hash=i.token_hash",sql)
         self.assertIn("replacement.created_at>i.created_at",sql)
+        self.assertIn('jsonb_path_query_array',sql)
+        self.assertIn("'$.images[*].png'",sql)
         self.assertIn("'synced'",sql)
         self.assertIn("AT TIME ZONE 'Europe/Zurich'",sql)
         self.assertIn("FOR UPDATE OF i SKIP LOCKED",sql)
@@ -79,12 +81,13 @@ class ImageRetentionPostgresTests(unittest.TestCase):
         with self.psycopg.connect(self.dsn,autocommit=True) as conn:
             conn.execute('DROP SCHEMA '+self.schema+' CASCADE')
 
-    def add(self,owner,hours,stage,*,parsed=False,pointer=False,processed_hours=None):
+    def add(self,owner,hours,stage,*,parsed=False,pointer=False,processed_hours=None,
+            image_marker='safe-test-only-encoded'):
         from psycopg.types.json import Jsonb
         bid=uuid.uuid4().hex
         date=self.now-timedelta(hours=hours)
         img=({'at':date.isoformat(),'_bobPrivateImageRefV1':'a'*64}
-             if pointer else {'at':date.isoformat(),'png':'safe-test-only-encoded'})
+             if pointer else {'at':date.isoformat(),'png':image_marker})
         receipt=dict(stage=stage,count=10 if parsed else 0)
         with self.connect() as conn:
             conn.execute("""INSERT INTO bob_android_list_images
@@ -120,6 +123,9 @@ class ImageRetentionPostgresTests(unittest.TestCase):
         preserved=self.add('devE',50,'synced',parsed=True)
         pointer=self.add('devF',50,'read-failed',pointer=True)
         pointer_success=self.add('devF',49,'synced',parsed=True)
+        unique=self.add('devG',50,'read-failed',image_marker='unique-older')
+        unique_success=self.add('devG',49,'synced',parsed=True,
+                                image_marker='different-newer')
         result=retention.sweep_once(self.connect)
         self.assertEqual(result['status'],'expired-obsolete-only')
         self.assertEqual(result['removed'],1)
@@ -128,7 +134,8 @@ class ImageRetentionPostgresTests(unittest.TestCase):
         remain=self.remaining()
         self.assertNotIn(old,remain)
         for bid in [newer,foreign,different_day,different_day_success,
-                    active,active_success,preserved,pointer,pointer_success]:
+                    active,active_success,preserved,pointer,pointer_success,
+                    unique,unique_success]:
             self.assertIn(bid,remain)
 
     def test_expiry_is_bounded_to_eight_per_run(self):
