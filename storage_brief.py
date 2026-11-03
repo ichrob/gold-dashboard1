@@ -230,4 +230,93 @@ def project(storage):
                              maximum=1),
         "diskBytesFreed": None
     }
+
+    # Small independent projection; full storage diagnostics can exceed MCP
+    # response limits. Never expose raw rows or impute missing fixed slots.
+    fixed = storage.get("fixedSlotDaily")
+    fixed = fixed if type(fixed) is dict and fixed.get("readOnly") is True else {}
+    latest = fixed.get("latest")
+    latest = latest if type(latest) is dict else {}
+    daily_states = frozenset(("observed", "partial-relations",
+        "missing-both-slots", "missing-baseline-slot",
+        "missing-endpoint-slot", "no-valid-snapshots"))
+    counter_states = frozenset(("observed-reset-unverified",
+        "counter-decrease-reset-or-wrap", "missing-counter-snapshot",
+        "relation-not-observed"))
+    allowed = ("bob_diagnostic_history", "bob_candle_evidence",
+               "bob_decision_audit", "bob_metric_checks",
+               "bob_improvement_observations")
+
+    def signed(value):
+        return (value if type(value) is int and abs(value) <= 10**13 else None)
+
+    detailed = []
+    existing = latest.get("tables")
+    existing = existing if type(existing) is list else []
+    for name in allowed:
+        item = next((r for r in existing if type(r) is dict
+                     and r.get("table") == name), {})
+        counts = item.get("writeCounters")
+        counts = counts if type(counts) is dict else {}
+        keys = ("inserted", "updated", "deleted", "hotUpdated")
+        valid_counts = all(_number(counts.get(k), integer=True) is not None
+                           for k in keys)
+        detailed.append({
+            "table": name,
+            "allocatedBefore": _number(item.get("allocatedBytesBefore"), integer=True),
+            "allocatedAfter": _number(item.get("allocatedBytesAfter"), integer=True),
+            "netAllocated": signed(item.get("netAllocatedBytes")),
+            "counterStatus": _choice(item.get("counterStatus"), counter_states,
+                                     "missing-counter-snapshot"),
+            "counters": ({k: counts[k] for k in keys} if valid_counts
+                         and item.get("counterStatus") == "observed-reset-unverified"
+                         else None),
+        })
+    previous = fixed.get("retrospective")
+    previous = previous if type(previous) is list else []
+    history = []
+    for entry in previous[:7]:
+        if type(entry) is not dict:
+            continue
+        values = entry.get("relationNetBytes")
+        values = ([signed(x) for x in values] if type(values) is list
+                  and len(values) == len(allowed) else [None] * len(allowed))
+        history.append({
+            "startSlot": _number(entry.get("startSlot"), integer=True, maximum=10**11),
+            "endSlot": _number(entry.get("endSlot"), integer=True, maximum=10**11),
+            "status": _choice(entry.get("status"), daily_states,
+                              "no-valid-snapshots"),
+            "dbDelta": signed(entry.get("databaseBytesDelta")),
+            "tableDeltas": values,
+            "counterTablesResetUnverified": _number(
+                entry.get("observedCounterTablesResetUnverified"),
+                integer=True, maximum=5),
+            "counterDecreaseTables": _number(entry.get("counterDecreaseTables"),
+                                             integer=True, maximum=5),
+        })
+    result["fixedSlotDaily"] = {
+        "status": _choice(latest.get("status"), daily_states,
+                          "no-valid-snapshots"),
+        "startSlot": _number(latest.get("startSlot"), integer=True, maximum=10**11),
+        "endSlot": _number(latest.get("endSlot"), integer=True, maximum=10**11),
+        "dbBefore": _number(latest.get("databaseBytesBefore"), integer=True),
+        "dbAfter": _number(latest.get("databaseBytesAfter"), integer=True),
+        "dbDelta": signed(latest.get("databaseBytesDelta")),
+        "tableOrder": list(allowed),
+        "tables": detailed,
+        "retrospectiveDays": history,
+        "oldestLoadedSlot": _number(fixed.get("oldestLoadedSlot"),
+                                   integer=True, maximum=10**11),
+        "newestLoadedSlot": _number(fixed.get("newestLoadedSlot"),
+                                   integer=True, maximum=10**11),
+        "statsResetTimestamp": None,
+        "statsResetVerified": False,
+        "walBytesDelta": None,
+        "bloatBytes": None,
+        "renderVolumeBytesDelta": None,
+        "diskBytesFreed": None,
+        "readOnly": True,
+        "scope": "exact-18-UTC-saved-slot-comparison-not-physical-volume",
+    }
+
     return result

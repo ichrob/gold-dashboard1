@@ -28,3 +28,33 @@ Unbounded data generation cannot fit forever on fixed storage. When a budget
 threshold is crossed, inspect measured table growth before choosing an additional
 lossless archive/export or a separately authorized capacity change. Never silently
 truncate comparison evidence, lower sampling quality or stop a test to hide growth.
+
+
+## Retrospective exact 18:00 UTC daily view
+
+The compact private storageBrief.fixedSlotDaily projects **only existing**
+bob_storage_samples half-hour snapshots. For the latest 18:00 UTC daily
+boundary it compares the exact preceding 18:00 UTC slot; it also reports up
+to seven retrospectively requested daily windows, within the already loaded
+336 snapshot rows. Earlier or missing snapshots remain missing-* and
+unavailable numbers are null, never inferred from neighboring times.
+
+The fixed five-table order is bob_diagnostic_history,
+bob_candle_evidence, bob_decision_audit, bob_metric_checks,
+bob_improvement_observations. The current exact pair exposes before/after
+relation allocation, net allocation, and four cumulative tuple-counter
+differences (INSERT/UPDATE/DELETE/HOT-UPDATE), with per-table missing/reset
+status. Past daily windows expose database deltas, five ordered per-table
+relation allocation deltas and counter coverage, without original row
+contents. The compact view is derived during the existing diagnostic report;
+there is **no new collection, background worker, retention modification, or
+database read**. The current logical database size and independently
+timestamped Render volume value remain separate.
+
+This is not a WAL/bloat measurement, a physical disk savings claim, a
+verified statistics-reset history, or an archived recording of missing
+snapshots. diskBytesFreed and the physical-volume delta are null. A positive
+tuple-counter difference does **not** exclude an unseen PostgreSQL statistics
+reset: reset timestamps were not persisted. Do not authorize deletion,
+table rewrites or maintenance from the report. Historical access is bounded
+by the existing snapshot query and the existing 90-day telemetry retention.
