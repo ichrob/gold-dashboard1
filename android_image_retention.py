@@ -46,6 +46,20 @@ def sweep_once(connect):
                             ELSE false END
                         AND (replacement.created_at AT TIME ZONE 'Europe/Zurich')::date =
                             (i.created_at AT TIME ZONE 'Europe/Zurich')::date
+                        -- A successful newer list can have DIFFERENT product
+                        -- values. It is not proof that a failed older image
+                        -- contains no unique information. Only exact same
+                        -- device-scoped PNG bytes may be discarded.
+                        AND jsonb_typeof(replacement.payload->'images')='array'
+                        AND jsonb_array_length(replacement.payload->'images')=
+                            jsonb_array_length(i.payload->'images')
+                        AND jsonb_array_length(i.payload->'images') BETWEEN 1 AND 4
+                        AND jsonb_array_length(jsonb_path_query_array(
+                            i.payload,'$.images[*].png'))=
+                            jsonb_array_length(i.payload->'images')
+                        AND jsonb_path_query_array(
+                            replacement.payload,'$.images[*].png')=
+                            jsonb_path_query_array(i.payload,'$.images[*].png')
                   )
                 ORDER BY i.created_at, i.batch_id
                 LIMIT %s
