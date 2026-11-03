@@ -1,6 +1,7 @@
 package ch.bob.degirocompanion
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -118,6 +119,33 @@ class MainActivity : Activity() {
         }
         button("DEGIRO-Leser · Einrichtung und Einzelprüfungen") {
             startActivity(Intent(this, ProductReadActivity::class.java))
+        }
+        // Termux is NOT an unrestricted remote terminal. This bridge permits
+        // only fixed local Python help / offline encrypted backup actions.
+        // Passwords remain in Termux's foreground session, never in Bob Handy.
+        val termuxStatus = label("Termux-Verbindung: noch nicht auf diesem Gerät geprüft.")
+        button("🔌 Termux-Verbindung prüfen") {
+            val outcome = TermuxBridge.launch(this, TermuxBridge.Action.CHECK)
+            termuxStatus.text = when (outcome) {
+                "TERMUX_REQUESTED" ->
+                    "Termux wurde zum lokalen Verbindungstest aufgefordert. Ergebnis bitte direkt in Termux prüfen; noch kein Ausführungsnachweis."
+                "TERMUX_NOT_INSTALLED" -> "Termux ist auf diesem Gerät nicht sichtbar."
+                "TERMUX_PERMISSION_REQUIRED" ->
+                    "Android-Einstellung: Bob Handy → Berechtigungen → Zusätzliche Berechtigungen → Termux-Befehle erlauben."
+                else -> "Termux-Verbindung nicht gestartet ($outcome). Keine Daten verändert."
+            }
+        }
+        button("🔐 Archivschlüssel offline sichern – nur lokal") {
+            AlertDialog.Builder(this)
+                .setTitle("Offline-Sicherung in Termux starten?")
+                .setMessage("Nur nach eigener Bestätigung. Der Originalschlüssel und das separate Passwort werden ausschließlich im lokalen Termux-Fenster verdeckt eingegeben. Bob Handy und ChatGPT lesen oder versenden sie nicht. Vorher muss das geprüfte Skript auf dem Gerät eingerichtet sein.")
+                .setNegativeButton("Abbrechen", null)
+                .setPositiveButton("Termux öffnen") { _, _ ->
+                    val outcome=TermuxBridge.launch(this, TermuxBridge.Action.LOCAL_ESCROW)
+                    termuxStatus.text=if (outcome=="TERMUX_REQUESTED")
+                        "Lokale Sicherung angefordert; Abschluss und USB-Kopie sind noch NICHT bestätigt. Die Eingaben erfolgen ausschließlich in Termux."
+                    else "Lokale Sicherung nicht gestartet ($outcome). Schlüssel unverändert."
+                }.show()
         }
         button("📋 Kopierten ChatGPT-Auftrag prüfen") {
             // Explicit tap only. Never monitor or persist the clipboard.
