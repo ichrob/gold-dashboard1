@@ -128,6 +128,9 @@ class WriterPGTests(unittest.TestCase):
         when=datetime.fromtimestamp(self.now,tz=timezone.utc).isoformat()
         proof={'latestPersistedAttempt':{
             'status':'verified','restoreVerified':True,'remoteDownloadVerified':True,
+            'encryptionVerified':True,'encryptionVersion':'aes-256-gcm-stream-v1',
+            'recoveryKeyVerified':True,'restoreIsolation':'separate-database-instance',
+            'scope':'reviewed-evidence-tables-not-full-database-backup',
             'updatedAt':when,'evidenceDeleted':False}}
         with patch.dict(os.environ,{'BOB_COLD_DECISION_PRODUCTS_ENABLED':'0'}):
             with self.conn.transaction():
@@ -163,6 +166,9 @@ class WriterPGTests(unittest.TestCase):
             'latestPersistedAttempt':{
                 'status':'verified','restoreVerified':True,
                 'remoteDownloadVerified':True,
+            'encryptionVerified':True,'encryptionVersion':'aes-256-gcm-stream-v1',
+            'recoveryKeyVerified':True,'restoreIsolation':'separate-database-instance',
+            'scope':'reviewed-evidence-tables-not-full-database-backup',
                 'updatedAt':datetime.fromtimestamp(self.now-86400,tz=timezone.utc).isoformat()}})
         self.assertEqual(result['status'],'sampled')
         self.assertEqual(result['backupProofState'],'verified-but-stale')
@@ -236,6 +242,9 @@ class RetainedArchiveProofTests(unittest.TestCase):
             'status':'verified',
             'updatedAt':datetime.fromtimestamp(now-86400,timezone.utc).isoformat(),
             'restoreVerified':True,'remoteDownloadVerified':True,
+            'encryptionVerified':True,'encryptionVersion':'aes-256-gcm-stream-v1',
+            'recoveryKeyVerified':True,'restoreIsolation':'separate-database-instance',
+            'scope':'reviewed-evidence-tables-not-full-database-backup',
             'evidenceDeleted':False}}
         self.assertEqual(writer._proof_state(proof,now),'verified-but-stale')
         proof['latestVerifiedAttempt']['updatedAt']=datetime.fromtimestamp(
@@ -243,6 +252,30 @@ class RetainedArchiveProofTests(unittest.TestCase):
         self.assertEqual(writer._proof_state(proof,now),'verified-fresh')
         proof['latestVerifiedAttempt']['restoreVerified']=False
         self.assertEqual(writer._proof_state(proof,now),'no-verified-restore')
+
+
+class RecoveryProofBlockingTests(unittest.TestCase):
+    def test_plaintext_or_unverified_recovery_never_authorizes_pilot(self):
+        from datetime import datetime, timezone
+        now=100000
+        receipt={
+            'status':'verified','updatedAt':datetime.fromtimestamp(
+                now,tz=timezone.utc).isoformat(),
+            'restoreVerified':True,'remoteDownloadVerified':True,
+            'encryptionVerified':True,'encryptionVersion':'aes-256-gcm-stream-v1',
+            'restoreIsolation':'separate-database-instance',
+            'scope':'reviewed-evidence-tables-not-full-database-backup',
+            'evidenceDeleted':False}
+        self.assertEqual(writer._proof_state(
+            {'latestVerifiedAttempt':receipt},now),
+            'recovery-or-archive-proof-missing')
+        receipt['recoveryKeyVerified']=True
+        self.assertEqual(writer._proof_state(
+            {'latestVerifiedAttempt':receipt},now),'verified-fresh')
+        receipt['encryptionVerified']=False
+        self.assertEqual(writer._proof_state(
+            {'latestVerifiedAttempt':receipt},now),
+            'recovery-or-archive-proof-missing')
 
 
 class IndependentProductionGates(unittest.TestCase):
@@ -256,7 +289,10 @@ class IndependentProductionGates(unittest.TestCase):
         with patch.dict(os.environ,{'BOB_COLD_DECISION_PRODUCTS_ENABLED':'1'}), \
              patch('storage_budget.archive_status',return_value={
                  'latestPersistedAttempt':{'status':'verified','updatedAt':old,
-                     'restoreVerified':True,'remoteDownloadVerified':True}}), \
+                     'restoreVerified':True,'remoteDownloadVerified':True,
+             'encryptionVerified':True,'encryptionVersion':'aes-256-gcm-stream-v1',
+            'recoveryKeyVerified':True,'restoreIsolation':'separate-database-instance',
+            'scope':'reviewed-evidence-tables-not-full-database-backup',}}), \
              patch('render_disk_metrics.report') as volume, \
              patch.object(writer,'init') as init:
             result=writer.run_once(factory=factory,now=now,approval={
@@ -274,7 +310,10 @@ class IndependentProductionGates(unittest.TestCase):
         proof={'latestPersistedAttempt':{
             'status':'verified','updatedAt':datetime.fromtimestamp(
                 now,tz=timezone.utc).isoformat(),
-            'restoreVerified':True,'remoteDownloadVerified':True}}
+            'restoreVerified':True,'remoteDownloadVerified':True,
+             'encryptionVerified':True,'encryptionVersion':'aes-256-gcm-stream-v1',
+            'recoveryKeyVerified':True,'restoreIsolation':'separate-database-instance',
+            'scope':'reviewed-evidence-tables-not-full-database-backup',}}
         with patch.dict(os.environ,{'BOB_COLD_DECISION_PRODUCTS_ENABLED':'1'}), \
              patch('storage_budget.archive_status',return_value=proof), \
              patch('render_disk_metrics.report',return_value={
