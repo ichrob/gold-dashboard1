@@ -5,9 +5,13 @@ package ch.bob.degirocompanion
  * evidence stays pending; this policy does not approve trading or orders. */
 internal object MorningListFallbackPolicy {
     fun allowed(attempt: Int, pendingBatch: String, earlierBatch: String,
-                plan: List<SelectiveDetailPlan.Entry>?): Boolean {
+                plan: List<SelectiveDetailPlan.Entry>?, resumedSavedCapture: Boolean = false): Boolean {
         val exactBatch = Regex("[a-f0-9]{32}")
-        return attempt in 18..100 &&
+        // New captures wait for bounded server OCR before falling back.
+        // A previous capture explicitly resumed by the user has already
+        // crossed the SERVER's 90-second age gate. It may use that separately
+        // confirmed earlier list on the very first receipt.
+        return (attempt in 18..100 || resumedSavedCapture && attempt in 0..100) &&
             exactBatch.matches(pendingBatch) &&
             exactBatch.matches(earlierBatch) &&
             earlierBatch != pendingBatch &&
