@@ -155,9 +155,20 @@ class MainActivity : Activity() {
                 .setPositiveButton("Termux öffnen") { _, _ ->
                     localEscrowOpening = true
                     val outcome=TermuxBridge.launch(this, TermuxBridge.Action.LOCAL_ESCROW)
-                    termuxStatus.text=if (outcome=="TERMUX_REQUESTED")
-                        "Lokale Render-Sicherung in Termux angefordert. API-Schlüssel und Backup-Passwort nur dort eingeben. Abschluss, Archivprüfung und USB-Kopie sind NICHT bestätigt."
-                    else "Lokale Sicherung nicht gestartet ($outcome). Schlüssel unverändert."
+                    // The Termux service may create the terminal session without
+                    // bringing its Activity on top on Android 10+. This second
+                    // launch is triggered by the same local, confirmed tap;
+                    // never by remote commands or automatic background work.
+                    val foreground=if (outcome=="TERMUX_REQUESTED")
+                        TermuxBridge.showForeground(this) else "TERMUX_NOT_REQUESTED"
+                    termuxStatus.text=when {
+                        outcome!="TERMUX_REQUESTED" ->
+                            "Lokale Sicherung nicht gestartet ($outcome). Schlüssel unverändert."
+                        foreground=="TERMUX_ACTIVITY_REQUESTED" ->
+                            "Termux in den Vordergrund angefordert. Der dortige Start und die USB-Sicherung sind noch nicht bestätigt."
+                        else ->
+                            "Termux-Auftrag übergeben, aber automatischer Bildschirmwechsel fehlgeschlagen ($foreground). Termux bitte selbst öffnen und neueste Sitzung prüfen."
+                    }
                 }.show()
         }
         button("📋 Kopierten ChatGPT-Auftrag prüfen") {

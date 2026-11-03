@@ -153,6 +153,28 @@ os.execv(sys.executable,(sys.executable,str(dest/names[1])))
         else -> "Termux-Verbindung noch nicht geprüft."
     }
 
+    /**
+     * Bring only the installed, expected Termux application to foreground.
+     * Called ONLY inside Bob Handy's local, explicitly confirmed backup tap.
+     * Launching the activity is not proof the RUN_COMMAND session executed.
+     * No shell text, file data, secrets or remote action are passed here.
+     */
+    fun showForeground(context: Context): String {
+        val intent = context.packageManager.getLaunchIntentForPackage(PACKAGE)
+            ?: return "TERMUX_APP_UNAVAILABLE"
+        return try {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            "TERMUX_ACTIVITY_REQUESTED"
+        } catch (_: SecurityException) {
+            "TERMUX_ACTIVITY_RESTRICTED"
+        } catch (_: IllegalStateException) {
+            "TERMUX_ACTIVITY_RESTRICTED"
+        } catch (_: RuntimeException) {
+            "TERMUX_ACTIVITY_UNAVAILABLE"
+        }
+    }
+
     fun launch(context: Context, action: Action): String {
         if (context.packageManager.getLaunchIntentForPackage(PACKAGE) == null) {
             if (action == Action.CHECK) recordCheck(context, "TERMUX_NOT_INSTALLED")
