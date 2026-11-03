@@ -40,23 +40,47 @@ internal object TermuxBridge {
     // Render backup. No remote shell parameters or fetched executable code.
     // Both sources are compared byte-for-byte with audited main files in CI.
     private val INSTALL_AND_START = """
-import base64,gzip,hashlib,os,pathlib,sys
+import base64,gzip,hashlib,os,pathlib,sys,tempfile
 names=('bob_offline_key_escrow.py','bob_render_to_offline_escrow.py')
 dest=pathlib.Path.home()/'bob-sicher'
 dest.mkdir(mode=0o700,parents=True,exist_ok=True)
+# Only the already published signed v10480 source may be upgraded in place.
+# This is executable source code only, never a token, vault or user document.
+LEGACY_RENDER_BLOB='c506752139eb85487bab7ddd5dc8b0e1da46204c'
 for i,name in enumerate(names):
     payload=gzip.decompress(base64.b64decode(sys.argv[1+2*i],validate=True))
     expected=sys.argv[2+2*i]
     if len(payload)>131072 or hashlib.sha256(payload).hexdigest()!=expected:
         raise ValueError('Signed application source integrity failed')
     path=dest/name
+    if path.is_symlink():
+        raise ValueError('Symbolic link refused')
     if path.exists():
-        if hashlib.sha256(path.read_bytes()).hexdigest()!=expected:
-            raise ValueError('Existing local source differs; no overwrite')
+        prior=path.read_bytes()
+        if hashlib.sha256(prior).hexdigest()!=expected:
+            blob=b'blob '+str(len(prior)).encode()+b'\x00'+prior
+            # Compare exactly to the prior Git blob object, not a guessed file.
+            if name!='bob_render_to_offline_escrow.py' or hashlib.sha1(blob).hexdigest()!=LEGACY_RENDER_BLOB:
+                raise ValueError('Existing local source differs; no overwrite')
+            fd,tmp=tempfile.mkstemp(prefix='.escrow-code-',suffix='.tmp',dir=dest)
+            try:
+                with os.fdopen(fd,'wb') as stream:
+                    stream.write(payload)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.chmod(tmp,0o600)
+                os.replace(tmp,path)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
     else:
-        fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        flags=os.O_WRONLY|os.O_CREAT|os.O_EXCL
+        if hasattr(os,'O_NOFOLLOW'):
+            flags|=os.O_NOFOLLOW
+        fd=os.open(path,flags,0o600)
         with os.fdopen(fd,'wb') as stream:
             stream.write(payload)
+
 os.execv(sys.executable,(sys.executable,str(dest/names[1])))
 """.trimIndent()
 

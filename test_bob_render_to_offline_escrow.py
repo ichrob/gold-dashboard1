@@ -20,7 +20,7 @@ class DirectEscrowTests(unittest.TestCase):
             return [{"service": {"id": "srv-abcdef123456789", "name": "bob-push-service"},
                      "cursor": "done"}]
         if path == "/v1/services/srv-abcdef123456789/env-vars/PUSH_SERVICE_TOKEN":
-            return {"envVar": {"key": "PUSH_SERVICE_TOKEN", "value": self.ORIGINAL}}
+            return {"key": "PUSH_SERVICE_TOKEN", "value": self.ORIGINAL}
         self.fail("unexpected network endpoint")
 
     def test_real_original_is_locally_encrypted_without_chat_or_disk_plaintext(self):
@@ -54,7 +54,7 @@ class DirectEscrowTests(unittest.TestCase):
             self.assertFalse(output.exists())
             def wrong_env(token,path):
                 if "env-vars/" in path:
-                    return {"envVar":{"key":"OTHER", "value":self.ORIGINAL}}
+                    return {"key":"OTHER", "value":self.ORIGINAL}
                 return self.api(token,path)
             with self.assertRaises(transfer.TransportBlocked):
                 transfer.run_once(input_secret=lambda _:self.API,
@@ -69,7 +69,58 @@ class DirectEscrowTests(unittest.TestCase):
         with self.assertRaises(transfer.TransportBlocked):
             transfer.original_root(self.API,lambda token,path:
                 [{"service":{"name":"bob-push-service","id":"srv-aaaaaaaa"}}]
-                if path=="/v1/services?limit=100" else {"envVar":{}})
+                if path=="/v1/services?limit=100" else {"key":"OTHER","value":"x"*64})
+
+    def test_official_render_single_response_is_bare_env_var(self):
+        # Public OpenAPI: GET /v1/services/{id}/env-vars/{key}
+        # returns a bare envVar, unlike the list endpoint.
+        self.assertEqual(
+            transfer.original_root(self.API, self.api), self.ORIGINAL.encode())
+        def wrapped(token,path):
+            if "/env-vars/" in path:
+                return {"envVar":{"key":"PUSH_SERVICE_TOKEN","value":self.ORIGINAL}}
+            return self.api(token,path)
+        with self.assertRaises(transfer.TransportBlocked):
+            transfer.original_root(self.API, wrapped)
+
+    def test_http_statuses_are_distinguished_without_response_body(self):
+        import io
+        import urllib.error
+        def Fake(error_code):
+            class Opener:
+                def open(self, request, timeout):
+                    raise urllib.error.HTTPError(
+                        request.full_url, error_code, "Do not echo secret response",
+                        {}, io.BytesIO(b'API_PRIVATE_VALUE_NOT_FOR_LOGS'))
+            return Opener()
+        for status, expected in (
+            (401,"RENDER_AUTH_REJECTED"),
+            (403,"RENDER_ACCESS_DENIED"),
+            (404,"RENDER_RESOURCE_NOT_FOUND"),
+            (429,"RENDER_RATE_LIMITED")):
+            with self.subTest(status=status):
+                with self.assertRaises(transfer.TransportBlocked) as context:
+                    transfer.read_json(self.API, "/v1/services?limit=100",
+                                       opener=Fake(status))
+                self.assertEqual(str(context.exception), expected)
+                self.assertNotIn("API_PRIVATE",str(context.exception))
+
+    def test_cli_only_prints_allowlisted_status_codes(self):
+        import io
+        import sys
+        from unittest.mock import patch
+        stream=io.StringIO()
+        with patch.object(sys,"argv",["bob_render_to_offline_escrow.py"]), \
+             patch.object(transfer,"run_once",
+                          side_effect=transfer.TransportBlocked(
+                              "RENDER_ACCESS_DENIED")), \
+             patch("sys.stdout",new=stream):
+            self.assertEqual(transfer.main(),1)
+        output=stream.getvalue()
+        self.assertEqual(json.loads(output)["diagnosticCode"],
+                         "RENDER_ACCESS_DENIED")
+        self.assertNotIn(self.API,output)
+        self.assertNotIn(self.ORIGINAL,output)
 
     def test_no_credential_in_url_and_no_remote_mutations(self):
         class FakeResponse:

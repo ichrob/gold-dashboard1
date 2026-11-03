@@ -75,8 +75,14 @@ def read_json(token, path, *, opener=None):
             if len(data) > MAX_REPLY:
                 raise TransportBlocked("Oversized Render API response")
             return json.loads(data.decode("utf-8"))
-    except (urllib.error.URLError, OSError, UnicodeError, ValueError) as error:
-        raise TransportBlocked("Render API read unavailable") from None
+    except urllib.error.HTTPError as error:
+        # Never echo Render's response body: errors may contain metadata.
+        # Only these fixed numeric status classes reach the local terminal.
+        codes = {401: "RENDER_AUTH_REJECTED", 403: "RENDER_ACCESS_DENIED",
+                 404: "RENDER_RESOURCE_NOT_FOUND", 429: "RENDER_RATE_LIMITED"}
+        raise TransportBlocked(codes.get(error.code, "RENDER_HTTP_ERROR")) from None
+    except (urllib.error.URLError, OSError, UnicodeError, ValueError):
+        raise TransportBlocked("RENDER_API_UNREACHABLE") from None
 
 
 def discover_service(token, fetch=read_json):
@@ -121,13 +127,17 @@ def discover_service(token, fetch=read_json):
 def original_root(token, fetch=read_json):
     sid = discover_service(token, fetch)
     data = fetch(token, f"/v1/services/{sid}/env-vars/{TARGET_ENV_KEY}")
-    env = data.get("envVar") if isinstance(data, dict) else None
+    # Render's official OpenAPI: single GET returns the *bare* envVar
+    # {"key": ..., "value": ...}. Only the list endpoint wraps each
+    # result as {"envVar": {...}, "cursor": ...}.
+    # Fail closed on a wrapper or any alternate/unexpected shape.
+    env = data if isinstance(data, dict) and set(data) == {"key", "value"} else None
     if (not isinstance(env, dict) or
             env.get("key") != TARGET_ENV_KEY or
             type(env.get("value")) is not str):
         # This includes linked environment-group values, which are NOT
         # implicitly accessible through the service endpoint.
-        raise TransportBlocked("Original root not directly available")
+        raise TransportBlocked("ENV_VAR_UNAVAILABLE_OR_LINKED_GROUP")
     root = env["value"].encode("utf-8")
     if not 32 <= len(root) <= 4096 or b"\x00" in root:
         raise TransportBlocked("Invalid original root")
@@ -176,8 +186,16 @@ def main():
         print(json.dumps(result, sort_keys=True))
         return 0
     except Exception as error:
-        # Never print URLs, exception messages, API secrets or the root.
-        print(json.dumps({"status": "blocked", "errorType": type(error).__name__,
+        # Only allowlisted fixed diagnostic codes. No exception message,
+        # response payload, URL, environment value or API secret is printed.
+        allowed = {"RENDER_AUTH_REJECTED", "RENDER_ACCESS_DENIED",
+                   "RENDER_RESOURCE_NOT_FOUND", "RENDER_RATE_LIMITED",
+                   "RENDER_HTTP_ERROR", "RENDER_API_UNREACHABLE",
+                   "ENV_VAR_UNAVAILABLE_OR_LINKED_GROUP"}
+        code = (str(error) if isinstance(error, TransportBlocked)
+                and str(error) in allowed else "LOCAL_OR_SCHEMA_BLOCKED")
+        print(json.dumps({"status": "blocked", "diagnosticCode": code,
+                          "errorType": type(error).__name__,
                           "productionDataChanged": False}, sort_keys=True))
         return 1
 
