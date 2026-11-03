@@ -126,6 +126,23 @@ class StorageBriefTests(unittest.TestCase):
         self.assertIsNone(result["physicalBytesFreed"])
         self.assertFalse(result["decisionProductPilotAuthorized"])
 
+    def test_layout_breakdown_requires_valid_sums(self):
+        source = self.source()
+        source["layout"] = {"status": "observed", "tables": [
+            {"table": "bob_diagnostic_history", "totalBytes": 1000,
+             "heapBytes": 400, "indexBytes": 300, "toastBytes": 200,
+             "otherBytes": 100},
+            {"table": "bob_decision_audit", "totalBytes": 1000,
+             "heapBytes": 400, "indexBytes": 300, "toastBytes": 200,
+             "otherBytes": 99},
+        ]}
+        result = storage_brief.project(source)
+        self.assertEqual(len(result["largestTableBreakdown"]), 1)
+        self.assertEqual(result["largestTableBreakdown"][0]["indexBytes"], 300)
+        self.assertIsNone(result["physicalBytesFreed"])
+        source["layout"]["status"] = "not-observed"
+        self.assertEqual(storage_brief.project(source)["largestTableBreakdown"], [])
+
     def test_oversized_storage_omission_still_keeps_small_brief(self):
         source = self.source()
         report = bob_diagnostics.collect({"storage": lambda: source})
