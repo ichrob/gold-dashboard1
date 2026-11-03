@@ -64,7 +64,7 @@ def pack_batch(original,scope):
     seen=set()
     for i,image in enumerate(imgs):
         if (type(image) is not dict or set(image) not in
-                ({'at','png'},{'at','png','appText'})
+                ({'at','png'},{'at','png','appText'},{'at','png','localOcr'})
                 or type(image.get('at')) is not str):
             raise ValueError('Invalid image shape')
         encoded=image['png']
@@ -97,7 +97,7 @@ def restore_batch(pointer_batch,objects,scope):
     restored=copy.deepcopy(pointer_batch)
     for i,image in enumerate(pointer_batch['images']):
         if (type(image) is not dict
-                or set(image) not in ({'at',_REF},{'at','appText',_REF})
+                or set(image) not in ({'at',_REF},{'at','appText',_REF},{'at','localOcr',_REF})
                 or type(image.get('at')) is not str):
             raise ValueError('Ambiguous image pointer')
         key=image[_REF]
