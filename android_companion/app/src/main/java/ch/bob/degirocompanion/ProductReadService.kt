@@ -524,6 +524,10 @@ class ProductReadService : AccessibilityService() {
                         val ids=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n"){it.text.uppercase()}).map{it.value}.toSet()
                         if(ids.isNotEmpty() && ids!=setOf(MorningReadRun.target)) { finishBatchProduct("IDENTITY_CHANGED");return }
                     }
+                    // Diagnostic counters are coarse shape flags; no raw text, prices,
+                    // ISINs or account content are retained or transferred.
+                    if (MorningReadRun.running && MorningReadRun.reading && !sensitive)
+                        ProductReadDiagnostics.detailFieldShape(lines.distinct(), MorningReadRun.target)
                     val previousReadWindow = pageReader.sameWindow(root.windowId)
                     val step = pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
                         forwardIndex != null, backwardIndex != null,
