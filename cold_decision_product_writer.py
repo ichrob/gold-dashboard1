@@ -64,6 +64,15 @@ def _proof_state(proof, seconds, max_age_seconds=6*3600):
             receipt.get('remoteDownloadVerified') is not True or
             receipt.get('evidenceDeleted') is True):
         return 'no-verified-restore'
+    # A historical product field is not replaced using legacy plaintext
+    # backups, an unisolated restore, or an encryption key that has not been
+    # independently exercised against the downloaded remote original.
+    if (receipt.get('encryptionVerified') is not True or
+            receipt.get('encryptionVersion') != 'aes-256-gcm-stream-v1' or
+            receipt.get('recoveryKeyVerified') is not True or
+            receipt.get('restoreIsolation') != 'separate-database-instance' or
+            receipt.get('scope') != 'reviewed-evidence-tables-not-full-database-backup'):
+        return 'recovery-or-archive-proof-missing'
     try:
         updated = datetime.fromisoformat(str(receipt['updatedAt']).replace('Z', '+00:00'))
         if updated.tzinfo is None:
