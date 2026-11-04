@@ -6,6 +6,54 @@ import org.junit.Test
 class MorningOcrLayoutTest {
     private fun line(text:String,x:Int,y:Int)=MorningOcrLayout.Line(text,x,y,x+100,y+20)
 
+    @Test fun recoveryJoinsDetachedHeadingFragmentsWithTheirGeometry() {
+        val id="DE000SQ02JQ6"
+        val blocks=listOf(line("SG",10,50),
+            line("Gold Turbo BEST Open-End Call BAR 4000 BP 4000 Bv 10 |",120,52),
+            line(id,10,100),line("Societe Generale",10,150),line("OTC",250,151),line("EUR",500,152))
+        // No raw ML Kit line starts with SG Gold. The same visual-row join
+        // used by the strict parser must also feed the crop planner.
+        assertFalse(blocks.any { it.text.startsWith("SG Gold") })
+        val plan=MorningOcrLayout.productBands(blocks,listOf(id),300)!!
+        assertEquals(listOf(id),plan.map { it.id })
+        assertTrue(plan.single().top<=50 && plan.single().bottom>=172)
+        assertEquals(plan,MorningOcrLayout.productBands(blocks.reversed(),listOf(id),300))
+        assertNotNull(MorningLocalOcr.productRows(MorningOcrLayout.readingOrder(blocks)!!,listOf(id)))
+    }
+
+    @Test fun laterIncompleteOpticalPassCannotOverwriteEarlierUsablePlan() {
+        val id="DE000SQ02JQ6"
+        val good=listOf(line("SG Gold Turbo Call",10,50),line(id,10,100),line("Societe Generale OTC EUR",10,150))
+        val incomplete=good.drop(1)
+        val first=MorningOcrLayout.RecoveryPlanner(listOf(id),300)
+        first.offer(good)
+        val accepted=first.bands
+        first.offer(incomplete) { fail("A later failed pass discarded an existing plan") }
+        assertEquals(accepted,first.bands)
+        val second=MorningOcrLayout.RecoveryPlanner(listOf(id),300)
+        val issues=mutableListOf<MorningOcrLayout.PlanIssue>()
+        second.offer(incomplete) { issues.add(it) }
+        assertNull(second.bands)
+        assertEquals(listOf(MorningOcrLayout.PlanIssue.HEADING_MISSING),issues)
+        second.offer(good)
+        assertEquals(accepted,second.bands)
+    }
+
+    @Test fun planRejectionsExposeOnlyFixedReasonsAndKeepMissingIdentitiesBlocked() {
+        val id="DE000SQ02JQ6"
+        val good=listOf(line("SG Gold Turbo Call",10,50),line(id,10,100),line("Societe Generale OTC EUR",10,150))
+        val cases=listOf(
+            good.filter { it.text!=id } to MorningOcrLayout.PlanIssue.IDENTITY_MISSING,
+            (good+line(id,10,200)) to MorningOcrLayout.PlanIssue.IDENTITY_DUPLICATE,
+            good.dropLast(1) to MorningOcrLayout.PlanIssue.FOOTER_MISSING)
+        for((lines,expected) in cases) {
+            val reasons=mutableListOf<MorningOcrLayout.PlanIssue>()
+            assertNull(MorningOcrLayout.productBands(lines,listOf(id),300) { reasons.add(it) })
+            assertEquals(listOf(expected),reasons)
+            assertFalse(reasons.joinToString().contains(id))
+        }
+    }
+
     @Test fun regionRecoveryRequiresEveryUniqueIdentityHeadingAndFooterInOrder() {
         val ids=listOf("DE000SQ02JQ6","DE000FG8NHQ3")
         val lines=listOf(line("SG Gold Turbo BEST Open-End Call",10,50),
