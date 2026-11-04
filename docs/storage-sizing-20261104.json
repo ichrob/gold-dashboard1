@@ -1,0 +1,64 @@
+{
+  "measuredAt": "2026-11-04T20:05:12Z",
+  "jobId": "job-dblor2k9v7es73ctuvcg",
+  "codeRevision": "bbd7f1e6e33c1790db4b0d7428a2c2a2870ab5cf",
+  "status": "succeeded",
+  "startedAt": "2026-11-04T19:54:51Z",
+  "finishedAt": "2026-11-04T20:05:12Z",
+  "runtimeSeconds": 621,
+  "budgetAuthorizedEUR": 1,
+  "computeCostEstimateUSD": 0.0016770833333333334,
+  "costEstimateNotInvoice": true,
+  "supervisor": {
+    "exitCode": 0,
+    "timedOut": false,
+    "stderrBytes": 0
+  },
+  "cleanup": {
+    "databaseBytes": 8623807,
+    "userTables": 0
+  },
+  "productionVolumeBytes": 758222850,
+  "physicalProductionBytesFreed": 0,
+  "productionRowsModified": false,
+  "scope": "isolated-sizing-model",
+  "tables": [
+    {
+      "copyVerified": true,
+      "rebuiltRelationBytes": 151814144,
+      "rows": 33722,
+      "scenarios": [
+        {
+          "ageDays": 14,
+          "archiveUploadVerified": false,
+          "archivedRows": 11760,
+          "beforeVacuumBytes": 184950784,
+          "compactedRelationBytes": 113451008,
+          "distinctOriginals": 11305,
+          "modelOnly": true,
+          "modeledLocationLedgerBytes": 3899392,
+          "reconstructionVerified": true
+        },
+        {
+          "ageDays": 7,
+          "archiveUploadVerified": false,
+          "archivedRows": 11983,
+          "beforeVacuumBytes": 114384896,
+          "compactedRelationBytes": 112893952,
+          "distinctOriginals": 11509,
+          "modelOnly": true,
+          "modeledLocationLedgerBytes": 3948544,
+          "reconstructionVerified": true
+        }
+      ],
+      "sourceRelationBytes": 155074560,
+      "table": "bob_decision_audit"
+    }
+  ],
+  "limitations": [
+    "Single decision table only; no sub-500 MB feasibility proof.",
+    "External archives and location records are modeled, not uploaded or read back.",
+    "Production per-decision reference overhead not included; actual savings may be smaller.",
+    "No production compaction performed."
+  ]
+}
