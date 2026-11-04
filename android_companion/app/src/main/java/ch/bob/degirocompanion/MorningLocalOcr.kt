@@ -14,6 +14,15 @@ import org.json.JSONObject
  * original image are OCR agreement, NOT two independent issuer sources.
  */
 internal object MorningLocalOcr {
+    private fun positionedRows(text:com.google.mlkit.vision.text.Text,expected:List<String>):List<String>? {
+        val lines=mutableListOf<MorningOcrLayout.Line>()
+        for(block in text.textBlocks) for(line in block.lines) {
+            val box=line.boundingBox ?: return null
+            lines.add(MorningOcrLayout.Line(line.text,box.left,box.top,box.right,box.bottom))
+        }
+        val ordered=MorningOcrLayout.readingOrder(lines) ?: return null
+        return productRows(ordered,expected)
+    }
     private val heading=Regex("(?iu)\\b(?:SG|BNP)\\s+Gold\\b")
     private val isin=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
     private val footer=Regex(
@@ -73,7 +82,7 @@ internal object MorningLocalOcr {
         runCatching {
             client.process(InputImage.fromBitmap(crop,0)).addOnCompleteListener { first ->
                 val rows=if(first.isSuccessful)
-                    productRows(first.result.text,expected) else null
+                    positionedRows(first.result,expected) else null
                 if(rows==null) { complete(null);return@addOnCompleteListener }
                 runCatching {
                     val width=minOf(1600,(crop.width*1.15).toInt())
@@ -81,7 +90,7 @@ internal object MorningLocalOcr {
                     scaled=Bitmap.createScaledBitmap(crop,width,height,true)
                     client.process(InputImage.fromBitmap(scaled!!,0)).addOnCompleteListener { second ->
                         val other=if(second.isSuccessful)
-                            productRows(second.result.text,expected) else null
+                            positionedRows(second.result,expected) else null
                         // Do not require identical OCR strings: the existing
                         // server grammar independently reconciles field votes.
                         val paired=if(other!=null && other.size==rows.size)

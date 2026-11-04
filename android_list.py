@@ -181,11 +181,17 @@ def receipt(value, now):
 
 def status(conn):
     if not conn.execute("SELECT to_regclass('bob_android_list_images')").fetchone()[0]:return []
-    rows=conn.execute("""SELECT i.batch_id, i.created_at, jsonb_array_length(i.payload->'images'), i.import_receipt, i.processing_attempts, i.processing_at
+    rows=conn.execute("""SELECT i.batch_id, i.created_at, jsonb_array_length(i.payload->'images'), i.import_receipt, i.processing_attempts, i.processing_at,
+        (SELECT count(*) FROM jsonb_array_elements(i.payload->'images') image WHERE image ? 'appText'),
+        (SELECT count(*) FROM jsonb_array_elements(i.payload->'images') image WHERE image ? 'localOcr')
         FROM bob_android_list_images i JOIN bob_android_diagnostic_devices d USING(token_hash)
         WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
         ORDER BY i.created_at DESC LIMIT 5""").fetchall()
-    return [{'batchId':r[0],'uploadedAt':r[1].isoformat(),'imageCount':r[2],'import':r[3],'processingAttempts':r[4],'processingAt':r[5].isoformat() if r[5] else None} for r in rows]
+    # Counts only: no PNG, OCR strings, coordinates or product/account values.
+    # Presence is not parser acceptance or proof of a successful import.
+    return [{'batchId':r[0],'uploadedAt':r[1].isoformat(),'imageCount':r[2],'import':r[3],'processingAttempts':r[4],'processingAt':r[5].isoformat() if r[5] else None,
+             'recognitionAttachments':{'appTextImages':r[6],'localOcrImages':r[7],
+                 'imageOnly':r[2]-r[6]-r[7]}} for r in rows]
 
 def handle(conn,payload,now):
     # Original screenshots with verified parsed fields may carry unique venue
