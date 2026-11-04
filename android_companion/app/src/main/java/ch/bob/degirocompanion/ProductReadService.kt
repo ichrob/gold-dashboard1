@@ -1008,6 +1008,11 @@ class ProductReadService : AccessibilityService() {
             ProductReadRequest.cancel()
             return
         }
+        ProductReadDiagnostics.record(when {
+            image.has("appText") -> ProductReadDiagnostics.Outcome.LIST_APP_TEXT_ATTACHED
+            image.has("localOcr") -> ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_ATTACHED
+            else -> ProductReadDiagnostics.Outcome.LIST_SERVER_OCR_REQUIRED
+        })
         listImages.put(image)
         listCropTop=cropTop
         listWindowId=windowId
