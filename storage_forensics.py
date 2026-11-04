@@ -208,6 +208,18 @@ def wal_directory_observation(conn):
     Files can be preallocated/recycled, so bytes are never reclaimableBytes.
     """
     try:
+        # pg_ls_waldir is restricted to a superuser or pg_monitor member on
+        # managed PostgreSQL.  Calling it and swallowing InsufficientPrivilege
+        # still emits an ERROR in the provider log on every status read.  Test
+        # the fixed role capability first so an unsupported optional metric is
+        # quiet as well as fail-closed.
+        with conn.transaction():
+            allowed=conn.execute("""SELECT coalesce((SELECT rolsuper
+                FROM pg_roles WHERE rolname=current_user),false)
+                OR pg_has_role(current_user,'pg_monitor','MEMBER')""").fetchone()
+        if allowed is None or allowed[0] is not True:
+            return {'status':'not-observed','bytes':None,
+                    'reclaimableBytes':None}
         with conn.transaction():
             conn.execute("SET LOCAL statement_timeout='1s'")
             result=conn.execute("""SELECT count(*)::bigint,
