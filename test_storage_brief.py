@@ -93,6 +93,28 @@ class StorageBriefTests(unittest.TestCase):
         for secret in ("PRIVATE", "SENSITIVE-ISIN", "secret-drive-id", "dpg-private-ID"):
             self.assertNotIn(secret, compact)
 
+    def test_old_list_review_is_redacted_and_cannot_authorize_delete(self):
+        source = self.source()
+        source["androidImageAgeReview"] = {
+            "status": "sampled", "readOnly": True, "hotZurichCalendarDays": 2,
+            "sampledOldBatches": 4, "olderBatchesMayExist": False,
+            "protectedProductOrExampleBatches": 2,
+            "protectedReferenceBatches": 1,
+            "protectedActiveOcrBatches": 0,
+            "reviewOldFailedOriginalBatches": 1,
+            "unknownPreservedBatches": 0,
+            "oldImageDeletionAuthorized": True,
+            "privateBatch": "PRIVATE-BATCH", "deviceToken": "PRIVATE-DEVICE",
+            "physicalBytesFreed": 123456789}
+        result = storage_brief.project(source)["androidImageAgeReview"]
+        self.assertEqual(result["hotZurichCalendarDays"], 2)
+        self.assertEqual(result["sampledOldBatches"], 4)
+        self.assertEqual(result["reviewOldFailedOriginalBatches"], 1)
+        self.assertEqual(result["protectedProductOrExampleBatches"], 2)
+        self.assertFalse(result["oldImageDeletionAuthorized"])
+        self.assertIsNone(result["physicalBytesFreed"])
+        self.assertNotIn("PRIVATE", json.dumps(result))
+
     def test_latest_attempt_exposes_only_fixed_redacted_failure_phase(self):
         source = self.source()
         source["archiveWorker"]["latestPersistedAttempt"] = {
