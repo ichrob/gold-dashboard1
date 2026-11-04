@@ -138,8 +138,20 @@ class StorageTests(unittest.TestCase):
                 self.assertEqual(result['growthStatus'],'needs-at-least-24-hours')
                 self.assertEqual(result['relationGrowthStatus'],'observed')
                 self.assertEqual(result['relationElapsedSeconds'],1800)
-                self.assertTrue(any(item['table']=='bob_decision_audit'
-                    for item in result['largestTableDeltas']))
+                # An unchanged relation can fall outside the top twelve as
+                # new evaluation tables are added. Verify complete stored
+                # snapshots, then independently check the bounded ranking.
+                snapshots=conn.execute('''SELECT relation_bytes FROM
+                    bob_storage_samples ORDER BY slot''').fetchall()
+                before,after=(row[0] for row in snapshots)
+                self.assertIn('bob_decision_audit',before)
+                self.assertIn('bob_decision_audit',after)
+                self.assertEqual(before['bob_decision_audit'],after['bob_decision_audit'])
+                expected=[dict(table=name,bytesBefore=before[name],
+                    bytesAfter=after[name],bytesDelta=after[name]-before[name])
+                    for name in before.keys() & after.keys()]
+                expected.sort(key=lambda item:(abs(item['bytesDelta']),item['table']),reverse=True)
+                self.assertEqual(result['largestTableDeltas'],expected[:12])
                 self.assertIn('not-total-disk',result['scope'])
                 self.assertEqual(result['storageForensics']['status'],'observed')
                 self.assertTrue(result['storageForensics']['readOnly'])

@@ -404,6 +404,20 @@ def project(storage):
         "deletionAuthorized": False,
         "physicalBytesFreed": None
     }
+    # Forward-only improvement labels are not verified strategy learning.
+    improvement_eval = storage.get("improvementEvaluations")
+    improvement_eval = improvement_eval if type(improvement_eval) is dict else {}
+    result["improvementEvaluations"] = {
+        "status": _choice(improvement_eval.get("status"),
+            frozenset(("observed", "warming", "not-observed")),
+            "not-observed"),
+        "processedRecords": _number(improvement_eval.get("processedRecords"),
+                                    integer=True, maximum=10**12),
+        "improvementVerified": False,
+        "fullHistoryVerified": False,
+        "deletionAuthorized": False,
+        "physicalBytesFreed": None
+    }
     pilot = storage.get("decisionProductsPilot")
     pilot = pilot if isinstance(pilot, dict) else {}
     result["pilot"] = {

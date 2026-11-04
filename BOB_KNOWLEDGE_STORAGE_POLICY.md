@@ -136,3 +136,26 @@ separate, quellgebundene und reproduzierbare unabhängige Prüfung kann
 später große Originalpayloads für eine reversible Referenzumstellung
 qualifizieren. `deletionAuthorized=false` und
 `physicalBytesFreed=null` bleiben unverändert.
+
+## Historische Verbesserungsbewertungen – seitenweise und vorläufig
+
+Der zusätzliche Worker storage_improvement_evaluation.py liest höchstens
+128 Beobachtungen pro Lauf aus dem bestehenden (campaign, slot)-Schlüsselindex.
+Er schreibt ein kleines Quellfingerabdruck-Journal, trennt die bereits
+bestehende Eingabe-Gültigkeit (valid/invalid) von optionalen Statuslabels
+(inklusive rejected/failed/pending) und markiert ausgelagerte Cold-Originale
+als solche statt als bestandene Verbesserung. Ein wiederaufnehmbarer Cursor
+vermeidet Doppelzählungen nach Neustarts.
+Er läuft höchstens viertelstündlich auf einer eigenen Datenbankverbindung und
+wartet bei einem aktiven Archivlauf. Der private Speicherbericht zeigt nur die
+bearbeitete Zahl; er veröffentlicht keine Kampagnen, Produkte, Einzelwerte
+oder Quellkennungen. Die Original-Tabellen bleiben unangetastet.
+
+Da Status einer Beobachtung nachträglich verändert und ältere Kampagnen
+nachgetragen werden können, ist diese Vorwärtsiteration ausdrücklich nur eine
+**provisorische Bestandsbewertung**, keine validierte Qualitätssteigerung,
+keine vollständige Historie und keine Freigabe für Datenlöschung oder Payload-Umzug.
+Es fehlen weiterhin unabhängige Rücklese-, Änderungs-, Gap- und Replay-Prüfung
+vor physischer Speicherfreigabe. improvementVerified=false,
+fullHistoryVerified=false, deletionAuthorized=false und
+physicalBytesFreed=null sind feste Sicherheitsgrenzen.
