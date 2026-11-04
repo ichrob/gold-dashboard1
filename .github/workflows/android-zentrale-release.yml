@@ -189,6 +189,7 @@ jobs:
           gh release create "$tag" \
             "$staged" \
             --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
             --title "Bob Zentrale (Version $BOB_ANDROID_VERSION_CODE)" \
             --latest=false \
             --notes "Eigenständige Bob-Zentrale-App mit eigenem Symbol und ohne Browserleiste. Nur Internetberechtigung. Anmeldung mit bestehenden Bob-Zugangsdaten erforderlich. Kein neuer Server; keine Echtgeldorders."
