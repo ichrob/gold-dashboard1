@@ -1,0 +1,47 @@
+'use strict';
+const fs = require('node:fs'), assert = require('node:assert/strict');
+const {chromium} = require('playwright');
+(async () => {
+ const browser = await chromium.launch({headless:true, executablePath:process.env.BOB_TEST_CHROMIUM || undefined, args:['--no-sandbox']});
+ try {
+  const page = await browser.newPage({viewport:{width:360,height:780},serviceWorkers:'block'});
+  const errors=[]; page.on('pageerror', e => errors.push(e.message));
+  let count=0, fail=false;
+  await page.route('**/*', route => {
+   const url=new URL(route.request().url());
+   if(url.hostname !== 'bob.test')return route.abort();
+   if(url.pathname==='/api/operations-summary') {
+    count++; assert.equal(route.request().method(),'GET');
+    return route.fulfill({status:fail?503:200,contentType:'application/json',body:JSON.stringify({readOnly:true,realOrders:false,
+     observedAt:'2026-11-05T00:00:00Z',problemIndexFresh:false,cases:[{code:'<img src=x onerror=alert(1)>',state:'testing'}],
+     jobs:[{id:'background',state:'observed',lastObservedAt:1793836800}],productStatus:{state:'incomplete'},
+     storage:{diskUsedBytes:104857600,diskObservedAt:1793836800},testOverview:{items:[{label:'Test',state:'unknown'}]}})});
+   }
+   const files={'/zentrale/':'zentrale/index.html','/zentrale/app.js':'zentrale/app.js'};
+   const file=files[url.pathname];
+   return file ? route.fulfill({contentType:file.endsWith('.js')?'text/javascript':'text/html',body:fs.readFileSync(file,'utf8')}) : route.fulfill({status:404,body:''});
+  });
+  await page.goto('https://bob.test/zentrale/#storage');
+  assert(await page.locator('#storage').isVisible()); assert.equal(count,0);
+  await page.locator('#refresh').click(); await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
+  assert.equal(count,1); assert.match(await page.locator('#disk').innerText(),/100 MiB/);
+  for(const section of ['overview','studies','maintenance','storage','settings']) {
+   await page.locator('nav a[href="#'+section+'"]').click();
+   assert(await page.locator('#'+section).isVisible());
+   assert.equal(await page.locator('[data-panel]:visible').count(),1);
+   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'mobile overflow');
+  }
+  assert.equal(count,1,'navigation must reuse the same snapshot');
+  await page.locator('nav a[href="#maintenance"]').click();
+  assert.match(await page.locator('#problem-age').innerText(),/veraltet oder unbekannt/);
+  assert.equal(await page.locator('#cases img').count(),0,'server text must not become HTML');
+  fail=true; await page.locator('#refresh').click(); await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
+  assert.match(await page.locator('#status').innerText(),/nicht verifizierbar/);
+  assert.equal(await page.locator('#monitor').textContent(),'Nicht aktuell bestätigt');
+  assert.equal(await page.locator('#disk').textContent(),'Nicht aktuell bestätigt');
+  await page.goto('https://bob.test/zentrale/#unknown'); assert(await page.locator('#overview').isVisible());
+  assert.equal(count,2,'opening the page never triggers a diagnostic request');
+  assert.deepEqual(errors,[]);
+  console.log('Zentrale: mobile navigation, one shared read, safe text and failed-refresh clearing passed');
+ } finally {await browser.close();}
+})().catch(error=>{console.error(error);process.exit(1);});
