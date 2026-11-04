@@ -248,7 +248,12 @@ def offload_batch(conn,drive,*,approval=None,now=None,max_updates=None):
             path=Path(tmp)/('decision-products-'+checksum+'.gz')
             path.write_bytes(blob)
             os.chmod(path,0o600)
-            file_id=drive.upload(path,checksum)
+            from cold_chunk_encryption import seal_chunk
+            encrypted=Path(tmp)/('decision-products-'+checksum+'.encrypted')
+            checksum=seal_chunk(path,encrypted)
+            if encrypted.stat().st_size>codec.MAX_FILE:
+                raise codec.ColdArchiveUnavailable('Encrypted decision archive file too large')
+            file_id=drive.upload(encrypted,checksum)
         restored=codec.read_chunk(drive,file_id,checksum,cached=False,conn=conn)
         if codec.encoded(restored)!=codec.encoded(new):
             raise codec.ColdArchiveUnavailable('Remote decision product originals differ')
@@ -344,3 +349,4 @@ def status(conn):
                 'diskBytesFreed':None}
     except Exception:
         return {'status':'not-observed','diskBytesFreed':None}
+
