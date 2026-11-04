@@ -15,8 +15,12 @@ PAGE_ROWS = 128
 _THREAD = None
 _START_LOCK = threading.Lock()
 _STATES = frozenset(("verified", "rejected", "pending", "completed",
-                     "failed", "testing", "unclassified"))
-_SQL = """SELECT campaign,slot,coalesce(payload->>'status','unclassified')
+                     "failed", "testing", "unclassified",
+                     "archived-original-not-inline"))
+_SQL = """SELECT campaign,slot,valid,
+        CASE WHEN payload ? '_bobColdObservationV1'
+             THEN 'archived-original-not-inline'
+             ELSE coalesce(payload->>'status','unclassified') END
     FROM bob_improvement_observations
     WHERE (campaign,slot)>(%s::text,%s::bigint)
     ORDER BY campaign,slot LIMIT %s"""
@@ -31,17 +35,19 @@ def summarize(rows):
     digest = hashlib.sha256(b"bob-improvement-v1\n")
     previous = None
     for row in rows:
-        if (type(row) not in (tuple,list) or len(row)!=3 or
+        if (type(row) not in (tuple,list) or len(row)!=4 or
                 type(row[0]) is not str or not 1<=len(row[0])<=256 or
-                type(row[1]) is not int or not -(2**63)<=row[1]<2**63):
+                type(row[1]) is not int or not -(2**63)<=row[1]<2**63 or
+                type(row[2]) is not bool):
             raise ValueError("Unverifiable improvement source")
         key = (row[0],row[1])
         if previous is not None and key<=previous:
             raise ValueError("Unsorted or repeated improvement source")
         previous = key
-        state = row[2] if type(row[2]) is str and row[2] in _STATES else "unclassified"
-        counts[state]+=1
-        digest.update(json.dumps([row[0],row[1],state],separators=(",",":"),
+        state = row[3] if type(row[3]) is str and row[3] in _STATES else "unclassified"
+        counts["valid-input" if row[2] else "invalid-input"]+=1
+        counts["status:"+state]+=1
+        digest.update(json.dumps([row[0],row[1],row[2],state],separators=(",",":"),
                                  ensure_ascii=True).encode("utf8"))
         digest.update(b"\n")
     return {"records":len(rows), "counts":dict(sorted(counts.items())),
