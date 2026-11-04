@@ -325,6 +325,35 @@ def project(storage):
         "manualRunAuthorized": False,
         "diskBytesFreed": None
     }
+    # Two-day hot-image preference is a READ-ONLY age review. An older
+    # original may contain a unique KO/venue fact or useful OCR example;
+    # neither this sample nor any evaluation grants automatic deletion.
+    age = storage.get("androidImageAgeReview")
+    age = age if type(age) is dict else {}
+    age_state = _choice(age.get("status"),
+        frozenset(("sampled", "observed-empty", "busy", "not-observed")),
+        "not-observed")
+    result["androidImageAgeReview"] = {
+        "status": age_state, "readOnly": True,
+        "hotZurichCalendarDays": 2,
+        "sampledOldBatches": _number(
+            age.get("sampledOldBatches"), integer=True, maximum=24),
+        "olderBatchesMayExist": age.get("olderBatchesMayExist") is True,
+        "protectedProductOrExampleBatches": _number(
+            age.get("protectedProductOrExampleBatches"),
+            integer=True, maximum=24),
+        "protectedReferenceBatches": _number(
+            age.get("protectedReferenceBatches"), integer=True, maximum=24),
+        "protectedActiveOcrBatches": _number(
+            age.get("protectedActiveOcrBatches"), integer=True, maximum=24),
+        "reviewOldFailedOriginalBatches": _number(
+            age.get("reviewOldFailedOriginalBatches"), integer=True, maximum=24),
+        "unknownPreservedBatches": _number(
+            age.get("unknownPreservedBatches"), integer=True, maximum=24),
+        "oldImageDeletionAuthorized": False,
+        "physicalBytesFreed": None,
+        "scope": "older-than-yesterday-review-not-batch-verified-offload"
+    }
     pilot = storage.get("decisionProductsPilot")
     pilot = pilot if isinstance(pilot, dict) else {}
     result["pilot"] = {

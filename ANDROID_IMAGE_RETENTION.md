@@ -59,3 +59,55 @@ Kein `VACUUM FULL`, kein Tabellen-Rewrite und kein Upgrade/Kostenwechsel.
 
 **Keine Orderautomatik, keine neuen Berechtigungen, keine erzwungenen Tests,
 keine Pauschallöschung.**
+
+## Zwei-Tage-Regel für DEGIRO-Listen (Wunsch vom 04.11.2026)
+
+Bob benötigt aktuelle Originalbilder der **heutigen und gestrigen
+Zürcher Kalendertage** für den laufenden OCR-/Produktabgleich. Die Liste
+**von vorgestern und früher** gehört nicht pauschal in den heißen
+Speicher, sondern in eine archivierungsfähige Nachprüfung.
+
+Die neue `android_image_age_review.py` zeigt dazu nur eine begrenzte,
+identitätsfreie Stichprobe im privaten Speicherstatus
+(`androidImageAgeReview`). Sie führt **kein** Löschen aus.
+
+**Dauerhaft behalten (gegebenenfalls als verschlüsseltes Cold-Original mit
+read-through):**
+- Strukturierte Produktdaten pro ISIN einschließlich Belegquelle,
+  Originalzeit, Hebel, KO, Basispreis, Handelsplatz, Währung und
+  Feldkonflikten. Ein neues Tagesbild kann einen älteren, einzigartigen
+  Quellenbeleg nicht ersetzen.
+- Pro nachgewiesen unterschiedlichem Bildschirm-/Emittentenformat
+  erforderliche, freigegebene OCR-Lesevorlagen und die dazu gehörige
+  ursprüngliche Prüfaufnahme.
+- Noch offene, misslungene, mehrdeutige oder nicht abgeglichene OCR-Läufe,
+  Original-Referenzen, aktive Produkt-/Trade-/Audit-Evidenz und
+  fehlgeschlagene Restore-Fälle.
+
+**Alter allein berechtigt nie zum Löschen.** Ein tatsächlicher kleiner
+Offload-Pilot benötigt für genau diesen Batch vorab eine verifizierte
+Auswertung, unveränderliche Quellmetadaten und SHA-256, ein verschlüsseltes
+externes Original samt unabhängig nachgewiesenem Remote-Download,
+separatem Restore und gesicherter Wiederherstellbarkeit des Schlüssels.
+Alle aktiven Leser müssen bytegetreu dieselben Werte und Originalzeiten
+sehen. Erst danach ist eine reversible CAS-Referenzumstellung samt
+Rollback und physischer Render-Vorher/Nachhermessung zu prüfen.
+Existiert kein geeigneter Batch-Beleg oder lässt sich nicht sicher
+unterscheiden, ob das Bild als Produktnachweis oder Lernbeispiel benötigt
+wird, bleibt es erhalten.
+
+Eine **kompakte Evaluation** für Diagnosen, Entscheidungen, Verbesserungen,
+Simulationen und Qualität wird bereits im Bestand vorbereitet
+(`storage_knowledge.py` und `storage_case_results.py`). Der bestehende
+64-Zeilen-Sample ist keine vollständige Historie und kein Ersatz für
+reproduzierbare Trades, Stopps, Quellenpreise oder Gegenbeispiele.
+Es darf deshalb keine automatische Massenlöschung anhand einer
+AI-Zusammenfassung geben. Nach unabhängigem Restore dürfen stattdessen
+historische große Payloads gegen überprüfte Referenzen ausgetauscht werden,
+während kompakte validierte Evaluationen dauerhaft in PostgreSQL bleiben.
+
+**Betriebsgrenzen:** weiterhin kein Bild-/Trade-/Beweismittel-Massen-`DELETE`,
+keine verkürzten Simulationen, keine Änderung der DEGIRO-Handelsregeln,
+keine Secrets, kein `VACUUM FULL` ohne frisches WAL-/Scratch-/Lock-Budget
+und keine kostenpflichtige Skalierung.
+
