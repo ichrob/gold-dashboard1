@@ -236,7 +236,10 @@ class WalDirectorySafetyTests(unittest.TestCase):
             def execute(self,sql):
                 self.calls.append(sql)
                 return self
-            def fetchone(self):return (7,117440512)
+            def fetchone(self):
+                if 'pg_has_role' in self.calls[-1]:
+                    return (True,)
+                return (7,117440512)
         conn=FakeConn()
         result=forensic.wal_directory_observation(conn)
         self.assertEqual(result['status'],'observed')
@@ -248,6 +251,23 @@ class WalDirectorySafetyTests(unittest.TestCase):
         self.assertTrue(any("statement_timeout='1s'" in sql for sql in conn.calls))
         self.assertFalse(any('pg_switch_wal' in sql or 'CHECKPOINT' in sql
                              for sql in conn.calls))
+
+    def test_missing_role_skips_restricted_function_without_database_error(self):
+        class UnprivilegedConn:
+            def __init__(self):self.calls=[]
+            def transaction(self):return self
+            def __enter__(self):return self
+            def __exit__(self,*a):pass
+            def execute(self,sql):
+                self.calls.append(sql)
+                return self
+            def fetchone(self):return (False,)
+        conn=UnprivilegedConn()
+        result=forensic.wal_directory_observation(conn)
+        self.assertEqual(result['status'],'not-observed')
+        self.assertIsNone(result['reclaimableBytes'])
+        self.assertTrue(any('pg_has_role' in sql for sql in conn.calls))
+        self.assertFalse(any('pg_ls_waldir()' in sql for sql in conn.calls))
 
     def test_missing_privilege_does_not_break_storage_report(self):
         class DeniedConn:
