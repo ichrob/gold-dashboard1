@@ -73,6 +73,7 @@ def run_table(name, source_dsn, target_dsn):
         fields = sql.SQL(',').join(sql.SQL('{} {}').format(sql.Identifier(n), sql.SQL(t)) for n,t in cols)
         dst.execute(sql.SQL('CREATE TEMP TABLE sizing_data ({})').format(fields))
         copied = 0
+        report({'phase':'copying-readonly-source','table':name,'sourceBytes':total})
         original_hash = hashlib.sha256()
         with src.cursor().copy(archive.copy_query('public',name,[n for n,_ in cols])) as reader, \
              dst.cursor().copy('COPY sizing_data FROM STDIN') as writer:
@@ -146,7 +147,10 @@ def main():
     verify_restore_isolation(source,target)
     result={'scope':'isolated-sizing-model','productionRowsModified':False,
             'physicalProductionBytesFreed':0,'tables':[]}
-    for name in TABLES:
+    selected=os.environ.get('BOB_ISOLATED_SIZING_TABLE')
+    if selected is not None and selected not in TABLES:
+        raise ValueError('Unreviewed rehearsal table')
+    for name in ([selected] if selected else TABLES):
         result['tables'].append(run_table(name,source,target))
     report(result)
 
@@ -155,5 +159,8 @@ if __name__=='__main__':
     try:
         main()
     except Exception as exc:
-        report({'status':'stopped','errorType':type(exc).__name__,'productionRowsModified':False})
+        import traceback
+        report({'status':'stopped','errorType':type(exc).__name__,
+                'codeLines':[frame.lineno for frame in traceback.extract_tb(exc.__traceback__)],
+                'productionRowsModified':False})
         raise SystemExit(1)
