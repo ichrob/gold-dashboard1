@@ -93,6 +93,44 @@ class StorageBriefTests(unittest.TestCase):
         for secret in ("PRIVATE", "SENSITIVE-ISIN", "secret-drive-id", "dpg-private-ID"):
             self.assertNotIn(secret, compact)
 
+    def test_archive_status_requires_persisted_recovery_proof_and_age(self):
+        source = self.source()
+        source["observedAt"] = 1793673000
+        view = storage_brief.project(source)
+        self.assertEqual(view["archive"]["recoveryAcceptanceState"],
+                         "persisted-recovery-proof-missing")
+        self.assertFalse(view["archive"]["recoveryKeyVerified"])
+        self.assertFalse(view["archive"]["deletionPermitted"])
+        self.assertFalse(view["decisionProductPilotAuthorized"])
+
+        # A chat, phone, or GitHub issue assertion cannot forge the
+        # persisted archive receipt from Bob's primary database.
+        source["offlineEmailRestored"] = True
+        source["operatorConfirmedRecovery"] = True
+        self.assertEqual(storage_brief.project(source)["archive"]
+                         ["recoveryAcceptanceState"],
+                         "persisted-recovery-proof-missing")
+
+        receipt = source["archiveWorker"]["latestVerifiedAttempt"]
+        receipt["recoveryKeyVerified"] = True
+        self.assertEqual(storage_brief.project(source)["archive"]
+                         ["recoveryAcceptanceState"],
+                         "persisted-recovery-proof-fresh")
+        self.assertFalse(storage_brief.project(source)["decisionProductPilotAuthorized"])
+
+        source["observedAt"] = 1793673000 + 7*3600
+        self.assertEqual(storage_brief.project(source)["archive"]
+                         ["recoveryAcceptanceState"],
+                         "persisted-proof-not-fresh")
+        source["observedAt"] = None
+        self.assertEqual(storage_brief.project(source)["archive"]
+                         ["recoveryAcceptanceState"],
+                         "proof-age-not-verified")
+        receipt["encryptionVersion"] = "bad"
+        self.assertEqual(storage_brief.project(source)["archive"]
+                         ["recoveryAcceptanceState"],
+                         "archive-receipt-incomplete")
+
     def test_unsafe_provider_units_and_receipt_fields_fail_closed(self):
         item = self.source()
         item["renderVolume"]["unit"] = "mystery"
