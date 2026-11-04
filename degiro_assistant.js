@@ -5692,7 +5692,7 @@ function buildPaperListEvidence(){
 }
 function rankUI(){if(!productRowsReady)return;const result=preserveReadingPosition(renderRankUI);refreshDegiroBrokerQuotePanel();return result;}
 // Read-only connection of the shared market plan, existing KO guard and product calculator.
-function productRiskPreview(p,market,now=Date.now()){
+function productRiskPreview(p,market,now=Date.now(),preferredQuote=null){
  const out={available:false,tradeable:false,automaticOrder:false,reason:'Aktueller gemeinsamer Gold-Stopp-/Zielplan fehlt'};
  if(!market?.available||p.productDirection!==market.direction)return out;
  const guard=koProtection({...p,spot:market.entry,atr:market.atr});
@@ -5709,7 +5709,28 @@ function productRiskPreview(p,market,now=Date.now()){
  if(q.fieldRecovery?.state==='conflict'||(q.fieldRecovery?.conflicts||[]).length||
     ['ko','strike','ratio'].some(k=>q.conditions?.[k]?.value!==undefined&&Number(q.conditions[k].value)!==Number(m[k])))
   return {...out,reason:'Widersprüchliche Produktbedingungen – Stopp-/Zielumrechnung offen'};
- const quote=window.BobStopAssistant?.selectQuote(q,p.isin,now,currency);
+ // A display-only chooser may ask us to price the stop against its
+ // selected original, secondary or rigorously validated calculated entry.
+ // Recheck that choice against the same authenticated source candidates;
+ // caller-provided prices alone can never authorize a model stop.
+ let quote=window.BobStopAssistant?.selectQuote(q,p.isin,now,currency);
+ if(preferredQuote){
+  const originals=window.BobStopAssistant?.compareQuoteSources(q,p.isin,now,currency)?.quotes||[];
+  const known=originals.find(row=>
+   row.kind===preferredQuote.kind&&row.origin===preferredQuote.origin&&
+   row.source===preferredQuote.source&&row.currency===preferredQuote.currency&&
+   row.at===preferredQuote.at&&row.askAt===preferredQuote.askAt&&
+   row.bid===preferredQuote.bid&&row.ask===preferredQuote.ask);
+  const calculated=calculatedProductDisplay(p,now);
+  const model=preferredQuote.kind==='calculated'&&preferredQuote.modelVerified===true&&
+   calculated?.isin===p.isin&&calculated.priceKind==='calculated'&&
+   calculated.validationReady===true&&calculated.validationSamples>=20&&
+   calculated.currency===preferredQuote.currency&&
+   calculated.at===preferredQuote.at&&calculated.source===preferredQuote.source&&
+   calculated.bid===preferredQuote.bid&&calculated.ask===preferredQuote.ask;
+  if(!known&&!model)return {...out,reason:'Ausgewählter Produktkurs nicht original oder rechnerisch bestätigt.'};
+  quote=known||(model?preferredQuote:null);
+ }
  const fx=market.spots?.[currency==='CHF'?'usd_chf_meta':'usd_eur_meta'];
  const clocks=[market.at,quote?.at,quote?.askAt,fx?.fetchedAt].map(x=>typeof x==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(x)?Date.parse(x):NaN);
  if(!quote||!clocks.every(x=>Number.isFinite(x)&&now>=x&&now-x<=90000)||Math.max(...clocks)-Math.min(...clocks)>90000||!(fx?.rate>0)||fx.error)
@@ -5723,7 +5744,7 @@ function productRiskPreview(p,market,now=Date.now()){
   if(!stop.available||!target.available||!(stop.price<quote.ask&&quote.ask<target.price))return {...out,reason:'Kein passender Produkt-Stopp-/Zielkorridor'};
   return {...out,available:true,reason:'',currency,stop:stop.price,target:target.price,
    lossPerUnit:quote.ask-stop.price,stopGold:market.stop,targetGold:market.target,ko:m.ko,
-   referenceAt:quote.at,source:quote.source,guard};
+   referenceAt:quote.at,source:quote.source,priceKind:quote.kind,guard};
  }catch(_){return {...out,reason:'Produktwerte für individuelle Umrechnung unvollständig'};}
 }
 function productRiskPreviewText(p,market,now=Date.now()){
@@ -5863,6 +5884,9 @@ function renderRankUI(){
  window.BobPaperSimulation?.sync({...buildPaperListEvidence(),products:paperProductsForSync(ps),references});
  window.BobPush?.updateSelection?.({products:ps,context:selectionContext,bundle:{spots:bundle?.spots,fetched_at:bundle?.fetched_at,history:{data_state:bundle?.history?.data_state}},references,fixedBarriers:window.BobCombined.fixedBarriers()},flow);
  const flowHtml=renderContinuingAnalysis(ps,selectionContext);if(updateProductHtml(o,flowHtml))bindCompactCards(o);
+ // Read-only, manual-entry figures based on the very same top-three selection;
+ // recheck original quote timestamps on every ranking render. No extra fetch or order.
+ window.BobManualTop3?.render(flow,ps,bundle);
  const approvalOut=document.getElementById('dgApprovalOut');
  const approvalHtml='<details data-product-details="selection-check"><summary>Freigabeprüfung · '+(flow.approved?flow.approvedCount+' geeignete Produkte':'ABWARTEN')+'</summary>'+renderSelectionWorkflow(flow,ps)+'</details>';if(approvalOut&&updateProductHtml(approvalOut,approvalHtml))bindCompactCards(approvalOut);return flow;
 
