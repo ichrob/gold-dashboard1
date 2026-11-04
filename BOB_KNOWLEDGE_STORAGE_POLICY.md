@@ -141,8 +141,11 @@ qualifizieren. `deletionAuthorized=false` und
 
 Der zusätzliche Worker storage_improvement_evaluation.py liest höchstens
 128 Beobachtungen pro Lauf aus dem bestehenden (campaign, slot)-Schlüsselindex.
-Er schreibt ein kleines Quellfingerabdruck-Journal und Statushäufigkeiten
-(inklusive rejected/failed/pending) mit einem wiederaufnehmbaren Cursor.
+Er schreibt ein kleines Quellfingerabdruck-Journal, trennt die bereits
+bestehende Eingabe-Gültigkeit (valid/invalid) von optionalen Statuslabels
+(inklusive rejected/failed/pending) und markiert ausgelagerte Cold-Originale
+als solche statt als bestandene Verbesserung. Ein wiederaufnehmbarer Cursor
+vermeidet Doppelzählungen nach Neustarts.
 Er läuft höchstens viertelstündlich auf einer eigenen Datenbankverbindung und
 wartet bei einem aktiven Archivlauf. Der private Speicherbericht zeigt nur die
 bearbeitete Zahl; er veröffentlicht keine Kampagnen, Produkte, Einzelwerte
