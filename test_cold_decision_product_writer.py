@@ -105,6 +105,7 @@ class WriterPGTests(unittest.TestCase):
         self.assertTrue(r['readThroughVerified'])
         self.assertIsNone(r['diskBytesFreed'])
         self.assertEqual(len(fake.files),1)
+        self.assertTrue(next(iter(fake.files.values())).startswith(b'BOBCOLD1'))
         self.assertEqual(self.conn.execute(
             'SELECT count(*) FROM bob_cold_decision_product_objects').fetchone()[0],1)
         self.assertEqual(self.conn.execute(
