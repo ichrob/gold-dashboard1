@@ -113,3 +113,26 @@ Abschlussbelege in `bob_paper_final_receipts` und wird nicht erfunden.
 Vor Archiv-Referenzierung müssen alle Quellenkonten, offene/negative
 Testfälle, Stopps/Ziele, Originalkurse und Replay/Restore unabhängig
 verglichen werden. Keine automatische Falllöschung.
+
+## Historische Qualitätsmessungen – kompakte Tages-Evaluation
+
+`storage_quality_evaluation.py` liest in einem isolierten, alle 15 Minuten
+begrenzten Worker höchstens 256 historische `bob_metric_checks` pro Lauf.
+Je UTC-Tag und feststehender Metrikfamilie (display, dmi, product, trade,
+other) behält eine kleine, eigene Tabelle Status-Zähler und eine aus den
+ursprünglichen Identitäten, Messzeiten und Klassifikationen abgeleitete
+SHA-256-Fingerabdruckkette. Ein eigener Datenbank-Cursor ermöglicht
+Neustarts ohne doppelte Zählung. Bereits in Cold-Archive ausgelagerte
+Metriken werden explizit als `archived-original-not-inline` gezählt,
+nicht als `matched` oder vermeintlich erfolgreiche Qualitätsprüfung.
+Es gibt keine Änderung oder Löschung der Quellen oder bisherigen
+30-Tage-Regel und keine unbegrenzte Query, neue Kosten oder Brokeraktionen.
+
+Die Evaluation ist **nicht** die vollständige Historie und ersetzt nicht
+OHLC, Rechenformeln, Fehlergrenzen, Originalmetriken oder deren unabhängige
+Wiederherstellung. Späte Quelländerungen/rückdatierte Messungen werden durch
+reinen Vorwärtscursor nicht automatisch neu abgeglichen. Nur eine
+separate, quellgebundene und reproduzierbare unabhängige Prüfung kann
+später große Originalpayloads für eine reversible Referenzumstellung
+qualifizieren. `deletionAuthorized=false` und
+`physicalBytesFreed=null` bleiben unverändert.
