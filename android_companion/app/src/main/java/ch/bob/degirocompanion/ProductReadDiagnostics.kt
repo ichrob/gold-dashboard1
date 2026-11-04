@@ -2,7 +2,7 @@ package ch.bob.degirocompanion
 
 /** Local counters only: no package names, screen text, ISINs or account values. */
 internal object ProductReadDiagnostics {
-    enum class Outcome { DETAIL_SG_TITLE_VISIBLE, DETAIL_SG_LV_LABEL_VISIBLE, DETAIL_SG_LV_PARSED, DETAIL_SG_LV_UNPARSED, DETAIL_TARGET_ISIN_VISIBLE, DETAIL_NUMERIC_LABEL, DETAIL_NUMERIC_COMPOSITE, DETAIL_SYMBOL_PROBE_READY, DETAIL_LAUNCHER_READABLE, RESULT_IDENTITY_PRESENT, RESULT_NAME_PRESENT, RESULT_TARGET_MISSING, NAVIGATION_CACHE_CLEARED, NAVIGATION_CACHE_FAILED, DETAIL_HEADER_SCROLL_SENT, LIST_RETURN_SCROLL_SENT, DETAIL_HEADER_LABEL_PRESENT, DETAIL_HEADER_LABEL_MISSING, DETAIL_INPUT_PRESENT, DETAIL_INPUT_MISSING, LIST_IMAGE_CAPTURED, LIST_APP_TEXT_ATTACHED, LIST_LOCAL_OCR_ATTACHED, LIST_LOCAL_OCR_FIRST_REJECTED, LIST_LOCAL_OCR_SECOND_REJECTED, LIST_LOCAL_OCR_ENGINE_FAILED, LIST_SERVER_OCR_REQUIRED, LIST_PENDING_UPLOAD_RESUMED, LIST_SCROLL_SENT, LIST_HEADER_SCROLLED_AWAY, LIST_TAB_SELECTION_UNREPORTED, CATEGORY_CLICK_SENT, CATEGORY_SCROLL_SENT, SEARCH_INPUT_TAP_SENT, SEARCH_INPUT_TAP_REJECTED, SEARCH_INPUT_SPATIAL, SEARCH_INPUT_CLUSTER, SEARCH_FOCUS_ACCEPTED, SEARCH_FOCUS_REJECTED, SEARCH_TAP_SENT, SEARCH_TAP_COMPLETED, SEARCH_TAP_CANCELLED, SEARCH_TAP_REJECTED, NO_ROOT, NO_FOCUSED_WINDOW, WINDOW_ROOT_MISSING, OTHER_APP,
+    enum class Outcome { DETAIL_SG_TITLE_VISIBLE, DETAIL_SG_LV_LABEL_VISIBLE, DETAIL_SG_LV_PARSED, DETAIL_SG_LV_UNPARSED, DETAIL_TARGET_ISIN_VISIBLE, DETAIL_NUMERIC_LABEL, DETAIL_NUMERIC_COMPOSITE, DETAIL_SYMBOL_PROBE_READY, DETAIL_LAUNCHER_READABLE, RESULT_IDENTITY_PRESENT, RESULT_NAME_PRESENT, RESULT_TARGET_MISSING, NAVIGATION_CACHE_CLEARED, NAVIGATION_CACHE_FAILED, DETAIL_HEADER_SCROLL_SENT, LIST_RETURN_SCROLL_SENT, DETAIL_HEADER_LABEL_PRESENT, DETAIL_HEADER_LABEL_MISSING, DETAIL_INPUT_PRESENT, DETAIL_INPUT_MISSING, LIST_IMAGE_CAPTURED, LIST_APP_TEXT_ATTACHED, LIST_LOCAL_OCR_ATTACHED, LIST_LOCAL_OCR_FIRST_REJECTED, LIST_LOCAL_OCR_SECOND_REJECTED, LIST_LOCAL_OCR_THIRD_REJECTED, LIST_LOCAL_OCR_ENGINE_FAILED, LIST_SERVER_OCR_REQUIRED, LIST_PENDING_UPLOAD_RESUMED, LIST_SCROLL_SENT, LIST_HEADER_SCROLLED_AWAY, LIST_TAB_SELECTION_UNREPORTED, CATEGORY_CLICK_SENT, CATEGORY_SCROLL_SENT, SEARCH_INPUT_TAP_SENT, SEARCH_INPUT_TAP_REJECTED, SEARCH_INPUT_SPATIAL, SEARCH_INPUT_CLUSTER, SEARCH_FOCUS_ACCEPTED, SEARCH_FOCUS_REJECTED, SEARCH_TAP_SENT, SEARCH_TAP_COMPLETED, SEARCH_TAP_CANCELLED, SEARCH_TAP_REJECTED, NO_ROOT, NO_FOCUSED_WINDOW, WINDOW_ROOT_MISSING, OTHER_APP,
         DIRECT_ROOT, WINDOW_ROOT, PROTECTED_VIEW, NO_FIELDS, DRAFT, CHANGED, ERROR, LOCKED, SCREEN_HELD, SCREEN_HOLD_FAILED, WINDOW_RECHECK, USER_INTERRUPTED, APP_LEFT, WINDOW_INTERRUPTED, REQUEST_EXPIRED, REQUEST_ATTEMPT_LIMIT, REQUEST_CLOCK_CHANGED, PAGE_SCROLL, PAGE_ABORT, PAGE_COMPLETE, SCROLL_NO_ACTION, SCROLL_AMBIGUOUS, SCROLL_AVAILABLE, SCROLL_REJECTED, SCROLL_PRODUCT_SCOPED, SCROLL_MARKERS_MISSING, SCROLL_MARKERS_CONFLICT }
     var connected = false
     var canRead = false
@@ -58,9 +58,13 @@ internal object ProductReadDiagnostics {
             searchInputEvidence[evidence] = ((searchInputEvidence[evidence] ?: 0) + 1).coerceAtMost(999)
         }
     }
+    private val localOcrReasons=mutableMapOf<MorningLocalOcr.Rejection,Int>()
+    fun localOcr(reason:MorningLocalOcr.Rejection) {
+        localOcrReasons[reason]=((localOcrReasons[reason] ?: 0)+1).coerceAtMost(999)
+    }
     private var startedAt: Long? = null
-    fun reset(now: Long) { counts.clear(); detailIssues.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
-    fun clear() { counts.clear(); detailIssues.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
+    fun reset(now: Long) { counts.clear(); localOcrReasons.clear(); detailIssues.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = now }
+    fun clear() { counts.clear(); localOcrReasons.clear(); detailIssues.clear(); launcherIssues.clear(); searchInputEvidence.clear(); searchShape.clear(); reasons.clear(); pageCauses.clear(); startedAt = null }
     /** Fixed presence flags for detail navigation; no raw field contents leave the phone. */
     fun detailHeader(nodes: List<MorningReadPolicy.Node>) {
         record(if(nodes.any { it.text.replace(Regex("[\\s\\p{Zs}]+")," ").trim().equals("Top Ergebnisse",true) })
@@ -118,6 +122,8 @@ internal object ProductReadDiagnostics {
             for (evidence in SearchInputEvidence.values()) searchInputEvidence[evidence]?.let { appendLine("SEARCH_INPUT_${evidence.name}: $it") }
             for (source in SearchSource.values()) for(feature in SearchFeature.values())
                 searchShape[source to feature]?.let { appendLine("SEARCH_SHAPE_${source.name}_${feature.name}: $it") }
+            for (reason in MorningLocalOcr.Rejection.values())
+                localOcrReasons[reason]?.let { appendLine("LIST_OCR_${reason.name}: $it") }
             for (cause in ProductPageReader.Cause.values()) pageCauses[cause]?.let { appendLine("PAGE_${cause.name}: $it") }
             for (reason in ProductScreenEvidence.Reason.values()) reasons[reason]?.let { appendLine("FIELD_${reason.name}: $it") }
         }.trim()
