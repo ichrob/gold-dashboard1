@@ -169,6 +169,22 @@ class StorageBriefTests(unittest.TestCase):
                          ["recoveryAcceptanceState"],
                          "archive-receipt-incomplete")
 
+    def test_render_http_diagnostics_are_numeric_and_not_pilot_approval(self):
+        for code in (401, 403, 429, 500, 123, True, '401'):
+            with self.subTest(code=code):
+                source = self.source()
+                source['renderVolume'] = {
+                    'status': 'provider-http-error', 'httpStatus': code,
+                    'apiToken': 'PRIVATE-SECRET'}
+                view = storage_brief.project(source)
+                self.assertEqual(view['renderVolume']['status'], 'provider-http-error')
+                self.assertEqual(view['renderVolume']['providerHttpStatus'],
+                                 code if type(code) is int and code in
+                                 (400, 401, 403, 404, 409, 429, 500, 502, 503) else None)
+                self.assertIsNone(view['renderVolume']['usedBytes'])
+                self.assertFalse(view['decisionProductPilotAuthorized'])
+                self.assertNotIn('PRIVATE-SECRET', json.dumps(view))
+
     def test_unsafe_provider_units_and_receipt_fields_fail_closed(self):
         item = self.source()
         item["renderVolume"]["unit"] = "mystery"
