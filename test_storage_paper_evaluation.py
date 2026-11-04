@@ -28,8 +28,8 @@ class PaperEvaluationTests(unittest.TestCase):
         self.assertEqual((x["positive"],x["negative"],x["flat"],x["unclassified"]),
                          (1,1,1,1))
         self.assertEqual(len(x["digests"]),4)
-        self.assertNotIn("c1",json.dumps(x))
-        self.assertNotIn("55",json.dumps(x))
+        self.assertNotIn("caseId",json.dumps(x))
+        self.assertNotIn("grossPct",json.dumps(x))
 
     def test_invalid_or_out_of_order_never_produce_evaluation(self):
         with self.assertRaises(ValueError):
