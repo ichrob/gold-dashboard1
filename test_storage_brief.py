@@ -145,6 +145,21 @@ class StorageBriefTests(unittest.TestCase):
         self.assertIsNone(result["physicalBytesFreed"])
         self.assertNotIn("SECRET",json.dumps(result))
 
+    def test_quality_eval_is_private_and_never_represented_as_success(self):
+        source = self.source()
+        source["qualityEvaluations"] = {
+            "status": "observed", "processedRecords": 256,
+            "metricPassVerified": True, "fullHistoryVerified": True,
+            "deletionAuthorized": True, "physicalBytesFreed": 9999999,
+            "secretOriginal": "PRIVATE_METRIC_KEY"}
+        result = storage_brief.project(source)["qualityEvaluations"]
+        self.assertEqual(result["processedRecords"], 256)
+        self.assertFalse(result["metricPassVerified"])
+        self.assertFalse(result["fullHistoryVerified"])
+        self.assertFalse(result["deletionAuthorized"])
+        self.assertIsNone(result["physicalBytesFreed"])
+        self.assertNotIn("PRIVATE_METRIC_KEY",json.dumps(result))
+
     def test_latest_attempt_exposes_only_fixed_redacted_failure_phase(self):
         source = self.source()
         source["archiveWorker"]["latestPersistedAttempt"] = {
