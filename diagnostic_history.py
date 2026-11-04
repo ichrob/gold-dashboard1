@@ -21,6 +21,11 @@ _DATABASE = None
 # Retention is maintenance, not a prerequisite for diagnostic delivery.
 _LAST_PRUNE = time.monotonic()
 _PRUNE_INTERVAL_SECONDS = 1800
+# Only a confirmed full bounded batch indicates a retention backlog. In that
+# case schedule one more identical 500-row pass after 15 minutes, not a larger
+# transaction. A no-op, skipped lock or failure keeps the 30-minute cadence.
+_PRUNE_CATCHUP_INTERVAL_SECONDS = 900
+_PRUNE_NEXT_INTERVAL_SECONDS = _PRUNE_INTERVAL_SECONDS
 _PRUNE_TIMEOUT = '5s'
 _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
 # Live stage telemetry isolated repeated five-second timeouts to the cap delete,
@@ -106,7 +111,7 @@ def original_spot(payload, observed_at):
 
 
 def write(conn,event):
-    global _LAST_PRUNE
+    global _LAST_PRUNE, _PRUNE_NEXT_INTERVAL_SECONDS
     e=validate(event)
     conn.execute('''INSERT INTO bob_diagnostic_history(id,trace_id,decision_id,stage,observed_at,build,payload)
         VALUES(%s,%s,%s,%s,%s,%s,%s::jsonb) ON CONFLICT(id) DO NOTHING''',
@@ -122,7 +127,7 @@ def write(conn,event):
                     VALUES('gold-api-xau-usd-v1',%s,%s) ON CONFLICT DO NOTHING''',source)
         except Exception:
             print('BOB_DIAGNOSTIC_SPOT archive=unavailable',flush=True)
-    if (time.monotonic()-_LAST_PRUNE>=_PRUNE_INTERVAL_SECONDS
+    if (time.monotonic()-_LAST_PRUNE>=_PRUNE_NEXT_INTERVAL_SECONDS
             and _PRUNE_LOCK.acquire(blocking=False)):
         # Retention maintenance is best-effort. Delivery keeps its short timeout,
         # while the bounded maintenance batch gets a separate finite budget.
@@ -132,11 +137,20 @@ def write(conn,event):
                 with conn.transaction():
                     conn.execute("SET LOCAL statement_timeout='"+_PRUNE_TIMEOUT+"'")
                     removed=prune(conn)
-                print('BOB_DIAGNOSTIC_PRUNE status=completed removed='+str(removed),flush=True)
+                # A completed full batch is the only evidence of backlog; keep
+                # the 7-day/60k retention policy, 500-row cap and 5s budget.
+                _PRUNE_NEXT_INTERVAL_SECONDS = (
+                    _PRUNE_CATCHUP_INTERVAL_SECONDS
+                    if type(removed) is int and removed >= _PRUNE_CAP_BATCH_SIZE
+                    else _PRUNE_INTERVAL_SECONDS)
+                print('BOB_DIAGNOSTIC_PRUNE status=completed removed='+str(removed)+
+                      ' nextSeconds='+str(_PRUNE_NEXT_INTERVAL_SECONDS),flush=True)
             except _PruneStageError as exc:
+                _PRUNE_NEXT_INTERVAL_SECONDS = _PRUNE_INTERVAL_SECONDS
                 print('BOB_DIAGNOSTIC_PRUNE status=deferred stage='+exc.stage+
                       ' error='+exc.error_type,flush=True)
             except Exception as exc:
+                _PRUNE_NEXT_INTERVAL_SECONDS = _PRUNE_INTERVAL_SECONDS
                 print('BOB_DIAGNOSTIC_PRUNE status=deferred stage=transaction error='+
                       type(exc).__name__,flush=True)
             finally:
