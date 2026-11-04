@@ -10,8 +10,8 @@ import storage_budget as budget
 class BudgetTests(unittest.TestCase):
     def test_headroom_thresholds_do_not_claim_full_disk_measurement(self):
         self.assertEqual(budget.state(435_000_000),'below-budget-threshold')
-        self.assertEqual(budget.state(500_000_000),'caution')
-        self.assertEqual(budget.state(700_000_000),'action-required')
+        self.assertEqual(budget.state(2_500_000_000),'caution')
+        self.assertEqual(budget.state(3_500_000_000),'action-required')
         self.assertLess(budget.ACTION_BYTES,budget.ALLOCATION_BYTES)
 
     def test_archive_status_uses_sanitized_persisted_result(self):

@@ -4,6 +4,7 @@ No scheduler or startup registration. Defaults to OFF. Exact original JSON stays
 inline unless a separate future operator explicitly approves verified archival.
 Readers must be deployed on BOTH services before enabling this writer.
 """
+from storage_capacity import MAX_VOLUME_BYTES
 import gzip
 import os
 from pathlib import Path
@@ -325,7 +326,7 @@ def run_once(*,factory=codec.connect,approval=None,now=None,max_updates=None):
                 type(observed) not in (int,float) or
                 not 0 <= seconds-observed <= 300 or
                 type(volume.get('diskUsage')) is not int or
-                volume['diskUsage'] > 750_000_000):
+                volume['diskUsage'] > MAX_VOLUME_BYTES):
             return {'status':'fresh-volume-proof-unavailable','movedRows':0}
         if not conn.execute("SELECT pg_try_advisory_lock(hashtext(%s))",(LOCK,)).fetchone()[0]:
             return {'status':'busy','movedRows':0}

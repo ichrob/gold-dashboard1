@@ -1,4 +1,5 @@
 """Explicit, expiring, single-attempt metric compaction; never deletes live rows."""
+from storage_capacity import ALLOCATION_BYTES, COMPACTION_MAX_VOLUME_BYTES
 import json
 import os
 import threading
@@ -53,7 +54,7 @@ def _improvement_volume(now):
             type(observed) not in (int,float) or
             not 0<=now-observed<=300 or
             type(v.get('diskUsage')) is not int or
-            v['diskUsage']>725_000_000):
+            v['diskUsage']>COMPACTION_MAX_VOLUME_BYTES):
         return None
     return v['diskUsage']
 
@@ -218,7 +219,7 @@ def run_once(config, factory=connect, now=None):
             # Provider physical unused space covers both copies plus separate
             # 120MB WAL/scratch buffer; max fixed relation size is 80MB.
             if (relation>80*M or
-                    1_000_000_000-volume-2*relation<=120*M or
+                    ALLOCATION_BYTES-volume-2*relation<=120*M or
                     not _improvement_wal_rate(conn)):
                 return {'status':'improvement-reserve-or-wal-proof-unavailable'}
         current = conn.execute('SELECT pg_database_size(current_database())').fetchone()[0]

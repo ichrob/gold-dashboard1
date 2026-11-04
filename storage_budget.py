@@ -8,10 +8,8 @@ import threading
 import time
 from contextlib import nullcontext
 
-# Confirmed Render allocation, 2026-10-27. Conservative decimal GB.
-ALLOCATION_BYTES=1_000_000_000
-CAUTION_BYTES=500_000_000
-ACTION_BYTES=700_000_000  # leave room for WAL, indexes and maintenance
+# Confirmed production capacity; logical-size warnings remain distinct from disk use.
+from storage_capacity import ALLOCATION_BYTES, CAUTION_BYTES, ACTION_BYTES
 _NEXT=0
 _LOCK=threading.Lock()
 

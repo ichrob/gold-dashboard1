@@ -75,7 +75,7 @@ class ProofTests(unittest.TestCase):
         with patch.dict(os.environ,{"BOB_DRIVE_VERIFIED_DIAGNOSTIC_CATCHUP":"1"}), \
              patch("archive_worker.status",return_value={"status":"idle"}):
             no={"status":"observed","resource":"dpg-datjno1srm7s738vv500-a",
-                "unit":"bytes","diskUsage":750_000_000,
+                "unit":"bytes","diskUsage":3_750_000_000,
                 "observedAt":NOW.timestamp()-1}
             self.assertEqual(catchup.run_once(factory=forbidden,now=NOW,volume=no)
                              ["status"],"physical-reserve-unavailable")
