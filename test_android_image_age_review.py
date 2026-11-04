@@ -14,7 +14,7 @@ import android_image_age_review as review
 class AgeDecisionTests(unittest.TestCase):
     def setUp(self):
         self.local = ZoneInfo("Europe/Zurich")
-        self.now = datetime(2026, 11, 4, 6, 0, tzinfo=self.local)
+        self.now = datetime(2026, 11, 4, 18, 0, tzinfo=self.local)
 
     def row(self, day, stage="read-failed", parsed=False, pointer=False,
             processing_at=None):
