@@ -129,6 +129,22 @@ class StorageBriefTests(unittest.TestCase):
         self.assertIsNone(value["physicalBytesFreed"])
         self.assertNotIn("SECRET",json.dumps(value))
 
+    def test_paper_daily_evaluation_never_claims_broker_gain(self):
+        source = self.source()
+        source["paperDailyEvaluations"] = {
+            "status":"observed","processedReceipts":13,
+            "grossModelOnly":False,"netProfitVerified":True,
+            "fullHistoryVerified":True,"deletionAuthorized":True,
+            "physicalBytesFreed":2222,"privateCase":"SECRET"}
+        result = storage_brief.project(source)["paperDailyEvaluations"]
+        self.assertEqual(result["processedReceipts"],13)
+        self.assertTrue(result["grossModelOnly"])
+        self.assertFalse(result["netProfitVerified"])
+        self.assertFalse(result["fullHistoryVerified"])
+        self.assertFalse(result["deletionAuthorized"])
+        self.assertIsNone(result["physicalBytesFreed"])
+        self.assertNotIn("SECRET",json.dumps(result))
+
     def test_latest_attempt_exposes_only_fixed_redacted_failure_phase(self):
         source = self.source()
         source["archiveWorker"]["latestPersistedAttempt"] = {
