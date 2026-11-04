@@ -9,6 +9,20 @@ def batch():
     def png(suffix):return base64.b64encode(b'\x89PNG\r\n\x1a\n'+b'\0\0\0\rIHDR'+struct.pack('>II',709,1200)+b'\x08\x02\0\0\0'+suffix).decode()
     return {'batchId':'a'*32,'sessionId':'b'*32,'images':[{'at':datetime.fromtimestamp(NOW-10+i,timezone.utc).isoformat(),'png':png(bytes([i])*8)} for i in range(2)]}
 class ListTests(unittest.TestCase):
+    def test_status_exposes_recognition_counts_without_image_contents(self):
+        from unittest.mock import MagicMock
+        conn=MagicMock()
+        conn.execute.return_value.fetchone.return_value=('bob_android_list_images',)
+        conn.execute.return_value.fetchall.return_value=[(
+            'a'*32,datetime.fromtimestamp(NOW,timezone.utc),3,
+            {'stage':'waiting-memory','count':0},0,None,1,1)]
+        report=images.status(conn)[0]
+        self.assertEqual(report['recognitionAttachments'],{
+            'appTextImages':1,'localOcrImages':1,'imageOnly':1})
+        self.assertEqual(report['import']['stage'],'waiting-memory')
+        self.assertNotIn('payload',report)
+        self.assertNotIn('images',report)
+
     def test_daily_list_reuse_requires_full_verified_evidence(self):
         ids=['DE000SQ02JQ6','DE000FG8NHQ3','DE000FB0CVV9','DE000FG0SGZ2',
              'DE000FG8K0P8','DE000FB0CVK2','DE000SX7PE82','DE000PJ8APE4',
