@@ -12,6 +12,9 @@ import time
 _MIB = 1024 * 1024
 _CGROUP = "/sys/fs/cgroup"
 _WARN_FRACTION = 0.85
+# Earlier return of already-free heap pages lowers the sustained baseline.
+# Keep the 120-second cooldown and never collect/discard live application data.
+_RECLAIM_FRACTION = 0.50
 
 
 def _text(path):
@@ -140,7 +143,7 @@ def reclaim_due(sample, now, last_attempt):
     parent = sample.get('parentMiB')
     return (used is not None and limit is not None and limit > 0
             and parent is not None and parent >= 128
-            and used >= 0.60 * limit and now - last_attempt >= 120)
+            and used >= _RECLAIM_FRACTION * limit and now - last_attempt >= 120)
 
 
 def watch(interval=0.5, stop=None, emit=print, reclaim=False):

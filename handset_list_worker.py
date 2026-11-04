@@ -22,6 +22,8 @@ def status():
     with _state_lock:
         value=dict(_state)
     value["fresh"]=value["checkedAt"] is not None and time.time()-value["checkedAt"]<180
+    value['ocrMemoryLimitMiB']=OCR_CONTAINER_LIMIT//(1024*1024)
+    value['ocrStartReserveMiB']=OCR_START_RESERVE//(1024*1024)
     return value
 
 
@@ -99,7 +101,10 @@ def recognize(images, enhanced=False):
     return result
 
 
-OCR_CONTAINER_LIMIT = 400 * 1024 * 1024
+# User-approved ceiling: keep 32 MiB below the 512-MiB Render container limit.
+# Admission still reserves 200 MiB for the native OCR model and its peak work.
+OCR_CONTAINER_LIMIT = 480 * 1024 * 1024
+OCR_START_RESERVE = 200 * 1024 * 1024
 
 def container_memory_bytes():
     """Current container memory, or None when no enforceable cgroup counter exists."""
@@ -129,12 +134,12 @@ def wait_ocr(child,memory_reader=container_memory_bytes,clock=time.monotonic,sle
 def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, close_fds):
     # Preserve the cgroup-wide fail-closed guard and file-backed streams.
     # Return free parent heap pages before loading the child's native models.
-    # No cache or evidence is deleted, and the 400-MiB kill threshold stays fixed.
+    # No cache or evidence is deleted; the user-approved kill threshold is 480 MiB.
     __import__('gc').collect()
     __import__('memory_watch').release_free_pages()
     # Reserve measured OCR peak plus headroom before starting native models.
     used=container_memory_bytes()
-    if used is None or used+200*1024*1024>=OCR_CONTAINER_LIMIT:
+    if used is None or used+OCR_START_RESERVE>=OCR_CONTAINER_LIMIT:
         raise OcrMemoryDeferred('OCR awaiting free container memory')
     with tempfile.TemporaryFile(mode='w+',encoding='utf-8') as source, \
          tempfile.TemporaryFile(mode='w+',encoding='utf-8') as output, \
@@ -283,6 +288,8 @@ def tick(connect,runner=process):
 
 
 def loop(connect):
+    print('BOB_HANDSET_LIST policy=bounded-ocr limitMiB='+str(OCR_CONTAINER_LIMIT//(1024*1024))+
+          ' startReserveMiB='+str(OCR_START_RESERVE//(1024*1024)),flush=True)
     # One OCR process at a time on the small server. Keep the existing video
     # reader's two-minute cadence, with handset work first in each cycle.
     import video_ocr
