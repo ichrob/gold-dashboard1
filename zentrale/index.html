@@ -22,32 +22,64 @@
     button:disabled{opacity:.6;cursor:wait}.action.secondary{background:#263850;color:#f1f5f9}
     a:not(.action){color:#f2cf81} .actions{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0}
     ul{padding-left:20px;margin:10px 0}li{margin:7px 0;line-height:1.4}
-    .notice{border-left:3px solid #d4aa53;padding-left:12px}.error{color:#ffc2b9}.muted{color:#9fb0c7}
+    [hidden]{display:none!important}nav a[aria-current="page"]{background:#d4aa53;color:#152038}a:focus-visible,button:focus-visible{outline:3px solid #fff;outline-offset:3px}.notice{border-left:3px solid #d4aa53;padding-left:12px}.error{color:#ffc2b9}.muted{color:#9fb0c7}
   </style>
   <script src="/zentrale/app.js" defer></script>
 </head>
 <body>
 <main>
-  <header><div class="mark" aria-hidden="true">BZ</div><div><h1>Bob Zentrale</h1><div class="sub">Getrennte Verwaltung · nur Lesezugriff</div></div></header>
-  <section class="panel">
-    <h2>Technische Übersicht</h2>
-    <p>Diese schlanke App zeigt vorhandene Bob-Prüfergebnisse. Sie startet keine Tests, repariert nichts und führt keine Orders aus. Auch ein grüner Status bestätigt keinen lückenlosen Simulationsbetrieb.</p>
-    <div class="actions"><button type="button" id="refresh">Status jetzt prüfen</button><a class="action secondary" href="/">Bob Assistent öffnen</a></div>
-    <p id="status" role="status" aria-live="polite" class="sub">Noch nicht abgefragt.</p>
+  <header><div class="mark" aria-hidden="true">BZ</div><div><h1>Bob Zentrale</h1><div class="sub">Verwaltung, Forschung und Wartung</div></div></header>
+  <div class="actions"><a class="action secondary" href="/">← Bob Assistent</a><button type="button" id="refresh">Status aktualisieren</button></div>
+  <p id="status" role="status" aria-live="polite">Noch nicht abgefragt.</p>
+  <p id="observed" class="sub">Datenstand unbekannt</p>
+  <nav class="actions" aria-label="Bereiche der Zentrale">
+    <a class="action secondary" href="#overview">Überblick</a>
+    <a class="action secondary" href="#studies">Simulationen &amp; Forschung</a>
+    <a class="action secondary" href="#maintenance">Probleme &amp; Wartung</a>
+    <a class="action secondary" href="#storage">Speicher &amp; Archiv</a>
+    <a class="action secondary" href="#settings">Einstellungen</a>
+  </nav>
+  <section class="panel" id="overview" data-panel>
+    <h2 tabindex="-1">Überblick</h2>
+    <p>Dein gemeinsamer Einstieg für Verwaltung und Auswertungen. Goldanalyse, Rangliste, Push und Tradeüberwachung findest du im Bob-Assistenten.</p>
     <div class="grid">
       <div class="metric"><b>Simulationen</b><span id="simulation">Nicht geprüft</span></div>
       <div class="metric"><b>Überwachung</b><span id="monitor">Nicht geprüft</span></div>
-      <div class="metric"><b>Fehler und Reparaturen</b><span id="problems">Nicht geprüft</span></div>
+      <div class="metric"><b>Problemgruppen</b><span id="problems">Nicht geprüft</span></div>
       <div class="metric"><b>Produktnachweise</b><span id="products">Nicht geprüft</span></div>
     </div>
+    <p class="sub">Eine Statusaufnahme bestätigt keinen lückenlosen Betrieb. Zeitstempel gehören zur jeweiligen Beobachtung.</p>
   </section>
-  <section class="panel"><h2>Tests und Studien</h2><p class="sub">Der angezeigte Status ist eine Stichprobe, kein Abschluss- oder Gewinnnachweis.</p><ul id="tests"><li>Zum Abrufen „Status jetzt prüfen“ verwenden.</li></ul></section>
-  <section class="panel"><h2>Arbeitsschritte</h2><div class="actions">
-    <a class="action secondary" href="/?view=simulation#simulation">Simulationen in Bob</a>
-    <a class="action secondary" href="/?view=problems#problems">Probleme in Bob</a>
-    <a class="action secondary" href="/?view=research#research">Recherche in Bob</a>
-  </div>
-  <p class="notice">Die bisherige Bob-App und ihre Hintergrunddienste bleiben unverändert. Datenbanken und Archive werden durch diese Aufteilung noch nicht verkleinert.</p></section>
+  <section class="panel" id="studies" data-panel hidden>
+    <h2 tabindex="-1">Simulationen &amp; Forschung</h2>
+    <p id="research">Forschungsstand nicht geprüft.</p>
+    <div class="actions"><a class="action secondary" href="/?view=simulation#simulation">Simulationen im Detail</a><a class="action secondary" href="/?view=improve#improve">Besser werden</a><a class="action secondary" href="/?view=diagrams#diagrams">Diagramme</a><a class="action secondary" href="/?view=research#research">Recherche</a><a class="action secondary" href="/?view=learning#learning">Ergebnisse &amp; Historie</a></div>
+    <h3>Vorhandene Tests und Studien</h3><ul id="tests"><li>Noch nicht abgefragt.</li></ul>
+    <p class="sub">Die Detailansichten öffnen die bestehenden Bob-Bereiche. Es werden keine zusätzlichen Simulationen gestartet.</p>
+  </section>
+  <section class="panel" id="maintenance" data-panel hidden>
+    <h2 tabindex="-1">Probleme &amp; Wartung</h2>
+    <p id="problem-age">Problemstand nicht geprüft.</p><ul id="cases"><li>Noch nicht abgefragt.</li></ul>
+    <a class="action secondary" href="/?view=problems#problems">Probleme und Reparaturnachweise öffnen</a>
+    <p class="sub">Ein Fall in Prüfung ist noch nicht behoben. Diese Übersicht startet selbst keine Reparaturen.</p>
+  </section>
+  <section class="panel" id="storage" data-panel hidden>
+    <h2 tabindex="-1">Speicher &amp; Archiv</h2>
+    <div class="grid">
+      <div class="metric"><b>Festplatte · Render-Volume</b><span id="disk">Nicht geprüft</span></div>
+      <div class="metric"><b>Datenbank · Bestandteil der Belegung</b><span id="database">Nicht geprüft</span></div>
+      <div class="metric"><b>Arbeitsspeicher · RAM</b><span>Keine Messung in dieser Übersicht verfügbar</span></div>
+      <div class="metric"><b>Nachgewiesene Einsparung durch den Hub</b><span>Nicht gemessen</span></div>
+    </div>
+    <p id="archive">Archivnachweis nicht geprüft.</p>
+    <p class="sub">Archivnachweise gelten für den geprüften Umfang, nicht automatisch für die gesamte Datenbank. Eine Sicherung bedeutet noch keinen freigegebenen Festplattenplatz.</p>
+  </section>
+  <section class="panel" id="settings" data-panel hidden>
+    <h2 tabindex="-1">Einstellungen &amp; Verbindung</h2>
+    <p>Assistent und Zentrale verwenden dieselbe Bob-Anmeldung und dieselben vorhandenen Dienste. Beide können einen eigenen Startbildschirm-Eintrag behalten.</p>
+    <a class="action secondary" href="/?view=settings#settings">Push, Verbindung und Abmelden</a>
+    <p class="sub">Statusdaten werden nur über „Status aktualisieren“ geladen. Bereichswechsel verwenden dieselbe Antwort. Private Daten werden hier nicht offline gespeichert.</p>
+  </section>
 </main>
 </body>
 </html>
