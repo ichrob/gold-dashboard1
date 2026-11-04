@@ -64,6 +64,8 @@ on:
       - "storage_case_results.py"
       - "storage_history_evaluations.py"
       - "test_storage_history_evaluations.py"
+      - "storage_paper_evaluation.py"
+      - "test_storage_paper_evaluation.py"
       - "test_storage_case_results.py"
       - "test_storage_knowledge.py"
       - "diagnostic_reference_shadow.py"
