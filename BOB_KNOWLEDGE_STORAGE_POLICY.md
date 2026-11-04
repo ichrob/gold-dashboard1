@@ -92,3 +92,24 @@ Eine solche Manifest-Seite autorisiert **keine Löschung**. Für die anderen
 Bereiche laufen bisher die vorhandenen 64er-Lernstichproben und die
 separaten geschlossenen Paper-Receipt-Scans weiter; vollständige
 Bewertungen aller Simulationen und Qualitätsdaten sind ausdrücklich offen.
+
+## Kompakte Tagesbewertung aus bestätigten Papier-Abschlussbelegen
+
+`storage_paper_evaluation.py` liest nachgelagert höchstens 256 bereits
+arithmetisch abgeschlossene, unveränderliche `bob_paper_final_receipts`
+pro Durchgang. Die eigenständige, gedrosselte Aufgabe schreibt je
+Strategieprofil und Quellen-Tag nur die Anzahlen von positivem,
+negativem, unverändertem und unklassifiziertem Modell-Brutto-Ergebnis
+sowie eine quellgebundene SHA-256-Reihenfolge. In der privaten Anzeige
+stehen nur Aggregate und Verarbeitungsstand; keine ISIN, Fallkennungen,
+Ausführungs- oder Kontoinformationen. Die Originalfälle und Belege bleiben
+unverändert, mögliche spätere oder rückdatierte Originaländerungen sind
+weiter nicht vollständig unabhängig nachgescannt.
+
+Diese Aggregation **ist keine bestätigte reale Rendite, keine Netto-
+Gewinnwahrscheinlichkeit und kein Strategiegewinner**. Das gesonderte
+2.000-EUR-Risikomodell hat noch keine gleichwertigen arithmetischen
+Abschlussbelege in `bob_paper_final_receipts` und wird nicht erfunden.
+Vor Archiv-Referenzierung müssen alle Quellenkonten, offene/negative
+Testfälle, Stopps/Ziele, Originalkurse und Replay/Restore unabhängig
+verglichen werden. Keine automatische Falllöschung.
