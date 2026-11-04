@@ -34,6 +34,7 @@ def init(conn):
     __import__('storage_history_evaluations').init(conn)
     __import__('storage_paper_evaluation').init(conn)
     __import__('storage_quality_evaluation').init(conn)
+    __import__('storage_improvement_evaluation').init(conn)
 
 
 def state(size):
@@ -211,6 +212,7 @@ def report(conn,now=None):
         historyEvaluations=__import__('storage_history_evaluations').report(conn),
         paperDailyEvaluations=__import__('storage_paper_evaluation').report(conn),
         qualityEvaluations=__import__('storage_quality_evaluation').report(conn),
+        improvementEvaluations=__import__('storage_improvement_evaluation').report(conn),
         renderVolume=__import__('render_disk_metrics').report(),
         coldAnalysis=__import__('cold_analysis').status(conn),
         coldObservations=__import__('cold_observations').status(conn),
