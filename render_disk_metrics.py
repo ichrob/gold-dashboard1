@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import urllib.request
+import urllib.error
 
 RESOURCE = 'dpg-datjno1srm7s738vv500-a'
 # Render's disk-usage API reports a unit per time series (often GB).
@@ -86,6 +87,16 @@ def report():
                 if len(raw) > 1_000_000:
                     raise ValueError('response-too-large')
                 result = parse(json.loads(raw), now)
+        except urllib.error.HTTPError as exc:
+            # Never emit response bodies, headers, URLs or credentials.
+            # Numeric allowlist is enough to distinguish permission and API errors.
+            code = exc.code if type(exc.code) is int and exc.code in (
+                400, 401, 403, 404, 409, 429, 500, 502, 503) else None
+            result = {'status': 'provider-http-error', 'httpStatus': code}
+        except urllib.error.URLError:
+            result = {'status': 'network-unavailable'}
+        except (ValueError, UnicodeError):
+            result = {'status': 'invalid-response'}
         except Exception:
             result = {'status': 'unavailable'}
         _cache, _cached_at = result, now
