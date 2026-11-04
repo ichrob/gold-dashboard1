@@ -169,6 +169,22 @@ class StorageBriefTests(unittest.TestCase):
                          ["recoveryAcceptanceState"],
                          "archive-receipt-incomplete")
 
+    def test_render_http_diagnostics_are_numeric_and_not_pilot_approval(self):
+        for code in (401, 403, 429, 500, 123, True, '401'):
+            with self.subTest(code=code):
+                source = self.source()
+                source['renderVolume'] = {
+                    'status': 'provider-http-error', 'httpStatus': code,
+                    'apiToken': 'PRIVATE-SECRET'}
+                view = storage_brief.project(source)
+                self.assertEqual(view['renderVolume']['status'], 'provider-http-error')
+                self.assertEqual(view['renderVolume']['providerHttpStatus'],
+                                 code if type(code) is int and code in
+                                 (400, 401, 403, 404, 409, 429, 500, 502, 503) else None)
+                self.assertIsNone(view['renderVolume']['usedBytes'])
+                self.assertFalse(view['decisionProductPilotAuthorized'])
+                self.assertNotIn('PRIVATE-SECRET', json.dumps(view))
+
     def test_unsafe_provider_units_and_receipt_fields_fail_closed(self):
         item = self.source()
         item["renderVolume"]["unit"] = "mystery"
@@ -183,6 +199,32 @@ class StorageBriefTests(unittest.TestCase):
         self.assertIsNone(view["referencePreview"]["sampleJsonByteDifference"])
         self.assertFalse(view["decisionProductPilotAuthorized"])
         self.assertEqual(storage_brief.project(None)["status"], "not-observed")
+
+    def test_render_http_diagnostic_is_redacted_and_never_authorizes_writes(self):
+        for code in (401, 403, 404, 429, 503, 418, '403'):
+            with self.subTest(code=code):
+                source = self.source()
+                source['renderVolume'] = {
+                    'status': 'provider-http-error',
+                    'httpStatus': code,
+                    'apiToken': 'PRIVATE-SECRET-NEVER-EMIT',
+                    'diskUsage': 123, 'unit': 'bytes',
+                    'observedAt': 1793673100.0,
+                }
+                view = storage_brief.project(source)
+                volume = view['renderVolume']
+                self.assertEqual(volume['status'], 'provider-http-error')
+                self.assertEqual(volume['providerHttpStatus'],
+                                 code if type(code) is int and code in (400,401,403,404,409,429,500,502,503) else None)
+                self.assertIsNone(volume['usedBytes'])
+                self.assertIsNone(volume['observedAt'])
+                self.assertIsNone(volume['unit'])
+                self.assertFalse(view['decisionProductPilotAuthorized'])
+                self.assertFalse(view['archive']['deletionPermitted'])
+                self.assertNotIn('PRIVATE-SECRET', json.dumps(view))
+        source['renderVolume'] = {'status': 'network-unavailable'}
+        self.assertEqual(storage_brief.project(source)['renderVolume']['status'],
+                         'network-unavailable')
 
     def test_growth_requires_real_snapshots_and_invalid_sizes_are_filtered(self):
         source = self.source()
