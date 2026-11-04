@@ -28,20 +28,30 @@ internal object MorningLocalOcr {
         val page=raw.replace(Regex("(?i)\\bSG(?=Gold)"),"SG ")
             .replace(Regex("\\s+")," ").trim()
         val starts=heading.findAll(page).map { it.range.first }.toList()
-        if(starts.size!=expected.size) return null
+        if(starts.size<expected.size || starts.size>expected.size+2) return null
         val result=mutableListOf<String>()
         for(index in starts.indices) {
             val end=if(index+1<starts.size) starts[index+1] else page.length
             val segment=page.substring(starts[index],end)
             if(segment.length>1000) return null
             val ids=isin.findAll(segment).toList()
-            if(ids.size!=1 || ids[0].value!=expected[index]) return null
-            val venue=footer.find(segment,ids[0].range.last+1) ?: return null
+            if(ids.size>1) return null
+            val id=ids.singleOrNull()
+            val venue=id?.let { footer.find(segment,it.range.last+1) }
+            if(id==null || id.value !in expected) {
+                // Only an incomplete edge neighbour may sit outside the
+                // accessibility-approved complete rows. Never export it, skip
+                // a complete extra product, or ignore an interior fragment.
+                if(index!=0 && index!=starts.lastIndex) return null
+                if(venue!=null) return null
+                continue
+            }
+            if(result.size>=expected.size || id.value!=expected[result.size] || venue==null) return null
             val row=segment.substring(0,venue.range.last+1).trim()
             if(row.length>800 || unsafe.containsMatchIn(row)) return null
             result+=row
         }
-        return result
+        return result.takeIf { it.size==expected.size }
     }
 
     fun read(crop:Bitmap,expected:List<String>,done:(JSONObject?)->Unit) {
