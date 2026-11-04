@@ -28,7 +28,6 @@ TABLES = {
 }
 TAG = '_bobSizingArchiveV1'
 MAX_TABLE = 180_000_000
-MAX_RAW = 700_000_000
 HASH_BYTES = 32_000_000
 
 
@@ -152,17 +151,21 @@ def run_table(name, source_dsn, target_dsn):
                 eligible = sql.SQL('{} < %s AND NOT (payload ? %s) AND octet_length(({} )::text)>512').format(sql.Identifier(clock),sql.SQL(payload))
                 if field:
                     eligible += sql.SQL(" AND jsonb_typeof(payload->'products')='array'")
+                report({'phase':'archive-originals','table':name,'ageDays':days})
                 dst.execute(sql.SQL('INSERT INTO sizing_archive SELECT DISTINCT {},{} FROM sizing_data WHERE {} ON CONFLICT DO NOTHING').format(sql.SQL(hash_expr),sql.SQL(payload),eligible),(limit,TAG))
                 dst.execute("INSERT INTO sizing_locations SELECT hash,repeat('f',64),repeat('a',64),0,now() FROM sizing_archive ON CONFLICT DO NOTHING")
                 pointer = sql.SQL("(payload-'products') || jsonb_build_object(%s::text,{})" if field else "jsonb_build_object(%s::text,{})").format(sql.SQL(hash_expr))
+                report({'phase':'replace-test-payloads','table':name,'ageDays':days})
                 dst.execute(sql.SQL('UPDATE sizing_data SET payload={} WHERE {}').format(pointer,eligible),(TAG,limit,TAG))
                 before_vacuum = size(dst)
+                report({'phase':'compact-test-table','table':name,'ageDays':days})
                 dst.execute('VACUUM (FULL, ANALYZE) sizing_data')
                 # TAG is a fixed developer-owned literal, never external SQL.
                 resolved = sql.SQL("CASE WHEN d.payload ? {} THEN {} ELSE d.payload END").format(sql.Literal(TAG),
                     sql.SQL("(d.payload-{})||jsonb_build_object('products',a.original)").format(sql.Literal(TAG)) if field else sql.SQL('a.original'))
                 select_cols = sql.SQL(',').join(sql.SQL('({})::text').format(resolved) if n=='payload' else column_expression(n,t,'d') for n,t in cols)
                 query = sql.SQL('SELECT {} FROM sizing_data d LEFT JOIN sizing_archive a ON a.hash=d.payload->>{}').format(select_cols,sql.Literal(TAG))
+                report({'phase':'verify-reconstruction','table':name,'ageDays':days})
                 after = fingerprint(dst,query)
                 if after!=baseline:
                     raise ValueError('Full reconstruction differs from original COPY')
@@ -179,6 +182,8 @@ def run_table(name, source_dsn, target_dsn):
 def main():
     if os.environ.get('BOB_ISOLATED_SIZING_CONFIRMED')!='1':
         raise ValueError('Explicit isolated rehearsal opt-in required')
+    from storage_sizing_runner import require_dedicated_runtime
+    require_dedicated_runtime()
     resource.setrlimit(resource.RLIMIT_AS,(192*1024*1024,192*1024*1024))
     memory_guard()
     source=os.environ['DATABASE_URL']; target=os.environ['BOB_ARCHIVE_RESTORE_DATABASE_URL']
