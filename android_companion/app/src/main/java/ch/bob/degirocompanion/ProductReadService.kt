@@ -1026,6 +1026,20 @@ class ProductReadService : AccessibilityService() {
         } else GoldSearchRun.event("LIST_FIRST_CAPTURED",at)
     }
 
+    private fun morningListAnchors(nodes:List<AccessibilityNodeInfo>,view:List<MorningReadPolicy.Node>,
+                                   ids:List<String>,windowId:Int,rect:Rect,cropTop:Int):List<MorningListRegions.Anchor>? {
+        if(nodes.size!=view.size)return null
+        val candidates=nodes.indices.map { index ->
+            val node=nodes[index];val description=view[index]
+            val box=Rect();node.getBoundsInScreen(box)
+            MorningListRegions.Candidate(description.text,box.top-rect.top-cropTop,box.bottom-rect.top-cropTop,
+                node.windowId==windowId && node.isVisibleToUser && node.isEnabled &&
+                    !description.editable && !description.containsInput && !description.sensitive && !description.password &&
+                    box.left>=rect.left && box.right<=rect.right && box.width()>0)
+        }
+        return MorningListRegions.anchors(candidates,ids,rect.height()-cropTop)
+    }
+
     // Capture only the validated product-list window (Android 14+), after the
     // keyboard has disappeared. Never capture the full display or secure windows.
     private fun captureMorningList(root:AccessibilityNodeInfo,nodes:List<AccessibilityNodeInfo>,
@@ -1083,6 +1097,7 @@ class ProductReadService : AccessibilityService() {
         listBusy=true
         val ids=action.isins.toList();val capturedAt=Instant.now().toString()
         val textBefore=MorningListText.capture(descriptions,ids)
+        val anchorsBefore=morningListAnchors(nodes,descriptions,ids,windowId,rect,cropTop)
         takeScreenshotOfWindow(windowId,mainExecutor,object:TakeScreenshotCallback {
             override fun onFailure(errorCode:Int) {
                 if(generation!=listGeneration)return
@@ -1097,9 +1112,12 @@ class ProductReadService : AccessibilityService() {
                     val live=rootInActiveWindow ?: return
                     val refs=mutableListOf<AccessibilityNodeInfo>();val view=mutableListOf<MorningReadPolicy.Node>()
                     var textAfter:List<String>?=null
+                    var anchorsAfter:List<MorningListRegions.Anchor>?=null
                     val unchanged=try {
                         navigationTree(live,refs,view)
                         textAfter=MorningListText.capture(view,ids)
+                        val currentRect=Rect();live.getBoundsInScreen(currentRect)
+                        if(currentRect==rect) anchorsAfter=morningListAnchors(refs,view,ids,windowId,rect,cropTop)
                         val decision=MorningReadPolicy.captureGoldList(view,listImages.length()>0)
                         live.windowId==windowId && live.packageName?.toString()==ProductScreenEvidence.PACKAGE &&
                             decision.kind==MorningReadPolicy.Kind.COLLECT && decision.isins==ids
@@ -1126,7 +1144,8 @@ class ProductReadService : AccessibilityService() {
                             .put("before",org.json.JSONArray(textBefore!!)).put("after",org.json.JSONArray(textAfter!!)))
                         if(localBitmap!=null) {
                             delegatedToLocalOcr=true
-                            MorningLocalOcr.read(localBitmap,ids) { paired ->
+                            val stableAnchors=MorningListRegions.stable(anchorsBefore,anchorsAfter,ids,localBitmap.height)
+                            MorningLocalOcr.read(localBitmap,ids,stableAnchors) { paired ->
                                 try {
                                     if(paired!=null) image.put("localOcr",paired)
                                     acceptCapturedMorningImage(image,ids,generation,windowId,cropTop,capturedAt)
