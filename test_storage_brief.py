@@ -93,6 +93,44 @@ class StorageBriefTests(unittest.TestCase):
         for secret in ("PRIVATE", "SENSITIVE-ISIN", "secret-drive-id", "dpg-private-ID"):
             self.assertNotIn(secret, compact)
 
+    def test_latest_attempt_exposes_only_fixed_redacted_failure_phase(self):
+        source = self.source()
+        source["archiveWorker"]["latestPersistedAttempt"] = {
+            "status": "failed", "updatedAt": "2026-11-04T00:47:00+00:00",
+            "phase": "verify-independent-recovery-key",
+            "errorType": "ValueError",
+            "receiptPersistenceErrorType": None,
+            "attempt": "encrypted_recovery_private_identifier",
+            "receipt": {"privateDriveId": "private-drive-id",
+                        "token": "PRIVATE-TOKEN"},
+        }
+        view = storage_brief.project(source)
+        current = view["archive"]["latestPersistedAttempt"]
+        self.assertEqual(current["status"], "failed")
+        self.assertEqual(current["phase"], "verify-independent-recovery-key")
+        self.assertTrue(current["phaseRecorded"])
+        self.assertEqual(current["errorType"], "ValueError")
+        self.assertEqual(current["updatedAt"],
+                         "2026-11-04T00:47:00+00:00")
+        self.assertTrue(current["readOnly"])
+        self.assertFalse(view["archive"]["recoveryKeyVerified"])
+        self.assertFalse(view["decisionProductPilotAuthorized"])
+        self.assertFalse(view["archive"]["deletionPermitted"])
+        compact = json.dumps(view)
+        for secret in ("private-drive-id", "PRIVATE-TOKEN",
+                       "encrypted_recovery_private_identifier"):
+            self.assertNotIn(secret, compact)
+
+        source["archiveWorker"]["latestPersistedAttempt"].update(
+            phase="token=PRIVATE-TOKEN", errorType="Secret=PRIVATE-TOKEN")
+        unknown = storage_brief.project(source)["archive"]["latestPersistedAttempt"]
+        self.assertIsNone(unknown["phase"])
+        self.assertTrue(unknown["phaseRecorded"])
+        self.assertIsNone(unknown["errorType"])
+        source["archiveWorker"]["latestPersistedAttempt"]["phase"] = None
+        self.assertFalse(storage_brief.project(source)["archive"]
+                         ["latestPersistedAttempt"]["phaseRecorded"])
+
     def test_archive_status_requires_persisted_recovery_proof_and_age(self):
         source = self.source()
         source["observedAt"] = 1793673000
