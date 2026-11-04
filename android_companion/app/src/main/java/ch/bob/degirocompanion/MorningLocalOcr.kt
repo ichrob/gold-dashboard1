@@ -14,14 +14,33 @@ import org.json.JSONObject
  * original image are OCR agreement, NOT two independent issuer sources.
  */
 internal object MorningLocalOcr {
-    private fun positionedRows(text:com.google.mlkit.vision.text.Text,expected:List<String>):List<String>? {
+    data class Rows(val ids:List<String>,val values:List<String>)
+
+    /** A viewport can include an expected ISIN whose footer is off-screen.
+     * Keep only complete contiguous rows. Missing edge rows must be supplied
+     * by another original image; the server still requires ten agreed rows. */
+    fun completeViewportRows(raw:String,expected:List<String>):Rows? {
+        if(expected.isEmpty() || expected.size>10 || expected.distinct()!=expected ||
+            expected.any { !SeriesEvidence.validIsin(it) }) return null
+        productRows(raw,expected)?.let { return Rows(expected,it) }
+        val candidates=mutableListOf<Rows>()
+        for((left,right) in listOf(0 to 1,1 to 0,1 to 1)) {
+            if(expected.size<=left+right) continue
+            val subset=expected.subList(left,expected.size-right)
+            productRows(raw,subset)?.let { candidates.add(Rows(subset.toList(),it)) }
+        }
+        // Ambiguous alternatives are not interchangeable evidence.
+        return candidates.distinctBy { it.ids }.singleOrNull()
+    }
+
+    private fun positionedRows(text:com.google.mlkit.vision.text.Text,expected:List<String>):Rows? {
         val lines=mutableListOf<MorningOcrLayout.Line>()
         for(block in text.textBlocks) for(line in block.lines) {
             val box=line.boundingBox ?: return null
             lines.add(MorningOcrLayout.Line(line.text,box.left,box.top,box.right,box.bottom))
         }
         val ordered=MorningOcrLayout.readingOrder(lines) ?: return null
-        return productRows(ordered,expected)
+        return completeViewportRows(ordered,expected)
     }
     private val heading=Regex("(?iu)\\b(?:SG|BNP)\\s+Gold\\b")
     private val isin=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
@@ -83,7 +102,12 @@ internal object MorningLocalOcr {
             client.process(InputImage.fromBitmap(crop,0)).addOnCompleteListener { first ->
                 val rows=if(first.isSuccessful)
                     positionedRows(first.result,expected) else null
-                if(rows==null) { complete(null);return@addOnCompleteListener }
+                if(rows==null) {
+                    ProductReadDiagnostics.record(if(first.isSuccessful)
+                        ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_FIRST_REJECTED
+                        else ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_ENGINE_FAILED)
+                    complete(null);return@addOnCompleteListener
+                }
                 runCatching {
                     val width=minOf(1600,(crop.width*1.15).toInt())
                     val height=maxOf(1,(crop.height.toDouble()*width/crop.width).toInt())
@@ -93,11 +117,14 @@ internal object MorningLocalOcr {
                             positionedRows(second.result,expected) else null
                         // Do not require identical OCR strings: the existing
                         // server grammar independently reconciles field votes.
-                        val paired=if(other!=null && other.size==rows.size)
+                        val paired=if(other!=null && other.ids==rows.ids)
                             runCatching { JSONObject()
-                                .put("expectedIsins",JSONArray(expected))
-                                .put("passes",JSONArray().put(JSONArray(rows)).put(JSONArray(other)))
+                                .put("expectedIsins",JSONArray(rows.ids))
+                                .put("passes",JSONArray().put(JSONArray(rows.values)).put(JSONArray(other.values)))
                             }.getOrNull() else null
+                        if(paired==null) ProductReadDiagnostics.record(if(second.isSuccessful)
+                            ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_SECOND_REJECTED
+                            else ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_ENGINE_FAILED)
                         complete(paired)
                     }
                 }.onFailure { complete(null) }
