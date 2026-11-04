@@ -17,7 +17,10 @@ internal object MorningLocalOcr {
     data class Rows(val ids:List<String>,val values:List<String>)
     enum class Rejection { INPUT_LIMIT, MISSING_BOX, LAYOUT, HEADING_COUNT,
         ROW_LIMIT, MULTIPLE_IDENTITIES, INTERIOR_FRAGMENT, COMPLETE_EXTRA,
-        IDENTITY_ORDER, FOOTER_MISSING, UNSAFE_ROW, ROW_COUNT, PAIR_IDENTITY }
+        IDENTITY_ORDER, FOOTER_MISSING, UNSAFE_ROW, ROW_COUNT, PAIR_IDENTITY,
+        REGION_INPUT_BOUNDS, REGION_IDENTITY_MISSING, REGION_IDENTITY_DUPLICATE,
+        REGION_IDENTITY_ORDER, REGION_HEADING_MISSING, REGION_FOOTER_MISSING,
+        REGION_IDENTITY_CONFLICT }
 
     /** Three sequential optical attempts at most; one successful read is never
      * evidence. A failed first pass must not prevent the scaled recovery pair.
@@ -133,7 +136,18 @@ internal object MorningLocalOcr {
         val client=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         var scaled:Bitmap?=null
         var finished=false
-        var recoveryLines:List<MorningOcrLayout.Line>?=null
+        val recovery=MorningOcrLayout.RecoveryPlanner(expected,crop.height)
+        fun planIssue(issue:MorningOcrLayout.PlanIssue) {
+            ProductReadDiagnostics.localOcr(when(issue) {
+                MorningOcrLayout.PlanIssue.INPUT_BOUNDS -> Rejection.REGION_INPUT_BOUNDS
+                MorningOcrLayout.PlanIssue.IDENTITY_MISSING -> Rejection.REGION_IDENTITY_MISSING
+                MorningOcrLayout.PlanIssue.IDENTITY_DUPLICATE -> Rejection.REGION_IDENTITY_DUPLICATE
+                MorningOcrLayout.PlanIssue.IDENTITY_ORDER -> Rejection.REGION_IDENTITY_ORDER
+                MorningOcrLayout.PlanIssue.HEADING_MISSING -> Rejection.REGION_HEADING_MISSING
+                MorningOcrLayout.PlanIssue.FOOTER_MISSING -> Rejection.REGION_FOOTER_MISSING
+                MorningOcrLayout.PlanIssue.REGION_IDENTITY -> Rejection.REGION_IDENTITY_CONFLICT
+            })
+        }
         fun complete(value:JSONObject?) {
             if(finished)return
             finished=true
@@ -148,7 +162,7 @@ internal object MorningLocalOcr {
             .put("passes",JSONArray().put(JSONArray(reads[0].values)).put(JSONArray(reads[1].values)))
         }.getOrNull() }
         fun recoverRegions() {
-            val bands=recoveryLines?.let { MorningOcrLayout.productBands(it,expected,crop.height) }
+            val bands=recovery.bands
             if(bands==null) { complete(null);return }
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_REGIONS_STARTED)
             val first=mutableListOf<String>();val second=mutableListOf<String>()
@@ -199,12 +213,12 @@ internal object MorningLocalOcr {
                     val lines=if(task.isSuccessful) runCatching { positionedLines(task.result) }.getOrNull() else null
                     // Restore positions to the original cropped PNG before
                     // planning local recovery; coordinates never leave phone.
-                    if(lines!=null) recoveryLines=lines.map { line ->
+                    val rows=lines?.let { MorningOcrLayout.readingOrder(it) }?.let { completeViewportRows(it,expected,diagnose=true) }
+                    if(rows==null && lines!=null) recovery.offer(lines.map { line ->
                         val factor=crop.width.toDouble()/width
                         MorningOcrLayout.Line(line.text,(line.left*factor).toInt(),(line.top*factor).toInt(),
                             kotlin.math.ceil(line.right*factor).toInt(),kotlin.math.ceil(line.bottom*factor).toInt())
-                    }
-                    val rows=lines?.let { MorningOcrLayout.readingOrder(it) }?.let { completeViewportRows(it,expected,diagnose=true) }
+                    },::planIssue)
                     if(rows==null) ProductReadDiagnostics.record(if(task.isSuccessful)
                         when(index) {
                             0 -> ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_FIRST_REJECTED
