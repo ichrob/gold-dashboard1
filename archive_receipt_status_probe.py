@@ -17,7 +17,8 @@ _STATES={"verified","failed","running","already-attempted-today",
          "blocked","ready","disabled"}
 _PHASES={"drive-preflight","restore-isolation-check","export",
          "local-restore","encrypt-before-upload","encrypted-upload",
-         "encrypted-download","authenticated-decrypt","upload",
+         "encrypted-download","authenticated-decrypt",
+         "verify-independent-recovery-key","upload",
          "download","remote-restore","receipt-upload"}
 _THREAD=None
 _LOCK=threading.Lock()
