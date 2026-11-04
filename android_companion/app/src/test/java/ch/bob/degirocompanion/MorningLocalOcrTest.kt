@@ -4,6 +4,28 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MorningLocalOcrTest {
+    @Test fun expectedClippedEdgeDoesNotDiscardOtherCompleteRows() {
+        val raw=firstRow+" "+secondRow.substringBefore("Societe")
+        assertNull(MorningLocalOcr.productRows(raw,listOf(first,second)))
+        val result=MorningLocalOcr.completeViewportRows(raw,listOf(first,second))!!
+        assertEquals(listOf(first),result.ids)
+        assertEquals(MorningLocalOcr.productRows(firstRow,listOf(first)),result.values)
+        assertFalse(result.values.joinToString().contains(second))
+        val reverse=MorningLocalOcr.completeViewportRows(
+            firstRow.substringBefore("Societe")+" "+secondRow,listOf(first,second))!!
+        assertEquals(listOf(second),reverse.ids)
+    }
+
+    @Test fun completeExtraRowsAndInteriorGapsRemainRejected() {
+        assertNull(MorningLocalOcr.completeViewportRows(firstRow+" "+secondRow,listOf(first)))
+        assertNull(MorningLocalOcr.completeViewportRows(firstRow+" "+secondRow,listOf(second,first)))
+        assertNull(MorningLocalOcr.completeViewportRows(firstRow.substringBefore("Societe"),listOf(first)))
+        assertNull(MorningLocalOcr.completeViewportRows(firstRow+" "+secondRow,listOf(first,first)))
+        val middle="DE000FB0CVV9"
+        val clipped="SG Gold Turbo BEST Open-End Put BAR 4000 BP 4000 Bv 10 | $middle"
+        assertNull(MorningLocalOcr.completeViewportRows(firstRow+" "+clipped+" "+secondRow,
+            listOf(first,middle,second)))
+    }
     private val first="DE000SQ02JQ6"
     private val second="DE000FG8NHQ3"
     private val firstRow="SG Gold Turbo Unlimited Mini Call BAR 2166 BP 2125.38 Bv 10 | $first Societe Generale OTC EUR K V"
