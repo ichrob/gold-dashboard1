@@ -34,8 +34,11 @@ HASH_BYTES = 32_000_000
 
 def memory_guard():
     used=Path('/sys/fs/cgroup/memory.current')
-    if used.exists() and int(used.read_text())>420*1024*1024:
-        raise MemoryError('Shared service reserve reached')
+    deadline=time.monotonic()+30
+    while used.exists() and int(used.read_text())>420*1024*1024:
+        if time.monotonic()>=deadline:
+            raise MemoryError('Shared service reserve remained exhausted')
+        time.sleep(0.5)
 
 
 def row_hash(row):
