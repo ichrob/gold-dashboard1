@@ -128,7 +128,7 @@ internal object MorningLocalOcr {
         return if(result.size==expected.size) result else reject(Rejection.ROW_COUNT)
     }
 
-    fun read(crop:Bitmap,expected:List<String>,done:(JSONObject?)->Unit) {
+    fun read(crop:Bitmap,expected:List<String>,appAnchors:List<MorningListRegions.Anchor>?=null,done:(JSONObject?)->Unit) {
         if(crop.isRecycled || crop.width<200 || crop.height<200 || crop.width*crop.height>16_000_000) {
             if(!crop.isRecycled) crop.recycle()
             done(null);return
@@ -162,8 +162,12 @@ internal object MorningLocalOcr {
             .put("passes",JSONArray().put(JSONArray(reads[0].values)).put(JSONArray(reads[1].values)))
         }.getOrNull() }
         fun recoverRegions() {
-            val bands=recovery.bands
+            // Independent app geometry breaks the circular dependency: an
+            // unreadable full-image ISIN need not seed its own optical crop.
+            val fromApp=MorningListRegions.bands(appAnchors,expected,crop.height)
+            val bands=fromApp ?: recovery.bands
             if(bands==null) { complete(null);return }
+            if(fromApp!=null)ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_APP_ANCHORS)
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_REGIONS_STARTED)
             val first=mutableListOf<String>();val second=mutableListOf<String>()
             fun nextBand(index:Int) {
@@ -184,7 +188,7 @@ internal object MorningLocalOcr {
                         client.process(InputImage.fromBitmap(input,0)).addOnCompleteListener { task ->
                             val lines=if(task.isSuccessful) runCatching { positionedLines(task.result) }.getOrNull() else null
                             val text=lines?.let { MorningOcrLayout.readingOrder(it) }
-                            val values=text?.let { productRows(it,listOf(band.id)) }
+                            val values=text?.let { parseRows(it,listOf(band.id)) { reason -> ProductReadDiagnostics.localOcr(reason) } }
                             if(input!==region && !input.isRecycled) input.recycle()
                             scaled=null
                             accept(values?.let { Rows(listOf(band.id),it) })
