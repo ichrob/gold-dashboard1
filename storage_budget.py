@@ -194,6 +194,7 @@ def report(conn,now=None):
         relationLatestSampleAt=relation_last_at,
         relationElapsedSeconds=relation_elapsed,
         largestTableDeltas=relation_deltas[:12],
+        featureAllocation=__import__('feature_storage').report(samples, now),
         storageForensics=__import__('storage_forensics').report(conn,samples),
         fixedSlotDaily=__import__('storage_daily_compact').report(samples),
         androidImageDuplication=__import__('android_image_storage_audit').report(conn),
