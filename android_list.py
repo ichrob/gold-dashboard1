@@ -167,6 +167,8 @@ def init(conn):
     conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS parsed_items JSONB")
     conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS processing_at TIMESTAMPTZ")
     conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS processing_attempts INTEGER NOT NULL DEFAULT 0")
+    # Reproducible, bounded OCR work only; original image payload is unchanged.
+    conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS ocr_progress JSONB")
 
 IMPORT_STAGES = frozenset(('waiting-memory','fetching','images-ready','reading','stored','synced','fetch-failed','read-failed','store-failed','superseded'))
 

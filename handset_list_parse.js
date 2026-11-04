@@ -66,22 +66,41 @@ function localOcrImage(value) {
  }
  return value.passes.map(pass=>pass.join('\n'));
 }
+// Checkpoints contain only product grammar accepted from actual optical
+// passes. Never store a raw screen transcript or turn one read into two.
+function agreedImageRows(passes) {
+ const votes=new Map();
+ for(const text of passes){const seen=new Set();for(const block of b.degiroListBlocks(normalizeLayout(text))){
+  const row=b.parseDegiroListRow(block);if(!row||!b.validIsin(row.isin)||seen.has(row.isin))continue;
+  seen.add(row.isin);const reads=votes.get(row.isin)||[];reads.push(block);votes.set(row.isin,reads);
+ }}
+ return [...votes.values()].map(reads=>b.agreedDegiroListRow(reads)||b.agreedExcludedDegiroFactorRow(reads)).filter(Boolean);
+}
+function nativeImage(passes) {
+ if(!Array.isArray(passes)||passes.length<2||passes.length>3||
+    passes.some(t=>typeof t!=='string'||t.length>30000))return null;
+ const clean=passes.map(text=>b.degiroListBlocks(normalizeLayout(text)).map(block=>{
+  const start=block.search(/\b(?:SG|BNP)\s+Gold\b/i);
+  const footer=/\b(?:Societe Generale|Société Générale|BNP(?: Paribas)?)\s+OTC\s+(?:EUR|CHF)\b/i.exec(block);
+  if(start<0||!footer)return null;
+  const value=block.slice(start,footer.index+footer[0].length);
+  if(value.length>800||/passwort|password|kontostand|portfolio|order bestätigen|stückzahl kaufen/i.test(value))return null;
+  const ids=value.match(/\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/g)||[];
+  const row=b.parseDegiroListRow(value);
+  return ids.length===1&&b.validIsin(ids[0])&&row&&row.isin===ids[0]&&
+   !row.identityCorrection&&(row.listRow.complete||b.agreedExcludedDegiroFactorRow([value,value]))?value:null;
+ }).filter(Boolean).join('\n'));
+ if(clean.some(text=>b.degiroListBlocks(text).length>10))return null;
+ // Privacy filtering must not change ANY accepted row, optional value,
+ // disagreement or exclusion. Otherwise keep the original optical work path.
+ const original=agreedImageRows(passes),filtered=agreedImageRows(clean);
+ return original.length>0&&JSON.stringify(original)===JSON.stringify(filtered)?clean:null;
+}
 function parse(images,at,appSources=[],localSources=[]){
  const items=new Map();
  for(const [index,passes] of images.entries()){
-  const votes=new Map();
-  for(const text of passes){
-   const seen=new Set();
-   for(const block of b.degiroListBlocks(normalizeLayout(text))){
-    const row=b.parseDegiroListRow(block);
-    if(!row||!b.validIsin(row.isin)||seen.has(row.isin))continue;
-    seen.add(row.isin);
-    const reads=votes.get(row.isin)||[];reads.push(block);votes.set(row.isin,reads);
-   }
-  }
-  for(const [isin,reads] of votes){
-   const row=b.agreedDegiroListRow(reads)||b.agreedExcludedDegiroFactorRow(reads);
-   if(!row)continue;
+  for(const row of agreedImageRows(passes)){
+   const isin=row.isin;
    if(appSources[index]) {
     row.listRow.source='DEGIRO-App-Text';
     row.listRow.crossChecked=false;
@@ -111,5 +130,5 @@ function parse(images,at,appSources=[],localSources=[]){
   listVenueEvidence:b.listVenueForSync(x.isin,archive)
  }))}};
 }
-module.exports={parse,normalizeLayout,appImage,localOcrImage};
-if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
+module.exports={parse,normalizeLayout,appImage,localOcrImage,nativeImage};
+if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):x.mode==='prepare-native'?nativeImage(x.passes):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}

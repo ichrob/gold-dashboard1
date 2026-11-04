@@ -72,14 +72,14 @@ internal object MorningLocalOcr {
         return result
     }
 
-    private fun positionedRows(text:com.google.mlkit.vision.text.Text,expected:List<String>):Rows? {
+    private fun positionedLines(text:com.google.mlkit.vision.text.Text):List<MorningOcrLayout.Line>? {
         val lines=mutableListOf<MorningOcrLayout.Line>()
         for(block in text.textBlocks) for(line in block.lines) {
             val box=line.boundingBox ?: run { ProductReadDiagnostics.localOcr(Rejection.MISSING_BOX);return null }
             lines.add(MorningOcrLayout.Line(line.text,box.left,box.top,box.right,box.bottom))
         }
-        val ordered=MorningOcrLayout.readingOrder(lines) ?: run { ProductReadDiagnostics.localOcr(Rejection.LAYOUT);return null }
-        return completeViewportRows(ordered,expected,diagnose=true)
+        if(MorningOcrLayout.readingOrder(lines)==null) { ProductReadDiagnostics.localOcr(Rejection.LAYOUT);return null }
+        return lines
     }
     private val heading=Regex("(?iu)\\b(?:SG|BNP)\\s+Gold\\b")
     private val isin=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
@@ -133,6 +133,7 @@ internal object MorningLocalOcr {
         val client=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         var scaled:Bitmap?=null
         var finished=false
+        var recoveryLines:List<MorningOcrLayout.Line>?=null
         fun complete(value:JSONObject?) {
             if(finished)return
             finished=true
@@ -142,6 +143,50 @@ internal object MorningLocalOcr {
             done(value)
         }
         val widths=passWidths(crop.width)
+        fun pack(pair:List<Rows>?):JSONObject?=pair?.let { reads -> runCatching { JSONObject()
+            .put("expectedIsins",JSONArray(reads.first().ids))
+            .put("passes",JSONArray().put(JSONArray(reads[0].values)).put(JSONArray(reads[1].values)))
+        }.getOrNull() }
+        fun recoverRegions() {
+            val bands=recoveryLines?.let { MorningOcrLayout.productBands(it,expected,crop.height) }
+            if(bands==null) { complete(null);return }
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_REGIONS_STARTED)
+            val first=mutableListOf<String>();val second=mutableListOf<String>()
+            fun nextBand(index:Int) {
+                if(index==bands.size) {
+                    ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_REGIONS_ACCEPTED)
+                    complete(pack(listOf(Rows(expected,first),Rows(expected,second))));return
+                }
+                val band=bands[index]
+                val region=runCatching { Bitmap.createBitmap(crop,0,band.top,crop.width,band.bottom-band.top) }.getOrNull()
+                if(region==null) { complete(null);return }
+                collectPasses({ pass,accept ->
+                    runCatching {
+                        val width=passWidths(region.width)[pass]
+                        val height=maxOf(1,(region.height.toDouble()*width/region.width).toInt())
+                        check(width.toLong()*height<=16_000_000)
+                        val input=if(width==region.width) region else Bitmap.createScaledBitmap(region,width,height,true)
+                        scaled=input.takeIf { it!==region }
+                        client.process(InputImage.fromBitmap(input,0)).addOnCompleteListener { task ->
+                            val lines=if(task.isSuccessful) runCatching { positionedLines(task.result) }.getOrNull() else null
+                            val text=lines?.let { MorningOcrLayout.readingOrder(it) }
+                            val values=text?.let { productRows(it,listOf(band.id)) }
+                            if(input!==region && !input.isRecycled) input.recycle()
+                            scaled=null
+                            accept(values?.let { Rows(listOf(band.id),it) })
+                        }
+                    }.onFailure {
+                        scaled?.let { if(it!==crop && it!==region && !it.isRecycled) it.recycle() };scaled=null
+                        accept(null)
+                    }
+                }) { pair ->
+                    if(region!==crop && !region.isRecycled) region.recycle()
+                    if(pair==null) complete(null)
+                    else { first.add(pair[0].values.single());second.add(pair[1].values.single());nextBand(index+1) }
+                }
+            }
+            nextBand(0)
+        }
         collectPasses({ index, accept ->
             if(index>=widths.size) { accept(null) }
             else runCatching {
@@ -151,7 +196,15 @@ internal object MorningLocalOcr {
                 val input=if(width==crop.width) crop else
                     Bitmap.createScaledBitmap(crop,width,height,true).also { scaled=it }
                 client.process(InputImage.fromBitmap(input,0)).addOnCompleteListener { task ->
-                    val rows=if(task.isSuccessful) runCatching { positionedRows(task.result,expected) }.getOrNull() else null
+                    val lines=if(task.isSuccessful) runCatching { positionedLines(task.result) }.getOrNull() else null
+                    // Restore positions to the original cropped PNG before
+                    // planning local recovery; coordinates never leave phone.
+                    if(lines!=null) recoveryLines=lines.map { line ->
+                        val factor=crop.width.toDouble()/width
+                        MorningOcrLayout.Line(line.text,(line.left*factor).toInt(),(line.top*factor).toInt(),
+                            kotlin.math.ceil(line.right*factor).toInt(),kotlin.math.ceil(line.bottom*factor).toInt())
+                    }
+                    val rows=lines?.let { MorningOcrLayout.readingOrder(it) }?.let { completeViewportRows(it,expected,diagnose=true) }
                     if(rows==null) ProductReadDiagnostics.record(if(task.isSuccessful)
                         when(index) {
                             0 -> ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_FIRST_REJECTED
@@ -171,11 +224,7 @@ internal object MorningLocalOcr {
         }) { pair ->
             // The server still reconciles every field across the two genuine
             // optical reads; never duplicate one pass to manufacture agreement.
-            val value=pair?.let { reads -> runCatching { JSONObject()
-                .put("expectedIsins",JSONArray(reads.first().ids))
-                .put("passes",JSONArray().put(JSONArray(reads[0].values)).put(JSONArray(reads[1].values)))
-            }.getOrNull() }
-            complete(value)
+            if(pair==null) recoverRegions() else complete(pack(pair))
         }
     }
 }
