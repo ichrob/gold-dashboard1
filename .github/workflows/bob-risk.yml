@@ -42,6 +42,8 @@ on:
       - 'test_diagnostic_archived_catchup.py'
       - 'storage_budget.py'
       - 'storage_brief.py'
+      - 'render_disk_metrics.py'
+      - 'test_render_disk_metrics.py'
       - 'test_storage_brief.py'
       - 'bob_diagnostics.py'
       - 'bob_mcp.py'

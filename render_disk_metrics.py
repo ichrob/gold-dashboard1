@@ -8,6 +8,13 @@ import time
 import urllib.request
 
 RESOURCE = 'dpg-datjno1srm7s738vv500-a'
+# Render's disk-usage API reports a unit per time series (often GB).
+# Normalize only explicit known units; unknown units must fail closed.
+_UNIT_TO_BYTES = {
+    'B': 1, 'bytes': 1, 'KB': 1_000, 'MB': 1_000_000,
+    'GB': 1_000_000_000, 'KiB': 1_024,
+    'MiB': 1_048_576, 'GiB': 1_073_741_824,
+}
 URL = 'https://api.render.com/v1/metrics/disk-usage?resource=' + RESOURCE + '&resolutionSeconds=60'
 _lock = threading.Lock()
 _cache = None
@@ -25,6 +32,11 @@ def parse(payload, now):
         if not any(isinstance(x, dict) and x.get('field') in ('resource', 'service', 'database')
                    and x.get('value') == RESOURCE for x in labels):
             continue
+        unit = series.get('unit')
+        scale = _UNIT_TO_BYTES.get(unit) if isinstance(unit, str) else None
+        if scale is None:
+            # Never guess what an unknown unit means for rewrite headroom.
+            continue
         for point in series.get('values', []):
             try:
                 stamp = datetime.datetime.fromisoformat(point['timestamp'].replace('Z', '+00:00'))
@@ -34,17 +46,21 @@ def parse(payload, now):
                 value = point['value']
                 if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or value < 0:
                     continue
+                raw_bytes = value * scale
+                if not math.isfinite(raw_bytes) or raw_bytes > 1_000_000_000_000:
+                    continue
                 if 0 <= now - at <= 300:
-                    points.append((at, value, series.get('unit')))
+                    # Round upward, never understate disk usage before a write.
+                    points.append((at, math.ceil(raw_bytes), unit))
             except (KeyError, TypeError, ValueError, OverflowError):
                 continue
     if not points:
         return {'status': 'no-fresh-observation'}
-    # Keep API units explicit. Do not turn unverified units into a rewrite budget.
-    at, value, unit = max(points, key=lambda p: p[0])
+    at, used_bytes, reported_unit = max(points, key=lambda p: p[0])
     return {'status': 'observed', 'resource': RESOURCE, 'observedAt': at,
-            'diskUsage': value, 'unit': unit, 'source': 'render-metrics-api',
-            'scope': 'volume-usage', 'maintenanceBudgetApproved': False}
+            'diskUsage': used_bytes, 'unit': 'bytes', 'reportedUnit': reported_unit,
+            'source': 'render-metrics-api', 'scope': 'volume-usage',
+            'maintenanceBudgetApproved': False}
 
 
 def report():
