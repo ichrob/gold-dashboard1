@@ -16,7 +16,7 @@ internal object MorningOcrLayout {
             val anchor=band?.first()
             // Fixed anchor prevents a chain of slightly offset fragments from
             // merging separate product lines. Use the smaller text height.
-            if(anchor!=null && kotlin.math.abs(center(line)-center(anchor))<=
+            if(band!=null && anchor!=null && kotlin.math.abs(center(line)-center(anchor))<=
                 minOf(line.bottom-line.top,anchor.bottom-anchor.top)*0.45) band.add(line)
             else bands.add(mutableListOf(line))
         }
