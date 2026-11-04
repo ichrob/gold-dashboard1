@@ -435,7 +435,10 @@ def tick(connect,runner=process):
     except Exception as exc:
         observe("read-failed", type(exc).__name__)
         with connect() as conn:
-            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,'memoryDeferrals':memory_deferrals(previous)}),batch))
+            # A failed global reconciliation must permit fresh optical reads;
+            # an individually agreed subset is not proof of a complete image.
+            clear_progress=',ocr_progress=NULL' if isinstance(exc,ListVerificationError) else ''
+            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb"+clear_progress+" WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,'memoryDeferrals':memory_deferrals(previous)}),batch))
             conn.commit()
     return True
 

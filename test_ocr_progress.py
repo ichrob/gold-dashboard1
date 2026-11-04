@@ -120,6 +120,11 @@ class ProgressDatabaseTests(unittest.TestCase):
             worker.persist_progress(connect,'batch',{})
             with connect() as conn:
                 self.assertEqual(conn.execute("SELECT ocr_progress FROM bob_android_list_images WHERE batch_id='batch'").fetchone()[0],progress)
+                conn.execute("UPDATE bob_android_list_images SET import_receipt='{\"stage\":\"reading\"}',processing_attempts=0,processing_at=NULL")
+            def fail_verification(*_):raise worker.ListVerificationError('Incomplete list')
+            self.assertTrue(worker.tick(connect,fail_verification))
+            with connect() as conn:
+                self.assertIsNone(conn.execute("SELECT ocr_progress FROM bob_android_list_images WHERE batch_id='batch'").fetchone()[0])
             with self.assertRaises(ValueError):worker.persist_progress(connect,'batch',{'oversized':'x'*120001})
         finally:
             with psycopg.connect(url) as conn:conn.execute('DROP SCHEMA '+schema+' CASCADE')
