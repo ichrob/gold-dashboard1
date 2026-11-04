@@ -58,6 +58,22 @@ const {chromium}=require('playwright');
   await page.locator('#earlyImpulseStatus').evaluate((el,text)=>{el.textContent=text;},label);
   assert.equal(await page.locator('#bobSimpleHome #earlyImpulseStatus').innerText(),label);
  }
+ // A notification opened in an existing window must escape collapsed analysis.
+ const facts={eventKind:'early-warning',direction:'SHORT',generatedAt:Date.now()-600000,expiresAt:Date.now()-1};
+ await page.evaluate(data=>{location.hash='push='+encodeURIComponent(JSON.stringify(data));},facts);
+ await page.locator('#pushOpened').waitFor({state:'visible'});
+ assert.equal(await page.locator('#pushOpened').evaluate(el=>el.closest('details')),null);
+ const context=await page.locator('#pushOpenedText').innerText();
+ assert(context.includes('FRÜHWARNUNG · SHORT')&&context.includes('abgelaufen'));
+ assert(context.includes('Einstieg: ABWARTEN'),'Unavailable fixture never invents an entry');
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ await page.locator('#pushOpenedDismiss').click();
+ assert(!(await page.locator('#pushOpened').isVisible()));
+ // Cold-open metadata survives startup and the simplified home rearrangement.
+ await page.goto('https://bob.test/#push='+encodeURIComponent(JSON.stringify(facts)));
+ await page.locator('#bobSimpleHome').waitFor();
+ assert(await page.locator('#pushOpened').isVisible());
+ assert.equal(await page.locator('#pushOpened').evaluate(el=>el.closest('details')),null);
  await page.screenshot({path:'/tmp/bob-simple-home.png',fullPage:true});
  assert.deepEqual(errors,[]);
  console.log('Simple home: five tabs, all destinations, 360/390/768 widths, active/absent/test trades, currency and original analysis passed.');
