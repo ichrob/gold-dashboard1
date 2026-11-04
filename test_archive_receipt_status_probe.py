@@ -63,6 +63,52 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(report["errorType"], "ValueError")
         self.assertNotIn("private-secret", json.dumps(report))
 
+    def test_private_root_match_only_returns_fixed_boolean_class(self):
+        import drive_archive_encryption
+        def fake_key(name):
+            if name == "PUSH_SERVICE_TOKEN":
+                return bytes([42]) * 32
+            if name == "BOB_ARCHIVE_RECOVERY_ROOT_TOKEN":
+                return bytes([42]) * 32
+            raise AssertionError("Unexpected key source")
+        with patch.object(drive_archive_encryption, "_key", side_effect=fake_key):
+            result = probe.compare_archive_roots()
+        self.assertEqual(result, {"status": "match", "readOnly": True})
+        self.assertNotIn("42", json.dumps(result))
+
+        def mismatching(name):
+            return bytes([1 if name == "PUSH_SERVICE_TOKEN" else 2]) * 32
+        with patch.object(drive_archive_encryption, "_key", side_effect=mismatching):
+            self.assertEqual(probe.compare_archive_roots()["status"], "mismatch")
+
+        with patch.object(drive_archive_encryption, "_key",
+                          side_effect=ValueError("secret original root text")):
+            result = probe.compare_archive_roots()
+        self.assertEqual(result, {"status": "unavailable", "readOnly": True})
+        self.assertNotIn("secret", json.dumps(result))
+
+    def test_root_match_opt_in_and_failures_cannot_log_secrets(self):
+        with patch.dict(os.environ, {"BOB_ARCHIVE_ROOT_MATCH_ONCE": "0"}), \\
+             patch("threading.Thread") as thread:
+            probe.start_root_match_if_enabled()
+            thread.assert_not_called()
+        with patch.dict(os.environ, {"BOB_ARCHIVE_ROOT_MATCH_ONCE": "1"}), \\
+             patch.object(probe, "compare_archive_roots",
+                          side_effect=RuntimeError("private API key never log")), \\
+             patch("threading.Thread") as thread:
+            old = probe._ROOT_MATCH_THREAD
+            probe._ROOT_MATCH_THREAD = None
+            try:
+                probe.start_root_match_if_enabled()
+                work = thread.call_args.kwargs["target"]
+                with patch("time.sleep"), redirect_stdout(io.StringIO()) as out:
+                    work()
+                self.assertIn('"status":"unavailable"', out.getvalue())
+                self.assertNotIn("private API key", out.getvalue())
+                self.assertNotIn("never log", out.getvalue())
+            finally:
+                probe._ROOT_MATCH_THREAD = old
+
     def test_untrusted_fields_do_not_escape(self):
         now=datetime.now(timezone.utc)
         dangerous=("internal-state",now,
