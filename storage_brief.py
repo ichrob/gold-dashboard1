@@ -174,6 +174,10 @@ def project(storage):
     result["budgetState"] = _choice(storage.get("budgetState"), _BUDGET_STATES,
                                     "not-observed")
     result["lastSampleAt"] = _number(storage.get("lastSampleAt"), integer=True)
+    if type(storage.get("featureAllocation")) is dict:
+        from feature_storage import project as feature_allocation
+        result["featureAllocation"] = feature_allocation(
+            storage["featureAllocation"], storage.get("observedAt"))
     # Catalog observations already gathered by storage_budget.report; no
     # additional queries, no source data, no deletion/repack permission.
     result["largestTables"] = _relation_rows(
