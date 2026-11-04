@@ -93,6 +93,32 @@ internal object MorningLocalOcr {
 
     fun productRows(raw:String,expected:List<String>):List<String>? = parseRows(raw,expected) {}
 
+    /** App-anchored recovery windows deliberately overlap neighbouring cards.
+     * Isolate the target using ONLY fresh optical headings and its unique
+     * optical ISIN, then apply the unchanged strict product parser. No app
+     * identity is inserted into the text and no neighbouring footer is borrowed.
+     * This selection is specific to one recovery band, never a viewport pass. */
+    fun regionRows(raw:String,id:String,rejected:(Rejection)->Unit={}):List<String>? {
+        fun reject(reason:Rejection):List<String>? { rejected(reason);return null }
+        if(raw.length>20000 || !SeriesEvidence.validIsin(id)) return reject(Rejection.INPUT_LIMIT)
+        val page=raw.replace(Regex("(?i)\\bSG(?=Gold)"),"SG ")
+            .replace(Regex("\\s+")," ").trim()
+        val identities=isin.findAll(page).toList()
+        val target=identities.filter { it.value==id }
+        if(target.isEmpty())return reject(Rejection.REGION_IDENTITY_MISSING)
+        if(target.size!=1)return reject(Rejection.REGION_IDENTITY_DUPLICATE)
+        val starts=heading.findAll(page).map { it.range.first }.toList()
+        if(starts.isEmpty() || starts.size>8)return reject(Rejection.HEADING_COUNT)
+        val position=target.single().range.first
+        val start=starts.lastOrNull { it<position } ?: return reject(Rejection.REGION_HEADING_MISSING)
+        val end=starts.firstOrNull { it>position } ?: page.length
+        if(footer.containsMatchIn(page.substring(start,position)))
+            return reject(Rejection.REGION_HEADING_MISSING)
+        // The target's heading-to-heading segment still needs exactly one
+        // identity, a complete issuer/venue/currency footer and safe content.
+        return parseRows(page.substring(start,end),listOf(id),rejected)
+    }
+
     private fun parseRows(raw:String,expected:List<String>,rejected:(Rejection)->Unit):List<String>? {
         fun reject(reason:Rejection):List<String>? { rejected(reason);return null }
         if(expected.isEmpty() || expected.size>10 ||
@@ -188,7 +214,7 @@ internal object MorningLocalOcr {
                         client.process(InputImage.fromBitmap(input,0)).addOnCompleteListener { task ->
                             val lines=if(task.isSuccessful) runCatching { positionedLines(task.result) }.getOrNull() else null
                             val text=lines?.let { MorningOcrLayout.readingOrder(it) }
-                            val values=text?.let { parseRows(it,listOf(band.id)) { reason -> ProductReadDiagnostics.localOcr(reason) } }
+                            val values=text?.let { regionRows(it,band.id) { reason -> ProductReadDiagnostics.localOcr(reason) } }
                             if(input!==region && !input.isRecycled) input.recycle()
                             scaled=null
                             accept(values?.let { Rows(listOf(band.id),it) })

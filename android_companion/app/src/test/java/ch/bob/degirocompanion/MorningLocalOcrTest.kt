@@ -84,6 +84,45 @@ class MorningLocalOcrTest {
         assertNull(MorningLocalOcr.completeViewportRows(firstRow+" "+clipped+" "+secondRow,
             listOf(first,middle,second)))
     }
+    @Test fun overlappingRecoveryWindowSelectsOnlyTheOpticallyIdentifiedCard() {
+        val page=firstRow+" "+secondRow
+        // Full-viewport validation remains strict about complete extra products.
+        assertNull(MorningLocalOcr.productRows(page,listOf(first)))
+        assertEquals(MorningLocalOcr.productRows(firstRow,listOf(first)),
+            MorningLocalOcr.regionRows(page,first))
+        assertEquals(MorningLocalOcr.productRows(secondRow,listOf(second)),
+            MorningLocalOcr.regionRows(page,second))
+        val third="DE000FB0CVV9"
+        val thirdRow=firstRow.replace(first,third)
+        assertEquals(MorningLocalOcr.productRows(secondRow,listOf(second)),
+            MorningLocalOcr.regionRows(firstRow+" "+secondRow+" "+thirdRow,second))
+        assertEquals(MorningLocalOcr.productRows(firstRow,listOf(first)),
+            MorningLocalOcr.regionRows(page.replace("SG Gold","SGGold"),first))
+    }
+
+    @Test fun recoveryCannotInventIdentityBorrowFooterOrAcceptDuplicate() {
+        assertNull(MorningLocalOcr.regionRows(secondRow,first))
+        assertNull(MorningLocalOcr.regionRows(firstRow+" "+firstRow,first))
+        assertNull(MorningLocalOcr.regionRows(firstRow.substringBefore("Societe")+" "+secondRow,first))
+        assertNull(MorningLocalOcr.regionRows(firstRow.replace(first,"$first $second"),first))
+        assertNull(MorningLocalOcr.regionRows(firstRow.replace("Societe","Kontostand Societe"),first))
+        assertNull(MorningLocalOcr.regionRows(firstRow.substringAfter("Unlimited"),first))
+        assertNull(MorningLocalOcr.regionRows(firstRow+" "+secondRow.replace("SG Gold","unreadable"),second))
+        assertNull(MorningLocalOcr.regionRows(firstRow,"DE000SQ02JQ5"))
+        assertNull(MorningLocalOcr.regionRows(firstRow.replace(first,"")+" "+
+            secondRow.replace("SG Gold","unreadable"),second))
+    }
+
+    @Test fun recoveryExportsNeitherNeighbourValuesNorAccountFrame() {
+        val selected=MorningLocalOcr.regionRows("Portfolio Kontostand 123456 "+firstRow+" "+secondRow+
+            " Portfolio Kontostand 987654",first)!!
+        assertEquals(MorningLocalOcr.productRows(firstRow,listOf(first)),selected)
+        assertFalse(selected.joinToString().contains(second))
+        assertFalse(selected.joinToString().contains("Kontostand"))
+        assertFalse(selected.joinToString().contains("123456"))
+        assertFalse(selected.joinToString().contains("987654"))
+    }
+
     private val first="DE000SQ02JQ6"
     private val second="DE000FG8NHQ3"
     private val firstRow="SG Gold Turbo Unlimited Mini Call BAR 2166 BP 2125.38 Bv 10 | $first Societe Generale OTC EUR K V"
