@@ -71,3 +71,24 @@ This is **stage 1**, not completed lossless archival.
 source/summary parity including failed/no-trade cases, measured volume change,
 no real orders, no shortened historical simulations, and zero unauthorised
 source row deletions. Until then retain original data or verified cold pointers.
+
+## Neuer Historien-Evaluationsworker – erste echte Vorwärtsseiten
+
+`storage_history_evaluations.py` verarbeitet ältere als zwei volle Tage
+liegende Diagnose- und Entscheidungsbelege in strikten 400er-Seiten. Er läuft
+mit eigenem DB-Zugang und 15-Minuten-Pause, nie in der heißen Markt-/Push-
+Schreibtransaktion. Die jeweils ursprünglichen Datensatz-Identitäten und
+Originalzeiten gehen in einen SHA-256-Seitenfingerabdruck; der persistente
+Cursor erlaubt nach einem Neustart weiterzuarbeiten. Kategorien und Ergebnisse
+sind eng auf die vorhandenen bekannten Statuswerte begrenzt. Es werden keine
+privaten Originaldaten, Produktkurse oder IDs als Evaluation kopiert.
+
+Der aktuelle Stand bedeutet ausdrücklich **nicht**, dass das komplette
+Quelljournal fehlerfrei und nachträglich unverändert ist: Nachträgliche
+Quellkorrekturen oder rückdatierte neue Ereignisse werden von dieser reinen
+Vorwärtsiteration nicht erneut nachgescannt. Ein vollständiger unabhängiger
+Abgleich und Replay sind eine separate Pflicht vor jeder Referenzmigration.
+Eine solche Manifest-Seite autorisiert **keine Löschung**. Für die anderen
+Bereiche laufen bisher die vorhandenen 64er-Lernstichproben und die
+separaten geschlossenen Paper-Receipt-Scans weiter; vollständige
+Bewertungen aller Simulationen und Qualitätsdaten sind ausdrücklich offen.

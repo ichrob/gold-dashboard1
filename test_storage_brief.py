@@ -115,6 +115,20 @@ class StorageBriefTests(unittest.TestCase):
         self.assertIsNone(result["physicalBytesFreed"])
         self.assertNotIn("PRIVATE", json.dumps(result))
 
+    def test_historical_evaluation_counters_never_grant_deletion(self):
+        source = self.source()
+        source["historyEvaluations"] = {
+            "status":"observed",
+            "areas":{"diagnoses":{"processedRows":400,"privateId":"SECRET"},
+                     "decisions":{"processedRows":12}},
+            "deletionAuthorized":True,
+            "physicalBytesFreed":999999999}
+        value = storage_brief.project(source)["historyEvaluations"]
+        self.assertEqual(value["processedRows"],{"diagnoses":400,"decisions":12})
+        self.assertFalse(value["deletionAuthorized"])
+        self.assertIsNone(value["physicalBytesFreed"])
+        self.assertNotIn("SECRET",json.dumps(value))
+
     def test_latest_attempt_exposes_only_fixed_redacted_failure_phase(self):
         source = self.source()
         source["archiveWorker"]["latestPersistedAttempt"] = {

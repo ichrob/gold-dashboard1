@@ -1763,6 +1763,7 @@ if __name__ == "__main__":
     # Model-only settled-case receipts are recorded on an isolated background
     # connection; no extra SQL is added to the live diagnostic/push write path.
     __import__("storage_case_results").start()
+    __import__("storage_history_evaluations").start()
     __import__("metric_compaction").start()
     print("BOB_PUSH startup=ready", flush=True)
     # Optional, nonblocking binary-only pg_repack toolchain provisioning.

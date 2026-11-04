@@ -354,6 +354,27 @@ def project(storage):
         "physicalBytesFreed": None,
         "scope": "older-than-yesterday-review-not-batch-verified-offload"
     }
+    # Source-reading backlog worker: scalar summaries only, never user IDs or
+    # proof of a complete replay/backup. An evaluation is not deletion consent.
+    hist = storage.get("historyEvaluations")
+    hist = hist if type(hist) is dict else {}
+    hist_areas = hist.get("areas")
+    hist_areas = hist_areas if type(hist_areas) is dict else {}
+    hist_counts = {}
+    for area in ("diagnoses", "decisions"):
+        item = hist_areas.get(area)
+        item = item if type(item) is dict else {}
+        hist_counts[area] = _number(item.get("processedRows"),
+                                    integer=True, maximum=10**12)
+    result["historyEvaluations"] = {
+        "status": _choice(hist.get("status"),
+                          frozenset(("warming", "observed", "not-observed")),
+                          "not-observed"),
+        "processedRows": hist_counts,
+        "coverage": "forward-only-processed-not-full-replay",
+        "deletionAuthorized": False,
+        "physicalBytesFreed": None
+    }
     pilot = storage.get("decisionProductsPilot")
     pilot = pilot if isinstance(pilot, dict) else {}
     result["pilot"] = {
