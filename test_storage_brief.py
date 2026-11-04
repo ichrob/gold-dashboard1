@@ -145,6 +145,21 @@ class StorageBriefTests(unittest.TestCase):
         self.assertIsNone(result["physicalBytesFreed"])
         self.assertNotIn("SECRET",json.dumps(result))
 
+    def test_improvement_eval_only_reports_progress_not_replay_success(self):
+        source = self.source()
+        source["improvementEvaluations"] = {
+            "status": "observed", "processedRecords": 128,
+            "improvementVerified": True, "fullHistoryVerified": True,
+            "deletionAuthorized": True, "physicalBytesFreed": 600000,
+            "campaign": "PRIVATE-DO-NOT-EXPOSE"}
+        result = storage_brief.project(source)["improvementEvaluations"]
+        self.assertEqual(result["processedRecords"], 128)
+        self.assertFalse(result["improvementVerified"])
+        self.assertFalse(result["fullHistoryVerified"])
+        self.assertFalse(result["deletionAuthorized"])
+        self.assertIsNone(result["physicalBytesFreed"])
+        self.assertNotIn("PRIVATE-DO-NOT-EXPOSE", json.dumps(result))
+
     def test_quality_eval_is_private_and_never_represented_as_success(self):
         source = self.source()
         source["qualityEvaluations"] = {
