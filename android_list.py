@@ -200,7 +200,10 @@ def handle(conn,payload,now):
     # unparsed copies under the separate device/day/replacement safety gate.
     if payload['action']=='list-receipt':
         value=receipt(payload.get('value'),now)
-        row=conn.execute('''UPDATE bob_android_list_images i SET import_receipt=CASE WHEN i.import_receipt->>'stage' IN ('synced','superseded') THEN i.import_receipt ELSE %s::jsonb END
+        row=conn.execute('''UPDATE bob_android_list_images i SET import_receipt=CASE WHEN i.import_receipt->>'stage' IN ('synced','superseded')
+            OR i.import_receipt->>'reason'='OCR_MEMORY_WAIT_EXHAUSTED' THEN i.import_receipt
+            ELSE %s::jsonb || CASE WHEN i.import_receipt ? 'memoryDeferrals'
+                THEN jsonb_build_object('memoryDeferrals',i.import_receipt->'memoryDeferrals') ELSE '{}'::jsonb END END
             FROM bob_android_diagnostic_devices d WHERE i.token_hash=d.token_hash AND i.batch_id=%s
             AND NOT d.revoked AND d.expires_at>now() RETURNING i.batch_id''',
             (json.dumps(value),value['batchId'])).fetchone()

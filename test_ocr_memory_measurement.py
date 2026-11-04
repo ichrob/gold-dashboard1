@@ -45,6 +45,7 @@ class OcrMemoryMeasurementTests(unittest.TestCase):
         self.assertEqual(report['afterMiB'],100)
         self.assertEqual(report['samples'],3)
         self.assertEqual(set(report),{'scope','outcome','beforeMiB','sampledPeakMiB','afterMiB','samples','durationMs'})
+        self.assertEqual(w.status()['lastOcrMemory'],report)
 
     def test_reporting_failure_does_not_interrupt_processing(self):
         with patch.object(w,'container_memory_bytes',side_effect=OSError):
