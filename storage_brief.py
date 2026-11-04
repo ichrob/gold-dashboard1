@@ -87,6 +87,46 @@ def _clock(item):
         return None
 
 
+
+_ARCHIVE_PHASES = frozenset((
+    "drive-preflight", "restore-isolation-check", "export", "local-restore",
+    "encrypt-before-upload", "encrypted-upload", "encrypted-download",
+    "authenticated-decrypt", "verify-independent-recovery-key", "upload",
+    "download", "remote-restore", "receipt-upload",
+))
+_ARCHIVE_ATTEMPT_STATES = frozenset((
+    "verified", "failed", "running", "already-attempted-today",
+    "blocked", "ready", "disabled",
+))
+_ARCHIVE_ERROR_TYPES = frozenset((
+    "ValueError", "TypeError", "RuntimeError", "TimeoutError", "OSError",
+    "PermissionError", "ConnectionError", "OperationalError", "DatabaseError",
+    "InterfaceError", "ProgrammingError", "LockNotAvailable", "QueryCanceled",
+    "InvalidTag", "KeyError",
+))
+
+
+def _persisted_attempt_brief(item):
+    """Only fixed, nonsecret fields from the already-read durable archive row.
+
+    The claim identifier and raw receipt are intentionally absent. A null
+    phase means missing or unrecognized; phaseRecorded distinguishes the two.
+    No new SQL, log lookup, file access or archive action is performed.
+    """
+    item = item if type(item) is dict else {}
+    return {
+        "status": _choice(item.get("status"), _ARCHIVE_ATTEMPT_STATES,
+                          "not-observed"),
+        "updatedAt": _clock(item.get("updatedAt")),
+        "phase": _choice(item.get("phase"), _ARCHIVE_PHASES, None),
+        "phaseRecorded": type(item.get("phase")) is str,
+        "errorType": _choice(item.get("errorType"), _ARCHIVE_ERROR_TYPES, None),
+        "receiptPersistenceErrorType": _choice(
+            item.get("receiptPersistenceErrorType"), _ARCHIVE_ERROR_TYPES, None),
+        "readOnly": True,
+    }
+
+
 def _persisted_archive_gate(archive, observed_at):
     """Read-only acceptance status from Bob's stored archive receipt ONLY.
 
@@ -251,6 +291,10 @@ def project(storage):
     # consumed by the one-row writer's independent _proof_state check.
     result["archive"]["recoveryAcceptanceState"] = _persisted_archive_gate(
         result["archive"], storage.get("observedAt"))
+    # The last attempted run is distinct from the last *successful* archive.
+    # It cannot lift any pilot, deletion or proof gate.
+    result["archive"]["latestPersistedAttempt"] = _persisted_attempt_brief(
+        worker.get("latestPersistedAttempt"))
     preview = storage.get("decisionProductsPreview")
     preview = preview if isinstance(preview, dict) else {}
     result["referencePreview"] = {
