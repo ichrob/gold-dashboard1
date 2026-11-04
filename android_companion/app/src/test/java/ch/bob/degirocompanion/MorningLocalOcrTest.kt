@@ -32,4 +32,31 @@ class MorningLocalOcrTest {
         assertNull(MorningLocalOcr.productRows(firstRow.replace("Societe Generale OTC","Kontostand Societe Generale OTC"),listOf(first)))
         assertNull(MorningLocalOcr.productRows(firstRow.replace(first,second),listOf(first)))
     }
+
+    @Test fun clippedEdgeNeighbourDoesNotDiscardCompleteExpectedRows() {
+        val clipped="BNP GOLD Unlimited Long SL 3800.25 STR 3800.25 R 10"
+        val complete=listOf(firstRow,secondRow).joinToString(" ")
+        val baseline=MorningLocalOcr.productRows(complete,listOf(first,second))
+        assertNotNull(baseline)
+        assertEquals(baseline,MorningLocalOcr.productRows(complete+" "+clipped,listOf(first,second)))
+        assertEquals(baseline,MorningLocalOcr.productRows(clipped+" "+complete,listOf(first,second)))
+        assertEquals(baseline,MorningLocalOcr.productRows(clipped+" "+complete+" "+clipped,listOf(first,second)))
+        val clippedWithId=clipped+" | DE000FD0S0G4"
+        assertEquals(baseline,MorningLocalOcr.productRows(complete+" "+clippedWithId,listOf(first,second)))
+        assertFalse(MorningLocalOcr.productRows(complete+" "+clippedWithId,listOf(first,second))!!
+            .joinToString().contains("DE000FD0S0G4"))
+    }
+
+    @Test fun edgeHandlingNeverSkipsExpectedCompleteExtraOrAmbiguousProducts() {
+        val clipped="BNP GOLD Unlimited Long SL 3800.25 STR 3800.25 R 10"
+        val complete=listOf(firstRow,secondRow).joinToString(" ")
+        val expected=listOf(first,second)
+        assertNull(MorningLocalOcr.productRows(firstRow+" "+clipped+" "+secondRow,expected))
+        assertNull(MorningLocalOcr.productRows(complete+" "+clipped+" | DE000FD0S0G4 BNP OTC EUR",expected))
+        assertNull(MorningLocalOcr.productRows(complete+" "+clipped+" | DE000FD0S0G4 "+first,expected))
+        assertNull(MorningLocalOcr.productRows(complete+" "+clipped+" | "+first,expected))
+        assertNull(MorningLocalOcr.productRows(firstRow+" "+clipped,expected))
+        assertEquals(MorningLocalOcr.productRows(complete,expected),
+            MorningLocalOcr.productRows(complete+" "+clipped+" Portfolio Kontostand",expected))
+    }
 }
