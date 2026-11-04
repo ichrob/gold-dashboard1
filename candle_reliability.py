@@ -1,5 +1,6 @@
 """Source-separated candle checkpoints and observed reliability, never trading rules."""
 import copy
+import hashlib
 import json
 import math
 import os
@@ -150,11 +151,15 @@ def handle(conn,action,payload):
         rows=validated(key,payload.get('rows'))
         if not rows:raise ValueError('Empty checkpoint')
         # Preserve all accepted candle revisions before replacing the rolling checkpoint.
-        conn.execute("""INSERT INTO bob_candle_evidence(source_key,open_time,fingerprint,payload)
-            SELECT %s,(value->>'openTime')::numeric::bigint,
-                encode(sha256(convert_to(value::text,'UTF8')),'hex'),value
-            FROM jsonb_array_elements(%s::jsonb)
-            ON CONFLICT DO NOTHING""",(key,json.dumps(rows,allow_nan=False)))
+        # Keep each statement bounded under the route's 1500ms timeout. All
+        # batches and the checkpoint still share the caller's transaction:
+        # a failure rolls everything back, never acknowledging a partial save.
+        for start in range(0, len(rows), 256):
+            conn.execute("""INSERT INTO bob_candle_evidence(source_key,open_time,fingerprint,payload)
+                SELECT %s,(value->>'openTime')::numeric::bigint,
+                    encode(sha256(convert_to(value::text,'UTF8')),'hex'),value
+                FROM jsonb_array_elements(%s::jsonb)
+                ON CONFLICT DO NOTHING""",(key,json.dumps(rows[start:start+256],allow_nan=False)))
         conn.execute('''INSERT INTO bob_candle_checkpoints(key,latest,payload) VALUES(%s,%s,%s::jsonb)
             ON CONFLICT(key) DO UPDATE SET latest=excluded.latest,payload=excluded.payload,saved_at=now()
             WHERE (excluded.latest>bob_candle_checkpoints.latest OR
@@ -240,15 +245,32 @@ def cycle(server, now=None, paused=False):
         at=None
         state='unknown' if now-_STARTED<90 else 'unavailable'
     with _LOCK:_STATS['spot/Gold-API']=transition(_STATS.get('spot/Gold-API'),'paused' if paused else state,now,at*1000 if at else None)
+    failed = None
     for key,rows in snapshots.items():
-        digest=json.dumps(rows,separators=(',',':'))
+        digest = hashlib.sha256()
+        for token in json.JSONEncoder(separators=(',', ':')).iterencode(rows):
+            digest.update(token.encode('utf-8'))
+        digest = digest.digest()
         if _SAVED.get(key)==digest:continue
-        request('write',{'key':key,'rows':rows})
+        try:
+            result = request('write',{'key':key,'rows':rows})
+            if result.get('ok') is not True:
+                raise ValueError('Checkpoint write not acknowledged')
+        except (OSError, ValueError, TypeError) as exc:
+            # One source timeout must not starve all later series or the
+            # reliability heartbeat. Leave this digest unsaved for next cycle.
+            if failed is None:
+                failed = exc
+            continue
         _SAVED[key]=digest
     with _LOCK:stats=copy.deepcopy(_STATS)
     result=request('write',{'key':'statistics','statistics':stats,'ownerStartedAt':_STARTED})
+    if result.get('ok') is not True:
+        raise ValueError('Statistics write not acknowledged')
     with _LOCK:
         if isinstance(result.get('statistics'),dict):_STATS.update(result['statistics'])
+    if failed is not None:
+        raise failed
     with _LOCK:_STORAGE.update(state='ready',lastSavedAt=now)
 
 
