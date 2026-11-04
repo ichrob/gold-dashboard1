@@ -9,6 +9,8 @@ import json
 import os
 import re
 import time
+import resource
+from pathlib import Path
 from datetime import datetime, timezone
 
 import psycopg
@@ -27,6 +29,26 @@ TABLES = {
 TAG = '_bobSizingArchiveV1'
 MAX_TABLE = 180_000_000
 MAX_RAW = 700_000_000
+HASH_BYTES = 32_000_000
+
+
+def memory_guard():
+    used=Path('/sys/fs/cgroup/memory.current')
+    if used.exists() and int(used.read_text())>420*1024*1024:
+        raise MemoryError('Shared service reserve reached')
+
+
+def row_hash(row):
+    value=json.dumps(row,ensure_ascii=False,separators=(',',':'),default=str).encode()
+    if len(value)>2*1024*1024:
+        raise ValueError('Row exceeds isolated memory budget')
+    return hashlib.sha256(value).hexdigest().encode()+b'\n'
+
+
+def column_expression(name, kind, alias=None):
+    value=sql.Identifier(alias,name) if alias else sql.Identifier(name)
+    # Preserve JSON numeric precision by transferring PostgreSQL's own text.
+    return sql.SQL('({})::text').format(value) if kind in ('json','jsonb') else value
 
 
 def report(value):
@@ -38,8 +60,16 @@ def size(conn):
 
 
 def fingerprint(conn, query):
-    with open(os.devnull, 'wb') as sink:
-        return archive.copy_out(conn, query, sink, MAX_RAW)
+    def blocks():
+        with conn.transaction(), conn.cursor(name='sizing_fingerprint') as cur:
+            cur.execute(query)
+            while True:
+                memory_guard()
+                rows=cur.fetchmany(32)
+                if not rows: break
+                for row in rows: yield row_hash(row)
+    with open(os.devnull,'wb') as sink:
+        return archive.canonical_copy(blocks(),sink,HASH_BYTES)
 
 
 def run_table(name, source_dsn, target_dsn):
@@ -74,25 +104,29 @@ def run_table(name, source_dsn, target_dsn):
         dst.execute(sql.SQL('CREATE TEMP TABLE sizing_data ({})').format(fields))
         copied = 0
         report({'phase':'copying-readonly-source','table':name,'sourceBytes':total})
-        original_hash = hashlib.sha256()
-        with src.cursor().copy(archive.copy_query('public',name,[n for n,_ in cols])) as reader, \
-             dst.cursor().copy('COPY sizing_data FROM STDIN') as writer:
-            buf = bytearray()
-            for block in reader:
-                copied += len(block)
-                if copied > MAX_RAW:
-                    raise ValueError('Source COPY exceeded bounded raw size')
-                original_hash.update(block)
-                buf.extend(block)
-                if len(buf)>=65536:
-                    writer.write(buf); buf.clear()
-            if buf: writer.write(buf)
+        projection=sql.SQL(',').join(column_expression(n,t) for n,t in cols)
+        def transfer():
+            nonlocal copied
+            with src.cursor(name='sizing_source') as reader:
+                reader.execute(sql.SQL('SELECT {} FROM {}').format(projection,sql.Identifier('public',name)))
+                while True:
+                    memory_guard()
+                    rows=reader.fetchmany(32)
+                    if not rows: break
+                    # Each target COPY is bounded to one small batch too.
+                    with dst.cursor().copy('COPY sizing_data FROM STDIN') as writer:
+                        for row in rows:
+                            writer.write_row(row)
+                            copied+=1
+                            yield row_hash(row)
+                    if copied%4096==0: report({'phase':'copy-progress','table':name,'rows':copied})
+        with open(os.devnull,'wb') as sink:
+            original_hash=archive.canonical_copy(transfer(),sink,HASH_BYTES)
         # Release the source snapshot before any expensive test-only operation.
         src.rollback(); src.close()
-        copied_hash = hashlib.sha256()
-        with dst.cursor().copy(archive.copy_query('pg_temp','sizing_data',[n for n,_ in cols])) as reader:
-            for block in reader: copied_hash.update(block)
-        if original_hash.digest()!=copied_hash.digest():
+        baseline_query=sql.SQL('SELECT {} FROM sizing_data').format(projection)
+        baseline=fingerprint(dst,baseline_query)
+        if original_hash!=baseline:
             raise ValueError('Copied originals differ')
         for number,(definition,_,_) in enumerate(indexes):
             match = re.fullmatch(r'CREATE (UNIQUE )?INDEX \S+ ON public\.'+name+r' (USING .+)', definition)
@@ -102,7 +136,6 @@ def run_table(name, source_dsn, target_dsn):
                 sql.SQL('UNIQUE' if match[1] else ''),sql.Identifier('sizing_index_'+str(number)),sql.SQL(match[2])))
         dst.execute('VACUUM (ANALYZE, PARALLEL 0) sizing_data')
         rebuilt = size(dst)
-        baseline = fingerprint(dst, archive.copy_query('pg_temp','sizing_data',[n for n,_ in cols]))
         output = {'table':name,'sourceRelationBytes':total,'rebuiltRelationBytes':rebuilt,
                   'rows':baseline['rows'],'copyVerified':True,'scenarios':[]}
         report({'phase':'rebuilt','table':name,'bytes':rebuilt,'sourceBytes':total,'rows':baseline['rows']})
@@ -125,8 +158,8 @@ def run_table(name, source_dsn, target_dsn):
                 # TAG is a fixed developer-owned literal, never external SQL.
                 resolved = sql.SQL("CASE WHEN d.payload ? {} THEN {} ELSE d.payload END").format(sql.Literal(TAG),
                     sql.SQL("(d.payload-{})||jsonb_build_object('products',a.original)").format(sql.Literal(TAG)) if field else sql.SQL('a.original'))
-                select_cols = sql.SQL(',').join(resolved if n=='payload' else sql.Identifier('d',n) for n,_ in cols)
-                query = sql.SQL('COPY (SELECT {} FROM sizing_data d LEFT JOIN sizing_archive a ON a.hash=d.payload->>{}) TO STDOUT').format(select_cols,sql.Literal(TAG))
+                select_cols = sql.SQL(',').join(sql.SQL('({})::text').format(resolved) if n=='payload' else column_expression(n,t,'d') for n,t in cols)
+                query = sql.SQL('SELECT {} FROM sizing_data d LEFT JOIN sizing_archive a ON a.hash=d.payload->>{}').format(select_cols,sql.Literal(TAG))
                 after = fingerprint(dst,query)
                 if after!=baseline:
                     raise ValueError('Full reconstruction differs from original COPY')
@@ -143,6 +176,8 @@ def run_table(name, source_dsn, target_dsn):
 def main():
     if os.environ.get('BOB_ISOLATED_SIZING_CONFIRMED')!='1':
         raise ValueError('Explicit isolated rehearsal opt-in required')
+    resource.setrlimit(resource.RLIMIT_AS,(192*1024*1024,192*1024*1024))
+    memory_guard()
     source=os.environ['DATABASE_URL']; target=os.environ['BOB_ARCHIVE_RESTORE_DATABASE_URL']
     verify_restore_isolation(source,target)
     result={'scope':'isolated-sizing-model','productionRowsModified':False,
