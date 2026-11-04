@@ -353,21 +353,23 @@ def json_body(handler):
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
 def send_json(handler, status, payload):
-    body = json.dumps(payload, separators=(",", ":")).encode()
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Cache-Control", "no-store")
-    handler.send_header("X-Content-Type-Options", "nosniff")
-    cors(handler)
-    handler.send_header("Content-Length", str(len(body)))
-    try:
-        handler.end_headers()
-        handler.wfile.write(body)
-    except (BrokenPipeError, ConnectionResetError):
-        # The request may already have committed. Never retry it or write a
-        # second error response to a disconnected caller.
-        handler.close_connection = True
-        print('BOB_PUSH_HTTP client_disconnected', flush=True)
+    from json_response import encoded_response, BUFFER_BYTES
+    with encoded_response(payload) as (body, length):
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("X-Content-Type-Options", "nosniff")
+        cors(handler)
+        handler.send_header("Content-Length", str(length))
+        try:
+            handler.end_headers()
+            while chunk := body.read(BUFFER_BYTES):
+                handler.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            # The request may already have committed. Never retry it or write a
+            # second error response to a disconnected caller.
+            handler.close_connection = True
+            print('BOB_PUSH_HTTP client_disconnected', flush=True)
 
 def deliver_product_selection(conn, row, checked):
     sid, sub, previous = row
