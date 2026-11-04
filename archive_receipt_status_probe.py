@@ -96,3 +96,52 @@ def start_if_enabled():
         _THREAD=threading.Thread(target=work,
             name="bob-archive-receipt-status-once",daemon=True)
         _THREAD.start()
+
+
+_ROOT_MATCH_ENABLED = "BOB_ARCHIVE_ROOT_MATCH_ONCE"
+_ROOT_MATCH_THREAD = None
+_ROOT_MATCH_LOCK = threading.Lock()
+
+
+def compare_archive_roots():
+    """Only compare domain-separated derived keys inside the private runtime.
+
+    Do not retrieve the source values over the connector, log fingerprints,
+    hashes, lengths or suffixes, or decrypt/upload any archive.
+    This checks the current primary runtime root against the separate recovery
+    root. It does not independently prove an older external escrow copy.
+    """
+    import hmac
+    from drive_archive_encryption import _key
+    try:
+        source = _key("PUSH_SERVICE_TOKEN")
+        recovery = _key("BOB_ARCHIVE_RECOVERY_ROOT_TOKEN")
+    except (ValueError, UnicodeError):
+        return {"status": "unavailable", "readOnly": True}
+    return {"status": "match" if hmac.compare_digest(source, recovery)
+            else "mismatch", "readOnly": True}
+
+
+def start_root_match_if_enabled():
+    """One on-demand, non-mutating check, disabled unless explicitly opted in."""
+    global _ROOT_MATCH_THREAD
+    if os.environ.get(_ROOT_MATCH_ENABLED) != "1":
+        return
+    with _ROOT_MATCH_LOCK:
+        if _ROOT_MATCH_THREAD is not None:
+            return
+
+        def work():
+            time.sleep(8)
+            try:
+                result = compare_archive_roots()
+            except Exception:
+                # Exception strings can contain secrets; log only a fixed state.
+                result = {"status": "unavailable", "readOnly": True}
+            print("BOB_ARCHIVE_ROOT_MATCH " +
+                  json.dumps(result, sort_keys=True, separators=(",", ":")),
+                  flush=True)
+
+        _ROOT_MATCH_THREAD = threading.Thread(
+            target=work, name="bob-archive-root-match-once", daemon=True)
+        _ROOT_MATCH_THREAD.start()
