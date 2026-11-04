@@ -49,7 +49,7 @@ internal object MorningLocalOcr {
 
     /** Unique widths: retrying an identical bitmap is not an optical second pass. */
     fun passWidths(width:Int):List<Int> = listOf(width,minOf(1600,(width*1.15).toInt()),
-        minOf(1600,(width*1.5).toInt()),maxOf(200,(minOf(width,1600)*.85).toInt()))
+        minOf(1600,(width*1.5).toInt()),maxOf(200,(minOf(width,1600)*.85).toInt()),maxOf(200,(minOf(width,1600)*.7).toInt()))
         .distinct().take(3)
 
     /** A viewport can include an expected ISIN whose footer is off-screen.
