@@ -83,7 +83,7 @@ class QualityPostgresTests(unittest.TestCase):
                      '{"metrics":{"pnl":{"status":"matched"}}}'),
                     ('v1','display:1m',5,%s,'{"status":"matched"}')""",
                     (checked,checked+1,checked+2,checked+3,
-                     int(datetime(2026,11,4,12,tzinfo=timezone.utc).timestamp()*1000)))
+                     int(datetime(2026,11,4,13,tzinfo=timezone.utc).timestamp()*1000)))
                 now=datetime(2026,11,4,13,tzinfo=timezone.utc)
                 first=quality.capture(conn,now)
                 self.assertEqual(first["status"],"page-recorded")
