@@ -15,7 +15,8 @@ assert(html.includes('.slice(0,3).map(x=>({title:String(x.title||'), 'Browser mu
 assert(html.includes('v.items.filter(x=>x&&isVideoUrl(x.url)).slice(0,3)'), 'Old browser caches must show at most three videos');
 assert(html.includes('readVideos=new Set([...readVideos].filter(id=>latestVideoIds.includes(id)))'), 'Evicted read flags must be deleted');
 
-assert(html.includes('Math.round((r.intervalSeconds||900)/60)'), 'YouTube refresh cadence must follow the server interval');
+assert(html.includes('nur manueller Abruf'), 'YouTube must disclose manual refresh');
+assert(html.includes("JSON.stringify({action:'refresh'})"), 'Explicit click must request one collection');
 assert(html.includes("research:'Recherche'"));
 assert(html.includes('r.mcoOutlook'), 'MCO heading must read the verified video direction, not consensus');
 assert(!html.includes("c.textContent='MCO Markets · '+r.consensus"), 'Do not display independent-source consensus as MCO view');
