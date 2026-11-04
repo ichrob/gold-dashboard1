@@ -87,6 +87,35 @@ def _clock(item):
         return None
 
 
+def _persisted_archive_gate(archive, observed_at):
+    """Read-only acceptance status from Bob's stored archive receipt ONLY.
+
+    An externally witnessed/offline recovery or chat screenshot is not a
+    persisted recovery root proof, and no status here authorizes a write.
+    """
+    required = ("restoreVerified", "remoteDownloadVerified",
+                "encryptionVerified", "restoreIsolationVerified",
+                "sourceScopeVerified")
+    if (archive.get("latestVerifiedState") != "verified" or
+            archive.get("encryptionVersion") != _ENCRYPTION or
+            any(archive.get(key) is not True for key in required)):
+        return "archive-receipt-incomplete"
+    if archive.get("recoveryKeyVerified") is not True:
+        return "persisted-recovery-proof-missing"
+    stamp = archive.get("verifiedAt")
+    when = _number(observed_at, maximum=10**11)
+    if stamp is None or when is None:
+        return "proof-age-not-verified"
+    from datetime import datetime
+    try:
+        age = when - datetime.fromisoformat(stamp).timestamp()
+    except (TypeError, ValueError, OverflowError):
+        return "proof-age-not-verified"
+    if not 0 <= age <= 6 * 3600:
+        return "persisted-proof-not-fresh"
+    return "persisted-recovery-proof-fresh"
+
+
 def project(storage):
     """Return only fixed safe fields; no raw receipt, IDs, prices or secrets."""
     missing = {"status": "not-observed", "readOnly": True,
@@ -217,6 +246,11 @@ def project(storage):
         "deletionPermitted": False,
         "scope": "persisted-receipt-projection-not-offline-escrow-proof"
     }
+    # This projected gate is explanatory only. It cannot mark operator
+    # evidence as persisted, cannot call archival services, and is never
+    # consumed by the one-row writer's independent _proof_state check.
+    result["archive"]["recoveryAcceptanceState"] = _persisted_archive_gate(
+        result["archive"], storage.get("observedAt"))
     preview = storage.get("decisionProductsPreview")
     preview = preview if isinstance(preview, dict) else {}
     result["referencePreview"] = {
