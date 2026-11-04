@@ -36,6 +36,9 @@ class RollbackConfigurationTests(unittest.TestCase):
                      "Isolated PostgreSQL CI fixture")
 class PostgreSQLSingleDecisionRollbackTests(unittest.TestCase):
     def setUp(self):
+        encryption = patch.dict(os.environ, {'PUSH_SERVICE_TOKEN':'offline-rollback-test-root-'*3})
+        encryption.start()
+        self.addCleanup(encryption.stop)
         import psycopg
         from psycopg.types.json import Jsonb
         self.conn = psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
@@ -110,3 +113,4 @@ class PostgreSQLSingleDecisionRollbackTests(unittest.TestCase):
         self.assertEqual(saved,self.pointer)
         self.assertEqual(self.conn.execute(
             "SELECT count(*) FROM bob_cold_decision_product_refs").fetchone()[0],1)
+
