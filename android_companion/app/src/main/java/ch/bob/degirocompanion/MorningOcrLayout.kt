@@ -14,7 +14,7 @@ internal object MorningOcrLayout {
     class RecoveryPlanner(private val expected:List<String>,private val height:Int) {
         var bands:List<ProductBand>?=null;private set
         fun offer(lines:List<Line>,rejected:(PlanIssue)->Unit={}) {
-            if(bands==null) bands=productBands(lines,expected,height,rejected)
+            if(bands==null) bands=MorningOcrLayout.productBands(lines,expected,height,rejected)
         }
     }
 

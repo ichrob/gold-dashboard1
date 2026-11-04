@@ -214,11 +214,11 @@ internal object MorningLocalOcr {
                     // Restore positions to the original cropped PNG before
                     // planning local recovery; coordinates never leave phone.
                     val rows=lines?.let { MorningOcrLayout.readingOrder(it) }?.let { completeViewportRows(it,expected,diagnose=true) }
-                    if(rows==null && lines!=null) recovery.offer(lines.map { line ->
+                    if(lines!=null) recovery.offer(lines.map { line ->
                         val factor=crop.width.toDouble()/width
                         MorningOcrLayout.Line(line.text,(line.left*factor).toInt(),(line.top*factor).toInt(),
                             kotlin.math.ceil(line.right*factor).toInt(),kotlin.math.ceil(line.bottom*factor).toInt())
-                    },::planIssue)
+                    }) { issue -> if(rows==null) planIssue(issue) }
                     if(rows==null) ProductReadDiagnostics.record(if(task.isSuccessful)
                         when(index) {
                             0 -> ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_FIRST_REJECTED
