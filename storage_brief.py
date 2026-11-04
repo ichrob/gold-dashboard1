@@ -375,6 +375,20 @@ def project(storage):
         "deletionAuthorized": False,
         "physicalBytesFreed": None
     }
+    # Compact gross-model-only paper evaluation state. Never equate signs
+    # of model arithmetic to actual realised DEGIRO returns or safe deletion.
+    paper_eval = storage.get("paperDailyEvaluations")
+    paper_eval = paper_eval if type(paper_eval) is dict else {}
+    result["paperDailyEvaluations"] = {
+        "status": _choice(paper_eval.get("status"),
+            frozenset(("observed", "warming", "not-observed")),
+            "not-observed"),
+        "processedReceipts": _number(paper_eval.get("processedReceipts"),
+                                      integer=True, maximum=10**12),
+        "grossModelOnly": True, "netProfitVerified": False,
+        "fullHistoryVerified": False, "deletionAuthorized": False,
+        "physicalBytesFreed": None,
+    }
     pilot = storage.get("decisionProductsPilot")
     pilot = pilot if isinstance(pilot, dict) else {}
     result["pilot"] = {
