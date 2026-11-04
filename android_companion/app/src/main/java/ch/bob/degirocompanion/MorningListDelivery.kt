@@ -110,20 +110,31 @@ internal object MorningListDelivery {
                             // list supplies the ISINs, attached to its real
                             // batch identifier and original evidence time.
                             waiting=false
-                            status(c,"⚠️ Neue Goldliste wartet auf Serverspeicher. Bob liest fehlende Felder aus der bereits bestätigten heutigen Zehnerliste nach; neue Bilder bleiben gespeichert.")
+                            status(c,"⚠️ Neue Goldliste wegen Serverspeicher nicht bestätigt. Bob liest fehlende Felder aus der bereits bestätigten heutigen Zehnerliste nach; neue Bilder bleiben gespeichert.")
                             runCatching { onConfirmed?.invoke(plan!!,earlier) }.onFailure {
                                 status(c,"Bestätigte Tagesliste erhalten; Detailprüfung konnte nicht gestartet werden.")
                                 PhoneRemote.stop(c,"STORAGE_ERROR")
                             }
                         } else {
-                            status(c,"Texterfassung unvollständig · Bilderkennung wartet auf freien Serverspeicher.")
-                            handler.postDelayed({poll(attempt+1,uploaded||response!=null)},5000)
+                            if(MorningListFallbackPolicy.pollingFinished(attempt,
+                                    receipt?.optString("stage"),receipt?.optString("reason"))) {
+                                waiting=false
+                                status(c,"Bilder gespeichert · Speicherwartezeit beendet. Neue Liste nicht bestätigt; kein passender Tageslisten-Ausweichweg verfügbar.")
+                                PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
+                            } else {
+                                status(c,"Texterfassung unvollständig · Bilderkennung wartet auf freien Serverspeicher.")
+                                handler.postDelayed({poll(attempt+1,uploaded||response!=null)},5000)
+                            }
                         }
                     } else if(receipt?.optString("stage")=="superseded") {
                         waiting=false;file(c).delete();status(c,"Neuere Liste bereits in Bob gespeichert; alte Aufnahme bleibt historisch.")
                         PhoneRemote.stop(c,"COMPLETE")
-                    } else if(attempt>=100 || !PhoneRemote.active() || PhoneRemote.sessionId()!=session) {
-                        waiting=false;status(c,"Aufnahme gespeichert. Serverbestätigung noch offen; Start setzt die Übertragung fort.")
+                    } else if(MorningListFallbackPolicy.pollingFinished(attempt,
+                            receipt?.optString("stage"),receipt?.optString("reason")) ||
+                            !PhoneRemote.active() || PhoneRemote.sessionId()!=session) {
+                        waiting=false;status(c,if(receipt?.optString("reason")=="OCR_MEMORY_WAIT_EXHAUSTED")
+                            "Bilder gespeichert · Speicherwartezeit beendet. Neue Liste nicht bestätigt; frische lokale Erkennung erforderlich."
+                            else "Aufnahme gespeichert. Serverbestätigung noch offen; Start setzt die Übertragung fort.")
                         PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
                     } else {
                         status(c,if(response==null) "Verbindung unterbrochen · gespeicherte Bilder werden erneut übertragen." else if(MorningListFallbackPolicy.memoryDeferred(

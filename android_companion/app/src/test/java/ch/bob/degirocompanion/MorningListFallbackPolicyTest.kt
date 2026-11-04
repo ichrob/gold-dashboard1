@@ -8,6 +8,15 @@ class MorningListFallbackPolicyTest {
     private val previous = "b".repeat(32)
     private val plan = listOf(SelectiveDetailPlan.Entry("DE000SQ02JQ6", listOf("Hebel")))
 
+    @Test fun memoryPollingCannotWaitForeverWithoutUsableFallback() {
+        assertFalse(MorningListFallbackPolicy.pollingFinished(99,"waiting-memory",null))
+        assertTrue(MorningListFallbackPolicy.pollingFinished(100,"waiting-memory",null))
+        assertTrue(MorningListFallbackPolicy.pollingFinished(101,"waiting-memory",null))
+        assertTrue(MorningListFallbackPolicy.pollingFinished(0,"read-failed","OCR_MEMORY_WAIT_EXHAUSTED"))
+        assertFalse(MorningListFallbackPolicy.pollingFinished(0,"reading","OCR_MEMORY_WAIT_EXHAUSTED"))
+        assertFalse(MorningListFallbackPolicy.pollingFinished(0,"read-failed",null))
+    }
+
     @Test fun onlyTrueMemoryFailuresPermitSafePreviousListFallback() {
         assertTrue(MorningListFallbackPolicy.memoryDeferred("waiting-memory", null))
         assertTrue(MorningListFallbackPolicy.memoryDeferred("read-failed", "MemoryError"))

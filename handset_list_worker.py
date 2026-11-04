@@ -47,8 +47,7 @@ def ocr_strips(height):
 
 
 def recognize(images, enhanced=False):
-    from PIL import Image, ImageOps, ImageEnhance
-    import numpy as np
+    from PIL import Image
     import cv2
     from handset_ocr_engine import offline_engine
     cv2.setNumThreads(1)
@@ -63,48 +62,89 @@ def recognize(images, enhanced=False):
         with Image.open(io.BytesIO(base64.b64decode(item['png'],validate=True))) as source:
             if source.format!='PNG' or source.width*source.height>16000000:raise ValueError('Image bounds')
             original=source.convert('RGB')
-        passes=[]
-        # An explicit failed-verification retry varies optical preprocessing,
-        # without weakening the ten distinct, checked product-row criteria.
-        settings=((.95,'sharpen'),(1.,'sharpen'),(1.,'contrast')) if enhanced else (
-            (.85,'plain'),(1.,'plain'),(1.,'contrast'))
-        for scale,transform in settings:
-            im=original.resize(ocr_size(original.width,original.height,scale))
-            actual_scale=im.width/original.width
-            if transform=='contrast':im=ImageOps.autocontrast(im.convert('L')).convert('RGB')
-            elif transform=='sharpen':im=ImageEnhance.Sharpness(im).enhance(1.6)
+        try:
+            result.append(recognize_image(original,engine,enhanced))
+        finally:
+            original.close()
+    return result
+
+
+def recognize_image(original,engine,enhanced=False):
+    """Release working images on success and failure; keep optical rules intact."""
+    from PIL import ImageOps, ImageEnhance
+    import numpy as np
+    passes=[]
+    settings=((.95,'sharpen'),(1.,'sharpen'),(1.,'contrast')) if enhanced else (
+        (.85,'plain'),(1.,'plain'),(1.,'contrast'))
+    for scale,transform in settings:
+        im=original.resize(ocr_size(original.width,original.height,scale))
+        actual_scale=im.width/original.width
+        try:
+            if transform=='contrast':
+                with im.convert('L') as gray:
+                    with ImageOps.autocontrast(gray) as contrasted:
+                        transformed=contrasted.convert('RGB')
+                im.close()
+                im=transformed
+            elif transform=='sharpen':
+                transformed=ImageEnhance.Sharpness(im).enhance(1.6)
+                im.close()
+                im=transformed
             rows=[]
             for top,bottom,lower,upper in ocr_strips(im.height):
-                tile=im.crop((0,top,im.width,bottom))
-                found,_=engine(np.asarray(tile)[:,:,::-1],use_cls=False)
+                with im.crop((0,top,im.width,bottom)) as tile:
+                    pixels=np.asarray(tile)[:,:,::-1]
+                    try:found,_=engine(pixels,use_cls=False)
+                    finally:del pixels
                 for points,text,score in found or []:
                     shifted=[[float(x),float(y)+top] for x,y in points]
                     center=sum(p[1] for p in shifted)/4
                     if lower<=center<upper:rows.append([shifted,text,score])
-                del tile,found
+                del found
                 __import__('gc').collect()
                 __import__('memory_watch').release_free_pages()
-            rows=[r for r in (rows or []) if float(r[2])>=.7]
-            # OCR lines in screen reading order; currency on the same footer row.
-            rows.sort(key=lambda r:sum(p[1] for p in r[0])/4)
-            lines=[]
-            for points,text,_ in rows:
-                y=sum(p[1] for p in points)/4
-                fragment=(min(p[0] for p in points),text)
-                if lines and abs(lines[-1][0]-y)<14*actual_scale:lines[-1][1].append(fragment)
-                else:lines.append([y,[fragment]])
-            passes.append('\n'.join(' '.join(t for _,t in sorted(parts)) for _,parts in lines))
-            del im, rows
-            __import__('gc').collect()
-            __import__('memory_watch').release_free_pages()
-        result.append(passes)
-    return result
+        finally:
+            im.close()
+        rows=[r for r in (rows or []) if float(r[2])>=.7]
+        rows.sort(key=lambda r:sum(p[1] for p in r[0])/4)
+        lines=[]
+        for points,text,_ in rows:
+            y=sum(p[1] for p in points)/4
+            fragment=(min(p[0] for p in points),text)
+            if lines and abs(lines[-1][0]-y)<14*actual_scale:lines[-1][1].append(fragment)
+            else:lines.append([y,[fragment]])
+        passes.append('\n'.join(' '.join(t for _,t in sorted(parts)) for _,parts in lines))
+        del im, rows
+        __import__('gc').collect()
+        __import__('memory_watch').release_free_pages()
+    return passes
 
 
 # User-approved ceiling: keep 32 MiB below the 512-MiB Render container limit.
 # Admission still reserves 200 MiB for the native OCR model and its peak work.
 OCR_CONTAINER_LIMIT = 480 * 1024 * 1024
 OCR_START_RESERVE = 200 * 1024 * 1024
+# Four admission checks at the existing four-minute lease cadence. Persisted
+# in the receipt so a restart cannot reset a permanently blocked batch.
+OCR_MAX_MEMORY_DEFERRALS = 4
+
+
+def memory_deferrals(receipt):
+    value=(receipt or {}).get('memoryDeferrals',0)
+    return min(value,OCR_MAX_MEMORY_DEFERRALS) if type(value) is int and value>=0 else 0
+
+
+def deferred_memory_receipt(batch,previous):
+    count=memory_deferrals(previous)+1
+    exhausted=count>=OCR_MAX_MEMORY_DEFERRALS
+    value={'batchId':batch,'stage':'read-failed' if exhausted else 'waiting-memory',
+           'count':0,'memoryDeferrals':count,'retryAllowed':not exhausted,
+           'reason':'OCR_MEMORY_WAIT_EXHAUSTED' if exhausted else 'OCR_MEMORY_RESERVE',
+           'at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}
+    # Keep the existing, device-owned daily-list fallback available. This is
+    # an honest memory failure, never a successful import or new list proof.
+    if exhausted:value['error']='MemoryError'
+    return value
 
 def container_memory_bytes():
     """Current container memory, or None when no enforceable cgroup counter exists."""
@@ -140,14 +180,19 @@ def report_ocr_memory(measurement, outcome, started):
     # This is whole-container sampling, not exclusive child allocation or PSS.
     try:
         def mib(value):return round(value/(1024*1024),1) if value is not None else None
-        print('BOB_OCR_MEMORY '+json.dumps({
+        record={
             'scope':'container-during-one-ocr-image', 'outcome':outcome,
             'beforeMiB':mib(measurement.get('beforeBytes')),
             'sampledPeakMiB':mib(measurement.get('peakBytes')),
             'afterMiB':mib(container_memory_bytes()),
             'samples':measurement['samples'],
             'durationMs':round((time.monotonic()-started)*1000),
-        },allow_nan=False),flush=True)
+        }
+        # Expose the latest bounded observation in existing private status,
+        # without an accumulating journal or automated reserve reduction.
+        with _state_lock:
+            _state['lastOcrMemory']=record
+        print('BOB_OCR_MEMORY '+json.dumps(record,allow_nan=False),flush=True)
     except Exception:
         pass  # Diagnostics must not change OCR results or protection.
 
@@ -285,7 +330,9 @@ def tick(connect,runner=process):
         # The original evidence and strict 10-ISIN gate remain unchanged.
         alternate=(attempts==3 and (previous or {}).get('stage')=='read-failed'
             and (previous or {}).get('error')=='ListVerificationError')
-        conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1,import_receipt=%s::jsonb WHERE batch_id=%s",(json.dumps({'batchId':batch,'stage':'reading','count':0}),batch))
+        reading={'batchId':batch,'stage':'reading','count':0,
+                 'memoryDeferrals':memory_deferrals(previous)}
+        conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1,import_receipt=%s::jsonb WHERE batch_id=%s",(json.dumps(reading),batch))
         conn.commit()
     observe("reading")
     try:
@@ -308,15 +355,20 @@ def tick(connect,runner=process):
         stage=persist_parsed(connect,batch,parsed)
         observe(stage)
     except OcrMemoryDeferred:
-        observe("waiting-memory")
+        receipt=deferred_memory_receipt(batch,previous)
+        exhausted=not receipt['retryAllowed']
+        observe(receipt['stage'],'MemoryError' if exhausted else None)
         with connect() as conn:
-            conn.execute("UPDATE bob_android_list_images SET processing_attempts=GREATEST(processing_attempts-1,0),import_receipt=%s::jsonb WHERE batch_id=%s AND import_receipt->>'stage'='reading'",
-                (json.dumps({'batchId':batch,'stage':'waiting-memory','count':0}),batch))
+            # Six is beyond every existing retry allowance, including the
+            # historical MemoryError recovery. No immediate child was spawned.
+            attempts_sql='GREATEST(processing_attempts,6)' if exhausted else 'GREATEST(processing_attempts-1,0)'
+            conn.execute("UPDATE bob_android_list_images SET processing_attempts="+attempts_sql+",import_receipt=%s::jsonb WHERE batch_id=%s AND import_receipt->>'stage'='reading'",
+                (json.dumps(receipt),batch))
             conn.commit()
     except Exception as exc:
         observe("read-failed", type(exc).__name__)
         with connect() as conn:
-            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','')!='synced'",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__}),batch))
+            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,'memoryDeferrals':memory_deferrals(previous)}),batch))
             conn.commit()
     return True
 

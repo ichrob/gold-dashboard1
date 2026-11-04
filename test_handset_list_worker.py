@@ -5,6 +5,43 @@ from unittest.mock import patch
 import handset_list_worker as worker
 
 class WorkerTests(unittest.TestCase):
+    def test_working_bitmaps_close_between_passes_and_on_native_failure(self):
+        from PIL import Image
+        for fail in (False,True):
+            source=Image.new('RGB',(300,600),'white')
+            working=[]
+            original_resize=Image.Image.resize
+            def resize(image,*args,**kwargs):
+                value=original_resize(image,*args,**kwargs)
+                working.append(value)
+                return value
+            def engine(*args,**kwargs):
+                if fail:raise RuntimeError('native engine failure')
+                # The preceding pass is already closed before the next pass.
+                for previous in working[:-1]:
+                    with self.assertRaises(ValueError):previous.getpixel((0,0))
+                return [],None
+            with patch.object(Image.Image,'resize',resize),patch('memory_watch.release_free_pages'):
+                if fail:
+                    with self.assertRaises(RuntimeError):worker.recognize_image(source,engine)
+                else:self.assertEqual(worker.recognize_image(source,engine),['','',''])
+            for image in working:
+                with self.assertRaises(ValueError):image.getpixel((0,0))
+            self.assertEqual(source.getpixel((0,0)),(255,255,255))
+            source.close()
+
+    def test_memory_deferrals_are_bounded_across_saved_receipts(self):
+        receipt=None
+        for count in range(1,5):
+            receipt=worker.deferred_memory_receipt('a'*32,receipt)
+            self.assertEqual(receipt['memoryDeferrals'],count)
+            self.assertEqual(receipt['retryAllowed'],count<4)
+            self.assertEqual(receipt['stage'],'waiting-memory' if count<4 else 'read-failed')
+        self.assertEqual(receipt['error'],'MemoryError')
+        self.assertEqual(receipt['reason'],'OCR_MEMORY_WAIT_EXHAUSTED')
+        for invalid in (-1,True,'3',None):
+            self.assertEqual(worker.memory_deferrals({'memoryDeferrals':invalid}),0)
+
     def test_semantic_path_never_starts_ocr(self):
         from types import SimpleNamespace
         text={'before':['row'],'after':['row']}
@@ -375,6 +412,26 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(conn.execute('SELECT count(*) FROM retry_probe').fetchone()[0],1)
                 self.assertEqual(conn.execute('SELECT processing_attempts FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0],6)
                 self.assertEqual(android_list.handle(conn,{'action':'list-status','token':'a'*64,'value':{'batchId':value['batchId']}},now)['import']['stage'],'synced')
+
+            # Sustained admission pressure must finish across worker restarts,
+            # not reset processing_attempts forever. Original payload survives.
+            with connect() as conn:
+                conn.execute("UPDATE bob_android_list_images SET processing_attempts=0,processing_at=NULL,import_receipt=NULL WHERE batch_id=%s",(value['batchId'],))
+            def deferred(*_):raise worker.OcrMemoryDeferred('private text')
+            for count in range(1,5):
+                self.assertTrue(worker.tick(connect,deferred))
+                with connect() as conn:
+                    receipt,attempts,payload=conn.execute('SELECT import_receipt,processing_attempts,payload FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()
+                    self.assertEqual(receipt['memoryDeferrals'],count)
+                    self.assertEqual(attempts,0 if count<4 else 6)
+                    self.assertEqual(payload['images'],value['images'])
+                    # Late browser receipts cannot reset the durable budget.
+                    android_list.handle(conn,{'action':'list-receipt','value':{'batchId':value['batchId'],'stage':'reading','count':0}},now)
+                    after=conn.execute('SELECT import_receipt FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0]
+                    self.assertEqual(after['memoryDeferrals'],count)
+                    if count==4:self.assertEqual(after,receipt)
+                    conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes' WHERE batch_id=%s",(value['batchId'],))
+            self.assertFalse(worker.tick(connect,lambda *_:self.fail('Exhausted memory retries must stop')))
 
         finally:
             with psycopg.connect(url) as admin:admin.execute('DROP SCHEMA '+schema+' CASCADE')
