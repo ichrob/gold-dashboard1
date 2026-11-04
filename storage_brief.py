@@ -11,7 +11,8 @@ _STORAGE_STATES = frozenset(("observed", "unavailable", "not-observed",
 _BUDGET_STATES = frozenset(("below-budget-threshold", "caution",
                             "action-required"))
 _VOLUME_STATES = frozenset(("observed", "unavailable", "no-fresh-observation",
-                            "configuration-required", "invalid-response"))
+                            "configuration-required", "invalid-response", "provider-http-error",
+                            "network-unavailable"))
 _PROOF_STATES = frozenset(("verified-fresh", "verified-but-stale",
                            "no-verified-restore", "timestamp-unavailable",
                            "recovery-or-archive-proof-missing",
@@ -260,6 +261,11 @@ def project(storage):
         "status": "observed" if valid else
                   ("invalid-or-unverified-units" if kind == "observed" else kind),
         "usedBytes": size if valid else None,
+        "providerHttpStatus": (provider.get("httpStatus")
+                               if kind == "provider-http-error" and
+                                  type(provider.get("httpStatus")) is int and
+                                  provider["httpStatus"] in (400, 401, 403, 404, 409, 429, 500, 502, 503)
+                               else None),
         "observedAt": observed if valid else None,
         "unit": "bytes" if valid else None,
         "scope": "physical-provider-volume-single-observation-not-savings"
