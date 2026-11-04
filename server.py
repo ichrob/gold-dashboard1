@@ -2279,8 +2279,12 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length).decode('utf-8'))
                 if not isinstance(payload, dict):raise ValueError('Ungültige Anfrage')
                 import youtube_research
-                result = youtube_research.from_screenshot(payload) if 'screenshotText' in payload else {'ok': True, 'item': youtube_research.manual(payload)}
-                status = 200
+                if payload == {'action': 'refresh'}:
+                    result = gold_research.request_refresh()
+                    status = 202
+                else:
+                    result = youtube_research.from_screenshot(payload) if 'screenshotText' in payload else {'ok': True, 'item': youtube_research.manual(payload)}
+                    status = 200
             except ValueError as exc:
                 result = {'ok': False, 'error': str(exc)}
                 status = 400

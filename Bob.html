@@ -828,7 +828,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(!Array.isArray(r.items)||!Array.isArray(r.sources)||!r.counts)throw Error('YouTube-Liste momentan unvollständig.');
    if(r.items.length){rememberVideos(r.items);$('youtubeListStatus').textContent=r.items.length+' von höchstens 3 gespeicherten Videos.';}
    else showLastVideos('Keine Videos vom Kanalabruf erhalten');
-   $('goldResearchStatus').textContent=(r.fresh?'Stand: ':'Nicht aktuell / noch nicht verfügbar: ')+date(r.checkedAt)+' (Zürich) · automatischer Abruf etwa alle '+Math.round((r.intervalSeconds||900)/60)+' Minuten';
+   $('goldResearchStatus').textContent=(r.fresh?'Stand: ':'Nicht aktuell / noch nicht verfügbar: ')+date(r.checkedAt)+' (Zürich) · nur manueller Abruf'+(r.refreshing?' · Auswertung läuft':r.refreshError?' · letzter Abruf fehlgeschlagen':'');
    $('goldResearchCounts').textContent=r.scanned+' Kanal-Einträge geprüft · '+r.successfulFeeds+'/'+r.sources.length+' Kanalabrufe erfolgreich · '+r.videosFound+' Gold-Videos gefunden · '+r.videosAnalyzed+' Videos mit auswertbarem Text.'+(r.accessFallback?' Frei zugängliche Ersatzvideos; neuere Mitgliedervideos fehlen.':'')+' Die MCO-Einschätzung beruht nur auf bestätigten Untertiteln der neuesten Uploads.';
    const c=$('goldResearchConsensus'),mco=r.mcoOutlook||'NICHT_ANALYSIERT';
    const label={LONG:'LONG',SHORT:'SHORT',UNKLAR:'Unklar',NICHT_ANALYSIERT:'Noch nicht analysiert'}[mco]||'Noch nicht analysiert';
@@ -1177,7 +1177,17 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  $('youtubeResearchUrl').addEventListener('input',()=>{$('youtubeResearchStatus').textContent='';$('youtubeResearchResolved').replaceChildren();$('youtubeResearchCandidates').replaceChildren();});
  $('youtubeResearchAnalyze').addEventListener('click',()=>inspectVideo(false));
  $('youtubeResearchImport').addEventListener('click',()=>inspectVideo(true));
- $('goldResearchRefresh').addEventListener('click',load);
+ $('goldResearchRefresh').addEventListener('click',async()=>{
+  const button=$('goldResearchRefresh');button.disabled=true;
+  try{
+   const response=await fetch('/api/research/youtube',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'refresh'})});
+   if(!response.ok)throw Error(response.status===401?'Bitte erneut anmelden.':'Videorecherche konnte nicht gestartet werden.');
+   const result=await response.json();
+   await load();
+   if(result.status==='restoring'||result.status==='cooldown')$('goldResearchStatus').textContent='Bitte kurz warten und erneut starten.';
+  }catch(error){$('goldResearchStatus').textContent=error.message;}
+  finally{button.disabled=false;}
+ });
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="research"]'))load();});
  document.addEventListener('DOMContentLoaded',()=>{updateUnreadBadge();showLastVideos('Aktualisierung läuft');load();});
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!$('goldResearchItems').querySelector('details[open]'))load();});

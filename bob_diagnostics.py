@@ -1151,7 +1151,7 @@ def new_feature_snapshot(areas, *, mobile_asset_loaded=False):
 
 
 def research_snapshot(value):
-    return project(value,shape('checkedAt','fresh','successfulFeeds','intervalSeconds','videosFound','videosAnalyzed','mcoOutlook','mcoReason','accessFallback',
+    return project(value,shape('mode','automaticRefresh','refreshing','refreshError','checkedAt','fresh','successfulFeeds','intervalSeconds','videosFound','videosAnalyzed','mcoOutlook','mcoReason','accessFallback',
         restrictedUploads=[shape('title','publishedAt','transcriptAccess')],
         sources=[shape('id','status','checkedAt','scanned','relevant','error')],
         items=[shape('title','publishedAt','outlook','current','coverage','transcriptAnalyzed','trustedTranscript','transcriptAccess','transcriptProvider','transcriptLanguage','transcriptWords','analysisStatus','error','publicFallback','accessNote',
