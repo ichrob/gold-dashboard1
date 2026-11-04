@@ -154,7 +154,7 @@ def run_table(name, source_dsn, target_dsn):
                     eligible += sql.SQL(" AND jsonb_typeof(payload->'products')='array'")
                 dst.execute(sql.SQL('INSERT INTO sizing_archive SELECT DISTINCT {},{} FROM sizing_data WHERE {} ON CONFLICT DO NOTHING').format(sql.SQL(hash_expr),sql.SQL(payload),eligible),(limit,TAG))
                 dst.execute("INSERT INTO sizing_locations SELECT hash,repeat('f',64),repeat('a',64),0,now() FROM sizing_archive ON CONFLICT DO NOTHING")
-                pointer = sql.SQL("(payload-'products') || jsonb_build_object(%s,{})" if field else "jsonb_build_object(%s,{})").format(sql.SQL(hash_expr))
+                pointer = sql.SQL("(payload-'products') || jsonb_build_object(%s::text,{})" if field else "jsonb_build_object(%s::text,{})").format(sql.SQL(hash_expr))
                 dst.execute(sql.SQL('UPDATE sizing_data SET payload={} WHERE {}').format(pointer,eligible),(TAG,limit,TAG))
                 before_vacuum = size(dst)
                 dst.execute('VACUUM (FULL, ANALYZE) sizing_data')
