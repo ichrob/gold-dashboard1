@@ -105,3 +105,36 @@ No `VACUUM FULL`, reindex, broad purge, or mass migration is introduced.
 Keep the existing one-row pilot disabled until all the above is proven in
 GitHub CI + isolated PostgreSQL tests and reviewed on both deployed
 services. Do not treat successful code CI as permission to erase originals.
+
+## Operator-Escrow-Prüfung 04.11.2026 – getrennt von produktiver Freigabe
+
+Auf einem privaten Samsung mit Termux wurde eine verschlüsselte Kopie des
+ursprünglichen Archivschlüssels erstellt. Das separate Passwort entsperrte
+die lokale Datei. Die aus einer an sich selbst versendeten E-Mail heruntergeladene
+Kopie ergab bei der separaten Entschlüsselung denselben Schlüssel.
+Die heruntergeladene externe AES-GCM-Originalarchivdatei wurde mit diesem
+Schlüssel authentifiziert, und der im verifizierten Archivbeleg festgehaltene
+SHA-256-Digest des entschlüsselten Archivs stimmte überein. Dies ist
+**Operator-Evidenz**, keine aus der Bob-Datenbank nachgewiesene neue
+`recoveryKeyVerified=true`-Quittung.
+
+Der nur lesende Kurzbericht `storage_brief.project` unterscheidet nun:
+`archive-receipt-incomplete`, `persisted-recovery-proof-missing`,
+`proof-age-not-verified`, `persisted-proof-not-fresh` und
+`persisted-recovery-proof-fresh`. Die Zustände werden **ausschließlich
+aus Bobs persistiertem Archivbeleg** und dessen gemessenem Zeitpunkt
+projiziert. GitHub-Issues, Screenshots und operatorseitige Aussagen werden
+absichtlich nicht als Datenbanknachweis eingelesen oder vertrauenswürdig
+umgedeutet.
+
+Weder dieses Dokument noch das zusätzliche Statusfeld sind ein Schreibgate.
+Der eigentliche Pilot-Writer nutzt unverändert die strenge, unabhängig
+geprüfte `_proof_state`-Logik plus aktuelle Render-Volume- und
+One-Shot-Grenzen. Das Feld kann **keinen** Pointer schreiben und **keine**
+Produkt- oder Bildoriginale löschen.
+
+Der nur für die einmalige lokale Rettung erstellte Render-API-Key wurde laut
+Operator-Screenshot widerrufen. Der produktive `PUSH_SERVICE_TOKEN`
+bleibt unverändert. Weitere unabhängige Verwahrung (etwa USB), ein neuer
+persistierter, frischer Recovery-Nachweis, reale Datenbank-/WAL-/Lock-
+Reserven und die explizite Pilot-Autorisierung sind weiter offen.
