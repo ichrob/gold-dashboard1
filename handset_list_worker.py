@@ -116,11 +116,14 @@ def container_memory_bytes():
             pass
     return None
 
-def wait_ocr(child,memory_reader=container_memory_bytes,clock=time.monotonic,sleep=time.sleep,timeout=120):
+def wait_ocr(child,memory_reader=container_memory_bytes,clock=time.monotonic,sleep=time.sleep,timeout=120,measurement=None):
     """Fail closed before local OCR can kill the shared 512-MiB service."""
     deadline=clock()+timeout
     while child.poll() is None:
         used=memory_reader()
+        if measurement is not None and used is not None:
+            measurement['peakBytes']=max(measurement.get('peakBytes') or 0,used)
+            measurement['samples']+=1
         if used is None or used>=OCR_CONTAINER_LIMIT or clock()>=deadline:
             child.kill()
             try:child.wait(timeout=5)
@@ -131,6 +134,23 @@ def wait_ocr(child,memory_reader=container_memory_bytes,clock=time.monotonic,sle
         sleep(.05)
     return child.returncode
 
+
+def report_ocr_memory(measurement, outcome, started):
+    # One bounded record per image, no image bytes, identities or exceptions.
+    # This is whole-container sampling, not exclusive child allocation or PSS.
+    try:
+        def mib(value):return round(value/(1024*1024),1) if value is not None else None
+        print('BOB_OCR_MEMORY '+json.dumps({
+            'scope':'container-during-one-ocr-image', 'outcome':outcome,
+            'beforeMiB':mib(measurement.get('beforeBytes')),
+            'sampledPeakMiB':mib(measurement.get('peakBytes')),
+            'afterMiB':mib(container_memory_bytes()),
+            'samples':measurement['samples'],
+            'durationMs':round((time.monotonic()-started)*1000),
+        },allow_nan=False),flush=True)
+    except Exception:
+        pass  # Diagnostics must not change OCR results or protection.
+
 def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, close_fds):
     # Preserve the cgroup-wide fail-closed guard and file-backed streams.
     # Return free parent heap pages before loading the child's native models.
@@ -139,7 +159,10 @@ def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, c
     __import__('memory_watch').release_free_pages()
     # Reserve measured OCR peak plus headroom before starting native models.
     used=container_memory_bytes()
+    started=time.monotonic()
+    measurement={'beforeBytes':used,'peakBytes':used,'samples':0}
     if used is None or used+OCR_START_RESERVE>=OCR_CONTAINER_LIMIT:
+        report_ocr_memory(measurement,'deferred',started)
         raise OcrMemoryDeferred('OCR awaiting free container memory')
     with tempfile.TemporaryFile(mode='w+',encoding='utf-8') as source, \
          tempfile.TemporaryFile(mode='w+',encoding='utf-8') as output, \
@@ -147,7 +170,18 @@ def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, c
         source.write(input);source.seek(0)
         child=subprocess.Popen(args,stdin=source,stdout=output,stderr=errors,
                                text=True,env=env,close_fds=close_fds,start_new_session=True)
-        code=wait_ocr(child,timeout=timeout)
+        outcome='failed'
+        try:
+            code=wait_ocr(child,timeout=timeout,measurement=measurement)
+            outcome='completed' if code==0 else 'child-failed'
+        except MemoryError:
+            outcome='memory-limit'
+            raise
+        except subprocess.TimeoutExpired:
+            outcome='timeout'
+            raise
+        finally:
+            report_ocr_memory(measurement,outcome,started)
         output.seek(0);stdout=output.read(100001)
         errors.seek(0);stderr=errors.read(100001)
     if code and check:raise subprocess.CalledProcessError(code,args,stdout,stderr)
@@ -330,3 +364,4 @@ if __name__=='__main__' and '--ocr' in sys.argv:
     raw=sys.stdin.read(8100001)
     if len(raw)>8100000:raise ValueError('Image input limit')
     print(json.dumps(recognize(json.loads(raw),enhanced='--enhanced' in sys.argv)))
+
