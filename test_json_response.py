@@ -1,6 +1,8 @@
 import io
 import json
-import tracemalloc
+import subprocess
+import sys
+import textwrap
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -18,17 +20,22 @@ class JsonResponseTests(unittest.TestCase):
             self.assertTrue(stream.closed)
 
     def test_large_history_uses_bounded_serialization_memory(self):
-        payload = {'rows': [{'id': n, 'source': 'x' * 200} for n in range(40000)]}
-        tracemalloc.start()
-        try:
+        # tracemalloc is process-wide: background workers started by other
+        # integration tests must not be charged to this serializer.
+        result = subprocess.run([sys.executable, '-c', textwrap.dedent('''
+            import json, tracemalloc
+            from json_response import encoded_response, BUFFER_BYTES
+            payload = {'rows': [{'id': n, 'source': 'x' * 200} for n in range(40000)]}
+            tracemalloc.start()
             with encoded_response(payload) as (stream, length):
                 peak = tracemalloc.get_traced_memory()[1]
-                self.assertGreater(length, 8_000_000)
-                self.assertLess(peak, 2_000_000)
                 while stream.read(BUFFER_BYTES):
                     pass
-        finally:
-            tracemalloc.stop()
+            print(json.dumps({'length': length, 'peak': peak}))
+        ''')], check=True, capture_output=True, text=True, timeout=60)
+        measurement = json.loads(result.stdout)
+        self.assertGreater(measurement['length'], 8_000_000)
+        self.assertLess(measurement['peak'], 2_000_000)
 
     def test_serialization_failure_precedes_headers(self):
         import push_server
@@ -58,3 +65,4 @@ class JsonResponseTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
