@@ -389,6 +389,21 @@ def project(storage):
         "fullHistoryVerified": False, "deletionAuthorized": False,
         "physicalBytesFreed": None,
     }
+    # A compact forward-only assessment of already stored metric-source labels.
+    # Cold pointers are not formula success, and no digest permits source deletion.
+    quality_eval = storage.get("qualityEvaluations")
+    quality_eval = quality_eval if type(quality_eval) is dict else {}
+    result["qualityEvaluations"] = {
+        "status": _choice(quality_eval.get("status"),
+            frozenset(("observed", "warming", "not-observed")),
+            "not-observed"),
+        "processedRecords": _number(quality_eval.get("processedRecords"),
+                                     integer=True, maximum=10**12),
+        "metricPassVerified": False,
+        "fullHistoryVerified": False,
+        "deletionAuthorized": False,
+        "physicalBytesFreed": None
+    }
     pilot = storage.get("decisionProductsPilot")
     pilot = pilot if isinstance(pilot, dict) else {}
     result["pilot"] = {
