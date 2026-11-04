@@ -60,6 +60,7 @@ def summarize(area, rows):
     allowed = __import__("storage_knowledge")._ALLOWED[area]
     categories, outcomes = Counter(), Counter()
     digest = hashlib.sha256()
+    digest.update(area.encode('ascii') + b'\n')
     previous = None
     for row in rows:
         if (type(row) not in (list,tuple) or len(row)!=4 or
@@ -153,7 +154,7 @@ def report(conn):
         return {"status":"observed" if coverage else "warming",
                 "areas":coverage, "pageSize":PAGE_ROWS,
                 "sourceCoverage":"forward-pages-only-no-independently-replayed-completeness",
-                "sourceRowsChanged":False, "deletionAuthorized":False,
+                "sourceRowsChangedByThisWorker":False, "deletionAuthorized":False,
                 "physicalBytesFreed":None}
     except Exception:
         return {"status":"not-observed", "deletionAuthorized":False,
@@ -194,7 +195,7 @@ def start():
                     "status":result["status"],
                     "pagesRecorded":sum(v=="page-recorded" for v in states.values()),
                     "deferred":sum(v in ("busy","deferred") for v in states.values()),
-                    "sourceRowsChanged":False,"deletionAuthorized":False},
+                    "sourceRowsChangedByThisWorker":False,"deletionAuthorized":False},
                     sort_keys=True),flush=True)
                 time.sleep(900)
         _THREAD=threading.Thread(target=loop,name="bob-history-evaluation",
