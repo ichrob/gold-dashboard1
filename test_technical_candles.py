@@ -79,6 +79,31 @@ class CandleTests(unittest.TestCase):
             self.assertEqual(fetch.call_count,2)
             self.assertEqual(first,second)
 
+    def test_collector_jitter_does_not_skip_a_fast_cache_slot(self):
+        # First poll just after the boundary; the next collector tick is
+        # 29.9s later. The source has now confirmed the previously open bar.
+        p=self.payload();p['bars'][0]['isOpen']=True
+        with patch.dict(tc._cache,{},clear=True), patch.object(server,'fetch_json',return_value=p) as upstream:
+            with patch.object(tc.time,'time',return_value=self.now+0.1):
+                first=tc.fetch('5m',upstream)
+            self.assertTrue(first[0]['isOpen'])
+            p['bars'][0]['isOpen']=False
+            with patch.object(tc.time,'time',return_value=self.now+30):
+                second=tc.fetch('5m',upstream)
+            self.assertEqual(upstream.call_count,2)
+            self.assertFalse(second[0]['isOpen'])
+            self.assertEqual(first[0]['openTime'],second[0]['openTime'])
+            with patch.object(tc.time,'time',return_value=self.now+31):
+                tc.fetch('5m',upstream)
+            self.assertEqual(upstream.call_count,2,'same slot cannot flood provider')
+
+    def test_clock_slot_boundary_never_bypasses_request_floor(self):
+        with patch.dict(tc._cache,{},clear=True), patch.object(server,'fetch_json',return_value=self.payload()) as upstream:
+            for offset in (29,30,40,53):
+                with patch.object(tc.time,'time',return_value=self.now+offset):
+                    tc.fetch('5m',upstream)
+            self.assertEqual(upstream.call_count,1)
+
     def test_15m_boundary_poll_at_most_every_30s_without_fake_close(self):
         p = self.payload()
         p['interval'] = '15m'
