@@ -57,6 +57,9 @@ class WriterGuardTests(unittest.TestCase):
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class WriterPGTests(unittest.TestCase):
     def setUp(self):
+        encryption = patch.dict(os.environ, {'PUSH_SERVICE_TOKEN':'offline-test-key-'*4})
+        encryption.start()
+        self.addCleanup(encryption.stop)
         import psycopg
         import uuid
         self.conn=psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'],autocommit=True)
@@ -325,3 +328,4 @@ class IndependentProductionGates(unittest.TestCase):
         self.assertEqual(result['status'],'fresh-volume-proof-unavailable')
         init.assert_not_called()
         conn.execute.assert_not_called()
+
