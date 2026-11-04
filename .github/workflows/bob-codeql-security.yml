@@ -48,6 +48,8 @@ on:
       - "test_archive_worker.py"
       - "diagnostic_archived_catchup.py"
       - "test_diagnostic_archived_catchup.py"
+      - "storage_pressure.py"
+      - "test_storage_pressure.py"
       - "storage_budget.py"
       - "storage_brief.py"
       - "render_disk_metrics.py"
