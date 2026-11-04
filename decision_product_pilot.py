@@ -73,6 +73,11 @@ def status(conn):
     """Private reader: never expose attempt IDs or original content."""
     try:
         with conn.transaction():
+            exists=conn.execute("""SELECT to_regclass(
+                'bob_cold_decision_pilot_attempts')""").fetchone()
+            if not exists or exists[0] is None:
+                return {'status':'not-observed','readOnly':True,
+                        'diskBytesFreed':None}
             row=conn.execute("""SELECT status,moved_rows,error_type,updated_at
                 FROM bob_cold_decision_pilot_attempts
                 ORDER BY updated_at DESC LIMIT 1""").fetchone()
