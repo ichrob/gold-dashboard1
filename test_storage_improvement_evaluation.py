@@ -9,13 +9,14 @@ import storage_improvement_evaluation as improvements
 
 class UnitTests(unittest.TestCase):
     def test_labels_digest_and_private_campaign(self):
-        rows=[("secret-campaign",1,"verified"),
-              ("secret-campaign",2,"failed"),
-              ("secret-campaign",3,"not-an-approval")]
+        rows=[("secret-campaign",1,True,"verified"),
+              ("secret-campaign",2,False,"failed"),
+              ("secret-campaign",3,True,"not-an-approval")]
         result=improvements.summarize(rows)
         self.assertEqual(result["records"],3)
         self.assertEqual(result["counts"],{
-            "verified":1,"failed":1,"unclassified":1})
+            "status:verified":1,"status:failed":1,"status:unclassified":1,
+            "valid-input":2,"invalid-input":1})
         self.assertEqual(len(result["fingerprint"]),64)
         self.assertNotIn("secret",json.dumps(result))
         self.assertNotIn("not-an-approval",json.dumps(result))
@@ -28,12 +29,12 @@ class UnitTests(unittest.TestCase):
 
     def test_bounded_and_out_of_order_fail_closed(self):
         cases=[
-            [("a",1,"verified")]*2,
-            [("a",2,"verified"),("a",1,"failed")],
-            [("a",i,"pending") for i in range(improvements.PAGE_ROWS+1)],
-            [("a",False,"verified")],
-            [("a","1","verified")],
-            [("a",1,"verified","unexpected")],
+            [("a",1,True,"verified")]*2,
+            [("a",2,True,"verified"),("a",1,True,"failed")],
+            [("a",i,True,"pending") for i in range(improvements.PAGE_ROWS+1)],
+            [("a",False,True,"verified")],
+            [("a","1",True,"verified")],
+            [("a",1,True,"verified","unexpected")],
         ]
         for rows in cases:
             with self.subTest(rows=str(rows)[:20]),self.assertRaises(ValueError):
@@ -55,7 +56,7 @@ class UnitTests(unittest.TestCase):
             def fetchone(self):
                 return self.value
             def fetchall(self):
-                return [("private-campaign",17,"rejected")]
+                return [("private-campaign",17,False,"rejected")]
         fake=Fake()
         result=improvements.capture(fake)
         self.assertEqual(result["status"],"page-recorded")
@@ -82,13 +83,14 @@ class PostgresTests(unittest.TestCase):
             try:
                 conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(name)))
                 conn.execute("""CREATE TABLE bob_improvement_observations (
-                    campaign TEXT NOT NULL,slot BIGINT NOT NULL,payload JSONB NOT NULL,
+                    campaign TEXT NOT NULL,slot BIGINT NOT NULL,valid BOOLEAN NOT NULL,
+                    payload JSONB NOT NULL,
                     PRIMARY KEY(campaign,slot))""")
                 improvements.init(conn)
                 conn.execute("""INSERT INTO bob_improvement_observations VALUES
-                    ('private-a',1,'{"status":"testing"}'),
-                    ('private-a',2,'{"status":"failed"}'),
-                    ('private-b',1,'{"status":"verified"}')""")
+                    ('private-a',1,true,'{"status":"testing"}'),
+                    ('private-a',2,false,'{"status":"failed"}'),
+                    ('private-b',1,true,'{"_bobColdObservationV1":"private-hash"}')""")
                 first=improvements.capture(conn)
                 self.assertEqual(first["status"],"page-recorded")
                 self.assertEqual(first["processed"],3)
@@ -96,7 +98,9 @@ class PostgresTests(unittest.TestCase):
                 self.assertEqual(second["status"],"caught-up-as-observed")
                 row=conn.execute("""SELECT records,counts FROM
                     bob_improvement_eval_segments""").fetchone()
-                self.assertEqual(row,(3,{"testing":1,"failed":1,"verified":1}))
+                self.assertEqual(row,(3,{"status:testing":1,"status:failed":1,
+                             "status:archived-original-not-inline":1,
+                             "valid-input":2,"invalid-input":1}))
                 self.assertEqual(conn.execute("""SELECT count(*) FROM
                     bob_improvement_observations""").fetchone()[0],3)
                 state=improvements.report(conn)
