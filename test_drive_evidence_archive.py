@@ -39,7 +39,7 @@ class DriveSafety(unittest.TestCase):
                 else:
                     receipt=runner.run('source','restore',d,drive)
                     self.assertTrue(receipt['remoteDownloadVerified'])
-                    self.assertEqual(receipt['storageState'],'caution')
+                    self.assertEqual(receipt['storageState'],'below-budget-threshold')
                     self.assertEqual(len(drive.files),2)
                     self.assertFalse(json.loads(drive.files['1'])['deletionPermitted'])
                 self.assertEqual(check.call_count,2)

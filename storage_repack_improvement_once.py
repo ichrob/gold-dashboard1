@@ -3,6 +3,7 @@
 Only public.bob_improvement_observations; neither data deletion nor trade logic.
 Never kill blocking backends, print connection details, or execute by default.
 """
+from storage_capacity import ALLOCATION_BYTES, REPACK_MAX_VOLUME_BYTES
 import json
 import math
 import os
@@ -147,7 +148,7 @@ def run_once(*,now=None,connect=_connect,runner=None):
     if __import__("archive_worker").status().get("status")=="running":
         return {"status":"archive-running","diskBytesFreed":None}
     v=_volume()
-    if not v or v[0]>730_000_000:
+    if not v or v[0]>REPACK_MAX_VOLUME_BYTES:
         return {"status":"fresh-volume-proof-unavailable","diskBytesFreed":None}
     try:
         probe=__import__("storage_repack_bloat_probe").inspect_once()
@@ -178,7 +179,7 @@ def run_once(*,now=None,connect=_connect,runner=None):
             return {"status":"table-size-or-key-proof-failed","diskBytesFreed":None}
         # Render recommends > 2 x table-and-index footprint. Retain another
         # 120 MB for WAL/scratch growth; already allocated WAL is in volume.
-        if 1_000_000_000-v[0]-2*relation[0]<=120_000_000:
+        if ALLOCATION_BYTES-v[0]-2*relation[0]<=120_000_000:
             return {"status":"insufficient-wal-and-copy-reserve","diskBytesFreed":None}
         wal=_wal(conn)
         if wal is None:

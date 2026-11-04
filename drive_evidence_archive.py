@@ -170,8 +170,7 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
         encryptionVersion=sealing.FORMAT if encrypted else 'none',
         recoveryKeyVerified=recovery_verified,
         databaseBytes=result['databaseBytes'],
-        storageState=('action-required' if result['databaseBytes'] >= 700_000_000 else
-                      'caution' if result['databaseBytes'] >= 500_000_000 else 'below-budget-threshold'))
+        storageState=__import__('storage_budget').state(result['databaseBytes']))
     receipt_path = work / f'bob-evidence-{now}-verified.json'
     receipt_path.write_text(json.dumps(receipt, sort_keys=True, indent=2))
     os.chmod(receipt_path, 0o600)

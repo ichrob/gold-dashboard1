@@ -5,6 +5,7 @@ opted-in weekend. The persistent claim makes a restart unable to repeat it.
 VACUUM is regular, not FULL, and remains 10-second SKIP_LOCKED. No archives
 or content-addressed product pointers are created by this module.
 """
+from storage_capacity import MAX_VOLUME_BYTES
 import json
 import os
 import re
@@ -67,7 +68,7 @@ def _preflight(conn, seconds):
                 or type(observed) not in (int, float)
                 or not 0 <= seconds - observed <= 300
                 or type(volume.get("diskUsage")) is not int
-                or volume["diskUsage"] > 750_000_000):
+                or volume["diskUsage"] > MAX_VOLUME_BYTES):
             return "fresh-volume-proof-unavailable"
     except Exception:
         return "proof-unavailable"
