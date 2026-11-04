@@ -23,12 +23,26 @@ internal object MorningListDelivery {
     fun cancel() { generation++;waiting=false }
     fun save(c:Context,body:JSONObject) {
         val f=file(c);val stream=f.startWrite()
-        try { stream.write(body.toString().toByteArray(Charsets.UTF_8));f.finishWrite(stream) }
+        try { stream.write(JSONObject(body.toString()).put("localRecognitionRevision",2).toString().toByteArray(Charsets.UTF_8));f.finishWrite(stream) }
         catch(e:Exception) { f.failWrite(stream);throw e }
     }
     fun resume(c:Context):Boolean {
         val body=runCatching { JSONObject(String(file(c).readFully(),Charsets.UTF_8)) }.getOrNull() ?: return false
         val images=body.optJSONArray("images") ?: return false
+        if(body.optInt("localRecognitionRevision")<2) {
+            // Only reached on a new user-started run. Keep the exact legacy
+            // capture locally; do not let old recognition output monopolize
+            // an updated reader's explicit fresh start.
+            val batch=body.optString("batchId")
+            if(!batch.matches(Regex("[a-f0-9]{32}"))) return false
+            val archive=AtomicFile(File(c.filesDir,"morning-list-legacy-"+batch+".json"))
+            val stream=archive.startWrite()
+            try { stream.write(body.toString().toByteArray(Charsets.UTF_8));archive.finishWrite(stream) }
+            catch(e:Exception) { archive.failWrite(stream);throw e }
+            cancel();file(c).delete()
+            status(c,"Frühere Aufnahme gesichert; aktualisierte lokale Erkennung startet neu.")
+            return false
+        }
         val age=runCatching { System.currentTimeMillis()-Instant.parse(images.getJSONObject(0).getString("at")).toEpochMilli() }.getOrDefault(Long.MAX_VALUE)
         val mode=MorningListResumePolicy.mode(age,body.optInt("resumeCount"))
         if(mode==MorningListResumePolicy.Mode.NEW_LIST) {
@@ -55,7 +69,7 @@ internal object MorningListDelivery {
             if(id!=generation)return
             network.execute {
                 val result=runCatching {
-                    if(!uploaded) { check(PhoneRemote.active() && PhoneRemote.sessionId()==session);PhoneDiagnostics.uploadList(c,JSONObject(body.toString()).apply { remove("resumeCount") }) }
+                    if(!uploaded) { check(PhoneRemote.active() && PhoneRemote.sessionId()==session);PhoneDiagnostics.uploadList(c,JSONObject(body.toString()).apply { remove("resumeCount");remove("localRecognitionRevision") }) }
                     PhoneDiagnostics.listStatus(c,JSONObject().put("batchId",batch))
                 }
                 handler.post {
