@@ -120,7 +120,7 @@ class ProgressDatabaseTests(unittest.TestCase):
             worker.persist_progress(connect,'batch',{})
             with connect() as conn:
                 self.assertEqual(conn.execute("SELECT ocr_progress FROM bob_android_list_images WHERE batch_id='batch'").fetchone()[0],progress)
-                conn.execute("UPDATE bob_android_list_images SET import_receipt='{\"stage\":\"reading\"}',processing_attempts=0,processing_at=NULL")
+                conn.execute("UPDATE bob_android_list_images SET import_receipt='{\"stage\":\"reading\"}',processing_attempts=0,processing_at=NULL,payload=%s::jsonb",(json.dumps({'images':[{'at':'2026-11-04T08:00:00Z'}]}),))
             def fail_verification(*_):raise worker.ListVerificationError('Incomplete list')
             self.assertTrue(worker.tick(connect,fail_verification))
             with connect() as conn:
