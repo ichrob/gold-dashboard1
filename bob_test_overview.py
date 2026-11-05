@@ -85,6 +85,18 @@ def snapshot(report, now):
             missing='Vorwärtsvergleich mit Originalzeitstempeln, ohne Broker-Ausführungsbeleg.',
             note='Jede Papier-Auswertung dauerhaft protokolliert; kein Echtgeld, '
                  'keine bestätigte Nettorendite. Ungeklärte Fälle bleiben ungeklärt.'))
+    comparison=shadow.get('entryExitComparison') or {}
+    for entry,label in (('early','Frühwarnung'),('confirmed','Bestätigung'),('pullback','Rücksetzer')):
+        for exit_mode,exit_label in (('fixed','festes Ziel'),('trailing','nachgezogener Stopp')):
+            variants=[(comparison.get('variants') or {}).get(f'{entry}:{exit_mode}:{delay}',{}) for delay in (0,30,60)]
+            recent=fresh(comparison.get('checkedAt'),now,120)
+            rows.append(dict(id=f'entry-exit-{entry}-{exit_mode}',label=f'{label} · {exit_label} · 0/30/60 s',
+                state='checked' if recent else 'night-paused' if comparison.get('checkedAt') and phase in ('night','weekend') else 'unavailable',
+                startedAt=None,lastObservedAt=comparison.get('checkedAt'),
+                sampledRecords=comparison.get('episodesSampled'),comparableCases=None,
+                completed=False,truncated=comparison.get('truncated',False),
+                missing='Gepaarte Auswertung und ausreichende neue Fälle erforderlich.',
+                note='Nur Spielgeld; angenommene Kosten. Abgeschlossene Varianten: '+str(sum(v.get('closed',0) for v in variants))+'. Kein bestätigter Strategievorteil.'))
     chain_accounts=(evidence.get('accountSamples') or
                     (areas.get('simulationAndPush') or {}).get('accounts',[]))
     chains=[c.get('evidenceChain') for a in chain_accounts
