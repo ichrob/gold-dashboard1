@@ -97,7 +97,7 @@ def source_order(isin):
  return sorted(('comdirect','swissquote'),key=lambda source:-scores.get(source,0))
 
 
-def request_order(isins, active, requested, now):
+def request_order(isins, active, requested, now, preferred=()):
  """Prioritize overdue/active products, then identified repairs, without starvation.
  No extra requests: the existing four slots and 30-second minimum still apply.
  """
@@ -105,4 +105,4 @@ def request_order(isins, active, requested, now):
   repair={isin for isin,plan in _PLANS.items() if plan.get('incidents') and plan.get('status')!='excluded'}
  return sorted(isins,key=lambda i:(0 if now-requested.get(i,0)>=90000 else 1,
                                   requested.get(i,0) if now-requested.get(i,0)>=90000 else 0,
-                                  i not in active, i not in repair, requested.get(i,0)))
+                                  i not in active, i not in preferred, i not in repair, requested.get(i,0)))

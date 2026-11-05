@@ -177,6 +177,8 @@ def webpush(**kwargs):
         stamp = data.get(field)
         return stamp if type(stamp) in (int, float) and 0 < stamp < 4102444800000 else None
 
+    provider_started = time.monotonic()
+    provider_started_at = int(time.time()*1000)
     def log(outcome, status=None):
         print('BOB_PUSH_DELIVERY '+json.dumps({'events': event_kinds, 'outcome': outcome,
               'status': status, 'at': int(time.time()*1000)}), flush=True)
@@ -199,6 +201,11 @@ def webpush(**kwargs):
             'synthetic': is_synthetic,
             'signalBarAt': safe_clock('signalBarAt'),
             'dataAt': safe_clock('dataAt'),
+            'generatedAt': safe_clock('generatedAt'),
+            'analysisRequestedAt':safe_clock('analysisRequestedAt'),
+            'analysisCompletedAt':safe_clock('analysisCompletedAt'),
+            'providerStartedAt':provider_started_at,
+            'providerDurationMs':max(0,round((time.monotonic()-provider_started)*1000)),
             'receiptId': proof['receiptId'] if proof else None}, decision)
 
     try:

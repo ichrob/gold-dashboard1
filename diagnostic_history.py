@@ -53,7 +53,8 @@ SCHEMAS = {
     'analysis-failed':diag.shape('timeframe','errorType'),
     'push':diag.shape('outcome','eventsCount',events=[diag.shape('kind','outcome','reason','at')]),
     'push-delivery':diag.shape('outcome','httpStatus','direction','signalBarAt','dataAt',
-                               'test','synthetic','receiptId','receiptState',eventKinds=[None]),
+                               'test','synthetic','receiptId','receiptState','generatedAt','analysisRequestedAt',
+                               'analysisCompletedAt','providerStartedAt','providerDurationMs',eventKinds=[None]),
     'paper-input':diag.shape('phase','checkedAt',profiles=[diag.shape(
         'profile','outcome','ready','priceFresh','dataAt','barAt')]),
     'health':diag.shape('status','session','sourceAt','sourceAgeSeconds','cycleAt','backgroundAt','evidenceVersion',badCodes=[None],goodCodes=[None]),

@@ -834,7 +834,23 @@ def comparison_status(conn, portfolios):
         except Exception:
             recent = {'status':'unavailable',
                 'reason':'bounded-case-evidence-read-unavailable'}
-        samples.append({'profile':profile, 'recentCases':recent})
+        forward=None
+        forward_status='unavailable'
+        try:
+            control_table=portfolios.names(profile)['bob_paper_control']
+            with conn.transaction():
+                conn.execute("SET LOCAL statement_timeout='500ms'")
+                saved_forward=conn.execute(f"SELECT payload->'forwardValidation' FROM {control_table} WHERE id=1").fetchone()
+                forward=saved_forward[0] if saved_forward and isinstance(saved_forward[0],dict) else None
+                conn.execute("SET LOCAL statement_timeout='3s'")
+            forward_status='observed' if forward else 'not-started'
+        except Exception:
+            # Optional validation metrics cannot hide readable case evidence.
+            pass
+        phase=shape('cases','netEur','grossEur','wins','expectancyEur','profitFactor','meanSourceAgeMs','lastAt')
+        samples.append({'profile':profile, 'recentCases':recent,'forwardValidationStatus':forward_status,
+            'forwardValidation':project(forward,shape('version','startedAt','validationAt','excluded',
+                'actualNetKnown','strategyWinnerConfirmed','automaticPolicyChanges',calibration=phase,validation=phase)) if recent.get('status')=='observed' and forward else None})
     partial = (comparison.get('status') == 'partial'
                or blocks.get('status') == 'unavailable'
                or any(row['recentCases']['status'] == 'unavailable'
@@ -882,6 +898,10 @@ INDICATORS = shape('timeframe','score','rsi','macd','sig','hist','atr','adx','em
 PLAN = shape('available','reason','dir','entry','stop','target','computedAt','dataAt','currency','method','stale')
 EARLY_WARNING = shape('version','monitoring','available','state','direction','checkedAt','signalBarAt','expiresAt','invalidationPrice','extensionRisk','comparisonOnly','affectsApproval','reason')
 ANALYSIS = shape('ready','priceFresh','dataAt','analysisBarAt','price','direction','baseDirection','mtf','score','atr','macd','signal','decisionReason','ruleVersion','suggestedStop','suggestedTarget',
+    analysisRequestedAt=None,analysisCompletedAt=None,
+    entryPlanState=shape('state','code','reason'),
+    entryPreparation=shape('state','direction','sourceAt','signalBarAt','reason','entryApproved','productApproved','positionSize',
+        plan=shape('kind','direction','entry','stop','target','unit','source','experimental')),
     earlyWarning=EARLY_WARNING, analysisSnapshot=INDICATORS, trendContext=shape('available','direction','intact','reason'),
     entryTimingGate=shape('allowed','reason','status'),session=shape('phase','entryAllowed','reason'),
     dmi=shape('available','mode','direction','reason',
