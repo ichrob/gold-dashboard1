@@ -1787,6 +1787,7 @@ if __name__ == "__main__":
     __import__("storage_maintenance").start()
     __import__("cold_metrics").start()
     __import__("cold_analysis").start()
+    __import__("cold_test_evidence").start()
     __import__("cold_observations").start()
     # Model-only settled-case receipts are recorded on an isolated background
     # connection; no extra SQL is added to the live diagnostic/push write path.
