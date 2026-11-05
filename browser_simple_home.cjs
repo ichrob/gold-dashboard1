@@ -5,7 +5,7 @@ const {chromium}=require('playwright');
  const browser=await chromium.launch({headless:true,executablePath:process.env.BOB_TEST_CHROMIUM||undefined,args:['--no-sandbox']});
  try{
  const page=await browser.newPage({viewport:{width:360,height:780}}),errors=[];
- page.on('pageerror',e=>errors.push(e.message));
+ page.on('pageerror',e=>errors.push(e.stack||e.message));
  await page.route('**/*',r=>{
   const u=new URL(r.request().url());
   if(u.hostname!=='bob.test')return r.abort();
