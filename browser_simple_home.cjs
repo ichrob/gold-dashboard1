@@ -148,6 +148,7 @@ const {chromium}=require('playwright');
  assert.equal(await page.locator('[data-exit="entry"]').inputValue(),'10');
  assert.equal(await page.locator('[data-exit="quantity"]').inputValue(),'5');
  assert.equal(await page.locator('#purchaseAt').inputValue(),executionAt);
+ assert.equal(await page.locator('#bobTradePlanFit [data-plan="entry"]').count(),1,'Upload must not detach the planning controls');
  assert.equal(await page.locator('#purchaseFees').inputValue(),'','EUR fees are not invented CHF settlement');
  assert.equal(await page.locator('#purchaseTotal').inputValue(),'');
  assert.match(await page.locator('#purchaseStatus').textContent(),/vorbefüllt/);
