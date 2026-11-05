@@ -135,7 +135,7 @@ const {chromium}=require('playwright');
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  assert.equal(await page.locator('#bobTradeModeTitle').textContent(),'Deinen nächsten Trade vorbereiten');
  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('bob.trade.preferences.v1')).budget),'1000');
- await page.reload();await page.locator('#bobSimpleHome').waitFor();
+ await page.reload();await page.locator('#bobSimpleHome').waitFor({state:'attached'});
  await page.locator('#bobNavigation [data-view="trade"]').click();
  assert.equal(await page.locator('#dg2-form [name="budget"]').inputValue(),'1000','Budget survives reload');
  for(const name of ['isin','qty','price','stop','target'])assert.equal(await page.locator('#dg2-form [name="'+name+'"]').inputValue(),'','Market and position values are never restored');
