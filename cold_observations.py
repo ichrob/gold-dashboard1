@@ -110,10 +110,15 @@ def offload_batch(conn,drive,now=None):
     if new_rows:
         raw=codec.encoded({'format':codec.FORMAT,'rows':new_rows})
         if len(raw)>codec.MAX_RAW:raise ValueError('Archive raw limit')
-        blob=gzip.compress(raw,mtime=0);checksum=codec.digest(blob)
+        blob=gzip.compress(raw,mtime=0)
         if len(blob)>codec.MAX_FILE:raise ValueError('Archive compressed limit')
         with tempfile.TemporaryDirectory(prefix='bob-observations-') as tmp:
-            path=Path(tmp)/('observations-'+checksum+'.gz');path.write_bytes(blob);os.chmod(path,0o600)
+            plain=Path(tmp)/'original.gz'
+            plain.write_bytes(blob);os.chmod(plain,0o600)
+            path=Path(tmp)/('observations-'+uuid.uuid4().hex+'.encrypted')
+            from cold_chunk_encryption import seal_chunk
+            checksum=seal_chunk(plain,path)
+            if path.stat().st_size>codec.MAX_FILE:raise ValueError('Encrypted archive limit')
             file_id=drive.upload(path,checksum)
         restored=codec.read_chunk(drive,file_id,checksum,cached=False)
         if codec.encoded(restored)!=codec.encoded(new_rows):
@@ -155,6 +160,8 @@ def status(conn):
 
 def run_once(factory=codec.connect):
     with factory() as conn:
+        guard=__import__('storage_pressure').verified_writer_preflight(conn)
+        if guard is not None:return guard
         if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_cold_observations_v1'))").fetchone()[0]:return {'status':'busy'}
         init(conn);drive=codec.runtime_drive(conn);results=[];deadline=time.monotonic()+120
         for _ in range(32):
