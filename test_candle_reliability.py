@@ -136,6 +136,61 @@ class ReliabilityTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
+    def test_repeated_checkpoint_skips_insert_attempts_but_preserves_revisions(self):
+        import psycopg
+        schema='candle_delta_'+str(time.time_ns())
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE SCHEMA '+schema)
+            conn.execute('SET search_path TO '+schema)
+            c.init(conn)
+            # BEFORE INSERT also fires for ON CONFLICT DO NOTHING. Count the
+            # attempted writes, not just the final row count, to reproduce the
+            # redundant write path on a mostly unchanged checkpoint.
+            conn.execute('CREATE TABLE insert_attempts (n integer NOT NULL)')
+            conn.execute('INSERT INTO insert_attempts VALUES (0)')
+            conn.execute('''CREATE FUNCTION count_attempt() RETURNS trigger
+                LANGUAGE plpgsql AS $$ BEGIN
+                    UPDATE insert_attempts SET n=n+1;
+                    RETURN NEW;
+                END $$''')
+            conn.execute('''CREATE TRIGGER count_attempt BEFORE INSERT
+                ON bob_candle_evidence FOR EACH ROW EXECUTE FUNCTION count_attempt()''')
+            rows=candle_series(600,step=60000)
+            for row in rows:row['source']=c.SOURCES['biquote']
+            def write(data):
+                conn.execute('UPDATE insert_attempts SET n=0')
+                c.handle(conn,'write',{'key':'biquote/1m','rows':data})
+                return conn.execute('SELECT n FROM insert_attempts').fetchone()[0]
+            self.assertEqual(write(rows),600)
+            self.assertEqual(write(rows),0)
+            changed=copy.deepcopy(rows)
+            changed[-1]['high']+=1
+            self.assertEqual(write(changed),1)
+            self.assertEqual(conn.execute('SELECT count(*) FROM bob_candle_evidence').fetchone()[0],601)
+            self.assertEqual(c.handle(conn,'read',{'key':'biquote/1m'})['rows'],
+                             c.validated('biquote/1m',changed))
+            # Returning an older known revision cannot discard either original.
+            self.assertEqual(write(rows),0)
+            self.assertEqual(conn.execute('SELECT count(*) FROM bob_candle_evidence').fetchone()[0],601)
+            # A missing evidence row must be backfilled even if the checkpoint
+            # already contains the same payload (e.g. an older installation).
+            conn.execute('DELETE FROM bob_candle_evidence WHERE open_time=%s',(rows[0]['openTime'],))
+            self.assertEqual(write(rows),1)
+            # Checkpoint failure must roll back new evidence with it.
+            conn.execute('''CREATE FUNCTION fail_checkpoint() RETURNS trigger
+                LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test rollback'; END $$''')
+            conn.execute('''CREATE TRIGGER fail_checkpoint BEFORE INSERT OR UPDATE
+                ON bob_candle_checkpoints FOR EACH ROW EXECUTE FUNCTION fail_checkpoint()''')
+            newer=copy.deepcopy(rows)
+            newer[-1]['high']+=2
+            with self.assertRaises(psycopg.errors.RaiseException):
+                with conn.transaction():
+                    write(newer)
+            self.assertEqual(conn.execute('SELECT count(*) FROM bob_candle_evidence').fetchone()[0],601)
+            self.assertEqual(c.handle(conn,'read',{'key':'biquote/1m'})['rows'],
+                             c.validated('biquote/1m',rows))
+            conn.execute('DROP SCHEMA '+schema+' CASCADE')
+
     def test_restart_archive_and_monitor_fence(self):
         import psycopg
         schema='candles_'+str(time.time_ns())
