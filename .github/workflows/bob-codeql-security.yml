@@ -66,6 +66,8 @@ on:
       - "storage_case_results.py"
       - "storage_history_evaluations.py"
       - "test_storage_history_evaluations.py"
+      - "storage_history_replay.py"
+      - "test_storage_history_replay.py"
       - "storage_paper_evaluation.py"
       - "test_storage_paper_evaluation.py"
       - "storage_quality_evaluation.py"
