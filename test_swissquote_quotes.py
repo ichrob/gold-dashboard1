@@ -21,6 +21,21 @@ class SwissquoteTests(unittest.TestCase):
         with patch.object(q, 'get_observation', return_value=evidence):
             return q.apply(primary or self.primary, self.isin, now or self.now)
 
+    def test_daily_bid_change_uses_dated_previous_close(self):
+        out = self.apply()
+        d = out['dailyChange']
+        self.assertAlmostEqual(d['percent'], (2.12/9.18-1)*100)
+        self.assertEqual(d['at'], out['thirdQuote']['bidAt'])
+        self.assertEqual(d['currency'], 'CHF')
+        self.assertFalse(d['isExecutableQuote'])
+        for close in [dict(amount=0, timestamp='2026-10-13T02:00:00+02:00', status='AVAILABLE'),
+                      dict(amount=9, timestamp='2026-10-12T02:00:00+02:00', status='AVAILABLE'),
+                      dict(amount=9, timestamp='2026-10-14T02:00:00+02:00', status='AVAILABLE'),
+                      dict(amount=9, status='AVAILABLE')]:
+            payload = copy.deepcopy(self.payload)
+            payload['fullQuoteData']['quote']['closePrice'] = close
+            self.assertNotIn('dailyChange', self.apply(payload))
+
     def test_live_fixtures_native_fields_and_clocks(self):
         for name, isin in [('long', self.isin), ('short', 'DE000FG8NHQ3')]:
             payload = json.loads(Path('test_fixtures/swissquote_'+name+'.json').read_text())

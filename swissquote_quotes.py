@@ -5,7 +5,8 @@ import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from urllib.request import Request, urlopen
 
 ORIGIN = 'https://www.swissquote.ch/'
@@ -87,6 +88,26 @@ def parse_payload(payload, isin, now=None):
             researchOnly=True, isExecutableQuote=False, degiroExecutable=False)
     except (ValueError, KeyError, TypeError):
         out['reasonCode'] = 'QUOTE_UNAVAILABLE'
+    # Same venue/currency throughout: today's bid versus previous trading close.
+    # Do not reuse dailyPriceChangeValues, which refers to the last trade.
+    try:
+        close = quote['closePrice']
+        row = out['quote']
+        at, baseline_at = stamp(row['bidAt']), stamp(close['timestamp'])
+        zone = ZoneInfo('Europe/Zurich')
+        today = now.astimezone(zone).date()
+        previous = today - timedelta(days=1)
+        while previous.weekday() >= 5:
+            previous -= timedelta(days=1)
+        if (close.get('status') == 'AVAILABLE' and positive(close.get('amount'))
+                and at.astimezone(zone).date() == today
+                and baseline_at.astimezone(zone).date() == previous and at <= now):
+            out['dailyChange'] = dict(isin=isin, percent=(row['bid']/close['amount']-1)*100,
+                bid=row['bid'], previousClose=close['amount'], at=row['bidAt'],
+                referenceAt=baseline_at.isoformat(), currency='CHF', source=SOURCE,
+                sourceUrl=url, basis='bid-vs-previous-close', isExecutableQuote=False)
+    except (KeyError, ValueError, TypeError, OverflowError):
+        pass
     return out
 
 
@@ -185,6 +206,8 @@ def apply(result, isin, now=None):
     if not row or not matches_primary(result, row):
         return out
     out['thirdQuote'] = copy.deepcopy(row)
+    if evidence.get('dailyChange'):
+        out['dailyChange'] = copy.deepcopy(evidence['dailyChange'])
     current = current_pair(out, now)
     out['swissquoteBackup']['quoteState'] = 'current' if current else 'stale-or-unavailable'
     # Keep native currency. The existing calculation understands CHF inputs.
