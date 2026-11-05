@@ -3211,6 +3211,20 @@ function earlyWarningContext(bundle,now=Date.now()){
  return {...base,available:true,state:expired?'expired':'waiting',reason:expired?
   'Vorwarnung abgelaufen – seit 15 Minuten kein neuer bestätigter Frühimpuls':current.reason};
 }
+function earlyPreparationText(q,bundle=liveBundleCache,now=Date.now()){
+ if(!q?.available||!['active','watch'].includes(q.state)||!['LONG','SHORT'].includes(q.direction)||q.extensionRisk||!Number.isFinite(q.expiresAt)||q.expiresAt<=now)return '';
+ const spot=bundle?.spots||{},price=Number(spot.xaus),at=Date.parse(spot.spot_price_as_of||'');
+ if(spot.is_genuine_xauusd_spot!==true||spot.spot_error||!Number.isFinite(price)||price<=0||!Number.isFinite(at)||now<at||now-at>60000)return '\nVorbereitung wartet auf aktuellen Goldkurs.';
+ const fixed=intradayRiskData(bundle,now);
+ if(!fixed.available)return '\nVorbereitung wartet: '+fixed.reason;
+ const mult=Number($('trailAtr')?.value)||1.5,minRR=Number($('minRR')?.value)||2;
+ const stop=stopModel(q.direction,price,fixed.atr,mult,fixed).stop;
+ const target=Number.isFinite(stop)&&stop>0?targetModel(q.direction,price,stop,minRR,fixed):{};
+ if(!Number.isFinite(target.target)||target.entrySuitable===false)return '\nVorbereitung wartet: '+(target.warning||target.reason||'kein gültiger Stopp-/Zielplan');
+ return '\nVorbereitet · Goldreferenz '+price.toFixed(2)+' USD/oz · Gold-Stopp '+stop.toFixed(2)+' · Gold-Ziel '+target.target.toFixed(2)+
+  '\nVorwarn-Plan zur Vorbereitung; Produktkurse und Einstieg müssen bestätigt werden. Quelle: '+new Date(at).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'});
+}
+
 function renderEarlyImpulseStatus(){
  const el=$('earlyImpulseStatus');if(!el)return;
  const q=earlyWarningContext(liveBundleCache),active=signalState?.dir||'NEUTRAL';
@@ -3228,6 +3242,7 @@ function renderEarlyImpulseStatus(){
   (q.extensionRisk?'\n⚠ Bewegung bereits weit gelaufen – erhöhtes Rückschlagrisiko':'')+
   '\nGeprüft: '+clock(q.checkedAt)+' (Zürich) · Hauptsignal: '+active+
   '\nBeobachtung: keine Handelsfreigabe. Marktbeobachtung-Push nur bei frischer, geschlossener Signalkerze und nicht bereits bestätigter Hauptrichtung.'+
+  earlyPreparationText(q,liveBundleCache)+
   (window.BobDegiro?.earlyProductRankingText(q)||'');
 }
 
