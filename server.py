@@ -2084,7 +2084,8 @@ class Handler(BaseHTTPRequestHandler):
             diagnostics_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.DIAGNOSTICS_SCOPE)
             push_test_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.PUSH_TEST_SCOPE)
             phone_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.PHONE_SCOPE)
-            if not products_allowed and not diagnostics_allowed and not push_test_allowed and not phone_allowed:
+            termux_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.TERMUX_SCOPE)
+            if not products_allowed and not diagnostics_allowed and not push_test_allowed and not phone_allowed and not termux_allowed:
                 self.send_response(401)
                 self.send_header("WWW-Authenticate", bob_oauth.challenge_header())
                 self.send_header("Cache-Control", "no-store")
@@ -2100,6 +2101,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(int(length)).decode("utf-8"))
                 status, output = bob_mcp.handle(payload, read_private_product_audit_for_mcp,
                     read_diagnostics_for_mcp if diagnostics_allowed else None, products=products_allowed,
+                    remote_termux=True, termux_handler=(lambda name,args:android_diagnostic_rpc({'action':'termux-mcp','name':name,'arguments':args},remote=True)) if termux_allowed else None,
                     remote_phone=True, phone_handler=(lambda name,args:android_diagnostic_rpc({'action':'mcp','name':name,'arguments':args},remote=True)) if phone_allowed else None,
                     remote_push=True, push_reader=remote_push_rpc if diagnostics_allowed else None,
                     push_sender=remote_push_rpc if push_test_allowed else None,

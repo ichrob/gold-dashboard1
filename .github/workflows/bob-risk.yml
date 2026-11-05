@@ -2,6 +2,9 @@ name: Bob Risiko
 on:
   pull_request:
     paths:
+      - "termux_maintenance.py"
+      - "bob_termux_runner.py"
+      - "test_termux_maintenance.py"
       - 'risk_workspace.js'
       - 'risk_paper.py'
       - 'paper_selection.js'

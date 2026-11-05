@@ -67,7 +67,7 @@ jobs:
           from pathlib import Path
           # Offline scripts come from the pinned, signed APK, not network code.
           # A mismatch blocks any lab build and thereby the stable release.
-          for name in ("bob_offline_key_escrow.py", "bob_render_to_offline_escrow.py"):
+          for name in ("bob_offline_key_escrow.py", "bob_render_to_offline_escrow.py", "bob_termux_runner.py"):
             embedded = Path("android_companion/app/src/main/assets", name).read_bytes()
             original = Path(name).read_bytes()
             assert embedded == original, f"Bundled escrow asset differs: {name}"

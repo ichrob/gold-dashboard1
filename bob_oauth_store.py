@@ -17,9 +17,10 @@ SCOPE = 'bob:products:read'
 DIAGNOSTICS_SCOPE = 'bob:diagnostics:read'
 PUSH_TEST_SCOPE = 'bob:push:test'
 PHONE_SCOPE = 'bob:phone:control'
+TERMUX_SCOPE = 'bob:termux:execute'
 
 def valid_scope(value):
-    return isinstance(value, str) and bool(value.split()) and set(value.split()) <= {SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE}
+    return isinstance(value, str) and bool(value.split()) and set(value.split()) <= {SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE}
 
 REDIRECT = 'https://chatgpt.com/connector_platform_oauth_redirect'
 ACCESS_TTL = 3600
