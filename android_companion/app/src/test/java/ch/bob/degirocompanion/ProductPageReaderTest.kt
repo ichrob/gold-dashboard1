@@ -62,6 +62,23 @@ class ProductPageReaderTest {
         assertTrue(done.result.draft.contains("Brief (Anzeige ungeprüft): 40,67"))
     }
 
+    @Test fun pairedOneSidedQuoteStillCollectsExplicitHeaderLeverage() {
+        val r=ProductPageReader()
+        val footer=lines("Symbol | ISIN 1234567 | DE000SX7PE82", "Kursdaten", "Geld CHF 40,66")
+        val title=lines("Übersicht", "1234567 • Societe Generale OTC | R",
+            "SG Gold Turbo BEST Open-End Call BAR 3504.15 BP 3504.15 Bv 10 LV 6.76")
+        fun read(page: List<QuoteLayout.Line>, back: Boolean)=r.inspect(1,page,at,false,
+            true,back,requireParameters=true,allowSymbolProbe=true,seekLeverage=true,
+            expectedIsin="DE000SX7PE82")
+        assertEquals(ProductPageReader.Move.BACKWARD,read(footer,true).move)
+        assertEquals(ProductPageReader.Move.FORWARD,read(title,false).move)
+        val done=read(footer,true)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("Hebel (Anzeige ungeprüft): 6,76"))
+        assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 40,66"))
+        assertFalse(done.result.draft.contains("Brief (Anzeige ungeprüft):"))
+    }
+
     @Test fun missingKoCanCompleteWithoutQuoteAfterRealIdentityCheck() {
         val r=ProductPageReader()
         val detail=lines("DE000FD0S0G4 EUR",
