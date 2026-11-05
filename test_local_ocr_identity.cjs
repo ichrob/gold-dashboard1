@@ -28,3 +28,19 @@ for(let n=1;n<=100;n++){
  }
 }
 console.log('Local OCR raw-evidence preservation, checksum, wrong-ID rejection, numeric isolation and 300 server-parity cases passed.');
+
+// Optical label recovery is confined to SG titles and preserves raw evidence.
+const {normalizeLocalOcrLabels:labels,parse}=require('./handset_list_parse');
+const optical=row.replace('Bv 10','By 10');
+assert.deepEqual(localOcrImage({expectedIsins:[id],passes:[[optical],[optical]]}),[optical,optical]);
+assert.equal(appImage({before:[optical],after:[optical]}),null);
+assert.equal(labels(optical),row);
+for(const token of ['By 1O','By I0','By 10O','By -10','Buy 10']) {
+ const bad=row.replace('Bv 10',token);
+ assert.equal(labels(bad),bad,'Never repair numeric glyphs or guessed label words');
+ assert.equal(localOcrImage({expectedIsins:[id],passes:[[bad],[bad]]}),null);
+}
+assert.equal(labels('BNP'+optical.slice(2)),'BNP'+optical.slice(2));
+assert.equal(labels(row+' By 10'),row+' By 10','Never edit a footer');
+assert.equal(localOcrImage({expectedIsins:[id],passes:[[optical.replace('By 10','By 10 Bv 100')],[optical]]}),null);
+console.log('Scoped local By/Bv label recovery passed; raw text, numbers and accessibility remain unchanged.');
