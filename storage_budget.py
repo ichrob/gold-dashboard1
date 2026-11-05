@@ -214,6 +214,7 @@ def report(conn,now=None):
         improvementEvaluations=__import__('storage_improvement_evaluation').report(conn),
         renderVolume=__import__('render_disk_metrics').report(),
         coldAnalysis=__import__('cold_analysis').status(conn),
+        coldTests=__import__('cold_test_evidence').status(conn),
         coldObservations=__import__('cold_observations').status(conn),
         offloadPolicy=__import__('storage_pressure').policy(size),
         evidenceDeleted=False,automaticPaidScaling=False,
