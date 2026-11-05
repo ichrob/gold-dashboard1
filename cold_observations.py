@@ -159,6 +159,7 @@ def status(conn):
     except Exception:return {'status':'not-observed','diskBytesFreed':None}
 
 
+@__import__("ocr_workload_priority").maintenance
 def run_once(factory=codec.connect):
     with factory() as conn:
         guard=__import__('storage_pressure').verified_writer_preflight(conn)

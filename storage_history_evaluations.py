@@ -161,6 +161,7 @@ def report(conn):
                 "physicalBytesFreed":None}
 
 
+@__import__("ocr_workload_priority").maintenance
 def run_once(factory=None):
     """Dedicated autocommit connection, separate from signal/market workers."""
     if factory is None:

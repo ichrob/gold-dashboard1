@@ -151,6 +151,7 @@ def offload_batch(conn, drive, *, now_ms=None):
                 referenceJsonBytes=references, readThroughVerified=True, physicalBytesFreed=None)
 
 
+@__import__("ocr_workload_priority").maintenance
 def run_once(factory=codec.connect):
     with factory() as conn:
         if not conn.autocommit:

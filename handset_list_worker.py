@@ -11,6 +11,7 @@ import threading
 import math
 import tempfile
 import hashlib
+import ocr_workload_priority
 
 _state = {"state": "not-started", "checkedAt": None, "error": None}
 _state_lock = threading.Lock()
@@ -25,6 +26,7 @@ def status():
     value["fresh"]=value["checkedAt"] is not None and time.time()-value["checkedAt"]<180
     value['ocrMemoryLimitMiB']=OCR_CONTAINER_LIMIT//(1024*1024)
     value['ocrStartReserveMiB']=OCR_START_RESERVE//(1024*1024)
+    value['workloadPriority']=ocr_workload_priority.status()
     return value
 
 
@@ -250,7 +252,7 @@ def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, c
 
 class OcrChildError(RuntimeError):pass
 class ListVerificationError(ValueError):pass
-class OcrMemoryDeferred(RuntimeError):pass
+class OcrMemoryDeferred(ocr_workload_priority.OcrWorkloadDeferred):pass
 
 
 
@@ -273,6 +275,13 @@ def sanitize_native_passes(passes):
 
 
 def process(payload,at,*,progress=None,save_progress=None):
+    # Acquire before evaluator admission: a draining maintenance task may itself
+    # need the evaluator. Holding it while waiting here would deadlock.
+    with ocr_workload_priority.ocr_slot():
+        return _process(payload,at,progress=progress,save_progress=save_progress)
+
+
+def _process(payload,at,*,progress=None,save_progress=None):
     # An internal, bounded second pass only for a verification failure.
     # Original screenshot bytes are never changed or persisted in this mode.
     enhanced=payload.get('_ocr_mode')=='enhanced'

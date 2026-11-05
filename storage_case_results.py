@@ -224,6 +224,7 @@ def report(conn):
                 "deletionAuthorized": False, "physicalBytesFreed": None}
 
 
+@__import__("ocr_workload_priority").maintenance
 def run_once(factory=None):
     """Own database connection; never block a market or diagnostic writer."""
     if factory is None:
