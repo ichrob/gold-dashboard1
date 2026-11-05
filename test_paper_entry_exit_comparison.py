@@ -82,6 +82,13 @@ class ComparisonTests(unittest.TestCase):
         bars[-1]['isOpen']=True
         self.assertFalse(study.pullback(b,'LONG',NOW+900000,NOW))
 
+    def test_fx_and_chart_projections_excluded(self):
+        s,b,m=self.setup_case()
+        for extras in ({'paperFxConversion':{'rate':1.}}, {'priceKind':'issuer-chart'}, {'priceKind':'calculated'}):
+            q={**quote(),**extras}
+            out=study.advance(s,b,m,{'choices':[choice()]},m,{}, {ISIN:q},NOW)
+            self.assertFalse(any(a['status']=='open' for a in out['arms'].values()))
+
     def test_missing_entry_is_not_zero_return_and_inputs_unchanged(self):
         s,b,m=self.setup_case();original=copy.deepcopy((s,b,m))
         out=self.run_at(s,b,m,quotes=False)
