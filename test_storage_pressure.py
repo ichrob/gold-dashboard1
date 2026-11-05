@@ -61,7 +61,7 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
                                  'fresh-volume-proof-unavailable')
 
     def test_all_automatic_writers_exit_before_sql_without_evidence(self):
-        import cold_analysis, cold_metrics, cold_observations
+        import cold_analysis, cold_metrics, cold_observations, cold_test_evidence
         class Connection:
             autocommit=True
             def __enter__(self):return self
@@ -70,7 +70,7 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
                 raise AssertionError('No SQL should run without required proof')
         with patch('storage_pressure.verified_writer_preflight',
                    return_value={'status':'backup-proof-not-fresh','movedRows':0}):
-            for module in (cold_analysis,cold_metrics,cold_observations):
+            for module in (cold_analysis,cold_metrics,cold_observations,cold_test_evidence):
                 with self.subTest(module=module.__name__):
                     self.assertEqual(module.run_once(factory=Connection)['status'],
                                      'backup-proof-not-fresh')
