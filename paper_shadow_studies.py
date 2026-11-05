@@ -437,6 +437,7 @@ def report(conn):
             realizedResultVerified=False,realOrders=False))
     return dict(status="observed" if len(result)==len(STUDIES) else "partial",
         version=VERSION,studies=result,readOnly=True,realOrders=False,
+        entryExitComparison=__import__("paper_entry_exit_comparison").report(conn),
         storageBytes=storage_bytes,permanentEventJournal=True,
         sampleEveryPaperEvaluation=True,automaticExpiry=False,
         scope="prospective-original-evidence-with-full-event-journal",
