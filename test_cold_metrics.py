@@ -93,6 +93,9 @@ class ReaderTests(unittest.TestCase):
 class DatabaseTests(unittest.TestCase):
     def setUp(self):
         import psycopg
+        secret=patch.dict(os.environ, {'PUSH_SERVICE_TOKEN':'offline-cold-test-only-'+('x'*48)})
+        secret.start()
+        self.addCleanup(secret.stop)
         cold._CACHE.clear()
         self.conn = psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'], autocommit=True)
         self.schema = 'cold_metrics_' + uuid.uuid4().hex
@@ -122,6 +125,7 @@ class DatabaseTests(unittest.TestCase):
         before = metric_quality.report(self.conn, self.now)
         result = cold.offload_batch(self.conn, self.drive, self.now)
         self.assertEqual(result['movedRows'], 1)
+        self.assertTrue(all(blob.startswith(b'BOBCOLD1') for blob in self.drive.files.values()))
         self.assertTrue(result['readThroughVerified'])
         self.assertGreater(result['originalJsonBytes'], result['referenceJsonBytes'])
         self.assertIn(cold.COMPACT_TAG, self.stored())
