@@ -132,6 +132,19 @@ class MainActivity : Activity() {
         // Passwords remain in Termux's foreground session, never in Bob Handy.
         val termuxStatus = label(TermuxBridge.displayStatus(this))
         termuxCheckLabel = termuxStatus
+        val maintenanceStatus=label(TermuxMaintenance.message)
+        button("Termux-Wartung für ChatGPT · 30 Minuten") {
+            AlertDialog.Builder(this).setTitle("Termux-Wartung freigeben?")
+                .setMessage("Während 30 Minuten darf die separat berechtigte ChatGPT-Verbindung Linux-Befehle mit den Rechten von Termux ausführen. Diese können Termux-Dateien lesen und ändern. Bis zu 8 KiB Befehlsausgabe werden an deinen Bob-Server und ChatGPT übertragen. Das ist keine Sandbox. Keine Passwörter in Aufträge eingeben. Pro Befehl höchstens 20 Sekunden, keine dauerhaften Hintergrundprogramme. STOPP sperrt neue Aufträge; ein bereits laufender Befehl endet spätestens mit seinem Zeitlimit. Android kann Hintergrundarbeit unterbrechen. Die bisherige Produktfreigabe reicht hierfür nicht.")
+                .setNegativeButton("Abbrechen",null)
+                .setPositiveButton("Wartung starten") { _,_ ->
+                    runCatching {TermuxMaintenance.start(this)}
+                        .onFailure {maintenanceStatus.text="Wartung nicht gestartet. Diagnosekopplung und Termux prüfen."}
+                        .onSuccess {maintenanceStatus.text=TermuxMaintenance.message}
+                }.show()
+        }
+        button("Termux-Wartung stoppen") {TermuxMaintenance.stop(this);maintenanceStatus.text=TermuxMaintenance.message}
+        button("Termux-Wartungsstatus anzeigen") {maintenanceStatus.text=TermuxMaintenance.message}
         button("🔌 Termux-Verbindung prüfen") {
             localEscrowOpening = false
             val outcome = TermuxBridge.launch(this, TermuxBridge.Action.CHECK)
@@ -727,6 +740,7 @@ class MainActivity : Activity() {
     }
 
     private fun emergencyStop() {
+        TermuxMaintenance.stop(this)
         getSharedPreferences("product_reader", MODE_PRIVATE).edit().putBoolean("enabled", false).apply()
         ProductReadRequest.cancel(); ProductReadSession.clear(); ProductReadDiagnostics.clear()
         remoteCoupling.stopped()

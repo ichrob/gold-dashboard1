@@ -97,10 +97,12 @@ def enqueue(state,a,now):
 
 def init(conn):
     __import__("android_list").init(conn)
+    __import__("termux_maintenance").init(conn)
     conn.execute("CREATE TABLE IF NOT EXISTS bob_android_remote (token_hash TEXT PRIMARY KEY REFERENCES bob_android_diagnostic_devices(token_hash) ON DELETE CASCADE,state JSONB NOT NULL)")
 
 def handle(conn,payload):
     now=int(time.time());op=payload.get('action')
+    if op in ('termux-exchange','termux-mcp'):return __import__('termux_maintenance').handle(conn,payload)
     if op in ('list-upload','list-get','list-receipt','list-status','list-details'):return __import__('android_list').handle(conn,payload,now)
     if op=='exchange':
         digest=token_hash(payload.get('token'))

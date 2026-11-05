@@ -84,5 +84,6 @@
                 <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
+        <receiver android:name=".TermuxMaintenanceResultReceiver" android:exported="false" />
     </application>
 </manifest>

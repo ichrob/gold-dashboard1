@@ -145,3 +145,11 @@ Die App erzwingt sie nicht und schaltet sie nicht selbst ein.
   erhalten keine neuen Remote-Steuerrechte.
 - Ein fehlender physischer Gerätetest wird niemals als erfolgreiche Kopplung
   markiert.
+
+## Separater Wartungszugriff (neuer ausdrücklicher Nutzerauftrag)
+
+Die oben beschriebenen CHECK-/LOCAL_ESCROW-Aktionen behalten ihre Grenzen.
+Zusätzlich ist eine eigene, lokal bestätigte Termux-Wartung vorbereitet:
+[TERMUX_MAINTENANCE.md](../TERMUX_MAINTENANCE.md). Sie erfordert eine neue
+OAuth-Ausführungsberechtigung und eigene Sitzung. Sie erweitert weder den
+alten Produktlese-Scope noch die lokale Passwort-/Escrow-Aktion.
