@@ -50,3 +50,40 @@ class AuditReadTimeoutHttpTests(unittest.TestCase):
         self.assertEqual(sent[0][0],500)
         self.assertNotIn('retryable',sent[0][1])
         self.assertNotIn('original state unknown',str(sent))
+
+    def test_shared_report_timeout_is_typed_as_retryable_read_only_failure(self):
+        with patch.object(server.report_admission, 'read',
+                          side_effect=TimeoutError('private pool state')):
+            with self.assertRaises(server.ReadReportUnavailable):
+                server.read_db_report('fixture', lambda conn: {'ok': True})
+
+    def test_get_report_timeout_is_explicit_incomplete_503(self):
+        h=self.handler('/product-audit')
+        sent=[]
+        with patch.object(server,'PUSH_SERVICE_TOKEN','unit-test'), \
+             patch.object(server,'read_db_report',
+                          side_effect=server.ReadReportUnavailable()), \
+             patch.object(server,'send_json',
+                          side_effect=lambda _,status,data:sent.append((status,data))), \
+             patch('builtins.print') as logs:
+            h.do_GET()
+        self.assertEqual(sent,[(503,{
+            'error':'Lesebericht vorübergehend belegt',
+            'retryable':True,'dataComplete':False})])
+        self.assertIn('BOB_PUSH database_busy path=/product-audit '
+                      'error=ReadReportUnavailable',str(logs.call_args_list))
+
+    def test_post_read_report_timeout_is_explicit_incomplete_503(self):
+        h=self.handler('/list-correction')
+        sent=[]
+        with patch.object(server,'PUSH_SERVICE_TOKEN','unit-test'), \
+             patch.object(server,'json_body',return_value={'action':'read'}), \
+             patch.object(server,'read_db_report',
+                          side_effect=server.ReadReportUnavailable()), \
+             patch.object(server,'send_json',
+                          side_effect=lambda _,status,data:sent.append((status,data))), \
+             patch('builtins.print'):
+            h.do_POST()
+        self.assertEqual(sent,[(503,{
+            'error':'Lesebericht vorübergehend belegt',
+            'retryable':True,'dataComplete':False})])
