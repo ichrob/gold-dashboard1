@@ -479,8 +479,10 @@ def _store_horizon_outcomes(conn, horizon, ids):
       ON CONFLICT DO NOTHING""",(horizon,horizon,horizon,horizon,ids))
 
 
-def _harvest_recent(conn, horizon):
+def _harvest_recent(conn, horizon, *, batch_size=128):
     """A separate bounded lane prevents old missing quotes delaying new outcomes."""
+    if type(batch_size) is not int or not 1 <= batch_size <= 128:
+        raise ValueError('Invalid bounded recent outcome batch')
     rows=conn.execute("""SELECT a.id FROM bob_decision_audit a
       WHERE a.recorded_at>=now()-(%s+15)*interval '1 minute'
       AND a.payload->>'marketEvaluable'='true'
@@ -489,7 +491,7 @@ def _harvest_recent(conn, horizon):
           + %s*interval '1 minute'<=now()
       AND (%s IN (15,60,240) OR a.payload->'marketOptimization'->>'version'='market-review-v1')
       AND NOT EXISTS(SELECT 1 FROM bob_decision_outcomes o WHERE o.decision_id=a.id AND o.horizon=%s)
-      ORDER BY a.recorded_at DESC,a.id LIMIT 128""",(horizon,horizon,horizon,horizon)).fetchall()
+      ORDER BY a.recorded_at DESC,a.id LIMIT %s""",(horizon,horizon,horizon,horizon,batch_size)).fetchall()
     if rows:_store_horizon_outcomes(conn,horizon,[r[0] for r in rows])
     return len(rows)
 
@@ -546,10 +548,21 @@ def harvest(conn):
     horizon=_next_harvest_horizon(conn)
     if horizon is None:return
     import psycopg
+    # The worker runs about every two minutes; six rotating horizons otherwise
+    # leave a newly mature 60m result waiting around twelve minutes. Reserve a
+    # small part of the EXISTING 128-row recent budget for it on every pass.
+    # The 64-row archive lane and durable horizon rotation remain independent.
+    recent_budget=128
+    if horizon != 60:
+        recent_budget-=16
+        try:
+            with conn.transaction():_harvest_recent(conn,60,batch_size=16)
+        except psycopg.errors.QueryCanceled:
+            print('BOB_AUDIT_HARVEST deferred=priority-recent horizon=60',flush=True)
     for stage in ('recent','archive'):
         try:
             with conn.transaction():
-                if stage=='recent':_harvest_recent(conn,horizon)
+                if stage=='recent':_harvest_recent(conn,horizon,batch_size=recent_budget)
                 else:_harvest_horizon(conn,horizon)
         except psycopg.errors.QueryCanceled:
             # Preserve cursor and frozen evidence on timeout. Retry the archive
