@@ -64,6 +64,13 @@ def advance(state,bundle,market,selection,warning_market,warning_selection,quote
     from paper_simulation import fresh_quote,stamp
     import paper_ko_guard
     s=copy.deepcopy(state)
+    # Keep this preregistered study in native EUR. Existing ledgers may accept
+    # FX/chart projections, but those must never silently enter this comparison.
+    quotes={isin:q for isin,q in quotes.items() if isinstance(q,dict)
+            and q.get('currency')=='EUR' and not q.get('paperFxConversion')
+            and (q.get('metadata') or {}).get('currency')!='CHF'
+            and q.get('priceKind') not in ('calculated','issuer-chart')
+            and q.get('estimated') is not True}
     quality=shared.original_input(bundle,market,now)
     sign=1 if s['direction']=='LONG' else -1
     session=datetime.fromtimestamp(now/1000,shared.ZURICH)
