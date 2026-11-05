@@ -230,6 +230,34 @@ def parse_sg_bid_only_research(product, points, isin, now=None, verified_id=None
                 isExecutableQuote=False, degiroExecutable=False)
 
 
+def sg_change_since_eight(product, points, isin, now=None, verified_id=None, market=None):
+    """Native issuer bid comparison; first observed point in the 08:00 minute."""
+    now = now or datetime.now(timezone.utc)
+    market = market or sg_market(isin)
+    _validate_sg_chart_identity(product, isin, verified_id, market)
+    if not isinstance(points, list) or not points or len(points) > 10000:
+        return None
+    zone = ZoneInfo('Europe/Zurich')
+    opening = now.astimezone(zone).replace(hour=8, minute=0, second=0, microsecond=0)
+    if now < opening or opening.weekday() >= 5:
+        return None
+    reference = None
+    previous = None
+    for point in points:
+        at, bid = stamp(point['Date']), number(point['Bid'])
+        if bid <= 0 or at > now or (previous and at < previous):
+            raise ValueError('Invalid intraday bid history')
+        previous = at
+        if reference is None and 0 <= (at-opening).total_seconds() < 60:
+            reference = (at, bid)
+    if reference is None or at.astimezone(zone).date() != opening.date():
+        return None
+    return dict(isin=isin, percent=(bid/reference[1]-1)*100, bid=bid,
+        referenceBid=reference[1], at=at.isoformat(), referenceAt=reference[0].isoformat(),
+        currency=market[2], source='SG · Geldkurs', basis='bid-since-0800',
+        sourceUrl=market[0]+'product-details/'+isin.lower(), isExecutableQuote=False)
+
+
 def parse_sg_chart_research(product, points, isin, now=None, verified_id=None, market=None):
     """Parse the public Prices/Live chart for bounded research only.
 

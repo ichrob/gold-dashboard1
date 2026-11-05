@@ -389,6 +389,10 @@ def get_quote(isin, terms_only=False):
                     associate_shared_observation(result)
                     result['reason'] = ('SG-Direktimport aktiv (30 s): Stammdaten übernommen; '
                         'Geld/Brief als datierter Chartnachweis. Basispreis/KO verwenden den Zeitbezug der automatischen Abrufserie; Hebelnachweise werden separat geprüft.')
+                since_eight = q.sg_change_since_eight(product, points, isin,
+                    verified_id=verified_id, market=market)
+                if since_eight:
+                    result['changeSinceEight'] = since_eight
         except Exception as exc:
             result.update(sourceFailure=not result['productVerified'],
                           quoteFailureCode='SG_SOURCE_UNAVAILABLE', reason=q.sg_source_error(exc, stage))

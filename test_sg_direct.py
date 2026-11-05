@@ -18,6 +18,23 @@ class DirectTests(unittest.TestCase):
             ('ClassificationName','BEST Turbo (Open-End)',''))]
         self.at = (datetime.now(timezone.utc)-timedelta(seconds=2)).isoformat()
         self.points = [dict(Bid=10, Ask=10.01, Date=self.at)]
+    def test_eight_clock_native_bid_and_summer_winter_time(self):
+        for date, offset in [('2026-11-05', '+01:00'), ('2026-07-06', '+02:00')]:
+            now = datetime.fromisoformat(date+'T12:00:00'+offset)
+            points = [dict(Date=date+'T07:59:59'+offset, Bid=99),
+                      dict(Date=date+'T08:00:03'+offset, Bid=10),
+                      dict(Date=date+'T11:59:59'+offset, Bid=12)]
+            out = q.sg_change_since_eight(self.product, points, ISIN, now)
+            self.assertAlmostEqual(out['percent'], 20)
+            self.assertEqual(out['referenceBid'], 10)
+            self.assertEqual(out['currency'], 'EUR')
+            self.assertFalse(out['isExecutableQuote'])
+            self.assertIsNone(q.sg_change_since_eight(self.product, points[2:], ISIN, now))
+            self.assertIsNone(q.sg_change_since_eight(self.product, points, ISIN,
+                datetime.fromisoformat(date+'T07:00:00'+offset)))
+            with self.assertRaises(ValueError):
+                q.sg_change_since_eight(dict(self.product, Isin='wrong'), points, ISIN, now)
+
     def test_bid_only_preserves_original_clock_without_pair_or_old_ask(self):
         prior = dict(productVerified=True, isin=ISIN, metadata=dict(status=1),
                      chartEvidence=dict(bid=9, ask=10, pointAt=self.at))
