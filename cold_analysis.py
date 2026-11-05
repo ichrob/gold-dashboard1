@@ -99,11 +99,15 @@ def offload_batch(conn, drive):
     if not rows:return {'status':'no-eligible-rows','movedRows':0}
     raw=codec.encoded({'format':codec.FORMAT,'rows':rows})
     with tempfile.TemporaryDirectory(prefix='bob-analysis-cold-') as tmp:
-        path=Path(tmp)/('analysis-'+uuid.uuid4().hex+'.gz')
         blob=gzip.compress(raw,mtime=0)
         if len(blob)>codec.MAX_FILE:raise ValueError('Archive size limit')
-        path.write_bytes(blob);os.chmod(path,0o600)
-        checksum=codec.digest(blob);file_id=drive.upload(path,checksum)
+        plain=Path(tmp)/'original.gz'
+        plain.write_bytes(blob);os.chmod(plain,0o600)
+        path=Path(tmp)/('analysis-'+uuid.uuid4().hex+'.encrypted')
+        from cold_chunk_encryption import seal_chunk
+        checksum=seal_chunk(plain,path)
+        if path.stat().st_size>codec.MAX_FILE:raise ValueError('Encrypted archive limit')
+        file_id=drive.upload(path,checksum)
     restored=codec.read_chunk(drive,file_id,checksum,cached=False)
     if codec.encoded(restored)!=codec.encoded(rows):
         raise codec.ColdArchiveUnavailable('Original analysis download differs')
@@ -139,6 +143,8 @@ def status(conn):
 
 def run_once(factory=codec.connect):
     with factory() as conn:
+        guard=__import__('storage_pressure').verified_writer_preflight(conn)
+        if guard is not None:return guard
         if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_cold_analysis_v1'))").fetchone()[0]:
             return {'status':'busy'}
         init(conn);drive=codec.runtime_drive(conn);results=[];deadline=time.monotonic()+120

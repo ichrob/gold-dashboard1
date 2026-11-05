@@ -155,13 +155,14 @@ def run_once(factory=codec.connect):
     with factory() as conn:
         if not conn.autocommit:
             raise ValueError('Dedicated autocommit connection required')
+        # The completed-test family needs the same fresh independent recovery
+        # AND provider-measured WAL/scratch reserve as all other cold writers.
+        guard = __import__('storage_pressure').verified_writer_preflight(conn)
+        if guard is not None:
+            return guard
         if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_cold_test_v1'))").fetchone()[0]:
             return {'status': 'busy', 'movedRows': 0}
         init(conn)
-        from storage_budget import archive_status
-        from cold_decision_product_writer import _proof_state
-        if _proof_state(archive_status(conn), time.time()) != 'verified-fresh':
-            return {'status': 'backup-proof-not-fresh', 'movedRows': 0}
         return offload_batch(conn, codec.runtime_drive(conn))
 
 

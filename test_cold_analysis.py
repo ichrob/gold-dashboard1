@@ -55,6 +55,9 @@ class ColdSchedulerIsolationTests(unittest.TestCase):
 class DatabaseTests(unittest.TestCase):
     def setUp(self):
         import psycopg
+        secret=patch.dict(os.environ, {'PUSH_SERVICE_TOKEN':'offline-cold-test-only-'+('x'*48)})
+        secret.start()
+        self.addCleanup(secret.stop)
         self.c=psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'],autocommit=True)
         self.schema='cold_analysis_'+uuid.uuid4().hex
         self.c.execute('CREATE SCHEMA '+self.schema)
@@ -79,6 +82,7 @@ class DatabaseTests(unittest.TestCase):
         size_before=self.c.execute("SELECT pg_column_size(payload) FROM bob_diagnostic_history WHERE id='old'").fetchone()[0]
         result=cold.offload_batch(self.c,self.drive)
         self.assertEqual(result['movedRows'],1)
+        self.assertTrue(all(blob.startswith(b'BOBCOLD1') for blob in self.drive.files.values()))
         self.assertEqual(before,self.projection_rows())
         self.assertIsNone(result['diskBytesFreed'])
         pointer=self.c.execute("SELECT payload FROM bob_diagnostic_history WHERE id='old'").fetchone()[0]
