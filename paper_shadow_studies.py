@@ -59,7 +59,7 @@ def init(conn):
             (study,json.dumps(seed(study,now))))
 
 
-def original_input(bundle, market, now):
+def original_input(bundle, market, now, analysis_timeframe="15m"):
     """Assert that the exact market spot is the original source observation.
 
     A future or estimated clock, absent closed 15m bar, or a different source
@@ -68,7 +68,7 @@ def original_input(bundle, market, now):
     from paper_simulation import stamp
     spots=(bundle or {}).get("spots") or {}
     history=(bundle or {}).get("history") or {}
-    bars=(history.get("bars_by_tf") or {}).get("15m") or []
+    bars=(history.get("bars_by_tf") or {}).get(analysis_timeframe) or []
     at=stamp(spots.get("spot_price_as_of"))
     price=market.get("price")
     data_at=market.get("dataAt")
@@ -78,7 +78,7 @@ def original_input(bundle, market, now):
                    and b.get("isOpen") is not True
                    and b.get("providerIsOpen") is not True
                    and b.get("estimated") is not True]
-    matching=any(b["openTime"] == analysis_at for b in verified_bars)
+    matching=any(b["openTime"] == analysis_at and b["openTime"]+({"5m":300000,"15m":900000}[analysis_timeframe])<=now for b in verified_bars)
     source_price=spots.get("xaus")
     good=(spots.get("is_genuine_xauusd_spot") is True
           and spots.get("xaus_is_spot") is True
@@ -177,7 +177,7 @@ def update_signal_study(conn,control,study,decision,quality,now):
                 else "casesInconclusive"]+=1
     control["openCases"]=pending
     bar=quality.get("analysisBarAt")
-    if (quality["verified"] and number(bar)
+    if (not control.get("retiredAt") and quality["verified"] and number(bar)
             and bar!=control.get("lastBarAt")):
         control["lastBarAt"]=bar
         # No trade at all if both models agree on ABWARTEN.
@@ -283,6 +283,9 @@ def product_study(conn,control,quality,market,selection,quotes,now):
             else:
                 record.update(state="exit-unpriced",reason="dated-exit-bid-or-ko-proof-missing")
         return record
+    if control.get('retiredAt'):
+        record['reason']='legacy-study-retired-no-new-entry'
+        return record
     if not quality["verified"]:
         record["reason"]="original-spot-input-not-confirmed"
         return record
@@ -372,6 +375,12 @@ def tick(conn,bundle,market,selection,quotes,now=None):
         if row is None:
             raise RuntimeError("shadow-studies-not-initialized")
         control=copy.deepcopy(row[0])
+        if control.get("retiredAt") and not control.get("position") and not control.get("openCases"):
+            if control.get("status")!="retired":
+                control["status"]="retired"
+                conn.execute("UPDATE bob_shadow_study_control SET payload=%s::jsonb WHERE study=%s",
+                             (json.dumps(control),study))
+            continue
         if study=="product-e2e":
             result=product_study(conn,control,quality,market,selection,quotes,now)
             result["modelEquityEur"]=mark_product_equity(
