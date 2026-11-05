@@ -71,6 +71,7 @@ const {chromium}=require('playwright');
  assert.equal(await page.locator('h1').textContent(),'Bob Zentrale');
  assert.equal(await page.locator('#bobNavigation [aria-current="page"]').count(),1);
  assert.equal(await page.locator('#bobNavigation a').count(),4);
+ assert(!(await page.locator('body').innerText()).includes('BOB_ISIN_COPY_END'),'No code marker in visible UI');
  await page.waitForFunction(()=>getComputedStyle(document.body).backgroundColor==='rgb(12, 19, 33)');
  assert.equal(await page.locator('#bobNavigation [aria-current="page"]').getAttribute('data-central-section'),'studies');
  await page.screenshot({path:'/tmp/zentrale-workspace.png',fullPage:true});
