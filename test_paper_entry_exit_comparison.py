@@ -102,4 +102,35 @@ class ComparisonTests(unittest.TestCase):
         s=self.run_at(s,b,m,NOW+150000,bid=12.)
         self.assertEqual(s['arms']['early:fixed:60']['status'],'closed')
 
+import os
+
+@unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
+class DatabaseTests(unittest.TestCase):
+    def test_persistence_restart_and_duplicate_tick(self):
+        import uuid
+        import psycopg
+        from psycopg import sql
+        schema='entry_exit_'+uuid.uuid4().hex
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            conn.commit()
+            try:
+                conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                study.init(conn)
+                b,m=observed()
+                w={**m,'paperEntrySource':'early-warning-paper-v2'}
+                for _ in range(2):
+                    study.tick(conn,b,m,{'choices':[choice()]},w,{'choices':[choice()]},{ISIN:quote()},NOW)
+                    conn.commit()
+                self.assertEqual(study.active_isins(conn),[ISIN])
+                report=study.report(conn)
+                self.assertEqual(report['episodesSampled'],1)
+                self.assertEqual(report['variants']['early:fixed:0']['open'],1)
+                self.assertFalse(report['strategyWinnerConfirmed'])
+                self.assertEqual(len(report['variants']),18)
+            finally:
+                conn.rollback()
+                conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+                conn.commit()
+
 if __name__=='__main__':unittest.main()
