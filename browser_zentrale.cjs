@@ -8,13 +8,13 @@ const {chromium} = require('playwright');
   await page.clock.install();
   const errors=[]; page.on('pageerror', e => errors.push(e.message));
   let count=0, fail=false, fresh=false, needsHelp=false;
-  await page.route('**/*', route => {
+  await page.route('**/*', async route => {
    const url=new URL(route.request().url());
    if(url.hostname !== 'bob.test')return route.abort();
    if(url.pathname==='/api/operations-summary') {
     count++; assert.equal(route.request().method(),'GET');
     return route.fulfill({status:fail?503:200,contentType:'application/json',body:JSON.stringify({readOnly:true,realOrders:false,
-     observedAt:fresh?new Date().toISOString():'2026-11-05T00:00:00Z',problemIndexFresh:fresh,cases:needsHelp?[{code:'android-reader',state:'needs-user'}]:fresh?[]:[{code:'<img src=x onerror=alert(1)>',state:'testing'}],
+     observedAt:fresh?new Date(await page.evaluate(()=>Date.now()-1000)).toISOString():'2026-11-05T00:00:00Z',problemIndexFresh:fresh,cases:needsHelp?[{code:'android-reader',state:'needs-user'}]:fresh?[]:[{code:'<img src=x onerror=alert(1)>',state:'testing'}],
      phone:{state:'unknown',appVersion:10500,requested:10,complete:6,partial:2,runAt:1793836800,localOcrImages:2},
      jobs:[{id:'background',state:'observed',lastObservedAt:1793836800},{id:'collection',state:'observed'}],productStatus:{state:'incomplete'},
      storage:{diskUsedBytes:104857600,diskObservedAt:1793836800},testOverview:{items:[{label:'Test',state:'unknown'}]}})});
