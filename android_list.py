@@ -98,6 +98,23 @@ def reusable_daily_items(items):
     return len(set(ids))==10
 
 
+OCR_IDENTITY_TOKEN = re.compile(r'\b(?:[A-Z]{2}[A-Z0-9]{9}[0-9]|DE[0OQ]{3}[A-Z0-9]{7})\b', re.I)
+
+
+def canonical_ocr_identity(raw):
+    """German OCR glyph rule only; preserve raw rows and valid DE000 identities."""
+    from product_quotes import valid_isin
+    value = raw.upper()
+    if len(value) != 12:
+        return None
+    if valid_isin(value) and value.startswith('DE000'):
+        return value
+    if not re.fullmatch(r'DE[0OQ]{3}[A-Z0-9]{7}', value):
+        return value if valid_isin(value) else None
+    candidate = 'DE000' + value[-7:].replace('O', '0').replace('I', '1')
+    return candidate if valid_isin(candidate) else None
+
+
 def validate(value, now):
     if not isinstance(value,dict) or set(value)!={'batchId','sessionId','images'}:
         raise ValueError('Invalid list batch')
@@ -143,7 +160,7 @@ def validate(value, now):
                                 'passwort','password','kontostand',
                                 'portfolio','order bestätigen','stückzahl kaufen'))):
                         raise ValueError('OCR row outside permitted product layout')
-                    found=re.findall('[A-Z]{2}[A-Z0-9]{9}[0-9]',row)
+                    found=[canonical_ocr_identity(m.group()) for m in OCR_IDENTITY_TOKEN.finditer(row)]
                     if found!=[ids[index]]:
                         raise ValueError('OCR product identity mismatch')
         stamp=datetime.fromisoformat(image['at'].replace('Z','+00:00'))

@@ -28,12 +28,12 @@ internal object MorningOcrLayout {
         if(expected.isEmpty() || expected.size>6 || height<=0 ||
             expected.distinct()!=expected || expected.any { !SeriesEvidence.validIsin(it) } ||
             rows.any { it.bottom>height }) return reject(PlanIssue.INPUT_BOUNDS)
-        val identity=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
+        val identity=MorningOcrIdentity.tokens
         // Use the SAME fixed-anchor visual rows as the strict text parser.
         // ML Kit can split "SG", "Gold", venue and currency across blocks.
         val headings=rows.filter { Regex("(?iu)^(?:SG|BNP)\\s*Gold\\b").containsMatchIn(it.text.trim()) }
         val located=expected.map { id ->
-            val matches=rows.filter { identity.findAll(it.text).map { m -> m.value }.toList()==listOf(id) }
+            val matches=rows.filter { identity.findAll(it.text).map { m -> MorningOcrIdentity.canonical(m.value) }.toList()==listOf(id) }
             if(matches.isEmpty()) return reject(PlanIssue.IDENTITY_MISSING)
             if(matches.size!=1) return reject(PlanIssue.IDENTITY_DUPLICATE)
             matches.single()
@@ -50,7 +50,7 @@ internal object MorningOcrLayout {
             val top=maxOf(0,heading.top-padding)
             val bottom=minOf(height,footer.bottom+padding)
             val ids=rows.filter { (it.top+it.bottom)/2 in top until bottom }
-                .flatMap { identity.findAll(it.text).map { m -> m.value }.toList() }
+                .flatMap { identity.findAll(it.text).map { m -> MorningOcrIdentity.canonical(m.value) }.toList() }
             if(ids!=listOf(expected[index]) || bottom<=top) return reject(PlanIssue.REGION_IDENTITY)
             ProductBand(expected[index],top,bottom)
         }

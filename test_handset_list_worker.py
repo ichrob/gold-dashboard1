@@ -100,6 +100,28 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(all(item['listRow']['textCaptureMatched'] for item in result['items']))
         self.assertTrue(all(not item['listRow']['crossChecked'] for item in result['items']))
 
+    def test_raw_local_ocr_glyph_rows_reach_ten_product_parser_without_native_ocr(self):
+        from product_quotes import valid_isin
+        images=[]
+        raw_ids=[]
+        for group in ([1,2,3,4],[4,5,6,7],[7,8,9,10]):
+            ids=[];rows=[]
+            for number in group:
+                stem='DE000ZZ'+str(number).zfill(4)
+                isin=next(stem+str(n) for n in range(10) if valid_isin(stem+str(n)))
+                optical=isin.replace('0','O')
+                ids.append(isin);raw_ids.append(optical)
+                rows.append('SG Gold Turbo BEST Open-End Call BAR 4000 BP 4000 Bv 10 | '+
+                            optical+' Societe Generale OTC EUR')
+            images.append({'png':'original retained','localOcr':{'expectedIsins':ids,'passes':[rows,list(rows)]}})
+        with patch('handset_list_worker.guarded_ocr_run',side_effect=AssertionError('Native OCR invoked')) as heavy:
+            result=worker.process({'images':images},'2026-11-05T08:00:00Z')
+        heavy.assert_not_called()
+        self.assertEqual(len(result['items']),10)
+        self.assertTrue(all(item['listRow']['extractionMethod']=='on-device-mlkit-two-scale' for item in result['items']))
+        self.assertTrue(all(item['listRow']['crossChecked'] for item in result['items']))
+        self.assertTrue(all(item['originalIsin'] in raw_ids for item in result['items']))
+
     def test_ocr_defers_before_spawn_when_headroom_is_insufficient(self):
         with patch.object(worker,'container_memory_bytes',return_value=300*1024*1024),patch('subprocess.Popen') as spawn:
             with self.assertRaises(worker.OcrMemoryDeferred):
