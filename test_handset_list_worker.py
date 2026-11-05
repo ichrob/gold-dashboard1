@@ -123,15 +123,15 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(all(item['originalIsin'] in raw_ids for item in result['items']))
 
     def test_ocr_defers_before_spawn_when_headroom_is_insufficient(self):
-        with patch.object(worker,'container_memory_bytes',return_value=300*1024*1024),patch('subprocess.Popen') as spawn:
+        with patch.object(worker,'container_memory_bytes',return_value=305*1024*1024),patch('subprocess.Popen') as spawn:
             with self.assertRaises(worker.OcrMemoryDeferred):
                 worker.guarded_ocr_run(['ocr'],input='[]',text=True,capture_output=True,timeout=35,check=True,env={},close_fds=True)
             spawn.assert_not_called()
 
 
-    def test_480_policy_keeps_200_mib_start_reserve(self):
+    def test_505_policy_keeps_200_mib_start_reserve(self):
         from types import SimpleNamespace
-        for mib in (280,300,479,480,None):
+        for mib in (305,400,504,505,None):
             used=None if mib is None else mib*1024*1024
             with patch.object(worker,'container_memory_bytes',return_value=used), \
                  patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn:
@@ -139,27 +139,27 @@ class WorkerTests(unittest.TestCase):
                     worker.guarded_ocr_run(['ocr'],input='[]',text=True,capture_output=True,
                         timeout=35,check=True,env={},close_fds=True)
                 spawn.assert_not_called()
-        with patch.object(worker,'container_memory_bytes',return_value=279*1024*1024), \
+        with patch.object(worker,'container_memory_bytes',return_value=304*1024*1024), \
              patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn, \
              patch.object(worker,'wait_ocr',return_value=0):
             result=worker.guarded_ocr_run(['ocr'],input='[]',text=True,capture_output=True,
                 timeout=35,check=True,env={},close_fds=True)
             spawn.assert_called_once();self.assertEqual(result.returncode,0)
-        self.assertEqual(worker.status()['ocrMemoryLimitMiB'],480)
+        self.assertEqual(worker.status()['ocrMemoryLimitMiB'],505)
         self.assertEqual(worker.status()['ocrStartReserveMiB'],200)
 
-    def test_ocr_can_cross_old_ceiling_but_is_killed_at_480(self):
+    def test_ocr_can_cross_old_ceiling_but_is_killed_at_505(self):
         class Child:
             args=['ocr'];killed=False
             def poll(self):return None
             def kill(self):self.killed=True
             def wait(self,timeout=None):return -9
-        child=Child();samples=iter([400,450,479,480]);observed=[]
+        child=Child();samples=iter([480,500,504,505]);observed=[]
         def memory():
             value=next(samples);observed.append(value);return value*1024*1024
         with self.assertRaises(MemoryError):
             worker.wait_ocr(child,memory,clock=lambda:0,sleep=lambda _:None)
-        self.assertEqual(observed,[400,450,479,480]);self.assertTrue(child.killed)
+        self.assertEqual(observed,[480,500,504,505]);self.assertTrue(child.killed)
 
     def test_persistence_retries_transient_conflicts_after_transaction_exit(self):
         from types import SimpleNamespace

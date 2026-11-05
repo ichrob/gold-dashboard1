@@ -135,9 +135,9 @@ def content_bounds(image):
     return (max(0,left-8),max(0,top-8),min(image.width,right+8),min(image.height,bottom+8))
 
 
-# User-approved ceiling: keep 32 MiB below the 512-MiB Render container limit.
+# User-approved ceiling: keep 7 MiB below the 512-MiB Render container limit.
 # Admission still reserves 200 MiB for the native OCR model and its peak work.
-OCR_CONTAINER_LIMIT = 480 * 1024 * 1024
+OCR_CONTAINER_LIMIT = 505 * 1024 * 1024
 OCR_START_RESERVE = 200 * 1024 * 1024
 # Four admission checks at the existing four-minute lease cadence. Persisted
 # in the receipt so a restart cannot reset a permanently blocked batch.
@@ -214,7 +214,7 @@ def report_ocr_memory(measurement, outcome, started):
 def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, close_fds):
     # Preserve the cgroup-wide fail-closed guard and file-backed streams.
     # Return free parent heap pages before loading the child's native models.
-    # No cache or evidence is deleted; the user-approved kill threshold is 480 MiB.
+    # No cache or evidence is deleted; the user-approved kill threshold is 505 MiB.
     __import__('gc').collect()
     __import__('memory_watch').release_free_pages()
     # Reserve measured OCR peak plus headroom before starting native models.
