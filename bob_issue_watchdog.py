@@ -42,6 +42,7 @@ CODES = {
 # private audit. This marker is NOT an issue type and is never published.
 PRODUCT_AUDIT_UNKNOWN = "_private-product-audit-unavailable"
 PRODUCT_CODES = frozenset(code for code in CODES if code.startswith("product-"))
+PRODUCT_CONFIRMATION_SECONDS = 120
 
 
 def utc_now():
@@ -374,8 +375,26 @@ def main():
     # independent confirmation.
     time.sleep(15)
     second = probe()
-    detected = second
-    healthy_twice = frozenset(CODES) - set(first) - set(second)
+
+    # A new public incident requires the same fault in both base polls. A
+    # second-only failure is a new observation for the next run, not proof of
+    # a persistent episode.
+    confirmed_polls = [set(first), set(second)]
+    detected_set = confirmed_polls[0] & confirmed_polls[1]
+
+    # Product sources can need more than the workflow's fixed rollout wait to
+    # repopulate after a zero-downtime deploy. Recheck only persistent product
+    # findings after a longer settling interval before opening a public issue.
+    persistent_product_codes = detected_set & PRODUCT_CODES
+    if persistent_product_codes:
+        time.sleep(PRODUCT_CONFIRMATION_SECONDS)
+        third = set(probe())
+        confirmed_polls.append(third)
+        detected_set -= PRODUCT_CODES
+        detected_set |= persistent_product_codes & third
+
+    detected = sorted(detected_set)
+    healthy_twice = frozenset(CODES) - set().union(*confirmed_polls)
     at = utc_now()
     print("BOB_WATCHDOG at=" + at + " codes=" + ",".join(detected or ["healthy"]), flush=True)
     token = os.environ.get("GITHUB_TOKEN", "")
