@@ -40,9 +40,14 @@
   }
   function reset() {
     snapshot = null;
+    byId("health-card").dataset.state = "unknown";
+    byId("health-label").textContent = "Nicht bestätigt";
+    byId("next-link").textContent = "Statusdetails ansehen";
     list("job-times", [], "Keine aktuelle Abfrage verfügbar.", () => "");
     for (const id of ["simulation", "monitor", "problems", "products", "research", "disk", "database", "archive", "problem-age", "overall", "open-count", "help-count", "next-action", "phone-state", "phone-step", "phone-progress", "phone-import", "phone-details", "phone-ocr"]) byId(id).textContent = "Nicht aktuell bestätigt";
     byId("observed").textContent = "Datenstand unbekannt";
+    byId("overall").textContent = "Bobs Zustand ist unbekannt";
+    byId("next-action").textContent = "Es liegt keine bestätigte Statusaufnahme vor. Bitte aktualisieren.";
     list("tests", [], "Keine aktuelle Abfrage verfügbar.", () => "");
     list("cases", [], "Keine aktuelle Abfrage verfügbar.", () => "");
   }
@@ -62,8 +67,22 @@
     byId("open-count").textContent = indexed ? String(cases.length) : "Unbekannt";
     byId("help-count").textContent = help === null ? "Unbekannt" : help ? String(help) + " Fälle" : "Keine Anforderung im aktuellen Index";
     const background = job("background");
-    byId("overall").textContent = background.state === "observed" ? "Letzte Überwachung bestätigt" : background.state === "paused" ? "Überwachung pausiert" : "Überwachung nicht bestätigt";
-    byId("next-action").textContent = !indexed ? "Problemstand nicht aktuell bestätigt. Bei Bedarf erneut aktualisieren." : help ? "Öffne Probleme & Wartung: Dort ist deine Hilfe angefordert." : cases.length ? "Offene Fälle unter Probleme & Wartung ansehen." : "Keine offenen Problemgruppen erfasst. Das bestätigt nicht automatisch alle Funktionen.";
+    const observed = new Date(data.observedAt).getTime();
+    const fresh = Number.isFinite(observed) && Date.now() - observed >= 0 && Date.now() - observed <= 120000;
+    const confirmed = fresh && indexed && !cases.length && background.state === "observed" && job("collection").state === "observed";
+    const attention = fresh && (indexed && cases.length > 0 || background.state === "unavailable");
+    byId("health-card").dataset.state = confirmed ? "confirmed" : attention ? "attention" : "unknown";
+    byId("health-label").textContent = confirmed ? "Zuletzt bestätigt" : attention ? "Bitte beachten" : "Nicht vollständig bestätigt";
+    byId("overall").textContent = !fresh ? "Bobs Zustand ist unbekannt" : help ? "Deine Hilfe wird benötigt" :
+      indexed && cases.length ? caseTitle(cases[0]) + " wird geprüft" : background.state === "unavailable" ? "Überwachung nicht verfügbar" :
+      confirmed ? "Keine Störung gemeldet" : background.state === "paused" ? "Überwachung pausiert" : "Bobs Zustand ist nicht vollständig bestätigt";
+    byId("next-action").textContent = !fresh ? "Die Statusaufnahme fehlt oder ist veraltet. Bitte aktualisieren." : !indexed ?
+      "Der Problemstand ist nicht aktuell bestätigt. Prüfe die Details unter Wartung." : help ?
+      "Im aktuellen Prüfstand ist deine Hilfe angefordert. Öffne den betreffenden Fall." : cases.length ?
+      cases.length + " offene Problemgruppen. Den Bearbeitungsstand findest du unter Wartung." : confirmed ?
+      "Überwachung und Datensammlung wurden zuletzt bestätigt. Im aktuellen Problemindex ist keine Aufgabe für dich erfasst." :
+      "Keine offenen Problemgruppen erfasst. Weitere Betriebsnachweise fehlen oder die Überwachung pausiert.";
+    byId("next-link").textContent = help || attention ? "Probleme ansehen" : "Statusdetails ansehen";
     list("job-times", jobs.filter(j => j && typeof j === "object").slice(0,10), "Keine Ausführungsnachweise verfügbar.", j =>
       String(j.label || "Dienst").slice(0,80) + ": " + nameOf(j.state) + " · Letzter Erfolg: " + clock(j.lastSuccessAt));
     if (!byId("maintenance").hidden) list("cases", cases, indexed ? "Keine Problemgruppen im aktuellen Index erfasst." : "Keine aktuellen Problemnachweise verfügbar.", item =>
@@ -88,7 +107,11 @@
   }
   const panels = Array.from(document.querySelectorAll("[data-panel]"));
   function navigate(focus) {
-    const key = location.hash.slice(1);
+    let key = location.hash.slice(1);
+    if (key === "storage" || key === "phone") {
+      byId(key).open = true;
+      key = "maintenance";
+    }
     const selected = panels.find(panel => panel.id === key) || byId("overview");
     for (const panel of panels) panel.hidden = panel !== selected;
     for (const link of document.querySelectorAll("nav a")) {
@@ -96,7 +119,10 @@
       else link.removeAttribute("aria-current");
     }
     if (snapshot) show(snapshot);
-    if (focus) selected.querySelector("h2").focus();
+    if (focus) {
+      window.scrollTo(0,0);
+      selected.querySelector("h2").focus({preventScroll:true});
+    }
   }
   window.addEventListener("hashchange", () => navigate(true)); navigate(false);
   async function refresh() {
@@ -110,7 +136,7 @@
       if (!response.ok) throw new Error("HTTP " + response.status);
       const data = await response.json();
       if (!data || data.readOnly !== true || data.realOrders !== false) throw new Error("Unerwartetes Antwortformat");
-      show(data); status.textContent = "Status geladen. Alle Bereiche verwenden dieselbe Aufnahme.";
+      show(data); status.textContent = "Status geladen";
     } catch (error) {
       reset(); status.textContent = "Status nicht verifizierbar. Bitte erneut aktualisieren."; status.classList.add("error");
     } finally { clearTimeout(timeout); button.disabled = false; }
