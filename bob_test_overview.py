@@ -57,16 +57,19 @@ def snapshot(report, now):
     risk_accounts={a.get('delaySeconds'):a for a in (risk.get('accounts') or [])
                    if isinstance(a,dict) and a.get('delaySeconds') in (0,30,60)}
     risk_at=risk.get('checkedAt')
+    risk_retired=risk.get('status')=='retired'
     risk_fresh=(risk.get('status') in ('observed','partial')
                 and fresh(risk_at,now,120))
     for delay in (0,30,60):
         account=risk_accounts.get(delay) or {}
-        observed=risk_fresh and account.get('status')=='observed'
+        observed=account.get('status')=='observed'
+        available=observed and (risk_retired or risk_fresh)
         rows.append(dict(id='risk-paper-'+str(delay),
             label='2.000-Euro-Risikostudie '+str(delay)+' s',
-            state='checked' if observed else 'unavailable',
+            state='retired' if risk_retired and observed
+                  else 'checked' if risk_fresh and observed else 'unavailable',
             startedAt=risk.get('startedAt'),lastObservedAt=risk_at,
-            sampledRecords=count(account.get('closed')) if observed else None,
+            sampledRecords=count(account.get('closed')) if available else None,
             comparableCases=None,completed=False,truncated=True,
             missing='Abschluss und vollständige Nettoauswertung separat prüfen.',
             note='Gespeicherter Modellstand mit angenommenen Kosten; kein Broker-Fill, '
@@ -84,8 +87,9 @@ def snapshot(report, now):
         ('product-e2e','1.000 € · vollständiger Goldprodukt-Modellverlauf')):
         data=found.get(study) or {}
         observed=shadow.get('status') in ('observed','partial') and bool(data)
+        retired=observed and data.get('status')=='retired'
         recent=observed and fresh(data.get('checkedAt'),now,120)
-        state=('checked' if recent else 'night-paused'
+        state=('retired' if retired else 'checked' if recent else 'night-paused'
                if observed and phase in ('night','weekend') else 'unavailable')
         rows.append(dict(id='shadow-'+study,label=label,state=state,
             startedAt=data.get('startedAt'),lastObservedAt=data.get('checkedAt'),
