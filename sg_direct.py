@@ -17,6 +17,7 @@ _LOCK = threading.Lock()
 _PRODUCT_LOCKS = {}
 _CACHE = {}
 _TERMS = {}
+_EIGHT_REFERENCES = {}  # Bounded original 08:00 evidence across rolling Live responses.
 _MARKETS = {}  # Exact ISIN -> market, only after validated issuer properties.
 INTERVAL = 30
 
@@ -390,8 +391,11 @@ def get_quote(isin, terms_only=False):
                     result['reason'] = ('SG-Direktimport aktiv (30 s): Stammdaten übernommen; '
                         'Geld/Brief als datierter Chartnachweis. Basispreis/KO verwenden den Zeitbezug der automatischen Abrufserie; Hebelnachweise werden separat geprüft.')
                 since_eight = q.sg_change_since_eight(product, points, isin,
-                    verified_id=verified_id, market=market)
+                    verified_id=verified_id, market=market, reference=_EIGHT_REFERENCES.get(isin))
                 if since_eight:
+                    if len(_EIGHT_REFERENCES) >= 256 and isin not in _EIGHT_REFERENCES:
+                        _EIGHT_REFERENCES.pop(next(iter(_EIGHT_REFERENCES)))
+                    _EIGHT_REFERENCES[isin] = dict(since_eight)
                     result['changeSinceEight'] = since_eight
         except Exception as exc:
             result.update(sourceFailure=not result['productVerified'],

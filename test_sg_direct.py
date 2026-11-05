@@ -29,6 +29,9 @@ class DirectTests(unittest.TestCase):
             self.assertEqual(out['referenceBid'], 10)
             self.assertEqual(out['currency'], 'EUR')
             self.assertFalse(out['isExecutableQuote'])
+            later = q.sg_change_since_eight(self.product, points[2:], ISIN, now, reference=out)
+            self.assertAlmostEqual(later['percent'], 20)
+            self.assertEqual(later['referenceAt'], out['referenceAt'])
             self.assertIsNone(q.sg_change_since_eight(self.product, points[2:], ISIN, now))
             self.assertIsNone(q.sg_change_since_eight(self.product, points, ISIN,
                 datetime.fromisoformat(date+'T07:00:00'+offset)))
