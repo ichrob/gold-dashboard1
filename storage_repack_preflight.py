@@ -11,10 +11,9 @@ import shutil
 
 TARGET = 'public.bob_improvement_observations'
 RESOURCE = 'dpg-datjno1srm7s738vv500-a'
-ALLOCATION_BYTES = 1_000_000_000
+from storage_capacity import ALLOCATION_BYTES, MAX_VOLUME_BYTES
 MIN_RESERVE_BYTES = 120_000_000
 MAX_TABLE_BYTES = 100_000_000
-MAX_VOLUME_BYTES = 750_000_000
 VERSION = re.compile(r'\d+(?:\.\d+){1,3}\Z')
 
 

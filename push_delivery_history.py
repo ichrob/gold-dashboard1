@@ -10,7 +10,26 @@ from bob_diagnostics import shape, project
 PAGE_SIZE = 100
 MAX_OFFSET = 9900
 FIELDS = shape("outcome", "httpStatus", "direction", "signalBarAt", "dataAt",
-               "test", "synthetic", "eventKinds")
+               "test", "synthetic", "eventKinds", "generatedAt", "analysisRequestedAt",
+               "analysisCompletedAt", "providerStartedAt", "providerDurationMs")
+
+
+def latency(record):
+    """Non-negative clock differences only; no inference of Android display."""
+    import math
+    def diff(end,start):
+        if any(type(v) not in (int,float) or not math.isfinite(v) or v<=0 for v in (end,start)):
+            return None
+        return round(end-start) if end>=start else None
+    provider=record.get('providerStartedAt')
+    receipt=record.get('browserShowAt')
+    try:receipt=datetime.fromisoformat(receipt).timestamp()*1000 if isinstance(receipt,str) else None
+    except (ValueError,OverflowError):receipt=None
+    return dict(sourceToGeneratedMs=diff(record.get('generatedAt'),record.get('dataAt')),
+        analysisPipelineMs=diff(record.get('analysisCompletedAt'),record.get('analysisRequestedAt')),
+        generatedToProviderMs=diff(provider,record.get('generatedAt')),
+        sourceToBrowserReceiptMs=diff(receipt,record.get('dataAt')),
+        scope='server-clocks-and-browser-receipt-not-Android-display')
 
 
 def arguments(value=None, now=None):
@@ -97,6 +116,8 @@ def report(conn, value=None):
         if proof.get('clicked'):
             record['handsetReceipt'] = 'notification-click-confirmed'
             record['notificationClickedAt'] = proof['clicked']
+    for record in records:
+        record["latency"]=latency(record)
     return {
         "status": "observed" if records else "empty",
         "readOnly": True,

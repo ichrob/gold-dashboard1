@@ -9,6 +9,9 @@ internal object MorningListFallbackPolicy {
     fun memoryDeferred(stage: String?, error: String?): Boolean =
         stage == "waiting-memory" || (stage == "read-failed" && error == "MemoryError")
 
+    fun pollingFinished(attempt: Int, stage: String?, reason: String?): Boolean =
+        attempt >= 100 || (stage == "read-failed" && reason == "OCR_MEMORY_WAIT_EXHAUSTED")
+
     fun allowed(attempt: Int, pendingBatch: String, earlierBatch: String,
                 plan: List<SelectiveDetailPlan.Entry>?, resumedSavedCapture: Boolean = false): Boolean {
         val exactBatch = Regex("[a-f0-9]{32}")

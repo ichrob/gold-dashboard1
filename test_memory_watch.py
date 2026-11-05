@@ -13,7 +13,8 @@ class MemoryWatchTests(unittest.TestCase):
         self.assertNotIn("memory_watch.start()\\n", code)
 
     def test_reclamation_requires_pressure_and_respects_cooldown(self):
-        sample = dict(containerMiB=310, limitMiB=512, parentMiB=280)
+        sample = dict(containerMiB=256, limitMiB=512, parentMiB=250)
+        self.assertFalse(m.reclaim_due({**sample, 'containerMiB':255.9}, 500, 0))
         self.assertTrue(m.reclaim_due(sample, 240, 120))
         self.assertFalse(m.reclaim_due(sample, 239, 120))
         for field, value in [('containerMiB', 200), ('limitMiB', None),

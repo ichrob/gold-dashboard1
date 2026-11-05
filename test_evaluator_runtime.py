@@ -7,6 +7,24 @@ from unittest.mock import patch
 import evaluator_runtime as r
 
 class RuntimeTests(unittest.TestCase):
+    def test_timeout_reports_ocr_blocker_without_payload(self):
+        entered=threading.Event();release=threading.Event();logs=[]
+        def ocr(*args,**kwargs):
+            entered.set();release.wait(2);return 'ok'
+        with patch.object(r,'MAX_QUEUE_SECONDS',.02),patch('builtins.print',side_effect=lambda line,**kw:logs.append(line)):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                running=pool.submit(r.run,['python','private-path','--ocr'],runner=ocr)
+                self.assertTrue(entered.wait(1))
+                self.assertEqual(r.status()['activeKind'],'ocr')
+                try:
+                    with self.assertRaises(TimeoutError):r.run(['node','private-file'],input='private-data')
+                    self.assertEqual(r.status()['activeKind'],'ocr')
+                finally:release.set()
+                self.assertEqual(running.result(),'ok')
+        self.assertIsNone(r.status()['activeKind'])
+        self.assertTrue(any('"blockedBy": "ocr"' in line for line in logs))
+        self.assertNotIn('private',str(logs))
+
     def test_concurrent_analysis_and_product_work_are_serialized(self):
         active=0
         peak=0
@@ -74,3 +92,4 @@ class RuntimeTests(unittest.TestCase):
                 a=first.result();b=duplicate.result();paper.result();trade.result()
                 self.assertEqual(a,b);self.assertIsNot(a,b)
         self.assertEqual(order,['first','trade','paper'])
+

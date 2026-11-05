@@ -40,6 +40,8 @@ on:
       - 'test_archive_worker.py'
       - 'diagnostic_archived_catchup.py'
       - 'test_diagnostic_archived_catchup.py'
+      - 'storage_pressure.py'
+      - 'test_storage_pressure.py'
       - 'storage_budget.py'
       - 'storage_brief.py'
       - 'render_disk_metrics.py'
@@ -155,10 +157,14 @@ jobs:
       - name: Mobile navigation and risk view
         run: |
           NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_risk_workspace.cjs
+          NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_zentrale.cjs
           NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_simple_home.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: risk-mobile-preview
-          path: risk-mobile.png
+          path: |
+            risk-mobile.png
+            /tmp/zentrale-workspace.png
+            /tmp/zentrale-home.png
           if-no-files-found: ignore

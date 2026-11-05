@@ -1,6 +1,7 @@
 """Append one factual review per settled paper case; never execute or fit orders."""
 import copy
 import paper_costs
+import paper_forward_validation
 
 VERSION = 'paper-reflection-v1'
 
@@ -10,6 +11,7 @@ def record(control, case, now):
     if (case.get('status') == 'open' or case.get('pendingUnits')
             or case.get('demonstration') or case.get('reflection', {}).get('version') == VERSION):
         return
+    paper_forward_validation.record(control,case,now)
     cost = paper_costs.evaluate(case, case.get('ledgerCostModel') or paper_costs.SCENARIOS[0])
     stress = paper_costs.evaluate(case, paper_costs.SCENARIOS[1])
     observations = []

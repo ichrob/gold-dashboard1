@@ -157,3 +157,24 @@ class OperationsTests(unittest.TestCase):
 
 if __name__=='__main__': unittest.main()
 
+
+class HubStorageTests(unittest.TestCase):
+    def test_existing_measurement_is_bounded_and_not_savings(self):
+        source = {'databaseBytes': 123456, 'lastSampleAt': 1793836800,
+                  'renderVolume': {'status': 'observed', 'unit': 'bytes',
+                                   'diskUsage': 234567, 'observedAt': 1793836800},
+                  'secret': 'DO-NOT-EXPOSE', 'physicalBytesFreed': 90000}
+        result = op.snapshot({'areas': {'storage': source}}, now=1793836800)['storage']
+        self.assertEqual(result['databaseBytes'], 123456)
+        self.assertEqual(result['diskUsedBytes'], 234567)
+        self.assertIsNone(result['physicalBytesFreed'])
+        self.assertIsNone(result['ramBytes'])
+        self.assertNotIn('DO-NOT-EXPOSE', str(result))
+        self.assertFalse(result['restoreVerified'])
+
+    def test_missing_or_invalid_measurements_never_become_zero(self):
+        for source in (None, {}, {'databaseBytes': -1, 'renderVolume': {
+            'status': 'observed', 'unit': 'MB', 'diskUsage': 700, 'observedAt': 1793836800}}):
+            result = op.snapshot({'areas': {'storage': source}})['storage']
+            self.assertIsNone(result['databaseBytes'])
+            self.assertIsNone(result['diskUsedBytes'])

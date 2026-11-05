@@ -4,6 +4,7 @@ Only an explicit opt-in after Push is healthy may run this. CREATE EXTENSION
 is strictly inside a rollback-only transaction; no DDL or images persist.
 Never runs pg_repack, VACUUM, DELETE or a table rewrite.
 """
+from storage_capacity import MAX_VOLUME_BYTES
 import json
 import os
 import threading
@@ -45,7 +46,7 @@ def _volume_gate():
             v.get("resource")=="dpg-datjno1srm7s738vv500-a" and
             v.get("unit")=="bytes" and
             type(v.get("diskUsage")) is int and
-            v["diskUsage"]<750_000_000 and
+            v["diskUsage"]<MAX_VOLUME_BYTES and
             type(stamp) in (int,float) and 0<=time.time()-stamp<=300)
 
 

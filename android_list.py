@@ -98,6 +98,23 @@ def reusable_daily_items(items):
     return len(set(ids))==10
 
 
+OCR_IDENTITY_TOKEN = re.compile(r'\b(?:[A-Z]{2}[A-Z0-9]{9}[0-9]|DE[0OQ]{3}[A-Z0-9]{7})\b', re.I)
+
+
+def canonical_ocr_identity(raw):
+    """German OCR glyph rule only; preserve raw rows and valid DE000 identities."""
+    from product_quotes import valid_isin
+    value = raw.upper()
+    if len(value) != 12:
+        return None
+    if valid_isin(value) and value.startswith('DE000'):
+        return value
+    if not re.fullmatch(r'DE[0OQ]{3}[A-Z0-9]{7}', value):
+        return value if valid_isin(value) else None
+    candidate = 'DE000' + value[-7:].replace('O', '0').replace('I', '1')
+    return candidate if valid_isin(candidate) else None
+
+
 def validate(value, now):
     if not isinstance(value,dict) or set(value)!={'batchId','sessionId','images'}:
         raise ValueError('Invalid list batch')
@@ -143,7 +160,7 @@ def validate(value, now):
                                 'passwort','password','kontostand',
                                 'portfolio','order bestätigen','stückzahl kaufen'))):
                         raise ValueError('OCR row outside permitted product layout')
-                    found=re.findall('[A-Z]{2}[A-Z0-9]{9}[0-9]',row)
+                    found=[canonical_ocr_identity(m.group()) for m in OCR_IDENTITY_TOKEN.finditer(row)]
                     if found!=[ids[index]]:
                         raise ValueError('OCR product identity mismatch')
         stamp=datetime.fromisoformat(image['at'].replace('Z','+00:00'))
@@ -167,6 +184,8 @@ def init(conn):
     conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS parsed_items JSONB")
     conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS processing_at TIMESTAMPTZ")
     conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS processing_attempts INTEGER NOT NULL DEFAULT 0")
+    # Reproducible, bounded OCR work only; original image payload is unchanged.
+    conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS ocr_progress JSONB")
 
 IMPORT_STAGES = frozenset(('waiting-memory','fetching','images-ready','reading','stored','synced','fetch-failed','read-failed','store-failed','superseded'))
 
@@ -200,7 +219,10 @@ def handle(conn,payload,now):
     # unparsed copies under the separate device/day/replacement safety gate.
     if payload['action']=='list-receipt':
         value=receipt(payload.get('value'),now)
-        row=conn.execute('''UPDATE bob_android_list_images i SET import_receipt=CASE WHEN i.import_receipt->>'stage' IN ('synced','superseded') THEN i.import_receipt ELSE %s::jsonb END
+        row=conn.execute('''UPDATE bob_android_list_images i SET import_receipt=CASE WHEN i.import_receipt->>'stage' IN ('synced','superseded')
+            OR i.import_receipt->>'reason'='OCR_MEMORY_WAIT_EXHAUSTED' THEN i.import_receipt
+            ELSE %s::jsonb || CASE WHEN i.import_receipt ? 'memoryDeferrals'
+                THEN jsonb_build_object('memoryDeferrals',i.import_receipt->'memoryDeferrals') ELSE '{}'::jsonb END END
             FROM bob_android_diagnostic_devices d WHERE i.token_hash=d.token_hash AND i.batch_id=%s
             AND NOT d.revoked AND d.expires_at>now() RETURNING i.batch_id''',
             (json.dumps(value),value['batchId'])).fetchone()

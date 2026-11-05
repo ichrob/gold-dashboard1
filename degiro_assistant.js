@@ -4456,6 +4456,9 @@ function parseDegiroListRow(raw){
  const footer=raw.slice(ids[0].index+ids[0][0].length);
  const venues=[...footer.matchAll(/(Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC|BNP\s+(?:Paribas\s+)?OTC)\s+(EUR|CHF)\b/gi)];
  const get=label=>{
+  // A glyph inside a number must not be accepted as a truncated prefix
+  // (BP 21O6.05 is not BP 21). Identity-only repairs never repair terms.
+  if(new RegExp('(?<![A-Z])(?:'+label+')\\s*[0-9OIQ.,]*[OIQ](?=[0-9.,\\s|]|$)','i').test(title))return null;
   const m=[...title.matchAll(new RegExp('(?<![A-Z])(?:'+label+')\\s*([0-9]+(?:[.,][0-9]+)?)(?=\\s|$|[A-Z])','gi'))];
   return m.length===1?Number(m[0][1].replace(',','.')):null;
  };

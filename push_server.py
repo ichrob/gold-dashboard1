@@ -116,12 +116,19 @@ def read_audit_report(payload):
     return report_admission.read(key,load)
 
 
+class ReadReportUnavailable(TimeoutError):
+    """A read-only report is temporarily unavailable and safe to retry."""
+
+
 def read_db_report(key, reader):
     """Admit a read-only report before it borrows a pooled connection."""
     def load():
         with db() as conn:
             return reader(conn)
-    return report_admission.read(key, load)
+    try:
+        return report_admission.read(key, load)
+    except TimeoutError as exc:
+        raise ReadReportUnavailable from exc
 
 
 def read_video_evidence(payload):
@@ -132,7 +139,10 @@ def read_video_evidence(payload):
         json.dumps({'videoId': identity}, sort_keys=True).encode()
     ).hexdigest()
     import video_evidence
-    return report_admission.read(key, lambda: video_evidence.handle(db, payload))
+    try:
+        return report_admission.read(key, lambda: video_evidence.handle(db, payload))
+    except TimeoutError as exc:
+        raise ReadReportUnavailable from exc
 
 
 def webpush(**kwargs):
@@ -177,6 +187,8 @@ def webpush(**kwargs):
         stamp = data.get(field)
         return stamp if type(stamp) in (int, float) and 0 < stamp < 4102444800000 else None
 
+    provider_started = time.monotonic()
+    provider_started_at = int(time.time()*1000)
     def log(outcome, status=None):
         print('BOB_PUSH_DELIVERY '+json.dumps({'events': event_kinds, 'outcome': outcome,
               'status': status, 'at': int(time.time()*1000)}), flush=True)
@@ -199,6 +211,11 @@ def webpush(**kwargs):
             'synthetic': is_synthetic,
             'signalBarAt': safe_clock('signalBarAt'),
             'dataAt': safe_clock('dataAt'),
+            'generatedAt': safe_clock('generatedAt'),
+            'analysisRequestedAt':safe_clock('analysisRequestedAt'),
+            'analysisCompletedAt':safe_clock('analysisCompletedAt'),
+            'providerStartedAt':provider_started_at,
+            'providerDurationMs':max(0,round((time.monotonic()-provider_started)*1000)),
             'receiptId': proof['receiptId'] if proof else None}, decision)
 
     try:
@@ -1012,6 +1029,10 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 404, {"error": "Not found"})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
+        except ReadReportUnavailable:
+            print(f"BOB_PUSH database_busy path={path} error=ReadReportUnavailable", flush=True)
+            send_json(self, 503, {"error": "Lesebericht vorübergehend belegt",
+                                  "retryable": True, "dataComplete": False})
         except Exception as exc:
             print("push-service error:", type(exc).__name__, flush=True)
             send_json(self, 503, {"error": "Push-Service nicht bereit"})
@@ -1733,6 +1754,10 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 400, {"error": str(exc)})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
+        except ReadReportUnavailable:
+            print(f"BOB_PUSH database_busy path={path} error=ReadReportUnavailable", flush=True)
+            send_json(self, 503, {"error": "Lesebericht vorübergehend belegt",
+                                  "retryable": True, "dataComplete": False})
         except (psycopg.OperationalError, TooManyRequests) as exc:
             print(f"BOB_PUSH database_busy path={path} error={type(exc).__name__}", flush=True)
             send_json(self, 503, {"error": "Push-Service kurzzeitig belegt", "retryable": True})
@@ -1792,7 +1817,7 @@ if __name__ == "__main__":
     import memory_watch
     # Reclaim only already-freed glibc allocator pages under sustained pressure.
     # This is a bounded 120s opt-in; no live Python objects or product evidence
-    # are removed. Keeps reserve for strict 400-MiB handset OCR admission.
+    # are removed. Keeps reserve for strict 480-MiB handset OCR admission.
     memory_watch.start(reclaim=True)
     import runtime_watchdog
     runtime_watchdog.start()

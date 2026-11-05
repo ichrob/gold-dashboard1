@@ -13,6 +13,7 @@ ASSETS = {
     "/zentrale": ("index.html", "text/html; charset=utf-8", True),
     "/zentrale/": ("index.html", "text/html; charset=utf-8", True),
     "/zentrale/index.html": ("index.html", "text/html; charset=utf-8", True),
+    "/zentrale/theme.css": ("theme.css", "text/css; charset=utf-8", False),
     "/zentrale/app.js": ("app.js", "application/javascript; charset=utf-8", False),
     "/zentrale/sw.js": ("sw.js", "application/javascript; charset=utf-8", False),
     "/zentrale/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json; charset=utf-8", False),

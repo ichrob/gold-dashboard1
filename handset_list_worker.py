@@ -10,6 +10,7 @@ import time
 import threading
 import math
 import tempfile
+import hashlib
 
 _state = {"state": "not-started", "checkedAt": None, "error": None}
 _state_lock = threading.Lock()
@@ -22,6 +23,8 @@ def status():
     with _state_lock:
         value=dict(_state)
     value["fresh"]=value["checkedAt"] is not None and time.time()-value["checkedAt"]<180
+    value['ocrMemoryLimitMiB']=OCR_CONTAINER_LIMIT//(1024*1024)
+    value['ocrStartReserveMiB']=OCR_START_RESERVE//(1024*1024)
     return value
 
 
@@ -45,8 +48,7 @@ def ocr_strips(height):
 
 
 def recognize(images, enhanced=False):
-    from PIL import Image, ImageOps, ImageEnhance
-    import numpy as np
+    from PIL import Image
     import cv2
     from handset_ocr_engine import offline_engine
     cv2.setNumThreads(1)
@@ -61,45 +63,103 @@ def recognize(images, enhanced=False):
         with Image.open(io.BytesIO(base64.b64decode(item['png'],validate=True))) as source:
             if source.format!='PNG' or source.width*source.height>16000000:raise ValueError('Image bounds')
             original=source.convert('RGB')
-        passes=[]
-        # An explicit failed-verification retry varies optical preprocessing,
-        # without weakening the ten distinct, checked product-row criteria.
-        settings=((.95,'sharpen'),(1.,'sharpen'),(1.,'contrast')) if enhanced else (
-            (.85,'plain'),(1.,'plain'),(1.,'contrast'))
-        for scale,transform in settings:
-            im=original.resize(ocr_size(original.width,original.height,scale))
-            actual_scale=im.width/original.width
-            if transform=='contrast':im=ImageOps.autocontrast(im.convert('L')).convert('RGB')
-            elif transform=='sharpen':im=ImageEnhance.Sharpness(im).enhance(1.6)
-            rows=[]
-            for top,bottom,lower,upper in ocr_strips(im.height):
-                tile=im.crop((0,top,im.width,bottom))
-                found,_=engine(np.asarray(tile)[:,:,::-1],use_cls=False)
-                for points,text,score in found or []:
-                    shifted=[[float(x),float(y)+top] for x,y in points]
-                    center=sum(p[1] for p in shifted)/4
-                    if lower<=center<upper:rows.append([shifted,text,score])
-                del tile,found
-                __import__('gc').collect()
-                __import__('memory_watch').release_free_pages()
-            rows=[r for r in (rows or []) if float(r[2])>=.7]
-            # OCR lines in screen reading order; currency on the same footer row.
-            rows.sort(key=lambda r:sum(p[1] for p in r[0])/4)
-            lines=[]
-            for points,text,_ in rows:
-                y=sum(p[1] for p in points)/4
-                fragment=(min(p[0] for p in points),text)
-                if lines and abs(lines[-1][0]-y)<14*actual_scale:lines[-1][1].append(fragment)
-                else:lines.append([y,[fragment]])
-            passes.append('\n'.join(' '.join(t for _,t in sorted(parts)) for _,parts in lines))
-            del im, rows
-            __import__('gc').collect()
-            __import__('memory_watch').release_free_pages()
-        result.append(passes)
+        try:
+            result.append(recognize_image(original,engine,enhanced))
+        finally:
+            original.close()
     return result
 
 
-OCR_CONTAINER_LIMIT = 400 * 1024 * 1024
+def recognize_image(original,engine,enhanced=False):
+    """Release working images on success and failure; keep optical rules intact."""
+    from PIL import ImageOps, ImageEnhance
+    import numpy as np
+    passes=[]
+    settings=((.95,'sharpen'),(1.,'sharpen'),(1.,'contrast')) if enhanced else (
+        (.85,'plain'),(1.,'plain'),(1.,'contrast'))
+    for scale,transform in settings:
+        im=original.resize(ocr_size(original.width,original.height,scale))
+        actual_scale=im.width/original.width
+        try:
+            if transform=='contrast':
+                with im.convert('L') as gray:
+                    with ImageOps.autocontrast(gray) as contrasted:
+                        transformed=contrasted.convert('RGB')
+                im.close()
+                im=transformed
+            elif transform=='sharpen':
+                transformed=ImageEnhance.Sharpness(im).enhance(1.6)
+                im.close()
+                im=transformed
+            rows=[]
+            for top,bottom,lower,upper in ocr_strips(im.height):
+                with im.crop((0,top,im.width,bottom)) as tile:
+                    left,upper_edge,right,lower_edge=content_bounds(tile)
+                    with tile.crop((left,upper_edge,right,lower_edge)) as content:
+                        pixels=np.asarray(content)[:,:,::-1]
+                        try:found,_=engine(pixels,use_cls=False)
+                        finally:del pixels
+                for points,text,score in found or []:
+                    shifted=[[float(x)+left,float(y)+top+upper_edge] for x,y in points]
+                    center=sum(p[1] for p in shifted)/4
+                    if lower<=center<upper:rows.append([shifted,text,score])
+                del found
+                __import__('gc').collect()
+                __import__('memory_watch').release_free_pages()
+        finally:
+            im.close()
+        rows=[r for r in (rows or []) if float(r[2])>=.7]
+        rows.sort(key=lambda r:sum(p[1] for p in r[0])/4)
+        lines=[]
+        for points,text,_ in rows:
+            y=sum(p[1] for p in points)/4
+            fragment=(min(p[0] for p in points),text)
+            if lines and abs(lines[-1][0]-y)<14*actual_scale:lines[-1][1].append(fragment)
+            else:lines.append([y,[fragment]])
+        passes.append('\n'.join(' '.join(t for _,t in sorted(parts)) for _,parts in lines))
+        del im, rows
+        __import__('gc').collect()
+        __import__('memory_watch').release_free_pages()
+    return passes
+
+
+def content_bounds(image):
+    """Remove only exact uniform border pixels, not faint text or numbers."""
+    from PIL import Image, ImageChops
+    with Image.new(image.mode,image.size,image.getpixel((0,0))) as background:
+        with ImageChops.difference(image,background) as difference:
+            bounds=difference.getbbox()
+    if bounds is None:return (0,0,image.width,image.height)
+    left,top,right,bottom=bounds
+    # Keep context for the existing detector, never threshold away text.
+    return (max(0,left-8),max(0,top-8),min(image.width,right+8),min(image.height,bottom+8))
+
+
+# User-approved ceiling: keep 32 MiB below the 512-MiB Render container limit.
+# Admission still reserves 200 MiB for the native OCR model and its peak work.
+OCR_CONTAINER_LIMIT = 480 * 1024 * 1024
+OCR_START_RESERVE = 200 * 1024 * 1024
+# Four admission checks at the existing four-minute lease cadence. Persisted
+# in the receipt so a restart cannot reset a permanently blocked batch.
+OCR_MAX_MEMORY_DEFERRALS = 4
+
+
+def memory_deferrals(receipt):
+    value=(receipt or {}).get('memoryDeferrals',0)
+    return min(value,OCR_MAX_MEMORY_DEFERRALS) if type(value) is int and value>=0 else 0
+
+
+def deferred_memory_receipt(batch,previous):
+    count=memory_deferrals(previous)+1
+    exhausted=count>=OCR_MAX_MEMORY_DEFERRALS
+    value={'batchId':batch,'stage':'read-failed' if exhausted else 'waiting-memory',
+           'count':0,'memoryDeferrals':count,'retryAllowed':not exhausted,
+           'reason':'OCR_MEMORY_WAIT_EXHAUSTED' if exhausted else 'OCR_MEMORY_RESERVE',
+           'at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}
+    # Keep the existing, device-owned daily-list fallback available. This is
+    # an honest memory failure, never a successful import or new list proof.
+    if exhausted:value['error']='MemoryError'
+    return value
 
 def container_memory_bytes():
     """Current container memory, or None when no enforceable cgroup counter exists."""
@@ -111,11 +171,14 @@ def container_memory_bytes():
             pass
     return None
 
-def wait_ocr(child,memory_reader=container_memory_bytes,clock=time.monotonic,sleep=time.sleep,timeout=120):
+def wait_ocr(child,memory_reader=container_memory_bytes,clock=time.monotonic,sleep=time.sleep,timeout=120,measurement=None):
     """Fail closed before local OCR can kill the shared 512-MiB service."""
     deadline=clock()+timeout
     while child.poll() is None:
         used=memory_reader()
+        if measurement is not None and used is not None:
+            measurement['peakBytes']=max(measurement.get('peakBytes') or 0,used)
+            measurement['samples']+=1
         if used is None or used>=OCR_CONTAINER_LIMIT or clock()>=deadline:
             child.kill()
             try:child.wait(timeout=5)
@@ -126,15 +189,40 @@ def wait_ocr(child,memory_reader=container_memory_bytes,clock=time.monotonic,sle
         sleep(.05)
     return child.returncode
 
+
+def report_ocr_memory(measurement, outcome, started):
+    # One bounded record per image, no image bytes, identities or exceptions.
+    # This is whole-container sampling, not exclusive child allocation or PSS.
+    try:
+        def mib(value):return round(value/(1024*1024),1) if value is not None else None
+        record={
+            'scope':'container-during-one-ocr-image', 'outcome':outcome,
+            'beforeMiB':mib(measurement.get('beforeBytes')),
+            'sampledPeakMiB':mib(measurement.get('peakBytes')),
+            'afterMiB':mib(container_memory_bytes()),
+            'samples':measurement['samples'],
+            'durationMs':round((time.monotonic()-started)*1000),
+        }
+        # Expose the latest bounded observation in existing private status,
+        # without an accumulating journal or automated reserve reduction.
+        with _state_lock:
+            _state['lastOcrMemory']=record
+        print('BOB_OCR_MEMORY '+json.dumps(record,allow_nan=False),flush=True)
+    except Exception:
+        pass  # Diagnostics must not change OCR results or protection.
+
 def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, close_fds):
     # Preserve the cgroup-wide fail-closed guard and file-backed streams.
     # Return free parent heap pages before loading the child's native models.
-    # No cache or evidence is deleted, and the 400-MiB kill threshold stays fixed.
+    # No cache or evidence is deleted; the user-approved kill threshold is 480 MiB.
     __import__('gc').collect()
     __import__('memory_watch').release_free_pages()
     # Reserve measured OCR peak plus headroom before starting native models.
     used=container_memory_bytes()
-    if used is None or used+200*1024*1024>=OCR_CONTAINER_LIMIT:
+    started=time.monotonic()
+    measurement={'beforeBytes':used,'peakBytes':used,'samples':0}
+    if used is None or used+OCR_START_RESERVE>=OCR_CONTAINER_LIMIT:
+        report_ocr_memory(measurement,'deferred',started)
         raise OcrMemoryDeferred('OCR awaiting free container memory')
     with tempfile.TemporaryFile(mode='w+',encoding='utf-8') as source, \
          tempfile.TemporaryFile(mode='w+',encoding='utf-8') as output, \
@@ -142,7 +230,18 @@ def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, c
         source.write(input);source.seek(0)
         child=subprocess.Popen(args,stdin=source,stdout=output,stderr=errors,
                                text=True,env=env,close_fds=close_fds,start_new_session=True)
-        code=wait_ocr(child,timeout=timeout)
+        outcome='failed'
+        try:
+            code=wait_ocr(child,timeout=timeout,measurement=measurement)
+            outcome='completed' if code==0 else 'child-failed'
+        except MemoryError:
+            outcome='memory-limit'
+            raise
+        except subprocess.TimeoutExpired:
+            outcome='timeout'
+            raise
+        finally:
+            report_ocr_memory(measurement,outcome,started)
         output.seek(0);stdout=output.read(100001)
         errors.seek(0);stderr=errors.read(100001)
     if code and check:raise subprocess.CalledProcessError(code,args,stdout,stderr)
@@ -155,7 +254,25 @@ class OcrMemoryDeferred(RuntimeError):pass
 
 
 
-def process(payload,at):
+OCR_PROGRESS_REVISION='native-product-rows-v1'
+
+
+def image_work_key(image,enhanced):
+    # Include exact original timestamp/PNG/attachments and optical mode. Never
+    # reuse another batch or an older recognition/preprocessing revision.
+    return hashlib.sha256(json.dumps([OCR_PROGRESS_REVISION,enhanced,image],
+        sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+
+def sanitize_native_passes(passes):
+    import evaluator_runtime
+    result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],
+        input=json.dumps({'mode':'prepare-native','passes':passes}),
+        text=True,capture_output=True,timeout=20,check=True)
+    return json.loads(result.stdout)
+
+
+def process(payload,at,*,progress=None,save_progress=None):
     # An internal, bounded second pass only for a verification failure.
     # Original screenshot bytes are never changed or persisted in this mode.
     enhanced=payload.get('_ocr_mode')=='enhanced'
@@ -164,6 +281,7 @@ def process(payload,at):
     import evaluator_runtime
     images=[]
     prepared=[None]*len(payload['images'])
+    saved={} if not isinstance(progress,dict) or len(json.dumps(progress))>120000 else dict(progress)
     if any('appText' in image or 'localOcr' in image for image in payload['images']):
         # Prefer paired on-device reading over heavyweight server native OCR.
         # Only bounded, whitelisted product rows reach the JS parser. Full
@@ -179,6 +297,14 @@ def process(payload,at):
     for index,image in enumerate(payload['images']):
         if prepared[index] is not None:
             images.append(prepared[index]);continue
+        key=image_work_key(image,enhanced)
+        candidate=saved.get(str(index))
+        cached=None
+        if isinstance(candidate,dict) and set(candidate)=={'key','passes'} and candidate['key']==key:
+            cached=sanitize_native_passes(candidate['passes'])
+        if cached is not None:
+            images.append(cached)
+            continue
         try:
             child=evaluator_runtime.run([sys.executable,__file__,'--ocr']+
                 (['--enhanced'] if enhanced else []),priority=2,runner=guarded_ocr_run,
@@ -186,7 +312,16 @@ def process(payload,at):
         except subprocess.CalledProcessError as exc:
             raise OcrChildError('Isolated image recognition failed') from exc
         if len(child.stdout)>100000:raise ValueError('OCR output limit')
-        images.extend(json.loads(child.stdout))
+        recognized=json.loads(child.stdout)
+        if not isinstance(recognized,list) or len(recognized)!=1:raise ValueError('OCR image output')
+        # Keep the original output for this invocation's existing final parser;
+        # checkpoint only the whitelisted, genuinely repeated product rows.
+        images.extend(recognized)
+        if save_progress is not None:
+            clean=sanitize_native_passes(recognized[0])
+            if clean is not None:
+                saved[str(index)]={'key':key,'passes':clean}
+                if len(saved)<=4 and len(json.dumps(saved))<=120000:save_progress(saved)
     try:
         result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':images,'at':at,
             'appSources':[p is not None and 'appText' in image for p,image in zip(prepared,payload['images'])],
@@ -194,6 +329,18 @@ def process(payload,at):
     except subprocess.CalledProcessError as exc:
         raise ListVerificationError('Ten-row list verification failed') from exc
     return json.loads(result.stdout)
+
+
+def persist_progress(connect,batch,progress):
+    """Save only this leased batch's small intermediate; never mark it synced."""
+    raw=json.dumps(progress)
+    if len(raw)>120000 or len(progress)>4:raise ValueError('OCR progress bounds')
+    with connect() as conn:
+        conn.execute("""UPDATE bob_android_list_images i SET ocr_progress=%s::jsonb,processing_at=now()
+            FROM bob_android_diagnostic_devices d WHERE i.token_hash=d.token_hash
+            AND i.batch_id=%s AND NOT d.revoked AND d.expires_at>now()
+            AND i.import_receipt->>'stage'='reading'""",(raw,batch))
+        conn.commit()
 
 
 def persist_parsed(connect,batch,parsed,sleep=time.sleep):
@@ -209,7 +356,7 @@ def persist_parsed(connect,batch,parsed,sleep=time.sleep):
                 if not result.get('ok') or (not result.get('preserved') and result.get('products')!=10):raise ValueError('Persistence not confirmed')
                 stage='superseded' if result.get('preserved') else 'synced'
                 receipt={'batchId':batch,'stage':stage,'count':10,'at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}
-                conn.execute('UPDATE bob_android_list_images SET parsed_items=%s::jsonb,import_receipt=%s::jsonb WHERE batch_id=%s',(json.dumps(parsed['items']),json.dumps(receipt),batch))
+                conn.execute('UPDATE bob_android_list_images SET parsed_items=%s::jsonb,import_receipt=%s::jsonb,ocr_progress=NULL WHERE batch_id=%s',(json.dumps(parsed['items']),json.dumps(receipt),batch))
                 conn.commit()
             return stage
         except Exception as exc:
@@ -228,7 +375,7 @@ def tick(connect,runner=process):
             'batchId',batch_id,'stage','read-failed','count',0,'error','InterruptedWorker')
             WHERE processing_attempts>=3 AND import_receipt->>'stage'='reading'
             AND processing_at<now()-interval '4 minutes'""")
-        row=conn.execute("""SELECT i.batch_id,i.payload,i.created_at,i.processing_attempts,i.import_receipt FROM bob_android_list_images i
+        row=conn.execute("""SELECT i.batch_id,i.payload,i.created_at,i.processing_attempts,i.import_receipt,i.ocr_progress FROM bob_android_list_images i
             JOIN bob_android_diagnostic_devices d USING(token_hash)
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
@@ -240,13 +387,16 @@ def tick(connect,runner=process):
         if not row:
             observe("idle")
             return False
-        batch,payload,created,attempts,previous=row
+        batch,payload,created,attempts,previous,*extra=row
+        progress=extra[0] if extra else None
         # One enhanced pass after three failed list-verification attempts.
         # It is never repeated for a second verification failure.
         # The original evidence and strict 10-ISIN gate remain unchanged.
         alternate=(attempts==3 and (previous or {}).get('stage')=='read-failed'
             and (previous or {}).get('error')=='ListVerificationError')
-        conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1,import_receipt=%s::jsonb WHERE batch_id=%s",(json.dumps({'batchId':batch,'stage':'reading','count':0}),batch))
+        reading={'batchId':batch,'stage':'reading','count':0,
+                 'memoryDeferrals':memory_deferrals(previous)}
+        conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1,import_receipt=%s::jsonb WHERE batch_id=%s",(json.dumps(reading),batch))
         conn.commit()
     observe("reading")
     try:
@@ -261,7 +411,10 @@ def tick(connect,runner=process):
                     evidence_conn,batch,payload)
         request=dict(payload)
         if alternate:request['_ocr_mode']='enhanced'
-        parsed=runner(request,payload['images'][-1]['at'])
+        if runner is process:
+            parsed=runner(request,payload['images'][-1]['at'],progress=progress,
+                save_progress=lambda value:persist_progress(connect,batch,value))
+        else:parsed=runner(request,payload['images'][-1]['at'])
         if len(parsed.get('items',[]))!=10 or len({x.get('isin') for x in parsed['items']})!=10:
             raise ValueError('Incomplete list')
         if {p.get('isin') for p in parsed.get('evidence',{}).get('products',[])}!={x['isin'] for x in parsed['items']}:
@@ -269,20 +422,30 @@ def tick(connect,runner=process):
         stage=persist_parsed(connect,batch,parsed)
         observe(stage)
     except OcrMemoryDeferred:
-        observe("waiting-memory")
+        receipt=deferred_memory_receipt(batch,previous)
+        exhausted=not receipt['retryAllowed']
+        observe(receipt['stage'],'MemoryError' if exhausted else None)
         with connect() as conn:
-            conn.execute("UPDATE bob_android_list_images SET processing_attempts=GREATEST(processing_attempts-1,0),import_receipt=%s::jsonb WHERE batch_id=%s AND import_receipt->>'stage'='reading'",
-                (json.dumps({'batchId':batch,'stage':'waiting-memory','count':0}),batch))
+            # Six is beyond every existing retry allowance, including the
+            # historical MemoryError recovery. No immediate child was spawned.
+            attempts_sql='GREATEST(processing_attempts,6)' if exhausted else 'GREATEST(processing_attempts-1,0)'
+            conn.execute("UPDATE bob_android_list_images SET processing_attempts="+attempts_sql+",import_receipt=%s::jsonb WHERE batch_id=%s AND import_receipt->>'stage'='reading'",
+                (json.dumps(receipt),batch))
             conn.commit()
     except Exception as exc:
         observe("read-failed", type(exc).__name__)
         with connect() as conn:
-            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','')!='synced'",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__}),batch))
+            # A failed global reconciliation must permit fresh optical reads;
+            # an individually agreed subset is not proof of a complete image.
+            clear_progress=',ocr_progress=NULL' if isinstance(exc,ListVerificationError) else ''
+            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb"+clear_progress+" WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,'memoryDeferrals':memory_deferrals(previous)}),batch))
             conn.commit()
     return True
 
 
 def loop(connect):
+    print('BOB_HANDSET_LIST policy=bounded-ocr limitMiB='+str(OCR_CONTAINER_LIMIT//(1024*1024))+
+          ' startReserveMiB='+str(OCR_START_RESERVE//(1024*1024)),flush=True)
     # One OCR process at a time on the small server. Keep the existing video
     # reader's two-minute cadence, with handset work first in each cycle.
     import video_ocr
@@ -323,3 +486,4 @@ if __name__=='__main__' and '--ocr' in sys.argv:
     raw=sys.stdin.read(8100001)
     if len(raw)>8100000:raise ValueError('Image input limit')
     print(json.dumps(recognize(json.loads(raw),enhanced='--enhanced' in sys.argv)))
+

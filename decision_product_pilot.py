@@ -5,6 +5,7 @@ A durable primary-key claim makes a restart incapable of repeating a pilot.
 An explicitly invoked manual routine can replace at most one original after
 independent restore and disk checks by the verified archive writer.
 """
+from storage_capacity import MAX_VOLUME_BYTES
 import json
 import os
 import re
@@ -51,7 +52,7 @@ def _preflight(conn, seconds):
                 type(measured_at) not in (int,float) or
                 not 0 <= seconds-measured_at <=300 or
                 type(volume.get('diskUsage')) is not int or
-                volume['diskUsage']>750_000_000):
+                volume['diskUsage']>MAX_VOLUME_BYTES):
             return 'fresh-volume-proof-unavailable'
     except Exception:
         return 'fresh-volume-proof-unavailable'
