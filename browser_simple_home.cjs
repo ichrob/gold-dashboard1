@@ -9,7 +9,7 @@ const {chromium}=require('playwright');
  await page.route('**/*',r=>{
   const u=new URL(r.request().url());
   if(u.hostname!=='bob.test')return r.abort();
-  if(u.pathname==='/'||u.pathname==='/zentrale/workspace')return r.fulfill({contentType:'text/html',body:fs.readFileSync('Bob.html','utf8').replace('</body>','<script src="/bob_unified_workspace.js"></script></body>')});
+  if(u.pathname==='/'||u.pathname==='/zentrale/workspace')return r.fulfill({contentType:'text/html',body:fs.readFileSync('Bob.html','utf8').replace('</body>','<script src="/degiro_handoff.js"></script><script src="/bob_unified_workspace.js"></script></body>')});
   if(u.pathname==='/zentrale/')return r.fulfill({contentType:'text/html',body:fs.readFileSync('zentrale/index.html','utf8')});
   if(u.pathname==='/zentrale/theme.css')return r.fulfill({contentType:'text/css',body:fs.readFileSync('zentrale/theme.css','utf8')});
   if(u.pathname==='/zentrale/app.js')return r.fulfill({contentType:'text/javascript',body:fs.readFileSync('zentrale/app.js','utf8')});
@@ -22,10 +22,10 @@ const {chromium}=require('playwright');
  assert(await page.locator('#chart').isVisible(),'Chart visible with analysis collapsed');
  assert.equal(await page.locator('#chart').evaluate(el=>el.closest('details')),null,'Chart is never inside a disclosure');
  assert.equal(await page.locator('#earlyImpulseStatus').count(),1,'Keep a single live warning');
- assert(await page.locator('#bobSimpleHome #earlyImpulseStatus').isVisible(),'Early warning visible with analysis closed');
- assert.equal(await page.locator('#earlyImpulseStatus').evaluate(el=>el.closest('details')),null);
- assert.equal(await page.locator('#bobNavigation button').count(),5);
- assert.deepEqual(await page.locator('#bobNavigation button').allTextContents(),['◫Start','▤Produkte','⚡Risiko','◎Mein Trade','☰Mehr']);
+ assert(await page.locator('#bobEarlyCompact').isVisible(),'Compact warning always visible');
+ assert(!(await page.locator('#earlyImpulseStatus').isVisible()),'Full explanation initially folded');
+ assert.equal(await page.locator('#bobNavigation button').count(),3);
+ assert.deepEqual(await page.locator('#bobNavigation button').allTextContents(),['◫Markt','▤Produkte','◎Mein Trade']);
  for(const width of [360,390,768]){
   await page.setViewportSize({width,height:780});
   assert(await page.locator('#bobHomePrimary').isVisible());
@@ -38,11 +38,12 @@ const {chromium}=require('playwright');
  assert(!(await page.locator('#bobUnifiedWorkspace').isVisible()));
  await page.locator('#bobProductPreparation > summary').click();
  assert(await page.locator('#bobUnifiedWorkspace').isVisible());
- await page.locator('#bobNavigation [data-view="more"]').click();
+ await page.locator('#bobProductTools').evaluate(el=>el.open=true);
+ await page.locator('#bobProductTools [data-view="more"]').click();
  assert.equal(await page.locator('#bob-view-more [data-view="problems"]').count(),0);
  assert.equal(await page.locator('#bob-view-more [data-view="simulation"]').count(),0);
  assert.equal(await page.locator('#bob-view-more a[href="/zentrale/"]').count(),1);
- assert.equal(await page.locator('#bobNavigation [data-view="more"]').getAttribute('aria-current'),'page');
+ assert.equal(await page.locator('#bobNavigation [data-view="products"]').getAttribute('aria-current'),'page');
  await page.locator('#bobNavigation [data-view="overview"]').click();
  await page.evaluate(()=>{
   window.BobTradeSync={current:()=>({active:true,test:false,product:{isin:'TEST'}}),overview:()=>({pnl:'+12 CHF',stop:'≈ 2 CHF',target:'≈ 4 CHF',note:'Berechneter Produktkurs',action:'Bestehenden Stop nicht lockern.'})};
@@ -58,10 +59,10 @@ const {chromium}=require('playwright');
  assert(await page.locator('#quickSignal').isVisible());
  await page.locator('#bobHomeDetails > summary').click();
  assert(await page.locator('#chart').isVisible(),'Chart remains visible after collapsing analysis again');
- assert(await page.locator('#earlyImpulseStatus').isVisible(),'Early warning stays visible after collapsing analysis');
+ assert(await page.locator('#bobEarlyCompact').isVisible(),'Compact early warning stays visible after collapsing analysis');
  for(const label of ['FRÜH LONG · VORWARNUNG','FRÜH SHORT · VORWARNUNG','VORWARNUNG ABGELAUFEN','DATEN FEHLEN']){
   await page.locator('#earlyImpulseStatus').evaluate((el,text)=>{el.textContent=text;},label);
-  assert.equal(await page.locator('#bobSimpleHome #earlyImpulseStatus').innerText(),label);
+  await page.waitForFunction(text=>document.getElementById('bobEarlyCompact').textContent.includes(text),label);
  }
  // A notification opened in an existing window must escape collapsed analysis.
  const facts={eventKind:'early-warning',direction:'SHORT',generatedAt:Date.now()-600000,expiresAt:Date.now()-1};
@@ -117,6 +118,22 @@ const {chromium}=require('playwright');
  await page.locator('.toolbar a[href="/"]').click();
  await page.locator('#bobSimpleHome').waitFor();
  assert(await page.locator('#earlyImpulseStatus').isVisible());
+ await page.locator('#bobNavigation [data-view="products"]').click();
+ await page.evaluate(()=>{
+  window.BobDegiro.tradeTestProducts=()=>[{isin:'DE000FG14AV8',name:'Test product',direction:'LONG'}];
+  const button=document.createElement('button');button.dataset.simplePrepare='DE000FG14AV8';button.id='test-prepare';button.textContent='Trade vorbereiten';document.getElementById('bob-view-products').prepend(button);
+ });
+ await page.locator('#test-prepare').click();
+ assert(await page.locator('#bob-view-trade').isVisible());
+ assert(await page.locator('#dg2-form').isVisible());
+ assert.equal(await page.locator('#dg2-form [name="isin"]').inputValue(),'DE000FG14AV8');
+ await page.locator('#dg2-form [name="budget"]').fill('1000');
+ await page.locator('#dg2-propose').click();
+ assert.match(await page.locator('#dg2-proposal').textContent(),/unvollständig|nicht verfügbar/);
+ assert.equal(await page.locator('.bob-simple-copy button:not([disabled])').count(),1,'Only identity can be copied without valid calculation');
+ assert.equal(await page.locator('#dg2-orders textarea').count(),0,'A preview never stores an order');
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ await page.screenshot({path:'/tmp/bob-simple-trade.png',fullPage:true});
  assert.deepEqual(errors,[]);
  console.log('Simple home: five tabs, all destinations, 360/390/768 widths, active/absent/test trades, currency and original analysis passed.');
  }finally{await browser.close();}
