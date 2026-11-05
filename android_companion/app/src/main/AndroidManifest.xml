@@ -18,6 +18,8 @@
     </queries>
     <!-- Explicit product reader and two-image morning-list capture. -->
     <application android:label="${bobAppLabel}"
+                 android:icon="@mipmap/ic_launcher"
+                 android:roundIcon="@mipmap/ic_launcher"
                  android:allowBackup="false"
                  android:usesCleartextTraffic="false"
                  android:networkSecurityConfig="@xml/diagnostic_network"
