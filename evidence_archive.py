@@ -55,7 +55,7 @@ def selected_tables():
         'bob_cold_decision_product_objects', 'bob_cold_decision_product_refs',
         'bob_cold_decision_product_scan', 'bob_cold_decision_pilot_attempts',
     }
-    return TABLES | cold_ledgers | {table for profile in POLICIES for table in names(profile).values()}
+    return TABLES | cold_ledgers | __import__('cold_test_evidence').BACKUP_TABLES | {table for profile in POLICIES for table in names(profile).values()}
 
 
 def digest(path):

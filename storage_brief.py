@@ -275,6 +275,22 @@ def project(storage):
         "scope": "physical-provider-volume-single-observation-not-savings"
     }
 
+    cold_tests = storage.get("coldTests")
+    cold_tests = cold_tests if isinstance(cold_tests, dict) else {}
+    cycle = cold_tests.get("lastCycle")
+    cycle = cycle if isinstance(cycle, dict) else {}
+    result["coldTests"] = {
+        "status": cold_tests.get("status") if cold_tests.get("status") in
+                  ("observed", "not-observed") else "not-observed",
+        "offloadedRows": _number(cold_tests.get("offloadedRows"), maximum=10**12),
+        "logicalJsonBytesReduced": _number(cold_tests.get("logicalJsonBytesReduced"), maximum=10**12),
+        "lastVerifiedAt": _clock(cold_tests.get("lastVerifiedAt")),
+        "lastCycleStatus": cycle.get("status") if cycle.get("status") in
+            ("not-run", "busy", "archive-running", "backup-proof-not-fresh",
+             "verified-offload", "no-eligible-rows", "deferred") else "not-observed",
+        "physicalBytesFreed": None,
+    }
+
     worker = storage.get("archiveWorker")
     worker = worker if isinstance(worker, dict) else {}
     verified = worker.get("latestVerifiedAttempt")
