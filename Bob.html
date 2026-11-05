@@ -485,6 +485,7 @@ try{
 <div class="card">
 <h2 style="margin:0 0 10px">⚡ Schnellansicht</h2>
 <p><b>Neuer Einstieg</b> · Abwarten bedeutet keinen Ausstieg aus einem offenen Trade.</p>
+<section id="pushOpened" hidden style="border:2px solid #d97706;border-radius:10px;padding:12px;margin-bottom:12px"><h3 style="margin-top:0">Geöffnete Push-Nachricht</h3><p id="pushOpenedText" style="white-space:pre-line"></p><button type="button" id="pushOpenedDismiss">Schließen</button></section>
 <div id="quickSignal" class="signal neutral">Warte auf Live-Daten</div>
 <div id="activePositionSignal" class="signal neutral" role="status">Dein Trade: KEIN AKTIVER TRADE</div>
 <p id="activePositionReason">Einen bei DEGIRO eröffneten Trade in Bob aktivieren.</p>
@@ -5108,6 +5109,61 @@ setInterval(()=>{
 },30000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 
+
+
+<script>
+// Read-only explanation: opening a historic push never changes signal/trade state.
+(function(){
+ let opened=null;
+ function clean(value){
+  if(!value||!['early-warning','early-warning-withdrawn','signal-change'].includes(value.eventKind))return null;
+  const out={eventKind:value.eventKind,direction:['LONG','SHORT'].includes(value.direction)?value.direction:'unbekannt'};
+  for(const key of ['generatedAt','signalBarAt','dataAt','expiresAt'])if(Number.isSafeInteger(value[key])&&value[key]>0)out[key]=value[key];
+  return out;
+ }
+ function describe(event,current,now=Date.now()){
+  const clock=t=>t?new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'nicht protokolliert';
+  const kind={'early-warning':'FRÜHWARNUNG','early-warning-withdrawn':'FRÜHWARNUNG ZURÜCKGENOMMEN','signal-change':'BESTÄTIGTES EINSTIEGSSIGNAL'}[event.eventKind];
+  return kind+' · '+event.direction+'\nGemeldet: '+clock(event.generatedAt)+' (Zürich)'+
+   (event.expiresAt&&now>=event.expiresAt?'\nDie ursprüngliche Meldung ist abgelaufen.':'')+
+   '\n\nAktueller Stand: '+clock(current.checkedAt)+
+   '\nHaupttrend: '+current.trend+' · Frühwarnung: '+current.warning+
+   '\nEinstieg: '+current.entry+'\n'+current.reason+
+   '\nDie damalige Meldung ist keine aktuelle Produktfreigabe.';
+ }
+ function render(){
+  if(!opened)return;
+  const now=Date.now(),warning=earlyWarningContext(liveBundleCache,now),trend=sustainedTrendContext(liveBundleCache,now);
+  const last5m=(liveBundleCache?.history?.bars_by_tf?.['5m']||[]).filter(b=>!b.isOpen&&!b.providerIsOpen&&b.openTime+300000<=now).at(-1)?.openTime;
+  const fresh=currentSpotUsable()&&analysisAgeWarnings().length===0&&Number.isFinite(last5m)&&now-last5m<=600000;
+  const current={checkedAt:now,trend:trend.available?trend.direction:'nicht bestätigt',
+   warning:warning.available&&['active','watch'].includes(warning.state)?warning.direction+' ('+(warning.state==='watch'?'Beobachtung':'Frühimpuls')+')':warning.reason,
+   entry:fresh&&A.ready&&['LONG','SHORT'].includes(signalState.dir)?signalState.dir:'ABWARTEN',
+   reason:fresh?(signalState.reason||'Bestätigung ausstehend'):'Datenaktualität nicht bestätigt; aktuelle Analyse abwarten.'};
+  document.getElementById('pushOpenedText').textContent=describe(opened,current,now);
+ }
+ function show(value){
+  const event=clean(value);if(!event)return;
+  opened=event;
+  document.querySelector('[data-view="overview"]')?.click();
+  const panel=document.getElementById('pushOpened');panel.hidden=false;
+  document.getElementById('bob-view-overview')?.prepend(panel);
+  render();panel.scrollIntoView({block:'start'});
+ }
+ function fromHash(){
+  if(!location.hash.startsWith('#push='))return;
+  try{const raw=location.hash.slice(6);if(raw.length<=1500)show(JSON.parse(decodeURIComponent(raw)));}catch(_){}
+ }
+ if(navigator.serviceWorker)navigator.serviceWorker.addEventListener('message',event=>{
+  if(event.data?.type==='BOB_PUSH_CLICK'&&event.data.data?.kind==='general')show(event.data.data);
+ });
+ document.getElementById('pushOpenedDismiss').addEventListener('click',()=>{opened=null;document.getElementById('pushOpened').hidden=true;});
+ window.addEventListener('hashchange',fromHash);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)render();});
+ setInterval(()=>{if(!document.hidden)render();},10000);
+ fromHash();
+})();
+</script>
 
 </body></html>
 

@@ -1,4 +1,4 @@
-const CACHE_VERSION = "bob-shell-v27";
+const CACHE_VERSION = "bob-shell-v28";
 const RECEIPT_CACHE = "bob-push-receipt-queue-v1";
 
 self.addEventListener("install", event => { self.skipWaiting(); });
@@ -75,6 +75,18 @@ function safeJson(event) {
   catch (_) { return { title: "Bob", body: event.data ? event.data.text() : "Neue Benachrichtigung" }; }
 }
 
+// Only bounded, non-sensitive event facts cross the cold-start URL fragment.
+// Receipt proofs, raw message bodies and trade identifiers never enter it.
+function pushSummary(details) {
+  const summary = {};
+  if (['early-warning', 'early-warning-withdrawn', 'signal-change'].includes(details.eventKind)) summary.eventKind = details.eventKind;
+  if (['LONG', 'SHORT'].includes(details.direction)) summary.direction = details.direction;
+  for (const key of ['generatedAt', 'signalBarAt', 'dataAt', 'expiresAt']) {
+    if (Number.isSafeInteger(details[key]) && details[key] > 0) summary[key] = details[key];
+  }
+  return summary;
+}
+
 self.addEventListener("push", event => {
   const data = safeJson(event);
   const details = data.data || data;
@@ -87,7 +99,7 @@ self.addEventListener("push", event => {
     renotify: Boolean(data.renotify),
     actions: [{action:"receipt-confirm", title:"Empfang bestätigen"}],
     requireInteraction: Boolean(data.requireInteraction),
-    data: { url: details.url || "/", kind: details.kind || "general", signalId: details.signalId || null, tradeId:details.tradeId||null, riskOnly:details.riskOnly===true, expiresAt:details.expiresAt, receiptId:details.receiptId, receiptExpiry:details.receiptExpiry, receiptProof:details.receiptProof }
+    data: { ...pushSummary(details), url: details.url || "/", kind: details.kind || "general", signalId: details.signalId || null, tradeId:details.tradeId||null, riskOnly:details.riskOnly===true, expiresAt:details.expiresAt, receiptId:details.receiptId, receiptExpiry:details.receiptExpiry, receiptProof:details.receiptProof }
   };
   event.waitUntil((async()=>{
     if(Number.isFinite(details.expiresAt)&&Date.now()>=details.expiresAt)return;
@@ -127,9 +139,12 @@ self.addEventListener("push", event => {
 self.addEventListener("notificationclick", event => {
   // Snapshot the notification metadata BEFORE close() or a browser navigation.
   const details = event.notification.data || {};
+  const summary = pushSummary(details);
+  const destination = details.kind === 'general' && summary.eventKind
+    ? '/#push=' + encodeURIComponent(JSON.stringify(summary)) : details.url || "/";
   let target = "/";
   try {
-    const url = new URL(details.url || "/", self.location.origin);
+    const url = new URL(destination, self.location.origin);
     if (url.origin === self.location.origin) target = url.pathname + url.search + url.hash;
   } catch (_) { /* Invalid push destinations fall back to Bob. */ }
   event.notification.close();

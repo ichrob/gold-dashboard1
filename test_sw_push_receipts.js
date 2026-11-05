@@ -29,6 +29,7 @@ async function main() {
     async delete(name) { return cachesMap.delete(name); }
   };
   const self = {
+    location: {origin:"https://bob.example"},
     addEventListener(name, handler) { listeners[name] = handler; },
     skipWaiting() {},
     clients: {claim: async () => {}},
@@ -111,6 +112,28 @@ async function main() {
   });
   await staleWait;
   assert.equal(requests.length,prev);
+  // Cold start carries event facts, never signed receipt credentials.
+  const facts={...proof,eventKind:'early-warning',direction:'SHORT',generatedAt:Date.now(),signalBarAt:Date.now()-1000,expiresAt:Date.now()+180000};
+  listeners.push({data:{json:()=>({title:'FRÜHWARNUNG · SHORT',data:facts})},waitUntil(p){pushWait=p;}});
+  await pushWait;
+  const saved=notifications.at(-1).options.data;
+  assert.equal(saved.eventKind,'early-warning');
+  assert.equal(saved.direction,'SHORT');
+  let target;
+  clients.openWindow=async url=>{target=url;};
+  listeners.notificationclick({notification:{data:saved,close(){}},waitUntil(p){clickWait=p;}});
+  await clickWait;
+  assert(target.startsWith('/#push='));
+  const decoded=JSON.parse(decodeURIComponent(target.split('#push=')[1]));
+  assert.equal(decoded.eventKind,'early-warning');
+  assert.equal(decoded.generatedAt,facts.generatedAt);
+  assert(!target.includes('receipt'));
+  // Existing Bob window receives the same metadata and is focused.
+  let navigated,focused=false;
+  clients.matchAll=async()=>[{url:"https://bob.example/",async navigate(value){navigated=value;return this;},async focus(){focused=true;}}];
+  listeners.notificationclick({notification:{data:saved,close(){}},waitUntil(p){clickWait=p;}});
+  await clickWait;
+  assert.equal(JSON.parse(decodeURIComponent(navigated.split('#push=')[1])).direction,'SHORT');assert(focused);
   console.log("push worker receipts: durable show/click retries, privacy, expiry OK");
 }
 main().catch(error => {console.error(error);process.exitCode=1;});
