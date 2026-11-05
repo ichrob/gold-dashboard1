@@ -23,3 +23,34 @@ def delay(result):
     if result.get('status') != 'checked':
         return 3600
     return result.get('pressure', {}).get('nextRunSeconds', 3600)
+
+
+
+def verified_writer_preflight(conn, now=None):
+    """Read-only, fail-closed gate before any automatic cold-payload replacement.
+
+    The full original remains SQL-local until a fresh reviewed-evidence
+    independent restore AND recovery key check are persisted. A separate
+    fresh provider disk measurement must leave the existing WAL/scratch
+    headroom; logical pg_database_size never substitutes for volume usage.
+    """
+    import time
+    from storage_budget import archive_status
+    from cold_decision_product_writer import _proof_state
+    from storage_capacity import MAX_VOLUME_BYTES
+    import render_disk_metrics
+
+    seconds = time.time() if now is None else now
+    if _proof_state(archive_status(conn), seconds) != 'verified-fresh':
+        return {'status': 'backup-proof-not-fresh', 'movedRows': 0}
+    volume = render_disk_metrics.report()
+    observed = volume.get('observedAt')
+    if (volume.get('status') != 'observed' or
+            volume.get('resource') != render_disk_metrics.RESOURCE or
+            volume.get('unit') != 'bytes' or
+            type(observed) not in (int, float) or
+            not 0 <= seconds - observed <= 300 or
+            type(volume.get('diskUsage')) is not int or
+            volume['diskUsage'] > MAX_VOLUME_BYTES):
+        return {'status': 'fresh-volume-proof-unavailable', 'movedRows': 0}
+    return None
