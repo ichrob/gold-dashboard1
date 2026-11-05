@@ -14,6 +14,7 @@ const {chromium} = require('playwright');
     count++; assert.equal(route.request().method(),'GET');
     return route.fulfill({status:fail?503:200,contentType:'application/json',body:JSON.stringify({readOnly:true,realOrders:false,
      observedAt:'2026-11-05T00:00:00Z',problemIndexFresh:false,cases:[{code:'<img src=x onerror=alert(1)>',state:'testing'}],
+     phone:{state:'unknown',appVersion:10500,requested:10,complete:6,partial:2,runAt:1793836800,localOcrImages:2},
      jobs:[{id:'background',state:'observed',lastObservedAt:1793836800}],productStatus:{state:'incomplete'},
      storage:{diskUsedBytes:104857600,diskObservedAt:1793836800},testOverview:{items:[{label:'Test',state:'unknown'}]}})});
    }
@@ -22,8 +23,8 @@ const {chromium} = require('playwright');
    return file ? route.fulfill({contentType:file.endsWith('.js')?'text/javascript':'text/html',body:fs.readFileSync(file,'utf8')}) : route.fulfill({status:404,body:''});
   });
   await page.goto('https://bob.test/zentrale/#storage');
-  assert(await page.locator('#storage').isVisible()); assert.equal(count,0);
-  await page.locator('#refresh').click(); await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
+  assert(await page.locator('#storage').isVisible());
+  await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
   assert.equal(count,1); assert.match(await page.locator('#disk').innerText(),/100 MiB/);
   for(const section of ['overview','studies','maintenance','storage','settings']) {
    await page.locator('nav a[href="#'+section+'"]').click();
@@ -32,6 +33,9 @@ const {chromium} = require('playwright');
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'mobile overflow');
   }
   assert.equal(count,1,'navigation must reuse the same snapshot');
+  assert.match(await page.locator('#phone-progress').textContent(),/6 von 10/);
+  assert.match(await page.locator('#phone-state').textContent(),/Unbekannt/);
+  assert.match(await page.locator('#help-count').textContent(),/Unbekannt/);
   await page.locator('nav a[href="#maintenance"]').click();
   assert.match(await page.locator('#problem-age').innerText(),/veraltet oder unbekannt/);
   assert.equal(await page.locator('#cases img').count(),0,'server text must not become HTML');
@@ -40,7 +44,11 @@ const {chromium} = require('playwright');
   assert.equal(await page.locator('#monitor').textContent(),'Nicht aktuell bestätigt');
   assert.equal(await page.locator('#disk').textContent(),'Nicht aktuell bestätigt');
   await page.goto('https://bob.test/zentrale/#unknown'); assert(await page.locator('#overview').isVisible());
-  assert.equal(count,2,'opening the page never triggers a diagnostic request');
+  assert.equal(count,2,'a hash-only navigation must not reload diagnostics');
+  await page.reload();
+  await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
+  assert.equal(count,3,'each actual page reload performs exactly one read');
+  assert.match(await page.locator('#phone-state').innerText(),/Nicht aktuell bestätigt/);
   assert.deepEqual(errors,[]);
   console.log('Zentrale: mobile navigation, one shared read, safe text and failed-refresh clearing passed');
  } finally {await browser.close();}

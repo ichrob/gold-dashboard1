@@ -22,7 +22,7 @@
     button:disabled{opacity:.6;cursor:wait}.action.secondary{background:#263850;color:#f1f5f9}
     a:not(.action){color:#f2cf81} .actions{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0}
     ul{padding-left:20px;margin:10px 0}li{margin:7px 0;line-height:1.4}
-    [hidden]{display:none!important}nav a[aria-current="page"]{background:#d4aa53;color:#152038}a:focus-visible,button:focus-visible{outline:3px solid #fff;outline-offset:3px}.notice{border-left:3px solid #d4aa53;padding-left:12px}.error{color:#ffc2b9}.muted{color:#9fb0c7}
+    [hidden]{display:none!important}nav a[aria-current="page"]{background:#d4aa53;color:#152038}.metric,li,p{overflow-wrap:anywhere}.hub-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.hub-nav a{font-size:.9rem;padding:10px}summary{cursor:pointer}a:focus-visible,button:focus-visible{outline:3px solid #fff;outline-offset:3px}.notice{border-left:3px solid #d4aa53;padding-left:12px}.error{color:#ffc2b9}.muted{color:#9fb0c7}
   </style>
   <script src="/zentrale/app.js" defer></script>
 </head>
@@ -32,7 +32,7 @@
   <div class="actions"><a class="action secondary" href="/">← Bob Assistent</a><button type="button" id="refresh">Status aktualisieren</button></div>
   <p id="status" role="status" aria-live="polite">Noch nicht abgefragt.</p>
   <p id="observed" class="sub">Datenstand unbekannt</p>
-  <nav class="actions" aria-label="Bereiche der Zentrale">
+  <nav class="actions hub-nav" aria-label="Bereiche der Zentrale">
     <a class="action secondary" href="#overview">Überblick</a>
     <a class="action secondary" href="#studies">Simulationen &amp; Forschung</a>
     <a class="action secondary" href="#maintenance">Probleme &amp; Wartung</a>
@@ -41,6 +41,17 @@
   </nav>
   <section class="panel" id="overview" data-panel>
     <h2 tabindex="-1">Überblick</h2>
+    <div class="grid summary-grid">
+      <div class="metric"><b>Betriebszustand</b><span id="overall">Wird geprüft</span></div>
+      <div class="metric"><b>Offene Problemgruppen</b><span id="open-count">Wird geprüft</span></div>
+      <div class="metric"><b>Deine Hilfe nötig</b><span id="help-count">Wird geprüft</span></div>
+    </div>
+    <p id="next-action" role="status"></p>
+    <h3>Handy &amp; Produkteinlesen</h3>
+    <p id="phone-state">Noch keine Handy-Meldung geladen.</p>
+    <p id="phone-step"></p><p id="phone-progress"></p><p id="phone-import"></p>
+    <details><summary>Handy-Meldung und Bilderkennung</summary><p id="phone-details"></p><p id="phone-ocr"></p></details>
+    <h3>Letzte erfolgreiche Ausführungen</h3><ul id="job-times"><li>Wird geprüft.</li></ul>
     <p>Dein gemeinsamer Einstieg für Verwaltung und Auswertungen. Goldanalyse, Rangliste, Push und Tradeüberwachung findest du im Bob-Assistenten.</p>
     <div class="grid">
       <div class="metric"><b>Simulationen</b><span id="simulation">Nicht geprüft</span></div>
@@ -78,7 +89,7 @@
     <h2 tabindex="-1">Einstellungen &amp; Verbindung</h2>
     <p>Assistent und Zentrale verwenden dieselbe Bob-Anmeldung und dieselben vorhandenen Dienste. Beide können einen eigenen Startbildschirm-Eintrag behalten.</p>
     <a class="action secondary" href="/?view=settings#settings">Push, Verbindung und Abmelden</a>
-    <p class="sub">Statusdaten werden nur über „Status aktualisieren“ geladen. Bereichswechsel verwenden dieselbe Antwort. Private Daten werden hier nicht offline gespeichert.</p>
+    <p class="sub">Beim Öffnen wird der Status einmal automatisch geladen. „Status aktualisieren“ lädt erneut. Bereichswechsel verwenden dieselbe Antwort; es gibt keine dauernden Hintergrundabfragen. Private Daten werden hier nicht offline gespeichert.</p>
   </section>
 </main>
 </body>
