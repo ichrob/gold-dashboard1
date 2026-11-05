@@ -275,6 +275,9 @@ body.bob-mobile{font-size:16px}
 .bob-mobile #bobTradePushControls .bob-push-card-icon{display:none}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 
+
+#bobNavigation [data-training-detail]{display:none!important}
+#bobNavigation > a{display:flex;align-items:center;justify-content:center;margin:0;text-decoration:none;font-size:12px;min-width:0}
 </style>
 </head>
 <body>
@@ -1707,6 +1710,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 (function(){
  function initMobile(){
   const main=document.querySelector('main');if(!main||document.getElementById('bobNavigation'))return;
+  const central=location.pathname==='/zentrale/workspace';
+  const management=new Set(['simulation','auto','learning','diagrams','improve','research','future','problems','settings']);
+  const workspaceUrl=key=>'/zentrale/workspace?view='+encodeURIComponent(key)+'#'+encodeURIComponent(key);
   const byId=id=>document.getElementById(id);
   const card=id=>byId(id)?.closest('.card');
   const quick=card('quickSignal'),manual=card('dgType'),push=card('generalPushBtn');
@@ -1988,7 +1994,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   document.addEventListener('change',updateTradeGuide);
   setInterval(updateTradeGuide,1000);updateTradeGuide();
   const logout=document.querySelector('form[action="/logout"]');move(logout,'settings');
-  if(header){header.className='bob-heading';header.querySelector('h1').textContent='Bob';header.querySelector('.sub').textContent='Dein Gold- und Produktassistent';main.prepend(header);}
+  if(header){header.className='bob-heading';header.querySelector('h1').textContent=central?'Bob Zentrale':'Bob';header.querySelector('.sub').textContent=central?'Verwalten, testen und verbessern':'Dein Gold- und Produktassistent';main.prepend(header);}
   Object.values(panels).forEach(el=>main.append(el));
   const nav=document.createElement('nav');nav.id='bobNavigation';nav.className='bob-nav';nav.setAttribute('aria-label','Hauptnavigation');
   window.BobDiagrams?.mount(panels.diagrams);
@@ -1998,7 +2004,14 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   const hubLink=document.createElement('a');hubLink.href='/zentrale/';hubLink.className='card';
   hubLink.textContent='Bob Zentrale · Verwaltung, Simulationen, Wartung und Speicher';
   panels.more.append(hubLink);
-  // Group existing destinations, retaining their buttons and navigation targets.
+  if(central){
+   hubLink.textContent='← Überblick der Zentrale';
+   const assistant=document.createElement('a');assistant.href='/';assistant.className='card';assistant.textContent='Zum Bob Assistenten';panels.more.append(assistant);
+   document.title='Bob Zentrale · Verwaltung';panels.more.querySelector('h2').textContent='Verwaltung';
+   document.querySelector('link[rel="manifest"]')?.setAttribute('href','/zentrale/manifest.webmanifest');
+  }
+  // One administrative workspace; the trading menu only retains trading/help.
+
   for(const [title,keys] of [
    ['Trainieren und auswerten',['simulation','learning','diagrams','improve']],
    ['Recherche',['research']],
@@ -2008,7 +2021,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const group=document.createElement('section');group.className='bob-more-group';
    const heading=document.createElement('h3');heading.textContent=title;
    const menu=document.createElement('div');menu.className='bob-more-menu';
-   for(const key of keys){const button=moreMenu.querySelector('[data-view="'+key+'"]');if(button)menu.append(button);}
+   for(const key of keys.filter(key=>central?management.has(key):!management.has(key))){const button=moreMenu.querySelector('[data-view="'+key+'"]');if(button)menu.append(button);}
+   if(!menu.children.length)continue;
    group.append(heading,menu);panels.more.append(group);
    if(title==='Trainieren und auswerten')window.BobTrainingHelp?.mount(group);
   }
@@ -2036,7 +2050,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    back.textContent='← '+panels[parent].getAttribute('aria-label');panels[key].prepend(back);
   }
   for(const key of ['improve','simulation','learning','diagrams','research','future','degiro','degiro2','settings','help']){
-   const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view='more';back.textContent='← Mehr';panels[key].prepend(back);
+   const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view='more';back.textContent=central?'← Verwaltung':'← Mehr';panels[key].prepend(back);
   }
 
   // Compact trade view: keep the original controls and their handlers intact.
@@ -2103,15 +2117,19 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    <li><b>Überwachen:</b> Aktiven Trade kontrollieren, Trade-Benachrichtigungen bei Bedarf einschalten. Stopp, Ziel und Warnungen beachten; Änderungen selbst bei DEGIRO vornehmen.</li>
    <li><b>Nach dem Verkauf:</b> Verkauf dokumentieren und prüfen, ob Bob die Überwachung beendet hat. „Trade beendet“ in Bob verkauft kein Produkt bei DEGIRO.</li>
    </ol><h3>Wo finde ich was?</h3>
-   <p><b>Mehr → Simulation:</b> laufende Spielgeldtests und Teststatus. <b>Lernen &amp; Ergebnisse:</b> abgeschlossene Trades, Auswertungen und Nachweise für Verbesserungen. Offene oder fehlende Daten zählen nicht als Erfolg.</p>
-   <p><b>Mehr → Diagramme:</b> Markt, Mein Trade, Simulation und Lernen. <b>Recherche:</b> Videos, Zusammenfassungen und MCO vs. Bob. <b>DEGIRO-Handy-Assistent:</b> der frühere Bereich „DEGIRO 2“. Der separate DEGIRO-Bereich bleibt dein reservierter Platzhalter.</p>
-   <p><b>Mehr → Einstellungen:</b> Push-Einrichtung, Verbindung und Abmelden. Marktbeobachtung und Aktiver Trade stehen gemeinsam oben in Mein Trade. <b>Probleme:</b> technische Meldungen und automatische KI-Prüfung; Produktnachweise stehen bei Produkte.</p>
+   <p><b>Bob Zentrale → Simulationen:</b> laufende Spielgeldtests und Teststatus. <b>Lernen &amp; Ergebnisse:</b> abgeschlossene Trades, Auswertungen und Nachweise für Verbesserungen. Offene oder fehlende Daten zählen nicht als Erfolg.</p>
+   <p><b>Bob Zentrale → Diagramme:</b> Markt, Mein Trade, Simulation und Lernen. <b>Recherche:</b> Videos, Zusammenfassungen und MCO vs. Bob. <b>DEGIRO-Handy-Assistent:</b> der frühere Bereich „DEGIRO 2“. Der separate DEGIRO-Bereich bleibt dein reservierter Platzhalter.</p>
+   <p><b>Bob Zentrale → Einstellungen:</b> Push-Einrichtung, Verbindung und Abmelden. Marktbeobachtung und Aktiver Trade stehen gemeinsam oben in Mein Trade. <b>Probleme:</b> technische Meldungen und automatische KI-Prüfung; Produktnachweise stehen bei Produkte.</p>
    <details class="bob-disclosure"><summary>Wenn etwas fehlt</summary><p>Bei fehlenden oder veralteten Kursen den Datenstatus unter Einstellungen öffnen. Bei falschen Trade-Angaben „Daten korrigieren“ nutzen. Unter Mein Trade → Details bleiben zusätzliche Eingaben und Nachweise erhalten.</p><p>Benachrichtigungen benötigen die Browser- beziehungsweise Handyberechtigung. Ein eingeschalteter Schalter allein bestätigt noch keine erfolgreiche Hintergrundüberwachung.</p></details>`;
   panels.help.append(help);
   const helpLink=document.createElement('div');helpLink.className='bob-more-menu';helpLink.innerHTML=menuButton('help','?','Bedienungsanleitung','Bob Schritt für Schritt');panels.settings.append(helpLink);
 
 
   nav.innerHTML=[['overview','◫','Start'],['products','▤','Produkte'],['risk','⚡','Risiko'],['trade','◎','Mein Trade'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='more'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
+  if(central){
+   nav.setAttribute('aria-label','Zentrale Navigation');
+   nav.innerHTML='<a href="/zentrale/" class="bob-back">Überblick</a>'+[['simulation','Tests'],['learning','Ergebnisse'],['problems','Probleme'],['more','Verwaltung']].map(([key,label])=>menuButton(key,'',label,'')).join('');
+  }
   // Bob-Handy action locator: lookup by stable control ID instead of
   // content-card position. Never click or send automatically.
   const handyActionTargets=Object.freeze({problems:'bobMobileHelpShare'});
@@ -2146,8 +2164,12 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    followUps.push(setTimeout(()=>{align();cleanup();},850));
    return true;
   }
-  function show(key,focus=true){if(['products-long','products-leverage'].includes(key))key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['problems','improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
-  document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
+  function show(key,focus=true){
+   if(central&&!key)key='more';
+   if(!central&&management.has(key)){location.replace(workspaceUrl(key));return false;}
+   if(central&&key!=='more'&&!management.has(key)){location.assign('/?view='+encodeURIComponent(key||'overview')+'#'+encodeURIComponent(key||'overview'));return false;}
+   if(['products-long','products-leverage'].includes(key))key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&(!central||!nav.querySelector('[data-view="'+key+'"]'))&&['problems','improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
+  document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){if(show(b.dataset.view)===false)return;history.replaceState(null,'','#'+b.dataset.view);}});
   // The Android voice command explicitly requests the Gold-Hebelprodukte list.
   // An ordinary manual tap on the Produkte tab still opens the overview normally.
   // The companion sends ?view=products#products, surviving a password login.
@@ -2370,12 +2392,12 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const summary=revealGoldLeveragedProducts(panels.products);
    if(summary)stabilizeGoldDeepLinkScroll(summary);
   });
-  for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{show('settings');history.replaceState(null,'','#settings');if(b.dataset.status==='push')byId('bobPushSetup')?.scrollIntoView({behavior:'smooth',block:'start'});else{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});}});
+  for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{if(show('settings')===false)return;history.replaceState(null,'','#settings');if(b.dataset.status==='push')byId('bobPushSetup')?.scrollIntoView({behavior:'smooth',block:'start'});else{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});}});
   byId('bobNextAction')?.addEventListener('click',()=>{
    const destination=byId('bobNextAction').dataset.destination;
-   if(destination==='data'){show('settings');history.replaceState(null,'','#settings');system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});system.querySelector('summary')?.focus();}
+   if(destination==='data'){if(show('settings')===false)return;history.replaceState(null,'','#settings');system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});system.querySelector('summary')?.focus();}
    else if(destination==='analysis'){const details=byId('bobMarketAnalysis');if(details){details.open=true;details.scrollIntoView({behavior:'smooth',block:'start'});details.querySelector('summary')?.focus();}}
-   else{show(destination);history.replaceState(null,'','#'+destination);}
+   else{if(show(destination)===false)return;history.replaceState(null,'','#'+destination);}
   });
   function text(id){return byId(id)?.textContent.trim()||'';}
   function update(){
@@ -2410,7 +2432,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   }
   // Observe only original outputs, never our derived labels (avoids observer loops).
   const observer=new MutationObserver(update);for(const id of ['quickSignal','analysisQuality','analysisAge','decisionExplanation','blockTrendNote','blockMomentumNote','blockVolatilityNote','blockStructureNote','quickReason','sourceSummary','pushStatus','fibMonitorStatus','auditSave','improvementStatus','generalPushBtn','dgTop3Out','tradeStateBtn']){const el=byId(id);if(el)observer.observe(el,{childList:true,subtree:true,characterData:true});}
-  document.body.classList.add('bob-mobile');update();show(location.hash.slice(1),false);
+  document.body.classList.add('bob-mobile');update();show(location.hash.slice(1)||new URLSearchParams(location.search).get('view')||'',false);
   // Locate the button on explicit Bob-Handy entry even if a future
   // redesign moves its card; then let the user scroll normally.
   stabilizeHandyActionEntry();
@@ -2622,7 +2644,7 @@ async function syncPushPreferencesImpl(){
    if(tradeMgmt?.active&&!tradeMgmt.test&&pushState.trade&&!tradeMgmt.fibonacciMonitor){
     const snapshot=captureFibonacciMonitor();if(snapshot){tradeMgmt.fibonacciMonitor=snapshot;saveTradeMgmt();}
    }
-   const reg=await navigator.serviceWorker.ready;
+   const reg=await (window.BobPush?.registration?window.BobPush.registration():navigator.serviceWorker.ready);
    const sub=await reg.pushManager.getSubscription();
    if(!sub){if(status)status.textContent="Fibonacci-Überwachung: Server-Push-Abonnement fehlt.";return false;}
    let backgroundTrade=null;
@@ -2681,7 +2703,7 @@ async function testBackgroundPush(scenario='delivery'){
   if(early&&!pushState.general)throw Error('Für Frühwarn-Tests zuerst Marktbeobachtung aktivieren.');
   if(!pushState.general&&!pushState.trade)throw Error("Für den Test zuerst Marktsignale oder Aktiver Trade einschalten.");
   if(!await syncPushPreferences())throw Error('Push-Einstellungen nicht am Server bestätigt: '+($('fibMonitorStatus')?.textContent||'Bitte „Push aktualisieren“ und erneut testen.'));
-  const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();
+  const reg=await (window.BobPush?.registration?window.BobPush.registration():navigator.serviceWorker.ready),sub=await reg.pushManager.getSubscription();
   if(!sub)throw Error('Zuerst Gerät für Push registrieren.');
   const r=await fetch('/api/push/test-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint,scenario})});
   if(!r.ok){
@@ -4360,7 +4382,7 @@ window.BobTradeSync={
   if(snapshot?.active!==false||!snapshot.tradeId||snapshot.tradeId!==tradeMgmt.tradeId||tradeMgmt.test||!tradeMgmt.active)return false;
   tradeMgmt={...tradeMgmt,...snapshot,active:false,fibonacciMonitor:null};
   localStorage.setItem('goldScannerTradeMgmt',JSON.stringify(tradeMgmt));
-  if(typeof navigator!=='undefined'&&navigator.serviceWorker)navigator.serviceWorker.ready.then(reg=>reg.active?.postMessage({type:'BOB_TRADE_CLOSED',tradeId:snapshot.tradeId})).catch(()=>{});
+  if(typeof navigator!=='undefined'&&navigator.serviceWorker)(window.BobPush?.registration?window.BobPush.registration():navigator.serviceWorker.ready).then(reg=>reg.active?.postMessage({type:'BOB_TRADE_CLOSED',tradeId:snapshot.tradeId})).catch(()=>{});
   pushState=BobPush.setActiveTrade(false);renderPush();
   renderActiveTradePlan();renderPositionStatus();restoreTradeMgmt();
   syncPushPreferences();return true;
@@ -4967,7 +4989,7 @@ if("serviceWorker" in navigator){
   });
   window.addEventListener("load",()=>{
     sessionStorage.removeItem("bob-sw-reloaded");
-    navigator.serviceWorker.register("/sw.js?v=23",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register(location.pathname.startsWith("/zentrale/")?"/zentrale/sw.js":"/sw.js?v=23",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
     // MTF watchdog: if the live analysis rendered but the MTF cells did not,
     // retry from the already cached live bundle without requiring a page reload.
     let mtfWatchdogRuns=0;
