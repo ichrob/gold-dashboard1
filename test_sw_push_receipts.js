@@ -29,6 +29,7 @@ async function main() {
     async delete(name) { return cachesMap.delete(name); }
   };
   const self = {
+    location: {origin:"https://bob.example"},
     addEventListener(name, handler) { listeners[name] = handler; },
     skipWaiting() {},
     clients: {claim: async () => {}},
@@ -128,11 +129,11 @@ async function main() {
   assert.equal(decoded.generatedAt,facts.generatedAt);
   assert(!target.includes('receipt'));
   // Existing Bob window receives the same metadata and is focused.
-  let received,focused=false;
-  clients.matchAll=async()=>[{postMessage(value){received=value;},async focus(){focused=true;}}];
+  let navigated,focused=false;
+  clients.matchAll=async()=>[{url:"https://bob.example/",async navigate(value){navigated=value;return this;},async focus(){focused=true;}}];
   listeners.notificationclick({notification:{data:saved,close(){}},waitUntil(p){clickWait=p;}});
   await clickWait;
-  assert.equal(received.data.direction,'SHORT');assert(focused);
+  assert.equal(JSON.parse(decodeURIComponent(navigated.split('#push=')[1])).direction,'SHORT');assert(focused);
   console.log("push worker receipts: durable show/click retries, privacy, expiry OK");
 }
 main().catch(error => {console.error(error);process.exitCode=1;});

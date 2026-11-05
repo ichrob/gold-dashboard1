@@ -5,15 +5,16 @@ const {chromium} = require('playwright');
  const browser = await chromium.launch({headless:true, executablePath:process.env.BOB_TEST_CHROMIUM || undefined, args:['--no-sandbox']});
  try {
   const page = await browser.newPage({viewport:{width:360,height:780},serviceWorkers:'block'});
+  await page.clock.install();
   const errors=[]; page.on('pageerror', e => errors.push(e.message));
   let count=0, fail=false, fresh=false, needsHelp=false;
-  await page.route('**/*', route => {
+  await page.route('**/*', async route => {
    const url=new URL(route.request().url());
    if(url.hostname !== 'bob.test')return route.abort();
    if(url.pathname==='/api/operations-summary') {
     count++; assert.equal(route.request().method(),'GET');
     return route.fulfill({status:fail?503:200,contentType:'application/json',body:JSON.stringify({readOnly:true,realOrders:false,
-     observedAt:fresh?new Date().toISOString():'2026-11-05T00:00:00Z',problemIndexFresh:fresh,cases:needsHelp?[{code:'android-reader',state:'needs-user'}]:fresh?[]:[{code:'<img src=x onerror=alert(1)>',state:'testing'}],
+     observedAt:fresh?new Date(await page.evaluate(()=>Date.now()-1000)).toISOString():'2026-11-05T00:00:00Z',problemIndexFresh:fresh,cases:needsHelp?[{code:'android-reader',state:'needs-user'}]:fresh?[]:[{code:'<img src=x onerror=alert(1)>',state:'testing'}],
      phone:{state:'unknown',appVersion:10500,requested:10,complete:6,partial:2,runAt:1793836800,localOcrImages:2},
      jobs:[{id:'background',state:'observed',lastObservedAt:1793836800},{id:'collection',state:'observed'}],productStatus:{state:'incomplete'},
      storage:{diskUsedBytes:104857600,diskObservedAt:1793836800},testOverview:{items:[{label:'Test',state:'unknown'}]}})});
@@ -69,6 +70,17 @@ const {chromium} = require('playwright');
   await page.goto('https://bob.test/zentrale/#storage');
   assert(await page.locator('#storage').isVisible());
   assert.equal(await page.locator('#storage').getAttribute('open'),'','Legacy storage link opens existing details');
+  // Visible status refreshes without a tap; hidden pages do not poll.
+  const beforeRefresh=count;
+  await page.clock.runFor(60001);
+  await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
+  assert.equal(count,beforeRefresh+1);
+  await page.evaluate(()=>Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'}));
+  await page.clock.runFor(120001);
+  assert.equal(count,beforeRefresh+1);
+  await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});document.dispatchEvent(new Event('visibilitychange'));});
+  await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
+  assert.equal(count,beforeRefresh+2);
   assert.deepEqual(errors,[]);
   console.log('Zentrale: mobile navigation, one shared read, safe text and failed-refresh clearing passed');
  } finally {await browser.close();}
