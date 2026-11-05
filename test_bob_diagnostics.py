@@ -908,8 +908,11 @@ class FastSimulationStatusTests(unittest.TestCase):
         # The original fast case query is still day-indexed and limited.
         # The three independent studies add only one PK-scoped control
         # lookup and one fixed PostgreSQL relation-size catalogue read.
-        self.assertEqual(len(selects), 3)
+        # The new comparison adds one bounded PK-ordered read, isolated
+        # from the existing study report and its transaction.
+        self.assertEqual(len(selects), 4)
         sql = [call.args[0] for call in selects]
+        self.assertEqual(sum('bob_entry_exit_comparison ORDER BY id DESC LIMIT 200' in q for q in sql),1)
         self.assertEqual(sum('WHERE day=%s ORDER BY started_at DESC LIMIT 5' in q
                              for q in sql), 1)
         self.assertEqual(sum('bob_shadow_study_control' in q and
