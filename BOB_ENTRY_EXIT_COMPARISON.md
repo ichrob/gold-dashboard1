@@ -76,3 +76,40 @@ aktive Zustände; keine zusätzlichen vollständigen Kerzenkopien pro Takt.
 Originalfälle werden nicht automatisch gelöscht. Fehler in diesem Vergleich
 können bereits gespeicherte Hauptkonten nicht zurückrollen. Zentrale/Testübersicht
 zeigt sechs Gruppen, private Simulationdiagnose die 18 Varianten.
+
+## Vergleichsbericht und Tests & Lernen (Erweiterung 05.11.2026)
+
+Der bestehende 200-Episoden-Kurzbericht bleibt kompatibel. Zusätzlich wertet
+`paper_comparison_report.py` den gesamten **aktuell in der Originaltabelle
+vorhandenen** Bestand in einer einzigen SELECT-Snapshot-Sicht aus. Ein benannter
+Cursor überträgt nur benötigte Felder in 32er-Paketen. Keine Kurse nachladen,
+Originale ändern oder Ergebnisjournal duplizieren. 700-ms-SQL-Grenze, zwei Sekunden
+Verarbeitungsbudget und höchstens 80 Regel-/Phasen-/Marktgruppen; bei Überschreitung
+ist die Auswertung ausdrücklich nicht verfügbar, niemals ein Teilbestand als
+vollständig ausgewiesen. Externe Archive und lückenlose ursprüngliche Erfassung
+sind damit nicht bestätigt. Vor einer künftigen Auslagerung dieser Tabelle muss
+deren geprüfter Archivleser in die Auswertung integriert werden.
+
+33 vorab definierte Paarungen vergleichen Ausstiege, Einstiegsmethoden und
+Verzögerungen. Nur zwei belegte abgeschlossene Varianten derselben Episode
+zählen. Beim Ausstiegsvergleich müssen zusätzlich Produkt, Kurszeit, Preis,
+Stückzahl, Abbuchung und Einstiegszeit identisch sein. Abweichende Produktwahl bei
+Einstiegs-/Verzögerungsvergleichen wird gezählt. Fehlende, offene, nicht bewertbare
+und nicht eingestiegene Varianten bleiben separat sichtbar, nicht Nullrenditen.
+Es bleibt eine bedingte Auswertung vollständiger Paare, kein Nachweis eines
+Vorteils für alle Gelegenheiten. Gleicher Einsatz ist weiterhin nicht gleiches
+Risiko; keine Änderung an den laufenden 18 Varianten.
+
+Regelversionen werden getrennt. Aus dem frühesten gespeicherten Episodenbeginn
+je Regelversion werden die ersten zehn Schweizer Wochentage als Erkundung
+zugeordnet, danach Validierung (keine behauptete Börsenfeiertagsabdeckung).
+Marktphasen verwenden ausschließlich die ursprünglichen Labels beim Episodenstart;
+keine rückblickende Neuklassifikation. Unbekannt bleibt eine eigene Gruppe.
+Die Anzeige bietet Phase/Marktlage und feste Paarung zur Auswahl, keine nach
+Gewinn sortierte Siegerliste. Sie zeigt gemeinsame Fallzahl, Ausschlüsse,
+Netto-Modellsummen/Mittelwerte, Verlusthäufigkeit/-mittel/-extreme,
+Standardabweichung und beobachtete Zwischengewinne/-verluste sowie Gewinnrückgabe.
+100 Paare sind nur ein Mindestziel; mindestens zehn Validierungstage, mehrere
+Vergleiche, Abhängigkeiten und Auswahl durch Datenlücken erfordern weiterhin
+eine unabhängige Abnahme. Kein bestätigter Strategievorteil, keine automatische
+Regelübernahme und kein Portfolio-Drawdown aus unabhängigen Episoden.
