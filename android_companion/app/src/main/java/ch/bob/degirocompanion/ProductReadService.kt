@@ -1040,6 +1040,21 @@ class ProductReadService : AccessibilityService() {
         return MorningListRegions.anchors(candidates,ids,rect.height()-cropTop)
     }
 
+    private fun morningPositionedText(nodes:List<AccessibilityNodeInfo>,view:List<MorningReadPolicy.Node>,
+                                      ids:List<String>,windowId:Int,rect:Rect,cropTop:Int):List<String>? {
+        if(nodes.size!=view.size)return null
+        val parts=nodes.indices.mapNotNull { index ->
+            val node=nodes[index];val d=view[index];val box=Rect();node.getBoundsInScreen(box)
+            if(node.windowId!=windowId || !node.isVisibleToUser || !node.isEnabled || node.childCount!=0 ||
+                d.editable || d.containsInput || d.password || d.sensitive || d.text.isBlank() ||
+                d.text.length>800 || box.width()<=0 || box.height()<=0 || box.left<rect.left || box.right>rect.right ||
+                box.top<rect.top+cropTop || box.bottom>rect.bottom)return@mapNotNull null
+            MorningListText.Positioned(index,MorningOcrLayout.Line(d.text,box.left-rect.left,
+                box.top-rect.top-cropTop,box.right-rect.left,box.bottom-rect.top-cropTop))
+        }
+        return MorningListText.capturePositioned(view,parts,ids)
+    }
+
     // Capture only the validated product-list window (Android 14+), after the
     // keyboard has disappeared. Never capture the full display or secure windows.
     private fun captureMorningList(root:AccessibilityNodeInfo,nodes:List<AccessibilityNodeInfo>,
@@ -1097,6 +1112,7 @@ class ProductReadService : AccessibilityService() {
         listBusy=true
         val ids=action.isins.toList();val capturedAt=Instant.now().toString()
         val textBefore=MorningListText.capture(descriptions,ids)
+            ?: morningPositionedText(nodes,descriptions,ids,windowId,rect,cropTop)
         val anchorsBefore=morningListAnchors(nodes,descriptions,ids,windowId,rect,cropTop)
         takeScreenshotOfWindow(windowId,mainExecutor,object:TakeScreenshotCallback {
             override fun onFailure(errorCode:Int) {
@@ -1115,8 +1131,9 @@ class ProductReadService : AccessibilityService() {
                     var anchorsAfter:List<MorningListRegions.Anchor>?=null
                     val unchanged=try {
                         navigationTree(live,refs,view)
-                        textAfter=MorningListText.capture(view,ids)
                         val currentRect=Rect();live.getBoundsInScreen(currentRect)
+                        textAfter=MorningListText.capture(view,ids)
+                            ?: if(currentRect==rect) morningPositionedText(refs,view,ids,windowId,rect,cropTop) else null
                         if(currentRect==rect) anchorsAfter=morningListAnchors(refs,view,ids,windowId,rect,cropTop)
                         val decision=MorningReadPolicy.captureGoldList(view,listImages.length()>0)
                         live.windowId==windowId && live.packageName?.toString()==ProductScreenEvidence.PACKAGE &&
