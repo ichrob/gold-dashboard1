@@ -124,6 +124,7 @@ def report(conn):
                 "deletionAuthorized":False,"physicalBytesFreed":None}
 
 
+@__import__("ocr_workload_priority").maintenance
 def run_once(factory=None):
     if factory is None:
         factory=__import__("cold_metrics").connect

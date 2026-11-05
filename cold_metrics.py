@@ -235,6 +235,7 @@ def connect():
         application_name='bob_cold_metrics', options='-c statement_timeout=10000 -c lock_timeout=1000')
 
 
+@__import__("ocr_workload_priority").maintenance
 def run_once(factory=connect):
     with factory() as conn:
         guard = __import__('storage_pressure').verified_writer_preflight(conn)
