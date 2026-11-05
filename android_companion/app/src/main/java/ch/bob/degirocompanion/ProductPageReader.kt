@@ -195,6 +195,15 @@ internal class ProductPageReader {
             if (anchorIds.size != 1 || !SeriesEvidence.validIsin(anchorIds.single())) return Step(Move.NONE, direct, Cause.WAIT_IDENTITY)
             isin = anchorIds.single(); window = windowId
             anchorParameters = scopedParameters(lines)
+            // A read can start at the paired Kursdaten footer (for example
+            // after a retry), without first visiting the numeric header.
+            // Remember this *visible* pairing so a header-only LV visit turns
+            // forward again and rechecks the real ISIN before publication.
+            if (seekingSymbol == null && footerPair != null && seekLeverage &&
+                "Hebel" !in anchorParameters) {
+                verifiedProbeSymbol = footerPair.symbol
+                readBackward = true
+            }
             // Carry header parameters only after an explicit symbol/ISIN row confirms the pairing.
             if (seekingSymbol != null) {
                 if (footerPair != null) {
