@@ -155,11 +155,29 @@ def handle(conn,action,payload):
         # batches and the checkpoint still share the caller's transaction:
         # a failure rolls everything back, never acknowledging a partial save.
         for start in range(0, len(rows), 256):
-            conn.execute("""INSERT INTO bob_candle_evidence(source_key,open_time,fingerprint,payload)
-                SELECT %s,(value->>'openTime')::numeric::bigint,
-                    encode(sha256(convert_to(value::text,'UTF8')),'hex'),value
-                FROM jsonb_array_elements(%s::jsonb)
+            # An advancing checkpoint mostly repeats already archived candles.
+            # Filter by the complete revision key before INSERT so those rows
+            # do not re-enter the write/conflict path on every source update.
+            # ON CONFLICT remains necessary for concurrent first-time writers.
+            try:
+                conn.execute("""WITH incoming AS MATERIALIZED (
+                    SELECT %s::text AS source_key,
+                        (value->>'openTime')::numeric::bigint AS open_time,
+                        encode(sha256(convert_to(value::text,'UTF8')),'hex') AS fingerprint,
+                        value AS payload
+                    FROM jsonb_array_elements(%s::jsonb)
+                )
+                INSERT INTO bob_candle_evidence(source_key,open_time,fingerprint,payload)
+                SELECT i.source_key,i.open_time,i.fingerprint,i.payload FROM incoming i
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM bob_candle_evidence e
+                    WHERE e.source_key=i.source_key AND e.open_time=i.open_time
+                        AND e.fingerprint=i.fingerprint)
                 ON CONFLICT DO NOTHING""",(key,json.dumps(rows[start:start+256],allow_nan=False)))
+            except Exception as exc:
+                print('BOB_CANDLE_WRITE stage=evidence batch='+str(start//256)+
+                      ' error='+type(exc).__name__,flush=True)
+                raise
         conn.execute('''INSERT INTO bob_candle_checkpoints(key,latest,payload) VALUES(%s,%s,%s::jsonb)
             ON CONFLICT(key) DO UPDATE SET latest=excluded.latest,payload=excluded.payload,saved_at=now()
             WHERE (excluded.latest>bob_candle_checkpoints.latest OR
