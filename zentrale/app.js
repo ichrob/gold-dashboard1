@@ -1,5 +1,41 @@
 "use strict";
 (() => {
+  const entryNames={early:'Frühwarnung',confirmed:'Bestätigung',pullback:'Rücksetzer'};
+  const trendNames={'all':'alle Marktphasen','strong-trend':'Trendphase',sideways:'Seitwärtsphase',transition:'Übergangsphase',unknown:'Marktlage unbekannt'};
+  const phaseNames={exploration:'Erkundung',validation:'Validierung'};
+  function armName(key){
+    const [e,x,d]=String(key).split(':');
+    return (entryNames[e]||'Unbekannt')+' · '+(x==='fixed'?'festes Ziel':x==='trailing'?'nachgezogener Stopp':'unbekannter Ausgang')+' · '+d+' s';
+  }
+  function euro(v){return typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' €':'nicht belegt';}
+  function comparisonText(g,p){
+    if(!g||!p)return {conclusion:'Noch keine vergleichbaren Ergebnisse verfügbar.',lines:[]};
+    const n=p.difference?.cases;
+    const delta=p.difference?.meanEur;
+    const sufficient=Number.isInteger(n)&&n>=100;
+    const direction=typeof delta!=='number'||!Number.isFinite(delta)||!n?'Kein Ergebnisvergleich möglich.':
+      delta>0?'Variante B liegt in diesen Fällen im Modell durchschnittlich '+euro(delta)+' vor A.':
+      delta<0?'Variante A liegt in diesen Fällen im Modell durchschnittlich '+euro(-delta)+' vor B.':'Beide Varianten liegen im Modell gleichauf.';
+    const conclusion=direction+' '+(Number.isInteger(n)?n:'Unbekannt viele')+' vergleichbare Fälle · '+
+      (g.phase==='exploration'?'Erkundung; unabhängige Bestätigung steht aus.':sufficient?'Mindestfallzahl erreicht; fachliche und statistische Abnahme bleibt offen.':'Validierung: Nachweis noch unzureichend.')+
+      ' Kein bestätigter Strategievorteil.';
+    const lines=['A: '+armName(p.a),'B: '+armName(p.b),
+      'Gemeinsame Fälle: '+n+' von '+g.episodes+' Episoden; ausgeschlossen: '+p.excluded+'.',
+      'Ergebnis nach Modellkosten: A '+euro(p.baseline?.modelNetEur)+' · B '+euro(p.candidate?.modelNetEur)+'.',
+      'Durchschnitt je gemeinsamem Fall: A '+euro(p.baseline?.meanEur)+' · B '+euro(p.candidate?.meanEur)+'.',
+      'Verlustfälle: A '+p.baseline?.losses+' · B '+p.candidate?.losses+'. Durchschnittlicher Verlust: A '+euro(p.baseline?.meanLossEur)+' · B '+euro(p.candidate?.meanLossEur)+'.',
+      'Gewinnfälle: A '+p.baseline?.wins+' · B '+p.candidate?.wins+'. Streuung der Ergebnisse: A '+euro(p.baseline?.standardDeviationEur)+' · B '+euro(p.candidate?.standardDeviationEur)+'.',
+      'Schlechtester Fall: A '+euro(p.baseline?.worstEur)+' · B '+euro(p.candidate?.worstEur)+'.',
+      'Beobachteter Zwischengewinn (Mittel): A '+euro(p.baseline?.meanObservedPeakEur)+' · B '+euro(p.candidate?.meanObservedPeakEur)+'.',
+      'Beobachteter Zwischenverlust (Mittel): A '+euro(p.baseline?.meanObservedTroughEur)+' · B '+euro(p.candidate?.meanObservedTroughEur)+'.',
+      'Vom beobachteten Höchststand zurückgegeben (Mittel): A '+euro(p.baseline?.meanGivebackEur)+' · B '+euro(p.candidate?.meanGivebackEur)+'.',
+      'Kursverlaufsnachweise: A '+p.baseline?.excursionCases+' · B '+p.candidate?.excursionCases+'.',
+      'Verschiedene Produkte in '+p.differentProducts+' Paaren; nicht identische Einstiege im Ausstiegsvergleich ausgeschlossen: '+p.entryMismatch+'.'];
+    return {conclusion,lines};
+  }
+  if(typeof module!=='undefined'&&module.exports)module.exports={comparisonText,armName};
+  if(typeof document==='undefined')return;
+
   const byId = (id) => document.getElementById(id);
   const status = byId("status");
   const button = byId("refresh");
@@ -39,8 +75,61 @@
       const li = document.createElement("li"); li.textContent = row === null ? empty : render(row); target.append(li);
     }
   }
+  let comparisonEvaluation=null;
+  function renderComparison(value){
+    comparisonEvaluation=value;
+    const group=byId("comparison-group"),pair=byId("comparison-pair");
+    const previous=group.value;
+    group.replaceChildren();pair.replaceChildren();
+    const available=value?.version===1&&value.status==='observed'&&Array.isArray(value.groups);
+    const groups=available?value.groups:[];
+    byId("comparison-status").textContent=available?
+      value.episodes+' gespeicherte Episoden ausgewertet · ungültige Episoden: '+value.invalidEpisodes+' · Beobachtung: '+clock(value.checkedAt):
+      value?.status==='awaiting-first-original-input'?'Noch keine Originalfälle aufgezeichnet.':'Vergleichsauswertung nicht verfügbar. Kein Ergebnis ableitbar.';
+    byId("comparison-note").textContent=available?value.note:'Fehlende Auswertung bedeutet weder Erfolg noch Verlust.';
+    for(const [i,g] of groups.entries()){
+      const option=document.createElement('option');option.value=String(i);
+      option.textContent=(phaseNames[g.phase]||'Unbekannt')+' · '+(trendNames[g.trend]||'unbekannt')+' · '+g.ruleVersion;
+      group.append(option);
+    }
+    group.disabled=pair.disabled=!groups.length;
+    if(groups.length){
+      group.value=/^\d+$/.test(previous)&&groups[Number(previous)]?previous:String(Math.max(0,groups.findIndex(g=>g.phase==='validation'&&g.trend==='all')));
+      selectComparisonGroup();
+    }else{
+      byId("comparison-conclusion").textContent='Noch keine vergleichbaren Ergebnisse verfügbar.';
+      list('comparison-metrics',[],'Ergebnisse fehlen.',x=>x);
+      list('comparison-counts',[],'Fallzahlen fehlen.',x=>x);
+    }
+  }
+  function selectComparisonGroup(){
+    const g=comparisonEvaluation?.groups?.[Number(byId('comparison-group').value)];
+    const pair=byId('comparison-pair'),prior=pair.value;pair.replaceChildren();
+    for(const [i,p] of (g?.comparisons||[]).entries()){
+      const option=document.createElement('option');option.value=String(i);
+      option.textContent=armName(p.a)+' / '+armName(p.b);pair.append(option);
+    }
+    if(/^\d+$/.test(prior)&&g?.comparisons?.[Number(prior)])pair.value=prior;
+    selectComparisonPair();
+  }
+  function selectComparisonPair(){
+    const g=comparisonEvaluation?.groups?.[Number(byId('comparison-group').value)];
+    const p=g?.comparisons?.[Number(byId('comparison-pair').value)];
+    const text=comparisonText(g,p);
+    byId('comparison-conclusion').textContent=text.conclusion;
+    list('comparison-metrics',text.lines,'Ergebnisse fehlen.',x=>x);
+    const counts=p?[p.a,p.b].map(k=>{
+      const s=g.variants?.[k]?.states||{};
+      return armName(k)+': abgeschlossen '+(s.closed??0)+' · nicht auswertbar '+(s.inconclusive??0)+
+        ' · kein Einstieg '+(s['no-entry']??0)+' · offen/wartend '+((s.open||0)+(s.waiting||0)+(s.pending||0)+(s['exit-pending']||0))+' · ungültig '+(s.invalid??0)+'.';
+    }):[];
+    list('comparison-counts',counts,'Fallzahlen fehlen.',x=>x);
+  }
+  byId('comparison-group').addEventListener('change',selectComparisonGroup);
+  byId('comparison-pair').addEventListener('change',selectComparisonPair);
   function reset() {
     snapshot = null;
+    renderComparison(null);
     byId("health-card").dataset.state = "unknown";
     byId("health-label").textContent = "Nicht bestätigt";
     byId("next-link").textContent = "Statusdetails ansehen";
@@ -101,6 +190,7 @@
     const tests = data.testOverview && Array.isArray(data.testOverview.items) ? data.testOverview.items.filter(x => x && typeof x === "object").slice(0,30) : [];
     if (!byId("studies").hidden) list("tests", tests, "Keine überprüfbaren Studiendaten verfügbar.", item =>
       (typeof item.label === "string" ? item.label.slice(0,100) : "Unbenannter Test") + " – " + nameOf(item.state) + (item.completed === true ? " (Abschluss berichtet)" : " (Abschluss nicht bestätigt)"));
+    if (!byId("studies").hidden) renderComparison(data.testOverview?.entryExitEvaluation);
     const storage = data.storage || {};
     byId("disk").textContent = bytes(storage.diskUsedBytes) + " · Messung: " + clock(storage.diskObservedAt);
     byId("database").textContent = bytes(storage.databaseBytes) + " · Messung: " + clock(storage.databaseObservedAt);

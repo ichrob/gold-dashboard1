@@ -36,6 +36,13 @@
     <h2 tabindex="-1">Tests &amp; Lernen</h2>
     <p class="page-note">Laufende Tests ansehen, Ergebnisse verstehen und Verbesserungen prüfen.</p>
     <div class="panel"><h3>Was läuft?</h3><p id="simulation">Nicht geprüft</p><a class="action primary" href="/zentrale/workspace?view=simulation#simulation">Simulationen öffnen</a></div>
+    <div class="panel" id="comparison-results"><h3>Was lernen wir aus den Einstieg-/Ausstiegstests?</h3>
+      <p id="comparison-status">Noch keine Auswertung geladen.</p>
+      <label for="comparison-group">Testphase und Marktlage</label><select id="comparison-group" aria-label="Testphase und Marktlage"></select>
+      <label for="comparison-pair">Varianten vergleichen</label><select id="comparison-pair" aria-label="Varianten vergleichen"></select>
+      <p id="comparison-conclusion"></p><ul id="comparison-metrics"></ul>
+      <details><summary>Grenzen und vollständige Fallzahlen</summary><p id="comparison-note"></p><ul id="comparison-counts"></ul></details>
+    </div>
     <div class="panel"><h3>Was kam heraus?</h3><p>Ergebnisse und Nachweise der bisherigen Versuche.</p><div class="link-list"><a href="/zentrale/workspace?view=learning#learning">Ergebnisse &amp; Historie <span aria-hidden="true">→</span></a><a href="/zentrale/workspace?view=diagrams#diagrams">Diagramme &amp; Vergleiche <span aria-hidden="true">→</span></a><a href="/zentrale/workspace?view=improve#improve">Verbesserungen prüfen <span aria-hidden="true">→</span></a></div></div>
     <details class="panel"><summary>Forschung &amp; Entwicklung</summary><p id="research">Forschungsstand nicht geprüft.</p><div class="link-list"><a href="/zentrale/workspace?view=research#research">Recherche öffnen →</a><a href="/zentrale/workspace?view=future#future">Entwicklung &amp; Pläne →</a></div></details>
     <details class="panel"><summary>Was ist noch ungeklärt?</summary><ul id="tests"><li>Noch nicht abgefragt.</li></ul><p class="sub">Ein offener Test ist noch kein Ergebnis. Abschlüsse werden nur mit vorhandenem Nachweis angezeigt.</p></details>
