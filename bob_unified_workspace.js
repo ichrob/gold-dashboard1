@@ -222,8 +222,15 @@ function testOverviewLines(value){
  if(value?.version!==1)return ['Testübersicht: Nachweise nicht verfügbar.'];
  const clock=v=>{if(!v)return 'unbekannt';const d=new Date(typeof v==='number'?(v>100000000000?v:v*1000):v);return Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';};
  const n=v=>Number.isInteger(v)&&v>=0?String(v):'unbekannt';
- const states={checked:'aktuell geprüft',observed:'Stichprobe vorhanden','no-records':'keine Aufzeichnungen',unavailable:'nicht bestätigt'};
+ const states={collecting:'neue Testphase sammelt',draining:'offene Fälle abschließen','completed-review-required':'Erfassung beendet · Auswertung nötig',retired:'alte Testphase beendet',completed:'Erfassung beendet',checked:'aktuell geprüft',observed:'Stichprobe vorhanden','no-records':'keine Aufzeichnungen',unavailable:'nicht bestätigt'};
  const lines=['Tests und Vergleichstests',value.note];
+ const campaign=value.qualityCampaign;
+ if(campaign?.version){
+  lines.push('Neue Testphase: '+campaign.status+' · Ende spätestens: '+clock(campaign.deadlineAt));
+  for(const t of campaign.studies||[])lines.push(t.label+': '+(t.id==='reaction'?'Prüfungen '+n(t.cycles)+' · ungültige Eingaben '+n(t.invalid)+' · Verarbeitungslücken '+n(t.missingIntervals)+' · Kontofehler '+n(t.workerErrors):'vollständig '+n(t.complete)+' · nicht auswertbar '+n(t.inconclusive)+' · offen '+n(t.open)));
+  for(const l of campaign.lessons||[])lines.push((l.status==='hypothesis'?'Zu prüfen: ':'Qualitätsregel: ')+l.text);
+  lines.push(campaign.note);
+ }
  for(const r of value.items||[])lines.push(r.label+' · '+(states[r.state]||'nicht bestätigt')+' · Beginn: '+clock(r.startedAt)+' · Letzte Beobachtung: '+clock(r.lastObservedAt)+' · Stichprobe: '+n(r.sampledRecords)+' · Vergleichbare Fälle: '+n(r.comparableCases)+' · Abschluss nicht bestätigt. '+r.missing);
  lines.push('Nachweisketten: '+(value.chainSampleAvailable?'Stichproben vorhanden':'keine Fallnachweise in diesem Bericht'));
  for(const c of value.evidenceChains||[])lines.push('Fall '+clock(c.startedAt)+': '+(c.stages||[]).map(s=>s.label+': '+(s.observed?'vorhanden':'nicht belegt')).join(' · ')+'. '+c.note);

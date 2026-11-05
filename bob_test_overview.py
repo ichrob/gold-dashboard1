@@ -20,6 +20,16 @@ def snapshot(report, now):
     evidence=areas.get('comparisonEvidence') or {}
     health=areas.get('comparisonHealth') or evidence.get('comparisonHealth') or {}
     rows=[]
+    campaign=(areas.get('simulationAndPush') or {}).get('qualityCampaign') or {}
+    for item in campaign.get('studies') or []:
+        rows.append(dict(id='quality-'+item['id'],label=item['label'],
+            state=campaign.get('status','unavailable'),startedAt=campaign.get('startedAt'),
+            lastObservedAt=campaign.get('checkedAt'),sampledRecords=item.get('started',item.get('cycles')),
+            comparableCases=item.get('complete'),completed=False,truncated=False,
+            missing=campaign.get('note'),note='Neue begrenzte Testreihe; keine automatische Regelübernahme.',
+            qualityPct=item.get('qualityPct'),inconclusive=item.get('inconclusive'),
+            technicalGaps=item.get('missingIntervals'),workerErrors=item.get('workerErrors')))
+
     for key,label in LABELS.items():
         source=(health.get('items') or {}).get(key) or {}
         counts=source.get('counts') or {}
@@ -34,7 +44,7 @@ def snapshot(report, now):
         recent=account.get('recentCases') or {}
         cases=recent.get('items') or []
         rows.append(dict(id='paper-'+str(account.get('profile')),label='Simulation '+str(account.get('profile')),
-            state='checked' if fresh(account.get('checkedAt'),now,120) else 'unavailable',
+            state='completed' if account.get('status')=='completed' else 'checked' if fresh(account.get('checkedAt'),now,120) else 'unavailable',
             startedAt=account.get('startAt'),lastObservedAt=account.get('checkedAt'),
             sampledRecords=len(cases) if recent.get('status')=='observed' else None,
             comparableCases=None,completed=False,truncated=True,
@@ -90,6 +100,7 @@ def snapshot(report, now):
     chains=[c.get('evidenceChain') for a in chain_accounts
             for c in (a.get('recentCases') or {}).get('items',[]) if isinstance(c.get('evidenceChain'),dict)]
     return dict(version=1,readOnly=True,realOrders=False,items=rows,
+        qualityCampaign=campaign,
         evidenceChains=chains[:35],chainSampleAvailable=bool(chains),
         note='Keine Gesamterfolgsquote: unterschiedliche Tests, Stichproben und unbekannte Ergebnisse bleiben getrennt.',
         releaseNote='Build und veröffentlichte Skripte werden unabhängig geprüft. Ein grüner Build bestätigt keine vollständige fachliche Reparatur.',

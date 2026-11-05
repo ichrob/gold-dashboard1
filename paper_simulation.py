@@ -194,6 +194,7 @@ def init(conn):
     paper_portfolios.init(conn)
     paper_stop_study.init(conn)
     __import__('paper_shadow_studies').init(conn)
+    __import__('research_restart').init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -615,7 +616,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         control.update(ledgerDay=day,dayOpeningEquity=control.get('equity'),dayOpeningRealized=control['realizedProfit'])
     control.update(checkedAt=now,ruleVersion=market.get('ruleVersion'),lastDirection=market.get('direction','NEUTRAL'),lastGold=market.get('price'),goldAt=market.get('dataAt'))
     phase = background_push.degiro_session(now)
-    campaign_end=(profile_policy or {}).get('campaign_end')
+    campaign_end=control.get('retiredAt') or (profile_policy or {}).get('campaign_end')
     if finite(campaign_end) and control.get('endAt') != campaign_end:
         previous_end=control.get('endAt')
         if finite(previous_end) and campaign_end > previous_end:
@@ -643,7 +644,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             paper_forward_validation.start(control,market,now)
         active=conn.execute('SELECT id,payload FROM bob_paper_cases WHERE closed_at IS NULL ORDER BY started_at LIMIT 1 FOR UPDATE').fetchone()
         if campaign_over and not active:
-            control.update(status='completed',reason='Vergleich beendet · Freitag 16:00 Zürich',endAt=campaign_end)
+            control.update(status='completed',reason='Alte Testphase abgeschlossen' if control.get('retiredAt') else 'Vergleich beendet · Freitag 16:00 Zürich',endAt=campaign_end)
             conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
             return
         if active:
@@ -1109,6 +1110,12 @@ def _worker(db):
             try:
                 with db() as conn:
                     if conn.execute('SELECT pg_try_advisory_xact_lock(72610408)').fetchone()[0]:
+                        import research_restart
+                        try:
+                            with conn.transaction():
+                                research_restart.start(conn,time.time()*1000)
+                        except Exception as restart_exc:
+                            print("BOB_QUALITY_RESTART error="+type(restart_exc).__name__,flush=True)
                         feed=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
                         if feed and not any(p.get('isin') for p in feed[0]['products']):feed=None
                         if not feed:
@@ -1133,6 +1140,10 @@ def _worker(db):
                             with conn.transaction():active_isins+=ranking_lifecycle.active_isins(conn)
                             with conn.transaction():active_isins+=paper_stop_study.active_isins(conn)
                             with conn.transaction():active_isins+=__import__("risk_paper").active_isins(conn)
+                            with conn.transaction():
+                                shadow_positions=conn.execute("SELECT payload FROM bob_shadow_study_control WHERE study=%s",("product-e2e",)).fetchone()
+                                if shadow_positions and (shadow_positions[0].get("position") or {}).get("isin"):
+                                    active_isins.append(shadow_positions[0]["position"]["isin"])
                         except Exception as exc:print('BOB_RANKING_EXITS lookup_error='+type(exc).__name__,flush=True)
                         import product_repair_learning
                         try:
@@ -1257,6 +1268,11 @@ def _worker(db):
                                 print('BOB_RISK_PAPER retried_newer_observed_bundle=1',flush=True)
                         except Exception as late_risk_exc:
                             print('BOB_RISK_PAPER late_retry_error='+type(late_risk_exc).__name__,flush=True)
+                        try:
+                            with conn.transaction():
+                                research_restart.tick(conn,bundle,market,time.time()*1000,outcomes)
+                        except Exception as research_exc:
+                            print('BOB_QUALITY_RESEARCH error='+type(research_exc).__name__,flush=True)
                         conn.commit()
                         # A post-commit observation of the exact input quality passed
                         # to each virtual account. Failure never changes paper ledgers.

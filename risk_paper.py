@@ -180,11 +180,17 @@ def tick(conn,bundle,evidence,quotes,now):
     row=conn.execute('SELECT payload FROM bob_risk_paper WHERE id=1 FOR UPDATE').fetchone()
     if not row:return
     state=row[0]
+    if state.get('retiredAt') and not any(a.get('position') for a in state['accounts'].values()):
+        if state.get('status')!='retired':
+            state['status']='retired'
+            for a in state['accounts'].values():a['pending']=None
+            conn.execute('UPDATE bob_risk_paper SET payload=%s::jsonb WHERE id=1',(json.dumps(state),))
+        return
     request={**evidence,'bundle':bundle,'quotes':quotes,'riskOnly':True,
              'market':{},'positions':{k:a['position'] for k,a in state['accounts'].items() if a.get('position')}}
     p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],
         input=json.dumps(request),text=True,capture_output=True,check=True,timeout=8,priority=2)
-    state,cases=advance(state,json.loads(p.stdout),quotes,time.time()*1000,background_push.degiro_entry_allowed())
+    state,cases=advance(state,json.loads(p.stdout),quotes,time.time()*1000,background_push.degiro_entry_allowed() and not state.get('retiredAt'))
     for c in cases:
         conn.execute('INSERT INTO bob_risk_paper_cases VALUES(%s,%s::jsonb) ON CONFLICT DO NOTHING',(c['id'],json.dumps(c)))
     conn.execute('UPDATE bob_risk_paper SET payload=%s::jsonb WHERE id=1',(json.dumps(state),))
