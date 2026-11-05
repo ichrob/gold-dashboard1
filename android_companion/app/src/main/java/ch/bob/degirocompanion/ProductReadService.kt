@@ -653,7 +653,10 @@ class ProductReadService : AccessibilityService() {
                         navigationTree(root,refs,view)
                         failedReturnPackage=root.packageName?.toString()
                         failedReturnSafe=MorningReadPolicy.safeStatusReturn(view,priorTarget)
-                        if (MorningReadPolicy.returnAfterRead(view,priorTarget,root.windowId,priorWindow,code) &&
+                        if (productReturnTransition.confirmSearch(view,priorTarget,
+                                root.windowId,SystemClock.elapsedRealtime())) {
+                            returnAcknowledged=true
+                        } else if (MorningReadPolicy.returnAfterRead(view,priorTarget,root.windowId,priorWindow,code) &&
                             performGlobalAction(GLOBAL_ACTION_BACK))
                             {
                                 productReturnTransition.begin(priorTarget,root.windowId,SystemClock.elapsedRealtime())

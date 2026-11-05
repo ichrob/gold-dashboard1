@@ -19,6 +19,19 @@ class ProductReturnTransitionTest {
         return t.poll(nodes,window,time)
     }
 
+    @Test fun alreadyReturnedSearchCanContinueWithoutAnotherBack() {
+        val recent=search + listOf("Zuletzt", "Alle löschen", "DE000SX7PE82", "DE000FG9NLJ8")
+            .map { MorningReadPolicy.Node(it) }
+        val t=ProductReturnTransition()
+        assertTrue(t.confirmSearch(recent,isin,7,1000))
+        assertEquals(ProductReturnTransition.State.IDLE,t.poll(oldPage,7,1001))
+        assertFalse(t.confirmSearch(oldPage,isin,7,1000))
+        for (bad in listOf(MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Passwort"),MorningReadPolicy.Node("",sensitive=true),
+            MorningReadPolicy.Node("",id="order-quantity",editable=true)))
+            assertFalse(t.confirmSearch(recent+bad,isin,7,1000))
+    }
+
     @Test fun boundedSecondBackRequiresSameVisibleProductAndSafeReadOnlyPage() {
         val t=ProductReturnTransition()
         t.begin(isin,7,1000)

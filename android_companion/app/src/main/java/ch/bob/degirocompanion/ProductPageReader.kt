@@ -358,7 +358,12 @@ internal class ProductPageReader {
         // A complete labelled quote pair is the useful end of this read. Avoid
         // scrolling through unrelated footer sections or probing the page bottom.
         // Publication still requires returning to the original visible ISIN.
-        if (observed.draft.contains("Geld (") && observed.draft.contains("Brief (")) {
+        val pairedHeaderVisit = readBackward && requireParameters &&
+            verifiedProbeSymbol != null && candidate != null
+        // One-sided quotes still need the explicitly requested header terms.
+        // Preserve the observed side; never manufacture the absent counterpart.
+        if ((observed.draft.contains("Geld (") && observed.draft.contains("Brief (")) ||
+                pairedHeaderVisit) {
             if (readBackward && requireParameters && verifiedProbeSymbol != null &&
                 (!anchorParameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv")) ||
                  (seekLeverage && !anchorParameters.containsKey("Hebel")))) {
