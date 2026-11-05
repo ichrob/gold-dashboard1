@@ -13,6 +13,16 @@
     review:"Prüfung ausstehend", new:"Offen"
   });
   const nameOf = (state) => stateNames[state] || "Unbestätigt";
+  function caseTitle(item) {
+    const code = String(item.code || "").toLowerCase();
+    const labels = [["market", "Marktdaten"], ["source", "Datenquelle"], ["candle", "Kurskerzen"],
+      ["push", "Benachrichtigungen"], ["database", "Datenbank"], ["worker", "Hintergrunddienst"],
+      ["trade", "Tradeüberwachung"], ["product", "Produktnachweise"], ["research", "Forschung"],
+      ["android", "Handy-Verbindung"], ["storage", "Speicher"]];
+    const found = labels.find(([key]) => code.includes(key));
+    const issue = Array.isArray(item.issueNumbers) ? item.issueNumbers.find(n => Number.isInteger(n) && n > 0) : null;
+    return (found ? found[1] : "Technischer Prüffall") + (issue ? " · Fall #" + issue : "");
+  }
   function clock(value) {
     if (value === null || value === undefined || value === "") return "Zeitpunkt unbekannt";
     const date = new Date(typeof value === "number" && value < 1e11 ? value * 1000 : value);
@@ -57,7 +67,7 @@
     list("job-times", jobs.filter(j => j && typeof j === "object").slice(0,10), "Keine Ausführungsnachweise verfügbar.", j =>
       String(j.label || "Dienst").slice(0,80) + ": " + nameOf(j.state) + " · Letzter Erfolg: " + clock(j.lastSuccessAt));
     if (!byId("maintenance").hidden) list("cases", cases, indexed ? "Keine Problemgruppen im aktuellen Index erfasst." : "Keine aktuellen Problemnachweise verfügbar.", item =>
-      String(item.code || "Unbekannter Fall").slice(0,120) + " · " + nameOf(item.state) + " · Reparatur nicht bestätigt");
+      caseTitle(item) + " · " + nameOf(item.state) + " · Reparatur nicht bestätigt");
     const phone = data.phone || {};
     byId("phone-state").textContent = "Bob Handy: " + nameOf(phone.state) + " · Version " + (Number.isInteger(phone.appVersion) ? phone.appVersion : "unbekannt");
     byId("phone-step").textContent = "Letzter gemeldeter Schritt: " + (phone.step || "Unbekannt") + " · " + clock(phone.stepAt) + ". " + (phone.nextAction || "Noch keine belastbare Handy-Meldung.");
