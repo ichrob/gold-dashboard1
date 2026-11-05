@@ -43,6 +43,14 @@ function appImage(value){
 // Two differently scaled on-device OCR passes of ONE approved screenshot.
 // This is a faster recognition route, not a second independent source.
 // The server repeats exact identity, product grammar and two-pass agreement.
+function canonicalLocalOcrIdentity(raw){
+ const value=String(raw).toUpperCase();
+ if(value.length!==12)return null;
+ if(b.validIsin(value)&&value.startsWith('DE000'))return value;
+ if(!/^DE[0OQ]{3}[A-Z0-9]{7}$/.test(value))return b.validIsin(value)?value:null;
+ const candidate='DE000'+value.slice(-7).replace(/O/g,'0').replace(/I/g,'1');
+ return b.validIsin(candidate)?candidate:null;
+}
 function localOcrImage(value) {
  if(!value || !Array.isArray(value.expectedIsins) ||
     !Array.isArray(value.passes) || value.passes.length!==2 ||
@@ -57,8 +65,8 @@ function localOcrImage(value) {
    if(typeof text!=='string'||text.length<1||text.length>800||
       /passwort|password|kontostand|portfolio|order bestätigen|stückzahl kaufen/i.test(text))
      return null;
-   const actual=text.match(/\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b/g)||[];
-   if(actual.length!==1||actual[0]!==id)return null;
+   const actual=text.match(/\b(?:[A-Z]{2}[A-Z0-9]{9}[0-9]|DE[0OQ]{3}[A-Z0-9]{7})\b/gi)||[];
+   if(actual.length!==1||canonicalLocalOcrIdentity(actual[0])!==id)return null;
    const row=b.parseDegiroListRow(text);
    if(!row||row.isin!==id ||
       !(row.listRow.complete||b.agreedExcludedDegiroFactorRow([text,text])))return null;
@@ -130,5 +138,5 @@ function parse(images,at,appSources=[],localSources=[]){
   listVenueEvidence:b.listVenueForSync(x.isin,archive)
  }))}};
 }
-module.exports={parse,normalizeLayout,appImage,localOcrImage,nativeImage};
+module.exports={canonicalLocalOcrIdentity,parse,normalizeLayout,appImage,localOcrImage,nativeImage};
 if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):x.mode==='prepare-native'?nativeImage(x.passes):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}

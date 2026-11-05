@@ -83,6 +83,22 @@ class ListTests(unittest.TestCase):
             with self.assertRaises((ValueError,TypeError)):
                 images.validate(altered,NOW)
 
+    def test_local_ocr_glyph_normalization_preserves_raw_and_valid_wrong_ids(self):
+        one='DE000SQ02JQ6'; raw='DEOOOSQO2JQ6'; other='DE000FG8NHQ3'
+        row='SG Gold Turbo Unlimited Mini Call BAR 2166 BP 2126.05 Bv 10 | '+raw+' Societe Generale OTC EUR'
+        value=batch()
+        value['images'][0]['localOcr']={'expectedIsins':[one],'passes':[[row],[row]]}
+        self.assertEqual(images.validate(value,NOW),value)
+        self.assertIn(raw,value['images'][0]['localOcr']['passes'][0][0])
+        self.assertEqual(images.canonical_ocr_identity(raw.lower()),one)
+        self.assertEqual(images.canonical_ocr_identity(other),other)
+        self.assertIsNone(images.canonical_ocr_identity('DEOOOSQO2JQ5'))
+        self.assertIsNone(images.canonical_ocr_identity('DEOOOPU8APE4'))
+        for text in (row.replace(raw,other),row.replace(raw,'DEOOOSQO2JQ5'),
+                     row.replace(raw,raw+' '+one)):
+            bad=copy.deepcopy(value);bad['images'][0]['localOcr']['passes'][0][0]=text
+            with self.assertRaises(ValueError):images.validate(bad,NOW)
+
     def test_text_capture_is_bounded_and_immutable(self):
         x=batch();x['images'][0]['appText']={'before':['product row'],'after':['product row']}
         self.assertEqual(images.validate(x,NOW),x)

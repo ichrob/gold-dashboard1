@@ -62,12 +62,12 @@ internal object MorningLocalOcr {
         if(expected.isEmpty() || expected.size>10 || expected.distinct()!=expected ||
             expected.any { !SeriesEvidence.validIsin(it) }) return null
         var reason=Rejection.INPUT_LIMIT
-        parseRows(raw,expected) { reason=it }?.let { return Rows(expected,it) }
+        parseRows(raw,expected,optical=true) { reason=it }?.let { return Rows(expected,it) }
         val candidates=mutableListOf<Rows>()
         for((left,right) in listOf(0 to 1,1 to 0,1 to 1)) {
             if(expected.size<=left+right) continue
             val subset=expected.subList(left,expected.size-right)
-            productRows(raw,subset)?.let { candidates.add(Rows(subset.toList(),it)) }
+            parseRows(raw,subset,optical=true) {}?.let { candidates.add(Rows(subset.toList(),it)) }
         }
         // Ambiguous alternatives are not interchangeable evidence.
         val result=candidates.distinctBy { it.ids }.singleOrNull()
@@ -103,8 +103,8 @@ internal object MorningLocalOcr {
         if(raw.length>20000 || !SeriesEvidence.validIsin(id)) return reject(Rejection.INPUT_LIMIT)
         val page=raw.replace(Regex("(?i)\\bSG(?=Gold)"),"SG ")
             .replace(Regex("\\s+")," ").trim()
-        val identities=isin.findAll(page).toList()
-        val target=identities.filter { it.value==id }
+        val identities=MorningOcrIdentity.tokens.findAll(page).toList()
+        val target=identities.filter { MorningOcrIdentity.canonical(it.value)==id }
         if(target.isEmpty())return reject(Rejection.REGION_IDENTITY_MISSING)
         if(target.size!=1)return reject(Rejection.REGION_IDENTITY_DUPLICATE)
         val starts=heading.findAll(page).map { it.range.first }.toList()
@@ -116,10 +116,10 @@ internal object MorningLocalOcr {
             return reject(Rejection.REGION_HEADING_MISSING)
         // The target's heading-to-heading segment still needs exactly one
         // identity, a complete issuer/venue/currency footer and safe content.
-        return parseRows(page.substring(start,end),listOf(id),rejected)
+        return parseRows(page.substring(start,end),listOf(id),optical=true,rejected=rejected)
     }
 
-    private fun parseRows(raw:String,expected:List<String>,rejected:(Rejection)->Unit):List<String>? {
+    private fun parseRows(raw:String,expected:List<String>,optical:Boolean=false,rejected:(Rejection)->Unit):List<String>? {
         fun reject(reason:Rejection):List<String>? { rejected(reason);return null }
         if(expected.isEmpty() || expected.size>10 ||
            expected.distinct()!=expected || expected.any { !SeriesEvidence.validIsin(it) } ||
@@ -133,11 +133,12 @@ internal object MorningLocalOcr {
             val end=if(index+1<starts.size) starts[index+1] else page.length
             val segment=page.substring(starts[index],end)
             if(segment.length>1000) return reject(Rejection.ROW_LIMIT)
-            val ids=isin.findAll(segment).toList()
+            val ids=(if(optical) MorningOcrIdentity.tokens else isin).findAll(segment).toList()
             if(ids.size>1) return reject(Rejection.MULTIPLE_IDENTITIES)
             val id=ids.singleOrNull()
+            val identity=id?.let { if(optical) MorningOcrIdentity.canonical(it.value) else it.value }
             val venue=id?.let { footer.find(segment,it.range.last+1) }
-            if(id==null || id.value !in expected) {
+            if(id==null || identity !in expected) {
                 // Only an incomplete edge neighbour may sit outside the
                 // accessibility-approved complete rows. Never export it, skip
                 // a complete extra product, or ignore an interior fragment.
@@ -145,7 +146,7 @@ internal object MorningLocalOcr {
                 if(venue!=null) return reject(Rejection.COMPLETE_EXTRA)
                 continue
             }
-            if(result.size>=expected.size || id.value!=expected[result.size]) return reject(Rejection.IDENTITY_ORDER)
+            if(result.size>=expected.size || identity!=expected[result.size]) return reject(Rejection.IDENTITY_ORDER)
             if(venue==null) return reject(Rejection.FOOTER_MISSING)
             val row=segment.substring(0,venue.range.last+1).trim()
             if(row.length>800 || unsafe.containsMatchIn(row)) return reject(Rejection.UNSAFE_ROW)
