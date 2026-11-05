@@ -121,15 +121,21 @@ def inspect_area(conn, area, cutoff, *, max_pages=MAX_PAGES, deadline=None):
     if len(segments) > max_pages:
         return {"status": "page-budget-exceeded", "replayedRows": 0,
                 "manifestPagesAtLeast": len(segments)}
-    if not segments or sum(x[1] for x in segments if type(x[1]) is int) != expected_rows:
+    if (not segments or
+            any(type(x[1]) is not int or not 1 <= x[1] <= PAGE_ROWS
+                for x in segments) or
+            sum(x[1] for x in segments) != expected_rows):
         return {"status": "manifest-count-mismatch", "replayedRows": 0}
     lower_at, lower_id = datetime(1970, 1, 1, tzinfo=timezone.utc), ""
     count = 0
     for manifest in segments:
         if deadline is not None and time.monotonic() >= deadline:
             return {"status": "time-budget-exceeded", "replayedRows": count}
+        # A capture can record fewer than 400 rows when catching up; later
+        # pages must not be pulled into that older manifest's replay window.
+        # The persisted count is bound by the validated page budget above.
         rows = conn.execute(SOURCE_SQL[area],
-                            (lower_at, lower_id, end_at, end_id, PAGE_ROWS)).fetchall()
+                            (lower_at, lower_id, end_at, end_id, manifest[1])).fetchall()
         if not matches_manifest(area, rows, manifest):
             return {"status": "source-or-manifest-mismatch", "replayedRows": count}
         count += len(rows)

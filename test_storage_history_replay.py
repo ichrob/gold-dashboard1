@@ -99,6 +99,58 @@ class ProjectionTests(unittest.TestCase):
                              for q in good.sql))
 
 
+    def test_partial_capture_pages_are_replayed_at_their_exact_length(self):
+        # Capture may stop after a short page and later append more historical
+        # rows. Re-reading 400 rows for that first page reports a false mismatch.
+        at = self.at
+        first = [("d1", at, "input", "ok"),
+                 ("d2", at + timedelta(seconds=1), "health", "ok")]
+        second = [("d3", at + timedelta(seconds=2), "analysis", "failed")]
+        def manifest(rows):
+            page = writer.summarize("diagnoses", rows)
+            return (page["digest"], len(rows), page["categories"],
+                    page["outcomes"], rows[0][1], rows[-1][1])
+        class Fake:
+            def __init__(self, bad_count=False):
+                self.data = None
+                self.source = first + second
+                self.manifests = [manifest(first), manifest(second)]
+                if bad_count:
+                    row = self.manifests[0]
+                    self.manifests[0] = (row[0], replay.PAGE_ROWS + 1, *row[2:])
+                self.query_limits = []
+            def execute(self, statement, params=()):
+                if "FROM bob_history_eval_cursor" in statement:
+                    self.data = (second[-1][1], second[-1][0], 3)
+                elif "FROM bob_history_eval_segments" in statement:
+                    self.data = self.manifests
+                elif "SELECT id,recorded_at,stage" in statement:
+                    limit = params[-1]
+                    self.query_limits.append(limit)
+                    low = params[0:2]
+                    eligible = [row for row in self.source
+                                if (row[1], row[0]) > (low[0], low[1])]
+                    self.data = eligible[:limit]
+                elif "SELECT id FROM bob_diagnostic_history" in statement:
+                    self.data = None
+                else:
+                    raise AssertionError("Unexpected read")
+                return self
+            def fetchone(self):
+                return self.data
+            def fetchall(self):
+                return self.data
+        good = Fake()
+        state = replay.inspect_area(good, "diagnoses", at + timedelta(days=4))
+        self.assertEqual(state["status"], "verified-stable-projection")
+        self.assertEqual(state["replayedRows"], 3)
+        self.assertEqual(good.query_limits, [2, 1])
+        invalid = Fake(bad_count=True)
+        state = replay.inspect_area(invalid, "diagnoses", at + timedelta(days=4))
+        self.assertEqual(state["status"], "manifest-count-mismatch")
+        self.assertEqual(invalid.query_limits, [])
+
+
 @unittest.skipUnless(os.environ.get("BOB_TEST_DATABASE_URL"),
                      "Requires isolated PostgreSQL CI database")
 class IsolatedDatabaseTests(unittest.TestCase):
