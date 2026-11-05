@@ -3,94 +3,66 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#111827">
-  <meta name="description" content="Bob Zentrale: geschützte Statusübersicht für Tests, Simulationen und Fehler – nur lesend.">
+  <meta name="theme-color" content="#0c1321">
+  <meta name="description" content="Bob Zentrale: Betrieb prüfen, Tests auswerten und Wartung verwalten.">
   <link rel="manifest" href="/zentrale/manifest.webmanifest">
   <link rel="icon" href="/zentrale/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/zentrale/theme.css">
   <title>Bob Zentrale</title>
-  <style>
-    :root{color-scheme:dark;font:16px system-ui,-apple-system,sans-serif;background:#0c1321;color:#f1f5f9}
-    *{box-sizing:border-box}body{margin:0;min-height:100vh;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
-    main{max-width:780px;margin:auto;padding:22px 16px 48px}header{display:flex;align-items:center;gap:14px;margin-bottom:22px}
-    .mark{display:grid;place-items:center;width:56px;height:56px;border-radius:16px;background:#d4aa53;color:#172033;font-weight:800}
-    h1{font-size:1.45rem;margin:0}h2{font-size:1.03rem;margin:0 0 12px}p{line-height:1.5;margin:8px 0;color:#bbc8d9}
-    .sub{font-size:.84rem;color:#9fb0c7}.panel{background:#151f31;border:1px solid #29374e;border-radius:17px;padding:18px;margin:14px 0}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-    .metric{border:1px solid #2c3b52;border-radius:12px;padding:14px;background:#101a2b}
-    .metric b{display:block;font-size:.85rem;color:#a7b8ce;margin-bottom:7px}.metric span{font-size:1.05rem}
-    button,.action{display:inline-block;border:0;border-radius:11px;padding:12px 16px;background:#d4aa53;color:#152038;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}
-    button:disabled{opacity:.6;cursor:wait}.action.secondary{background:#263850;color:#f1f5f9}
-    a:not(.action){color:#f2cf81} .actions{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0}
-    ul{padding-left:20px;margin:10px 0}li{margin:7px 0;line-height:1.4}
-    [hidden]{display:none!important}nav a[aria-current="page"]{background:#d4aa53;color:#152038}.metric,li,p{overflow-wrap:anywhere}.hub-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.hub-nav a{font-size:.9rem;padding:10px}summary{cursor:pointer}a:focus-visible,button:focus-visible{outline:3px solid #fff;outline-offset:3px}.notice{border-left:3px solid #d4aa53;padding-left:12px}.error{color:#ffc2b9}.muted{color:#9fb0c7}
-  </style>
   <script src="/zentrale/app.js" defer></script>
 </head>
-<body>
+<body class="zentrale-hub">
 <main>
-  <header><div class="mark" aria-hidden="true">BZ</div><div><h1>Bob Zentrale</h1><div class="sub">Verwaltung, Forschung und Wartung</div></div></header>
-  <div class="actions"><a class="action secondary" href="/">← Bob Assistent</a><button type="button" id="refresh">Status aktualisieren</button></div>
-  <p id="status" role="status" aria-live="polite">Noch nicht abgefragt.</p>
-  <p id="observed" class="sub">Datenstand unbekannt</p>
-  <nav class="actions hub-nav" aria-label="Bereiche der Zentrale">
-    <a class="action secondary" href="#overview">Überblick</a>
-    <a class="action secondary" href="#studies">Simulationen &amp; Forschung</a>
-    <a class="action secondary" href="#maintenance">Probleme &amp; Wartung</a>
-    <a class="action secondary" href="#storage">Speicher &amp; Archiv</a>
-    <a class="action secondary" href="#settings">Einstellungen</a>
-  </nav>
-  <section class="panel" id="overview" data-panel>
-    <h2 tabindex="-1">Überblick</h2>
-    <div class="grid summary-grid">
-      <div class="metric"><b>Betriebszustand</b><span id="overall">Wird geprüft</span></div>
-      <div class="metric"><b>Offene Problemgruppen</b><span id="open-count">Wird geprüft</span></div>
-      <div class="metric"><b>Deine Hilfe nötig</b><span id="help-count">Wird geprüft</span></div>
+  <header class="central-heading"><div class="mark" aria-hidden="true">BZ</div><div><h1>Bob Zentrale</h1><p class="sub">Alles für einen zuverlässigen Bob</p></div></header>
+  <div class="toolbar"><a href="/">← Bob Assistent</a><button type="button" id="refresh" class="secondary">Aktualisieren</button></div>
+  <p id="status" class="sub" role="status" aria-live="polite">Status wird geladen …</p>
+  <section id="overview" data-panel>
+    <h2 tabindex="-1">Start</h2>
+    <div class="panel hero" id="health-card" data-state="unknown">
+      <p class="eyebrow" id="health-label">Noch nicht bestätigt</p>
+      <h3 id="overall">Bob wird geprüft</h3>
+      <p id="next-action">Die letzte Statusaufnahme wird geladen.</p>
+      <p id="observed" class="sub">Datenstand unbekannt</p>
+      <a class="action primary" id="next-link" href="#maintenance">Statusdetails ansehen</a>
     </div>
-    <p id="next-action" role="status"></p>
-    <h3>Handy &amp; Produkteinlesen</h3>
-    <p id="phone-state">Noch keine Handy-Meldung geladen.</p>
-    <p id="phone-step"></p><p id="phone-progress"></p><p id="phone-import"></p>
-    <details><summary>Handy-Meldung und Bilderkennung</summary><p id="phone-details"></p><p id="phone-ocr"></p></details>
-    <h3>Letzte erfolgreiche Ausführungen</h3><ul id="job-times"><li>Wird geprüft.</li></ul>
-    <p>Dein gemeinsamer Einstieg für Verwaltung und Auswertungen. Goldanalyse, Rangliste, Push und Tradeüberwachung findest du im Bob-Assistenten.</p>
-    <div class="grid">
-      <div class="metric"><b>Simulationen</b><span id="simulation">Nicht geprüft</span></div>
-      <div class="metric"><b>Überwachung</b><span id="monitor">Nicht geprüft</span></div>
-      <div class="metric"><b>Problemgruppen</b><span id="problems">Nicht geprüft</span></div>
-      <div class="metric"><b>Produktnachweise</b><span id="products">Nicht geprüft</span></div>
+    <p class="page-note">Hier prüfst du den Betrieb und verwaltest Tests. Goldanalyse, Produkte und deinen Trade findest du im Bob-Assistenten.</p>
+    <details class="panel"><summary>Was wurde geprüft?</summary>
+      <div class="grid"><div class="metric"><b>Überwachung</b><span id="monitor">Nicht geprüft</span></div><div class="metric"><b>Produktnachweise</b><span id="products">Nicht geprüft</span></div></div>
+      <p class="sub">Eine Statusaufnahme bestätigt keinen lückenlosen Betrieb und keine Handelsfreigabe.</p>
+      <h3>Letzte Ausführungen</h3><ul id="job-times"><li>Wird geprüft.</li></ul>
+    </details>
+  </section>
+  <section id="studies" data-panel hidden>
+    <h2 tabindex="-1">Tests &amp; Lernen</h2>
+    <p class="page-note">Laufende Tests ansehen, Ergebnisse verstehen und Verbesserungen prüfen.</p>
+    <div class="panel"><h3>Was läuft?</h3><p id="simulation">Nicht geprüft</p><a class="action primary" href="/zentrale/workspace?view=simulation#simulation">Simulationen öffnen</a></div>
+    <div class="panel"><h3>Was kam heraus?</h3><p>Ergebnisse und Nachweise der bisherigen Versuche.</p><div class="link-list"><a href="/zentrale/workspace?view=learning#learning">Ergebnisse &amp; Historie <span aria-hidden="true">→</span></a><a href="/zentrale/workspace?view=diagrams#diagrams">Diagramme &amp; Vergleiche <span aria-hidden="true">→</span></a><a href="/zentrale/workspace?view=improve#improve">Verbesserungen prüfen <span aria-hidden="true">→</span></a></div></div>
+    <details class="panel"><summary>Forschung &amp; Entwicklung</summary><p id="research">Forschungsstand nicht geprüft.</p><div class="link-list"><a href="/zentrale/workspace?view=research#research">Recherche öffnen →</a><a href="/zentrale/workspace?view=future#future">Entwicklung &amp; Pläne →</a></div></details>
+    <details class="panel"><summary>Was ist noch ungeklärt?</summary><ul id="tests"><li>Noch nicht abgefragt.</li></ul><p class="sub">Ein offener Test ist noch kein Ergebnis. Abschlüsse werden nur mit vorhandenem Nachweis angezeigt.</p></details>
+  </section>
+  <section id="maintenance" data-panel hidden>
+    <h2 tabindex="-1">Wartung</h2>
+    <div class="panel"><h3>Probleme &amp; Bearbeitung</h3><p id="problems">Nicht geprüft</p><a class="action primary" href="/zentrale/workspace?view=problems#problems">Probleme ansehen</a>
+      <details><summary>Fälle und Prüfstand</summary><p id="problem-age"></p><div class="grid"><div class="metric"><b>Offene Problemgruppen</b><span id="open-count">Unbekannt</span></div><div class="metric"><b>Deine Hilfe nötig</b><span id="help-count">Unbekannt</span></div></div><ul id="cases"><li>Noch nicht abgefragt.</li></ul></details>
     </div>
-    <p class="sub">Eine Statusaufnahme bestätigt keinen lückenlosen Betrieb. Zeitstempel gehören zur jeweiligen Beobachtung.</p>
+    <details class="panel" id="phone"><summary>Handy &amp; Produkteinlesen</summary><p id="phone-state">Noch keine Handy-Meldung geladen.</p><p id="phone-step"></p><p id="phone-progress"></p><p id="phone-import"></p><details><summary>Technische Nachweise</summary><p id="phone-details"></p><p id="phone-ocr"></p></details></details>
+    <details class="panel" id="storage"><summary>Speicher &amp; Archiv</summary>
+      <div class="grid"><div class="metric"><b>Festplatte belegt</b><span id="disk">Nicht geprüft</span></div><div class="metric"><b>Tatsächlich freigegeben</b><span>Nicht gemessen</span></div></div>
+      <p id="archive">Archivnachweis nicht geprüft.</p>
+      <details><summary>Messwerte und Nachweise</summary><div class="metric"><b>Datenbank · Teil der Belegung</b><span id="database">Nicht geprüft</span></div><p>Arbeitsspeicher: Keine Messung in dieser Übersicht verfügbar.</p><p class="sub">Eine Sicherung bedeutet noch keinen freigegebenen Festplattenplatz. Archivnachweise gelten nur für den geprüften Umfang.</p></details>
+    </details>
   </section>
-  <section class="panel" id="studies" data-panel hidden>
-    <h2 tabindex="-1">Simulationen &amp; Forschung</h2>
-    <p id="research">Forschungsstand nicht geprüft.</p>
-    <div class="actions"><a class="action secondary" href="/zentrale/workspace?view=simulation#simulation">Simulationen bedienen</a><a class="action secondary" href="/zentrale/workspace?view=improve#improve">Besser werden</a><a class="action secondary" href="/zentrale/workspace?view=diagrams#diagrams">Diagramme</a><a class="action secondary" href="/zentrale/workspace?view=research#research">Recherche</a><a class="action secondary" href="/zentrale/workspace?view=learning#learning">Ergebnisse &amp; Historie</a><a class="action secondary" href="/zentrale/workspace?view=future#future">Entwicklung &amp; Pläne</a></div>
-    <h3>Vorhandene Tests und Studien</h3><ul id="tests"><li>Noch nicht abgefragt.</li></ul>
-    <p class="sub">Hier bedienst du Simulationen und Forschung direkt in der Zentrale. Die vorhandenen Testkonten und Ergebnisse bleiben erhalten.</p>
-  </section>
-  <section class="panel" id="maintenance" data-panel hidden>
-    <h2 tabindex="-1">Probleme &amp; Wartung</h2>
-    <p id="problem-age">Problemstand nicht geprüft.</p><ul id="cases"><li>Noch nicht abgefragt.</li></ul>
-    <a class="action secondary" href="/zentrale/workspace?view=problems#problems">Probleme und Reparaturnachweise öffnen</a>
-    <p class="sub">Ein Fall in Prüfung ist noch nicht behoben. Diese Übersicht startet selbst keine Reparaturen.</p>
-  </section>
-  <section class="panel" id="storage" data-panel hidden>
-    <h2 tabindex="-1">Speicher &amp; Archiv</h2>
-    <div class="grid">
-      <div class="metric"><b>Festplatte · Render-Volume</b><span id="disk">Nicht geprüft</span></div>
-      <div class="metric"><b>Datenbank · Bestandteil der Belegung</b><span id="database">Nicht geprüft</span></div>
-      <div class="metric"><b>Arbeitsspeicher · RAM</b><span>Keine Messung in dieser Übersicht verfügbar</span></div>
-      <div class="metric"><b>Nachgewiesene Einsparung durch den Hub</b><span>Nicht gemessen</span></div>
-    </div>
-    <p id="archive">Archivnachweis nicht geprüft.</p>
-    <p class="sub">Archivnachweise gelten für den geprüften Umfang, nicht automatisch für die gesamte Datenbank. Eine Sicherung bedeutet noch keinen freigegebenen Festplattenplatz.</p>
-  </section>
-  <section class="panel" id="settings" data-panel hidden>
-    <h2 tabindex="-1">Einstellungen &amp; Verbindung</h2>
-    <p>Assistent und Zentrale verwenden dieselbe Bob-Anmeldung und dieselben vorhandenen Dienste. Beide können einen eigenen Startbildschirm-Eintrag behalten.</p>
-    <a class="action secondary" href="/zentrale/workspace?view=settings#settings">Push, Verbindung und Abmelden</a>
-    <p class="sub">Beim Öffnen wird der Status einmal automatisch geladen. „Status aktualisieren“ lädt erneut. Bereichswechsel verwenden dieselbe Antwort; es gibt keine dauernden Hintergrundabfragen. Private Daten werden hier nicht offline gespeichert.</p>
+  <section id="settings" data-panel hidden>
+    <h2 tabindex="-1">Einstellungen</h2>
+    <div class="panel"><h3>Verbindung &amp; Benachrichtigungen</h3><p>Push einrichten, Verbindung prüfen oder abmelden.</p><a class="action primary" href="/zentrale/workspace?view=settings#settings">Einstellungen öffnen</a></div>
+    <details class="panel"><summary>So arbeitet die Zentrale</summary><p>Assistent und Zentrale verwenden dieselbe Bob-Anmeldung und dieselben Dienste.</p><p>Beim Öffnen wird der Status einmal geladen. „Aktualisieren“ lädt erneut. Bereichswechsel verwenden dieselbe Aufnahme. Private Daten werden hier nicht offline gespeichert.</p></details>
   </section>
 </main>
+<nav class="central-nav" aria-label="Bereiche der Zentrale">
+  <a href="#overview"><span aria-hidden="true">⌂</span>Start</a>
+  <a href="#studies"><span aria-hidden="true">▥</span>Tests &amp; Lernen</a>
+  <a href="#maintenance"><span aria-hidden="true">⚙</span>Wartung</a>
+  <a href="#settings"><span aria-hidden="true">☷</span>Einstellungen</a>
+</nav>
 </body>
 </html>

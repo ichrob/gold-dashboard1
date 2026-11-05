@@ -18,6 +18,14 @@ class FakeHandler:
     def end_headers(self): pass
 
 class ZentraleTests(unittest.TestCase):
+    def test_shared_theme_is_public_static_and_private_pages_reference_it(self):
+        h=FakeHandler('/zentrale/theme.css')
+        self.assertTrue(bob_zentrale.route(h,'u','p'))
+        self.assertEqual(h.status,200)
+        self.assertEqual(h.response_headers['Content-Type'],'text/css; charset=utf-8')
+        self.assertIn(b'.central-workspace',h.wfile.getvalue())
+        self.assertIn(b'.zentrale-hub',h.wfile.getvalue())
+
     def test_index_requires_existing_bob_auth(self):
         h=FakeHandler("/zentrale/")
         with patch("bob_auth.authenticated", return_value=False):
