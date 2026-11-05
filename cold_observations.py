@@ -8,6 +8,7 @@ import re
 import tempfile
 import threading
 import time
+import uuid
 import cold_metrics as codec
 
 TAG = '_bobColdObservationV1'
