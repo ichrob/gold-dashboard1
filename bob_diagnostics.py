@@ -721,6 +721,10 @@ def risk_paper_snapshot(value, now=None):
     if value.get('version') != 'risk-paper-2000-v1' or value.get('realOrders') is not False:
         return dict(base, reason='risk-paper-state-invalid')
     now = time.time()*1000 if now is None else now
+    retired_at = value.get('retiredAt')
+    retired = (value.get('status') == 'retired'
+               and type(retired_at) in (int, float)
+               and math.isfinite(retired_at) and 0 < retired_at <= now)
     at = value.get('checkedAt')
     valid_clock = (type(at) in (int, float) and math.isfinite(at)
                    and 0 < at <= now)
@@ -744,10 +748,10 @@ def risk_paper_snapshot(value, now=None):
         })
     complete = all(a['status'] == 'observed' for a in accounts)
     return {**base,
-            'status':('unavailable' if not valid_clock else 'stale' if age > 120
-                      else 'observed' if complete else 'partial'),
-            **fields(value, ('version','startedAt','checkedAt','costAssumptionPerSide',
-                             'entryPolicyStartedAt','dataPolicy')),
+            'status':('retired' if retired else 'unavailable' if not valid_clock
+                      else 'stale' if age > 120 else 'observed' if complete else 'partial'),
+            **fields(value, ('version','startedAt','checkedAt','retiredAt',
+                             'costAssumptionPerSide','entryPolicyStartedAt','dataPolicy')),
             # Fixed public rule identifiers only; never pass arbitrary strings
             # around the generic credential scrubber ("risk-" contains "sk-").
             'entryPolicy':next((p for p in ('risk-early-intraday-v2','risk-confirmed-v1')
@@ -755,7 +759,8 @@ def risk_paper_snapshot(value, now=None):
             'signal':fields(value.get('signal'), ('ready','direction','stage','reason','at','barAt',
                 'dataMode','source','sourceAt','computedAt','estimateMethod','anchorBarAt','estimated')),
             'ageSeconds':age, 'staleAfterSeconds':120, 'accounts':accounts,
-            'reason':None if valid_clock else 'risk-paper-heartbeat-unconfirmed',
+            'reason':('quality-campaign-legacy-study-retired' if retired else
+                      None if valid_clock else 'risk-paper-heartbeat-unconfirmed'),
             'note':'Stored virtual accounts with assumed costs. A fresh check does not '
                    'prove an entry, continuous monitoring or verified returns.'}
 
