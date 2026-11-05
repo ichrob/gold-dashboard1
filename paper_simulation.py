@@ -194,6 +194,7 @@ def init(conn):
     paper_portfolios.init(conn)
     paper_stop_study.init(conn)
     __import__('paper_shadow_studies').init(conn)
+    __import__('paper_entry_exit_comparison').init(conn)
     __import__('research_restart').init(conn)
 
 def sync(conn, payload):
@@ -1139,6 +1140,7 @@ def _worker(db):
                         try:
                             with conn.transaction():active_isins+=ranking_lifecycle.active_isins(conn)
                             with conn.transaction():active_isins+=paper_stop_study.active_isins(conn)
+                            with conn.transaction():active_isins+=__import__("paper_entry_exit_comparison").active_isins(conn)
                             with conn.transaction():active_isins+=__import__("risk_paper").active_isins(conn)
                             with conn.transaction():
                                 shadow_positions=conn.execute("SELECT payload FROM bob_shadow_study_control WHERE study=%s",("product-e2e",)).fetchone()
@@ -1197,8 +1199,7 @@ def _worker(db):
                         selection=dict(choices=[],reasons=[])
                         ranking_policy=ranking_learning.policy(conn)
                         precision_due=now%(2*3600000)<=300000
-                        if market.get('ready') and market.get('direction') in ('LONG','SHORT') and (precision_due or any(
-                             p not in active_cases for p,policy in paper_portfolios.POLICIES.items() if not policy.get('early_impulse') and not policy.get('early_warning'))):
+                        if market.get('ready') and market.get('direction') in ('LONG','SHORT'):
                             request={**evidence,'quotes':quotes,'market':market,'bundle':bundle,'rankingPolicy':ranking_policy}
                             p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
                                              text=True,capture_output=True,timeout=6,check=True,priority=2)
@@ -1227,7 +1228,7 @@ def _worker(db):
                                 print('BOB_EARLY_PAPER_SELECTION error='+type(early_exc).__name__,flush=True)
                         warning_market=paper_portfolios.warning_paper_market(market,now)
                         warning_selection=dict(choices=[],reasons=['Kein freigegebenes Frühwarnprodukt'])
-                        if now<paper_portfolios.CAMPAIGN_END and 'early1000oct' not in active_cases and warning_market.get('paperEntrySource'):
+                        if warning_market.get('paperEntrySource'):
                             try:
                                 request={**evidence,'quotes':quotes,'market':warning_market,'bundle':bundle,'rankingPolicy':ranking_policy}
                                 p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],
@@ -1291,6 +1292,12 @@ def _worker(db):
                                     conn,bundle,market,selection,quotes,time.time()*1000)
                         except Exception as shadow_exc:
                             print('BOB_SHADOW_STUDIES error='+type(shadow_exc).__name__,flush=True)
+                        try:
+                            with conn.transaction():
+                                __import__('paper_entry_exit_comparison').tick(
+                                    conn,bundle,market,selection,warning_market,warning_selection,quotes,int(time.time()*1000))
+                        except Exception as comparison_exc:
+                            print('BOB_ENTRY_EXIT_COMPARISON error='+type(comparison_exc).__name__,flush=True)
                         print('BOB_PAPER checked profiles='+str(outcomes)+
                               ' direction='+str(market.get('direction'))+
                               ' ready='+str(market.get('ready'))+

@@ -908,9 +908,10 @@ class FastSimulationStatusTests(unittest.TestCase):
         # The original fast case query is still day-indexed and limited.
         # The three independent studies add only one PK-scoped control
         # lookup and one fixed PostgreSQL relation-size catalogue read.
-        # The bounded restart adds one exact campaign primary-key lookup.
-        self.assertEqual(len(selects), 4)
+        # One exact campaign lookup and one bounded comparison read.
+        self.assertEqual(len(selects), 5)
         sql = [call.args[0] for call in selects]
+        self.assertEqual(sum('bob_entry_exit_comparison ORDER BY id DESC LIMIT 200' in q for q in sql),1)
         self.assertEqual(sum("FROM bob_quality_campaign WHERE id=%s" in q for q in sql), 1)
         self.assertFalse(any("bob_quality_cases" in q or "bob_quality_legacy" in q for q in sql))
         self.assertEqual(sum('WHERE day=%s ORDER BY started_at DESC LIMIT 5' in q
