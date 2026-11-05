@@ -132,6 +132,7 @@ class IsolatedDatabaseTests(unittest.TestCase):
                 with psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
                         options="-c default_transaction_read_only=on") as reader:
                     reader.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+                    reader.commit()  # ensure inspect starts a top-level read-only transaction
                     result = replay.inspect(reader, now)
                 self.assertEqual(result["status"], "projections-verified-only")
                 self.assertFalse(result["fullOriginalReplayVerified"])
@@ -142,6 +143,7 @@ class IsolatedDatabaseTests(unittest.TestCase):
                 with psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
                         options="-c default_transaction_read_only=on") as reader:
                     reader.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+                    reader.commit()
                     changed = replay.inspect(reader, now)
                 self.assertEqual(changed["areas"]["diagnoses"]["status"],
                                  "source-or-manifest-mismatch")
