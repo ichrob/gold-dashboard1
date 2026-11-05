@@ -793,6 +793,14 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
     except Exception:
         result['shadowStudies'] = {'status':'unavailable','readOnly':True,
                                    'reason':'shadow-study-report-unavailable'}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            comparison = __import__('paper_entry_exit_comparison').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        comparison = {'status':'unavailable','reason':'entry-exit-report-unavailable'}
+    result['shadowStudies']['entryExitComparison'] = comparison
     return result
 
 
