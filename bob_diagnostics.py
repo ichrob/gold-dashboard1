@@ -463,6 +463,8 @@ def collect(readers):
         areas['simulationAndPush'].pop('researchReports', None)
     if (areas.get('analysis') or {}).get('status') == 'unavailable' and isinstance(worker_analysis, dict) and worker_analysis.get('status') == 'observed':
         areas['analysis'] = {**worker_analysis, 'observationSource':'push-worker'}
+    import signal_freshness
+    areas['signalFreshness'] = signal_freshness.snapshot(areas)
     return {'readOnly':True, 'realOrders':False,
             'observedAt':datetime.now(timezone.utc).isoformat(),
             'status':'partial' if any(a.get('status') == 'unavailable' for a in areas.values()) else 'observed',
@@ -1327,14 +1329,14 @@ _FOCUS_AREAS = {
     'simulation': ('simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
                    'comparisonHealth', 'entryBlockEvidence', 'background', 'collection',
                    'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
-    'sources': ('market', 'sourceReliability', 'collection', 'background', 'analysis'),
+    'sources': ('signalFreshness', 'market', 'sourceReliability', 'collection', 'background', 'analysis'),
     'research': ('research', 'strategyResearch', 'strategyReport', 'newFeatures'),
     'mobile': ('androidTelemetry', 'androidReader', 'newFeatures', 'runtime', 'degiroSync', 'products'),
     'products': ('products', 'degiroSync', 'gapEvidence'),
-    'repairs': ('selfHealing', 'problems', 'background', 'diagnosticTriage', 'operationsSummary',
+    'repairs': ('signalFreshness', 'selfHealing', 'problems', 'background', 'diagnosticTriage', 'operationsSummary',
                 'healthCadence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'trades': ('background', 'diagnosticTriage'),
-    'signals': ('analysis', 'background', 'diagnosticTriage', 'pushDeliveries',
+    'signals': ('signalFreshness', 'analysis', 'background', 'diagnosticTriage', 'pushDeliveries',
                 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
 }
 
