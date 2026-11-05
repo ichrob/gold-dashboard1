@@ -182,10 +182,11 @@ class ProductReadService : AccessibilityService() {
                     try { check(root.packageName?.toString() == ProductScreenEvidence.PACKAGE) }
                     finally { root.recycle() }
                     PhoneRemote.start(this)
-                    GoldSearchRun.start()
+                    if(!MorningReadRun.resumeRecent(this)) GoldSearchRun.start()
                     ProductReadRequest.start(SystemClock.elapsedRealtime())
                     PhoneDiagnostics.queue(this)
                 }.onFailure {
+                    MorningReadRun.stop(this,"START_FAILED")
                     PhoneRemote.stop(this,"START_FAILED")
                     GoldSearchRun.stop("START_FAILED",Instant.now().toString())
                     ProductReadRequest.cancel()

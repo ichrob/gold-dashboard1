@@ -4,6 +4,7 @@
   const status = byId("status");
   const button = byId("refresh");
   let snapshot = null;
+  let lastRefresh = 0;
   const stateNames = Object.freeze({
     observed:"Zuletzt beobachtet", checked:"Zuletzt geprüft", paused:"Pausiert",
     unavailable:"Nicht verfügbar", unknown:"Unbekannt", ok:"OK",
@@ -136,12 +137,20 @@
       if (!response.ok) throw new Error("HTTP " + response.status);
       const data = await response.json();
       if (!data || data.readOnly !== true || data.realOrders !== false) throw new Error("Unerwartetes Antwortformat");
-      show(data); status.textContent = "Status geladen";
+      show(data); lastRefresh = Date.now(); status.textContent = "Status geladen · automatische Aktualisierung aktiv";
     } catch (error) {
       reset(); status.textContent = "Status nicht verifizierbar. Bitte erneut aktualisieren."; status.classList.add("error");
     } finally { clearTimeout(timeout); button.disabled = false; }
   }
   button.addEventListener("click", refresh);
   refresh();
+  // One request at a time, only while visible. No new server job or background
+  // polling on the handset; returning to the app refreshes old snapshots.
+  setInterval(() => {
+    if (document.visibilityState !== "hidden") refresh();
+  }, 60000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && Date.now() - lastRefresh >= 60000) refresh();
+  });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/zentrale/sw.js", {scope:"/zentrale/"}).catch(() => {});
 })();

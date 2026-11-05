@@ -127,7 +127,11 @@ self.addEventListener("push", event => {
 self.addEventListener("notificationclick", event => {
   // Snapshot the notification metadata BEFORE close() or a browser navigation.
   const details = event.notification.data || {};
-  const target = details.url || "/";
+  let target = "/";
+  try {
+    const url = new URL(details.url || "/", self.location.origin);
+    if (url.origin === self.location.origin) target = url.pathname + url.search + url.hash;
+  } catch (_) { /* Invalid push destinations fall back to Bob. */ }
   event.notification.close();
   event.waitUntil(Promise.all([
     reportPushReceipt(details, "clicked"),
@@ -135,10 +139,19 @@ self.addEventListener("notificationclick", event => {
     // a normal notification tap retains the existing navigation behavior.
     event.action === "receipt-confirm" ? Promise.resolve() :
     clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
-      const existing = list.find(client => "focus" in client);
+      // A Zentrale tab does not handle trading messages. Open the actual
+      // destination, and navigate existing Bob tabs before focusing them.
+      const existing = list.find(client => {
+        try {
+          const url = new URL(client.url);
+          return url.origin === self.location.origin &&
+            (url.pathname === "/" || url.pathname === "/Bob.html") &&
+            "focus" in client && "navigate" in client;
+        } catch (_) { return false; }
+      });
       if (existing) {
-        existing.postMessage({ type: "BOB_PUSH_CLICK", data: details });
-        return existing.focus();
+        return existing.navigate(target).then(client => client ? client.focus() : clients.openWindow(target))
+          .catch(() => clients.openWindow(target));
       }
       if (clients.openWindow) return clients.openWindow(target);
     })

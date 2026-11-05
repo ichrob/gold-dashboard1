@@ -48,7 +48,7 @@ class ProductReadActivity : Activity() {
             container.addView(Button(this).apply { text = title; isAllCaps = false; setOnClickListener { action() } })
         }
         container.addView(TextView(this).apply { text = "DEGIRO lesen · Produkt und Morgenliste"; textSize = 21f })
-        primary=Button(this).apply { text="Gesamtablauf starten";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
+        primary=Button(this).apply { text="Bob starten";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
         container.addView(primary)
         button("Prüfung stoppen") {
             if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
@@ -301,6 +301,14 @@ class ProductReadActivity : Activity() {
     /** One explicit start: local, once-only PIN if enrolled; Gold only after
      * the actual DEGIRO Markets screen has been recognized. No PIN transport. */
     private fun startAutomaticTest() {
+        if (PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running || PinReadinessProbe.running) {
+            runCatching {
+                val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
+                    ?: error("DEGIRO-App fehlt.")
+                startActivity(launch)
+            }.onFailure { result.text = "DEGIRO konnte nicht geöffnet werden. Der bestehende Lauf bleibt erhalten." }
+            return
+        }
         var startedHere=false
         var localPin: ByteArray?=null
         runCatching {
@@ -325,7 +333,7 @@ class ProductReadActivity : Activity() {
                 PhoneRemote.start(this)
                 startedHere=true
                 check(PhoneRemote.active()) { PhoneRemote.message }
-                GoldSearchRun.start()
+                if(!MorningReadRun.resumeRecent(this)) GoldSearchRun.start()
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
                 result.text="DEGIRO wird geöffnet. Wenn keine PIN lokal eingerichtet ist, muss DEGIRO bereits angemeldet sein. Bob sucht anschließend Goldprodukte."
                 startActivity(launch)
@@ -334,6 +342,7 @@ class ProductReadActivity : Activity() {
             LoginToReadHandoff.clear()
             if(PinReadinessProbe.localLoginActive) PinReadinessProbe.stop("Einmalige Anmeldung konnte nicht gestartet werden.")
             if(startedHere) {
+                MorningReadRun.stop(this,"START_FAILED")
                 PhoneRemote.stop(this,"START_FAILED")
                 GoldSearchRun.stop("STOPPED",java.time.Instant.now().toString())
                 ProductReadRequest.cancel()
@@ -369,12 +378,12 @@ class ProductReadActivity : Activity() {
         window.decorView.findViewWithTag<TextView>("pin_probe_status")?.text = PinReadinessProbe.message
         displayedRequestActive = ProductReadRequest.active(SystemClock.elapsedRealtime())
         val value = ProductReadSession.get(SystemClock.elapsedRealtime())
-        primary.text=if(PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running) "Läuft · DEGIRO prüfen" else "Gesamtablauf starten"
+        primary.text=if(PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running) "Läuft · DEGIRO öffnen" else "Bob starten"
         val delivery=MorningListDelivery.status(this)
         val current=when {
             GoldSearchRun.running -> "Goldsuche läuft · zehn Top Ergebnisse erfassen"
             MorningReadRun.running -> delivery+"\n\nFehlende Produktangaben lesen: "+MorningReadRun.summary()
-            delivery.isNotBlank() -> delivery
+            delivery.isNotBlank() -> delivery + "\n\n" + MorningReadRun.savedStatus(this)
             GoldSearchRun.lastCode!=null -> "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty())
             else -> MorningReadRun.summary()
         }

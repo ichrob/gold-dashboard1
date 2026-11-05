@@ -69,6 +69,18 @@ const {chromium} = require('playwright');
   await page.goto('https://bob.test/zentrale/#storage');
   assert(await page.locator('#storage').isVisible());
   assert.equal(await page.locator('#storage').getAttribute('open'),'','Legacy storage link opens existing details');
+  // Visible status refreshes without a tap; hidden pages do not poll.
+  await page.clock.install();
+  const beforeRefresh=count;
+  await page.clock.runFor(60001);
+  await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
+  assert.equal(count,beforeRefresh+1);
+  await page.evaluate(()=>Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'}));
+  await page.clock.runFor(120001);
+  assert.equal(count,beforeRefresh+1);
+  await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});document.dispatchEvent(new Event('visibilitychange'));});
+  await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
+  assert.equal(count,beforeRefresh+2);
   assert.deepEqual(errors,[]);
   console.log('Zentrale: mobile navigation, one shared read, safe text and failed-refresh clearing passed');
  } finally {await browser.close();}
