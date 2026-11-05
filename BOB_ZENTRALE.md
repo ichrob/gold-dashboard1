@@ -7,7 +7,7 @@ Render instance and not an Android native APK.
 
 - Login: the existing Bob session is required for the private page.
 - Permissions: only existing authenticated GET `/api/operations-summary`
-  is called, **only when the user presses the update button**. This is a
+  is called, once when the page opens and when the user presses the update button. This is a
   bounded read-only projection, not proof of continuous simulation operation.
 - Display: simulations, background status, issue groups, product evidence,
   and up to 30 of the already-registered test families. Stale and missing
@@ -40,7 +40,7 @@ Run: `python -m unittest test_bob_zentrale`.
 ## Shared administration hub (5 November 2026)
 
 The five sections are overview, simulations/research, problems/maintenance,
-storage/archive and settings. Hash navigation reuses one explicitly requested
+storage/archive and settings. Hash navigation reuses one shared
 operations snapshot. There is no polling, second worker, database or service.
 A refresh clears previous observations; failures/timeouts never leave an old
 healthy state displayed as current. Source clocks are displayed in Swiss time.
@@ -59,3 +59,26 @@ Validation: `python -m unittest test_bob_zentrale test_bob_operations
  test_storage_brief test_bob_operations_http`; browser checks cover mobile
 navigation, a single shared GET, stale index disclosure and clearing failed
 refreshes. No measured storage saving is claimed.
+
+## Clear overview and handset evidence
+
+The hub now reads once on page opening; manual refresh is single-flight, with
+no periodic polling or focus/resume loop. Section changes reuse that snapshot.
+Long case/test lists render when their section is opened. A compact two-column
+menu preserves all five destinations. The overview separates last confirmed
+monitor cycle, indexed open groups and explicit user-action requests. Unknown
+problem indexes never become zero problems. Operational source/trade/push issues
+precede research in the grouped list. Original last-success times remain visible.
+
+Handset status is a tiny projection of existing telemetry, reader results and
+list-import receipts. It contains no pictures, OCR text, ISINs, tokens or PIN
+diagnostics. Running is displayed only when device receipt and observation are
+both at most 120 seconds old and the pairing is unrevoked/unexpired. The latest
+reporting device is labelled separately from the latest stored reader run and
+list import: device/run association is not inferred. OCR attachment counts do
+not prove successful on-device parsing or an actual server OCR execution. No
+remote commands, reading tasks or tests are started by the hub.
+
+Validate with `python -m unittest test_zentrale_status test_bob_operations
+ test_bob_operations_http test_bob_zentrale` and `browser_zentrale.cjs` in CI.
+This server-side UI update needs no replacement Android APK.
