@@ -78,6 +78,35 @@ class WorkerTests(unittest.TestCase):
                             for x in result['items']))
         self.assertTrue(all(not x['listRow']['isExecutableQuote'] for x in result['items']))
 
+    def test_mixed_phone_batch_with_optical_ratio_label_never_loads_native_models(self):
+        from product_quotes import valid_isin
+        def identifier(n):
+            stem='DE000ZZ'+str(n).zfill(4)
+            return next(stem+str(x) for x in range(10) if valid_isin(stem+str(x)))
+        def row(n):
+            return f'SG Gold Turbo BEST Open-End Call BAR 4000 BP 3999.25 Bv 10 | {identifier(n)} Societe Generale OTC EUR'
+        first=[row(n).replace('Bv 10', 'By 10') for n in range(1,5)]
+        second=[row(n).replace('Bv 10', 'By 10' if n != 4 else 'Bv 10') for n in range(1,5)]
+        images=[{'png':'must never be decoded', 'localOcr':{
+            'expectedIsins':[identifier(n) for n in range(1,5)], 'passes':[first,second]}}]
+        for group in ([5,6,7,8,9],[6,7,8,9,10]):
+            rows=[row(n) for n in group]
+            images.append({'png':'must never be decoded', 'appText':{'before':rows,'after':rows}})
+        original=json.dumps(images)
+        with patch.object(worker,'guarded_ocr_run',side_effect=AssertionError('Native model started')) as native:
+            result=worker.process({'images':images},'2026-11-05T18:10:00Z')
+        native.assert_not_called()
+        self.assertEqual(json.dumps(images),original)
+        self.assertEqual(len(result['items']),10)
+        self.assertTrue(all(x['listRow']['ratio']==.1 for x in result['items']))
+        self.assertTrue(all(not x['listRow']['isExecutableQuote'] for x in result['items']))
+        self.assertTrue(all(x['listRow']['extractionMethod']=='on-device-mlkit-two-scale' for x in result['items'][:4]))
+        # Two optical values must still agree; label repair cannot fix a number.
+        images[0]['localOcr']['passes'][1][0]=second[0].replace('By 10', 'By 100')
+        with patch.object(worker,'guarded_ocr_run',side_effect=AssertionError('Native model started')):
+            with self.assertRaises(worker.ListVerificationError):
+                worker.process({'images':images},'2026-11-05T18:10:00Z')
+
     def test_positioned_semantic_rows_import_ten_without_native_ocr(self):
         from product_quotes import valid_isin
         def row(number):

@@ -51,6 +51,19 @@ function canonicalLocalOcrIdentity(raw){
  const candidate='DE000'+value.slice(-7).replace(/O/g,'0').replace(/I/g,'1');
  return b.validIsin(candidate)?candidate:null;
 }
+// ML Kit can read the SG ratio label 'Bv' as 'By'. Correct only that
+// standalone label in a complete SG Gold title, never its numeric value,
+// identity or footer. Raw optical passes remain stored and returned unchanged.
+// Accessibility and native OCR routes do not use this correction.
+function normalizeLocalOcrLabels(text) {
+ if(!/^SG\s+Gold\b/i.test(text))return text;
+ const id=/\bDE[0OQ]{3}[A-Z0-9]{7}\b/i.exec(text);
+ if(!id)return text;
+ const title=text.slice(0,id.index);
+ if(!/\bBAR\s+[0-9]+(?:[.,][0-9]+)?\b/i.test(title) ||
+    !/\bBP\s+[0-9]+(?:[.,][0-9]+)?\b/i.test(title))return text;
+ return title.replace(/\bBy(?=\s+[0-9]+(?:[.,][0-9]+)?(?:\s|[|]|$))/gi,'Bv')+text.slice(id.index);
+}
 function localOcrImage(value) {
  if(!value || !Array.isArray(value.expectedIsins) ||
     !Array.isArray(value.passes) || value.passes.length!==2 ||
@@ -67,7 +80,7 @@ function localOcrImage(value) {
      return null;
    const actual=text.match(/\b(?:[A-Z]{2}[A-Z0-9]{9}[0-9]|DE[0OQ]{3}[A-Z0-9]{7})\b/gi)||[];
    if(actual.length!==1||canonicalLocalOcrIdentity(actual[0])!==id)return null;
-   const row=b.parseDegiroListRow(text);
+   const row=b.parseDegiroListRow(normalizeLocalOcrLabels(text));
    if(!row||row.isin!==id ||
       !(row.listRow.complete||b.agreedExcludedDegiroFactorRow([text,text])))return null;
   }
@@ -107,7 +120,8 @@ function nativeImage(passes) {
 function parse(images,at,appSources=[],localSources=[]){
  const items=new Map();
  for(const [index,passes] of images.entries()){
-  for(const row of agreedImageRows(passes)){
+  const parsedPasses=localSources[index]?passes.map(pass=>pass.split('\n').map(normalizeLocalOcrLabels).join('\n')):passes;
+  for(const row of agreedImageRows(parsedPasses)){
    const isin=row.isin;
    if(appSources[index]) {
     row.listRow.source='DEGIRO-App-Text';
@@ -138,5 +152,5 @@ function parse(images,at,appSources=[],localSources=[]){
   listVenueEvidence:b.listVenueForSync(x.isin,archive)
  }))}};
 }
-module.exports={canonicalLocalOcrIdentity,parse,normalizeLayout,appImage,localOcrImage,nativeImage};
+module.exports={normalizeLocalOcrLabels,canonicalLocalOcrIdentity,parse,normalizeLayout,appImage,localOcrImage,nativeImage};
 if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):x.mode==='prepare-native'?nativeImage(x.passes):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
