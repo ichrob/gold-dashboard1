@@ -15,20 +15,24 @@ const {chromium}=require('playwright'),fs=require('fs'),assert=require('node:ass
   return route.fulfill({status:503,contentType:'application/json',body:'{"status":"unavailable"}'});
  });
  await page.goto('https://bob.test/');
- await page.locator('#bobNavigation [data-view="risk"]').click();
+ await page.locator('#bobNavigation [data-view="products"]').click();
+ await page.locator('#bobProductTools').evaluate(el=>el.open=true);
+ await page.locator('#bobProductTools [data-view="risk"]').click();
  await page.locator('#bob-view-risk').waitFor({state:'visible'});
  await page.locator('#bobRiskPaper').getByText('0 s Verzögerung',{exact:true}).waitFor();
  assert((await page.locator('#bobRiskPaper').innerText()).includes('2000.00 €'));
  assert((await page.locator('#bobRiskPaper').innerText()).includes('ab VORWARNUNG'));
  assert((await page.locator('#bobRiskPaper').innerText()).includes('kurze Intraday-Rücksetzer'));
  assert((await page.locator('#bobRiskPaper').innerText()).includes('Aktuelle Einstiegsregel seit'));
- assert.equal(await page.locator('#bobNavigation button').count(),5);
+ assert.equal(await page.locator('#bobNavigation button').count(),3);
  assert(await page.locator('#bobRiskContent').innerText().then(x=>x.includes('ABWARTEN')));
  assert(await page.locator('#bob-view-risk').innerText().then(x=>x.includes('Risiko · Marktbeobachtung')));
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'No horizontal overflow on 360px phone');
  await page.locator('#bobNavigation [data-view="trade"]').click();
  assert(await page.locator('#bob-view-risk').isHidden());
- await page.locator('#bobNavigation [data-view="risk"]').click();
+ await page.locator('#bobNavigation [data-view="products"]').click();
+ await page.locator('#bobProductTools').evaluate(el=>el.open=true);
+ await page.locator('#bobProductTools [data-view="risk"]').click();
  // Stub only the server acknowledgement; this is not a real delivery test.
  await page.evaluate(()=>{
   window.BobPush.set('serverRegistered',true);window.BobPush.set('general',true);
@@ -54,7 +58,7 @@ const {chromium}=require('playwright'),fs=require('fs'),assert=require('node:ass
  assert.equal(await page.locator('#bobRiskMarketPushToggle').getAttribute('aria-pressed'),'false');
  await page.screenshot({path:'risk-mobile.png',fullPage:true});
  assert.deepEqual(errors,[]);
- console.log('Browser: five mobile tabs, Risiko visibility, empty-data status, scope disclosure, return navigation and 360px width passed.');
+ console.log('Browser: three mobile tabs, Risiko visibility, empty-data status, scope disclosure, return navigation and 360px width passed.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
 

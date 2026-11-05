@@ -253,9 +253,9 @@ function mountSimpleHome(doc,workspace){
   else detail.append(child);
  }
  const card=doc.createElement('section');card.id='bobSimpleHome';card.className='card';
- card.innerHTML='<h2>Was ist jetzt wichtig?</h2>'+
+ card.innerHTML='<h2>Goldmarkt</h2>'+
  '<div id="bobHomeSignal" class="bob-home-signal" role="status">ABWARTEN · Daten werden geprüft</div>'+
- '<p id="bobHomeNext"></p>'+
+ '<p id="bobHomeNext" class="bob-home-reason"></p><p id="bobHomeReason" class="small"></p>'+
  '<section id="bobHomeTrade" class="bob-home-trade" hidden><h3>Dein aktiver Trade</h3><p id="bobHomeIdentity"></p>'+
  '<dl><div><dt>Gewinn / Verlust</dt><dd id="bobHomePnl">—</dd></div><div><dt>Stop · berechnet</dt><dd id="bobHomeStop">—</dd></div><div><dt>Ziel · berechnet</dt><dd id="bobHomeTarget">—</dd></div></dl>'+
  '<details><summary>Kursstand und Berechnung</summary><p id="bobHomeTradeNote"></p></details></section>'+
@@ -263,11 +263,16 @@ function mountSimpleHome(doc,workspace){
  '<button type="button" id="bobHomeSecondary" data-view="trade">Trade eintragen</button></div>'+
  '<details id="bobHomeProblems"><summary id="bobHomeProblemTitle">Probleme · Status wird geprüft</summary><p id="bobHomeProblemText"></p><button type="button" data-view="problems">Probleme und Bearbeitung ansehen</button></details>';
  home.prepend(card);
+ detail.append(doc.getElementById('bobHomeProblems'));
  // Keep the next action visible even with long warnings or large text.
- doc.getElementById('bobHomeSignal').after(card.querySelector('.bob-home-actions'));
+ doc.getElementById('bobHomeReason').after(card.querySelector('.bob-home-actions'));
  // Move the original live warning, preserving expiry, withdrawal and ranking updates.
  const earlyWarning=doc.getElementById('earlyImpulseStatus');
- if(earlyWarning)card.querySelector('.bob-home-actions').after(earlyWarning);
+ if(earlyWarning){
+  const compact=doc.createElement('p');compact.id='bobEarlyCompact';compact.className='bob-early-compact';compact.setAttribute('role','status');
+  card.querySelector('.bob-home-actions').after(compact);
+  const explanation=fold(detail,'bobEarlyDetails','Frühwarnung · vollständige Erklärung');explanation.append(earlyWarning);
+ }
  if(quotes)card.after(quotes);
  // Keep the original interactive chart outside every collapsed analysis panel.
  if(chart)(quotes||card).after(chart);
@@ -280,7 +285,12 @@ function mountSimpleHome(doc,workspace){
   const expired=root.BobSession?.expired?.()===true;
   const signal=read('quickSignal')||'ABWARTEN · Daten werden geprüft';
   const direction=!expired&&/\bLONG\b/.test(signal)?'LONG':!expired&&/\bSHORT\b/.test(signal)?'SHORT':'ABWARTEN';
-  put('bobHomeSignal',expired?'ABWARTEN · Anmeldung prüfen':signal);
+  put('bobHomeSignal',expired?'ABWARTEN · Anmeldung prüfen':direction);
+  put('bobHomeReason',read('bobShortReason')||'Marktdaten werden geprüft.');
+  const warning=read('earlyImpulseStatus');
+  const compactWarning=warning.split('\n').filter(Boolean).slice(0,2).join(' · ');
+  const checked=warning.match(/Geprüft:[^\n]*/)?.[0]||'';
+  put('bobEarlyCompact',[compactWarning,checked].filter(Boolean).join(' · '));
   doc.getElementById('bobHomeSignal').dataset.direction=direction;
   const trade=root.BobTradeSync?.current?.();
   const active=!expired&&trade?.active===true&&trade?.test!==true;
@@ -290,8 +300,8 @@ function mountSimpleHome(doc,workspace){
   for(const [id,key] of [['bobHomePnl','pnl'],['bobHomeStop','stop'],['bobHomeTarget','target'],['bobHomeTradeNote','note']])put(id,view?.[key]||'Noch nicht bestätigt');
   put('bobHomeNext',expired?'Bitte melde dich erneut an.':active?(view?.action||'Prüfe deinen Trade und den Status der Überwachung.'):direction==='ABWARTEN'?'Keine aktive Position · Abwarten.': 'Keine aktive Position · Produkte und Nachweise prüfen.');
   const primary=doc.getElementById('bobHomePrimary'),secondary=doc.getElementById('bobHomeSecondary');
-  primary.dataset.view=active?'trade':'products';put('bobHomePrimary',active?'Mein Trade ansehen':'Produkte ansehen');
-  secondary.dataset.view=active?'products':'trade';put('bobHomeSecondary',active?'Produkte ansehen':'Trade eintragen');
+  primary.dataset.view=active?'trade':'products';put('bobHomePrimary',active?'Trade überwachen':direction==='ABWARTEN'?'Produktstatus ansehen':'Passende Produkte');
+  secondary.dataset.view=active?'products':'trade';put('bobHomeSecondary',active?'Produkte ansehen':'Kauf bereits ausgeführt?');
   // Copy the existing archive's status verbatim; an unknown or stale index is
   // never converted into "all clear" or "sent to ChatGPT".
   const summary=read('bobProblemsSummary');

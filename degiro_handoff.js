@@ -192,6 +192,7 @@ function mount(){
  <p><a id="dg2-open">DEGIRO öffnen</a></p>
  <p>Falls sich nur die Webseite öffnet, starte die DEGIRO-App über ihr Symbol. ISIN dort selbst suchen. Es werden keine Eingaben oder Bestätigungen in der App automatisiert.</p>
  <p>Planung nur auf diesem Gerät und in diesem Browser. Tageswechsel: Schweizer Zeit. Andere Geräte, gelöschte Browserdaten und echte Orders werden nicht abgeglichen. Keine zusätzliche Softwarelizenz oder API-Gebühr; bestehende Hosting- und Handelskosten bleiben bestehen.</p>`;
+ box.id='bobOrderPreparation';
  host.append(box);box.querySelectorAll('label').forEach(el=>{el.style.display='block';el.style.margin='12px 0';});box.querySelectorAll('input,select').forEach(el=>{el.style.display='block';el.style.padding='10px';el.style.maxWidth='100%';});
  const form=box.querySelector('form'),status=box.querySelector('#dg2-status');let state=null;
  const products=box.querySelector('#dg2-product');
@@ -294,6 +295,62 @@ function mount(){
  }
  localStorage.setItem(KEY,JSON.stringify(next));lastProposal=null;state=next;render();status.textContent='Entwurf gespeichert – keine Order übermittelt.';}catch(err){status.textContent=err.message;}});
  const web='https://trader.degiro.nl/';const link=box.querySelector('#dg2-open');link.href=/Android/i.test(navigator.userAgent||'')?'intent://trader.degiro.nl/#Intent;scheme=https;package=nl.degiro.trader;S.browser_fallback_url='+encodeURIComponent(web)+';end':web;
+ // A single trade-preparation surface, using the existing guarded calculator.
+ const tradePanel=document.getElementById('bob-view-trade');
+ if(tradePanel && location.pathname!=='/zentrale/workspace'){
+  const preparation=document.createElement('details');preparation.id='bobTradePreparation';preparation.className='card bob-disclosure';
+  const title=document.createElement('summary');title.textContent='Trade vorbereiten · vor dem Kauf';preparation.append(title,box);
+  tradePanel.querySelector('h2')?.after(preparation);
+  const legacy=document.createElement('button');legacy.type='button';legacy.dataset.view='trade';legacy.textContent='Vorbereitung in Mein Trade öffnen';legacy.onclick=()=>{preparation.open=true;};host.append(legacy);
+  box.querySelector('h3').textContent='1 · Produkt wählen · 2 · Budget prüfen · 3 · DEGIRO öffnen';
+  const explanation=document.createElement('details'),explanationTitle=document.createElement('summary');explanationTitle.textContent='Hinweise und Depotabgleich';explanation.append(explanationTitle);
+  for(const node of [...box.children])if(node.tagName==='P'&&!['dg2-status','dg2-budget'].includes(node.id)&&!node.querySelector('#dg2-open'))explanation.append(node);
+  explanation.append(snap.closest('label'));box.append(explanation);
+  const advanced=document.createElement('details'),advancedTitle=document.createElement('summary');advancedTitle.textContent='Werte und Risikovorgaben bearbeiten';advanced.append(advancedTitle);
+  for(const key of ['isin','side','qty','price','minRR','stop','target'])advanced.append(form.elements[key].closest('label'));
+  const max=box.querySelector('#dg2-size'),maxNote=max.nextElementSibling;advanced.append(max);if(maxNote?.tagName==='P')advanced.append(maxNote);
+  form.insertBefore(advanced,box.querySelector('#dg2-propose'));
+  // Failed browser validation reveals the existing input instead of trapping focus.
+  form.addEventListener('invalid',()=>{advanced.open=true;preparation.open=true;},true);
+  const summary=document.createElement('p');summary.id='bobOrderValues';summary.setAttribute('role','status');summary.style.whiteSpace='pre-line';output.after(summary);
+  const copies=document.createElement('div');copies.className='bob-simple-copy';summary.after(copies);
+  const copyButtons=[];
+  for(const [key,label] of [['isin','ISIN'],['qty','Stückzahl'],['price','Limit'],['stop','Stop'],['target','Ziel']]){
+   const button=document.createElement('button');button.type='button';button.textContent=label+' kopieren';button.disabled=true;copies.append(button);copyButtons.push([key,button]);
+   button.onclick=async()=>{
+    if(key!=='isin'&&(!lastProposal||Date.now()-Date.parse(lastProposal.source.at)>90000)){invalidate();output.textContent='Vorschlag nicht mehr aktuell. Bitte neu berechnen.';return;}
+    try{await navigator.clipboard.writeText(form.elements[key].value);status.textContent=label+' kopiert. In DEGIRO prüfen.';}
+    catch(_){advanced.open=true;form.elements[key].focus();form.elements[key].select();status.textContent='Bitte markierten Wert kopieren.';}
+   };
+  }
+  function invalidate(){summary.textContent='Noch kein aktueller vollständiger Vorschlag.';for(const [key,button] of copyButtons)button.disabled=key!=='isin'||!validIdentity();}
+  function validIdentity(){try{return !!isin(form.elements.isin.value);}catch(_){return false;}}
+  const propose=box.querySelector('#dg2-propose'),calculate=propose.onclick;
+  propose.onclick=()=>{
+   try{calculate();}catch(_){lastProposal=null;output.textContent='Vorbereitung nicht verfügbar. Eingaben und Produktdaten prüfen.';}
+   if(!lastProposal)for(const key of ['qty','price','stop','target'])form.elements[key].value='';
+   invalidate();
+   if(lastProposal){summary.textContent='ISIN: '+form.elements.isin.value+'\nStückzahl: '+form.elements.qty.value+'\nLimit: '+form.elements.price.value+' '+form.elements.currency.value+'\nStop: '+form.elements.stop.value+' · Ziel: '+form.elements.target.value;
+    for(const [key,button] of copyButtons)button.disabled=!form.elements[key].value;
+   }
+  };
+  let timer;
+  function schedule(event){
+   invalidate();clearTimeout(timer);
+   // Budget/risk changes recalculate only a preview. Manual limit edits are preserved.
+   if(['budget','fees','maxLoss','minRR'].includes(event.target.name))timer=setTimeout(()=>propose.click(),450);
+  }
+  form.addEventListener('input',schedule);form.addEventListener('change',schedule);
+  document.addEventListener('click',event=>{
+   const button=event.target.closest('[data-simple-prepare]');if(!button)return;
+   refreshProducts();const id=button.dataset.simplePrepare;
+   if(![...products.options].some(o=>o.value===id)){status.textContent='Produkt nicht mehr verfügbar. Liste aktualisieren.';return;}
+   products.value=id;products.onchange();invalidate();preparation.open=true;
+   document.querySelector('#bobNavigation [data-view="trade"]')?.click();
+   if(form.elements.budget.value)propose.click();else form.elements.budget.focus();
+   preparation.scrollIntoView({block:'start'});
+  });
+ }
  root.addEventListener('bob-order-drafts-restored',()=>{try{state=read();render();status.textContent='Entwürfe aus deiner lokalen Sicherung übernommen. Vor Nutzung erneut prüfen.';}catch(e){status.textContent=e.message;}});
  document.addEventListener('visibilitychange',()=>{if(!document.hidden){try{state=read();render();}catch(e){status.textContent=e.message;}}});
 }

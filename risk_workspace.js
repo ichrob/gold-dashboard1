@@ -280,7 +280,7 @@ function mount(panel){
  root.document.addEventListener('visibilitychange',()=>{if(!root.document.hidden){refresh();refreshPaper();}});
  root.navigator?.serviceWorker?.addEventListener('message',event=>{
   if(event.data?.type==='BOB_PUSH_CLICK'&&event.data.data?.url==='/#risk')
-   root.document.querySelector('#bobNavigation [data-view="risk"]')?.click();
+   root.document.querySelector('[data-view="risk"]')?.click();
  });
 }
 const api={POLICY,analyze,analyzePaper,ranking,monitor,advance,markup,update,mount,server};root.BobRisk=api;

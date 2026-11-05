@@ -5149,7 +5149,10 @@ async function inject(){
  const savedProducts=b.querySelector('#dgSavedProductsSummary').parentElement;
  const issuerPanel=b.querySelector('#dgIssuerCatalogPanel');
  b.append(issuerPanel);
- b.querySelector(':scope > div').after(listPanel,savedProducts);
+ const importDetails=document.createElement('details');importDetails.id='bobListImport';
+ const importTitle=document.createElement('summary');importTitle.textContent='DEGIRO-Liste aktualisieren';importDetails.append(importTitle,listPanel);
+ b.append(savedProducts,importDetails);
+ b.querySelector(':scope > div').after(b.querySelector('#dgTop3Out'));
  a.parentNode.insertBefore(b,a.nextSibling);
  mountListCorrection(b);
  const q=b.querySelector("#dgTop3Inputs");
@@ -5644,19 +5647,21 @@ function renderContinuingAnalysis(products,context){
    return name+': '+(n(value)!==null?esc(value):'unbekannt')+
     ' ('+(n(value)===null?'fehlt':estimated?'berechnet':'Quelle/Originalstatus prüfen')+')';
   }).join(' · ');
-  return '<div data-unified-ranking-isin="'+esc(p.isin)+'" style="margin:8px 0"><b>'+
+  const quoteTime=p.snapshot?.evidence?.Geld?.at||p.snapshot?.sourceTime||p.quote?.quoteAt;
+  const quoteLabel=quoteTime?'Quellenzeit: '+String(quoteTime):'Quellenzeit unbekannt';
+  return '<div class="bob-compact-product" data-unified-ranking-isin="'+esc(p.isin)+'"><b>'+
    rank+' · '+esc(p.isin)+'</b>'+renderIsinCopy(p.isin,true)+
    ' · '+esc(p.productDirection||'Richtung unbekannt')+
    (i===null?' · nicht zuverlässig bewertbar':' · Vergleichswert '+e.score+'/100')+
-   '<br><strong>'+esc(freshness)+'</strong><br>'+fields+(row.sourceNote?'<div data-ranking-price-source>'+esc(row.sourceNote)+'</div>':'')+'<br><strong>'+(i!==null&&e.ok===true&&e.fit===true&&!marketWarnings.length&&row.calculation?.status==='calculated-approved'?'RECHNERISCH FREIGEGEBEN · DEGIRO-Handelbarkeit nicht bestätigt':proof.complete?'Produktnachweise vollständig; DEGIRO-Ausführung nicht bestätigt':'NICHT FREIGEGEBEN · Nachweise offen')+
+   '<p>'+esc(p.name||p.isin)+'</p><p>Kurs: '+esc(p.price??'unbekannt')+' · '+(p.priceCalculated||p.calculated||p.estimated?'berechnet':'Referenzkurs')+'<br>'+esc(quoteLabel)+'</p><p>'+(!proof.complete?'Nachweise offen · Vorbereitung kann unvollständig bleiben':'Produktnachweise vorhanden · Brokerkurs prüfen')+'</p><p>Hebel '+esc(p.leverage??'—')+' · KO-Abstand '+(Number.isFinite(e.koDistancePct)?e.koDistancePct.toFixed(2)+' %':'unbekannt')+'</p><button type="button" data-simple-prepare="'+esc(p.isin)+'">Trade vorbereiten</button><details><summary>Kurs, Nachweise und Risiko</summary><strong>'+esc(freshness)+'</strong><br>'+fields+(row.sourceNote?'<div data-ranking-price-source>'+esc(row.sourceNote)+'</div>':'')+'<br><strong>'+(i!==null&&e.ok===true&&e.fit===true&&!marketWarnings.length&&row.calculation?.status==='calculated-approved'?'RECHNERISCH FREIGEGEBEN · DEGIRO-Handelbarkeit nicht bestätigt':proof.complete?'Produktnachweise vollständig; DEGIRO-Ausführung nicht bestätigt':'NICHT FREIGEGEBEN · Nachweise offen')+
    '</strong><div class="small" style="white-space:pre-line">'+esc(productRiskPreviewText(p,marketPlan,now))+'</div>'+(row.warning?'<div class="small">'+esc(String(row.warning).slice(0,250))+'</div>':'')+
-   (!proof.complete?'<div class="small">Fehlt: '+esc((proof.reasons||[]).slice(0,3).join(' · ').slice(0,300))+'</div>':'')+'</div>';
+   (!proof.complete?'<div class="small">Fehlt: '+esc((proof.reasons||[]).slice(0,3).join(' · ').slice(0,300))+'</div>':'')+'</details></div>';
  };
  return '<section data-unified-product-ranking data-indicative-recommendations><b>Alle Goldprodukte · eine Rangliste · <span style="color:'+({LONG:'#15803d',SHORT:'#b91c1c'}[context?.direction]||'#ca8a04')+'">'+esc(['LONG','SHORT'].includes(context?.direction)?context.direction:'ABWARTEN')+'</span></b>'+
   '<p class="small" data-price-source-priority>Kursreihenfolge: aktueller Originalkurs → aktuelle Ersatzquelle → gekennzeichnete Berechnung. Fehlt auch diese, bleiben ältere Werte als veraltet oder zeitlich unbestätigt sichtbar. Rangliste passend zu LONG oder SHORT; keine Handelsfreigabe oder ausführbare DEGIRO-Order.</p>'+
   explanationHtml+leverageHint+
-  rankable.map((r,i)=>describe(r,i)).join('')+
-  unranked.map(r=>describe(r,null)).join('')+
+  rankable.slice(0,3).map((r,i)=>describe(r,i)).join('')+
+  (rankable.length>3||unranked.length?'<details><summary>Weitere Produkte und offene Nachweise</summary>'+rankable.slice(3).map((r,i)=>describe(r,i+3)).join('')+unranked.map(r=>describe(r,null)).join('')+'</details>':'')+
   (!rows.length?'<p>Keine Produkte erfasst.</p>':'')+'</section>';
 }
 function listVenueForSync(isin,archive=listArchive){
