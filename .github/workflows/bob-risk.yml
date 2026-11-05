@@ -167,4 +167,7 @@ jobs:
             risk-mobile.png
             /tmp/zentrale-workspace.png
             /tmp/zentrale-home.png
+            /tmp/bob-simple-home.png
+            /tmp/bob-simple-home-active.png
+            /tmp/bob-simple-trade.png
           if-no-files-found: ignore
