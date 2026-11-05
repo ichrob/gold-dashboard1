@@ -1711,6 +1711,11 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  function initMobile(){
   const main=document.querySelector('main');if(!main||document.getElementById('bobNavigation'))return;
   const central=location.pathname==='/zentrale/workspace';
+  if(central){
+   document.body.classList.add('central-workspace');
+   const theme=document.createElement('link');theme.rel='stylesheet';theme.href='/zentrale/theme.css';document.head.append(theme);
+  }
+  const centralSection=key=>key==='settings'?'settings':key==='problems'?'maintenance':'studies';
   const management=new Set(['simulation','auto','learning','diagrams','improve','research','future','problems','settings']);
   const workspaceUrl=key=>'/zentrale/workspace?view='+encodeURIComponent(key)+'#'+encodeURIComponent(key);
   const byId=id=>document.getElementById(id);
@@ -2050,7 +2055,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    back.textContent='← '+panels[parent].getAttribute('aria-label');panels[key].prepend(back);
   }
   for(const key of ['improve','simulation','learning','diagrams','research','future','degiro','degiro2','settings','help']){
-   const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view='more';back.textContent=central?'← Verwaltung':'← Mehr';panels[key].prepend(back);
+   const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view='more';back.textContent='← Mehr';
+   if(central){const link=document.createElement('a');link.className='bob-back';link.href='/zentrale/#'+centralSection(key);link.textContent='← '+({studies:'Tests & Lernen',maintenance:'Wartung',settings:'Einstellungen'}[centralSection(key)]);panels[key].prepend(link);}
+   else panels[key].prepend(back);
   }
 
   // Compact trade view: keep the original controls and their handlers intact.
@@ -2128,7 +2135,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   nav.innerHTML=[['overview','◫','Start'],['products','▤','Produkte'],['risk','⚡','Risiko'],['trade','◎','Mein Trade'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='more'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
   if(central){
    nav.setAttribute('aria-label','Zentrale Navigation');
-   nav.innerHTML='<a href="/zentrale/" class="bob-back">Überblick</a>'+[['simulation','Tests'],['learning','Ergebnisse'],['problems','Probleme'],['more','Verwaltung']].map(([key,label])=>menuButton(key,'',label,'')).join('');
+   nav.innerHTML=[['overview','⌂','Start'],['studies','▥','Tests & Lernen'],['maintenance','⚙','Wartung'],['settings','☷','Einstellungen']].map(([key,icon,label])=>'<a href="/zentrale/#'+key+'" data-central-section="'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+'</a>').join('');
   }
   // Bob-Handy action locator: lookup by stable control ID instead of
   // content-card position. Never click or send automatically.
@@ -2165,7 +2172,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    return true;
   }
   function show(key,focus=true){
-   if(central&&!key)key='more';
+   if(central&&(!key||key==='more')){location.replace('/zentrale/#studies');return false;}
+   if(central)for(const link of nav.querySelectorAll('[data-central-section]')){if(link.dataset.centralSection===centralSection(key))link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
    if(!central&&management.has(key)){location.replace(workspaceUrl(key));return false;}
    if(central&&key!=='more'&&!management.has(key)){location.assign('/?view='+encodeURIComponent(key||'overview')+'#'+encodeURIComponent(key||'overview'));return false;}
    if(['products-long','products-leverage'].includes(key))key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&(!central||!nav.querySelector('[data-view="'+key+'"]'))&&['problems','improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
