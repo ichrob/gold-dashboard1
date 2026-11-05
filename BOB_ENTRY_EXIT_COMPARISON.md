@@ -113,3 +113,13 @@ Standardabweichung und beobachtete Zwischengewinne/-verluste sowie Gewinnrückga
 Vergleiche, Abhängigkeiten und Auswahl durch Datenlücken erfordern weiterhin
 eine unabhängige Abnahme. Kein bestätigter Strategievorteil, keine automatische
 Regelübernahme und kein Portfolio-Drawdown aus unabhängigen Episoden.
+
+## Eingangsdiagnose
+
+Die Originalprüfung verwendet die vom Auswerter ausdrücklich benannte
+5m-Bestätigung (five-minute-confirmation / two-minute-follow-through-v1),
+sonst weiterhin 15m. Quellenidentität, Frische und abgeschlossene unveränderte
+Kerzen bleiben Pflicht. Ein einzelner überschreibbarer Statusdatensatz belegt
+den letzten erfolgreichen Worker-Prüftakt samt Originalprüfung und Wartegrund,
+auch ohne Episode. Er ist im geprüften Backupumfang enthalten. Kein historischer
+Ticknachweis und kein Beleg für einen Produkteinstieg.

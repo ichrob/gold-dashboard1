@@ -23,6 +23,40 @@ class ComparisonTests(unittest.TestCase):
         return study.advance(s,b,m,{'choices':[choice(direction)]},w,{'choices':[choice(direction)]},
                              {ISIN:quote(t,ko=ko,side=direction,bid=bid)} if quotes else {},t)
 
+    def test_five_minute_evaluator_clock_and_strict_evidence(self):
+        from test_paper_shadow_studies import RecordingConnection
+        b,m=observed();bar=NOW-300000
+        m.update(analysisBarAt=bar,entryTiming='five-minute-confirmation')
+        b['history']['bars_by_tf']['5m']=[dict(openTime=bar,isOpen=False)]
+        self.assertFalse(shared.original_input(b,m,NOW)['verified'])
+        q=study.original_input(b,m,NOW)
+        self.assertTrue(q['verified'])
+        conn=RecordingConnection()
+        study.tick(conn,b,m,{'choices':[choice()]},m,{}, {ISIN:quote()},NOW)
+        inserts=[args for sql,args in conn.calls if 'INSERT INTO bob_entry_exit_comparison' in sql]
+        self.assertEqual(len(inserts),1)
+        import json
+        episode=json.loads(inserts[0][2])
+        self.assertEqual(episode['arms']['confirmed:fixed:0']['status'],'open')
+        self.assertEqual(len(episode['arms']),18)
+        for field in ('isOpen','providerIsOpen','estimated'):
+            bad=copy.deepcopy(b);bad['history']['bars_by_tf']['5m'][0][field]=True
+            self.assertFalse(study.original_input(bad,m,NOW)['verified'],field)
+        self.assertFalse(study.original_input(b,{**m,'dataAt':NOW+60000},NOW)['verified'])
+        self.assertFalse(study.original_input(b,m,NOW+61000)['verified'])
+        self.assertFalse(study.original_input(b,{**m,'entryTiming':'unknown'},NOW)['verified'])
+
+    def test_neutral_tick_records_input_without_inventing_episode(self):
+        import json
+        from test_paper_shadow_studies import RecordingConnection
+        b,m=observed(direction='NEUTRAL');conn=RecordingConnection()
+        study.tick(conn,b,m,{},m,{}, {},NOW)
+        self.assertFalse(any('INSERT INTO bob_entry_exit_comparison' in sql for sql,_ in conn.calls))
+        observations=[json.loads(args[0]) for sql,args in conn.calls
+                      if 'INSERT INTO bob_entry_exit_input_status' in sql]
+        self.assertEqual(observations[0]['reason'],'waiting-for-direction')
+        self.assertTrue(observations[0]['inputQuality']['verified'])
+
     def test_matrix_same_entry_for_two_exits_and_delays(self):
         s,b,m=self.setup_case();s=self.run_at(s,b,m)
         self.assertEqual(len(s['arms']),18)
