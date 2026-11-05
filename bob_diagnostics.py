@@ -787,6 +787,11 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
     result['recentPaperOutcomes'] = recent_paper_outcomes(result['accounts'])
     try:
         with conn.transaction():
+            result['qualityCampaign'] = __import__('research_restart').report(conn)
+    except Exception:
+        result['qualityCampaign'] = {'status':'unavailable','realOrders':False}
+    try:
+        with conn.transaction():
             conn.execute("SET LOCAL statement_timeout='700ms'")
             result['shadowStudies'] = __import__('paper_shadow_studies').report(conn)
             conn.execute("SET LOCAL statement_timeout='3s'")
