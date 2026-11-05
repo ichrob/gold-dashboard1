@@ -23,6 +23,15 @@ def sample():
 
 
 class PolicyTests(unittest.TestCase):
+    def test_brief_exposes_counts_not_archive_locations(self):
+        import storage_brief
+        r=storage_brief.project({'status':'observed','coldTests':{
+            'status':'observed','offloadedRows':2,'logicalJsonBytesReduced':1234,
+            'fileId':'PRIVATE', 'lastCycle':{'status':'backup-proof-not-fresh','secret':'PRIVATE'}}})
+        self.assertEqual(r['coldTests']['offloadedRows'],2)
+        self.assertEqual(r['coldTests']['lastCycleStatus'],'backup-proof-not-fresh')
+        self.assertNotIn('PRIVATE',str(r))
+
     def test_future_test_tables_must_join_reviewed_backup(self):
         import evidence_archive
         for module in ('paper_entry_exit_comparison.py','research_restart.py','paper_shadow_studies.py'):
