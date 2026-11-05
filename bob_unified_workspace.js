@@ -291,7 +291,8 @@ function mountSimpleHome(doc,workspace){
   }
   const server=root.BobRealTrades?.monitorStatus?.(),pending=server?.fresh&&server.pending>0;
   const mode=expired?'expired':active?'active':pending?'pending':'prepare';
-  if(mode!==lastTradeMode){preparation.open=mode==='prepare';lastTradeMode=mode;}
+  if(mode!==lastTradeMode){preparation.open=mode==='prepare';if(mode==='active'){const purchase=doc.getElementById('bobPurchaseRecord');if(purchase)purchase.open=false;}lastTradeMode=mode;}
+  if(active){const summary=doc.getElementById('bobTradeSummary');if(summary&&banner.nextElementSibling!==summary)banner.after(summary);}
   const titles={expired:'Anmeldung prüfen',active:'Dein aktiver Trade',pending:'Kauf erkannt · Daten werden ergänzt',prepare:'Deinen nächsten Trade vorbereiten'};
   put('bobTradeModeTitle',titles[mode]);
   put('bobTradeModeText',mode==='expired'?'Erneut anmelden, damit der Status geprüft werden kann.':mode==='active'?'Gewinn/Verlust, Stop und Ziel stehen unten. Prüfe den Überwachungs- und Push-Status.':mode==='pending'?'Kaufdaten sind gespeichert. Bob ergänzt Produktdaten und prüft den Überwachungsstart. Fehlende Nachweise findest du bei den Kaufdetails.':'Produkt auswählen, gemerktes Budget prüfen und den Kauf selbst bei DEGIRO bestätigen. Bereits gekauft? Kaufabgleich oder Kaufbeleg nutzen.');
@@ -301,7 +302,7 @@ function mountSimpleHome(doc,workspace){
   // Old step-by-step guidance is kept in Details, away from the next action.
   const progress=doc.getElementById('bobTradeProgress');if((active||pending)&&progress?.querySelector('p')?.textContent)put('bobTradeModeText',progress.querySelector('p').textContent);if(progress&&progress.parentElement===panel)doc.getElementById('bobTradeDetails')?.append(progress);
   const depot=doc.getElementById('bobPurchaseMatch');if(depot)depot.hidden=active||expired||!!pending;
-  const monitor=doc.getElementById('bobOpenMonitoring');if(monitor)monitor.hidden=!active;
+  const monitor=doc.getElementById('bobOpenMonitoring');if(monitor)monitor.hidden=true; // The next-action button opens the same controls.
  }
  function refresh(){
   if(doc.hidden)return;
