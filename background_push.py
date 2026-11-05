@@ -312,8 +312,11 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         if product:
             reason=reason+' · '+product['isin']+' · Modellreferenz '+product['referenceAt']+'; verfügbarer Wechselkurs und gespeicherte Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
-                       'data': {'kind': channel, 'eventKind': kind, 'url': '/#trade' if channel=='trade' else '/', 'dataAt': market.get('dataAt'), 'generatedAt': now, 'analysisRequestedAt':market.get('analysisRequestedAt'), 'analysisCompletedAt':market.get('analysisCompletedAt'),
-                                'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
+                       'data': {'kind': channel, 'eventKind': kind, 'url': '/#trade' if channel=='trade' else '/', 'dataAt': market.get('dataAt'), 'generatedAt': now,
+                                'analysisRequestedAt':market.get('analysisRequestedAt'), 'analysisCompletedAt':market.get('analysisCompletedAt'),
+                                'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId'),
+                                'direction': market.get('direction') if kind == 'signal-change' else None,
+                                'signalBarAt': market.get('analysisBarAt') if kind == 'signal-change' else None}})
     # Market closure is a third status, not a source outage or a fresh quote.
     # Keep the last genuine timestamp and do not hide failures already seen while open.
     raw_healthy = market.get('ready') is True and market.get('priceFresh') is True
