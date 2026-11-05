@@ -117,7 +117,7 @@ const {chromium}=require('playwright');
  await page.waitForURL('**/zentrale/#studies');
  await page.locator('.toolbar a[href="/"]').click();
  await page.locator('#bobSimpleHome').waitFor();
- assert(await page.locator('#earlyImpulseStatus').isVisible());
+ assert(await page.locator('#bobEarlyCompact').isVisible());
  await page.locator('#bobNavigation [data-view="products"]').click();
  await page.evaluate(()=>{
   window.BobDegiro.tradeTestProducts=()=>[{isin:'DE000FG14AV8',name:'Test product',direction:'LONG'}];
@@ -135,6 +135,6 @@ const {chromium}=require('playwright');
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await page.screenshot({path:'/tmp/bob-simple-trade.png',fullPage:true});
  assert.deepEqual(errors,[]);
- console.log('Simple home: five tabs, all destinations, 360/390/768 widths, active/absent/test trades, currency and original analysis passed.');
+ console.log('Simple home: three tabs, all destinations, 360/390/768 widths, active/absent/test trades, currency and original analysis passed.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

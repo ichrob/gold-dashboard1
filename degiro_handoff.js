@@ -328,6 +328,7 @@ function mount(){
   const propose=box.querySelector('#dg2-propose'),calculate=propose.onclick;
   propose.onclick=()=>{
    try{calculate();}catch(_){lastProposal=null;output.textContent='Vorbereitung nicht verfügbar. Eingaben und Produktdaten prüfen.';}
+   if(!lastProposal)for(const key of ['qty','price','stop','target'])form.elements[key].value='';
    invalidate();
    if(lastProposal){summary.textContent='ISIN: '+form.elements.isin.value+'\nStückzahl: '+form.elements.qty.value+'\nLimit: '+form.elements.price.value+' '+form.elements.currency.value+'\nStop: '+form.elements.stop.value+' · Ziel: '+form.elements.target.value;
     for(const [key,button] of copyButtons)button.disabled=!form.elements[key].value;
