@@ -922,7 +922,8 @@ def quote_cache(products, active, now, preferred=()):
     # four slots just because their products occur first in the uploaded list.
     # Active positions retain priority among equally due requests.
     from product_repair_learning import request_order
-    due=request_order([isin for isin in isins if isin not in _pending], active_isins, _requested, now, preferred=preferred)
+    order_args=([isin for isin in isins if isin not in _pending], active_isins, _requested, now)
+    due=request_order(*order_args, preferred=preferred) if preferred else request_order(*order_args)
     for isin in due:
         if len(_pending)>=4:break
         if now-_requested.get(isin,0)>=30000:

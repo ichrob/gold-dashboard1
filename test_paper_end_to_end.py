@@ -20,20 +20,20 @@ const bars={};for(const [tf,step] of Object.entries({'1m':60000,'5m':300000,'15m
  open:4100-i*.1,high:4104-i*.1,low:4096-i*.1,close:4100-i*.1+Math.sin(i/8),isOpen:false,instrument:'XAU/USD'}));
 }
 [4076,4076.1,4075.5].forEach((p,j)=>Object.assign(bars['5m'][237+j],{open:p+2,close:p,high:p+4,low:p-4}));
-const bundle={spots:{xaus:4075.5,is_genuine_xauusd_spot:true,spot_price_as_of:new Date(now-(input.stale?120000:0)).toISOString()},history:{bars_by_tf:bars}};
+const bundle={spots:{xaus:input.price,is_genuine_xauusd_spot:true,spot_price_as_of:new Date(now-(input.stale?120000:0)).toISOString()},history:{bars_by_tf:bars}};
 const market=require('./background_analysis').evaluate({bundle,timeframe:'15m',learningPolicy:{campaign:'entry-filter-v2-guarded',base:'intraday-trend-follow-v7',variant:'baseline',version:'baseline',issuedAt:now,expiresAt:now+120000}});
 const q=input.quote;
 const selection=require('./paper_selection').evaluate({products:[{isin:q.isin,name:'SG Gold BEST SHORT',productDirection:'SHORT'}],quotes:{[q.isin]:q},market,bundle},now);
 process.stdout.write(JSON.stringify({market,selection,bundle}));
 '''
 
-def fixture(stale=False):
+def fixture(stale=False, price=4072.):
     q,_=entry_fixture.EntryPipelineTests().fixture()
     at=datetime.fromtimestamp(NOW/1000,timezone.utc).isoformat()
     for k in ('bidAt','askAt','quoteAt','checkedAt'):q[k]=at
     for cond in q['conditions'].values():cond.update(at=at,reviewedAt=at,dateText='19.10.2026')
-    q['leverageCalculation']['inputs'].update(basisAt=at,fxDataAt=at,fxEffectiveAt=at,basisPriceUsd=4075.5)
-    result=json.loads(subprocess.run(['node','-e',SCRIPT],input=json.dumps(dict(now=NOW,quote=q,stale=stale)),capture_output=True,text=True,check=True,timeout=30).stdout)
+    q['leverageCalculation']['inputs'].update(basisAt=at,fxDataAt=at,fxEffectiveAt=at,basisPriceUsd=price)
+    result=json.loads(subprocess.run(['node','-e',SCRIPT],input=json.dumps(dict(now=NOW,quote=q,stale=stale,price=price)),capture_output=True,text=True,check=True,timeout=30).stdout)
     return result,q
 
 class PipelineTests(unittest.TestCase):
@@ -59,6 +59,14 @@ class PipelineTests(unittest.TestCase):
         self.assertAlmostEqual(control['realizedProfit'],net)
         old=copy.deepcopy(control);costs.apply(control,closed);paper_reflection.record(control,closed,later)
         self.assertEqual(control,old)
+
+    def test_nearby_support_blocks_entry_plan(self):
+        # The previous 4075.5 fixture sits above confirmed support at 4072.10:
+        # retain that scenario as a rejection, rather than bypassing its risk gate.
+        result,_=fixture(price=4075.5)
+        self.assertTrue(result['market']['entryTimingGate']['allowed'])
+        self.assertIsNone(result['market']['plan'])
+        self.assertEqual(result['market']['entryPlanState']['code'],'TARGET_OBSTACLE')
 
     def test_stale_source_cannot_produce_entry_plan(self):
         result,_=fixture(stale=True)
