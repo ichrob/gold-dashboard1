@@ -123,6 +123,9 @@ def advance(old, bundle, market, now, worker_outcomes=None):
     timeframe = "5m" if market.get("entryTiming") in ("five-minute-confirmation", "two-minute-follow-through-v1") else "15m"
     quality = original_input(bundle, market, now, timeframe)
     quality["signalTimeframe"] = timeframe
+    quality["closedSignalBarMatched"] = quality.pop("closed15mMatched")
+    if not quality["verified"]:
+        quality["reason"] = "original-spot-or-"+timeframe+"-evidence-unverified"
     at = quality.get('sourceAt')
     previous_check = state.get('checkedAt')
     state['checkedAt'] = now

@@ -137,11 +137,13 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
                 p.init(conn);risk_paper.init(conn);shadow.init(conn);r.init(conn)
                 before=conn.execute('SELECT payload FROM bob_paper_balanced_control').fetchone()[0]
+                conn.commit()
                 r.start(conn,NOW)
                 # A transaction rollback must undo snapshots AND retire flags.
                 conn.rollback()
                 conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
-                p.init(conn);risk_paper.init(conn);shadow.init(conn);r.init(conn);conn.commit()
+                self.assertEqual(conn.execute('SELECT count(*) FROM bob_quality_legacy').fetchone()[0],0)
+                self.assertNotIn('retiredAt',conn.execute('SELECT payload FROM bob_paper_balanced_control').fetchone()[0])
                 r.start(conn,NOW);conn.commit()
                 r.start(conn,NOW+1000)
                 self.assertEqual(conn.execute('SELECT count(*) FROM bob_quality_legacy').fetchone()[0],11)
