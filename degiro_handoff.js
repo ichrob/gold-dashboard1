@@ -78,6 +78,7 @@ function purchaseCandidates(data,products,known=[],now=Date.now()){
    if(row.type!=='BUY'||!row.key||!['EUR','CHF'].includes(row.currency)||row.optionType||row.fxRate||['option','op','future','future_option','cfd','bond','bnd'].includes(String(row.securityKind).toLowerCase()))continue;
    if(row.status&&!['EXECUTED','FILLED','COMPLETED','SETTLED','CONFIRMED'].includes(row.status))continue;
    const product=products.find(p=>p.isin===id&&['LONG','SHORT'].includes(p.direction));if(!product)continue;
+   if(['quantity','price','amount','fee'].some(k=>typeof row[k]==='boolean'))continue;
    const when=Date.parse(row.date),qty=Number(row.quantity),price=Number(row.price),amount=Number(row.amount),fee=row.fee==null?null:Number(row.fee);
    if(!Number.isFinite(when)||when>now||day(new Date(when))!==day(new Date(now)))continue;
    if(!Number.isSafeInteger(qty)||qty<=0||!Number.isFinite(price)||price<=0||row.amount==null||!Number.isFinite(amount))continue;
@@ -88,7 +89,7 @@ function purchaseCandidates(data,products,known=[],now=Date.now()){
    if(rows.some(r=>r!==row&&r.isin===id&&!['FEE','TAX','DIVIDEND','INTEREST'].includes(r.type)&&(!Number.isFinite(Date.parse(r.date))||Date.parse(r.date)>=when||r.type==='BUY'&&day(new Date(r.date))===day(new Date(now)))))continue;
    if(known.some(t=>{const p=t.snapshot?.product||{};return t.active||p.isin===id&&Number(p.entry)===price&&Number(p.quantity)===qty;}))continue;
    result.push({key:'snaptrade-'+String(account.accountKey||index)+'-'+row.key,isin:id,direction:product.direction,currency:row.currency,quantity:qty,entry:price,
-    at:/T.*(?:Z|[+-]\d\d:\d\d)$/.test(row.date)?row.date:'',sourceAt:activities.checkedAt,account:index+1,fee,amount:Math.abs(amount)});
+    at:/T.*(?:Z|[+-]\d\d:\d\d)$/.test(row.date)?row.date:'',sourceAt:activities.checkedAt,account:index+1,fee,settlementTotal:fee!==null&&Math.abs(amount+qty*price+fee)<0.005?Math.abs(amount):null});
   }
  }
  return result;
@@ -430,7 +431,7 @@ function mount(){
       document.getElementById('purchaseAt').value=candidate.at;
       // CHF settlement is only copied when the source explicitly has CHF cash amounts.
       document.getElementById('purchaseFees').value=candidate.currency==='CHF'&&candidate.fee!==null?candidate.fee:'';
-      document.getElementById('purchaseTotal').value=candidate.currency==='CHF'?candidate.amount:'';
+      document.getElementById('purchaseTotal').value=candidate.currency==='CHF'&&candidate.settlementTotal!==null?candidate.settlementTotal:'';
       document.getElementById('purchaseStatus').textContent='Ausgeführter Kauf aus SnapTrade vorbefüllt. Quellkennung ist keine originale DEGIRO-Order-ID. Kaufdaten und CHF-Abrechnung prüfen; dann bestätigen.';
       for(let node=purchase;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;
       purchase.scrollIntoView({block:'start'});

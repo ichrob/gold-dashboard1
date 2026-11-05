@@ -7,6 +7,8 @@ const data=()=>({code:'READ_OK',readOnly:true,fresh:true,snapshot:{accounts:[{ac
 const candidates=(d,known=[])=>purchaseCandidates(d,products,known,now);
 assert.equal(candidates(data()).length,1);
 assert.equal(candidates(data())[0].entry,10);
+assert.equal(candidates(data())[0].settlementTotal,51);
+const grossOnly=data();grossOnly.snapshot.accounts[0].journal.activities.rows[0].amount=-50;assert.equal(candidates(grossOnly)[0].settlementTotal,null,'Gross cash is not an all-in settlement');
 for(const patch of [{type:'SELL'},{status:'CANCELLED'},{amount:-100},{quantity:0},{date:'2026-11-04T09:59:00Z'},{date:'2026-11-05T10:01:00Z'},{securityKind:'option'},{currency:'USD'},{securityCurrency:'CHF'}]){
  const d=data();Object.assign(d.snapshot.accounts[0].journal.activities.rows[0],patch);assert.equal(candidates(d).length,0,JSON.stringify(patch));
 }
