@@ -122,6 +122,11 @@ on:
       - 'sw.js'
       - 'browser_risk_workspace.cjs'
       - 'Bob.html'
+      - 'degiro_handoff.js'
+      - 'bob_unified_workspace.js'
+      - 'real_trade_journal.js'
+      - 'browser_simple_home.cjs'
+      - 'test_simple_trade_automation.js'
       - '.github/workflows/bob-risk.yml'
 permissions:
   contents: read
@@ -140,6 +145,7 @@ jobs:
       - name: Risk rules and existing product guards
         run: |
           node validate_bob.js
+          node test_simple_trade_automation.js
           node test_risk_workspace.js
           node test_risk_background.js
           node test_risk_push_worker.js
