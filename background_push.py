@@ -211,6 +211,7 @@ def analyze(bundle, settings, *, priority=None):
 
 def _analyze(bundle, settings, *, priority=None):
     started = time.monotonic()
+    started_at = time.time()*1000
     payload = json.dumps({**settings, 'bundle': bundle})
     # One fresh process after SIGABRT, within the original ten-second budget.
     # The evaluator rechecks source freshness; no previous result is reused.
@@ -233,6 +234,7 @@ def _analyze(bundle, settings, *, priority=None):
             print('BOB_ANALYSIS_ERROR exit='+str(p.returncode), flush=True)
         raise RuntimeError('Hintergrundanalyse fehlgeschlagen')
     result = json.loads(p.stdout)
+    result.update(analysisRequestedAt=started_at,analysisCompletedAt=time.time()*1000)
     # Diagnostics must never alter or block an existing analysis result.
     try:
         import bob_diagnostics
@@ -311,7 +313,10 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
             reason=reason+' · '+product['isin']+' · Modellreferenz '+product['referenceAt']+'; verfügbarer Wechselkurs und gespeicherte Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
                        'data': {'kind': channel, 'eventKind': kind, 'url': '/#trade' if channel=='trade' else '/', 'dataAt': market.get('dataAt'), 'generatedAt': now,
-                                'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
+                                'analysisRequestedAt':market.get('analysisRequestedAt'), 'analysisCompletedAt':market.get('analysisCompletedAt'),
+                                'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId'),
+                                'direction': market.get('direction') if kind == 'signal-change' else None,
+                                'signalBarAt': market.get('analysisBarAt') if kind == 'signal-change' else None}})
     # Market closure is a third status, not a source outage or a fresh quote.
     # Keep the last genuine timestamp and do not hide failures already seen while open.
     raw_healthy = market.get('ready') is True and market.get('priceFresh') is True
@@ -327,7 +332,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     snapshot = state.get('lastAnalysis') or {}
     if positive(market.get('price')) and positive(market.get('dataAt')) and market['dataAt'] <= now:
         snapshot = {**snapshot, **{key: copy.deepcopy(market.get(key)) for key in
-                    ('price', 'dataAt', 'analysisBarAt', 'score', 'atr', 'macd', 'signal', 'analysisSnapshot', 'trendContext', 'continuedPlan') if market.get(key) is not None}}
+                    ('price', 'dataAt', 'analysisBarAt', 'score', 'atr', 'macd', 'signal', 'analysisSnapshot', 'trendContext', 'continuedPlan', 'entryPlanState', 'entryPreparation', 'analysisRequestedAt', 'analysisCompletedAt') if market.get(key) is not None}}
         state['lastAnalysis'] = snapshot
     calculation = {'available': bool(snapshot), 'stale': not healthy, 'marketClosed': market_closed, 'computedAt': now,
                    'dataAt': snapshot.get('dataAt'), 'price': snapshot.get('price'),

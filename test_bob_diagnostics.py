@@ -905,8 +905,20 @@ class FastSimulationStatusTests(unittest.TestCase):
         self.assertFalse(base.call_args.kwargs['extended'])
         history.assert_not_called()
         selects = [c for c in conn.execute.call_args_list if c.args[0].startswith('SELECT')]
-        self.assertEqual(len(selects), 1)
-        self.assertIn('WHERE day=%s ORDER BY started_at DESC LIMIT 5', selects[0].args[0])
+        # The original fast case query is still day-indexed and limited.
+        # The three independent studies add only one PK-scoped control
+        # lookup and one fixed PostgreSQL relation-size catalogue read.
+        self.assertEqual(len(selects), 3)
+        sql = [call.args[0] for call in selects]
+        self.assertEqual(sum('WHERE day=%s ORDER BY started_at DESC LIMIT 5' in q
+                             for q in sql), 1)
+        self.assertEqual(sum('bob_shadow_study_control' in q and
+                             'WHERE study=ANY(%s::text[])' in q for q in sql), 1)
+        self.assertEqual(sum('pg_total_relation_size(' in q for q in sql), 1)
+        self.assertFalse(any('bob_shadow_study_events' in q and
+                             'pg_total_relation_size(' not in q for q in sql))
+        self.assertFalse(any('bob_shadow_study_cases' in q and
+                             'pg_total_relation_size(' not in q for q in sql))
         self.assertEqual(result['accounts'][0]['recentCases']['items'], [])
         self.assertEqual(result['historicalEvidence']['status'], 'not-requested')
 

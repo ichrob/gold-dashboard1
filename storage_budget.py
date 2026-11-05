@@ -8,10 +8,8 @@ import threading
 import time
 from contextlib import nullcontext
 
-# Confirmed Render allocation, 2026-10-27. Conservative decimal GB.
-ALLOCATION_BYTES=1_000_000_000
-CAUTION_BYTES=500_000_000
-ACTION_BYTES=700_000_000  # leave room for WAL, indexes and maintenance
+# Confirmed production capacity; logical-size warnings remain distinct from disk use.
+from storage_capacity import ALLOCATION_BYTES, CAUTION_BYTES, ACTION_BYTES
 _NEXT=0
 _LOCK=threading.Lock()
 
@@ -31,6 +29,10 @@ def init(conn):
     # Tiny derived daily snapshots for five areas; no evidence or source deletion.
     __import__('storage_knowledge').init(conn)
     __import__('storage_case_results').init(conn)
+    __import__('storage_history_evaluations').init(conn)
+    __import__('storage_paper_evaluation').init(conn)
+    __import__('storage_quality_evaluation').init(conn)
+    __import__('storage_improvement_evaluation').init(conn)
 
 
 def state(size):
@@ -79,8 +81,18 @@ def _sanitized_archive_attempt(row):
     return {'status': row[0], 'updatedAt': str(row[1]),
             'phase': stored.get('phase'), 'errorType': stored.get('errorType'),
             'receiptPersistenceErrorType': stored.get('receiptPersistenceErrorType'),
+            'encryptionVerified': proof.get('encryptionVerified') is True,
+            'encryptionVersion': (proof.get('encryptionVersion') if
+                                  proof.get('encryptionVersion') in
+                                  ('none','aes-256-gcm-stream-v1') else None),
             'restoreVerified': proof.get('restoreVerified') is True,
             'remoteDownloadVerified': proof.get('remoteDownloadVerified') is True,
+            'recoveryKeyVerified': proof.get('recoveryKeyVerified') is True,
+            'restoreIsolation': (proof.get('restoreIsolation') if
+                                 proof.get('restoreIsolation') ==
+                                 'separate-database-instance' else None),
+            'scope': (proof.get('scope') if proof.get('scope') ==
+                      'reviewed-evidence-tables-not-full-database-backup' else None),
             'deletionPermitted': proof.get('deletionPermitted'),
             'evidenceDeleted': stored.get('evidenceDeleted') is True}
 
@@ -180,8 +192,11 @@ def report(conn,now=None):
         relationLatestSampleAt=relation_last_at,
         relationElapsedSeconds=relation_elapsed,
         largestTableDeltas=relation_deltas[:12],
+        featureAllocation=__import__('feature_storage').report(samples, now),
         storageForensics=__import__('storage_forensics').report(conn,samples),
+        fixedSlotDaily=__import__('storage_daily_compact').report(samples),
         androidImageDuplication=__import__('android_image_storage_audit').report(conn),
+        androidImageAgeReview=__import__('android_image_age_review').report(conn),
         androidImageReferenceShadow=__import__('android_image_reference_shadow').report(conn),
         androidImageBackupReadiness=image_backup_readiness,
         largestTables=[dict(table=name,bytes=n,estimatedRows=live,estimatedDeadRows=dead,
@@ -193,6 +208,10 @@ def report(conn,now=None):
         layout=__import__('storage_layout').report(conn),
         knowledgeSummaries=__import__('storage_knowledge').report(conn),
         paperFinalReceipts=__import__('storage_case_results').report(conn),
+        historyEvaluations=__import__('storage_history_evaluations').report(conn),
+        paperDailyEvaluations=__import__('storage_paper_evaluation').report(conn),
+        qualityEvaluations=__import__('storage_quality_evaluation').report(conn),
+        improvementEvaluations=__import__('storage_improvement_evaluation').report(conn),
         renderVolume=__import__('render_disk_metrics').report(),
         coldAnalysis=__import__('cold_analysis').status(conn),
         coldObservations=__import__('cold_observations').status(conn),

@@ -268,6 +268,68 @@ class HistoryTests(unittest.TestCase):
                        and "interval '7 days'" not in sql]
         self.assertEqual(cap_deletes, [])
 
+    def test_full_retention_batch_adapts_cadence_without_changing_policy(self):
+        from contextlib import nullcontext
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+            def transaction(self):
+                return nullcontext()
+
+        conn = Conn()
+        with patch.object(h, '_LAST_PRUNE', 0), \
+             patch.object(h, '_PRUNE_NEXT_INTERVAL_SECONDS',
+                          h._PRUNE_INTERVAL_SECONDS), \
+             patch.object(h, 'prune', return_value=h._PRUNE_CAP_BATCH_SIZE) as prune, \
+             patch.object(h.time, 'monotonic', return_value=1801):
+            h.write(conn, self.event())
+            self.assertEqual(prune.call_count, 1)
+            self.assertEqual(h._PRUNE_NEXT_INTERVAL_SECONDS, 900)
+            self.assertEqual(h._PRUNE_CAP_BATCH_SIZE, 500)
+            self.assertEqual(h._PRUNE_MAX_EVENTS, 60000)
+            with patch.object(h.time, 'monotonic', return_value=2700):
+                h.write(conn, self.event())
+            self.assertEqual(prune.call_count, 1)
+            prune.return_value = 0
+            with patch.object(h.time, 'monotonic', return_value=2701):
+                h.write(conn, self.event())
+            self.assertEqual(prune.call_count, 2)
+            self.assertEqual(h._PRUNE_NEXT_INTERVAL_SECONDS, 1800)
+            with patch.object(h.time, 'monotonic', return_value=3600):
+                h.write(conn, self.event())
+            self.assertEqual(prune.call_count, 2)
+        self.assertTrue(conn.statements)
+        self.assertIn('INSERT INTO bob_diagnostic_history',
+                      conn.statements[0][0])
+
+    def test_prune_failure_resets_cadence_and_preserves_new_event(self):
+        from contextlib import nullcontext
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+            def transaction(self):
+                return nullcontext()
+
+        conn = Conn()
+        with patch.object(h, '_LAST_PRUNE', 0), \
+             patch.object(h, '_PRUNE_NEXT_INTERVAL_SECONDS', 900), \
+             patch.object(h, 'prune', side_effect=TimeoutError('private')) as prune, \
+             patch.object(h.time, 'monotonic', return_value=901), \
+             patch('builtins.print') as printed:
+            h.write(conn, self.event())
+            self.assertEqual(prune.call_count, 1)
+            self.assertEqual(h._PRUNE_NEXT_INTERVAL_SECONDS, 1800)
+            self.assertTrue(any('status=deferred' in str(x) for x in
+                                printed.call_args_list))
+            self.assertNotIn('private', str(printed.call_args_list))
+        self.assertIn('INSERT INTO bob_diagnostic_history', conn.statements[0][0])
+
     def test_new_process_defers_retention_until_first_full_interval(self):
         class Conn:
             def __init__(self):

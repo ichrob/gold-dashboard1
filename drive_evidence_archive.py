@@ -127,18 +127,50 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
     # Check locally before consuming Drive storage, then restore again from Drive.
     progress('local-restore')
     archive.restore_check(path, checksum, restore_dsn, temporary_session=temporary_session)
-    progress('upload')
-    file_id = drive.upload(path, checksum)
-    downloaded = work / 'downloaded.zip'
-    progress('download')
-    drive.download(file_id, downloaded)
+    encrypted = os.environ.get('BOB_ARCHIVE_ENCRYPT_BEFORE_UPLOAD') == '1'
+    recovery_verified = False
+    if encrypted:
+        # Never send the plaintext ZIP to Drive. Streaming AES-GCM uses only
+        # 1-MiB chunks; its independent domain-separated key stays in process.
+        import drive_archive_encryption as sealing
+        progress('encrypt-before-upload')
+        sealed = work / f'bob-evidence-{now}.zip.aesgcm'
+        seal_proof = sealing.seal(path, sealed, checksum)
+        path.unlink()
+        progress('encrypted-upload')
+        file_id = drive.upload(sealed, seal_proof['ciphertextSha256'])
+        sealed.unlink()
+        encrypted_download = work / 'downloaded.zip.aesgcm'
+        progress('encrypted-download')
+        drive.download(file_id, encrypted_download)
+        progress('authenticated-decrypt')
+        downloaded = work / 'downloaded.zip'
+        sealing.unseal(encrypted_download, downloaded, checksum)
+        # Opt-in recovery proof: the separately escrowed original root must
+        # authenticate the DOWNLOADED ciphertext. Hash plaintext in memory;
+        # no second plaintext ZIP or additional original deletion.
+        if os.environ.get('BOB_ARCHIVE_RECOVERY_PROOF_ONCE') == '1':
+            progress('verify-independent-recovery-key')
+            recovery_verified = sealing.verify_recovery(
+                encrypted_download, checksum)['recoveryKeyVerified']
+        encrypted_download.unlink()
+    else:
+        # Legacy compatibility. This is not client-side encryption and cannot
+        # authorize archival deletion of source diagnostic rows.
+        progress('upload')
+        file_id = drive.upload(path, checksum)
+        downloaded = work / 'downloaded.zip'
+        progress('download')
+        drive.download(file_id, downloaded)
     progress('remote-restore')
     receipt = archive.restore_check(downloaded, checksum, restore_dsn, temporary_session=temporary_session)
     receipt.update(restoreIsolation=isolation, driveFileId=file_id, driveFolderId=getattr(drive, 'folder_id', FOLDER_ID),
         remoteDownloadVerified=True, driveQuotaBefore=quota,
+        encryptionVerified=encrypted,
+        encryptionVersion=sealing.FORMAT if encrypted else 'none',
+        recoveryKeyVerified=recovery_verified,
         databaseBytes=result['databaseBytes'],
-        storageState=('action-required' if result['databaseBytes'] >= 700_000_000 else
-                      'caution' if result['databaseBytes'] >= 500_000_000 else 'below-budget-threshold'))
+        storageState=__import__('storage_budget').state(result['databaseBytes']))
     receipt_path = work / f'bob-evidence-{now}-verified.json'
     receipt_path.write_text(json.dumps(receipt, sort_keys=True, indent=2))
     os.chmod(receipt_path, 0o600)
@@ -147,7 +179,7 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
     # Only redundant scratch copies after verified remote restore and receipt.
     # Database originals and the durable Drive archive remain untouched.
     downloaded.unlink()
-    path.unlink()
+    path.unlink(missing_ok=True)
     return dict(**receipt, receiptFileId=receipt_id)
 
 

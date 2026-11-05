@@ -1,5 +1,7 @@
 """Prospective, observed-quote paper cases; never a broker/order connection."""
 import copy
+import re
+import paper_forward_validation
 import hashlib
 import json
 import adaptive_learning as rule_learning
@@ -191,6 +193,7 @@ def init(conn):
     import paper_portfolios
     paper_portfolios.init(conn)
     paper_stop_study.init(conn)
+    __import__('paper_shadow_studies').init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -277,6 +280,8 @@ def new_case(market, choice, quote, now, cash=100., cost_model=None,bundle=None)
                 plan=p,ledgerCostModel=copy.deepcopy(cost_model),product=copy.deepcopy(choice),koGuardRequired=choice.get('koGuardRequired') is True,
                 priceBasis=copy.deepcopy(choice.get('priceBasis')),
                 entryQuote=q,entryAsk=q['ask'] if q else None,
+                entryTiming=dict(version=1,sourceAt=market.get('dataAt'),decisionAt=now,
+                    analysisCompletedAt=market.get('analysisCompletedAt')),
                 analysis=copy.deepcopy(market),lastAt=market['dataAt'],remaining=1.,goldR=0.,productGrossPct=0. if q else None,
                 productReturnKnown=bool(q),netReturnKnown=False,modelOnly=True,partialTaken=False,
                 observedPeakValue=quantity*q['ask'] if quantity else None,
@@ -634,6 +639,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
     elif not control.get('enabled'):
         control.update(status='paused',reason='Simulation pausiert')
     else:
+        if not campaign_over and phase=='trading':
+            paper_forward_validation.start(control,market,now)
         active=conn.execute('SELECT id,payload FROM bob_paper_cases WHERE closed_at IS NULL ORDER BY started_at LIMIT 1 FOR UPDATE').fetchone()
         if campaign_over and not active:
             control.update(status='completed',reason='Vergleich beendet · Freitag 16:00 Zürich',endAt=campaign_end)
@@ -708,7 +715,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 reason='Frühwarn-Test: '+str(market.get('warningPaperBlockReason') or 'Keine aktuelle gültige Frühwarnung')
             elif not stop_target_audit.valid_plan(plan):
                 reason=('ABWARTEN: kein bestätigter gültiger Goldplan' if market.get('direction') not in ('LONG','SHORT')
-                        else 'Stopp-/Zielplan fehlt oder ist ungültig: '+str(market.get('decisionReason') or 'Planprüfung nicht bestanden'))
+                        else 'Einstieg wartet: '+str((market.get('entryPlanState') or {}).get('reason') or market.get('decisionReason') or 'Stopp-/Zielplan nicht gültig'))
             elif not choice:
                 reason=('KO-Schutz: heute ausgeschlossene ISIN; ' if blocked else 'Kein passendes belegtes Produkt: ')+ '; '.join(selection.get('reasons') or ['kein geeigneter neuer Kandidat'])
             elif profile_policy and (profile_policy.get('early_impulse') or profile_policy.get('campaign')) and choice.get('koGuardRequired') is not True:
@@ -847,6 +854,41 @@ def newer_queued_paper_bundle(current, candidate, now_ms):
             and (old_time is None or new_time>old_time) else current)
 
 
+def analyze_latest_bundle(bundle, settings, latest, analyze, clock):
+    """At most one re-evaluation of a newer complete observed bundle.
+
+    Never combine spot/analysis from different snapshots, relabel timestamps,
+    interpolate a gap, or rerun a portfolio against a previous source clock.
+    """
+    market=analyze(bundle,settings,priority=2)
+    stamp=market.get('dataAt')
+    if (market.get('ready') is False or market.get('priceFresh') is False
+            or not finite(stamp) or not 0<=clock()-stamp<=45000):
+        candidate=newer_queued_paper_bundle(bundle,latest(),clock())
+        if candidate is not bundle:
+            bundle=candidate
+            market=analyze(bundle,settings,priority=2)
+    return bundle,market
+
+
+def quote_focus(products, market):
+    if market.get('ready') is not True or market.get('priceFresh') is not True:
+        return []
+    side=market.get('direction')
+    if side not in ('LONG','SHORT'):
+        side=(market.get('entryPreparation') or {}).get('direction')
+    if side not in ('LONG','SHORT'):
+        return []
+    return [p['isin'] for p in products if p.get('isin') and
+            p.get('productDirection')==side and not p.get('knockedOut') and
+            not re.search(r'\b(?:faktor|factor)\b',p.get('name',''),re.I)][:3]
+
+
+def latest_paper_bundle():
+    with _guard:
+        return _latest
+
+
 def late_risk_retry_bundle(current, candidate, now_ms):
     """Return one newer verified snapshot for a paper-only late retry, else None."""
     selected=newer_queued_paper_bundle(current,candidate,now_ms)
@@ -864,7 +906,7 @@ def observed_quotes(products):
         return {p['isin']: copy.deepcopy(_observed_snapshot[p['isin']])
                 for p in products if p.get('isin') in _observed_snapshot}
 
-def quote_cache(products, active, now):
+def quote_cache(products, active, now, preferred=()):
     global _pool, _observed_snapshot
     if _pool is None:_pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix='bob-paper-quotes')
     for isin,future in list(_pending.items()):
@@ -880,7 +922,8 @@ def quote_cache(products, active, now):
     # four slots just because their products occur first in the uploaded list.
     # Active positions retain priority among equally due requests.
     from product_repair_learning import request_order
-    due=request_order([isin for isin in isins if isin not in _pending], active_isins, _requested, now)
+    order_args=([isin for isin in isins if isin not in _pending], active_isins, _requested, now)
+    due=request_order(*order_args, preferred=preferred) if preferred else request_order(*order_args)
     for isin in due:
         if len(_pending)>=4:break
         if now-_requested.get(isin,0)>=30000:
@@ -1107,6 +1150,21 @@ def _worker(db):
                         if fresh is not bundle:
                             bundle=fresh
                             print('BOB_PAPER reused_newer_observed_bundle=1',flush=True)
+                        # Keep optional risk evaluation before the final analysis:
+                        # its runtime must not age a prepared entry snapshot.
+                        try:
+                            with conn.transaction():
+                                risk_now=time.time()*1000
+                                risk_quotes={isin:paper_quote(q,risk_now,isin) for isin,q in quotes.items()}
+                                __import__('risk_paper').tick(conn,bundle,evidence,risk_quotes,risk_now)
+                        except Exception as exc:
+                            print('BOB_RISK_PAPER error='+type(exc).__name__,flush=True)
+                        bundle,market=analyze_latest_bundle(bundle,settings,latest_paper_bundle,
+                            background_push.analyze,lambda:time.time()*1000)
+                        # Work started before analysis may already be complete:
+                        # harvest it now instead of waiting another collector cycle.
+                        quotes=quote_cache(evidence['products'],active_isins,time.time()*1000,
+                                           preferred=quote_focus(evidence['products'],market))
                         # Source refresh may fetch newer timestamps. Audit against
                         # completion time, never the clock from before those reads.
                         now=time.time()*1000
@@ -1124,13 +1182,7 @@ def _worker(db):
                             print('BOB_PRODUCT_AUDIT error='+type(audit_exc).__name__,flush=True)
                         precision_quotes=dict(quotes)
                         quotes={isin:paper_quote(q,now,isin) for isin,q in quotes.items()}
-                        try:
-                            with conn.transaction():
-                                __import__('risk_paper').tick(conn,bundle,evidence,quotes,time.time()*1000)
-                        except Exception as exc:
-                            print('BOB_RISK_PAPER error='+type(exc).__name__,flush=True)
                         # Original four paper policies consume unchanged confirmed direction.
-                        market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])
                         ranking_policy=ranking_learning.policy(conn)
                         precision_due=now%(2*3600000)<=300000
@@ -1213,6 +1265,16 @@ def _worker(db):
                             paper_input_evidence.capture(bundle,input_observations,time.time()*1000)
                         except Exception:
                             print('BOB_PAPER_INPUT_AUDIT unavailable',flush=True)
+                        # Durable normal ledgers are already COMMITTED before
+                        # any optional full-evidence study writes begin. A
+                        # study failure cannot roll them back or forge fills.
+                        try:
+                            import paper_shadow_studies
+                            with conn.transaction():
+                                paper_shadow_studies.tick(
+                                    conn,bundle,market,selection,quotes,time.time()*1000)
+                        except Exception as shadow_exc:
+                            print('BOB_SHADOW_STUDIES error='+type(shadow_exc).__name__,flush=True)
                         print('BOB_PAPER checked profiles='+str(outcomes)+
                               ' direction='+str(market.get('direction'))+
                               ' ready='+str(market.get('ready'))+

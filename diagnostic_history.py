@@ -21,6 +21,11 @@ _DATABASE = None
 # Retention is maintenance, not a prerequisite for diagnostic delivery.
 _LAST_PRUNE = time.monotonic()
 _PRUNE_INTERVAL_SECONDS = 1800
+# Only a confirmed full bounded batch indicates a retention backlog. In that
+# case schedule one more identical 500-row pass after 15 minutes, not a larger
+# transaction. A no-op, skipped lock or failure keeps the 30-minute cadence.
+_PRUNE_CATCHUP_INTERVAL_SECONDS = 900
+_PRUNE_NEXT_INTERVAL_SECONDS = _PRUNE_INTERVAL_SECONDS
 _PRUNE_TIMEOUT = '5s'
 _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
 # Live stage telemetry isolated repeated five-second timeouts to the cap delete,
@@ -48,7 +53,8 @@ SCHEMAS = {
     'analysis-failed':diag.shape('timeframe','errorType'),
     'push':diag.shape('outcome','eventsCount',events=[diag.shape('kind','outcome','reason','at')]),
     'push-delivery':diag.shape('outcome','httpStatus','direction','signalBarAt','dataAt',
-                               'test','synthetic','receiptId','receiptState',eventKinds=[None]),
+                               'test','synthetic','receiptId','receiptState','generatedAt','analysisRequestedAt',
+                               'analysisCompletedAt','providerStartedAt','providerDurationMs',eventKinds=[None]),
     'paper-input':diag.shape('phase','checkedAt',profiles=[diag.shape(
         'profile','outcome','ready','priceFresh','dataAt','barAt')]),
     'health':diag.shape('status','session','sourceAt','sourceAgeSeconds','cycleAt','backgroundAt','evidenceVersion',badCodes=[None],goodCodes=[None]),
@@ -106,7 +112,7 @@ def original_spot(payload, observed_at):
 
 
 def write(conn,event):
-    global _LAST_PRUNE
+    global _LAST_PRUNE, _PRUNE_NEXT_INTERVAL_SECONDS
     e=validate(event)
     conn.execute('''INSERT INTO bob_diagnostic_history(id,trace_id,decision_id,stage,observed_at,build,payload)
         VALUES(%s,%s,%s,%s,%s,%s,%s::jsonb) ON CONFLICT(id) DO NOTHING''',
@@ -122,7 +128,7 @@ def write(conn,event):
                     VALUES('gold-api-xau-usd-v1',%s,%s) ON CONFLICT DO NOTHING''',source)
         except Exception:
             print('BOB_DIAGNOSTIC_SPOT archive=unavailable',flush=True)
-    if (time.monotonic()-_LAST_PRUNE>=_PRUNE_INTERVAL_SECONDS
+    if (time.monotonic()-_LAST_PRUNE>=_PRUNE_NEXT_INTERVAL_SECONDS
             and _PRUNE_LOCK.acquire(blocking=False)):
         # Retention maintenance is best-effort. Delivery keeps its short timeout,
         # while the bounded maintenance batch gets a separate finite budget.
@@ -132,11 +138,20 @@ def write(conn,event):
                 with conn.transaction():
                     conn.execute("SET LOCAL statement_timeout='"+_PRUNE_TIMEOUT+"'")
                     removed=prune(conn)
-                print('BOB_DIAGNOSTIC_PRUNE status=completed removed='+str(removed),flush=True)
+                # A completed full batch is the only evidence of backlog; keep
+                # the 7-day/60k retention policy, 500-row cap and 5s budget.
+                _PRUNE_NEXT_INTERVAL_SECONDS = (
+                    _PRUNE_CATCHUP_INTERVAL_SECONDS
+                    if type(removed) is int and removed >= _PRUNE_CAP_BATCH_SIZE
+                    else _PRUNE_INTERVAL_SECONDS)
+                print('BOB_DIAGNOSTIC_PRUNE status=completed removed='+str(removed)+
+                      ' nextSeconds='+str(_PRUNE_NEXT_INTERVAL_SECONDS),flush=True)
             except _PruneStageError as exc:
+                _PRUNE_NEXT_INTERVAL_SECONDS = _PRUNE_INTERVAL_SECONDS
                 print('BOB_DIAGNOSTIC_PRUNE status=deferred stage='+exc.stage+
                       ' error='+exc.error_type,flush=True)
             except Exception as exc:
+                _PRUNE_NEXT_INTERVAL_SECONDS = _PRUNE_INTERVAL_SECONDS
                 print('BOB_DIAGNOSTIC_PRUNE status=deferred stage=transaction error='+
                       type(exc).__name__,flush=True)
             finally:
@@ -145,7 +160,14 @@ def write(conn,event):
             _PRUNE_LOCK.release()
 
 
-def prune(conn):
+def prune(conn, archive_cutoff=None):
+    # Optional cutoff is used ONLY by a separate, verified-Drive-backed
+    # retention catch-up. The existing 7-day/60k normal prune is unchanged.
+    if archive_cutoff is not None and (
+            not isinstance(archive_cutoff, datetime) or
+            archive_cutoff.tzinfo is None or
+            archive_cutoff > datetime.now(timezone.utc)):
+        raise ValueError("Invalid archive cutoff")
     # Scanner and push-service share the same journal but run in separate
     # processes, so the in-process mutex above cannot serialize deploy-time
     # retention.  A transaction-scoped, non-blocking PostgreSQL lock makes
@@ -159,10 +181,18 @@ def prune(conn):
     if not locked or locked[0] is not True:
         return 0
     try:
-        old=conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
-            (SELECT id FROM bob_diagnostic_history
-             WHERE recorded_at < now()-interval '7 days'
-             ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""")
+        if archive_cutoff is None:
+            old=conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
+                (SELECT id FROM bob_diagnostic_history
+                 WHERE recorded_at < now()-interval '7 days'
+                 ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""")
+        else:
+            old=conn.execute("""DELETE FROM bob_diagnostic_history WHERE id IN
+                (SELECT id FROM bob_diagnostic_history
+                 WHERE recorded_at < now()-interval '7 days'
+                   AND recorded_at < %s
+                 ORDER BY recorded_at LIMIT 500 FOR UPDATE SKIP LOCKED)""",
+                 (archive_cutoff,))
     except Exception as exc:
         raise _PruneStageError('age-delete', exc) from exc
     # Journal rows are append-only. Count only the compact primary-key index
@@ -188,11 +218,19 @@ def prune(conn):
     if excess:
         cap_batch=min(_PRUNE_CAP_BATCH_SIZE,excess)
         try:
-            capped=conn.execute('''DELETE FROM bob_diagnostic_history
-                WHERE ctid = ANY(ARRAY(
-                    SELECT ctid FROM bob_diagnostic_history
-                    ORDER BY recorded_at ASC LIMIT %s))''',
-                (cap_batch,))
+            if archive_cutoff is None:
+                capped=conn.execute('''DELETE FROM bob_diagnostic_history
+                    WHERE ctid = ANY(ARRAY(
+                        SELECT ctid FROM bob_diagnostic_history
+                        ORDER BY recorded_at ASC LIMIT %s))''',
+                    (cap_batch,))
+            else:
+                capped=conn.execute('''DELETE FROM bob_diagnostic_history
+                    WHERE ctid = ANY(ARRAY(
+                        SELECT ctid FROM bob_diagnostic_history
+                        WHERE recorded_at < %s
+                        ORDER BY recorded_at ASC LIMIT %s))''',
+                    (archive_cutoff,cap_batch))
         except Exception as exc:
             raise _PruneStageError('cap-delete', exc) from exc
     counts=(getattr(old,'rowcount',0),getattr(capped,'rowcount',0))

@@ -12,25 +12,66 @@ on:
       - 'push_server.py'
       # Archival changes can alter historical paper evidence: run risk regressions.
       - 'decision_product_pilot.py'
+      - 'decision_product_single_rollback.py'
+      - 'decision_product_rollback_cli.py'
+      - 'test_decision_product_single_rollback.py'
       - 'decision_product_pilot_cli.py'
       - 'cold_decision_product_writer.py'
       - 'cold_decision_products.py'
       - 'evidence_archive.py'
       - 'drive_evidence_archive.py'
       - 'archive_worker.py'
+      - 'archive_receipt_status_probe.py'
+      - 'test_archive_receipt_status_probe.py'
       - 'cold_analysis.py'
       - 'cold_metrics.py'
       - 'cold_observations.py'
       - 'test_cold_archive_maintenance_isolation.py'
       - 'test_cold_analysis.py'
       - 'storage_maintenance.py'
+      - 'drive_evidence_archive.py'
+      - 'drive_archive_encryption.py'
+      - 'bob_offline_key_escrow.py'
+      - 'bob_render_to_offline_escrow.py'
+      - 'test_bob_render_to_offline_escrow.py'
+      - 'test_bob_offline_key_escrow.py'
+      - 'test_drive_archive_encryption.py'
+      - 'test_drive_evidence_archive.py'
+      - 'test_archive_worker.py'
+      - 'diagnostic_archived_catchup.py'
+      - 'test_diagnostic_archived_catchup.py'
+      - 'storage_pressure.py'
+      - 'test_storage_pressure.py'
+      - 'storage_budget.py'
+      - 'storage_brief.py'
+      - 'render_disk_metrics.py'
+      - 'test_render_disk_metrics.py'
+      - 'test_storage_brief.py'
+      - 'bob_diagnostics.py'
+      - 'bob_mcp.py'
+      - 'android_remote.py'
+      - 'test_android_remote.py'
+      - 'android_companion/**'
+      - 'diagnostic_history.py'
+      - 'diagnostic_archived_catchup.py'
+      - 'test_diagnostic_archived_catchup.py'
       - 'metric_compaction.py'
       - 'test_metric_compaction.py'
       - 'storage_budget.py'
       - 'storage_knowledge.py'
       - 'storage_case_results.py'
+      - 'storage_history_evaluations.py'
+      - 'test_storage_history_evaluations.py'
+      - 'storage_paper_evaluation.py'
+      - 'test_storage_paper_evaluation.py'
+      - 'storage_quality_evaluation.py'
+      - 'test_storage_quality_evaluation.py'
+      - 'storage_improvement_evaluation.py'
+      - 'test_storage_improvement_evaluation.py'
       - 'test_storage_case_results.py'
       - 'test_storage_knowledge.py'
+      - 'diagnostic_reference_shadow.py'
+      - 'test_diagnostic_reference_shadow.py'
       - 'storage_layout.py'
       - 'storage_forensics.py'
       - 'android_image_storage_audit.py'
@@ -116,10 +157,14 @@ jobs:
       - name: Mobile navigation and risk view
         run: |
           NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_risk_workspace.cjs
+          NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_zentrale.cjs
           NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_simple_home.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: risk-mobile-preview
-          path: risk-mobile.png
+          path: |
+            risk-mobile.png
+            /tmp/zentrale-workspace.png
+            /tmp/zentrale-home.png
           if-no-files-found: ignore

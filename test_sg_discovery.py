@@ -122,6 +122,69 @@ class SGDiscoveryTests(unittest.TestCase):
                 self.assertNotIn('leverageAt', got)
                 self.assertIsNone(got['conditions']['ko']['at'])
 
+    def test_two_current_degiro_eur_isins_are_issuer_verified_without_guessing(self):
+        for isin in ('DE000SX7PE82', 'DE000FA94U71'):
+            with self.subTest(isin=isin):
+                sg_direct._CACHE.clear()
+                sg_direct._TERMS.clear()
+                sg_direct._MARKETS.clear()
+                product, props = self.fixture(isin, 'CBDE', 'EUR', 8162201)
+                for field in props:
+                    if field.get('Name') == 'PutOrCall':
+                        field['Value'] = 'Call'
+                self.assertTrue(quotes.sg_on_demand_candidate(isin))
+                with patch.object(quotes, 'issuer_json',
+                                  side_effect=[product, props, self.points]) as fetch, \
+                     patch.object(quotes, 'get_bnp_quote') as bnp:
+                    got = quotes.get_issuer_quote(isin)
+                bnp.assert_not_called()
+                self.assertEqual(fetch.call_count, 3)
+                self.assertEqual(got['isin'], isin)
+                self.assertTrue(got['productVerified'])
+                self.assertEqual(got['metadata']['currency'], 'EUR')
+                self.assertEqual(got['metadata']['issuerExchangeCode'], 'CBDE')
+                self.assertEqual(got['chartEvidence']['currency'], 'EUR')
+                self.assertFalse(got['found'])
+                self.assertFalse(got['eligible'])
+                self.assertFalse(got['fresh'])
+                self.assertNotIn('leverageAt', got)
+
+    def test_current_degiro_eur_isins_404_never_fall_back_to_swiss_market(self):
+        for isin in ('DE000SX7PE82', 'DE000FA94U71'):
+            with self.subTest(isin=isin):
+                sg_direct._CACHE.clear()
+                sg_direct._TERMS.clear()
+                sg_direct._MARKETS.clear()
+                missing = HTTPError('https://www.sg-zertifikate.de/', 404,
+                                    'not found', {}, None)
+                with patch.object(quotes, 'issuer_json', side_effect=missing) as fetch, \
+                     patch.object(quotes, 'get_bnp_quote',
+                                  return_value=dict(isin=isin, found=False,
+                                                    productVerified=False)) as bnp:
+                    got = quotes.get_issuer_quote(isin)
+                fetch.assert_called_once()
+                self.assertTrue(fetch.call_args.args[0].startswith('https://www.sg-zertifikate.de/'))
+                bnp.assert_called_once()
+                self.assertFalse(got.get('productVerified', False))
+                self.assertFalse(got.get('found', False))
+                self.assertNotIn('chartEvidence', got)
+                self.assertNotIn(isin, sg_direct._MARKETS)
+                self.assertFalse(got['sgDiscovery']['verified'])
+
+    def test_current_degiro_eur_isin_rejects_wrong_issuer_identity(self):
+        isin = 'DE000FA94U71'
+        sg_direct._CACHE.clear()
+        sg_direct._TERMS.clear()
+        sg_direct._MARKETS.clear()
+        product, props = self.fixture(isin, 'CBDE', 'EUR', 8162202)
+        product['Isin'] = 'DE000SX7PE82'
+        with patch.object(quotes, 'issuer_json', side_effect=[product, props]) as fetch:
+            got = sg_direct.get_quote(isin)
+        self.assertFalse(got['productVerified'])
+        self.assertFalse(got.get('eligible', False))
+        self.assertNotIn('chartEvidence', got)
+        fetch.assert_called_once()
+
     def test_new_products_are_checked_at_sg_before_bnp(self):
         # These exact ISINs were present in the user's persisted DEGIRO list,
         # but previously were routed only to BNP because SG had no fixed ID.

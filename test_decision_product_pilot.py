@@ -57,6 +57,18 @@ class PilotControlsTests(unittest.TestCase):
         init.assert_not_called()
         conn.execute.assert_not_called()
 
+    def test_status_skips_optional_table_query_when_not_initialized(self):
+        conn=MagicMock()
+        conn.transaction.return_value=conn
+        conn.__enter__.return_value=conn
+        conn.execute.return_value.fetchone.return_value=(None,)
+        result=pilot.status(conn)
+        self.assertEqual(result,{'status':'not-observed','readOnly':True,
+                                 'diskBytesFreed':None})
+        self.assertEqual(conn.execute.call_count,1)
+        self.assertIn('to_regclass',conn.execute.call_args.args[0])
+        self.assertNotIn('ORDER BY updated_at',conn.execute.call_args.args[0])
+
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL fixture')
 class PilotClaimPGTests(unittest.TestCase):

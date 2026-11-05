@@ -1328,10 +1328,10 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 bob_handy_landing.send(self, command)
             return
-        if path in ("/", "/index.html", "/bob-live", "/bob-v12") and not self.authenticated():
+        if path in ("/", "/index.html", "/bob-live", "/bob-v12", "/zentrale/workspace") and not self.authenticated():
             # Browser fragments are invisible to servers. The Android companion
             # therefore sends the intended tab as an allowlisted ?view= value.
-            location = bob_auth.login_redirect(urlparse(self.path).query)
+            location = ("/login?view=zentrale" if path == "/zentrale/workspace" else bob_auth.login_redirect(urlparse(self.path).query))
             bob_auth.send(self, 303, location=location)
             return
         # Sensitive data APIs must be authenticated before any data generation.
@@ -1941,7 +1941,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(HTML)
             return
 
-        if path in ("/", "/index.html"):
+        if path in ("/", "/index.html", "/zentrale/workspace"):
             print(f'BOB_ROOT_SHELL path={path} shell_sha_hint=bc7499bb9f3e0a1676022a3d3c2225a236615adf auth_present={bool(self.headers.get("Authorization", ""))}', flush=True)
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -2032,11 +2032,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/login":
             bob_auth.send(self, 200)
             return
-        if path in ("/", "/index.html") and not self.authenticated():
-            location = bob_auth.login_redirect(urlparse(self.path).query)
+        if path in ("/", "/index.html", "/zentrale/workspace") and not self.authenticated():
+            location = ("/login?view=zentrale" if path == "/zentrale/workspace" else bob_auth.login_redirect(urlparse(self.path).query))
             bob_auth.send(self, 303, location=location)
             return
-        if path in ("/", "/index.html"):
+        if path in ("/", "/index.html", "/zentrale/workspace"):
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
                 f"{USER}:{PASSWORD}".encode("utf-8")
@@ -2279,8 +2279,12 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length).decode('utf-8'))
                 if not isinstance(payload, dict):raise ValueError('Ungültige Anfrage')
                 import youtube_research
-                result = youtube_research.from_screenshot(payload) if 'screenshotText' in payload else {'ok': True, 'item': youtube_research.manual(payload)}
-                status = 200
+                if payload == {'action': 'refresh'}:
+                    result = gold_research.request_refresh()
+                    status = 202
+                else:
+                    result = youtube_research.from_screenshot(payload) if 'screenshotText' in payload else {'ok': True, 'item': youtube_research.manual(payload)}
+                    status = 200
             except ValueError as exc:
                 result = {'ok': False, 'error': str(exc)}
                 status = 400

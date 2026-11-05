@@ -330,6 +330,11 @@ def collect(readers):
         except Exception:
             # Exception messages can contain URLs, credentials or database values.
             areas[name] = {'status':'unavailable'}
+    # Keep a tiny storage status even when the full storage area is later
+    # omitted by the private MCP response-size budget. No extra I/O.
+    # Status is always sourced from this same already collected snapshot.
+    from storage_brief import project as storage_brief
+    areas['storageBrief'] = storage_brief(areas.get('storage'))
     # The web process may not run the evaluator itself. Prefer real observations
     # from the push worker when its local capture is unavailable; never recompute.
     worker_analysis = (areas.get('simulationAndPush') or {}).get('analysis')
@@ -778,6 +783,14 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
             account['recentCases'] = {'status':'unavailable', 'day':day,
                 'reason':'current-day-case-read-unavailable'}
     result['recentPaperOutcomes'] = recent_paper_outcomes(result['accounts'])
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            result['shadowStudies'] = __import__('paper_shadow_studies').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        result['shadowStudies'] = {'status':'unavailable','readOnly':True,
+                                   'reason':'shadow-study-report-unavailable'}
     return result
 
 
@@ -821,7 +834,23 @@ def comparison_status(conn, portfolios):
         except Exception:
             recent = {'status':'unavailable',
                 'reason':'bounded-case-evidence-read-unavailable'}
-        samples.append({'profile':profile, 'recentCases':recent})
+        forward=None
+        forward_status='unavailable'
+        try:
+            control_table=portfolios.names(profile)['bob_paper_control']
+            with conn.transaction():
+                conn.execute("SET LOCAL statement_timeout='500ms'")
+                saved_forward=conn.execute(f"SELECT payload->'forwardValidation' FROM {control_table} WHERE id=1").fetchone()
+                forward=saved_forward[0] if saved_forward and isinstance(saved_forward[0],dict) else None
+                conn.execute("SET LOCAL statement_timeout='3s'")
+            forward_status='observed' if forward else 'not-started'
+        except Exception:
+            # Optional validation metrics cannot hide readable case evidence.
+            pass
+        phase=shape('cases','netEur','grossEur','wins','expectancyEur','profitFactor','meanSourceAgeMs','lastAt')
+        samples.append({'profile':profile, 'recentCases':recent,'forwardValidationStatus':forward_status,
+            'forwardValidation':project(forward,shape('version','startedAt','validationAt','excluded',
+                'actualNetKnown','strategyWinnerConfirmed','automaticPolicyChanges',calibration=phase,validation=phase)) if recent.get('status')=='observed' and forward else None})
     partial = (comparison.get('status') == 'partial'
                or blocks.get('status') == 'unavailable'
                or any(row['recentCases']['status'] == 'unavailable'
@@ -869,6 +898,10 @@ INDICATORS = shape('timeframe','score','rsi','macd','sig','hist','atr','adx','em
 PLAN = shape('available','reason','dir','entry','stop','target','computedAt','dataAt','currency','method','stale')
 EARLY_WARNING = shape('version','monitoring','available','state','direction','checkedAt','signalBarAt','expiresAt','invalidationPrice','extensionRisk','comparisonOnly','affectsApproval','reason')
 ANALYSIS = shape('ready','priceFresh','dataAt','analysisBarAt','price','direction','baseDirection','mtf','score','atr','macd','signal','decisionReason','ruleVersion','suggestedStop','suggestedTarget',
+    analysisRequestedAt=None,analysisCompletedAt=None,
+    entryPlanState=shape('state','code','reason'),
+    entryPreparation=shape('state','direction','sourceAt','signalBarAt','reason','entryApproved','productApproved','positionSize',
+        plan=shape('kind','direction','entry','stop','target','unit','source','experimental')),
     earlyWarning=EARLY_WARNING, analysisSnapshot=INDICATORS, trendContext=shape('available','direction','intact','reason'),
     entryTimingGate=shape('allowed','reason','status'),session=shape('phase','entryAllowed','reason'),
     dmi=shape('available','mode','direction','reason',
@@ -1138,7 +1171,7 @@ def new_feature_snapshot(areas, *, mobile_asset_loaded=False):
 
 
 def research_snapshot(value):
-    return project(value,shape('checkedAt','fresh','successfulFeeds','intervalSeconds','videosFound','videosAnalyzed','mcoOutlook','mcoReason','accessFallback',
+    return project(value,shape('mode','automaticRefresh','refreshing','refreshError','checkedAt','fresh','successfulFeeds','intervalSeconds','videosFound','videosAnalyzed','mcoOutlook','mcoReason','accessFallback',
         restrictedUploads=[shape('title','publishedAt','transcriptAccess')],
         sources=[shape('id','status','checkedAt','scanned','relevant','error')],
         items=[shape('title','publishedAt','outlook','current','coverage','transcriptAnalyzed','trustedTranscript','transcriptAccess','transcriptProvider','transcriptLanguage','transcriptWords','analysisStatus','error','publicFallback','accessNote',
@@ -1287,8 +1320,10 @@ def broker_sync_snapshot(value):
 # Stable, permission-preserving views of the *existing sanitized* report.
 # They do not add database queries, OAuth grants, device access, or evaluations.
 DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
-                    'sources', 'research', 'repairs', 'mobile', 'products')
+                    'sources', 'research', 'repairs', 'mobile', 'products',
+                    'storage')
 _FOCUS_AREAS = {
+    'storage': ('storageBrief',),
     'simulation': ('simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
                    'comparisonHealth', 'entryBlockEvidence', 'background', 'collection',
                    'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
@@ -1451,6 +1486,9 @@ def focused_report(report, focus='overview'):
     original = report.get('areas') or {}
     areas = {name: original[name] for name in _FOCUS_AREAS[focus]
              if name in original}
+    if focus == 'storage' and 'storageBrief' not in areas:
+        from storage_brief import project
+        areas['storageBrief'] = project(original.get('storage'))
     if focus in ('trades', 'signals', 'repairs'):
         sim = original.get('simulationAndPush')
         if isinstance(sim, dict):

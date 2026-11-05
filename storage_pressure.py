@@ -1,8 +1,13 @@
 """Bounded cold-storage cadence from measured database bytes, not disk free space."""
+# Operating targets remain small after a capacity upgrade. Physical rewrite
+# gates still use storage_capacity and fresh provider measurements separately.
+CAUTION_BYTES = 500_000_000
+ACTION_BYTES = 700_000_000
+
 def policy(database_bytes):
     if type(database_bytes) is not int or database_bytes < 0:
         return {'state': 'unknown', 'nextRunSeconds': 3600, 'databaseBytes': None}
-    seconds = 300 if database_bytes >= 700_000_000 else 900 if database_bytes >= 500_000_000 else 3600
+    seconds = 300 if database_bytes >= ACTION_BYTES else 900 if database_bytes >= CAUTION_BYTES else 3600
     return {'state': 'action' if seconds == 300 else 'caution' if seconds == 900 else 'normal',
             'nextRunSeconds': seconds, 'databaseBytes': database_bytes}
 

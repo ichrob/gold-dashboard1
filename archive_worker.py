@@ -89,7 +89,10 @@ def cycle(db, runner=None):
             result = runner()
             if not (result.get('restoreVerified') is True and
                     result.get('remoteDownloadVerified') is True and
-                    result.get('deletionPermitted') is False and result.get('receiptFileId')):
+                    result.get('deletionPermitted') is False and result.get('receiptFileId') and
+                    (os.environ.get('BOB_ARCHIVE_ENCRYPT_BEFORE_UPLOAD') != '1' or
+                     (result.get('encryptionVerified') is True and
+                      result.get('encryptionVersion')=='aes-256-gcm-stream-v1'))):
                 raise ValueError('Verified remote receipt required')
             _STATE = dict(status='verified', receipt=result, evidenceDeleted=False)
         except Exception as error:

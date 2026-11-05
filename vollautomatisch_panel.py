@@ -190,6 +190,16 @@ PANEL = r"""
      detail.textContent=lines.join('\n');card.append(detail);
      const review=document.createElement('details'),reviewTitle=document.createElement('summary'),reviewBody=document.createElement('p');
      reviewTitle.textContent='Selbstprüfung · erkannte Probleme';reviewBody.className='small';reviewBody.style='white-space:pre-line';
+     const forward=c.forwardValidation;
+     if(forward){
+      const validation=document.createElement('p');validation.className='small';
+      const a=forward.calibration||{},b=forward.validation||{};
+      validation.textContent='Neue Vorwärtsprüfung: erste 24 Stunden Kalibrierung, danach getrennter Prüfzeitraum. '+
+       'Bepreiste Fälle: '+(a.cases||0)+' / '+(b.cases||0)+' · Beispiel-Netto: '+
+       (a.cases?money.format(a.netEur):'offen')+' / '+(b.cases?money.format(b.netEur):'offen')+
+       ' · Ausgeschlossen: '+forward.excluded+'. Diese Auswertung ändert keine Regeln und bestätigt keine Echtgeldgewinne.';
+      card.appendChild(validation);
+     }
      const reflection=c.reflection;
      reviewBody.textContent=reflection?[
       'Seit '+time(reflection.since)+' · '+reflection.reviewed+' ausgewertete Abschlüsse · '+reflection.unpriced+' ohne belegtes Ergebnis',

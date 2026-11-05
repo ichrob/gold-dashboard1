@@ -207,7 +207,7 @@ internal object MorningReadPolicy {
         if(!section) return reject(DetailIssue.SECTION_MISSING)
         val productTitle=cleaned.any { n ->
             Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.row) &&
-                Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(n.row) &&
+                (Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(n.row) || unlimitedGoldRow(n.row)) &&
                 ids.findAll(n.row.uppercase()).map { it.value }.toSet().let { it.isEmpty() || it==setOf(target) }
         }
         // A missing header is allowed only during an already anchored same-window
@@ -336,7 +336,7 @@ internal object MorningReadPolicy {
         if(input.text!=target || !isSearchInput(input.id,input.description,input.hint)) return null
         val controls=Regex("(?iu)\\b(k|v|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b")
         fun productName(value:String)=Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(value) &&
-            Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(value)
+            (Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(value) || unlimitedGoldRow(value))
         fun safe(n:Node)=n.enabled && !n.editable && !n.containsInput && !n.password && !n.sensitive
         val groups=validated.indices.filter { i ->
             val n=validated[i]
@@ -557,6 +557,13 @@ internal object MorningReadPolicy {
         if(below(inputIndex,index) || below(index,inputIndex)) return reject(LauncherIssue.RELATED_TARGETS)
         return nodes.mapIndexed { i,n -> if(i==index) Node("") else n }
     }
+    // DEGIRO also labels BNP knock-out rows "GOLD Unlimited Long/Short".
+    // Require the issuer, direction and explicit SL/STR/R terms; "Unlimited"
+    // alone must never make an unrelated certificate a Gold KO candidate.
+    private fun unlimitedGoldRow(value: String): Boolean = Regex(
+        "(?iu)^BNP\\s+GOLD\\s+Unlimited\\s+(?:Long|Short)\\s+SL\\s+\\d+(?:[.,]\\d+)?\\s+STR\\s+\\d+(?:[.,]\\d+)?\\s+R\\s+\\d+(?:[.,]\\d+)?\\b"
+    ).containsMatchIn(value.trim())
+
     private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?, captureAll: Boolean = false, symbolProbe: Boolean = false): Action {
         if (nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
         protection(nodes)?.let { cause ->
@@ -600,7 +607,7 @@ internal object MorningReadPolicy {
                     val found=ids.findAll(row.uppercase()).map { it.value }.toSet().singleOrNull()
                     found?.takeIf { SeriesEvidence.validIsin(it) &&
                         Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(row) &&
-                        Regex(if(captureAll) "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short)|faktor|factor)\\b" else "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(row) &&
+                        (Regex(if(captureAll) "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short)|faktor|factor)\\b" else "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(row) || unlimitedGoldRow(row)) &&
                         !Regex(if(captureAll) "(?iu)\\b(kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b" else "(?iu)\\b(faktor|factor|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b").containsMatchIn(row) }
                 }.distinct().take(12)
                 if(candidates.isNotEmpty()) return Action(Kind.COLLECT,isins=candidates)

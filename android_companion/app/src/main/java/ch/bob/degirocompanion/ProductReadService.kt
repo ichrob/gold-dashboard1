@@ -292,6 +292,11 @@ class ProductReadService : AccessibilityService() {
             readQueued = false
             keepScreenForRequest()
             if(GoldSearchRun.running && MorningListDelivery.resume(this)) {
+                // Resuming already uploaded evidence must be visible to the
+                // user and in the redacted diagnostic. No fresh list has
+                // been verified and no search may run before its receipt.
+                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_PENDING_UPLOAD_RESUMED)
+                Toast.makeText(this,"Bob prüft die gespeicherte Goldliste. Nach bestätigtem Tageslisten-Abgleich werden die fehlenden Produktdetails gelesen.",Toast.LENGTH_LONG).show()
                 GoldSearchRun.stop("LIST_IMAGES_DELIVERED",Instant.now().toString())
                 ProductReadRequest.cancel()
             } else {
@@ -524,6 +529,10 @@ class ProductReadService : AccessibilityService() {
                         val ids=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(lines.joinToString("\n"){it.text.uppercase()}).map{it.value}.toSet()
                         if(ids.isNotEmpty() && ids!=setOf(MorningReadRun.target)) { finishBatchProduct("IDENTITY_CHANGED");return }
                     }
+                    // Diagnostic counters are coarse shape flags; no raw text, prices,
+                    // ISINs or account content are retained or transferred.
+                    if (MorningReadRun.running && MorningReadRun.reading && !sensitive)
+                        ProductReadDiagnostics.detailFieldShape(lines.distinct(), MorningReadRun.target)
                     val previousReadWindow = pageReader.sameWindow(root.windowId)
                     val step = pageReader.inspect(root.windowId, lines.distinct(), Instant.now().toString(), sensitive,
                         forwardIndex != null, backwardIndex != null,
@@ -786,6 +795,13 @@ class ProductReadService : AccessibilityService() {
         if(!PhoneRemote.active())return observation("SESSION_EXPIRED")
         if(!getSharedPreferences("product_reader",MODE_PRIVATE).getBoolean("enabled",false))return observation("SERVICE_MISSING")
         if(!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive || (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked)return observation("SCREEN_LOCKED")
+        // One remotely requested, hard-coded, non-secret Termux help probe.
+        // The user must have started this time-limited handset session and
+        // granted Android permission. Never run an arbitrary shell command or
+        // remotely start an escrow prompt (local physical confirmation only).
+        if(command?.optString("action")=="termux_check") {
+            return observation(TermuxBridge.launch(this,TermuxBridge.Action.CHECK))
+        }
         val root=productRoot(true) ?: return observation("NO_ROOT")
         val nodes=mutableListOf<AccessibilityNodeInfo>()
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
@@ -975,6 +991,70 @@ class ProductReadService : AccessibilityService() {
         finally { list.forEach { it.recycle() } }
     }
 
+    private fun acceptCapturedMorningImage(image:org.json.JSONObject,ids:List<String>,
+                                           generation:Int,windowId:Int,cropTop:Int,at:String) {
+        if(generation!=listGeneration)return
+        if(!PhoneRemote.active() || !GoldSearchRun.running ||
+           !ProductReadRequest.active(SystemClock.elapsedRealtime()) || keyboardVisible()) return
+        // On-device OCR may finish after a WebView transition. Never attach
+        // its stale rows to a newly displayed page or a different application.
+        val current=productRoot(false)
+        val safe=try {
+            current?.windowId==windowId &&
+                current.packageName?.toString()==ProductScreenEvidence.PACKAGE
+        } finally { current?.recycle() }
+        if(!safe) {
+            lastNavigationIssue="LIST_CAPTURE_WINDOW_CHANGED"
+            ProductReadRequest.cancel()
+            return
+        }
+        ProductReadDiagnostics.record(when {
+            image.has("appText") -> ProductReadDiagnostics.Outcome.LIST_APP_TEXT_ATTACHED
+            image.has("localOcr") -> ProductReadDiagnostics.Outcome.LIST_LOCAL_OCR_ATTACHED
+            else -> ProductReadDiagnostics.Outcome.LIST_SERVER_OCR_REQUIRED
+        })
+        listImages.put(image)
+        listCropTop=cropTop
+        listWindowId=windowId
+        ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_IMAGE_CAPTURED)
+        listFirstIds=ids;listSeenIds.addAll(ids);listScrolled=false;listScrollTries=0
+        saveListCheckpoint()
+        if(listSeenIds.size==10) deliverMorningList(generation)
+        else if(listImages.length()>=4) {
+            lastNavigationIssue="LIST_TOP_RESULTS_INCOMPLETE"
+            ProductReadRequest.cancel()
+        } else GoldSearchRun.event("LIST_FIRST_CAPTURED",at)
+    }
+
+    private fun morningListAnchors(nodes:List<AccessibilityNodeInfo>,view:List<MorningReadPolicy.Node>,
+                                   ids:List<String>,windowId:Int,rect:Rect,cropTop:Int):List<MorningListRegions.Anchor>? {
+        if(nodes.size!=view.size)return null
+        val candidates=nodes.indices.map { index ->
+            val node=nodes[index];val description=view[index]
+            val box=Rect();node.getBoundsInScreen(box)
+            MorningListRegions.Candidate(description.text,box.top-rect.top-cropTop,box.bottom-rect.top-cropTop,
+                node.windowId==windowId && node.isVisibleToUser && node.isEnabled &&
+                    !description.editable && !description.containsInput && !description.sensitive && !description.password &&
+                    box.left>=rect.left && box.right<=rect.right && box.width()>0)
+        }
+        return MorningListRegions.anchors(candidates,ids,rect.height()-cropTop)
+    }
+
+    private fun morningPositionedText(nodes:List<AccessibilityNodeInfo>,view:List<MorningReadPolicy.Node>,
+                                      ids:List<String>,windowId:Int,rect:Rect,cropTop:Int):List<String>? {
+        if(nodes.size!=view.size)return null
+        val parts=nodes.indices.mapNotNull { index ->
+            val node=nodes[index];val d=view[index];val box=Rect();node.getBoundsInScreen(box)
+            if(node.windowId!=windowId || !node.isVisibleToUser || !node.isEnabled || node.childCount!=0 ||
+                d.editable || d.containsInput || d.password || d.sensitive || d.text.isBlank() ||
+                d.text.length>800 || box.width()<=0 || box.height()<=0 || box.left<rect.left || box.right>rect.right ||
+                box.top<rect.top+cropTop || box.bottom>rect.bottom)return@mapNotNull null
+            MorningListText.Positioned(index,MorningOcrLayout.Line(d.text,box.left-rect.left,
+                box.top-rect.top-cropTop,box.right-rect.left,box.bottom-rect.top-cropTop))
+        }
+        return MorningListText.capturePositioned(view,parts,ids)
+    }
+
     // Capture only the validated product-list window (Android 14+), after the
     // keyboard has disappeared. Never capture the full display or secure windows.
     private fun captureMorningList(root:AccessibilityNodeInfo,nodes:List<AccessibilityNodeInfo>,
@@ -1032,6 +1112,8 @@ class ProductReadService : AccessibilityService() {
         listBusy=true
         val ids=action.isins.toList();val capturedAt=Instant.now().toString()
         val textBefore=MorningListText.capture(descriptions,ids)
+            ?: morningPositionedText(nodes,descriptions,ids,windowId,rect,cropTop)
+        val anchorsBefore=morningListAnchors(nodes,descriptions,ids,windowId,rect,cropTop)
         takeScreenshotOfWindow(windowId,mainExecutor,object:TakeScreenshotCallback {
             override fun onFailure(errorCode:Int) {
                 if(generation!=listGeneration)return
@@ -1039,15 +1121,20 @@ class ProductReadService : AccessibilityService() {
             }
             override fun onSuccess(result:ScreenshotResult) {
                 val buffer=result.hardwareBuffer
+                var delegatedToLocalOcr=false
                 try {
                     if(generation!=listGeneration || !PhoneRemote.active() || !GoldSearchRun.running ||
                         !ProductReadRequest.active(SystemClock.elapsedRealtime()) || keyboardVisible())return
                     val live=rootInActiveWindow ?: return
                     val refs=mutableListOf<AccessibilityNodeInfo>();val view=mutableListOf<MorningReadPolicy.Node>()
                     var textAfter:List<String>?=null
+                    var anchorsAfter:List<MorningListRegions.Anchor>?=null
                     val unchanged=try {
                         navigationTree(live,refs,view)
+                        val currentRect=Rect();live.getBoundsInScreen(currentRect)
                         textAfter=MorningListText.capture(view,ids)
+                            ?: if(currentRect==rect) morningPositionedText(refs,view,ids,windowId,rect,cropTop) else null
+                        if(currentRect==rect) anchorsAfter=morningListAnchors(refs,view,ids,windowId,rect,cropTop)
                         val decision=MorningReadPolicy.captureGoldList(view,listImages.length()>0)
                         live.windowId==windowId && live.packageName?.toString()==ProductScreenEvidence.PACKAGE &&
                             decision.kind==MorningReadPolicy.Kind.COLLECT && decision.isins==ids
@@ -1058,25 +1145,42 @@ class ProductReadService : AccessibilityService() {
                     try {
                         check(bitmap.width==rect.width() && bitmap.height==rect.height())
                         val cropped=android.graphics.Bitmap.createBitmap(bitmap,0,cropTop,bitmap.width,bitmap.height-cropTop)
+                        val semantic=textBefore!=null && textAfter==textBefore
+                        // Keep only a small crop copy on-device for ML Kit.
+                        // The raw PNG continues through the original secured
+                        // list upload for backup and possible forensic review.
+                        val localBitmap=if(semantic) null else
+                            runCatching { cropped.copy(android.graphics.Bitmap.Config.ARGB_8888,false) }.getOrNull()
                         val bytes=try { java.io.ByteArrayOutputStream().use { out ->
                             check(cropped.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out));out.toByteArray()
                         } } finally { if(cropped!==bitmap)cropped.recycle() }
                         check(bytes.size<=1500000)
-                        val image=org.json.JSONObject().put("at",capturedAt).put("png",android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP))
-                        if(textBefore!=null && textAfter==textBefore) image.put("appText",org.json.JSONObject()
-                            .put("before",org.json.JSONArray(textBefore)).put("after",org.json.JSONArray(textAfter)))
-                        listImages.put(image)
-                        listCropTop=cropTop
-                        listWindowId=windowId
-                        ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_IMAGE_CAPTURED)
-                        listFirstIds=ids;listSeenIds.addAll(ids);listScrolled=false;listScrollTries=0
-                        saveListCheckpoint()
+                        val image=org.json.JSONObject().put("at",capturedAt).put("png",
+                            android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP))
+                        if(semantic) image.put("appText",org.json.JSONObject()
+                            .put("before",org.json.JSONArray(textBefore!!)).put("after",org.json.JSONArray(textAfter!!)))
+                        if(localBitmap!=null) {
+                            delegatedToLocalOcr=true
+                            val stableAnchors=MorningListRegions.stable(anchorsBefore,anchorsAfter,ids,localBitmap.height)
+                            MorningLocalOcr.read(localBitmap,ids,stableAnchors) { paired ->
+                                try {
+                                    if(paired!=null) image.put("localOcr",paired)
+                                    acceptCapturedMorningImage(image,ids,generation,windowId,cropTop,capturedAt)
+                                } catch(_:Exception) {
+                                    if(generation==listGeneration)fail("LIST_CAPTURE_FAILED")
+                                } finally {
+                                    if(generation==listGeneration)listBusy=false
+                                }
+                            }
+                        } else {
+                            acceptCapturedMorningImage(image,ids,generation,windowId,cropTop,capturedAt)
+                        }
                     } finally { bitmap.recycle() }
-                    if(listSeenIds.size==10) deliverMorningList(generation)
-                    else if(listImages.length()>=4) fail("LIST_TOP_RESULTS_INCOMPLETE")
-                    else GoldSearchRun.event("LIST_FIRST_CAPTURED",capturedAt)
                 } catch(_:Exception) { if(generation==listGeneration)fail("LIST_CAPTURE_FAILED") }
-                finally { buffer.close();if(generation==listGeneration)listBusy=false }
+                finally {
+                    buffer.close()
+                    if(generation==listGeneration && !delegatedToLocalOcr)listBusy=false
+                }
             }
         })
     }

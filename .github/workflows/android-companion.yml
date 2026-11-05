@@ -40,7 +40,7 @@ jobs:
         with:
           gradle-version: "8.10.2"
       - name: Assemble app and UI test APKs
-        run: gradle -p android_companion :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest --no-daemon --stacktrace
+        run: gradle -p android_companion :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :zentrale:testDebugUnitTest :zentrale:assembleDebug --no-daemon --stacktrace
       - name: Verify parallel test identity and final merged APK permissions
         shell: bash
         run: |
@@ -65,6 +65,17 @@ jobs:
           done
           python - <<'PY'
           from pathlib import Path
+          # Offline scripts come from the pinned, signed APK, not network code.
+          # A mismatch blocks any lab build and thereby the stable release.
+          for name in ("bob_offline_key_escrow.py", "bob_render_to_offline_escrow.py"):
+            embedded = Path("android_companion/app/src/main/assets", name).read_bytes()
+            original = Path(name).read_bytes()
+            assert embedded == original, f"Bundled escrow asset differs: {name}"
+          bridge = Path("android_companion/app/src/main/java/ch/bob/degirocompanion/TermuxBridge.kt").read_text()
+          assert 'if (isCheck) arguments(Action.CHECK) else localArguments(context)' in bridge
+          assert 'putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pending)' in bridge
+          assert 'if (!isCheck)' in bridge
+          assert 'python' in bridge.lower()
           manifest = Path("android_companion/app/src/main/AndroidManifest.xml").read_text()
           assert 'android:usesCleartextTraffic="false"' in manifest
           assert 'android.permission.INTERNET' in manifest

@@ -29,10 +29,24 @@ def _poll_interval():
     return NEAR_EXPIRY_RETRY_SECONDS if age >= NEAR_EXPIRY_SECONDS else POLL_SECONDS
 
 
-def primary():
+def _cached_observation():
+    # The quote dictionary is replaced, never mutated after publication.
+    # A concurrent refresh must not make readers wait on its network lock.
+    quote,error=_quote,_error
+    if not quote or error not in (None,'OSError','URLError','TimeoutError','HTTPError'):
+        raise ValueError('Gemeinsamer Spot-Abruf nicht verfügbar: '+str(error))
+    age=(datetime.now(timezone.utc)-datetime.fromisoformat(quote['at'])).total_seconds()
+    if not 0<=age<=60:
+        raise ValueError('Gemeinsamer Spot-Kurs veraltet oder Kurszeit zukünftig')
+    return dict(quote,refreshWarning='Letzter Abruf fehlgeschlagen; gespeicherter Kurs innerhalb 60 Sekunden' if error else None)
+
+
+def primary(blocking=True):
     global _quote, _attempted, _error, _route, _retry_at, _near_expiry_retried_at
     # Serialize provider access, including concurrent browser, monitor and model requests.
-    with _lock:
+    if not _lock.acquire(blocking=blocking):
+        return _cached_observation()
+    try:
         now_monotonic = time.monotonic()
         poll_interval = _poll_interval()
         if now_monotonic - _attempted >= poll_interval and now_monotonic >= _retry_at:
@@ -81,12 +95,10 @@ def primary():
                                 pass
                     _retry_at = time.monotonic()+delay
                 logging.warning("BOB_MARKET_RECOVERY source=spot state=retrying code=%s", _error)
-        if not _quote or _error not in (None, 'OSError', 'URLError', 'TimeoutError', 'HTTPError'):
-            raise ValueError('Gemeinsamer Spot-Abruf nicht verfügbar: ' + str(_error))
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(_quote['at'])).total_seconds()
-        if not 0 <= age <= 60:
-            raise ValueError('Gemeinsamer Spot-Kurs veraltet oder Kurszeit zukünftig')
-        return dict(_quote, refreshWarning='Letzter Abruf fehlgeschlagen; gespeicherter Kurs innerhalb 60 Sekunden' if _error else None)
+        return _cached_observation()
+    finally:
+        _lock.release()
+
 
 
 def current():
@@ -96,11 +108,15 @@ def current():
     Models tied to a specific provider must still validate that identity.
     """
     try:
-        return primary()
+        return primary(blocking=False)
     except (OSError, ValueError, KeyError, TypeError):
         from xaus_spot import peek
         backup = peek()
         if backup is None:
+            # Cold start: if no checked source exists, wait for the single
+            # running provider call rather than starting another request.
+            if _lock.locked():
+                return primary()
             raise
         return dict(backup, underlying='XAU/USD', proxyKind='xaus-spot',
                     backupActive=True, refreshWarning='Hauptquelle nicht verfügbar; geprüfte XAUS-Ersatzquelle')

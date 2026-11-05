@@ -285,7 +285,8 @@ def campaign_comparison(accounts):
             profitEur=c.get('totalProfit'),exampleCostsEur=c.get('costsDebitedEur'),
             closedTrades=perf.get('closedTrades'),pricedTrades=perf.get('pricedTrades'),
             inconclusiveTrades=perf.get('inconclusiveTrades'),
-            observedMaxDrawdownPct=perf.get('observedMaxDrawdownPct')))
+            observedMaxDrawdownPct=perf.get('observedMaxDrawdownPct'),
+            forwardValidation=copy.deepcopy(c.get('forwardValidation'))))
     complete=all(r['status']=='completed' for r in rows)
     valid=complete and all(type(r['profitEur']) in (int,float) and math.isfinite(r['profitEur'])
         and r['inconclusiveTrades']==0 and type(r['pricedTrades']) is int

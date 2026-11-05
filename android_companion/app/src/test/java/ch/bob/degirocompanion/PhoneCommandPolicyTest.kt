@@ -17,4 +17,15 @@ class PhoneCommandPolicyTest {
         assertFalse(PhoneCommandPolicy().accept(id,id,id,"search_isin","DE000FE2JJ21",110,100))
         assertTrue(PhoneCommandPolicy().accept(id,id,id,"search_isin","DE000FE2JJ20",110,100))
     }
+    @Test fun termuxCheckIsOneShotOnlyWithoutInputOrOrderPermission() {
+        val p=PhoneCommandPolicy()
+        val session="a".repeat(32)
+        val first="b".repeat(32)
+        val second="c".repeat(32)
+        assertFalse(p.accept(session,session,first,"termux_check","bad",110,100))
+        assertTrue(p.accept(session,session,first,"termux_check","",110,100))
+        assertFalse(p.accept(session,session,first,"termux_check","",110,100))
+        assertFalse(p.accept(session,session,second,"termux_check","",110,100))
+        assertTrue(p.accept(session,session,second,"stop","",110,100))
+    }
 }

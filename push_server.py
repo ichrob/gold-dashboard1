@@ -116,12 +116,19 @@ def read_audit_report(payload):
     return report_admission.read(key,load)
 
 
+class ReadReportUnavailable(TimeoutError):
+    """A read-only report is temporarily unavailable and safe to retry."""
+
+
 def read_db_report(key, reader):
     """Admit a read-only report before it borrows a pooled connection."""
     def load():
         with db() as conn:
             return reader(conn)
-    return report_admission.read(key, load)
+    try:
+        return report_admission.read(key, load)
+    except TimeoutError as exc:
+        raise ReadReportUnavailable from exc
 
 
 def read_video_evidence(payload):
@@ -132,7 +139,10 @@ def read_video_evidence(payload):
         json.dumps({'videoId': identity}, sort_keys=True).encode()
     ).hexdigest()
     import video_evidence
-    return report_admission.read(key, lambda: video_evidence.handle(db, payload))
+    try:
+        return report_admission.read(key, lambda: video_evidence.handle(db, payload))
+    except TimeoutError as exc:
+        raise ReadReportUnavailable from exc
 
 
 def webpush(**kwargs):
@@ -177,6 +187,8 @@ def webpush(**kwargs):
         stamp = data.get(field)
         return stamp if type(stamp) in (int, float) and 0 < stamp < 4102444800000 else None
 
+    provider_started = time.monotonic()
+    provider_started_at = int(time.time()*1000)
     def log(outcome, status=None):
         print('BOB_PUSH_DELIVERY '+json.dumps({'events': event_kinds, 'outcome': outcome,
               'status': status, 'at': int(time.time()*1000)}), flush=True)
@@ -199,6 +211,11 @@ def webpush(**kwargs):
             'synthetic': is_synthetic,
             'signalBarAt': safe_clock('signalBarAt'),
             'dataAt': safe_clock('dataAt'),
+            'generatedAt': safe_clock('generatedAt'),
+            'analysisRequestedAt':safe_clock('analysisRequestedAt'),
+            'analysisCompletedAt':safe_clock('analysisCompletedAt'),
+            'providerStartedAt':provider_started_at,
+            'providerDurationMs':max(0,round((time.monotonic()-provider_started)*1000)),
             'receiptId': proof['receiptId'] if proof else None}, decision)
 
     try:
@@ -233,6 +250,7 @@ def _init_db_once():
         bob_session_store.init(conn)
         __import__("remote_push").init(conn)
         __import__("risk_paper").init(conn)
+        __import__("paper_shadow_studies").init(conn)
         bob_recovery.init(conn)
         bob_passkey_store.init(conn)
         bob_oauth_store.init(conn)
@@ -352,21 +370,23 @@ def json_body(handler):
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
 def send_json(handler, status, payload):
-    body = json.dumps(payload, separators=(",", ":")).encode()
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Cache-Control", "no-store")
-    handler.send_header("X-Content-Type-Options", "nosniff")
-    cors(handler)
-    handler.send_header("Content-Length", str(len(body)))
-    try:
-        handler.end_headers()
-        handler.wfile.write(body)
-    except (BrokenPipeError, ConnectionResetError):
-        # The request may already have committed. Never retry it or write a
-        # second error response to a disconnected caller.
-        handler.close_connection = True
-        print('BOB_PUSH_HTTP client_disconnected', flush=True)
+    from json_response import encoded_response, BUFFER_BYTES
+    with encoded_response(payload) as (body, length):
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("X-Content-Type-Options", "nosniff")
+        cors(handler)
+        handler.send_header("Content-Length", str(length))
+        try:
+            handler.end_headers()
+            while chunk := body.read(BUFFER_BYTES):
+                handler.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            # The request may already have committed. Never retry it or write a
+            # second error response to a disconnected caller.
+            handler.close_connection = True
+            print('BOB_PUSH_HTTP client_disconnected', flush=True)
 
 def deliver_product_selection(conn, row, checked):
     sid, sub, previous = row
@@ -1009,6 +1029,10 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 404, {"error": "Not found"})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
+        except ReadReportUnavailable:
+            print(f"BOB_PUSH database_busy path={path} error=ReadReportUnavailable", flush=True)
+            send_json(self, 503, {"error": "Lesebericht vorübergehend belegt",
+                                  "retryable": True, "dataComplete": False})
         except Exception as exc:
             print("push-service error:", type(exc).__name__, flush=True)
             send_json(self, 503, {"error": "Push-Service nicht bereit"})
@@ -1730,6 +1754,10 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 400, {"error": str(exc)})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
+        except ReadReportUnavailable:
+            print(f"BOB_PUSH database_busy path={path} error=ReadReportUnavailable", flush=True)
+            send_json(self, 503, {"error": "Lesebericht vorübergehend belegt",
+                                  "retryable": True, "dataComplete": False})
         except (psycopg.OperationalError, TooManyRequests) as exc:
             print(f"BOB_PUSH database_busy path={path} error={type(exc).__name__}", flush=True)
             send_json(self, 503, {"error": "Push-Service kurzzeitig belegt", "retryable": True})
@@ -1747,6 +1775,12 @@ if __name__ == "__main__":
     init_db()
     diagnostic_history.configure(db)
     __import__("archive_worker").start(db)
+    # Optional single short read of the archival attempt receipt (redacted).
+    # No external DB port or HTTP endpoint; opt-in diagnosis only.
+    __import__("archive_receipt_status_probe").start_if_enabled()
+    # Optional bounded catch-up of the *existing* diagnostic retention, only
+    # after a fresh separate-server Google Drive backup restore receipt.
+    __import__("diagnostic_archived_catchup").start()
     # Decision-product pilot is intentionally NOT a startup worker.
     # Manual offline maintenance only; no env-triggered production migration.
     __import__("storage_maintenance").start()
@@ -1756,6 +1790,10 @@ if __name__ == "__main__":
     # Model-only settled-case receipts are recorded on an isolated background
     # connection; no extra SQL is added to the live diagnostic/push write path.
     __import__("storage_case_results").start()
+    __import__("storage_history_evaluations").start()
+    __import__("storage_paper_evaluation").start()
+    __import__("storage_quality_evaluation").start()
+    __import__("storage_improvement_evaluation").start()
     __import__("metric_compaction").start()
     print("BOB_PUSH startup=ready", flush=True)
     # Optional, nonblocking binary-only pg_repack toolchain provisioning.
@@ -1779,7 +1817,7 @@ if __name__ == "__main__":
     import memory_watch
     # Reclaim only already-freed glibc allocator pages under sustained pressure.
     # This is a bounded 120s opt-in; no live Python objects or product evidence
-    # are removed. Keeps reserve for strict 400-MiB handset OCR admission.
+    # are removed. Keeps reserve for strict 480-MiB handset OCR admission.
     memory_watch.start(reclaim=True)
     import runtime_watchdog
     runtime_watchdog.start()

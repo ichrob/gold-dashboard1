@@ -79,7 +79,9 @@ def read_chunk(drive, file_id, checksum, *, cached=True, conn=None):
             blob = path.read_bytes()
             if len(blob) > MAX_FILE or digest(blob) != checksum:
                 raise ValueError('Archive checksum mismatch')
-            with gzip.open(path, 'rb') as stream:
+            from cold_chunk_encryption import open_chunk
+            authenticated = open_chunk(path, tmp)
+            with gzip.open(authenticated, 'rb') as stream:
                 raw = stream.read(MAX_RAW + 1)
             if len(raw) > MAX_RAW:
                 raise ValueError('Archive expansion limit')
@@ -282,3 +284,4 @@ def start():
                 time.sleep(__import__('storage_pressure').delay(result))
         _THREAD = threading.Thread(target=loop, name='bob-cold-metrics', daemon=True)
         _THREAD.start()
+

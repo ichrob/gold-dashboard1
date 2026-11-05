@@ -109,6 +109,40 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(source.rollback_calls,1)
         self.assertTrue(source.closed)
 
+    def test_fixed_repairs_target_remains_100mb_capped(self):
+        with patch.dict(os.environ,{"BOB_BLOAT_PROBE_TARGET":"repairs"}):
+            self.assertEqual(probe.selected_target(),"public.bob_test_repairs")
+            source=FakeConnection()
+            with patch.object(probe,"_volume_gate",return_value=True), \
+                 patch("archive_worker.status",return_value={"status":"ready"}), \
+                 patch.dict(os.environ,{"DATABASE_URL":"synthetic-no-network"}), \
+                 patch.object(probe,"_connect",return_value=source), \
+                 patch("psycopg.connect",return_value=FakeVerifier()):
+                result=probe.inspect_once()
+        self.assertEqual(result["table"],"public.bob_test_repairs")
+        self.assertTrue(result["rollbackVerified"])
+        self.assertFalse(result["databaseRowsModified"])
+        self.assertEqual(source.rollback_calls,1)
+        self.assertIn(("public.bob_test_repairs",),source.params)
+
+    def test_outcomes_measurement_is_bound_fixed_and_rollback_only(self):
+        with patch.dict(os.environ,{"BOB_BLOAT_PROBE_TARGET":"outcomes"}):
+            self.assertEqual(probe.selected_target(),
+                             "public.bob_decision_outcomes")
+            source=FakeConnection()
+            with patch.object(probe,"_volume_gate",return_value=True), \
+                 patch("archive_worker.status",return_value={"status":"ready"}), \
+                 patch.dict(os.environ,{"DATABASE_URL":"synthetic-no-network"}), \
+                 patch.object(probe,"_connect",return_value=source), \
+                 patch("psycopg.connect",return_value=FakeVerifier()):
+                result=probe.inspect_once()
+        self.assertEqual(result["table"],"public.bob_decision_outcomes")
+        self.assertEqual(source.rollback_calls,1)
+        self.assertFalse(result["databaseRowsModified"])
+        self.assertTrue(result["rollbackVerified"])
+        self.assertIn(("public.bob_decision_outcomes",),source.params)
+        self.assertNotIn("public.bob_decision_outcomes"," ".join(source.sql))
+
     def test_reject_any_unapproved_target_before_opening_db(self):
         with patch.dict(os.environ,{"BOB_BLOAT_PROBE_TARGET":"metric;DROP TABLE"}), \
              patch.object(probe,"_connect") as db:

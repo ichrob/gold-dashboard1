@@ -49,7 +49,13 @@ def fetch(interval, fetch_json):
         saved = _cache.get(interval)
         near_15m_close = interval == '15m' and 0 <= now % 900 < 90
         cache_seconds = 30 if interval in ('1m', '5m') or near_15m_close else 60
-        if saved and now-saved[0] < cache_seconds:
+        # The collector also runs every 30s. Small scheduling jitter must not
+        # turn a 29.99s interval into a skipped poll and a ~60s old snapshot.
+        # Permit one request in the next clock slot, with a 25s hard floor.
+        # Longer-timeframe caches retain their existing policy.
+        next_fast_slot = (cache_seconds == 30 and saved and
+                          now-saved[0] >= 25 and int(now//30) > int(saved[0]//30))
+        if saved and now-saved[0] < cache_seconds and not next_fast_slot:
             return [dict(b) for b in saved[1]]
         rows = saved[1] if saved else []
         try:

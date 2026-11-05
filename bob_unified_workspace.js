@@ -247,7 +247,7 @@ function mountSimpleHome(doc,workspace){
  const quotes=home.querySelector('.gold-market');
  const chart=doc.getElementById('chart')?.closest('.card');
  for(const child of [...home.children]){
-  if(child===detail||child===quotes||child===chart)continue;
+  if(child===detail||child===quotes||child===chart||child.id==='pushOpened')continue;
   if(child.classList.contains('bob-status'))doc.getElementById('bobSystemDetails')?.append(child);
   else if(child.querySelector('#bobSelectionSummary'))products.append(child);
   else detail.append(child);
@@ -271,6 +271,8 @@ function mountSimpleHome(doc,workspace){
  if(quotes)card.after(quotes);
  // Keep the original interactive chart outside every collapsed analysis panel.
  if(chart)(quotes||card).after(chart);
+ const openedPush=doc.getElementById('pushOpened');
+ if(openedPush&&!openedPush.hidden)home.prepend(openedPush);
  const put=(id,value)=>{const el=doc.getElementById(id);if(el&&el.textContent!==value)el.textContent=value;};
  const read=id=>doc.getElementById(id)?.textContent?.trim()||'';
  function refresh(){
