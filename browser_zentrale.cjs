@@ -5,6 +5,7 @@ const {chromium} = require('playwright');
  const browser = await chromium.launch({headless:true, executablePath:process.env.BOB_TEST_CHROMIUM || undefined, args:['--no-sandbox']});
  try {
   const page = await browser.newPage({viewport:{width:360,height:780},serviceWorkers:'block'});
+  await page.clock.install();
   const errors=[]; page.on('pageerror', e => errors.push(e.message));
   let count=0, fail=false, fresh=false, needsHelp=false;
   await page.route('**/*', route => {
@@ -70,7 +71,6 @@ const {chromium} = require('playwright');
   assert(await page.locator('#storage').isVisible());
   assert.equal(await page.locator('#storage').getAttribute('open'),'','Legacy storage link opens existing details');
   // Visible status refreshes without a tap; hidden pages do not poll.
-  await page.clock.install();
   const beforeRefresh=count;
   await page.clock.runFor(60001);
   await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
