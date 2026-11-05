@@ -230,7 +230,7 @@ def parse_sg_bid_only_research(product, points, isin, now=None, verified_id=None
                 isExecutableQuote=False, degiroExecutable=False)
 
 
-def sg_change_since_eight(product, points, isin, now=None, verified_id=None, market=None):
+def sg_change_since_eight(product, points, isin, now=None, verified_id=None, market=None, reference=None):
     """Native issuer bid comparison; first observed point in the 08:00 minute."""
     now = now or datetime.now(timezone.utc)
     market = market or sg_market(isin)
@@ -241,7 +241,15 @@ def sg_change_since_eight(product, points, isin, now=None, verified_id=None, mar
     opening = now.astimezone(zone).replace(hour=8, minute=0, second=0, microsecond=0)
     if now < opening or opening.weekday() >= 5:
         return None
-    reference = None
+    if reference:
+        try:
+            saved_at = stamp(reference['referenceAt'])
+            saved_bid = number(reference['referenceBid'])
+            reference = (saved_at, saved_bid) if (reference.get('isin') == isin
+                and reference.get('currency') == market[2] and saved_bid > 0
+                and 0 <= (saved_at-opening).total_seconds() < 60) else None
+        except (KeyError, ValueError, TypeError):
+            reference = None
     previous = None
     for point in points:
         at, bid = stamp(point['Date']), number(point['Bid'])
