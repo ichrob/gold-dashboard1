@@ -4,6 +4,10 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MorningReadRetryPolicyTest {
+    @Test fun explicitSourceAbsenceDoesNotRepeatAnAlreadyReadPage() {
+        assertFalse(MorningReadRetryPolicy.retry("QUOTES_UNAVAILABLE",true,listOf("Geld","Brief","Anzeigezeit","Hebel"),1))
+        assertTrue(MorningReadRetryPolicy.retry("QUOTES_UNAVAILABLE",false,listOf("Geld","Brief"),1))
+    }
     @Test fun preservesPartialObservationWhenOnlyLeverageUnavailable() {
         assertFalse(MorningReadRetryPolicy.retry("PARTIAL",true,listOf("Hebel"),1))
         assertFalse(MorningReadRetryPolicy.retry("PARTIAL",true,listOf("Hebel"),2))

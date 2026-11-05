@@ -52,6 +52,7 @@ internal object MorningReadUiPolicy {
         "UNRECOGNIZED_INPUT" -> "Eingabefeld nicht sicher als Produktsuche erkannt"
         "PROTECTED_VIEW", "UNSAFE_VIEW" -> "Geschützte Ansicht; Lesen angehalten"
         "IDENTITY_CHANGED" -> "Produktkennung hat gewechselt"
+        "QUOTES_UNAVAILABLE" -> "DEGIRO zeigt keine Geld-/Briefkurse; übrige Werte bleiben gespeichert"
         "PARTIAL" -> "Produkt teilweise gelesen"
         "COMPLETE" -> "Produkt vollständig gelesen"
         "RUN_TIMEOUT" -> "Zeitlimit des Listenlaufs erreicht"

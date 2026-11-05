@@ -139,7 +139,10 @@ internal object MorningReadRun {
             (0 until requested.length()).map { requested.getString(it) }
             else listOf("Geld","Brief","Anzeigezeit","Hebel","KO-Schwelle","Basispreis","Bv")
         val missing=required.filterNot { draft.contains("$it (Anzeige ungeprüft): ") }
-        val finalCode=if(draft.isNotEmpty()) (if(missing.isEmpty()) "COMPLETE" else "PARTIAL") else code
+        val finalCode=if(draft.isNotEmpty()) (if(missing.isEmpty()) "COMPLETE"
+            else if(draft.lineSequence().any { it == "Kursstatus (Anzeige ungeprüft): Geld/Brief nicht angezeigt" } &&
+                !draft.contains("Geld (Anzeige ungeprüft): ") && !draft.contains("Brief (Anzeige ungeprüft): ")) "QUOTES_UNAVAILABLE"
+            else "PARTIAL") else code
         val results=data!!.getJSONArray("results")
         val entry=JSONObject().put("isin",target).put("code",finalCode).put("attempts",attempt)
             .put("draft",draft).put("missingFields",JSONArray(missing))

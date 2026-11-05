@@ -14,7 +14,7 @@ CODES = set('LIST_TOP_RESULTS_MISSING LIST_TOP_RESULTS_OVERFLOW LIST_TOP_RESULTS
 # They never establish quote completeness or loosen draft validation.
 # 10423+ intentionally records this fail-closed handoff when BACK/search cannot
 # be verified. It is a diagnostic result, never a successful read or quote.
-CODES.update("RETURN_NOT_CONFIRMED".split())
+CODES.update("RETURN_NOT_CONFIRMED QUOTES_UNAVAILABLE".split())
 CODES.update("RESULT_TAP_SENT RESULT_TAP_REJECTED LIST_RESTORE_NO_TARGET LIST_RESTORE_LIMIT LIST_RESTORE_REJECTED CATEGORY_NO_PROGRESS CATEGORY_AMBIGUOUS CATEGORY_RESULTS_PENDING CATEGORY_STRIP_AMBIGUOUS SESSION_EXPIRED SESSION_MISMATCH REMOTE_STOP SERVICE_STOPPED SERVICE_MISSING READ_ERROR".split())
 
 
@@ -41,7 +41,7 @@ def parse_draft(raw, isin, now, requested_fields=None):
             if m[1] in fixed: raise ValueError('Doppelte Angabe')
             fixed[m[1]]=m[2];continue
         m=re.fullmatch(r'(.+) \(Anzeige ungeprüft\): (.{1,60})',line)
-        if not m or m[1] not in FIELDS+('Währung','Hinweis') or m[1] in fields: raise ValueError('Unbekanntes oder doppeltes Feld')
+        if not m or m[1] not in FIELDS+('Währung','Hinweis','Kursstatus') or m[1] in fields: raise ValueError('Unbekanntes oder doppeltes Feld')
         fields[m[1]]=m[2]
     if fixed.get('ISIN')!=isin or fixed.get('Quelle')!='DEGIRO-App': raise ValueError('Produktkennung stimmt nicht')
     at=timestamp(fixed.get('Erfasst'))
@@ -72,6 +72,9 @@ def parse_draft(raw, isin, now, requested_fields=None):
 
             raise ValueError('Kurs fehlt')
     if 'Geld' in fields and 'Brief' in fields and float(fields['Geld'].replace(',','.'))>float(fields['Brief'].replace(',','.')): raise ValueError('Widersprüchliches Kurspaar')
+    if 'Kursstatus' in fields and (fields['Kursstatus'] != 'Geld/Brief nicht angezeigt' or
+            'Geld' in fields or 'Brief' in fields):
+        raise ValueError('Widersprüchlicher Kursstatus')
     if 'Anzeigezeit' in fields:
         datetime.strptime(fields['Anzeigezeit'],'%d/%m/%Y %H:%M')
     if 'Handelsplatz' in fields and not re.fullmatch(r'[\w ./-]{2,48}',fields['Handelsplatz']): raise ValueError('Handelsplatz ungültig')
@@ -122,7 +125,9 @@ def prepare(payload, feed, now=None):
             observation['missingFields']=[name for name in required_fields
                                           if name not in observation['fields']]
         code=('PARTIAL' if observation['missingFields'] else 'COMPLETE') if observation else row.get('code')
-        if not isinstance(code,str) or code not in CODES or (not observation and code in ('COMPLETE','PARTIAL')): raise ValueError('Unbekannter oder unbelegter Lesestatus')
+        if observation and observation['missingFields'] and observation['fields'].get('Kursstatus') == 'Geld/Brief nicht angezeigt':
+            code='QUOTES_UNAVAILABLE'
+        if not isinstance(code,str) or code not in CODES or (not observation and code in ('COMPLETE','PARTIAL','QUOTES_UNAVAILABLE')): raise ValueError('Unbekannter oder unbelegter Lesestatus')
         results.append(dict(isin=row['isin'],code=code,attempts=attempts,observation=observation,
                             requestedFields=required_fields,
                             matchedCurrentList=row['isin'] in current))

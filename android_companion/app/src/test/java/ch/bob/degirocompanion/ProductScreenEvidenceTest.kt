@@ -19,6 +19,30 @@ class ProductScreenEvidenceTest {
         assertFalse(result.draft.contains("505,05"))
     }
 
+    @Test fun explicitDashesAreSourceAbsenceNotLastPriceQuotes() {
+        for (unit in listOf("CHF", "€")) {
+            val input = lines("DE000FD0S0G4", "Kursdaten", "Zuletzt $unit 4,98",
+                "Geld $unit —", "Brief $unit —")
+            val result = read(input)
+            assertTrue(result.draft.contains("Kursstatus (Anzeige ungeprüft): Geld/Brief nicht angezeigt"))
+            assertTrue(result.draft.contains("Zuletzt (Anzeige ungeprüft): 4,98"))
+            assertFalse(result.draft.contains("Geld (Anzeige ungeprüft):"))
+            assertFalse(result.draft.contains("Brief (Anzeige ungeprüft):"))
+            assertFalse(result.draft.contains("Anzeigezeit (Anzeige ungeprüft):"))
+            assertFalse(read(input.filterNot { it.text.startsWith("Brief") }).draft.contains("Kursstatus"))
+            assertFalse(read(input + lines("Geld $unit 4,97")).draft.contains("Kursstatus"))
+            assertEquals("", read(input + lines("Passwort")).draft)
+        }
+    }
+    @Test fun separateDashCellsUseTheirLabelGeometry() {
+        val result = read(lines("DE000FD0S0G4", "Kursdaten", "Zuletzt CHF 4,98") + listOf(
+            QuoteLayout.Line("Geld", 20, 200, 90, 230),
+            QuoteLayout.Line("CHF —", 200, 200, 300, 230),
+            QuoteLayout.Line("Brief", 350, 200, 430, 230),
+            QuoteLayout.Line("CHF —", 550, 200, 650, 230)))
+        assertTrue(result.draft.contains("Kursstatus (Anzeige ungeprüft): Geld/Brief nicht angezeigt"))
+    }
+
     @Test fun rejectionReasonsSeparateIdentityCurrencyAndQuotes() {
         assertEquals(ProductScreenEvidence.Reason.ISIN_MISSING, read(lines("Geld EUR 10,20")).reason)
         assertEquals(ProductScreenEvidence.Reason.ISIN_AMBIGUOUS, read(product + lines("DE000FE2JJ20")).reason)
