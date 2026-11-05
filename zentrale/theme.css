@@ -46,3 +46,5 @@
 .central-workspace .bob-heading .sub{grid-column:2;margin:0}
 .central-workspace button [data-training-detail]{display:none!important}
 .zentrale-hub summary{min-height:44px}
+
+#comparison-results select{display:block;width:100%;max-width:100%;margin:.5rem 0 1rem;padding:.65rem;background:#12243c;color:#fff;border:1px solid #64748b;border-radius:.5rem}#comparison-results label{display:block}#comparison-results li{overflow-wrap:anywhere}
