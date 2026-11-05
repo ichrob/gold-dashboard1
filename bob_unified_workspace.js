@@ -280,6 +280,29 @@ function mountSimpleHome(doc,workspace){
  if(openedPush&&!openedPush.hidden)home.prepend(openedPush);
  const put=(id,value)=>{const el=doc.getElementById(id);if(el&&el.textContent!==value)el.textContent=value;};
  const read=id=>doc.getElementById(id)?.textContent?.trim()||'';
+ let lastTradeMode=null;
+ function refreshTradeMode(active,expired){
+  const panel=doc.getElementById('bob-view-trade'),preparation=doc.getElementById('bobTradePreparation');if(!panel||!preparation)return;
+  let banner=doc.getElementById('bobTradeMode');
+  if(!banner){
+   banner=doc.createElement('section');banner.id='bobTradeMode';banner.className='card';
+   banner.innerHTML='<h3 id="bobTradeModeTitle"></h3><p id="bobTradeModeText" role="status"></p><button type="button" id="bobTradeModeAction"></button>';
+   panel.querySelector('h2').after(banner);
+  }
+  const server=root.BobRealTrades?.monitorStatus?.(),pending=server?.fresh&&server.pending>0;
+  const mode=expired?'expired':active?'active':pending?'pending':'prepare';
+  if(mode!==lastTradeMode){preparation.open=mode==='prepare';lastTradeMode=mode;}
+  const titles={expired:'Anmeldung prüfen',active:'Dein aktiver Trade',pending:'Kauf erkannt · Daten werden ergänzt',prepare:'Deinen nächsten Trade vorbereiten'};
+  put('bobTradeModeTitle',titles[mode]);
+  put('bobTradeModeText',mode==='expired'?'Erneut anmelden, damit der Status geprüft werden kann.':mode==='active'?'Gewinn/Verlust, Stop und Ziel stehen unten. Prüfe den Überwachungs- und Push-Status.':mode==='pending'?'Kaufdaten sind gespeichert. Bob ergänzt Produktdaten und prüft den Überwachungsstart. Fehlende Nachweise findest du bei den Kaufdetails.':'Produkt auswählen, gemerktes Budget prüfen und den Kauf selbst bei DEGIRO bestätigen. Bereits gekauft? Kaufabgleich oder Kaufbeleg nutzen.');
+  const action=doc.getElementById('bobTradeModeAction');action.disabled=expired;
+  action.textContent=active?'Überwachung und Push prüfen':pending?'Kaufdetails prüfen':'Passende Produkte wählen';
+  action.onclick=()=>{if(active)doc.getElementById('bobOpenMonitoring')?.click();else if(pending){const d=doc.getElementById('bobPurchaseRecord');if(d){d.open=true;d.scrollIntoView({block:'start'});}}else doc.querySelector('#bobNavigation [data-view="products"]')?.click();};
+  // Old step-by-step guidance is kept in Details, away from the next action.
+  const progress=doc.getElementById('bobTradeProgress');if((active||pending)&&progress?.querySelector('p')?.textContent)put('bobTradeModeText',progress.querySelector('p').textContent);if(progress&&progress.parentElement===panel)doc.getElementById('bobTradeDetails')?.append(progress);
+  const depot=doc.getElementById('bobPurchaseMatch');if(depot)depot.hidden=active||expired||!!pending;
+  const monitor=doc.getElementById('bobOpenMonitoring');if(monitor)monitor.hidden=!active;
+ }
  function refresh(){
   if(doc.hidden)return;
   const expired=root.BobSession?.expired?.()===true;
@@ -295,6 +318,7 @@ function mountSimpleHome(doc,workspace){
   const trade=root.BobTradeSync?.current?.();
   const active=!expired&&trade?.active===true&&trade?.test!==true;
   const box=doc.getElementById('bobHomeTrade');box.hidden=!active;
+  refreshTradeMode(active,expired);
   let view=null;try{if(active)view=root.BobTradeSync?.overview?.();}catch(_){}
   put('bobHomeIdentity',trade?.product?.isin||'Produktzuordnung fehlt');
   for(const [id,key] of [['bobHomePnl','pnl'],['bobHomeStop','stop'],['bobHomeTarget','target'],['bobHomeTradeNote','note']])put(id,view?.[key]||'Noch nicht bestätigt');
