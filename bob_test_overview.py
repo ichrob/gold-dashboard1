@@ -113,6 +113,7 @@ def snapshot(report, now):
             for c in (a.get('recentCases') or {}).get('items',[]) if isinstance(c.get('evidenceChain'),dict)]
     return dict(version=1,readOnly=True,realOrders=False,items=rows,
         qualityCampaign=campaign,
+        entryExitEvaluation=comparison.get("evaluation") or {"version":1,"status":"unavailable"},
         evidenceChains=chains[:35],chainSampleAvailable=bool(chains),
         note='Keine Gesamterfolgsquote: unterschiedliche Tests, Stichproben und unbekannte Ergebnisse bleiben getrennt.',
         releaseNote='Build und veröffentlichte Skripte werden unabhängig geprüft. Ein grüner Build bestätigt keine vollständige fachliche Reparatur.',
