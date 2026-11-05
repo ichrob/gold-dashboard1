@@ -22,7 +22,8 @@ BACKUP_TABLES = frozenset((TABLE, 'bob_entry_exit_input_status', 'bob_quality_ca
     'bob_quality_legacy', 'bob_shadow_study_control', 'bob_shadow_study_events',
     'bob_shadow_study_cases', 'bob_cold_test_batches', 'bob_cold_test_scan'))
 # Remove only original bulky detail fields; every other field stays SQL-readable.
-DETAILS = frozenset(('entryQuote', 'exitQuote', 'entryKoEvidence', 'triggerBars', 'stopHistory'))
+DETAILS = frozenset(('entryQuote', 'exitQuote', 'entryKoEvidence', 'exitKoEvidence',
+                     'triggerBars', 'stopHistory'))
 _THREAD = None
 _START_LOCK = threading.Lock()
 _LAST = {'status': 'not-run', 'physicalBytesFreed': None}
@@ -44,6 +45,12 @@ def eligible(payload, now_ms):
         and 0 <= payload['checkedAt'] <= now_ms - 86400000
         and isinstance(payload.get('arms'), dict) and set(payload['arms']) == set(ARMS)
         and all(isinstance(a, dict) and a.get('status') in ('closed', 'inconclusive', 'no-entry')
+                for a in payload['arms'].values())
+        and all(a.get('status') != 'closed' or (
+            all(isinstance(a.get(field), dict) for field in
+                ('entryQuote','exitQuote','entryKoEvidence','exitKoEvidence'))
+            and all(isinstance(a.get(field), list) for field in
+                ('triggerBars','stopHistory')))
                 for a in payload['arms'].values()))
 
 

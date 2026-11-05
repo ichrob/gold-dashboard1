@@ -18,6 +18,10 @@ def sample():
             entryQuoteAt=1, exitQuoteAt=2, entryAsk=5., exitBid=6., entryDebit=20., units=4,
             choice={'isin':'SYNTHETIC'}, observedPeakPnlEur=4., observedTroughPnlEur=-1.,
             entryQuote={'originalInteger':9007199254740993,'details':'x'*400},
+            exitQuote={'originalInteger':9007199254740993,'details':'y'*400},
+            entryKoEvidence={'isin':'SYNTHETIC','source':'issuer'},
+            exitKoEvidence={'isin':'SYNTHETIC','source':'issuer'},
+            triggerBars=[],
             stopHistory=[{'stop':3,'bars':[{'close':4}]}]*20)
     return p
 
@@ -45,6 +49,11 @@ class PolicyTests(unittest.TestCase):
         for changes in ({'complete':False},{'checkedAt':now},{'version':'future-v2'}):
             self.assertFalse(cold.eligible({**p,**changes},now))
         p['arms'][engine.ARMS[0]]['status']='open'
+        self.assertFalse(cold.eligible(p,now))
+
+    def test_closed_case_missing_exit_ko_original_is_not_eligible(self):
+        p=sample();now=2*86400000
+        p['arms'][engine.ARMS[0]].pop('exitKoEvidence')
         self.assertFalse(cold.eligible(p,now))
 
     def test_projection_keeps_evaluation_and_unknown_fields(self):

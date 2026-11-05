@@ -46,5 +46,18 @@ letzter Lauf, Blockadegrund. `physicalBytesFreed` bleibt unbekannt, bis eine get
 Volumenmessung die physische Freigabe belegt. Wiederverwendbare Datenbankseiten sind
 keine nachgewiesene Verkleinerung der Render-Disk.
 
+`storage.entryExitStorage` misst das feste Handelsfenster 08:00–22:00
+Europe/Zurich. Bestehende `relation_bytes` liefern die gesamte Relation inklusive
+Index und TOAST. Seit der ergänzten Messung hält jeder halbstündliche Slot außerdem
+nur feste Skalare für Heap, Index, TOAST, logische JSON-Bytes und Fallzahlen. Erst
+wenn beide Rand-Slots diese Skalare enthalten, werden Teilzuwächse ausgewiesen;
+alte Randwerte werden nicht aus einer aktuellen Aufteilung zurückgerechnet.
+
+Normale modellierte Ausstiege halten zusätzlich den zu diesem Originalzeitpunkt
+geprüften KO-Snapshot fest. Fehlt dieser oder ein anderer erforderlicher
+Originalbeleg in einem geschlossenen Altfall, bleibt dessen lokale Originalakte
+erhalten und der Cold-Writer überspringt ihn. Das ändert keine KO-, Stop-, Signal-
+oder Handelsregel.
+
 Notabschaltung ohne Originalverlust: `BOB_COLD_TESTS_DISABLED=1`. Bestehende
 Referenzen bleiben lesbar. Verschlüsselungsschlüssel und Archivindex aufbewahren.
