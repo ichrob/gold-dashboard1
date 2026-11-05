@@ -18,7 +18,7 @@ TAG = '_bobColdTestV1'
 TABLE = 'bob_entry_exit_comparison'
 # Reviewed families participate in the regular full, independently restored backup.
 # New families must explicitly register before any payload replacement is allowed.
-BACKUP_TABLES = frozenset((TABLE, 'bob_quality_campaign', 'bob_quality_cases',
+BACKUP_TABLES = frozenset((TABLE, 'bob_entry_exit_input_status', 'bob_quality_campaign', 'bob_quality_cases',
     'bob_quality_legacy', 'bob_shadow_study_control', 'bob_shadow_study_events',
     'bob_shadow_study_cases', 'bob_cold_test_batches', 'bob_cold_test_scan'))
 # Remove only original bulky detail fields; every other field stays SQL-readable.

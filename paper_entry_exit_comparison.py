@@ -19,8 +19,22 @@ GAP = 90000
 def init(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_entry_exit_comparison
         (id TEXT PRIMARY KEY, complete BOOLEAN NOT NULL, payload JSONB NOT NULL)''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS bob_entry_exit_input_status
+        (singleton BOOLEAN PRIMARY KEY CHECK(singleton), payload JSONB NOT NULL)''')
     conn.execute('''CREATE INDEX IF NOT EXISTS bob_entry_exit_pending
         ON bob_entry_exit_comparison(id) WHERE complete=FALSE''')
+
+
+def original_input(bundle, market, now):
+    # The evaluator's confirmation clock is 5m even when its trend context is 15m.
+    timeframe = '5m' if market.get('entryTiming') in (
+        'five-minute-confirmation', 'two-minute-follow-through-v1') else '15m'
+    quality = shared.original_input(bundle, market, now, timeframe)
+    quality['signalTimeframe'] = timeframe
+    quality['closedSignalBarMatched'] = quality.pop('closed15mMatched')
+    if not quality['verified']:
+        quality['reason'] = 'original-spot-or-'+timeframe+'-evidence-unverified'
+    return quality
 
 
 def active_isins(conn):
@@ -71,7 +85,7 @@ def advance(state,bundle,market,selection,warning_market,warning_selection,quote
             and (q.get('metadata') or {}).get('currency')!='CHF'
             and q.get('priceKind') not in ('calculated','issuer-chart')
             and q.get('estimated') is not True}
-    quality=shared.original_input(bundle,market,now)
+    quality=original_input(bundle,market,now)
     sign=1 if s['direction']=='LONG' else -1
     session=datetime.fromtimestamp(now/1000,shared.ZURICH)
     closing=(session.hour,session.minute)>=(21,45)
@@ -177,8 +191,18 @@ def tick(conn,bundle,market,selection,warning_market,warning_selection,quotes,no
         s=advance(s,bundle,market,selection,warning_market,warning_selection,quotes,now)
         conn.execute('UPDATE bob_entry_exit_comparison SET complete=%s,payload=%s::jsonb WHERE id=%s',
                      (s['complete'],json.dumps(s,allow_nan=False),key))
-    quality=shared.original_input(bundle,market,now)
+    quality=original_input(bundle,market,now)
     direction=warning_market.get('direction') if warning_market.get('paperEntrySource') else market.get('direction')
+    reason = ('original-input-unverified' if not quality['verified'] else
+              'waiting-for-direction' if direction not in ('LONG','SHORT') else
+              'active-episode-limit' if len(rows)>=2 else
+              'direction-already-active' if any(s['direction']==direction for _,s in rows) else
+              'eligible-episode-input')
+    observation = dict(checkedAt=now, inputQuality=quality, reason=reason,
+                       direction=direction, realOrders=False)
+    conn.execute('''INSERT INTO bob_entry_exit_input_status VALUES(TRUE,%s::jsonb)
+        ON CONFLICT(singleton) DO UPDATE SET payload=EXCLUDED.payload''',
+        (json.dumps(observation,allow_nan=False),))
     if len(rows)>=2 or not quality['verified'] or direction not in ('LONG','SHORT'):return
     if any(s['direction']==direction for _,s in rows):return
     s=seed(market,quality,now,direction)
@@ -195,7 +219,11 @@ def report(conn):
     for key,c in counts.items():
         profits=[s['arms'][key]['modelNetEur'] for s in samples if s['arms'][key]['status']=='closed']
         c.update(modelNetEur=sum(profits),expectancyEur=sum(profits)/len(profits) if profits else None)
-    return dict(version=VERSION,status='collecting' if samples else 'awaiting-first-original-input',
+    row=conn.execute('SELECT payload FROM bob_entry_exit_input_status WHERE singleton=TRUE').fetchone()
+    observation=row[0] if row else None
+    return dict(version=VERSION,status='collecting' if samples else
+        'waiting-for-first-episode' if observation else 'awaiting-first-worker-check',
+        inputObservation=observation,
         checkedAt=max((s['checkedAt'] for s in samples),default=None),episodesSampled=len(samples),
         truncated=len(samples)==200,variants=counts,realOrders=False,actualNetKnown=False,
         strategyWinnerConfirmed=False,automaticPolicyChanges=False,
