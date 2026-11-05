@@ -1,5 +1,8 @@
 """Bounded prospective paper evaluation; no orders or automatic strategy tuning."""
 import hashlib
+import copy
+import logging
+import time
 import json
 import math
 import paper_costs
@@ -21,7 +24,7 @@ def signature(market):
     return hashlib.sha256(json.dumps(frozen,sort_keys=True).encode()).hexdigest()
 
 
-def start(control, market, now):
+def _start(control, market, now):
     if ('forwardValidation' not in control and finite(now) and market.get('ready') is True
             and market.get('priceFresh') is True and finite(market.get('dataAt'))
             and 0<=now-market['dataAt']<=60000 and market.get('ruleVersion')
@@ -31,9 +34,9 @@ def start(control, market, now):
             actualNetKnown=False,strategyWinnerConfirmed=False,automaticPolicyChanges=False)
 
 
-def record(control, case, now):
-    state=control.get('forwardValidation')
-    if not state or state.get('version')!=VERSION:return
+def _record(control, case, now):
+    state=copy.deepcopy(control.get('forwardValidation'))
+    if not isinstance(state,dict) or state.get('version')!=VERSION:return
     if case.get('forwardValidationRecorded') is True:return
     # No historical reconstruction: new entry instrumentation is mandatory.
     timing=case.get('entryTiming') or {}
@@ -46,9 +49,10 @@ def record(control, case, now):
         and evidence and evidence[0]['performanceEligible'] and costs is not None
         and paper_evidence_chain.review(case)['complete'] is True
         and not any(e.get('kind') in ('data-gap','deferred-sale') for e in case.get('events',[])))
-    case['forwardValidationRecorded']=True
     if not eligible:
         state['excluded']+=1
+        control['forwardValidation']=state
+        case['forwardValidationRecorded']=True
         return
     phase='validation' if case['startedAt']>=state['validationAt'] else 'calibration'
     row=state[phase]
@@ -64,3 +68,31 @@ def record(control, case, now):
     row['profitFactor']=row['positiveNetEur']/-row['negativeNetEur'] if row['negativeNetEur']<0 else None
     row['meanSourceAgeMs']=row['sourceAgeSumMs']/row['cases']
     row['lastAt']=now
+
+    control['forwardValidation']=state
+    case['forwardValidationRecorded']=True
+
+
+_last_error=float('-inf')
+
+def _observe(fn,*args):
+    global _last_error
+    try:
+        fn(*args)
+        return True
+    except Exception as exc:
+        # Optional metrics cannot abort a cash/stop/position transaction.
+        # Updates are published atomically only after all calculations succeed.
+        clock=time.monotonic()
+        if clock-_last_error>=300:
+            logging.warning('BOB_FORWARD_VALIDATION unavailable error=%s',type(exc).__name__)
+            _last_error=clock
+        return False
+
+
+def start(control, market, now):
+    return _observe(_start,control,market,now)
+
+
+def record(control, case, now):
+    return _observe(_record,control,case,now)

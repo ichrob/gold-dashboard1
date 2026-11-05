@@ -109,8 +109,8 @@ class TimelyTests(unittest.TestCase):
         validation.record(control,changed,NOW+60002)
         gap=case(NOW+3);gap['events'].append({'kind':'data-gap'})
         validation.record(control,gap,NOW+60003)
-        self.assertEqual(state['excluded'],3)
-        self.assertEqual(state['calibration']['cases'],1)
+        self.assertEqual(control['forwardValidation']['excluded'],3)
+        self.assertEqual(control['forwardValidation']['calibration']['cases'],1)
 
     def test_provider_attempt_has_clock_metadata_without_notification_contents(self):
         import json
@@ -126,3 +126,13 @@ class TimelyTests(unittest.TestCase):
         self.assertIsInstance(data['providerStartedAt'],int)
         self.assertGreaterEqual(data['providerDurationMs'],0)
         self.assertNotIn('PRIVATE',str(data));self.assertNotIn('SECRET',str(data))
+
+    def test_optional_metric_failure_is_atomic_and_cannot_break_the_ledger(self):
+        market={'ready':True,'priceFresh':True,'dataAt':NOW,'ruleVersion':'fixed-v1'}
+        control={'cash':100.};validation.start(control,market,NOW)
+        control['forwardValidation']['excluded']='damaged counter'
+        before=copy.deepcopy(control)
+        case=settled()
+        self.assertFalse(validation.record(control,case,NOW+60000))
+        self.assertEqual(control,before)
+        self.assertNotIn('forwardValidationRecorded',case)
