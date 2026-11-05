@@ -68,6 +68,21 @@ internal object ProductScreenEvidence {
         val ask = selected["Brief"]?.replace(',', '.')?.toDoubleOrNull()
         if ((bid != null && bid <= 0) || (ask != null && ask <= 0) || (bid != null && ask != null && bid > ask))
             return Result(message = "Widersprüchliches Kurspaar; nichts übernommen.", reason = Reason.QUOTES_INVALID)
+        // A dash is an explicit absent source value, never zero or the last price.
+        // Require both labelled cells on this exact product's Kursdaten screen.
+        fun emptyCell(label: String): Boolean {
+            val empty = Regex("(?iu)^(?:(?:CHF|EUR|€)\\s*)?[—–-]$")
+            val inline = Regex("(?iu)^$label\\s*[:：]?\\s*(?:(?:CHF|EUR|€)\\s*)?[—–-]$")
+            return lines.any { inline.matches(it.text.trim()) } || lines.any { key ->
+                key.text.trim() == label && lines.any { value ->
+                    value.left >= key.right && value.left - key.right <= 540 &&
+                    kotlin.math.abs(value.centerY - key.centerY) <= kotlin.math.max(16, key.height) &&
+                    empty.matches(value.text.trim())
+                }
+            }
+        }
+        val unavailable = lines.any { it.text.trim().equals("Kursdaten", true) } &&
+            "Geld" !in selected && "Brief" !in selected && emptyCell("Geld") && emptyCell("Brief")
         val warning = when {
             Regex("(?i)nicht handelbar|not tradable|trading suspended").containsMatchIn(text) -> "Handel eingeschränkt"
             Regex("(?i)verzögert|delayed").containsMatchIn(text) -> "Kurse verzögert"
@@ -81,6 +96,7 @@ internal object ProductScreenEvidence {
             if (currency.size == 1) appendLine("Währung (Anzeige ungeprüft): ${currency.single()}")
             else appendLine("Produktwährung nicht nachgewiesen; nur ausdrücklich beschriftete Produktparameter, keine Kurse.")
             for ((key, value) in selected) appendLine("$key (Anzeige ungeprüft): $value")
+            if (unavailable) appendLine("Kursstatus (Anzeige ungeprüft): Geld/Brief nicht angezeigt")
             appendLine("Hinweis (Anzeige ungeprüft): $warning")
             append("Kein automatischer Handelsnachweis, keine Freigabe, keine Order.")
         }
