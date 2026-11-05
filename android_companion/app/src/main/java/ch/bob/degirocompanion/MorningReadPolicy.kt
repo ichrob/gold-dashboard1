@@ -242,7 +242,23 @@ internal object MorningReadPolicy {
         if (detailLauncherIndex(nodes, target, anchored=true, symbolProbe=true) != null) return true
         if (protection(nodes) != null || nodes.size > 500 || !SeriesEvidence.validIsin(target)) return false
         val action = detailDecision(nodes, target, true)
-        return action.kind == Kind.READ
+        if (action.kind == Kind.READ) return true
+        // Android's WebView can remove the clickable launcher/scroll markers
+        // after a bounded page read. Permit only the one existing global BACK,
+        // NEVER an order click, if the real previous ISIN is STILL visible on
+        // an unprotected informational product screen in the same window.
+        // The next product remains blocked until an independently verified
+        // Markets search screen is observed by ProductReturnTransition.
+        if (protection(nodes) != null || nodes.any {
+                it.editable || it.containsInput || it.password || it.sensitive
+            }) return false
+        val shown = ids.findAll(nodes.joinToString("\n") { it.text.uppercase() })
+            .map { it.value }.toSet()
+        val section=nodes.any {
+            normalized(it.text).lowercase() in setOf("übersicht", "overview",
+                "kursdaten", "produktdetails")
+        }
+        return shown == setOf(target) && section
     }
     fun detailReadLines(nodes: List<Node>, lines: List<QuoteLayout.Line>, target: String,
                         anchored: Boolean = false, symbolProbe: Boolean = false): List<QuoteLayout.Line> {
