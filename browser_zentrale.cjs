@@ -66,7 +66,9 @@ const {chromium} = require('playwright');
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'/tmp/zentrale-home.png',fullPage:true});
   await page.locator('#next-link').click();assert(await page.locator('#maintenance').isVisible());
-  assert.equal(await page.locator('#storage').getAttribute('open'),'','Legacy storage link opened existing details');
+  await page.goto('https://bob.test/zentrale/#storage');
+  assert(await page.locator('#storage').isVisible());
+  assert.equal(await page.locator('#storage').getAttribute('open'),'','Legacy storage link opens existing details');
   assert.deepEqual(errors,[]);
   console.log('Zentrale: mobile navigation, one shared read, safe text and failed-refresh clearing passed');
  } finally {await browser.close();}
