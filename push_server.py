@@ -116,12 +116,19 @@ def read_audit_report(payload):
     return report_admission.read(key,load)
 
 
+class ReadReportUnavailable(TimeoutError):
+    """A read-only report is temporarily unavailable and safe to retry."""
+
+
 def read_db_report(key, reader):
     """Admit a read-only report before it borrows a pooled connection."""
     def load():
         with db() as conn:
             return reader(conn)
-    return report_admission.read(key, load)
+    try:
+        return report_admission.read(key, load)
+    except TimeoutError as exc:
+        raise ReadReportUnavailable from exc
 
 
 def read_video_evidence(payload):
@@ -132,7 +139,10 @@ def read_video_evidence(payload):
         json.dumps({'videoId': identity}, sort_keys=True).encode()
     ).hexdigest()
     import video_evidence
-    return report_admission.read(key, lambda: video_evidence.handle(db, payload))
+    try:
+        return report_admission.read(key, lambda: video_evidence.handle(db, payload))
+    except TimeoutError as exc:
+        raise ReadReportUnavailable from exc
 
 
 def webpush(**kwargs):
@@ -1012,6 +1022,10 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 404, {"error": "Not found"})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
+        except ReadReportUnavailable:
+            print(f"BOB_PUSH database_busy path={path} error=ReadReportUnavailable", flush=True)
+            send_json(self, 503, {"error": "Lesebericht vorübergehend belegt",
+                                  "retryable": True, "dataComplete": False})
         except Exception as exc:
             print("push-service error:", type(exc).__name__, flush=True)
             send_json(self, 503, {"error": "Push-Service nicht bereit"})
@@ -1733,6 +1747,10 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 400, {"error": str(exc)})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
+        except ReadReportUnavailable:
+            print(f"BOB_PUSH database_busy path={path} error=ReadReportUnavailable", flush=True)
+            send_json(self, 503, {"error": "Lesebericht vorübergehend belegt",
+                                  "retryable": True, "dataComplete": False})
         except (psycopg.OperationalError, TooManyRequests) as exc:
             print(f"BOB_PUSH database_busy path={path} error={type(exc).__name__}", flush=True)
             send_json(self, 503, {"error": "Push-Service kurzzeitig belegt", "retryable": True})
