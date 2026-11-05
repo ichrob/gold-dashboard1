@@ -1150,6 +1150,15 @@ def _worker(db):
                         if fresh is not bundle:
                             bundle=fresh
                             print('BOB_PAPER reused_newer_observed_bundle=1',flush=True)
+                        # Keep optional risk evaluation before the final analysis:
+                        # its runtime must not age a prepared entry snapshot.
+                        try:
+                            with conn.transaction():
+                                risk_now=time.time()*1000
+                                risk_quotes={isin:paper_quote(q,risk_now,isin) for isin,q in quotes.items()}
+                                __import__('risk_paper').tick(conn,bundle,evidence,risk_quotes,risk_now)
+                        except Exception as exc:
+                            print('BOB_RISK_PAPER error='+type(exc).__name__,flush=True)
                         bundle,market=analyze_latest_bundle(bundle,settings,latest_paper_bundle,
                             background_push.analyze,lambda:time.time()*1000)
                         # Work started before analysis may already be complete:
@@ -1173,11 +1182,6 @@ def _worker(db):
                             print('BOB_PRODUCT_AUDIT error='+type(audit_exc).__name__,flush=True)
                         precision_quotes=dict(quotes)
                         quotes={isin:paper_quote(q,now,isin) for isin,q in quotes.items()}
-                        try:
-                            with conn.transaction():
-                                __import__('risk_paper').tick(conn,bundle,evidence,quotes,time.time()*1000)
-                        except Exception as exc:
-                            print('BOB_RISK_PAPER error='+type(exc).__name__,flush=True)
                         # Original four paper policies consume unchanged confirmed direction.
                         selection=dict(choices=[],reasons=[])
                         ranking_policy=ranking_learning.policy(conn)
