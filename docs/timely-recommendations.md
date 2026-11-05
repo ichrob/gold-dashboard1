@@ -42,3 +42,19 @@ Tests include bounded fresh-bundle retries, standby/primary concurrency,
 priority fairness, raw-clock/privacy projection, preparation expiry and target
 obstacles, and prospective cohort separation. Runtime timing and prospective
 performance require future ordinary operation; no past result is backfilled.
+
+## Freshness control
+
+The existing private diagnostics now include `signalFreshness` in the sources,
+signals and repairs views. It computes source, analysis-input, analysis-completion
+and successful background-cycle age from their original clocks. During the
+trading/preparation window (or 30-second active-trade monitoring at night), ages
+over 60 seconds are degraded and over 120 seconds stale. These are observation
+thresholds; existing entry, expiry and KO rules remain authoritative.
+
+The 30-second cycle is a target, not a provider or handset delivery guarantee.
+Off-hours ages remain visible without inventing an outage from the five-minute
+schedule. Missing or future clocks are unavailable. A bounded receipt summary
+excludes test traffic, reports missing timing separately, and measures server
+receipt of browser acknowledgements, not Android display. The control reuses
+existing cached diagnostics; it adds no polling worker, network call or storage.

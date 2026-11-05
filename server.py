@@ -330,7 +330,8 @@ def background_health():
     healthy = paused or bool(state["configured"] and age is not None and age <= allowed_age
                    and state["status"] in ("active", "idle", "checking"))
     return {"status": "ok" if healthy else "unavailable", "service": "bob-background",
-            "monitorStatus": state["status"], "lastSuccessAt": last, "ageSeconds": age}
+            "monitorStatus": state["status"], "lastSuccessAt": last, "ageSeconds": age,
+            "expectedCycleSeconds": normal_interval}
 
 
 BASE_DIR = Path(__file__).resolve().parent
