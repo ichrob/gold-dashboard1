@@ -11,10 +11,13 @@ STATUSES = ('scheduled', 'running', 'completed', 'ending-pending-quotes',
             'night-paused', 'market-closed', 'preparing', 'stopped', 'unavailable')
 
 
-def number(value, *, positive=False):
+def number(value, *, positive=False, timestamp=False):
     if type(value) not in (int, float) or not math.isfinite(value):
         return None
-    if (positive and value <= 0) or (not positive and abs(value) > 1e12):
+    if timestamp:
+        if not 0 < value <= 1e15:
+            return None
+    elif abs(value) > 1e12 or (positive and value < 0.01):
         return None
     return float(value)
 
@@ -46,9 +49,9 @@ def snapshot(accounts):
         rows.append(dict(
             profile=profile, source='saved-virtual-control',
             status=status,
-            checkedAt=number(a.get('checkedAt'), positive=True),
-            startAt=number(a.get('startAt'), positive=True),
-            endAt=number(a.get('endAt'), positive=True),
+            checkedAt=number(a.get('checkedAt'), timestamp=True),
+            startAt=number(a.get('startAt'), timestamp=True),
+            endAt=number(a.get('endAt'), timestamp=True),
             initialCapitalEur=initial,
             cashEur=number(a.get('cash')),
             equityEur=equity,
