@@ -100,13 +100,28 @@ def snapshot(report, now):
             note='Jede Papier-Auswertung dauerhaft protokolliert; kein Echtgeld, '
                  'keine bestätigte Nettorendite. Ungeklärte Fälle bleiben ungeklärt.'))
     comparison=shadow.get('entryExitComparison') or {}
+    # Worker input checks continue while no new episode is eligible. The last
+    # case clock cannot diagnose a stalled worker during a neutral market.
+    observation=comparison.get('inputObservation') or {}
+    worker_at=observation.get('checkedAt')
+    case_at=comparison.get('checkedAt')
+    observed_at=worker_at if worker_at is not None else case_at
+    recent=fresh(observed_at,now,120)
+    state='unavailable'
+    if comparison.get('status') in ('collecting','waiting-for-first-episode','awaiting-first-worker-check'):
+        if recent:
+            state=('waiting-for-signal' if observation.get('reason')=='waiting-for-direction'
+                   and (observation.get('inputQuality') or {}).get('verified') is True
+                   else 'input-blocked' if observation.get('reason')=='original-input-unverified'
+                   else 'checked')
+        elif observed_at and phase in ('night','weekend'):
+            state='night-paused'
     for entry,label in (('early','Frühwarnung'),('confirmed','Bestätigung'),('pullback','Rücksetzer')):
         for exit_mode,exit_label in (('fixed','festes Ziel'),('trailing','nachgezogener Stopp')):
             variants=[(comparison.get('variants') or {}).get(f'{entry}:{exit_mode}:{delay}',{}) for delay in (0,30,60)]
-            recent=fresh(comparison.get('checkedAt'),now,120)
             rows.append(dict(id=f'entry-exit-{entry}-{exit_mode}',label=f'{label} · {exit_label} · 0/30/60 s',
-                state='checked' if recent else 'night-paused' if comparison.get('checkedAt') and phase in ('night','weekend') else 'unavailable',
-                startedAt=None,lastObservedAt=comparison.get('checkedAt'),
+                state=state,
+                startedAt=None,lastObservedAt=observed_at,lastCaseObservedAt=case_at,
                 sampledRecords=comparison.get('episodesSampled'),comparableCases=None,
                 completed=False,truncated=comparison.get('truncated',False),
                 missing='Gepaarte Auswertung und ausreichende neue Fälle erforderlich.',
