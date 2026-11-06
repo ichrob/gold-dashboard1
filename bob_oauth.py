@@ -111,14 +111,17 @@ def read_body(handler, json_body=False):
     return value
 
 
-def browser_ready(handler, user, password):
+def browser_ready(handler, user, password, *, return_view=""):
+    # Only this fixed local page may opt into an archive-login return.
+    # OAuth's existing return to /oauth/resume remains unchanged.
+    archive = return_view == "archive-connect"
     if not bob_passkey.browser_authenticated(handler.headers,user,password):
-        respond(handler,303,location='/login')
+        respond(handler,303,location='/login?view=archive-connect' if archive else '/login')
         return False
     try:
         bob_passkey.require(handler.headers,user,password)
     except bob_passkey.PasskeyRequired:
-        respond(handler,303,location='/passkey?oauth=1')
+        respond(handler,303,location='/passkey?archive=1' if archive else '/passkey?oauth=1')
         return False
     return True
 

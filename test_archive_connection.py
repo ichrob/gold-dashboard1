@@ -105,6 +105,35 @@ class WebTests(unittest.TestCase):
             self.assertIn(b'action="/archive/connect/begin"',body)
             self.assertIn(b'name="csrf" value="csrf"',body)
             self.assertNotIn(b'type="file"',body)
+    def test_archive_login_returns_to_exact_fixed_page_and_preserves_second_factor(self):
+        from unittest.mock import patch
+        import bob_passkey
+        with patch.object(w.bob_oauth,'configured',return_value=True):
+            with patch.object(bob_passkey,'browser_authenticated',return_value=False):
+                h=self.handler()
+                self.assertTrue(w.route(h,'user','password'))
+                self.assertEqual(h.status,303)
+                self.assertEqual(h.response_headers['Location'],'/login?view=archive-connect')
+            with patch.object(bob_passkey,'browser_authenticated',return_value=True),patch.object(
+                bob_passkey,'require',side_effect=bob_passkey.PasskeyRequired):
+                h=self.handler()
+                self.assertTrue(w.route(h,'user','password'))
+                self.assertEqual(h.status,303)
+                self.assertEqual(h.response_headers['Location'],'/passkey?archive=1')
+            with patch.object(bob_passkey,'browser_authenticated',return_value=True),patch.object(
+                bob_passkey,'require',return_value=None),patch.object(w,'rpc',return_value={'configured':True,'connected':True}),patch.object(w,'csrf',return_value='fake-csrf-for-view-test'):
+                h=self.handler()
+                self.assertTrue(w.route(h,'user','password'))
+                self.assertEqual(h.status,200)
+                self.assertIn('Google-Zugriff erneut freigeben'.encode(),h.wfile.getvalue())
+
+    def test_archive_passkey_redirect_is_fixed_not_from_user_input(self):
+        from pathlib import Path
+        content=Path(w.__file__).with_name('passkey.js').read_text()
+        self.assertIn("next.get('archive')==='1'",content)
+        self.assertIn("location.replace('/archive/connect')",content)
+        self.assertNotIn("location.replace(next.get('archive'))",content)
+
     def test_strict_cookie_handoff_does_not_exchange_without_login(self):
         with patch.object(w.bob_oauth,'configured',return_value=True),patch.object(w.bob_oauth,'browser_ready') as login,patch.object(w,'rpc') as rpc:
             h=self.handler('/archive/connect/callback?code=test-code&state=nonce');w.route(h,'user','password')
