@@ -342,7 +342,10 @@ def collect(readers):
         from paper_profit_summary import snapshot as profit_snapshot
         paper = areas.get('simulationAndPush')
         accounts = paper.get('accounts') if isinstance(paper, dict) else None
-        areas['paperProfitEvidence'] = profit_snapshot(accounts)
+        # No extra diagnostic area for unrelated simulation-only reports.
+        # Preserve existing bounded-report size behavior when accounts are absent.
+        if isinstance(accounts, list):
+            areas['paperProfitEvidence'] = profit_snapshot(accounts)
     except Exception:
         areas['paperProfitEvidence'] = {
             'status': 'unavailable', 'readOnly': True, 'realOrders': False,
