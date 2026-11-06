@@ -241,6 +241,27 @@ function testOverviewLines(value){
    lines.push(model.note);
   }
  }
+ const timing=value.intradayTimingStudy;
+ if(timing?.version){
+  const pct=v=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(3)+' %':'noch unbekannt';
+  lines.push('Intraday-Vergleich · 3 / 5 / 7 Minuten · Haltedauer 30 / 180 / 300 Minuten');
+  lines.push((timing.observationFresh?'Zuletzt aktuell geprüft':'Aktueller Lauf nicht bestätigt')+' · '+clock(timing.checkedAt)+' · '+(states[timing.status]||timing.status));
+  for(const mode of ['original','modeled']){
+   const arms=(timing.variants||[]).filter(a=>a.mode===mode);
+   lines.push(mode==='original'?'Vergleich mit Originaldaten':'Getrennter Modelllauf · bis zu zwei fehlende Minuten errechnet');
+   for(const name of [...new Set(arms.map(a=>a.variant))]){
+    const group=arms.filter(a=>a.variant===name);
+    lines.push(group[0].label+': '+group.map(a=>a.horizonMinutes+' min: '+n(a.closed)+' abgeschlossen / '+n(a.inconclusive)+' ungeklärt, '+pct(a.meanOriginalNetPct)+' Original, '+pct(a.meanEstimatedNetPct)+' geschätzt, '+n(a.falseStarts)+' Fehlstarts, Gegenbewegung '+pct(a.closed?a.maxAdversePct:null)).join(' · '));
+   }
+  }
+  const t=timing.latency;
+  if(t?.firstWarningObservedAt){
+   lines.push('Letztes Szenario '+t.direction+': Frühwarnung erstmals beobachtet '+clock(t.firstWarningObservedAt)+' · Hauptbestätigung '+clock(t.confirmationObservedAt)+' · Produktkurs verfügbar '+clock(t.productObservedAt));
+   lines.push('Grund der Hauptentscheidung: '+(t.blockingReason||'unbekannt')+' · Quellenalter '+(Number.isFinite(t.sourceAgeMs)?Math.round(t.sourceAgeMs/1000)+' s':'unbekannt'));
+   lines.push('Push vom Anbieter angenommen: '+clock(t.pushSentAt)+' · Browserbeleg: '+clock(t.pushBrowserReceiptAt)+' · '+(t.pushEvidence||'Zustellung unbekannt'));
+  }
+  lines.push(timing.note);
+ }
  const followups=value.recentFollowups;
  if(followups?.status==='observed'){
   const labels={'invalid-original-start':'Startnachweis ungültig','source-window-pending':'Original-Zeitfenster noch offen','original-awaiting-harvest':'Originalkurs vorhanden · Verarbeitung steht aus',estimated:'mit Schätzwerten ausgewertet','original-missing-model-unavailable':'Original und geeignete Modellstützpunkte fehlen','original-missing-model-pending':'Original fehlt · Modellprüfung ausstehend'};
@@ -726,3 +747,4 @@ function mount(){
 if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',mount);
 else mount();
 })(typeof window!=='undefined'?window:globalThis);
+

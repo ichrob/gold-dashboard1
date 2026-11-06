@@ -909,8 +909,10 @@ class FastSimulationStatusTests(unittest.TestCase):
         # The three independent studies add only one PK-scoped control
         # lookup and one fixed PostgreSQL relation-size catalogue read.
         # One exact campaign lookup, bounded comparison read, and singleton input status.
-        self.assertEqual(len(selects), 6)
+        self.assertEqual(len(selects), 7)
         sql = [call.args[0] for call in selects]
+        self.assertEqual(sum('bob_intraday_timing_state WHERE id=%s' in q for q in sql),1)
+        self.assertFalse(any('bob_intraday_timing_cases' in q for q in sql))
         self.assertEqual(sum('bob_entry_exit_comparison ORDER BY id DESC LIMIT 200' in q for q in sql),1)
         self.assertEqual(sum('bob_entry_exit_input_status WHERE singleton=TRUE' in q for q in sql),1)
         self.assertEqual(sum("FROM bob_quality_campaign WHERE id=%s" in q for q in sql), 1)

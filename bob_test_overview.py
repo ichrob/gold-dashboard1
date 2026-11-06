@@ -138,7 +138,10 @@ def snapshot(report, now):
                     (areas.get('simulationAndPush') or {}).get('accounts',[]))
     chains=[c.get('evidenceChain') for a in chain_accounts
             for c in (a.get('recentCases') or {}).get('items',[]) if isinstance(c.get('evidenceChain'),dict)]
+    timing=dict((areas.get('simulationAndPush') or {}).get('intradayTimingStudy') or {})
+    timing['observationFresh']=fresh(timing.get('checkedAt'),now,120)
     return dict(version=1,readOnly=True,realOrders=False,items=rows,
+        intradayTimingStudy=timing,
         qualityCampaign=campaign,
         recentFollowups=health.get('recentFollowups') or {'status':'unavailable'},
         entryExitEvaluation=comparison.get("evaluation") or {"version":1,"status":"unavailable"},
@@ -146,3 +149,4 @@ def snapshot(report, now):
         note='Keine Gesamterfolgsquote: unterschiedliche Tests, Stichproben und unbekannte Ergebnisse bleiben getrennt.',
         releaseNote='Build und veröffentlichte Skripte werden unabhängig geprüft. Ein grüner Build bestätigt keine vollständige fachliche Reparatur.',
         drillNote='Isolierte Tests prüfen Quellenausfall, veraltete Kurse, Wiederanlauf und doppelte Meldungen; kein Ausfall wird im laufenden Bob ausgelöst.')
+
