@@ -10,7 +10,8 @@ vm.runInContext(panel.slice(start,end)+'\n;globalThis.leverageLabel=leverageObse
 const value={isin:'DE000SX7PE82',leverageSourceAt:null,
  leverageObservation:{value:7.33099042283274,current:true,
  kind:'shared-issuer-observation',at:'2026-11-06T08:46:49Z',researchOnly:true}};
-const shown=context.leverageLabel(value);
+const shown=context.leverageLabel(value,'ok');
+assert(context.leverageLabel(value,'stale').includes('Prüfbericht nicht aktuell'));
 assert(shown.includes('7.33×'));
 assert(shown.includes('SG-Recherchebeobachtung'));
 assert(shown.includes('nicht aus DEGIRO abgelesen'));
@@ -19,7 +20,7 @@ assert(context.leverageTime(value).includes('kein eigener Original-Hebelzeitstem
 for(const no of [{}, {leverageObservation:{value:7.3,current:false}},
  {leverageObservation:{value:-2,current:true}},
  {leverageObservation:{value:NaN,current:true}}]) {
- assert(context.leverageLabel(no).includes('kein aktueller Analyse-Hebel'));
+ assert(context.leverageLabel(no,'ok').includes('kein aktueller Analyse-Hebel'));
 }
 assert(panel.includes("'\\nAnalyse-Hebel: '+leverageObservationLabel(item)"));
 assert(panel.includes("'\\nHinweis: DEGIRO-Hebel aus dieser Lesung nicht belegt."));
