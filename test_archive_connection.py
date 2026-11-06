@@ -121,7 +121,7 @@ class WebTests(unittest.TestCase):
                 self.assertEqual(h.status,303)
                 self.assertEqual(h.response_headers['Location'],'/passkey?archive=1')
             with patch.object(bob_passkey,'browser_authenticated',return_value=True),patch.object(
-                bob_passkey,'require',return_value=None),patch.object(w,'rpc',return_value={'configured':True,'connected':True}):
+                bob_passkey,'require',return_value=None),patch.object(w,'rpc',return_value={'configured':True,'connected':True}),patch.object(w,'csrf',return_value='fake-csrf-for-view-test'):
                 h=self.handler()
                 self.assertTrue(w.route(h,'user','password'))
                 self.assertEqual(h.status,200)
