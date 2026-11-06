@@ -93,6 +93,29 @@ Bereiche laufen bisher die vorhandenen 64er-Lernstichproben und die
 separaten geschlossenen Paper-Receipt-Scans weiter; vollständige
 Bewertungen aller Simulationen und Qualitätsdaten sind ausdrücklich offen.
 
+## Diagnose-Historien-Replay bei abgelaufener lokaler Aufbewahrung
+
+Der unabhängige, ausschließlich lesende `storage_history_replay.inspect`
+vergleicht unveränderliche Seitenmanifeste mit lokal vorhandenen Originalen.
+Die Diagnosequelle hat eine bestehende 7-Tage-/60.000-Zeilen-Retention.
+Wenn deren frühester noch lokaler Originalzeitpunkt **nach** dem Beginn
+des ersten Manifests liegt, meldet der Replay künftig ausdrücklich
+`source-prefix-not-local` mit `verifiedArchiveReplayRequired=true`.
+Ein echter Hash- oder Inhaltswiderspruch trotz vorhandener lokaler Quelle
+bleibt `source-or-manifest-mismatch`. Die Unterscheidung erfordert
+höchstens einen zusätzlichen indexgestützten, skalaren Lesezugriff und
+liest weder Rohdaten in Logs noch automatisch Drive-Archive.
+
+**Diese Diagnose ist keine Wiederherstellung.** Für die historischen
+Seiten bleibt der unabhängige Abgleich an den zuvor verschlüsselten,
+separat restaurierten Originalen und ihren Manifest-Hashes erforderlich.
+Die bestehenden Seiten, Cursors, Archivbelege und Löschsperren werden
+nicht zurückgesetzt oder verändert. `fullOriginalReplayVerified=false`,
+`deletionAuthorized=false`, und `physicalBytesFreed=null` bleiben
+maßgeblich; ein zeitbegrenzter Teilabgleich bei Entscheidungen zählt nicht
+als vollständiger Replay. Keine zusätzlichen Archivversuche/Deployments
+aus diesem Status ableiten.
+
 ## Kompakte Tagesbewertung aus bestätigten Papier-Abschlussbelegen
 
 `storage_paper_evaluation.py` liest nachgelagert höchstens 256 bereits

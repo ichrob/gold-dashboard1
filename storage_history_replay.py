@@ -45,6 +45,12 @@ SOURCE_SQL = {
           AND (recorded_at,id)<=(%s::timestamptz,%s::text)
         ORDER BY recorded_at,id LIMIT %s""",
 }
+# Bounded, index-supported oldest-local-source probe. This does NOT read Drive.
+# A missing local prefix needs separately restored original evidence, not a
+# misleading declaration that an immutable manifest was changed.
+OLDEST_LOCAL_DIAGNOSIS_SQL = """SELECT recorded_at FROM bob_diagnostic_history
+    ORDER BY recorded_at LIMIT 1"""
+
 TAIL_SQL = {
     "diagnoses": """SELECT id FROM bob_diagnostic_history
         WHERE (recorded_at,id)>(%s::timestamptz,%s::text)
@@ -137,6 +143,22 @@ def inspect_area(conn, area, cutoff, *, max_pages=MAX_PAGES, deadline=None):
         rows = conn.execute(SOURCE_SQL[area],
                             (lower_at, lower_id, end_at, end_id, manifest[1])).fetchall()
         if not matches_manifest(area, rows, manifest):
+            # The live diagnostic journal has a bounded 7-day/60k retention.
+            # Captured manifests can therefore begin before the oldest row
+            # still present locally. Only a separately restored archive can
+            # verify that missing prefix; do not reset manifests or call it
+            # corruption, verified history or evidence eligible for deletion.
+            if area == "diagnoses":
+                oldest = conn.execute(OLDEST_LOCAL_DIAGNOSIS_SQL).fetchone()
+                first_manifest_at = segments[0][4]
+                if (oldest and isinstance(oldest[0], datetime)
+                        and oldest[0].tzinfo is not None
+                        and isinstance(first_manifest_at, datetime)
+                        and first_manifest_at.tzinfo is not None
+                        and oldest[0] > first_manifest_at):
+                    return {"status": "source-prefix-not-local",
+                            "replayedRows": count,
+                            "verifiedArchiveReplayRequired": True}
             return {"status": "source-or-manifest-mismatch", "replayedRows": count}
         count += len(rows)
         lower_at, lower_id = rows[-1][1], rows[-1][0]
