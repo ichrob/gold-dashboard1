@@ -335,6 +335,19 @@ def collect(readers):
     # Status is always sourced from this same already collected snapshot.
     from storage_brief import project as storage_brief
     areas['storageBrief'] = storage_brief(areas.get('storage'))
+    # Retain only read-only virtual control balances. The larger paper area may
+    # be omitted by the MCP size cap; this separate bounded projection is not
+    # a historical trade replay or confirmation of a profitable strategy.
+    try:
+        from paper_profit_summary import snapshot as profit_snapshot
+        paper = areas.get('simulationAndPush')
+        accounts = paper.get('accounts') if isinstance(paper, dict) else None
+        areas['paperProfitEvidence'] = profit_snapshot(accounts)
+    except Exception:
+        areas['paperProfitEvidence'] = {
+            'status': 'unavailable', 'readOnly': True, 'realOrders': False,
+            'strategyWinnerConfirmed': False,
+            'reason': 'paper-account-control-projection-unavailable'}
     # The web process may not run the evaluator itself. Prefer real observations
     # from the push worker when its local capture is unavailable; never recompute.
     worker_analysis = (areas.get('simulationAndPush') or {}).get('analysis')
@@ -1359,7 +1372,7 @@ DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
                     'storage')
 _FOCUS_AREAS = {
     'storage': ('storageBrief',),
-    'simulation': ('simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
+    'simulation': ('paperProfitEvidence', 'simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
                    'comparisonHealth', 'entryBlockEvidence', 'background', 'collection',
                    'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'sources': ('signalFreshness', 'market', 'sourceReliability', 'collection', 'background', 'analysis'),
