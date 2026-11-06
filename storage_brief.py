@@ -174,6 +174,9 @@ def project(storage):
     result["budgetState"] = _choice(storage.get("budgetState"), _BUDGET_STATES,
                                     "not-observed")
     result["lastSampleAt"] = _number(storage.get("lastSampleAt"), integer=True)
+    if type(storage.get("databaseDiagnostics")) is dict:
+        from database_diagnostics import project as database_diagnostics
+        result["databaseDiagnostics"] = database_diagnostics(storage["databaseDiagnostics"])
     if type(storage.get("featureAllocation")) is dict:
         from feature_storage import project as feature_allocation
         result["featureAllocation"] = feature_allocation(

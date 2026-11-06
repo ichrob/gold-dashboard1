@@ -193,6 +193,7 @@ def report(conn,now=None):
     decision_preview = __import__('cold_decision_product_writer').preview(
         conn, now=now, archive_proof=persisted_archive)
     return dict(status='observed',readOnly=True,observedAt=now,
+        databaseDiagnostics=__import__('database_diagnostics').report(conn),
         databaseBytes=size,configuredAllocationBytes=ALLOCATION_BYTES,
         budgetState=state(size),cautionBytes=CAUTION_BYTES,actionBytes=ACTION_BYTES,
         scope='logical-database-size-not-total-disk-use-or-free-space',
