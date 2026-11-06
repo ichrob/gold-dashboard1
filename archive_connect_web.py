@@ -84,7 +84,11 @@ def route(handler, user, password):
             status=rpc('status',handler.headers)
             body='<p>Die Archivierung bleibt ausgeschaltet. Originaldaten werden nicht gelöscht.</p>'
             if status.get('connected'):
-                body+='<p>Google-Freigabe gespeichert. Die gesonderte Freigabe des privaten Archivordners und der erste Wiederherstellungstest stehen noch aus.</p>'
+                body+='<p>Google-Freigabe gespeichert. Der aktuelle Archiv-Zugriff wird getrennt geprüft.</p>'
+                if status.get('configured'):
+                    # Refresh consent explicitly; keep the old credential until
+                    # the owner completes the normal PKCE-bound Google flow.
+                    body+='<p>Falls die Google-Berechtigung abgelaufen ist, kannst du sie hier selbst erneut freigeben. Bis zur Bestätigung bleibt die bestehende Verbindung gespeichert.</p><form method="post" action="/archive/connect/begin"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'"><button>Google-Zugriff erneut freigeben</button></form>'
             else:
                 body+='<p>1. In deinem Google-Web-Client diese autorisierte Weiterleitungs-URI eintragen und speichern:</p><p style="overflow-wrap:anywhere">'+html.escape(CALLBACK)+'</p>'
                 if not status.get('configured'):
