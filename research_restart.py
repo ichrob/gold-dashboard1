@@ -1,4 +1,4 @@
-"""Bounded forward comparisons. Original observations only; never live rules.
+"""Bounded forward comparisons with a separately labelled estimated-input run.
 
 One shared input per worker cycle, compact counters and one record per case.
 All returns are fixed-horizon spot benchmarks, NOT executable KO returns.
@@ -107,7 +107,7 @@ def leg(direction=None, entry=None, wait=False):
                 adversePct=0., stopObserved=False, targetObserved=False)
 
 
-def advance(old, bundle, market, now, worker_outcomes=None):
+def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
     """Pure state machine; all variants share a frozen event and common end.
 
     Gaps >90s exclude a case, even if an end quote later appears. Repeated source
@@ -126,13 +126,25 @@ def advance(old, bundle, market, now, worker_outcomes=None):
     quality["closedSignalBarMatched"] = quality.pop("closed15mMatched")
     if not quality["verified"]:
         quality["reason"] = "original-spot-or-"+timeframe+"-evidence-unverified"
+    if modeled:
+        from simulation_estimates import input_quality
+        quality = input_quality(quality,bundle,market,now,timeframe,state.get('lastOriginalInput'))
+        state['simulationOnly'] = True
+        state['dataPolicy'] = 'paper-gap-carry-v1'
+        if quality['verified']:
+            state['lastOriginalInput'] = copy.deepcopy(quality)
+        q.setdefault('estimated',0)
+        q['estimated'] += int(quality.get('estimated') is True)
     at = quality.get('sourceAt')
     previous_check = state.get('checkedAt')
     state['checkedAt'] = now
     q['cycles'] += 1
     q['workerErrors'] += sum(str(v).startswith('error') for v in (worker_outcomes or {}).values())
-    valid = quality['verified']
-    q['original' if valid else 'invalid'] += 1
+    valid = quality.get('simulationUsable',False) if modeled else quality['verified']
+    if quality['verified']:
+        q['original'] += 1
+    elif not valid:
+        q['invalid'] += 1
     fresh = valid and (state['lastSourceAt'] is None or at > state['lastSourceAt'])
     if valid and not fresh:
         q['duplicateSource'] += 1
@@ -145,25 +157,44 @@ def advance(old, bundle, market, now, worker_outcomes=None):
         if a.date() == b.date() and a.weekday() < 5 and 8 <= a.hour < 22 and 8 <= b.hour < 22:
             q['missingIntervals'] += 1
     observation = dict(at=at, price=quality['price']) if fresh else None
+    if observation and modeled:
+        observation.update(dataMode=quality['dataMode'],estimated=quality['estimated'],
+            originalSourceAt=quality.get('originalSourceAt',at),calculatedAt=now,
+            modelVersion='paper-gap-carry-v1')
     direction = market.get('direction') if market.get('direction') in ('LONG', 'SHORT') else None
     warning = warning_direction(market, now) if fresh else None
     q['signals' if fresh and (direction or warning) else 'waits'] += 1
     state['lastDecision'] = dict(at=now, sourceAt=at,
-        category='technical-input-block' if not valid else 'signal-observed' if direction or warning else 'rule-wait',
+        category='technical-input-block' if not valid else 'estimated-input' if quality.get('estimated') else 'signal-observed' if direction or warning else 'rule-wait',
         reason=quality.get('reason') if not valid else str(market.get('decisionReason') or 'Keine Richtungsfreigabe')[:240])
+    if modeled:
+        state['lastInput'] = copy.deepcopy(quality)
     closed = []
     for study, ctl in state['studies'].items():
         pending = []
         for case in ctl['open']:
-            if not valid or gap:
+            from simulation_estimates import MAX_WORKER_GAP, same_session
+            bounded_gap = (modeled and gap and now-previous_check <= MAX_WORKER_GAP
+                           and same_session(previous_check,now))
+            if modeled and (quality.get('estimated') or bounded_gap):
+                case['estimatedUsed'] = True
+                case['estimatedChecks'] = case.get('estimatedChecks',0)+1
+                case['lastEstimate'] = copy.deepcopy(quality) if quality.get('estimated') else dict(
+                    method='unobserved-path-between-originals',fromAt=previous_check,toAt=now,
+                    calculatedAt=now,simulationOnly=True,extremesKnown=False)
+            if not valid or (gap and not bounded_gap):
                 case['dataGap'] = True
             if fresh:
                 if at-case['lastAt'] > 90000:
-                    case['dataGap'] = True
+                    if modeled and at-case['lastAt'] <= MAX_WORKER_GAP and same_session(case['lastAt'],at):
+                        case['estimatedUsed'] = True
+                        case['unobservedPath'] = True
+                    else:
+                        case['dataGap'] = True
                 case['lastAt'] = at
                 # Frozen direction; opposite signals do not fill the old intent.
                 for name, l in case['legs'].items():
-                    if not l['entry'] and not l['wait']:
+                    if not l['entry'] and not l['wait'] and quality.get('newEntryAllowed') is not False:
                         due = case['at'] + l.get('delayMs', 0)
                         if at >= due and at < case['endAt']:
                             approved = direction == case['direction']
@@ -186,7 +217,7 @@ def advance(old, bundle, market, now, worker_outcomes=None):
                             for field, key in (('stop', 'stopObserved'), ('target', 'targetObserved')):
                                 level = plan.get(field)
                                 hit = number(level) and (sign*(quality['price']-level) <= 0 if field == 'stop' else sign*(quality['price']-level) >= 0)
-                                if hit and not l[key]:
+                                if hit and not l[key] and quality['verified']:
                                     l[key] = True
                                     q[key] += 1
             due = case['endAt']
@@ -208,6 +239,8 @@ def advance(old, bundle, market, now, worker_outcomes=None):
                     ctl['sums'][name] = ctl['sums'].get(name, 0.)+value
                     ctl['observedWorst'][name] = min(ctl['observedWorst'].get(name, 0.), l['adversePct'])
                 ctl['complete'] += 1
+                if modeled and case.get('estimatedUsed'):
+                    ctl['estimatedComplete'] = ctl.get('estimatedComplete',0)+1
             else:
                 ctl['inconclusive'] += 1
             closed.append(case)
@@ -216,7 +249,7 @@ def advance(old, bundle, market, now, worker_outcomes=None):
         state['lastSourceAt'] = at
     local = datetime.fromtimestamp(now/1000, ZoneInfo('Europe/Zurich'))
     accepting = now < state['deadlineAt'] and local.weekday() < 5 and 8 <= local.hour < 21
-    if fresh and accepting:
+    if fresh and accepting and quality.get('newEntryAllowed') is not False:
         regime = ranking_regimes.classify(market)
         for study, ctl in state['studies'].items():
             if ctl['started'] >= MAX_CASES:
@@ -242,6 +275,10 @@ def advance(old, bundle, market, now, worker_outcomes=None):
                         dataGap=False, regime=regime, originalInput=quality,
                         plan=copy.deepcopy(market.get('plan')), status='pending',
                         scope='spot-reference-not-product-return', costAssumptionPct=.16)
+            if modeled:
+                case.update(id=case['id']+':model-v1',simulationOnly=True,
+                    dataPolicy='paper-gap-carry-v1',estimatedUsed=quality.get('estimated') is True,
+                    originalResultVerified=False)
             ctl['open'].append(case)
             ctl['lastKey'] = key
             ctl['started'] += 1
@@ -254,9 +291,21 @@ def tick(conn, bundle, market, now, worker_outcomes=None):
     row = conn.execute('SELECT payload FROM bob_quality_campaign WHERE id=%s FOR UPDATE', (VERSION,)).fetchone()
     if not row:
         raise RuntimeError('quality-campaign-not-initialized')
-    if row[0]['status'].startswith('completed'):
+    if row[0]['status'].startswith('completed') and (not row[0].get('modeledSimulation')
+            or row[0]['modeledSimulation']['status'].startswith('completed')):
         return
-    state, closed = advance(row[0], bundle, market, now, worker_outcomes)
+    original = copy.deepcopy(row[0])
+    model_state = original.pop('modeledSimulation',None)
+    state, closed = advance(original, bundle, market, now, worker_outcomes)
+    # A prospective companion starts once, without reclassifying old originals.
+    # Same signals and costs; only its bounded data-gap policy differs.
+    if model_state is None:
+        model_state = seed(now)
+        model_state['deadlineAt'] = state['deadlineAt']
+    model_state, model_closed = advance(model_state,bundle,market,now,
+                                       worker_outcomes,modeled=True)
+    state['modeledSimulation'] = model_state
+    closed += model_closed
     for case in closed:
         conn.execute('INSERT INTO bob_quality_cases VALUES(%s,%s,%s::jsonb) ON CONFLICT DO NOTHING',
                      (case['id'], VERSION, dumps(case)))
@@ -268,6 +317,21 @@ def report(conn):
     if not row:
         return dict(status='not-started', realOrders=False)
     state = row[0]
+    studies = study_rows(state)
+    model = state.get('modeledSimulation')
+    modeled = dict(status=model['status'],startedAt=model['startedAt'],checkedAt=model['checkedAt'],
+        policy=model.get('dataPolicy'),studies=study_rows(model),lastInput=model.get('lastInput'),
+        realOrders=False,originalResultVerified=False,
+        note='Simulation einschließlich gekennzeichneter Schätzungen: Kursüberbrückung höchstens 180 Sekunden, höchstens zwei fehlende 5m/15m-Kerzen. Fehlende Hoch-/Tiefverläufe bleiben unbekannt. Gleiche beobachtete Signale und Modellkosten; keine verifizierte Produktrendite.') if model else dict(status='not-started')
+    return dict(version=VERSION, status=state['status'], startedAt=state['startedAt'],
+                checkedAt=state['checkedAt'], deadlineAt=state['deadlineAt'], studies=studies,
+                modeledSimulation=modeled,
+                lessons=state['lessons'], lastDecision=state.get('lastDecision'), legacySnapshots=state.get('legacySnapshots'),
+                realOrders=False, liveRulesChanged=False, winnerVerified=False,
+                note='60-Minuten-Spotvergleich mit 0,16 % Modellkosten; keine KO-Produktrendite. Originalauswertung und Simulation mit Schätzungen separat. Maximal 20 Kalendertage/200 Fälle je Vergleich, danach gesonderte Prüfung an neuen Daten. Stop/Ziel nur beobachtet, keine Ausführung behauptet.')
+
+
+def study_rows(state):
     studies = [dict(id='reaction', label=LABELS['reaction'], **state['quality'])]
     for name, c in state['studies'].items():
         total = c['complete']+c['inconclusive']
@@ -275,9 +339,6 @@ def report(conn):
                             inconclusive=c['inconclusive'], open=len(c['open']),
                             qualityPct=round(100*c['complete']/total, 1) if total else None,
                             meanNetReferencePct={k:v/c['complete'] for k,v in c['sums'].items()} if c['complete'] else {},
+                            estimatedComplete=c.get('estimatedComplete',0),
                             observedWorstPct=c['observedWorst']))
-    return dict(version=VERSION, status=state['status'], startedAt=state['startedAt'],
-                checkedAt=state['checkedAt'], deadlineAt=state['deadlineAt'], studies=studies,
-                lessons=state['lessons'], lastDecision=state.get('lastDecision'), legacySnapshots=state.get('legacySnapshots'),
-                realOrders=False, liveRulesChanged=False, winnerVerified=False,
-                note='60-Minuten-Spotvergleich mit 0,16 % Modellkosten; keine KO-Produktrendite. Lücken ausgeschlossen. Maximal 20 Kalendertage/200 Fälle je Vergleich, danach gesonderte Prüfung an neuen Daten. Stop/Ziel nur beobachtet, keine Ausführung behauptet.')
+    return studies

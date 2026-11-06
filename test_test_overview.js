@@ -13,3 +13,7 @@ for(const [state,label] of [['waiting-for-signal','wartet auf bestätigte Richtu
  assert.match(text,/Abschluss nicht bestätigt/);
 }
 console.log('Test overview: absent, zero, unknown and incomplete evidence kept distinct');
+const modelLines=testOverviewLines({version:1,items:[],qualityCampaign:{version:'test',studies:[],modeledSimulation:{status:'collecting',studies:[{id:'entry-delay',label:'Verzögerung',complete:2,estimatedComplete:1,open:0,inconclusive:3}],note:'Schätzungen separat'}},recentFollowups:{status:'observed',items:[{state:'original-awaiting-harvest'},{state:'estimated'}]}}).join(' ');
+assert.match(modelLines,/davon mit Schätzung 1/);
+assert.match(modelLines,/Originalkurs vorhanden · Verarbeitung steht aus/);
+assert.match(modelLines,/mit Schätzwerten ausgewertet/);

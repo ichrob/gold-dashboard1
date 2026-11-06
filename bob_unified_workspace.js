@@ -230,6 +230,22 @@ function testOverviewLines(value){
   for(const t of campaign.studies||[])lines.push(t.label+': '+(t.id==='reaction'?'Prüfungen '+n(t.cycles)+' · ungültige Eingaben '+n(t.invalid)+' · Verarbeitungslücken '+n(t.missingIntervals)+' · Kontofehler '+n(t.workerErrors):'vollständig '+n(t.complete)+' · nicht auswertbar '+n(t.inconclusive)+' · offen '+n(t.open)));
   for(const l of campaign.lessons||[])lines.push((l.status==='hypothesis'?'Zu prüfen: ':'Qualitätsregel: ')+l.text);
   lines.push(campaign.note);
+  const model=campaign.modeledSimulation;
+  if(model?.studies){
+   lines.push('Simulation mit Schätzwerten · '+(states[model.status]||'nicht bestätigt')+' · Beginn: '+clock(model.startedAt));
+   for(const t of model.studies){
+    lines.push(t.label+': '+(t.id==='reaction'?'Prüfungen '+n(t.cycles)+' · geschätzte Eingaben '+n(t.estimated):'ausgewertet '+n(t.complete)+' · davon mit Schätzung '+n(t.estimatedComplete)+' · offen '+n(t.open)+' · weiterhin nicht auswertbar '+n(t.inconclusive)));
+    const returns=Object.entries(t.meanNetReferencePct||{}).filter(([,v])=>typeof v==='number'&&Number.isFinite(v)).map(([k,v])=>k+': '+v.toFixed(3)+' %');
+    if(returns.length)lines.push('Mittlere Spot-Modelländerung nach angenommenen Kosten · '+returns.join(' · '));
+   }
+   lines.push(model.note);
+  }
+ }
+ const followups=value.recentFollowups;
+ if(followups?.status==='observed'){
+  const labels={'invalid-original-start':'Startnachweis ungültig','source-window-pending':'Original-Zeitfenster noch offen','original-awaiting-harvest':'Originalkurs vorhanden · Verarbeitung steht aus',estimated:'mit Schätzwerten ausgewertet','original-missing-model-unavailable':'Original und geeignete Modellstützpunkte fehlen','original-missing-model-pending':'Original fehlt · Modellprüfung ausstehend'};
+  for(const f of followups.items||[])lines.push('60-Minuten-Ergebnis '+clock(f.recordedAt)+': '+(labels[f.state]||'nicht bestätigt')+'.');
+  lines.push(followups.note);
  }
  for(const r of value.items||[])lines.push(r.label+' · '+(states[r.state]||'nicht bestätigt')+' · Beginn: '+clock(r.startedAt)+' · Letzte Beobachtung: '+clock(r.lastObservedAt)+' · Stichprobe: '+n(r.sampledRecords)+' · Vergleichbare Fälle: '+n(r.comparableCases)+' · Abschluss nicht bestätigt. '+r.missing);
  lines.push('Nachweisketten: '+(value.chainSampleAvailable?'Stichproben vorhanden':'keine Fallnachweise in diesem Bericht'));

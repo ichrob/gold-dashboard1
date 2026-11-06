@@ -52,7 +52,7 @@ def init(conn):
     conn.execute('CREATE INDEX IF NOT EXISTS bob_gap_models_checked ON bob_gap_models(checked_at)')
 
 
-def point(conn,at):
+def point(conn,at,now=None):
     # Two bounded indexed lookups, never a full historical scan.
     rows=conn.execute('''(SELECT extract(epoch from quote_at)*1000,price FROM bob_spot_observations
         WHERE stream=%s AND quote_at BETWEEN to_timestamp(%s/1000.0) AND to_timestamp(%s/1000.0)
@@ -60,7 +60,7 @@ def point(conn,at):
         UNION ALL
         (SELECT extract(epoch from quote_at)*1000,price FROM bob_spot_observations
         WHERE stream=%s AND quote_at BETWEEN to_timestamp(%s/1000.0) AND to_timestamp(%s/1000.0)
-        ORDER BY quote_at LIMIT 1)''',(STREAM,at-MAX_GAP,at,STREAM,at,at+MAX_GAP)).fetchall()
+        ORDER BY quote_at LIMIT 1)''',(STREAM,at-MAX_GAP,at,STREAM,at,min(at+MAX_GAP,now) if now is not None else at+MAX_GAP)).fetchall()
     return interpolate(at,rows)
 
 
@@ -83,7 +83,10 @@ def tick(conn,now):
         LEFT JOIN bob_gap_models m ON m.id=r.id
         WHERE r.kind='signal' AND (r.status<>'recovered' OR m.payload->>'status'='modelled')
         AND (m.checked_at IS NULL OR m.checked_at<%s)
-        ORDER BY m.checked_at NULLS FIRST,r.id LIMIT 24''',(now-3600000,)).fetchall()
+        ORDER BY CASE WHEN r.ref->>'horizon'='60'
+          AND jsonb_typeof(a.payload->'recordedAt')='number'
+          AND (a.payload->>'recordedAt')::double precision>%s THEN 0 ELSE 1 END,
+          m.checked_at NULLS FIRST,r.id LIMIT 24''',(now-3600000,now-7200000)).fetchall()
     for key,ref,record,saved in rows:
         if saved and saved.get('status')=='modelled':
             # Freeze the initial model; compare later exact-time originals separately.
@@ -91,7 +94,7 @@ def tick(conn,now):
         else:
             at=record.get('recordedAt');horizon=ref.get('horizon')
             if not positive(at) or horizon not in (15,60,240) or at+horizon*60000>now:continue
-            result=estimate(record,horizon,point(conn,at),point(conn,at+horizon*60000),now)
+            result=estimate(record,horizon,point(conn,at,now),point(conn,at+horizon*60000,now),now)
         conn.execute('''INSERT INTO bob_gap_models VALUES(%s,%s,%s::jsonb)
             ON CONFLICT(id) DO UPDATE SET checked_at=EXCLUDED.checked_at,payload=EXCLUDED.payload''',
             (key,now,json.dumps(result)))
@@ -128,3 +131,48 @@ def report(conn):
     rows=conn.execute("SELECT payload FROM bob_gap_models WHERE payload->>'status'='modelled' ORDER BY checked_at DESC LIMIT 20").fetchall()
     return dict(version=VERSION,counts=counts,evidenceSummary=evidence_summary(conn),items=[r[0] for r in rows],limit=20,note=NOTE,
                 maxGapSeconds=MAX_GAP//1000,originalEvidenceUnchanged=True)
+
+
+def recent_followups(conn, now):
+    """Explain at most eight missing 60m results in the newest 100 records.
+
+    Read the existing frozen model; never create retrospective estimates in a
+    diagnostic request or relabel a later quote as an original horizon price.
+    """
+    rows=conn.execute('''WITH latest AS MATERIALIZED (
+        SELECT id,recorded_at,payload FROM bob_decision_audit
+        ORDER BY recorded_at DESC LIMIT 100)
+        SELECT a.id,a.payload->'recordedAt',a.payload->'price',
+               a.payload->>'direction',a.payload->'marketEvaluable',m.payload
+        FROM latest a LEFT JOIN bob_gap_models m ON m.id='signal:'||a.id||':60'
+        WHERE a.recorded_at<=to_timestamp(%s/1000.0)-interval '60 minutes'
+          AND NOT EXISTS(SELECT 1 FROM bob_decision_outcomes o
+            WHERE o.decision_id=a.id AND o.horizon=60)
+        ORDER BY a.recorded_at DESC LIMIT 8''',(now,)).fetchall()
+    items=[]
+    for _,at,price,direction,eligible,saved in rows:
+        item=dict(recordedAt=at if positive(at) else None,horizon=60,
+                  originalOutcomeStored=False,modelIncluded=False)
+        if not positive(at) or not positive(price) or eligible is not True:
+            item.update(state='invalid-original-start')
+        elif now < at+3660000:
+            item.update(state='source-window-pending',targetAt=at+3600000)
+        else:
+            target=at+3600000
+            original=conn.execute('''SELECT extract(epoch FROM quote_at)*1000,price
+                FROM bob_spot_observations WHERE stream=%s
+                AND quote_at BETWEEN to_timestamp(%s/1000.0) AND to_timestamp(%s/1000.0)
+                ORDER BY quote_at LIMIT 1''',(STREAM,target,target+60000)).fetchone()
+            if original:
+                item.update(state='original-awaiting-harvest',targetAt=target,
+                            originalSourceAt=float(original[0]))
+            elif saved and saved.get('status')=='modelled':
+                item.update(state='estimated',targetAt=target,modelIncluded=True,model=saved)
+            else:
+                item.update(state='original-missing-model-unavailable' if saved else 'original-missing-model-pending',
+                            targetAt=target)
+        items.append(item)
+    return dict(status='observed',checkedAt=now,items=items,limit=8,
+        scope='missing-60m-outcomes-in-latest-100-decisions',
+        realOrders=False,originalEvidenceUnchanged=True,
+        note='Original vorhanden: Verarbeitung steht aus. Schätzungen sind separat gespeicherte rückblickende Spotmodelle, keine Originalreparatur oder KO-Produktrendite.')
