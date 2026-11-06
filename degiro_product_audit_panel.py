@@ -162,7 +162,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
  }
  // Issuer-gearing evidence is separate from the DEGIRO handset observation:
  // its numeric value must be visible without silently filling an absent LV.
- function leverageObservationLabel(item){
+ function leverageObservationLabel(item,reportStatus){
+  if(reportStatus!=='ok')return 'Prüfbericht nicht aktuell; kein neuer Hebelnachweis';
   const evidence=item?.leverageObservation||{};
   if(!Number.isFinite(evidence.value)||evidence.value<=0||evidence.current!==true)return 'kein aktueller Analyse-Hebel nachgewiesen';
   const type=evidence.kind==='shared-issuer-observation'
@@ -229,7 +230,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
      '\n'+(fieldLines.length?fieldLines.join('\n'):'Keine verifizierbaren App-Felder gespeichert')+
      '\nFehlende angeforderte Werte: '+(Array.isArray(read.missingFields)&&read.missingFields.length?read.missingFields.join(', '):'keine')+
      (Array.isArray(read.missingFields)&&read.missingFields.length===1&&read.missingFields[0]==='Hebel'?
-      '\nHinweis: DEGIRO-Hebel aus dieser Lesung nicht belegt. Separate Emittenten-Recherche: '+leverageObservationLabel(item):'')+
+      '\nHinweis: DEGIRO-Hebel aus dieser Lesung nicht belegt. Separate Emittenten-Recherche: '+leverageObservationLabel(item,r.status):'')+
      '\nKeine Handelsfreigabe. Erfassungszeit ist keine Kurszeit. Emittenten-/KO-Nachweise bleiben separat.';
     row.append(display);handset.append(row);
    }
@@ -273,7 +274,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    const list=document.createElement('p');list.style.whiteSpace='pre-line';
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
-        '\nAnalyse-Hebel: '+leverageObservationLabel(item)+
+        '\nAnalyse-Hebel: '+leverageObservationLabel(item,r.status)+
         ' · Hebelzeit: '+leverageTimeLabel(item)+
         // Public portal values without their own original timestamp are
         // useful research references, never current gearing or proof of
