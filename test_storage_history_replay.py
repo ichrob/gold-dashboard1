@@ -195,6 +195,58 @@ class ProjectionTests(unittest.TestCase):
                              for q in journal.statements))
 
 
+    def test_diagnostic_prefix_gap_is_visible_even_beyond_page_budget(self):
+        # Production can hold more than 200 durable 400-row manifests.
+        # The old early return hid the archive-required prefix behind the cap.
+        first = self.at
+        manifests = [
+            ("a" * 64, 1, {}, {},
+             first + timedelta(seconds=i), first + timedelta(seconds=i))
+            for i in range(replay.MAX_PAGES + 1)
+        ]
+
+        class Fake:
+            def __init__(self, oldest):
+                self.oldest = oldest
+                self.data = None
+                self.sql = []
+            def execute(self, sql, params=()):
+                self.sql.append(sql)
+                if "FROM bob_history_eval_cursor" in sql:
+                    self.data = (first + timedelta(days=1), "last", len(manifests))
+                elif "FROM bob_history_eval_segments" in sql:
+                    self.data = manifests
+                elif "SELECT recorded_at FROM bob_diagnostic_history" in sql:
+                    self.data = (self.oldest,)
+                else:
+                    raise AssertionError("Source replay must not run over budget")
+                return self
+            def fetchone(self):
+                return self.data
+            def fetchall(self):
+                return self.data
+
+        missing = Fake(first + timedelta(hours=1))
+        report = replay.inspect_area(
+            missing, "diagnoses", first + timedelta(days=4))
+        self.assertEqual(report["status"], "source-prefix-not-local")
+        self.assertEqual(report["replayedRows"], 0)
+        self.assertEqual(report["manifestPagesAtLeast"], replay.MAX_PAGES + 1)
+        self.assertTrue(report["pageBudgetExceeded"])
+        self.assertTrue(report["verifiedArchiveReplayRequired"])
+        self.assertEqual(
+            sum("SELECT recorded_at FROM bob_diagnostic_history" in q
+                for q in missing.sql), 1)
+        self.assertFalse(any("DELETE " in q.upper() or "UPDATE " in q.upper()
+                             for q in missing.sql))
+
+        retained = Fake(first)
+        report = replay.inspect_area(
+            retained, "diagnoses", first + timedelta(days=4))
+        self.assertEqual(report["status"], "page-budget-exceeded")
+        self.assertNotIn("verifiedArchiveReplayRequired", report)
+
+
 @unittest.skipUnless(os.environ.get("BOB_TEST_DATABASE_URL"),
                      "Requires isolated PostgreSQL CI database")
 class IsolatedDatabaseTests(unittest.TestCase):
