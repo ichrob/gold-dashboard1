@@ -157,6 +157,53 @@ class ProductReadService : AccessibilityService() {
             else arrayOf(ProductScreenEvidence.PACKAGE)
         serviceInfo = info
     }
+    /** Continue only the one locally authorized, verified PIN handoff.
+     * Android may temporarily return no accessibility root while the verified
+     * Markets WebView settles. Retry that one state only, never another app,
+     * a locked device, a login/order view, or a new unrequested session.
+     */
+    private fun beginReadAfterVerifiedPin(attempt: Int) {
+        fun fail(code: String) {
+            PhoneRemote.stop(this,code)
+            // No GoldSearchRun exists yet; stop() alone does not record failure.
+            GoldSearchRun.event(code,Instant.now().toString())
+            ProductReadRequest.cancel()
+            ProductReadSession.put(ProductScreenEvidence.Result(message=MorningReadUiPolicy.reason(code)),
+                SystemClock.elapsedRealtime())
+            PhoneDiagnostics.queue(this)
+        }
+        if(PinReadinessProbe.running || PhoneRemote.active() ||
+            GoldSearchRun.running || MorningReadRun.running ||
+            ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+            // Preserve any concurrently running, user-started reader.
+            PhoneDiagnostics.queue(this)
+            return
+        }
+        if(!getSharedPreferences("product_reader",MODE_PRIVATE).getBoolean("enabled",false)) {
+            fail("LOGIN_HANDOFF_DISABLED");return
+        }
+        if(!(getSystemService(POWER_SERVICE) as PowerManager).isInteractive ||
+            (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) {
+            fail("SCREEN_LOCKED");return
+        }
+        val root=rootInActiveWindow
+        if(root==null) {
+            if(PostLoginRootRetryPolicy.canRetry(attempt)) {
+                handler.postDelayed({beginReadAfterVerifiedPin(attempt+1)},350)
+            } else fail("LOGIN_HANDOFF_NO_ROOT")
+            return
+        }
+        val brokerVisible=try { root.packageName?.toString()==ProductScreenEvidence.PACKAGE }
+                          finally { root.recycle() }
+        if(!brokerVisible) { fail("LOGIN_HANDOFF_OTHER_APP");return }
+        runCatching {
+            PhoneRemote.start(this)
+            if(!MorningReadRun.resumeRecent(this)) GoldSearchRun.start()
+            ProductReadRequest.start(SystemClock.elapsedRealtime())
+            PhoneDiagnostics.queue(this)
+        }.onFailure { fail("LOGIN_HANDOFF_START_FAILED") }
+    }
+
     override fun onServiceConnected() {
         PinReadinessProbe.onLoginTouch = { node, bounds, window, completed -> dispatchLocalPinTouch(node, bounds, window, completed) }
         PinReadinessProbe.onDigitTouch = { node, bounds, window, completed -> dispatchPinTestZero(node, bounds, window, completed) }
@@ -168,31 +215,7 @@ class ProductReadService : AccessibilityService() {
             runCatching { localLoginEventScope(false) }
             handler.removeCallbacks(pinProbeTick)
             PhoneDiagnostics.recordPinProbe(this)
-            if (proceed) handler.post {
-                runCatching {
-                    check(!PinReadinessProbe.running && !PhoneRemote.active() &&
-                        !GoldSearchRun.running && !MorningReadRun.running &&
-                        !ProductReadRequest.active(SystemClock.elapsedRealtime()))
-                    check(getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false))
-                    check((getSystemService(POWER_SERVICE) as PowerManager).isInteractive &&
-                        !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked)
-                    // The previous tick verified an authenticated DEGIRO Markets
-                    // screen. Recheck app ownership before starting any read.
-                    val root = rootInActiveWindow ?: error("DEGIRO nicht mehr im Vordergrund.")
-                    try { check(root.packageName?.toString() == ProductScreenEvidence.PACKAGE) }
-                    finally { root.recycle() }
-                    PhoneRemote.start(this)
-                    if(!MorningReadRun.resumeRecent(this)) GoldSearchRun.start()
-                    ProductReadRequest.start(SystemClock.elapsedRealtime())
-                    PhoneDiagnostics.queue(this)
-                }.onFailure {
-                    MorningReadRun.stop(this,"START_FAILED")
-                    PhoneRemote.stop(this,"START_FAILED")
-                    GoldSearchRun.stop("START_FAILED",Instant.now().toString())
-                    ProductReadRequest.cancel()
-                    PhoneDiagnostics.queue(this)
-                }
-            }
+            if (proceed) handler.post { beginReadAfterVerifiedPin(0) }
         }
         PinReadinessProbe.onTimeout = {
             // Return only from the app explicitly opened for this test, never another foreground app.
