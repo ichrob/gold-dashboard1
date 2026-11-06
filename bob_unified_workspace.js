@@ -222,7 +222,7 @@ function testOverviewLines(value){
  if(value?.version!==1)return ['Testübersicht: Nachweise nicht verfügbar.'];
  const clock=v=>{if(!v)return 'unbekannt';const d=new Date(typeof v==='number'?(v>100000000000?v:v*1000):v);return Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';};
  const n=v=>Number.isInteger(v)&&v>=0?String(v):'unbekannt';
- const states={collecting:'neue Testphase sammelt',draining:'offene Fälle abschließen','completed-review-required':'Erfassung beendet · Auswertung nötig',retired:'alte Testphase beendet',completed:'Erfassung beendet',checked:'aktuell geprüft',observed:'Stichprobe vorhanden','no-records':'keine Aufzeichnungen',unavailable:'nicht bestätigt'};
+ const states={collecting:'neue Testphase sammelt',draining:'offene Fälle abschließen','completed-review-required':'Erfassung beendet · Auswertung nötig',retired:'alte Testphase beendet',completed:'Erfassung beendet',checked:'aktuell geprüft','waiting-for-signal':'aktuell geprüft · wartet auf bestätigte Richtung','input-blocked':'aktuell geprüft · Originaldaten nicht bestätigt','night-paused':'planmäßige Nacht-/Wochenendpause',observed:'Stichprobe vorhanden','no-records':'keine Aufzeichnungen',unavailable:'nicht bestätigt'};
  const lines=['Tests und Vergleichstests',value.note];
  const campaign=value.qualityCampaign;
  if(campaign?.version){

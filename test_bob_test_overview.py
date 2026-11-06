@@ -3,6 +3,54 @@ import unittest
 import bob_test_overview as overview
 
 
+class EntryExitOverviewTests(unittest.TestCase):
+    def rows(self, comparison, phase='trading', now=1793955600):
+        source={'areas':{'simulationAndPush':{'paper':{'sessionMode':phase},
+            'shadowStudies':{'entryExitComparison':comparison}}}}
+        before=copy.deepcopy(source)
+        rows=[r for r in overview.snapshot(source,now)['items']
+              if r['id'].startswith('entry-exit-')]
+        self.assertEqual(source,before)
+        self.assertEqual(len(rows),6)
+        self.assertTrue(all(r['completed'] is False for r in rows))
+        return rows
+
+    def test_current_neutral_worker_with_old_episode_is_waiting_not_unavailable(self):
+        comparison={'status':'collecting','checkedAt':1793903127892,
+            'episodesSampled':1,'inputObservation':{'checkedAt':1793955590000,
+            'reason':'waiting-for-direction','inputQuality':{'verified':True}}}
+        for row in self.rows(comparison):
+            self.assertEqual(row['state'],'waiting-for-signal')
+            self.assertEqual(row['lastObservedAt'],1793955590000)
+            self.assertEqual(row['lastCaseObservedAt'],1793903127892)
+            self.assertEqual(row['sampledRecords'],1)
+            self.assertIsNone(row['comparableCases'])
+
+    def test_first_episode_wait_and_invalid_input_are_distinct(self):
+        comparison={'status':'waiting-for-first-episode','episodesSampled':0,
+            'inputObservation':{'checkedAt':1793955590000,
+                'reason':'waiting-for-direction','inputQuality':{'verified':True}}}
+        self.assertTrue(all(r['state']=='waiting-for-signal' for r in self.rows(comparison)))
+        comparison['inputObservation'].update(reason='original-input-unverified',inputQuality={'verified':False})
+        self.assertTrue(all(r['state']=='input-blocked' for r in self.rows(comparison)))
+
+    def test_stale_future_missing_or_failed_worker_is_not_reported_current(self):
+        for at in (1793955400000,1793955700000,None):
+            comparison={'status':'collecting','checkedAt':1793903127892,
+                'inputObservation':{'checkedAt':at,'reason':'waiting-for-direction',
+                    'inputQuality':{'verified':True}}}
+            self.assertTrue(all(r['state']=='unavailable' for r in self.rows(comparison)))
+        comparison['status']='unavailable'
+        comparison['inputObservation']['checkedAt']=1793955590000
+        self.assertTrue(all(r['state']=='unavailable' for r in self.rows(comparison)))
+
+    def test_legacy_case_observation_and_night_pause_remain_separate(self):
+        comparison={'status':'collecting','checkedAt':1793955590000}
+        self.assertTrue(all(r['state']=='checked' for r in self.rows(comparison)))
+        comparison['checkedAt']=1793903127892
+        self.assertTrue(all(r['state']=='night-paused' for r in self.rows(comparison,phase='night')))
+
+
 class RiskPaperOverviewTests(unittest.TestCase):
     def report(self, status='observed'):
         return {'areas':{'riskPaper':{
