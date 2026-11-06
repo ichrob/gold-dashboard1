@@ -155,10 +155,22 @@ PANEL = r'''<section id="bobProductAudit" class="card">
   if(item.leverageSourceAt)return fmt(item.leverageSourceAt)+' (eigene Emittenten-Quellenzeit)';
   const observation=item.leverageObservation;
   if(observation?.kind==='shared-issuer-observation'&&observation.current)
-   return fmt(observation.at)+' (✓ Serienregel erfüllt: gemeinsamer SG-Zeitbezug, keine separate Original-Hebelzeit)';
+   return fmt(observation.at)+' (gemeinsamer SG-Quellenzeitbezug; kein eigener Original-Hebelzeitstempel)';
   if(observation?.kind==='calculated-gearing'&&observation.current)
-   return fmt(observation.at)+' (✓ berechnet · gültiger Analysewert)';
+   return fmt(observation.at)+' (berechneter Analysewert; keine Original-Hebelzeit)';
   return 'nicht aktuell nachgewiesen';
+ }
+ // Issuer-gearing evidence is separate from the DEGIRO handset observation:
+ // its numeric value must be visible without silently filling an absent LV.
+ function leverageObservationLabel(item){
+  const evidence=item?.leverageObservation||{};
+  if(!Number.isFinite(evidence.value)||evidence.value<=0||evidence.current!==true)return 'kein aktueller Analyse-Hebel nachgewiesen';
+  const type=evidence.kind==='shared-issuer-observation'
+   ?'SG-Recherchebeobachtung (gemeinsamer Quellzeitbezug)'
+   :evidence.kind==='calculated-gearing'
+   ?'berechnet aus datierten Markteingaben'
+   :'Analysewert aus getrennter Quelle';
+  return evidence.value.toFixed(2)+'× · '+type+' · nicht aus DEGIRO abgelesen · keine Handelsfreigabe';
  }
  // A previously complete *analysis* is not a new market/issuer proof.
  // This label never modifies stored evidence or trading gates.
@@ -216,6 +228,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
      'Quelle: DEGIRO-Handy · als ungeprüft erfasst: '+(read.observedAt?fmt(read.observedAt):'nicht bestätigt')+
      '\n'+(fieldLines.length?fieldLines.join('\n'):'Keine verifizierbaren App-Felder gespeichert')+
      '\nFehlende angeforderte Werte: '+(Array.isArray(read.missingFields)&&read.missingFields.length?read.missingFields.join(', '):'keine')+
+     (Array.isArray(read.missingFields)&&read.missingFields.length===1&&read.missingFields[0]==='Hebel'?
+      '\nHinweis: DEGIRO-Hebel aus dieser Lesung nicht belegt. Separate Emittenten-Recherche: '+leverageObservationLabel(item):'')+
      '\nKeine Handelsfreigabe. Erfassungszeit ist keine Kurszeit. Emittenten-/KO-Nachweise bleiben separat.';
     row.append(display);handset.append(row);
    }
@@ -259,6 +273,7 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    const list=document.createElement('p');list.style.whiteSpace='pre-line';
    list.textContent=(item.messages||[]).join('\n')+'\nPrüfungen in Folge: '+(item.consecutiveChecks||0)+' · Nächster Schritt: '+item.autoRecovery+
         '\nGeldkurszeit: '+(item.quoteSourceAt?fmt(item.quoteSourceAt):'nicht nachgewiesen')+
+        '\nAnalyse-Hebel: '+leverageObservationLabel(item)+
         ' · Hebelzeit: '+leverageTimeLabel(item)+
         // Public portal values without their own original timestamp are
         // useful research references, never current gearing or proof of
