@@ -106,6 +106,32 @@ _ARCHIVE_ERROR_TYPES = frozenset((
     "InvalidTag", "KeyError",
 ))
 
+_ARCHIVE_ERROR_CATEGORIES = {
+    "HttpError": "provider-http",
+    "RefreshError": "authentication",
+    "DefaultCredentialsError": "authentication",
+    "TransportError": "network",
+    "ConnectionError": "network",
+    "TimeoutError": "network",
+    "OperationalError": "database",
+    "DatabaseError": "database",
+    "InterfaceError": "database",
+    "ProgrammingError": "database",
+    "LockNotAvailable": "database",
+    "QueryCanceled": "database",
+    "OSError": "filesystem",
+    "PermissionError": "filesystem",
+    "FileNotFoundError": "filesystem",
+    "ValueError": "data-validation",
+    "TypeError": "data-validation",
+    "KeyError": "data-validation",
+    "InvalidTag": "data-validation",
+    "JSONDecodeError": "data-validation",
+    "RuntimeError": "runtime",
+    "CalledProcessError": "runtime",
+    "SystemExit": "runtime",
+}
+
 
 def _persisted_attempt_brief(item):
     """Only fixed, nonsecret fields from the already-read durable archive row.
@@ -137,6 +163,10 @@ def _current_archive_worker_brief(item):
     """
     current = _persisted_attempt_brief(item)
     current.pop("updatedAt")
+    raw_error = item.get("errorType") if type(item) is dict else None
+    current["errorTypeRecorded"] = type(raw_error) is str
+    current["errorCategory"] = _ARCHIVE_ERROR_CATEGORIES.get(
+        raw_error, "unrecognized" if type(raw_error) is str else None)
     return current
 
 
