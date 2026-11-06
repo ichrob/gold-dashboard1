@@ -74,6 +74,27 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(watchdog.classify(None, None, None, market_open=False),
                          ["push-unreachable", "scanner-unreachable"])
 
+    def test_premarket_suppresses_only_live_quote_incident(self):
+        app = healthy()
+        push = {"ok": True, "paperObservation": {"state": "ok"},
+                "productAuditCodes": [
+                    "product-quote-evidence-missing",
+                    "product-leverage-clock-missing",
+                    "product-ko-validity-missing",
+                    "product-terms-evidence-missing",
+                ]}
+        premarket = watchdog.classify(
+            app, {"status": "ok"}, push, market_open=False)
+        self.assertNotIn("product-quote-evidence-missing", premarket)
+        self.assertIn("product-leverage-clock-missing", premarket)
+        self.assertIn("product-ko-validity-missing", premarket)
+        self.assertIn("product-terms-evidence-missing", premarket)
+        self.assertIn(
+            "product-quote-evidence-missing",
+            watchdog.classify(app, {"status": "ok"}, push,
+                              market_open=True),
+        )
+
     def test_unknown_issue_codes_are_excluded(self):
         report = watchdog.issue_body(["scanner-unreachable", "unrecognized-diagnostic"], "2026-10-12T13:00:00Z")
         self.assertIn("scanner-unreachable", report)

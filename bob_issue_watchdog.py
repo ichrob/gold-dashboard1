@@ -116,7 +116,16 @@ def classify(app, background, push, *, market_open=True):
             else:
                 # Accept ONLY fixed diagnostic identifiers; never publish
                 # arbitrary source errors, raw data or per-product values.
-                errors.extend(code for code in product_codes if isinstance(code, str) and code in PRODUCT_CODES)
+                # Live issuer quotes are expected only during the configured
+                # trading window.  Static leverage, KO and terms evidence must
+                # remain visible outside that window, but a pre-market quote
+                # gap must not open a public repair incident that heals as soon
+                # as the regular 08:00 source cycle starts.
+                errors.extend(
+                    code for code in product_codes
+                    if (isinstance(code, str) and code in PRODUCT_CODES
+                        and (market_open or code != "product-quote-evidence-missing"))
+                )
         else:
             errors.append(PRODUCT_AUDIT_UNKNOWN)
     return sorted(set(errors))
