@@ -224,25 +224,33 @@ def report(conn):
     An invalid closed P&L is unknown, not a synthetic zero or broker profit.
     The separate paired comparison report retains its own full-stream reader.
     """
-    totals = conn.execute("""SELECT count(*),
-        max(CASE WHEN jsonb_typeof(payload->'checkedAt')='number'
-            THEN (payload->>'checkedAt')::numeric ELSE NULL END)
-        FROM bob_entry_exit_comparison""").fetchone()
-    total, checked_at = int(totals[0]), float(totals[1]) if totals[1] is not None else None
-    # Only fixed scalar projections leave PostgreSQL. Every row contributes;
-    # JSONB evidence and all 18 arm details remain in their original relation.
-    rows = conn.execute("""SELECT arm.key, arm.value->>'status',
-        count(*)::bigint,
-        coalesce(sum(CASE WHEN arm.value->>'status'='closed'
-             AND jsonb_typeof(arm.value->'modelNetEur')='number'
-             THEN (arm.value->>'modelNetEur')::numeric ELSE NULL END),0)::float8,
-        count(*) FILTER (WHERE arm.value->>'status'='closed'
-             AND jsonb_typeof(arm.value->'modelNetEur')='number')::bigint
-        FROM bob_entry_exit_comparison AS episode
-        CROSS JOIN LATERAL jsonb_each(CASE
-            WHEN jsonb_typeof(episode.payload->'arms')='object'
-            THEN episode.payload->'arms' ELSE '{}'::jsonb END) AS arm(key,value)
-        GROUP BY arm.key, arm.value->>'status'""").fetchall()
+    # Both totals and variant aggregates use one statement snapshot, even
+    # while an active episode is changing. Never fetch full evidence payloads.
+    rows = conn.execute("""SELECT totals.episodes, totals.checked_at,
+        groups.arm_key, groups.arm_status, groups.arm_count, groups.model_net,
+        groups.priced_closed
+        FROM (SELECT count(*)::bigint AS episodes,
+            max(CASE WHEN jsonb_typeof(payload->'checkedAt')='number'
+                THEN (payload->>'checkedAt')::numeric ELSE NULL END) AS checked_at
+            FROM bob_entry_exit_comparison) AS totals
+        LEFT JOIN (
+            SELECT arm.key AS arm_key, arm.value->>'status' AS arm_status,
+                count(*)::bigint AS arm_count,
+                coalesce(sum(CASE WHEN arm.value->>'status'='closed'
+                     AND jsonb_typeof(arm.value->'modelNetEur')='number'
+                     THEN (arm.value->>'modelNetEur')::numeric ELSE NULL END),0)::float8
+                     AS model_net,
+                count(*) FILTER (WHERE arm.value->>'status'='closed'
+                     AND jsonb_typeof(arm.value->'modelNetEur')='number')::bigint
+                     AS priced_closed
+            FROM bob_entry_exit_comparison AS episode
+            CROSS JOIN LATERAL jsonb_each(CASE
+                WHEN jsonb_typeof(episode.payload->'arms')='object'
+                THEN episode.payload->'arms' ELSE '{}'::jsonb END) AS arm(key,value)
+            GROUP BY arm.key, arm.value->>'status'
+        ) AS groups ON TRUE""").fetchall()
+    total = int(rows[0][0]) if rows else 0
+    checked_at = float(rows[0][1]) if rows and rows[0][1] is not None else None
     statuses = ('waiting','pending','open','exit-pending',
                 'closed','inconclusive','no-entry')
     counts = {key: {state: 0 for state in statuses} for key in ARMS}
@@ -250,7 +258,9 @@ def report(conn):
     priced = {key: 0 for key in ARMS}
     observed = {key: 0 for key in ARMS}
     unknown_states = 0
-    for key, status, amount, model_net, priced_closed in rows:
+    for _, _, key, status, amount, model_net, priced_closed in rows:
+        if key is None:  # Empty table still produces one totals row.
+            continue
         amount = int(amount)
         if key not in counts or status not in statuses:
             unknown_states += amount
@@ -277,7 +287,7 @@ def report(conn):
         inputObservation=observation,checkedAt=checked_at,episodesSampled=total,
         truncated=False,sourceScope='all-retained-sql-episodes',
         missingArmRecords=missing_arms,unknownArmStates=unknown_states,
-        evaluationCompleteForStoredRows=(not missing_arms and not unknown_states
+        evaluationCompleteForStoredRows=(bool(total) and not missing_arms and not unknown_states
             and not any(c['closedModelNetUnknown'] for c in counts.values())),
         variants=counts,realOrders=False,actualNetKnown=False,
         strategyWinnerConfirmed=False,automaticPolicyChanges=False,
