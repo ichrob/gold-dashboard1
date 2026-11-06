@@ -227,8 +227,8 @@ def report(conn):
     # Both totals and variant aggregates use one statement snapshot, even
     # while an active episode is changing. Never fetch full evidence payloads.
     rows = conn.execute("""SELECT totals.episodes, totals.checked_at,
-        groups.arm_key, groups.arm_status, groups.arm_count, groups.model_net,
-        groups.priced_closed
+        arm_totals.arm_key, arm_totals.arm_status, arm_totals.arm_count, arm_totals.model_net,
+        arm_totals.priced_closed
         FROM (SELECT count(*)::bigint AS episodes,
             max(CASE WHEN jsonb_typeof(payload->'checkedAt')='number'
                 THEN (payload->>'checkedAt')::numeric ELSE NULL END) AS checked_at
@@ -248,7 +248,7 @@ def report(conn):
                 WHEN jsonb_typeof(episode.payload->'arms')='object'
                 THEN episode.payload->'arms' ELSE '{}'::jsonb END) AS arm(key,value)
             GROUP BY arm.key, arm.value->>'status'
-        ) AS groups ON TRUE""").fetchall()
+        ) AS arm_totals ON TRUE""").fetchall()
     total = int(rows[0][0]) if rows else 0
     checked_at = float(rows[0][1]) if rows and rows[0][1] is not None else None
     statuses = ('waiting','pending','open','exit-pending',
