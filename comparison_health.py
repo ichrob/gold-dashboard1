@@ -126,7 +126,13 @@ def report(conn, now=None):
             evaluations['replayArchive'] = __import__('research_replay').diagnostics(conn)
     except Exception:
         evaluations['replayArchive'] = dict(status='unavailable')
+    try:
+        with conn.transaction():
+            followups = __import__('model_gap_review').recent_followups(conn,now)
+    except Exception:
+        followups = dict(status='unavailable',reason='followup-evidence-read-failed')
     return dict(storedEvaluations=evaluations, status='partial'  if any(x['status']=='unavailable' for x in items.values()) else 'observed',
+        recentFollowups=followups,
         readOnly=True, realOrders=False, observedAt=now, sessionMode=background_push.degiro_session(now),
         sampleLimit=LIMIT, items=items,
         scope='bounded-stored-evidence-not-full-study-completion-or-worker-heartbeat',

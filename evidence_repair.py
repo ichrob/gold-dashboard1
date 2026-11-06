@@ -52,7 +52,11 @@ def discover(conn,now):
                       (cursor or '',)).fetchall()
     conn.execute('UPDATE bob_test_repair_control SET signal_cursor=%s WHERE id=1',
                  (page[-1][0] if len(page)==128 else None,))
-    recent=conn.execute("SELECT id,payload,extract(epoch from recorded_at)*1000 FROM bob_decision_audit WHERE recorded_at<to_timestamp(%s/1000.0)-interval '16 minutes' ORDER BY recorded_at DESC LIMIT 32",(now,)).fetchall()
+    # Keep the same 32-row budget, but reserve half for newly mature 60m
+    # outcomes. A busy 15m lane otherwise never discovers them promptly.
+    recent=[]
+    for minutes in (16,61):
+        recent += conn.execute("SELECT id,payload,extract(epoch from recorded_at)*1000 FROM bob_decision_audit WHERE recorded_at<to_timestamp(%s/1000.0)-%s*interval '1 minute' ORDER BY recorded_at DESC LIMIT 16",(now,minutes)).fetchall()
     records={r[0]:r for r in [*page,*recent]}
     import decision_audit as audit
     for key,row,recorded_at in records.values():

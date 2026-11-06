@@ -29,6 +29,14 @@ def snapshot(report, now):
             missing=campaign.get('note'),note='Neue begrenzte Testreihe; keine automatische Regelübernahme.',
             qualityPct=item.get('qualityPct'),inconclusive=item.get('inconclusive'),
             technicalGaps=item.get('missingIntervals'),workerErrors=item.get('workerErrors')))
+    model=campaign.get('modeledSimulation') or {}
+    for item in model.get('studies') or []:
+        rows.append(dict(id='modeled-'+item['id'],label=item['label']+' · mit Schätzungen',
+            state=model.get('status','unavailable'),startedAt=model.get('startedAt'),
+            lastObservedAt=model.get('checkedAt'),sampledRecords=item.get('started',item.get('cycles')),
+            comparableCases=item.get('complete'),estimatedCases=item.get('estimatedComplete'),
+            completed=False,truncated=False,missing=model.get('note'),
+            note='Modellrechnung separat von Originalnachweisen; kein Strategiebeweis.'))
 
     for key,label in LABELS.items():
         source=(health.get('items') or {}).get(key) or {}
@@ -132,6 +140,7 @@ def snapshot(report, now):
             for c in (a.get('recentCases') or {}).get('items',[]) if isinstance(c.get('evidenceChain'),dict)]
     return dict(version=1,readOnly=True,realOrders=False,items=rows,
         qualityCampaign=campaign,
+        recentFollowups=health.get('recentFollowups') or {'status':'unavailable'},
         entryExitEvaluation=comparison.get("evaluation") or {"version":1,"status":"unavailable"},
         evidenceChains=chains[:35],chainSampleAvailable=bool(chains),
         note='Keine Gesamterfolgsquote: unterschiedliche Tests, Stichproben und unbekannte Ergebnisse bleiben getrennt.',
