@@ -4,5 +4,5 @@ package ch.bob.degirocompanion
 internal object MorningResumePolicy {
     fun eligible(ageMillis: Long, resumes: Int, code: String): Boolean =
         ageMillis in 0..900_000 && resumes in 0..1 && code in setOf(
-            "READ_TIMEOUT", "RUN_TIMEOUT", "SERVICE_INTERRUPTED", "SCREEN_LOCKED", "RETURN_FAILED")
+            "READ_TIMEOUT", "RUN_TIMEOUT", "SERVICE_INTERRUPTED", "SCREEN_LOCKED", "RETURN_FAILED", "RETURN_NOT_CONFIRMED")
 }
