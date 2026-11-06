@@ -231,6 +231,8 @@ class StorageBriefTests(unittest.TestCase):
             "phaseRecorded": True,
             "errorType": "PermissionError",
             "receiptPersistenceErrorType": "OperationalError",
+            "errorTypeRecorded": True,
+            "errorCategory": "filesystem",
             "readOnly": True,
         })
         compact = json.dumps(worker)
@@ -249,6 +251,13 @@ class StorageBriefTests(unittest.TestCase):
         self.assertTrue(worker["phaseRecorded"])
         self.assertIsNone(worker["errorType"])
         self.assertIsNone(worker["receiptPersistenceErrorType"])
+        self.assertTrue(worker["errorTypeRecorded"])
+        self.assertEqual(worker["errorCategory"], "unrecognized")
+
+        source["archiveWorker"].pop("errorType")
+        worker = storage_brief.project(source)["archive"]["currentWorker"]
+        self.assertFalse(worker["errorTypeRecorded"])
+        self.assertIsNone(worker["errorCategory"])
 
     def test_storage_focus_preserves_current_worker_failure_detail(self):
         source = self.source()
@@ -266,6 +275,8 @@ class StorageBriefTests(unittest.TestCase):
         self.assertEqual(worker["status"], "failed")
         self.assertEqual(worker["phase"], "encrypted-download")
         self.assertEqual(worker["errorType"], "ConnectionError")
+        self.assertTrue(worker["errorTypeRecorded"])
+        self.assertEqual(worker["errorCategory"], "network")
         self.assertTrue(any(
             item["area"] == "storageBrief.archive.currentWorker" and
             item["state"] == "failed"
