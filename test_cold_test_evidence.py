@@ -106,9 +106,9 @@ class DatabaseTests(unittest.TestCase):
         # Results remain locally readable during a Drive outage; originals fail explicitly.
         self.assertEqual(self.evaluate(),before)
 
-    def test_long_mixed_history_and_drive_outage_keep_full_summary(self):
-        # A former 200-row display cap must not hide early no-entry cases
-        # after one large, independently downloaded original goes cold.
+    def test_long_mixed_history_retains_full_stream_and_local_preview(self):
+        # Fast preview stays bounded, while the independent streaming
+        # evaluation retains all older and new no-entry cases.
         import json
         original = engine.report(self.c)
         self.assertEqual(original['episodesSampled'],3)
@@ -121,18 +121,23 @@ class DatabaseTests(unittest.TestCase):
                 VALUES(%s,TRUE,%s::jsonb)''',
                 ('small-no-entry-%03d'%i,json.dumps(no_entry)))
         baseline = engine.report(self.c)
-        self.assertEqual(baseline['episodesSampled'],208)
-        self.assertEqual(baseline['variants'][engine.ARMS[0]]['no-entry'],205)
-        self.assertFalse(baseline['truncated'])
+        self.assertEqual(baseline['episodesSampled'],200)
+        self.assertEqual(baseline['variants'][engine.ARMS[0]]['no-entry'],200)
+        self.assertTrue(baseline['truncated'])
+        self.assertEqual(baseline['sourceScope'],'recent-200-preview-only')
+        complete_before=self.evaluate()
+        self.assertEqual(complete_before['episodes'],208)
         self.assertEqual(cold.offload_batch(self.c,self.drive,
             now_ms=2*86400000)['movedRows'],1)
         self.assertEqual(engine.report(self.c),baseline)
+        self.assertEqual(self.evaluate(),complete_before)
         self.drive.corrupt=True
         # Drive outage prevents original-detail restore but not local
-        # results, including old cases that fell beyond 200 rows.
+        # results, including old cases absent from the bounded preview.
         with self.assertRaises(cold.codec.ColdArchiveUnavailable):
             cold.get(self.c,'old',drive=self.drive)
         self.assertEqual(engine.report(self.c),baseline)
+        self.assertEqual(self.evaluate(),complete_before)
         self.assertEqual(self.c.execute(
             'SELECT count(*) FROM bob_entry_exit_comparison').fetchone()[0],208)
 
