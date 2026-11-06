@@ -10,6 +10,15 @@ class MorningReadPolicyTest {
             MorningReadPolicy.Node(isin),
             MorningReadPolicy.Node("Geld CHF 4,84"))
         assertTrue(MorningReadPolicy.returnAfterRead(page,isin,7,7,"RETURN_FAILED"))
+        // Invalid broker quote pairs never become accepted quotes. A recognized
+        // read-only product window may still be exited to reach the next ISIN.
+        assertTrue(MorningReadPolicy.returnAfterRead(page,isin,7,7,"INVALID_QUOTES"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page,isin,7,8,"INVALID_QUOTES"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("DE000SX7PE82"),isin,7,7,"INVALID_QUOTES"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("Order bestätigen"),isin,7,7,"INVALID_QUOTES"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("Passwort"),isin,7,7,"INVALID_QUOTES"))
+        assertFalse(MorningReadPolicy.returnAfterRead(page+MorningReadPolicy.Node("",editable=true,id="order-quantity"),isin,7,7,"INVALID_QUOTES"))
+        assertFalse(MorningReadPolicy.returnAfterRead(listOf(MorningReadPolicy.Node(isin)),isin,7,7,"INVALID_QUOTES"))
         assertFalse(MorningReadPolicy.returnAfterRead(page,isin,7,8,"RETURN_FAILED"))
         assertFalse(MorningReadPolicy.returnAfterRead(page,isin,7,7,"IDENTITY_CHANGED"))
         assertFalse(MorningReadPolicy.returnAfterRead(page,isin,7,7,"USER_STOP"))
