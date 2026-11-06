@@ -196,6 +196,7 @@ def init(conn):
     __import__('paper_shadow_studies').init(conn)
     __import__('paper_entry_exit_comparison').init(conn)
     __import__('research_restart').init(conn)
+    __import__('intraday_timing_study').init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -1298,6 +1299,12 @@ def _worker(db):
                                     conn,bundle,market,selection,warning_market,warning_selection,quotes,int(time.time()*1000))
                         except Exception as comparison_exc:
                             print('BOB_ENTRY_EXIT_COMPARISON error='+type(comparison_exc).__name__,flush=True)
+                        try:
+                            with conn.transaction():
+                                __import__('intraday_timing_study').tick(
+                                    conn,bundle,market,selection,quotes,int(time.time()*1000))
+                        except Exception as timing_exc:
+                            print('BOB_INTRADAY_TIMING error='+type(timing_exc).__name__,flush=True)
                         print('BOB_PAPER checked profiles='+str(outcomes)+
                               ' direction='+str(market.get('direction'))+
                               ' ready='+str(market.get('ready'))+

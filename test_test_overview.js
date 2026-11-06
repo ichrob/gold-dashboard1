@@ -17,3 +17,12 @@ const modelLines=testOverviewLines({version:1,items:[],qualityCampaign:{version:
 assert.match(modelLines,/davon mit Schätzung 1/);
 assert.match(modelLines,/Originalkurs vorhanden · Verarbeitung steht aus/);
 assert.match(modelLines,/mit Schätzwerten ausgewertet/);
+
+const timingText=testOverviewLines({version:1,intradayTimingStudy:{version:'v1',status:'collecting',observationFresh:false,variants:[{mode:'original',variant:'base5',label:'5m Basis',horizonMinutes:30,closed:0,inconclusive:2,falseStarts:0,meanOriginalNetPct:null,meanEstimatedNetPct:null}],latency:{direction:'LONG',firstWarningObservedAt:1793955600000,confirmationObservedAt:null,pushSentAt:null,pushEvidence:'Kein Android-Anzeigenachweis'},note:'Keine KO-Produktrendite'}}).join(' ');
+assert.match(timingText,/Aktueller Lauf nicht bestätigt/);
+assert.match(timingText,/3 \/ 5 \/ 7 Minuten/);
+assert.match(timingText,/2 ungeklärt/);
+assert.match(timingText,/noch unbekannt Original/);
+assert.match(timingText,/Hauptbestätigung unbekannt/);
+assert.match(timingText,/Kein Android-Anzeigenachweis/);
+assert.match(timingText,/Keine KO-Produktrendite/);
