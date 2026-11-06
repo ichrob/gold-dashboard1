@@ -128,6 +128,18 @@ def _persisted_attempt_brief(item):
     }
 
 
+def _current_archive_worker_brief(item):
+    """Expose only fixed process-state fields needed to diagnose a live failure.
+
+    Process state has no trustworthy persisted timestamp.  Keep it distinct
+    from the durable attempt receipt and never project receipt contents,
+    identifiers, paths, credentials or exception text.
+    """
+    current = _persisted_attempt_brief(item)
+    current.pop("updatedAt")
+    return current
+
+
 def _persisted_archive_gate(archive, observed_at):
     """Read-only acceptance status from Bob's stored archive receipt ONLY.
 
@@ -324,6 +336,11 @@ def project(storage):
     # It cannot lift any pilot, deletion or proof gate.
     result["archive"]["latestPersistedAttempt"] = _persisted_attempt_brief(
         worker.get("latestPersistedAttempt"))
+    # The overview can flag the process-local archive worker as failed even
+    # when the last durable restore receipt remains verified.  Surface the
+    # same redacted process status in the focused storage view so operators
+    # can distinguish a current worker failure from an old persisted attempt.
+    result["archive"]["currentWorker"] = _current_archive_worker_brief(worker)
     preview = storage.get("decisionProductsPreview")
     preview = preview if isinstance(preview, dict) else {}
     result["referencePreview"] = {
