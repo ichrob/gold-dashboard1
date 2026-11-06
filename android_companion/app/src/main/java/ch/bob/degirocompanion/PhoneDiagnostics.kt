@@ -157,10 +157,19 @@ internal object PhoneDiagnostics {
     fun snapshot(c:Context):String {
         val p=prefs(c)
         val event=runCatching { JSONObject(MorningReadRun.pending(c) ?: "{}").optJSONArray("events")?.let { it.optJSONObject(it.length()-1) } }.getOrNull()
-        if(GoldSearchRun.lastCode!=null) p.edit().putString("lastCode",GoldSearchRun.lastCode)
-            .putString("lastEventAt",GoldSearchRun.lastEventAt).commit()
-        else if(event!=null) p.edit().putString("lastCode",PhoneDiagnosticPolicy.code(event.optString("code")))
-            .putString("lastEventAt",event.optString("at")).commit()
+        // The list's LIST_IMAGES_DELIVERED is not the latest error when the
+        // detail reader subsequently failed. Keep only the newest timestamped
+        // fixed-code observation, including the persisted report on restart.
+        fun seen(code:String?,at:String?) = if(code.isNullOrBlank() || at.isNullOrBlank()) null
+            else PhoneDiagnosticRecency.Event(code,at)
+        PhoneDiagnosticRecency.latest(
+            seen(GoldSearchRun.lastCode,GoldSearchRun.lastEventAt),
+            seen(event?.optString("code"),event?.optString("at")),
+            seen(p.getString("lastCode",null),p.getString("lastEventAt",null))
+        )?.let { newest ->
+            p.edit().putString("lastCode",PhoneDiagnosticPolicy.code(newest.code))
+                .putString("lastEventAt",newest.at).commit()
+        }
         val manager=c.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
         val active=manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any {
             it.resolveInfo.serviceInfo.packageName==c.packageName && it.resolveInfo.serviceInfo.name==ProductReadService::class.java.name

@@ -57,6 +57,8 @@ internal object MorningReadUiPolicy {
         "PROTECTED_VIEW", "UNSAFE_VIEW" -> "Geschützte Ansicht; Lesen angehalten"
         "IDENTITY_CHANGED" -> "Produktkennung hat gewechselt"
         "QUOTES_UNAVAILABLE" -> "DEGIRO zeigt keine Geld-/Briefkurse; übrige Werte bleiben gespeichert"
+        "INVALID_QUOTES" -> "Widersprüchliche Geld- und Briefkurse erkannt. Diese Kurse bleiben gesperrt."
+        "RETURN_NOT_CONFIRMED" -> "Zurück zur DEGIRO-Suche nicht bestätigt; Daten gespeichert. Ein frischer Lauf kann erneut gestartet werden."
         "PARTIAL" -> "Produkt teilweise gelesen"
         "COMPLETE" -> "Produkt vollständig gelesen"
         "RUN_TIMEOUT" -> "Zeitlimit des Listenlaufs erreicht"
