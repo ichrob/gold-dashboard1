@@ -195,6 +195,14 @@ def prune(conn, archive_cutoff=None):
                  (archive_cutoff,))
     except Exception as exc:
         raise _PruneStageError('age-delete', exc) from exc
+    age_removed=getattr(old,'rowcount',0)
+    # A full age batch proves that retention is already behind.  Finish that
+    # bounded deletion without running the redundant cap count in the same
+    # transaction: a cap-count timeout would otherwise roll back the 500 rows
+    # just removed.  The existing catch-up cadence schedules another bounded
+    # pass after 15 minutes, so neither retention limit nor batch size changes.
+    if isinstance(age_removed,int) and age_removed >= _PRUNE_CAP_BATCH_SIZE:
+        return age_removed
     # Journal rows are append-only. Count only the compact primary-key index
     # entries needed to prove this bounded maintenance batch.  A full heap
     # count becomes expensive once the JSON payload relation is large, while
@@ -233,7 +241,7 @@ def prune(conn, archive_cutoff=None):
                     (archive_cutoff,cap_batch))
         except Exception as exc:
             raise _PruneStageError('cap-delete', exc) from exc
-    counts=(getattr(old,'rowcount',0),getattr(capped,'rowcount',0))
+    counts=(age_removed,getattr(capped,'rowcount',0))
     return sum(value for value in counts if isinstance(value,int) and value>0)
 
 
