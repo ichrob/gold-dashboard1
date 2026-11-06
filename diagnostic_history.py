@@ -196,26 +196,25 @@ def prune(conn, archive_cutoff=None):
     except Exception as exc:
         raise _PruneStageError('age-delete', exc) from exc
     age_removed=getattr(old,'rowcount',0)
-    # A full age batch proves that retention is already behind.  Finish that
-    # bounded deletion without running the redundant cap count in the same
-    # transaction: a cap-count timeout would otherwise roll back the 500 rows
-    # just removed.  The existing catch-up cadence schedules another bounded
-    # pass after 15 minutes, so neither retention limit nor batch size changes.
-    if isinstance(age_removed,int) and age_removed >= _PRUNE_CAP_BATCH_SIZE:
+    # Any successful age deletion is retention progress that must commit.
+    # Running the independent cap count in the same transaction lets a count
+    # timeout roll back even a partial age batch.  Leave the cap check to the
+    # next scheduled pass; neither retention limit nor batch size changes.
+    if isinstance(age_removed,int) and age_removed > 0:
         return age_removed
-    # Journal rows are append-only. Count only the compact primary-key index
-    # entries needed to prove this bounded maintenance batch.  A full heap
-    # count becomes expensive once the JSON payload relation is large, while
-    # LIMIT(cap + batch) still gives the exact excess up to the most we may
-    # delete in this transaction.  No ordered OFFSET scan is reintroduced.
+    # Journal rows are append-only. Count only enough rows to prove this
+    # bounded maintenance batch.  Cardinality does not depend on row order, so
+    # avoid forcing an ordered index scan.  LIMIT(cap + batch) still gives the
+    # exact excess up to the most we may delete in this transaction.  No
+    # ordered OFFSET scan is reintroduced.
     # The advisory lock serializes maintenance across both services;
     # concurrent writers can only increase the count, never make this
     # over-delete.
     # Raw archives are separate tables and are never touched here.
     try:
         counted=conn.execute('''SELECT count(*) FROM (
-                SELECT id FROM bob_diagnostic_history
-                ORDER BY id LIMIT %s
+                SELECT 1 FROM bob_diagnostic_history
+                LIMIT %s
             ) AS bounded_history''',
             (_PRUNE_MAX_EVENTS+_PRUNE_CAP_BATCH_SIZE,)).fetchone()
     except Exception as exc:
