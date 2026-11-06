@@ -10,7 +10,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from paper_shadow_studies import number, positive
 
-VERSION = 'intraday-timing-20261106-v1'
+LEGACY_VERSION = 'intraday-timing-20261106-v1'
+VERSION = 'intraday-timing-20261106-v2'
+EXIT_POLICY = 'confirmed-reversal-exit-v1'
 MINUTE = 60000
 HORIZONS = (30, 180, 300)
 MAX_CASES = 200
@@ -154,6 +156,40 @@ def gate(signal, trend, config):
     return True, None
 
 
+def reversal_evidence(rows, minutes, now, position, market, price):
+    """Exit permission is independent of entry gates and hourly alignment.
+
+    Either the existing main signal confirms the opposite direction on this
+    source sample, or two consecutive closed local bars agree in EMA/MACD.
+    A warning, neutral state, missing context or a single counter-bar is not enough.
+    """
+    opposite = 'SHORT' if position['direction']=='LONG' else 'LONG'
+    if (market.get('ready') is True and market.get('priceFresh') is True
+            and market.get('direction')==opposite and number(market.get('dataAt'))
+            and abs(market['dataAt']-price['at'])<=2000 and not price['estimated']
+            and number(market.get('analysisBarAt'))
+            and position['entryObservedAt'] < market['analysisBarAt']+5*MINUTE <= price['at']):
+        return dict(policy=EXIT_POLICY,kind='confirmed-main-opposite',direction=opposite,
+                    confirmedAt=market['analysisBarAt']+5*MINUTE,sourceAt=price['at'],estimated=False)
+    if not rows:
+        return None
+    current=frame_signal(rows,minutes,now)
+    closed=current.get('closedAt')
+    if not number(closed) or closed<=position['entryObservedAt'] or price['at']<closed:
+        return None
+    previous=frame_signal(rows,minutes,closed-minutes*MINUTE)
+    if (previous.get('closedAt')!=closed-minutes*MINUTE
+            or previous['closedAt']<=position['entryObservedAt']):
+        return None
+    if all(x.get('available') and x.get('ema')==opposite and x.get('macd')==opposite
+           for x in (previous,current)):
+        return dict(policy=EXIT_POLICY,kind='two-closed-local-bars',direction=opposite,
+                    confirmedAt=closed,sourceAt=price['at'],minutes=minutes,
+                    estimated=bool(previous.get('estimated') or current.get('estimated')),
+                    bars=[previous,current])
+    return None
+
+
 def source(bundle, now, modeled):
     from paper_simulation import stamp
     s = (bundle or {}).get('spots') or {}
@@ -167,7 +203,7 @@ def source(bundle, now, modeled):
 
 def seed(now):
     return dict(version=VERSION, startedAt=now, deadlineAt=now+DAYS*86400000,
-                checkedAt=None, status='collecting', arms={}, lastDecision=None,
+                checkedAt=None, status='collecting', exitPolicy=EXIT_POLICY, arms={}, lastDecision=None,
                 latency={}, recentLatency=[], cycles=0)
 
 
@@ -249,13 +285,19 @@ def advance(old, bundle, market, selection, quotes, now):
         for name,cfg in VARIANTS.items():
             sig = signals.get((cfg['minutes'],bool(cfg.get('pullback'))),dict(available=False,reason=error))
             allowed, reason = gate(sig,trend,cfg)
+            if (allowed and price['available'] and market.get('ready') is True
+                    and market.get('priceFresh') is True and number(market.get('dataAt'))
+                    and abs(market['dataAt']-price['at'])<=2000
+                    and market.get('direction') in ('LONG','SHORT')
+                    and market['direction']!=sig['direction']):
+                allowed,reason=False,'main-opposes-entry'
             for horizon in HORIZONS:
                 key = f'{mode}:{name}:{horizon}'
                 a = state['arms'].setdefault(key,dict(mode=mode,variant=name,horizonMinutes=horizon,
                     label=cfg['label'],started=0,closed=0,inconclusive=0,estimatedClosed=0,
                     originalClosed=0,originalSumNetPct=0.,estimatedSumNetPct=0.,
                     sumNetPct=0.,worstNetPct=None,maxAdversePct=0.,falseStarts=0,
-                    lastSignal=None,position=None,blockCounts={}))
+                    lastSignal=None,position=None,blockCounts={},reversalExits=0,reversalEntries=0))
                 a['reason'] = reason if not allowed else None if price['available'] else 'spot-source-unavailable'
                 p = a['position']
                 if p:
@@ -272,14 +314,19 @@ def advance(old, bundle, market, selection, quotes, now):
                         p['lastSourceAt'] = price['at']; p['lastObservedAt'] = now
                         p['estimatedUsed'] |= price['estimated']
                         held = price['at']-p['entryObservedAt']
+                        reversal = reversal_evidence(rows,cfg['minutes'],now,p,market,price)
                         # Time stop: 1/3 horizon (10/60/100 min), progress < 0.25R.
                         why = ('stop' if sign*(price['price']-p['stop'])<=0 else
                                'target' if sign*(price['price']-p['target'])>=0 else
+                               'trend-reversal' if reversal else
                                'session-close' if not session(now) or datetime.fromtimestamp(now/1000,ZoneInfo('Europe/Zurich')).strftime('%H:%M') >= '21:45' else
                                'horizon' if held>=horizon*MINUTE else
                                'no-progress' if cfg.get('time_stop') and held>=horizon*MINUTE/3
                                and sign*(price['price']-p['entryPrice'])<.25*p['risk'] else None)
                         if why:
+                            if why=='trend-reversal':
+                                p['reversalEvidence']=reversal
+                                p['estimatedUsed'] |= reversal['estimated']
                             p.update(status='closed',exitReason=why,closedAt=now,exitSourceAt=price['at'],
                                      exitPrice=price['price'],netPct=change-COST_PCT)
                     if p.get('status') in ('closed','inconclusive'):
@@ -291,6 +338,12 @@ def advance(old, bundle, market, selection, quotes, now):
                             a['worstNetPct'] = min(a['worstNetPct'],p['netPct']) if a['worstNetPct'] is not None else p['netPct']
                             a['maxAdversePct'] = max(a['maxAdversePct'],p['maxAdversePct'])
                             a['falseStarts'] += int(p['exitReason']=='stop' and now-p['entryObservedAt']<=15*MINUTE)
+                        a['lastExitAt']=now
+                        a['lastExitSourceAt']=p.get('exitSourceAt',p['lastSourceAt'])
+                        if p.get('exitReason')=='trend-reversal':
+                            a['reversalExits']=a.get('reversalExits',0)+1
+                            a['pendingReversal']=dict(caseId=p['id'],direction=p['reversalEvidence']['direction'],
+                                                      closedAt=now,sourceAt=a['lastExitSourceAt'])
                         completed.append(p); a['position'] = None
                     # Never close and re-enter on the same sample.
                     continue
@@ -304,7 +357,7 @@ def advance(old, bundle, market, selection, quotes, now):
                         or now>=state['deadlineAt'] or a['started']>=MAX_CASES or signal_key==a['lastSignal']):
                     continue
                 # No stale original quote may be relabelled as an entry at current time.
-                if price['at'] < sig['closedAt']:
+                if price['at'] < sig['closedAt'] or price['at']<=max(a.get('lastExitSourceAt',0),state.get('entryAfterSourceAt',0)):
                     continue
                 sign = 1 if sig['direction']=='LONG' else -1
                 risk = sig['atr']*1.5
@@ -320,7 +373,13 @@ def advance(old, bundle, market, selection, quotes, now):
                     hourDirection=trend.get('direction'),stop=price['price']-sign*risk,target=target,risk=risk,
                     horizonMinutes=horizon,costAssumptionPct=COST_PCT,estimatedUsed=bool(sig.get('estimated')),
                     lastSourceAt=price['at'],lastObservedAt=now,maxAdversePct=0.,maxFavorablePct=0.,
-                    status='open',realOrders=False,productReturnVerified=False)
+                    status='open',exitPolicy=EXIT_POLICY,realOrders=False,productReturnVerified=False)
+                pending=a.get('pendingReversal') or {}
+                if (pending.get('direction')==sig['direction'] and
+                        0<now-pending.get('closedAt',now)<=30*MINUTE):
+                    a['position']['followsReversalCaseId']=pending['caseId']
+                    a['reversalEntries']=a.get('reversalEntries',0)+1
+                a.pop('pendingReversal',None)
     state['status'] = ('draining' if any(a['position'] for a in state['arms'].values()) else 'completed-review-required') if now>=state['deadlineAt'] else 'collecting'
     state['lastDecision'] = dict(at=now,mainDirection=market.get('direction'),
                                reason=str(market.get('decisionReason') or '')[:240])
@@ -335,8 +394,35 @@ def init(conn):
 
 
 def tick(conn,bundle,market,selection,quotes,now):
+    migration_exit_at=None
+    # Preserve v1 originals. Drain its open positions with the requested exit
+    # protection, explicitly label the change, and never mix its results with v2.
+    legacy=conn.execute('SELECT payload FROM bob_intraday_timing_state WHERE id=%s FOR UPDATE',(LEGACY_VERSION,)).fetchone()
+    if legacy and legacy[0].get('status')!='superseded':
+        prior=copy.deepcopy(legacy[0])
+        prior.setdefault('originalDeadlineAt',prior['deadlineAt'])
+        prior['deadlineAt']=min(prior['deadlineAt'],now)
+        for arm in prior['arms'].values():
+            if arm.get('position'):
+                arm['position'].setdefault('exitPolicyChangedAt',now)
+                arm['position']['exitPolicy']=EXIT_POLICY
+        prior,done=advance(prior,bundle,market,selection,quotes,now)
+        for case in done:
+            conn.execute('INSERT INTO bob_intraday_timing_cases VALUES(%s,%s,%s::jsonb) ON CONFLICT DO NOTHING',
+                         (case['id'],LEGACY_VERSION,json.dumps(case,allow_nan=False)))
+        draining=any(a.get('position') for a in prior['arms'].values())
+        prior['status']='draining' if draining else 'superseded'
+        prior['supersededBy']=VERSION
+        conn.execute('UPDATE bob_intraday_timing_state SET payload=%s::jsonb WHERE id=%s',
+                     (json.dumps(prior,allow_nan=False),LEGACY_VERSION))
+        if draining:
+            return
+        if done:
+            migration_exit_at=source(bundle,now,False).get('at') or now
     row=conn.execute('SELECT payload FROM bob_intraday_timing_state WHERE id=%s FOR UPDATE',(VERSION,)).fetchone()
     old=row[0] if row else seed(now)
+    if migration_exit_at is not None:
+        old['entryAfterSourceAt']=migration_exit_at
     if old['status']=='completed-review-required':
         return
     state,done=advance(old,bundle,market,selection,quotes,now)
@@ -373,7 +459,12 @@ def push_evidence(conn, audit):
 def report(conn):
     row=conn.execute('SELECT payload FROM bob_intraday_timing_state WHERE id=%s',(VERSION,)).fetchone()
     if not row:
-        return dict(version=VERSION,status='awaiting-first-worker-check',note=NOTE)
+        legacy=conn.execute('SELECT payload FROM bob_intraday_timing_state WHERE id=%s',(LEGACY_VERSION,)).fetchone()
+        prior=legacy[0] if legacy else {}
+        pending=sum(bool(a.get('position')) for a in prior.get('arms',{}).values())
+        return dict(version=VERSION,status='legacy-positions-draining' if pending else 'awaiting-first-worker-check',
+                    checkedAt=prior.get('checkedAt') if pending else None,legacyOpenPositions=pending,
+                    exitPolicy=EXIT_POLICY,note=NOTE)
     s=row[0]
     arms=[]
     audit = s['latency']
@@ -391,4 +482,4 @@ def report(conn):
     return dict(version=VERSION,status=s['status'],startedAt=s['startedAt'],checkedAt=s['checkedAt'],
                 deadlineAt=s['deadlineAt'],variants=arms,latency=audit,recentLatency=s['recentLatency'],
                 horizonsMinutes=list(HORIZONS),timeframesMinutes=[3,5,7],lookbackMinutes=105,
-                strategyWinnerConfirmed=False,liveRulesChanged=False,realOrders=False,note=NOTE)
+                exitPolicy=EXIT_POLICY,strategyWinnerConfirmed=False,liveRulesChanged=False,realOrders=False,note=NOTE)

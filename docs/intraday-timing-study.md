@@ -36,3 +36,14 @@ Existing operations/test overview shows all eight variants at the three duration
 Record first observed warning, first observed matching main confirmation in the same 15-minute episode, main blocking reason, source age and first available matching product ask. These are observed times, not reconstructed signal onset. Push readout uses the existing bounded seven-day delivery journal and matches original early-warning direction and signal-bar timestamp. Test/synthetic events are excluded. Provider acceptance, signed browser acknowledgement and Android tray display remain distinct; missing or truncated evidence is explicit. No new notifications are sent by this study.
 
 Database tables: `bob_intraday_timing_state`, `bob_intraday_timing_cases`. UI report is an exact campaign state read, not a full case scan. Existing authentication and diagnostic admission remain.
+
+
+## Revision v2 — confirmed reversals (2026-11-06)
+
+30/180/300 minutes are **maximum** holding durations. All 48 arms close earlier on a confirmed opposite main signal with matching fresh original source evidence, or when two consecutive, post-entry closed bars of that arm's 3/5/7-minute timeframe agree in the opposite EMA and MACD direction. This local exit does not wait for hourly alignment or a new breakout. Neutral, unavailable or single-bar counter-moves alone do not reverse a position. Stops/targets retain priority; all fills still require a later valid spot observation, never a synthetic sale price.
+
+An opposite entry is optional and independent: require its normal variant gates, a valid new target/stop, sufficient remaining reward/risk, an open session and a source observation strictly newer than the exit source. Do not close and reopen on the same cycle or source quote. A still-confirmed opposing main signal blocks an entry. Link eligible opposite entries within 30 minutes to the closed reversal case, with separate reversal-exit/re-entry counters. No guarantee of immediate re-entry.
+
+Version v1 is preserved. Open v1 positions drain with the new exit protection explicitly labelled `exitPolicyChangedAt`; no new v1 entries. v2 starts independently only after v1 positions are closed/inconclusive, and cannot use a legacy exit quote for its first entry. Original v1 history and aggregate results are not pooled into v2.
+
+These new arms still model Gold-Spot direction, not an actual product purchase. The existing product entry/exit comparison already exits on confirmed opposite main signals and validates product/quote/KO evidence for any later entry. No real-money order or broker automation is added.

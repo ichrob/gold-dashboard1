@@ -26,3 +26,8 @@ assert.match(timingText,/noch unbekannt Original/);
 assert.match(timingText,/Hauptbestätigung unbekannt/);
 assert.match(timingText,/Kein Android-Anzeigenachweis/);
 assert.match(timingText,/Keine KO-Produktrendite/);
+const reversalText=testOverviewLines({version:1,intradayTimingStudy:{version:'v2',status:'legacy-positions-draining',legacyOpenPositions:1,exitPolicy:'confirmed-reversal-exit-v1',variants:[]}}).join(' ');
+assert.match(reversalText,/maximale Haltedauer/);
+assert.match(reversalText,/Bestätigte Trendumkehr: vorher aussteigen/);
+assert.match(reversalText,/neuem gültigem Einstieg mit neuer Kursbeobachtung/);
+assert.match(reversalText,/1 Positionen noch offen/);
