@@ -238,7 +238,7 @@ internal object MorningReadPolicy {
 
     /** One BACK from a previously observed product window, never from an order form. */
     fun returnAfterRead(nodes: List<Node>, target: String, window: Int, readWindow: Int?, code: String): Boolean {
-        if (readWindow != window || code !in setOf("READ", "NO_QUOTES", "RETURN_FAILED", "SEEK_LIMIT", "SCROLL_LIMIT")) return false
+        if (readWindow != window || code !in setOf("READ", "NO_QUOTES", "RETURN_FAILED", "SEEK_LIMIT", "SCROLL_LIMIT", "INVALID_QUOTES")) return false
         if (detailLauncherIndex(nodes, target, anchored=true, symbolProbe=true) != null) return true
         if (protection(nodes) != null || nodes.size > 500 || !SeriesEvidence.validIsin(target)) return false
         val action = detailDecision(nodes, target, true)
