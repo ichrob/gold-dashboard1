@@ -70,7 +70,7 @@ def route(handler, user, password):
                 destination=PATH+'/finish?'+urlencode({k:fields.get(k,'') for k in ('state','code')})
                 page(handler,'<p>Bestätige die Rückkehr zu deiner angemeldeten Bob-Sitzung.</p><a rel="noreferrer" href="'+html.escape(destination,quote=True)+'">Verbindung in Bob abschließen</a>')
             return True
-        if not bob_oauth.browser_ready(handler,user,password):
+        if not bob_oauth.browser_ready(handler,user,password,return_view='archive-connect'):
             return True
         if handler.command == 'GET' and path == PATH+'/upload.js':
             data=SCRIPT.encode()
