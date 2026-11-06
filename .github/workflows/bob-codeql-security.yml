@@ -37,6 +37,12 @@ on:
       - "cold_analysis.py"
       - "cold_metrics.py"
       - "cold_observations.py"
+      # Full-history entry/exit reports and cold reader affect risk/evidence.
+      - 'paper_entry_exit_comparison.py'
+      - 'paper_comparison_report.py'
+      - 'cold_test_evidence.py'
+      - 'test_paper_entry_exit_comparison.py'
+      - 'test_cold_test_evidence.py'
       - "test_cold_archive_maintenance_isolation.py"
       - "test_cold_analysis.py"
       - "storage_maintenance.py"
