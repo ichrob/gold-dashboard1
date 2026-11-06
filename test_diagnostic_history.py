@@ -196,7 +196,7 @@ class HistoryTests(unittest.TestCase):
                 self.assertNotIn('private database detail',
                                  str(caught.exception))
 
-    def test_full_age_batch_skips_cap_count_without_rolling_back_delete(self):
+    def test_partial_age_batch_skips_cap_count_without_rolling_back_delete(self):
         class Result:
             def __init__(self, row=None, rowcount=0):
                 self.row = row
@@ -214,13 +214,13 @@ class HistoryTests(unittest.TestCase):
                 if 'pg_try_advisory_xact_lock' in sql:
                     return Result((True,))
                 if "interval '7 days'" in sql:
-                    return Result(rowcount=h._PRUNE_CAP_BATCH_SIZE)
+                    return Result(rowcount=37)
                 if 'SELECT count(*)' in sql:
                     raise AssertionError('cap count must wait for next catch-up pass')
                 return Result()
 
         conn = Conn()
-        self.assertEqual(h.prune(conn), h._PRUNE_CAP_BATCH_SIZE)
+        self.assertEqual(h.prune(conn), 37)
         self.assertFalse(any('SELECT count(*)' in sql
                              for sql, _ in conn.statements))
         self.assertEqual(h._PRUNE_CAP_BATCH_SIZE, 500)
@@ -264,8 +264,9 @@ class HistoryTests(unittest.TestCase):
         count_sql, count_params = next(
             (sql, params) for sql, params in conn.statements
             if 'AS bounded_history' in sql)
-        self.assertIn('SELECT id FROM bob_diagnostic_history', count_sql)
-        self.assertIn('ORDER BY id LIMIT %s', count_sql)
+        self.assertIn('SELECT 1 FROM bob_diagnostic_history', count_sql)
+        self.assertNotIn('ORDER BY', count_sql)
+        self.assertIn('LIMIT %s', count_sql)
         self.assertNotIn('OFFSET', count_sql)
         self.assertEqual(count_params, (60500,))
 
