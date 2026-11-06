@@ -77,6 +77,8 @@ class ProjectionTests(unittest.TestCase):
                     self.data = [manifest]
                 elif "SELECT id,recorded_at,stage" in sql:
                     self.data = [("altered", *rows[0][1:]), rows[1]] if self.changed else rows
+                elif "SELECT recorded_at FROM bob_diagnostic_history" in sql:
+                    self.data = (rows[0][1],)
                 elif "SELECT id FROM bob_diagnostic_history" in sql:
                     self.data = ("new-after-cursor",) if self.pending else None
                 else:
@@ -151,6 +153,48 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(invalid.query_limits, [])
 
 
+    def test_retained_diagnostic_prefix_is_not_misreported_as_corruption(self):
+        rows = self.diagnoses
+        summary = writer.summarize("diagnoses", rows)
+        manifest = (summary["digest"], len(rows), summary["categories"],
+                    summary["outcomes"], rows[0][1], rows[-1][1])
+
+        class PrunedJournal:
+            def __init__(self):
+                self.data = None
+                self.statements = []
+            def execute(self, statement, params=()):
+                self.statements.append(statement)
+                if "FROM bob_history_eval_cursor" in statement:
+                    self.data = (rows[-1][1], rows[-1][0], len(rows))
+                elif "FROM bob_history_eval_segments" in statement:
+                    self.data = [manifest]
+                elif "SELECT id,recorded_at,stage" in statement:
+                    self.data = [rows[1]]
+                elif "SELECT recorded_at FROM bob_diagnostic_history" in statement:
+                    self.data = (rows[1][1],)
+                else:
+                    raise AssertionError("Unexpected query")
+                return self
+            def fetchone(self):
+                return self.data
+            def fetchall(self):
+                return self.data
+
+        journal = PrunedJournal()
+        result = replay.inspect_area(journal, "diagnoses",
+                                     self.at + timedelta(days=4))
+        self.assertEqual(result["status"], "source-prefix-not-local")
+        self.assertEqual(result["replayedRows"], 0)
+        self.assertTrue(result["verifiedArchiveReplayRequired"])
+        self.assertNotIn("private-", json.dumps(result))
+        self.assertEqual(
+            sum("SELECT recorded_at FROM bob_diagnostic_history" in q
+                for q in journal.statements), 1)
+        self.assertFalse(any("DELETE " in q.upper() or "UPDATE " in q.upper()
+                             for q in journal.statements))
+
+
 @unittest.skipUnless(os.environ.get("BOB_TEST_DATABASE_URL"),
                      "Requires isolated PostgreSQL CI database")
 class IsolatedDatabaseTests(unittest.TestCase):
@@ -200,6 +244,18 @@ class IsolatedDatabaseTests(unittest.TestCase):
                 self.assertEqual(changed["areas"]["diagnoses"]["status"],
                                  "source-or-manifest-mismatch")
                 self.assertEqual(changed["status"], "partial")
+                # Existing capture remains immutable after regular source
+                # retention; absence must not masquerade as a corrupt digest.
+                conn.execute("DELETE FROM bob_diagnostic_history WHERE id='d1'")
+                with psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
+                        options="-c default_transaction_read_only=on") as reader:
+                    reader.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+                    reader.commit()
+                    gap = replay.inspect(reader, now)
+                self.assertEqual(gap["areas"]["diagnoses"]["status"],
+                                 "source-prefix-not-local")
+                self.assertFalse(gap["fullOriginalReplayVerified"])
+                self.assertFalse(gap["deletionAuthorized"])
             finally:
                 conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 
