@@ -213,6 +213,64 @@ class StorageBriefTests(unittest.TestCase):
         self.assertFalse(storage_brief.project(source)["archive"]
                          ["latestPersistedAttempt"]["phaseRecorded"])
 
+    def test_current_archive_worker_failure_is_visible_but_redacted(self):
+        source = self.source()
+        source["archiveWorker"].update({
+            "status": "failed",
+            "phase": "encrypt-before-upload",
+            "errorType": "PermissionError",
+            "receiptPersistenceErrorType": "OperationalError",
+            "receipt": {"driveFileId": "PRIVATE-DRIVE-ID"},
+            "exceptionText": "PRIVATE-EXCEPTION-TEXT",
+        })
+
+        worker = storage_brief.project(source)["archive"]["currentWorker"]
+        self.assertEqual(worker, {
+            "status": "failed",
+            "phase": "encrypt-before-upload",
+            "phaseRecorded": True,
+            "errorType": "PermissionError",
+            "receiptPersistenceErrorType": "OperationalError",
+            "readOnly": True,
+        })
+        compact = json.dumps(worker)
+        self.assertNotIn("PRIVATE-DRIVE-ID", compact)
+        self.assertNotIn("PRIVATE-EXCEPTION-TEXT", compact)
+
+        source["archiveWorker"].update({
+            "status": "PRIVATE-STATUS",
+            "phase": "PRIVATE-PHASE",
+            "errorType": "PRIVATE-ERROR",
+            "receiptPersistenceErrorType": "PRIVATE-PERSISTENCE-ERROR",
+        })
+        worker = storage_brief.project(source)["archive"]["currentWorker"]
+        self.assertEqual(worker["status"], "not-observed")
+        self.assertIsNone(worker["phase"])
+        self.assertTrue(worker["phaseRecorded"])
+        self.assertIsNone(worker["errorType"])
+        self.assertIsNone(worker["receiptPersistenceErrorType"])
+
+    def test_storage_focus_preserves_current_worker_failure_detail(self):
+        source = self.source()
+        source["archiveWorker"].update({
+            "status": "failed",
+            "phase": "encrypted-download",
+            "errorType": "ConnectionError",
+        })
+        report = bob_diagnostics.focused_report(
+            {"readOnly": True, "realOrders": False,
+             "areas": {"storage": source}}, "storage")
+
+        self.assertEqual(report["status"], "partial")
+        worker = report["areas"]["storageBrief"]["archive"]["currentWorker"]
+        self.assertEqual(worker["status"], "failed")
+        self.assertEqual(worker["phase"], "encrypted-download")
+        self.assertEqual(worker["errorType"], "ConnectionError")
+        self.assertTrue(any(
+            item["area"] == "storageBrief.archive.currentWorker" and
+            item["state"] == "failed"
+            for item in report["summary"]["attention"]))
+
     def test_archive_status_requires_persisted_recovery_proof_and_age(self):
         source = self.source()
         source["observedAt"] = 1793673000
