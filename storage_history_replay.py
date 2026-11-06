@@ -125,8 +125,24 @@ def inspect_area(conn, area, cutoff, *, max_pages=MAX_PAGES, deadline=None):
         ORDER BY captured_at,page_sha256 LIMIT %s""",
         (area, max_pages + 1)).fetchall()
     if len(segments) > max_pages:
-        return {"status": "page-budget-exceeded", "replayedRows": 0,
-                "manifestPagesAtLeast": len(segments)}
+        # The independent replay is deliberately bounded. Distinguish this
+        # limit from the *additional* known loss of locally retained journal
+        # originals, without attempting unbounded source scans. This early
+        # probe is necessary when the durable evaluation already exceeds 200
+        # pages: the per-page mismatch branch cannot be reached at all.
+        result = {"status": "page-budget-exceeded", "replayedRows": 0,
+                  "manifestPagesAtLeast": len(segments)}
+        if area == "diagnoses":
+            first_at = segments[0][4] if segments and len(segments[0]) == 6 else None
+            if isinstance(first_at, datetime) and first_at.tzinfo is not None:
+                oldest = conn.execute(OLDEST_LOCAL_DIAGNOSIS_SQL).fetchone()
+                if (oldest and isinstance(oldest[0], datetime)
+                        and oldest[0].tzinfo is not None
+                        and oldest[0] > first_at):
+                    result.update(status="source-prefix-not-local",
+                                  pageBudgetExceeded=True,
+                                  verifiedArchiveReplayRequired=True)
+        return result
     if (not segments or
             any(type(x[1]) is not int or not 1 <= x[1] <= PAGE_ROWS
                 for x in segments) or
