@@ -43,6 +43,13 @@ class ConnectionTests(unittest.TestCase):
         self.state['credentials']={'refresh_token':'private'}
         with self.assertRaises(ValueError):self.call('configure',config=CONFIG)
         self.assertFalse(self.call('status')['archiveEnabled'])
+    def test_reconsent_keeps_existing_credentials_until_provider_completes(self):
+        self.state['credentials']={'refresh_token':'old-private-token'}
+        original=self.state['credentials'].copy()
+        nonce=self.begin()['state'][0]
+        self.assertEqual(self.state['credentials'],original)
+        self.call('complete',state=nonce)
+        self.assertEqual(self.state['credentials'],original)
     def test_encryption_and_key_separation(self):
         with patch.dict('os.environ',PUSH_SERVICE_TOKEN='test-runtime-key'):
             sealed=c.cipher().encrypt(json.dumps(self.state).encode())
@@ -88,6 +95,16 @@ class WebTests(unittest.TestCase):
             self.assertEqual(h.status,200);self.assertEqual(h.response_headers['Cache-Control'],'no-store')
             self.assertEqual(h.response_headers['Referrer-Policy'],'same-origin')
             self.assertIn(c.CALLBACK.encode(),h.wfile.getvalue());self.assertIn(b'type="file"',h.wfile.getvalue())
+    def test_connected_page_offers_explicit_renewal_not_secret_upload(self):
+        with patch.object(w.bob_oauth,'configured',return_value=True),patch.object(w.bob_oauth,'browser_ready',return_value=True),patch.object(w,'rpc',return_value={'configured':True,'connected':True}),patch.object(w,'csrf',return_value='csrf'):
+            h=self.handler();w.route(h,'user','password')
+            body=h.wfile.getvalue()
+            self.assertEqual(h.status,200)
+            self.assertEqual(h.response_headers['Cache-Control'],'no-store')
+            self.assertIn('Google-Zugriff erneut freigeben'.encode(),body)
+            self.assertIn(b'action="/archive/connect/begin"',body)
+            self.assertIn(b'name="csrf" value="csrf"',body)
+            self.assertNotIn(b'type="file"',body)
     def test_strict_cookie_handoff_does_not_exchange_without_login(self):
         with patch.object(w.bob_oauth,'configured',return_value=True),patch.object(w.bob_oauth,'browser_ready') as login,patch.object(w,'rpc') as rpc:
             h=self.handler('/archive/connect/callback?code=test-code&state=nonce');w.route(h,'user','password')
