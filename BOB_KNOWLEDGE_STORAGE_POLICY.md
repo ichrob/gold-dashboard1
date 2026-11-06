@@ -106,6 +106,18 @@ bleibt `source-or-manifest-mismatch`. Die Unterscheidung erfordert
 höchstens einen zusätzlichen indexgestützten, skalaren Lesezugriff und
 liest weder Rohdaten in Logs noch automatisch Drive-Archive.
 
+Bei mehr als 200 gespeicherten Seiten (maximal 80.000 Zeilen im
+bestehenden lokalen Replay) prüft der Reporter nun **vor** seiner
+Seitengrenzen-Rückgabe mit einem einzigen indexgestützten `recorded_at`-
+Minimum, ob der erste Manifestzeitpunkt bereits vor der lokal ältesten
+Diagnose liegt. In diesem Fall meldet er `source-prefix-not-local`
+**zusammen** mit `pageBudgetExceeded=true` und
+`verifiedArchiveReplayRequired=true`. Fehlt die Lücke, bleibt der
+ehrliche Status `page-budget-exceeded`. Damit wird der fehlende
+archivgebundene Prüfschritt auch bei mehr als 80.000 Evaluationen sichtbar,
+ohne ein unbeschränktes Quellscan-Verhalten einzubauen oder eine einzige
+zusätzliche Seite als geprüft zu buchen.
+
 **Diese Diagnose ist keine Wiederherstellung.** Für die historischen
 Seiten bleibt der unabhängige Abgleich an den zuvor verschlüsselten,
 separat restaurierten Originalen und ihren Manifest-Hashes erforderlich.
