@@ -218,19 +218,69 @@ def tick(conn,bundle,market,selection,warning_market,warning_selection,quotes,no
 
 
 def report(conn):
-    rows=conn.execute('SELECT payload FROM bob_entry_exit_comparison ORDER BY id DESC LIMIT 200').fetchall()
-    samples=[s for (s,) in rows]
-    counts={key:{status:sum(s['arms'][key]['status']==status for s in samples)
-                 for status in ('waiting','pending','open','exit-pending','closed','inconclusive','no-entry')} for key in ARMS}
-    for key,c in counts.items():
-        profits=[s['arms'][key]['modelNetEur'] for s in samples if s['arms'][key]['status']=='closed']
-        c.update(modelNetEur=sum(profits),expectancyEur=sum(profits)/len(profits) if profits else None)
-    row=conn.execute('SELECT payload FROM bob_entry_exit_input_status WHERE singleton=TRUE').fetchone()
-    observation=row[0] if row else None
-    return dict(version=VERSION,status='collecting' if samples else
+    """All retained episodes in compact SQL aggregates, not the last 200.
+
+    Never load full original quotes/stop histories for a status summary.
+    An invalid closed P&L is unknown, not a synthetic zero or broker profit.
+    The separate paired comparison report retains its own full-stream reader.
+    """
+    totals = conn.execute("""SELECT count(*),
+        max(CASE WHEN jsonb_typeof(payload->'checkedAt')='number'
+            THEN (payload->>'checkedAt')::numeric ELSE NULL END)
+        FROM bob_entry_exit_comparison""").fetchone()
+    total, checked_at = int(totals[0]), float(totals[1]) if totals[1] is not None else None
+    # Only fixed scalar projections leave PostgreSQL. Every row contributes;
+    # JSONB evidence and all 18 arm details remain in their original relation.
+    rows = conn.execute("""SELECT arm.key, arm.value->>'status',
+        count(*)::bigint,
+        coalesce(sum(CASE WHEN arm.value->>'status'='closed'
+             AND jsonb_typeof(arm.value->'modelNetEur')='number'
+             THEN (arm.value->>'modelNetEur')::numeric ELSE NULL END),0)::float8,
+        count(*) FILTER (WHERE arm.value->>'status'='closed'
+             AND jsonb_typeof(arm.value->'modelNetEur')='number')::bigint
+        FROM bob_entry_exit_comparison AS episode
+        CROSS JOIN LATERAL jsonb_each(CASE
+            WHEN jsonb_typeof(episode.payload->'arms')='object'
+            THEN episode.payload->'arms' ELSE '{}'::jsonb END) AS arm(key,value)
+        GROUP BY arm.key, arm.value->>'status'""").fetchall()
+    statuses = ('waiting','pending','open','exit-pending',
+                'closed','inconclusive','no-entry')
+    counts = {key: {state: 0 for state in statuses} for key in ARMS}
+    net = {key: 0. for key in ARMS}
+    priced = {key: 0 for key in ARMS}
+    observed = {key: 0 for key in ARMS}
+    unknown_states = 0
+    for key, status, amount, model_net, priced_closed in rows:
+        amount = int(amount)
+        if key not in counts or status not in statuses:
+            unknown_states += amount
+            continue
+        counts[key][status] += amount
+        observed[key] += amount
+        if status == 'closed':
+            net[key] += float(model_net)
+            priced[key] += int(priced_closed)
+    missing_arms = sum(max(0, total - observed[key]) for key in ARMS)
+    for key, c in counts.items():
+        not_priced = c['closed'] - priced[key]
+        # A partial sum would falsely represent all closed-model returns.
+        c.update(modelNetEur=None if not_priced else net[key],
+                 expectancyEur=(net[key] / priced[key]
+                     if priced[key] and not not_priced else None),
+                 closedModelNetUnknown=not_priced)
+    row = conn.execute(
+        'SELECT payload FROM bob_entry_exit_input_status WHERE singleton=TRUE'
+    ).fetchone()
+    observation = row[0] if row else None
+    return dict(version=VERSION,status='collecting' if total else
         'waiting-for-first-episode' if observation else 'awaiting-first-worker-check',
-        inputObservation=observation,
-        checkedAt=max((s['checkedAt'] for s in samples),default=None),episodesSampled=len(samples),
-        truncated=len(samples)==200,variants=counts,realOrders=False,actualNetKnown=False,
+        inputObservation=observation,checkedAt=checked_at,episodesSampled=total,
+        truncated=False,sourceScope='all-retained-sql-episodes',
+        missingArmRecords=missing_arms,unknownArmStates=unknown_states,
+        evaluationCompleteForStoredRows=(not missing_arms and not unknown_states
+            and not any(c['closedModelNetUnknown'] for c in counts.values())),
+        variants=counts,realOrders=False,actualNetKnown=False,
         strategyWinnerConfirmed=False,automaticPolicyChanges=False,
-        note='18 paper variants; issuer quotes, assumed fees/slippage, no verified broker net profit. Missing cases are not zero returns.')
+        note='All retained SQL episodes; 18 paper variants, issuer quotes, assumed fees/slippage. '
+             'Missing/invalid results are unknown, never zero or verified broker profit. '
+             'External-original history and paired comparison are verified separately.')
