@@ -196,6 +196,36 @@ class HistoryTests(unittest.TestCase):
                 self.assertNotIn('private database detail',
                                  str(caught.exception))
 
+    def test_full_age_batch_skips_cap_count_without_rolling_back_delete(self):
+        class Result:
+            def __init__(self, row=None, rowcount=0):
+                self.row = row
+                self.rowcount = rowcount
+
+            def fetchone(self):
+                return self.row
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+                if 'pg_try_advisory_xact_lock' in sql:
+                    return Result((True,))
+                if "interval '7 days'" in sql:
+                    return Result(rowcount=h._PRUNE_CAP_BATCH_SIZE)
+                if 'SELECT count(*)' in sql:
+                    raise AssertionError('cap count must wait for next catch-up pass')
+                return Result()
+
+        conn = Conn()
+        self.assertEqual(h.prune(conn), h._PRUNE_CAP_BATCH_SIZE)
+        self.assertFalse(any('SELECT count(*)' in sql
+                             for sql, _ in conn.statements))
+        self.assertEqual(h._PRUNE_CAP_BATCH_SIZE, 500)
+        self.assertEqual(h._PRUNE_MAX_EVENTS, 60000)
+
     def test_cap_delete_avoids_offset_and_uses_exact_bounded_excess(self):
         class Result:
             rowcount = 0
