@@ -223,14 +223,24 @@ def report(conn):
     counts={key:{status:sum(s['arms'][key]['status']==status for s in samples)
                  for status in ('waiting','pending','open','exit-pending','closed','inconclusive','no-entry')} for key in ARMS}
     for key,c in counts.items():
-        profits=[s['arms'][key]['modelNetEur'] for s in samples if s['arms'][key]['status']=='closed']
-        c.update(modelNetEur=sum(profits),expectancyEur=sum(profits)/len(profits) if profits else None)
+        closed=[s['arms'][key] for s in samples if s['arms'][key]['status']=='closed']
+        profits=[a.get('modelNetEur') for a in closed if
+                 type(a.get('modelNetEur')) in (int,float) and
+                 math.isfinite(a['modelNetEur'])]
+        unpriced=len(closed)-len(profits)
+        # Unverified/incomplete closed model outcomes are UNKNOWN, never 0.
+        c.update(modelNetEur=None if unpriced else sum(profits),
+                 expectancyEur=(sum(profits)/len(profits)
+                    if profits and not unpriced else None),
+                 closedModelNetUnknown=unpriced)
     row=conn.execute('SELECT payload FROM bob_entry_exit_input_status WHERE singleton=TRUE').fetchone()
     observation=row[0] if row else None
     return dict(version=VERSION,status='collecting' if samples else
         'waiting-for-first-episode' if observation else 'awaiting-first-worker-check',
         inputObservation=observation,
         checkedAt=max((s['checkedAt'] for s in samples),default=None),episodesSampled=len(samples),
-        truncated=len(samples)==200,variants=counts,realOrders=False,actualNetKnown=False,
+        truncated=len(samples)==200,sourceScope='recent-200-preview-only',
+        fullEvaluationReader='paper_comparison_report',
+        variants=counts,realOrders=False,actualNetKnown=False,
         strategyWinnerConfirmed=False,automaticPolicyChanges=False,
-        note='18 paper variants; issuer quotes, assumed fees/slippage, no verified broker net profit. Missing cases are not zero returns.')
+        note='Only 200 newest SQL cases in this fast preview; full retained-history and paired evaluations are separate. 18 paper variants; issuer quotes, assumed fees/slippage, no verified broker net profit. Missing/unknown outcomes are not zero returns.')

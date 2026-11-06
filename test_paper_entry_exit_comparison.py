@@ -177,4 +177,59 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
                 conn.commit()
 
+
+    def test_fast_preview_stays_bounded_and_unpriced_closed_is_unknown(self):
+        import json
+        import uuid
+        import psycopg
+        from psycopg import sql
+        schema='entry_exit_preview_'+uuid.uuid4().hex
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            conn.commit()
+            try:
+                conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                study.init(conn)
+                arm=study.ARMS[0]
+                for i in range(205):
+                    state=study.seed({'ruleVersion':'synthetic-v1'},
+                        {'analysisBarAt':i+1,'sourceAt':i+1},i+1,'LONG')
+                    state['complete']=True
+                    for a in state['arms'].values():
+                        a.update(status='no-entry',reason='no-verified-entry')
+                    if i in (0,204):
+                        state['arms'][arm].update(status='closed',
+                            modelNetEur=25. if i==0 else -5.)
+                    conn.execute('''INSERT INTO bob_entry_exit_comparison
+                        VALUES(%s,TRUE,%s::jsonb)''',
+                        ('episode-%03d'%i,json.dumps(state)))
+                preview=study.report(conn)
+                self.assertEqual(preview['episodesSampled'],200)
+                self.assertTrue(preview['truncated'])
+                self.assertEqual(preview['sourceScope'],'recent-200-preview-only')
+                self.assertEqual(preview['fullEvaluationReader'],'paper_comparison_report')
+                # The oldest episode is intentionally outside this fast preview.
+                self.assertEqual(preview['variants'][arm]['closed'],1)
+                self.assertEqual(preview['variants'][arm]['no-entry'],199)
+                self.assertEqual(preview['variants'][arm]['modelNetEur'],-5.)
+                self.assertEqual(preview['variants'][arm]['expectancyEur'],-5.)
+                self.assertEqual(preview['variants'][arm]['closedModelNetUnknown'],0)
+                # The separate existing full-stream evaluation has no 200 cap.
+                import paper_comparison_report as whole
+                self.assertEqual(whole.report(conn)['episodes'],205)
+                conn.execute('''UPDATE bob_entry_exit_comparison
+                    SET payload=jsonb_set(payload,%s::text[],'null'::jsonb)
+                    WHERE id=%s''',(['arms',arm,'modelNetEur'],'episode-204'))
+                missing=study.report(conn)
+                self.assertEqual(missing['variants'][arm]['closedModelNetUnknown'],1)
+                self.assertIsNone(missing['variants'][arm]['modelNetEur'])
+                self.assertIsNone(missing['variants'][arm]['expectancyEur'])
+                self.assertEqual(conn.execute(
+                    'SELECT count(*) FROM bob_entry_exit_comparison').fetchone()[0],205)
+            finally:
+                conn.rollback()
+                conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+                conn.commit()
+
+
 if __name__=='__main__':unittest.main()

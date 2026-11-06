@@ -106,6 +106,41 @@ class DatabaseTests(unittest.TestCase):
         # Results remain locally readable during a Drive outage; originals fail explicitly.
         self.assertEqual(self.evaluate(),before)
 
+    def test_long_mixed_history_retains_full_stream_and_local_preview(self):
+        # Fast preview stays bounded, while the independent streaming
+        # evaluation retains all older and new no-entry cases.
+        import json
+        original = engine.report(self.c)
+        self.assertEqual(original['episodesSampled'],3)
+        no_entry = dict(version=engine.VERSION, complete=True, checkedAt=2,
+            ruleVersion='synthetic-v1', startedAt=2, direction='LONG',
+            arms={arm:dict(status='no-entry',reason='no-valid-entry')
+                  for arm in engine.ARMS})
+        for i in range(205):
+            self.c.execute('''INSERT INTO bob_entry_exit_comparison
+                VALUES(%s,TRUE,%s::jsonb)''',
+                ('small-no-entry-%03d'%i,json.dumps(no_entry)))
+        baseline = engine.report(self.c)
+        self.assertEqual(baseline['episodesSampled'],200)
+        self.assertEqual(baseline['variants'][engine.ARMS[0]]['no-entry'],200)
+        self.assertTrue(baseline['truncated'])
+        self.assertEqual(baseline['sourceScope'],'recent-200-preview-only')
+        complete_before=self.evaluate()
+        self.assertEqual(complete_before['episodes'],208)
+        self.assertEqual(cold.offload_batch(self.c,self.drive,
+            now_ms=2*86400000)['movedRows'],1)
+        self.assertEqual(engine.report(self.c),baseline)
+        self.assertEqual(self.evaluate(),complete_before)
+        self.drive.corrupt=True
+        # Drive outage prevents original-detail restore but not local
+        # results, including old cases absent from the bounded preview.
+        with self.assertRaises(cold.codec.ColdArchiveUnavailable):
+            cold.get(self.c,'old',drive=self.drive)
+        self.assertEqual(engine.report(self.c),baseline)
+        self.assertEqual(self.evaluate(),complete_before)
+        self.assertEqual(self.c.execute(
+            'SELECT count(*) FROM bob_entry_exit_comparison').fetchone()[0],208)
+
     def test_bad_download_does_not_change_original(self):
         self.drive.corrupt=True
         with self.assertRaises(cold.codec.ColdArchiveUnavailable):cold.offload_batch(self.c,self.drive,now_ms=2*86400000)
