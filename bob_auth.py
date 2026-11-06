@@ -31,7 +31,7 @@ PASSWORD_FAILURE_LIMIT = 5
 PASSWORD_FAILURE_WINDOW = 5 * 60
 
 # UI-only return destinations; NEVER arbitrary paths or redirects.
-SAFE_RETURN_VIEWS = frozenset(("overview", "products", "products-long", "products-leverage", "trade", "simulation", "learning", "research", "problems", "zentrale"))
+SAFE_RETURN_VIEWS = frozenset(("overview", "products", "products-long", "products-leverage", "trade", "simulation", "learning", "research", "problems", "zentrale", "archive-connect"))
 
 def safe_return_view(value):
     return value if isinstance(value, str) and value in SAFE_RETURN_VIEWS else ""
@@ -62,6 +62,8 @@ def login_destination(headers, requested_view="", handset_batch=""):
     if destination != "/":
         return destination
     batch = safe_handset_batch(handset_batch)
+    if view == "archive-connect":
+        return "/archive/connect"
     if batch:
         return "/?view=products&handset-list=" + batch + "#bob-morning-images=" + batch
     if view == "zentrale":
