@@ -236,3 +236,102 @@ class Database(unittest.TestCase):
                 s.tick(conn,b,m,{}, {},NOW+30000)
                 self.assertEqual(conn.execute('SELECT count(*) FROM bob_intraday_timing_cases').fetchone()[0],before)
                 self.assertFalse(s.report(conn)['strategyWinnerConfirmed'])
+
+class ReversalTests(unittest.TestCase):
+    def opened(self):
+        b,m=sample()
+        with patch.object(s,'frame_signal',side_effect=forced):
+            return s.advance(s.seed(NOW),b,m,{}, {},NOW)[0]
+
+    def test_main_reversal_exits_all_horizons_before_deadline(self):
+        state=self.opened();b,m=sample(NOW+60000)
+        m.update(ready=True,priceFresh=True,direction='SHORT',analysisBarAt=NOW-240000)
+        with patch.object(s,'frame_signal',side_effect=forced):
+            out,closed=s.advance(state,b,m,{}, {},NOW+60000)
+        self.assertEqual(len(closed),48)
+        self.assertTrue(all(p['exitReason']=='trend-reversal' and p['exitSourceAt']==NOW+60000 for p in closed))
+        self.assertTrue(all(a['reversalExits']==1 and a['position'] is None for a in out['arms'].values()))
+        self.assertTrue(all(p['reversalEvidence']['kind']=='confirmed-main-opposite' for p in closed))
+
+    def test_local_two_closed_bars_exit_without_hour_or_entry_gate(self):
+        p=dict(direction='LONG',entryObservedAt=NOW)
+        at=NOW+600000;price=dict(at=at,estimated=False)
+        current=dict(available=True,closedAt=at,ema='SHORT',macd='SHORT')
+        previous={**current,'closedAt':at-300000}
+        with patch.object(s,'frame_signal',side_effect=[current,previous]):
+            evidence=s.reversal_evidence([{}],5,at,p,{},price)
+        self.assertEqual(evidence['kind'],'two-closed-local-bars')
+        for old in ({**previous,'ema':'LONG'}, {**previous,'closedAt':NOW}, {**previous,'closedAt':at-600000}):
+            with patch.object(s,'frame_signal',side_effect=[current,old]):
+                self.assertIsNone(s.reversal_evidence([{}],5,at,p,{},price))
+        self.assertIsNone(s.reversal_evidence([],5,at,p,{},price))
+
+    def test_short_exits_on_confirmed_long(self):
+        price=dict(at=NOW+60000,estimated=False)
+        market=dict(ready=True,priceFresh=True,direction='LONG',dataAt=price['at'],analysisBarAt=NOW-240000)
+        evidence=s.reversal_evidence([],7,price['at'],dict(direction='SHORT',entryObservedAt=NOW),market,price)
+        self.assertEqual(evidence['direction'],'LONG')
+
+    def test_future_stale_main_warning_and_neutral_do_not_reverse(self):
+        p=dict(direction='LONG',entryObservedAt=NOW)
+        good=dict(ready=True,priceFresh=True,direction='SHORT',dataAt=NOW+60000,analysisBarAt=NOW-240000)
+        price=dict(at=NOW+60000,estimated=False)
+        for m in ({**good,'priceFresh':False},{**good,'direction':'NEUTRAL'},
+                  {**good,'analysisBarAt':NOW+60000},{**good,'dataAt':NOW},
+                  {'earlyWarning':{'direction':'SHORT','state':'active'}}):
+            self.assertIsNone(s.reversal_evidence([],5,NOW+60000,p,m,price))
+
+    def test_reentry_requires_new_quote_and_independent_opposite_entry(self):
+        state=self.opened();b,m=sample(NOW+60000,trend='SHORT')
+        m.update(ready=True,priceFresh=True,direction='SHORT',analysisBarAt=NOW-240000)
+        def short(rows,minutes,now,pullback=False):
+            return {**forced(rows,minutes,now,pullback),'direction':'SHORT','ema':'SHORT','macd':'SHORT',
+                    'barAt':NOW-240000,'closedAt':NOW+60000,'level':4001.}
+        with patch.object(s,'frame_signal',side_effect=short):
+            state,closed=s.advance(state,b,m,{}, {},NOW+60000)
+            self.assertEqual(len(closed),48)
+            # A later evaluation of the same quote is not another fill.
+            state,again=s.advance(state,b,m,{}, {},NOW+61000)
+            self.assertTrue(all(a['position'] is None for a in state['arms'].values()))
+            b,m=sample(NOW+90000,trend='SHORT')
+            state,again=s.advance(state,b,m,{}, {},NOW+90000)
+        self.assertFalse(again)
+        self.assertTrue(all(a['position']['direction']=='SHORT' for a in state['arms'].values()))
+        self.assertTrue(all(a['reversalEntries']==1 and a['position']['followsReversalCaseId'] for a in state['arms'].values()))
+
+    def test_stop_precedes_reversal_and_estimated_reversal_stays_labelled(self):
+        state=self.opened();b,m=sample(NOW+30000,3997.)
+        with patch.object(s,'reversal_evidence',return_value=dict(direction='SHORT',estimated=True)):
+            out,closed=s.advance(state,b,m,{}, {},NOW+30000)
+        self.assertTrue(all(p['exitReason']=='stop' for p in closed))
+        self.assertTrue(all(a['reversalExits']==0 for a in out['arms'].values()))
+        state=self.opened();b,m=sample(NOW+30000)
+        with patch.object(s,'reversal_evidence',return_value=dict(direction='SHORT',estimated=True)):
+            out,closed=s.advance(state,b,m,{}, {},NOW+30000)
+        self.assertTrue(all(p['estimatedUsed'] for p in closed))
+        self.assertTrue(all(a['estimatedClosed']==1 for a in out['arms'].values()))
+
+
+@unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'test PostgreSQL unavailable')
+class ReversalMigration(unittest.TestCase):
+    def test_legacy_preserved_and_no_same_quote_new_campaign_entry(self):
+        import psycopg
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            with conn.transaction(force_rollback=True):
+                conn.execute('CREATE SCHEMA timing_reversal_test')
+                conn.execute('SET LOCAL search_path TO timing_reversal_test')
+                s.init(conn)
+                state=ReversalTests().opened();state['version']=s.LEGACY_VERSION
+                conn.execute('INSERT INTO bob_intraday_timing_state VALUES(%s,%s::jsonb)',(s.LEGACY_VERSION,json.dumps(state)))
+                b,m=sample(NOW+60000)
+                m.update(ready=True,priceFresh=True,direction='SHORT',analysisBarAt=NOW-240000)
+                with patch.object(s,'frame_signal',side_effect=forced):
+                    s.tick(conn,b,m,{}, {},NOW+60000)
+                old=conn.execute('SELECT payload FROM bob_intraday_timing_state WHERE id=%s',(s.LEGACY_VERSION,)).fetchone()[0]
+                new=conn.execute('SELECT payload FROM bob_intraday_timing_state WHERE id=%s',(s.VERSION,)).fetchone()[0]
+                self.assertEqual(old['status'],'superseded')
+                self.assertEqual(new['entryAfterSourceAt'],NOW+60000)
+                self.assertTrue(all(a['started']==0 for a in new['arms'].values()))
+                cases=conn.execute('SELECT campaign,payload FROM bob_intraday_timing_cases').fetchall()
+                self.assertEqual(len(cases),48)
+                self.assertTrue(all(k==s.LEGACY_VERSION and p['exitPolicyChangedAt']==NOW+60000 for k,p in cases))

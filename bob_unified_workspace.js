@@ -222,7 +222,7 @@ function testOverviewLines(value){
  if(value?.version!==1)return ['Testübersicht: Nachweise nicht verfügbar.'];
  const clock=v=>{if(!v)return 'unbekannt';const d=new Date(typeof v==='number'?(v>100000000000?v:v*1000):v);return Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';};
  const n=v=>Number.isInteger(v)&&v>=0?String(v):'unbekannt';
- const states={collecting:'neue Testphase sammelt',draining:'offene Fälle abschließen','completed-review-required':'Erfassung beendet · Auswertung nötig',retired:'alte Testphase beendet',completed:'Erfassung beendet',checked:'aktuell geprüft','waiting-for-signal':'aktuell geprüft · wartet auf bestätigte Richtung','input-blocked':'aktuell geprüft · Originaldaten nicht bestätigt','night-paused':'planmäßige Nacht-/Wochenendpause',observed:'Stichprobe vorhanden','no-records':'keine Aufzeichnungen',unavailable:'nicht bestätigt'};
+ const states={'legacy-positions-draining':'vorherige Positionen werden mit Trendumkehr-Schutz abgeschlossen',collecting:'neue Testphase sammelt',draining:'offene Fälle abschließen','completed-review-required':'Erfassung beendet · Auswertung nötig',retired:'alte Testphase beendet',completed:'Erfassung beendet',checked:'aktuell geprüft','waiting-for-signal':'aktuell geprüft · wartet auf bestätigte Richtung','input-blocked':'aktuell geprüft · Originaldaten nicht bestätigt','night-paused':'planmäßige Nacht-/Wochenendpause',observed:'Stichprobe vorhanden','no-records':'keine Aufzeichnungen',unavailable:'nicht bestätigt'};
  const lines=['Tests und Vergleichstests',value.note];
  const campaign=value.qualityCampaign;
  if(campaign?.version){
@@ -244,14 +244,16 @@ function testOverviewLines(value){
  const timing=value.intradayTimingStudy;
  if(timing?.version){
   const pct=v=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(3)+' %':'noch unbekannt';
-  lines.push('Intraday-Vergleich · 3 / 5 / 7 Minuten · Haltedauer 30 / 180 / 300 Minuten');
+  lines.push('Intraday-Vergleich · 3 / 5 / 7 Minuten · maximale Haltedauer 30 / 180 / 300 Minuten');
+  if(timing.legacyOpenPositions)lines.push('Vorherige Testphase: '+n(timing.legacyOpenPositions)+' Positionen noch offen; neue Testphase startet nach deren Abschluss.');
+  if(timing.exitPolicy)lines.push('Bestätigte Trendumkehr: vorher aussteigen. Gegenrichtung nur nach neuem gültigem Einstieg mit neuer Kursbeobachtung.');
   lines.push((timing.observationFresh?'Zuletzt aktuell geprüft':'Aktueller Lauf nicht bestätigt')+' · '+clock(timing.checkedAt)+' · '+(states[timing.status]||timing.status));
   for(const mode of ['original','modeled']){
    const arms=(timing.variants||[]).filter(a=>a.mode===mode);
    lines.push(mode==='original'?'Vergleich mit Originaldaten':'Getrennter Modelllauf · bis zu zwei fehlende Minuten errechnet');
    for(const name of [...new Set(arms.map(a=>a.variant))]){
     const group=arms.filter(a=>a.variant===name);
-    lines.push(group[0].label+': '+group.map(a=>a.horizonMinutes+' min: '+n(a.closed)+' abgeschlossen / '+n(a.inconclusive)+' ungeklärt, '+pct(a.meanOriginalNetPct)+' Original, '+pct(a.meanEstimatedNetPct)+' geschätzt, '+n(a.falseStarts)+' Fehlstarts, Gegenbewegung '+pct(a.closed?a.maxAdversePct:null)).join(' · '));
+    lines.push(group[0].label+': '+group.map(a=>a.horizonMinutes+' min: '+n(a.closed)+' abgeschlossen / '+n(a.inconclusive)+' ungeklärt, '+pct(a.meanOriginalNetPct)+' Original, '+pct(a.meanEstimatedNetPct)+' geschätzt, '+n(a.falseStarts)+' Fehlstarts, '+n(a.reversalExits)+' Trendumkehr-Ausstiege / '+n(a.reversalEntries)+' Folgeeinstiege, Gegenbewegung '+pct(a.closed?a.maxAdversePct:null)).join(' · '));
    }
   }
   const t=timing.latency;
