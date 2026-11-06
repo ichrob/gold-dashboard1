@@ -7,6 +7,13 @@ import math
 import time
 
 TABLES = ('bob_diagnostic_history', 'bob_candle_evidence', 'bob_candle_checkpoints')
+TABLE_METRICS = ('estimatedLiveRows', 'estimatedDeadRows', 'lastAnalyzeAt',
+                 'lastAutoanalyzeAt', 'lastAutovacuumAt', 'changesSinceAnalyze',
+                 'insertsSinceVacuum', 'sequentialScans', 'indexScans',
+                 'vacuumCount', 'autovacuumCount')
+ACTIVITY_METRICS = ('sessions', 'active', 'waitingOnLock', 'idleInTransaction',
+                    'waitingOnIO', 'idleInTransactionAborted', 'visibilityUnknown',
+                    'oldestActiveSeconds', 'oldestTransactionSeconds')
 NODES = frozenset(('Aggregate', 'Limit', 'Seq Scan', 'Index Scan',
                   'Index Only Scan', 'Bitmap Heap Scan', 'Bitmap Index Scan',
                   'Gather', 'Gather Merge', 'Sort', 'Result', 'Subquery Scan'))
@@ -27,11 +34,10 @@ def project(data):
     for row in tables[:3]:
         if type(row) is dict and row.get('table') in TABLES:
             out['tables'].append({'table': row['table'], **{key: number(row.get(key))
-                for key in ('estimatedLiveRows', 'estimatedDeadRows', 'lastAnalyzeAt',
-                            'lastAutoanalyzeAt', 'lastAutovacuumAt')}})
+                for key in TABLE_METRICS}})
     activity = data.get('activity') if type(data.get('activity')) is dict else {}
     out['activity'] = {key: number(activity.get(key)) for key in
-                       ('sessions', 'active', 'waitingOnLock', 'idleInTransaction')}
+                       ACTIVITY_METRICS}
     plans = data.get('capCountPlan') if type(data.get('capCountPlan')) is list else []
     for node in plans[:12]:
         if type(node) is dict and node.get('node') in NODES:
@@ -51,14 +57,22 @@ def report(conn):
             conn.execute("SET LOCAL statement_timeout='750ms'")
             rows = conn.execute('''SELECT relname,n_live_tup,n_dead_tup,
                 extract(epoch FROM last_analyze),extract(epoch FROM last_autoanalyze),
-                extract(epoch FROM last_autovacuum)
+                extract(epoch FROM last_autovacuum),n_mod_since_analyze,
+                n_ins_since_vacuum,seq_scan,idx_scan,vacuum_count,autovacuum_count
                 FROM pg_stat_user_tables
                 WHERE schemaname=current_schema() AND relname=ANY(%s::text[])
                 ORDER BY relname LIMIT 3''', (list(TABLES),)).fetchall()
             activity = conn.execute('''SELECT count(*),
                 count(*) FILTER (WHERE state='active'),
                 count(*) FILTER (WHERE wait_event_type='Lock'),
-                count(*) FILTER (WHERE state='idle in transaction')
+                count(*) FILTER (WHERE state='idle in transaction'),
+                count(*) FILTER (WHERE wait_event_type='IO'),
+                count(*) FILTER (WHERE state='idle in transaction (aborted)'),
+                count(*) FILTER (WHERE state IS NULL),
+                max(GREATEST(0,extract(epoch FROM clock_timestamp()-query_start)))
+                    FILTER (WHERE state='active'),
+                max(GREATEST(0,extract(epoch FROM clock_timestamp()-xact_start)))
+                    FILTER (WHERE xact_start IS NOT NULL)
                 FROM pg_stat_activity WHERE datid=(
                     SELECT oid FROM pg_database WHERE datname=current_database())
                     AND pid<>pg_backend_pid()''').fetchone()
@@ -74,13 +88,14 @@ def report(conn):
                 nodes.append({'node': node.get('Node Type'),
                     'estimatedRows': node.get('Plan Rows'), 'estimatedCost': node.get('Total Cost')})
                 pending.extend(node.get('Plans', [])[:12])
+            # Cumulative counters are not rates or reclaimable-byte estimates.
+            # NULL ages mean no visible matching session; unknown state counts
+            # disclose restricted pg_stat_activity visibility.
             result.update(status='observed', observedAt=time.time(), tables=[{
-                'table': row[0], 'estimatedLiveRows': row[1], 'estimatedDeadRows': row[2],
-                **{key: float(value) if value is not None else None for key, value in zip(
-                    ('lastAnalyzeAt', 'lastAutoanalyzeAt', 'lastAutovacuumAt'), row[3:])}}
-                for row in rows], activity=dict(zip(
-                    ('sessions', 'active', 'waitingOnLock', 'idleInTransaction'), activity)),
-                capCountPlan=nodes)
+                'table': row[0], **{key: float(value) if value is not None else None
+                                   for key, value in zip(TABLE_METRICS, row[1:])}}
+                for row in rows], activity={key: float(value) if value is not None else None
+                    for key, value in zip(ACTIVITY_METRICS, activity)}, capCountPlan=nodes)
             conn.execute("SELECT set_config('statement_timeout',%s,true)", (previous,))
     except Exception:
         # Savepoint rollback restores the caller's timeout and transaction.

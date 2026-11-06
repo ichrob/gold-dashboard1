@@ -38,6 +38,25 @@ class DiagnosticTests(unittest.TestCase):
         self.assertNotIn('private_credentials', json.dumps(view))
         self.assertEqual(d.project({'tables': 3, 'capCountPlan': 'bad'})['tables'], [])
 
+    def test_extended_metrics_preserve_unknowns_and_reject_invalid_values(self):
+        raw = {'status': 'observed', 'tables': [{
+            'table': 'bob_diagnostic_history', 'changesSinceAnalyze': 42,
+            'indexScans': None, 'sequentialScans': -1,
+            'insertsSinceVacuum': float('inf')}], 'activity': {
+            'waitingOnIO': 2, 'visibilityUnknown': 1,
+            'oldestActiveSeconds': None, 'oldestTransactionSeconds': 12.5,
+            'idleInTransactionAborted': True, 'query': 'private'}}
+        view = storage_brief.project({'databaseDiagnostics': raw})['databaseDiagnostics']
+        self.assertEqual(view['tables'][0]['changesSinceAnalyze'], 42)
+        for key in ('indexScans', 'sequentialScans', 'insertsSinceVacuum'):
+            self.assertIsNone(view['tables'][0][key])
+        self.assertEqual(view['activity']['waitingOnIO'], 2)
+        self.assertEqual(view['activity']['visibilityUnknown'], 1)
+        self.assertEqual(view['activity']['oldestTransactionSeconds'], 12.5)
+        self.assertIsNone(view['activity']['oldestActiveSeconds'])
+        self.assertIsNone(view['activity']['idleInTransactionAborted'])
+        self.assertNotIn('private', json.dumps(view))
+
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'), 'PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
@@ -53,9 +72,22 @@ class DatabaseTests(unittest.TestCase):
             try:
                 conn.execute('SET TRANSACTION READ ONLY')
                 conn.execute("SET LOCAL statement_timeout='3s'")
-                result = d.report(conn)
+                # A separate backend holds a visible idle transaction; the
+                # probe itself is excluded from activity and age aggregates.
+                with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as other:
+                    other.execute('SELECT 1')
+                    result = d.report(conn)
+                    self.assertGreaterEqual(result['activity']['idleInTransaction'], 1)
+                    self.assertGreaterEqual(result['activity']['oldestTransactionSeconds'], 0)
+                    self.assertEqual(result['activity']['visibilityUnknown'], 0)
+
                 self.assertEqual(result['status'], 'observed')
                 self.assertTrue(result['capCountPlan'])
+                metrics = result['tables'][0]
+                for key in ('changesSinceAnalyze', 'insertsSinceVacuum',
+                            'sequentialScans', 'indexScans', 'vacuumCount', 'autovacuumCount'):
+                    self.assertIsNotNone(metrics[key])
+                    self.assertGreaterEqual(metrics[key], 0)
                 self.assertEqual(result['tables'][0]['table'], 'bob_diagnostic_history')
                 self.assertEqual(conn.execute('SHOW statement_timeout').fetchone()[0], '3s')
                 self.assertEqual(conn.execute('SHOW transaction_read_only').fetchone()[0], 'on')
