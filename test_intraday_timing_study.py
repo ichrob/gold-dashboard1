@@ -45,6 +45,15 @@ class Inputs(unittest.TestCase):
         self.assertEqual(signal['ema'],'LONG')
         self.assertEqual(signal['macd'],'LONG')
 
+    def test_short_pipeline_is_symmetric(self):
+        b,m=sample(price=3998.,trend='SHORT')
+        for r in b['history']['bars_by_tf']['1m']:
+            r.update(open=8000-r['open'],close=8000-r['close'],high=8000-r['low'],low=8000-r['high'])
+        state,closed=s.advance(s.seed(NOW),b,m,{}, {},NOW)
+        p=state['arms']['original:base5:30']['position']
+        self.assertEqual(p['direction'],'SHORT')
+        self.assertGreater(p['stop'],p['entryPrice']);self.assertLess(p['target'],p['entryPrice'])
+
     def test_no_future_leakage_or_input_mutation(self):
         b,m=sample();rows,_=s.minute_history(b,NOW);first=s.frame_signal(rows,5,NOW)
         b['history']['bars_by_tf']['1m'].append(dict(openTime=NOW,open=9999.,close=9999.,high=10000.,low=9998.,instrument='XAU/USD',isOpen=False))
@@ -186,6 +195,15 @@ class StateMachine(unittest.TestCase):
         s.latency(state,m,{}, {},NOW+16*60000)
         self.assertIsNone(state['latency']['confirmationObservedAt'])
         self.assertEqual(state['latency']['status'],'expired')
+
+    def test_withdrawn_warning_cannot_correlate_a_later_confirmation(self):
+        state=s.seed(NOW);b,m=sample()
+        m['earlyWarning']=dict(direction='LONG',signalBarAt=NOW-300000,state='active',expiresAt=NOW+600000)
+        s.latency(state,m,{}, {},NOW)
+        m['earlyWarning']['state']='withdrawn';m['direction']='LONG'
+        s.latency(state,m,{}, {},NOW+30000)
+        self.assertEqual(state['latency']['status'],'withdrawn')
+        self.assertIsNone(state['latency']['confirmationObservedAt'])
 
     def test_push_requires_matching_original_warning(self):
         a=dict(signalBarAt=NOW,direction='LONG')

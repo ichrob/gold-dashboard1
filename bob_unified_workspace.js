@@ -258,7 +258,7 @@ function testOverviewLines(value){
   if(t?.firstWarningObservedAt){
    lines.push('Letztes Szenario '+t.direction+': Frühwarnung erstmals beobachtet '+clock(t.firstWarningObservedAt)+' · Hauptbestätigung '+clock(t.confirmationObservedAt)+' · Produktkurs verfügbar '+clock(t.productObservedAt));
    lines.push('Grund der Hauptentscheidung: '+(t.blockingReason||'unbekannt')+' · Quellenalter '+(Number.isFinite(t.sourceAgeMs)?Math.round(t.sourceAgeMs/1000)+' s':'unbekannt'));
-   lines.push('Push vom Anbieter angenommen: '+clock(t.pushSentAt)+' · Browserbeleg: '+clock(t.pushBrowserReceiptAt)+' · '+(t.pushEvidence||'Zustellung unbekannt'));
+   lines.push('Push vom Anbieter angenommen: '+clock(t.pushSentAt)+' · Browserbeleg: '+clock(t.pushBrowserReceiptAt)+' · '+(t.pushEvidence||'Zustellung unbekannt')+(t.pushScanTruncated?' · Versandstichprobe begrenzt.':''));
   }
   lines.push(timing.note);
  }

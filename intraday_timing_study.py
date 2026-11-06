@@ -184,7 +184,7 @@ def latency(state, market, selection, quotes, now):
         if audit.get('key') != key:
             if audit:
                 state['recentLatency'] = (state['recentLatency']+[audit])[-12:]
-            audit = dict(key=key, direction=side, signalBarAt=at, firstWarningObservedAt=now,
+            audit = dict(key=key, direction=side, signalBarAt=at, firstWarningObservedAt=now, warningExpiresAt=w['expiresAt'],
                          confirmationObservedAt=None, productQuoteAt=None, productObservedAt=None,
                          pushSentAt=None, pushReceivedAt=None,
                          pushEvidence='Nur mit korreliertem Versand-/Empfangsbeleg; hier unbekannt.')
@@ -196,7 +196,12 @@ def latency(state, market, selection, quotes, now):
     audit['sourceAt'] = market.get('dataAt') if number(market.get('dataAt')) else None
     audit['sourceAgeMs'] = max(0,now-audit['sourceAt']) if audit['sourceAt'] is not None and audit['sourceAt']<=now else None
     # Correlation is limited to the warning's 15-minute episode, not a later signal.
-    if now-audit['firstWarningObservedAt'] > 15*MINUTE:
+    if w.get('state')=='withdrawn' and w.get('signalBarAt')==audit['signalBarAt']:
+        audit['status'] = 'withdrawn'
+        return
+    if audit.get('status')=='withdrawn':
+        return
+    if now>=audit.get('warningExpiresAt',0) or now-audit['firstWarningObservedAt'] > 15*MINUTE:
         audit['status'] = 'expired'
         return
     if market.get('direction') == audit['direction'] and audit['confirmationObservedAt'] is None:
@@ -205,7 +210,10 @@ def latency(state, market, selection, quotes, now):
     for choice in (selection or {}).get('choices',[]):
         if choice.get('direction') != audit['direction']:
             continue
-        q = fresh_quote(quotes.get(choice.get('isin')) or {},now,choice.get('isin'))
+        raw = quotes.get(choice.get('isin')) or {}
+        if raw.get('estimated') is True or raw.get('priceKind') in ('calculated','issuer-chart') or raw.get('paperFxConversion'):
+            continue
+        q = fresh_quote(raw,now,choice.get('isin'))
         if q and audit['productQuoteAt'] is None:
             audit.update(productQuoteAt=stamp(q.get('askAt')),productObservedAt=now,
                          isin=choice['isin'],productPriceKind=q.get('priceKind'))
@@ -224,7 +232,8 @@ def advance(old, bundle, market, selection, quotes, now):
     state['checkedAt'] = now; state['cycles'] += 1
     latency(state,market,selection,quotes,now)
     completed = []
-    trend = market.get('trendContext') or {}
+    trend = dict(market.get('trendContext') or {})
+    trend['direction'] = trend.get('hourDirection',trend.get('direction'))
     frames = ((bundle.get('history') or {}).get('bars_by_tf') or {})
     hour = [b for b in frames.get('1h',[]) if isinstance(b,dict) and b.get('instrument')=='XAU/USD'
             and number(b.get('openTime')) and b.get('isOpen') is False
