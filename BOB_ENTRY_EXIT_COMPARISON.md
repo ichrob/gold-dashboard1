@@ -123,3 +123,28 @@ Kerzen bleiben Pflicht. Ein einzelner überschreibbarer Statusdatensatz belegt
 den letzten erfolgreichen Worker-Prüftakt samt Originalprüfung und Wartegrund,
 auch ohne Episode. Er ist im geprüften Backupumfang enthalten. Kein historischer
 Ticknachweis und kein Beleg für einen Produkteinstieg.
+
+## Vollständige Kurzstatistik aller lokal gespeicherten Fälle
+
+Die ältere `paper_entry_exit_comparison.report`-Übersicht darf keine
+200-Fälle-Grenze als Gesamt-Evaluation ausgeben. Ihr SQL zählt nun **alle**
+gespeicherten Episoden und gruppiert alle 18 Varianten nur nach Status und
+modelliertem Nettoergebnis. Die umfangreichen Original-Quotes,
+Triggerkerzen, KO-/Stop-Belege bleiben in PostgreSQL beziehungsweise
+gegebenenfalls hinter geprüften Cold-Referenzen; die Kurzstatistik lädt sie
+nicht in den Arbeitsspeicher. Die eigenständige, gruppen- und paarbezogene
+`paper_comparison_report.report`-Auswertung behält ihren bestehenden
+vollständigen Streaming-Reader. Eine zeitlich begrenzte oder fehlerhafte
+Datenbankabfrage darf nicht stillschweigend auf 200 jüngste Fälle
+zurückfallen.
+
+`episodesSampled` umfasst jetzt alle lokal gespeicherten Zeilen;
+`truncated=false` bedeutet nur, dass die Kurzstatistik keine Anzeigegrenze
+mehr besitzt, **nicht**, dass alle historischen Originale unabhängig
+restauriert wurden. `sourceScope=all-retained-sql-episodes` trennt das
+vom vollständigen Archiv-Replay. Fehlt bei einem geschlossenen Fall ein
+numerisches `modelNetEur`, werden `closedModelNetUnknown` und die
+unvollständige Fallabdeckung sichtbar, ohne daraus 0 Euro oder
+Brokergewinne zu erfinden. Gemischte lokale und archivierte Episoden
+behalten ihre kleinen Ergebnisfelder lokal.
+
