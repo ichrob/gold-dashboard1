@@ -6,6 +6,7 @@ import math
 import os
 import threading
 import time
+import source_availability
 from urllib.request import Request, build_opener
 from bob_auth import NoRedirect
 
@@ -84,6 +85,9 @@ def transition(old,state,now,source_at=None):
     row=copy.deepcopy(old) if old else dict(incidents=0,badSeconds=0,unknownSeconds=0,
         longestObservedSeconds=0,currentObservedSeconds=0,events=[],since=now)
     previous=row.get('state','unknown')
+    if old and now <= old.get('checkedAt', now):
+        return row
+    source_availability.record(row, previous, row.get('checkedAt', now), now)
     delta=max(0,now-row.get('checkedAt',now))
     if delta>90:
         row['unknownSeconds']+=delta
@@ -129,7 +133,7 @@ def handle(conn,action,payload):
     key=payload.get('key')
     if key=='statistics':
         data=payload.get('statistics')
-        if not isinstance(data,dict) or len(json.dumps(data))>60000:raise ValueError('Invalid statistics')
+        if not isinstance(data,dict) or len(json.dumps(data))>300000:raise ValueError('Invalid statistics')
         owner=payload.get('ownerStartedAt')
         if type(owner) not in (int,float) or not math.isfinite(owner) or not 0<owner<=time.time()+5:
             raise ValueError('Invalid monitor identity')
@@ -296,7 +300,11 @@ def snapshot():
     with _LOCK:
         if _STORAGE.get('lastSavedAt') and time.time()-_STORAGE['lastSavedAt']>120:
             _STORAGE['state']='stale'
-        return {'status':'observed','storage':dict(_STORAGE),'sources':copy.deepcopy(_STATS),
+        sources=copy.deepcopy(_STATS)
+        for row in sources.values():
+            row['availabilityWindows']=source_availability.windows(row,time.time())
+            row.pop('availabilityHours',None)
+        return {'status':'observed','storage':dict(_STORAGE),'sources':sources,
         'note':'Beobachtete Ausfallzeiten seit Messbeginn; Überwachungslücken werden separat gezählt. Keine Handelsfreigabe.'}
 
 
