@@ -178,12 +178,12 @@ class DatabaseTests(unittest.TestCase):
                 conn.commit()
 
 
-    def test_full_summary_retains_all_205_episodes_and_unknown_profit(self):
+    def test_fast_preview_stays_bounded_and_unpriced_closed_is_unknown(self):
         import json
         import uuid
         import psycopg
         from psycopg import sql
-        schema='entry_exit_full_'+uuid.uuid4().hex
+        schema='entry_exit_preview_'+uuid.uuid4().hex
         with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
             conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
             conn.commit()
@@ -203,29 +203,27 @@ class DatabaseTests(unittest.TestCase):
                     conn.execute('''INSERT INTO bob_entry_exit_comparison
                         VALUES(%s,TRUE,%s::jsonb)''',
                         ('episode-%03d'%i,json.dumps(state)))
-                report=study.report(conn)
-                self.assertEqual(report['episodesSampled'],205)
-                self.assertFalse(report['truncated'])
-                self.assertEqual(report['sourceScope'],'all-retained-sql-episodes')
-                self.assertEqual(report['variants'][arm]['closed'],2)
-                self.assertEqual(report['variants'][arm]['no-entry'],203)
-                self.assertEqual(report['variants'][arm]['modelNetEur'],20.)
-                self.assertEqual(report['variants'][arm]['expectancyEur'],10.)
-                self.assertEqual(report['variants'][arm]['closedModelNetUnknown'],0)
-                self.assertTrue(report['evaluationCompleteForStoredRows'])
-                self.assertEqual(report['variants'][study.ARMS[1]]['no-entry'],205)
-                # Model return missing from a closed arm must be unknown,
-                # not counted as a zero or hidden by the 200-case display cap.
+                preview=study.report(conn)
+                self.assertEqual(preview['episodesSampled'],200)
+                self.assertTrue(preview['truncated'])
+                self.assertEqual(preview['sourceScope'],'recent-200-preview-only')
+                self.assertEqual(preview['fullEvaluationReader'],'paper_comparison_report')
+                # The oldest episode is intentionally outside this fast preview.
+                self.assertEqual(preview['variants'][arm]['closed'],1)
+                self.assertEqual(preview['variants'][arm]['no-entry'],199)
+                self.assertEqual(preview['variants'][arm]['modelNetEur'],-5.)
+                self.assertEqual(preview['variants'][arm]['expectancyEur'],-5.)
+                self.assertEqual(preview['variants'][arm]['closedModelNetUnknown'],0)
+                # The separate existing full-stream evaluation has no 200 cap.
+                import paper_comparison_report as whole
+                self.assertEqual(whole.report(conn)['episodes'],205)
                 conn.execute('''UPDATE bob_entry_exit_comparison
                     SET payload=jsonb_set(payload,%s::text[],'null'::jsonb)
-                    WHERE id=%s''',(['arms',arm,'modelNetEur'],'episode-000'))
+                    WHERE id=%s''',(['arms',arm,'modelNetEur'],'episode-204'))
                 missing=study.report(conn)
-                self.assertEqual(missing['episodesSampled'],205)
                 self.assertEqual(missing['variants'][arm]['closedModelNetUnknown'],1)
                 self.assertIsNone(missing['variants'][arm]['modelNetEur'])
                 self.assertIsNone(missing['variants'][arm]['expectancyEur'])
-                self.assertFalse(missing['evaluationCompleteForStoredRows'])
-                # Neither original evidence nor terminal/open status is rewritten.
                 self.assertEqual(conn.execute(
                     'SELECT count(*) FROM bob_entry_exit_comparison').fetchone()[0],205)
             finally:
