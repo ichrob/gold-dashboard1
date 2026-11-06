@@ -228,6 +228,15 @@ def expected_trial_slots(now,validation_at):
     return n
 
 
+def archived_observation(conn,payload):
+    """Resolve one archived input without turning a temporary archive outage into a report outage."""
+    import cold_observations
+    try:
+        return cold_observations.resolve(conn,payload),True
+    except cold_observations.codec.ColdArchiveUnavailable:
+        return None,False
+
+
 def report(conn,now=None,include_history=True):
     now=int(time.time()*1000) if now is None else now
     protocol=conn.execute('SELECT payload FROM bob_improvement_protocol WHERE id=%s',(VERSION,)).fetchone()
@@ -240,7 +249,7 @@ def report(conn,now=None,include_history=True):
         AND updated_at>=to_timestamp(%s/1000.0) ORDER BY updated_at''',(START,)).fetchall()
     state=conn.execute('SELECT validation_at FROM bob_improvement_state WHERE campaign=%s',(VERSION,)).fetchone()
     validation_at=state[0] if state else None
-    evidence={}
+    evidence={};archive_evidence_unavailable=0
     for (snapshot,) in snapshots:
         bounds=trade_learning_review.window(snapshot)
         if not bounds or bounds[2] or bounds[0].timestamp()*1000<START:continue
@@ -248,8 +257,14 @@ def report(conn,now=None,include_history=True):
         before=conn.execute('''SELECT payload FROM bob_improvement_observations WHERE campaign=%s
           AND slot BETWEEN %s AND %s AND (payload->>'at')::bigint<=%s ORDER BY slot DESC LIMIT 1''',
           (VERSION,bought-90000,bought,bought)).fetchone()
-        if before:evidence[snapshot.get('tradeId')]=__import__('cold_observations').resolve(conn,before[0])
-    result=summarize(*stats,rows,real_results([s[0] for s in snapshots],evidence,validation_at),now,validation_at)
+        if before:
+            archived,available=archived_observation(conn,before[0])
+            if available:evidence[snapshot.get('tradeId')]=archived
+            else:archive_evidence_unavailable+=1
+    real=real_results([s[0] for s in snapshots],evidence,validation_at)
+    real['pairedEvidenceUnavailable']=archive_evidence_unavailable
+    real['pairedEvidenceComplete']=archive_evidence_unavailable==0
+    result=summarize(*stats,rows,real,now,validation_at)
     import improvement_operations
     improvement_operations.attach(conn,result,rows,[s[0] for s in snapshots],now,START)
     if include_history:
