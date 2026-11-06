@@ -177,4 +177,61 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
                 conn.commit()
 
+
+    def test_full_summary_retains_all_205_episodes_and_unknown_profit(self):
+        import json
+        import uuid
+        import psycopg
+        from psycopg import sql
+        schema='entry_exit_full_'+uuid.uuid4().hex
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            conn.commit()
+            try:
+                conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                study.init(conn)
+                arm=study.ARMS[0]
+                for i in range(205):
+                    state=study.seed({'ruleVersion':'synthetic-v1'},
+                        {'analysisBarAt':i+1,'sourceAt':i+1},i+1,'LONG')
+                    state['complete']=True
+                    for a in state['arms'].values():
+                        a.update(status='no-entry',reason='no-verified-entry')
+                    if i in (0,204):
+                        state['arms'][arm].update(status='closed',
+                            modelNetEur=25. if i==0 else -5.)
+                    conn.execute('''INSERT INTO bob_entry_exit_comparison
+                        VALUES(%s,TRUE,%s::jsonb)''',
+                        ('episode-%03d'%i,json.dumps(state)))
+                report=study.report(conn)
+                self.assertEqual(report['episodesSampled'],205)
+                self.assertFalse(report['truncated'])
+                self.assertEqual(report['sourceScope'],'all-retained-sql-episodes')
+                self.assertEqual(report['variants'][arm]['closed'],2)
+                self.assertEqual(report['variants'][arm]['no-entry'],203)
+                self.assertEqual(report['variants'][arm]['modelNetEur'],20.)
+                self.assertEqual(report['variants'][arm]['expectancyEur'],10.)
+                self.assertEqual(report['variants'][arm]['closedModelNetUnknown'],0)
+                self.assertTrue(report['evaluationCompleteForStoredRows'])
+                self.assertEqual(report['variants'][study.ARMS[1]]['no-entry'],205)
+                # Model return missing from a closed arm must be unknown,
+                # not counted as a zero or hidden by the 200-case display cap.
+                conn.execute('''UPDATE bob_entry_exit_comparison
+                    SET payload=jsonb_set(payload,%s::text[],'null'::jsonb)
+                    WHERE id=%s''',(['arms',arm,'modelNetEur'],'episode-000'))
+                missing=study.report(conn)
+                self.assertEqual(missing['episodesSampled'],205)
+                self.assertEqual(missing['variants'][arm]['closedModelNetUnknown'],1)
+                self.assertIsNone(missing['variants'][arm]['modelNetEur'])
+                self.assertIsNone(missing['variants'][arm]['expectancyEur'])
+                self.assertFalse(missing['evaluationCompleteForStoredRows'])
+                # Neither original evidence nor terminal/open status is rewritten.
+                self.assertEqual(conn.execute(
+                    'SELECT count(*) FROM bob_entry_exit_comparison').fetchone()[0],205)
+            finally:
+                conn.rollback()
+                conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+                conn.commit()
+
+
 if __name__=='__main__':unittest.main()
