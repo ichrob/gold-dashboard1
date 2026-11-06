@@ -22,7 +22,7 @@ for(const no of [{}, {leverageObservation:{value:7.3,current:false}},
  {leverageObservation:{value:NaN,current:true}}]) {
  assert(context.leverageLabel(no,'ok').includes('kein aktueller Analyse-Hebel'));
 }
-assert(panel.includes("'\\nAnalyse-Hebel: '+leverageObservationLabel(item)"));
+assert(panel.includes("'\\nAnalyse-Hebel: '+leverageObservationLabel(item,r.status)"));
 assert(panel.includes("'\\nHinweis: DEGIRO-Hebel aus dieser Lesung nicht belegt."));
 assert(!shown.includes('ausführbarer'));
 console.log('Handy partial leverage vs issuer research observation clearly separated.');
