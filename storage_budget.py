@@ -26,6 +26,9 @@ def init(conn):
     conn.execute("ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS relation_bytes JSONB NOT NULL DEFAULT '{}'::jsonb")
     # Only ten fixed per-table counter tuples per half-hour slot, never raw data.
     conn.execute("ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS writer_stats JSONB NOT NULL DEFAULT '{}'::jsonb")
+    # One fixed, redacted comparison measurement.  This permits a later exact
+    # 08:00/22:00 heap/index/TOAST and logical-byte pair without raw evidence.
+    conn.execute("ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS entry_exit_metrics JSONB NOT NULL DEFAULT '{}'::jsonb")
     # Tiny derived daily snapshots for five areas; no evidence or source deletion.
     __import__('storage_knowledge').init(conn)
     __import__('storage_case_results').init(conn)
@@ -54,10 +57,19 @@ def maybe_observe(conn,now=None):
             relation_bytes={name:value for name,value in relations
                 if isinstance(name,str) and isinstance(value,int) and value>=0}
             counters=__import__('storage_forensics').snapshot_counters(conn)
-            conn.execute('''INSERT INTO bob_storage_samples(slot,database_bytes,relation_bytes,writer_stats)
-                VALUES(%s,%s,%s::jsonb,%s::jsonb) ON CONFLICT DO NOTHING''',
+            try:
+                # Nested transaction/savepoint keeps an optional aggregate
+                # timeout from aborting the core capacity observation.
+                with conn.transaction():
+                    entry_exit=__import__('entry_exit_storage').sample(conn)
+            except Exception:
+                # Never lose the core capacity sample when the optional fixed
+                # comparison aggregate is temporarily unavailable.
+                entry_exit={}
+            conn.execute('''INSERT INTO bob_storage_samples(slot,database_bytes,relation_bytes,writer_stats,entry_exit_metrics)
+                VALUES(%s,%s,%s::jsonb,%s::jsonb,%s::jsonb) ON CONFLICT DO NOTHING''',
                 (int(now//1800)*1800,size,json.dumps(relation_bytes,sort_keys=True),
-                 json.dumps(counters,sort_keys=True)))
+                 json.dumps(counters,sort_keys=True),json.dumps(entry_exit,sort_keys=True)))
             # Only capacity telemetry expires. Never delete test/market evidence.
             conn.execute('DELETE FROM bob_storage_samples WHERE slot<%s',(int(now)-90*86400,))
         # Separate bounded savepoints: failed/slow summaries never undo telemetry,
@@ -142,7 +154,8 @@ def report(conn,now=None):
         n_live_tup,n_dead_tup,last_autovacuum
         FROM pg_stat_user_tables WHERE schemaname=current_schema()
         ORDER BY pg_total_relation_size(relid) DESC LIMIT 12''').fetchall()
-    samples=conn.execute('''SELECT slot,database_bytes,relation_bytes,writer_stats
+    samples=conn.execute('''SELECT slot,database_bytes,relation_bytes,writer_stats,
+        entry_exit_metrics,sampled_at
         FROM bob_storage_samples ORDER BY slot DESC LIMIT 336''').fetchall()
     growth=None;days=None
     if len(samples)>1:
@@ -195,6 +208,7 @@ def report(conn,now=None):
         featureAllocation=__import__('feature_storage').report(samples, now),
         storageForensics=__import__('storage_forensics').report(conn,samples),
         fixedSlotDaily=__import__('storage_daily_compact').report(samples),
+        entryExitStorage=__import__('entry_exit_storage').report(conn,samples,now),
         androidImageDuplication=__import__('android_image_storage_audit').report(conn),
         androidImageAgeReview=__import__('android_image_age_review').report(conn),
         androidImageReferenceShadow=__import__('android_image_reference_shadow').report(conn),

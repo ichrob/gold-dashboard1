@@ -136,7 +136,8 @@ def advance(state,bundle,market,selection,warning_market,warning_selection,quote
                 units=units,stop=plan['stop'],target=plan['target'],entryKoEvidence=ko,
                 lastSourceAt=quality['sourceAt'],lastBidAt=stamp(q['bidAt']),
                 observedPeakPnlEur=0.,observedTroughPnlEur=0.,
-                entryQuote=copy.deepcopy(q),reason='observed-issuer-model-fill')
+                entryQuote=copy.deepcopy(q),stopHistory=[],
+                reason='observed-issuer-model-fill')
             # Never execute an exit on the same observation as entry.
             continue
         if a['status'] not in ('open','exit-pending'):continue
@@ -147,7 +148,11 @@ def advance(state,bundle,market,selection,warning_market,warning_selection,quote
         bid_at=stamp((q or {}).get('bidAt'))
         terminal=paper_ko_guard.terminal(raw,a['choice']['isin'])
         if terminal or (guard and guard['crossed']):
-            a.update(status='inconclusive',reason='ko-or-settlement-unpriced',modelNetEur=None);continue
+            exit_ko=(copy.deepcopy(guard) if guard else dict(
+                isin=a['choice']['isin'],terminal=terminal,observedAt=now,
+                terminalEvidence=copy.deepcopy(raw.get('terminalEvidence'))))
+            a.update(status='inconclusive',reason='ko-or-settlement-unpriced',
+                     modelNetEur=None,exitKoEvidence=exit_ko);continue
         good=(quality['verified'] and q and guard and blocker is None
               and shared.number(bid_at) and bid_at>=a['entryAt'])
         if (now-a['lastSourceAt']>GAP or now-a['lastBidAt']>GAP or
@@ -170,6 +175,7 @@ def advance(state,bundle,market,selection,warning_market,warning_selection,quote
         if a['status']=='exit-pending' and now>=a['exitDueAt'] and bid_at>=a['exitDueAt']:
             a.update(status='closed',exitAt=now,exitQuoteAt=bid_at,exitSourceAt=quality['sourceAt'],
                 exitBid=q['bid'],modelNetEur=pnl,exitQuote=copy.deepcopy(q),
+                exitKoEvidence=copy.deepcopy(guard),
                 retainedPeakFraction=pnl/a['observedPeakPnlEur'] if a['observedPeakPnlEur']>0 else None)
         elif a['status']=='open' and exit_mode=='trailing':
             # Confirm middle-bar swing using the later closed bar. Test old stop first.

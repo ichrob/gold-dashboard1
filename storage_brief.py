@@ -535,4 +535,71 @@ def project(storage):
         "scope": "exact-18-UTC-saved-slot-comparison-not-physical-volume",
     }
 
+    # Exact scalar comparison footprint.  Historical component deltas stay
+    # null until both fixed endpoint samples contain the dedicated measurement.
+    entry = storage.get("entryExitStorage")
+    entry = entry if type(entry) is dict and entry.get("readOnly") is True else {}
+    if entry.get("status") != "observed":
+        result["entryExitStorage"] = {
+            "status": "not-observed", "readOnly": True,
+            "physicalBytesFreed": None}
+        return result
+    window_states = frozenset(("observed", "missing-both-endpoints",
+        "missing-baseline", "missing-endpoint", "relation-missing-at-endpoint"))
+    component_states = frozenset(("observed", "needs-fixed-endpoint-measurement"))
+    def footprint_window(value):
+        value = value if type(value) is dict else {}
+        parts = value.get("components")
+        parts = parts if type(parts) is dict else {}
+        deltas = parts.get("deltas") if type(parts.get("deltas")) is dict else {}
+        fixed_keys = ("totalBytes", "heapBytes", "indexBytes", "toastBytes",
+                      "otherBytes", "episodes", "completeEpisodes", "openEpisodes",
+                      "archivedEpisodes", "logicalPayloadBytes",
+                      "completeLogicalPayloadBytes", "openLogicalPayloadBytes")
+        return {
+            "status": _choice(value.get("status"), window_states, "missing-both-endpoints"),
+            "exact": value.get("exact") is True,
+            "zurichDate": value.get("zurichDate") if type(value.get("zurichDate")) is str
+                and len(value["zurichDate"]) == 10 else None,
+            "startSlot": _number(value.get("startSlot"), integer=True, maximum=10**11),
+            "endSlot": _number(value.get("endSlot"), integer=True, maximum=10**11),
+            "relationBytesBefore": _number(value.get("relationBytesBefore"), integer=True),
+            "relationBytesAfter": _number(value.get("relationBytesAfter"), integer=True),
+            "relationBytesDelta": signed(value.get("relationBytesDelta")),
+            "databaseBytesBefore": _number(value.get("databaseBytesBefore"), integer=True),
+            "databaseBytesAfter": _number(value.get("databaseBytesAfter"), integer=True),
+            "databaseBytesDelta": signed(value.get("databaseBytesDelta")),
+            "componentStatus": _choice(parts.get("status"), component_states,
+                                       "needs-fixed-endpoint-measurement"),
+            "componentDeltas": ({key:signed(deltas.get(key)) for key in fixed_keys}
+                if parts.get("status") == "observed" else None),
+        }
+    current = entry.get("current")
+    current = current if type(current) is dict else {}
+    arm_statuses = entry.get("armStatuses")
+    arm_statuses = arm_statuses if type(arm_statuses) is dict else {}
+    current_keys = ("totalBytes", "heapBytes", "indexBytes", "toastBytes",
+                    "otherBytes", "episodes", "completeEpisodes", "openEpisodes",
+                    "archivedEpisodes", "logicalPayloadBytes",
+                    "completeLogicalPayloadBytes", "openLogicalPayloadBytes")
+    first_window = footprint_window(entry.get("firstCompletedTradeDay"))
+    latest_window = footprint_window(entry.get("latestCompletedTradeDay"))
+    result["entryExitStorage"] = {
+        "status": "observed",
+        "tradeWindow": "08:00-22:00 Europe/Zurich",
+        "firstCompletedTradeDay": first_window,
+        "latestCompletedTradeDay": (latest_window if latest_window.get("zurichDate")
+            != first_window.get("zurichDate") else None),
+        "current": {key:value for key in current_keys
+                    if (value := _number(current.get(key), integer=True)) is not None},
+        "armStatuses": {key:value for key in
+            ("waiting","pending","open","exit-pending","closed","inconclusive","no-entry")
+            if (value := _number(arm_statuses.get(key), integer=True,
+                                 maximum=10**12)) is not None},
+        "completeLogicalBytesPerCase": _number(entry.get("completeLogicalBytesPerCase")),
+        "physicalBytesFreed": None, "renderVolumeBytesDelta": None,
+        "readOnly": True,
+        "scope": "fixed-half-hour-relation-allocation-and-current-redacted-scalars",
+    }
+
     return result
