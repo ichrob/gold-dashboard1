@@ -124,27 +124,35 @@ den letzten erfolgreichen Worker-Prüftakt samt Originalprüfung und Wartegrund,
 auch ohne Episode. Er ist im geprüften Backupumfang enthalten. Kein historischer
 Ticknachweis und kein Beleg für einen Produkteinstieg.
 
-## Vollständige Kurzstatistik aller lokal gespeicherten Fälle
+## 200-Fälle-Vorschau gegenüber vollständiger Evaluation
 
-Die ältere `paper_entry_exit_comparison.report`-Übersicht darf keine
-200-Fälle-Grenze als Gesamt-Evaluation ausgeben. Ihr SQL zählt nun **alle**
-gespeicherten Episoden und gruppiert alle 18 Varianten nur nach Status und
-modelliertem Nettoergebnis. Die umfangreichen Original-Quotes,
-Triggerkerzen, KO-/Stop-Belege bleiben in PostgreSQL beziehungsweise
-gegebenenfalls hinter geprüften Cold-Referenzen; die Kurzstatistik lädt sie
-nicht in den Arbeitsspeicher. Die eigenständige, gruppen- und paarbezogene
-`paper_comparison_report.report`-Auswertung behält ihren bestehenden
-vollständigen Streaming-Reader. Eine zeitlich begrenzte oder fehlerhafte
-Datenbankabfrage darf nicht stillschweigend auf 200 jüngste Fälle
-zurückfallen.
+`paper_entry_exit_comparison.report` ist eine **schnelle, maximal
+200 Fälle umfassende Vorschau** in der Betriebsdiagnose. Sie wird im
+heißen Statuspfad mit kurzen Datenbank-Zeitlimits abgefragt und darf
+nicht durch einen ungeprüften Full-Table-Scan ersetzt werden.
+`sourceScope=recent-200-preview-only` und
+`fullEvaluationReader=paper_comparison_report` benennen diese Grenze.
+`episodesSampled` ist die Größe der Vorschau, keine Zahl aller
+gespeicherten Fälle. Bei 200 angezeigten Fällen zeigt `truncated=true`,
+dass mehr Fälle vorhanden sein könnten.
 
-`episodesSampled` umfasst jetzt alle lokal gespeicherten Zeilen;
-`truncated=false` bedeutet nur, dass die Kurzstatistik keine Anzeigegrenze
-mehr besitzt, **nicht**, dass alle historischen Originale unabhängig
-restauriert wurden. `sourceScope=all-retained-sql-episodes` trennt das
-vom vollständigen Archiv-Replay. Fehlt bei einem geschlossenen Fall ein
-numerisches `modelNetEur`, werden `closedModelNetUnknown` und die
-unvollständige Fallabdeckung sichtbar, ohne daraus 0 Euro oder
-Brokergewinne zu erfinden. Gemischte lokale und archivierte Episoden
-behalten ihre kleinen Ergebnisfelder lokal.
+Die **eigentliche vollständige Evaluation** stammt bereits aus
+`paper_comparison_report.report`: sie verarbeitet den gesamten
+lokal gespeicherten Bestand durch einen serverseitigen Cursor mit
+gruppen-/paarbezogenen Ergebnissen. Ein eigener PostgreSQL-Test
+prüft 205 Fälle. Fehler beim Streaming oder beim Zeitbudget
+werden nicht in einen vermeintlich vollständigen 200er-Erfolg
+umgedeutet. Ein fehlerloses Lesen aller gespeicherten Fälle beweist
+trotzdem nicht alle ursprünglichen externen Daten oder eine
+vollständige Archiv-Restaurierung (`historyComplete=false`).
+
+Neu in der schnellen Vorschau: Für als `closed` gespeicherte
+Varianten mit fehlendem oder nichtendlichem `modelNetEur` wird
+`closedModelNetUnknown` gezählt. Modell-Netto und Erwartungswert
+stehen bei solchen Lücken auf `null`, nie auf erfundenen 0 €.
+Die unveränderten Originale, verschlüsselten Detailreferenzen und
+alle 18 Varianten bleiben erhalten. Die PostgreSQL-Regression
+vergleicht Vorschau und vollständige Paar-Auswertung vor/nach
+einer kontrollierten Cold-Auslagerung und bei Drive-Ausfall über
+mehr als 200 gemischte Fälle.
 
