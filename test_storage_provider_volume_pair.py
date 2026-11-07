@@ -120,11 +120,11 @@ class ProviderVolumePairTests(unittest.TestCase):
                         reporter=lambda: provider(980, 872_000_000))
             pair.mark_ended(path, clock=lambda: 1030)
             record = json.loads(path.read_text())
-            record["maintenanceEndedAt"] = 4000
+            record["maintenanceEndedAt"] = 9000
             path.write_text(json.dumps(record))
             with self.assertRaises(pair.MeasurementBlocked):
-                pair.after(path, clock=lambda: 4050,
-                           reporter=lambda: provider(4040, 871_000_000))
+                pair.after(path, clock=lambda: 9050,
+                           reporter=lambda: provider(9040, 871_000_000))
 
     def test_without_provider_observation_no_receipt_success(self):
         with tempfile.TemporaryDirectory() as directory:
