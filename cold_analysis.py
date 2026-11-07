@@ -95,7 +95,8 @@ def offload_batch(conn, drive):
     rows, next_cursor, scan_meta = candidate_scan.scan(conn, previous_cursor)
     if not rows:
         candidate_scan.commit_cursor(next_cursor)
-        return {'status':'no-eligible-rows','movedRows':0,
+        return {'status':('no-eligible-rows' if scan_meta['atEndOfAvailableWindow']
+                          else 'scan-continues'), 'movedRows':0,
                 'scannedRows':scan_meta['scannedRows'],
                 'candidateScanBounded':True}
     raw=codec.encoded({'format':codec.FORMAT,'rows':rows})
