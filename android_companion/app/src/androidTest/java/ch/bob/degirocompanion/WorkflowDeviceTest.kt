@@ -81,6 +81,46 @@ class WorkflowDeviceTest {
         val field = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
         assertEquals("Silber 123,45", field.text.toString())
     }
+    @Test fun newestOwnerRequestReplacesPendingSequenceAndInvalidatesOldAnswers() {
+        main {
+            val service = WorkflowService.instance!!
+            assertTrue(service.begin(app, listOf(WorkflowStep(WorkflowAction.WAIT, "Never appears"),
+                WorkflowStep(WorkflowAction.WRITE, WorkflowSearch.FIELD, "Gold"))))
+            val old = WorkflowService.run!!
+            val oldEpoch = WorkflowService.epoch
+            assertTrue(service.beginAutomatic(app, "Schreibe Silber in das Suchfeld", false))
+            assertTrue(old.finished)
+            assertTrue(WorkflowService.epoch > oldEpoch)
+        }
+        context.startActivity(Intent().setClassName(app, app + ".MainActivity").putExtra("mode", "open")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        await("Replacement was not verified") { WorkflowService.run?.let { WorkflowAiPolicy.verified(it) } == true }
+        val field = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
+        assertEquals("Silber", field.text.toString())
+    }
+    @Test fun stopAndRejectedReplacementCannotResumePreviousRun() {
+        context.startActivity(Intent().setClassName(app, app + ".MainActivity").putExtra("mode", "open")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        await("Fixture missing") { automation.rootInActiveWindow?.packageName?.toString() == app }
+        main {
+            val service = WorkflowService.instance!!
+            val steps = listOf(WorkflowStep(WorkflowAction.WRITE, WorkflowSearch.FIELD, "Must not appear"))
+            assertTrue(service.begin(app, steps))
+            val first = WorkflowService.run!!
+            val beforeStop = WorkflowService.epoch
+            WorkflowService.stop()
+            assertTrue(first.finished); assertNull(WorkflowService.run)
+            assertTrue(WorkflowService.epoch > beforeStop)
+            assertTrue(service.begin(app, steps))
+            val second = WorkflowService.run!!
+            assertFalse(service.beginAutomatic(app, "", false))
+            assertTrue(second.finished); assertNull(WorkflowService.run)
+        }
+        SystemClock.sleep(1500) // Let any stale scheduled polls run; none may write.
+        val field = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
+        assertTrue(field.isShowingHintText || field.text.isNullOrBlank())
+        assertNull(WorkflowService.run)
+    }
     @Test fun ambiguousOrProtectedFieldsNeverWriteOrCacheSuccess() {
         for (mode in listOf("ambiguous","protected")) {
             launch(mode)
