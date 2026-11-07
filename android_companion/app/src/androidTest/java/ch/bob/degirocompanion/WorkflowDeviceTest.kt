@@ -68,6 +68,19 @@ class WorkflowDeviceTest {
         verified()
         assertEquals(1,WorkflowService.run!!.index)
     }
+    @Test fun ownerSequenceOpensFutureFieldAndWritesLettersAndDecimalNumber() {
+        val sequence = listOf(
+            WorkflowComposer.command(WorkflowAction.CLICK, "Suche", expected="Suchfeld")!!,
+            WorkflowComposer.command(WorkflowAction.WRITE, "Suchfeld", "Silber 123,45")!!,
+            WorkflowComposer.command(WorkflowAction.WAIT, "Silber 123,45")!!).joinToString("\n")
+        main { assertTrue(WorkflowService.instance!!.beginAutomatic(app, sequence, false)) }
+        context.startActivity(Intent().setClassName(app, app + ".MainActivity").putExtra("mode", "closed")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        await("Sequence did not verify every step") { WorkflowService.run?.let { WorkflowAiPolicy.verified(it) } == true }
+        assertEquals(3, WorkflowService.run!!.index)
+        val field = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
+        assertEquals("Silber 123,45", field.text.toString())
+    }
     @Test fun ambiguousOrProtectedFieldsNeverWriteOrCacheSuccess() {
         for (mode in listOf("ambiguous","protected")) {
             launch(mode)

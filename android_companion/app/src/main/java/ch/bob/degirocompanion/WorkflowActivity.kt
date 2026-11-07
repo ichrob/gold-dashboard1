@@ -79,6 +79,16 @@ class WorkflowActivity : Activity() {
         }
         button("START · Bob erledigt den Auftrag") { startAutomatic() }
         button("Kostenlosen KI-Zugang prüfen") { checkAi() }
+        label("Auftragsfolge · bis zu zwölf Schritte")
+        commands = EditText(this).apply {
+            hint = "Schritte über die Schaltfläche oder aus einem Screenshot hinzufügen"
+            minLines = 3; gravity = android.view.Gravity.TOP; stack.addView(this)
+        }
+        button("Schritt hinzufügen · Tippen, Schreiben oder Warten") { composeStep("") }
+        button("Schaltfläche oder Feld aus Screenshot wählen") {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE) }, 101)
+        }
+        button("Auftragsfolge starten") { launch(false, false) }
         val advanced = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = android.view.View.GONE }
         button("Details / manuelle Schritte ein- oder ausblenden") {
             advanced.visibility = if (advanced.visibility == android.view.View.VISIBLE) android.view.View.GONE else android.view.View.VISIBLE
@@ -87,7 +97,6 @@ class WorkflowActivity : Activity() {
         name = EditText(this).apply { hint = "Optionaler Name für manuelle Aufträge"; setSingleLine(); advanced.addView(this) }
         button("Auftrag manuell vorbereiten · Texte einzeln freigeben") { propose() }
         label("Zuerst wird ein erfolgreicher lokaler Ablauf gesucht. Eine neue KI-Anfrage benötigt deine Auswahl und Freigabe der Texte. Keine automatische kostenpflichtige Ausweichlösung.")
-        commands = EditText(this).apply { hint = "Tippe auf \"Suche\" -> \"Suchbegriff\"\nSchreibe \"Gold\" in \"Suchbegriff\"\nWarte auf \"Gold\""; minLines = 4; gravity = android.view.Gravity.TOP; advanced.addView(this) }
         label("Ein Schritt pro Zeile. Tippe auf \"Beschriftung\" -> \"neuer Ergebnistext\"; Schreibe \"Text\" in \"Feldbeschriftung\"; Warte auf \"Text\". Auch eine angezeigte Feld-ID ist möglich. Bis zu zwölf Schritte. Bei doppelten Zielen stoppt Bob.")
         button("Schritt diktieren") {
             runCatching { startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -161,13 +170,13 @@ class WorkflowActivity : Activity() {
                 autoPrefs.edit().putString("lastApp", selectedApp).apply(); updateCloud()
                 if (selectedApp == WorkflowAppRoute.DEGIRO) {
                     if (goal.text.isBlank()) goal.setText("Gold suchen")
-                    status.text = "DEGIRO: Goldsuche und Produktlesen über den vorhandenen Lesedienst. Bereits angemeldet starten."
+                    status.text = "DEGIRO: Goldsuche nutzt den bisherigen Leser. Andere Aufträge nutzen die allgemeine Bedienung. Bereits angemeldet starten."
                 }
             }.setNegativeButton("Abbrechen", null).show()
     }
     private fun updateCloud() {
         updatingCloud = true
-        cloud.isEnabled = selectedApp != WorkflowAppRoute.DEGIRO
+        cloud.isEnabled = LocalWorkflow.allowedApp(selectedApp)
         cloud.isChecked = cloud.isEnabled && autoPrefs.getBoolean("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp, false)
         updatingCloud = false
     }
@@ -184,12 +193,8 @@ class WorkflowActivity : Activity() {
             .setOnCancelListener { updateCloud() }.show()
     }
     private fun startAutomatic() {
-        if (selectedApp == WorkflowAppRoute.DEGIRO) {
+        if (selectedApp == WorkflowAppRoute.DEGIRO && WorkflowAppRoute.goldRead(goal.text.toString())) {
             val task = goal.text.toString().trim()
-            if (!WorkflowAppRoute.goldRead(task)) {
-                status.text = "DEGIRO unterstützt hier Gold suchen und Produktlesen. Gib Gold oder Gold suchen ein. Keine freien Klickfolgen oder Orders."
-                return
-            }
             WorkflowService.stop()
             autoPrefs.edit().putString("lastApp", selectedApp).putString("lastGoal", task).apply()
             startActivity(Intent(this, ProductReadActivity::class.java)
@@ -198,16 +203,24 @@ class WorkflowActivity : Activity() {
         }
         if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App auswählen"; return }
         val task = goal.text.toString().trim()
-        if (!WorkflowAiPolicy.safe(task, 500)) { status.text = "Bitte einen kurzen Auftrag ohne private Daten eingeben"; return }
+        if (LocalWorkflow.parse(task) == null && !WorkflowAiPolicy.safe(task, 500)) { status.text = "Bitte einen kurzen Auftrag ohne private Daten eingeben"; return }
         val service = WorkflowService.instance ?: run { status.text = "Einmalig die Auftrags-Bedienungshilfe über Einrichtung aktivieren"; return }
         val intent = packageManager.getLaunchIntentForPackage(selectedApp) ?: run { status.text = "App nicht mehr installiert oder nicht startbar"; return }
+        stopProductReader()
         autoPrefs.edit().putString("lastApp", selectedApp).putString("lastGoal", task).apply()
         if (service.beginAutomatic(selectedApp, task, autoPrefs.getBoolean("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp, false))) {
             runCatching { startActivity(intent) }.onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
         } else status.text = "Auftrag konnte nicht gestartet werden"
     }
+    private fun stopProductReader() {
+        if (selectedApp != WorkflowAppRoute.DEGIRO) return
+        PhoneRemote.stop(this, "USER_STOP")
+        GoldSearchRun.stop("USER_STOP", java.time.Instant.now().toString())
+        MorningReadRun.stop(this, "USER_STOP")
+        ProductReadRequest.cancel()
+    }
     private fun valid(): List<WorkflowStep>? {
-        if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Zuerst eine unterstützte App auswählen. DEGIRO nutzt den vorhandenen Produktleser."; return null }
+        if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Zuerst eine unterstützte App auswählen."; return null }
         if (commands.text.contains("\"TEXT\"") || commands.text.contains("\"ERGEBNISTEXT\"")) {
             status.text = "Bitte zuerst die Platzhalter TEXT und ERGEBNISTEXT ersetzen"; return null
         }
@@ -250,7 +263,8 @@ class WorkflowActivity : Activity() {
         if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App wählen"; return }
         val service = WorkflowService.instance ?: run { status.text = "Bitte zuerst Bobs Auftrags-Bedienungshilfe aktivieren"; return }
         val intent = packageManager.getLaunchIntentForPackage(selectedApp) ?: run { status.text = "App nicht startbar"; return }
-        if (service.begin(selectedApp, plan, screenshot, goal.text.toString().trim().ifBlank { name.text.toString().trim() }.take(500), name.text.toString())) runCatching { startActivity(intent) }
+        stopProductReader()
+        if (service.begin(selectedApp, plan, screenshot, plan?.let { WorkflowAiPolicy.commands(it) }.orEmpty(), name.text.toString())) runCatching { startActivity(intent) }
             .onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
     }
     private fun aiStatus(code: String): String = when (code) {
@@ -349,6 +363,43 @@ class WorkflowActivity : Activity() {
             }
         }.start()
     }
+    private fun composeStep(initialTarget: String) {
+        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 8, 24, 8) }
+        val kind = Spinner(this).apply {
+            adapter = ArrayAdapter(this@WorkflowActivity, android.R.layout.simple_spinner_dropdown_item,
+                listOf("Schaltfläche antippen", "Text oder Zahl eintragen", "Auf Text warten"))
+            layout.addView(this)
+        }
+        val target = EditText(this).apply { hint = "Beschriftung oder Feld-ID"; setText(initialTarget); layout.addView(this) }
+        val value = EditText(this).apply { hint = "Einzutragender Text oder Zahl"; layout.addView(this) }
+        val expected = EditText(this).apply { hint = "Welcher neue Text erscheint nach dem Tippen?"; layout.addView(this) }
+        val help = TextView(this).apply { layout.addView(this) }
+        kind.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+            override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                value.visibility = if (position == 1) android.view.View.VISIBLE else android.view.View.GONE
+                expected.visibility = if (position == 0) android.view.View.VISIBLE else android.view.View.GONE
+                help.text = if (position == 1) "Bob ersetzt den Feldinhalt und prüft anschließend den exakten Wert."
+                    else "Bob sucht das Ziel auf dem aktuellen Bildschirm. Bei Mehrdeutigkeit oder fehlender Bestätigung stoppt er."
+            }
+        }
+        val dialog = AlertDialog.Builder(this).setTitle("Schritt zur Auftragsfolge hinzufügen").setView(layout)
+            .setPositiveButton("Hinzufügen", null).setNegativeButton("Abbrechen", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val action = listOf(WorkflowAction.CLICK, WorkflowAction.WRITE, WorkflowAction.WAIT)[kind.selectedItemPosition]
+                val line = WorkflowComposer.command(action, target.text.toString(), value.text.toString(), expected.text.toString())
+                val combined = line?.let { commands.text.toString().trim().let { old -> if (old.isEmpty()) it else old + "\n" + it } }
+                if (combined == null || LocalWorkflow.parse(combined) == null) {
+                    help.text = "Bitte Ziel und benötigten Wert bzw. Ergebnistext angeben. Höchstens zwölf Schritte; keine geschützten Aktionen."
+                } else {
+                    commands.setText(combined); status.text = "Schritt hinzugefügt · noch nicht ausgeführt"
+                    dialog.dismiss()
+                }
+            }
+        }
+        dialog.show()
+    }
     private fun teach() {
         val frame = WorkflowService.observation?.takeIf { it.app == selectedApp } ?: run { status.text = "Zuerst Bildschirm lernen starten und zur gewünschten Ansicht wechseln"; return }
         val nodes = frame.nodes.filter { (it.clickable || it.editable) && (it.id.isNotBlank() || LocalWorkflow.safeText(it.label)) }.take(80)
@@ -400,7 +451,16 @@ class WorkflowActivity : Activity() {
         }.getOrElse { reader.close(); status.text = "Bild konnte nicht geöffnet werden"; return }
         val image = InputImage.fromBitmap(bitmap, 0)
         reader.process(image).addOnSuccessListener {
-            if (token == imageGeneration && !isDestroyed) { output.text = "Screenshot-Text (OCR, ungeprüft):\n${it.text.take(20_000)}"; status.text = "Screenshot gelesen · keine Befehle ausgeführt" }
+            if (token == imageGeneration && !isDestroyed) {
+                output.text = "Screenshot-Text (OCR, ungeprüft):\n${it.text.take(20_000)}"
+                val labels = it.textBlocks.flatMap { block -> block.lines }.map { line -> line.text.trim() }
+                    .filter { label -> WorkflowComposer.validText(label) }.distinct().take(80)
+                status.text = "Screenshot lokal gelesen · Ziel auswählen, noch keine Ausführung"
+                if (labels.isEmpty()) status.text = "Keine lesbare Beschriftung gefunden. Ziel über Schritt hinzufügen beschreiben."
+                else AlertDialog.Builder(this).setTitle("Welche Beschriftung aus dem Screenshot?")
+                    .setItems(labels.toTypedArray()) { _, i -> composeStep(labels[i]) }
+                    .setNegativeButton("Abbrechen", null).show()
+            }
         }.addOnFailureListener { if (token == imageGeneration) status.text = "Texterkennung fehlgeschlagen" }.addOnCompleteListener { reader.close(); bitmap.recycle() }
     }
     private fun searchJson(tree: Uri, query: String) {

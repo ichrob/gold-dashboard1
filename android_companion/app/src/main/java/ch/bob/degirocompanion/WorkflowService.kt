@@ -144,7 +144,7 @@ class WorkflowService : AccessibilityService() {
         return true
     }
     internal fun beginAutomatic(app: String, goal: String, cloud: Boolean): Boolean {
-        if (!LocalWorkflow.allowedApp(app) || !WorkflowAiPolicy.safe(goal, 500)) return false
+        if (!LocalWorkflow.allowedApp(app) || (LocalWorkflow.parse(goal) == null && !WorkflowAiPolicy.safe(goal, 500))) return false
         if (!begin(app, null, goal=goal, title=goal.take(60))) return false
         automatic = true; autoCloud = cloud
         healthActive = true

@@ -32,7 +32,7 @@ def validate_request(value):
     if not isinstance(value['requestId'], str) or not re.fullmatch('[a-f0-9]{32}', value['requestId']):
         raise ValueError('invalid-request-id')
     app = value['app']
-    if not isinstance(app, str) or len(app) > 160 or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+', app) or app.startswith(BLOCKED_APPS):
+    if not isinstance(app, str) or len(app) > 160 or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+', app) or (app != 'nl.degiro.trader' and app.startswith(BLOCKED_APPS)):
         raise ValueError('unsupported-app')
     text(value['goal'], 500)
     if not isinstance(value['nodes'], list) or not 1 <= len(value['nodes']) <= 24:

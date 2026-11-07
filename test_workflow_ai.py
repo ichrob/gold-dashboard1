@@ -28,12 +28,19 @@ class Rules(unittest.TestCase):
                   dict(steps=[dict(action='CLICK',target='search',value='',expected='Kaufen')])]:
             with self.assertRaises(ValueError):w.validate_plan(p,request())
     def test_request_rejects_images_field_content_missing_consent_and_private_text(self):
-        for field,value in [('image','x'),('consent','old'),('version',True),('app','nl.degiro.trader'),
+        for field,value in [('image','x'),('consent','old'),('version',True),('app','nl.degiro.trader.fake'),
                             ('goal','Schreibe mein Passwort'),('goal','IBAN CH12345678')]:
             r=request();r[field]=value
             with self.subTest(field=field),self.assertRaises(ValueError):w.validate_request(r)
         r=request();r['nodes'][0]['inputValue']='private'
         with self.assertRaises(ValueError):w.validate_request(r)
+    def test_degiro_search_allowed_but_trading_and_login_remain_blocked(self):
+        r=request(); r['app']='nl.degiro.trader'
+        self.assertEqual(w.validate_request(r)['app'], 'nl.degiro.trader')
+        for goal in ['Gold kaufen', 'Silber verkaufen', 'Anmelden', 'Schreibe Passwort']:
+            r['goal']=goal
+            with self.subTest(goal=goal), self.assertRaises(ValueError): w.validate_request(r)
+
     def test_free_account_gate_is_required_and_kill_switch_wins(self):
         with patch.dict(os.environ,{},clear=True): self.assertFalse(w.configured())
         with patch.dict(os.environ,{'GEMINI_API_KEY':'test-only'},clear=True): self.assertFalse(w.configured())
