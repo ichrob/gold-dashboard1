@@ -25,6 +25,8 @@ class WorkflowService : AccessibilityService() {
         internal var epoch = 0
         internal var screenshotText = ""
         internal var message = "Kein Auftrag aktiv"
+        internal var demonstrationDraft: Pair<String, List<WorkflowStep>>? = null
+        internal fun endDemonstration() { instance?.let { if (it.demonstration != null) it.finish("Vormachen beendet · Entwurf prüfen") } }
         internal fun stop() { epoch++; instance?.finish("Gestoppt"); run?.stop("Gestoppt"); run = null; observation = null; screenshotText = "" }
     }
     private val handler = Handler(Looper.getMainLooper())
@@ -35,6 +37,8 @@ class WorkflowService : AccessibilityService() {
     private var recorded = true
     private var capture = false
     private var captureObservation: WorkflowAutoObservation? = null
+    private var demonstration: WorkflowDemonstration? = null
+    private var demonstrationSeen = false
     private var symbolPending = false
     private var symbolMatch: Pair<WorkflowFrame, Int>? = null
     private var symbolBounds = emptyList<SymbolBox>()
@@ -63,6 +67,7 @@ class WorkflowService : AccessibilityService() {
             run?.let { if (it.finished) { finish(it.status); return } }
             val root = rootInActiveWindow
             if (root != null && root.packageName?.toString() != selected) {
+                if (demonstration != null && demonstrationSeen) { finish("Vormachen beendet: andere App geöffnet"); return }
                 if (automatic && (autoObservation?.seen == true || planning)) { finish("Gestoppt: andere App im Vordergrund"); return }
                 run?.tick(WorkflowFrame(root.packageName?.toString().orEmpty(), root.windowId, emptyList()), SystemClock.elapsedRealtime(), unlocked) { _, _ -> false }
                 run?.let { if (it.finished) { finish(it.status); return } }
@@ -90,6 +95,13 @@ class WorkflowService : AccessibilityService() {
                     if (capture && captureObservation?.next(frame, SystemClock.elapsedRealtime(), unlocked) != null) {
                         capture = false; captureObservation = null; captureScreen(generation, frame.window)
                     }
+                }
+                demonstration?.let { recorder ->
+                    demonstrationSeen = true
+                    if (LocalWorkflow.protected(frame)) { finish("Geschützte Ansicht: Aufzeichnung beendet"); return }
+                    recorder.observe(frame)
+                    if (recorder.error.isNotEmpty()) { finish(recorder.error); return }
+                    message = "Vormachen aktiv · ${recorder.steps.size} Schritte · zurück zu Bob beendet die Aufzeichnung"
                 }
                 if (ConnectionErrorPolicy.detected(frame.nodes.map { it.label })) {
                     finish("Verbindungsfehler: Auftrag angehalten"); return
@@ -169,6 +181,13 @@ class WorkflowService : AccessibilityService() {
         handler.post(poll)
         return true
     }
+    internal fun beginDemonstration(app: String): Boolean {
+        if (!begin(app, null)) return false
+        demonstrationDraft = null; demonstration = WorkflowDemonstration(app); demonstrationSeen = false
+        until = SystemClock.elapsedRealtime() + 180_000
+        message = "Vormachen aktiv · nur gewählte App · keine automatische Ausführung"
+        return true
+    }
     internal fun beginAutomatic(app: String, goal: String, cloud: Boolean): Boolean {
         if (!LocalWorkflow.allowedApp(app) || (LocalWorkflow.parse(goal) == null && !WorkflowAiPolicy.safe(goal, 500))) { stop(); return false }
         if (!begin(app, null, goal=goal, title=goal.take(60))) return false
@@ -222,6 +241,8 @@ class WorkflowService : AccessibilityService() {
         }.start()
     }
     private fun finish(reason: String) {
+        demonstration?.let { demonstrationDraft = it.app to it.draft() }
+        demonstration = null; demonstrationSeen = false
         val notify = automatic && reason != "Neue Sitzung"
         automatic = false; planning = false; autoCloud = false; autoObservation = null; proposalContext = null
         symbolPending = false; symbolMatch = null; symbolBounds = emptyList(); symbolIssuedStep = -1
@@ -230,6 +251,7 @@ class WorkflowService : AccessibilityService() {
         run?.let {
             if (!recorded) {
                 recorded = true
+                WorkflowResultStore.record(this, it, reason)
                 if (WorkflowAiPolicy.verified(it)) it.steps.filter { step -> step.target.startsWith("Symbol: ") }.forEach { step -> WorkflowSymbols.verified(this, it.app, step.target) }
                 if (!WorkflowAiPolicy.verified(it)) WorkflowLibrary.failed(this, it.app, recipeGoal)
                 message += runCatching { WorkflowLibrary.record(this, it, recipeGoal, recipeTitle) }
@@ -248,6 +270,27 @@ class WorkflowService : AccessibilityService() {
     }
     override fun onServiceConnected() { instance = this; finish("Bereit · lokal starten") }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val recorder = demonstration
+        if (recorder != null && event?.packageName?.toString() == selected &&
+            event.eventType in listOf(AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED)) {
+            val frame = observation
+            val source = event.source
+            if (frame == null || frame.app != selected || !symbolSafe(frame)) return
+            if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED && source == null) {
+                val label = event.text.map { it.toString() }.singleOrNull()
+                val candidate = frame.nodes.singleOrNull { it.clickable && !it.editable && it.label == label }
+                if (candidate != null) recorder.click(candidate.id.ifBlank { candidate.label }, frame)
+            } else if (source != null && !source.isPassword && source.isEnabled) {
+                val target = source.viewIdResourceName.orEmpty().ifBlank {
+                    source.contentDescription?.toString().orEmpty().ifBlank { if (!source.isEditable) source.text?.toString().orEmpty() else source.hintText?.toString().orEmpty() }
+                }
+                if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED && !source.isEditable) recorder.click(target, frame)
+                if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && source.isEditable)
+                    recorder.write(target, if (source.isShowingHintText) "" else source.text?.toString().orEmpty())
+            }
+            if (recorder.error.isNotEmpty()) finish(recorder.error)
+            return
+        }
         // User touch aborts execution; observation mode permits the owner to navigate.
         if (event?.eventType == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START && (run?.finished == false || (automatic && autoObservation?.seen == true)))
             finish("Gestoppt: eigene Bildschirmbedienung")

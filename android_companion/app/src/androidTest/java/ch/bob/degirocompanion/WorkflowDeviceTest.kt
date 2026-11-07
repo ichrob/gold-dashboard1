@@ -150,6 +150,61 @@ class WorkflowDeviceTest {
         assertTrue(WorkflowSymbols.forget(context, app, "Lupe"))
         assertNull(WorkflowSymbols.plan(context, app, "Öffne Lupe"))
     }
+    @Test fun demonstrationCreatesReviewableDraftWithoutExecutingAndCanBeReplayed() {
+        context.getSharedPreferences("workflow_result_v1",0).edit().clear().commit()
+        main { assertTrue(WorkflowService.instance!!.beginDemonstration(app)) }
+        context.startActivity(Intent().setClassName(app,app + ".MainActivity").putExtra("mode","closed")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        await("Demonstration did not observe fixture") { WorkflowService.observation?.app == app }
+        assertNull(WorkflowService.run)
+        assertTrue(automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Suche").single()
+            .performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+        await("Search field not observed") { WorkflowService.observation?.nodes?.any { it.editable } == true }
+        val field = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
+        assertTrue(field.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+            putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"Gold")
+        }))
+        SystemClock.sleep(700)
+        main { WorkflowService.endDemonstration() }
+        assertNull(WorkflowService.run)
+        val draft = WorkflowService.demonstrationDraft!!.second
+        assertEquals(2,draft.size); assertEquals("Gold",draft.last().value)
+        assertNull(WorkflowResultStore.previous(context,app))
+        // The owner reviews the click result before replaying the draft.
+        val reviewed = draft.map { if (it.action == WorkflowAction.CLICK) it.copy(expected="Suchfeld") else it }
+        shell("am force-stop " + app)
+        main { assertTrue(WorkflowService.instance!!.begin(app,reviewed)) }
+        context.startActivity(Intent().setClassName(app,app + ".MainActivity").putExtra("mode","closed")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        await("Reviewed demonstration did not replay") { WorkflowService.run?.let { WorkflowAiPolicy.verified(it) } == true }
+        assertTrue(WorkflowResultStore.summary(context).startsWith("Erledigt"))
+        val changed = WorkflowRevision.apply("Nimm Silber statt Gold",WorkflowResultStore.previous(context,app)!!)!!
+        assertEquals("Silber",changed.last().value)
+        assertNull(WorkflowResultStore.previous(context,"org.other.app"))
+        WorkflowService.demonstrationDraft = null
+    }
+    @Test fun cropZoomPreservesImageSelectionAndAllowsCorrection() {
+        val activity = instrumentation.startActivitySync(Intent(context,WorkflowActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as WorkflowActivity
+        val bitmap = android.graphics.Bitmap.createBitmap(400,400,android.graphics.Bitmap.Config.ARGB_8888)
+        try {
+            main {
+                val crop = WorkflowSymbolCrop(activity,bitmap)
+                val parent = android.widget.FrameLayout(activity); parent.addView(crop)
+                crop.layout(0,0,400,400)
+                fun touch(action: Int,x: Float,y: Float) {
+                    val event = android.view.MotionEvent.obtain(0,1,action,x,y,0)
+                    crop.onTouchEvent(event); event.recycle()
+                }
+                touch(android.view.MotionEvent.ACTION_DOWN,80f,80f); touch(android.view.MotionEvent.ACTION_UP,220f,220f)
+                val before = crop.box()!!; crop.zoomBy(2f); assertEquals(before,crop.box())
+                crop.zoomBy(.5f)
+                touch(android.view.MotionEvent.ACTION_DOWN,80f,80f); touch(android.view.MotionEvent.ACTION_UP,60f,60f)
+                assertEquals(60,crop.box()!!.left); assertEquals(220,crop.box()!!.right)
+                crop.resetSelection(); assertNull(crop.box())
+            }
+        } finally { main { activity.finish() }; bitmap.recycle() }
+    }
     @Test fun newestOwnerRequestReplacesPendingSequenceAndInvalidatesOldAnswers() {
         main {
             val service = WorkflowService.instance!!
