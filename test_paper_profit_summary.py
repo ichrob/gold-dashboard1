@@ -45,7 +45,7 @@ class PaperProfitSummaryTests(unittest.TestCase):
                        equity=float('nan'), totalProfit=float('inf'),
                        costsDebitedEur='1', checkedAt=-100)]
         out = profit.snapshot(values)
-        early = out['rows'][-2]
+        early = next(a for a in out['rows'] if a['profile']=='early1000oct')
         self.assertIsNone(early['equityEur'])
         self.assertIsNone(early['modelProfitEur'])
         self.assertIsNone(early['exampleCostsDebitedEur'])
