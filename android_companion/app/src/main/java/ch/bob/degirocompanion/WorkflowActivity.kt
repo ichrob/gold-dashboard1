@@ -314,9 +314,9 @@ class WorkflowActivity : Activity() {
         val intent = packageManager.getLaunchIntentForPackage(selectedApp) ?: run { status.text = "App nicht mehr installiert oder nicht startbar"; return }
         stopProductReader()
         autoPrefs.edit().putString("lastApp", selectedApp).putString("lastGoal", task).apply()
-        if (service.beginAutomatic(selectedApp, task, autoPrefs.getBoolean("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp, false))) {
-            runCatching { startActivity(intent); goal.setText(""); clearAttachment() }.onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
-        } else status.text = "Auftrag konnte nicht gestartet werden"
+        val app = selectedApp
+        val cloud = autoPrefs.getBoolean("cloud:" + WorkflowAiPolicy.CONSENT + ":" + app, false)
+        beginAfterDegiroLogin(intent) { service.beginAutomatic(app, task, cloud) }
     }
     private fun ownerOverride() {
         aiGeneration++; imageGeneration++; aiBusy = false
@@ -327,6 +327,7 @@ class WorkflowActivity : Activity() {
     }
     private fun stopProductReader() {
         LoginToReadHandoff.clear()
+        WorkflowLoginHandoff.clear()
         if (PinReadinessProbe.running) PinReadinessProbe.stop("Durch neuen Auftrag oder STOPP beendet.")
         PhoneRemote.stop(this, "USER_STOP")
         GoldSearchRun.stop("USER_STOP", java.time.Instant.now().toString())
@@ -382,10 +383,45 @@ class WorkflowActivity : Activity() {
         val service = WorkflowService.instance ?: run { status.text = "Bitte zuerst Bobs Auftrags-Bedienungshilfe aktivieren"; return }
         val intent = packageManager.getLaunchIntentForPackage(selectedApp) ?: run { status.text = "App nicht startbar"; return }
         stopProductReader()
-        val started = if (replay && plan != null) service.beginReplay(selectedApp,plan,displayRequest)
-            else service.begin(selectedApp, plan, screenshot, plan?.let { WorkflowAiPolicy.commands(it) }.orEmpty(), name.text.toString(), displayRequest)
-        if (started) runCatching { startActivity(intent); goal.setText(""); clearAttachment() }
-            .onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
+        val app = selectedApp; val title = name.text.toString()
+        beginAfterDegiroLogin(intent) {
+            if (replay && plan != null) service.beginReplay(app,plan,displayRequest)
+            else service.begin(app, plan, screenshot, plan?.let { WorkflowAiPolicy.commands(it) }.orEmpty(), title, displayRequest)
+        }
+    }
+    /** Generic text, screenshot and replay tasks share the same local login prerequisite. */
+    private fun beginAfterDegiroLogin(intent: Intent, begin: () -> Boolean) {
+        fun continueTask(openApp: Boolean) {
+            if (isDestroyed) return
+            if (!begin()) { status.text = "Auftrag konnte nicht gestartet werden"; return }
+            runCatching {
+                if (openApp) startActivity(intent)
+                goal.setText(""); clearAttachment()
+            }.onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
+        }
+        if (selectedApp != WorkflowAppRoute.DEGIRO || !LocalPinVault.exists(this)) {
+            continueTask(true); return
+        }
+        var secret: ByteArray? = null
+        try {
+            check(ProductReadDiagnostics.connected && getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false)) {
+                "Für die DEGIRO-Anmeldung zuerst den Lesedienst unter Einrichtung einschalten."
+            }
+            check(!PinReadinessProbe.running) { "Anmeldung läuft bereits." }
+            check(PhoneDiagnostics.keypadTestVerified(this)) { "Lokale PIN-Einrichtung: Tastaturtest unter Einrichtung abschließen." }
+            check(LocalPinVault.available(this)) { "Handy entsperren, damit die gespeicherte DEGIRO-PIN lokal verwendet werden kann." }
+            secret = LocalPinVault.load(this)
+            WorkflowLoginHandoff.arm(android.os.SystemClock.elapsedRealtime()) { continueTask(false) }
+            PinReadinessProbe.startLocalLogin(secret)
+            WorkflowService.message = "DEGIRO-Anmeldung prüfen · danach Auftrag automatisch fortsetzen"
+            status.text = WorkflowService.message
+            startActivity(intent)
+        } catch (_: Exception) {
+            WorkflowLoginHandoff.clear()
+            if (PinReadinessProbe.running) PinReadinessProbe.stop("Start der lokalen Anmeldung abgebrochen.")
+            WorkflowService.message = "DEGIRO-Anmeldung konnte nicht gestartet werden. Lesedienst, lokale PIN und Tastaturtest unter Einrichtung prüfen."
+            status.text = WorkflowService.message
+        } finally { secret?.fill(0) }
     }
     private fun aiStatus(code: String): String = when (code) {
         "gemini-ready" -> "Kostenloser Google Gemini-Zugang konfiguriert · noch keine KI-Anfrage getestet"
@@ -897,5 +933,5 @@ class WorkflowActivity : Activity() {
     }
     private fun cancelFiles() { fileCancellation?.cancel(); runCatching { fileStream?.close() }; fileStream = null }
     override fun onStop() { aiGeneration++; super.onStop() }
-    override fun onDestroy() { aiGeneration++; imageGeneration++; attachmentGeneration++; cancelFiles(); attachmentPreview.setImageDrawable(null); attachmentBitmap = null; super.onDestroy() }
+    override fun onDestroy() { WorkflowLoginHandoff.clear(); aiGeneration++; imageGeneration++; attachmentGeneration++; cancelFiles(); attachmentPreview.setImageDrawable(null); attachmentBitmap = null; super.onDestroy() }
 }
