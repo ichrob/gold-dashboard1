@@ -4,8 +4,8 @@ import java.util.Locale
 
 /** User-authored local plans only. Screen/OCR/file contents never enter this parser. */
 internal enum class WorkflowAction { CLICK, WRITE, WAIT }
-internal data class WorkflowStep(val action: WorkflowAction, val target: String, val value: String = "", val expected: String = "", val opensSearch: Boolean = false)
-internal data class WorkflowNode(val label: String, val id: String, val editable: Boolean, val clickable: Boolean, val password: Boolean = false, val inputValue: String? = null)
+internal data class WorkflowStep(val action: WorkflowAction, val target: String, val value: String = "", val expected: String = "", val opensSearch: Boolean = false, val selectsTab: Boolean = false)
+internal data class WorkflowNode(val label: String, val id: String, val editable: Boolean, val clickable: Boolean, val password: Boolean = false, val inputValue: String? = null, val selected: Boolean = false)
 internal data class WorkflowFrame(val app: String, val window: Int, val nodes: List<WorkflowNode>) {
     fun contains(text: String) = nodes.any { LocalWorkflow.normalize(it.label) == LocalWorkflow.normalize(text) }
 }
@@ -18,7 +18,7 @@ internal object LocalWorkflow {
 
     fun parse(input: String): List<WorkflowStep>? {
         if (input.length !in 1..5000) return null
-        val lines = input.trim().lines().map { it.trim().replace('„', '"').replace('“', '"').replace('”', '"') }
+        val lines = WorkflowLanguage.goal(input).lines().map { it.trim().replace('„', '"').replace('“', '"').replace('”', '"') }
         if (lines.size !in 1..12 || lines.any { it.isBlank() }) return null
         return lines.map { raw ->
             // Spoken forms remain exact grammars. Never interpret text read from a screen.
@@ -36,7 +36,10 @@ internal object LocalWorkflow {
             val wait = Regex("warte auf \"([^\"]+)\"", RegexOption.IGNORE_CASE).matchEntire(line)
             val openSearch = Regex("""Öffne Suchfeld über "([^"]+)"""", RegexOption.IGNORE_CASE).matchEntire(raw)
             val dynamicWrite = Regex("""Schreibe "([^"]+)" in das erkannte Suchfeld""", RegexOption.IGNORE_CASE).matchEntire(raw)
+            val selectTab = Regex("""Wähle Register "([^"]+)"""", RegexOption.IGNORE_CASE).matchEntire(raw)
             val step = when {
+                selectTab != null && WorkflowNavigation.isTab(selectTab.groupValues[1]) ->
+                    WorkflowStep(WorkflowAction.CLICK, selectTab.groupValues[1], selectsTab=true)
                 openSearch != null && WorkflowSearch.safeButton(openSearch.groupValues[1]) ->
                     WorkflowStep(WorkflowAction.CLICK, openSearch.groupValues[1], opensSearch=true)
                 dynamicWrite != null -> WorkflowStep(WorkflowAction.WRITE, WorkflowSearch.FIELD, dynamicWrite.groupValues[1])
@@ -55,6 +58,7 @@ internal object LocalWorkflow {
         if (protected(frame)) return emptyList()
         if (step.action == WorkflowAction.WRITE && step.target == WorkflowSearch.FIELD) return WorkflowSearch.fields(frame)
         if (step.opensSearch && !WorkflowSearch.safeButton(step.target)) return emptyList()
+        if (step.selectsTab && !WorkflowNavigation.isTab(step.target)) return emptyList()
         return frame.nodes.indices.filter { i ->
             val n = frame.nodes[i]
             (normalize(n.label) == normalize(step.target) || n.id == step.target) &&
@@ -91,8 +95,11 @@ internal class WorkflowRun(val app: String, val steps: List<WorkflowStep>, val s
         val step = steps[index]
         if (issuedAt != null) {
             val verified = when (step.action) {
-                WorkflowAction.CLICK -> frame != baseline && if (step.opensSearch)
-                    WorkflowSearch.fields(frame).size == 1 else frame.contains(step.expected)
+                WorkflowAction.CLICK -> frame != baseline && when {
+                    step.selectsTab -> WorkflowNavigation.selected(step, frame)
+                    step.opensSearch -> WorkflowSearch.fields(frame).size == 1
+                    else -> frame.contains(step.expected)
+                }
                 WorkflowAction.WRITE -> {
                     val candidates = frame.nodes.withIndex().filter { it.value.editable &&
                         if (expectedId.isNotBlank()) it.value.id == expectedId else it.index == expectedIndex && frame.window == baseline?.window }
@@ -107,11 +114,12 @@ internal class WorkflowRun(val app: String, val steps: List<WorkflowStep>, val s
             if (frame.contains(step.target)) advance(now)
             return
         }
+        if (step.selectsTab && WorkflowNavigation.selected(step, frame)) { advance(now); return }
         val matches = LocalWorkflow.candidates(step, frame)
         if (matches.isEmpty()) { status = "Warte auf eindeutiges Ziel: ${step.target}"; return }
         val node = matches.singleOrNull() ?: return stop("Ziel ist mehrdeutig: ${step.target}")
         // A click needs a NEW expected observation, not text already present beforehand.
-        if (step.action == WorkflowAction.CLICK && (if (step.opensSearch)
+        if (step.action == WorkflowAction.CLICK && !step.selectsTab && (if (step.opensSearch)
             WorkflowSearch.fields(frame).isNotEmpty() else frame.contains(step.expected)))
             return stop("Ergebnis schon sichtbar: Bitte ein eindeutiges neues Klick-Ergebnis angeben")
         baseline = frame; expectedId = frame.nodes[node].id; expectedIndex = node

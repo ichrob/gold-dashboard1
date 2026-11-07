@@ -91,7 +91,7 @@ class WorkflowService : AccessibilityService() {
                 if (truncated) { finish("Bildschirm zu komplex: keine eindeutige Prüfung möglich"); return }
                 val frame = WorkflowFrame(root.packageName?.toString().orEmpty(), root.windowId, refs.map {
                     WorkflowNode(it.text?.toString()?.takeIf { text -> text.isNotBlank() }?.take(500) ?: it.hintText?.toString()?.take(500) ?: it.contentDescription?.toString()?.take(500).orEmpty(),
-                        it.viewIdResourceName.orEmpty(), it.isEditable && it.isEnabled, it.isClickable && it.isEnabled, it.isPassword, if (it.isEditable) { if (it.isShowingHintText) "" else it.text?.toString().orEmpty() } else null)
+                        it.viewIdResourceName.orEmpty(), it.isEditable && it.isEnabled, it.isClickable && it.isEnabled, it.isPassword, if (it.isEditable) { if (it.isShowingHintText) "" else it.text?.toString().orEmpty() } else null, selected=it.isSelected || it.isChecked)
                 })
                 if (frame.app == selected && !LocalWorkflow.protected(frame)) {
                     observation = frame; observationAt = SystemClock.elapsedRealtime()

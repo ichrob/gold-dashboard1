@@ -33,14 +33,14 @@ internal object WorkflowAppRoute {
         if (localLogin(goal)) return capabilities.single { it.title == "Gespeicherte PIN einmal eingeben" }
         leveragedQuery(goal)?.let { query -> return capabilities.single { it.title == "$query-Hebelprodukte suchen" } }
         if (goldRead(goal)) return capabilities.single { it.title == "Gold-Produkte suchen und auslesen" }
-        val text = LocalWorkflow.normalize(goal).removeSuffix(".")
+        val text = LocalWorkflow.normalize(WorkflowLanguage.goal(goal)).removeSuffix(".")
         return capabilities.singleOrNull { text == LocalWorkflow.normalize(it.command) ||
             text == LocalWorkflow.normalize(it.title) || text in it.aliases }
     }
-    fun asksCapabilities(goal: String) = LocalWorkflow.normalize(goal).removeSuffix("?") in setOf(
+    fun asksCapabilities(goal: String) = LocalWorkflow.normalize(WorkflowLanguage.goal(goal)).removeSuffix("?") in setOf(
         "was kannst du", "was kannst du in degiro", "was kannst du bei degiro", "degiro-funktionen", "hilfe")
     fun leveragedQuery(goal: String): String? {
-        val text = LocalWorkflow.normalize(goal).removeSuffix(".")
+        val text = LocalWorkflow.normalize(WorkflowLanguage.goal(goal)).removeSuffix(".")
         if (text in setOf("silber", "suche silber", "suche nach silber", "silber suchen")) return "Silber"
         val match = Regex("(?:suche (?:nach )?)?(gold|silber)(?:[- ]hebelprodukte| hebelprodukte suchen)").matchEntire(text)
             ?: Regex("suche (?:die )?hebelprodukte (?:für|auf) (gold|silber)").matchEntire(text)
@@ -51,13 +51,13 @@ internal object WorkflowAppRoute {
     // Recognize only a request to use the already enrolled local PIN. No secret
     // values, additional actions, OCR text or cloud proposals enter this route.
     fun localLogin(goal: String): Boolean {
-        val text = LocalWorkflow.normalize(goal).removeSuffix(".")
+        val text = LocalWorkflow.normalize(WorkflowLanguage.goal(goal)).removeSuffix(".")
         if (text in setOf("degiro entsperren", "degiro anmelden", "bei degiro anmelden",
                 "melde mich bei degiro an", "degiro mit gespeicherter pin öffnen",
                 "gespeicherte degiro-pin eingeben", "melde dich an", "melde mich an", "melde dich bei degiro an", "bei degiro einloggen")) return true
         return Regex("(?:öffne|starte) (?:die )?degiro(?:-app| app)? und (?:gib|gebe) (?:selbstständig |automatisch )?(?:das passwort|die (?:gespeicherte |lokale )?pin) ein(?: zum öffnen der app)?").matches(text)
     }
-    fun goldRead(goal: String): Boolean = LocalWorkflow.normalize(goal) in setOf(
+    fun goldRead(goal: String): Boolean = LocalWorkflow.normalize(WorkflowLanguage.goal(goal)) in setOf(
         "gold", "gold suchen", "suche gold", "goldprodukte lesen", "gold-produkte suchen und auslesen",
         "schreibe gold in das suchfeld", "schreibe gold in die suche",
         "schreibe \"gold\" in das suchfeld", "schreibe \"gold\" in \"suchfeld\"")

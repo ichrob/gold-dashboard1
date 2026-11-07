@@ -4,7 +4,7 @@ package ch.bob.degirocompanion
 internal object DegiroGoal {
     fun acceptsQuery(query: String) = query in setOf("Gold", "Silber") || SeriesEvidence.validIsin(query)
     fun productIsin(text: String): String? {
-        val normalized = LocalWorkflow.normalize(text).removeSuffix(".")
+        val normalized = LocalWorkflow.normalize(WorkflowLanguage.goal(text)).removeSuffix(".")
         val identifiers = Regex("(?<![a-z0-9])[a-z]{2}[a-z0-9]{9}[0-9](?![a-z0-9])").findAll(normalized).toList()
         val match = identifiers.singleOrNull() ?: return null
         val isin = match.value.uppercase()
@@ -16,5 +16,5 @@ internal object DegiroGoal {
         return isin.takeIf { words.all { it in allowed } && (words.any { it in setOf("öffne", "öffnen", "zeige", "anzeigen", "suche", "suchen") } || words == listOf("isin")) }
     }
     fun needsProductIsin(text: String): Boolean = Regex("(?:öffne|zeige|suche)(?: mir)? (?:das |ein )?produkt(?: (?:in|bei) degiro)?[.!]?")
-        .matches(LocalWorkflow.normalize(text))
+        .matches(LocalWorkflow.normalize(WorkflowLanguage.goal(text)))
 }

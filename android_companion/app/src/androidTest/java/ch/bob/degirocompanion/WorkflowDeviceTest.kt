@@ -81,12 +81,16 @@ class WorkflowDeviceTest {
         val field = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
         assertEquals("Silber 123,45", field.text.toString())
     }
-    @Test fun screenshotAndTextMessageRunsThroughComposer() {
+    @Test fun screenshotAndTextMessageRunsThroughComposer() = screenshotMessage(
+        "Suche", "Tippe auf Suche und warte auf Suchfeld\nSchreibe Silber 123,45 in Suchfeld", false)
+    @Test fun screenshotPressFavoritesSendsWithoutExpectedTextDialog() = screenshotMessage(
+        "Favoriten", "drücke auf Schaltfläche Favoriten", true)
+    private fun screenshotMessage(label: String, request: String, selectTab: Boolean) {
         context.getSharedPreferences("workflow_auto_v1", 0).edit().putString("lastApp", app).commit()
         val image = android.graphics.Bitmap.createBitmap(900, 300, android.graphics.Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(image)
         canvas.drawColor(android.graphics.Color.WHITE)
-        canvas.drawText("Suche", 40f, 160f, android.graphics.Paint().apply {
+        canvas.drawText(label, 40f, 160f, android.graphics.Paint().apply {
             color = android.graphics.Color.BLACK; textSize = 90f; isAntiAlias = true
         })
         val file = java.io.File(context.cacheDir, "composer-fixture.png")
@@ -97,11 +101,11 @@ class WorkflowDeviceTest {
         fun field(name: String): Any? = WorkflowActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.get(activity)
         try {
             main {
-                (field("goal") as android.widget.EditText).setText("Tippe auf Suche und warte auf Suchfeld\nSchreibe Silber 123,45 in Suchfeld")
+                (field("goal") as android.widget.EditText).setText(request)
                 WorkflowActivity::class.java.getDeclaredMethod("readImage", android.net.Uri::class.java, Boolean::class.javaPrimitiveType)
                     .apply { isAccessible = true }.invoke(activity, android.net.Uri.fromFile(file), true)
             }
-            await("Attached screenshot was not read locally") { (field("attachmentLabels") as List<*>).contains("Suche") }
+            await("Attached screenshot was not read locally") { (field("attachmentLabels") as List<*>).contains(label) }
             main {
                 fun send(view: android.view.View): android.widget.Button? {
                     if (view is android.widget.Button && view.text.toString() == "Senden") return view
@@ -111,8 +115,13 @@ class WorkflowDeviceTest {
                 assertTrue(send(activity.window.decorView)!!.performClick())
             }
             await("Screenshot/text request did not complete") { WorkflowService.run?.let { WorkflowAiPolicy.verified(it) } == true }
-            val fieldNode = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
-            assertEquals("Silber 123,45", fieldNode.text.toString())
+            if (selectTab) {
+                assertTrue(automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Favoriten").single().isSelected)
+                assertEquals(1,WorkflowService.run!!.index)
+            } else {
+                val fieldNode = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
+                assertEquals("Silber 123,45", fieldNode.text.toString())
+            }
         } finally {
             main { activity.finish() }; file.delete()
         }
