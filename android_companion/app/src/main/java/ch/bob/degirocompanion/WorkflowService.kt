@@ -36,12 +36,20 @@ class WorkflowService : AccessibilityService() {
             if (SystemClock.elapsedRealtime() > until) { finish("Sitzung beendet"); return }
             val unlocked = !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
             if (!unlocked) { finish("Gestoppt: Bildschirm gesperrt"); return }
+            run?.tick(null, SystemClock.elapsedRealtime(), unlocked) { _, _ -> false }
+            run?.let { if (it.finished) { finish(it.status); return } }
             val root = rootInActiveWindow
+            if (root != null && root.packageName?.toString() != selected) {
+                run?.tick(WorkflowFrame(root.packageName?.toString().orEmpty(), root.windowId, emptyList()), SystemClock.elapsedRealtime(), unlocked) { _, _ -> false }
+                run?.let { if (it.finished) { finish(it.status); return } }
+                handler.postDelayed(this, 500); return
+            }
             if (root != null) {
                 val refs = mutableListOf<AccessibilityNodeInfo>()
                 var truncated = false
+                var visited = 0
                 fun visit(n: AccessibilityNodeInfo, depth: Int) {
-                    if (depth > 30 || refs.size >= 400 || n.childCount > 100) { truncated = true; return }
+                    if (++visited > 400 || depth > 30 || n.childCount > 100) { truncated = true; return }
                     if (n.isVisibleToUser) refs.add(n)
                     for (i in 0 until n.childCount.coerceAtMost(100)) n.getChild(i)?.let { visit(it, depth + 1) }
                 }
@@ -58,7 +66,8 @@ class WorkflowService : AccessibilityService() {
                 run?.tick(frame, SystemClock.elapsedRealtime(), unlocked) { step, index ->
                     val n = refs.getOrNull(index)
                     // Frame and action originate from the same freshly read tree.
-                    if (n == null || rootInActiveWindow?.windowId != frame.window) false
+                    val currentRoot = rootInActiveWindow
+                    if (n == null || currentRoot?.windowId != frame.window || currentRoot.packageName?.toString() != selected) false
                     else if (step.action == WorkflowAction.CLICK) n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     else n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
                         putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, step.value)

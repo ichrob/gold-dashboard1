@@ -246,6 +246,26 @@ class WorkflowActivity : Activity() {
                     out.toByteArray()
                 } ?: error("unreadable")
                 val text = bytes.toString(Charsets.UTF_8)
+                // Strict streaming validation bounds nesting before the DOM parser.
+                android.util.JsonReader(java.io.StringReader(text)).use { reader ->
+                    reader.isLenient = false
+                    var depth = 0; var tokens = 0
+                    while (reader.peek() != android.util.JsonToken.END_DOCUMENT) {
+                        require(++tokens <= 100_000)
+                        when (reader.peek()) {
+                            android.util.JsonToken.BEGIN_OBJECT -> { require(++depth <= 64); reader.beginObject() }
+                            android.util.JsonToken.BEGIN_ARRAY -> { require(++depth <= 64); reader.beginArray() }
+                            android.util.JsonToken.END_OBJECT -> { reader.endObject(); depth-- }
+                            android.util.JsonToken.END_ARRAY -> { reader.endArray(); depth-- }
+                            android.util.JsonToken.NAME -> reader.nextName()
+                            android.util.JsonToken.STRING, android.util.JsonToken.NUMBER -> reader.nextString()
+                            android.util.JsonToken.BOOLEAN -> reader.nextBoolean()
+                            android.util.JsonToken.NULL -> reader.nextNull()
+                            else -> error("json")
+                        }
+                    }
+                    require(depth == 0)
+                }
                 val parsed = org.json.JSONTokener(text)
                 val value = parsed.nextValue()
                 require(value is JSONObject || value is JSONArray)
