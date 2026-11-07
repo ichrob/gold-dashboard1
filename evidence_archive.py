@@ -18,6 +18,9 @@ from datetime import datetime, timezone
 
 VERSION = 'bob-evidence-archive-v3'
 # Reviewed evidence only: never OAuth, passkeys, sessions, subscriptions or settings.
+# Future snapshots include evaluation page manifests/cursors in the SAME read-only
+# export snapshot as source originals. Older archive versions are not retrofitted;
+# this neither restores missing retained-away rows nor authorizes migration.
 TABLES = frozenset('''bob_spot_observations bob_candle_evidence bob_candle_checkpoints
 bob_comparison_predictions bob_comparison_truths bob_decision_audit bob_decision_outcomes
 bob_future_predictions bob_future_truths bob_product_predictions bob_product_truths
@@ -35,6 +38,7 @@ bob_rule_learning bob_rule_learning_samples bob_ranking_events bob_ranking_lifec
 bob_ranking_samples bob_ranking_state bob_gap_models bob_source_reliability
 bob_broker_venue_evidence bob_broker_venue_history bob_degiro_candidate_proofs
 bob_degiro_product_audit bob_storage_samples bob_metric_checks
+bob_history_eval_segments bob_history_eval_cursor
 bob_diagnostic_history bob_real_trades bob_real_trade_events bob_research_enhancements
 bob_research_transcripts bob_research_priorities bob_youtube_feed_archive bob_video_ocr'''.split())
 TYPE = re.compile(r'^(?:text|boolean|smallint|integer|bigint|real|double precision|bytea|json|jsonb|date|uuid|numeric(?:\(\d+(?:,\d+)?\))?|character varying(?:\(\d+\))?|character(?:\(\d+\))?|timestamp(?:\(\d+\))? (?:with|without) time zone|time(?:\(\d+\))? (?:with|without) time zone|interval)(?:\[\])?$')
