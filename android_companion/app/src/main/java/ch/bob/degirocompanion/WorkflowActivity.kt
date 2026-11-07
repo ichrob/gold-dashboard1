@@ -43,14 +43,8 @@ class WorkflowActivity : Activity() {
         fun button(s: String, block: () -> Unit) = Button(this).also { it.text = s; it.isAllCaps = false; it.setOnClickListener { block() }; section.addView(it) }
         label("Meine Aufträge")
         status = label("Lokal auf deinem Handy · keine ChatGPT-Verbindung nötig")
-        button("STOPP · Auftrag und Lesesitzung beenden") { WorkflowService.stop()
-            if (selectedApp == WorkflowAppRoute.DEGIRO) {
-                PhoneRemote.stop(this,"USER_STOP")
-                GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
-                MorningReadRun.stop(this,"USER_STOP")
-                ProductReadRequest.cancel()
-            }
-            aiGeneration++; imageGeneration++; cancelFiles(); output.text = ""; refresh() }
+        button("STOPP · Auftrag und Lesesitzung beenden") { ownerOverride(); refresh() }
+        label("Du bestimmst: Ein neuer Start ersetzt den bisherigen Auftrag. Stopp oder Abbrechen beendet ihn; alte Antworten werden verworfen.")
         label("App wählen, Auftrag sagen oder eingeben, Start. Bob liest und prüft selbst. Erfolgreiche Abläufe bleiben lokal gespeichert. Keine Orders, Anmeldung oder Zahlungen.")
         button("Selbsttest · Klicken, Schreiben und Screenshot prüfen") {
             WorkflowService.stop()
@@ -166,7 +160,7 @@ class WorkflowActivity : Activity() {
             .sortedBy { it.loadLabel(packageManager).toString() }
         AlertDialog.Builder(this).setTitle("App für diesen Auftrag")
             .setItems(entries.map { "${it.loadLabel(packageManager)} · ${it.activityInfo.packageName}" }.toTypedArray()) { _, i ->
-                WorkflowService.stop(); selectedApp = entries[i].activityInfo.packageName; appLabel.text = selectedApp
+                ownerOverride(); selectedApp = entries[i].activityInfo.packageName; appLabel.text = selectedApp
                 autoPrefs.edit().putString("lastApp", selectedApp).apply(); updateCloud()
                 if (selectedApp == WorkflowAppRoute.DEGIRO) {
                     if (goal.text.isBlank()) goal.setText("Gold suchen")
@@ -193,6 +187,8 @@ class WorkflowActivity : Activity() {
             .setOnCancelListener { updateCloud() }.show()
     }
     private fun startAutomatic() {
+        ownerOverride()
+        if (PhoneTaskPlanParser.isStop(goal.text.toString())) { refresh(); return }
         if (selectedApp == WorkflowAppRoute.DEGIRO && WorkflowAppRoute.goldRead(goal.text.toString())) {
             val task = goal.text.toString().trim()
             WorkflowService.stop()
@@ -212,8 +208,14 @@ class WorkflowActivity : Activity() {
             runCatching { startActivity(intent) }.onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
         } else status.text = "Auftrag konnte nicht gestartet werden"
     }
+    private fun ownerOverride() {
+        aiGeneration++; imageGeneration++; aiBusy = false
+        cancelFiles()
+        WorkflowService.stop()
+        stopProductReader()
+        output.text = ""
+    }
     private fun stopProductReader() {
-        if (selectedApp != WorkflowAppRoute.DEGIRO) return
         PhoneRemote.stop(this, "USER_STOP")
         GoldSearchRun.stop("USER_STOP", java.time.Instant.now().toString())
         MorningReadRun.stop(this, "USER_STOP")
@@ -259,6 +261,8 @@ class WorkflowActivity : Activity() {
         true
     }.getOrElse { status.text = "Gespeicherter Auftrag ungültig; keine Ausführung"; false }
     private fun launch(observe: Boolean, screenshot: Boolean) {
+        ownerOverride()
+        if (!observe && PhoneTaskPlanParser.isStop(commands.text.toString())) { refresh(); return }
         val plan = if (observe) null else valid() ?: return
         if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App wählen"; return }
         val service = WorkflowService.instance ?: run { status.text = "Bitte zuerst Bobs Auftrags-Bedienungshilfe aktivieren"; return }
@@ -415,7 +419,7 @@ class WorkflowActivity : Activity() {
         if (result != RESULT_OK) return
         when (request) {
             105 -> data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let {
-                if (PhoneTaskPlanParser.isStop(it)) { WorkflowService.stop(); refresh() }
+                if (PhoneTaskPlanParser.isStop(it)) { ownerOverride(); refresh() }
                 else if (it.length <= 300) { goal.setText(it); status.text = "Auftrag übernommen · mit START ausführen" }
             }
             101 -> data?.data?.let { readImage(it) }
@@ -426,11 +430,12 @@ class WorkflowActivity : Activity() {
             104 -> {
                 val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
                 val key = saved.all.keys.singleOrNull { LocalWorkflow.normalize(it) == LocalWorkflow.normalize(spoken) }
-                if (PhoneTaskPlanParser.isStop(spoken)) { WorkflowService.stop(); refresh() }
+                if (PhoneTaskPlanParser.isStop(spoken)) { ownerOverride(); refresh() }
                 else if (key != null && loadSaved(key)) launch(false, false)
                 else status.text = "Kein eindeutiger gespeicherter Auftragsname erkannt; nichts gestartet"
             }
             103 -> data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let {
+                if (PhoneTaskPlanParser.isStop(it)) { ownerOverride(); refresh(); return }
                 if (it.length <= 500) commands.append((if (commands.text.isBlank()) "" else "\n") + it)
                 status.text = "Diktat übernommen. Vor dem Start prüfen; Anführungszeichen und erwartetes Ergebnis gegebenenfalls ergänzen."
             }

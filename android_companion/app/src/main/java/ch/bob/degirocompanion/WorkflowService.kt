@@ -116,7 +116,7 @@ class WorkflowService : AccessibilityService() {
         }
     }
     internal fun begin(app: String, steps: List<WorkflowStep>?, screenshot: Boolean = false, goal: String = "", title: String = ""): Boolean {
-        if (!LocalWorkflow.allowedApp(app)) return false
+        if (!LocalWorkflow.allowedApp(app)) { stop(); return false }
         return beginInternal(app,steps,screenshot,goal,title)
     }
     // No caller-selected target or commands: only the non-exported local test surface.
@@ -128,6 +128,7 @@ class WorkflowService : AccessibilityService() {
         return beginInternal(packageName,steps,screenshot,"","")
     }
     private fun beginInternal(app: String, steps: List<WorkflowStep>?, screenshot: Boolean, goal: String, title: String): Boolean {
+        epoch++ // Invalidate activity proposals from every preceding owner request.
         finish("Neue Sitzung")
         run = null
         recipeGoal = goal; recipeTitle = title; recorded = false
@@ -144,7 +145,7 @@ class WorkflowService : AccessibilityService() {
         return true
     }
     internal fun beginAutomatic(app: String, goal: String, cloud: Boolean): Boolean {
-        if (!LocalWorkflow.allowedApp(app) || (LocalWorkflow.parse(goal) == null && !WorkflowAiPolicy.safe(goal, 500))) return false
+        if (!LocalWorkflow.allowedApp(app) || (LocalWorkflow.parse(goal) == null && !WorkflowAiPolicy.safe(goal, 500))) { stop(); return false }
         if (!begin(app, null, goal=goal, title=goal.take(60))) return false
         automatic = true; autoCloud = cloud
         healthActive = true
