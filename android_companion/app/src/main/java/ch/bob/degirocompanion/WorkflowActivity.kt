@@ -154,7 +154,7 @@ class WorkflowActivity : Activity() {
         if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App wählen"; return }
         val service = WorkflowService.instance ?: run { status.text = "Bitte zuerst Bobs Auftrags-Bedienungshilfe aktivieren"; return }
         val intent = packageManager.getLaunchIntentForPackage(selectedApp) ?: run { status.text = "App nicht startbar"; return }
-        if (service.begin(selectedApp, plan, screenshot, goal.text.toString().trim().take(500), name.text.toString())) runCatching { startActivity(intent) }
+        if (service.begin(selectedApp, plan, screenshot, goal.text.toString().trim().ifBlank { name.text.toString().trim() }.take(500), name.text.toString())) runCatching { startActivity(intent) }
             .onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
     }
     private fun aiStatus(code: String): String = when (code) {

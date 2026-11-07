@@ -107,11 +107,16 @@ class Database(unittest.TestCase):
                 for n in range(1,10):
                     self.assertEqual(w.reserve(c,w.token_hash('a'*64),uuid.uuid4().hex,100000+61*n),'reserved')
                 self.assertEqual(w.reserve(c,w.token_hash('a'*64),uuid.uuid4().hex,100700),'daily-limit')
+                for n in range(10):
+                    self.assertEqual(w.reserve(c,w.token_hash('b'*64),uuid.uuid4().hex,100800+61*n),'reserved')
+                self.assertEqual(w.reserve(c,w.token_hash('c'*64),uuid.uuid4().hex,102000),'daily-limit')
+                # Clock rollback cannot discard reservations and reopen spending.
+                self.assertEqual(w.reserve(c,w.token_hash('c'*64),uuid.uuid4().hex,99000),'daily-limit')
                 c.commit()
             # A new connection (worker/restart) still sees quota; no prompts stored.
             with connect() as c:
                 rows=c.execute('SELECT recent FROM bob_workflow_ai_budget').fetchone()[0]
-                self.assertEqual(len(rows),10);self.assertNotIn('Gold',json.dumps(rows))
+                self.assertEqual(len(rows),20);self.assertNotIn('Gold',json.dumps(rows))
                 c.execute('UPDATE bob_android_diagnostic_devices SET revoked=true');c.commit()
             with patch.dict(os.environ,ENV,clear=True),self.assertRaises(PermissionError):
                 w.handle(connect,payload,provider)

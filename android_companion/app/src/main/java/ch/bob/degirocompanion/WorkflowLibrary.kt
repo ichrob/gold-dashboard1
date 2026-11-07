@@ -12,7 +12,7 @@ internal object WorkflowLibrary {
             runCatching {
                 val d = JSONObject(raw as String)
                 if (d.optInt("version") == 1 && d.optLong("verifiedAt") > 0 && d.optString("app") == app &&
-                    LocalWorkflow.normalize(d.optString("goal")) == LocalWorkflow.normalize(goal) &&
+                    WorkflowAiPolicy.sameGoal(d.optString("goal"), goal) &&
                     LocalWorkflow.parse(d.getString("commands")) != null)
                     key to d.getString("commands") else null
             }.getOrNull()

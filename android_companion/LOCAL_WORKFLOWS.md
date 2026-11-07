@@ -71,7 +71,7 @@ von Symbolen bleiben eine gesonderte, noch nicht implementierte Ausbaustufe.
 
 Unter **Meine Aufträge** eine App und einen Auftrag in eigenen Worten angeben.
 **Auftrag vorbereiten** sucht zuerst nach einem lokal erfolgreich bestätigten
-Ablauf für exakt dieselbe App und denselben normalisierten Auftrag. Ein Treffer
+Ablauf für exakt dieselbe App und denselben Auftrag (nur äußere Leerzeichen werden entfernt). Ein Treffer
 benötigt weder Netzwerk noch KI. Mit **Auftrag starten** wird er lokal geprüft
 ausgeführt. Jeder Schritt muss weiterhin am aktuellen Bildschirm bestätigt werden.
 
@@ -132,7 +132,7 @@ Das gekoppelte Handy fragt über /api/android-workflow/plan an; Cookies allein
 reichen nicht. Intern ist zusätzlich das Push-Service-Token nötig. Vor dem
 Modellaufruf wird die Geräteberechtigung geprüft und eine PostgreSQL-Reservierung
 dauerhaft verbucht: höchstens 20 Anfragen global / 10 je Gerät in 24 Stunden,
-mindestens eine Minute globaler Abstand. Wiederholte Request-ID kostet keine
+mindestens eine Minute globaler Abstand. Wiederholte Request-ID kostet innerhalb dieser 24 Stunden keine
 zweite Anfrage. Fehler verbrauchen die Reservierung. Gespeichert werden nur
 Zeitpunkt und Hashes, keine Prompts oder Modellantworten. Provider-Drosselung
 führt zu keinem Retry.

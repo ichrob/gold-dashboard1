@@ -34,5 +34,6 @@ internal object WorkflowAiPolicy {
         }
         return LocalWorkflow.parse(commands(steps)) == steps
     }
+    fun sameGoal(a: String, b: String): Boolean = a.trim() == b.trim()
     fun verified(run: WorkflowRun): Boolean = run.finished && run.steps.isNotEmpty() && run.index == run.steps.size
 }

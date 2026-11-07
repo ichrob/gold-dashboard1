@@ -20,6 +20,10 @@ class WorkflowAiPolicyTest {
         assertFalse(WorkflowAiPolicy.valid("Schreibe Gold", nodes, listOf(WorkflowStep(WorkflowAction.CLICK, "search", expected="Kaufen"))))
         assertFalse(WorkflowAiPolicy.valid("Schreibe Gold", nodes, listOf(WorkflowStep(WorkflowAction.CLICK, "search"))))
     }
+    @Test fun cacheDoesNotChangeCaseSensitiveUserInput() {
+        assertFalse(WorkflowAiPolicy.sameGoal("Schreibe Gold", "Schreibe gold"))
+        assertTrue(WorkflowAiPolicy.sameGoal(" Schreibe Gold ", "Schreibe Gold"))
+    }
     @Test fun failedOrJustStartedRunCannotEnterSuccessCache() {
         val steps = listOf(WorkflowStep(WorkflowAction.WAIT, "Gold"))
         val run = WorkflowRun("org.example.notes",steps,0)
