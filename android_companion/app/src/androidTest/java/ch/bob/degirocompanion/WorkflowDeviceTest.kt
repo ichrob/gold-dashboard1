@@ -81,6 +81,42 @@ class WorkflowDeviceTest {
         val field = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
         assertEquals("Silber 123,45", field.text.toString())
     }
+    @Test fun screenshotAndTextMessageRunsThroughComposer() {
+        context.getSharedPreferences("workflow_auto_v1", 0).edit().putString("lastApp", app).commit()
+        val image = android.graphics.Bitmap.createBitmap(900, 300, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(image)
+        canvas.drawColor(android.graphics.Color.WHITE)
+        canvas.drawText("Suche", 40f, 160f, android.graphics.Paint().apply {
+            color = android.graphics.Color.BLACK; textSize = 90f; isAntiAlias = true
+        })
+        val file = java.io.File(context.cacheDir, "composer-fixture.png")
+        file.outputStream().use { image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        image.recycle()
+        val activity = instrumentation.startActivitySync(Intent(context, WorkflowActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as WorkflowActivity
+        fun field(name: String): Any? = WorkflowActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.get(activity)
+        try {
+            main {
+                (field("goal") as android.widget.EditText).setText("Tippe auf Suche und warte auf Suchfeld\nSchreibe Silber 123,45 in Suchfeld")
+                WorkflowActivity::class.java.getDeclaredMethod("readImage", android.net.Uri::class.java, Boolean::class.javaPrimitiveType)
+                    .apply { isAccessible = true }.invoke(activity, android.net.Uri.fromFile(file), true)
+            }
+            await("Attached screenshot was not read locally") { (field("attachmentLabels") as List<*>).contains("Suche") }
+            main {
+                fun send(view: android.view.View): android.widget.Button? {
+                    if (view is android.widget.Button && view.text.toString().startsWith("Senden ·")) return view
+                    if (view is android.view.ViewGroup) for (i in 0 until view.childCount) send(view.getChildAt(i))?.let { return it }
+                    return null
+                }
+                assertTrue(send(activity.window.decorView)!!.performClick())
+            }
+            await("Screenshot/text request did not complete") { WorkflowService.run?.let { WorkflowAiPolicy.verified(it) } == true }
+            val fieldNode = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
+            assertEquals("Silber 123,45", fieldNode.text.toString())
+        } finally {
+            main { activity.finish() }; file.delete()
+        }
+    }
     @Test fun newestOwnerRequestReplacesPendingSequenceAndInvalidatesOldAnswers() {
         main {
             val service = WorkflowService.instance!!
@@ -146,9 +182,17 @@ class WorkflowDeviceTest {
             .putString("lastApp",WorkflowAppRoute.DEGIRO).putString("lastGoal","Gold").commit()
         context.startActivity(Intent(context,WorkflowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         await("Workflow screen did not open") {
-            automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("START · Bob erledigt den Auftrag")?.isNotEmpty() == true
+            val root = automation.rootInActiveWindow
+            val visible = root?.findAccessibilityNodeInfosByText("Senden · Bob erledigt den Auftrag")?.any { it.isVisibleToUser } == true
+            fun scroll(node: android.view.accessibility.AccessibilityNodeInfo): Boolean {
+                if (node.isScrollable && node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return true
+                for (i in 0 until node.childCount) node.getChild(i)?.let { if (scroll(it)) return true }
+                return false
+            }
+            if (!visible && root != null) scroll(root)
+            visible
         }
-        val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("START · Bob erledigt den Auftrag").single()
+        val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Senden · Bob erledigt den Auftrag").single()
         assertTrue(start.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
         await("DEGIRO reader handoff missing") {
             automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("DEGIRO lesen · Produkt und Morgenliste")?.isNotEmpty() == true

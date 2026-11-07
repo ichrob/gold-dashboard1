@@ -30,6 +30,13 @@ class WorkflowActivity : Activity() {
     private lateinit var cloud: CheckBox
     private var updatingCloud = false
     private val autoPrefs by lazy { getSharedPreferences("workflow_auto_v1", MODE_PRIVATE) }
+    private var attachmentUri: Uri? = null
+    private var attachmentBitmap: android.graphics.Bitmap? = null
+    private var attachmentLabels = emptyList<String>()
+    private var attachmentBusy = false
+    private var attachmentGeneration = 0
+    private lateinit var attachmentPreview: ImageView
+    private lateinit var attachmentStatus: TextView
     private var imageGeneration = 0
     private var fileBusy = false
     private var fileCancellation: android.os.CancellationSignal? = null
@@ -44,7 +51,7 @@ class WorkflowActivity : Activity() {
         label("Meine Aufträge")
         status = label("Lokal auf deinem Handy · keine ChatGPT-Verbindung nötig")
         button("STOPP · Auftrag und Lesesitzung beenden") { ownerOverride(); refresh() }
-        label("Du bestimmst: Ein neuer Start ersetzt den bisherigen Auftrag. Stopp oder Abbrechen beendet ihn; alte Antworten werden verworfen.")
+        label("Regel Nummer eins · Du bestimmst: Ein neuer Start ersetzt den bisherigen Auftrag. Stopp oder Abbrechen beendet ihn; alte Antworten werden verworfen.")
         label("App wählen, Auftrag sagen oder eingeben, Start. Bob liest und prüft selbst. Erfolgreiche Abläufe bleiben lokal gespeichert. Keine Orders, Anmeldung oder Zahlungen.")
         button("Selbsttest · Klicken, Schreiben und Screenshot prüfen") {
             WorkflowService.stop()
@@ -54,6 +61,17 @@ class WorkflowActivity : Activity() {
         appLabel = label("Noch keine App gewählt")
         button("App auswählen") { chooseApp() }
         goal = EditText(this).apply { hint = "Was soll Bob tun? Zum Beispiel: Schreibe Gold in das Suchfeld"; minLines = 2; stack.addView(this) }
+        attachmentPreview = ImageView(this).apply {
+            adjustViewBounds = true; maxHeight = 360; contentDescription = "Screenshot zu deinem Auftrag"
+            visibility = android.view.View.GONE; stack.addView(this)
+        }
+        attachmentStatus = label("Screenshot optional · Bild und Text gemeinsam senden")
+        button("+ Screenshot anhängen") {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE)
+            }, 106)
+        }
+        button("Screenshot entfernen") { clearAttachment() }
         button("Auftrag sprechen") {
             runCatching { startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -71,7 +89,7 @@ class WorkflowActivity : Activity() {
                 else if (!checked) { autoPrefs.edit().remove("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp).apply(); WorkflowService.stop() }
             }
         }
-        button("START · Bob erledigt den Auftrag") { startAutomatic() }
+        button("Senden · Bob erledigt den Auftrag") { sendMessage() }
         button("Kostenlosen KI-Zugang prüfen") { checkAi() }
         label("Auftragsfolge · bis zu zwölf Schritte")
         commands = EditText(this).apply {
@@ -136,7 +154,8 @@ class WorkflowActivity : Activity() {
         selectedApp = autoPrefs.getString("lastApp", "").orEmpty().takeIf { WorkflowAppRoute.selectable(it) }.orEmpty()
         appLabel.text = selectedApp.ifBlank { "Noch keine App gewählt" }
         updateCloud()
-        goal.setText(autoPrefs.getString("lastGoal", ""))
+        goal.setText(state?.getString("draftGoal") ?: autoPrefs.getString("lastGoal", ""))
+        state?.getString("draftImage")?.let { readImage(Uri.parse(it), true) }
     }
     override fun onResume() { super.onResume(); if (::output.isInitialized) refresh() }
     private fun refresh() {
@@ -160,7 +179,7 @@ class WorkflowActivity : Activity() {
             .sortedBy { it.loadLabel(packageManager).toString() }
         AlertDialog.Builder(this).setTitle("App für diesen Auftrag")
             .setItems(entries.map { "${it.loadLabel(packageManager)} · ${it.activityInfo.packageName}" }.toTypedArray()) { _, i ->
-                ownerOverride(); selectedApp = entries[i].activityInfo.packageName; appLabel.text = selectedApp
+                ownerOverride(); clearAttachment(); selectedApp = entries[i].activityInfo.packageName; appLabel.text = selectedApp
                 autoPrefs.edit().putString("lastApp", selectedApp).apply(); updateCloud()
                 if (selectedApp == WorkflowAppRoute.DEGIRO) {
                     if (goal.text.isBlank()) goal.setText("Gold suchen")
@@ -423,6 +442,7 @@ class WorkflowActivity : Activity() {
                 else if (it.length <= 300) { goal.setText(it); status.text = "Auftrag übernommen · mit START ausführen" }
             }
             101 -> data?.data?.let { readImage(it) }
+            106 -> data?.data?.let { readImage(it, true) }
             102 -> data?.data?.let { tree ->
                 val query = EditText(this).apply { hint = "Dateiname oder Teil davon; leer = alle JSON-Dateien" }
                 AlertDialog.Builder(this).setTitle("JSON suchen").setView(query).setPositiveButton("Suchen") { _, _ -> searchJson(tree, query.text.toString()) }.setNegativeButton("Abbrechen", null).show()
@@ -441,7 +461,9 @@ class WorkflowActivity : Activity() {
             }
         }
     }
-    private fun readImage(uri: Uri) {
+    private fun readImage(uri: Uri, attachment: Boolean = false) {
+        if (attachment) { clearAttachment(); attachmentUri = uri; attachmentBusy = true; attachmentStatus.text = "Screenshot wird lokal gelesen …" }
+        val attachmentToken = attachmentGeneration
         val token = ++imageGeneration
         status.text = "Screenshot wird lokal gelesen …"
         val reader = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
@@ -453,10 +475,26 @@ class WorkflowActivity : Activity() {
             while (options.outWidth / sample > 2048 || options.outHeight / sample > 2048) sample *= 2
             options.inJustDecodeBounds = false; options.inSampleSize = sample
             contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, options) } ?: error("image")
-        }.getOrElse { reader.close(); status.text = "Bild konnte nicht geöffnet werden"; return }
+        }.getOrElse {
+            reader.close(); status.text = "Bild konnte nicht geöffnet werden"
+            if (attachment) { attachmentBusy = false; attachmentStatus.text = "Bild nicht lesbar · erneut anhängen oder entfernen" }
+            return
+        }
+        if (attachment) {
+            attachmentBitmap = bitmap; attachmentPreview.setImageBitmap(bitmap)
+            attachmentPreview.visibility = android.view.View.VISIBLE
+        }
         val image = InputImage.fromBitmap(bitmap, 0)
         reader.process(image).addOnSuccessListener {
-            if (token == imageGeneration && !isDestroyed) {
+            if ((if (attachment) attachmentToken == attachmentGeneration else token == imageGeneration) && !isDestroyed) {
+                if (attachment) {
+                    attachmentLabels = it.textBlocks.flatMap { block -> block.lines }.map { line -> line.text.trim() }
+                        .filter { label -> WorkflowComposer.validText(label) }.distinct().take(80)
+                    attachmentBusy = false
+                    attachmentStatus.text = if (attachmentLabels.isEmpty()) "Keine Beschriftungen erkannt · anderes Bild anhängen oder entfernen"
+                        else "Screenshot angehängt · ${attachmentLabels.size} Beschriftungen lokal erkannt · Text ergänzen und senden"
+                    return@addOnSuccessListener
+                }
                 output.text = "Screenshot-Text (OCR, ungeprüft):\n${it.text.take(20_000)}"
                 val labels = it.textBlocks.flatMap { block -> block.lines }.map { line -> line.text.trim() }
                     .filter { label -> WorkflowComposer.validText(label) }.distinct().take(80)
@@ -466,7 +504,70 @@ class WorkflowActivity : Activity() {
                     .setItems(labels.toTypedArray()) { _, i -> composeStep(labels[i]) }
                     .setNegativeButton("Abbrechen", null).show()
             }
-        }.addOnFailureListener { if (token == imageGeneration) status.text = "Texterkennung fehlgeschlagen" }.addOnCompleteListener { reader.close(); bitmap.recycle() }
+        }.addOnFailureListener {
+            if (attachment && attachmentToken == attachmentGeneration) {
+                attachmentBusy = false; attachmentStatus.text = "Texterkennung fehlgeschlagen · erneut anhängen oder entfernen"
+            } else if (!attachment && token == imageGeneration) status.text = "Texterkennung fehlgeschlagen"
+        }.addOnCompleteListener {
+            reader.close()
+            if (!attachment || attachmentBitmap !== bitmap) bitmap.recycle()
+        }
+    }
+    private fun clearAttachment() {
+        attachmentGeneration++; attachmentBusy = false; attachmentUri = null; attachmentLabels = emptyList()
+        attachmentPreview.setImageDrawable(null); attachmentPreview.visibility = android.view.View.GONE
+        attachmentBitmap = null
+        attachmentStatus.text = "Screenshot optional · Bild und Text gemeinsam senden"
+    }
+    private fun sendMessage() {
+        val text = goal.text.toString().trim()
+        ownerOverride()
+        if (PhoneTaskPlanParser.isStop(text)) { refresh(); return }
+        if (text.isBlank()) { status.text = "Was soll Bob mit dem Screenshot tun? Bitte einen Auftrag eingeben."; return }
+        if (attachmentUri == null) { startAutomatic(); return }
+        if (attachmentBusy) { status.text = "Screenshot wird noch gelesen. Danach erneut senden."; return }
+        if (attachmentLabels.isEmpty()) { status.text = "Screenshot nicht lesbar. Bitte ersetzen oder entfernen."; return }
+        if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App auswählen"; return }
+        val labels = attachmentLabels.toList()
+        val app = selectedApp
+        val token = imageGeneration
+        val attachmentToken = attachmentGeneration
+        fun submit(target: String?) {
+            if (token != imageGeneration || attachmentToken != attachmentGeneration || app != selectedApp || text != goal.text.toString().trim()) return
+            val resolved = WorkflowMessage.resolve(text, labels, target)
+            if (resolved == null) {
+                val clickTarget = WorkflowMessage.clickTarget(text, labels, target)
+                if (clickTarget != null) {
+                    val expected = EditText(this).apply { hint = "Welcher Text soll danach erscheinen?" }
+                    val dialog = AlertDialog.Builder(this).setTitle("Ergebnis nach dem Tippen auf $clickTarget")
+                        .setView(expected).setPositiveButton("Senden", null).setNegativeButton("Abbrechen", null).create()
+                    dialog.setOnShowListener {
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                            if (token != imageGeneration || attachmentToken != attachmentGeneration || app != selectedApp || text != goal.text.toString().trim()) { dialog.dismiss(); return@setOnClickListener }
+                            val command = WorkflowComposer.command(WorkflowAction.CLICK, clickTarget, expected = expected.text.toString())
+                            if (command == null) expected.error = "Bitte einen eindeutigen Ergebnistext angeben"
+                            else { commands.setText(command); dialog.dismiss(); launch(false, false) }
+                        }
+                    }
+                    dialog.show(); return
+                }
+                status.text = "Bitte Ziel und Aktion beschreiben, z. B. Schreibe Silber in Suchfeld. Beim Tippen auch den erwarteten Ergebnistext angeben."
+                return
+            }
+            commands.setText(resolved)
+            launch(false, false)
+        }
+        val resolved = WorkflowMessage.resolve(text, labels)
+        if (resolved != null) submit(null)
+        else if (WorkflowMessage.needsTarget(text)) AlertDialog.Builder(this)
+            .setTitle("Welche Beschriftung meinst du?").setItems(labels.toTypedArray()) { _, i -> submit(labels[i]) }
+            .setNegativeButton("Abbrechen", null).show()
+        else submit(null)
+    }
+    override fun onSaveInstanceState(out: Bundle) {
+        out.putString("draftGoal", goal.text.toString())
+        attachmentUri?.let { out.putString("draftImage", it.toString()) }
+        super.onSaveInstanceState(out)
     }
     private fun searchJson(tree: Uri, query: String) {
         if (fileBusy) return
@@ -551,5 +652,5 @@ class WorkflowActivity : Activity() {
     }
     private fun cancelFiles() { fileCancellation?.cancel(); runCatching { fileStream?.close() }; fileStream = null }
     override fun onStop() { aiGeneration++; super.onStop() }
-    override fun onDestroy() { aiGeneration++; imageGeneration++; cancelFiles(); super.onDestroy() }
+    override fun onDestroy() { aiGeneration++; imageGeneration++; attachmentGeneration++; cancelFiles(); attachmentPreview.setImageDrawable(null); attachmentBitmap = null; super.onDestroy() }
 }
