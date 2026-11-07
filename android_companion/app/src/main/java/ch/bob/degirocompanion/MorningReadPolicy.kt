@@ -566,6 +566,8 @@ internal object MorningReadPolicy {
 
     private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?, captureAll: Boolean = false, symbolProbe: Boolean = false): Action {
         if (nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
+        if (ConnectionErrorPolicy.detected(nodes.flatMap { listOf(it.text,it.description) }))
+            return Action(Kind.BLOCK,code="CONNECTION_ERROR")
         protection(nodes)?.let { cause ->
             if (cause == "PROTECTED_ORDER_CONFIRM") {
                 if(!discovery) {

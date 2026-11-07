@@ -52,6 +52,10 @@ class WorkflowActivity : Activity() {
             }
             aiGeneration++; imageGeneration++; cancelFiles(); output.text = ""; refresh() }
         label("App wählen, Auftrag sagen oder eingeben, Start. Bob liest und prüft selbst. Erfolgreiche Abläufe bleiben lokal gespeichert. Keine Orders, Anmeldung oder Zahlungen.")
+        button("Selbsttest · Klicken, Schreiben und Screenshot prüfen") {
+            WorkflowService.stop()
+            startActivity(Intent(this,WorkflowSelfTestActivity::class.java))
+        }
         button("Einrichtung · Auftrags-Bedienungshilfe öffnen") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         appLabel = label("Noch keine App gewählt")
         button("App auswählen") { chooseApp() }

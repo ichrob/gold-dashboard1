@@ -105,6 +105,17 @@ class WorkflowDeviceTest {
         assertTrue(automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Lesedienst zuerst einschalten.").isNotEmpty())
         context.getSharedPreferences("workflow_auto_v1",0).edit().clear().commit()
     }
+    @Test fun builtInSelfTestChecksClickWriteAndScreenshot() {
+        context.getSharedPreferences("workflow_selftest",0).edit().clear().commit()
+        context.startActivity(Intent(context,WorkflowSelfTestActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        await("Built-in self-test failed") {
+            context.getSharedPreferences("workflow_selftest",0).getBoolean("success",false)
+        }
+        assertEquals(3,WorkflowHealth.diagnostic(context)!!.getInt("confirmed"))
+        assertFalse(LocalWorkflow.allowedApp(context.packageName))
+        main { assertFalse(WorkflowService.instance!!.begin(context.packageName,null)) }
+    }
     @Test fun stopBeforeAppLaunchInvalidatesPendingAutomation() {
         main {
             assertTrue(WorkflowService.instance!!.beginAutomatic(app,goal,false))

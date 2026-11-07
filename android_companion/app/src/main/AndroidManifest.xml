@@ -29,6 +29,7 @@
         <!-- Local-only result for the fixed non-secret Termux help test. -->
         <receiver android:name=".TermuxCheckResultReceiver" android:exported="false" />
         <activity android:name=".LocalPinActivity" android:exported="false" android:excludeFromRecents="true" />
+        <activity android:name=".WorkflowSelfTestActivity" android:exported="false" />
         <activity android:name=".WorkflowActivity" android:exported="false" />
         <service android:name=".WorkflowService" android:exported="true"
                  android:label="Bob · Meine Aufträge" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">

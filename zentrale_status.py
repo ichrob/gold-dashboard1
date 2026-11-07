@@ -30,6 +30,7 @@ def number(value, maximum=1000):
 STEPS = {
     'COMPLETE': ('Lesedaten erfasst', 'Produktnachweise bleiben separat zu prüfen.'),
     'PARTIAL': ('Teilweise gelesen', 'Fehlende Felder in den Produktnachweisen prüfen.'),
+    'CONNECTION_ERROR': ('DEGIRO-Verbindungsfehler', 'DEGIRO-Verbindung prüfen und anschließend den Leselauf neu starten.'),
     'SEARCH_MISSING': ('Suche nicht gefunden', 'Letzte Lesediagnose im Bereich Probleme prüfen.'),
     'SEARCH_NO_PROGRESS': ('Suche kommt nicht weiter', 'Letzte Lesediagnose im Bereich Probleme prüfen.'),
     'SCREEN_LOCKED': ('Bildschirm gesperrt', 'Für einen neuen Leselauf muss das Handy entsperrt sein.'),

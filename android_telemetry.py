@@ -177,8 +177,10 @@ def validate_detail_transfer(value, now):
     return dict(value)
 
 def validate_workflow(value, now):
-    if not isinstance(value, dict) or set(value) != {'state', 'source', 'confirmed', 'total', 'at'}:
+    if not isinstance(value, dict) or set(value) not in ({'state', 'source', 'confirmed', 'total', 'at'}, {'state', 'source', 'confirmed', 'total', 'at', 'reason'}):
         raise ValueError('Invalid workflow fields')
+    if value.get('reason', 'NONE') not in {'NONE','USER_STOP','SCREEN_LOCKED','USER_INTERRUPTED','APP_CHANGED','PROTECTED_VIEW','CONNECTION_ERROR','TIMEOUT','AMBIGUOUS_TARGET','ACTION_REJECTED','SERVICE_INTERRUPTED','NO_LOCAL_PLAN','AI_UNCONFIRMED','SCREEN_UNSTABLE','OTHER'}:
+        raise ValueError('Invalid workflow reason')
     if value['state'] not in ('STARTED', 'SUCCEEDED', 'STOPPED') or value['source'] not in ('NONE', 'LOCAL', 'CACHE', 'AI'):
         raise ValueError('Invalid workflow state')
     if type(value['confirmed']) is not int or type(value['total']) is not int or not 0 <= value['confirmed'] <= value['total'] <= 12:
