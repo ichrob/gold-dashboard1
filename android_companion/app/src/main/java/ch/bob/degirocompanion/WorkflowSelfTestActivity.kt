@@ -44,6 +44,7 @@ class WorkflowSelfTestActivity : Activity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         surface=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(32,120,32,40) }
         setContentView(surface)
         addStatus("Lokaler Selbsttest · nur Testdaten")

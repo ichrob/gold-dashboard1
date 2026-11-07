@@ -31,7 +31,7 @@ class WorkflowDeviceTest {
             if (result) return
             SystemClock.sleep(100)
         }
-        fail(message + ": " + WorkflowService.message + " [fixture OCR: " + WorkflowService.screenshotText + "]")
+        fail(message + ": " + context.getSharedPreferences("workflow_selftest",0).getString("detail", "") + " / " + WorkflowService.message + " [fixture OCR: " + WorkflowService.screenshotText + "]")
     }
     @Before fun setup() {
         context.getSharedPreferences("local_workflows_v1",0).edit().clear().commit()
