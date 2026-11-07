@@ -1,4 +1,5 @@
 <resources>
     <string name="product_reader_label">Bob: Produktseite einmal lesen</string>
     <string name="product_reader_description">Liest nach deinem Start sichtbare DEGIRO-Produktfelder und bedient die Produktsuche. Falls Suchklicks wirkungslos bleiben, ist ein gezielter Bildschirmtipp auf die erkannte Suche möglich. Nach Start werden bis zu vier Bilder der zehn Gold-Hebel-Top-Ergebnisse aufgenommen, gescrollt und an deinen privaten Bob übertragen. Keine Orders oder Passwörter. STOPP oder Sperren beendet die Prüfung.</string>
+    <string name="workflow_reader_description">Führt nur lokal gestartete, selbst gespeicherte Aufträge in der gewählten App aus. Liest Beschriftungen und auf Wunsch einen Screenshot. Prüft Ergebnisse; stoppt bei Sperre, Unklarheit oder geschützten Ansichten. Keine Orders oder Hintergrund-Fernsteuerung.</string>
 </resources>
