@@ -6,6 +6,7 @@ cryptographic signature or proof that a database operation caused a decrease.
 """
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -46,6 +47,52 @@ def _sample(now, reporter):
             "unit": "bytes", "resource": render_disk_metrics.RESOURCE}
 
 
+def _receipt_snapshot_valid(value):
+    """Reject damaged or forged local fields; not a cryptographic signature."""
+    if type(value) is not dict:
+        return False
+    observed, captured, used = (
+        value.get("observedAt"), value.get("capturedAt"), value.get("usedBytes"))
+    return (value.get("source") == "render-metrics-api"
+            and value.get("resource") == render_disk_metrics.RESOURCE
+            and value.get("unit") == "bytes"
+            and type(used) is int and 0 <= used <= 10**12
+            and type(observed) in (int, float) and math.isfinite(observed)
+            and type(captured) in (int, float) and math.isfinite(captured)
+            and 0 <= captured - observed <= MAX_SAMPLE_AGE_SECONDS)
+
+
+def _receipt_boundaries_valid(record):
+    before = record["before"]
+    if not _receipt_snapshot_valid(before):
+        return False
+    if record.get("diskBytesFreedByMaintenance") is not None:
+        return False
+    state = record["state"]
+    if state == "before":
+        return (record.get("maintenanceEndedAt") is None
+                and record.get("after") is None
+                and record.get("physicalVolumeNetDecreaseBytes") is None)
+    ended = record.get("maintenanceEndedAt")
+    started = before["capturedAt"]
+    if (type(ended) not in (int, float) or not math.isfinite(ended)
+            or not 0 <= ended - started <= MAX_OPERATION_SECONDS):
+        return False
+    if state == "ended":
+        return (record.get("after") is None
+                and record.get("physicalVolumeNetDecreaseBytes") is None)
+    if state != "paired" or not _receipt_snapshot_valid(record.get("after")):
+        return False
+    after = record["after"]
+    if (not 0 <= after["capturedAt"] - ended <= MAX_POST_WAIT_SECONDS
+            or after["observedAt"] <= ended
+            or after["observedAt"] <= before["observedAt"]):
+        return False
+    net = record.get("physicalVolumeNetDecreaseBytes")
+    return (type(net) is int and
+            net == max(before["usedBytes"] - after["usedBytes"], 0))
+
+
 def _load(path):
     if path.is_symlink() or not path.is_file():
         raise MeasurementBlocked("receipt-not-regular-file")
@@ -60,7 +107,8 @@ def _load(path):
             or not IDENTIFIER.fullmatch(record["measurementId"])
             or record.get("resource") != render_disk_metrics.RESOURCE
             or record.get("state") not in ("before", "ended", "paired")
-            or type(record.get("before")) is not dict):
+            or type(record.get("before")) is not dict
+            or not _receipt_boundaries_valid(record)):
         raise MeasurementBlocked("receipt-invalid")
     return record
 
