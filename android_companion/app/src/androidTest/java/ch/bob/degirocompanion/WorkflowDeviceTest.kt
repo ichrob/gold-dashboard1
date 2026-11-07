@@ -117,6 +117,39 @@ class WorkflowDeviceTest {
             main { activity.finish() }; file.delete()
         }
     }
+    @Test fun learnsUnlabelledSymbolRecognizesMovedIconAndStopsOnDuplicates() {
+        context.getSharedPreferences("workflow_symbols_v1",0).edit().clear().commit()
+        context.startActivity(Intent().setClassName(app, app + ".MainActivity").putExtra("mode", "symbol")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        await("Unlabelled icon missing") { automation.rootInActiveWindow?.findAccessibilityNodeInfosByViewId(app + ":id/symbol_button")?.size == 1 }
+        SystemClock.sleep(700)
+        val node = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/symbol_button").single()
+        val bounds = android.graphics.Rect(); node.getBoundsInScreen(bounds)
+        assertTrue(node.text.isNullOrBlank()); assertTrue(node.contentDescription.isNullOrBlank())
+        val screenshot = automation.takeScreenshot()!!
+        val pattern = WorkflowSymbolMatch.pattern(WorkflowSymbols.gray(screenshot), screenshot.width, screenshot.height,
+            SymbolBox(bounds.left, bounds.top, bounds.right, bounds.bottom))!!
+        screenshot.recycle()
+        assertTrue(WorkflowSymbols.save(context, app, LearnedSymbol("Lupe", "Suchfeld", pattern)))
+        assertNull(WorkflowSymbols.plan(context, "org.other.app", "Öffne Lupe"))
+        assertEquals(0L, WorkflowSymbols.list(context,app).single().verifiedAt)
+        fun start(mode: String) {
+            shell("am force-stop " + app)
+            main { assertTrue(WorkflowService.instance!!.beginAutomatic(app,"Öffne Lupe",false)) }
+            context.startActivity(Intent().setClassName(app, app + ".MainActivity").putExtra("mode",mode)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        }
+        start("symbol-moved")
+        await("Learned moved icon did not open search") { WorkflowService.run?.let { WorkflowAiPolicy.verified(it) } == true }
+        assertTrue(WorkflowSymbols.list(context, app).single().verifiedAt > 0)
+        assertEquals(1, automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").size)
+        start("symbol-duplicate")
+        await("Duplicate icons did not stop") { WorkflowService.run?.finished == true }
+        assertEquals(0, WorkflowService.run!!.index)
+        assertEquals(0, automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").size)
+        assertTrue(WorkflowSymbols.forget(context, app, "Lupe"))
+        assertNull(WorkflowSymbols.plan(context, app, "Öffne Lupe"))
+    }
     @Test fun newestOwnerRequestReplacesPendingSequenceAndInvalidatesOldAnswers() {
         main {
             val service = WorkflowService.instance!!

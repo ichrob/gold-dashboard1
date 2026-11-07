@@ -35,6 +35,11 @@ class WorkflowService : AccessibilityService() {
     private var recorded = true
     private var capture = false
     private var captureObservation: WorkflowAutoObservation? = null
+    private var symbolPending = false
+    private var symbolMatch: Pair<WorkflowFrame, Int>? = null
+    private var symbolBounds = emptyList<SymbolBox>()
+    private var symbolMatchedAt = 0L
+    private var symbolIssuedStep = -1
     private var generation = 0
     private var automatic = false
     private var autoCloud = false
@@ -99,12 +104,32 @@ class WorkflowService : AccessibilityService() {
                 if (planning && proposalContext != WorkflowAuto.context(frame)) {
                     finish("Ansicht während KI-Anfrage geändert; nichts ausgeführt"); return
                 }
-                run?.tick(frame, SystemClock.elapsedRealtime(), unlocked) { step, index ->
+                var actionFrame = frame
+                val active = run
+                val step = active?.steps?.getOrNull(active.index)
+                if (step?.target?.startsWith("Symbol: ") == true && symbolIssuedStep != active?.index) {
+                    if (step.action != WorkflowAction.CLICK || LocalWorkflow.protected(frame)) { finish("Symbolauftrag nicht zulässig"); return }
+                    val bounds = refs.map { n -> android.graphics.Rect().let { n.getBoundsInScreen(it); SymbolBox(it.left, it.top, it.right, it.bottom) } }
+                    val match = symbolMatch
+                    if (match != null) {
+                        if (frame != match.first || bounds != symbolBounds || SystemClock.elapsedRealtime() - symbolMatchedAt > 1200) {
+                            finish("Ansicht geändert: Symbol erneut prüfen"); return
+                        }
+                        actionFrame = frame.copy(nodes = frame.nodes.mapIndexed { i, node -> if (i == match.second) node.copy(label = step.target) else node })
+                    } else {
+                        if (!symbolPending) captureSymbol(frame, bounds, step.target)
+                        if (selected.isNotEmpty()) handler.postDelayed(this, 500)
+                        return
+                    }
+                }
+                run?.tick(actionFrame, SystemClock.elapsedRealtime(), unlocked) { step, index ->
                     val n = refs.getOrNull(index)
                     // Frame and action originate from the same freshly read tree.
                     val currentRoot = rootInActiveWindow
                     if (n == null || currentRoot?.windowId != frame.window || currentRoot.packageName?.toString() != selected) false
-                    else if (step.action == WorkflowAction.CLICK) n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    else if (step.action == WorkflowAction.CLICK) n.performAction(AccessibilityNodeInfo.ACTION_CLICK).also { success ->
+                        if (success && step.target.startsWith("Symbol: ")) { symbolIssuedStep = run?.index ?: -1; symbolMatch = null }
+                    }
                     else n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
                         putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, step.value)
                     })
@@ -156,6 +181,10 @@ class WorkflowService : AccessibilityService() {
         return true
     }
     private fun prepareAutomatic(frame: WorkflowFrame) {
+        WorkflowSymbols.plan(this, selected, recipeGoal)?.let {
+            run = WorkflowRun(selected, it, SystemClock.elapsedRealtime()); healthSource = "LOCAL"
+            message = "Prüfe gelerntes Symbol auf dem aktuellen Bildschirm"; return
+        }
         WorkflowAuto.local(recipeGoal, frame)?.let {
             run = WorkflowRun(selected, it, SystemClock.elapsedRealtime())
             healthSource = "LOCAL"
@@ -195,11 +224,13 @@ class WorkflowService : AccessibilityService() {
     private fun finish(reason: String) {
         val notify = automatic && reason != "Neue Sitzung"
         automatic = false; planning = false; autoCloud = false; autoObservation = null; proposalContext = null
+        symbolPending = false; symbolMatch = null; symbolBounds = emptyList(); symbolIssuedStep = -1
         generation++; handler.removeCallbacks(poll); selected = ""; capture = false; captureObservation = null
         run?.let { if (!it.finished) it.stop(reason) }; message = reason
         run?.let {
             if (!recorded) {
                 recorded = true
+                if (WorkflowAiPolicy.verified(it)) it.steps.filter { step -> step.target.startsWith("Symbol: ") }.forEach { step -> WorkflowSymbols.verified(this, it.app, step.target) }
                 if (!WorkflowAiPolicy.verified(it)) WorkflowLibrary.failed(this, it.app, recipeGoal)
                 message += runCatching { WorkflowLibrary.record(this, it, recipeGoal, recipeTitle) }
                     .getOrDefault(" · Speichern fehlgeschlagen")
@@ -223,6 +254,59 @@ class WorkflowService : AccessibilityService() {
     }
     override fun onInterrupt() { finish("Dienst unterbrochen") }
     override fun onDestroy() { finish("Dienst beendet"); instance = null; observation = null; screenshotText = ""; super.onDestroy() }
+    private fun symbolSafe(frame: WorkflowFrame): Boolean {
+        val root = rootInActiveWindow ?: return false
+        if (root.packageName?.toString() != frame.app || root.windowId != frame.window ||
+            (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return false
+        var count = 0
+        fun safe(n: AccessibilityNodeInfo, depth: Int): Boolean {
+            if (++count > 400 || depth > 30 || n.childCount > 100 || n.isPassword) return false
+            val label = n.text?.toString().orEmpty() + " " + n.contentDescription?.toString().orEmpty()
+            if (LocalWorkflow.protected(WorkflowFrame(frame.app, frame.window, listOf(WorkflowNode(label, "", false, false))))) return false
+            return (0 until n.childCount).all { n.getChild(it)?.let { child -> safe(child, depth + 1) } ?: false }
+        }
+        return safe(root, 0)
+    }
+    private fun captureSymbol(frame: WorkflowFrame, bounds: List<SymbolBox>, target: String) {
+        val learned = WorkflowSymbols.find(this, frame.app, target)
+        if (learned == null) { finish("Symbol nicht mehr gespeichert; bitte erneut erklären"); return }
+        if (Build.VERSION.SDK_INT < 30 || !symbolSafe(frame)) { finish("Symbolprüfung nicht verfügbar oder Ansicht geschützt"); return }
+        val candidates = frame.nodes.indices.filter { frame.nodes[it].clickable && !frame.nodes[it].editable }
+        if (candidates.isEmpty() || candidates.size > 80) { finish("Kein eindeutig bedienbares Symbol erkannt"); return }
+        val token = generation
+        symbolPending = true; message = "Vergleiche gelerntes Symbol lokal mit dem aktuellen Bildschirm"
+        takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+            override fun onFailure(errorCode: Int) { if (token == generation) finish("Symbol-Screenshot nicht verfügbar; nichts angetippt") }
+            override fun onSuccess(result: ScreenshotResult) {
+                val buffer = result.hardwareBuffer
+                val wrapped = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                val original = wrapped?.copy(Bitmap.Config.ARGB_8888, false)
+                wrapped?.recycle(); buffer.close()
+                if (original == null) { if (token == generation) finish("Symbol-Screenshot nicht lesbar"); return }
+                if (token != generation || observation != frame || !symbolSafe(frame)) {
+                    original.recycle(); if (token == generation) finish("Ansicht geändert; Symbolprüfung verworfen"); return
+                }
+                Thread {
+                    val matched = runCatching {
+                        val factor = minOf(1.0, 720.0 / original.width)
+                        val image = Bitmap.createScaledBitmap(original, (original.width * factor).toInt(), (original.height * factor).toInt(), true)
+                        try {
+                            val boxes = candidates.map { index -> bounds[index].let { b -> SymbolBox((b.left * factor).toInt(), (b.top * factor).toInt(), (b.right * factor).toInt(), (b.bottom * factor).toInt()) } }
+                            WorkflowSymbolMatch.match(learned.pattern, WorkflowSymbols.gray(image), image.width, image.height, boxes)?.let { candidates[it] }
+                        } finally { if (image !== original) image.recycle() }
+                    }.getOrNull()
+                    original.recycle()
+                    handler.post {
+                        if (token != generation) return@post
+                        symbolPending = false
+                        if (observation != frame || !symbolSafe(frame)) { finish("Ansicht geändert; Symbolprüfung verworfen"); return@post }
+                        if (matched == null) { finish("Symbol fehlt oder ist nicht eindeutig. Bitte erneut erklären; nichts angetippt."); return@post }
+                        symbolMatch = frame to matched; symbolBounds = bounds; symbolMatchedAt = SystemClock.elapsedRealtime()
+                    }
+                }.start()
+            }
+        })
+    }
     private fun captureScreen(token: Int, window: Int) {
         if (Build.VERSION.SDK_INT < 30) { message = "Direkte Screenshots benötigen Android 11; Bildauswahl verwenden"; return }
         val app = selected
