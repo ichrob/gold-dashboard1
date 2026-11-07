@@ -127,3 +127,29 @@ class DatabaseTests(unittest.TestCase):
         cold.offload_batch(self.c,self.drive)
         cold.codec._CACHE.clear();self.drive.corrupt=True
         with self.assertRaises(cold.codec.ColdArchiveUnavailable):cold.get(self.c,'old',drive=self.drive)
+
+
+    def test_bounded_scanner_skips_pointer_prefix_and_reaches_original(self):
+        self.c.execute("""CREATE INDEX sample_analysis_age
+            ON bob_diagnostic_history(stage,recorded_at DESC)""")
+        pointer = json.dumps({cold.TAG: ["f" * 32, 0], "timeframe": "15m"})
+        rows = [
+            ("arch-" + str(i), "analysis", 123.0, None, pointer, i)
+            for i in range(900)
+        ]
+        self.c.executemany("""INSERT INTO bob_diagnostic_history
+            (id,stage,observed_at,build,payload,recorded_at)
+            VALUES (%s,%s,%s,%s,%s::jsonb,
+                    now()-interval '12 hours'+(%s*interval '1 second'))""", rows)
+        result = cold.offload_batch(self.c, self.drive)
+        self.assertEqual(result["status"], "verified-offload")
+        self.assertEqual(result["movedRows"], 1)
+        self.assertTrue(result["candidateScanBounded"])
+        self.assertGreater(result["scannedRows"], 900)
+        self.assertLessEqual(result["scannedRows"],
+                             candidate_scan.PAGE_ROWS * candidate_scan.MAX_SCAN_PAGES)
+        count = self.c.execute("""SELECT count(*) FROM bob_diagnostic_history
+            WHERE id LIKE 'arch-%' AND payload ? %s""", (cold.TAG,)).fetchone()[0]
+        self.assertEqual(count, 900)
+        self.assertIn(cold.TAG, self.c.execute(
+            "SELECT payload FROM bob_diagnostic_history WHERE id='old'").fetchone()[0])
