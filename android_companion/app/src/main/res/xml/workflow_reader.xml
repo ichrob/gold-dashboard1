@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/workflow_reader_description"
-    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeTouchInteractionStart"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeTouchInteractionStart|typeViewClicked|typeViewTextChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:packageNames="ch.bob.degirocompanion.stable"
     android:accessibilityFlags="flagReportViewIds"

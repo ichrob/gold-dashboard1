@@ -20,6 +20,13 @@ class WorkflowSymbolMatchTest {
         assertNull(WorkflowSymbolMatch.match(pattern(), screen(),width,height,listOf(SymbolBox(10,20,42,52))))
         assertNull(WorkflowSymbolMatch.match(pattern(),IntArray(width*height),height,width,listOf(SymbolBox(10,20,42,52))))
     }
+    @Test fun similarSecondaryIconIsAmbiguousDespiteACloserFirstMatch() {
+        val pixels = screen(10 to 20, 90 to 140)
+        for (y in 140 until 172) for (x in 90 until 122) {
+            if (pixels[y * width + x] == 0) pixels[y * width + x] = 30
+        }
+        assertNull(WorkflowSymbolMatch.match(pattern(), pixels,width,height,listOf(SymbolBox(10,20,42,52),SymbolBox(90,140,122,172))))
+    }
     @Test fun blankOrOversizedTrainingRegionsAreRejected() {
         assertNull(WorkflowSymbolMatch.pattern(screen(),width,height,SymbolBox(10,20,42,52)))
         assertNull(WorkflowSymbolMatch.pattern(screen(10 to 20),width,height,SymbolBox(0,0,width,height)))
