@@ -638,7 +638,10 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
         return
     if now<control['startAt']:
-        control.update(status='scheduled',reason='Start am 8.10.2026, danach fortlaufend')
+        if profile_policy and profile_policy.get('relaunch'):
+            control.update(status='scheduled', reason='Neuer Vergleich ab 09.11.2026 08:00 Zürich; kein Vorab-Einstieg')
+        else:
+            control.update(status='scheduled',reason='Start am 8.10.2026, danach fortlaufend')
     elif not control.get('enabled'):
         control.update(status='paused',reason='Simulation pausiert')
     else:
@@ -646,7 +649,10 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             paper_forward_validation.start(control,market,now)
         active=conn.execute('SELECT id,payload FROM bob_paper_cases WHERE closed_at IS NULL ORDER BY started_at LIMIT 1 FOR UPDATE').fetchone()
         if campaign_over and not active:
-            control.update(status='completed',reason='Alte Testphase abgeschlossen' if control.get('retiredAt') else 'Vergleich beendet · Freitag 16:00 Zürich',endAt=campaign_end)
+            control.update(status='completed',reason='Alte Testphase abgeschlossen' if control.get('retiredAt') else
+                'Neuer 20-Handelstage-Vergleich beendet · unbekannte Fälle getrennt prüfen'
+                if profile_policy and profile_policy.get('relaunch') else 'Vergleich beendet · Freitag 16:00 Zürich',
+                endAt=campaign_end)
             conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
             return
         if active:
@@ -773,7 +779,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                         c['trendExtensions']=0
                 if profile_policy and profile_policy.get('campaign'):
                     c['endsAt']=min(c['endsAt'],profile_policy['campaign_end'])
-                    c['campaign']='signal-comparison-20261027'
+                    c['campaign']=profile_policy.get('campaign_id', 'signal-comparison-20261027')
                     c['entryHypothesis']=market.get('paperEntrySource') or 'confirmed-main'
                     c['entrySignalAt']=(market.get('earlyWarning') or {}).get('signalBarAt') if profile_policy.get('early_warning') else market.get('analysisBarAt')
                 entry_control=copy.deepcopy(control)

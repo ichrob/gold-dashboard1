@@ -53,6 +53,21 @@ class PaperHeartbeatTests(unittest.TestCase):
                 self.assertIn(r["sessionMode"], ("night","preparation","weekend"))
                 self.assertEqual(r["pauseReason"],"outside-user-trading-window-not-broker-market-closed")
 
+    def test_relaunch_becomes_required_only_from_its_real_start(self):
+        import paper_portfolios
+        before=paper_portfolios.RELAUNCH_START-60000
+        active_before=len([p for p,v in paper_portfolios.POLICIES.items()
+                           if not v.get('start_at') or before>=v['start_at']])
+        self.assertEqual(active_before,7)
+        monday=int(datetime(2026,11,9,9,35,tzinfo=TZ).timestamp()*1000)
+        due=len(paper_portfolios.POLICIES)
+        healthy=paper_health.snapshot(connection([monday-1000]*due),monday)
+        self.assertEqual(healthy['state'],'ok')
+        self.assertEqual(healthy['accountsTotal'],9)
+        missing=paper_health.snapshot(connection([monday-1000]*(due-1)+[None]),monday)
+        self.assertEqual(missing['state'],'degraded')
+        self.assertEqual(missing['accountsChecked'],8)
+
     def test_future_timestamp_does_not_count_as_success(self):
         now=millis(12,12,0)
         self.assertEqual(paper_health.snapshot(connection([now+5000]*7),now)["state"],"degraded")

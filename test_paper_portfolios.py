@@ -29,11 +29,11 @@ def quote(at=NOW):
 
 
 class ProfileTests(unittest.TestCase):
-    def test_four_100_and_one_800_eur_accounts(self):
+    def test_old_seven_and_new_two_ledger_profiles_are_distinct(self):
         self.assertEqual(list(profiles.POLICIES),
-                         ['conservative','balanced','offensive','early100','trend800','early1000oct','normal1000oct'])
+                         ['conservative','balanced','offensive','early100','trend800','early1000oct','normal1000oct','trend800nov','normal1000nov'])
         self.assertEqual(len(set(profiles.names(p)['bob_paper_cases']
-                                 for p in profiles.POLICIES)),7)
+                                 for p in profiles.POLICIES)),9)
         self.assertEqual(profiles.START, int(datetime(
             2026,10,12,8,tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000))
         self.assertFalse(hasattr(profiles, 'place_order'))
@@ -145,7 +145,7 @@ class ProfileTests(unittest.TestCase):
         for profile in profiles.POLICIES:
             profiles.Ledger(conn,profile).execute(
                 'SELECT payload FROM bob_paper_cases WHERE closed_at IS NULL')
-        self.assertEqual(len(set(sql)),7)
+        self.assertEqual(len(set(sql)),len(profiles.POLICIES))
         self.assertNotIn('bob_paper_cases WHERE',sql[0])
         profiles.Ledger(conn,'balanced').execute(
             'SELECT payload FROM bob_paper_products')
@@ -166,7 +166,10 @@ class ProfileTests(unittest.TestCase):
                 expected_capital=profiles.POLICIES[profile].get('initial_capital_eur',100.)
                 self.assertEqual(control['cash'],expected_capital)
                 self.assertEqual(control['equity'],expected_capital)
-                self.assertEqual(control['startAt'],NOW if profile=='early100' or profiles.POLICIES[profile].get('campaign') else profiles.START)
+                expected_start = (profiles.RELAUNCH_START if profiles.POLICIES[profile].get('relaunch')
+                                  else NOW if profile=='early100' or profiles.POLICIES[profile].get('campaign')
+                                  else profiles.START)
+                self.assertEqual(control['startAt'], expected_start)
             found=profiles.run_all(conn,{},market(),
                 {'choices':[{'isin':ISIN,'approval':'Bob-Pflichtprüfung bestanden'}]},
                 {ISIN:quote()},NOW,settings={})
@@ -191,10 +194,10 @@ class ProfileTests(unittest.TestCase):
             count=conn.execute('SELECT count(*) FROM bob_paper_cases').fetchone()[0]
             self.assertEqual(count,0)
             view=profiles.report(conn, '2026-10-12')
-            self.assertEqual(view['mode'],'seven-independent-paper-accounts')
-            self.assertEqual(view['simulatedCapitalEur'],3200)
+            self.assertEqual(view['mode'],'independent-prospective-paper-accounts')
+            self.assertEqual(view['simulatedCapitalEur'],5000)
             self.assertFalse(view['realOrders'])
-            self.assertEqual(len(view['accounts']),7)
+            self.assertEqual(len(view['accounts']),9)
             self.assertEqual({x['profile'] for x in view['accounts']},set(profiles.POLICIES))
         finally:
             conn.rollback()

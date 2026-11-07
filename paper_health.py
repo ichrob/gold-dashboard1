@@ -1,7 +1,7 @@
 """Public aggregate PAPER heartbeat, intentionally without ISINs or account details.
 
 A successful HTTP request is NOT proof that paper observations advanced.
-This reports all five durable account check timestamps from PostgreSQL.
+This reports all currently due durable account check timestamps from PostgreSQL.
 """
 import math
 import time
@@ -15,8 +15,12 @@ def snapshot(conn, now_ms=None):
     phase = background_push.degiro_session(now_ms)
     checked = 0
     ages = []
-    # All SQL identifiers are built from code-owned allowlisted profile names.
-    for profile in paper_portfolios.POLICIES:
+    # A future-dated relaunch does not count as missing before its declared
+    # first trading session. After the start, every new account is required.
+    # SQL identifiers remain code-owned allowlisted profile names.
+    active_profiles = [profile for profile, policy in paper_portfolios.POLICIES.items()
+                       if not policy.get('start_at') or now_ms >= policy['start_at']]
+    for profile in active_profiles:
         table = paper_portfolios.names(profile)["bob_paper_control"]
         row = conn.execute(f"SELECT payload FROM {table} WHERE id=1").fetchone()
         payload = row[0] if row and isinstance(row[0], dict) else {}
@@ -25,10 +29,10 @@ def snapshot(conn, now_ms=None):
             checked += 1
             ages.append((now_ms-value)/1000)
     # Initial market opening is allowed time to complete first fetch / cold-start.
-    # At other times, a status of "ok" requires ALL four durable ledgers to advance.
+    # At other times, a status of "ok" requires ALL active durable ledgers to advance.
     if phase != "trading":
         state = "paused"
-    elif checked == len(paper_portfolios.POLICIES) and max(ages) <= 300:
+    elif checked == len(active_profiles) and max(ages) <= 300:
         state = "ok"
     else:
         from datetime import datetime
@@ -38,7 +42,7 @@ def snapshot(conn, now_ms=None):
         state = "warming" if minutes < 8*60+10 else "degraded"
     return {"state": state, "sessionMode": phase,
             "pauseReason": "outside-user-trading-window-not-broker-market-closed" if state == "paused" else None,
-            "accountsTotal": len(paper_portfolios.POLICIES),
+            "accountsTotal": len(active_profiles),
             "accountsChecked": checked,
             "maxCheckAgeSeconds": round(max(ages)) if ages else None,
             "realOrders": False,
