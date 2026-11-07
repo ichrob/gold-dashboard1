@@ -13,6 +13,11 @@ class LocalWorkflowTest {
         assertNull(LocalWorkflow.parse("Schreibe \"1234\" in \"PIN\""))
         assertNull(LocalWorkflow.parse("Tippe auf \"Suche\""))
     }
+    @Test fun dictatedFormsAndMissingStableFieldId() {
+        assertEquals(2, LocalWorkflow.parse("Tippe auf Suche und warte auf Suchbegriff\nSchreibe Gold in Suchbegriff")!!.size)
+        val step = WorkflowStep(WorkflowAction.WRITE, "Suche", "Gold")
+        assertNull(LocalWorkflow.target(step, frame(node("Suche", edit=true))))
+    }
     @Test fun rejectsAmbiguityAndProtectedScreens() {
         val s = WorkflowStep(WorkflowAction.CLICK, "Suche", expected = "Treffer")
         assertNull(LocalWorkflow.target(s, frame(node("Suche", click=true), node("Suche", click=true))))
@@ -46,6 +51,14 @@ class LocalWorkflowTest {
         val locked = WorkflowRun("org.example.notes", p, 0)
         locked.tick(frame(node("Treffer")), 1, false) { _, _ -> fail(); false }
         assertEquals(0, locked.index)
+    }
+    @Test fun rejectedClickCannotBeReplayed() {
+        val run = WorkflowRun("org.example.notes", listOf(WorkflowStep(WorkflowAction.CLICK, "Suche", expected="Treffer")), 0)
+        var count = 0
+        val before = frame(node("Suche", click=true))
+        run.tick(before, 1, true) { _, _ -> count++; false }
+        run.tick(before, 2, true) { _, _ -> count++; true }
+        assertEquals(1, count); assertEquals(0, run.index); assertTrue(run.finished)
     }
     @Test fun preexistingExpectationAndAppSwitchStop() {
         val s = WorkflowStep(WorkflowAction.CLICK, "Suche", expected="Treffer")

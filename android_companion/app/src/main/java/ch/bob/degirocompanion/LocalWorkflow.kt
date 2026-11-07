@@ -20,7 +20,17 @@ internal object LocalWorkflow {
         if (input.length !in 1..5000) return null
         val lines = input.trim().lines().map { it.trim().replace('„', '"').replace('“', '"').replace('”', '"') }
         if (lines.size !in 1..12 || lines.any { it.isBlank() }) return null
-        return lines.map { line ->
+        return lines.map { raw ->
+            // Spoken forms remain exact grammars. Never interpret text read from a screen.
+            val naturalClick = Regex("(?:tippe|klicke) auf ([^\"]+) und warte auf ([^\"]+)", RegexOption.IGNORE_CASE).matchEntire(raw)
+            val naturalWrite = Regex("schreibe ([^\"]+) in ([^\"]+)", RegexOption.IGNORE_CASE).matchEntire(raw)
+            val naturalWait = Regex("warte auf ([^\"]+)", RegexOption.IGNORE_CASE).matchEntire(raw)
+            val line = when {
+                naturalClick != null -> "Tippe auf \"${naturalClick.groupValues[1]}\" -> \"${naturalClick.groupValues[2]}\""
+                naturalWrite != null -> "Schreibe \"${naturalWrite.groupValues[1]}\" in \"${naturalWrite.groupValues[2]}\""
+                naturalWait != null -> "Warte auf \"${naturalWait.groupValues[1]}\""
+                else -> raw
+            }
             val click = Regex("(?:tippe|klicke)(?: auf)? \"([^\"]+)\" (?:->|→) \"([^\"]+)\"", RegexOption.IGNORE_CASE).matchEntire(line)
             val write = Regex("(?:schreibe|tippe) \"([^\"]+)\" in \"([^\"]+)\"", RegexOption.IGNORE_CASE).matchEntire(line)
             val wait = Regex("warte auf \"([^\"]+)\"", RegexOption.IGNORE_CASE).matchEntire(line)
@@ -41,7 +51,7 @@ internal object LocalWorkflow {
         val matches = frame.nodes.indices.filter { i ->
             val n = frame.nodes[i]
             (normalize(n.label) == normalize(step.target) || n.id == step.target) &&
-                when (step.action) { WorkflowAction.WRITE -> n.editable; WorkflowAction.CLICK -> n.clickable; WorkflowAction.WAIT -> true }
+                when (step.action) { WorkflowAction.WRITE -> n.editable && n.id.isNotBlank(); WorkflowAction.CLICK -> n.clickable; WorkflowAction.WAIT -> true }
         }
         return matches.singleOrNull()
     }

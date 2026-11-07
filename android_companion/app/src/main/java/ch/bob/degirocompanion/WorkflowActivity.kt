@@ -26,6 +26,8 @@ class WorkflowActivity : Activity() {
     private var selectedApp = ""
     private var imageGeneration = 0
     private var fileBusy = false
+    private var fileCancellation: android.os.CancellationSignal? = null
+    @Volatile private var fileStream: java.io.InputStream? = null
     private val saved by lazy { getSharedPreferences("local_workflows_v1", MODE_PRIVATE) }
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -34,7 +36,7 @@ class WorkflowActivity : Activity() {
         fun button(s: String, block: () -> Unit) = Button(this).also { it.text = s; it.isAllCaps = false; it.setOnClickListener { block() }; stack.addView(it) }
         label("Meine Aufträge")
         status = label("Lokal auf deinem Handy · keine ChatGPT-Verbindung nötig")
-        button("STOPP · Auftrag und Lesesitzung beenden") { WorkflowService.stop(); imageGeneration++; output.text = ""; refresh() }
+        button("STOPP · Auftrag und Lesesitzung beenden") { WorkflowService.stop(); imageGeneration++; cancelFiles(); output.text = ""; refresh() }
         label("Du bestimmst App, Schritte und erwartetes Ergebnis. Screenshots werden lokal als Text gelesen. Bilder und Dateiinhalte erteilen niemals Befehle. Keine Orders, Anmeldung oder Zahlungen.")
         button("Einrichtung · Auftrags-Bedienungshilfe öffnen") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         appLabel = label("Noch keine App gewählt")
@@ -52,6 +54,13 @@ class WorkflowActivity : Activity() {
         button("Auftrag prüfen und speichern") { save() }
         button("Gespeicherten Auftrag laden") { chooseSaved(false) }
         button("Gespeicherten Auftrag löschen") { chooseSaved(true) }
+        button("Gespeicherten Auftrag per Sprache starten") {
+            runCatching { startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "de-DE")
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Name eines gespeicherten Auftrags. Ein erkannter Name startet diesen Auftrag.")
+            }, 104) }.onFailure { status.text = "Sprachdienst fehlt; gespeicherten Auftrag laden und starten" }
+        }
         button("Auftrag starten · alle Schritte ausführen") { launch(false, false) }
         button("Bildschirm lernen · Beschriftungen ansehen") { launch(true, false) }
         button("Screenshot der gewählten App lesen") { launch(true, true) }
@@ -96,6 +105,9 @@ class WorkflowActivity : Activity() {
     }
     private fun valid(): List<WorkflowStep>? {
         if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Zuerst eine unterstützte App auswählen. DEGIRO nutzt den vorhandenen Produktleser."; return null }
+        if (commands.text.contains("\"TEXT\"") || commands.text.contains("\"ERGEBNISTEXT\"")) {
+            status.text = "Bitte zuerst die Platzhalter TEXT und ERGEBNISTEXT ersetzen"; return null
+        }
         val plan = LocalWorkflow.parse(commands.text.toString())
         if (plan == null) status.text = "Auftrag noch nicht ausführbar. Bitte jede Zeile nach dem Beispiel formulieren; keine Teil-Ausführung."
         return plan
@@ -119,15 +131,17 @@ class WorkflowActivity : Activity() {
             val key = keys[i]
             if (delete) AlertDialog.Builder(this).setTitle("Diesen Auftrag löschen?").setMessage(key)
                 .setPositiveButton("Löschen") { _, _ -> saved.edit().remove(key).apply(); status.text = "Auftrag gelöscht" }.setNegativeButton("Abbrechen", null).show()
-            else runCatching {
-                val data = JSONObject(saved.getString(key, "")!!)
-                require(data.getInt("version") == 1 && LocalWorkflow.allowedApp(data.getString("app")))
-                require(LocalWorkflow.parse(data.getString("commands")) != null)
-                selectedApp = data.getString("app"); appLabel.text = selectedApp
-                commands.setText(data.getString("commands")); name.setText(key); status.text = "Geladen · noch nicht gestartet"
-            }.onFailure { status.text = "Gespeicherter Auftrag ungültig; keine Ausführung" }
+            else loadSaved(key)
         }.setNegativeButton("Abbrechen", null).show()
     }
+    private fun loadSaved(key: String): Boolean = runCatching {
+        val data = JSONObject(saved.getString(key, "")!!)
+        require(data.getInt("version") == 1 && LocalWorkflow.allowedApp(data.getString("app")))
+        require(LocalWorkflow.parse(data.getString("commands")) != null)
+        selectedApp = data.getString("app"); appLabel.text = selectedApp
+        commands.setText(data.getString("commands")); name.setText(key); status.text = "Geladen · noch nicht gestartet"
+        true
+    }.getOrElse { status.text = "Gespeicherter Auftrag ungültig; keine Ausführung"; false }
     private fun launch(observe: Boolean, screenshot: Boolean) {
         val plan = if (observe) null else valid() ?: return
         if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App wählen"; return }
@@ -155,6 +169,13 @@ class WorkflowActivity : Activity() {
                 val query = EditText(this).apply { hint = "Dateiname oder Teil davon; leer = alle JSON-Dateien" }
                 AlertDialog.Builder(this).setTitle("JSON suchen").setView(query).setPositiveButton("Suchen") { _, _ -> searchJson(tree, query.text.toString()) }.setNegativeButton("Abbrechen", null).show()
             }
+            104 -> {
+                val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
+                val key = saved.all.keys.singleOrNull { LocalWorkflow.normalize(it) == LocalWorkflow.normalize(spoken) }
+                if (PhoneTaskPlanParser.isStop(spoken)) { WorkflowService.stop(); refresh() }
+                else if (key != null && loadSaved(key)) launch(false, false)
+                else status.text = "Kein eindeutiger gespeicherter Auftragsname erkannt; nichts gestartet"
+            }
             103 -> data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let {
                 if (it.length <= 500) commands.append((if (commands.text.isBlank()) "" else "\n") + it)
                 status.text = "Diktat übernommen. Vor dem Start prüfen; Anführungszeichen und erwartetes Ergebnis gegebenenfalls ergänzen."
@@ -165,24 +186,36 @@ class WorkflowActivity : Activity() {
         val token = ++imageGeneration
         status.text = "Screenshot wird lokal gelesen …"
         val reader = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-        val image = runCatching { InputImage.fromFilePath(this, uri) }.getOrElse { reader.close(); status.text = "Bild konnte nicht geöffnet werden"; return }
+        val bitmap = runCatching {
+            val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, options) }
+            require(options.outWidth in 1..30000 && options.outHeight in 1..30000)
+            var sample = 1
+            while (options.outWidth / sample > 2048 || options.outHeight / sample > 2048) sample *= 2
+            options.inJustDecodeBounds = false; options.inSampleSize = sample
+            contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, options) } ?: error("image")
+        }.getOrElse { reader.close(); status.text = "Bild konnte nicht geöffnet werden"; return }
+        val image = InputImage.fromBitmap(bitmap, 0)
         reader.process(image).addOnSuccessListener {
             if (token == imageGeneration && !isDestroyed) { output.text = "Screenshot-Text (OCR, ungeprüft):\n${it.text.take(20_000)}"; status.text = "Screenshot gelesen · keine Befehle ausgeführt" }
-        }.addOnFailureListener { if (token == imageGeneration) status.text = "Texterkennung fehlgeschlagen" }.addOnCompleteListener { reader.close() }
+        }.addOnFailureListener { if (token == imageGeneration) status.text = "Texterkennung fehlgeschlagen" }.addOnCompleteListener { reader.close(); bitmap.recycle() }
     }
     private fun searchJson(tree: Uri, query: String) {
         if (fileBusy) return
-        fileBusy = true; status.text = "Suche ausschließlich im gewählten Ordner …"
+        fileBusy = true; val token = imageGeneration
+        val cancellation = android.os.CancellationSignal(); fileCancellation = cancellation
+        status.text = "Suche ausschließlich im gewählten Ordner …"
         Thread {
             val found = mutableListOf<Pair<String, Uri>>()
             var visited = 0; var truncated = false
             val deadline = android.os.SystemClock.elapsedRealtime() + 15_000
             val seen = mutableSetOf<String>()
             fun scan(id: String, depth: Int) {
+                cancellation.throwIfCanceled()
                 if (depth > 5 || visited >= 300 || found.size >= 50 || android.os.SystemClock.elapsedRealtime() > deadline) { truncated = true; return }
                 if (!seen.add(id)) return
                 val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, id)
-                contentResolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE), null, null, null)?.use { c ->
+                contentResolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE), null, null, null, cancellation)?.use { c ->
                     while (c.moveToNext()) {
                         if (++visited > 300 || found.size >= 50 || android.os.SystemClock.elapsedRealtime() > deadline) { truncated = true; break }
                         val child = c.getString(0); val title = c.getString(1).orEmpty(); val mime = c.getString(2)
@@ -194,7 +227,7 @@ class WorkflowActivity : Activity() {
             val outcome = runCatching { scan(DocumentsContract.getTreeDocumentId(tree), 0) }
             runOnUiThread {
                 fileBusy = false
-                if (!isDestroyed) {
+                if (!isDestroyed && token == imageGeneration) {
                     status.text = if (outcome.isFailure) "Ordner nicht vollständig lesbar" else "${found.size} JSON-Dateien gefunden${if (truncated) " · Suchgrenze erreicht, ggf. Unterordner wählen" else ""}"
                     if (found.isNotEmpty()) AlertDialog.Builder(this).setTitle("JSON-Datei lesen (max. 1 MiB)").setItems(found.map { it.first }.toTypedArray()) { _, i -> readJson(found[i].second) }.setNegativeButton("Abbrechen", null).show()
                 }
@@ -203,10 +236,11 @@ class WorkflowActivity : Activity() {
     }
     private fun readJson(uri: Uri) {
         if (fileBusy) return
-        fileBusy = true
+        fileBusy = true; val token = imageGeneration
         Thread {
             val result = runCatching {
                 val bytes = contentResolver.openInputStream(uri)?.use { input ->
+                    fileStream = input
                     val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
                     while (true) { val n = input.read(buffer); if (n < 0) break; require(out.size() + n <= 1_048_576); out.write(buffer, 0, n) }
                     out.toByteArray()
@@ -219,13 +253,14 @@ class WorkflowActivity : Activity() {
                 (if (value is JSONObject) value.toString(2) else (value as JSONArray).toString(2)).take(20_000)
             }
             runOnUiThread {
-                fileBusy = false
-                if (!isDestroyed) {
+                fileBusy = false; fileStream = null
+                if (!isDestroyed && token == imageGeneration) {
                     status.text = if (result.isSuccess) "JSON gelesen · Vorschau bis 20.000 Zeichen · keine Ausführung" else "JSON ungültig, nicht lesbar oder größer als 1 MiB"
                     output.text = result.getOrDefault("")
                 }
             }
         }.start()
     }
-    override fun onDestroy() { imageGeneration++; super.onDestroy() }
+    private fun cancelFiles() { fileCancellation?.cancel(); runCatching { fileStream?.close() }; fileStream = null }
+    override fun onDestroy() { imageGeneration++; cancelFiles(); super.onDestroy() }
 }

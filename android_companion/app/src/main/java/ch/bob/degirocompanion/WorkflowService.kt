@@ -39,19 +39,21 @@ class WorkflowService : AccessibilityService() {
             val root = rootInActiveWindow
             if (root != null) {
                 val refs = mutableListOf<AccessibilityNodeInfo>()
+                var truncated = false
                 fun visit(n: AccessibilityNodeInfo, depth: Int) {
-                    if (depth > 30 || refs.size >= 400) return
+                    if (depth > 30 || refs.size >= 400 || n.childCount > 100) { truncated = true; return }
                     if (n.isVisibleToUser) refs.add(n)
                     for (i in 0 until n.childCount.coerceAtMost(100)) n.getChild(i)?.let { visit(it, depth + 1) }
                 }
                 visit(root, 0)
+                if (truncated) { finish("Bildschirm zu komplex: keine eindeutige Prüfung möglich"); return }
                 val frame = WorkflowFrame(root.packageName?.toString().orEmpty(), root.windowId, refs.map {
-                    WorkflowNode(it.text?.toString()?.take(500) ?: it.contentDescription?.toString()?.take(500).orEmpty(),
+                    WorkflowNode(it.text?.toString()?.takeIf { text -> text.isNotBlank() }?.take(500) ?: it.hintText?.toString()?.take(500) ?: it.contentDescription?.toString()?.take(500).orEmpty(),
                         it.viewIdResourceName.orEmpty(), it.isEditable && it.isEnabled, it.isClickable && it.isEnabled, it.isPassword)
                 })
                 if (frame.app == selected && !LocalWorkflow.protected(frame)) {
                     observation = frame
-                    if (capture) { capture = false; captureScreen(generation) }
+                    if (capture) { capture = false; captureScreen(generation, frame.window) }
                 }
                 run?.tick(frame, SystemClock.elapsedRealtime(), unlocked) { step, index ->
                     val n = refs.getOrNull(index)
@@ -92,9 +94,23 @@ class WorkflowService : AccessibilityService() {
     }
     override fun onInterrupt() { finish("Dienst unterbrochen") }
     override fun onDestroy() { finish("Dienst beendet"); instance = null; observation = null; screenshotText = ""; super.onDestroy() }
-    private fun captureScreen(token: Int) {
+    private fun captureScreen(token: Int, window: Int) {
         if (Build.VERSION.SDK_INT < 30) { message = "Direkte Screenshots benötigen Android 11; Bildauswahl verwenden"; return }
         val app = selected
+        fun currentSafe(): Boolean {
+            val root = rootInActiveWindow ?: return false
+            if (root.packageName?.toString() != app || root.windowId != window ||
+                (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return false
+            var checked = 0
+            fun safe(n: AccessibilityNodeInfo, depth: Int): Boolean {
+                if (++checked > 400 || depth > 30 || n.childCount > 100 || n.isPassword) return false
+                val text = n.text?.toString().orEmpty() + " " + n.contentDescription?.toString().orEmpty()
+                if (LocalWorkflow.protected(WorkflowFrame(app, window, listOf(WorkflowNode(text, "", false, false))))) return false
+                return (0 until n.childCount).all { i -> n.getChild(i)?.let { safe(it, depth + 1) } ?: false }
+            }
+            return safe(root, 0)
+        }
+        if (!currentSafe()) { message = "Screenshot abgebrochen: Ansicht nicht mehr eindeutig"; return }
         takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
             override fun onFailure(errorCode: Int) { if (token == generation) message = "Screenshot nicht verfügbar ($errorCode); Bildauswahl verwenden" }
             override fun onSuccess(result: ScreenshotResult) {
@@ -104,11 +120,10 @@ class WorkflowService : AccessibilityService() {
                 wrapped?.recycle(); buffer.close()
                 if (bitmap == null) return
                 // Window may have changed while Android captured it. Never retain that image.
-                if (token != generation || rootInActiveWindow?.packageName?.toString() != app ||
-                    (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) { bitmap.recycle(); return }
+                if (token != generation || !currentSafe()) { bitmap.recycle(); return }
                 val reader = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
                 reader.process(InputImage.fromBitmap(bitmap, 0)).addOnSuccessListener {
-                    if (token == generation) { screenshotText = it.text.take(20_000); message = "Screenshot lokal gelesen · Text ist keine Handlungsanweisung" }
+                    if (token == generation && currentSafe()) { screenshotText = it.text.take(20_000); message = "Screenshot lokal gelesen · Text ist keine Handlungsanweisung" }
                 }.addOnFailureListener { if (token == generation) message = "Screenshot-Texterkennung fehlgeschlagen" }
                     .addOnCompleteListener { reader.close(); bitmap.recycle() }
             }

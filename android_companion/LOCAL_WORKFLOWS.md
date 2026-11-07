@@ -20,15 +20,17 @@ nicht durch den allgemeinen Ausführer bedient.
    Warte auf "Gold"
    ```
 
-   Ein Feld kann alternativ über seine angezeigte Android-ID adressiert werden.
+   Diktat versteht auch „Tippe auf Suche und warte auf Suchbegriff“ und
+   „Schreibe Gold in Suchbegriff“. Ein Feld kann alternativ über seine angezeigte Android-ID adressiert werden.
 4. Unter einem Namen lokal speichern, später laden und einmal starten.
-   Kein ChatGPT-Aufruf ist für die Ausführung erforderlich.
+   Kein ChatGPT-Aufruf ist für die Ausführung erforderlich. Über „Gespeicherten
+   Auftrag per Sprache starten“ genügt der exakt erkannte gespeicherte Name.
 
 ## Grenzen und Erfolgsnachweis
 
 Maximal zwölf Schritte, drei Minuten pro Lauf und zwanzig Sekunden je Schritt.
 Ein Klick wird genau einmal angefordert; danach muss ein vorher noch nicht
-sichtbarer, ausdrücklich benannter Ergebnistext erscheinen. Schreiben wird am
+sichtbarer, ausdrücklich benannter Ergebnistext erscheinen. Schreiben benötigt eine eindeutige Android-Feld-ID und wird am
 selben Feld geprüft. Doppelte Ziele, geschützte Ansichten, Appwechsel,
 Bildschirmsperre und eigener Touch während der Ausführung stoppen den Lauf.
 Es gibt keine Koordinatenklicks, Shellbefehle oder Orderaktionen. Ein Neustart
@@ -43,7 +45,7 @@ privaten App-Speicher; keine Passwörter darin speichern. App-Backups bleiben au
 ## Screenshots und JSON
 
 Direkte Screenshot-Texterkennung in der gewählten App ab Android 11 oder
-Bildauswahl über Android. Lokales ML Kit, keine neue Cloud-Verbindung. Es ist
+Bildauswahl über Android (auf maximal 2048 Pixel pro Seite verkleinert). Lokales ML Kit, keine neue Cloud-Verbindung. Es ist
 OCR, keine allgemeine visuelle Interpretation von Symbolen oder Diagrammen.
 Texte aus Bildern/Dateien werden nur angezeigt und niemals als Befehle behandelt.
 Ergebnisse werden nicht in Diagnoseberichte oder Auftragsdateien übernommen.
