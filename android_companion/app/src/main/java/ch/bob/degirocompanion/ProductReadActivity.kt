@@ -62,6 +62,8 @@ class ProductReadActivity : Activity() {
         primary=Button(this).apply { text="Bob starten";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
         container.addView(primary)
         capabilityActions["Bob starten"] = { startAutomaticTest() }
+        capabilityActions["Silber-Hebelprodukte suchen"] = { startLeveragedSearch("Silber") }
+        capabilityActions["Gold-Hebelprodukte suchen"] = { startLeveragedSearch("Gold") }
         button("Prüfung stoppen") {
             if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
             PhoneRemote.stop(this,"USER_STOP")
@@ -276,6 +278,43 @@ class ProductReadActivity : Activity() {
         }
     }
     override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
+    /** One owner goal: local login if enrolled, then search and stop at the leverage tab. */
+    private fun startLeveragedSearch(query: String) {
+        var secret: ByteArray? = null
+        var started = false
+        runCatching {
+            require(query in setOf("Gold","Silber"))
+            check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
+            check(!PinReadinessProbe.running && !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime())) { "Laufenden Auftrag zuerst beenden." }
+            check(PhoneDiagnostics.paired(this)) { "Automatische Diagnose unter Einrichtung verbinden, damit die vorhandene Suchbedienung verfügbar ist." }
+            val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+            LoginToReadHandoff.clear()
+            if (LocalPinVault.exists(this)) {
+                check(PhoneDiagnostics.keypadTestVerified(this) && LocalPinVault.available(this)) { "Lokale PIN-Einrichtung prüfen und Handy entsperren." }
+                secret = LocalPinVault.load(this)
+                LoginToReadHandoff.arm(SystemClock.elapsedRealtime(),query)
+                started = true
+                PinReadinessProbe.startLocalLogin(secret!!)
+            } else {
+                started = true
+                PhoneRemote.start(this)
+                check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
+                GoldSearchRun.startSearch(query)
+                ProductReadRequest.start(SystemClock.elapsedRealtime())
+            }
+            result.text = "$query-Hebelprodukte: DEGIRO öffnen, bei Bedarf gespeicherte PIN einmal lokal verwenden, Suchfeld öffnen, $query eintragen und Hebelprodukte anzeigen. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein."
+            startActivity(launch)
+        }.onFailure {
+            LoginToReadHandoff.clear()
+            if (started) {
+                if (PinReadinessProbe.running) PinReadinessProbe.stop("Suchauftrag konnte nicht gestartet werden.")
+                GoldSearchRun.stop("START_FAILED",java.time.Instant.now().toString())
+                ProductReadRequest.cancel(); PhoneRemote.stop(this,"START_FAILED")
+            }
+            result.text = if (secret == null) it.message ?: "Suchauftrag konnte nicht gestartet werden." else "Suchauftrag konnte nicht gestartet werden; lokale PIN-Einrichtung prüfen."
+        }
+        secret?.fill(0)
+    }
     /** Shared by the explicit PIN button and a local owner-authored chat request.
      * Consume once; never arm the product-reading handoff or send secrets away. */
     private fun startLocalLogin() {
