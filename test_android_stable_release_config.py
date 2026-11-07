@@ -157,7 +157,10 @@ class AndroidStableReleaseTests(unittest.TestCase):
             self.assertIn(guard, fresh)
         self.assertLess(fresh.index('clearCache()'), fresh.index('val direct = rootInActiveWindow'))
 
-        self.assertIn('ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(gold) "Gold" else MorningReadRun.target', service)
+        self.assertIn('ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,if(gold) GoldSearchRun.query else MorningReadRun.target', service)
+        search_run = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/GoldSearchRun.kt").read_text()
+        self.assertIn('require(query in setOf("Gold","Silber"))', search_run)
+        self.assertIn('val query get() = searchOnlyQuery ?: "Gold"', search_run)
         self.assertIn('MorningReadPolicy.discoverGold(descriptions)', service)
         self.assertIn('flagIncludeNotImportantViews', config)
         self.assertIn('performGlobalAction(GLOBAL_ACTION_BACK)', service)
