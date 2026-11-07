@@ -129,9 +129,10 @@ def generate(request):
     if len(candidates) != 1 or candidates[0].get('finishReason') != 'STOP':
         raise ValueError('incomplete-proposal')
     parts = candidates[0].get('content', {}).get('parts', [])
-    if not parts or any(set(p) != {'text'} or not isinstance(p['text'], str) for p in parts):
+    if not parts or any(not isinstance(p, dict) or set(p) - {'text', 'thought', 'thoughtSignature'}
+                        or not isinstance(p.get('text'), str) for p in parts):
         raise ValueError('invalid-proposal-content')
-    return json.loads(''.join(p['text'] for p in parts))
+    return json.loads(''.join(p['text'] for p in parts if not p.get('thought')))
 
 
 def handle(connect, payload, provider=None):

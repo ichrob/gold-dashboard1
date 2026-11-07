@@ -61,7 +61,7 @@ class Rules(unittest.TestCase):
         provider.assert_not_called()
     def test_provider_is_called_once_without_retry_and_token_is_not_in_prompt(self):
         opener=MagicMock();response=Mock()
-        response.read.return_value=json.dumps({'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':json.dumps(plan())}]}}]}).encode()
+        response.read.return_value=json.dumps({'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':'internal reasoning','thought':True},{'text':json.dumps(plan()),'thoughtSignature':'opaque'}]}}]}).encode()
         opener.open.return_value.__enter__.return_value=response
         with patch.dict(os.environ,ENV,clear=True),patch('urllib.request.build_opener',return_value=opener):
             self.assertEqual(w.generate(request()),plan())
