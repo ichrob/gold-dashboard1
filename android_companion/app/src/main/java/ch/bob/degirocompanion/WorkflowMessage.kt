@@ -2,19 +2,19 @@ package ch.bob.degirocompanion
 
 /** The owner's text supplies actions; local screenshot OCR supplies labels only. */
 internal object WorkflowMessage {
-    private val reference = Regex("(?i)^(?:diese schaltfläche|diesen button|dieses feld|dieses eingabefeld|hier|das feld)$")
+    private val reference = Regex("(?iu)^(?:diese schaltfläche|diesen button|dieses feld|dieses eingabefeld|hier|das feld)$")
     private fun ownerLine(text: String) = WorkflowLanguage.line(text)
     private fun label(raw: String, candidates: List<String>, selected: String?): String? {
         val value = raw.trim().removeSurrounding("\"")
         if (reference.matches(value)) return selected?.takeIf { it in candidates } ?: candidates.singleOrNull()
         fun match(value: String) = candidates.singleOrNull { LocalWorkflow.normalize(it) == LocalWorkflow.normalize(value) }
         match(value)?.let { return it }
-        val named = value.replace(Regex("(?i)^(?:(?:die|den|das)\\s+)?(?:schaltfläche|button|reiter|registerkarte|feld|eingabefeld)\\s+"), "")
+        val named = value.replace(Regex("(?iu)^(?:(?:die|den|das)\\s+)?(?:schaltfläche|button|reiter|registerkarte|feld|eingabefeld)\\s+"), "")
             .trim().removeSurrounding("\"")
         return match(named)
     }
     fun clickTarget(text: String, labels: List<String>, selected: String? = null): String? {
-        val match = Regex("(?i)^(?:tippe|klicke) auf ([^\\n]+)$").matchEntire(ownerLine(text)) ?: return null
+        val match = Regex("(?iu)^(?:tippe|klicke) auf ([^\\n]+)$").matchEntire(ownerLine(text)) ?: return null
         val raw = match.groupValues[1].trim().removeSurrounding("\"")
         val candidates = labels.filter { WorkflowComposer.validText(it) }.distinct()
         return label(raw, candidates, selected)
@@ -46,9 +46,9 @@ internal object WorkflowMessage {
         val lines = normalizedText.lines()
         if (lines.size !in 1..12) return null
         val result = lines.map { line ->
-            val write = Regex("(?i)^schreibe (.+?) in (.+)$").matchEntire(line.trim())
-            val click = Regex("(?i)^(?:tippe|klicke) auf (.+?) -> (.+)$").matchEntire(line.trim())
-            val wait = Regex("(?i)^warte auf (.+)$").matchEntire(line.trim())
+            val write = Regex("(?iu)^schreibe (.+?) in (.+)$").matchEntire(line.trim())
+            val click = Regex("(?iu)^(?:tippe|klicke) auf (.+?) -> (.+)$").matchEntire(line.trim())
+            val wait = Regex("(?iu)^warte auf (.+)$").matchEntire(line.trim())
             when {
                 write != null -> WorkflowComposer.command(WorkflowAction.WRITE,
                     target(write.groupValues[2]) ?: return null,

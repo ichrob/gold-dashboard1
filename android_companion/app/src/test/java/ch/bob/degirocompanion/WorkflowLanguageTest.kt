@@ -16,8 +16,9 @@ class WorkflowLanguageTest {
     @Test fun favoritesVariantsUseTheSameCheckedSelection() {
         for (text in listOf("Öffne Favoriten", "Gehe zu Favoriten", "Wechsle zu Favoriten", "Zeige mir Favoriten",
             "Kannst du bitte die Favoriten öffnen?", "Könntest du auf die Schaltfläche Favoriten drücken?")) {
-            val command = WorkflowMessage.resolve(text, listOf("Favoriten"))!!
-            assertTrue(text, LocalWorkflow.parse(command)!!.single().selectsTab)
+            val command = WorkflowMessage.resolve(text, listOf("Favoriten"))
+            assertNotNull(text, command)
+            assertTrue(text, LocalWorkflow.parse(command!!)!!.single().selectsTab)
         }
         assertNull(WorkflowMessage.resolve("Öffne Favoriten nicht", listOf("Favoriten")))
         assertNull(WorkflowMessage.resolve("Kannst du Favoriten oder Suche öffnen?", listOf("Favoriten","Suche")))
