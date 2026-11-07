@@ -30,6 +30,16 @@ class WorkflowUsabilityTest {
         assertEquals("Suchfeld",demo.draft()[0].expected)
         demo.write("query",""); assertEquals("TEXT",demo.draft()[1].value)
     }
+    @Test fun disappearingButtonCreatesAnExplicitlyUnreviewedStep() {
+        val demo = WorkflowDemonstration("org.fixture.app")
+        val before = WorkflowFrame(demo.app,1,listOf(WorkflowNode("Suche","search",false,true)))
+        demo.observe(before)
+        demo.observe(before.copy(nodes=listOf(WorkflowNode("Suchfeld","query",true,true,inputValue=""))))
+        demo.write("query","Gold")
+        assertEquals(2,demo.steps.size)
+        assertEquals("ERGEBNISTEXT",demo.steps[0].expected)
+        assertEquals("Gold",demo.steps[1].value)
+    }
     @Test fun demonstrationKeepsUnknownResultsForOwnerReviewAndIsBounded() {
         val demo = WorkflowDemonstration("org.fixture.app")
         val frame = WorkflowFrame(demo.app,1,listOf(WorkflowNode("Suche","search",false,true)))

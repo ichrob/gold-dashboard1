@@ -274,7 +274,7 @@ class WorkflowService : AccessibilityService() {
                 if (current != null && WorkflowAiPolicy.verified(current)) "NONE" else WorkflowFailure.code(reason))
         }
         if (notify) android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
-        serviceInfo?.let { serviceInfo = it.apply { packageNames = arrayOf(packageName) } }
+        serviceInfo?.let { serviceInfo = it.apply { packageNames = arrayOf(packageName); notificationTimeout = 150 } }
     }
     override fun onServiceConnected() { instance = this; finish("Bereit · lokal starten") }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

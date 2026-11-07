@@ -50,7 +50,7 @@ internal object WorkflowSymbolMatch {
                             val px = x + ((i % SIDE + .5) * w / SIDE).toInt().coerceAtMost(w - 1)
                             val py = y + ((i / SIDE + .5) * h / SIDE).toInt().coerceAtMost(h - 1)
                             error += abs(pixels[py * width + px] - pattern.pixels[i])
-                            if (error > 6528) break // More than 10% mean error cannot qualify.
+                            if (error > 11750) break // Keep plausible secondary matches for ambiguity rejection.
                         }
                         best = min(best, error / 65280.0)
                     }
@@ -60,6 +60,6 @@ internal object WorkflowSymbolMatch {
         }
         val ranked = scores.indices.sortedBy { scores[it] }
         val best = ranked.firstOrNull() ?: return null
-        return best.takeIf { scores[it] <= .08 && (ranked.size == 1 || scores[ranked[1]] - scores[it] >= .04) }
+        return best.takeIf { scores[it] <= .08 && (ranked.size == 1 || scores[ranked[1]] > .16) }
     }
 }
