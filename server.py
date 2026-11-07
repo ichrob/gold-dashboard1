@@ -114,9 +114,10 @@ def android_diagnostic_rpc(payload, remote=False):
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:raise RuntimeError('Diagnostics unavailable')
     base=PUSH_SERVICE_URL.rstrip('/')
     if not base.startswith(('https://','http://')):base='https://'+base
-    request=Request(base+('/android-remote' if remote else '/android-diagnostics'),data=json.dumps(payload).encode(),method='POST',
+    workflow=remote and payload.get('action')=='workflow-plan'
+    request=Request(base+('/android-workflow-plan' if workflow else '/android-remote' if remote else '/android-diagnostics'),data=json.dumps(payload).encode(),method='POST',
         headers={'X-Bob-Push-Token':PUSH_SERVICE_TOKEN,'Content-Type':'application/json'})
-    with urlopen(request,timeout=8) as response:return json.loads(response.read(8200000))
+    with urlopen(request,timeout=35 if workflow else 8) as response:return json.loads(response.read(32768 if workflow else 8200000))
 
 
 def read_private_product_audit_for_mcp():

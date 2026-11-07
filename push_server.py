@@ -1184,6 +1184,15 @@ class Handler(BaseHTTPRequestHandler):
                         real_trade_journal.reconcile_sales(conn)
                         conn.commit()
                 send_json(self,200,result);return
+            if path == '/android-workflow-plan':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                try:
+                    send_json(self,200,__import__('workflow_ai').handle(db,json_body(self)))
+                except PermissionError:send_json(self,401,{'error':'Device not paired or revoked'})
+                except ValueError:send_json(self,400,{'error':'Workflow request rejected'})
+                return
             if path in ('/android-diagnostics','/android-remote'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):

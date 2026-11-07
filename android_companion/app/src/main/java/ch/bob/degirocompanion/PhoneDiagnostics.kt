@@ -24,7 +24,7 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.net.ssl.HttpsURLConnection
 import java.net.URL
 
-/** Opt-in, write-only status transport. Never sends screen text, ISINs or drafts. */
+/** Paired-device transport. Diagnostic reports exclude screen text; workflowPlan sends only explicitly reviewed context. */
 internal object PhoneDiagnostics {
     private const val BASE="https://bob-private-scanner.onrender.com"
     private const val ALIAS="bob_diagnostic_key_v1"
@@ -63,6 +63,7 @@ internal object PhoneDiagnostics {
         queue(c)
         c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(BASE+"/handy/diagnostics#"+hash)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
+    fun workflowPlan(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-workflow/plan",false)
     fun termuxExchange(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-termux/exchange",false)
     fun remoteExchange(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-remote/exchange",false)
     fun uploadList(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-list/upload",true)
@@ -73,7 +74,7 @@ internal object PhoneDiagnostics {
         val credential=token(c)
         val conn=URL(BASE+path).openConnection() as HttpsURLConnection
         try {
-            conn.instanceFollowRedirects=false;conn.connectTimeout=8000;conn.readTimeout=8000
+            conn.instanceFollowRedirects=false;conn.connectTimeout=8000;conn.readTimeout=if(path=="/api/android-workflow/plan") 45000 else 8000
             conn.requestMethod="POST";conn.doOutput=true
             conn.setRequestProperty("Authorization","Bearer "+credential)
             conn.setRequestProperty("Content-Type","application/json")
