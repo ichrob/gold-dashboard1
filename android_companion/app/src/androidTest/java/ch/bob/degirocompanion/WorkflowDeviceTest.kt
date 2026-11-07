@@ -339,6 +339,13 @@ class WorkflowDeviceTest {
         context.getSharedPreferences("workflow_auto_v1",0).edit().clear().commit()
     }
     @Test fun ownerLoginRequestUsesLocalPinRouteAndShowsMissingReaderInsteadOfAiRejection() {
+        nativeRequestWithoutReader("öffne degiro und gebe selbstständig das Passwort ein zum Öffnen der App",
+            "Lokale DEGIRO-Anmeldung: Lesedienst zuerst einschalten.")
+    }
+    @Test fun silverSearchRoutesToNativeSequenceWithoutStartingGoldImport() {
+        nativeRequestWithoutReader("Suche nach Silber Hebelprodukte", "Lesedienst zuerst einschalten.")
+    }
+    private fun nativeRequestWithoutReader(request: String, expected: String) {
         context.getSharedPreferences("workflow_auto_v1",0).edit()
             .putString("lastApp",WorkflowAppRoute.DEGIRO).commit()
         val previous = context.getSharedPreferences("product_reader",0).getBoolean("enabled",false)
@@ -349,13 +356,13 @@ class WorkflowDeviceTest {
         try {
             main {
                 val input = WorkflowActivity::class.java.getDeclaredField("goal").apply { isAccessible = true }.get(activity) as android.widget.EditText
-                input.setText("öffne degiro und gebe selbstständig das Passwort ein zum Öffnen der App")
+                input.setText(request)
                 WorkflowActivity::class.java.getDeclaredMethod("sendMessage").apply { isAccessible = true }.invoke(activity)
             }
             val reader = instrumentation.waitForMonitorWithTimeout(monitor,5000) as? ProductReadActivity
             assertNotNull("Local PIN reader was not opened",reader)
             await("Missing reader should be explained locally") {
-                automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("Lokale DEGIRO-Anmeldung: Lesedienst zuerst einschalten.")?.isNotEmpty() == true
+                automation.rootInActiveWindow?.findAccessibilityNodeInfosByText(expected)?.isNotEmpty() == true
             }
             main {
                 assertFalse(reader!!.intent.hasExtra(ProductReadActivity.EXTRA_CAPABILITY))

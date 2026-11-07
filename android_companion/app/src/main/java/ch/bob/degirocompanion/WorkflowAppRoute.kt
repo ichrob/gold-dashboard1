@@ -7,6 +7,8 @@ internal object WorkflowAppRoute {
     // One catalog drives both discoverability and routing to existing local handlers.
     val capabilities = listOf(
         Capability("Gespeicherte PIN einmal eingeben", "DEGIRO entsperren"),
+        Capability("Silber-Hebelprodukte suchen", "Suche nach Silber Hebelprodukte"),
+        Capability("Gold-Hebelprodukte suchen", "Suche nach Gold Hebelprodukte"),
         Capability("Bob starten", "DEGIRO anmelden und Goldprodukte einlesen", setOf("starte den vollständigen degiro-ablauf", "degiro komplett starten")),
         Capability("Gold-Produkte suchen und auslesen", "Gold suchen"),
         Capability("Seite prüfen · DEGIRO öffnen, automatisch scrollen und lesen", "Aktuelles DEGIRO-Produkt einlesen", setOf("produktseite lesen", "degiro produkt lesen")),
@@ -28,14 +30,22 @@ internal object WorkflowAppRoute {
         Capability("Prüfung stoppen", "DEGIRO-Prüfung stoppen")
     )
     fun capability(goal: String): Capability? {
-        if (localLogin(goal)) return capabilities[0]
-        if (goldRead(goal)) return capabilities[2]
+        if (localLogin(goal)) return capabilities.single { it.title == "Gespeicherte PIN einmal eingeben" }
+        leveragedQuery(goal)?.let { query -> return capabilities.single { it.title == "$query-Hebelprodukte suchen" } }
+        if (goldRead(goal)) return capabilities.single { it.title == "Gold-Produkte suchen und auslesen" }
         val text = LocalWorkflow.normalize(goal).removeSuffix(".")
         return capabilities.singleOrNull { text == LocalWorkflow.normalize(it.command) ||
             text == LocalWorkflow.normalize(it.title) || text in it.aliases }
     }
     fun asksCapabilities(goal: String) = LocalWorkflow.normalize(goal).removeSuffix("?") in setOf(
         "was kannst du", "was kannst du in degiro", "was kannst du bei degiro", "degiro-funktionen", "hilfe")
+    fun leveragedQuery(goal: String): String? {
+        val text = LocalWorkflow.normalize(goal).removeSuffix(".")
+        val match = Regex("(?:suche (?:nach )?)?(gold|silber)(?:[- ]hebelprodukte| hebelprodukte suchen)").matchEntire(text)
+            ?: Regex("suche (?:die )?hebelprodukte (?:für|auf) (gold|silber)").matchEntire(text)
+            ?: return null
+        return if (match.groupValues[1] == "silber") "Silber" else "Gold"
+    }
     fun selectable(app: String) = app == DEGIRO || LocalWorkflow.allowedApp(app)
     // Recognize only a request to use the already enrolled local PIN. No secret
     // values, additional actions, OCR text or cloud proposals enter this route.

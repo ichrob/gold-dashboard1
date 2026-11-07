@@ -8,9 +8,12 @@ package ch.bob.degirocompanion
 internal object LoginToReadHandoff {
     private const val MAX_MILLIS = 65_000L
     private var armedAt = -1L
-    fun arm(now: Long) {
+    var searchQuery: String? = null; private set
+    var generation = 0; private set
+    fun arm(now: Long, query: String? = null) {
+        require(query == null || query in setOf("Gold","Silber"))
         check(armedAt < 0L) { "Anmeldung läuft bereits." }
-        armedAt = now
+        generation++; searchQuery = query; armedAt = now
     }
     fun pending(now: Long): Boolean = armedAt >= 0L && now >= armedAt && now - armedAt < MAX_MILLIS
     /** Success means a trusted, stable DEGIRO Markets screen was observed. */
@@ -19,5 +22,5 @@ internal object LoginToReadHandoff {
         clear()
         return allowed
     }
-    fun clear() { armedAt = -1L }
+    fun clear() { generation++; searchQuery = null; armedAt = -1L }
 }

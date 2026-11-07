@@ -448,6 +448,10 @@ internal object MorningReadPolicy {
         return inlineTitle.singleOrNull()
     }
 
+    fun searchLeveraged(nodes: List<Node>, query: String): Action {
+        if (query !in setOf("Gold","Silber")) return Action(Kind.BLOCK,code="INVALID_VIEW")
+        return navigate(nodes,query,true,{ null },searchOnly=true)
+    }
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })
     /** A real search control takes precedence over another backward scroll. */
     fun detailSearchRestore(nodes: List<Node>, importedListRun: Boolean): Action? {
@@ -564,7 +568,7 @@ internal object MorningReadPolicy {
         "(?iu)^BNP\\s+GOLD\\s+Unlimited\\s+(?:Long|Short)\\s+SL\\s+\\d+(?:[.,]\\d+)?\\s+STR\\s+\\d+(?:[.,]\\d+)?\\s+R\\s+\\d+(?:[.,]\\d+)?\\b"
     ).containsMatchIn(value.trim())
 
-    private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?, captureAll: Boolean = false, symbolProbe: Boolean = false): Action {
+    private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?, captureAll: Boolean = false, symbolProbe: Boolean = false, searchOnly: Boolean = false): Action {
         if (nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
         if (ConnectionErrorPolicy.detected(nodes.flatMap { listOf(it.text,it.description) }))
             return Action(Kind.BLOCK,code="CONNECTION_ERROR")
@@ -588,7 +592,7 @@ internal object MorningReadPolicy {
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 recentMarketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 productSearchWithoutLauncher(nodes)?.let { searchNodes ->
-                    val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll,symbolProbe)
+                    val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll,symbolProbe,searchOnly)
                     if(action.kind in setOf(Kind.FOCUS,Kind.QUERY,Kind.SUBMIT,Kind.CATEGORY,Kind.CATEGORY_SCROLL,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
                 }
             }
@@ -601,6 +605,12 @@ internal object MorningReadPolicy {
             if (!nodes[i].enabled) return Action(Kind.WAIT,code="SEARCH_NOT_ACTIONABLE")
             if (nodes[i].text != target) return Action(if(nodes[i].focused) Kind.QUERY else Kind.FOCUS, i)
             if (discovery) {
+                if (searchOnly) {
+                    val category = goldCategory(nodes)
+                    if (category?.code == "CATEGORY_RESULTS_PENDING")
+                        return Action(Kind.COLLECT,code="LEVERAGE_SEARCH_READY")
+                    return category ?: Action(if(nodes[i].imeEnter) Kind.SUBMIT else Kind.WAIT,index=i,code="CATEGORY_MISSING")
+                }
                 // Only visible, explicit identities in Gold leverage-product rows.
                 // This is a bounded candidate sample, never a complete catalog or
                 // proof of the underlying, quote freshness, or trade approval.
