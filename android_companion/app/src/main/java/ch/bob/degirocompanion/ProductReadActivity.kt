@@ -20,6 +20,7 @@ import android.widget.TextView
 class ProductReadActivity : Activity() {
     companion object {
         // Only our non-exported activity may receive this from a local UI tap.
+        internal const val EXTRA_GOAL_QUERY = "ch.bob.degirocompanion.GOAL_QUERY"
         internal const val EXTRA_CAPABILITY = "ch.bob.degirocompanion.LOCAL_CAPABILITY"
         internal const val EXTRA_START_GOLD_READ = "ch.bob.degirocompanion.START_GOLD_READ"
         internal const val EXTRA_START_COMPLETE_FLOW = "ch.bob.degirocompanion.START_COMPLETE_FLOW"
@@ -27,6 +28,7 @@ class ProductReadActivity : Activity() {
     private var startCompleteFlowOnFirstResume = false
     private var startGoldReadOnFirstResume = false
     private var pendingCapability: String? = null
+    private var pendingGoalQuery: String? = null
     private val capabilityActions = mutableMapOf<String, () -> Unit>()
     private var displayedRequestActive = false
     private val statusHandler = Handler(Looper.getMainLooper())
@@ -52,6 +54,8 @@ class ProductReadActivity : Activity() {
         pendingCapability = if (savedInstanceState == null) intent.getStringExtra(EXTRA_CAPABILITY)
             ?.takeIf { title -> WorkflowAppRoute.capabilities.any { it.title == title } } else null
         intent.removeExtra(EXTRA_CAPABILITY)
+        pendingGoalQuery = if(savedInstanceState == null) intent.getStringExtra(EXTRA_GOAL_QUERY)?.takeIf(DegiroGoal::acceptsQuery) else null
+        intent.removeExtra(EXTRA_GOAL_QUERY)
         val stack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
         var container=stack
         fun button(title: String, action: () -> Unit) {
@@ -62,8 +66,8 @@ class ProductReadActivity : Activity() {
         primary=Button(this).apply { text="Bob starten";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
         container.addView(primary)
         capabilityActions["Bob starten"] = { startAutomaticTest() }
-        capabilityActions["Silber-Hebelprodukte suchen"] = { startLeveragedSearch("Silber") }
-        capabilityActions["Gold-Hebelprodukte suchen"] = { startLeveragedSearch("Gold") }
+        capabilityActions["Silber-Hebelprodukte suchen"] = { startPreparedGoal("Silber") }
+        capabilityActions["Gold-Hebelprodukte suchen"] = { startPreparedGoal("Gold") }
         button("Prüfung stoppen") {
             if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
             PhoneRemote.stop(this,"USER_STOP")
@@ -251,6 +255,7 @@ class ProductReadActivity : Activity() {
                 insets
             }
         }
+        capabilityActions["Gold-Produkte suchen und auslesen"] = { startAutomaticTest() }
         capabilityActions["Gespeicherte PIN einmal eingeben"] = { startLocalLogin() }
         setContentView(scroll)
         scroll.requestApplyInsets()
@@ -261,6 +266,11 @@ class ProductReadActivity : Activity() {
         PhoneDiagnostics.queue(this)
         refresh()
         statusHandler.post(statusTick)
+        pendingGoalQuery?.let { query ->
+            pendingGoalQuery = null
+            startPreparedGoal(query)
+            return
+        }
         pendingCapability?.let { title ->
             pendingCapability = null
             capabilityActions[title]?.invoke()
@@ -278,12 +288,12 @@ class ProductReadActivity : Activity() {
         }
     }
     override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
-    /** One owner goal: local login if enrolled, then search and stop at the leverage tab. */
-    private fun startLeveragedSearch(query: String) {
+    /** Shared prerequisites for lookup and product opening: local login if enrolled, then the requested target. */
+    private fun startPreparedGoal(query: String) {
         var secret: ByteArray? = null
         var started = false
         runCatching {
-            require(query in setOf("Gold","Silber"))
+            require(DegiroGoal.acceptsQuery(query))
             check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
             check(!PinReadinessProbe.running && !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime())) { "Laufenden Auftrag zuerst beenden." }
             check(PhoneDiagnostics.paired(this)) { "Automatische Diagnose unter Einrichtung verbinden, damit die vorhandene Suchbedienung verfügbar ist." }
@@ -302,7 +312,8 @@ class ProductReadActivity : Activity() {
                 GoldSearchRun.startSearch(query)
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
             }
-            result.text = "$query-Hebelprodukte: DEGIRO öffnen, bei Bedarf gespeicherte PIN einmal lokal verwenden, Suchfeld öffnen, $query eintragen und Hebelprodukte anzeigen. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein."
+            result.text = if(SeriesEvidence.validIsin(query)) "Produkt $query: DEGIRO öffnen, Anmeldung bei Bedarf lokal abschließen, ISIN suchen und das eindeutig passende Produkt öffnen."
+                else "$query-Hebelprodukte: DEGIRO öffnen, bei Bedarf gespeicherte PIN einmal lokal verwenden, Suchfeld öffnen, $query eintragen und Hebelprodukte anzeigen. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein."
             startActivity(launch)
         }.onFailure {
             LoginToReadHandoff.clear()

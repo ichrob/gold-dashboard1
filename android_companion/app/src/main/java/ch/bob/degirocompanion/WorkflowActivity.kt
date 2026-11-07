@@ -725,6 +725,18 @@ class WorkflowActivity : Activity() {
         if (PhoneTaskPlanParser.isStop(text)) { refresh(); return }
         if (text.isBlank()) { status.text = "Was soll Bob mit dem Screenshot tun? Bitte einen Auftrag eingeben."; return }
         if (selectedApp == WorkflowAppRoute.DEGIRO) {
+            DegiroGoal.productIsin(text)?.let { isin ->
+                startActivity(Intent(this, ProductReadActivity::class.java)
+                    .putExtra(ProductReadActivity.EXTRA_GOAL_QUERY, isin))
+                goal.setText(""); goal.hint = "Was soll Bob tun?"; clearAttachment()
+                return
+            }
+            if (DegiroGoal.needsProductIsin(text)) {
+                goal.setText(""); goal.hint = "ISIN des Produkts eingeben"
+                status.text = "Welche ISIN? Danach übernimmt Bob DEGIRO-Anmeldung, Suche und Produktöffnung."
+                goal.requestFocus()
+                return
+            }
             if (WorkflowAppRoute.asksCapabilities(text)) { showDegiroCapabilities(); return }
             WorkflowAppRoute.capability(text)?.let { capability ->
                 // Local owner request only: reuse built-in handlers, never cloud planning.

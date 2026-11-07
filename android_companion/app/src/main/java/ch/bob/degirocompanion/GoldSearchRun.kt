@@ -6,10 +6,11 @@ internal object GoldSearchRun {
     var lastCode:String?=null; private set
     var lastEventAt:String?=null; private set
     var searchOnlyQuery: String? = null; private set
+    val openingProduct get() = running && searchOnlyQuery?.let(SeriesEvidence::validIsin) == true
     val query get() = searchOnlyQuery ?: "Gold"
     fun start() { searchOnlyQuery=null;running=true;lastCode=null;lastEventAt=null }
     fun startSearch(query: String) {
-        require(query in setOf("Gold","Silber"))
+        require(DegiroGoal.acceptsQuery(query))
         start(); searchOnlyQuery=query
     }
     fun event(code:String, at:String) { lastCode=PhoneDiagnosticPolicy.code(code);lastEventAt=at }
