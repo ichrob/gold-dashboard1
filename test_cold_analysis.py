@@ -137,7 +137,8 @@ class DatabaseTests(unittest.TestCase):
             ("arch-" + str(i), "analysis", 123.0, None, pointer, i)
             for i in range(900)
         ]
-        self.c.executemany("""INSERT INTO bob_diagnostic_history
+        with self.c.cursor() as cur:
+            cur.executemany("""INSERT INTO bob_diagnostic_history
             (id,stage,observed_at,build,payload,recorded_at)
             VALUES (%s,%s,%s,%s,%s::jsonb,
                     now()-interval '12 hours'+(%s*interval '1 second'))""", rows)
@@ -162,7 +163,8 @@ class DatabaseTests(unittest.TestCase):
             ("arch-" + str(i), "analysis", 123.0, None, pointer, i)
             for i in range(2500)
         ]
-        self.c.executemany("""INSERT INTO bob_diagnostic_history
+        with self.c.cursor() as cur:
+            cur.executemany("""INSERT INTO bob_diagnostic_history
             (id,stage,observed_at,build,payload,recorded_at)
             VALUES (%s,%s,%s,%s,%s::jsonb,
                     now()-interval '12 hours'+(%s*interval '1 second'))""", rows)
