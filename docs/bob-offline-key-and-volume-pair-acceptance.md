@@ -16,15 +16,27 @@ checks true. **This is not a full-database backup.** The status cannot
 certify that an offline encrypted vault remains accessible after theft or
 loss of a phone, the Render account or a separate passphrase.
 
-A successful local/emailed encrypted vault roundtrip was recorded earlier,
-but the existence and independent readability of **two distinct off-device
-copies** remain unconfirmed. A copy retained only on the phone, in a
-Render secret, or alongside the same passphrase is insufficient. Treat this
-as a **blocking human custody proof**, not as a boolean that CI, GitHub or an
-HTTP-200 response can supply. No new archive run, source deletion or key
-rotation should be started to make this flag look green.
+**Completed key-recovery evidence (operator-verified, 04–05 Nov):**
+The encrypted original root vault created in Samsung Termux was independently
+downloaded again from the owner's email and unlocked with the separate vault
+passphrase. It yielded the same historical root, authenticated the real
+downloaded AES-GCM archive, and matched its recorded original ZIP SHA-256.
+The subsequently persisted server archive receipts, including
+07 Nov 00:58:15Z, independently report
+`recoveryKeyVerified=true`, `remoteDownloadVerified=true`,
+`restoreVerified=true` and separate-DB restore isolation. **Do not rerun
+these already completed technical recovery checks by default.** This is
+real key recovery evidence, not merely a synthetic test.
 
-## B. Complete the independent key-custody acceptance (owner, offline)
+A more demanding **disaster-proof custody** claim (independent recovery even
+after losing the phone *and* email account) would require separately evidenced
+off-device custody; two physical offline media have not been confirmed by
+accessible records. This is a separate optional resilience acceptance, not a
+reason to mark the already completed cryptographic key recovery as failed.
+Do not conflate either proof with full-database backup coverage or permission
+to migrate/delete originals.
+
+## B. Optional stronger disaster-loss key-custody rehearsal (owner, offline; no repetition required for completed technical proof)
 
 1. Privately confirm the *original* historical archive root is contained in
    the existing encrypted `bob-archive-root.vault`, without opening or
@@ -68,9 +80,11 @@ rotation should be started to make this flag look green.
    rotating any productive secret. Do **not** rotate for this exercise.
    Production secrets and deletion permissions remain unchanged.
 
-Until (2)–(5) are witnessed and recorded privately, status must be
-`offline-escrow-custody-unverified`; a new successful
-`recoveryKeyVerified=true` runtime receipt alone cannot resolve it.
+Until additional media custody is independently documented, label only
+the **additional disaster-loss resilience** `offline-escrow-custody-unverified`.
+The already completed real encrypted-vault/archive recovery remains
+`technical-key-recovery-verified`. Do not assert either as a full-DB backup
+or use it to override storage/pilot/deletion preflight gates.
 
 ## C. Provider-volume snapshots for a *future separately authorized* operation
 
