@@ -25,6 +25,7 @@ class WorkflowService : AccessibilityService() {
         internal var epoch = 0
         internal var screenshotText = ""
         internal var message = "Kein Auftrag aktiv"
+        internal var demonstrationAllEvents = 0
         internal var demonstrationEvents = 0
         internal var demonstrationCheck = "NONE"
         internal var demonstrationDraft: Pair<String, List<WorkflowStep>>? = null
@@ -186,7 +187,7 @@ class WorkflowService : AccessibilityService() {
     internal fun beginDemonstration(app: String): Boolean {
         if (!begin(app, null)) return false
         demonstrationDraft = null; demonstration = WorkflowDemonstration(app); demonstrationSeen = false
-        demonstrationEvents = 0; demonstrationCheck = "STARTED"
+        demonstrationAllEvents = 0; demonstrationEvents = 0; demonstrationCheck = "STARTED"
         serviceInfo = serviceInfo.apply {
             eventTypes = eventTypes or AccessibilityEvent.TYPE_VIEW_CLICKED or AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
             notificationTimeout = 0
@@ -278,6 +279,7 @@ class WorkflowService : AccessibilityService() {
     override fun onServiceConnected() { instance = this; finish("Bereit · lokal starten") }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val recorder = demonstration
+        if (recorder != null) demonstrationAllEvents++
         if (recorder != null && event?.packageName?.toString() == selected &&
             event.eventType in listOf(AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED)) {
             demonstrationEvents++

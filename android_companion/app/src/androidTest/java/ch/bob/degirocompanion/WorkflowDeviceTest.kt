@@ -157,18 +157,21 @@ class WorkflowDeviceTest {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         await("Demonstration did not observe fixture") { WorkflowService.observation?.app == app }
         assertNull(WorkflowService.run)
-        assertTrue(automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Suche").single()
-            .performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+        val button = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Suche").single()
+        val buttonSensitive = if (android.os.Build.VERSION.SDK_INT >= 34) button.isAccessibilityDataSensitive else false
+        val buttonBounds = android.graphics.Rect(); button.getBoundsInScreen(buttonBounds)
+        shell("input tap ${buttonBounds.centerX()} ${buttonBounds.centerY()}")
         await("Search field not observed") { WorkflowService.observation?.nodes?.any { it.editable } == true }
         val field = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
-        assertTrue(field.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
-            putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"Gold")
-        }))
+        val fieldSensitive = if (android.os.Build.VERSION.SDK_INT >= 34) field.isAccessibilityDataSensitive else false
+        val fieldBounds = android.graphics.Rect(); field.getBoundsInScreen(fieldBounds)
+        shell("input tap ${fieldBounds.centerX()} ${fieldBounds.centerY()}")
+        shell("input text Gold")
         SystemClock.sleep(700)
         main { WorkflowService.endDemonstration() }
         assertNull(WorkflowService.run)
         val draft = WorkflowService.demonstrationDraft!!.second
-        assertEquals("Events=${WorkflowService.demonstrationEvents}; check=${WorkflowService.demonstrationCheck}; state=${WorkflowService.message}",2,draft.size); assertEquals("Gold",draft.last().value)
+        assertEquals("Events=${WorkflowService.demonstrationEvents}/${WorkflowService.demonstrationAllEvents}; sensitive=$buttonSensitive/$fieldSensitive; mask=${WorkflowService.instance!!.serviceInfo.eventTypes}; check=${WorkflowService.demonstrationCheck}; state=${WorkflowService.message}",2,draft.size); assertEquals("Gold",draft.last().value)
         assertNull(WorkflowResultStore.previous(context,app))
         // The owner reviews the click result before replaying the draft.
         val reviewed = draft.map { if (it.action == WorkflowAction.CLICK) it.copy(expected="Suchfeld") else it }
