@@ -28,12 +28,12 @@ class PaperProfitSummaryTests(unittest.TestCase):
         self.assertFalse(out['strategyWinnerConfirmed'])
         self.assertFalse(out['netProductReturnsVerified'])
         self.assertFalse(out['fullHistoryRead'])
-        early = out['rows'][-2]
-        normal = out['rows'][-1]
+        early = next(a for a in out['rows'] if a['profile']=='early1000oct')
+        normal = next(a for a in out['rows'] if a['profile']=='normal1000oct')
         self.assertEqual(early['modelReturnPct'], 2.5)
         self.assertEqual(normal['modelReturnPct'], -3)
         self.assertEqual(early['exampleCostsDebitedEur'], 4.5)
-        self.assertEqual(out['rows'][-3]['modelReturnPct'], -5)
+        self.assertEqual(next(a for a in out['rows'] if a['profile']=='trend800')['modelReturnPct'], -5)
         self.assertNotIn('PRIVATE', json.dumps(out))
         self.assertNotIn('DO-NOT-EXPOSE', json.dumps(out))
 
@@ -51,7 +51,7 @@ class PaperProfitSummaryTests(unittest.TestCase):
         self.assertIsNone(early['exampleCostsDebitedEur'])
         self.assertIsNone(early['modelReturnPct'])
         self.assertIsNone(early['checkedAt'])
-        self.assertIsNone(out['rows'][-1]['initialCapitalEur'])
+        self.assertIsNone(next(a for a in out['rows'] if a['profile']=='normal1000nov')['initialCapitalEur'])
         json.dumps(out, allow_nan=False)
 
     def test_visibility_survives_focused_and_bounded_reports(self):
