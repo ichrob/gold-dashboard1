@@ -152,6 +152,13 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(archived['cash'],before['cash'])
                 ctl=conn.execute('SELECT payload FROM bob_paper_balanced_control').fetchone()[0]
                 self.assertEqual(ctl['retiredAt'],NOW)
+                for profile in ('trend800nov', 'normal1000nov'):
+                    relaunch=conn.execute('SELECT payload FROM '+p.names(profile)['bob_paper_control']).fetchone()[0]
+                    self.assertEqual(relaunch['startAt'],p.RELAUNCH_START)
+                    self.assertEqual(relaunch['endAt'],p.RELAUNCH_END)
+                    self.assertNotIn('retiredAt',relaunch)
+                    self.assertEqual(relaunch['cash'],p.POLICIES[profile]['initial_capital_eur'])
+                    self.assertIsNone(conn.execute('SELECT id FROM '+p.names(profile)['bob_paper_cases']).fetchone())
                 b,m=sample();r.tick(conn,b,m,NOW)
                 result=r.report(conn)
                 self.assertEqual(len(result['studies']),4)
