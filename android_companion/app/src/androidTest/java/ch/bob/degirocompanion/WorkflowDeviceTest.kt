@@ -315,7 +315,7 @@ class WorkflowDeviceTest {
         context.startActivity(Intent(context,WorkflowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         await("Workflow screen did not open") {
             val root = automation.rootInActiveWindow
-            val visible = root?.findAccessibilityNodeInfosByText("Senden")?.any { it.isVisibleToUser } == true
+            val visible = root?.findAccessibilityNodeInfosByText("Senden")?.any { it.isVisibleToUser && it.isClickable && it.text?.toString() == "Senden" } == true
             fun scroll(node: android.view.accessibility.AccessibilityNodeInfo): Boolean {
                 if (node.isScrollable && node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return true
                 for (i in 0 until node.childCount) node.getChild(i)?.let { if (scroll(it)) return true }
@@ -328,7 +328,7 @@ class WorkflowDeviceTest {
         assertTrue(input.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
             putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"Gold")
         }))
-        val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Senden").single()
+        val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Senden").single { it.isClickable && it.text?.toString() == "Senden" }
         assertTrue(start.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
         await("DEGIRO reader handoff missing") {
             automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("DEGIRO lesen · Produkt und Morgenliste")?.isNotEmpty() == true
