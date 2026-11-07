@@ -128,6 +128,25 @@ class PaperGapTriageTests(unittest.TestCase):
         self.assertNotIn("DO-NOT-EXPOSE", json.dumps(result))
         self.assertFalse(result["items"][0]["rootCauseVerified"])
 
+    def test_observed_empty_recent_case_sample_is_not_a_source_failure(self):
+        complete = t.assess({"recentRecordedGapInstants": [],
+                             "sampleCoverage": "observed"}, None, None)
+        self.assertEqual(complete["status"], "no-recorded-gaps-in-sample")
+        self.assertEqual(complete["sampledDistinctGapInstants"], 0)
+        self.assertTrue(complete["noRecentGapEventsObserved"])
+        self.assertFalse(complete["fullHistoricalGapCoverageVerified"])
+        self.assertFalse(complete["profitOrLossVerified"] if
+                         "profitOrLossVerified" in complete else False)
+
+        # No case detail, partial account coverage or malformed source must
+        # remain unavailable: empty lists alone never prove full history.
+        self.assertEqual(t.assess({}, None, None)["status"], "unavailable")
+        partial = t.assess({"recentRecordedGapInstants": [],
+                            "sampleCoverage": "incomplete"}, None, None)
+        self.assertEqual(partial["status"], "unavailable")
+        missing_list = t.assess({"sampleCoverage": "observed"}, None, None)
+        self.assertEqual(missing_list["status"], "unavailable")
+
     def test_integration_reports_triage_only_as_hypothesis(self):
         corr, spot, analysis = self.sample()
         cases = [{
