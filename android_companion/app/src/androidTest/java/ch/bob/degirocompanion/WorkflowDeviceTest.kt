@@ -338,6 +338,40 @@ class WorkflowDeviceTest {
         assertTrue(automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Lesedienst zuerst einschalten.").isNotEmpty())
         context.getSharedPreferences("workflow_auto_v1",0).edit().clear().commit()
     }
+    @Test fun ownerLoginRequestUsesLocalPinRouteAndShowsMissingReaderInsteadOfAiRejection() {
+        context.getSharedPreferences("workflow_auto_v1",0).edit()
+            .putString("lastApp",WorkflowAppRoute.DEGIRO).commit()
+        val previous = context.getSharedPreferences("product_reader",0).getBoolean("enabled",false)
+        context.getSharedPreferences("product_reader",0).edit().putBoolean("enabled",false).commit()
+        val monitor = instrumentation.addMonitor(ProductReadActivity::class.java.name,null,false)
+        val activity = instrumentation.startActivitySync(Intent(context,WorkflowActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as WorkflowActivity
+        try {
+            main {
+                val input = WorkflowActivity::class.java.getDeclaredField("goal").apply { isAccessible = true }.get(activity) as android.widget.EditText
+                input.setText("öffne degiro und gebe selbstständig das Passwort ein zum Öffnen der App")
+                WorkflowActivity::class.java.getDeclaredMethod("sendMessage").apply { isAccessible = true }.invoke(activity)
+            }
+            val reader = instrumentation.waitForMonitorWithTimeout(monitor,5000) as? ProductReadActivity
+            assertNotNull("Local PIN reader was not opened",reader)
+            await("Missing reader should be explained locally") {
+                automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("Lokale DEGIRO-Anmeldung: Lesedienst zuerst einschalten.")?.isNotEmpty() == true
+            }
+            main {
+                assertFalse(reader!!.intent.hasExtra(ProductReadActivity.EXTRA_START_LOCAL_LOGIN))
+                assertNull(WorkflowService.run)
+                assertFalse(PinReadinessProbe.running)
+                assertFalse(GoldSearchRun.running)
+                assertFalse(LoginToReadHandoff.pending(SystemClock.elapsedRealtime()))
+                reader.finish()
+            }
+        } finally {
+            instrumentation.removeMonitor(monitor)
+            main { activity.finish() }
+            context.getSharedPreferences("product_reader",0).edit().putBoolean("enabled",previous).commit()
+            context.getSharedPreferences("workflow_auto_v1",0).edit().clear().commit()
+        }
+    }
     @Test fun builtInSelfTestChecksClickWriteAndScreenshot() {
         context.getSharedPreferences("workflow_selftest",0).edit().clear().commit()
         context.startActivity(Intent(context,WorkflowSelfTestActivity::class.java)

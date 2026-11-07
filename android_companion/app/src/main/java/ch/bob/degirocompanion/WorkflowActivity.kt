@@ -315,6 +315,8 @@ class WorkflowActivity : Activity() {
         output.text = ""
     }
     private fun stopProductReader() {
+        LoginToReadHandoff.clear()
+        if (PinReadinessProbe.running) PinReadinessProbe.stop("Durch neuen Auftrag oder STOPP beendet.")
         PhoneRemote.stop(this, "USER_STOP")
         GoldSearchRun.stop("USER_STOP", java.time.Instant.now().toString())
         MorningReadRun.stop(this, "USER_STOP")
@@ -711,6 +713,14 @@ class WorkflowActivity : Activity() {
         ownerOverride()
         if (PhoneTaskPlanParser.isStop(text)) { refresh(); return }
         if (text.isBlank()) { status.text = "Was soll Bob mit dem Screenshot tun? Bitte einen Auftrag eingeben."; return }
+        if (selectedApp == WorkflowAppRoute.DEGIRO && WorkflowAppRoute.localLogin(text)) {
+            // The explicit local Send action authorizes one existing PIN attempt.
+            // Never pass this request, its screenshot or the stored PIN to AI.
+            startActivity(Intent(this, ProductReadActivity::class.java)
+                .putExtra(ProductReadActivity.EXTRA_START_LOCAL_LOGIN, true))
+            goal.setText(""); clearAttachment()
+            return
+        }
         if (WorkflowRevision.requested(text)) {
             val previous = editing ?: WorkflowResultStore.previous(this, selectedApp)
             val changed = previous?.let { WorkflowRevision.apply(text, it) }
