@@ -5,6 +5,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 import cold_analysis as cold
+import cold_analysis_candidate_scan as candidate_scan
 from test_cold_metrics import Drive
 
 
@@ -65,6 +66,7 @@ class DatabaseTests(unittest.TestCase):
         self.c.execute('''CREATE TABLE bob_diagnostic_history(id text primary key,stage text,
             observed_at double precision,build text,recorded_at timestamptz,payload jsonb)''')
         cold.init(self.c);cold._LOCATION.clear();cold.codec._CACHE.clear()
+        candidate_scan.commit_cursor(None)
         self.drive=Drive()
         self.payload={'timeframe':'15m','purpose':'original','result':{'ready':True,'priceFresh':False,'dataAt':123456,
             'details':[hashlib.sha256(str(i).encode()).hexdigest() for i in range(80)],'originalInteger':9007199254740993}}
@@ -125,3 +127,73 @@ class DatabaseTests(unittest.TestCase):
         cold.offload_batch(self.c,self.drive)
         cold.codec._CACHE.clear();self.drive.corrupt=True
         with self.assertRaises(cold.codec.ColdArchiveUnavailable):cold.get(self.c,'old',drive=self.drive)
+
+
+    def test_bounded_scanner_skips_pointer_prefix_and_reaches_original(self):
+        self.c.execute("""CREATE INDEX sample_analysis_age
+            ON bob_diagnostic_history(stage,recorded_at DESC)""")
+        pointer = json.dumps({cold.TAG: ["f" * 32, 0], "timeframe": "15m"})
+        rows = [
+            ("arch-" + str(i), "analysis", 123.0, None, pointer, i)
+            for i in range(900)
+        ]
+        with self.c.cursor() as cur:
+            cur.executemany("""INSERT INTO bob_diagnostic_history
+            (id,stage,observed_at,build,payload,recorded_at)
+            VALUES (%s,%s,%s,%s,%s::jsonb,
+                    now()-interval '12 hours'+(%s*interval '1 second'))""", rows)
+        result = cold.offload_batch(self.c, self.drive)
+        self.assertEqual(result["status"], "verified-offload")
+        self.assertEqual(result["movedRows"], 1)
+        self.assertTrue(result["candidateScanBounded"])
+        self.assertGreater(result["scannedRows"], 900)
+        self.assertLessEqual(result["scannedRows"],
+                             candidate_scan.PAGE_ROWS * candidate_scan.MAX_SCAN_PAGES)
+        count = self.c.execute("""SELECT count(*) FROM bob_diagnostic_history
+            WHERE id LIKE 'arch-%%' AND payload ? %s""", (cold.TAG,)).fetchone()[0]
+        self.assertEqual(count, 900)
+        self.assertIn(cold.TAG, self.c.execute(
+            "SELECT payload FROM bob_diagnostic_history WHERE id='old'").fetchone()[0])
+
+
+    def test_bounded_no_eligible_cursor_continues_then_wraps(self):
+        self.c.execute("DELETE FROM bob_diagnostic_history WHERE id='old'")
+        pointer = json.dumps({cold.TAG: ["f" * 32, 0], "timeframe": "15m"})
+        rows = [
+            ("arch-" + str(i), "analysis", 123.0, None, pointer, i)
+            for i in range(2500)
+        ]
+        with self.c.cursor() as cur:
+            cur.executemany("""INSERT INTO bob_diagnostic_history
+            (id,stage,observed_at,build,payload,recorded_at)
+            VALUES (%s,%s,%s,%s,%s::jsonb,
+                    now()-interval '12 hours'+(%s*interval '1 second'))""", rows)
+        first = cold.offload_batch(self.c, self.drive)
+        self.assertEqual(first["status"], "scan-continues")
+        self.assertEqual(first["scannedRows"],
+                         candidate_scan.PAGE_ROWS * candidate_scan.MAX_SCAN_PAGES)
+        self.assertIsNotNone(candidate_scan.cursor())
+        second = cold.offload_batch(self.c, self.drive)
+        self.assertEqual(second["status"], "no-eligible-rows")
+        self.assertEqual(second["scannedRows"], 452)
+        self.assertIsNone(candidate_scan.cursor())
+        self.assertEqual(self.drive.files, {})
+        count = self.c.execute("""SELECT count(*) FROM bob_diagnostic_history
+            WHERE id LIKE 'arch-%%' AND payload ? %s""", (cold.TAG,)).fetchone()[0]
+        self.assertEqual(count, 2500)
+
+    def test_query_failure_never_advances_cursor_or_uploads(self):
+        class QueryCanceled(Exception):
+            pass
+        class BrokenConn:
+            autocommit = True
+            def execute(self, sql, args=None):
+                raise QueryCanceled("private-dsn-not-to-be-logged")
+        self.assertIsNone(candidate_scan.cursor())
+        with self.assertRaises(QueryCanceled):
+            cold.offload_batch(BrokenConn(), self.drive)
+        self.assertIsNone(candidate_scan.cursor())
+        self.assertFalse(self.drive.files)
+        self.assertEqual(
+            self.c.execute("SELECT payload FROM bob_diagnostic_history WHERE id='old'").fetchone()[0],
+            self.payload)
