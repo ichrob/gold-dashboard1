@@ -16,7 +16,8 @@ internal object WorkflowAuto {
     fun local(goal: String, frame: WorkflowFrame): List<WorkflowStep>? {
         // Explicit commands are owner-authored, not inferred from on-screen text.
         val explicit = LocalWorkflow.parse(goal)
-        if (explicit != null)
+        if (explicit != null && (explicit.size > 1 ||
+            explicit.all { LocalWorkflow.target(it, frame) != null || it.action == WorkflowAction.WAIT }))
             return explicit
         val write = Regex("""schreibe (.+?) in (?:das |die |den )?(?:suchfeld|suche|suchbegriff)""", RegexOption.IGNORE_CASE).matchEntire(goal.trim()) ?: return null
         val value = write.groupValues[1].trim().removeSurrounding("\"")
