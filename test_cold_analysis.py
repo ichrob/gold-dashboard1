@@ -153,3 +153,45 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(count, 900)
         self.assertIn(cold.TAG, self.c.execute(
             "SELECT payload FROM bob_diagnostic_history WHERE id='old'").fetchone()[0])
+
+
+    def test_bounded_no_eligible_cursor_continues_then_wraps(self):
+        self.c.execute("DELETE FROM bob_diagnostic_history WHERE id='old'")
+        pointer = json.dumps({cold.TAG: ["f" * 32, 0], "timeframe": "15m"})
+        rows = [
+            ("arch-" + str(i), "analysis", 123.0, None, pointer, i)
+            for i in range(2500)
+        ]
+        self.c.executemany("""INSERT INTO bob_diagnostic_history
+            (id,stage,observed_at,build,payload,recorded_at)
+            VALUES (%s,%s,%s,%s,%s::jsonb,
+                    now()-interval '12 hours'+(%s*interval '1 second'))""", rows)
+        first = cold.offload_batch(self.c, self.drive)
+        self.assertEqual(first["status"], "no-eligible-rows")
+        self.assertEqual(first["scannedRows"],
+                         candidate_scan.PAGE_ROWS * candidate_scan.MAX_SCAN_PAGES)
+        self.assertIsNotNone(candidate_scan.cursor())
+        second = cold.offload_batch(self.c, self.drive)
+        self.assertEqual(second["status"], "no-eligible-rows")
+        self.assertEqual(second["scannedRows"], 452)
+        self.assertIsNone(candidate_scan.cursor())
+        self.assertEqual(self.drive.files, {})
+        count = self.c.execute("""SELECT count(*) FROM bob_diagnostic_history
+            WHERE id LIKE 'arch-%' AND payload ? %s""", (cold.TAG,)).fetchone()[0]
+        self.assertEqual(count, 2500)
+
+    def test_query_failure_never_advances_cursor_or_uploads(self):
+        class QueryCanceled(Exception):
+            pass
+        class BrokenConn:
+            autocommit = True
+            def execute(self, sql, args=None):
+                raise QueryCanceled("private-dsn-not-to-be-logged")
+        self.assertIsNone(candidate_scan.cursor())
+        with self.assertRaises(QueryCanceled):
+            cold.offload_batch(BrokenConn(), self.drive)
+        self.assertIsNone(candidate_scan.cursor())
+        self.assertFalse(self.drive.files)
+        self.assertEqual(
+            self.c.execute("SELECT payload FROM bob_diagnostic_history WHERE id='old'").fetchone()[0],
+            self.payload)
