@@ -63,7 +63,11 @@ def start(conn, now):
         return
     import paper_portfolios
     snapshots = {}
-    for profile in paper_portfolios.POLICIES:
+    for profile, policy in paper_portfolios.POLICIES.items():
+        # The older one-time quality restart must never retire or snapshot the
+        # independent future-dated November user-requested paper comparison.
+        if policy.get('relaunch'):
+            continue
         ledger = paper_portfolios.Ledger(conn, profile)
         row = ledger.execute('SELECT payload FROM bob_paper_control WHERE id=1 FOR UPDATE').fetchone()
         if row:
