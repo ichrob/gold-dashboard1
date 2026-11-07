@@ -13,12 +13,16 @@ internal object WorkflowAuto {
             else WorkflowNode(label, id, n.editable, n.clickable)
         }.distinct().take(24)
     }
-    fun local(goal: String, frame: WorkflowFrame): List<WorkflowStep>? {
+    fun local(rawGoal: String, frame: WorkflowFrame): List<WorkflowStep>? {
+        val goal = WorkflowLanguage.goal(rawGoal)
         // Explicit commands are owner-authored, not inferred from on-screen text.
         val explicit = LocalWorkflow.parse(goal)
         if (explicit != null && (explicit.size > 1 ||
             explicit.all { LocalWorkflow.target(it, frame) != null || it.action == WorkflowAction.WAIT }))
             return explicit
+        WorkflowMessage.resolve(goal, frame.nodes.filter { !it.password }.map { it.label })?.let { commands ->
+            LocalWorkflow.parse(commands)?.let { return it }
+        }
         val write = Regex("""schreibe (.+?) in (?:das |die |den )?(?:suchfeld|suche|suchbegriff)""", RegexOption.IGNORE_CASE).matchEntire(goal.trim()) ?: return null
         val value = write.groupValues[1].trim().removeSurrounding("\"")
         if (!WorkflowAiPolicy.safe(value)) return null
@@ -29,7 +33,8 @@ internal object WorkflowAuto {
         return listOf(WorkflowStep(WorkflowAction.CLICK, frame.nodes[button].label, opensSearch=true),
             WorkflowStep(WorkflowAction.WRITE, WorkflowSearch.FIELD, value))
     }
-    fun autoPlan(goal: String, nodes: List<WorkflowNode>, steps: List<WorkflowStep>): Boolean {
+    fun autoPlan(rawGoal: String, nodes: List<WorkflowNode>, steps: List<WorkflowStep>): Boolean {
+        val goal = WorkflowLanguage.goal(rawGoal)
         if (!WorkflowAiPolicy.valid(goal, nodes, steps)) return false
         // A partial navigation proposal must not count as a completed writing goal.
         val writeGoal = Regex("""schreibe (.+?)(?: in .+)?""", RegexOption.IGNORE_CASE).matchEntire(goal.trim())

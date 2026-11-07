@@ -125,7 +125,9 @@ jobs:
         with:
           api-level: 35
           arch: x86_64
-          target: google_apis
+          # Bundled OCR needs no Google Play services. The Google launcher can
+          # ANR during first boot and cover every fixture with a system dialog.
+          target: default
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |

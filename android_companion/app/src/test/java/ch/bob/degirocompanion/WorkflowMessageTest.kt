@@ -32,4 +32,19 @@ class WorkflowMessageTest {
         assertEquals(text, WorkflowMessage.resolve(text, listOf("Suche")))
         assertNull(WorkflowMessage.resolve(text, listOf("Andere Seite")))
     }
+    @Test fun naturalScreenshotButtonNamesAndPressVerbsResolve() {
+        for (text in listOf("drücke auf Schaltfläche Favoriten", "Bitte drücke auf die Schaltfläche Favoriten",
+            "klicke auf den Button Favoriten", "Tippe auf den Reiter Favoriten", "druecke auf Favoriten")) {
+            val steps = LocalWorkflow.parse(WorkflowMessage.resolve(text, listOf("Suche", "Favoriten"))!!)!!
+            assertEquals(text, listOf(WorkflowStep(WorkflowAction.CLICK, "Favoriten", selectsTab=true)), steps)
+        }
+        assertEquals("Suche", WorkflowMessage.clickTarget("drücke auf Schaltfläche Suche", listOf("Suche")))
+        assertNull(WorkflowMessage.resolve("drücke auf Favoriten und kaufe", listOf("Favoriten")))
+        assertNull(WorkflowMessage.resolve("drücke nicht auf Favoriten", listOf("Favoriten")))
+        assertNull(WorkflowMessage.resolve("drücke auf Favoriten", listOf("Suche")))
+        assertNull(WorkflowMessage.resolve("drücke auf Schaltfläche Kaufen", listOf("Kaufen")))
+        assertNull(WorkflowMessage.resolve("drücke auf Favoriten", listOf("Favoriten", "FAVORITEN")))
+        assertEquals("Favoriten", LocalWorkflow.parse(WorkflowMessage.resolve(
+            "Drücke auf Schaltfläche Favoriten und warte auf Meine Liste", listOf("Favoriten"))!!)!!.single().target)
+    }
 }
