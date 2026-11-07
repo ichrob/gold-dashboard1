@@ -31,7 +31,7 @@ class WorkflowDeviceTest {
             if (result) return
             SystemClock.sleep(100)
         }
-        fail(message + ": " + WorkflowService.message)
+        fail(message + ": " + WorkflowService.message + " [fixture OCR: " + WorkflowService.screenshotText + "]")
     }
     @Before fun setup() {
         context.getSharedPreferences("local_workflows_v1",0).edit().clear().commit()
@@ -43,6 +43,7 @@ class WorkflowDeviceTest {
         main { WorkflowService.stop() }
         shell("am force-stop " + app)
         shell("settings delete secure enabled_accessibility_services")
+        await("Service did not disconnect") { WorkflowService.instance == null }
     }
     private fun launch(mode: String) {
         shell("am force-stop " + app)
@@ -74,7 +75,8 @@ class WorkflowDeviceTest {
             assertNull(WorkflowLibrary.match(context,app,goal))
             val root = automation.rootInActiveWindow
             val fields = root.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text")
-            assertTrue(fields.all { it.text.isNullOrBlank() })
+            assertEquals(1,fields.size)
+            assertTrue(fields.all { it.isShowingHintText || it.text.isNullOrBlank() })
             assertEquals(0,WorkflowHealth.diagnostic(context)!!.getInt("confirmed"))
         }
     }

@@ -34,6 +34,7 @@ class WorkflowService : AccessibilityService() {
     private var recipeTitle = ""
     private var recorded = true
     private var capture = false
+    private var captureObservation: WorkflowAutoObservation? = null
     private var generation = 0
     private var automatic = false
     private var autoCloud = false
@@ -78,7 +79,11 @@ class WorkflowService : AccessibilityService() {
                 })
                 if (frame.app == selected && !LocalWorkflow.protected(frame)) {
                     observation = frame; observationAt = SystemClock.elapsedRealtime()
-                    if (capture) { capture = false; captureScreen(generation, frame.window) }
+                    // A new window can expose its tree before the app has drawn it.
+                    // Wait for stable content before capturing, just as automatic planning does.
+                    if (capture && captureObservation?.next(frame, SystemClock.elapsedRealtime(), unlocked) != null) {
+                        capture = false; captureObservation = null; captureScreen(generation, frame.window)
+                    }
                 }
                 if (automatic && LocalWorkflow.protected(frame)) { finish("Geschützte Ansicht: Auftrag gestoppt"); return }
                 if (automatic && run == null && !planning) {
@@ -111,7 +116,8 @@ class WorkflowService : AccessibilityService() {
         finish("Neue Sitzung")
         recipeGoal = goal; recipeTitle = title; recorded = false
         selected = app; until = SystemClock.elapsedRealtime() + if (steps == null) 45_000 else 180_000
-        capture = screenshot; observation = null; screenshotText = ""
+        capture = screenshot; captureObservation = if (screenshot) WorkflowAutoObservation(app, SystemClock.elapsedRealtime()) else null
+        observation = null; screenshotText = ""
         run = steps?.let { WorkflowRun(app, it, SystemClock.elapsedRealtime()) }
         healthActive = steps != null
         healthSource = if (steps == null) "NONE" else "LOCAL"
@@ -172,7 +178,7 @@ class WorkflowService : AccessibilityService() {
     private fun finish(reason: String) {
         val notify = automatic && reason != "Neue Sitzung"
         automatic = false; planning = false; autoCloud = false; autoObservation = null; proposalContext = null
-        generation++; handler.removeCallbacks(poll); selected = ""; capture = false
+        generation++; handler.removeCallbacks(poll); selected = ""; capture = false; captureObservation = null
         run?.let { if (!it.finished) it.stop(reason) }; message = reason
         run?.let {
             if (!recorded) {
