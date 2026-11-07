@@ -86,7 +86,7 @@ class WorkflowDeviceTest {
         val image = android.graphics.Bitmap.createBitmap(900, 300, android.graphics.Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(image)
         canvas.drawColor(android.graphics.Color.WHITE)
-        canvas.drawText("Suchfeld", 40f, 160f, android.graphics.Paint().apply {
+        canvas.drawText("Suche", 40f, 160f, android.graphics.Paint().apply {
             color = android.graphics.Color.BLACK; textSize = 90f; isAntiAlias = true
         })
         val file = java.io.File(context.cacheDir, "composer-fixture.png")
@@ -97,15 +97,11 @@ class WorkflowDeviceTest {
         fun field(name: String): Any? = WorkflowActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.get(activity)
         try {
             main {
-                (field("goal") as android.widget.EditText).setText("Schreibe Silber 123,45 in Suchfeld")
+                (field("goal") as android.widget.EditText).setText("Tippe auf Suche und warte auf Suchfeld\nSchreibe Silber 123,45 in Suchfeld")
                 WorkflowActivity::class.java.getDeclaredMethod("readImage", android.net.Uri::class.java, Boolean::class.javaPrimitiveType)
                     .apply { isAccessible = true }.invoke(activity, android.net.Uri.fromFile(file), true)
             }
-            await("Attached screenshot was not read locally") { (field("attachmentLabels") as List<*>).contains("Suchfeld") }
-            // Open the fixture's field before the composer launches it again.
-            context.startActivity(Intent().setClassName(app, app + ".MainActivity").putExtra("mode", "open")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-            SystemClock.sleep(500)
+            await("Attached screenshot was not read locally") { (field("attachmentLabels") as List<*>).contains("Suche") }
             main {
                 fun send(view: android.view.View): android.widget.Button? {
                     if (view is android.widget.Button && view.text.toString().startsWith("Senden ·")) return view
@@ -186,9 +182,9 @@ class WorkflowDeviceTest {
             .putString("lastApp",WorkflowAppRoute.DEGIRO).putString("lastGoal","Gold").commit()
         context.startActivity(Intent(context,WorkflowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         await("Workflow screen did not open") {
-            automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("START · Bob erledigt den Auftrag")?.isNotEmpty() == true
+            automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("Senden · Bob erledigt den Auftrag")?.isNotEmpty() == true
         }
-        val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("START · Bob erledigt den Auftrag").single()
+        val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Senden · Bob erledigt den Auftrag").single()
         assertTrue(start.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
         await("DEGIRO reader handoff missing") {
             automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("DEGIRO lesen · Produkt und Morgenliste")?.isNotEmpty() == true
