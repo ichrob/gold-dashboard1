@@ -31,9 +31,21 @@ class WorkflowDeviceTest {
             if (result) return
             SystemClock.sleep(100)
         }
+        val root = automation.rootInActiveWindow
+        android.util.Log.e("BobDeviceTest", "Active root: ${root?.packageName}; windows: ${automation.windows.map { "${it.id}:${it.type}:${it.isActive}:${it.root?.packageName}" }}")
+        for (command in listOf("dumpsys window windows", "dumpsys power")) {
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use {
+                it.bufferedReader().forEachLine { line -> android.util.Log.e("BobDeviceTest", line) }
+            }
+        }
         fail(message + ": " + context.getSharedPreferences("workflow_selftest",0).getString("detail", "") + " / " + WorkflowService.message + " [fixture OCR: " + WorkflowService.screenshotText + "]")
     }
     @Before fun setup() {
+        // This is a disposable, credential-free emulator. Keep its display awake
+        // throughout the suite; never apply these shell commands to a user's phone.
+        shell("svc power stayon true")
+        shell("input keyevent KEYCODE_WAKEUP")
+        shell("wm dismiss-keyguard")
         context.getSharedPreferences("local_workflows_v1",0).edit().clear().commit()
         shell("settings put secure enabled_accessibility_services " + context.packageName + "/ch.bob.degirocompanion.WorkflowService")
         shell("settings put secure accessibility_enabled 1")
