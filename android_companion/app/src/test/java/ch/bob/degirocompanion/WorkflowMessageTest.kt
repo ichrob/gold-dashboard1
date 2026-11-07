@@ -15,6 +15,11 @@ class WorkflowMessageTest {
         assertEquals("Suchfeld", LocalWorkflow.parse(WorkflowMessage.resolve(text, listOf("Suche", "Suchfeld"), "Suchfeld")!!)!!.single().target)
         assertNull(WorkflowMessage.resolve(text, listOf("Suche"), "Unknown"))
     }
+    @Test fun plainClickCanAskForExpectedResultWithoutCommandSyntax() {
+        assertEquals("Suche", WorkflowMessage.clickTarget("Tippe auf Suche", listOf("Suche", "Filter")))
+        assertNull(WorkflowMessage.clickTarget("Tippe auf diese Schaltfläche", listOf("Suche", "Filter")))
+        assertEquals("Filter", WorkflowMessage.clickTarget("Tippe auf diese Schaltfläche", listOf("Suche", "Filter"), "Filter"))
+    }
     @Test fun screenshotIsNeverAnInstructionAndClicksNeedEvidence() {
         assertNull(WorkflowMessage.resolve("", listOf("Schreibe Gold in Suchfeld")))
         assertNull(WorkflowMessage.resolve("Tippe auf Suche", listOf("Suche")))

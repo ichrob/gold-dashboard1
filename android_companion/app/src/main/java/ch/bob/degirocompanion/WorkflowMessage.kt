@@ -3,6 +3,13 @@ package ch.bob.degirocompanion
 /** The owner's text supplies actions; local screenshot OCR supplies labels only. */
 internal object WorkflowMessage {
     private val reference = Regex("(?i)^(?:diese schaltfläche|diesen button|dieses feld|dieses eingabefeld|hier|das feld)$")
+    fun clickTarget(text: String, labels: List<String>, selected: String? = null): String? {
+        val match = Regex("(?i)^(?:tippe|klicke) auf ([^\\n]+)$").matchEntire(text.trim()) ?: return null
+        val raw = match.groupValues[1].trim().removeSurrounding("\"")
+        val candidates = labels.filter { WorkflowComposer.validText(it) }.distinct()
+        return if (reference.matches(raw)) selected?.takeIf { it in candidates } ?: candidates.singleOrNull()
+            else candidates.singleOrNull { LocalWorkflow.normalize(it) == LocalWorkflow.normalize(raw) }
+    }
     fun needsTarget(text: String): Boolean = text.lines().any { line ->
         reference.matches(line.substringAfterLast(" in ", line.substringAfter("auf ")).substringBefore(" -> ").trim())
     }

@@ -536,6 +536,21 @@ class WorkflowActivity : Activity() {
             if (token != imageGeneration || attachmentToken != attachmentGeneration || app != selectedApp || text != goal.text.toString().trim()) return
             val resolved = WorkflowMessage.resolve(text, labels, target)
             if (resolved == null) {
+                val clickTarget = WorkflowMessage.clickTarget(text, labels, target)
+                if (clickTarget != null) {
+                    val expected = EditText(this).apply { hint = "Welcher Text soll danach erscheinen?" }
+                    val dialog = AlertDialog.Builder(this).setTitle("Ergebnis nach dem Tippen auf $clickTarget")
+                        .setView(expected).setPositiveButton("Senden", null).setNegativeButton("Abbrechen", null).create()
+                    dialog.setOnShowListener {
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                            if (token != imageGeneration || attachmentToken != attachmentGeneration || app != selectedApp || text != goal.text.toString().trim()) { dialog.dismiss(); return@setOnClickListener }
+                            val command = WorkflowComposer.command(WorkflowAction.CLICK, clickTarget, expected = expected.text.toString())
+                            if (command == null) expected.error = "Bitte einen eindeutigen Ergebnistext angeben"
+                            else { commands.setText(command); dialog.dismiss(); launch(false, false) }
+                        }
+                    }
+                    dialog.show(); return
+                }
                 status.text = "Bitte Ziel und Aktion beschreiben, z. B. Schreibe Silber in Suchfeld. Beim Tippen auch den erwarteten Ergebnistext angeben."
                 return
             }
