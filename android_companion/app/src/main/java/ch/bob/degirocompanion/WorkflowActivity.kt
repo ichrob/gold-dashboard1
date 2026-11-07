@@ -27,6 +27,12 @@ class WorkflowActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var output: TextView
     private lateinit var resultSummary: TextView
+    private lateinit var history: LinearLayout
+    private lateinit var detailsPanel: LinearLayout
+    private lateinit var settingsPanel: LinearLayout
+    private lateinit var attachmentRemove: Button
+    private var revisionBase: List<WorkflowStep>? = null
+    private var panelDialog: AlertDialog? = null
     private var attachmentBoxes = emptyMap<String, android.graphics.Rect>()
     private var selectedApp = ""
     private lateinit var cloud: CheckBox
@@ -46,126 +52,175 @@ class WorkflowActivity : Activity() {
     private val saved by lazy { getSharedPreferences("local_workflows_v1", MODE_PRIVATE) }
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
-        val stack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 20, 24, 20) }
-        var section = stack
-        fun label(s: String) = TextView(this).also { it.text = s; it.textSize = 17f; section.addView(it) }
-        fun button(s: String, block: () -> Unit) = Button(this).also { it.text = s; it.isAllCaps = false; it.setOnClickListener { block() }; section.addView(it) }
-        label("Meine Aufträge")
-        status = label("Lokal auf deinem Handy · keine ChatGPT-Verbindung nötig")
-        resultSummary = label(WorkflowResultStore.summary(this))
-        button("Ergebnis · erledigte und offene Schritte") {
-            AlertDialog.Builder(this).setTitle("Letzter Auftrag").setMessage(WorkflowResultStore.detail(this)).setPositiveButton("Schließen", null).show()
+        fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+        fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun label(parent: LinearLayout, text: String) = TextView(this).also {
+            it.text = text; it.textSize = 16f; it.setPadding(0, dp(4), 0, dp(4)); parent.addView(it)
         }
-        button("STOPP · Auftrag und Lesesitzung beenden") { ownerOverride(); refresh() }
-        label("Regel Nummer eins · Du bestimmst: Ein neuer Start ersetzt den bisherigen Auftrag. Stopp oder Abbrechen beendet ihn; alte Antworten werden verworfen.")
-        label("App wählen, Auftrag sagen oder eingeben, Start. Bob liest und prüft selbst. Erfolgreiche Abläufe bleiben lokal gespeichert. Keine Orders, Anmeldung oder Zahlungen.")
-        button("Selbsttest · Klicken, Schreiben und Screenshot prüfen") {
-            WorkflowService.stop()
-            startActivity(Intent(this,WorkflowSelfTestActivity::class.java))
+        fun button(parent: LinearLayout, text: String, action: () -> Unit) = Button(this).also {
+            it.text = text; it.isAllCaps = false; it.minHeight = dp(48); it.setOnClickListener { action() }; parent.addView(it)
         }
-        button("Einrichtung · Auftrags-Bedienungshilfe öffnen") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        appLabel = label("Noch keine App gewählt")
-        button("App auswählen") { chooseApp() }
-        goal = EditText(this).apply { hint = "Was soll Bob tun? Zum Beispiel: Schreibe Gold in das Suchfeld"; minLines = 2; stack.addView(this) }
+        fun weighted(parent: LinearLayout, view: android.view.View, weight: Float = 1f) {
+            view.layoutParams = LinearLayout.LayoutParams(0, -2, weight)
+        }
+        val root = column().apply { setPadding(dp(12), dp(4), dp(12), dp(4)) }
+        val header = LinearLayout(this); root.addView(header)
+        weighted(header, label(header, "Bob · Meine Aufträge").apply { textSize = 20f })
+        button(header, "STOPP") { ownerOverride(); refresh() }.apply {
+            contentDescription = "STOPP · Auftrag und Lesesitzung beenden"
+            setTextColor(android.graphics.Color.WHITE)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.rgb(179,38,30))
+        }
+        appLabel = button(root, "App auswählen") { chooseApp() }
+        val menus = LinearLayout(this); root.addView(menus)
+        weighted(menus, button(menus, "Bob etwas beibringen") { learningMenu() })
+        weighted(menus, button(menus, "Einstellungen") { showPanel("Einstellungen", settingsPanel) })
+        status = label(root, "Bereit").apply { maxLines = 2 }
+        val scroll = ScrollView(this).apply { isFillViewport = true }
+        history = column(); scroll.addView(history)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        resultSummary = TextView(this) // Detailed summary remains available in the result dialog.
+        val composer = column(); root.addView(composer)
         attachmentPreview = ImageView(this).apply {
-            adjustViewBounds = true; maxHeight = 360; contentDescription = "Screenshot zu deinem Auftrag"
-            visibility = android.view.View.GONE; stack.addView(this)
+            adjustViewBounds = true; maxHeight = dp(96); contentDescription = "Screenshot zu deinem Auftrag"
+            visibility = android.view.View.GONE; composer.addView(this)
         }
-        attachmentStatus = label("Screenshot optional · Bild und Text gemeinsam senden")
-        button("+ Screenshot anhängen") {
-            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE)
-            }, 106)
+        val attachmentRow = LinearLayout(this); composer.addView(attachmentRow)
+        attachmentStatus = label(attachmentRow, "").apply { textSize = 13f; maxLines = 2; visibility = android.view.View.GONE }
+        weighted(attachmentRow, attachmentStatus)
+        attachmentRemove = button(attachmentRow, "Entfernen") { clearAttachment() }.apply { visibility = android.view.View.GONE }
+        goal = EditText(this).apply {
+            hint = "Was soll Bob tun?"; contentDescription = "Auftrag eingeben"; minLines = 1; maxLines = 3; gravity = android.view.Gravity.TOP
+            composer.addView(this)
         }
-        button("Screenshot entfernen") { clearAttachment() }
-        button("Symbol erklären und lernen") { teachSymbol() }
-        button("Gelernte Symbole · verwenden oder vergessen") { manageSymbols() }
-        button("Auftrag sprechen") {
-            runCatching { startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "de-DE")
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Auftrag sagen; danach Start drücken")
-            }, 105) }.onFailure { status.text = "Sprachdienst fehlt; Textfeld oder Tastaturmikrofon verwenden" }
+        val actions = LinearLayout(this); composer.addView(actions)
+        button(actions, "+") { pickAttachment() }.apply {
+            contentDescription = "Screenshot anhängen"; layoutParams = LinearLayout.LayoutParams(dp(56), -2)
         }
-        cloud = CheckBox(this).apply { text = "Bei Bedarf KI automatisch nutzen · einmal je App freigeben"; stack.addView(this) }
+        weighted(actions, button(actions, "Sprechen") { speakGoal() })
+        weighted(actions, button(actions, "Senden") { sendMessage() })
+
+        settingsPanel = column().apply { setPadding(dp(12), 0, dp(12), 0) }
+        label(settingsPanel, "Regel Nummer eins: Du bestimmst. Ein neuer Start ersetzt den bisherigen Auftrag; Stopp beendet ihn.")
+        button(settingsPanel, "Bedienungshilfe einrichten") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        cloud = CheckBox(this).apply { text = "Bei Bedarf KI automatisch nutzen · einmal je App freigeben"; settingsPanel.addView(this) }
         cloud.setOnCheckedChangeListener { _, checked ->
             if (!updatingCloud) {
                 if (checked && !LocalWorkflow.allowedApp(selectedApp)) {
-                    updatingCloud = true; cloud.isChecked = false; updatingCloud = false
-                    status.text = "Zuerst eine App auswählen"
+                    updatingCloud = true; cloud.isChecked = false; updatingCloud = false; status.text = "Zuerst eine App auswählen"
                 } else if (checked && !autoPrefs.getBoolean("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp, false)) allowAutomaticCloud()
                 else if (!checked) { autoPrefs.edit().remove("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp).apply(); WorkflowService.stop() }
             }
         }
-        button("Senden · Bob erledigt den Auftrag") { sendMessage() }
-        button("Kostenlosen KI-Zugang prüfen") { checkAi() }
-        label("Änderungen: z. B. Nimm Silber statt Gold · Wiederhole das mit 123")
-        button("Ablauf vormachen und lernen") { startDemonstration() }
-        label("Auftragsfolge · bis zu zwölf Schritte")
-        commands = EditText(this).apply {
-            hint = "Schritte über die Schaltfläche oder aus einem Screenshot hinzufügen"
-            minLines = 3; gravity = android.view.Gravity.TOP; stack.addView(this)
-        }
-        button("Schritt hinzufügen · Tippen, Schreiben oder Warten") { composeStep("") }
-        button("Schaltfläche oder Feld aus Screenshot wählen") {
+        button(settingsPanel, "Kostenlosen KI-Zugang prüfen") { checkAi() }
+        button(settingsPanel, "Selbsttest durchführen") { ownerOverride(); startActivity(Intent(this,WorkflowSelfTestActivity::class.java)) }
+        button(settingsPanel, "Details / manuelle Schritte") { showPanel("Details / manuelle Schritte", detailsPanel) }
+        label(settingsPanel, "Keine Orders, Anmeldung oder Zahlungen. Keine automatische kostenpflichtige Ausweichlösung.")
+
+        detailsPanel = column().apply { setPadding(dp(12), 0, dp(12), 0) }
+        label(detailsPanel, "Auftragsfolge · bis zu zwölf Schritte")
+        commands = EditText(this).apply { hint = "Schritte prüfen oder ergänzen"; minLines = 3; gravity = android.view.Gravity.TOP; detailsPanel.addView(this) }
+        name = EditText(this).apply { hint = "Optionaler Name"; setSingleLine(); detailsPanel.addView(this) }
+        button(detailsPanel, "Schritt hinzufügen") { composeStep("") }
+        button(detailsPanel, "Schritt diktieren") { speak(103, "Schritt beschreiben; anschließend prüfen und ergänzen") }
+        button(detailsPanel, "Auftragsfolge starten") { panelDialog?.dismiss(); launch(false, false) }
+        button(detailsPanel, "Auftrag prüfen und speichern") { save() }
+        button(detailsPanel, "Auftrag manuell vorbereiten") { propose() }
+        label(detailsPanel, "Beispiel: Schreibe Gold in Suchfeld. Unbekannte Ergebnisse und Platzhalter vor dem Start ergänzen.")
+        button(detailsPanel, "Bildschirm-Beschriftungen lesen") { panelDialog?.dismiss(); launch(true, false) }
+        button(detailsPanel, "Screenshot der gewählten App lesen") { panelDialog?.dismiss(); launch(true, true) }
+        button(detailsPanel, "Gelerntes Bildschirmziel übernehmen") { teach() }
+        button(detailsPanel, "Screenshot auswählen und lesen") {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE) }, 101)
         }
-        button("Auftragsfolge starten") { launch(false, false) }
-        val advanced = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = android.view.View.GONE }
-        button("Details / manuelle Schritte ein- oder ausblenden") {
-            advanced.visibility = if (advanced.visibility == android.view.View.VISIBLE) android.view.View.GONE else android.view.View.VISIBLE
+        button(detailsPanel, "JSON-Datei im gewählten Ordner suchen") {
+            if (!fileBusy) startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply { addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, 102)
         }
-        stack.addView(advanced); section = advanced
-        name = EditText(this).apply { hint = "Optionaler Name für manuelle Aufträge"; setSingleLine(); advanced.addView(this) }
-        button("Auftrag manuell vorbereiten · Texte einzeln freigeben") { propose() }
-        label("Zuerst wird ein erfolgreicher lokaler Ablauf gesucht. Eine neue KI-Anfrage benötigt deine Auswahl und Freigabe der Texte. Keine automatische kostenpflichtige Ausweichlösung.")
-        label("Ein Schritt pro Zeile. Tippe auf \"Beschriftung\" -> \"neuer Ergebnistext\"; Schreibe \"Text\" in \"Feldbeschriftung\"; Warte auf \"Text\". Auch eine angezeigte Feld-ID ist möglich. Bis zu zwölf Schritte. Bei doppelten Zielen stoppt Bob.")
-        button("Schritt diktieren") {
-            runCatching { startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.GERMAN.toLanguageTag())
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Schritt beschreiben; anschließend prüfen und ergänzen")
-            }, 103) }.onFailure { status.text = "Sprachdienst fehlt; Textfeld oder Tastaturmikrofon verwenden" }
-        }
-        button("Auftrag prüfen und speichern") { save() }
-        button("Gespeicherten Auftrag laden") { chooseSaved(false) }
-        button("Gespeicherten Auftrag löschen") { chooseSaved(true) }
-        button("Gespeicherten Auftrag per Sprache starten") {
-            runCatching { startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "de-DE")
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Name eines gespeicherten Auftrags. Ein erkannter Name startet diesen Auftrag.")
-            }, 104) }.onFailure { status.text = "Sprachdienst fehlt; gespeicherten Auftrag laden und starten" }
-        }
-        button("Auftrag starten · alle Schritte ausführen") { launch(false, false) }
-        button("Bildschirm lernen · Beschriftungen ansehen") { launch(true, false) }
-        button("Screenshot der gewählten App lesen") { launch(true, true) }
-        button("Ergebnis / gelernte Beschriftungen anzeigen") { refresh() }
-        label("Zurück in Bob zeigt die gelesenen Beschriftungen. Tippe unten auf eine Beschriftung, um daraus einen Schritt vorzubereiten. Das erwartete Ergebnis ergänzt du im Auftrag.")
-        button("Gelerntes Bildschirmziel in Auftrag übernehmen") { teach() }
-        button("Vorhandenen Screenshot auswählen und lesen") {
-            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE) }, 101)
-        }
-        button("JSON-Datei im gewählten Ordner suchen") {
-            if (!fileBusy) startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }, 102)
-        }
-        output = label("").apply { setTextIsSelectable(true) }
-        val scroll = ScrollView(this).apply { addView(stack) }
-        scroll.setOnApplyWindowInsetsListener { view, insets ->
+        button(detailsPanel, "Ergebnis / Beschriftungen aktualisieren") { refresh() }
+        output = label(detailsPanel, "").apply { setTextIsSelectable(true) }
+        root.setOnApplyWindowInsetsListener { view, insets ->
             if (android.os.Build.VERSION.SDK_INT >= 30) {
                 val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.ime())
-                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            } else view.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+                view.setPadding(bars.left + dp(12), bars.top + dp(4), bars.right + dp(12), bars.bottom + dp(4))
+            } else view.setPadding(insets.systemWindowInsetLeft + dp(12), insets.systemWindowInsetTop, insets.systemWindowInsetRight + dp(12), insets.systemWindowInsetBottom)
             insets
         }
-        setContentView(scroll)
+        setContentView(root)
         selectedApp = autoPrefs.getString("lastApp", "").orEmpty().takeIf { WorkflowAppRoute.selectable(it) }.orEmpty()
-        appLabel.text = selectedApp.ifBlank { "Noch keine App gewählt" }
-        updateCloud()
-        goal.setText(state?.getString("draftGoal") ?: autoPrefs.getString("lastGoal", ""))
+        updateAppLabel(); updateCloud()
+        goal.setText(state?.getString("draftGoal").orEmpty())
+        commands.setText(state?.getString("draftCommands").orEmpty())
+        revisionBase = state?.getString("draftRevision")?.let { LocalWorkflow.parse(it) }
         state?.getString("draftImage")?.let { readImage(Uri.parse(it), true) }
+        renderHistory()
+    }
+    private fun pickAttachment() {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE) }, 106)
+    }
+    private fun speak(request: Int, prompt: String) {
+        runCatching { startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "de-DE"); putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
+        }, request) }.onFailure { status.text = "Sprachdienst fehlt; Textfeld oder Tastaturmikrofon verwenden" }
+    }
+    private fun speakGoal() = speak(105, "Auftrag sagen; danach Senden drücken")
+    private fun showPanel(title: String, panel: LinearLayout) {
+        panelDialog?.dismiss()
+        (panel.parent as? android.view.ViewGroup)?.removeView(panel)
+        panelDialog = AlertDialog.Builder(this).setTitle(title)
+            .setView(ScrollView(this).apply { addView(panel) })
+            .setNegativeButton("Zurück", null).setNeutralButton("STOPP") { _, _ -> ownerOverride(); refresh() }.create()
+        panelDialog?.show()
+    }
+    private fun learningMenu() {
+        val options = arrayOf("Symbol erklären und lernen", "Ablauf vormachen und lernen", "Gelernte Symbole", "Gespeicherten Ablauf laden", "Gespeicherten Ablauf löschen", "Gespeicherten Ablauf per Sprache starten", "Schritte prüfen / ergänzen")
+        AlertDialog.Builder(this).setTitle("Bob etwas beibringen").setItems(options) { _, which ->
+            when(which) {
+                0 -> if (attachmentBitmap == null) { status.text = "Zuerst über + einen Screenshot anhängen"; pickAttachment() } else teachSymbol()
+                1 -> startDemonstration()
+                2 -> manageSymbols()
+                3 -> chooseSaved(false)
+                4 -> chooseSaved(true)
+                5 -> speak(104, "Name eines gespeicherten Auftrags. Ein erkannter Name startet ihn.")
+                6 -> showPanel("Schritte prüfen / ergänzen", detailsPanel)
+            }
+        }.setNegativeButton("Zurück", null).setNeutralButton("STOPP") { _, _ -> ownerOverride(); refresh() }.show()
+    }
+    private fun appName(app: String): String = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(app,0)).toString() }.getOrDefault(app)
+    private fun updateAppLabel() { appLabel.text = if (selectedApp.isBlank()) "App auswählen ▾" else "App: ${appName(selectedApp)} ▾" }
+    private fun renderHistory() {
+        if (!::history.isInitialized) return
+        history.removeAllViews()
+        val entries = WorkflowResultStore.history(this, selectedApp)
+        if (entries.isEmpty()) {
+            history.addView(TextView(this).apply { text = "Dein Auftrag und Bobs Ergebnis erscheinen hier.\n\nText schreiben oder sprechen, bei Bedarf einen Screenshot mit + anhängen und senden."; textSize = 17f; setPadding(12,24,12,24) })
+            return
+        }
+        entries.takeLast(10).forEach { entry ->
+            val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(16,16,16,24) }
+            card.addView(TextView(this).apply { text = "Du · ${entry.optString("request",entry.optString("commands"))}"; textSize = 17f; setTextIsSelectable(true) })
+            card.addView(TextView(this).apply {
+                text = "Bob · " + WorkflowResultStore.summary(entry); textSize = 16f; setPadding(0,12,0,8)
+                setOnClickListener { AlertDialog.Builder(this@WorkflowActivity).setTitle("Auftragsergebnis").setMessage(WorkflowResultStore.detail(entry)).setPositiveButton("Schließen",null).show() }
+            })
+            val row = LinearLayout(this); card.addView(row)
+            fun action(title: String, block: () -> Unit) = Button(this).also { it.text = title; it.isAllCaps = false; it.setOnClickListener { block() }; row.addView(it,LinearLayout.LayoutParams(0,-2,1f)) }
+            action("Wiederholen") {
+                if (entry.optString("app") == selectedApp) {
+                    commands.setText(entry.optString("commands")); clearAttachment(); revisionBase = null
+                    launch(false,false,entry.optString("request",entry.optString("commands")),true)
+                }
+            }.isEnabled = entry.optBoolean("success")
+            action("Ändern") {
+                if (entry.optString("app") == selectedApp) {
+                    clearAttachment(); revisionBase = LocalWorkflow.parse(entry.optString("commands"))
+                    goal.setText(entry.optString("request",entry.optString("commands"))); goal.requestFocus(); goal.selectAll()
+                    status.text = "Auftrag bearbeiten oder z. B. Nimm Silber statt Gold schreiben. Danach Senden."
+                    (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showSoftInput(goal,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                }
+            }
+            history.addView(card)
+        }
     }
     override fun onResume() {
         super.onResume()
@@ -175,7 +230,8 @@ class WorkflowActivity : Activity() {
                 WorkflowService.demonstrationDraft = null
                 if (app == selectedApp && steps.isNotEmpty()) {
                     commands.setText(WorkflowAiPolicy.commands(steps)); goal.setText("")
-                    status.text = "Vorgemachter Ablauf übernommen · unten prüfen, ERGEBNISTEXT ergänzen und mit Auftragsfolge starten testen. Noch nichts gespeichert oder ausgeführt."
+                    status.text = "Vorgemachter Ablauf bereit · Entwurf prüfen"
+                    showPanel("Vorgemachten Ablauf prüfen", detailsPanel)
                 }
             }
         }
@@ -183,6 +239,7 @@ class WorkflowActivity : Activity() {
     private fun refresh() {
         status.text = WorkflowService.message
         resultSummary.text = WorkflowResultStore.summary(this)
+        renderHistory()
         val frame = WorkflowService.observation
         output.text = buildString {
             if (frame != null) {
@@ -202,7 +259,7 @@ class WorkflowActivity : Activity() {
             .sortedBy { it.loadLabel(packageManager).toString() }
         AlertDialog.Builder(this).setTitle("App für diesen Auftrag")
             .setItems(entries.map { "${it.loadLabel(packageManager)} · ${it.activityInfo.packageName}" }.toTypedArray()) { _, i ->
-                ownerOverride(); clearAttachment(); selectedApp = entries[i].activityInfo.packageName; appLabel.text = selectedApp
+                ownerOverride(); clearAttachment(); selectedApp = entries[i].activityInfo.packageName; revisionBase = null; updateAppLabel(); renderHistory()
                 autoPrefs.edit().putString("lastApp", selectedApp).apply(); updateCloud()
                 if (selectedApp == WorkflowAppRoute.DEGIRO) {
                     if (goal.text.isBlank()) goal.setText("Gold suchen")
@@ -247,7 +304,7 @@ class WorkflowActivity : Activity() {
         stopProductReader()
         autoPrefs.edit().putString("lastApp", selectedApp).putString("lastGoal", task).apply()
         if (service.beginAutomatic(selectedApp, task, autoPrefs.getBoolean("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp, false))) {
-            runCatching { startActivity(intent) }.onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
+            runCatching { startActivity(intent); goal.setText(""); clearAttachment() }.onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
         } else status.text = "Auftrag konnte nicht gestartet werden"
     }
     private fun ownerOverride() {
@@ -298,11 +355,13 @@ class WorkflowActivity : Activity() {
         val data = JSONObject(saved.getString(key, "")!!)
         require(data.getInt("version") == 1 && LocalWorkflow.allowedApp(data.getString("app")))
         require(LocalWorkflow.parse(data.getString("commands")) != null)
-        selectedApp = data.getString("app"); appLabel.text = selectedApp; updateCloud()
-        commands.setText(data.getString("commands")); goal.setText(data.optString("goal")); name.setText(key); status.text = "Geladen · noch nicht gestartet"
+        clearAttachment(); selectedApp = data.getString("app"); revisionBase = null; updateAppLabel(); updateCloud()
+        autoPrefs.edit().putString("lastApp",selectedApp).apply(); renderHistory()
+        commands.setText(data.getString("commands")); goal.setText(data.optString("goal")); name.setText(key); status.text = "Geladen · noch nicht gestartet"; showPanel("Gespeicherten Ablauf prüfen",detailsPanel)
         true
     }.getOrElse { status.text = "Gespeicherter Auftrag ungültig; keine Ausführung"; false }
-    private fun launch(observe: Boolean, screenshot: Boolean) {
+    private fun launch(observe: Boolean, screenshot: Boolean, displayRequest: String = "", replay: Boolean = false) {
+        panelDialog?.dismiss()
         ownerOverride()
         if (!observe && PhoneTaskPlanParser.isStop(commands.text.toString())) { refresh(); return }
         val plan = if (observe) null else valid() ?: return
@@ -310,7 +369,9 @@ class WorkflowActivity : Activity() {
         val service = WorkflowService.instance ?: run { status.text = "Bitte zuerst Bobs Auftrags-Bedienungshilfe aktivieren"; return }
         val intent = packageManager.getLaunchIntentForPackage(selectedApp) ?: run { status.text = "App nicht startbar"; return }
         stopProductReader()
-        if (service.begin(selectedApp, plan, screenshot, plan?.let { WorkflowAiPolicy.commands(it) }.orEmpty(), name.text.toString())) runCatching { startActivity(intent) }
+        val started = if (replay && plan != null) service.beginReplay(selectedApp,plan,displayRequest)
+            else service.begin(selectedApp, plan, screenshot, plan?.let { WorkflowAiPolicy.commands(it) }.orEmpty(), name.text.toString(), displayRequest)
+        if (started) runCatching { startActivity(intent); goal.setText(""); clearAttachment() }
             .onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
     }
     private fun aiStatus(code: String): String = when (code) {
@@ -485,7 +546,7 @@ class WorkflowActivity : Activity() {
         }
     }
     private fun readImage(uri: Uri, attachment: Boolean = false) {
-        if (attachment) { clearAttachment(); attachmentUri = uri; attachmentBusy = true; attachmentStatus.text = "Screenshot wird lokal gelesen …" }
+        if (attachment) { clearAttachment(); attachmentUri = uri; attachmentBusy = true; attachmentStatus.visibility = android.view.View.VISIBLE; attachmentRemove.visibility = android.view.View.VISIBLE; attachmentStatus.text = "Screenshot wird lokal gelesen …" }
         val attachmentToken = attachmentGeneration
         val token = ++imageGeneration
         status.text = "Screenshot wird lokal gelesen …"
@@ -549,7 +610,7 @@ class WorkflowActivity : Activity() {
                 val service = WorkflowService.instance
                 val intent = packageManager.getLaunchIntentForPackage(app)
                 if (service == null || intent == null) { status.text = "Bedienungshilfe aktivieren und eine startbare App wählen"; return@setPositiveButton }
-                if (service.beginDemonstration(app)) runCatching { startActivity(intent) }.onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
+                if (service.beginDemonstration(app)) runCatching { startActivity(intent); goal.setText(""); clearAttachment() }.onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
             }.setNegativeButton("Abbrechen", null).show()
     }
     private fun askScreenshotTarget(labels: List<String>, chosen: (String) -> Unit) {
@@ -640,15 +701,18 @@ class WorkflowActivity : Activity() {
         attachmentGeneration++; attachmentBusy = false; attachmentUri = null; attachmentLabels = emptyList(); attachmentBoxes = emptyMap()
         attachmentPreview.setImageDrawable(null); attachmentPreview.visibility = android.view.View.GONE
         attachmentBitmap = null
-        attachmentStatus.text = "Screenshot optional · Bild und Text gemeinsam senden"
+        attachmentStatus.text = ""
+        attachmentStatus.visibility = android.view.View.GONE; attachmentRemove.visibility = android.view.View.GONE
     }
     private fun sendMessage() {
         val text = goal.text.toString().trim()
+        val editing = revisionBase; revisionBase = null
+        panelDialog?.dismiss()
         ownerOverride()
         if (PhoneTaskPlanParser.isStop(text)) { refresh(); return }
         if (text.isBlank()) { status.text = "Was soll Bob mit dem Screenshot tun? Bitte einen Auftrag eingeben."; return }
         if (WorkflowRevision.requested(text)) {
-            val previous = WorkflowResultStore.previous(this, selectedApp)
+            val previous = editing ?: WorkflowResultStore.previous(this, selectedApp)
             val changed = previous?.let { WorkflowRevision.apply(text, it) }
             if (changed == null) {
                 val choices = previous?.indices?.filter { WorkflowRevision.apply(text, previous, it) != null }.orEmpty()
@@ -657,7 +721,7 @@ class WorkflowActivity : Activity() {
                     AlertDialog.Builder(this).setTitle("Welches Eingabefeld soll ich ändern?")
                         .setItems(choices.map { previous[it].target }.toTypedArray()) { _, i ->
                             if (app == selectedApp && token == imageGeneration && text == goal.text.toString().trim()) {
-                                WorkflowRevision.apply(text, previous, choices[i])?.let { plan -> commands.setText(WorkflowAiPolicy.commands(plan)); launch(false, false) }
+                                WorkflowRevision.apply(text, previous, choices[i])?.let { plan -> commands.setText(WorkflowAiPolicy.commands(plan)); launch(false, false, text, true) }
                             }
                         }.setNegativeButton("Abbrechen", null).show()
                     return
@@ -665,10 +729,10 @@ class WorkflowActivity : Activity() {
                 status.text = "Änderung nicht eindeutig: Es braucht einen erfolgreich geprüften Auftrag dieser App mit genau einem passenden Eingabewert. Bitte Feld und Wert ausdrücklich angeben."
                 return
             }
-            commands.setText(WorkflowAiPolicy.commands(changed)); launch(false, false); return
+            commands.setText(WorkflowAiPolicy.commands(changed)); launch(false, false, text, true); return
         }
         WorkflowSymbols.plan(this, selectedApp, text)?.let {
-            commands.setText(WorkflowAiPolicy.commands(it)); launch(false, false); return
+            commands.setText(WorkflowAiPolicy.commands(it)); launch(false, false, text); return
         }
         if (attachmentUri == null) { startAutomatic(); return }
         if (attachmentBusy) { status.text = "Screenshot wird noch gelesen. Danach erneut senden."; return }
@@ -692,7 +756,7 @@ class WorkflowActivity : Activity() {
                             if (token != imageGeneration || attachmentToken != attachmentGeneration || app != selectedApp || text != goal.text.toString().trim()) { dialog.dismiss(); return@setOnClickListener }
                             val command = WorkflowComposer.command(WorkflowAction.CLICK, clickTarget, expected = expected.text.toString())
                             if (command == null) expected.error = "Bitte einen eindeutigen Ergebnistext angeben"
-                            else { commands.setText(command); dialog.dismiss(); launch(false, false) }
+                            else { commands.setText(command); dialog.dismiss(); launch(false, false, text) }
                         }
                     }
                     dialog.show(); return
@@ -701,7 +765,7 @@ class WorkflowActivity : Activity() {
                 return
             }
             commands.setText(resolved)
-            launch(false, false)
+            launch(false, false, text)
         }
         val resolved = WorkflowMessage.resolve(text, labels)
         if (resolved != null) submit(null)
@@ -710,6 +774,8 @@ class WorkflowActivity : Activity() {
     }
     override fun onSaveInstanceState(out: Bundle) {
         out.putString("draftGoal", goal.text.toString())
+        out.putString("draftCommands", commands.text.toString())
+        revisionBase?.let { out.putString("draftRevision", WorkflowAiPolicy.commands(it)) }
         attachmentUri?.let { out.putString("draftImage", it.toString()) }
         super.onSaveInstanceState(out)
     }

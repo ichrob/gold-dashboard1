@@ -36,6 +36,7 @@ class WorkflowService : AccessibilityService() {
     private var selected = ""
     private var until = 0L
     private var recipeGoal = ""
+    private var displayRequest = ""
     private var recipeTitle = ""
     private var recorded = true
     private var capture = false
@@ -48,6 +49,7 @@ class WorkflowService : AccessibilityService() {
     private var symbolMatchedAt = 0L
     private var symbolIssuedStep = -1
     private var generation = 0
+    private var replaySteps: List<WorkflowStep>? = null
     private var automatic = false
     private var autoCloud = false
     private var autoObservation: WorkflowAutoObservation? = null
@@ -155,9 +157,9 @@ class WorkflowService : AccessibilityService() {
             handler.postDelayed(this, 500)
         }
     }
-    internal fun begin(app: String, steps: List<WorkflowStep>?, screenshot: Boolean = false, goal: String = "", title: String = ""): Boolean {
+    internal fun begin(app: String, steps: List<WorkflowStep>?, screenshot: Boolean = false, goal: String = "", title: String = "", request: String = ""): Boolean {
         if (!LocalWorkflow.allowedApp(app)) { stop(); return false }
-        return beginInternal(app,steps,screenshot,goal,title)
+        return beginInternal(app,steps,screenshot,goal,title,request)
     }
     // No caller-selected target or commands: only the non-exported local test surface.
     internal fun beginSelfTest(screenshot: Boolean): Boolean {
@@ -167,11 +169,11 @@ class WorkflowService : AccessibilityService() {
             WorkflowStep(WorkflowAction.WRITE,WorkflowSearch.FIELD,"Gold"))
         return beginInternal(packageName,steps,screenshot,"","")
     }
-    private fun beginInternal(app: String, steps: List<WorkflowStep>?, screenshot: Boolean, goal: String, title: String): Boolean {
+    private fun beginInternal(app: String, steps: List<WorkflowStep>?, screenshot: Boolean, goal: String, title: String, request: String = ""): Boolean {
         epoch++ // Invalidate activity proposals from every preceding owner request.
         finish("Neue Sitzung")
         run = null
-        recipeGoal = goal; recipeTitle = title; recorded = false
+        recipeGoal = goal; recipeTitle = title; displayRequest = request.ifBlank { goal }; recorded = false
         selected = app; until = SystemClock.elapsedRealtime() + if (steps == null) 45_000 else 180_000
         capture = screenshot; captureObservation = if (screenshot) WorkflowAutoObservation(app, SystemClock.elapsedRealtime()) else null
         observation = null; screenshotText = ""
@@ -207,7 +209,19 @@ class WorkflowService : AccessibilityService() {
         message = "Automatisch: öffne App und lese den Bildschirm"
         return true
     }
+    internal fun beginReplay(app: String, steps: List<WorkflowStep>, request: String): Boolean {
+        val text = WorkflowAiPolicy.commands(steps)
+        if (LocalWorkflow.parse(text) != steps || !beginAutomatic(app,text,false)) return false
+        replaySteps = steps; displayRequest = request.ifBlank { text }
+        return true
+    }
     private fun prepareAutomatic(frame: WorkflowFrame) {
+        replaySteps?.let {
+            val steps = WorkflowReplay.prepare(it,frame)
+            if (steps.isEmpty()) { finish("Ziel bereits erreicht · keine weitere Aktion nötig"); return }
+            run = WorkflowRun(selected,steps,SystemClock.elapsedRealtime()); healthSource = "LOCAL"
+            return
+        }
         WorkflowSymbols.plan(this, selected, recipeGoal)?.let {
             run = WorkflowRun(selected, it, SystemClock.elapsedRealtime()); healthSource = "LOCAL"
             message = "Prüfe gelerntes Symbol auf dem aktuellen Bildschirm"; return
@@ -252,14 +266,14 @@ class WorkflowService : AccessibilityService() {
         demonstration?.let { demonstrationDraft = it.app to it.draft() }
         demonstration = null; demonstrationSeen = false
         val notify = automatic && reason != "Neue Sitzung"
-        automatic = false; planning = false; autoCloud = false; autoObservation = null; proposalContext = null
+        replaySteps = null; automatic = false; planning = false; autoCloud = false; autoObservation = null; proposalContext = null
         symbolPending = false; symbolMatch = null; symbolBounds = emptyList(); symbolIssuedStep = -1
         generation++; handler.removeCallbacks(poll); selected = ""; capture = false; captureObservation = null
         run?.let { if (!it.finished) it.stop(reason) }; message = reason
         run?.let {
             if (!recorded) {
                 recorded = true
-                WorkflowResultStore.record(this, it, reason)
+                WorkflowResultStore.record(this, it, reason, displayRequest)
                 if (WorkflowAiPolicy.verified(it)) it.steps.filter { step -> step.target.startsWith("Symbol: ") }.forEach { step -> WorkflowSymbols.verified(this, it.app, step.target) }
                 if (!WorkflowAiPolicy.verified(it)) WorkflowLibrary.failed(this, it.app, recipeGoal)
                 message += runCatching { WorkflowLibrary.record(this, it, recipeGoal, recipeTitle) }

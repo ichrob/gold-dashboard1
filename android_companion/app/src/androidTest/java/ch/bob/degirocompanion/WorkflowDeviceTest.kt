@@ -104,7 +104,7 @@ class WorkflowDeviceTest {
             await("Attached screenshot was not read locally") { (field("attachmentLabels") as List<*>).contains("Suche") }
             main {
                 fun send(view: android.view.View): android.widget.Button? {
-                    if (view is android.widget.Button && view.text.toString().startsWith("Senden ·")) return view
+                    if (view is android.widget.Button && view.text.toString() == "Senden") return view
                     if (view is android.view.ViewGroup) for (i in 0 until view.childCount) send(view.getChildAt(i))?.let { return it }
                     return null
                 }
@@ -208,6 +208,47 @@ class WorkflowDeviceTest {
             }
         } finally { main { activity.finish() }; bitmap.recycle() }
     }
+    @Test fun simplifiedHomeKeepsStopVisibleAndSupportsHistoryChanges() {
+        context.getSharedPreferences("workflow_result_v1",0).edit().clear().commit()
+        context.getSharedPreferences("workflow_auto_v1",0).edit().putString("lastApp",app).commit()
+        launch("closed"); verified()
+        val activity = instrumentation.startActivitySync(Intent(context,WorkflowActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as WorkflowActivity
+        fun find(view: android.view.View, text: String): android.widget.Button? {
+            if (view is android.widget.Button && view.text.toString() == text) return view
+            if (view is android.view.ViewGroup) for (i in 0 until view.childCount) find(view.getChildAt(i),text)?.let { return it }
+            return null
+        }
+        fun field(name: String): Any? = WorkflowActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.get(activity)
+        try {
+            main {
+                val root = activity.window.decorView
+                assertTrue((field("appLabel") as android.widget.TextView).text.contains("Workflow fixture"))
+                assertNotNull(find(root,"Senden")); assertNotNull(find(root,"STOPP"))
+                assertNull(find(root,"Kostenlosen KI-Zugang prüfen")); assertNull(find(root,"Auftragsfolge starten"))
+                assertNotNull(find(root,"Wiederholen")); assertNotNull(find(root,"Ändern"))
+                find(root,"Ändern")!!.performClick()
+                val input = field("goal") as android.widget.EditText
+                assertEquals(goal,input.text.toString())
+                input.setText("Nimm Silber statt Gold")
+            }
+            SystemClock.sleep(500)
+            main {
+                val rect = android.graphics.Rect()
+                assertTrue(find(activity.window.decorView,"STOPP")!!.getGlobalVisibleRect(rect))
+                assertTrue(rect.height() > 0)
+                find(activity.window.decorView,"Senden")!!.performClick()
+            }
+            await("History edit did not reuse the already open search") {
+                WorkflowService.run?.let { WorkflowAiPolicy.verified(it) && it.steps.last().value == "Silber" } == true
+            }
+            val node = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
+            assertEquals("Silber",node.text.toString())
+            val entries = WorkflowResultStore.history(context,app)
+            assertEquals(2,entries.size); assertEquals("Nimm Silber statt Gold",entries.last().optString("request"))
+            assertEquals(0,WorkflowResultStore.history(context,"org.other.app").size)
+        } finally { main { activity.finish() } }
+    }
     @Test fun newestOwnerRequestReplacesPendingSequenceAndInvalidatesOldAnswers() {
         main {
             val service = WorkflowService.instance!!
@@ -274,7 +315,7 @@ class WorkflowDeviceTest {
         context.startActivity(Intent(context,WorkflowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         await("Workflow screen did not open") {
             val root = automation.rootInActiveWindow
-            val visible = root?.findAccessibilityNodeInfosByText("Senden · Bob erledigt den Auftrag")?.any { it.isVisibleToUser } == true
+            val visible = root?.findAccessibilityNodeInfosByText("Senden")?.any { it.isVisibleToUser && it.isClickable && it.text?.toString() == "Senden" } == true
             fun scroll(node: android.view.accessibility.AccessibilityNodeInfo): Boolean {
                 if (node.isScrollable && node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return true
                 for (i in 0 until node.childCount) node.getChild(i)?.let { if (scroll(it)) return true }
@@ -283,7 +324,11 @@ class WorkflowDeviceTest {
             if (!visible && root != null) scroll(root)
             visible
         }
-        val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Senden · Bob erledigt den Auftrag").single()
+        val input = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Auftrag eingeben").single { it.isEditable }
+        assertTrue(input.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+            putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"Gold")
+        }))
+        val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Senden").single { it.isClickable && it.text?.toString() == "Senden" }
         assertTrue(start.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
         await("DEGIRO reader handoff missing") {
             automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("DEGIRO lesen · Produkt und Morgenliste")?.isNotEmpty() == true
