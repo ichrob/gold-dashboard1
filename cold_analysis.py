@@ -13,6 +13,16 @@ from collections import OrderedDict
 import cold_metrics as codec
 
 TAG = '_bobColdAnalysisV1'
+
+class CandidateSelectionFailure(RuntimeError):
+    """Fixed phase and exception class only; never SQL, DSN or exception text."""
+
+    def __init__(self, error_type):
+        self.error_type = (error_type if isinstance(error_type, str)
+                           and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,63}', error_type)
+                           else 'Exception')
+        super().__init__('candidate-selection-failed')
+
 _LOCATION = OrderedDict()
 _LOCK = threading.Lock()
 _THREAD = None
@@ -87,10 +97,17 @@ def get(conn, row_id, *, drive=None):
 def offload_batch(conn, drive):
     if not conn.autocommit:
         raise ValueError('Dedicated autocommit connection required')
-    candidates=conn.execute('''SELECT id,stage,observed_at,build,payload FROM bob_diagnostic_history
-        WHERE stage='analysis' AND recorded_at<now()-interval '6 hours' AND NOT(payload ? %s)
-        AND pg_column_size(payload)>512 AND octet_length(payload::text)<65536
-        ORDER BY recorded_at,id LIMIT %s''',(TAG,codec.MAX_ROWS)).fetchall()
+    try:
+        candidates=conn.execute('''SELECT id,stage,observed_at,build,payload FROM bob_diagnostic_history
+            WHERE stage='analysis' AND recorded_at<now()-interval '6 hours' AND NOT(payload ? %s)
+            AND pg_column_size(payload)>512 AND octet_length(payload::text)<65536
+            ORDER BY recorded_at,id LIMIT %s''',(TAG,codec.MAX_ROWS)).fetchall()
+    except Exception as exc:
+        # Preserve the source and the existing backoff. A precise *stage* is
+        # useful for distinguishing an expensive candidate search from a
+        # remote Drive roundtrip or a reference commit. Avoid leaking DB
+        # credentials, SQL parameters or exception messages to logs.
+        raise CandidateSelectionFailure(type(exc).__name__) from None
     rows=[]; size=len(codec.encoded({'format':codec.FORMAT,'rows':[]}))
     for candidate in candidates:
         row=list(candidate); n=len(codec.encoded(row))+(1 if rows else 0)
@@ -168,7 +185,11 @@ def start():
                     result=run_once()
                     # Do not run an additional tail-truncating VACUUM on every
                     # cold-analysis cycle. The separate maintenance worker remains.
-            except Exception as exc:result={'status':'deferred','errorType':type(exc).__name__}
+            except CandidateSelectionFailure as exc:
+                result={'status':'deferred','phase':'candidate-selection',
+                        'errorType':exc.error_type}
+            except Exception as exc:
+                result={'status':'deferred','errorType':type(exc).__name__}
             print('BOB_COLD_ANALYSIS '+json.dumps(result,sort_keys=True),flush=True)
             time.sleep(__import__('storage_pressure').delay(result))
     _THREAD=threading.Thread(target=loop,name='bob-cold-analysis',daemon=True);_THREAD.start()
