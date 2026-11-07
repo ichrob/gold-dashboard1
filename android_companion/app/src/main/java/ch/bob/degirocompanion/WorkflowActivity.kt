@@ -43,7 +43,14 @@ class WorkflowActivity : Activity() {
         fun button(s: String, block: () -> Unit) = Button(this).also { it.text = s; it.isAllCaps = false; it.setOnClickListener { block() }; section.addView(it) }
         label("Meine Aufträge")
         status = label("Lokal auf deinem Handy · keine ChatGPT-Verbindung nötig")
-        button("STOPP · Auftrag und Lesesitzung beenden") { WorkflowService.stop(); aiGeneration++; imageGeneration++; cancelFiles(); output.text = ""; refresh() }
+        button("STOPP · Auftrag und Lesesitzung beenden") { WorkflowService.stop()
+            if (selectedApp == WorkflowAppRoute.DEGIRO) {
+                PhoneRemote.stop(this,"USER_STOP")
+                GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
+                MorningReadRun.stop(this,"USER_STOP")
+                ProductReadRequest.cancel()
+            }
+            aiGeneration++; imageGeneration++; cancelFiles(); output.text = ""; refresh() }
         label("App wählen, Auftrag sagen oder eingeben, Start. Bob liest und prüft selbst. Erfolgreiche Abläufe bleiben lokal gespeichert. Keine Orders, Anmeldung oder Zahlungen.")
         button("Einrichtung · Auftrags-Bedienungshilfe öffnen") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         appLabel = label("Noch keine App gewählt")
@@ -119,7 +126,7 @@ class WorkflowActivity : Activity() {
             insets
         }
         setContentView(scroll)
-        selectedApp = autoPrefs.getString("lastApp", "").orEmpty().takeIf { LocalWorkflow.allowedApp(it) }.orEmpty()
+        selectedApp = autoPrefs.getString("lastApp", "").orEmpty().takeIf { WorkflowAppRoute.selectable(it) }.orEmpty()
         appLabel.text = selectedApp.ifBlank { "Noch keine App gewählt" }
         updateCloud()
         goal.setText(autoPrefs.getString("lastGoal", ""))
@@ -142,17 +149,22 @@ class WorkflowActivity : Activity() {
     }
     private fun chooseApp() {
         val entries = packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-            .filter { LocalWorkflow.allowedApp(it.activityInfo.packageName) }.distinctBy { it.activityInfo.packageName }
+            .filter { WorkflowAppRoute.selectable(it.activityInfo.packageName) }.distinctBy { it.activityInfo.packageName }
             .sortedBy { it.loadLabel(packageManager).toString() }
         AlertDialog.Builder(this).setTitle("App für diesen Auftrag")
             .setItems(entries.map { "${it.loadLabel(packageManager)} · ${it.activityInfo.packageName}" }.toTypedArray()) { _, i ->
                 WorkflowService.stop(); selectedApp = entries[i].activityInfo.packageName; appLabel.text = selectedApp
                 autoPrefs.edit().putString("lastApp", selectedApp).apply(); updateCloud()
+                if (selectedApp == WorkflowAppRoute.DEGIRO) {
+                    if (goal.text.isBlank()) goal.setText("Gold suchen")
+                    status.text = "DEGIRO: Goldsuche und Produktlesen über den vorhandenen Lesedienst. Bereits angemeldet starten."
+                }
             }.setNegativeButton("Abbrechen", null).show()
     }
     private fun updateCloud() {
         updatingCloud = true
-        cloud.isChecked = autoPrefs.getBoolean("cloud:" + selectedApp, false)
+        cloud.isEnabled = selectedApp != WorkflowAppRoute.DEGIRO
+        cloud.isChecked = cloud.isEnabled && autoPrefs.getBoolean("cloud:" + selectedApp, false)
         updatingCloud = false
     }
     private fun allowAutomaticCloud() {
@@ -168,6 +180,18 @@ class WorkflowActivity : Activity() {
             .setOnCancelListener { updateCloud() }.show()
     }
     private fun startAutomatic() {
+        if (selectedApp == WorkflowAppRoute.DEGIRO) {
+            val task = goal.text.toString().trim()
+            if (!WorkflowAppRoute.goldRead(task)) {
+                status.text = "DEGIRO unterstützt hier Gold suchen und Produktlesen. Gib Gold oder Gold suchen ein. Keine freien Klickfolgen oder Orders."
+                return
+            }
+            WorkflowService.stop()
+            autoPrefs.edit().putString("lastApp", selectedApp).putString("lastGoal", task).apply()
+            startActivity(Intent(this, ProductReadActivity::class.java)
+                .putExtra(ProductReadActivity.EXTRA_START_GOLD_READ, true))
+            return
+        }
         if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App auswählen"; return }
         val task = goal.text.toString().trim()
         if (!WorkflowAiPolicy.safe(task, 500)) { status.text = "Bitte einen kurzen Auftrag ohne private Daten eingeben"; return }

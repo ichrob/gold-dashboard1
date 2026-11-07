@@ -88,6 +88,23 @@ class WorkflowDeviceTest {
         assertNull(WorkflowService.run)
         assertNull(WorkflowLibrary.match(context,app,goal))
     }
+    @Test fun degiroGoalHandsOffToReaderWithoutStartingGenericActions() {
+        context.getSharedPreferences("workflow_auto_v1",0).edit()
+            .putString("lastApp",WorkflowAppRoute.DEGIRO).putString("lastGoal","Gold").commit()
+        context.startActivity(Intent(context,WorkflowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        await("Workflow screen did not open") {
+            automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("START · Bob erledigt den Auftrag")?.isNotEmpty() == true
+        }
+        val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("START · Bob erledigt den Auftrag").single()
+        assertTrue(start.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+        await("DEGIRO reader handoff missing") {
+            automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("DEGIRO lesen · Produkt und Morgenliste")?.isNotEmpty() == true
+        }
+        assertFalse(GoldSearchRun.running) // Fixture device has no enabled product reader.
+        assertNull(WorkflowService.run)
+        assertTrue(automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Lesedienst zuerst einschalten.").isNotEmpty())
+        context.getSharedPreferences("workflow_auto_v1",0).edit().clear().commit()
+    }
     @Test fun stopBeforeAppLaunchInvalidatesPendingAutomation() {
         main {
             assertTrue(WorkflowService.instance!!.beginAutomatic(app,goal,false))
