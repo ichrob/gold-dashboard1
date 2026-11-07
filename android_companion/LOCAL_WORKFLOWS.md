@@ -142,3 +142,39 @@ tatsächliche Erreichbarkeit oder Gültigkeit des Provider-Schlüssels.
 Ein echter Vorschlag und ein bestätigter Samsung-Lauf sind gesondert zu testen.
 Die neue Funktion ist bis zur ausdrücklichen Server-Einrichtung deaktiviert.
 Bestehender DEGIRO-Produktleser, Simulationen und Archivarbeiten sind unverändert.
+
+## Ein Start für automatische Aufträge
+
+Die Hauptansicht zeigt jetzt App-Auswahl, Auftrag (Text oder Diktat) und START.
+Name, Schrittgrammatik und Einzel-Freigaben sind unter Details weiterhin verfügbar.
+Android-Systemleisten und Tastatur werden durch Insets berücksichtigt.
+
+START öffnet die gemerkte App und führt einen bestätigten lokalen Ablauf unmittelbar
+aus. Ohne gespeicherten Ablauf wartet Bob bis zu 20 Sekunden auf eine eine Sekunde
+lang stabile Ansicht. Eindeutige direkte Schreibaufträge in ein vorhandenes Suchfeld
+werden lokal erkannt. Alle Aktionen werden weiterhin am Bildschirm überprüft.
+
+Optional kann der Nutzer KI-Hilfe einmal je App einschalten. Die Freigabe erklärt
+vorher den festen Wortschatz: Suche, Suchen, Search, Suchbegriff, Suchfeld,
+Search query, Search field, Filter, Filtern. Nur solche Beschriftungen und IDs mit
+bekannten Such-/Filter-Endungen werden automatisch übertragen, zusammen mit dem
+vom Nutzer eingegebenen Auftrag. Eingabefeldwerte, private Titel, OCR-Dumps,
+Screenshots und Dateien werden nicht übertragen. Die Freigabe erlaubt keine
+Übertragung beliebiger Bildschirminhalte. Die Aufgabe selbst darf keine privaten
+Daten enthalten. Eine Freigabe gilt erst nach dem Dialog und ist widerrufbar.
+
+Pro Start höchstens eine externe Anfrage; kein automatischer Anbieterwechsel,
+keine Wiederholung nach Fehler. Der Dienst prüft den Vorschlag unabhängig und
+führt nur bekannte Ziele aus. Ein KI-Vorschlag darf die freigegebenen Ziele
+nicht durch erfundene zukünftige Feldnamen erweitern. Fehlende/mehrdeutige
+Bedienelemente benötigen weiterhin die manuelle Vorbereitung unter Details.
+Dieser Modus ist keine beliebige autonome App-Bedienung.
+
+Appwechsel, Sperrbildschirm, eigener Touch, veränderte Ansicht während der Anfrage
+und STOPP brechen ab. Späte Antworten werden anhand der Sitzung verworfen.
+Es gibt keine Fortsetzung nach Prozessneustart. Erfolgreiche Abläufe werden
+wie bisher ausschließlich nach bestätigten Ergebnissen gespeichert; es ist kein
+Zurückkehren zum Editor nötig, damit Planung und Ausführung fortschreiten.
+Ein kurzer lokaler Hinweis zeigt das Ergebnis; der vollständige Status steht
+beim Zurückkehren in Bob. Android-Bedienungshilfe muss einmalig vom Nutzer
+aktiviert werden. Screenshots bleiben im bisherigen lokalen OCR-Werkzeug.
