@@ -136,14 +136,15 @@ def inspect(plaintext_zip, expected_sha256):
                     if not _REQUIRED_COLUMNS[name].issubset(
                             {column[0] for column in columns}):
                         return _result("required-original-columns-missing")
-                    selected.append((filename, count, size_bytes, digest))
+                    selected.append((name, filename, count, size_bytes, digest))
                     found.add(name)
             if set(member_map) != expected_names:
                 return _result("unexpected-archive-members")
             if found != _REQUIRED:
                 return _result("historical-source-table-absent")
             total_rows = 0
-            for filename, count, bytes_expected, digest_expected in selected:
+            rows_per_table = {name: 0 for name in _REQUIRED}
+            for name, filename, count, bytes_expected, digest_expected in selected:
                 actual_hash = hashlib.sha256()
                 actual_size = actual_rows = 0
                 with archive.open(filename) as source:
@@ -157,7 +158,8 @@ def inspect(plaintext_zip, expected_sha256):
                         actual_hash.hexdigest() != digest_expected):
                     return _result("selected-copy-checksum-or-count-mismatch")
                 total_rows += actual_rows
-            if total_rows == 0:
+                rows_per_table[name] += actual_rows
+            if any(rows_per_table[name] == 0 for name in _REQUIRED):
                 return _result("historical-source-tables-empty")
             return _result("selected-copy-segments-matched",
                            segments=len(selected), rows=total_rows)
