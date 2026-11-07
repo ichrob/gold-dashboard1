@@ -23,7 +23,7 @@ class LocalWorkflowTest {
         assertNull(LocalWorkflow.target(s, frame(node("Suche", click=true), node("Suche", click=true))))
         assertNull(LocalWorkflow.target(s, frame(node("Suche", click=true), node("Anmelden"))))
         assertEquals(0, LocalWorkflow.target(s, frame(node("Suche", click=true))))
-        assertFalse(LocalWorkflow.allowedApp("nl.degiro.trader"))
+        assertTrue(LocalWorkflow.allowedApp("nl.degiro.trader"))
         assertFalse(LocalWorkflow.allowedApp("com.termux"))
     }
     @Test fun verifiesClickBeforeIssuingNextActionAndNeverRepeatsIt() {

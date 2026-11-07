@@ -3,9 +3,9 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WorkflowAppRouteTest {
-    @Test fun degiroSelectableButNeverAllowedInGenericEngine() {
+    @Test fun degiroAllowedButLookalikePackagesRemainBlocked() {
         assertTrue(WorkflowAppRoute.selectable("nl.degiro.trader"))
-        assertFalse(LocalWorkflow.allowedApp("nl.degiro.trader"))
+        assertTrue(LocalWorkflow.allowedApp("nl.degiro.trader"))
         assertFalse(WorkflowAppRoute.selectable("nl.degiro.trader.fake"))
         assertFalse(WorkflowAppRoute.selectable("com.android.settings"))
     }

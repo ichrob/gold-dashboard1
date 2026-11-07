@@ -1,6 +1,6 @@
 package ch.bob.degirocompanion
 
-/** DEGIRO uses its existing bounded reader, never arbitrary or AI-generated actions. */
+/** Known Gold goals retain the existing reader; other goals use the checked workflow engine. */
 internal object WorkflowAppRoute {
     const val DEGIRO = "nl.degiro.trader"
     fun selectable(app: String) = app == DEGIRO || LocalWorkflow.allowedApp(app)
