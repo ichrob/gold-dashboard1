@@ -20,6 +20,9 @@ import java.util.Locale
 class WorkflowActivity : Activity() {
     private lateinit var name: EditText
     private lateinit var commands: EditText
+    private lateinit var goal: EditText
+    private var aiGeneration = 0
+    private var aiBusy = false
     private lateinit var appLabel: TextView
     private lateinit var status: TextView
     private lateinit var output: TextView
@@ -36,12 +39,16 @@ class WorkflowActivity : Activity() {
         fun button(s: String, block: () -> Unit) = Button(this).also { it.text = s; it.isAllCaps = false; it.setOnClickListener { block() }; stack.addView(it) }
         label("Meine Aufträge")
         status = label("Lokal auf deinem Handy · keine ChatGPT-Verbindung nötig")
-        button("STOPP · Auftrag und Lesesitzung beenden") { WorkflowService.stop(); imageGeneration++; cancelFiles(); output.text = ""; refresh() }
+        button("STOPP · Auftrag und Lesesitzung beenden") { WorkflowService.stop(); aiGeneration++; imageGeneration++; cancelFiles(); output.text = ""; refresh() }
         label("Du bestimmst App, Schritte und erwartetes Ergebnis. Screenshots werden lokal als Text gelesen. Bilder und Dateiinhalte erteilen niemals Befehle. Keine Orders, Anmeldung oder Zahlungen.")
         button("Einrichtung · Auftrags-Bedienungshilfe öffnen") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         appLabel = label("Noch keine App gewählt")
         button("App auswählen") { chooseApp() }
         name = EditText(this).apply { hint = "Name, z. B. Gold suchen"; setSingleLine(); stack.addView(this) }
+        goal = EditText(this).apply { hint = "Auftrag in eigenen Worten, z. B. Schreibe Gold in die Suche"; minLines = 2; stack.addView(this) }
+        button("Auftrag vorbereiten · gespeicherten Ablauf oder KI nutzen") { propose() }
+        button("Kostenlosen KI-Zugang prüfen") { checkAi() }
+        label("Zuerst wird ein erfolgreicher lokaler Ablauf gesucht. Eine neue KI-Anfrage benötigt deine Auswahl und Freigabe der Texte. Keine automatische kostenpflichtige Ausweichlösung.")
         commands = EditText(this).apply { hint = "Tippe auf \"Suche\" -> \"Suchbegriff\"\nSchreibe \"Gold\" in \"Suchbegriff\"\nWarte auf \"Gold\""; minLines = 4; gravity = android.view.Gravity.TOP; stack.addView(this) }
         label("Ein Schritt pro Zeile. Tippe auf \"Beschriftung\" -> \"neuer Ergebnistext\"; Schreibe \"Text\" in \"Feldbeschriftung\"; Warte auf \"Text\". Auch eine angezeigte Feld-ID ist möglich. Bis zu zwölf Schritte. Bei doppelten Zielen stoppt Bob.")
         button("Schritt diktieren") {
@@ -139,7 +146,7 @@ class WorkflowActivity : Activity() {
         require(data.getInt("version") == 1 && LocalWorkflow.allowedApp(data.getString("app")))
         require(LocalWorkflow.parse(data.getString("commands")) != null)
         selectedApp = data.getString("app"); appLabel.text = selectedApp
-        commands.setText(data.getString("commands")); name.setText(key); status.text = "Geladen · noch nicht gestartet"
+        commands.setText(data.getString("commands")); goal.setText(data.optString("goal")); name.setText(key); status.text = "Geladen · noch nicht gestartet"
         true
     }.getOrElse { status.text = "Gespeicherter Auftrag ungültig; keine Ausführung"; false }
     private fun launch(observe: Boolean, screenshot: Boolean) {
@@ -147,8 +154,104 @@ class WorkflowActivity : Activity() {
         if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App wählen"; return }
         val service = WorkflowService.instance ?: run { status.text = "Bitte zuerst Bobs Auftrags-Bedienungshilfe aktivieren"; return }
         val intent = packageManager.getLaunchIntentForPackage(selectedApp) ?: run { status.text = "App nicht startbar"; return }
-        if (service.begin(selectedApp, plan, screenshot)) runCatching { startActivity(intent) }
+        if (service.begin(selectedApp, plan, screenshot, goal.text.toString().trim().ifBlank { name.text.toString().trim() }.take(500), name.text.toString())) runCatching { startActivity(intent) }
             .onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
+    }
+    private fun aiStatus(code: String): String = when (code) {
+        "ready" -> "Kostenloser Groq-Zugang konfiguriert · noch keine KI-Anfrage getestet"
+        "setup-required" -> "KI-Zugang noch nicht eingerichtet oder deaktiviert. Lokale Aufträge funktionieren weiterhin."
+        "daily-limit" -> "Tagesgrenze erreicht · keine weitere KI-Anfrage und keine kostenpflichtige Ausweichlösung"
+        "wait-one-minute" -> "Bitte mindestens eine Minute zwischen KI-Anfragen warten"
+        "already-requested" -> "Anfrage wurde bereits verarbeitet · keine erneute KI-Abfrage"
+        else -> "Kein geprüfter Vorschlag verfügbar · nichts gestartet, kein Anbieterwechsel"
+    }
+    private fun checkAi() {
+        if (aiBusy) return
+        aiBusy = true
+        val token = ++aiGeneration
+        status.text = "Prüfe Einrichtung ohne Modellaufruf …"
+        Thread {
+            val result = runCatching { PhoneDiagnostics.workflowPlan(applicationContext, JSONObject().put("version", 1).put("mode", "status")) }
+            runOnUiThread {
+                aiBusy = false
+                if (!isDestroyed && token == aiGeneration)
+                    status.text = result.fold({ aiStatus(it.optString("status")) }, { "Zugang nicht erreichbar; Bob-Handy-Kopplung und Verbindung prüfen" })
+            }
+        }.start()
+    }
+    private fun propose() {
+        if (aiBusy) { status.text = "Eine Anfrage läuft bereits"; return }
+        val app = selectedApp
+        val task = goal.text.toString().trim()
+        if (!LocalWorkflow.allowedApp(app) || !WorkflowAiPolicy.safe(task, 500)) {
+            status.text = "App und kurzen Auftrag angeben; keine privaten Daten, Zugangsdaten oder geschützten Aktionen"; return
+        }
+        WorkflowLibrary.match(this, app, task)?.let {
+            name.setText(it.first); commands.setText(it.second)
+            status.text = "Erfolgreichen lokalen Ablauf geladen · keine KI-Anfrage. Mit Auftrag starten ausführen."; return
+        }
+        val frame = WorkflowService.observation
+        if (frame == null || frame.app != app || LocalWorkflow.protected(frame) ||
+            android.os.SystemClock.elapsedRealtime() - WorkflowService.observationAt !in 0..60_000) {
+            status.text = "Zuerst Bildschirm lernen starten, gewünschte Ansicht öffnen und innerhalb einer Minute zu Bob zurückkehren"; return
+        }
+        val candidates = WorkflowAiPolicy.context(frame.nodes)
+        if (candidates.isEmpty()) { status.text = "Keine geeigneten Beschriftungen für eine KI-Anfrage"; return }
+        val chosen = BooleanArray(candidates.size)
+        AlertDialog.Builder(this).setTitle("Welche Texte darf Groq sehen?")
+            .setMultiChoiceItems(candidates.map { it.label + " · " + it.id }.toTypedArray(), chosen) { _, i, value -> chosen[i] = value }
+            .setPositiveButton("Vorschau") { _, _ ->
+                val nodes = candidates.filterIndexed { i, _ -> chosen[i] }
+                if (nodes.size !in 1..24) { status.text = "Bitte 1 bis 24 notwendige Beschriftungen auswählen"; return@setPositiveButton }
+                val array = JSONArray()
+                nodes.forEach { array.put(JSONObject().put("label", it.label).put("id", it.id).put("editable", it.editable).put("clickable", it.clickable)) }
+                val body = JSONObject().put("version", 1).put("requestId", java.util.UUID.randomUUID().toString().replace("-", ""))
+                    .put("consent", WorkflowAiPolicy.CONSENT).put("app", app).put("goal", task).put("nodes", array)
+                val preview = "Nur der folgende Auftrag und die ausgewählten Beschriftungen gehen über Bob an Groq. Prüfe, dass keine persönlichen Daten enthalten sind. Keine Bilder oder Feldinhalte werden angehängt. Groq kann Daten für Missbrauchsprüfung speichern, sofern im Anbieter-Konto keine Zero Data Retention aktiviert ist.\n\n" +
+                    JSONObject().put("goal", task).put("nodes", array).toString(2)
+                AlertDialog.Builder(this).setTitle("Eine KI-Anfrage freigeben").setMessage(preview)
+                    .setPositiveButton("Einmal an Groq senden") { _, _ ->
+                        if (selectedApp == app && goal.text.toString().trim() == task) requestPlan(body, nodes, app, task)
+                        else status.text = "Auftrag geändert · bitte neu vorbereiten"
+                    }.setNegativeButton("Abbrechen", null).show()
+            }.setNegativeButton("Abbrechen", null).show()
+    }
+    private fun requestPlan(body: JSONObject, nodes: List<WorkflowNode>, app: String, task: String) {
+        if (aiBusy) return
+        aiBusy = true
+        val token = ++aiGeneration
+        val epoch = WorkflowService.epoch
+        status.text = "KI schlägt Schritte vor · Bob führt noch nichts aus …"
+        Thread {
+            val result = runCatching {
+                val response = PhoneDiagnostics.workflowPlan(applicationContext, body)
+                if (response.optString("status") != "proposal") return@runCatching Pair(response.optString("status"), "")
+                require(response.getBoolean("ok") && !response.getBoolean("paidFallback") &&
+                    response.getString("requestId") == body.getString("requestId"))
+                val raw = response.getJSONArray("steps")
+                require(raw.length() in 1..12)
+                val steps = (0 until raw.length()).map {
+                    val s = raw.getJSONObject(it)
+                    require(s.keys().asSequence().toSet() == setOf("action", "target", "value", "expected"))
+                    listOf("action", "target", "value", "expected").forEach { key -> require(s.get(key) is String) }
+                    WorkflowStep(WorkflowAction.valueOf(s.getString("action")), s.getString("target"), s.getString("value"), s.getString("expected"))
+                }
+                require(WorkflowAiPolicy.valid(task, nodes, steps))
+                Pair("proposal", WorkflowAiPolicy.commands(steps))
+            }
+            runOnUiThread {
+                aiBusy = false
+                if (!isDestroyed && token == aiGeneration && epoch == WorkflowService.epoch &&
+                    app == selectedApp && task == goal.text.toString().trim()) {
+                    val answer = result.getOrNull()
+                    if (answer?.first == "proposal") {
+                        commands.setText(answer.second)
+                        if (name.text.isBlank()) name.setText(task.take(60))
+                        status.text = "Vorschlag lokal geprüft. Schritte prüfen und Auftrag starten. Erst bestätigter Erfolg wird automatisch gespeichert."
+                    } else status.text = aiStatus(answer?.first.orEmpty())
+                }
+            }
+        }.start()
     }
     private fun teach() {
         val frame = WorkflowService.observation?.takeIf { it.app == selectedApp } ?: run { status.text = "Zuerst Bildschirm lernen starten und zur gewünschten Ansicht wechseln"; return }
@@ -282,5 +385,6 @@ class WorkflowActivity : Activity() {
         }.start()
     }
     private fun cancelFiles() { fileCancellation?.cancel(); runCatching { fileStream?.close() }; fileStream = null }
-    override fun onDestroy() { imageGeneration++; cancelFiles(); super.onDestroy() }
+    override fun onStop() { aiGeneration++; super.onStop() }
+    override fun onDestroy() { aiGeneration++; imageGeneration++; cancelFiles(); super.onDestroy() }
 }

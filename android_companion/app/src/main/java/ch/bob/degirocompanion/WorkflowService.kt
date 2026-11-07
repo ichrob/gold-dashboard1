@@ -21,13 +21,18 @@ class WorkflowService : AccessibilityService() {
         internal var instance: WorkflowService? = null
         internal var run: WorkflowRun? = null
         internal var observation: WorkflowFrame? = null
+        internal var observationAt = 0L
+        internal var epoch = 0
         internal var screenshotText = ""
         internal var message = "Kein Auftrag aktiv"
-        internal fun stop() { instance?.finish("Gestoppt"); run?.stop("Gestoppt"); run = null; observation = null; screenshotText = "" }
+        internal fun stop() { epoch++; instance?.finish("Gestoppt"); run?.stop("Gestoppt"); run = null; observation = null; screenshotText = "" }
     }
     private val handler = Handler(Looper.getMainLooper())
     private var selected = ""
     private var until = 0L
+    private var recipeGoal = ""
+    private var recipeTitle = ""
+    private var recorded = true
     private var capture = false
     private var generation = 0
     private val poll = object : Runnable {
@@ -60,7 +65,7 @@ class WorkflowService : AccessibilityService() {
                         it.viewIdResourceName.orEmpty(), it.isEditable && it.isEnabled, it.isClickable && it.isEnabled, it.isPassword, if (it.isEditable) it.text?.toString().orEmpty() else null)
                 })
                 if (frame.app == selected && !LocalWorkflow.protected(frame)) {
-                    observation = frame
+                    observation = frame; observationAt = SystemClock.elapsedRealtime()
                     if (capture) { capture = false; captureScreen(generation, frame.window) }
                 }
                 run?.tick(frame, SystemClock.elapsedRealtime(), unlocked) { step, index ->
@@ -79,9 +84,10 @@ class WorkflowService : AccessibilityService() {
             handler.postDelayed(this, 500)
         }
     }
-    internal fun begin(app: String, steps: List<WorkflowStep>?, screenshot: Boolean = false): Boolean {
+    internal fun begin(app: String, steps: List<WorkflowStep>?, screenshot: Boolean = false, goal: String = "", title: String = ""): Boolean {
         if (!LocalWorkflow.allowedApp(app)) return false
         finish("Neue Sitzung")
+        recipeGoal = goal; recipeTitle = title; recorded = false
         selected = app; until = SystemClock.elapsedRealtime() + if (steps == null) 45_000 else 180_000
         capture = screenshot; observation = null; screenshotText = ""
         run = steps?.let { WorkflowRun(app, it, SystemClock.elapsedRealtime()) }
@@ -93,6 +99,14 @@ class WorkflowService : AccessibilityService() {
     private fun finish(reason: String) {
         generation++; handler.removeCallbacks(poll); selected = ""; capture = false
         run?.let { if (!it.finished) it.stop(reason) }; message = reason
+        run?.let {
+            if (!recorded) {
+                recorded = true
+                if (!WorkflowAiPolicy.verified(it)) WorkflowLibrary.failed(this, it.app, recipeGoal)
+                message += runCatching { WorkflowLibrary.record(this, it, recipeGoal, recipeTitle) }
+                    .getOrDefault(" · Speichern fehlgeschlagen")
+            }
+        }
         serviceInfo?.let { serviceInfo = it.apply { packageNames = arrayOf(packageName) } }
     }
     override fun onServiceConnected() { instance = this; finish("Bereit · lokal starten") }
