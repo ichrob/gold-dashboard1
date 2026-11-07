@@ -11,6 +11,7 @@
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <!-- Limited visibility for verifying the owner of an accessible biometric cancel dialog. -->
     <queries>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
         <package android:name="nl.degiro.trader" />
         <package android:name="com.termux" />
         <package android:name="com.android.systemui" />
@@ -28,6 +29,12 @@
         <!-- Local-only result for the fixed non-secret Termux help test. -->
         <receiver android:name=".TermuxCheckResultReceiver" android:exported="false" />
         <activity android:name=".LocalPinActivity" android:exported="false" android:excludeFromRecents="true" />
+        <activity android:name=".WorkflowActivity" android:exported="false" />
+        <service android:name=".WorkflowService" android:exported="true"
+                 android:label="Bob · Meine Aufträge" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/workflow_reader" />
+        </service>
         <activity android:name=".ProductReadActivity" android:exported="false" />
         <activity android:name=".MorningReadTransfer" android:exported="true">
             <intent-filter>
