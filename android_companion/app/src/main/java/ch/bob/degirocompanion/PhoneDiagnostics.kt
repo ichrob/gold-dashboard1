@@ -185,6 +185,7 @@ internal object PhoneDiagnostics {
             .also { report ->
                 // Strictly bounded aggregate only, sent under already opted-in
                 // technical diagnostics. Never attach screen text or product IDs.
+                WorkflowHealth.diagnostic(c)?.let { report.put("workflow", it) }
                 ProductDetailDelivery.diagnostic(c)?.let { report.put("detailTransfer",it) }
                 p.getString("pinProbe", null)?.let { raw ->
                     runCatching { JSONObject(raw) }.getOrNull()?.let { probe ->

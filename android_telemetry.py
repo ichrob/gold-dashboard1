@@ -176,11 +176,26 @@ def validate_detail_transfer(value, now):
         raise ValueError('Stale detail transfer status')
     return dict(value)
 
+def validate_workflow(value, now):
+    if not isinstance(value, dict) or set(value) != {'state', 'source', 'confirmed', 'total', 'at'}:
+        raise ValueError('Invalid workflow fields')
+    if value['state'] not in ('STARTED', 'SUCCEEDED', 'STOPPED') or value['source'] not in ('NONE', 'LOCAL', 'CACHE', 'AI'):
+        raise ValueError('Invalid workflow state')
+    if type(value['confirmed']) is not int or type(value['total']) is not int or not 0 <= value['confirmed'] <= value['total'] <= 12:
+        raise ValueError('Invalid workflow counts')
+    if value['state'] == 'SUCCEEDED' and (value['total'] == 0 or value['confirmed'] != value['total']):
+        raise ValueError('Unconfirmed workflow success')
+    at = timestamp(value['at'])
+    if at.year < 2020 or (now-at).total_seconds() < -60:
+        raise ValueError('Invalid workflow time')
+    return dict(value)
+
+
 def validate_report(value, now=None):
     now=now or datetime.now(timezone.utc)
     expected={'reportId','observedAt','appVersionCode','lastCode','lastEventAt',*BOOLS}
-    optional=(set(),{'pinProbe'},{'detailTransfer'},{'pinProbe','detailTransfer'})
-    if not isinstance(value,dict) or not any(set(value)==(expected|extra) for extra in optional):
+    optional={'pinProbe','detailTransfer','workflow'}
+    if not isinstance(value,dict) or not expected <= set(value) or not set(value) <= expected | optional:
         raise ValueError('Invalid diagnostic fields')
     if not isinstance(value['reportId'],str) or not re.fullmatch('[a-f0-9]{32}',value['reportId']):raise ValueError('Invalid report ID')
     version=value['appVersionCode']
@@ -192,6 +207,8 @@ def validate_report(value, now=None):
     if value['lastEventAt'] is not None:
         event=timestamp(value['lastEventAt'])
         if event.year<2020 or (now-event).total_seconds() < -60:raise ValueError('Invalid event time')
+    if 'workflow' in value:
+        validate_workflow(value['workflow'],now)
     if 'pinProbe' in value:
         validate_pin_probe(value['pinProbe'], now)
     if 'detailTransfer' in value:

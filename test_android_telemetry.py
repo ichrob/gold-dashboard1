@@ -16,6 +16,20 @@ def report(at=None):
         **{k:False for k in a.BOOLS})
 
 class Boundary(unittest.TestCase):
+    def test_workflow_report_contains_only_bounded_technical_result(self):
+        valid={'state':'SUCCEEDED','source':'LOCAL','confirmed':2,'total':2,'at':NOW.isoformat()}
+        p=report();p['workflow']=valid
+        self.assertEqual(a.validate_report(p)['workflow'],valid)
+        for bad in [dict(valid,goal='private goal'),dict(valid,app='private.app'),
+                    dict(valid,state='raw error'),dict(valid,source='provider key'),
+                    dict(valid,confirmed=True),dict(valid,confirmed=1),dict(valid,total=13),
+                    dict(valid,confirmed=0,total=0),dict(valid,at=(NOW+timedelta(minutes=5)).isoformat())]:
+            p['workflow']=bad
+            with self.subTest(bad=bad),self.assertRaises(ValueError):a.validate_report(p)
+        # Old last-event timestamps are retained, while observedAt records report freshness.
+        p['workflow']=dict(valid,at=(NOW-timedelta(days=3)).isoformat())
+        a.validate_report(p)
+
     def test_search_diagnostics_use_fixed_codes_without_screen_content(self):
         for code in ('SEARCH_TREE_EMPTY','SEARCH_NOT_ACTIONABLE','SEARCH_NO_PROGRESS','SEARCH_TRANSITION_PENDING','SEARCH_RETRY_PARENT'):
             value=report();value['lastCode']=code
