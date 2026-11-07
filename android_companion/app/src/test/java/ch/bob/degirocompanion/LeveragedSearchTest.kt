@@ -51,4 +51,11 @@ class LeveragedSearchTest {
         assertFalse(LoginToReadHandoff.consume("LOCAL_PIN_ENTRY_SENT",4000))
         assertNull(LoginToReadHandoff.searchQuery)
     }
+    @Test fun unreportedTabSelectionDoesNotCauseRepeatedTapsOrFalseVerifiedResult() {
+        val nodes = listOf(input("Silber"),tab(),MorningReadPolicy.Node("Top Ergebnisse"))
+        assertEquals(MorningReadPolicy.Kind.CATEGORY,MorningReadPolicy.searchLeveraged(nodes,"Silber").kind)
+        assertEquals("LEVERAGE_SEARCH_TAPPED",MorningReadPolicy.searchLeveraged(nodes,"Silber",true).code)
+        assertEquals("CATEGORY_RESULTS_PENDING",MorningReadPolicy.searchLeveraged(nodes.dropLast(1),"Silber",true).code)
+        assertEquals("LEVERAGE_SEARCH_READY",MorningReadPolicy.searchLeveraged(listOf(input("Silber"),tab(true)),"Silber",true).code)
+    }
 }

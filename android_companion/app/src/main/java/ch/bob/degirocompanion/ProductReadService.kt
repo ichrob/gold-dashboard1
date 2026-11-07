@@ -32,6 +32,7 @@ class ProductReadService : AccessibilityService() {
     private var resultTapAttempted = false
     private var inputTapAttempted = false
     private var categorySteps = 0
+    private var searchCategoryTappedAt = 0L
     private var listGeneration = 0
     private var listBusy = false
     private var listScrolled = false
@@ -313,6 +314,7 @@ class ProductReadService : AccessibilityService() {
             inputTapAttempted = false
             resultTapAttempted = false
             categorySteps = 0
+            searchCategoryTappedAt = 0L
             automaticSearchProgress.clear()
             lastNavigationIssue=""
             pageReader.reset()
@@ -1424,7 +1426,7 @@ class ProductReadService : AccessibilityService() {
                     return true
                 }
             }
-            val proposed=if(searchOnly) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query) else if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) {
+            val proposed=if(searchOnly) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query,searchCategoryTappedAt > 0L) else if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) {
                 symbolMemory.getString(it, null)
             }
             val action=automaticSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
@@ -1464,8 +1466,10 @@ class ProductReadService : AccessibilityService() {
                 MorningReadPolicy.Kind.COLLECT -> {
                     check(gold && GoldSearchRun.running)
                     if(searchOnly) {
-                        val message = "${GoldSearchRun.query} im Suchfeld bestätigt · Hebelprodukte ausgewählt."
-                        GoldSearchRun.stop("LEVERAGE_SEARCH_READY",Instant.now().toString())
+                        val message = if(action.code == "LEVERAGE_SEARCH_READY") "${GoldSearchRun.query} im Suchfeld bestätigt · Hebelprodukte ausgewählt."
+                            else "${GoldSearchRun.query} im Suchfeld bestätigt · Hebelprodukte angetippt. DEGIRO meldet die Reiterauswahl nicht zurück."
+                        if(searchCategoryTappedAt > 0L && SystemClock.elapsedRealtime()-searchCategoryTappedAt < 1000L) return true
+                        GoldSearchRun.stop(action.code,Instant.now().toString())
                         ProductReadRequest.cancel()
                         PhoneRemote.stop(this,"COMPLETED")
                         ProductReadSession.put(ProductScreenEvidence.Result(message=message),SystemClock.elapsedRealtime())
@@ -1527,6 +1531,7 @@ class ProductReadService : AccessibilityService() {
                     else if(action.kind==MorningReadPolicy.Kind.CATEGORY) tapRecognizedSearch(root.windowId,category=true)
                     else node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     if(success && action.kind==MorningReadPolicy.Kind.RESULT) batchResultOpened=true
+                    if(success && searchOnly && action.kind==MorningReadPolicy.Kind.CATEGORY) searchCategoryTappedAt=SystemClock.elapsedRealtime()
                     if(success && action.kind==MorningReadPolicy.Kind.CATEGORY) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CATEGORY_CLICK_SENT)
                     if(success && action.kind==MorningReadPolicy.Kind.CATEGORY_SCROLL) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.CATEGORY_SCROLL_SENT)
                     if(success && action.kind==MorningReadPolicy.Kind.QUERY)

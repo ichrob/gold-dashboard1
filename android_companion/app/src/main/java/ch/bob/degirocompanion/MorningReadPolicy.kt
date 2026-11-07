@@ -448,9 +448,9 @@ internal object MorningReadPolicy {
         return inlineTitle.singleOrNull()
     }
 
-    fun searchLeveraged(nodes: List<Node>, query: String): Action {
+    fun searchLeveraged(nodes: List<Node>, query: String, categoryTapped: Boolean = false): Action {
         if (query !in setOf("Gold","Silber")) return Action(Kind.BLOCK,code="INVALID_VIEW")
-        return navigate(nodes,query,true,{ null },searchOnly=true)
+        return navigate(nodes,query,true,{ null },searchOnly=true,categoryTapped=categoryTapped)
     }
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })
     /** A real search control takes precedence over another backward scroll. */
@@ -568,7 +568,7 @@ internal object MorningReadPolicy {
         "(?iu)^BNP\\s+GOLD\\s+Unlimited\\s+(?:Long|Short)\\s+SL\\s+\\d+(?:[.,]\\d+)?\\s+STR\\s+\\d+(?:[.,]\\d+)?\\s+R\\s+\\d+(?:[.,]\\d+)?\\b"
     ).containsMatchIn(value.trim())
 
-    private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?, captureAll: Boolean = false, symbolProbe: Boolean = false, searchOnly: Boolean = false): Action {
+    private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?, captureAll: Boolean = false, symbolProbe: Boolean = false, searchOnly: Boolean = false, categoryTapped: Boolean = false): Action {
         if (nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
         if (ConnectionErrorPolicy.detected(nodes.flatMap { listOf(it.text,it.description) }))
             return Action(Kind.BLOCK,code="CONNECTION_ERROR")
@@ -592,7 +592,7 @@ internal object MorningReadPolicy {
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 recentMarketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 productSearchWithoutLauncher(nodes)?.let { searchNodes ->
-                    val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll,symbolProbe,searchOnly)
+                    val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll,symbolProbe,searchOnly,categoryTapped)
                     if(action.kind in setOf(Kind.FOCUS,Kind.QUERY,Kind.SUBMIT,Kind.CATEGORY,Kind.CATEGORY_SCROLL,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
                 }
             }
@@ -609,6 +609,13 @@ internal object MorningReadPolicy {
                     val category = goldCategory(nodes)
                     if (category?.code == "CATEGORY_RESULTS_PENDING")
                         return Action(Kind.COLLECT,code="LEVERAGE_SEARCH_READY")
+                    if (categoryTapped) {
+                        // Some DEGIRO WebViews omit selected state. A fresh results
+                        // page may finish navigation, but must not claim selection verified.
+                        if (category?.kind == Kind.CATEGORY && nodes.any { normalized(it.text).equals("Top Ergebnisse",true) })
+                            return Action(Kind.COLLECT,code="LEVERAGE_SEARCH_TAPPED")
+                        return Action(Kind.WAIT,code="CATEGORY_RESULTS_PENDING")
+                    }
                     return category ?: Action(if(nodes[i].imeEnter) Kind.SUBMIT else Kind.WAIT,index=i,code="CATEGORY_MISSING")
                 }
                 // Only visible, explicit identities in Gold leverage-product rows.
