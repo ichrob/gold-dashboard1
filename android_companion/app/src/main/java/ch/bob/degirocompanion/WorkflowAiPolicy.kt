@@ -2,7 +2,7 @@ package ch.bob.degirocompanion
 
 /** Independent device-side checks: a server proposal has no execution authority. */
 internal object WorkflowAiPolicy {
-    const val CONSENT = "groq-reviewed-text-v1"
+    const val CONSENT = "gemini-reviewed-text-v1"
     private val privateText = Regex("(?i)(kontostand|account balance|iban|api.?key|bearer|secret|token|@|https?://|\\b[A-Z]{2}\\d{8,}|\\d{6,}|senden|send|publish|veröffentlichen)")
     fun safe(s: String, max: Int = 160, empty: Boolean = false): Boolean =
         s.length <= max && (s.isNotBlank() || empty) && '"' !in s &&

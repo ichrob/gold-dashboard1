@@ -7,9 +7,9 @@ import time
 import urllib.request
 from android_telemetry import token_hash
 
-VERSION = 'groq-reviewed-text-v1'
-MODEL = 'openai/gpt-oss-20b'
-URL = 'https://api.groq.com/openai/v1/chat/completions'
+VERSION = 'gemini-reviewed-text-v1'
+MODEL = 'gemini-3.5-flash-lite'
+URL = 'https://generativelanguage.googleapis.com/v1beta/models/' + MODEL + ':generateContent'
 SENSITIVE = re.compile(r'passwort|password|passcode|\bpin\b|\btan\b|fingerabdruck|biometric|anmelden|sign in|log.?in|kaufen|verkaufen|buy|sell|order|überweisen|transfer money|bezahlen|pay now|löschen|delete|uninstall|deinstallieren|berechtigung|permission|installieren|kontostand|account balance|senden|send|publish|veröffentlichen|iban|api.?key|bearer|secret|token|@|https?://|\b[A-Z]{2}\d{8,}|\d{6,}', re.I)
 BLOCKED_APPS = ('nl.degiro', 'com.termux', 'com.android.settings', 'com.android.systemui',
                 'com.android.packageinstaller', 'com.google.android.packageinstaller',
@@ -75,8 +75,8 @@ def validate_plan(value, request):
 def configured():
     # An API key alone says nothing about billing. This is an operator attestation,
     # not a claim that we can introspect/disable the provider account's billing.
-    return bool(os.environ.get('BOB_WORKFLOW_GROQ_KEY') and
-                os.environ.get('BOB_WORKFLOW_GROQ_FREE_ACCOUNT') == 'confirmed-free-no-payment' and
+    return bool(os.environ.get('GEMINI_API_KEY') and
+                os.environ.get('BOB_GEMINI_FREE_PROJECT') == 'confirmed-no-billing' and
                 os.environ.get('BOB_WORKFLOW_AI_DISABLED') != '1')
 
 
@@ -114,20 +114,24 @@ def generate(request):
         'Never invent identities, credentials, links, or hidden elements. No purchases, trades, '
         'messages to others, payments, deletion, installation, login, shell or account actions. '
         'An empty/unknown screen cannot be solved by guessing. No tools or browsing.')
-    payload = dict(model=MODEL, messages=[{'role': 'system', 'content': instructions},
-        {'role': 'user', 'content': json.dumps({k: request[k] for k in ('goal', 'nodes')}, ensure_ascii=False)}],
-        max_completion_tokens=1800, temperature=0,
-        response_format={'type': 'json_schema', 'json_schema': {'name': 'bob_local_plan', 'strict': True, 'schema': schema}})
+    payload = dict(systemInstruction={'parts': [{'text': instructions}]},
+        contents=[{'role': 'user', 'parts': [{'text': json.dumps(
+            {k: request[k] for k in ('goal', 'nodes')}, ensure_ascii=False)}]}],
+        generationConfig={'maxOutputTokens': 1800, 'temperature': 0,
+            'responseMimeType': 'application/json', 'responseJsonSchema': schema})
     req = urllib.request.Request(URL, data=json.dumps(payload).encode(), method='POST', headers={
-        'Content-Type': 'application/json', 'Authorization': 'Bearer ' + os.environ['BOB_WORKFLOW_GROQ_KEY']})
+        'Content-Type': 'application/json', 'x-goog-api-key': os.environ['GEMINI_API_KEY']})
     with urllib.request.build_opener(NoRedirect()).open(req, timeout=25) as response:
         raw = response.read(32769)
     if len(raw) > 32768: raise ValueError('response-too-large')
     result = json.loads(raw)
-    choice = result['choices'][0]
-    if choice.get('finish_reason') != 'stop' or choice['message'].get('tool_calls'):
+    candidates = result.get('candidates', [])
+    if len(candidates) != 1 or candidates[0].get('finishReason') != 'STOP':
         raise ValueError('incomplete-proposal')
-    return json.loads(choice['message']['content'])
+    parts = candidates[0].get('content', {}).get('parts', [])
+    if not parts or any(set(p) != {'text'} or not isinstance(p['text'], str) for p in parts):
+        raise ValueError('invalid-proposal-content')
+    return json.loads(''.join(p['text'] for p in parts))
 
 
 def handle(connect, payload, provider=None):
@@ -139,7 +143,7 @@ def handle(connect, payload, provider=None):
             raise PermissionError('unpaired-device')
     value = payload['value']
     if value == {'version': 1, 'mode': 'status'}:
-        return dict(ok=True, status='ready' if configured() else 'setup-required', provider='Groq', model=MODEL, paidFallback=False)
+        return dict(ok=True, status='gemini-ready' if configured() else 'setup-required', provider='Google Gemini', model=MODEL, paidFallback=False)
     request = validate_request(value)
     if not configured(): return dict(ok=True, status='setup-required', paidFallback=False)
     with connect() as conn:
