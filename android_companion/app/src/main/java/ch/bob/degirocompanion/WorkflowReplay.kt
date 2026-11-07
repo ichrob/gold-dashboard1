@@ -7,7 +7,7 @@ internal object WorkflowReplay {
         val remaining = steps.dropWhile { step ->
             step.action == WorkflowAction.CLICK && (
                 (oneSearch && (step.opensSearch || LocalWorkflow.normalize(step.expected) in WorkflowAuto.labels)) ||
-                (frame.contains(step.expected) && LocalWorkflow.candidates(step,frame).isEmpty()))
+                (!step.opensSearch && step.expected.isNotBlank() && frame.contains(step.expected) && LocalWorkflow.candidates(step,frame).isEmpty()))
         }
         return remaining.map { step ->
             if (step.action == WorkflowAction.WRITE && oneSearch && LocalWorkflow.target(step,frame) == null &&
