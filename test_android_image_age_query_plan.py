@@ -121,9 +121,10 @@ class IsolatedPostgresPlanTests(unittest.TestCase):
                         sql.Identifier(schema)))
                 admin.execute(sql.SQL("""INSERT INTO {}.bob_android_list_images
                     VALUES ('private-case',now()-interval '3 days',
-                    '{"stage":"synced"}',NULL,NULL,
-                    '{"images":[{"png":"DO_NOT_RETURN_OR_EXTRACT"}]}')""").format(
-                        sql.Identifier(schema)))
+                    %s::jsonb,NULL,NULL,%s::jsonb)""").format(
+                        sql.Identifier(schema)),
+                    ('{"stage":"synced"}',
+                     '{"images":[{"png":"DO_NOT_RETURN_OR_EXTRACT"}]}'))
                 with psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
                         options="-c default_transaction_read_only=on") as reader:
                     reader.execute(sql.SQL("SET search_path TO {}").format(
