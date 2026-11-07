@@ -320,7 +320,7 @@ class WorkflowService : AccessibilityService() {
         if (event?.eventType == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START && (run?.finished == false || (automatic && autoObservation?.seen == true)))
             finish("Gestoppt: eigene Bildschirmbedienung")
     }
-    override fun onInterrupt() { finish("Dienst unterbrochen") }
+    override fun onInterrupt() { WorkflowLoginHandoff.clear(); finish("Dienst unterbrochen") }
     override fun onDestroy() { WorkflowLoginHandoff.clear(); finish("Dienst beendet"); instance = null; observation = null; screenshotText = ""; super.onDestroy() }
     private fun symbolSafe(frame: WorkflowFrame): Boolean {
         val root = rootInActiveWindow ?: return false
