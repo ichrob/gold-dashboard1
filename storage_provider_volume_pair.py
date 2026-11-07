@@ -15,7 +15,7 @@ import time
 import render_disk_metrics
 
 VERSION = "bob-render-provider-volume-pair-v1"
-IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,64}\\Z")
+IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 MAX_SAMPLE_AGE_SECONDS = 120
 MAX_POST_WAIT_SECONDS = 900
 MAX_OPERATION_SECONDS = 7200
