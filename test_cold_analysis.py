@@ -51,6 +51,56 @@ class ColdSchedulerIsolationTests(unittest.TestCase):
         self.assertIn('"status": "checked"', output.call_args.args[0])
 
 
+
+    def test_failed_candidate_query_records_safe_phase_without_touching_drive(self):
+        class QueryCanceled(Exception):
+            pass
+        class Connection:
+            autocommit = True
+            def execute(self, sql, params=None):
+                raise QueryCanceled("private-postgres-dsn-token-do-not-log")
+        class Drive:
+            def __getattr__(self, key):
+                raise AssertionError("No archive operation after query error")
+        with self.assertRaises(cold.CandidateSelectionFailure) as failure:
+            cold.offload_batch(Connection(), Drive())
+        self.assertEqual(failure.exception.error_type, "QueryCanceled")
+        self.assertEqual(str(failure.exception), "candidate-selection-failed")
+        self.assertNotIn("private-postgres", repr(failure.exception))
+        self.assertEqual(cold.CandidateSelectionFailure("Bearer SECRET!!").error_type,
+                         "Exception")
+
+    def test_worker_logs_redacted_candidate_selection_phase_and_preserves_backoff(self):
+        class EndCycle(Exception):
+            pass
+        with patch.dict(os.environ, {'BOB_COLD_ANALYSIS_ENABLED': '1'}), \
+                patch.object(cold, '_THREAD', None), \
+                patch.object(cold.threading, 'Thread') as thread:
+            cold.start()
+            target = thread.call_args.kwargs['target']
+        sleeps = []
+        def pause(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 2:
+                raise EndCycle()
+        with patch('archive_worker.status', return_value={'status': 'idle'}), \
+                patch.object(cold, 'run_once',
+                             side_effect=cold.CandidateSelectionFailure('QueryCanceled')) as run, \
+                patch('storage_pressure.delay', return_value=3600), \
+                patch.object(cold.time, 'sleep', side_effect=pause), \
+                patch('builtins.print') as output:
+            with self.assertRaises(EndCycle):
+                target()
+        run.assert_called_once()
+        self.assertEqual(sleeps, [300, 3600])
+        report = output.call_args.args[0]
+        self.assertIn('"phase": "candidate-selection"', report)
+        self.assertIn('"errorType": "QueryCanceled"', report)
+        self.assertNotIn("DSN", report)
+        self.assertNotIn("password", report)
+
+
+
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
     def setUp(self):
