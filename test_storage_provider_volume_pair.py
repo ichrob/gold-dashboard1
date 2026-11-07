@@ -1,4 +1,5 @@
 """Synthetic-only checks: provider usage, never RAM, relation size or secrets."""
+import json
 import os
 from pathlib import Path
 import stat
@@ -79,6 +80,51 @@ class ProviderVolumePairTests(unittest.TestCase):
             os.chmod(path, 0o644)
             with self.assertRaises(pair.MeasurementBlocked):
                 pair.mark_ended(path, clock=lambda: 1020)
+
+    def test_modified_before_snapshot_cannot_be_used_as_provider_proof(self):
+        for field, value in (("source", "ram-metric"),
+                             ("usedBytes", "870000000"),
+                             ("observedAt", 600),
+                             ("capturedAt", 1200),
+                             ("unit", "MB")):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "receipt.json"
+                pair.before(path, "validated", clock=lambda: 1000,
+                            reporter=lambda: provider(980, 872_000_000))
+                record = json.loads(path.read_text())
+                record["before"][field] = value
+                path.write_text(json.dumps(record))
+                with self.assertRaises(pair.MeasurementBlocked):
+                    pair.mark_ended(path, clock=lambda: 1020)
+
+    def test_modified_paired_receipt_cannot_claim_impossible_decrease(self):
+        for field, value in (("physicalVolumeNetDecreaseBytes", 999_999_999),
+                             ("diskBytesFreedByMaintenance", 1)):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "receipt.json"
+                pair.before(path, "verified-pair", clock=lambda: 1000,
+                            reporter=lambda: provider(980, 872_000_000))
+                pair.mark_ended(path, clock=lambda: 1030)
+                pair.after(path, clock=lambda: 1080,
+                           reporter=lambda: provider(1060, 871_000_000))
+                record = json.loads(path.read_text())
+                record[field] = value
+                path.write_text(json.dumps(record))
+                with self.assertRaises(pair.MeasurementBlocked):
+                    pair._load(path)
+
+    def test_modified_ended_boundary_and_snapshot_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.json"
+            pair.before(path, "end-boundary", clock=lambda: 1000,
+                        reporter=lambda: provider(980, 872_000_000))
+            pair.mark_ended(path, clock=lambda: 1030)
+            record = json.loads(path.read_text())
+            record["maintenanceEndedAt"] = 4000
+            path.write_text(json.dumps(record))
+            with self.assertRaises(pair.MeasurementBlocked):
+                pair.after(path, clock=lambda: 4050,
+                           reporter=lambda: provider(4040, 871_000_000))
 
     def test_without_provider_observation_no_receipt_success(self):
         with tempfile.TemporaryDirectory() as directory:
