@@ -182,7 +182,15 @@ class WorkflowDeviceTest {
             .putString("lastApp",WorkflowAppRoute.DEGIRO).putString("lastGoal","Gold").commit()
         context.startActivity(Intent(context,WorkflowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         await("Workflow screen did not open") {
-            automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("Senden · Bob erledigt den Auftrag")?.isNotEmpty() == true
+            val root = automation.rootInActiveWindow
+            val visible = root?.findAccessibilityNodeInfosByText("Senden · Bob erledigt den Auftrag")?.any { it.isVisibleToUser } == true
+            fun scroll(node: android.view.accessibility.AccessibilityNodeInfo): Boolean {
+                if (node.isScrollable && node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return true
+                for (i in 0 until node.childCount) node.getChild(i)?.let { if (scroll(it)) return true }
+                return false
+            }
+            if (!visible && root != null) scroll(root)
+            visible
         }
         val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Senden · Bob erledigt den Auftrag").single()
         assertTrue(start.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
