@@ -81,6 +81,46 @@ class WorkflowDeviceTest {
         val field = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
         assertEquals("Silber 123,45", field.text.toString())
     }
+    @Test fun screenshotAndTextMessageRunsThroughComposer() {
+        context.getSharedPreferences("workflow_auto_v1", 0).edit().putString("lastApp", app).commit()
+        val image = android.graphics.Bitmap.createBitmap(900, 300, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(image)
+        canvas.drawColor(android.graphics.Color.WHITE)
+        canvas.drawText("Suchfeld", 40f, 160f, android.graphics.Paint().apply {
+            color = android.graphics.Color.BLACK; textSize = 90f; isAntiAlias = true
+        })
+        val file = java.io.File(context.cacheDir, "composer-fixture.png")
+        file.outputStream().use { image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        image.recycle()
+        val activity = instrumentation.startActivitySync(Intent(context, WorkflowActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as WorkflowActivity
+        fun field(name: String): Any? = WorkflowActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.get(activity)
+        try {
+            main {
+                (field("goal") as android.widget.EditText).setText("Schreibe Silber 123,45 in Suchfeld")
+                WorkflowActivity::class.java.getDeclaredMethod("readImage", android.net.Uri::class.java, Boolean::class.javaPrimitiveType)
+                    .apply { isAccessible = true }.invoke(activity, android.net.Uri.fromFile(file), true)
+            }
+            await("Attached screenshot was not read locally") { (field("attachmentLabels") as List<*>).contains("Suchfeld") }
+            // Open the fixture's field before the composer launches it again.
+            context.startActivity(Intent().setClassName(app, app + ".MainActivity").putExtra("mode", "open")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+            SystemClock.sleep(500)
+            main {
+                fun send(view: android.view.View): android.widget.Button? {
+                    if (view is android.widget.Button && view.text.toString().startsWith("Senden ·")) return view
+                    if (view is android.view.ViewGroup) for (i in 0 until view.childCount) send(view.getChildAt(i))?.let { return it }
+                    return null
+                }
+                assertTrue(send(activity.window.decorView)!!.performClick())
+            }
+            await("Screenshot/text request did not complete") { WorkflowService.run?.let { WorkflowAiPolicy.verified(it) } == true }
+            val fieldNode = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
+            assertEquals("Silber 123,45", fieldNode.text.toString())
+        } finally {
+            main { activity.finish() }; file.delete()
+        }
+    }
     @Test fun newestOwnerRequestReplacesPendingSequenceAndInvalidatesOldAnswers() {
         main {
             val service = WorkflowService.instance!!
