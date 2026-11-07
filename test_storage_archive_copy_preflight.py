@@ -110,7 +110,7 @@ class PlaintextArchivePreflightTests(unittest.TestCase):
             synthetic_archive(path)
             with zipfile.ZipFile(path) as original:
                 members = {name: original.read(name) for name in original.namelist()}
-            members["0.copy"] = b"DIFFERENT-CONTENT\n"
+            members["0.copy"] = b"X" + members["0.copy"][1:]
             with zipfile.ZipFile(path, "w") as changed:
                 for name, body in members.items():
                     changed.writestr(name, body)
