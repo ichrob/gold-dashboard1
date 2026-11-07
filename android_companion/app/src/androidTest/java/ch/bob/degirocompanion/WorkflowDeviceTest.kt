@@ -343,7 +343,7 @@ class WorkflowDeviceTest {
             "Lokale DEGIRO-Anmeldung: Lesedienst zuerst einschalten.")
     }
     @Test fun silverSearchRoutesToNativeSequenceWithoutStartingGoldImport() {
-        nativeRequestWithoutReader("Suche nach Silber Hebelprodukte", "Lesedienst zuerst einschalten.")
+        nativeRequestWithoutReader("Suche Silber", "Lesedienst zuerst einschalten.")
     }
     private fun nativeRequestWithoutReader(request: String, expected: String) {
         context.getSharedPreferences("workflow_auto_v1",0).edit()
