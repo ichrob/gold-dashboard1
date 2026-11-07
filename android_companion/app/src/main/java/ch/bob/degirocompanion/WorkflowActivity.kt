@@ -27,6 +27,9 @@ class WorkflowActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var output: TextView
     private var selectedApp = ""
+    private lateinit var cloud: CheckBox
+    private var updatingCloud = false
+    private val autoPrefs by lazy { getSharedPreferences("workflow_auto_v1", MODE_PRIVATE) }
     private var imageGeneration = 0
     private var fileBusy = false
     private var fileCancellation: android.os.CancellationSignal? = null
@@ -35,21 +38,45 @@ class WorkflowActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         val stack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 20, 24, 20) }
-        fun label(s: String) = TextView(this).also { it.text = s; it.textSize = 17f; stack.addView(it) }
-        fun button(s: String, block: () -> Unit) = Button(this).also { it.text = s; it.isAllCaps = false; it.setOnClickListener { block() }; stack.addView(it) }
+        var section = stack
+        fun label(s: String) = TextView(this).also { it.text = s; it.textSize = 17f; section.addView(it) }
+        fun button(s: String, block: () -> Unit) = Button(this).also { it.text = s; it.isAllCaps = false; it.setOnClickListener { block() }; section.addView(it) }
         label("Meine Aufträge")
         status = label("Lokal auf deinem Handy · keine ChatGPT-Verbindung nötig")
         button("STOPP · Auftrag und Lesesitzung beenden") { WorkflowService.stop(); aiGeneration++; imageGeneration++; cancelFiles(); output.text = ""; refresh() }
-        label("Du bestimmst App, Schritte und erwartetes Ergebnis. Screenshots werden lokal als Text gelesen. Bilder und Dateiinhalte erteilen niemals Befehle. Keine Orders, Anmeldung oder Zahlungen.")
+        label("App wählen, Auftrag sagen oder eingeben, Start. Bob liest und prüft selbst. Erfolgreiche Abläufe bleiben lokal gespeichert. Keine Orders, Anmeldung oder Zahlungen.")
         button("Einrichtung · Auftrags-Bedienungshilfe öffnen") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         appLabel = label("Noch keine App gewählt")
         button("App auswählen") { chooseApp() }
-        name = EditText(this).apply { hint = "Name, z. B. Gold suchen"; setSingleLine(); stack.addView(this) }
-        goal = EditText(this).apply { hint = "Auftrag in eigenen Worten, z. B. Schreibe Gold in die Suche"; minLines = 2; stack.addView(this) }
-        button("Auftrag vorbereiten · gespeicherten Ablauf oder KI nutzen") { propose() }
+        goal = EditText(this).apply { hint = "Was soll Bob tun? Zum Beispiel: Schreibe Gold in das Suchfeld"; minLines = 2; stack.addView(this) }
+        button("Auftrag sprechen") {
+            runCatching { startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "de-DE")
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Auftrag sagen; danach Start drücken")
+            }, 105) }.onFailure { status.text = "Sprachdienst fehlt; Textfeld oder Tastaturmikrofon verwenden" }
+        }
+        cloud = CheckBox(this).apply { text = "Bei Bedarf KI automatisch nutzen · einmal je App freigeben"; stack.addView(this) }
+        cloud.setOnCheckedChangeListener { _, checked ->
+            if (!updatingCloud) {
+                if (checked && !LocalWorkflow.allowedApp(selectedApp)) {
+                    updatingCloud = true; cloud.isChecked = false; updatingCloud = false
+                    status.text = "Zuerst eine App auswählen"
+                } else if (checked && !autoPrefs.getBoolean("cloud:" + selectedApp, false)) allowAutomaticCloud()
+                else if (!checked) { autoPrefs.edit().remove("cloud:" + selectedApp).apply(); WorkflowService.stop() }
+            }
+        }
+        button("START · Bob erledigt den Auftrag") { startAutomatic() }
         button("Kostenlosen KI-Zugang prüfen") { checkAi() }
+        val advanced = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = android.view.View.GONE }
+        button("Details / manuelle Schritte ein- oder ausblenden") {
+            advanced.visibility = if (advanced.visibility == android.view.View.VISIBLE) android.view.View.GONE else android.view.View.VISIBLE
+        }
+        stack.addView(advanced); section = advanced
+        name = EditText(this).apply { hint = "Optionaler Name für manuelle Aufträge"; setSingleLine(); advanced.addView(this) }
+        button("Auftrag manuell vorbereiten · Texte einzeln freigeben") { propose() }
         label("Zuerst wird ein erfolgreicher lokaler Ablauf gesucht. Eine neue KI-Anfrage benötigt deine Auswahl und Freigabe der Texte. Keine automatische kostenpflichtige Ausweichlösung.")
-        commands = EditText(this).apply { hint = "Tippe auf \"Suche\" -> \"Suchbegriff\"\nSchreibe \"Gold\" in \"Suchbegriff\"\nWarte auf \"Gold\""; minLines = 4; gravity = android.view.Gravity.TOP; stack.addView(this) }
+        commands = EditText(this).apply { hint = "Tippe auf \"Suche\" -> \"Suchbegriff\"\nSchreibe \"Gold\" in \"Suchbegriff\"\nWarte auf \"Gold\""; minLines = 4; gravity = android.view.Gravity.TOP; advanced.addView(this) }
         label("Ein Schritt pro Zeile. Tippe auf \"Beschriftung\" -> \"neuer Ergebnistext\"; Schreibe \"Text\" in \"Feldbeschriftung\"; Warte auf \"Text\". Auch eine angezeigte Feld-ID ist möglich. Bis zu zwölf Schritte. Bei doppelten Zielen stoppt Bob.")
         button("Schritt diktieren") {
             runCatching { startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -83,7 +110,19 @@ class WorkflowActivity : Activity() {
             }, 102)
         }
         output = label("").apply { setTextIsSelectable(true) }
-        setContentView(ScrollView(this).apply { addView(stack) })
+        val scroll = ScrollView(this).apply { addView(stack) }
+        scroll.setOnApplyWindowInsetsListener { view, insets ->
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.ime())
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            } else view.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+            insets
+        }
+        setContentView(scroll)
+        selectedApp = autoPrefs.getString("lastApp", "").orEmpty().takeIf { LocalWorkflow.allowedApp(it) }.orEmpty()
+        appLabel.text = selectedApp.ifBlank { "Noch keine App gewählt" }
+        updateCloud()
+        goal.setText(autoPrefs.getString("lastGoal", ""))
     }
     override fun onResume() { super.onResume(); if (::output.isInitialized) refresh() }
     private fun refresh() {
@@ -108,7 +147,36 @@ class WorkflowActivity : Activity() {
         AlertDialog.Builder(this).setTitle("App für diesen Auftrag")
             .setItems(entries.map { "${it.loadLabel(packageManager)} · ${it.activityInfo.packageName}" }.toTypedArray()) { _, i ->
                 WorkflowService.stop(); selectedApp = entries[i].activityInfo.packageName; appLabel.text = selectedApp
+                autoPrefs.edit().putString("lastApp", selectedApp).apply(); updateCloud()
             }.setNegativeButton("Abbrechen", null).show()
+    }
+    private fun updateCloud() {
+        updatingCloud = true
+        cloud.isChecked = autoPrefs.getBoolean("cloud:" + selectedApp, false)
+        updatingCloud = false
+    }
+    private fun allowAutomaticCloud() {
+        val app = selectedApp
+        AlertDialog.Builder(this).setTitle("Automatische KI-Hilfe für diese App")
+            .setMessage("Bei jedem von dir gestarteten Auftrag darf Bob bei Bedarf genau eine Groq-Anfrage senden. Übertragen werden dein Auftrag sowie erkannte Such-/Filterelemente mit passenden Feld-IDs. Erlaubte Beschriftungen: " +
+                WorkflowAuto.labels.joinToString(", ") +
+                ". Keine Bilder, OCR-Dumps, Dateiinhalte oder Eingabefeldwerte. Der Auftrag selbst darf keine privaten Daten enthalten. Groq kann Eingaben zur Missbrauchsprüfung speichern, sofern Zero Data Retention dort nicht aktiviert ist. Bob prüft Vorschläge und führt zulässige Schritte ohne weitere Rückfrage aus. Kein kostenpflichtiger Fallback. Freigabe jederzeit über diesen Schalter widerrufbar.")
+            .setPositiveButton("Für diese App erlauben") { _, _ ->
+                if (selectedApp == app) autoPrefs.edit().putBoolean("cloud:" + app, true).apply()
+                updateCloud()
+            }.setNegativeButton("Abbrechen") { _, _ -> updateCloud() }
+            .setOnCancelListener { updateCloud() }.show()
+    }
+    private fun startAutomatic() {
+        if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App auswählen"; return }
+        val task = goal.text.toString().trim()
+        if (!WorkflowAiPolicy.safe(task, 500)) { status.text = "Bitte einen kurzen Auftrag ohne private Daten eingeben"; return }
+        val service = WorkflowService.instance ?: run { status.text = "Einmalig die Auftrags-Bedienungshilfe über Einrichtung aktivieren"; return }
+        val intent = packageManager.getLaunchIntentForPackage(selectedApp) ?: run { status.text = "App nicht mehr installiert oder nicht startbar"; return }
+        autoPrefs.edit().putString("lastApp", selectedApp).putString("lastGoal", task).apply()
+        if (service.beginAutomatic(selectedApp, task, autoPrefs.getBoolean("cloud:" + selectedApp, false))) {
+            runCatching { startActivity(intent) }.onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
+        } else status.text = "Auftrag konnte nicht gestartet werden"
     }
     private fun valid(): List<WorkflowStep>? {
         if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Zuerst eine unterstützte App auswählen. DEGIRO nutzt den vorhandenen Produktleser."; return null }
@@ -145,7 +213,7 @@ class WorkflowActivity : Activity() {
         val data = JSONObject(saved.getString(key, "")!!)
         require(data.getInt("version") == 1 && LocalWorkflow.allowedApp(data.getString("app")))
         require(LocalWorkflow.parse(data.getString("commands")) != null)
-        selectedApp = data.getString("app"); appLabel.text = selectedApp
+        selectedApp = data.getString("app"); appLabel.text = selectedApp; updateCloud()
         commands.setText(data.getString("commands")); goal.setText(data.optString("goal")); name.setText(key); status.text = "Geladen · noch nicht gestartet"
         true
     }.getOrElse { status.text = "Gespeicherter Auftrag ungültig; keine Ausführung"; false }
@@ -267,6 +335,10 @@ class WorkflowActivity : Activity() {
         super.onActivityResult(request, result, data)
         if (result != RESULT_OK) return
         when (request) {
+            105 -> data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let {
+                if (PhoneTaskPlanParser.isStop(it)) { WorkflowService.stop(); refresh() }
+                else if (it.length <= 300) { goal.setText(it); status.text = "Auftrag übernommen · mit START ausführen" }
+            }
             101 -> data?.data?.let { readImage(it) }
             102 -> data?.data?.let { tree ->
                 val query = EditText(this).apply { hint = "Dateiname oder Teil davon; leer = alle JSON-Dateien" }

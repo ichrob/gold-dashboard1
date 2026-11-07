@@ -15,7 +15,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
-/** Separate, locally started service. No remote commands, uploads or persisted session. */
+/** Locally started service; automatic cloud proposals require a per-app owner opt-in. */
 class WorkflowService : AccessibilityService() {
     companion object {
         internal var instance: WorkflowService? = null
@@ -35,16 +35,26 @@ class WorkflowService : AccessibilityService() {
     private var recorded = true
     private var capture = false
     private var generation = 0
+    private var automatic = false
+    private var autoCloud = false
+    private var autoObservation: WorkflowAutoObservation? = null
+    private var planning = false
+    private var proposalContext: List<WorkflowNode>? = null
     private val poll = object : Runnable {
         override fun run() {
             if (selected.isEmpty()) return
             if (SystemClock.elapsedRealtime() > until) { finish("Sitzung beendet"); return }
             val unlocked = !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
             if (!unlocked) { finish("Gestoppt: Bildschirm gesperrt"); return }
+            autoObservation?.let {
+                it.next(null, SystemClock.elapsedRealtime(), unlocked)
+                if (it.reason.isNotEmpty()) { finish("Gestoppt: " + it.reason); return }
+            }
             run?.tick(null, SystemClock.elapsedRealtime(), unlocked) { _, _ -> false }
             run?.let { if (it.finished) { finish(it.status); return } }
             val root = rootInActiveWindow
             if (root != null && root.packageName?.toString() != selected) {
+                if (automatic && (autoObservation?.seen == true || planning)) { finish("Gestoppt: andere App im Vordergrund"); return }
                 run?.tick(WorkflowFrame(root.packageName?.toString().orEmpty(), root.windowId, emptyList()), SystemClock.elapsedRealtime(), unlocked) { _, _ -> false }
                 run?.let { if (it.finished) { finish(it.status); return } }
                 handler.postDelayed(this, 500); return
@@ -67,6 +77,16 @@ class WorkflowService : AccessibilityService() {
                 if (frame.app == selected && !LocalWorkflow.protected(frame)) {
                     observation = frame; observationAt = SystemClock.elapsedRealtime()
                     if (capture) { capture = false; captureScreen(generation, frame.window) }
+                }
+                if (automatic && LocalWorkflow.protected(frame)) { finish("Geschützte Ansicht: Auftrag gestoppt"); return }
+                if (automatic && run == null && !planning) {
+                    val ready = autoObservation?.next(frame, SystemClock.elapsedRealtime(), unlocked)
+                    if (ready != null) prepareAutomatic(ready)
+                    if (autoObservation?.reason?.isNotEmpty() == true) { finish("Gestoppt: " + autoObservation?.reason); return }
+                    if (selected.isEmpty()) return
+                }
+                if (planning && proposalContext != WorkflowAuto.context(frame)) {
+                    finish("Ansicht während KI-Anfrage geändert; nichts ausgeführt"); return
                 }
                 run?.tick(frame, SystemClock.elapsedRealtime(), unlocked) { step, index ->
                     val n = refs.getOrNull(index)
@@ -96,7 +116,51 @@ class WorkflowService : AccessibilityService() {
         handler.post(poll)
         return true
     }
+    internal fun beginAutomatic(app: String, goal: String, cloud: Boolean): Boolean {
+        if (!LocalWorkflow.allowedApp(app) || !WorkflowAiPolicy.safe(goal, 500)) return false
+        val cached = WorkflowLibrary.match(this, app, goal)?.second?.let { LocalWorkflow.parse(it) }
+        if (!begin(app, cached, goal=goal, title=goal.take(60))) return false
+        automatic = true; autoCloud = cloud
+        until = SystemClock.elapsedRealtime() + 180_000
+        if (cached == null) {
+            autoObservation = WorkflowAutoObservation(app, SystemClock.elapsedRealtime())
+            message = "Automatisch: öffne App und lese den Bildschirm"
+        } else message = "Automatisch: erfolgreicher lokaler Ablauf · keine KI nötig"
+        return true
+    }
+    private fun prepareAutomatic(frame: WorkflowFrame) {
+        WorkflowAuto.local(recipeGoal, frame)?.let {
+            run = WorkflowRun(selected, it, SystemClock.elapsedRealtime())
+            message = "Automatisch lokal erkannt · prüfe jeden Schritt"; return
+        }
+        if (!autoCloud) { finish("Lokal kein passender Ablauf; KI-Hilfe für diese App ist ausgeschaltet"); return }
+        val nodes = WorkflowAuto.context(frame)
+        if (nodes.isEmpty()) { finish("Keine freigegebenen Such-/Filterelemente erkannt; Details manuell prüfen"); return }
+        val app = selected; val goal = recipeGoal; val token = generation
+        planning = true; proposalContext = nodes
+        message = "Automatisch: eine KI-Anfrage · danach lokale Prüfung"
+        Thread {
+            val result = runCatching { WorkflowPlanner.request(applicationContext,app,goal,nodes) }
+            handler.post {
+                if (token != generation || selected != app || !planning) return@post
+                val root = rootInActiveWindow
+                if (root?.packageName?.toString() != app || root.windowId != frame.window ||
+                    (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked ||
+                    observation?.let { WorkflowAuto.context(it) } != nodes) {
+                    finish("Ansicht geändert; KI-Antwort verworfen"); return@post
+                }
+                planning = false
+                val answer = result.getOrNull()
+                if (answer?.first == "proposal" && answer.second.isNotEmpty()) {
+                    run = WorkflowRun(app, answer.second, SystemClock.elapsedRealtime())
+                    message = "KI-Vorschlag geprüft · führe lokal aus"
+                } else finish(WorkflowPlanner.error(answer?.first.orEmpty()) + " · kein Anbieterwechsel")
+            }
+        }.start()
+    }
     private fun finish(reason: String) {
+        val notify = automatic && reason != "Neue Sitzung"
+        automatic = false; planning = false; autoCloud = false; autoObservation = null; proposalContext = null
         generation++; handler.removeCallbacks(poll); selected = ""; capture = false
         run?.let { if (!it.finished) it.stop(reason) }; message = reason
         run?.let {
@@ -107,12 +171,13 @@ class WorkflowService : AccessibilityService() {
                     .getOrDefault(" · Speichern fehlgeschlagen")
             }
         }
+        if (notify) android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
         serviceInfo?.let { serviceInfo = it.apply { packageNames = arrayOf(packageName) } }
     }
     override fun onServiceConnected() { instance = this; finish("Bereit · lokal starten") }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         // User touch aborts execution; observation mode permits the owner to navigate.
-        if (event?.eventType == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START && run?.finished == false)
+        if (event?.eventType == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START && (run?.finished == false || (automatic && autoObservation?.seen == true)))
             finish("Gestoppt: eigene Bildschirmbedienung")
     }
     override fun onInterrupt() { finish("Dienst unterbrochen") }
