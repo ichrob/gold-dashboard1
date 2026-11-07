@@ -52,6 +52,16 @@ class LocalWorkflowTest {
         locked.tick(frame(node("Treffer")), 1, false) { _, _ -> fail(); false }
         assertEquals(0, locked.index)
     }
+    @Test fun waitsForTargetAfterAppLaunchWithoutClickingElsewhere() {
+        val run = WorkflowRun("org.example.notes", listOf(WorkflowStep(WorkflowAction.CLICK, "Suche", expected="Treffer")), 0)
+        run.tick(frame(node("Lädt")), 1, true) { _, _ -> fail(); false }
+        assertFalse(run.finished)
+        var clicks = 0
+        run.tick(frame(node("Suche", click=true)), 1000, true) { _, _ -> clicks++; true }
+        assertEquals(1, clicks)
+        run.tick(frame(node("Treffer")), 1500, true) { _, _ -> fail(); false }
+        assertTrue(run.finished); assertEquals(1, run.index)
+    }
     @Test fun placeholderCannotProveTextWasWritten() {
         val run = WorkflowRun("org.example.notes", listOf(WorkflowStep(WorkflowAction.WRITE, "search", "Gold")), 0)
         val empty = frame(WorkflowNode("Gold", "search", true, false, inputValue=""))
