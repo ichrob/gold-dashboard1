@@ -1,1 +1,3 @@
-<resources><item name="search_src_text" type="id"/><item name="search_input" type="id"/></resources>
+<resources><item name="search_src_text" type="id"/><item name="search_input" type="id"/>    <item name="symbol_button" type="id" />
+    <item name="symbol_duplicate" type="id" />
+</resources>

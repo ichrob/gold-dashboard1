@@ -72,6 +72,8 @@ class WorkflowActivity : Activity() {
             }, 106)
         }
         button("Screenshot entfernen") { clearAttachment() }
+        button("Symbol erklären und lernen") { teachSymbol() }
+        button("Gelernte Symbole · verwenden oder vergessen") { manageSymbols() }
         button("Auftrag sprechen") {
             runCatching { startActivityForResult(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -513,6 +515,53 @@ class WorkflowActivity : Activity() {
             if (!attachment || attachmentBitmap !== bitmap) bitmap.recycle()
         }
     }
+    private fun teachSymbol() {
+        if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App auswählen"; return }
+        val bitmap = attachmentBitmap ?: run { status.text = "Bitte zuerst einen Screenshot anhängen"; return }
+        val app = selectedApp; val token = attachmentGeneration
+        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(20, 8, 20, 8) }
+        layout.addView(TextView(this).apply { text = "Ziehe einen engen Rahmen um das Symbol. Gespeichert wird nur sein lokales Bildmuster für diese App, nicht der ganze Screenshot." })
+        val crop = WorkflowSymbolCrop(this, bitmap)
+        layout.addView(crop, LinearLayout.LayoutParams(-1, (360 * resources.displayMetrics.density).toInt()))
+        val meaning = EditText(this).apply { hint = "Bedeutung / Name, z. B. Suche"; layout.addView(this) }
+        val expected = EditText(this).apply { hint = "Was erscheint nach dem Tippen? Z. B. Suchfeld"; layout.addView(this) }
+        val help = TextView(this).apply { layout.addView(this) }
+        val dialog = AlertDialog.Builder(this).setTitle("Bob ein Symbol erklären")
+            .setView(ScrollView(this).apply { addView(layout) }).setPositiveButton("Lernen", null).setNegativeButton("Abbrechen", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (app != selectedApp || token != attachmentGeneration) { dialog.dismiss(); return@setOnClickListener }
+                val box = crop.box()
+                val pattern = box?.let { WorkflowSymbolMatch.pattern(WorkflowSymbols.gray(bitmap), bitmap.width, bitmap.height, it) }
+                val name = meaning.text.toString().trim(); val result = expected.text.toString().trim()
+                if (pattern == null || !WorkflowComposer.validText(name) || name.length > 60 || !WorkflowComposer.validText(result)) {
+                    help.text = "Bitte ein deutliches Symbol eng einrahmen und Bedeutung sowie erwarteten Text angeben."
+                } else {
+                    val symbol = LearnedSymbol(name, result, pattern)
+                    if (WorkflowSymbols.save(this, app, symbol)) {
+                        goal.setText("Tippe auf $name")
+                        status.text = "Symbol für diese App gelernt · mit Senden testen. Erst ein bestätigtes Ergebnis gilt als erfolgreich."
+                        dialog.dismiss()
+                    } else help.text = "Speichern fehlgeschlagen oder 20 Symbole gespeichert. Bitte ein altes Symbol vergessen."
+                }
+            }
+        }
+        dialog.show()
+    }
+    private fun manageSymbols() {
+        val app = selectedApp
+        val symbols = WorkflowSymbols.list(this, app)
+        if (symbols.isEmpty()) { status.text = "Für diese App sind noch keine Symbole gelernt"; return }
+        AlertDialog.Builder(this).setTitle("Symbole dieser App")
+            .setItems(symbols.map { it.name + if (it.verifiedAt > 0) " · erfolgreich geprüft" else " · noch nicht geprüft" }.toTypedArray()) { _, i ->
+                val symbol = symbols[i]
+                AlertDialog.Builder(this).setTitle(symbol.name).setMessage("Nach dem Tippen erwartet Bob: ${symbol.expected}")
+                    .setPositiveButton("Auftrag übernehmen") { _, _ -> if (app == selectedApp) goal.setText("Tippe auf ${symbol.name}") }
+                    .setNeutralButton("Vergessen") { _, _ ->
+                        ownerOverride(); WorkflowSymbols.forget(this, app, symbol.name); status.text = "Symbol vergessen"
+                    }.setNegativeButton("Abbrechen", null).show()
+            }.setNegativeButton("Schließen", null).show()
+    }
     private fun clearAttachment() {
         attachmentGeneration++; attachmentBusy = false; attachmentUri = null; attachmentLabels = emptyList()
         attachmentPreview.setImageDrawable(null); attachmentPreview.visibility = android.view.View.GONE
@@ -524,6 +573,9 @@ class WorkflowActivity : Activity() {
         ownerOverride()
         if (PhoneTaskPlanParser.isStop(text)) { refresh(); return }
         if (text.isBlank()) { status.text = "Was soll Bob mit dem Screenshot tun? Bitte einen Auftrag eingeben."; return }
+        WorkflowSymbols.plan(this, selectedApp, text)?.let {
+            commands.setText(WorkflowAiPolicy.commands(it)); launch(false, false); return
+        }
         if (attachmentUri == null) { startAutomatic(); return }
         if (attachmentBusy) { status.text = "Screenshot wird noch gelesen. Danach erneut senden."; return }
         if (attachmentLabels.isEmpty()) { status.text = "Screenshot nicht lesbar. Bitte ersetzen oder entfernen."; return }
