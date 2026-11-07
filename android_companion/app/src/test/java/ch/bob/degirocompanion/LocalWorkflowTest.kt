@@ -5,7 +5,7 @@ import org.junit.Test
 
 class LocalWorkflowTest {
     private fun frame(vararg nodes: WorkflowNode) = WorkflowFrame("org.example.notes", 1, nodes.toList())
-    private fun node(label: String, id: String = "", edit: Boolean = false, click: Boolean = false) = WorkflowNode(label, id, edit, click)
+    private fun node(label: String, id: String = "", edit: Boolean = false, click: Boolean = false) = WorkflowNode(label, id, edit, click, inputValue = if (edit) label else null)
     @Test fun parsesWholeUserPlanAndRejectsMixedUnsafePlan() {
         assertEquals(3, LocalWorkflow.parse("Tippe auf \"Suche\" -> \"Suchbegriff\"\nSchreibe \"Gold\" in \"Suchbegriff\"\nWarte auf \"Gold\"")!!.size)
         assertNull(LocalWorkflow.parse("Warte auf \"Gold\"\nKaufe Gold"))
@@ -51,6 +51,25 @@ class LocalWorkflowTest {
         val locked = WorkflowRun("org.example.notes", p, 0)
         locked.tick(frame(node("Treffer")), 1, false) { _, _ -> fail(); false }
         assertEquals(0, locked.index)
+    }
+    @Test fun waitsForTargetAfterAppLaunchWithoutClickingElsewhere() {
+        val run = WorkflowRun("org.example.notes", listOf(WorkflowStep(WorkflowAction.CLICK, "Suche", expected="Treffer")), 0)
+        run.tick(frame(node("Lädt")), 1, true) { _, _ -> fail(); false }
+        assertFalse(run.finished)
+        var clicks = 0
+        run.tick(frame(node("Suche", click=true)), 1000, true) { _, _ -> clicks++; true }
+        assertEquals(1, clicks)
+        run.tick(frame(node("Treffer")), 1500, true) { _, _ -> fail(); false }
+        assertTrue(run.finished); assertEquals(1, run.index)
+    }
+    @Test fun placeholderCannotProveTextWasWritten() {
+        val run = WorkflowRun("org.example.notes", listOf(WorkflowStep(WorkflowAction.WRITE, "search", "Gold")), 0)
+        val empty = frame(WorkflowNode("Gold", "search", true, false, inputValue=""))
+        run.tick(empty, 1, true) { _, _ -> true }
+        run.tick(empty, 2, true) { _, _ -> fail(); false }
+        assertEquals(0, run.index); assertFalse(run.finished)
+        run.tick(frame(WorkflowNode("Gold", "search", true, false, inputValue="Gold")), 3, true) { _, _ -> fail(); false }
+        assertEquals(1, run.index); assertTrue(run.finished)
     }
     @Test fun rejectedClickCannotBeReplayed() {
         val run = WorkflowRun("org.example.notes", listOf(WorkflowStep(WorkflowAction.CLICK, "Suche", expected="Treffer")), 0)

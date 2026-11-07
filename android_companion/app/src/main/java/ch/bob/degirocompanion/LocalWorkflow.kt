@@ -5,7 +5,7 @@ import java.util.Locale
 /** User-authored local plans only. Screen/OCR/file contents never enter this parser. */
 internal enum class WorkflowAction { CLICK, WRITE, WAIT }
 internal data class WorkflowStep(val action: WorkflowAction, val target: String, val value: String = "", val expected: String = "")
-internal data class WorkflowNode(val label: String, val id: String, val editable: Boolean, val clickable: Boolean, val password: Boolean = false)
+internal data class WorkflowNode(val label: String, val id: String, val editable: Boolean, val clickable: Boolean, val password: Boolean = false, val inputValue: String? = null)
 internal data class WorkflowFrame(val app: String, val window: Int, val nodes: List<WorkflowNode>) {
     fun contains(text: String) = nodes.any { LocalWorkflow.normalize(it.label) == LocalWorkflow.normalize(text) }
 }
@@ -46,15 +46,15 @@ internal object LocalWorkflow {
         }
     }
 
-    fun target(step: WorkflowStep, frame: WorkflowFrame): Int? {
-        if (frame.nodes.any { it.password || sensitive.containsMatchIn(it.label) }) return null
-        val matches = frame.nodes.indices.filter { i ->
+    fun candidates(step: WorkflowStep, frame: WorkflowFrame): List<Int> {
+        if (protected(frame)) return emptyList()
+        return frame.nodes.indices.filter { i ->
             val n = frame.nodes[i]
             (normalize(n.label) == normalize(step.target) || n.id == step.target) &&
                 when (step.action) { WorkflowAction.WRITE -> n.editable && n.id.isNotBlank(); WorkflowAction.CLICK -> n.clickable; WorkflowAction.WAIT -> true }
         }
-        return matches.singleOrNull()
     }
+    fun target(step: WorkflowStep, frame: WorkflowFrame): Int? = candidates(step, frame).singleOrNull()
     fun protected(frame: WorkflowFrame) = frame.nodes.any { it.password || sensitive.containsMatchIn(it.label) }
 }
 
@@ -88,7 +88,7 @@ internal class WorkflowRun(val app: String, val steps: List<WorkflowStep>, val s
                 WorkflowAction.WRITE -> {
                     val candidates = frame.nodes.withIndex().filter { it.value.editable &&
                         if (expectedId.isNotBlank()) it.value.id == expectedId else it.index == expectedIndex && frame.window == baseline?.window }
-                    candidates.singleOrNull()?.value?.label == step.value
+                    candidates.singleOrNull()?.value?.inputValue == step.value
                 }
                 WorkflowAction.WAIT -> frame.contains(step.target)
             }
@@ -99,7 +99,9 @@ internal class WorkflowRun(val app: String, val steps: List<WorkflowStep>, val s
             if (frame.contains(step.target)) advance(now)
             return
         }
-        val node = LocalWorkflow.target(step, frame) ?: return stop("Ziel fehlt oder ist mehrdeutig: ${step.target}")
+        val matches = LocalWorkflow.candidates(step, frame)
+        if (matches.isEmpty()) { status = "Warte auf eindeutiges Ziel: ${step.target}"; return }
+        val node = matches.singleOrNull() ?: return stop("Ziel ist mehrdeutig: ${step.target}")
         // A click needs a NEW expected observation, not text already present beforehand.
         if (step.action == WorkflowAction.CLICK && frame.contains(step.expected))
             return stop("Ergebnis schon sichtbar: Bitte ein eindeutiges neues Klick-Ergebnis angeben")
