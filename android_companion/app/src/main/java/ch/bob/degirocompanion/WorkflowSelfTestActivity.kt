@@ -14,7 +14,7 @@ import android.widget.TextView
 class WorkflowSelfTestActivity : Activity() {
     companion object { internal var active = false; private set }
     private val handler = Handler(Looper.getMainLooper())
-    private lateinit var layout: LinearLayout
+    private lateinit var surface: LinearLayout
     private lateinit var status: TextView
     private var started = false
     private var phase = 0
@@ -30,8 +30,8 @@ class WorkflowSelfTestActivity : Activity() {
                     if (!WorkflowAiPolicy.verified(run)) { complete(false,WorkflowService.message); return }
                     // The actual edit field was verified by the service; now test OCR separately.
                     phase = 1
-                    layout.removeAllViews()
-                    layout.addView(TextView(this@WorkflowSelfTestActivity).apply { text=marker; textSize=30f })
+                    surface.removeAllViews()
+                    surface.addView(TextView(this@WorkflowSelfTestActivity).apply { text=marker; textSize=30f })
                     addStatus("Klicken und Eingabe bestätigt. Bildtext wird geprüft.")
                     addStop()
                     if (WorkflowService.instance?.beginSelfTest(true) != true) { complete(false,"Lesedienst nicht verfügbar"); return }
@@ -44,14 +44,14 @@ class WorkflowSelfTestActivity : Activity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(32,120,32,40) }
-        setContentView(layout)
+        surface=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(32,120,32,40) }
+        setContentView(surface)
         addStatus("Lokaler Selbsttest · nur Testdaten")
-        layout.addView(Button(this).apply {
+        surface.addView(Button(this).apply {
             text="Suche"
             setOnClickListener {
-                layout.removeView(this)
-                layout.addView(EditText(this@WorkflowSelfTestActivity).apply {
+                surface.removeView(this)
+                surface.addView(EditText(this@WorkflowSelfTestActivity).apply {
                     id=R.id.selftest_search; hint="Suchfeld"; showSoftInputOnFocus=false
                 })
             }
@@ -60,10 +60,10 @@ class WorkflowSelfTestActivity : Activity() {
     }
     private fun addStatus(text: String) {
         status=TextView(this).apply { this.text=text; textSize=20f }
-        layout.addView(status)
+        surface.addView(status)
     }
     private fun addStop() {
-        layout.addView(Button(this).apply { text="STOPP"; setOnClickListener { if (phase == 2) finish() else complete(false,"Selbsttest gestoppt") } })
+        surface.addView(Button(this).apply { text="STOPP"; setOnClickListener { if (phase == 2) finish() else complete(false,"Selbsttest gestoppt") } })
     }
     override fun onResume() {
         super.onResume(); active=true

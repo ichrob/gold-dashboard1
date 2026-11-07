@@ -434,6 +434,21 @@ class ProductReadService : AccessibilityService() {
             return root
         } finally { visible.forEach { it.recycle() } }
     }
+    private fun connectionErrorVisible(root: AccessibilityNodeInfo): Boolean {
+        var visited=0
+        fun visit(node: AccessibilityNodeInfo, depth: Int): Boolean {
+            if (++visited>500 || depth>30 || !node.isVisibleToUser || node.isPassword || node.isEditable ||
+                node.packageName?.toString()!=ProductScreenEvidence.PACKAGE ||
+                (android.os.Build.VERSION.SDK_INT>=34 && node.isAccessibilityDataSensitive)) return false
+            if(ConnectionErrorPolicy.detected(listOf(node.text?.toString().orEmpty(),node.contentDescription?.toString().orEmpty()))) return true
+            for(i in 0 until node.childCount.coerceAtMost(100)) {
+                val child=node.getChild(i) ?: continue
+                try { if(visit(child,depth+1)) return true } finally { child.recycle() }
+            }
+            return false
+        }
+        return visit(root,0)
+    }
     private fun readOnce(automatic: Boolean = false) {
         if (!automatic) { ProductReadRequest.cancel(); ProductReadDiagnostics.reset(SystemClock.elapsedRealtime()) }
         if (!getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false)) { ProductReadRequest.cancel(); return }
@@ -456,21 +471,16 @@ class ProductReadService : AccessibilityService() {
                     return
                 }
                 // Check the real visible tree before search, scrolling or product reading.
-                val errorNodes=mutableListOf<AccessibilityNodeInfo>()
-                val errorDescriptions=mutableListOf<MorningReadPolicy.Node>()
-                try {
-                    navigationTree(root,errorNodes,errorDescriptions)
-                    if(ConnectionErrorPolicy.detected(errorDescriptions.flatMap { listOf(it.text,it.description) })) {
-                        lastNavigationIssue="CONNECTION_ERROR"
-                        GoldSearchRun.event("CONNECTION_ERROR",Instant.now().toString())
-                        ProductReadRequest.cancel()
-                        GoldSearchRun.stop("CONNECTION_ERROR",Instant.now().toString())
-                        MorningReadRun.stop(this,"CONNECTION_ERROR")
-                        ProductReadSession.put(ProductScreenEvidence.Result(message=MorningReadUiPolicy.reason("CONNECTION_ERROR")),SystemClock.elapsedRealtime())
-                        PhoneDiagnostics.queue(this)
-                        return
-                    }
-                } finally { errorNodes.forEach { it.recycle() } }
+                if(connectionErrorVisible(root)) {
+                    lastNavigationIssue="CONNECTION_ERROR"
+                    GoldSearchRun.event("CONNECTION_ERROR",Instant.now().toString())
+                    ProductReadRequest.cancel()
+                    GoldSearchRun.stop("CONNECTION_ERROR",Instant.now().toString())
+                    MorningReadRun.stop(this,"CONNECTION_ERROR")
+                    ProductReadSession.put(ProductScreenEvidence.Result(message=MorningReadUiPolicy.reason("CONNECTION_ERROR")),SystemClock.elapsedRealtime())
+                    PhoneDiagnostics.queue(this)
+                    return
+                }
                 if (GoldSearchRun.running) { navigateMorning(root, gold=true);return }
                 if (MorningReadRun.running) {
                     if (MorningReadRun.expired()) { MorningReadRun.stop(this,"RUN_TIMEOUT");ProductReadRequest.cancel();return }
