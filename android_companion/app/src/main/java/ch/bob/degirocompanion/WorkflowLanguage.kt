@@ -11,14 +11,14 @@ internal object WorkflowLanguage {
         if (question) {
             value = value.removeSuffix("?").trim()
             Regex("(?iu)^auf (.+?) (?:drücken|klicken|tippen)$").matchEntire(value)?.let { return "Tippe auf ${it.groupValues[1]}" }
-            Regex("(?iu)^(.+?) in (.+?) (?:eintragen|eingeben|einfügen)$").matchEntire(value)?.let {
+            Regex("(?iu)^(.+?) (?:in|ins) (.+?) (?:eintragen|eingeben|einfügen)$").matchEntire(value)?.let {
                 return "Schreibe ${it.groupValues[1]} in ${it.groupValues[2]}"
             }
             Regex("(?iu)^(?:die )?(favoriten|favorites|watchlist) (?:öffnen|anzeigen)$").matchEntire(value)?.let {
                 return "Tippe auf ${it.groupValues[1]}"
             }
         }
-        val write = Regex("(?iu)^(?:trage|trag|gib|gebe|füge) (.+?) in (.+?) ein$").matchEntire(value)
+        val write = Regex("(?iu)^(?:trage|trag|gib|gebe|füge) (.+?) (?:in|ins) (.+?) ein$").matchEntire(value)
         if (write != null) return "Schreibe ${write.groupValues[1]} in ${write.groupValues[2]}"
         val set = Regex("(?iu)^setze (?:das |die |den )?(.+?) auf (.+)$").matchEntire(value)
         if (set != null) return "Schreibe ${set.groupValues[2]} in ${set.groupValues[1]}"

@@ -5,7 +5,7 @@ import org.junit.Test
 
 class WorkflowLanguageTest {
     @Test fun naturalRequestsPreserveExactValuesAndMatchExistingActions() {
-        for (text in listOf("Trage Silber 123,45 in Suchfeld ein", "Gib Silber 123,45 in Suchfeld ein",
+        for (text in listOf("Trage Silber 123,45 in Suchfeld ein", "Trage Silber 123,45 ins Suchfeld ein", "Gib Silber 123,45 in Suchfeld ein",
             "Setze Suchfeld auf Silber 123,45", "Kannst du bitte Silber 123,45 in Suchfeld eintragen?")) {
             assertEquals(text, listOf(WorkflowStep(WorkflowAction.WRITE,"Suchfeld","Silber 123,45")), LocalWorkflow.parse(text))
             assertTrue(WorkflowAiPolicy.sameGoal(text, "Schreibe Silber 123,45 in Suchfeld"))
@@ -33,6 +33,6 @@ class WorkflowLanguageTest {
         val frame = WorkflowFrame("org.bob.fixture",1,listOf(WorkflowNode("Favoriten","tab",false,true)))
         assertTrue(WorkflowAuto.local("Gehe zu Favoriten",frame)!!.single().selectsTab)
         val field = frame.copy(nodes=listOf(WorkflowNode("Suchfeld","search_input",true,true)))
-        assertEquals("Silber 123,45",WorkflowAuto.local("Trage Silber 123,45 in Suchfeld ein",field)!!.single().value)
+        assertEquals("Silber 123,45",WorkflowAuto.local("Trage Silber 123,45 in Suchfeld ein", "Trage Silber 123,45 ins Suchfeld ein",field)!!.single().value)
     }
 }
