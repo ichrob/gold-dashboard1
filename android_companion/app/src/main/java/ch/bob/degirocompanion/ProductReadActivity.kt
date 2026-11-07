@@ -20,13 +20,14 @@ import android.widget.TextView
 class ProductReadActivity : Activity() {
     companion object {
         // Only our non-exported activity may receive this from a local UI tap.
-        internal const val EXTRA_START_LOCAL_LOGIN = "ch.bob.degirocompanion.START_LOCAL_LOGIN"
+        internal const val EXTRA_CAPABILITY = "ch.bob.degirocompanion.LOCAL_CAPABILITY"
         internal const val EXTRA_START_GOLD_READ = "ch.bob.degirocompanion.START_GOLD_READ"
         internal const val EXTRA_START_COMPLETE_FLOW = "ch.bob.degirocompanion.START_COMPLETE_FLOW"
     }
     private var startCompleteFlowOnFirstResume = false
     private var startGoldReadOnFirstResume = false
-    private var startLocalLoginOnFirstResume = false
+    private var pendingCapability: String? = null
+    private val capabilityActions = mutableMapOf<String, () -> Unit>()
     private var displayedRequestActive = false
     private val statusHandler = Handler(Looper.getMainLooper())
     private val statusTick = object : Runnable {
@@ -48,16 +49,19 @@ class ProductReadActivity : Activity() {
         intent.removeExtra(EXTRA_START_COMPLETE_FLOW)
         startGoldReadOnFirstResume = savedInstanceState == null && intent.getBooleanExtra(EXTRA_START_GOLD_READ,false)
         intent.removeExtra(EXTRA_START_GOLD_READ)
-        startLocalLoginOnFirstResume = savedInstanceState == null && intent.getBooleanExtra(EXTRA_START_LOCAL_LOGIN,false)
-        intent.removeExtra(EXTRA_START_LOCAL_LOGIN)
+        pendingCapability = if (savedInstanceState == null) intent.getStringExtra(EXTRA_CAPABILITY)
+            ?.takeIf { title -> WorkflowAppRoute.capabilities.any { it.title == title } } else null
+        intent.removeExtra(EXTRA_CAPABILITY)
         val stack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
         var container=stack
         fun button(title: String, action: () -> Unit) {
+            capabilityActions[title] = action
             container.addView(Button(this).apply { text = title; isAllCaps = false; setOnClickListener { action() } })
         }
         container.addView(TextView(this).apply { text = "DEGIRO lesen · Produkt und Morgenliste"; textSize = 21f })
         primary=Button(this).apply { text="Bob starten";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
         container.addView(primary)
+        capabilityActions["Bob starten"] = { startAutomaticTest() }
         button("Prüfung stoppen") {
             if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
             PhoneRemote.stop(this,"USER_STOP")
@@ -245,6 +249,7 @@ class ProductReadActivity : Activity() {
                 insets
             }
         }
+        capabilityActions["Gespeicherte PIN einmal eingeben"] = { startLocalLogin() }
         setContentView(scroll)
         scroll.requestApplyInsets()
     }
@@ -254,9 +259,9 @@ class ProductReadActivity : Activity() {
         PhoneDiagnostics.queue(this)
         refresh()
         statusHandler.post(statusTick)
-        if (startLocalLoginOnFirstResume) {
-            startLocalLoginOnFirstResume = false
-            startLocalLogin()
+        pendingCapability?.let { title ->
+            pendingCapability = null
+            capabilityActions[title]?.invoke()
             return
         }
         if (startGoldReadOnFirstResume) {

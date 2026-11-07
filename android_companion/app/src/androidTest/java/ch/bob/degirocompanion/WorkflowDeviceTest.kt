@@ -358,7 +358,9 @@ class WorkflowDeviceTest {
                 automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("Lokale DEGIRO-Anmeldung: Lesedienst zuerst einschalten.")?.isNotEmpty() == true
             }
             main {
-                assertFalse(reader!!.intent.hasExtra(ProductReadActivity.EXTRA_START_LOCAL_LOGIN))
+                assertFalse(reader!!.intent.hasExtra(ProductReadActivity.EXTRA_CAPABILITY))
+                val actions = ProductReadActivity::class.java.getDeclaredField("capabilityActions").apply { isAccessible = true }.get(reader) as Map<*,*>
+                assertTrue(actions.keys.containsAll(WorkflowAppRoute.capabilities.map { it.title }))
                 assertNull(WorkflowService.run)
                 assertFalse(PinReadinessProbe.running)
                 assertFalse(GoldSearchRun.running)

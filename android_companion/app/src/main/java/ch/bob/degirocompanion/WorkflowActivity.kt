@@ -173,7 +173,7 @@ class WorkflowActivity : Activity() {
         panelDialog?.show()
     }
     private fun learningMenu() {
-        val options = arrayOf("Symbol erklären und lernen", "Ablauf vormachen und lernen", "Gelernte Symbole", "Gespeicherten Ablauf laden", "Gespeicherten Ablauf löschen", "Gespeicherten Ablauf per Sprache starten", "Schritte prüfen / ergänzen")
+        val options = arrayOf("Symbol erklären und lernen", "Ablauf vormachen und lernen", "Gelernte Symbole", "Gespeicherten Ablauf laden", "Gespeicherten Ablauf löschen", "Gespeicherten Ablauf per Sprache starten", "Schritte prüfen / ergänzen", "Bekannte DEGIRO-Funktionen")
         AlertDialog.Builder(this).setTitle("Bob etwas beibringen").setItems(options) { _, which ->
             when(which) {
                 0 -> if (attachmentBitmap == null) { status.text = "Zuerst über + einen Screenshot anhängen"; pickAttachment() } else teachSymbol()
@@ -183,8 +183,19 @@ class WorkflowActivity : Activity() {
                 4 -> chooseSaved(true)
                 5 -> speak(104, "Name eines gespeicherten Auftrags. Ein erkannter Name startet ihn.")
                 6 -> showPanel("Schritte prüfen / ergänzen", detailsPanel)
+                7 -> showDegiroCapabilities()
             }
         }.setNegativeButton("Zurück", null).setNeutralButton("STOPP") { _, _ -> ownerOverride(); refresh() }.show()
+    }
+    private fun showDegiroCapabilities() {
+        AlertDialog.Builder(this).setTitle("Das kann Bob bereits für DEGIRO")
+            .setItems(WorkflowAppRoute.capabilities.map { it.command }.toTypedArray()) { _, index ->
+                selectedApp = WorkflowAppRoute.DEGIRO; revisionBase = null; clearAttachment()
+                autoPrefs.edit().putString("lastApp",selectedApp).apply()
+                updateAppLabel(); updateCloud(); renderHistory()
+                goal.setText(WorkflowAppRoute.capabilities[index].command)
+                status.text = "Bekannter lokaler Ablauf · zum Start Senden drücken. Bob prüft die nötige Einrichtung."
+            }.setNegativeButton("Zurück",null).show()
     }
     private fun appName(app: String): String = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(app,0)).toString() }.getOrDefault(app)
     private fun updateAppLabel() { appLabel.text = if (selectedApp.isBlank()) "App auswählen ▾" else "App: ${appName(selectedApp)} ▾" }
@@ -713,13 +724,15 @@ class WorkflowActivity : Activity() {
         ownerOverride()
         if (PhoneTaskPlanParser.isStop(text)) { refresh(); return }
         if (text.isBlank()) { status.text = "Was soll Bob mit dem Screenshot tun? Bitte einen Auftrag eingeben."; return }
-        if (selectedApp == WorkflowAppRoute.DEGIRO && WorkflowAppRoute.localLogin(text)) {
-            // The explicit local Send action authorizes one existing PIN attempt.
-            // Never pass this request, its screenshot or the stored PIN to AI.
-            startActivity(Intent(this, ProductReadActivity::class.java)
-                .putExtra(ProductReadActivity.EXTRA_START_LOCAL_LOGIN, true))
-            goal.setText(""); clearAttachment()
-            return
+        if (selectedApp == WorkflowAppRoute.DEGIRO) {
+            if (WorkflowAppRoute.asksCapabilities(text)) { showDegiroCapabilities(); return }
+            WorkflowAppRoute.capability(text)?.let { capability ->
+                // Local owner request only: reuse built-in handlers, never cloud planning.
+                startActivity(Intent(this, ProductReadActivity::class.java)
+                    .putExtra(ProductReadActivity.EXTRA_CAPABILITY, capability.title))
+                goal.setText(""); clearAttachment()
+                return
+            }
         }
         if (WorkflowRevision.requested(text)) {
             val previous = editing ?: WorkflowResultStore.previous(this, selectedApp)

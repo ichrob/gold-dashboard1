@@ -30,4 +30,17 @@ class WorkflowAppRouteTest {
                 "nicht bei degiro anmelden", "DEGIRO entsperren und PIN löschen"))
             assertFalse(goal,WorkflowAppRoute.localLogin(goal))
     }
+    @Test fun everyCatalogCommandResolvesUniquelyToItsExistingHandler() {
+        assertEquals(WorkflowAppRoute.capabilities.size,WorkflowAppRoute.capabilities.map { it.title }.toSet().size)
+        WorkflowAppRoute.capabilities.forEach { entry ->
+            assertEquals(entry,WorkflowAppRoute.capability(entry.command))
+            assertEquals(entry,WorkflowAppRoute.capability(entry.title))
+            entry.aliases.forEach { assertEquals(entry,WorkflowAppRoute.capability(it)) }
+        }
+        assertNull(WorkflowAppRoute.capability("Gold kaufen"))
+        assertNull(WorkflowAppRoute.capability("DEGIRO entsperren und Gold kaufen"))
+        assertNull(WorkflowAppRoute.capability("Mein Passwort ist beispiel"))
+        assertTrue(WorkflowAppRoute.asksCapabilities("Was kannst du in DEGIRO?"))
+        assertFalse(WorkflowAppRoute.asksCapabilities("Was kannst du in DEGIRO kaufen?"))
+    }
 }
