@@ -169,7 +169,7 @@ class DatabaseTests(unittest.TestCase):
             VALUES (%s,%s,%s,%s,%s::jsonb,
                     now()-interval '12 hours'+(%s*interval '1 second'))""", rows)
         first = cold.offload_batch(self.c, self.drive)
-        self.assertEqual(first["status"], "no-eligible-rows")
+        self.assertEqual(first["status"], "scan-continues")
         self.assertEqual(first["scannedRows"],
                          candidate_scan.PAGE_ROWS * candidate_scan.MAX_SCAN_PAGES)
         self.assertIsNotNone(candidate_scan.cursor())
