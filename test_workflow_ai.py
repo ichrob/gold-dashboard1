@@ -15,7 +15,7 @@ def request():
         nodes=[dict(label='', id='search', editable=True, clickable=True)])
 def plan():
     return {'steps':[dict(action='WRITE',target='search',value='Gold',expected='')]}
-ENV={'BOB_WORKFLOW_GROQ_KEY':'test-only', 'BOB_WORKFLOW_GROQ_FREE_ACCOUNT':'confirmed-free-no-payment'}
+ENV={'GEMINI_API_KEY':'test-only', 'BOB_GEMINI_FREE_PROJECT':'confirmed-no-billing'}
 
 class Rules(unittest.TestCase):
     def test_plan_rejects_unrequested_input_unknown_targets_and_actions(self):
@@ -36,7 +36,7 @@ class Rules(unittest.TestCase):
         with self.assertRaises(ValueError):w.validate_request(r)
     def test_free_account_gate_is_required_and_kill_switch_wins(self):
         with patch.dict(os.environ,{},clear=True): self.assertFalse(w.configured())
-        with patch.dict(os.environ,{'BOB_WORKFLOW_GROQ_KEY':'test-only'},clear=True): self.assertFalse(w.configured())
+        with patch.dict(os.environ,{'GEMINI_API_KEY':'test-only'},clear=True): self.assertFalse(w.configured())
         with patch.dict(os.environ,ENV,clear=True): self.assertTrue(w.configured())
         with patch.dict(os.environ,dict(ENV,BOB_WORKFLOW_AI_DISABLED='1'),clear=True):self.assertFalse(w.configured())
     def test_http_needs_device_token_not_browser_cookie(self):
@@ -61,16 +61,39 @@ class Rules(unittest.TestCase):
         provider.assert_not_called()
     def test_provider_is_called_once_without_retry_and_token_is_not_in_prompt(self):
         opener=MagicMock();response=Mock()
-        response.read.return_value=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':json.dumps(plan())}}]}).encode()
+        response.read.return_value=json.dumps({'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':'internal reasoning','thought':True},{'text':json.dumps(plan()),'thoughtSignature':'opaque'}]}}]}).encode()
         opener.open.return_value.__enter__.return_value=response
         with patch.dict(os.environ,ENV,clear=True),patch('urllib.request.build_opener',return_value=opener):
             self.assertEqual(w.generate(request()),plan())
         sent=opener.open.call_args.args[0]
         data=json.loads(sent.data)
-        self.assertEqual(sent.full_url,w.URL);self.assertEqual(data['model'],w.MODEL)
+        self.assertEqual(sent.full_url,w.URL);self.assertIn(w.MODEL,sent.full_url);self.assertEqual(data['generationConfig']['responseMimeType'],'application/json')
         self.assertNotIn('test-only',sent.data.decode());self.assertNotIn('requestId',sent.data.decode())
         self.assertNotIn('tools',data);opener.open.assert_called_once()
         with self.assertRaises(ValueError):w.NoRedirect().redirect_request(None,None,302,'',{},'https://other')
+    def test_old_provider_consent_never_sends_data_to_new_provider(self):
+        conn=Mock();conn.execute.return_value.fetchone.return_value=('digest',)
+        @contextmanager
+        def connect(): yield conn
+        r=request();r['consent']='groq-reviewed-text-v1'
+        provider=Mock()
+        with patch.dict(os.environ,ENV,clear=True),self.assertRaisesRegex(ValueError,'consent-required'):
+            w.handle(connect,dict(action='workflow-plan',token='a'*64,value=r),provider)
+        provider.assert_not_called()
+    def test_rejects_incomplete_tool_and_oversized_responses(self):
+        for response_body in [
+            {'candidates':[]},
+            {'candidates':[{'finishReason':'MAX_TOKENS'}]},
+            {'candidates':[{'finishReason':'STOP','content':{'parts':[{'functionCall':{}}]}}]},
+            {'candidates':[{'finishReason':'STOP','content':{'parts':[]}}]},
+            {'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':'not json'}]}}]},
+            'x'*32769]:
+            opener=MagicMock()
+            opener.open.return_value.__enter__.return_value.read.return_value=(
+                response_body.encode() if isinstance(response_body,str) else json.dumps(response_body).encode())
+            with self.subTest(response=response_body if isinstance(response_body,dict) else 'oversized'),patch.dict(os.environ,ENV,clear=True),patch('urllib.request.build_opener',return_value=opener),self.assertRaises(ValueError):
+                w.generate(request())
+            opener.open.assert_called_once()
     def test_invalid_provider_result_spends_reservation_but_never_retries(self):
         conn=Mock();conn.execute.return_value.fetchone.return_value=('digest',)
         @contextmanager

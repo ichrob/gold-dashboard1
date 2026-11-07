@@ -73,8 +73,8 @@ class WorkflowActivity : Activity() {
                 if (checked && !LocalWorkflow.allowedApp(selectedApp)) {
                     updatingCloud = true; cloud.isChecked = false; updatingCloud = false
                     status.text = "Zuerst eine App auswählen"
-                } else if (checked && !autoPrefs.getBoolean("cloud:" + selectedApp, false)) allowAutomaticCloud()
-                else if (!checked) { autoPrefs.edit().remove("cloud:" + selectedApp).apply(); WorkflowService.stop() }
+                } else if (checked && !autoPrefs.getBoolean("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp, false)) allowAutomaticCloud()
+                else if (!checked) { autoPrefs.edit().remove("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp).apply(); WorkflowService.stop() }
             }
         }
         button("START · Bob erledigt den Auftrag") { startAutomatic() }
@@ -168,17 +168,17 @@ class WorkflowActivity : Activity() {
     private fun updateCloud() {
         updatingCloud = true
         cloud.isEnabled = selectedApp != WorkflowAppRoute.DEGIRO
-        cloud.isChecked = cloud.isEnabled && autoPrefs.getBoolean("cloud:" + selectedApp, false)
+        cloud.isChecked = cloud.isEnabled && autoPrefs.getBoolean("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp, false)
         updatingCloud = false
     }
     private fun allowAutomaticCloud() {
         val app = selectedApp
         AlertDialog.Builder(this).setTitle("Automatische KI-Hilfe für diese App")
-            .setMessage("Bei jedem von dir gestarteten Auftrag darf Bob bei Bedarf genau eine Groq-Anfrage senden. Übertragen werden dein Auftrag sowie erkannte Such-/Filterelemente mit passenden Feld-IDs. Erlaubte Beschriftungen: " +
+            .setMessage("Bei jedem von dir gestarteten Auftrag darf Bob bei Bedarf genau eine Google Gemini-Anfrage senden. Übertragen werden dein Auftrag sowie erkannte Such-/Filterelemente mit passenden Feld-IDs. Erlaubte Beschriftungen: " +
                 WorkflowAuto.labels.joinToString(", ") +
-                ". Keine Bilder, OCR-Dumps, Dateiinhalte oder Eingabefeldwerte. Der Auftrag selbst darf keine privaten Daten enthalten. Groq kann Eingaben zur Missbrauchsprüfung speichern, sofern Zero Data Retention dort nicht aktiviert ist. Bob prüft Vorschläge und führt zulässige Schritte ohne weitere Rückfrage aus. Kein kostenpflichtiger Fallback. Freigabe jederzeit über diesen Schalter widerrufbar.")
+                ". Keine Bilder, OCR-Dumps, Dateiinhalte oder Eingabefeldwerte. Der Auftrag selbst darf keine privaten Daten enthalten. Die Texte werden bei Google verarbeitet. Bob prüft Vorschläge und führt zulässige Schritte ohne weitere Rückfrage aus. Kein kostenpflichtiger Fallback. Freigabe jederzeit über diesen Schalter widerrufbar.")
             .setPositiveButton("Für diese App erlauben") { _, _ ->
-                if (selectedApp == app) autoPrefs.edit().putBoolean("cloud:" + app, true).apply()
+                if (selectedApp == app) autoPrefs.edit().putBoolean("cloud:" + WorkflowAiPolicy.CONSENT + ":" + app, true).apply()
                 updateCloud()
             }.setNegativeButton("Abbrechen") { _, _ -> updateCloud() }
             .setOnCancelListener { updateCloud() }.show()
@@ -202,7 +202,7 @@ class WorkflowActivity : Activity() {
         val service = WorkflowService.instance ?: run { status.text = "Einmalig die Auftrags-Bedienungshilfe über Einrichtung aktivieren"; return }
         val intent = packageManager.getLaunchIntentForPackage(selectedApp) ?: run { status.text = "App nicht mehr installiert oder nicht startbar"; return }
         autoPrefs.edit().putString("lastApp", selectedApp).putString("lastGoal", task).apply()
-        if (service.beginAutomatic(selectedApp, task, autoPrefs.getBoolean("cloud:" + selectedApp, false))) {
+        if (service.beginAutomatic(selectedApp, task, autoPrefs.getBoolean("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp, false))) {
             runCatching { startActivity(intent) }.onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
         } else status.text = "Auftrag konnte nicht gestartet werden"
     }
@@ -254,7 +254,7 @@ class WorkflowActivity : Activity() {
             .onFailure { WorkflowService.stop(); status.text = "App konnte nicht geöffnet werden" }
     }
     private fun aiStatus(code: String): String = when (code) {
-        "ready" -> "Kostenloser Groq-Zugang konfiguriert · noch keine KI-Anfrage getestet"
+        "gemini-ready" -> "Kostenloser Google Gemini-Zugang konfiguriert · noch keine KI-Anfrage getestet"
         "setup-required" -> "KI-Zugang noch nicht eingerichtet oder deaktiviert. Lokale Aufträge funktionieren weiterhin."
         "daily-limit" -> "Tagesgrenze erreicht · keine weitere KI-Anfrage und keine kostenpflichtige Ausweichlösung"
         "wait-one-minute" -> "Bitte mindestens eine Minute zwischen KI-Anfragen warten"
@@ -294,7 +294,7 @@ class WorkflowActivity : Activity() {
         val candidates = WorkflowAiPolicy.context(frame.nodes)
         if (candidates.isEmpty()) { status.text = "Keine geeigneten Beschriftungen für eine KI-Anfrage"; return }
         val chosen = BooleanArray(candidates.size)
-        AlertDialog.Builder(this).setTitle("Welche Texte darf Groq sehen?")
+        AlertDialog.Builder(this).setTitle("Welche Texte darf Google Gemini sehen?")
             .setMultiChoiceItems(candidates.map { it.label + " · " + it.id }.toTypedArray(), chosen) { _, i, value -> chosen[i] = value }
             .setPositiveButton("Vorschau") { _, _ ->
                 val nodes = candidates.filterIndexed { i, _ -> chosen[i] }
@@ -303,10 +303,10 @@ class WorkflowActivity : Activity() {
                 nodes.forEach { array.put(JSONObject().put("label", it.label).put("id", it.id).put("editable", it.editable).put("clickable", it.clickable)) }
                 val body = JSONObject().put("version", 1).put("requestId", java.util.UUID.randomUUID().toString().replace("-", ""))
                     .put("consent", WorkflowAiPolicy.CONSENT).put("app", app).put("goal", task).put("nodes", array)
-                val preview = "Nur der folgende Auftrag und die ausgewählten Beschriftungen gehen über Bob an Groq. Prüfe, dass keine persönlichen Daten enthalten sind. Keine Bilder oder Feldinhalte werden angehängt. Groq kann Daten für Missbrauchsprüfung speichern, sofern im Anbieter-Konto keine Zero Data Retention aktiviert ist.\n\n" +
+                val preview = "Nur der folgende Auftrag und die ausgewählten Beschriftungen gehen über Bob an Google Gemini. Prüfe, dass keine persönlichen Daten enthalten sind. Keine Bilder oder Feldinhalte werden angehängt. Die Texte werden bei Google verarbeitet.\n\n" +
                     JSONObject().put("goal", task).put("nodes", array).toString(2)
                 AlertDialog.Builder(this).setTitle("Eine KI-Anfrage freigeben").setMessage(preview)
-                    .setPositiveButton("Einmal an Groq senden") { _, _ ->
+                    .setPositiveButton("Einmal an Google Gemini senden") { _, _ ->
                         if (selectedApp == app && goal.text.toString().trim() == task) requestPlan(body, nodes, app, task)
                         else status.text = "Auftrag geändert · bitte neu vorbereiten"
                     }.setNegativeButton("Abbrechen", null).show()
