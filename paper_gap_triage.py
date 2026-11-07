@@ -36,7 +36,12 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
     synthetic interpolation, recalculation of P&L or trading action.
     """
     correlation = gap_correlation if isinstance(gap_correlation, dict) else {}
-    clusters = correlation.get("recentRecordedGapInstants") or []
+    recorded = correlation.get("recentRecordedGapInstants")
+    clusters = recorded if isinstance(recorded, list) else []
+    # Empty *observed* recent case sets are not source-query failures. An
+    # empty or malformed unverified report, however, cannot imply health.
+    no_recent_gaps_observed = (correlation.get("sampleCoverage") == "observed"
+                               and isinstance(recorded, list) and not recorded)
     spot = spot_archive if isinstance(spot_archive, dict) else {}
     analysis = analysis_archive if isinstance(analysis_archive, dict) else {}
     worker = paper_input_archive if isinstance(paper_input_archive,dict) else {}
@@ -183,10 +188,14 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
         "status": ("partial" if any(counts[key] for key in
                    ("spotArchiveClockInconsistent", "analysisArchiveClockInconsistent",
                     "workerArchiveClockInconsistent")) else
-                   "observed" if entries else "unavailable"),
+                   "observed" if entries else
+                   "no-recorded-gaps-in-sample" if no_recent_gaps_observed else
+                   "unavailable"),
         "readOnly": True,
         "realOrders": False,
         "sampledDistinctGapInstants": len(entries),
+        "fullHistoricalGapCoverageVerified": False,
+        "noRecentGapEventsObserved": no_recent_gaps_observed,
         "counts": counts,
         "items": entries,
         "scope": "last-twelve-distinct-recorded-paper-gap-clocks-only",
