@@ -130,7 +130,7 @@ class IsolatedPlanTests(unittest.TestCase):
                     )""").format(sql.Identifier(schema)))
                 admin.execute(sql.SQL("""INSERT INTO {}.bob_diagnostic_history
                     VALUES ('case-1','analysis',123.0,NULL,now()-interval '8 hours',
-                            '{"ready":true}')""").format(sql.Identifier(schema)))
+                            'null'::jsonb)""").format(sql.Identifier(schema)))
                 with psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
                         options="-c default_transaction_read_only=on") as reader:
                     reader.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
