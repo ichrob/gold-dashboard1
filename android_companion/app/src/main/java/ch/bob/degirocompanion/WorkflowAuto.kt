@@ -29,7 +29,10 @@ internal object WorkflowAuto {
     fun autoPlan(goal: String, nodes: List<WorkflowNode>, steps: List<WorkflowStep>): Boolean {
         if (!WorkflowAiPolicy.valid(goal, nodes, steps)) return false
         // A partial navigation proposal must not count as a completed writing goal.
-        val writeGoal = Regex("""schreibe (.+?) in .+""", RegexOption.IGNORE_CASE).matchEntire(goal.trim())
+        val writeGoal = Regex("""schreibe (.+?)(?: in .+)?""", RegexOption.IGNORE_CASE).matchEntire(goal.trim())
+        val explicit = LocalWorkflow.parse(goal)
+        if (writeGoal == null && explicit == null) return false
+        if (writeGoal == null && explicit != steps) return false
         if (writeGoal != null) {
             val requested = writeGoal.groupValues[1].trim().removeSurrounding("\"")
             if (steps.lastOrNull { it.action == WorkflowAction.WRITE }?.value != requested) return false

@@ -35,6 +35,7 @@ class WorkflowAutoTest {
     }
     @Test fun aiCannotIntroduceHiddenActionsOrUnrequestedInput() {
         val n = WorkflowAuto.context(frame(field(),WorkflowNode("Suche","",false,true)))
+        assertFalse(WorkflowAuto.autoPlan("Finde meine Datei",n,listOf(WorkflowStep(WorkflowAction.WAIT,"Suche"))))
         assertTrue(WorkflowAuto.autoPlan("Schreibe Gold",n,listOf(WorkflowStep(WorkflowAction.WRITE,n[0].id,"Gold"))))
         assertFalse(WorkflowAuto.autoPlan("Schreibe Gold",n,listOf(WorkflowStep(WorkflowAction.WRITE,n[0].id,"Silver"))))
         assertFalse(WorkflowAuto.autoPlan("Schreibe Gold",n,listOf(WorkflowStep(WorkflowAction.CLICK,"Suche",expected="Bestätigen"))))

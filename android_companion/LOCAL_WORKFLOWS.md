@@ -168,7 +168,10 @@ keine Wiederholung nach Fehler. Der Dienst prüft den Vorschlag unabhängig und
 führt nur bekannte Ziele aus. Ein KI-Vorschlag darf die freigegebenen Ziele
 nicht durch erfundene zukünftige Feldnamen erweitern. Fehlende/mehrdeutige
 Bedienelemente benötigen weiterhin die manuelle Vorbereitung unter Details.
-Dieser Modus ist keine beliebige autonome App-Bedienung.
+Dieser Modus ist keine beliebige autonome App-Bedienung. Neue automatisch
+ausgeführte KI-Pläne benötigen ein prüfbares Schreibziel oder die bereits
+unterstützte eindeutige Schrittgrammatik; allgemeine Aufträge werden nicht
+durch einen beliebigen sichtbaren Wartezustand als erfolgreich markiert.
 
 Appwechsel, Sperrbildschirm, eigener Touch, veränderte Ansicht während der Anfrage
 und STOPP brechen ab. Späte Antworten werden anhand der Sitzung verworfen.
