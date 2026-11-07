@@ -1153,7 +1153,10 @@ def simulation_evidence_snapshot(simulation, comparison=None):
                     items=[shape('eventAt','state','capturedAt','timeRelation','deltaSeconds',
                         profiles=[shape('profile','outcome','ready','priceFresh','dataAt','barAt')])])),
             'gapReview':__import__('paper_gap_triage').assess(
-                {'recentRecordedGapInstants':clusters[-10:]},
+                {'recentRecordedGapInstants':clusters[-10:],
+                 'sampleCoverage': ('observed' if evidence and
+                                    all(item['sampleStatus']=='observed' for item in evidence)
+                                    else 'incomplete')},
                 simulation.get('spotGapArchive'),simulation.get('analysisGapArchive'),
                 simulation.get('paperInputArchive')),
             'scope':'bounded-paper-case-evidence-not-fills-or-profit',
