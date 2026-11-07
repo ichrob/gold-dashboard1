@@ -150,7 +150,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertLessEqual(result["scannedRows"],
                              candidate_scan.PAGE_ROWS * candidate_scan.MAX_SCAN_PAGES)
         count = self.c.execute("""SELECT count(*) FROM bob_diagnostic_history
-            WHERE id LIKE 'arch-%' AND payload ? %s""", (cold.TAG,)).fetchone()[0]
+            WHERE id LIKE 'arch-%%' AND payload ? %s""", (cold.TAG,)).fetchone()[0]
         self.assertEqual(count, 900)
         self.assertIn(cold.TAG, self.c.execute(
             "SELECT payload FROM bob_diagnostic_history WHERE id='old'").fetchone()[0])
@@ -179,7 +179,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertIsNone(candidate_scan.cursor())
         self.assertEqual(self.drive.files, {})
         count = self.c.execute("""SELECT count(*) FROM bob_diagnostic_history
-            WHERE id LIKE 'arch-%' AND payload ? %s""", (cold.TAG,)).fetchone()[0]
+            WHERE id LIKE 'arch-%%' AND payload ? %s""", (cold.TAG,)).fetchone()[0]
         self.assertEqual(count, 2500)
 
     def test_query_failure_never_advances_cursor_or_uploads(self):
