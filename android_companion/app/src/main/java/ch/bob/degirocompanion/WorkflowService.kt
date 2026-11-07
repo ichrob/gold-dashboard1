@@ -95,7 +95,6 @@ class WorkflowService : AccessibilityService() {
                     if (ready != null) prepareAutomatic(ready)
                     if (autoObservation?.reason?.isNotEmpty() == true) { finish("Gestoppt: " + autoObservation?.reason); return }
                     if (selected.isEmpty()) return
-            if (selected == packageName && !WorkflowSelfTestActivity.active) { finish("Gestoppt: andere App im Vordergrund"); return }
                 }
                 if (planning && proposalContext != WorkflowAuto.context(frame)) {
                     finish("Ansicht während KI-Anfrage geändert; nichts ausgeführt"); return

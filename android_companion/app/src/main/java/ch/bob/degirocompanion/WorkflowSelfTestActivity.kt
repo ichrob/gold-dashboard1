@@ -63,7 +63,7 @@ class WorkflowSelfTestActivity : Activity() {
         layout.addView(status)
     }
     private fun addStop() {
-        layout.addView(Button(this).apply { text="STOPP"; setOnClickListener { complete(false,"Selbsttest gestoppt") } })
+        layout.addView(Button(this).apply { text="STOPP"; setOnClickListener { if (phase == 2) finish() else complete(false,"Selbsttest gestoppt") } })
     }
     override fun onResume() {
         super.onResume(); active=true
@@ -76,9 +76,10 @@ class WorkflowSelfTestActivity : Activity() {
         }
     }
     private fun complete(success: Boolean, detail: String) {
+        val confirmed = if (success) 3 else if (phase == 1) 2 else WorkflowService.run?.index ?: 0
         phase=2; handler.removeCallbacks(check); WorkflowService.stop()
         WorkflowHealth.record(this,if(success) "SUCCEEDED" else "STOPPED","LOCAL",
-            if(success) 3 else 0,3,if(success) "NONE" else WorkflowFailure.code(detail))
+            confirmed.coerceIn(0,3),3,if(success) "NONE" else WorkflowFailure.code(detail))
         status.text=detail
         getSharedPreferences("workflow_selftest",0).edit()
             .putBoolean("success",success).putString("at",java.time.Instant.now().toString()).putString("detail",detail).apply()

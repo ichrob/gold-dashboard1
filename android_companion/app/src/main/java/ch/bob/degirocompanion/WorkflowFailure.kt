@@ -2,7 +2,7 @@ package ch.bob.degirocompanion
 
 internal object WorkflowFailure {
     fun code(reason: String): String = when {
-        reason == "Gestoppt" -> "USER_STOP"
+        reason == "Gestoppt" || reason == "Selbsttest gestoppt" -> "USER_STOP"
         reason.contains("Bildschirm gesperrt",true) -> "SCREEN_LOCKED"
         reason.contains("eigene Bildschirmbedienung",true) -> "USER_INTERRUPTED"
         reason.contains("andere App",true) -> "APP_CHANGED"
