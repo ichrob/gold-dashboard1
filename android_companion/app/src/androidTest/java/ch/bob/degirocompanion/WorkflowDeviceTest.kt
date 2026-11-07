@@ -168,7 +168,7 @@ class WorkflowDeviceTest {
         main { WorkflowService.endDemonstration() }
         assertNull(WorkflowService.run)
         val draft = WorkflowService.demonstrationDraft!!.second
-        assertEquals(2,draft.size); assertEquals("Gold",draft.last().value)
+        assertEquals("Events=${WorkflowService.demonstrationEvents}; check=${WorkflowService.demonstrationCheck}; state=${WorkflowService.message}",2,draft.size); assertEquals("Gold",draft.last().value)
         assertNull(WorkflowResultStore.previous(context,app))
         // The owner reviews the click result before replaying the draft.
         val reviewed = draft.map { if (it.action == WorkflowAction.CLICK) it.copy(expected="Suchfeld") else it }

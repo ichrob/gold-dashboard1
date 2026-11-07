@@ -25,6 +25,8 @@ class WorkflowService : AccessibilityService() {
         internal var epoch = 0
         internal var screenshotText = ""
         internal var message = "Kein Auftrag aktiv"
+        internal var demonstrationEvents = 0
+        internal var demonstrationCheck = "NONE"
         internal var demonstrationDraft: Pair<String, List<WorkflowStep>>? = null
         internal fun endDemonstration() { instance?.let { if (it.demonstration != null) it.finish("Vormachen beendet · Entwurf prüfen") } }
         internal fun stop() { epoch++; instance?.finish("Gestoppt"); run?.stop("Gestoppt"); run = null; observation = null; screenshotText = "" }
@@ -184,6 +186,11 @@ class WorkflowService : AccessibilityService() {
     internal fun beginDemonstration(app: String): Boolean {
         if (!begin(app, null)) return false
         demonstrationDraft = null; demonstration = WorkflowDemonstration(app); demonstrationSeen = false
+        demonstrationEvents = 0; demonstrationCheck = "STARTED"
+        serviceInfo = serviceInfo.apply {
+            eventTypes = eventTypes or AccessibilityEvent.TYPE_VIEW_CLICKED or AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
+            notificationTimeout = 0
+        }
         until = SystemClock.elapsedRealtime() + 180_000
         message = "Vormachen aktiv · nur gewählte App · keine automatische Ausführung"
         return true
@@ -273,9 +280,11 @@ class WorkflowService : AccessibilityService() {
         val recorder = demonstration
         if (recorder != null && event?.packageName?.toString() == selected &&
             event.eventType in listOf(AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED)) {
+            demonstrationEvents++
             val frame = observation
             val source = event.source
-            if (frame == null || frame.app != selected || !symbolSafe(frame)) return
+            if (frame == null || frame.app != selected || !symbolSafe(frame)) { demonstrationCheck = "FRAME_REJECTED"; return }
+            demonstrationCheck = if (source == null) "NO_SOURCE" else "SOURCE_${event.eventType}_${source.isEditable}_${source.isEnabled}"
             if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED && source == null) {
                 val label = event.text.map { it.toString() }.singleOrNull()
                 val candidate = frame.nodes.singleOrNull { it.clickable && !it.editable && it.label == label }
