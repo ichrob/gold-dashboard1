@@ -30,6 +30,14 @@ class Boundary(unittest.TestCase):
         p['workflow']=dict(valid,at=(NOW-timedelta(days=3)).isoformat())
         a.validate_report(p)
 
+    def test_fixed_workflow_reason_and_connection_error(self):
+        value=report(); value['lastCode']='CONNECTION_ERROR'
+        value['workflow']={'state':'STOPPED','source':'LOCAL','confirmed':0,'total':2,
+                           'reason':'CONNECTION_ERROR','at':NOW.isoformat()}
+        self.assertEqual(a.validate_report(value)['workflow']['reason'],'CONNECTION_ERROR')
+        value['workflow']['reason']='private screen text'
+        with self.assertRaises(ValueError): a.validate_report(value)
+
     def test_search_diagnostics_use_fixed_codes_without_screen_content(self):
         for code in ('SEARCH_TREE_EMPTY','SEARCH_NOT_ACTIONABLE','SEARCH_NO_PROGRESS','SEARCH_TRANSITION_PENDING','SEARCH_RETRY_PARENT'):
             value=report();value['lastCode']=code

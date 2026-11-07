@@ -46,6 +46,7 @@ class WorkflowService : AccessibilityService() {
     private val poll = object : Runnable {
         override fun run() {
             if (selected.isEmpty()) return
+            if (selected == packageName && !WorkflowSelfTestActivity.active) { finish("Gestoppt: andere App im Vordergrund"); return }
             if (SystemClock.elapsedRealtime() > until) { finish("Sitzung beendet"); return }
             val unlocked = !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
             if (!unlocked) { finish("Gestoppt: Bildschirm gesperrt"); return }
@@ -75,7 +76,7 @@ class WorkflowService : AccessibilityService() {
                 if (truncated) { finish("Bildschirm zu komplex: keine eindeutige Prüfung möglich"); return }
                 val frame = WorkflowFrame(root.packageName?.toString().orEmpty(), root.windowId, refs.map {
                     WorkflowNode(it.text?.toString()?.takeIf { text -> text.isNotBlank() }?.take(500) ?: it.hintText?.toString()?.take(500) ?: it.contentDescription?.toString()?.take(500).orEmpty(),
-                        it.viewIdResourceName.orEmpty(), it.isEditable && it.isEnabled, it.isClickable && it.isEnabled, it.isPassword, if (it.isEditable) it.text?.toString().orEmpty() else null)
+                        it.viewIdResourceName.orEmpty(), it.isEditable && it.isEnabled, it.isClickable && it.isEnabled, it.isPassword, if (it.isEditable) { if (it.isShowingHintText) "" else it.text?.toString().orEmpty() } else null)
                 })
                 if (frame.app == selected && !LocalWorkflow.protected(frame)) {
                     observation = frame; observationAt = SystemClock.elapsedRealtime()
@@ -84,6 +85,9 @@ class WorkflowService : AccessibilityService() {
                     if (capture && captureObservation?.next(frame, SystemClock.elapsedRealtime(), unlocked) != null) {
                         capture = false; captureObservation = null; captureScreen(generation, frame.window)
                     }
+                }
+                if (ConnectionErrorPolicy.detected(frame.nodes.map { it.label })) {
+                    finish("Verbindungsfehler: Auftrag angehalten"); return
                 }
                 if (automatic && LocalWorkflow.protected(frame)) { finish("Geschützte Ansicht: Auftrag gestoppt"); return }
                 if (automatic && run == null && !planning) {
@@ -113,7 +117,19 @@ class WorkflowService : AccessibilityService() {
     }
     internal fun begin(app: String, steps: List<WorkflowStep>?, screenshot: Boolean = false, goal: String = "", title: String = ""): Boolean {
         if (!LocalWorkflow.allowedApp(app)) return false
+        return beginInternal(app,steps,screenshot,goal,title)
+    }
+    // No caller-selected target or commands: only the non-exported local test surface.
+    internal fun beginSelfTest(screenshot: Boolean): Boolean {
+        if (!WorkflowSelfTestActivity.active) return false
+        val steps = if (screenshot) null else listOf(
+            WorkflowStep(WorkflowAction.CLICK,"Suche",opensSearch=true),
+            WorkflowStep(WorkflowAction.WRITE,WorkflowSearch.FIELD,"Gold"))
+        return beginInternal(packageName,steps,screenshot,"","")
+    }
+    private fun beginInternal(app: String, steps: List<WorkflowStep>?, screenshot: Boolean, goal: String, title: String): Boolean {
         finish("Neue Sitzung")
+        run = null
         recipeGoal = goal; recipeTitle = title; recorded = false
         selected = app; until = SystemClock.elapsedRealtime() + if (steps == null) 45_000 else 180_000
         capture = screenshot; captureObservation = if (screenshot) WorkflowAutoObservation(app, SystemClock.elapsedRealtime()) else null
@@ -192,7 +208,8 @@ class WorkflowService : AccessibilityService() {
             healthActive = false
             val current = run
             WorkflowHealth.record(this, if (current != null && WorkflowAiPolicy.verified(current)) "SUCCEEDED" else "STOPPED",
-                healthSource, current?.index ?: 0, current?.steps?.size ?: 0)
+                healthSource, current?.index ?: 0, current?.steps?.size ?: 0,
+                if (current != null && WorkflowAiPolicy.verified(current)) "NONE" else WorkflowFailure.code(reason))
         }
         if (notify) android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
         serviceInfo?.let { serviceInfo = it.apply { packageNames = arrayOf(packageName) } }
@@ -209,6 +226,7 @@ class WorkflowService : AccessibilityService() {
         if (Build.VERSION.SDK_INT < 30) { message = "Direkte Screenshots benötigen Android 11; Bildauswahl verwenden"; return }
         val app = selected
         fun currentSafe(): Boolean {
+            if (app == packageName && !WorkflowSelfTestActivity.active) return false
             val root = rootInActiveWindow ?: return false
             if (root.packageName?.toString() != app || root.windowId != window ||
                 (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return false

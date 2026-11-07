@@ -434,6 +434,31 @@ class ProductReadService : AccessibilityService() {
             return root
         } finally { visible.forEach { it.recycle() } }
     }
+    private fun stopForConnectionError() {
+        lastNavigationIssue="CONNECTION_ERROR"
+        GoldSearchRun.event("CONNECTION_ERROR",Instant.now().toString())
+        ProductReadRequest.cancel()
+        GoldSearchRun.stop("CONNECTION_ERROR",Instant.now().toString())
+        MorningReadRun.stop(this,"CONNECTION_ERROR")
+        PhoneRemote.stop(this,"CONNECTION_ERROR")
+        ProductReadSession.put(ProductScreenEvidence.Result(message=MorningReadUiPolicy.reason("CONNECTION_ERROR")),SystemClock.elapsedRealtime())
+        PhoneDiagnostics.queue(this)
+    }
+    private fun connectionErrorVisible(root: AccessibilityNodeInfo): Boolean {
+        var visited=0
+        fun visit(node: AccessibilityNodeInfo, depth: Int): Boolean {
+            if (++visited>500 || depth>30 || !node.isVisibleToUser || node.isPassword || node.isEditable ||
+                node.packageName?.toString()!=ProductScreenEvidence.PACKAGE ||
+                (android.os.Build.VERSION.SDK_INT>=34 && node.isAccessibilityDataSensitive)) return false
+            if(ConnectionErrorPolicy.detected(listOf(node.text?.toString().orEmpty(),node.contentDescription?.toString().orEmpty()))) return true
+            for(i in 0 until node.childCount.coerceAtMost(100)) {
+                val child=node.getChild(i) ?: continue
+                try { if(visit(child,depth+1)) return true } finally { child.recycle() }
+            }
+            return false
+        }
+        return visit(root,0)
+    }
     private fun readOnce(automatic: Boolean = false) {
         if (!automatic) { ProductReadRequest.cancel(); ProductReadDiagnostics.reset(SystemClock.elapsedRealtime()) }
         if (!getSharedPreferences("product_reader", MODE_PRIVATE).getBoolean("enabled", false)) { ProductReadRequest.cancel(); return }
@@ -453,6 +478,11 @@ class ProductReadService : AccessibilityService() {
                         ProductReadSession.put(ProductScreenEvidence.Result(message = "Produkt-App verlassen. Leseprüfung beendet; kein Entwurf übernommen."), SystemClock.elapsedRealtime())
                         ProductReadRequest.cancel()
                     }
+                    return
+                }
+                // Check the real visible tree before search, scrolling or product reading.
+                if(connectionErrorVisible(root)) {
+                    stopForConnectionError()
                     return
                 }
                 if (GoldSearchRun.running) { navigateMorning(root, gold=true);return }
@@ -834,6 +864,10 @@ class ProductReadService : AccessibilityService() {
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         try {
             if(root.packageName?.toString()!=ProductScreenEvidence.PACKAGE)return observation("OTHER_APP")
+            if(connectionErrorVisible(root)) {
+                stopForConnectionError()
+                return observation("CONNECTION_ERROR")
+            }
             navigationTree(root,nodes,descriptions)
             // Inspect the previous product context while Android finishes BACK.
             // Return no draft or identifiers from this transitional screen.

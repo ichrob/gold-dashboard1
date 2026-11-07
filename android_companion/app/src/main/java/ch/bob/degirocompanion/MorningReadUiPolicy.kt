@@ -31,6 +31,7 @@ internal object MorningReadUiPolicy {
         "SEARCH_NO_PROGRESS" -> "Suchfläche reagiert nicht; begrenzte Suchversuche ausgeschöpft"
         "SEARCH_TRANSITION_PENDING" -> "Warte auf das Suchfeld"
         "SEARCH_RETRY_PARENT" -> "Übergeordnete Suchfläche prüfen"
+        "CONNECTION_ERROR" -> "DEGIRO zeigt einen Verbindungsfehler. Lauf angehalten; nach wiederhergestellter Verbindung erneut starten."
         "SEARCH_MISSING" -> "DEGIRO-Suche nicht erkannt"
         "SEARCH_TREE_EMPTY" -> "Android liefert keine lesbare Suchbeschriftung"
         "SEARCH_NOT_ACTIONABLE" -> "Suchbeschriftung erkannt, aber keine bedienbare Suchfläche"
