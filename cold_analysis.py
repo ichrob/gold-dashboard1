@@ -87,16 +87,17 @@ def get(conn, row_id, *, drive=None):
 def offload_batch(conn, drive):
     if not conn.autocommit:
         raise ValueError('Dedicated autocommit connection required')
-    candidates=conn.execute('''SELECT id,stage,observed_at,build,payload FROM bob_diagnostic_history
-        WHERE stage='analysis' AND recorded_at<now()-interval '6 hours' AND NOT(payload ? %s)
-        AND pg_column_size(payload)>512 AND octet_length(payload::text)<65536
-        ORDER BY recorded_at,id LIMIT %s''',(TAG,codec.MAX_ROWS)).fetchall()
-    rows=[]; size=len(codec.encoded({'format':codec.FORMAT,'rows':[]}))
-    for candidate in candidates:
-        row=list(candidate); n=len(codec.encoded(row))+(1 if rows else 0)
-        if size+n>codec.MAX_RAW:break
-        rows.append(row);size+=n
-    if not rows:return {'status':'no-eligible-rows','movedRows':0}
+    # The old unbounded JSONB/TOAST filter can scan all already-archived
+    # analysis history merely to return no candidates. Keep all eligibility
+    # and CAS invariants, but evaluate at most a few indexed pages per cycle.
+    import cold_analysis_candidate_scan as candidate_scan
+    previous_cursor = candidate_scan.cursor()
+    rows, next_cursor, scan_meta = candidate_scan.scan(conn, previous_cursor)
+    if not rows:
+        candidate_scan.commit_cursor(next_cursor)
+        return {'status':'no-eligible-rows','movedRows':0,
+                'scannedRows':scan_meta['scannedRows'],
+                'candidateScanBounded':True}
     raw=codec.encoded({'format':codec.FORMAT,'rows':rows})
     with tempfile.TemporaryDirectory(prefix='bob-analysis-cold-') as tmp:
         blob=gzip.compress(raw,mtime=0)
@@ -126,8 +127,14 @@ def offload_batch(conn, drive):
         conn.execute('''INSERT INTO bob_cold_analysis_batches
             (batch_key,file_id,sha256,moved_rows,original_json_bytes,reference_json_bytes,row_ids)
             VALUES(%s,%s,%s,%s,%s,%s,%s)''',(key,file_id,checksum,len(moved),original,references,moved))
+    # Advance only after the remote original has been downloaded, validated
+    # and the compare-and-swap transaction has committed. On exceptions the
+    # cursor is untouched; the source remains eligible on the next safe pass.
+    candidate_scan.commit_cursor(next_cursor)
     return {'status':'verified-offload','movedRows':len(moved),'originalJsonBytes':original,
-            'referenceJsonBytes':references,'readThroughVerified':True,'diskBytesFreed':None}
+            'referenceJsonBytes':references,'readThroughVerified':True,
+            'scannedRows':scan_meta['scannedRows'],
+            'candidateScanBounded':True,'diskBytesFreed':None}
 
 
 def status(conn):
