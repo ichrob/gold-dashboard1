@@ -21,10 +21,12 @@ internal object WorkflowAuto {
         val write = Regex("""schreibe (.+?) in (?:das |die |den )?(?:suchfeld|suche|suchbegriff)""", RegexOption.IGNORE_CASE).matchEntire(goal.trim()) ?: return null
         val value = write.groupValues[1].trim().removeSurrounding("\"")
         if (!WorkflowAiPolicy.safe(value)) return null
-        val fields = context(frame).filter { it.editable && it.id.isNotBlank() }
-        val field = fields.singleOrNull() ?: return null
-        val step = WorkflowStep(WorkflowAction.WRITE, field.id, value)
-        return if (LocalWorkflow.target(step, frame) != null) listOf(step) else null
+        val fields = WorkflowSearch.fields(frame)
+        if (fields.size > 1) return null
+        if (fields.size == 1) return listOf(WorkflowStep(WorkflowAction.WRITE, WorkflowSearch.FIELD, value))
+        val button = WorkflowSearch.buttons(frame).singleOrNull() ?: return null
+        return listOf(WorkflowStep(WorkflowAction.CLICK, frame.nodes[button].label, opensSearch=true),
+            WorkflowStep(WorkflowAction.WRITE, WorkflowSearch.FIELD, value))
     }
     fun autoPlan(goal: String, nodes: List<WorkflowNode>, steps: List<WorkflowStep>): Boolean {
         if (!WorkflowAiPolicy.valid(goal, nodes, steps)) return false

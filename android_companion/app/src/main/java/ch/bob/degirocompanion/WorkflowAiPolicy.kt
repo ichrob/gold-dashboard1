@@ -13,8 +13,8 @@ internal object WorkflowAiPolicy {
     }.filter { (it.label.isNotBlank() || it.id.isNotBlank()) && safe(it.label, 120, true) && safe(it.id, 160, true) }.distinct().take(80)
     fun commands(steps: List<WorkflowStep>): String = steps.joinToString("\n") {
         when (it.action) {
-            WorkflowAction.CLICK -> "Tippe auf \"${it.target}\" -> \"${it.expected}\""
-            WorkflowAction.WRITE -> "Schreibe \"${it.value}\" in \"${it.target}\""
+            WorkflowAction.CLICK -> if (it.opensSearch) "Öffne Suchfeld über \"" + it.target + "\"" else "Tippe auf \"${it.target}\" -> \"${it.expected}\""
+            WorkflowAction.WRITE -> if (it.target == WorkflowSearch.FIELD) "Schreibe \"" + it.value + "\" in das erkannte Suchfeld" else "Schreibe \"${it.value}\" in \"${it.target}\""
             WorkflowAction.WAIT -> "Warte auf \"${it.target}\""
         }
     }
@@ -22,6 +22,7 @@ internal object WorkflowAiPolicy {
         if (!safe(goal, 500) || nodes.size !in 1..24 || steps.size !in 1..12) return false
         val known = nodes.flatMap { listOf(it.label, it.id) }.filter { it.isNotBlank() }.toMutableSet()
         for (s in steps) {
+            if (s.opensSearch || s.target == WorkflowSearch.FIELD) return false
             if (!safe(s.target) || !safe(s.value, empty=true) || !safe(s.expected, empty=true) || s.target !in known) return false
             when (s.action) {
                 WorkflowAction.WRITE -> if (s.value.isEmpty() || s.value !in goal || s.expected.isNotEmpty()) return false

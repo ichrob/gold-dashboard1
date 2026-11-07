@@ -38,6 +38,8 @@ class WorkflowService : AccessibilityService() {
     private var automatic = false
     private var autoCloud = false
     private var autoObservation: WorkflowAutoObservation? = null
+    private var healthActive = false
+    private var healthSource = "NONE"
     private var planning = false
     private var proposalContext: List<WorkflowNode>? = null
     private val poll = object : Runnable {
@@ -111,6 +113,9 @@ class WorkflowService : AccessibilityService() {
         selected = app; until = SystemClock.elapsedRealtime() + if (steps == null) 45_000 else 180_000
         capture = screenshot; observation = null; screenshotText = ""
         run = steps?.let { WorkflowRun(app, it, SystemClock.elapsedRealtime()) }
+        healthActive = steps != null
+        healthSource = if (steps == null) "NONE" else "LOCAL"
+        if (healthActive) WorkflowHealth.record(this,"STARTED",healthSource,0,steps!!.size)
         serviceInfo = serviceInfo.apply { packageNames = arrayOf(app, packageName) }
         message = if (steps == null) "Lese die gewählte App; danach zu Bob zurückkehren" else "Auftrag gestartet"
         handler.post(poll)
@@ -118,25 +123,31 @@ class WorkflowService : AccessibilityService() {
     }
     internal fun beginAutomatic(app: String, goal: String, cloud: Boolean): Boolean {
         if (!LocalWorkflow.allowedApp(app) || !WorkflowAiPolicy.safe(goal, 500)) return false
-        val cached = WorkflowLibrary.match(this, app, goal)?.second?.let { LocalWorkflow.parse(it) }
-        if (!begin(app, cached, goal=goal, title=goal.take(60))) return false
+        if (!begin(app, null, goal=goal, title=goal.take(60))) return false
         automatic = true; autoCloud = cloud
+        healthActive = true
+        WorkflowHealth.record(this,"STARTED","NONE",0,0)
         until = SystemClock.elapsedRealtime() + 180_000
-        if (cached == null) {
-            autoObservation = WorkflowAutoObservation(app, SystemClock.elapsedRealtime())
-            message = "Automatisch: öffne App und lese den Bildschirm"
-        } else message = "Automatisch: erfolgreicher lokaler Ablauf · keine KI nötig"
+        autoObservation = WorkflowAutoObservation(app, SystemClock.elapsedRealtime())
+        message = "Automatisch: öffne App und lese den Bildschirm"
         return true
     }
     private fun prepareAutomatic(frame: WorkflowFrame) {
         WorkflowAuto.local(recipeGoal, frame)?.let {
             run = WorkflowRun(selected, it, SystemClock.elapsedRealtime())
+            healthSource = "LOCAL"
             message = "Automatisch lokal erkannt · prüfe jeden Schritt"; return
+        }
+        WorkflowLibrary.match(this, selected, recipeGoal)?.second?.let { LocalWorkflow.parse(it) }?.let {
+            run = WorkflowRun(selected, it, SystemClock.elapsedRealtime())
+            healthSource = "CACHE"
+            message = "Automatisch: bestätigter gespeicherter Ablauf · keine KI nötig"; return
         }
         if (!autoCloud) { finish("Lokal kein passender Ablauf; KI-Hilfe für diese App ist ausgeschaltet"); return }
         val nodes = WorkflowAuto.context(frame)
         if (nodes.isEmpty()) { finish("Keine freigegebenen Such-/Filterelemente erkannt; Details manuell prüfen"); return }
         val app = selected; val goal = recipeGoal; val token = generation
+        healthSource = "AI"
         planning = true; proposalContext = nodes
         message = "Automatisch: eine KI-Anfrage · danach lokale Prüfung"
         Thread {
@@ -170,6 +181,12 @@ class WorkflowService : AccessibilityService() {
                 message += runCatching { WorkflowLibrary.record(this, it, recipeGoal, recipeTitle) }
                     .getOrDefault(" · Speichern fehlgeschlagen")
             }
+        }
+        if (healthActive) {
+            healthActive = false
+            val current = run
+            WorkflowHealth.record(this, if (current != null && WorkflowAiPolicy.verified(current)) "SUCCEEDED" else "STOPPED",
+                healthSource, current?.index ?: 0, current?.steps?.size ?: 0)
         }
         if (notify) android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
         serviceInfo?.let { serviceInfo = it.apply { packageNames = arrayOf(packageName) } }
