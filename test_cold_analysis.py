@@ -5,6 +5,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 import cold_analysis as cold
+import cold_analysis_candidate_scan as candidate_scan
 from test_cold_metrics import Drive
 
 
@@ -65,6 +66,7 @@ class DatabaseTests(unittest.TestCase):
         self.c.execute('''CREATE TABLE bob_diagnostic_history(id text primary key,stage text,
             observed_at double precision,build text,recorded_at timestamptz,payload jsonb)''')
         cold.init(self.c);cold._LOCATION.clear();cold.codec._CACHE.clear()
+        candidate_scan.commit_cursor(None)
         self.drive=Drive()
         self.payload={'timeframe':'15m','purpose':'original','result':{'ready':True,'priceFresh':False,'dataAt':123456,
             'details':[hashlib.sha256(str(i).encode()).hexdigest() for i in range(80)],'originalInteger':9007199254740993}}
