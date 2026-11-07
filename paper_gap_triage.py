@@ -205,3 +205,123 @@ def assess(gap_correlation, spot_archive, analysis_archive, paper_input_archive=
                 "proximity remains a hypothesis, never a filled exit or P/L. "
                 "A later source clock cannot reconstruct an earlier interval.",
     }
+
+
+def assess_archived(gap_evidence):
+    """Independently review *stored* original gap clocks, not today's empty cases.
+
+    Accept only fixed, already-redacted 90-second archive projections from the
+    existing bounded read-only comparison report. In particular, a matching
+    nearby quote, a *later* worker capture, or an archived encrypted object
+    never becomes an original simulated fill, realized P/L or replay success.
+    No SQL, network, mutations, secrets or archive-reader operations here.
+    """
+    base = {
+        "status": "unavailable",
+        "readOnly": True, "realOrders": False,
+        "fullHistoricalGapCoverageVerified": False,
+        "originalTradeReplayVerified": False,
+        "productBidVerified": False, "profitOrLossVerified": False,
+        "sampledDistinctGapInstants": 0,
+        "counts": {"outsideRetentionOrFuture": 0, "sourceBeforeOrAt": 0,
+                   "sourceOnlyAfter": 0, "sourceMissingOrUnverified": 0,
+                   "originalClockInconsistent": 0},
+        "items": [],
+        "scope": "bounded-archived-gap-source-clocks-not-full-simulation-history",
+        "note": "An expired local archive window is NOT proof of permanent original loss. "
+                "Nearby sources do not prove worker receipt, a product bid, an exit or P/L. "
+                "Older originals require independent scoped manifest/restore verification."
+    }
+    if not isinstance(gap_evidence, dict):
+        return dict(base, reason="gap-archive-projections-missing")
+    names = ("spotGapArchive", "analysisGapArchive", "paperInputArchive")
+    sources = [gap_evidence.get(name) for name in names]
+    if not all(isinstance(s, dict) and s.get("status") == "observed"
+               and s.get("readOnly") is True and s.get("realOrders") is False
+               and s.get("windowSeconds") == 90
+               and s.get("truncated") is False
+               and isinstance(s.get("items"), list) for s in sources):
+        return dict(base, reason="archive-projections-incomplete-or-truncated")
+    spot, analysis, worker = sources
+    if spot.get("source") != "Gold-API-original-spot-archive":
+        return dict(base, reason="wrong-original-source")
+    clock_sets = []
+    for source in sources:
+        items = source["items"]
+        total = source.get("totalDistinctClocks")
+        count = source.get("sampledDistinctClocks")
+        clocks = [_clock(item.get("eventAt")) if isinstance(item, dict) else None
+                  for item in items]
+        if (type(total) is not int or type(count) is not int
+                or not 0 <= count <= total
+                or count != len(items) or len(items) > 12
+                or any(t is None for t in clocks)
+                or len(set(clocks)) != len(clocks)):
+            return dict(base, reason="archive-clock-coverage-invalid-or-over-limit")
+        clock_sets.append(set(clocks))
+    # A missing analysis/worker clock cannot prove an earlier absent worker.
+    coverage_matched = clock_sets[0] == clock_sets[1] == clock_sets[2]
+    instants = sorted(clock_sets[0])
+    if not instants:
+        return dict(base, status="no-archived-gaps-in-bounded-sample",
+                    reason="no-sampled-archive-events")
+    correlation = {"recentRecordedGapInstants": [
+        {"recordedAt": at, "affectedVirtualCases": None}
+        for at in instants]}
+    # The existing triage validates original event timestamps against
+    # timeRelation/deltaSeconds before recognizing "before-or-at" evidence.
+    triage = assess(correlation, spot, analysis, worker)
+    if len(triage["items"]) != len(instants):
+        return dict(base, reason="archive-correlation-incomplete")
+    spot_by_time = {item["eventAt"]: item for item in spot["items"]}
+    counts = dict(base["counts"])
+    items = []
+    for row in triage["items"]:
+        original = spot_by_time[row["recordedAt"]]
+        source_state = original.get("state")
+        if source_state == "outside-retention-or-future":
+            archive_class = "outside-retention-or-future-not-replayed"
+            next_step = "locate-matching-earlier-archive-manifest-and-isolated-original"
+            counts["outsideRetentionOrFuture"] += 1
+        elif row["spotEvidence"] == "original-nearby-before-or-at-gap":
+            archive_class = "nearby-original-before-or-at-event-only"
+            next_step = "compare-paper-worker-original-input-and-product-bid"
+            counts["sourceBeforeOrAt"] += 1
+        elif row["spotEvidence"] == "original-only-observed-after-gap":
+            archive_class = "nearby-original-after-event-only"
+            next_step = "do-not-backdate-later-quote"
+            counts["sourceOnlyAfter"] += 1
+        elif row["spotEvidence"] == "spot-archive-clock-inconsistent":
+            archive_class = "source-clock-inconsistent"
+            next_step = "verify-original-source-timestamps"
+            counts["originalClockInconsistent"] += 1
+        else:
+            archive_class = "original-evidence-missing-or-unverified"
+            next_step = "inspect-matching-original-archive-provenance"
+            counts["sourceMissingOrUnverified"] += 1
+        items.append({
+            "recordedAt": row["recordedAt"],
+            "archiveEvidence": archive_class,
+            "analysisEvidence": row["analysisEvidence"],
+            "workerEvidence": row["paperWorkerEvidence"],
+            "nextCheck": next_step,
+            "originalTradeReplayVerified": False,
+            "productBidVerified": False,
+            "executedExitVerified": False,
+            "profitOrLossVerified": False
+        })
+    return dict(
+        base,
+        status="partial" if (not coverage_matched
+                            or counts["outsideRetentionOrFuture"]
+                            or counts["originalClockInconsistent"]
+                            or counts["sourceMissingOrUnverified"]
+                            or triage["status"] != "observed") else "observed",
+        sampledDistinctGapInstants=len(items),
+        archiveClockSetsMatched=coverage_matched,
+        counts=counts, items=items,
+        reason=("older-original-archive-proof-required"
+                if counts["outsideRetentionOrFuture"] else
+                "archive-clock-coverage-mismatch" if not coverage_matched else
+                "bounded-originals-not-execution-proof")
+    )
