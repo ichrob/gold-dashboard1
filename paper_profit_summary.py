@@ -6,7 +6,7 @@ No SQL, product IDs, raw case payloads, broker records or new market assumptions
 import math
 
 PROFILES = ('conservative', 'balanced', 'offensive', 'early100', 'trend800',
-            'early1000oct', 'normal1000oct')
+            'early1000oct', 'normal1000oct', 'trend800nov', 'normal1000nov')
 STATUSES = ('scheduled', 'running', 'completed', 'ending-pending-quotes',
             'night-paused', 'market-closed', 'preparing', 'stopped', 'unavailable')
 
