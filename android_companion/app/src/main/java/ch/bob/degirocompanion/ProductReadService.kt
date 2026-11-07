@@ -215,6 +215,12 @@ class ProductReadService : AccessibilityService() {
         PinReadinessProbe.onStop = {
             // Consume the one-start intent on EVERY termination, including
             // failure and user STOP. Only verified Markets can continue.
+            val workflowPending = WorkflowLoginHandoff.pending(SystemClock.elapsedRealtime())
+            val workflowNext = WorkflowLoginHandoff.complete(PinReadinessProbe.resultCode, SystemClock.elapsedRealtime())
+            val workflowTicket = WorkflowLoginHandoff.generation
+            if (workflowNext != null) handler.post {
+                if (workflowTicket == WorkflowLoginHandoff.generation) workflowNext()
+            } else if (workflowPending) WorkflowService.message = "DEGIRO-Anmeldung nicht bestätigt; Auftrag nicht gestartet: " + PinReadinessProbe.resultCode
             val searchQuery = LoginToReadHandoff.searchQuery
             val proceed = LoginToReadHandoff.consume(PinReadinessProbe.resultCode, SystemClock.elapsedRealtime())
             runCatching { localLoginEventScope(false) }

@@ -30,7 +30,7 @@ class WorkflowService : AccessibilityService() {
         internal var demonstrationCheck = "NONE"
         internal var demonstrationDraft: Pair<String, List<WorkflowStep>>? = null
         internal fun endDemonstration() { instance?.let { if (it.demonstration != null) it.finish("Vormachen beendet · Entwurf prüfen") } }
-        internal fun stop() { epoch++; instance?.finish("Gestoppt"); run?.stop("Gestoppt"); run = null; observation = null; screenshotText = "" }
+        internal fun stop() { WorkflowLoginHandoff.clear(); epoch++; instance?.finish("Gestoppt"); run?.stop("Gestoppt"); run = null; observation = null; screenshotText = "" }
     }
     private val handler = Handler(Looper.getMainLooper())
     private var selected = ""
@@ -321,7 +321,7 @@ class WorkflowService : AccessibilityService() {
             finish("Gestoppt: eigene Bildschirmbedienung")
     }
     override fun onInterrupt() { finish("Dienst unterbrochen") }
-    override fun onDestroy() { finish("Dienst beendet"); instance = null; observation = null; screenshotText = ""; super.onDestroy() }
+    override fun onDestroy() { WorkflowLoginHandoff.clear(); finish("Dienst beendet"); instance = null; observation = null; screenshotText = ""; super.onDestroy() }
     private fun symbolSafe(frame: WorkflowFrame): Boolean {
         val root = rootInActiveWindow ?: return false
         if (root.packageName?.toString() != frame.app || root.windowId != frame.window ||
