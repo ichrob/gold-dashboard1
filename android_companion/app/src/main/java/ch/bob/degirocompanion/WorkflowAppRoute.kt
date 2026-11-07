@@ -41,6 +41,7 @@ internal object WorkflowAppRoute {
         "was kannst du", "was kannst du in degiro", "was kannst du bei degiro", "degiro-funktionen", "hilfe")
     fun leveragedQuery(goal: String): String? {
         val text = LocalWorkflow.normalize(goal).removeSuffix(".")
+        if (text in setOf("silber", "suche silber", "suche nach silber", "silber suchen")) return "Silber"
         val match = Regex("(?:suche (?:nach )?)?(gold|silber)(?:[- ]hebelprodukte| hebelprodukte suchen)").matchEntire(text)
             ?: Regex("suche (?:die )?hebelprodukte (?:für|auf) (gold|silber)").matchEntire(text)
             ?: return null

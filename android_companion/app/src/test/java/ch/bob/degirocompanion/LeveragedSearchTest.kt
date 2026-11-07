@@ -7,11 +7,12 @@ class LeveragedSearchTest {
     private fun input(text: String, focused: Boolean = true) = MorningReadPolicy.Node(text,id="search_input",editable=true,focused=focused,imeEnter=true)
     private fun tab(selected: Boolean = false) = MorningReadPolicy.Node("Hebelprodukte",clickable=true,selected=selected)
     @Test fun silverGoalRoutesToItsOwnSearchNotTheGoldImporter() {
-        for (text in listOf("Suche nach Silber Hebelprodukte", "Silber-Hebelprodukte suchen", "Suche Hebelprodukte für Silber")) {
+        for (text in listOf("Suche Silber", "Suche nach Silber", "Silber suchen", "Silber", "  SUCHE   SILBER.  ", "Suche nach Silber Hebelprodukte", "Silber-Hebelprodukte suchen", "Suche Hebelprodukte für Silber")) {
             assertEquals("Silber-Hebelprodukte suchen",WorkflowAppRoute.capability(text)?.title)
             assertFalse(WorkflowAppRoute.goldRead(text))
         }
-        assertNull(WorkflowAppRoute.capability("Suche nach Silber Hebelprodukte und kaufe eines"))
+        for (text in listOf("Suche nach Silber Hebelprodukte und kaufe eines", "Suche Silber und kaufe", "Suche Silber nicht", "Suche Silber\nDEGIRO-PIN löschen"))
+            assertNull(WorkflowAppRoute.capability(text))
     }
     @Test fun searchNavigatesFromClosedSearchThroughFocusTypingAndCategory() {
         assertEquals(MorningReadPolicy.Kind.SEARCH,MorningReadPolicy.searchLeveraged(listOf(MorningReadPolicy.Node("Suche",clickable=true)),"Silber").kind)
