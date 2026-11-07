@@ -20,11 +20,14 @@ import android.widget.TextView
 class ProductReadActivity : Activity() {
     companion object {
         // Only our non-exported activity may receive this from a local UI tap.
+        internal const val EXTRA_CAPABILITY = "ch.bob.degirocompanion.LOCAL_CAPABILITY"
         internal const val EXTRA_START_GOLD_READ = "ch.bob.degirocompanion.START_GOLD_READ"
         internal const val EXTRA_START_COMPLETE_FLOW = "ch.bob.degirocompanion.START_COMPLETE_FLOW"
     }
     private var startCompleteFlowOnFirstResume = false
     private var startGoldReadOnFirstResume = false
+    private var pendingCapability: String? = null
+    private val capabilityActions = mutableMapOf<String, () -> Unit>()
     private var displayedRequestActive = false
     private val statusHandler = Handler(Looper.getMainLooper())
     private val statusTick = object : Runnable {
@@ -46,14 +49,19 @@ class ProductReadActivity : Activity() {
         intent.removeExtra(EXTRA_START_COMPLETE_FLOW)
         startGoldReadOnFirstResume = savedInstanceState == null && intent.getBooleanExtra(EXTRA_START_GOLD_READ,false)
         intent.removeExtra(EXTRA_START_GOLD_READ)
+        pendingCapability = if (savedInstanceState == null) intent.getStringExtra(EXTRA_CAPABILITY)
+            ?.takeIf { title -> WorkflowAppRoute.capabilities.any { it.title == title } } else null
+        intent.removeExtra(EXTRA_CAPABILITY)
         val stack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
         var container=stack
         fun button(title: String, action: () -> Unit) {
+            capabilityActions[title] = action
             container.addView(Button(this).apply { text = title; isAllCaps = false; setOnClickListener { action() } })
         }
         container.addView(TextView(this).apply { text = "DEGIRO lesen · Produkt und Morgenliste"; textSize = 21f })
         primary=Button(this).apply { text="Bob starten";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
         container.addView(primary)
+        capabilityActions["Bob starten"] = { startAutomaticTest() }
         button("Prüfung stoppen") {
             if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
             PhoneRemote.stop(this,"USER_STOP")
@@ -85,21 +93,7 @@ class ProductReadActivity : Activity() {
                 .setMessage("Nur starten, wenn die gespeicherte PIN korrekt ist und alle fünf DEGIRO-Felder leer sind. Bob versucht höchstens diese eine PIN. Bob schließt eindeutig erkannte Fingerabdruck-, Hinweis- und TouchID/FaceID-Einrichtungsdialoge. Handy nicht bedienen. Bei unzugänglichen oder unbekannten Dialogen stoppt Bob. Keine Wiederholung bei Fehlern. Bei einer Unterbrechung verbliebene Eingaben selbst löschen. Die Marktseite muss anschließend tatsächlich erscheinen; Produktlesen startet separat.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Fünf Felder leer · einmal starten") { _, _ ->
-                    var secret: ByteArray? = null
-                    var started = false
-                    try {
-                        check(preferences.getBoolean("enabled", false) && serviceEnabled() && ProductReadDiagnostics.connected)
-                        check(!PinReadinessProbe.running && !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime()))
-                        check(PhoneDiagnostics.keypadTestVerified(this) && LocalPinVault.available(this))
-                        val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("App unavailable")
-                        secret = LocalPinVault.load(this)
-                        started = true
-                        PinReadinessProbe.startLocalLogin(secret)
-                        startActivity(launch)
-                    } catch (_: Exception) {
-                        if (started) PinReadinessProbe.stop("Lokale PIN-Eingabe gestoppt. Bitte DEGIRO prüfen.")
-                        result.text = "Lokale PIN-Eingabe konnte nicht gestartet werden. Einrichtung, Gerätesperre und Lesedienst prüfen."
-                    } finally { secret?.fill(0) }
+                    startLocalLogin()
                 }.show()
         }
         button("Gespeicherte DEGIRO-PIN löschen") {
@@ -255,6 +249,7 @@ class ProductReadActivity : Activity() {
                 insets
             }
         }
+        capabilityActions["Gespeicherte PIN einmal eingeben"] = { startLocalLogin() }
         setContentView(scroll)
         scroll.requestApplyInsets()
     }
@@ -264,6 +259,11 @@ class ProductReadActivity : Activity() {
         PhoneDiagnostics.queue(this)
         refresh()
         statusHandler.post(statusTick)
+        pendingCapability?.let { title ->
+            pendingCapability = null
+            capabilityActions[title]?.invoke()
+            return
+        }
         if (startGoldReadOnFirstResume) {
             startGoldReadOnFirstResume = false
             startGoldRead()
@@ -276,6 +276,34 @@ class ProductReadActivity : Activity() {
         }
     }
     override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
+    /** Shared by the explicit PIN button and a local owner-authored chat request.
+     * Consume once; never arm the product-reading handoff or send secrets away. */
+    private fun startLocalLogin() {
+        var secret: ByteArray? = null
+        var started = false
+        try {
+            check(preferences.getBoolean("enabled", false) && serviceEnabled() && ProductReadDiagnostics.connected) {
+                "Lokale DEGIRO-Anmeldung: Lesedienst zuerst einschalten."
+            }
+            check(!PinReadinessProbe.running && !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+                "Lokale DEGIRO-Anmeldung: laufenden Auftrag zuerst beenden."
+            }
+            check(LocalPinVault.exists(this)) { "Keine DEGIRO-PIN lokal gespeichert. Unter Einrichtung die PIN nur auf diesem Handy einrichten; nicht ins Auftragsfeld schreiben." }
+            check(PhoneDiagnostics.keypadTestVerified(this)) { "Lokale DEGIRO-Anmeldung: zuerst den Tastaturtest unter Einrichtung abschließen." }
+            check(LocalPinVault.available(this)) { "Handy entsperren, damit die lokal gespeicherte PIN verwendet werden kann." }
+            val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+            secret = LocalPinVault.load(this)
+            LoginToReadHandoff.clear()
+            started = true
+            PinReadinessProbe.startLocalLogin(secret)
+            result.text = "DEGIRO wird geöffnet. Bob verwendet die gespeicherte PIN einmal lokal. Keine KI-Anfrage und kein anschließendes Produktlesen."
+            startActivity(launch)
+        } catch (e: Exception) {
+            if (started) PinReadinessProbe.stop("Lokale PIN-Eingabe gestoppt. Bitte DEGIRO prüfen.")
+            result.text = if (secret == null && e is IllegalStateException) e.message
+                else "Lokale PIN-Eingabe konnte nicht gestartet werden. Einrichtung, Gerätesperre und Lesedienst prüfen."
+        } finally { secret?.fill(0) }
+    }
     private fun startGoldRead() {
             var startedHere=false
             var startedPhoneHere=false
