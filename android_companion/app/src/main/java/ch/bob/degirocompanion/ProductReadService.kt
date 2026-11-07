@@ -31,6 +31,7 @@ class ProductReadService : AccessibilityService() {
     private var searchTapAttempted = false
     private var resultTapAttempted = false
     private var inputTapAttempted = false
+    private var nativeBackSteps = 0
     private var categorySteps = 0
     private var searchCategoryTappedAt = 0L
     private var listGeneration = 0
@@ -246,7 +247,7 @@ class ProductReadService : AccessibilityService() {
                 MorningReadRun.beginDiscovered(this,plan.map { it.isin },batch,
                     plan.associate { it.isin to it.missingFields })
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
-            } else PhoneRemote.stop(this,"COMPLETE")
+            } else PhoneRemote.stop(this,"COMPLETED")
         }
         PhoneRemote.onStop={ code ->
             if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
@@ -313,6 +314,7 @@ class ProductReadService : AccessibilityService() {
             searchTapAttempted = false
             inputTapAttempted = false
             resultTapAttempted = false
+            nativeBackSteps = 0
             categorySteps = 0
             searchCategoryTappedAt = 0L
             automaticSearchProgress.clear()
@@ -751,7 +753,7 @@ class ProductReadService : AccessibilityService() {
                         power.isInteractive,keyguard.isKeyguardLocked,authorized)
                 } finally { foreground?.recycle() }
                 productReturnTransition.clear()
-                PhoneRemote.stop(this,"COMPLETE")
+                PhoneRemote.stop(this,"COMPLETED")
                 // Start authenticated background transfer BEFORE presenting the
                 // status UI. Failed uploads retain the original local outbox.
                 MorningReadTransfer.automaticResults(this)
@@ -920,6 +922,7 @@ class ProductReadService : AccessibilityService() {
             val proposed=if(actionName=="inspect" && detailLauncher!=null) MorningReadPolicy.Action(MorningReadPolicy.Kind.READ)
                 else if(actionName=="inspect" && restoring!=null) restoring
                 else if(actionName=="inspect" && MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) { symbolMemory.getString(it,null) }
+                else if(actionName=="inspect" && GoldSearchRun.openingProduct) MorningReadPolicy.ownerProductDecision(descriptions,GoldSearchRun.query,keyboardVisible())
                 else if(actionName=="search_isin") MorningReadPolicy.decide(descriptions,target) { symbolMemory.getString(it,null) }
                 else if(((GoldSearchRun.running && listImages.length()>0 && root.windowId==listWindowId) || MorningListDelivery.waiting) && actionName=="inspect")
                     MorningReadPolicy.captureGoldList(descriptions,true)
@@ -993,12 +996,13 @@ class ProductReadService : AccessibilityService() {
             if(root.windowId!=expectedWindow || root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) return false
             navigationTree(root,live,descriptions)
             val action=if(MorningReadRun.running) MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible())
+                else if(GoldSearchRun.openingProduct) MorningReadPolicy.ownerProductDecision(descriptions,GoldSearchRun.query,keyboardVisible())
                 else if(GoldSearchRun.running && GoldSearchRun.searchOnlyQuery != null) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query)
                 else MorningReadPolicy.discoverGold(descriptions)
             val required=if(category) MorningReadPolicy.Kind.CATEGORY else if(input) MorningReadPolicy.Kind.FOCUS else MorningReadPolicy.Kind.SEARCH
             val targetIndex=if(productResult) {
-                if(input || category || !MorningReadRun.running) return false
-                MorningReadPolicy.resultTapIndex(descriptions,MorningReadRun.target) ?: return false
+                if(input || category || (!MorningReadRun.running && !GoldSearchRun.openingProduct)) return false
+                MorningReadPolicy.resultTapIndex(descriptions,if(GoldSearchRun.openingProduct) GoldSearchRun.query else MorningReadRun.target, explicitOwnerTarget=GoldSearchRun.openingProduct) ?: return false
             } else {
                 if(action.kind!=required || (input && category)) return false
                 action.index
@@ -1360,9 +1364,21 @@ class ProductReadService : AccessibilityService() {
         return node.performAction(action)
     }
 
+    private fun finishNativeNavigation(code: String, message: String) {
+        GoldSearchRun.stop(code,Instant.now().toString())
+        ProductReadRequest.cancel()
+        PhoneRemote.stop(this,"COMPLETED")
+        ProductReadSession.put(ProductScreenEvidence.Result(message=message),SystemClock.elapsedRealtime())
+        Toast.makeText(this,message,Toast.LENGTH_LONG).show()
+        PhoneDiagnostics.queue(this)
+    }
+
     /** Search actions use semantic nodes only, never coordinates or order buttons. */
     private fun navigateMorning(root: AccessibilityNodeInfo, gold: Boolean = false): Boolean {
         val searchOnly = gold && GoldSearchRun.searchOnlyQuery != null
+        val openingProduct = gold && GoldSearchRun.openingProduct
+        val productLookup = !gold || openingProduct
+        val productTarget = if(openingProduct) GoldSearchRun.query else MorningReadRun.target
         if(gold && !searchOnly && !listResumeChecked) {
             listResumeChecked=true
             restoreListCheckpoint()
@@ -1426,7 +1442,7 @@ class ProductReadService : AccessibilityService() {
                     return true
                 }
             }
-            val proposed=if(searchOnly) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query,searchCategoryTappedAt > 0L) else if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) {
+            val proposed=if(openingProduct) MorningReadPolicy.ownerProductDecision(descriptions,productTarget,keyboardVisible()) else if(searchOnly) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query,searchCategoryTappedAt > 0L) else if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) {
                 symbolMemory.getString(it, null)
             }
             val action=automaticSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
@@ -1434,20 +1450,20 @@ class ProductReadService : AccessibilityService() {
                 if(gold) { GoldSearchRun.event(code,Instant.now().toString());PhoneDiagnostics.queue(this) }
                 else MorningReadRun.event(this,code)
             }
-            if(gold && action.kind in setOf(MorningReadPolicy.Kind.CATEGORY,MorningReadPolicy.Kind.COLLECT) && keyboardVisible()) {
+            if(gold && (action.kind in setOf(MorningReadPolicy.Kind.CATEGORY,MorningReadPolicy.Kind.COLLECT) || (openingProduct && action.kind==MorningReadPolicy.Kind.RESULT)) && keyboardVisible()) {
                 lastNavigation=SystemClock.elapsedRealtime()
                 if(!performGlobalAction(GLOBAL_ACTION_BACK)) { lastNavigationIssue="KEYBOARD_HIDE_FAILED";ProductReadRequest.cancel() }
                 return true
             }
-            val resultTarget=if(!gold) MorningReadPolicy.resultTapIndex(descriptions,MorningReadRun.target) else null
-            if(!gold && action.code=="RESULT_MISSING" && resultTarget==null) {
+            val resultTarget=if(productLookup) MorningReadPolicy.resultTapIndex(descriptions,productTarget,explicitOwnerTarget=openingProduct) else null
+            if(productLookup && action.code=="RESULT_MISSING" && resultTarget==null) {
                 ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.RESULT_TARGET_MISSING)
-                if(descriptions.any { !it.editable && it.row.contains(MorningReadRun.target) })
+                if(descriptions.any { !it.editable && it.row.contains(productTarget) })
                     ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.RESULT_IDENTITY_PRESENT)
                 if(descriptions.any { !it.editable && Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(it.text) })
                     ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.RESULT_NAME_PRESENT)
             }
-            if(!gold && !resultTapAttempted && resultTarget!=null) {
+            if(productLookup && !resultTapAttempted && resultTarget!=null) {
                 resultTapAttempted=true
                 val tapped=tapRecognizedSearch(root.windowId,productResult=true)
                 val code=if(tapped) "RESULT_TAP_SENT" else "RESULT_TAP_REJECTED"
@@ -1469,15 +1485,16 @@ class ProductReadService : AccessibilityService() {
                         val message = if(action.code == "LEVERAGE_SEARCH_READY") "${GoldSearchRun.query} im Suchfeld bestätigt · Hebelprodukte ausgewählt."
                             else "${GoldSearchRun.query} im Suchfeld bestätigt · Hebelprodukte angetippt. DEGIRO meldet die Reiterauswahl nicht zurück."
                         if(searchCategoryTappedAt > 0L && SystemClock.elapsedRealtime()-searchCategoryTappedAt < 1000L) return true
-                        GoldSearchRun.stop(action.code,Instant.now().toString())
-                        ProductReadRequest.cancel()
-                        PhoneRemote.stop(this,"COMPLETED")
-                        ProductReadSession.put(ProductScreenEvidence.Result(message=message),SystemClock.elapsedRealtime())
-                        Toast.makeText(this,message,Toast.LENGTH_LONG).show()
-                        PhoneDiagnostics.queue(this)
+                        finishNativeNavigation(action.code,message)
                     } else captureMorningList(root,nodes,descriptions,action)
                 }
-                MorningReadPolicy.Kind.READ -> { lastNavigationIssue="";MorningReadRun.reading=true; return false }
+                MorningReadPolicy.Kind.READ -> {
+                    if(openingProduct) {
+                        finishNativeNavigation("PRODUCT_OPENED", "Produkt $productTarget geöffnet und ISIN bestätigt.")
+                        return true
+                    }
+                    lastNavigationIssue="";MorningReadRun.reading=true; return false
+                }
                 MorningReadPolicy.Kind.WAIT -> {
                     if(action.code=="SEARCH_NO_PROGRESS" && !searchTapAttempted) {
                         searchTapAttempted=true
@@ -1487,7 +1504,11 @@ class ProductReadService : AccessibilityService() {
                     lastNavigationIssue=action.code
                 }
                 MorningReadPolicy.Kind.BACK -> {
-                    if(gold) { lastNavigationIssue="SEARCH_MISSING";ProductReadRequest.cancel() }
+                    if(openingProduct) {
+                        if(++nativeBackSteps>4 || !performGlobalAction(GLOBAL_ACTION_BACK)) {
+                            lastNavigationIssue="SEARCH_MISSING";ProductReadRequest.cancel()
+                        }
+                    } else if(gold) { lastNavigationIssue="SEARCH_MISSING";ProductReadRequest.cancel() }
                     else if(++MorningReadRun.backSteps>4) finishBatchProduct("SEARCH_MISSING")
                     else performGlobalAction(GLOBAL_ACTION_BACK)
                 }
@@ -1497,7 +1518,7 @@ class ProductReadService : AccessibilityService() {
                     // validated isolated title from resultTapIndex above.
                     // Never fall through to ACTION_CLICK on the aggregate card,
                     // even after a gesture was already attempted this window.
-                    if(!gold && action.kind==MorningReadPolicy.Kind.RESULT) {
+                    if(productLookup && action.kind==MorningReadPolicy.Kind.RESULT) {
                         if(resultTarget==null && lastNavigationIssue!="RESULT_TARGET_UNSAFE") {
                             lastNavigationIssue="RESULT_TARGET_UNSAFE"
                             record(lastNavigationIssue)

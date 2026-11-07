@@ -180,7 +180,7 @@ internal object MorningReadPolicy {
     }
     enum class DetailIssue { INPUT_OR_TARGET, MARKER_COUNT, LAUNCHER_LABEL, LAUNCHER_CHILD,
         PROTECTED_CONTENT, ORDER_FIELD, SECTION_MISSING, IDENTITY_CONTEXT }
-    fun detailLauncherIndex(nodes: List<Node>, target: String, anchored: Boolean = false, symbolProbe: Boolean = false, rejected: (DetailIssue) -> Unit = {}): Int? {
+    fun detailLauncherIndex(nodes: List<Node>, target: String, anchored: Boolean = false, symbolProbe: Boolean = false, rejected: (DetailIssue) -> Unit = {}, explicitOwnerTarget: Boolean = false): Int? {
         fun reject(issue: DetailIssue): Int? { rejected(issue); return null }
         if(nodes.size>500 || !SeriesEvidence.validIsin(target) ||
             nodes.any { it.editable || it.containsInput || it.password || it.sensitive }) return reject(DetailIssue.INPUT_OR_TARGET)
@@ -206,8 +206,9 @@ internal object MorningReadPolicy {
         val section=cleaned.any { n -> values(n).any { Regex("(?iu)^(übersicht|overview|kursdaten|produktdetails)$").matches(normalized(it)) } }
         if(!section) return reject(DetailIssue.SECTION_MISSING)
         val productTitle=cleaned.any { n ->
+            (if (explicitOwnerTarget) ownerProductTitle(n.text, target) else
             Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.row) &&
-                (Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(n.row) || unlimitedGoldRow(n.row)) &&
+                (Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(n.row) || unlimitedGoldRow(n.row))) &&
                 ids.findAll(n.row.uppercase()).map { it.value }.toSet().let { it.isEmpty() || it==setOf(target) }
         }
         // A missing header is allowed only during an already anchored same-window
@@ -296,7 +297,8 @@ internal object MorningReadPolicy {
         return navigate(nodes,target,false,lookupSymbol)
     }
     /** A gesture may target only a unique product-name label, never the row's K/V controls. */
-    fun resultTapIndex(nodes: List<Node>, target: String): Int? {
+    fun resultTapIndex(nodes: List<Node>, target: String, explicitOwnerTarget: Boolean = false): Int? {
+        if (!SeriesEvidence.validIsin(target)) return null
         // A DEGIRO search results page can retain a separate "Order platzieren"
         // launcher. It is NOT a permission to touch that button. Validate the
         // isolated exact launcher and search input, then ignore only that one
@@ -335,8 +337,11 @@ internal object MorningReadPolicy {
         val input=validated.filter { it.editable }.singleOrNull() ?: return null
         if(input.text!=target || !isSearchInput(input.id,input.description,input.hint)) return null
         val controls=Regex("(?iu)\\b(k|v|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b")
-        fun productName(value:String)=Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(value) &&
-            (Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(value) || unlimitedGoldRow(value))
+        fun productName(value: String): Boolean {
+            if (explicitOwnerTarget) return ownerProductTitle(value, target)
+            return Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(value) &&
+                (Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(value) || unlimitedGoldRow(value))
+        }
         fun safe(n:Node)=n.enabled && !n.editable && !n.containsInput && !n.password && !n.sensitive
         val groups=validated.indices.filter { i ->
             val n=validated[i]
@@ -371,7 +376,7 @@ internal object MorningReadPolicy {
         // no order/login form, and a nearby enclosing product identity. Neither
         // the K/V validated nor their enclosing row may ever be a tap target.
         if(validated.any { it.password || it.sensitive } || protection(validated)!=null ||
-            validated.none { normalized(it.text).equals("Hebelprodukte",ignoreCase=true) }) return null
+            (!explicitOwnerTarget && validated.none { normalized(it.text).equals("Hebelprodukte",ignoreCase=true) })) return null
         val visible=validated.filterNot { it.editable }.flatMap { n ->
             ids.findAll(n.text.uppercase()).map { it.value }.toList()
         }.toSet()
@@ -471,6 +476,18 @@ internal object MorningReadPolicy {
             !searchLabel(it) && !normalized(it).equals("Gold",true)
         }) return null
         return action
+    }
+    /** Exact owner ISIN lookup can open any identified product, without changing Gold import rules. */
+    private fun ownerProductTitle(value: String, target: String): Boolean {
+        val label = normalized(value.replace(target, "", ignoreCase=true)).trim(' ', '|', ':')
+        return label.length in 3..800 && Regex("(?iu)\\p{L}{3,}").containsMatchIn(label) &&
+            label.lowercase() !in setOf("isin", "produkt", "übersicht", "overview", "kursdaten", "produktdetails", "hebelprodukte", "top ergebnisse")
+    }
+    fun ownerProductDecision(nodes: List<Node>, target: String, keyboardReady: Boolean = true): Action {
+        if (ConnectionErrorPolicy.detected(nodes.flatMap { listOf(it.text, it.description) }))
+            return Action(Kind.BLOCK, code="CONNECTION_ERROR")
+        if (detailLauncherIndex(nodes, target, explicitOwnerTarget=true) != null) return Action(Kind.READ)
+        return detailDecision(nodes, target, false, keyboardReady)
     }
     fun detailDecision(nodes: List<Node>, target: String, importedListRun: Boolean,
                        keyboardReady: Boolean = true, resultOpened: Boolean = true, lookupSymbol: (String) -> String? = { null }): Action {

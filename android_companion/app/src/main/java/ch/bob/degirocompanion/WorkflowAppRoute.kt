@@ -54,7 +54,7 @@ internal object WorkflowAppRoute {
         val text = LocalWorkflow.normalize(goal).removeSuffix(".")
         if (text in setOf("degiro entsperren", "degiro anmelden", "bei degiro anmelden",
                 "melde mich bei degiro an", "degiro mit gespeicherter pin öffnen",
-                "gespeicherte degiro-pin eingeben")) return true
+                "gespeicherte degiro-pin eingeben", "melde dich an", "melde mich an", "melde dich bei degiro an", "bei degiro einloggen")) return true
         return Regex("(?:öffne|starte) (?:die )?degiro(?:-app| app)? und (?:gib|gebe) (?:selbstständig |automatisch )?(?:das passwort|die (?:gespeicherte |lokale )?pin) ein(?: zum öffnen der app)?").matches(text)
     }
     fun goldRead(goal: String): Boolean = LocalWorkflow.normalize(goal) in setOf(

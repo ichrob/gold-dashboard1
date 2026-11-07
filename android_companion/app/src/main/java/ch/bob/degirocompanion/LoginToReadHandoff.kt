@@ -11,7 +11,7 @@ internal object LoginToReadHandoff {
     var searchQuery: String? = null; private set
     var generation = 0; private set
     fun arm(now: Long, query: String? = null) {
-        require(query == null || query in setOf("Gold","Silber"))
+        require(query == null || DegiroGoal.acceptsQuery(query))
         check(armedAt < 0L) { "Anmeldung läuft bereits." }
         generation++; searchQuery = query; armedAt = now
     }

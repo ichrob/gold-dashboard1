@@ -335,7 +335,7 @@ class WorkflowDeviceTest {
         }
         assertFalse(GoldSearchRun.running) // Fixture device has no enabled product reader.
         assertNull(WorkflowService.run)
-        assertTrue(automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Lesedienst zuerst einschalten.").isNotEmpty())
+        assertTrue(automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Unter Einrichtung den Lesedienst einmalig einschalten.").isNotEmpty())
         context.getSharedPreferences("workflow_auto_v1",0).edit().clear().commit()
     }
     @Test fun ownerLoginRequestUsesLocalPinRouteAndShowsMissingReaderInsteadOfAiRejection() {
@@ -344,6 +344,9 @@ class WorkflowDeviceTest {
     }
     @Test fun silverSearchRoutesToNativeSequenceWithoutStartingGoldImport() {
         nativeRequestWithoutReader("Suche Silber", "Lesedienst zuerst einschalten.")
+    }
+    @Test fun bareIsinUsesNativeLoginPrerequisitesWithoutAi() {
+        nativeRequestWithoutReader("DE000PM96QY2", "Lesedienst zuerst einschalten.")
     }
     private fun nativeRequestWithoutReader(request: String, expected: String) {
         context.getSharedPreferences("workflow_auto_v1",0).edit()
@@ -366,6 +369,7 @@ class WorkflowDeviceTest {
             }
             main {
                 assertFalse(reader!!.intent.hasExtra(ProductReadActivity.EXTRA_CAPABILITY))
+                assertFalse(reader.intent.hasExtra(ProductReadActivity.EXTRA_GOAL_QUERY))
                 val actions = ProductReadActivity::class.java.getDeclaredField("capabilityActions").apply { isAccessible = true }.get(reader) as Map<*,*>
                 assertTrue(actions.keys.containsAll(WorkflowAppRoute.capabilities.map { it.title }))
                 assertNull(WorkflowService.run)
