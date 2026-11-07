@@ -5,7 +5,7 @@ import java.util.Locale
 /** User-authored local plans only. Screen/OCR/file contents never enter this parser. */
 internal enum class WorkflowAction { CLICK, WRITE, WAIT }
 internal data class WorkflowStep(val action: WorkflowAction, val target: String, val value: String = "", val expected: String = "")
-internal data class WorkflowNode(val label: String, val id: String, val editable: Boolean, val clickable: Boolean, val password: Boolean = false)
+internal data class WorkflowNode(val label: String, val id: String, val editable: Boolean, val clickable: Boolean, val password: Boolean = false, val inputValue: String? = null)
 internal data class WorkflowFrame(val app: String, val window: Int, val nodes: List<WorkflowNode>) {
     fun contains(text: String) = nodes.any { LocalWorkflow.normalize(it.label) == LocalWorkflow.normalize(text) }
 }
@@ -88,7 +88,7 @@ internal class WorkflowRun(val app: String, val steps: List<WorkflowStep>, val s
                 WorkflowAction.WRITE -> {
                     val candidates = frame.nodes.withIndex().filter { it.value.editable &&
                         if (expectedId.isNotBlank()) it.value.id == expectedId else it.index == expectedIndex && frame.window == baseline?.window }
-                    candidates.singleOrNull()?.value?.label == step.value
+                    candidates.singleOrNull()?.value?.inputValue == step.value
                 }
                 WorkflowAction.WAIT -> frame.contains(step.target)
             }
