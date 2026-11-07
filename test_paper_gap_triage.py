@@ -135,8 +135,7 @@ class PaperGapTriageTests(unittest.TestCase):
         self.assertEqual(complete["sampledDistinctGapInstants"], 0)
         self.assertTrue(complete["noRecentGapEventsObserved"])
         self.assertFalse(complete["fullHistoricalGapCoverageVerified"])
-        self.assertFalse(complete["profitOrLossVerified"] if
-                         "profitOrLossVerified" in complete else False)
+        self.assertFalse(complete["realOrders"])
 
         # No case detail, partial account coverage or malformed source must
         # remain unavailable: empty lists alone never prove full history.
