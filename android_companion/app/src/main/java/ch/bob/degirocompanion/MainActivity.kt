@@ -279,6 +279,11 @@ class MainActivity : Activity() {
             }
         }
         demoResult = label("Demo bereit. Ein UIAutomator-Test kann Eingaben und Klicks simulieren.", additional)
+        button("DEMO: KAUF / VERKAUF nur in Testmaske", additional) {
+            // Isolated, non-exported activity with synthetic buttons only.
+            // Never open or automate DEGIRO order screens.
+            startActivity(Intent(this, SyntheticOrderSideActivity::class.java))
+        }
 
         label("SAMSUNG-FERNKOPPLUNG – freiwillige, zeitlich begrenzte Übergabe. Keine dauerhafte Fernsteuerung.")
         remoteStatus = label("Nicht gekoppelt. Kein Fernauftrag ist zulässig. Alle vorgeschlagenen Aktionen brauchen einen eigenen Tastendruck.")
