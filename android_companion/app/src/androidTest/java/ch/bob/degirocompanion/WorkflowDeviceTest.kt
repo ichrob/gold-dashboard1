@@ -164,7 +164,8 @@ class WorkflowDeviceTest {
                 assertEquals(1,WorkflowService.run!!.index)
             } else {
                 val fieldNode = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
-                assertEquals(if (resultImage) "" else "Silber 123,45", fieldNode.text.toString())
+                if (resultImage) assertTrue("Click must leave the search field empty", fieldNode.isShowingHintText)
+                else assertEquals("Silber 123,45", fieldNode.text.toString())
             }
         } finally {
             main { activity.finish() }; file.delete()
