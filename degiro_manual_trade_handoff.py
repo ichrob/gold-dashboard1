@@ -158,6 +158,8 @@ def sell_handoff(snapshot, quote, *, exit_reason, quantity=None, now=None):
     quantity = held if quantity is None else quantity
     if type(quantity) is not int or not 1 <= quantity <= held:
         reasons.append("Verkaufsmenge überschreitet bestätigten Bestand")
+    elif quantity != held:
+        reasons.append("Teilverkauf noch nicht durch das bestehende Ausführungsjournal abbildbar")
     if not product or quote.get("isin") != product.get("isin") or quote.get("currency") != "EUR":
         reasons.append("Kurs gehört nicht zum bestätigten Produkt")
     bid = quote.get("bidEUR")
