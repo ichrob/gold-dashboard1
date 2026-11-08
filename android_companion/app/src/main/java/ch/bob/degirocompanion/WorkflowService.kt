@@ -233,7 +233,7 @@ class WorkflowService : AccessibilityService() {
         LocalWorkflow.parse(recipeGoal, ownerLimits.maxSteps)?.let { requested ->
             val approached = WorkflowApproach.prepare(requested, frame, WorkflowLibrary.verifiedRoutes(this, selected))
             if (approached != null && approached.size > requested.size) {
-                run = WorkflowRun(selected, approached, SystemClock.elapsedRealtime()); healthSource = "LOCAL"
+                run = WorkflowRun(selected, approached, SystemClock.elapsedRealtime(), ownerLimits); healthSource = "LOCAL"
                 message = "Geprüften Weg zur Zielansicht ausführen · danach deinen Auftrag"
                 return
             }
