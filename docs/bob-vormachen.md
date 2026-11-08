@@ -17,3 +17,7 @@ Grenzen: zwölf Schritte, drei Minuten, nur die ausgewählte App. Bei unvollstä
 Auf Bobs Hauptseite gibt es **Aufzeichnung beenden / ansehen**. Dieser Knopf beendet eine noch laufende Aufnahme und öffnet den letzten lokalen Entwurf erneut. Der Entwurf bleibt auch nach Schließen des Fensters und einem App-Neustart erhalten. Er wird erst nach erfolgreichem Speichern oder beim Start einer neuen Aufnahme ersetzt.
 
 Bei null erkannten Schritten erscheint eine Erklärung statt eines leeren oder fehlenden Fensters. Eine geschützte Ansicht, ein beendeter Dienst oder eine unvollständige Aufnahme darf nicht als erfolgreicher Lernvorgang gelten. Die gespeicherten Entwürfe sind lokal und noch nicht als erfolgreich geprüfte Abläufe freigegeben.
+
+## Umfangreiche Ansichten
+
+„Bildschirm zu komplex“ bezog sich auf Android-Bildschirmelemente, nicht auf die Zahl vorgemachter Schritte. Die frühere Grenze lag bei 400 gelesenen Elementen, 100 direkten Kindern und 30 Ebenen. Ein gemeinsamer, nicht rekursiver Leser unterstützt nun bis zu 4096 Elemente, 1024 direkte Kinder und 80 Ebenen. Die ganze Ansicht muss lesbar bleiben; bei Überschreitung oder einem während des Lesens verschwundenen Kind wird kein Teilbaum als sichere Grundlage für Klicks verwendet. Die gleichen Grenzen gelten für die Prüfung von Vormach-Ereignissen und Screenshots. Fehlermeldungen nennen jetzt den konkreten Grund. Die Aufnahmegrenze von zwölf Schritten bleibt unverändert.

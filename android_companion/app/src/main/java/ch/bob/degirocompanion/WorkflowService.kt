@@ -81,16 +81,9 @@ class WorkflowService : AccessibilityService() {
                 handler.postDelayed(this, 500); return
             }
             if (root != null) {
-                val refs = mutableListOf<AccessibilityNodeInfo>()
-                var truncated = false
-                var visited = 0
-                fun visit(n: AccessibilityNodeInfo, depth: Int) {
-                    if (++visited > 400 || depth > 30 || n.childCount > 100) { truncated = true; return }
-                    if (n.isVisibleToUser) refs.add(n)
-                    for (i in 0 until n.childCount.coerceAtMost(100)) n.getChild(i)?.let { visit(it, depth + 1) }
-                }
-                visit(root, 0)
-                if (truncated) { finish("Bildschirm zu komplex: keine eindeutige Prüfung möglich"); return }
+                val tree = readTree(root)
+                if (!tree.complete) { finish("Bildschirm nicht vollständig lesbar: " + WorkflowTree.explanation(tree.error)); return }
+                val refs = tree.nodes.filter { it.isVisibleToUser }
                 val frame = WorkflowFrame(root.packageName?.toString().orEmpty(), root.windowId, refs.map {
                     WorkflowNode(it.text?.toString()?.takeIf { text -> text.isNotBlank() }?.take(500) ?: it.hintText?.toString()?.take(500) ?: it.contentDescription?.toString()?.take(500).orEmpty(),
                         it.viewIdResourceName.orEmpty(), it.isEditable && it.isEnabled, it.isClickable && it.isEnabled, it.isPassword, if (it.isEditable) { if (it.isShowingHintText) "" else it.text?.toString().orEmpty() } else null, selected=it.isSelected || it.isChecked)
@@ -348,15 +341,19 @@ class WorkflowService : AccessibilityService() {
         val root = rootInActiveWindow ?: return false
         if (root.packageName?.toString() != frame.app || root.windowId != frame.window ||
             (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return false
-        var count = 0
-        fun safe(n: AccessibilityNodeInfo, depth: Int): Boolean {
-            if (++count > 400 || depth > 30 || n.childCount > 100 || n.isPassword) return false
-            val label = n.text?.toString().orEmpty() + " " + n.contentDescription?.toString().orEmpty()
-            if (LocalWorkflow.protected(WorkflowFrame(frame.app, frame.window, listOf(WorkflowNode(label, "", false, false))))) return false
-            return (0 until n.childCount).all { n.getChild(it)?.let { child -> safe(child, depth + 1) } ?: false }
-        }
-        return safe(root, 0)
+        return safeTree(root, frame.app, frame.window)
     }
+    private fun readTree(root: AccessibilityNodeInfo) = WorkflowTree.read(root,
+        childCount = { it.childCount }, child = { node, index -> node.getChild(index) })
+    private fun safeTree(root: AccessibilityNodeInfo, app: String, window: Int): Boolean {
+        val tree = readTree(root)
+        if (!tree.complete) return false
+        return tree.nodes.all { node ->
+            val text = node.text?.toString().orEmpty() + " " + node.contentDescription?.toString().orEmpty() + " " + node.hintText?.toString().orEmpty()
+            !node.isPassword && !LocalWorkflow.protected(WorkflowFrame(app,window,listOf(WorkflowNode(text,"",false,false))))
+        }
+    }
+
     private fun captureSymbol(frame: WorkflowFrame, bounds: List<SymbolBox>, target: String) {
         val learned = WorkflowSymbols.find(this, frame.app, target)
         if (learned == null) { finish("Symbol nicht mehr gespeichert; bitte erneut erklären"); return }
@@ -405,14 +402,7 @@ class WorkflowService : AccessibilityService() {
             val root = rootInActiveWindow ?: return false
             if (root.packageName?.toString() != app || root.windowId != window ||
                 (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) return false
-            var checked = 0
-            fun safe(n: AccessibilityNodeInfo, depth: Int): Boolean {
-                if (++checked > 400 || depth > 30 || n.childCount > 100 || n.isPassword) return false
-                val text = n.text?.toString().orEmpty() + " " + n.contentDescription?.toString().orEmpty()
-                if (LocalWorkflow.protected(WorkflowFrame(app, window, listOf(WorkflowNode(text, "", false, false))))) return false
-                return (0 until n.childCount).all { i -> n.getChild(i)?.let { safe(it, depth + 1) } ?: false }
-            }
-            return safe(root, 0)
+            return safeTree(root, app, window)
         }
         if (!currentSafe()) { message = "Screenshot abgebrochen: Ansicht nicht mehr eindeutig"; return }
         takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {

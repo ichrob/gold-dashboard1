@@ -205,6 +205,34 @@ class WorkflowDeviceTest {
         assertTrue(WorkflowSymbols.forget(context, app, "Lupe"))
         assertNull(WorkflowSymbols.plan(context, app, "Öffne Lupe"))
     }
+    @Test fun largeScreenRecordsOwnerClicksAndTextBeyondOldTreeLimits() {
+        main { assertTrue(WorkflowService.instance!!.beginDemonstration(app)) }
+        context.startActivity(Intent().setClassName(app,app+".MainActivity").putExtra("mode","large")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        await("Large screen was rejected before owner could demonstrate") {
+            WorkflowService.observation?.nodes?.size?.let { it > 400 } == true
+        }
+        val button = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Suche").single()
+        val bounds = android.graphics.Rect(); button.getBoundsInScreen(bounds)
+        shell("input tap ${bounds.centerX()} ${bounds.centerY()}")
+        await("Large-screen click did not open search") { WorkflowService.observation?.nodes?.any { it.editable } == true }
+        val field = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app+":id/search_src_text").single()
+        field.getBoundsInScreen(bounds)
+        shell("input tap ${bounds.centerX()} ${bounds.centerY()}")
+        shell("input text Silber")
+        SystemClock.sleep(700)
+        main { WorkflowService.endDemonstration() }
+        assertEquals("Large-screen demonstration lost input: " + WorkflowService.message, "Silber", WorkflowService.demonstrationDraft!!.second.last().value)
+        assertEquals(2,WorkflowService.demonstrationDraft!!.second.size)
+        assertEquals("",WorkflowService.demonstrationError)
+        assertNull(WorkflowService.run)
+        main { WorkflowDraftStore.clear(context) }
+    }
+    @Test fun deepScreenAllowsVerifiedSearchWithoutSkippingContainers() {
+        launch("deep")
+        verified()
+        assertEquals("Gold",automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app+":id/search_src_text").single().text.toString())
+    }
     @Test fun returningToBobRestoresDraftAndCanReopenDismissedSummary() {
         context.getSharedPreferences("workflow_auto_v1",0).edit().putString("lastApp",app).commit()
         val steps = listOf(WorkflowStep(WorkflowAction.CLICK,"Suche",opensSearch=true),
