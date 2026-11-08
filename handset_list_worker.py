@@ -290,6 +290,7 @@ def _process(payload,at,*,progress=None,save_progress=None):
     import evaluator_runtime
     images=[]
     prepared=[None]*len(payload['images'])
+    remote_sources=[False]*len(payload['images'])
     saved={} if not isinstance(progress,dict) or len(json.dumps(progress))>120000 else dict(progress)
     if any('appText' in image or 'localOcr' in image for image in payload['images']):
         # Prefer paired on-device reading over heavyweight server native OCR.
@@ -309,19 +310,30 @@ def _process(payload,at,*,progress=None,save_progress=None):
         key=image_work_key(image,enhanced)
         candidate=saved.get(str(index))
         cached=None
-        if isinstance(candidate,dict) and set(candidate)=={'key','passes'} and candidate['key']==key:
+        if (isinstance(candidate,dict) and set(candidate) in ({'key','passes'},{'key','passes','source'})
+                and candidate['key']==key and candidate.get('source','native') in ('native','remote')):
             cached=sanitize_native_passes(candidate['passes'])
         if cached is not None:
             images.append(cached)
+            remote_sources[index]=candidate.get('source')=='remote'
             continue
         try:
             child=evaluator_runtime.run([sys.executable,__file__,'--ocr']+
                 (['--enhanced'] if enhanced else []),priority=2,runner=guarded_ocr_run,
                 input=json.dumps([image]),text=True,capture_output=True,timeout=35,check=True,env=env,close_fds=True)
+            if len(child.stdout)>100000:raise ValueError('OCR output limit')
+            recognized=json.loads(child.stdout)
+        except (OcrMemoryDeferred,MemoryError):
+            # Disabled by default: only a proven local memory blockage qualifies
+            # for one separately authenticated offload; never a trade approval.
+            from remote_ocr_fallback import recognize as remote_recognize
+            try:recognized=remote_recognize(image,enhanced)
+            except Exception:recognized=None
+            if recognized is None:
+                raise OcrMemoryDeferred('Local OCR memory blocked; remote unavailable') from None
+            remote_sources[index]=True
         except subprocess.CalledProcessError as exc:
             raise OcrChildError('Isolated image recognition failed') from exc
-        if len(child.stdout)>100000:raise ValueError('OCR output limit')
-        recognized=json.loads(child.stdout)
         if not isinstance(recognized,list) or len(recognized)!=1:raise ValueError('OCR image output')
         # Keep the original output for this invocation's existing final parser;
         # checkpoint only the whitelisted, genuinely repeated product rows.
@@ -329,12 +341,14 @@ def _process(payload,at,*,progress=None,save_progress=None):
         if save_progress is not None:
             clean=sanitize_native_passes(recognized[0])
             if clean is not None:
-                saved[str(index)]={'key':key,'passes':clean}
+                saved[str(index)]={'key':key,'passes':clean,
+                                   'source':'remote' if remote_sources[index] else 'native'}
                 if len(saved)<=4 and len(json.dumps(saved))<=120000:save_progress(saved)
     try:
         result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':images,'at':at,
             'appSources':[p is not None and 'appText' in image for p,image in zip(prepared,payload['images'])],
-            'localSources':[p is not None and 'localOcr' in image for p,image in zip(prepared,payload['images'])]}),text=True,capture_output=True,timeout=20,check=True)
+            'localSources':[p is not None and 'localOcr' in image for p,image in zip(prepared,payload['images'])],
+            'remoteSources':remote_sources}),text=True,capture_output=True,timeout=20,check=True)
     except subprocess.CalledProcessError as exc:
         raise ListVerificationError('Ten-row list verification failed') from exc
     return json.loads(result.stdout)
