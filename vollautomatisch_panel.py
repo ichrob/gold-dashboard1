@@ -128,7 +128,7 @@ PANEL = r"""
         '2. Produkt/Risiko: vorhandenes Ranking mit strenger Ordervorprüfung.',
         '3. DEGIRO: Ordervorschlag nur manuell prüfen; keine automatische Order.',
         '4. Position: Überwachung nur nach echtem bestätigtem Kaufbeleg.'
-      ].join('\\n');
+      ].join('\n');
     }catch(_){
       brokerStatus.textContent='Aktueller Brokerstatus nicht abrufbar. Keine automatische Orderfreigabe.';
       if(brokerStages)brokerStages.textContent='Vierstufenstatus nicht bestätigt; keine Ausführung zulässig.';
