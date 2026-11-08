@@ -83,8 +83,8 @@
   const section=document.createElement('section');section.id='bobManualDegiroHandoff';section.className='card';
   const heading=document.createElement('h4');heading.textContent='DEGIRO · manuelle Handelsübergabe';section.append(heading);
   function line(text){const p=document.createElement('p');p.textContent=text;section.append(p);}
-  function copyButton(label,value){
-   const b=document.createElement('button');b.type='button';b.textContent=label;section.append(b);
+  function copyButton(label,value,parent=section){
+   const b=document.createElement('button');b.type='button';b.textContent=label;parent.append(b);
    b.onclick=async()=>{try{
      if(!navigator.clipboard?.writeText)throw Error('not available');
      await navigator.clipboard.writeText(String(value));b.textContent='✓ Kopiert';
@@ -104,8 +104,14 @@
        !Number.isFinite(price)||price<=0||!['LONG','SHORT'].includes(dir)){
      result.textContent='ISIN, Richtung, ganze Stückzahl und Produktpreis im Formular vervollständigen. Keine Handelsfreigabe.';return;
     }
-    result.textContent='Entwurf: '+isin+' · '+dir+' · '+qty+' Stück · '+price+
+    result.replaceChildren();
+    const text=document.createElement('p');
+    text.textContent='Entwurf: '+isin+' · '+dir+' · '+qty+' Stück · '+price+
      ' EUR (unbestätigt, kein aktueller Brief-/Ausführungskurs). Selbst bei DEGIRO überprüfen.';
+    result.append(text);
+    copyButton('ISIN kopieren',isin,result);
+    copyButton('Stückzahl kopieren',qty,result);
+    copyButton('Produktpreis kopieren · unbestätigt',price,result);
    };
    d.append(summary,b,result);section.append(d,link);return section;
   }
