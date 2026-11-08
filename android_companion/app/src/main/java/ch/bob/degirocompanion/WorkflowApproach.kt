@@ -10,7 +10,7 @@ internal object WorkflowApproach {
             route.indices.filter { LocalWorkflow.normalize(route[it].target) == LocalWorkflow.normalize(target.target) }.flatMap { end ->
                 (0 until end).mapNotNull { start ->
                     val prefix = route.subList(start, end)
-                    if (prefix.all { it.action == WorkflowAction.CLICK && !it.opensSearch && !it.selectsTab && it.expected.isNotBlank() } &&
+                    if (prefix.all { it.action == WorkflowAction.CLICK && (it.opensSearch || it.selectsTab || it.expected.isNotBlank()) } &&
                         LocalWorkflow.target(prefix.first(), frame) != null && prefix.size + steps.size <= 12)
                         prefix + steps else null
                 }

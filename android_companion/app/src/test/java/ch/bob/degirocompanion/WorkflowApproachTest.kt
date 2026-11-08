@@ -10,6 +10,11 @@ class WorkflowApproachTest {
         assertNull(WorkflowApproach.prepare(listOf(target),frame,emptyList()))
         assertEquals(listOf(open),WorkflowApproach.prepare(listOf(open),frame,emptyList()))
     }
+    @Test fun verifiedTabNavigationCanPrecedeTheRequestedTarget() {
+        val tab = WorkflowStep(WorkflowAction.CLICK,"Favoriten",selectsTab=true)
+        val page = frame.copy(nodes=listOf(WorkflowNode("Favoriten","tab",false,true)))
+        assertEquals(listOf(tab,target),WorkflowApproach.prepare(listOf(target),page,listOf(listOf(tab,target))))
+    }
     @Test fun neverReplaysUnrelatedValuesOrChoosesAmbiguousRoute() {
         val write = WorkflowStep(WorkflowAction.WRITE,"Suchfeld","Gold")
         assertNull(WorkflowApproach.prepare(listOf(target),frame,listOf(listOf(open,write,target))))
