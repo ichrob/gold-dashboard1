@@ -108,8 +108,10 @@ class DegiroManualHandoffTests(unittest.TestCase):
         self.assertEqual(ticket["side"], "SELL")
         self.assertFalse(ticket["orderSubmitted"])
         self.assertFalse(ticket["executionConfirmed"])
-        self.assertEqual(sell_handoff(position(), quote, quantity=3,
-                            exit_reason="trend-reversal", now=NOW)["quantity"], 3)
+        partial=sell_handoff(position(), quote, quantity=3,
+                             exit_reason="trend-reversal", now=NOW)
+        self.assertEqual(partial["state"], "BLOCKED")
+        self.assertIn("Teilverkäufe", partial["reasons"][0])
         for changes in (dict(quote, quoteAt=(NOW-timedelta(seconds=91)).isoformat()),
                         dict(quote, isin="DE000FG4JXV1"),
                         dict(quote, quoteKind="MODEL"),
