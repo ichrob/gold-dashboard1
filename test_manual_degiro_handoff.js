@@ -7,6 +7,7 @@ assert(start>0 && end>start,'Manual helper must appear before workflow renderer'
 class Element {
  constructor(tag){this.tagName=tag;this.children=[];this.textContent='';this.onclick=null;this.href='';}
  append(...parts){this.children.push(...parts);}
+ replaceChildren(...parts){this.children=[...parts];this.textContent='';}
 }
 const fields={isin:'DE000FG4JXV7',quantity:'5',entry:'8.75',direction:'LONG'};
 const ctx={
@@ -25,6 +26,8 @@ assert(!view.children.some(x=>x.textContent==='Order platzieren'),'No submit-ord
 const draft=view.children.find(x=>x.tagName==='details');
 draft.children.find(x=>x.tagName==='button').onclick();
 assert.match(flatten(draft),/Nicht|unbestätigt/);
+assert.match(flatten(draft),/ISIN kopieren/);
+assert.match(flatten(draft),/Stückzahl kopieren/);
 let trade={snapshot:{dir:'SHORT',product:{isin:'DE000FG4JXV7',quantity:12,currency:'EUR'},
  purchase:{transactionId:'confirmed-1',at:'2026-11-09T14:00:00Z'}}};
 view=render({active:trade,validPlan:true},{available:true,stop:10.11,currency:'EUR'});
