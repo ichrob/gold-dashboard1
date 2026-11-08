@@ -138,6 +138,7 @@ class WorkflowActivity : Activity() {
             { it.sessionMinutes }, { old, value -> old.copy(sessionMinutes = value) })
         ownerNumberSetting("Wartezeit je Schritt", 10, WorkflowOwnerLimits.MAX_STEP_TIMEOUT_SECONDS, "Sekunden",
             { it.stepTimeoutSeconds }, { old, value -> old.copy(stepTimeoutSeconds = value) })
+        button(settingsPanel, "Hochschutzregeln verwalten") { showSecurityRules() }
         button(settingsPanel, "Bedienungshilfe einrichten") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         cloud = CheckBox(this).apply { text = "Bei Bedarf KI automatisch nutzen · einmal je App freigeben"; settingsPanel.addView(this) }
         cloud.setOnCheckedChangeListener { _, checked ->
@@ -189,6 +190,64 @@ class WorkflowActivity : Activity() {
         revisionBase = state?.getString("draftRevision")?.let { LocalWorkflow.parse(it, WorkflowOwnerSettings.load(this).maxSteps) }
         state?.getString("draftImage")?.let { readImage(Uri.parse(it), true) }
         renderHistory()
+    }
+
+    private fun showSecurityRules() {
+        panelDialog?.dismiss()
+        val current = WorkflowSecuritySettings.load(this)
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 12, 24, 12)
+        }
+        fun explain(message: String) {
+            layout.addView(TextView(this).apply { text = message; textSize = 16f; setPadding(0, 8, 0, 12) })
+        }
+        explain("Du bestimmst die zusätzlichen Hochschutz-Einstellungen für Bobs allgemeine App-Bedienung.")
+        val readOnly = CheckBox(this).apply {
+            text = "Allgemeine App-Aufträge nur lesen · keine automatischen Klicks oder Eingaben"
+            isChecked = current.readOnlyWorkflows; layout.addView(this)
+        }
+        val offline = CheckBox(this).apply {
+            text = "Externe KI-Hilfe für die allgemeine App-Bedienung abschalten · ausschließlich lokal"
+            isChecked = current.offlineAiOnly; layout.addView(this)
+        }
+        explain("Immer geschützt: STOPP, Bildschirm- und PIN-Sperre, Passwörter, Kontodaten, Order-/Zahlungssperre und eindeutige Zielprüfung. Diese Schalter sind keine Freigabe für Echtgeldhandel oder geschützte Aktionen.")
+        val revoke = Button(this).apply {
+            text = "Alle bisherigen KI-App-Freigaben widerrufen"
+            isAllCaps = false; layout.addView(this)
+        }
+        val dialog = AlertDialog.Builder(this).setTitle("Hochschutz · Besitzerverwaltung")
+            .setView(ScrollView(this).apply { addView(layout) })
+            .setPositiveButton("Speichern", null)
+            .setNegativeButton("Zurück", null).create()
+        panelDialog = dialog
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val next = WorkflowSecurityPreferences(readOnly.isChecked, offline.isChecked)
+                if (WorkflowSecuritySettings.save(this, next)) {
+                    ownerOverride()
+                    updateCloud()
+                    status.text = "Hochschutz-Einstellungen gespeichert. Bestehende Aufträge gestoppt."
+                    dialog.dismiss()
+                } else status.text = "Hochschutz-Einstellungen konnten nicht gespeichert werden"
+            }
+            revoke.setOnClickListener {
+                AlertDialog.Builder(this).setTitle("Alle KI-Freigaben widerrufen?")
+                    .setMessage("Nur die ausdrücklichen Freigaben für externe KI bei der allgemeinen App-Bedienung werden entfernt. Gespeicherte Abläufe und Hochschutz bleiben erhalten.")
+                    .setPositiveButton("Widerrufen") { _, _ ->
+                        val editor = autoPrefs.edit()
+                        autoPrefs.all.keys.filter { it.startsWith("cloud:" + WorkflowAiPolicy.CONSENT + ":") }
+                            .forEach { editor.remove(it) }
+                        if (editor.commit()) {
+                            ownerOverride()
+                            updateCloud()
+                            status.text = "Alle KI-App-Freigaben widerrufen"
+                            dialog.dismiss()
+                        } else status.text = "Widerruf konnte nicht gespeichert werden"
+                    }.setNegativeButton("Abbrechen", null).show()
+            }
+        }
+        dialog.show()
     }
     private fun pickAttachment() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE) }, 106)
@@ -363,7 +422,7 @@ class WorkflowActivity : Activity() {
     }
     private fun updateCloud() {
         updatingCloud = true
-        cloud.isEnabled = LocalWorkflow.allowedApp(selectedApp)
+        cloud.isEnabled = LocalWorkflow.allowedApp(selectedApp) && WorkflowSecuritySettings.permitsCloud(WorkflowSecuritySettings.load(this))
         cloud.isChecked = cloud.isEnabled && autoPrefs.getBoolean("cloud:" + WorkflowAiPolicy.CONSENT + ":" + selectedApp, false)
         updatingCloud = false
     }
@@ -516,6 +575,9 @@ class WorkflowActivity : Activity() {
         else -> "Kein geprüfter Vorschlag verfügbar · nichts gestartet, kein Anbieterwechsel"
     }
     private fun checkAi() {
+        if (!WorkflowSecuritySettings.permitsCloud(WorkflowSecuritySettings.load(this))) {
+            status.text = "Besitzer-Hochschutz: Externe KI-Hilfe abgeschaltet"; return
+        }
         if (aiBusy) return
         aiBusy = true
         val token = ++aiGeneration
@@ -530,6 +592,9 @@ class WorkflowActivity : Activity() {
         }.start()
     }
     private fun propose() {
+        if (!WorkflowSecuritySettings.permitsCloud(WorkflowSecuritySettings.load(this))) {
+            status.text = "Besitzer-Hochschutz: Externe KI-Hilfe abgeschaltet"; return
+        }
         if (aiBusy) { status.text = "Eine Anfrage läuft bereits"; return }
         val app = selectedApp
         val task = goal.text.toString().trim()
