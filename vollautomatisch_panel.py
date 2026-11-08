@@ -9,6 +9,7 @@ PANEL = r"""
  <p class="small"><b>DEGIRO:</b> Bob analysiert LONG/SHORT und unterstützt deine manuelle Kauf- oder Verkaufsentscheidung. Keine API-Verbindung, keine automatische Order. Den angebotenen Preis prüfst du im DEGIRO-Orderfenster.</p>
  <p class="small"><b>Andere Broker:</b> Interactive Brokers und IG Bank Schweiz sind als zukünftige API-Routen vorbereitet. Erst offizielle Konto-/Instrumentenprüfung, dann Demo-/Paper-Tests, anschließend nur nach gesonderter Zustimmung eine mögliche Live-Anbindung.</p>
  <p id="bob-broker-route-confirmation" class="small" role="status">Automatische Brokerorders deaktiviert · keine Zugangsdaten erforderlich.</p>
+ <p id="bob-broker-four-stage" class="small" role="status" style="white-space:pre-line">Vierstufenprüfung: Signal → Produkt/Risiko → manuelle Ordervorbereitung → bestätigte Ausführung und Überwachung.</p>
  <button type="button" id="bob-broker-route-refresh">Brokermodus prüfen</button>
 </section>
 <section id="bob-self-review-panel" class="card" style="margin:12px 0;padding:15px;border:1px solid #cbd5e1;border-radius:14px;background:#fff;color:#17263a">
@@ -106,6 +107,7 @@ PANEL = r"""
     }finally{reviewButton.disabled=false;}
   });
   const brokerStatus=document.getElementById('bob-broker-route-confirmation');
+  const brokerStages=document.getElementById('bob-broker-four-stage');
   const brokerRefresh=document.getElementById('bob-broker-route-refresh');
   async function refreshBrokerStatus(){
     if(!brokerStatus||!brokerRefresh)return;
@@ -118,8 +120,18 @@ PANEL = r"""
          readiness.liveOrders!==false||readiness.paperOrders!==false||
          readiness.manualBroker?.mode!=='MANUAL_ONLY')throw Error('unexpected policy');
       brokerStatus.textContent='Bestätigt: DEGIRO nur manuell · API-Broker nicht verbunden · Paper- und Echtgeldorders deaktiviert.';
+      const stages=readiness.fourStageReadiness;
+      if(!stages||stages.realOrdersEnabled!==false||stages.quoteIsExecutable!==false||
+         stages.canOpenOrders!==false||stages.canSellOrders!==false)throw Error('missing protection');
+      if(brokerStages)brokerStages.textContent=[
+        '1. Signalanalyse: vorhanden, benötigt frische und bestätigte Daten.',
+        '2. Produkt/Risiko: vorhandenes Ranking mit strenger Ordervorprüfung.',
+        '3. DEGIRO: Ordervorschlag nur manuell prüfen; keine automatische Order.',
+        '4. Position: Überwachung nur nach echtem bestätigtem Kaufbeleg.'
+      ].join('\\n');
     }catch(_){
       brokerStatus.textContent='Aktueller Brokerstatus nicht abrufbar. Keine automatische Orderfreigabe.';
+      if(brokerStages)brokerStages.textContent='Vierstufenstatus nicht bestätigt; keine Ausführung zulässig.';
     }finally{brokerRefresh.disabled=false;}
   }
   if(brokerRefresh)brokerRefresh.addEventListener('click',refreshBrokerStatus);
