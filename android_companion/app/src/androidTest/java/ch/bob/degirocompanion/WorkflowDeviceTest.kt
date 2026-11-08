@@ -47,6 +47,7 @@ class WorkflowDeviceTest {
         shell("input keyevent KEYCODE_WAKEUP")
         shell("wm dismiss-keyguard")
         context.getSharedPreferences("local_workflows_v1",0).edit().clear().commit()
+        WorkflowDraftStore.clear(context)
         shell("settings put secure enabled_accessibility_services " + context.packageName + "/ch.bob.degirocompanion.WorkflowService")
         shell("settings put secure accessibility_enabled 1")
         await("Service did not connect") { WorkflowService.instance != null }
@@ -203,6 +204,56 @@ class WorkflowDeviceTest {
         assertEquals(0, automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").size)
         assertTrue(WorkflowSymbols.forget(context, app, "Lupe"))
         assertNull(WorkflowSymbols.plan(context, app, "Öffne Lupe"))
+    }
+    @Test fun returningToBobRestoresDraftAndCanReopenDismissedSummary() {
+        context.getSharedPreferences("workflow_auto_v1",0).edit().putString("lastApp",app).commit()
+        val steps = listOf(WorkflowStep(WorkflowAction.CLICK,"Suche",opensSearch=true),
+            WorkflowStep(WorkflowAction.WRITE,WorkflowSearch.FIELD,"Silber"))
+        main {
+            WorkflowService.demonstrationDraft = app to steps
+            WorkflowDraftStore.save(context)
+            // Simulate losing the process-local handoff before returning to Bob.
+            WorkflowService.demonstrationDraft = null
+        }
+        val activity = instrumentation.startActivitySync(Intent(context,WorkflowActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as WorkflowActivity
+        fun dialog() = WorkflowActivity::class.java.getDeclaredField("panelDialog").apply { isAccessible=true }
+            .get(activity) as android.app.AlertDialog
+        try {
+            main {
+                assertEquals(steps,WorkflowService.demonstrationDraft!!.second)
+                assertTrue(dialog().isShowing)
+                assertEquals("Speichern und testen",dialog().getButton(android.app.AlertDialog.BUTTON_POSITIVE).text.toString())
+                dialog().getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick()
+                assertNotNull(WorkflowService.demonstrationDraft)
+                WorkflowActivity::class.java.getDeclaredMethod("showRecordedDemonstration",Boolean::class.javaPrimitiveType)
+                    .apply { isAccessible=true }.invoke(activity,true)
+                assertTrue(dialog().isShowing)
+                dialog().getButton(android.app.AlertDialog.BUTTON_NEUTRAL).performClick()
+                assertNull(WorkflowService.demonstrationDraft)
+                assertFalse(WorkflowService.run?.finished == false)
+            }
+        } finally { main { activity.finish(); WorkflowDraftStore.clear(context) } }
+    }
+    @Test fun emptyRecordingExplainsWhyInsteadOfSilentlyDroppingIt() {
+        context.getSharedPreferences("workflow_auto_v1",0).edit().putString("lastApp",app).commit()
+        main {
+            WorkflowService.demonstrationDraft = app to emptyList()
+            WorkflowService.demonstrationError = "Geschützte Ansicht: Aufzeichnung beendet"
+            WorkflowDraftStore.save(context)
+        }
+        val activity = instrumentation.startActivitySync(Intent(context,WorkflowActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as WorkflowActivity
+        try {
+            main {
+                val dialog = WorkflowActivity::class.java.getDeclaredField("panelDialog").apply { isAccessible=true }.get(activity) as android.app.AlertDialog
+                assertTrue(dialog.isShowing)
+                assertTrue(dialog.findViewById<android.widget.TextView>(android.R.id.message).text.contains("Geschützte Ansicht"))
+                assertEquals("Vormachen öffnen",dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).text.toString())
+                assertNotNull(WorkflowService.demonstrationDraft)
+                assertFalse(WorkflowService.run?.finished == false)
+            }
+        } finally { main { activity.finish(); WorkflowDraftStore.clear(context) } }
     }
     @Test fun demonstrationReviewSelectsResultAndSavesThenTestsWithoutCommandEditing() {
         context.getSharedPreferences("workflow_auto_v1",0).edit().putString("lastApp",app).commit()

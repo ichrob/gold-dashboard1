@@ -33,6 +33,7 @@ class WorkflowActivity : Activity() {
     private lateinit var attachmentRemove: Button
     private var revisionBase: List<WorkflowStep>? = null
     private var panelDialog: AlertDialog? = null
+    private var shownDemonstration: Pair<String,List<WorkflowStep>>? = null
     private var expectedPrompt: WorkflowExpectedResultDialog? = null
     private var attachmentBoxes = emptyMap<String, android.graphics.Rect>()
     private var selectedApp = ""
@@ -76,6 +77,7 @@ class WorkflowActivity : Activity() {
         val menus = LinearLayout(this); root.addView(menus)
         weighted(menus, button(menus, "Bob etwas beibringen") { learningMenu() })
         weighted(menus, button(menus, "Einstellungen") { showPanel("Einstellungen", settingsPanel) })
+        button(root, "Aufzeichnung beenden / ansehen") { showRecordedDemonstration(true) }
         status = label(root, "Bereit").apply { maxLines = 2 }
         val scroll = ScrollView(this).apply { isFillViewport = true }
         history = column(); scroll.addView(history)
@@ -255,17 +257,43 @@ class WorkflowActivity : Activity() {
         super.onResume()
         if (::output.isInitialized) {
             WorkflowService.endDemonstration(); refresh()
-            WorkflowService.demonstrationDraft?.let { (app, steps) ->
-                WorkflowService.demonstrationDraft = null
-                if (app == selectedApp && steps.isNotEmpty()) {
-                    commands.setText(WorkflowAiPolicy.commands(steps)); goal.setText("")
-                    status.text = "Vorgemachter Ablauf bereit · Entwurf prüfen"
-                    if (WorkflowService.demonstrationError.isNotBlank()) {
-                        status.text = "Aufzeichnung unvollständig: " + WorkflowService.demonstrationError
-                        showPanel("Unvollständigen Ablauf prüfen", detailsPanel)
-                    } else reviewDemonstration(steps, WorkflowService.demonstrationChoices)
-                }
-            }
+            showRecordedDemonstration(false)
+        }
+    }
+    private fun showRecordedDemonstration(force: Boolean) {
+        WorkflowService.endDemonstration()
+        WorkflowDraftStore.restore(this)
+        val draft = WorkflowService.demonstrationDraft
+        if (!force && (draft == null || draft === shownDemonstration)) return
+        shownDemonstration = draft
+        panelDialog?.dismiss()
+        if (draft == null || draft.second.isEmpty()) {
+            val reason = WorkflowService.demonstrationError.ifBlank { "Bob hat keine Klicks oder Texteingaben erkannt." }
+            val text = if (draft == null) "Noch keine Aufzeichnung vorhanden. Über Bob etwas beibringen → Ablauf vormachen und lernen starten." else
+                "$reason\n\nEs wurde kein ausführbarer Schritt aufgenommen. Prüfe Bobs Auftrags-Bedienungshilfe. DEGIRO vor dem Vormachen entsperren; bei geschützten Ansichten oder unbeschrifteten Symbolen kann die Aufzeichnung abbrechen."
+            status.text = "Keine Schritte aufgezeichnet"
+            panelDialog = AlertDialog.Builder(this).setTitle("Keine Schritte aufgezeichnet").setMessage(text)
+                .setPositiveButton("Vormachen öffnen") { _, _ -> learningMenu() }.setNegativeButton("Schließen",null).create()
+            panelDialog?.show(); return
+        }
+        val (app,steps) = draft
+        if (selectedApp != app) {
+            status.text = "Aufzeichnung für ${appName(app)} vorhanden"
+            panelDialog = AlertDialog.Builder(this).setTitle("Aufzeichnung öffnen?")
+                .setMessage("Der gespeicherte Entwurf gehört zu ${appName(app)}.")
+                .setPositiveButton("Öffnen") { _, _ ->
+                    selectedApp = app; autoPrefs.edit().putString("lastApp",app).apply()
+                    updateAppLabel(); updateCloud(); showRecordedDemonstration(true)
+                }.setNegativeButton("Abbrechen",null).create()
+            panelDialog?.show(); return
+        }
+        commands.setText(WorkflowAiPolicy.commands(steps)); goal.setText("")
+        if (WorkflowService.demonstrationError.isNotBlank()) {
+            status.text = "Aufzeichnung unvollständig: " + WorkflowService.demonstrationError
+            showPanel("Unvollständigen Ablauf prüfen", detailsPanel)
+        } else {
+            status.text = "Aufzeichnung bereit · Zusammenfassung öffnen"
+            reviewDemonstration(steps, WorkflowService.demonstrationChoices)
         }
     }
     private fun refresh() {
@@ -701,7 +729,7 @@ class WorkflowActivity : Activity() {
                 addView(TextView(this@WorkflowActivity).apply { text = summary + "\n\nBob testet den Ablauf erst nach deinem Start. Ein gespeicherter Entwurf gilt noch nicht als erfolgreich gelernt." })
                 addView(title)
             }
-            val dialog = AlertDialog.Builder(this).setTitle("Weg gelernt · bereit zum Test")
+            val dialog = AlertDialog.Builder(this).setTitle("Weg aufgezeichnet · bereit zum Test")
                 .setView(ScrollView(this).apply { addView(layout) })
                 .setPositiveButton("Speichern und testen", null).setNeutralButton("Nur speichern", null)
                 .setNegativeButton("Abbrechen", null).create()
@@ -716,7 +744,7 @@ class WorkflowActivity : Activity() {
                     if (valid() == null) return
                     val data = JSONObject().put("version",1).put("app",app).put("commands",commands.text.toString())
                     if (!saved.edit().putString(key,data.toString()).commit()) { title.error = "Speichern fehlgeschlagen"; return }
-                    name.setText(key); dialog.dismiss()
+                    name.setText(key); WorkflowDraftStore.clear(this); shownDemonstration = null; dialog.dismiss()
                     status.text = "Gespeichert: $key · noch nicht erfolgreich getestet"
                     if (start) launch(false,false,key,true)
                 }

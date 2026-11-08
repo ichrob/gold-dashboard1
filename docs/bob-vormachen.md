@@ -11,3 +11,9 @@
 Eindeutige neue Texte übernimmt Bob wie bisher. Ein nach einem Suchklick eindeutig geöffnetes Suchfeld und ein nach dem Tippen ausgewähltes Favoritenregister werden jetzt direkt als überprüfbare Ergebnisse gespeichert. Mehrdeutige Texte erfordern eine Auswahl; sie werden nicht willkürlich automatisch gewählt.
 
 Grenzen: zwölf Schritte, drei Minuten, nur die ausgewählte App. Bei unvollständiger Aufzeichnung wird kein scheinbar vollständiger Ablauf angeboten. Unbeschriftete Symbole müssen über die bestehende Screenshot-Symbolfunktion erklärt werden. Keine PIN-Aufzeichnung, Orders oder Zahlungen. Aufnahme und Vorschläge bleiben lokal; keine automatische kostenpflichtige KI. Ein gespeicherter Entwurf ist kein erfolgreicher Funktionstest.
+
+## Wenn die Zusammenfassung nicht erscheint
+
+Auf Bobs Hauptseite gibt es **Aufzeichnung beenden / ansehen**. Dieser Knopf beendet eine noch laufende Aufnahme und öffnet den letzten lokalen Entwurf erneut. Der Entwurf bleibt auch nach Schließen des Fensters und einem App-Neustart erhalten. Er wird erst nach erfolgreichem Speichern oder beim Start einer neuen Aufnahme ersetzt.
+
+Bei null erkannten Schritten erscheint eine Erklärung statt eines leeren oder fehlenden Fensters. Eine geschützte Ansicht, ein beendeter Dienst oder eine unvollständige Aufnahme darf nicht als erfolgreicher Lernvorgang gelten. Die gespeicherten Entwürfe sind lokal und noch nicht als erfolgreich geprüfte Abläufe freigegeben.
