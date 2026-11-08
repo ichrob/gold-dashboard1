@@ -29,3 +29,13 @@ Unter **Einstellungen** in Bob Handy legt der Besitzer die Anzahl der Schritte (
 Diese Regler **sind keine Sicherheitsfreigaben**. Geschützte Anzeigen (PIN, Passwort, Kauf/Verkauf, Order, Zahlung usw.), Gerätesperre, ausgewählte App, manuelles STOPP, einmalige Aktion ohne unbestätigten Wiederholungsklick und KI-Freigabe pro App gelten unverändert. Die externe KI darf weiter höchstens zwölf geprüfte Navigationsschritte vorschlagen; längere Abläufe sind nur lokale Besitzerpläne bzw. vorgemachte und geprüfte Schritte. Kein allgemeines Einverständnis wird als automatische Order-, Zahlungs-, Berechtigungs- oder Datenfreigabe behandelt.
 
 Bob führt eindeutig machbare, lokal autorisierte Bedienaufträge ohne zusätzliche Bestätigung aus. Bei einer Schutzgrenze benennt er die konkrete Sperre, statt sie zu umgehen. Ein aufgezeichneter Entwurf allein belegt keine erfolgreiche Wiederholung.
+
+## Hochschutz · Besitzerverwaltung
+
+Unter **Einstellungen → Hochschutzregeln verwalten** stehen dem Besitzer zusätzliche, lokale Datenschutz- und Ausführungsoptionen zur Verfügung.
+
+- **Allgemeine App-Aufträge nur lesen**: Stoppt automatische Klick-/Schreib-Abläufe der generischen Bedienhilfe. Die manuell gestartete Aufzeichnung kann weiter beobachten, wie der Besitzer selbst tippt. Dieser Schalter gilt nicht für den gesonderten DEGIRO-Produktleser.
+- **Externe KI-Hilfe abschalten**: Verhindert die KI-Anfrage der allgemeinen Bedienhilfe auch dann, wenn die betreffende App zuvor für KI freigegeben war. Erneutes Einschalten des Schalters stellt niemals fehlende App-Freigaben her.
+- **Alle KI-App-Freigaben widerrufen**: Entfernt nach einer gesonderten Bestätigung sämtliche bisherigen Google-KI-Freigaben der allgemeinen Bedienhilfe. Gespeicherte lokale Abläufe bleiben erhalten.
+
+Änderungen werden erst über **Speichern** übernommen, gelten nur auf dem eigenen Handy und stoppen einen noch laufenden generischen Auftrag. Das Zurückschalten der zusätzlichen Einschränkungen kann niemals Passwort-/PIN-Ansichten, Echtgeldorders, Zahlungsfunktionen oder Systemberechtigungen freigeben. Jene Sperren sind unabhängig von den Besitzeroptionen und bleiben aktiv. Es gibt keine pauschale Freigabe für zukünftige sensible Einzelaktionen.
