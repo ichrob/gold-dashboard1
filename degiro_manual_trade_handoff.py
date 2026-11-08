@@ -94,7 +94,7 @@ def buy_handoff(review, now=None):
     if reasons:
         return result
     result.update(
-        isin=review["isin"], direction=review["signalDirection"], orderSide="BUY",
+        isin=review["isin"], currency="EUR", direction=review["signalDirection"], orderSide="BUY",
         orderType="LIMIT", quantity=review["quantity"],
         indicativeLimitEUR=review["limitPriceEUR"],
         quoteAt=quote_at.isoformat(),
@@ -111,16 +111,20 @@ def buy_handoff(review, now=None):
     return result
 
 
-def stop_update_handoff(snapshot, *, proposed_stop_eur, broker_confirmed_stop_eur=None, observed_bid_eur=None):
-    """Never propose a looser stop; unknown broker stop requires verification."""
+def stop_update_handoff(snapshot, *, proposed_stop_eur, broker_confirmed_stop_eur=None,
+                        observed_bid_eur=None, bid_at=None, bid_source=None, now=None):
+    """Never propose a looser stop; missing original quote/known broker stop block."""
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        raise ValueError("Prüfzeit ohne Zeitzone")
     if not isinstance(snapshot, dict):
         raise ValueError("Trade fehlt")
     product, error = _active_trade(snapshot)
     reasons = [error] if error else []
     if not number(proposed_stop_eur):
         reasons.append("Neuer Produkt-Stopp fehlt")
-    if not number(observed_bid_eur):
-        reasons.append("Produkt-Geldkurs fehlt")
+    if not number(observed_bid_eur) or not isinstance(bid_source, str) or not bid_source.strip() or _safe_time(bid_at, now) is None:
+        reasons.append("Aktueller originaler Produkt-Geldkurs mit Quellenzeit fehlt")
     elif number(proposed_stop_eur) and proposed_stop_eur >= observed_bid_eur:
         reasons.append("Neuer Stopp nicht unter beobachtetem Geldkurs")
     if not number(broker_confirmed_stop_eur):
@@ -132,6 +136,7 @@ def stop_update_handoff(snapshot, *, proposed_stop_eur, broker_confirmed_stop_eu
         result.update(
             existingStopEUR=broker_confirmed_stop_eur,
             suggestedStopEUR=proposed_stop_eur,
+            quoteAt=clock(bid_at).isoformat(), quoteSource=bid_source,
             instructions="Bestehenden DEGIRO-Stopp und offene Orders manuell prüfen. "
                 "Nur einen höheren Verkaufs-Stopp setzen. Brokerbestätigung dokumentieren.",
         )
