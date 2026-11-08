@@ -41,6 +41,14 @@ database. The pinned native OCR remains inside a network-denied child
 * Never commit or paste a Cloud Run token, screenshot or device ID. Secrets
   must be entered through the provider's secure secret manager and Render's
   environment manager. Do not put private values into GitHub Actions logs.
+* **Zero-cost lock (default)**: even if `BOB_REMOTE_OCR_ENABLED=true`, Bob
+  rejects all off-box OCR requests unless a separate variable
+  `BOB_REMOTE_OCR_COST_POLICY=metered_risk_explicitly_accepted` is deliberately
+  set. Under the owner requirement of **no additional charges**, never set
+  this cost-risk acceptance variable. This is a Bob-side remote-request lock,
+  **not** a general Google billing guarantee. Keep the Google project unlinked
+  from billing for the only current hard prevention of billable Cloud Run
+  use; in that state Cloud Run cannot run.
 * Offload is disabled by default (`BOB_REMOTE_OCR_ENABLED` absent or false).
   It requires `BOB_REMOTE_OCR_URL` at HTTPS `*.a.run.app/ocr`,
   `BOB_REMOTE_OCR_GCP_SA_JSON` stored as a protected Render secret (Google
