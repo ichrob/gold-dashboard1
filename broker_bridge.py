@@ -106,6 +106,21 @@ def route_signal(broker, direction, isin=None):
     }
 
 
+def prepare_order_review(signal, product, risk, broker="degiro", now=None):
+    """Connect existing signal/ranking data to a strict non-executing worksheet.
+
+    Never treat the result as a brokerage order or a source of live quotes.
+    Real user/account execution permissions are not known here.
+    """
+    from trade_execution_readiness import build_review
+    return build_review(signal, product, risk, broker=broker, now=now)
+
+
+def __readiness_status():
+    from trade_execution_readiness import pipeline_status
+    return pipeline_status()
+
+
 def status():
     return {
         "mode": "CONNECTION_SCAFFOLD_ONLY",
@@ -119,6 +134,7 @@ def status():
         "executionEnabled": False,
         "liveOrders": False,
         "paperOrders": False,
+        "fourStageReadiness": __readiness_status(),
         "credentialsConfigured": False,
         "brokers": [{
             "id": identifier, **spec,
