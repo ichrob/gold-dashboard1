@@ -31,9 +31,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/ocr":
             return self.respond(404, {"error": "not_found"})
         token = os.environ.get("BOB_REMOTE_OCR_TOKEN", "")
-        authorization = self.headers.get("Authorization", "")
-        if (len(token) < 32 or not hmac.compare_digest(
-                authorization, "Bearer " + token)):
+        # Cloud Run IAM already verified the short-lived ID token at the edge.
+        # An additional private key remains mandatory at this application layer.
+        key = self.headers.get("X-Bob-Ocr-Key", "")
+        if (len(token) < 32 or not hmac.compare_digest(key, token)):
             return self.respond(401, {"error": "unauthorized"})
         try:
             length = int(self.headers.get("Content-Length", "0"))
