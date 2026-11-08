@@ -324,13 +324,15 @@ def _process(payload,at,*,progress=None,save_progress=None):
             if len(child.stdout)>100000:raise ValueError('OCR output limit')
             recognized=json.loads(child.stdout)
         except (OcrMemoryDeferred,MemoryError):
-            # Disabled by default: only a proven local memory blockage qualifies
-            # for one separately authenticated offload; never a trade approval.
-            from remote_ocr_fallback import recognize as remote_recognize
+            # Preserve the exact legacy error/retry behavior while disabled.
+            # Remote offload can only run after explicit private configuration.
+            from remote_ocr_fallback import configured as remote_configured, recognize as remote_recognize
+            if not remote_configured():raise
             try:recognized=remote_recognize(image,enhanced)
-            except Exception:recognized=None
+            except Exception:
+                raise OcrMemoryDeferred('Remote OCR unavailable after local memory failure') from None
             if recognized is None:
-                raise OcrMemoryDeferred('Local OCR memory blocked; remote unavailable') from None
+                raise OcrMemoryDeferred('Remote OCR disabled after local memory failure') from None
             remote_sources[index]=True
         except subprocess.CalledProcessError as exc:
             raise OcrChildError('Isolated image recognition failed') from exc
