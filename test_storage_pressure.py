@@ -5,23 +5,32 @@ from storage_pressure import policy, delay, verified_writer_preflight
 
 class PressureTests(unittest.TestCase):
     def test_boundaries(self):
-        for size, seconds in [(0,3600),(499999999,3600),(500000000,900),(699999999,900),(700000000,300),(5000000000,300)]:
-            self.assertEqual(policy(size)['nextRunSeconds'],seconds)
+        from storage_capacity import CAUTION_BYTES, ACTION_BYTES
+        # Logical size alone never authorizes the former 5-/15-min cadence.
+        for size in (0, 499999999, 500000000, 699999999, 700000000, 5000000000):
+            self.assertEqual(policy(size)['nextRunSeconds'], 3600)
+            self.assertEqual(policy(size)['basis'], 'verified-volume-required')
+        for volume, seconds in ((0,3600),(CAUTION_BYTES-1,3600),
+                                (CAUTION_BYTES,900),(ACTION_BYTES-1,900),
+                                (ACTION_BYTES,300)):
+            self.assertEqual(policy(758593215, volume)['nextRunSeconds'], seconds)
+            self.assertEqual(policy(758593215, volume)['basis'], 'physical-render-volume')
+
     def test_unknown_and_failures_back_off(self):
+        from storage_capacity import ACTION_BYTES
         for size in (None,True,-1,'700000000'):
             self.assertEqual(policy(size)['state'],'unknown')
-        self.assertEqual(delay({'status':'deferred','pressure':policy(4500000000)}),3600)
+        self.assertEqual(policy(750000000, True)['nextRunSeconds'], 3600)
+        self.assertEqual(delay({'status':'deferred','pressure':policy(4500000000,ACTION_BYTES)}),3600)
         self.assertEqual(delay({'status':'archive-running'}),60)
-        self.assertEqual(delay({'status':'checked','pressure':policy(4500000000)}),300)
+        self.assertEqual(delay({'status':'checked','pressure':policy(4500000000,ACTION_BYTES)}),300)
 
-    def test_upgraded_volume_does_not_slow_existing_offload(self):
-        from storage_capacity import ALLOCATION_BYTES, MAX_VOLUME_BYTES
+    def test_five_gb_low_usage_never_triggers_fast_offload(self):
+        from storage_capacity import ALLOCATION_BYTES, CAUTION_BYTES
         self.assertEqual(ALLOCATION_BYTES, 5_000_000_000)
-        self.assertGreater(MAX_VOLUME_BYTES, 700_000_000)
-        self.assertEqual(policy(652_850_879)['nextRunSeconds'], 900)
-        self.assertEqual(policy(763_000_000)['nextRunSeconds'], 300)
-        # A failed cycle must back off even above the operating target.
-        self.assertEqual(delay({'status': 'failed', 'pressure': policy(763_000_000)}), 3600)
+        self.assertEqual(policy(758593215, 869167100)['nextRunSeconds'], 3600)
+        self.assertLess(869167100, CAUTION_BYTES)
+        self.assertEqual(delay({'status': 'failed', 'pressure': policy(763000000,869167100)}), 3600)
 
 
 class OffloadEvidenceGuardTests(unittest.TestCase):
@@ -59,6 +68,16 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
                  patch('render_disk_metrics.report',return_value={**volume,**change}):
                 self.assertEqual(verified_writer_preflight(object(),now=self.NOW)['status'],
                                  'fresh-volume-proof-unavailable')
+
+    def test_comfortable_volume_does_not_rewrite_old_originals(self):
+        from render_disk_metrics import RESOURCE
+        from storage_capacity import CAUTION_BYTES
+        volume={'status':'observed','resource':RESOURCE,'unit':'bytes',
+                'observedAt':self.NOW-20,'diskUsage':CAUTION_BYTES-1}
+        with patch('storage_budget.archive_status',return_value=self.proof()), \
+             patch('render_disk_metrics.report',return_value=volume):
+            self.assertEqual(verified_writer_preflight(object(),now=self.NOW)['status'],
+                             'capacity-comfortable-no-offload')
 
     def test_all_automatic_writers_exit_before_sql_without_evidence(self):
         import cold_analysis, cold_metrics, cold_observations, cold_test_evidence
