@@ -52,6 +52,16 @@ class RemoteOcrTests(unittest.TestCase):
             with self.assertRaises(remote.RemoteOcrError):
                 remote.recognize({"png": IMAGE}, opener=Mock())
 
+    def test_missing_iam_identity_never_sends_private_screenshot(self):
+        opener = Mock()
+        with self.settings(), self.assertRaises(remote.RemoteOcrError):
+            remote.recognize({"png": IMAGE}, opener=opener)
+        opener.open.assert_not_called()
+
+    def test_redirect_is_forbidden_even_with_authentication(self):
+        with self.assertRaises(remote.RemoteOcrError):
+            remote._NoRedirect().redirect_request(None,None,302,"redirect",{},"https://evil.example/ocr")
+
     def test_correlation_and_exact_pass_count(self):
         digest = hashlib.sha256(base64.b64decode(IMAGE)).hexdigest()
         body = json.dumps({"sha256": digest, "passes": ["one", "two", "three"]}).encode()
