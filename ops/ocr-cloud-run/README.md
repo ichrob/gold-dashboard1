@@ -18,8 +18,17 @@ database. The pinned native OCR remains inside a network-denied child
   money. An unauthenticated public Cloud Run URL can be abused to incur
   charges even if application-layer bearer checks reject requests. Use
   provider IAM / approved private ingress and enforce budgets/quotas; first
-  independently test authentication end-to-end. This repository does **not**
-  run `gcloud` or create paid resources.
+  independently test authentication end-to-end. In Cloud Billing create a
+  **Spend cap enforcement** budget specifically scoped to the Cloud Run
+  service in the one OCR project (NOT an alerts-only budget), plus request
+  quotas and max instances=1. Confirm the cap is supported and enforced
+  in the actual billing account before ANY production traffic. Enforcement
+  is not instantaneous: overages can still be billed, and the Cloud Run
+  cap does not cover other products such as image registries, builds, or
+  certain networking resources. Do not promise absolute zero expense.
+  See https://docs.cloud.google.com/billing/docs/how-to/budgets-spend-caps
+  and https://docs.cloud.google.com/run/docs/configuring/billing-settings .
+  This repository does **not** run `gcloud` or create paid resources.
 * The existing Render app and Google Drive connection **do not grant Google
   Cloud Run project ownership or deployment permissions**. Cloud-account
   authorization must be completed using an eligible project/connector. Cloud
