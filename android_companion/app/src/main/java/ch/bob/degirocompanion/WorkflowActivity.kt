@@ -105,7 +105,7 @@ class WorkflowActivity : Activity() {
 
         settingsPanel = column().apply { setPadding(dp(12), 0, dp(12), 0) }
         label(settingsPanel, "Regel Nummer eins: Du bestimmst. Ein neuer Start ersetzt den bisherigen Auftrag; Stopp beendet ihn.")
-        label(settingsPanel, "Besitzersteuerung · diese Ablaufgrenzen legst du selbst fest. Hochschutz, PIN-Schutz, Order- und Zahlungssperre bleiben fest aktiv.")
+        label(settingsPanel, "Besitzersteuerung: Die Schutzpunkte 2, 3, 5, 6 und 7 bleiben dauerhaft. Weitere technische Voraussetzungen sind separat erklärt.")
         fun ownerNumberSetting(title: String, min: Int, max: Int, suffix: String,
             current: (WorkflowOwnerLimits) -> Int,
             changed: (WorkflowOwnerLimits, Int) -> WorkflowOwnerLimits
@@ -154,7 +154,7 @@ class WorkflowActivity : Activity() {
         button(settingsPanel, "Kostenlosen KI-Zugang prüfen") { checkAi() }
         button(settingsPanel, "Selbsttest durchführen") { ownerOverride(); startActivity(Intent(this,WorkflowSelfTestActivity::class.java)) }
         button(settingsPanel, "Details / manuelle Schritte") { showPanel("Details / manuelle Schritte", detailsPanel) }
-        label(settingsPanel, "Keine Orders, Anmeldung oder Zahlungen. Keine automatische kostenpflichtige Ausweichlösung.")
+        label(settingsPanel, "Keine Echtgeldorders oder Zahlungen durch die allgemeine Bedienhilfe; die sichere lokale DEGIRO-Anmeldung bleibt separat verfügbar. Keine kostenpflichtige KI-Ausweichlösung.")
 
         detailsPanel = column().apply { setPadding(dp(12), 0, dp(12), 0) }
         label(detailsPanel, "Auftragsfolge · Schrittzahl unter Einstellungen festlegen")
@@ -204,7 +204,9 @@ class WorkflowActivity : Activity() {
         fun explain(message: String) {
             layout.addView(TextView(this).apply { text = message; textSize = 16f; setPadding(0, 8, 0, 12) })
         }
-        explain("Du bestimmst die zusätzlichen Hochschutz-Einstellungen für Bobs allgemeine App-Bedienung.")
+        explain("Deine fünf beibehaltenen Hochschutzpunkte:\n" + WorkflowProtectionSummary.retained.entries.joinToString("\n") { (number, description) -> "$number. $description" })
+        explain("Weitere, derzeit gültige technische Voraussetzungen:\n" + WorkflowProtectionSummary.otherConditions.entries.joinToString("\n") { (number, description) -> "$number. $description" })
+        explain("Zusätzliche Einschränkungen kannst du selbst bestimmen:")
         val readOnly = CheckBox(this).apply {
             text = "Allgemeine App-Aufträge nur lesen · keine automatischen Klicks oder Eingaben"
             isChecked = current.readOnlyWorkflows; layout.addView(this)
@@ -213,7 +215,7 @@ class WorkflowActivity : Activity() {
             text = "Externe KI-Hilfe für die allgemeine App-Bedienung abschalten · ausschließlich lokal"
             isChecked = current.offlineAiOnly; layout.addView(this)
         }
-        explain("Immer geschützt: STOPP, Bildschirm- und PIN-Sperre, Passwörter, Kontodaten, Order-/Zahlungssperre und eindeutige Zielprüfung. Diese Schalter sind keine Freigabe für Echtgeldhandel oder geschützte Aktionen.")
+        explain("Die Schalter sind keine Freigabe für echte Orders, die Umgehung von Gerätesperren oder das Senden privater Daten. STOPP bleibt jederzeit verfügbar.")
         val revoke = Button(this).apply {
             text = "Alle bisherigen KI-App-Freigaben widerrufen"
             isAllCaps = false; layout.addView(this)
