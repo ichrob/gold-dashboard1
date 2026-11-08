@@ -678,18 +678,21 @@ class WorkflowActivity : Activity() {
     private fun reviewDemonstration(draft: List<WorkflowStep>, choices: Map<Int, List<String>>) {
         val plan = draft.toMutableList()
         val app = selectedApp; val token = imageGeneration
+        fun label(step: WorkflowStep) = if (step.target.contains(":id/")) {
+            if (step.action == WorkflowAction.WRITE) "gezeigtes Eingabefeld" else "gezeigte Schaltfläche"
+        } else step.target
         fun current() = app == selectedApp && token == imageGeneration && !isDestroyed
         fun ready() {
             if (!current()) return
             commands.setText(WorkflowAiPolicy.commands(plan))
-            val proposed = plan.lastOrNull { it.action == WorkflowAction.WRITE }?.let { "${it.value} in ${it.target.substringAfterLast('/')}" }
-                ?: "Weg zu ${plan.last().target}"
+            val proposed = plan.lastOrNull { it.action == WorkflowAction.WRITE }?.let { "${it.value} eingeben" }
+                ?: "Weg zu ${label(plan.last())}"
             var suggested = proposed.take(50); var suffix = 2
             while (saved.contains(suggested)) suggested = proposed.take(50) + " (${suffix++})"
             val title = EditText(this).apply { setSingleLine(); setText(suggested); hint = "Name des Ablaufs" }
             val summary = plan.joinToString("\n") { step -> when(step.action) {
-                WorkflowAction.CLICK -> "• ${step.target} antippen"
-                WorkflowAction.WRITE -> "• ${step.value} in ${step.target.substringAfterLast('/')} eintragen"
+                WorkflowAction.CLICK -> "• ${label(step)} antippen"
+                WorkflowAction.WRITE -> "• ${step.value} in ${label(step)} eintragen"
                 WorkflowAction.WAIT -> "• Auf ${step.target} warten"
             } }
             val layout = LinearLayout(this).apply {
@@ -727,7 +730,7 @@ class WorkflowActivity : Activity() {
             if (index >= plan.size) { ready(); return }
             val step = plan[index]
             if (step.action == WorkflowAction.WRITE && step.value == "TEXT") {
-                val input = EditText(this).apply { hint = "Was soll in ${step.target} stehen?" }
+                val input = EditText(this).apply { hint = "Was soll in ${label(step)} stehen?" }
                 val dialog = AlertDialog.Builder(this).setTitle("Eingabe ergänzen").setView(input)
                     .setPositiveButton("Weiter", null).setNegativeButton("Abbrechen", null).create()
                 panelDialog = dialog
@@ -749,7 +752,7 @@ class WorkflowActivity : Activity() {
             }
             val labels = choices[index].orEmpty().filter(WorkflowComposer::validText).distinct()
             if (labels.isEmpty()) { screenshot(); return }
-            panelDialog = AlertDialog.Builder(this).setTitle("Nach ${step.target}: Woran erkenne ich das Ziel?")
+            panelDialog = AlertDialog.Builder(this).setTitle("Nach ${label(step)}: Woran erkenne ich das Ziel?")
                 .setItems(labels.toTypedArray()) { _, chosen -> if (current()) { plan[index]=step.copy(expected=labels[chosen]); resolve(index+1) } }
                 .setNeutralButton("Screenshot / Text") { _, _ -> screenshot() }
                 .setNegativeButton("Abbrechen", null).create()

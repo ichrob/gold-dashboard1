@@ -225,7 +225,7 @@ class WorkflowDeviceTest {
             main { assertTrue(dialog().getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()) }
             await("One-tap saved demonstration did not complete") { WorkflowService.run?.let { WorkflowAiPolicy.verified(it) } == true }
             assertEquals("Silber",automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app+":id/search_src_text").single().text.toString())
-            assertTrue(context.getSharedPreferences("local_workflows_v1",0).contains("Silber in search_src_text"))
+            assertTrue(context.getSharedPreferences("local_workflows_v1",0).contains("Silber eingeben"))
             assertEquals(2,WorkflowService.run!!.steps.size)
         } finally { main { activity.finish() } }
     }
