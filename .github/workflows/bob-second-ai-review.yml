@@ -1,0 +1,43 @@
+name: Bob zweite KI - kostenlose Code-Zweitprüfung
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Nummer eines offenen Bob-Pull-Requests"
+        required: true
+        type: number
+
+# No automatic/background model spending. No untrusted PR code execution.
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: bob-second-ai-peer-review
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: vars.BOB_AI_FREE_ONLY == 'confirmed-workers-free'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Free-tier and safety tests
+        run: python -m unittest -v test_ai_peer_review.py
+      - name: One Cloudflare AI request and one PR comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BOB_AI_FREE_ONLY: ${{ vars.BOB_AI_FREE_ONLY }}
+          BOB_CF_AI_ACCOUNT_ID: ${{ secrets.BOB_CF_AI_ACCOUNT_ID }}
+          BOB_CF_AI_TOKEN: ${{ secrets.BOB_CF_AI_TOKEN }}
+          BOB_PR_NUMBER: ${{ inputs.pr_number }}
+        run: python ai_peer_review.py
