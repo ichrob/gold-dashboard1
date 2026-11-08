@@ -229,6 +229,9 @@ class WorkflowDeviceTest {
                 WorkflowActivity::class.java.getDeclaredMethod("showRecordedDemonstration",Boolean::class.javaPrimitiveType)
                     .apply { isAccessible=true }.invoke(activity,true)
                 assertTrue(dialog().isShowing)
+            }
+            instrumentation.waitForIdleSync()
+            main {
                 dialog().getButton(android.app.AlertDialog.BUTTON_NEUTRAL).performClick()
                 assertNull(WorkflowService.demonstrationDraft)
                 assertFalse(WorkflowService.run?.finished == false)
