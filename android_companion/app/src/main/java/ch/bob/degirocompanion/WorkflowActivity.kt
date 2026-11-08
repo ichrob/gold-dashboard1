@@ -33,6 +33,7 @@ class WorkflowActivity : Activity() {
     private lateinit var attachmentRemove: Button
     private var revisionBase: List<WorkflowStep>? = null
     private var panelDialog: AlertDialog? = null
+    private var expectedPrompt: WorkflowExpectedResultDialog? = null
     private var attachmentBoxes = emptyMap<String, android.graphics.Rect>()
     private var selectedApp = ""
     private lateinit var cloud: CheckBox
@@ -319,6 +320,7 @@ class WorkflowActivity : Activity() {
         beginAfterDegiroLogin(intent) { service.beginAutomatic(app, task, cloud) }
     }
     private fun ownerOverride() {
+        expectedPrompt?.dismiss(); expectedPrompt = null
         aiGeneration++; imageGeneration++; aiBusy = false
         cancelFiles()
         WorkflowService.stop()
@@ -385,7 +387,7 @@ class WorkflowActivity : Activity() {
         stopProductReader()
         val app = selectedApp; val title = name.text.toString()
         beginAfterDegiroLogin(intent) {
-            if (replay && plan != null) service.beginReplay(app,plan,displayRequest)
+            if (plan != null) service.beginReplay(app,plan,displayRequest)
             else service.begin(app, plan, screenshot, plan?.let { WorkflowAiPolicy.commands(it) }.orEmpty(), title, displayRequest)
         }
     }
@@ -576,6 +578,10 @@ class WorkflowActivity : Activity() {
             }
             101 -> data?.data?.let { readImage(it) }
             106 -> data?.data?.let { readImage(it, true) }
+            107 -> data?.data?.let { uri ->
+                val prompt = expectedPrompt
+                if (prompt != null) prompt.readImage(uri) else status.text = "Ergebnisrückfrage wurde beendet. Den erhaltenen Auftrag erneut senden und Ergebnisbild auswählen."
+            }
             102 -> data?.data?.let { tree ->
                 val query = EditText(this).apply { hint = "Dateiname oder Teil davon; leer = alle JSON-Dateien" }
                 AlertDialog.Builder(this).setTitle("JSON suchen").setView(query).setPositiveButton("Suchen") { _, _ -> searchJson(tree, query.text.toString()) }.setNegativeButton("Abbrechen", null).show()
@@ -819,18 +825,12 @@ class WorkflowActivity : Activity() {
             if (resolved == null) {
                 val clickTarget = WorkflowMessage.clickTarget(text, labels, target)
                 if (clickTarget != null) {
-                    val expected = EditText(this).apply { hint = "Welcher Text soll danach erscheinen?" }
-                    val dialog = AlertDialog.Builder(this).setTitle("Ergebnis nach dem Tippen auf $clickTarget")
-                        .setView(expected).setPositiveButton("Senden", null).setNegativeButton("Abbrechen", null).create()
-                    dialog.setOnShowListener {
-                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                            if (token != imageGeneration || attachmentToken != attachmentGeneration || app != selectedApp || text != goal.text.toString().trim()) { dialog.dismiss(); return@setOnClickListener }
-                            val command = WorkflowComposer.command(WorkflowAction.CLICK, clickTarget, expected = expected.text.toString())
-                            if (command == null) expected.error = "Bitte einen eindeutigen Ergebnistext angeben"
-                            else { commands.setText(command); dialog.dismiss(); launch(false, false, text) }
-                        }
-                    }
-                    dialog.show(); return
+                    expectedPrompt?.dismiss()
+                    expectedPrompt = WorkflowExpectedResultDialog(this, clickTarget, labels,
+                        current = { token == imageGeneration && attachmentToken == attachmentGeneration && app == selectedApp && text == goal.text.toString().trim() && !isDestroyed },
+                        pickImage = { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE) }, 107) },
+                        submit = { command -> commands.setText(command); launch(false, false, text) })
+                    expectedPrompt!!.show(); return
                 }
                 status.text = "Bitte Ziel und Aktion beschreiben, z. B. Schreibe Silber in Suchfeld. Beim Tippen auch den erwarteten Ergebnistext angeben."
                 return
@@ -933,5 +933,5 @@ class WorkflowActivity : Activity() {
     }
     private fun cancelFiles() { fileCancellation?.cancel(); runCatching { fileStream?.close() }; fileStream = null }
     override fun onStop() { aiGeneration++; super.onStop() }
-    override fun onDestroy() { WorkflowLoginHandoff.clear(); aiGeneration++; imageGeneration++; attachmentGeneration++; cancelFiles(); attachmentPreview.setImageDrawable(null); attachmentBitmap = null; super.onDestroy() }
+    override fun onDestroy() { expectedPrompt?.dismiss(); expectedPrompt = null; WorkflowLoginHandoff.clear(); aiGeneration++; imageGeneration++; attachmentGeneration++; cancelFiles(); attachmentPreview.setImageDrawable(null); attachmentBitmap = null; super.onDestroy() }
 }

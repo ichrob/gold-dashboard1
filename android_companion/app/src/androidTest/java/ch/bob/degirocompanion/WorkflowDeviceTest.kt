@@ -93,11 +93,26 @@ class WorkflowDeviceTest {
         val field = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
         assertEquals("Silber 123,45", field.text.toString())
     }
+    @Test fun missingScreenshotTargetUsesVerifiedNavigationBeforeClicking() {
+        val first = WorkflowStep(WorkflowAction.CLICK,"Menü",expected="Suche")
+        val target = WorkflowStep(WorkflowAction.CLICK,"Suche",expected="Suchfeld")
+        val stored = org.json.JSONObject().put("version",1).put("app",app).put("goal","Testweg")
+            .put("verifiedAt",1).put("commands",WorkflowAiPolicy.commands(listOf(first,target)))
+        context.getSharedPreferences("local_workflows_v1",0).edit().putString("fixture-route",stored.toString()).commit()
+        main { assertTrue(WorkflowService.instance!!.beginReplay(app,listOf(target),"Drücke auf Suche")) }
+        context.startActivity(Intent().setClassName(app,app + ".MainActivity").putExtra("mode","nested")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        await("Verified approach did not reach the target") { WorkflowService.run?.let { WorkflowAiPolicy.verified(it) } == true }
+        assertEquals(2,WorkflowService.run!!.index)
+        assertEquals(1,automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").size)
+    }
     @Test fun screenshotAndTextMessageRunsThroughComposer() = screenshotMessage(
         "Suche", "Tippe auf Suche und warte auf Suchfeld\nSchreibe Silber 123,45 in Suchfeld", false)
     @Test fun screenshotPressFavoritesSendsWithoutExpectedTextDialog() = screenshotMessage(
         "Favoriten", "drücke auf Schaltfläche Favoriten", true)
-    private fun screenshotMessage(label: String, request: String, selectTab: Boolean) {
+    @Test fun expectedResultScreenshotContinuesTheOriginalComposerRequest() = screenshotMessage(
+        "Suche", "Drücke auf Suche", false, true)
+    private fun screenshotMessage(label: String, request: String, selectTab: Boolean, resultImage: Boolean = false) {
         context.getSharedPreferences("workflow_auto_v1", 0).edit().putString("lastApp", app).commit()
         val image = android.graphics.Bitmap.createBitmap(900, 300, android.graphics.Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(image)
@@ -126,13 +141,31 @@ class WorkflowDeviceTest {
                 }
                 assertTrue(send(activity.window.decorView)!!.performClick())
             }
+            if (resultImage) {
+                val prompt = field("expectedPrompt") as WorkflowExpectedResultDialog
+                val resultBitmap = android.graphics.Bitmap.createBitmap(900, 300, android.graphics.Bitmap.Config.ARGB_8888)
+                android.graphics.Canvas(resultBitmap).apply {
+                    drawColor(android.graphics.Color.WHITE)
+                    drawText("Suchfeld", 40f, 160f, android.graphics.Paint().apply { color = android.graphics.Color.BLACK; textSize = 90f; isAntiAlias = true })
+                }
+                val resultFile = java.io.File(context.cacheDir, "expected-result-fixture.png")
+                resultFile.outputStream().use { resultBitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                resultBitmap.recycle()
+                main { prompt.readImage(android.net.Uri.fromFile(resultFile)) }
+                await("Expected screenshot did not supply the result marker") { prompt.resultText == "Suchfeld" }
+                main {
+                    val dialog = WorkflowExpectedResultDialog::class.java.getDeclaredField("dialog").apply { isAccessible = true }.get(prompt) as android.app.AlertDialog
+                    dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+                }
+            }
             await("Screenshot/text request did not complete") { WorkflowService.run?.let { WorkflowAiPolicy.verified(it) } == true }
             if (selectTab) {
                 assertTrue(automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Favoriten").single().isSelected)
                 assertEquals(1,WorkflowService.run!!.index)
             } else {
                 val fieldNode = automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app + ":id/search_src_text").single()
-                assertEquals("Silber 123,45", fieldNode.text.toString())
+                if (resultImage) assertTrue("Click must leave the search field empty", fieldNode.isShowingHintText)
+                else assertEquals("Silber 123,45", fieldNode.text.toString())
             }
         } finally {
             main { activity.finish() }; file.delete()
