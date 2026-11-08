@@ -50,4 +50,11 @@ class WorkflowOwnerLimitsTest {
         assertEquals(WorkflowOwnerLimits(48, 15, 120), WorkflowOwnerLimits.bounded(1000, 1000, 1000))
         assertEquals(WorkflowOwnerLimits(1, 1, 10), WorkflowOwnerLimits.bounded(-1, -1, -1))
     }
+
+    @Test fun savedWorkflowLimitDefaultsToOneHundredAndCanBeSetByOwner() {
+        assertEquals(100, WorkflowOwnerLimits().maxSavedWorkflows)
+        assertEquals(200, WorkflowOwnerLimits.bounded(12, 3, 20, 9999).maxSavedWorkflows)
+        assertEquals(1, WorkflowOwnerLimits.bounded(12, 3, 20, -3).maxSavedWorkflows)
+        assertEquals(70, WorkflowOwnerLimits.bounded(12, 3, 20, 70).maxSavedWorkflows)
+    }
 }

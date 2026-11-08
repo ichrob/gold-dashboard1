@@ -24,7 +24,7 @@ Bei null erkannten Schritten erscheint eine Erklärung statt eines leeren oder f
 
 ## Besitzersteuerung und unveränderter Hochschutz
 
-Unter **Einstellungen** in Bob Handy legt der Besitzer die Anzahl der Schritte (1–48), die maximale Ausführungs-/Aufzeichnungsdauer (1–15 Minuten) und die Wartezeit pro Schritt (10–120 Sekunden) fest. Standard bleibt 12 Schritte / 3 Minuten / 20 Sekunden. Die Einstellung gilt für neu begonnene Sitzungen; Änderungen stoppen laufende Aufträge, damit keine alte Ausführung mit anderen Grenzen weiterläuft.
+Unter **Einstellungen** in Bob Handy legt der Besitzer die Anzahl der Schritte (1–48), die maximale Ausführungs-/Aufzeichnungsdauer (1–15 Minuten), die Wartezeit pro Schritt (10–120 Sekunden) und die maximale Zahl lokal gespeicherter Abläufe (1–200, standardmäßig 100 statt zuvor 20) fest. Standard bleibt 12 Schritte / 3 Minuten / 20 Sekunden. Die Einstellung gilt für neu begonnene Sitzungen; Änderungen stoppen laufende Aufträge, damit keine alte Ausführung mit anderen Grenzen weiterläuft.
 
 Diese Regler **sind keine Sicherheitsfreigaben**. Geschützte Anzeigen (PIN, Passwort, Kauf/Verkauf, Order, Zahlung usw.), Gerätesperre, ausgewählte App, manuelles STOPP, einmalige Aktion ohne unbestätigten Wiederholungsklick und KI-Freigabe pro App gelten unverändert. Die externe KI darf weiter höchstens zwölf geprüfte Navigationsschritte vorschlagen; längere Abläufe sind nur lokale Besitzerpläne bzw. vorgemachte und geprüfte Schritte. Kein allgemeines Einverständnis wird als automatische Order-, Zahlungs-, Berechtigungs- oder Datenfreigabe behandelt.
 

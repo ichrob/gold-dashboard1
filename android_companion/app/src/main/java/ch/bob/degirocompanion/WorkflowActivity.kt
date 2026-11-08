@@ -138,6 +138,8 @@ class WorkflowActivity : Activity() {
             { it.sessionMinutes }, { old, value -> old.copy(sessionMinutes = value) })
         ownerNumberSetting("Wartezeit je Schritt", 10, WorkflowOwnerLimits.MAX_STEP_TIMEOUT_SECONDS, "Sekunden",
             { it.stepTimeoutSeconds }, { old, value -> old.copy(stepTimeoutSeconds = value) })
+        ownerNumberSetting("Maximal gespeicherte Abläufe", 1, WorkflowOwnerLimits.MAX_SAVED_WORKFLOWS, "Abläufe",
+            { it.maxSavedWorkflows }, { old, value -> old.copy(maxSavedWorkflows = value) })
         button(settingsPanel, "Hochschutzregeln verwalten") { showSecurityRules() }
         button(settingsPanel, "Bedienungshilfe einrichten") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         cloud = CheckBox(this).apply { text = "Bei Bedarf KI automatisch nutzen · einmal je App freigeben"; settingsPanel.addView(this) }
@@ -490,7 +492,9 @@ class WorkflowActivity : Activity() {
         if (valid() == null) return
         val key = name.text.toString().trim()
         if (key.length !in 1..60 || key.any { it.isISOControl() }) { status.text = "Bitte einen kurzen Auftragsnamen angeben"; return }
-        if (saved.all.size >= 20 && !saved.contains(key)) { status.text = "20 Aufträge gespeichert; zuerst einen löschen"; return }
+        if (saved.all.size >= WorkflowOwnerSettings.load(this).maxSavedWorkflows && !saved.contains(key)) {
+            status.text = "Eingestellte Speichergrenze erreicht; unter Einstellungen erhöhen oder einen alten Ablauf löschen"; return
+        }
         fun write() {
             val data = JSONObject().put("version", 1).put("app", selectedApp).put("commands", commands.text.toString())
             if (saved.edit().putString(key, data.toString()).commit()) status.text = "Auftrag lokal gespeichert: $key" else status.text = "Speichern fehlgeschlagen"
@@ -838,7 +842,9 @@ class WorkflowActivity : Activity() {
                     val key = title.text.toString().trim()
                     if (key.length !in 1..60 || key.any { it.isISOControl() }) { title.error = "Bitte einen kurzen Namen wählen"; return }
                     if (saved.contains(key)) { title.error = "Name bereits vergeben · bitte anderen Namen wählen"; return }
-                    if (saved.all.size >= 20) { title.error = "20 Abläufe gespeichert · zuerst einen alten löschen"; return }
+                    if (saved.all.size >= WorkflowOwnerSettings.load(this).maxSavedWorkflows) {
+                        title.error = "Speichergrenze erreicht · unter Einstellungen erhöhen oder alten Ablauf löschen"; return
+                    }
                     if (valid() == null) return
                     val data = JSONObject().put("version",1).put("app",app).put("commands",commands.text.toString())
                     if (!saved.edit().putString(key,data.toString()).commit()) { title.error = "Speichern fehlgeschlagen"; return }
