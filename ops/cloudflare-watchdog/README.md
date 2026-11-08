@@ -16,9 +16,11 @@ failing merely because credentials have not yet been installed. This is a
 **Cloudflare clock observation only**, not evidence that GitHub ran the watchdog.
 The repository's native GitHub schedule remains unchanged.
 
-The branch code must be deployed through the secured owner pipeline before
-claiming the new no-token behavior is live; a GitHub commit alone does not
-update a deployed Cloudflare Worker.
+The tested tokenless-observation fix was deployed to Cloudflare as Worker
+version 2 on 2026-11-08. An authenticated re-read confirmed the new guard,
+`ENABLED=false`, the unchanged `CLOCK` binding, and the existing Cron trigger.
+No GitHub dispatch has occurred. A configured Cron is not itself proof of a
+successful Cron invocation, and the recovery gate remains open.
 
 ## Deploy and acceptance
 
