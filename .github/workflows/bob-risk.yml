@@ -33,6 +33,8 @@ on:
       - 'cold_metrics.py'
       - 'cold_observations.py'
       - '.github/workflows/bob-risk.yml'
+      # External Actions dispatch uses a repository-scoped token and must keep risk gates.
+      - 'ops/cloudflare-watchdog/**'
       # Full-history entry/exit reports and cold reader affect risk/evidence.
       - 'paper_entry_exit_comparison.py'
       - 'paper_comparison_report.py'
