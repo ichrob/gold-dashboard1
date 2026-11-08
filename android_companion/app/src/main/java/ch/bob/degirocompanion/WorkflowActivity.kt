@@ -692,7 +692,8 @@ class WorkflowActivity : Activity() {
                 WorkflowAction.WRITE -> "• ${step.value} in ${step.target.substringAfterLast('/')} eintragen"
                 WorkflowAction.WAIT -> "• Auf ${step.target} warten"
             } }
-            val layout = column().apply {
+            val layout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
                 setPadding(24, 8, 24, 8)
                 addView(TextView(this@WorkflowActivity).apply { text = summary + "\n\nBob testet den Ablauf erst nach deinem Start. Ein gespeicherter Entwurf gilt noch nicht als erfolgreich gelernt." })
                 addView(title)
