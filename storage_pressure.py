@@ -1,19 +1,41 @@
-"""Bounded cold-storage cadence from measured database bytes, not disk free space."""
-# Operating targets remain small after a capacity upgrade. Physical rewrite
-# gates still use storage_capacity and fresh provider measurements separately.
-CAUTION_BYTES = 500_000_000
-ACTION_BYTES = 700_000_000
+"""Conservative cold-storage cadence based on verified physical 5-GB usage.
 
-def policy(database_bytes):
+Logical PostgreSQL size is telemetry, not a reason to archive every five
+minutes. In particular, 500/700-MB logical thresholds are retired by #1329.
+An unknown or stale Render provider measurement never accelerates offload.
+Eligibility and independent recovery/reader proof remain separate gates.
+"""
+from storage_capacity import CAUTION_BYTES as CAUTION_VOLUME_BYTES
+from storage_capacity import ACTION_BYTES as ACTION_VOLUME_BYTES
+
+
+def policy(database_bytes, volume_bytes=None):
     if type(database_bytes) is not int or database_bytes < 0:
-        return {'state': 'unknown', 'nextRunSeconds': 3600, 'databaseBytes': None}
-    seconds = 300 if database_bytes >= ACTION_BYTES else 900 if database_bytes >= CAUTION_BYTES else 3600
+        return {'state': 'unknown', 'nextRunSeconds': 3600,
+                'databaseBytes': None, 'volumeBytes': None}
+    if type(volume_bytes) is not int or volume_bytes < 0:
+        return {'state': 'normal', 'nextRunSeconds': 3600,
+                'databaseBytes': database_bytes, 'volumeBytes': None,
+                'basis': 'verified-volume-required'}
+    seconds = (300 if volume_bytes >= ACTION_VOLUME_BYTES else
+               900 if volume_bytes >= CAUTION_VOLUME_BYTES else 3600)
     return {'state': 'action' if seconds == 300 else 'caution' if seconds == 900 else 'normal',
-            'nextRunSeconds': seconds, 'databaseBytes': database_bytes}
+            'nextRunSeconds': seconds, 'databaseBytes': database_bytes,
+            'volumeBytes': volume_bytes, 'basis': 'physical-render-volume'}
 
 
 def observe(conn):
-    return policy(conn.execute('SELECT pg_database_size(current_database())').fetchone()[0])
+    import time
+    from render_disk_metrics import RESOURCE, report
+    database_bytes = conn.execute('SELECT pg_database_size(current_database())').fetchone()[0]
+    metric = report()
+    observed = metric.get('observedAt')
+    if (metric.get('status') == 'observed' and metric.get('resource') == RESOURCE
+            and metric.get('unit') == 'bytes'
+            and type(observed) in (float, int) and 0 <= time.time()-observed <= 300
+            and type(metric.get('diskUsage')) is int and metric['diskUsage'] >= 0):
+        return policy(database_bytes, metric['diskUsage'])
+    return policy(database_bytes)
 
 
 def delay(result):
@@ -53,4 +75,9 @@ def verified_writer_preflight(conn, now=None):
             type(volume.get('diskUsage')) is not int or
             volume['diskUsage'] > MAX_VOLUME_BYTES):
         return {'status': 'fresh-volume-proof-unavailable', 'movedRows': 0}
+    # Below half the actual 5-GB volume, do not replace any original
+    # payload merely to meet a historical small-DB operating target.
+    # Continue independent backup receipts and fixed capacity monitoring.
+    if volume['diskUsage'] < CAUTION_VOLUME_BYTES:
+        return {'status': 'capacity-comfortable-no-offload', 'movedRows': 0}
     return None
