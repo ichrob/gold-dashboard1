@@ -24,6 +24,31 @@ def configured():
     return os.environ.get("BOB_REMOTE_OCR_ENABLED") == "true"
 
 
+def _fetch_identity_token(audience):
+    """Google Cloud Run IAM token using a securely configured service account.
+
+    Never use an unauthenticated public Cloud Run endpoint. Keep JSON keys only
+    in provider-managed secrets; do not log or persist credentials.
+    """
+    value = os.environ.get("BOB_REMOTE_OCR_GCP_SA_JSON", "")
+    if len(value) < 100 or len(value) > 12_000:
+        raise RemoteOcrError("missing_cloud_identity")
+    try:
+        info = json.loads(value)
+        if info.get("type") != "service_account":
+            raise ValueError("service account required")
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request as AuthRequest
+        credentials = service_account.IDTokenCredentials.from_service_account_info(
+            info, target_audience=audience)
+        credentials.refresh(AuthRequest())
+        if not credentials.token:
+            raise ValueError("no ID token")
+        return credentials.token
+    except Exception:
+        raise RemoteOcrError("cloud_identity_unavailable") from None
+
+
 def recognize(image, enhanced=False, *, opener=None):
     """Return [passes] or None when disabled. The caller revalidates locally."""
     if not configured():
@@ -49,9 +74,13 @@ def recognize(image, enhanced=False, *, opener=None):
     digest = hashlib.sha256(raw).hexdigest()
     body = json.dumps({"png": data, "sha256": digest, "enhanced": enhanced is True},
                       separators=(",", ":")).encode()
+    # Cloud Run IAM validates this short-lived Google-signed ID token before
+    # allocating the container; the secondary secret restricts app-layer use.
+    identity = _fetch_identity_token(parts.scheme + "://" + parts.netloc)
     request = Request(target, data=body, method="POST", headers={
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + token,
+        "Authorization": "Bearer " + identity,
+        "X-Bob-Ocr-Key": token,
         "Accept": "application/json",
     })
     client = opener or build_opener(HTTPSHandler(), _NoRedirect())
