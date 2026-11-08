@@ -178,7 +178,8 @@ def main():
         "https://api.cloudflare.com/client/v4/accounts/" + aid + "/ai/run/" + MODEL,
         token, "POST", provider_payload(diff))
     suggestion = review_response(reply)
-    body = (REVIEW_MARKER + sha + ";utcday=" + review_day + " -->\n"\n            "### Zweit-KI · unverbindliche Codeprüfung\n\n"
+    body = (REVIEW_MARKER + sha + ";utcday=" + review_day + " -->\n"
+            "### Zweit-KI · unverbindliche Codeprüfung\n\n"
             "Cloudflare Workers AI / GLM-4.7-Flash; begrenzte öffentliche Patches. "
             "Kein Zugriff auf Orders, Konten oder Zugangsdaten.\n\n"
             + suggestion + "\n\n*Ungeprüfter KI-Vorschlag: keine Codeänderung, "
