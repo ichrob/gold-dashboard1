@@ -61,6 +61,9 @@ def build_review(signal, product, risk, broker="degiro", now=None):
         raise ValueError("Prüfzeit ohne Zeitzone")
     now = now.astimezone(timezone.utc)
     reasons = []
+    # The DEGIRO turbo cannot be blindly mapped to an IG/IBKR contract.
+    if broker != "degiro":
+        _reason(reasons, "Brokerspezifische Vertrags-ID, Kurs und Konto-Handelsrecht fehlen")
 
     direction = signal.get("direction")
     if direction not in ("LONG", "SHORT"):
@@ -149,7 +152,8 @@ def build_review(signal, product, risk, broker="degiro", now=None):
         qty = min(MAX_QUANTITY, math.floor(alloc / ask))
         if qty < 1:
             _reason(reasons, "Budget reicht für keine ganze Stückzahl inklusive Risikogrenze")
-    state = "BLOCKED" if reasons else ("MANUAL_REVIEW" if broker == "degiro" else "BROKER_API_NOT_CONNECTED")
+    state = ("BROKER_API_NOT_CONNECTED" if broker != "degiro" else
+             "BLOCKED" if reasons else "MANUAL_REVIEW")
     notional = round(qty * ask, 2) if qty else None
     worst_case = round(notional + fees, 2) if qty else None
     proposal = {
