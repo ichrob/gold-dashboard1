@@ -31,7 +31,7 @@ class MainActivity : Activity() {
         when (intent.getStringExtra("mode")) {
             "large" -> {
                 repeat(450) { index -> layout.addView(TextView(this).apply {
-                    text = "Element $index"; textSize = 1f; importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
+                    text = "Element $index"; textSize = 1f; importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_YES
                 }, LinearLayout.LayoutParams(-1,1)) }
                 layout.addView(Button(this).apply { text = "Suche"; setOnClickListener { layout.removeAllViews(); field(R.id.search_src_text) } })
             }
@@ -39,7 +39,7 @@ class MainActivity : Activity() {
                 var parent: android.view.ViewGroup = layout
                 repeat(45) { index ->
                     val nested = android.widget.FrameLayout(this).apply {
-                        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES; contentDescription = "Ebene $index"
+                        importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_YES; contentDescription = "Ebene $index"
                     }
                     parent.addView(nested,android.view.ViewGroup.LayoutParams(-1,160)); parent = nested
                 }
