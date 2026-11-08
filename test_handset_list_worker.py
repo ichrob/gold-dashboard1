@@ -5,6 +5,29 @@ from unittest.mock import patch
 import handset_list_worker as worker
 
 class WorkerTests(unittest.TestCase):
+    def test_memory_offload_is_opt_in_and_keeps_ten_row_gate(self):
+        from product_quotes import valid_isin
+        rows=[]
+        for n in range(1,11):
+            stem='DE000ZZ'+str(n).zfill(4)
+            isin=next(stem+str(check) for check in range(10) if valid_isin(stem+str(check)))
+            rows.append('SG Gold Turbo BEST Open-End Call BAR 4000 BP 4000 Bv 10 | '+
+                        isin+' Societe Generale OTC EUR')
+        text='\\n'.join(rows)
+        payload={'images':[{'png':'synthetic-original-image'}]}
+        with patch.object(worker,'guarded_ocr_run',side_effect=worker.OcrMemoryDeferred('low RAM')), \
+             patch('remote_ocr_fallback.recognize',return_value=[[text,text]]) as remote:
+            parsed=worker.process(payload,'2026-11-08T08:00:00Z')
+        remote.assert_called_once()
+        self.assertEqual(len(parsed['items']),10)
+        self.assertTrue(all(x['listRow']['extractionMethod']=='off-box-optical-two-plus-pass'
+                            for x in parsed['items']))
+        self.assertTrue(all(not x['listRow']['isExecutableQuote'] for x in parsed['items']))
+        with patch.object(worker,'guarded_ocr_run',side_effect=worker.OcrMemoryDeferred('low RAM')), \
+             patch('remote_ocr_fallback.recognize',return_value=None):
+            with self.assertRaises(worker.OcrMemoryDeferred):
+                worker.process(payload,'2026-11-08T08:00:00Z')
+
     def test_working_bitmaps_close_between_passes_and_on_native_failure(self):
         from PIL import Image
         for fail in (False,True):
