@@ -21,7 +21,7 @@ const render=ctx.manualDegiroHandoff;
 function flatten(node){return [node.textContent||'',...(node.children||[]).flatMap(flatten)].join(' ');}
 let view=render({active:null},{});
 assert.match(flatten(view),/Kaufentwurf/);
-assert.match(flatten(view),/unbestätigt/);
+assert.match(flatten(view),/ungeprüft/);
 assert(!view.children.some(x=>x.textContent==='Order platzieren'),'No submit-order button');
 const draft=view.children.find(x=>x.tagName==='details');
 draft.children.find(x=>x.tagName==='button').onclick();
