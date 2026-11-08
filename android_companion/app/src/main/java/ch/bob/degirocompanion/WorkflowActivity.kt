@@ -78,6 +78,16 @@ class WorkflowActivity : Activity() {
         weighted(menus, button(menus, "Bob etwas beibringen") { learningMenu() })
         weighted(menus, button(menus, "Einstellungen") { showPanel("Einstellungen", settingsPanel) })
         button(root, "Aufzeichnung beenden / ansehen") { showRecordedDemonstration(true) }
+        button(root, "DEGIRO für manuelle Order öffnen") {
+            ownerOverride()
+            val intent = packageManager.getLaunchIntentForPackage(WorkflowAppRoute.DEGIRO)
+            if (intent == null) {
+                status.text = "DEGIRO ist nicht installiert · keine Order gestartet"
+            } else {
+                runCatching { startActivity(intent) }
+                    .onFailure { status.text = "DEGIRO konnte nicht geöffnet werden · keine Order gestartet" }
+            }
+        }
         status = label(root, "Bereit").apply { maxLines = 2 }
         val scroll = ScrollView(this).apply { isFillViewport = true }
         history = column(); scroll.addView(history)

@@ -35,3 +35,17 @@ broker_bridge.prepare_order_review liefert den reinen Prüfbaustein, broker_brid
 Tests: python -m unittest test_trade_execution_readiness test_broker_bridge test_real_trade_journal test_trade_auto_monitor
 
 Bestehende Schutzpunkte 2, 3, 5, 6, 7 und die unabhängigen Geräte-/Brokervorgaben bleiben wirksam. Eine grüne CI belegt den Code, nicht die Handelbarkeit oder einen erfolgten Trade.
+
+## Manuelle DEGIRO-Handelsübergabe (8.11.2026)
+
+Für die vom Besitzer gewünschte Reihenfolge **Kauf → Stop nachziehen → Verkauf → Ausführung kontrollieren** gibt es eine lokale, ausdrücklich nicht handelnde Übergabe:
+
+- Bob Handy: **DEGIRO für manuelle Order öffnen** öffnet die installierte DEGIRO-App ausschließlich durch einen Nutzertipp. Es werden keine Kauf-/Verkaufsschaltflächen, Orderdaten oder Bestätigungen automatisch bedient.
+- Bob Web → **Mein Trade**: Kaufentwurf aus dem bereits sichtbaren Produktformular anzeigen (als ungeprüft gekennzeichnet); nach einem belegten Kauf ISIN und tatsächliche gehaltene Stückzahl kopieren, den berechneten Produktstopp anzeigen und Hinweise zum manuellen Stopp-Nachziehen sowie vollständigen Verkauf vorbereiten. Teilverkäufe werden bis zur korrekten Erfassung des Restbestands ausdrücklich nicht als überprüfbar freigegeben.
+- Die bereits vorhandene E-Mail-/Ausführungsbeleg-Übernahme und der Servermonitor übernehmen ausschließlich **tatsächlich bestätigte** Transaktionen. Ein manueller Auftrag, ein Modellkurs oder ein Klick auf Bob ist kein Nachweis für einen Fill.
+- Das Backendmodul **degiro_manual_trade_handoff.py** ergänzt dafür reine Funktionen: `buy_handoff` erfordert eine aktuell noch gültige konservative Ordervorprüfung; `stop_update_handoff` erfordert bestätigten Bestand, belegten existierenden Broker-Stopp sowie aktuellen datierten Produkt-Geldkurs und darf den Stopp nicht lockern; `sell_handoff` erfordert bestätigten Bestand, passende ISIN, vollständige bestätigte Stückzahl und aktuelle belegte EUR-Geldkursquelle. Ein Teilverkauf bleibt gesperrt, bis die verbleibende Stückzahl und offene Stop-Orders aus Originalbelegen sicher abgeglichen werden können. Alle Ausgaben tragen `manualOnly=true`, `orderSubmitted=false` und `executionConfirmed=false`.
+- Der bisherige Broker-Vertrag erhält nur die entsprechenden schreibgeschützten Übergabefunktionen und ehrliche Statusfelder; keine Anmeldedaten, Orders oder Änderungen am DEGIRO-Konto.
+
+**Nicht umgesetzt und nicht erlaubt:** automatische Android-Klicks zur tatsächlichen DEGIRO-Kauf-/Verkaufsmaske, zum Setzen/Ändern von Stop-Orders oder zur verbindlichen Orderbestätigung. Laut offizieller DEGIRO-Hilfe verstößt die Verwendung externer Automatisierungstools gegen deren Bedingungen. Ein entsprechender Echtgeldautomat benötigt später einen Broker mit ausdrücklich erlaubter Handels-API und eine eigenständige technisch verifizierte Live-Freigabe.
+
+Prüfung: `python -m unittest test_degiro_manual_trade_handoff test_trade_execution_readiness test_broker_bridge test_real_trade_journal test_trade_auto_monitor` sowie `node test_manual_degiro_handoff.js`, bestehende GitHub-/Android-Tests und Render-Verifikation. Die Prüfung mit synthetischen Daten bestätigt keine handelbaren realen Preise.
