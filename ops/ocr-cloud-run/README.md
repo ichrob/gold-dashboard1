@@ -22,16 +22,25 @@ database. The pinned native OCR remains inside a network-denied child
   run `gcloud` or create paid resources.
 * The existing Render app and Google Drive connection **do not grant Google
   Cloud Run project ownership or deployment permissions**. Cloud-account
-  authorization must be completed using an eligible project/connector.
+  authorization must be completed using an eligible project/connector. Cloud
+  Run must enforce IAM (`--no-allow-unauthenticated`). Grant `roles/run.invoker`
+  on this specific service only to a dedicated service account, with no
+  broader project/admin permissions. A separately stored provider-account
+  credential in Render `BOB_REMOTE_OCR_GCP_SA_JSON` is used to mint a
+  short-lived identity token for the Cloud Run audience. Do not copy the
+  credential into GitHub/Chat/logs. Rotate or revoke after testing.
 * Never commit or paste a Cloud Run token, screenshot or device ID. Secrets
   must be entered through the provider's secure secret manager and Render's
   environment manager. Do not put private values into GitHub Actions logs.
 * Offload is disabled by default (`BOB_REMOTE_OCR_ENABLED` absent or false).
-  It also requires `BOB_REMOTE_OCR_URL` on an HTTPS `*.a.run.app/ocr`
-  host and a separate token of at least 32 characters. Do not enable merely
-  because an endpoint responds: first prove IAM, bounded abuse/cost controls,
-  rollback, failure isolation, genuine original-image matching and 10 unique
-  parsed products.
+  It requires `BOB_REMOTE_OCR_URL` at HTTPS `*.a.run.app/ocr`,
+  `BOB_REMOTE_OCR_GCP_SA_JSON` stored as a protected Render secret (Google
+  service-account ID-token credential) and a distinct secret of at least
+  32 characters (`BOB_REMOTE_OCR_TOKEN`) on **both** ends. Cloud Run IAM
+  verifies the ID token before container execution; the service also checks
+  the secondary `X-Bob-Ocr-Key` header. Do not enable merely because an
+  endpoint responds: first prove IAM, bounded abuse/cost controls, rollback,
+  failure isolation, genuine original-image matching and 10 unique products.
 * Cloud Run is a **fallback**, not guaranteed realtime. Scale-to-zero
   introduces cold starts. If it times out, is unreachable, lacks quota or
   returns malformed results, the current Render import stays waiting-memory
