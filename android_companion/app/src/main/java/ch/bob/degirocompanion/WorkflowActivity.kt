@@ -174,7 +174,7 @@ class WorkflowActivity : Activity() {
         panelDialog?.show()
     }
     private fun learningMenu() {
-        val options = arrayOf("Symbol erklären und lernen", "Ablauf vormachen und lernen", "Gelernte Symbole", "Gespeicherten Ablauf laden", "Gespeicherten Ablauf löschen", "Gespeicherten Ablauf per Sprache starten", "Schritte prüfen / ergänzen", "Bekannte DEGIRO-Funktionen")
+        val options = arrayOf("Symbol erklären und lernen", "Ablauf vormachen und lernen", "Gelernte Symbole", "Gespeicherten Ablauf laden", "Gespeicherten Ablauf löschen", "Gespeicherten Ablauf per Sprache starten", "Schritte prüfen / ergänzen", "Bekannte DEGIRO-Funktionen", "DEGIRO-Anleitung und letzte Ansicht")
         AlertDialog.Builder(this).setTitle("Bob etwas beibringen").setItems(options) { _, which ->
             when(which) {
                 0 -> if (attachmentBitmap == null) { status.text = "Zuerst über + einen Screenshot anhängen"; pickAttachment() } else teachSymbol()
@@ -185,8 +185,25 @@ class WorkflowActivity : Activity() {
                 5 -> speak(104, "Name eines gespeicherten Auftrags. Ein erkannter Name startet ihn.")
                 6 -> showPanel("Schritte prüfen / ergänzen", detailsPanel)
                 7 -> showDegiroCapabilities()
+                8 -> showDegiroGuide()
             }
         }.setNegativeButton("Zurück", null).setNeutralButton("STOPP") { _, _ -> ownerOverride(); refresh() }.show()
+    }
+    private fun showDegiroGuide() {
+        val snapshot = DegiroGuide.observation(WorkflowService.observation,
+            android.os.SystemClock.elapsedRealtime() - WorkflowService.observationAt)
+        AlertDialog.Builder(this).setTitle("DEGIRO-Anleitung · " + DegiroGuide.reviewed)
+            .setItems((listOf(snapshot) + DegiroGuide.topics.map { it.title }).toTypedArray()) { _, index ->
+                if (index == 0) {
+                    AlertDialog.Builder(this).setTitle("Letzte Beobachtung").setMessage(snapshot)
+                        .setPositiveButton("OK", null).show()
+                } else {
+                    val topic = DegiroGuide.topics[index - 1]
+                    AlertDialog.Builder(this).setTitle(topic.title)
+                        .setMessage(topic.explanation + "\n\nQuelle: " + topic.source + "\nGeprüft: " + DegiroGuide.reviewed)
+                        .setPositiveButton("OK", null).show()
+                }
+            }.setNegativeButton("Zurück", null).show()
     }
     private fun showDegiroCapabilities() {
         AlertDialog.Builder(this).setTitle("Das kann Bob bereits für DEGIRO")
@@ -256,6 +273,7 @@ class WorkflowActivity : Activity() {
         output.text = buildString {
             if (frame != null) {
                 append("Letzte lokale Beobachtung · ${frame.app}\n")
+                if (frame.app == WorkflowAppRoute.DEGIRO) append(DegiroGuide.observation(frame, android.os.SystemClock.elapsedRealtime() - WorkflowService.observationAt)).append('\n')
                 frame.nodes.filter { it.label.isNotBlank() || it.id.isNotBlank() }.take(100).forEach {
                     append(it.label).append(if (it.editable) " [Eingabefeld]" else if (it.clickable) " [anklickbar]" else "")
                     if (it.id.isNotBlank()) append(" · ").append(it.id)
@@ -779,6 +797,7 @@ class WorkflowActivity : Activity() {
                 goal.requestFocus()
                 return
             }
+            if (DegiroGuide.requested(text)) { showDegiroGuide(); return }
             if (WorkflowAppRoute.asksCapabilities(text)) { showDegiroCapabilities(); return }
             WorkflowAppRoute.capability(text)?.let { capability ->
                 // Local owner request only: reuse built-in handlers, never cloud planning.

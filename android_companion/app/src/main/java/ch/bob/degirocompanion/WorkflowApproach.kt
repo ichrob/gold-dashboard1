@@ -17,6 +17,6 @@ internal object WorkflowApproach {
             }
         }.distinct()
         // Multiple learned ways may mean different screens/accounts: do not choose by chance.
-        return candidates.singleOrNull()
+        return if (candidates.isEmpty()) DegiroGuide.approach(steps, frame) else candidates.singleOrNull()
     }
 }

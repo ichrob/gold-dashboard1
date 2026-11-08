@@ -225,7 +225,7 @@ class WorkflowService : AccessibilityService() {
                 return
             }
             run = WorkflowRun(selected,approached,SystemClock.elapsedRealtime()); healthSource = "LOCAL"
-            message = if (approached.size > steps.size) "Gespeicherten Weg zur Zielansicht ausführen · danach deinen Auftrag" else "Prüfe deinen Auftrag auf dem aktuellen Bildschirm"
+            message = if (approached.size > steps.size) "Geprüften Weg zur Zielansicht ausführen · danach deinen Auftrag" else "Prüfe deinen Auftrag auf dem aktuellen Bildschirm"
             return
         }
         WorkflowSymbols.plan(this, selected, recipeGoal)?.let {
@@ -236,7 +236,7 @@ class WorkflowService : AccessibilityService() {
             val approached = WorkflowApproach.prepare(requested, frame, WorkflowLibrary.verifiedRoutes(this, selected))
             if (approached != null && approached.size > requested.size) {
                 run = WorkflowRun(selected, approached, SystemClock.elapsedRealtime()); healthSource = "LOCAL"
-                message = "Gespeicherten Weg zur Zielansicht ausführen · danach deinen Auftrag"
+                message = "Geprüften Weg zur Zielansicht ausführen · danach deinen Auftrag"
                 return
             }
         }
