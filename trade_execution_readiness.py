@@ -107,6 +107,12 @@ def build_review(signal, product, risk, broker="degiro", now=None):
             _reason(reasons, "Originalzeit des Produktkurses fehlt oder ist veraltet")
     except ValueError:
         _reason(reasons, "Originalzeit des Produktkurses fehlt oder ist veraltet")
+    # Quotes and signals must describe the same short decision window.
+    try:
+        if abs((clock(product["quoteAt"]) - clock(signal["at"])).total_seconds()) > 30:
+            _reason(reasons, "Produktkurs und Handelssignal liegen zeitlich auseinander")
+    except (KeyError, ValueError, TypeError):
+        _reason(reasons, "Zeitliche Zuordnung von Signal und Produktkurs fehlt")
     if not isinstance(product.get("quoteSource"), str) or not product["quoteSource"].strip():
         _reason(reasons, "Originalkursquelle nicht benannt")
     if product.get("quoteKind") != "ISSUER_BID_ASK":
@@ -139,7 +145,7 @@ def build_review(signal, product, risk, broker="degiro", now=None):
     qty = 0
     if not reasons:
         # Risk cap assumes a complete Knock-out loss, not a guaranteed stop fill.
-        alloc = min(cash, budget, maxloss - fees, daily_cap - daily - fees)
+        alloc = min(cash - fees, budget - fees, maxloss - fees, daily_cap - daily - fees)
         qty = min(MAX_QUANTITY, math.floor(alloc / ask))
         if qty < 1:
             _reason(reasons, "Budget reicht für keine ganze Stückzahl inklusive Risikogrenze")
