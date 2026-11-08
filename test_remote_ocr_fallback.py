@@ -29,6 +29,7 @@ class FakeResponse:
 class RemoteOcrTests(unittest.TestCase):
     def settings(self, **kwargs):
         params = dict(BOB_REMOTE_OCR_ENABLED="true",
+                      BOB_REMOTE_OCR_COST_POLICY="metered_risk_explicitly_accepted",
                       BOB_REMOTE_OCR_URL=URL, BOB_REMOTE_OCR_TOKEN=TOKEN)
         params.update(kwargs)
         return patch.dict(os.environ, params, clear=True)
@@ -37,6 +38,13 @@ class RemoteOcrTests(unittest.TestCase):
         opener = Mock()
         with patch.dict(os.environ, {}, clear=True):
             self.assertIsNone(remote.recognize({"png": IMAGE}, opener=opener))
+        opener.open.assert_not_called()
+
+    def test_zero_cost_policy_blocks_remote_even_if_enabled_by_mistake(self):
+        opener = Mock()
+        for policy in ("", "zero_cost", "free_tier", "false"):
+            with self.settings(BOB_REMOTE_OCR_COST_POLICY=policy):
+                self.assertIsNone(remote.recognize({"png": IMAGE}, opener=opener))
         opener.open.assert_not_called()
 
     def test_invalid_host_or_absent_secret_fails_closed(self):
