@@ -13,7 +13,7 @@ class WorkerTests(unittest.TestCase):
             isin=next(stem+str(check) for check in range(10) if valid_isin(stem+str(check)))
             rows.append('SG Gold Turbo BEST Open-End Call BAR 4000 BP 4000 Bv 10 | '+
                         isin+' Societe Generale OTC EUR')
-        text='\\n'.join(rows)
+        text='\n'.join(rows)
         payload={'images':[{'png':'synthetic-original-image'}]}
         with patch.object(worker,'guarded_ocr_run',side_effect=worker.OcrMemoryDeferred('low RAM')), \
              patch('remote_ocr_fallback.recognize',return_value=[[text,text]]) as remote:
