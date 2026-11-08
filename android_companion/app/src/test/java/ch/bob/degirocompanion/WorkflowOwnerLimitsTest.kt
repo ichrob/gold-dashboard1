@@ -20,6 +20,9 @@ class WorkflowOwnerLimitsTest {
         assertFalse(run.finished)
         run.tick(null, 41_000, true) { _, _ -> false }
         assertTrue(run.finished)
+        val overLimit = WorkflowRun("org.example.notes", List(25) { WorkflowStep(WorkflowAction.WAIT, "Treffer") }, 0, limits)
+        assertTrue(overLimit.finished)
+        overLimit.tick(null, 10, true) { _, _ -> fail("Oversized run executed"); false }
         val locked = WorkflowRun("org.example.notes", wait, 0, limits)
         locked.tick(null, 1, false) { _, _ -> false }
         assertTrue(locked.finished)
