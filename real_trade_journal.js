@@ -109,8 +109,14 @@
    };
    d.append(summary,b,result);section.append(d,link);return section;
   }
-  const p=trade.snapshot?.product||{},qty=Number(p.quantity);
-  line('Kaufbeleg vorhanden. Bob überwacht die Position; Stop-Änderung und Verkauf sind bei DEGIRO manuell auszuführen.');
+  const p=trade.snapshot?.product||{},qty=Number(p.quantity),receipt=trade.snapshot?.purchase||{};
+  const hasReceipt=typeof receipt.transactionId==='string'&&receipt.transactionId.length>0&&
+    (typeof receipt.at==='string'&&receipt.at.length>0||typeof receipt.executedLocal==='string'&&receipt.executedLocal.length>0);
+  if(!hasReceipt){
+   line('Bobs aktive Überwachung ist noch kein belegter DEGIRO-Kauf. Ohne eindeutige Ausführungsquittung keine Verkaufsvorbereitung. Kaufbeleg ergänzen.');
+   return section;
+  }
+  line('Kaufbeleg im Tradejournal vorhanden. Bob überwacht die Position; Stop-Änderung und Verkauf sind bei DEGIRO manuell auszuführen.');
   if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(p.isin||'')||!Number.isSafeInteger(qty)||qty<=0){
    line('Bestätigte Produkt-ISIN oder Stückzahl fehlt. Kein Verkaufsentwurf.');return section;
   }
