@@ -21,7 +21,12 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 def configured():
-    return os.environ.get("BOB_REMOTE_OCR_ENABLED") == "true"
+    # Two independent switches guard metered off-box calls. The second
+    # explicitly acknowledges that provider costs cannot be capped at zero.
+    # Under the owner zero-cost policy, leave it unset and block remote OCR.
+    return (os.environ.get("BOB_REMOTE_OCR_ENABLED") == "true"
+            and os.environ.get("BOB_REMOTE_OCR_COST_POLICY")
+                == "metered_risk_explicitly_accepted")
 
 
 def _fetch_identity_token(audience):
