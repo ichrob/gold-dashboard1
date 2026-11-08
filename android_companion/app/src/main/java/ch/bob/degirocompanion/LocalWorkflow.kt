@@ -16,10 +16,10 @@ internal object LocalWorkflow {
     fun allowedApp(app: String): Boolean = (app == "nl.degiro.trader") || Regex("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+").matches(app) &&
         !listOf("nl.degiro", "com.termux", "com.android.settings", "com.android.systemui", "com.android.packageinstaller", "com.google.android.packageinstaller", "com.samsung.android.biometrics", "ch.bob.degirocompanion").any { app.startsWith(it) }
 
-    fun parse(input: String): List<WorkflowStep>? {
+    fun parse(input: String, maxSteps: Int = 12): List<WorkflowStep>? {
         if (input.length !in 1..5000) return null
         val lines = WorkflowLanguage.goal(input).lines().map { it.trim().replace('„', '"').replace('“', '"').replace('”', '"') }
-        if (lines.size !in 1..12 || lines.any { it.isBlank() }) return null
+        if (lines.size !in 1..maxSteps.coerceIn(1, WorkflowOwnerLimits.MAX_STEPS) || lines.any { it.isBlank() }) return null
         return lines.map { raw ->
             // Spoken forms remain exact grammars. Never interpret text read from a screen.
             val naturalClick = Regex("(?:tippe|klicke) auf ([^\"]+) und warte auf ([^\"]+)", RegexOption.IGNORE_CASE).matchEntire(raw)
@@ -70,7 +70,8 @@ internal object LocalWorkflow {
 }
 
 /** Exactly-once actions; only observation is retried. Failed/uncertain clicks are never replayed. */
-internal class WorkflowRun(val app: String, val steps: List<WorkflowStep>, val started: Long) {
+internal class WorkflowRun(val app: String, val steps: List<WorkflowStep>, val started: Long,
+    private val limits: WorkflowOwnerLimits = WorkflowOwnerLimits()) {
     var index = 0; private set
     var status = "Warte auf die gewählte App"; private set
     var finished = false; private set
@@ -84,7 +85,7 @@ internal class WorkflowRun(val app: String, val steps: List<WorkflowStep>, val s
     fun tick(frame: WorkflowFrame?, now: Long, unlocked: Boolean, act: (WorkflowStep, Int) -> Boolean) {
         if (finished) return
         if (!unlocked) return stop("Gestoppt: Bildschirm gesperrt")
-        if (now - started > 180_000 || now - lastProgress > 20_000) return stop("Zeitlimit: Ergebnis nicht bestätigt (Schritt ${index + 1})")
+        if (now - started > limits.sessionMs || now - lastProgress > limits.stepTimeoutMs) return stop("Zeitlimit: Ergebnis nicht bestätigt (Schritt ${index + 1})")
         if (frame == null) return
         if (frame.app != app) {
             if (seenTarget) stop("Gestoppt: andere App im Vordergrund")
