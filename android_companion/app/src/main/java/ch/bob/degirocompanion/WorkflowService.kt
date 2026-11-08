@@ -28,6 +28,8 @@ class WorkflowService : AccessibilityService() {
         internal var demonstrationAllEvents = 0
         internal var demonstrationEvents = 0
         internal var demonstrationCheck = "NONE"
+        internal var demonstrationChoices: Map<Int, List<String>> = emptyMap()
+        internal var demonstrationError = ""
         internal var demonstrationDraft: Pair<String, List<WorkflowStep>>? = null
         internal fun endDemonstration() { instance?.let { if (it.demonstration != null) it.finish("Vormachen beendet · Entwurf prüfen") } }
         internal fun stop() { WorkflowLoginHandoff.clear(); epoch++; instance?.finish("Gestoppt"); run?.stop("Gestoppt"); run = null; observation = null; screenshotText = "" }
@@ -188,7 +190,7 @@ class WorkflowService : AccessibilityService() {
     }
     internal fun beginDemonstration(app: String): Boolean {
         if (!begin(app, null)) return false
-        demonstrationDraft = null; demonstration = WorkflowDemonstration(app); demonstrationSeen = false
+        demonstrationDraft = null; demonstrationChoices = emptyMap(); demonstrationError = ""; demonstration = WorkflowDemonstration(app); demonstrationSeen = false
         demonstrationAllEvents = 0; demonstrationEvents = 0; demonstrationCheck = "STARTED"
         serviceInfo = serviceInfo.apply {
             eventTypes = eventTypes or AccessibilityEvent.TYPE_VIEW_CLICKED or AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
@@ -277,7 +279,7 @@ class WorkflowService : AccessibilityService() {
         }.start()
     }
     private fun finish(reason: String) {
-        demonstration?.let { demonstrationDraft = it.app to it.draft() }
+        demonstration?.let { demonstrationDraft = it.app to it.draft(); demonstrationChoices = it.choices.toMap(); demonstrationError = it.error }
         demonstration = null; demonstrationSeen = false
         val notify = automatic && reason != "Neue Sitzung"
         replaySteps = null; automatic = false; planning = false; autoCloud = false; autoObservation = null; proposalContext = null

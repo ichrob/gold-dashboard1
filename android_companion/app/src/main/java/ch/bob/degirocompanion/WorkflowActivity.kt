@@ -260,7 +260,10 @@ class WorkflowActivity : Activity() {
                 if (app == selectedApp && steps.isNotEmpty()) {
                     commands.setText(WorkflowAiPolicy.commands(steps)); goal.setText("")
                     status.text = "Vorgemachter Ablauf bereit · Entwurf prüfen"
-                    showPanel("Vorgemachten Ablauf prüfen", detailsPanel)
+                    if (WorkflowService.demonstrationError.isNotBlank()) {
+                        status.text = "Aufzeichnung unvollständig: " + WorkflowService.demonstrationError
+                        showPanel("Unvollständigen Ablauf prüfen", detailsPanel)
+                    } else reviewDemonstration(steps, WorkflowService.demonstrationChoices)
                 }
             }
         }
@@ -672,11 +675,92 @@ class WorkflowActivity : Activity() {
             if (!attachment || attachmentBitmap !== bitmap) bitmap.recycle()
         }
     }
+    private fun reviewDemonstration(draft: List<WorkflowStep>, choices: Map<Int, List<String>>) {
+        val plan = draft.toMutableList()
+        val app = selectedApp; val token = imageGeneration
+        fun current() = app == selectedApp && token == imageGeneration && !isDestroyed
+        fun ready() {
+            if (!current()) return
+            commands.setText(WorkflowAiPolicy.commands(plan))
+            val proposed = plan.lastOrNull { it.action == WorkflowAction.WRITE }?.let { "${it.value} in ${it.target.substringAfterLast('/')}" }
+                ?: "Weg zu ${plan.last().target}"
+            var suggested = proposed.take(50); var suffix = 2
+            while (saved.contains(suggested)) suggested = proposed.take(50) + " (${suffix++})"
+            val title = EditText(this).apply { setSingleLine(); setText(suggested); hint = "Name des Ablaufs" }
+            val summary = plan.joinToString("\n") { step -> when(step.action) {
+                WorkflowAction.CLICK -> "• ${step.target} antippen"
+                WorkflowAction.WRITE -> "• ${step.value} in ${step.target.substringAfterLast('/')} eintragen"
+                WorkflowAction.WAIT -> "• Auf ${step.target} warten"
+            } }
+            val layout = column().apply {
+                setPadding(24, 8, 24, 8)
+                addView(TextView(this@WorkflowActivity).apply { text = summary + "\n\nBob testet den Ablauf erst nach deinem Start. Ein gespeicherter Entwurf gilt noch nicht als erfolgreich gelernt." })
+                addView(title)
+            }
+            val dialog = AlertDialog.Builder(this).setTitle("Weg gelernt · bereit zum Test")
+                .setView(ScrollView(this).apply { addView(layout) })
+                .setPositiveButton("Speichern und testen", null).setNeutralButton("Nur speichern", null)
+                .setNegativeButton("Abbrechen", null).create()
+            panelDialog = dialog
+            dialog.setOnShowListener {
+                fun store(start: Boolean) {
+                    if (!current()) { dialog.dismiss(); return }
+                    val key = title.text.toString().trim()
+                    if (key.length !in 1..60 || key.any { it.isISOControl() }) { title.error = "Bitte einen kurzen Namen wählen"; return }
+                    if (saved.contains(key)) { title.error = "Name bereits vergeben · bitte anderen Namen wählen"; return }
+                    if (saved.all.size >= 20) { title.error = "20 Abläufe gespeichert · zuerst einen alten löschen"; return }
+                    if (valid() == null) return
+                    val data = JSONObject().put("version",1).put("app",app).put("commands",commands.text.toString())
+                    if (!saved.edit().putString(key,data.toString()).commit()) { title.error = "Speichern fehlgeschlagen"; return }
+                    name.setText(key); dialog.dismiss()
+                    status.text = "Gespeichert: $key · noch nicht erfolgreich getestet"
+                    if (start) launch(false,false,key,true)
+                }
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { store(true) }
+                dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { store(false) }
+            }
+            dialog.show()
+        }
+        fun resolve(index: Int) {
+            if (!current()) return
+            if (index >= plan.size) { ready(); return }
+            val step = plan[index]
+            if (step.action == WorkflowAction.WRITE && step.value == "TEXT") {
+                val input = EditText(this).apply { hint = "Was soll in ${step.target} stehen?" }
+                val dialog = AlertDialog.Builder(this).setTitle("Eingabe ergänzen").setView(input)
+                    .setPositiveButton("Weiter", null).setNegativeButton("Abbrechen", null).create()
+                panelDialog = dialog
+                dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val value = input.text.toString()
+                    if (!current()) { dialog.dismiss(); return@setOnClickListener }
+                    if (!WorkflowComposer.validText(value)) { input.error = "Bitte einen gültigen Eingabewert angeben"; return@setOnClickListener }
+                    plan[index] = step.copy(value=value); dialog.dismiss(); resolve(index+1)
+                } }; dialog.show(); return
+            }
+            if (step.expected != "ERGEBNISTEXT") { resolve(index+1); return }
+            fun screenshot() {
+                if (!current()) return
+                expectedPrompt?.dismiss()
+                expectedPrompt = WorkflowExpectedResultDialog(this,step.target,emptyList(),::current,
+                    pickImage = { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="image/*"; addCategory(Intent.CATEGORY_OPENABLE) },107) },
+                    submit = { command -> LocalWorkflow.parse(command)?.singleOrNull()?.let { plan[index]=it; resolve(index+1) } })
+                expectedPrompt!!.show()
+            }
+            val labels = choices[index].orEmpty().filter(WorkflowComposer::validText).distinct()
+            if (labels.isEmpty()) { screenshot(); return }
+            panelDialog = AlertDialog.Builder(this).setTitle("Nach ${step.target}: Woran erkenne ich das Ziel?")
+                .setItems(labels.toTypedArray()) { _, chosen -> if (current()) { plan[index]=step.copy(expected=labels[chosen]); resolve(index+1) } }
+                .setNeutralButton("Screenshot / Text") { _, _ -> screenshot() }
+                .setNegativeButton("Abbrechen", null).create()
+            panelDialog?.show()
+        }
+        resolve(0)
+    }
     private fun startDemonstration() {
         if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App auswählen"; return }
         val app = selectedApp
         AlertDialog.Builder(this).setTitle("Ablauf einmal vormachen")
-            .setMessage("Bob zeichnet deine Klicks und Texteingaben nur in dieser App lokal auf, höchstens zwölf Schritte und drei Minuten. Zurück zu Bob beendet die Aufzeichnung. Du prüfst und ergänzt danach den Entwurf. Während des Vormachens führt Bob nichts selbst aus.")
+            .setMessage("Bob zeichnet deine Klicks und Texteingaben nur in dieser App lokal auf, höchstens zwölf Schritte und drei Minuten. Zurück zu Bob beendet die Aufzeichnung. Danach zeigt Bob dir eine kurze Zusammenfassung. Nur bei unklaren Ergebnissen wählst du einen erkannten Text oder einen Screenshot aus. Während des Vormachens führt Bob nichts selbst aus.")
             .setPositiveButton("Vormachen starten") { _, _ ->
                 if (app != selectedApp) return@setPositiveButton
                 ownerOverride()
