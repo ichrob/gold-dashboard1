@@ -204,6 +204,31 @@ class WorkflowDeviceTest {
         assertTrue(WorkflowSymbols.forget(context, app, "Lupe"))
         assertNull(WorkflowSymbols.plan(context, app, "Öffne Lupe"))
     }
+    @Test fun demonstrationReviewSelectsResultAndSavesThenTestsWithoutCommandEditing() {
+        context.getSharedPreferences("workflow_auto_v1",0).edit().putString("lastApp",app).commit()
+        shell("am force-stop " + app)
+        val activity = instrumentation.startActivitySync(Intent(context,WorkflowActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as WorkflowActivity
+        fun dialog() = WorkflowActivity::class.java.getDeclaredField("panelDialog").apply { isAccessible=true }
+            .get(activity) as android.app.AlertDialog
+        try {
+            val draft = listOf(WorkflowStep(WorkflowAction.CLICK,"Suche",expected="ERGEBNISTEXT"),
+                WorkflowStep(WorkflowAction.WRITE,app+":id/search_src_text","Silber"))
+            main {
+                WorkflowActivity::class.java.getDeclaredMethod("reviewDemonstration",List::class.java,Map::class.java)
+                    .apply { isAccessible=true }.invoke(activity,draft,mapOf(0 to listOf("Suchfeld","Andere Ansicht")))
+            }
+            main {
+                val list = dialog().listView
+                list.performItemClick(list.getChildAt(0),0,list.adapter.getItemId(0))
+            }
+            main { assertTrue(dialog().getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()) }
+            await("One-tap saved demonstration did not complete") { WorkflowService.run?.let { WorkflowAiPolicy.verified(it) } == true }
+            assertEquals("Silber",automation.rootInActiveWindow.findAccessibilityNodeInfosByViewId(app+":id/search_src_text").single().text.toString())
+            assertTrue(context.getSharedPreferences("local_workflows_v1",0).contains("Silber eingeben"))
+            assertEquals(2,WorkflowService.run!!.steps.size)
+        } finally { main { activity.finish() } }
+    }
     @Test fun demonstrationCreatesReviewableDraftWithoutExecutingAndCanBeReplayed() {
         context.getSharedPreferences("workflow_result_v1",0).edit().clear().commit()
         main { assertTrue(WorkflowService.instance!!.beginDemonstration(app)) }

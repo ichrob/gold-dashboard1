@@ -27,8 +27,28 @@ class WorkflowUsabilityTest {
         demo.observe(WorkflowFrame(demo.app,1,listOf(WorkflowNode("Suchfeld","query",true,true,inputValue=""))))
         demo.write("query","G"); demo.write("query","Go"); demo.write("query","Gold")
         assertEquals(2,demo.draft().size); assertEquals("Gold",demo.draft()[1].value)
-        assertEquals("Suchfeld",demo.draft()[0].expected)
+        assertTrue(demo.draft()[0].opensSearch)
         demo.write("query",""); assertEquals("TEXT",demo.draft()[1].value)
+    }
+    @Test fun selectedNavigationIsLearnedWithoutInventingResultText() {
+        val demo = WorkflowDemonstration("org.fixture.app")
+        val tab = WorkflowNode("Favoriten","tab",false,true)
+        val before = WorkflowFrame(demo.app,1,listOf(tab))
+        demo.click("Favoriten",before)
+        demo.observe(before)
+        assertFalse(demo.draft().single().selectsTab)
+        demo.observe(before.copy(nodes=listOf(tab.copy(selected=true))))
+        assertTrue(demo.draft().single().selectsTab)
+        assertEquals("",demo.draft().single().expected)
+    }
+    @Test fun noCandidateIsTakenFromProtectedOrOtherAppScreens() {
+        val demo = WorkflowDemonstration("org.fixture.app")
+        val before = WorkflowFrame(demo.app,1,listOf(WorkflowNode("Menü","menu",false,true)))
+        demo.click("Menü",before)
+        demo.observe(before.copy(app="org.other.app",nodes=listOf(WorkflowNode("Ziel","target",false,false))))
+        demo.observe(before.copy(nodes=listOf(WorkflowNode("Passwort","password",true,true,true))))
+        assertTrue(demo.choices.isEmpty())
+        assertEquals("ERGEBNISTEXT",demo.draft().single().expected)
     }
     @Test fun disappearingButtonCreatesAnExplicitlyUnreviewedStep() {
         val demo = WorkflowDemonstration("org.fixture.app")
@@ -46,6 +66,7 @@ class WorkflowUsabilityTest {
         demo.click("Suche",frame)
         demo.observe(frame.copy(nodes=listOf(WorkflowNode("A","",false,false),WorkflowNode("B","",false,false))))
         assertEquals("ERGEBNISTEXT",demo.draft()[0].expected)
+        assertEquals(listOf("A","B"),demo.choices[0])
         for (i in 1..20) demo.write("field$i","123")
         assertEquals(12,demo.draft().size); assertTrue(demo.error.isNotBlank())
     }
