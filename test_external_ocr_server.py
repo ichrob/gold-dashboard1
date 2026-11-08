@@ -23,7 +23,7 @@ class ServerTests(unittest.TestCase):
     def handler(self, token):
         handler=object.__new__(server.Handler)
         handler.path="/ocr"
-        handler.headers={"Authorization": "Bearer "+token}
+        handler.headers={"X-Bob-Ocr-Key": token}
         handler.rfile=io.BytesIO()
         handler.respond=Mock()
         return handler
