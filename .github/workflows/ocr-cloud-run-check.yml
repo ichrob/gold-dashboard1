@@ -1,0 +1,30 @@
+name: Bob OCR cloud worker packaging (staging only)
+
+on:
+  pull_request:
+    paths:
+      - 'ops/ocr-cloud-run/**'
+      - 'remote_ocr_fallback.py'
+      - 'handset_list_worker.py'
+      - 'handset_ocr_engine.py'
+      - 'video_ocr.py'
+      - 'memory_watch.py'
+      - 'ocr_sandbox.py'
+      - 'ocr_workload_priority.py'
+      - 'test_remote_ocr_fallback.py'
+      - 'test_external_ocr_server.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-container-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated OCR container without deploying
+        run: docker build --pull -f ops/ocr-cloud-run/Dockerfile -t bob-ocr-cloud-check:staging .
+      - name: Prove bundled offline engine and seccomp with synthetic image
+        run: docker run --rm --entrypoint python bob-ocr-cloud-check:staging ops/ocr-cloud-run/smoke.py
