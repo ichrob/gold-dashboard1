@@ -117,7 +117,7 @@ function nativeImage(passes) {
  const original=agreedImageRows(passes),filtered=agreedImageRows(clean);
  return original.length>0&&JSON.stringify(original)===JSON.stringify(filtered)?clean:null;
 }
-function parse(images,at,appSources=[],localSources=[]){
+function parse(images,at,appSources=[],localSources=[],remoteSources=[]){
  const items=new Map();
  for(const [index,passes] of images.entries()){
   const parsedPasses=localSources[index]?passes.map(pass=>pass.split('\n').map(normalizeLocalOcrLabels).join('\n')):passes;
@@ -136,6 +136,12 @@ function parse(images,at,appSources=[],localSources=[]){
     // CrossChecked remains the actual two-pass parser decision; no issuer,
     // market-time, account or trade authorization is invented.
    }
+   if(remoteSources[index] && !appSources[index] && !localSources[index]) {
+    // Same screenshot; remote optical text is not independent price evidence.
+    row.listRow.source='DEGIRO-Listenbild';
+    row.listRow.extractionMethod='off-box-optical-two-plus-pass';
+    row.listRow.textCaptureMatched=false;
+   }
    row.listRow.imageReference='DEGIRO-TOP10-'+(index+1)+'.png';
    const old=items.get(isin);
    const signature=x=>JSON.stringify([x.direction,...['venue','currency','ko','strike','ratio','maturity','excluded'].map(k=>x.listRow[k])]);
@@ -153,4 +159,4 @@ function parse(images,at,appSources=[],localSources=[]){
  }))}};
 }
 module.exports={normalizeLocalOcrLabels,canonicalLocalOcrIdentity,parse,normalizeLayout,appImage,localOcrImage,nativeImage};
-if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):x.mode==='prepare-native'?nativeImage(x.passes):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
+if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):x.mode==='prepare-native'?nativeImage(x.passes):parse(x.images,x.at,x.appSources,x.localSources,x.remoteSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
