@@ -63,8 +63,9 @@ def verified_writer_preflight(conn, now=None):
     import render_disk_metrics
 
     seconds = time.time() if now is None else now
-    if _proof_state(archive_status(conn), seconds) != 'verified-fresh':
-        return {'status': 'backup-proof-not-fresh', 'movedRows': 0}
+    # Check capacity before expensive archive-credential/proof work. With
+    # comfortable physical headroom, no writer proceeds even if the most
+    # recent independent recovery receipt has aged out.
     volume = render_disk_metrics.report()
     observed = volume.get('observedAt')
     if (volume.get('status') != 'observed' or
@@ -80,4 +81,6 @@ def verified_writer_preflight(conn, now=None):
     # Continue independent backup receipts and fixed capacity monitoring.
     if volume['diskUsage'] < CAUTION_VOLUME_BYTES:
         return {'status': 'capacity-comfortable-no-offload', 'movedRows': 0}
+    if _proof_state(archive_status(conn), seconds) != 'verified-fresh':
+        return {'status': 'backup-proof-not-fresh', 'movedRows': 0}
     return None
