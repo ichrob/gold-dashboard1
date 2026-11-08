@@ -72,10 +72,16 @@ test('accepted 204 and repeated tick dispatch only once', async () => {
   assert.equal((await tick(f.env, f.storage, now, now, f.request)).state, 'duplicate_suppressed');
   assert.equal(f.posts().length, 1);
 });
-test('stale tick and missing token cannot send anything', async () => {
+test('disabled Cron without secret reports observation only', async () => {
+  const f = fixture(); f.env.GITHUB_TOKEN = undefined; f.env.ENABLED = 'false';
+  assert.equal((await tick(f.env, f.storage, now, now, f.request)).state, 'observation_only_no_token');
+  assert.equal(f.calls.length, 0); assert.equal(f.data.size, 0);
+});
+test('stale tick and enabled clock without secret cannot send', async () => {
   const f = fixture();
   await assert.rejects(tick(f.env, f.storage, now - 180_000, now, f.request));
-  await assert.rejects(tick({}, f.storage, now, now, f.request));
+  f.env.GITHUB_TOKEN = undefined;
+  await assert.rejects(tick(f.env, f.storage, now, now, f.request), /github_token_missing/);
   assert.equal(f.calls.length, 0);
 });
 test('public HTTP requests never trigger dispatch', async () => {
