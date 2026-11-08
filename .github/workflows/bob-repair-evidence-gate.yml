@@ -1,0 +1,32 @@
+name: Bob Reparatur-Nachweise (separater PR-Check)
+
+# The gate runs trusted main code, NEVER code from the incoming PR.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout trusted main (not PR)
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Offline evidence gate unit tests
+        run: python -m unittest -v test_bob_ai_quality_gate.py test_bob_ai_coordination.py
+      - name: Require matching issue and regression-test file for linked Bob repair PRs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BOB_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python bob_ai_quality_gate.py
