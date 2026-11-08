@@ -2,6 +2,9 @@ name: Bob Risiko
 on:
   pull_request:
     paths:
+      # Archive replay and offline COPY validation require the same safety checks.
+      - 'storage_archive_*.py'
+      - 'test_storage_archive_*.py'
       - "termux_maintenance.py"
       - "bob_termux_runner.py"
       - "test_termux_maintenance.py"
