@@ -18,6 +18,13 @@ internal object WorkflowLibrary {
             }.getOrNull()
         }
     }
+    fun verifiedRoutes(c: Context, app: String): List<List<WorkflowStep>> = prefs(c).all.values.mapNotNull { raw ->
+        runCatching {
+            val d = JSONObject(raw as String)
+            if (d.optInt("version") == 1 && d.optLong("verifiedAt") > 0 && d.optString("app") == app)
+                LocalWorkflow.parse(d.getString("commands")) else null
+        }.getOrNull()
+    }
     fun failed(c: Context, app: String, goal: String) {
         val key = match(c, app, goal)?.first ?: return
         val p = prefs(c)

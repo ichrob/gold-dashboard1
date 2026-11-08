@@ -39,6 +39,10 @@ class MainActivity : Activity() {
             "open" -> field(R.id.search_src_text)
             "ambiguous" -> { field(R.id.search_src_text); field(R.id.search_input) }
             "protected" -> { layout.addView(TextView(this).apply { text = "Passwort" }); field(R.id.search_src_text) }
+            "nested" -> layout.addView(Button(this).apply { text = "Menü"; setOnClickListener {
+                layout.removeAllViews()
+                layout.addView(Button(this@MainActivity).apply { text = "Suche"; setOnClickListener { layout.removeAllViews(); field(R.id.search_src_text) } })
+            } })
             "closed" -> layout.addView(Button(this).apply { text = "Suche"; setOnClickListener { layout.removeAllViews(); field(R.id.search_src_text) } })
             else -> {
                 layout.addView(Button(this).apply { text = "Suche"; setOnClickListener { layout.removeAllViews(); field(R.id.search_src_text) } })
