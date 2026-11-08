@@ -9,6 +9,9 @@ export async function tick(env, storage, scheduledTime, now = Date.now(), reques
   if (!Number.isSafeInteger(scheduledTime) || scheduledTime > now + 5000 || now - scheduledTime > 120_000) {
     throw new Error('invalid_or_stale_tick');
   }
+  // An unarmed clock may record Cron receipt without access to any GitHub credential.
+  // This is not proof of a successful GitHub dispatch or its monitoring job.
+  if (env.ENABLED !== 'true' && !env.GITHUB_TOKEN) return { state: 'observation_only_no_token' };
   if (!env.GITHUB_TOKEN) throw new Error('github_token_missing');
   const slot = Math.floor(scheduledTime / PERIOD);
   const previous = await storage.get('attempt');
