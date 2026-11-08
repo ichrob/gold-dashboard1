@@ -36,6 +36,7 @@ class WorkflowService : AccessibilityService() {
     }
     private val handler = Handler(Looper.getMainLooper())
     private var selected = ""
+    private var ownerLimits = WorkflowOwnerLimits()
     private var until = 0L
     private var recipeGoal = ""
     private var displayRequest = ""
@@ -167,12 +168,14 @@ class WorkflowService : AccessibilityService() {
     private fun beginInternal(app: String, steps: List<WorkflowStep>?, screenshot: Boolean, goal: String, title: String, request: String = ""): Boolean {
         epoch++ // Invalidate activity proposals from every preceding owner request.
         finish("Neue Sitzung")
+        ownerLimits = WorkflowOwnerSettings.load(this)
+        if (steps != null && steps.size > ownerLimits.maxSteps) { message = "Auftrag über eingestellter Schrittgrenze"; return false }
         run = null
         recipeGoal = goal; recipeTitle = title; displayRequest = request.ifBlank { goal }; recorded = false
-        selected = app; until = SystemClock.elapsedRealtime() + if (steps == null) 45_000 else 180_000
+        selected = app; until = SystemClock.elapsedRealtime() + if (steps == null) 45_000L else ownerLimits.sessionMs
         capture = screenshot; captureObservation = if (screenshot) WorkflowAutoObservation(app, SystemClock.elapsedRealtime()) else null
         observation = null; screenshotText = ""
-        run = steps?.let { WorkflowRun(app, it, SystemClock.elapsedRealtime()) }
+        run = steps?.let { WorkflowRun(app, it, SystemClock.elapsedRealtime(), ownerLimits) }
         healthActive = steps != null
         healthSource = if (steps == null) "NONE" else "LOCAL"
         if (healthActive) WorkflowHealth.record(this,"STARTED",healthSource,0,steps!!.size)
@@ -183,30 +186,30 @@ class WorkflowService : AccessibilityService() {
     }
     internal fun beginDemonstration(app: String): Boolean {
         if (!begin(app, null)) return false
-        WorkflowDraftStore.clear(this); demonstration = WorkflowDemonstration(app); demonstrationSeen = false
+        WorkflowDraftStore.clear(this); demonstration = WorkflowDemonstration(app, ownerLimits.maxSteps); demonstrationSeen = false
         demonstrationAllEvents = 0; demonstrationEvents = 0; demonstrationCheck = "STARTED"
         serviceInfo = serviceInfo.apply {
             eventTypes = eventTypes or AccessibilityEvent.TYPE_VIEW_CLICKED or AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
             notificationTimeout = 0
         }
-        until = SystemClock.elapsedRealtime() + 180_000
+        until = SystemClock.elapsedRealtime() + ownerLimits.sessionMs
         message = "Vormachen aktiv · nur gewählte App · keine automatische Ausführung"
         return true
     }
     internal fun beginAutomatic(app: String, goal: String, cloud: Boolean): Boolean {
-        if (!LocalWorkflow.allowedApp(app) || (LocalWorkflow.parse(goal) == null && !WorkflowAiPolicy.safe(goal, 500))) { stop(); return false }
+        if (!LocalWorkflow.allowedApp(app) || (LocalWorkflow.parse(goal, WorkflowOwnerSettings.load(this).maxSteps) == null && !WorkflowAiPolicy.safe(goal, 500))) { stop(); return false }
         if (!begin(app, null, goal=goal, title=goal.take(60))) return false
         automatic = true; autoCloud = cloud
         healthActive = true
         WorkflowHealth.record(this,"STARTED","NONE",0,0)
-        until = SystemClock.elapsedRealtime() + 180_000
+        until = SystemClock.elapsedRealtime() + ownerLimits.sessionMs
         autoObservation = WorkflowAutoObservation(app, SystemClock.elapsedRealtime())
         message = "Automatisch: öffne App und lese den Bildschirm"
         return true
     }
     internal fun beginReplay(app: String, steps: List<WorkflowStep>, request: String): Boolean {
         val text = WorkflowAiPolicy.commands(steps)
-        if (LocalWorkflow.parse(text) != steps || !beginAutomatic(app,text,false)) return false
+        if (LocalWorkflow.parse(text, WorkflowOwnerSettings.load(this).maxSteps) != steps || !beginAutomatic(app,text,false)) return false
         replaySteps = steps; displayRequest = request.ifBlank { text }
         return true
     }
@@ -219,29 +222,29 @@ class WorkflowService : AccessibilityService() {
                 finish("Ziel noch nicht sichtbar und kein eindeutiger gespeicherter Weg vorhanden. Den Weg einmal unter Bob etwas beibringen vormachen oder die nötigen Schritte angeben.")
                 return
             }
-            run = WorkflowRun(selected,approached,SystemClock.elapsedRealtime()); healthSource = "LOCAL"
+            run = WorkflowRun(selected,approached,SystemClock.elapsedRealtime(), ownerLimits); healthSource = "LOCAL"
             message = if (approached.size > steps.size) "Geprüften Weg zur Zielansicht ausführen · danach deinen Auftrag" else "Prüfe deinen Auftrag auf dem aktuellen Bildschirm"
             return
         }
         WorkflowSymbols.plan(this, selected, recipeGoal)?.let {
-            run = WorkflowRun(selected, it, SystemClock.elapsedRealtime()); healthSource = "LOCAL"
+            run = WorkflowRun(selected, it, SystemClock.elapsedRealtime(), ownerLimits); healthSource = "LOCAL"
             message = "Prüfe gelerntes Symbol auf dem aktuellen Bildschirm"; return
         }
-        LocalWorkflow.parse(recipeGoal)?.let { requested ->
+        LocalWorkflow.parse(recipeGoal, ownerLimits.maxSteps)?.let { requested ->
             val approached = WorkflowApproach.prepare(requested, frame, WorkflowLibrary.verifiedRoutes(this, selected))
             if (approached != null && approached.size > requested.size) {
-                run = WorkflowRun(selected, approached, SystemClock.elapsedRealtime()); healthSource = "LOCAL"
+                run = WorkflowRun(selected, approached, SystemClock.elapsedRealtime(), ownerLimits); healthSource = "LOCAL"
                 message = "Geprüften Weg zur Zielansicht ausführen · danach deinen Auftrag"
                 return
             }
         }
-        WorkflowAuto.local(recipeGoal, frame)?.let {
-            run = WorkflowRun(selected, it, SystemClock.elapsedRealtime())
+        WorkflowAuto.local(recipeGoal, frame, ownerLimits.maxSteps)?.let {
+            run = WorkflowRun(selected, it, SystemClock.elapsedRealtime(), ownerLimits)
             healthSource = "LOCAL"
             message = "Automatisch lokal erkannt · prüfe jeden Schritt"; return
         }
-        WorkflowLibrary.match(this, selected, recipeGoal)?.second?.let { LocalWorkflow.parse(it) }?.let {
-            run = WorkflowRun(selected, it, SystemClock.elapsedRealtime())
+        WorkflowLibrary.match(this, selected, recipeGoal)?.second?.let { LocalWorkflow.parse(it, ownerLimits.maxSteps) }?.let {
+            run = WorkflowRun(selected, it, SystemClock.elapsedRealtime(), ownerLimits)
             healthSource = "CACHE"
             message = "Automatisch: bestätigter gespeicherter Ablauf · keine KI nötig"; return
         }
@@ -265,7 +268,7 @@ class WorkflowService : AccessibilityService() {
                 planning = false
                 val answer = result.getOrNull()
                 if (answer?.first == "proposal" && answer.second.isNotEmpty()) {
-                    run = WorkflowRun(app, answer.second, SystemClock.elapsedRealtime())
+                    run = WorkflowRun(app, answer.second, SystemClock.elapsedRealtime(), ownerLimits)
                     message = "KI-Vorschlag geprüft · führe lokal aus"
                 } else finish(WorkflowPlanner.error(answer?.first.orEmpty()) + " · kein Anbieterwechsel")
             }

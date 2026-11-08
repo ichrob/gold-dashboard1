@@ -105,6 +105,39 @@ class WorkflowActivity : Activity() {
 
         settingsPanel = column().apply { setPadding(dp(12), 0, dp(12), 0) }
         label(settingsPanel, "Regel Nummer eins: Du bestimmst. Ein neuer Start ersetzt den bisherigen Auftrag; Stopp beendet ihn.")
+        label(settingsPanel, "Besitzersteuerung · diese Ablaufgrenzen legst du selbst fest. Hochschutz, PIN-Schutz, Order- und Zahlungssperre bleiben fest aktiv.")
+        fun ownerNumberSetting(title: String, min: Int, max: Int, suffix: String,
+            current: (WorkflowOwnerLimits) -> Int,
+            changed: (WorkflowOwnerLimits, Int) -> WorkflowOwnerLimits
+        ) {
+            val control = Button(this).apply {
+                isAllCaps = false
+                text = "$title: ${current(WorkflowOwnerSettings.load(this@WorkflowActivity))} $suffix"
+            }
+            settingsPanel.addView(control)
+            control.setOnClickListener {
+                val picker = NumberPicker(this).apply {
+                    minValue = min; maxValue = max
+                    value = current(WorkflowOwnerSettings.load(this@WorkflowActivity))
+                    wrapSelectorWheel = false
+                }
+                AlertDialog.Builder(this).setTitle(title).setView(picker)
+                    .setPositiveButton("Speichern") { _, _ ->
+                        val next = changed(WorkflowOwnerSettings.load(this), picker.value)
+                        if (WorkflowOwnerSettings.save(this, next)) {
+                            control.text = "$title: ${current(WorkflowOwnerSettings.load(this))} $suffix"
+                            ownerOverride() // Existing task cannot silently continue under changed settings.
+                            status.text = "Einstellung gespeichert · für die nächsten Aufträge aktiv"
+                        } else status.text = "Einstellung konnte nicht gespeichert werden"
+                    }.setNegativeButton("Abbrechen", null).show()
+            }
+        }
+        ownerNumberSetting("Maximale Ablaufschritte", 1, WorkflowOwnerLimits.MAX_STEPS, "Schritte",
+            { it.maxSteps }, { old, value -> old.copy(maxSteps = value) })
+        ownerNumberSetting("Maximale Laufzeit", 1, WorkflowOwnerLimits.MAX_SESSION_MINUTES, "Minuten",
+            { it.sessionMinutes }, { old, value -> old.copy(sessionMinutes = value) })
+        ownerNumberSetting("Wartezeit je Schritt", 10, WorkflowOwnerLimits.MAX_STEP_TIMEOUT_SECONDS, "Sekunden",
+            { it.stepTimeoutSeconds }, { old, value -> old.copy(stepTimeoutSeconds = value) })
         button(settingsPanel, "Bedienungshilfe einrichten") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         cloud = CheckBox(this).apply { text = "Bei Bedarf KI automatisch nutzen · einmal je App freigeben"; settingsPanel.addView(this) }
         cloud.setOnCheckedChangeListener { _, checked ->
@@ -121,7 +154,7 @@ class WorkflowActivity : Activity() {
         label(settingsPanel, "Keine Orders, Anmeldung oder Zahlungen. Keine automatische kostenpflichtige Ausweichlösung.")
 
         detailsPanel = column().apply { setPadding(dp(12), 0, dp(12), 0) }
-        label(detailsPanel, "Auftragsfolge · bis zu zwölf Schritte")
+        label(detailsPanel, "Auftragsfolge · Schrittzahl unter Einstellungen festlegen")
         commands = EditText(this).apply { hint = "Schritte prüfen oder ergänzen"; minLines = 3; gravity = android.view.Gravity.TOP; detailsPanel.addView(this) }
         name = EditText(this).apply { hint = "Optionaler Name"; setSingleLine(); detailsPanel.addView(this) }
         button(detailsPanel, "Schritt hinzufügen") { composeStep("") }
@@ -153,7 +186,7 @@ class WorkflowActivity : Activity() {
         updateAppLabel(); updateCloud()
         goal.setText(state?.getString("draftGoal").orEmpty())
         commands.setText(state?.getString("draftCommands").orEmpty())
-        revisionBase = state?.getString("draftRevision")?.let { LocalWorkflow.parse(it) }
+        revisionBase = state?.getString("draftRevision")?.let { LocalWorkflow.parse(it, WorkflowOwnerSettings.load(this).maxSteps) }
         state?.getString("draftImage")?.let { readImage(Uri.parse(it), true) }
         renderHistory()
     }
@@ -244,7 +277,7 @@ class WorkflowActivity : Activity() {
             }.isEnabled = entry.optBoolean("success")
             action("Ändern") {
                 if (entry.optString("app") == selectedApp) {
-                    clearAttachment(); revisionBase = LocalWorkflow.parse(entry.optString("commands"))
+                    clearAttachment(); revisionBase = LocalWorkflow.parse(entry.optString("commands"), WorkflowOwnerSettings.load(this).maxSteps)
                     goal.setText(entry.optString("request",entry.optString("commands"))); goal.requestFocus(); goal.selectAll()
                     status.text = "Auftrag bearbeiten oder z. B. Nimm Silber statt Gold schreiben. Danach Senden."
                     (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showSoftInput(goal,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
@@ -359,7 +392,7 @@ class WorkflowActivity : Activity() {
         }
         if (!LocalWorkflow.allowedApp(selectedApp)) { status.text = "Bitte zuerst eine App auswählen"; return }
         val task = goal.text.toString().trim()
-        if (LocalWorkflow.parse(task) == null && !WorkflowAiPolicy.safe(task, 500)) { status.text = "Bitte einen kurzen Auftrag ohne private Daten eingeben"; return }
+        if (LocalWorkflow.parse(task, WorkflowOwnerSettings.load(this).maxSteps) == null && !WorkflowAiPolicy.safe(task, 500)) { status.text = "Bitte einen kurzen Auftrag ohne private Daten eingeben"; return }
         val service = WorkflowService.instance ?: run { status.text = "Einmalig die Auftrags-Bedienungshilfe über Einrichtung aktivieren"; return }
         val intent = packageManager.getLaunchIntentForPackage(selectedApp) ?: run { status.text = "App nicht mehr installiert oder nicht startbar"; return }
         stopProductReader()
@@ -390,7 +423,7 @@ class WorkflowActivity : Activity() {
         if (commands.text.contains("\"TEXT\"") || commands.text.contains("\"ERGEBNISTEXT\"")) {
             status.text = "Bitte zuerst die Platzhalter TEXT und ERGEBNISTEXT ersetzen"; return null
         }
-        val plan = LocalWorkflow.parse(commands.text.toString())
+        val plan = LocalWorkflow.parse(commands.text.toString(), WorkflowOwnerSettings.load(this).maxSteps)
         if (plan == null) status.text = "Auftrag noch nicht ausführbar. Bitte jede Zeile nach dem Beispiel formulieren; keine Teil-Ausführung."
         return plan
     }
@@ -419,7 +452,7 @@ class WorkflowActivity : Activity() {
     private fun loadSaved(key: String): Boolean = runCatching {
         val data = JSONObject(saved.getString(key, "")!!)
         require(data.getInt("version") == 1 && LocalWorkflow.allowedApp(data.getString("app")))
-        require(LocalWorkflow.parse(data.getString("commands")) != null)
+        require(LocalWorkflow.parse(data.getString("commands"), WorkflowOwnerSettings.load(this).maxSteps) != null)
         clearAttachment(); selectedApp = data.getString("app"); revisionBase = null; updateAppLabel(); updateCloud()
         autoPrefs.edit().putString("lastApp",selectedApp).apply(); renderHistory()
         commands.setText(data.getString("commands")); goal.setText(data.optString("goal")); name.setText(key); status.text = "Geladen · noch nicht gestartet"; showPanel("Gespeicherten Ablauf prüfen",detailsPanel)
@@ -597,7 +630,7 @@ class WorkflowActivity : Activity() {
                 val action = listOf(WorkflowAction.CLICK, WorkflowAction.WRITE, WorkflowAction.WAIT)[kind.selectedItemPosition]
                 val line = WorkflowComposer.command(action, target.text.toString(), value.text.toString(), expected.text.toString())
                 val combined = line?.let { commands.text.toString().trim().let { old -> if (old.isEmpty()) it else old + "\n" + it } }
-                if (combined == null || LocalWorkflow.parse(combined) == null) {
+                if (combined == null || LocalWorkflow.parse(combined, WorkflowOwnerSettings.load(this).maxSteps) == null) {
                     help.text = "Bitte Ziel und benötigten Wert bzw. Ergebnistext angeben. Höchstens zwölf Schritte; keine geschützten Aktionen."
                 } else {
                     commands.setText(combined); status.text = "Schritt hinzugefügt · noch nicht ausgeführt"
@@ -775,7 +808,7 @@ class WorkflowActivity : Activity() {
                 expectedPrompt?.dismiss()
                 expectedPrompt = WorkflowExpectedResultDialog(this,step.target,emptyList(),::current,
                     pickImage = { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="image/*"; addCategory(Intent.CATEGORY_OPENABLE) },107) },
-                    submit = { command -> LocalWorkflow.parse(command)?.singleOrNull()?.let { plan[index]=it; resolve(index+1) } })
+                    submit = { command -> LocalWorkflow.parse(command, WorkflowOwnerSettings.load(this).maxSteps)?.singleOrNull()?.let { plan[index]=it; resolve(index+1) } })
                 expectedPrompt!!.show()
             }
             val labels = choices[index].orEmpty().filter(WorkflowComposer::validText).distinct()
