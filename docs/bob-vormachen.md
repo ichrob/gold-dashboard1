@@ -39,3 +39,17 @@ Unter **Einstellungen → Hochschutzregeln verwalten** stehen dem Besitzer zusä
 - **Alle KI-App-Freigaben widerrufen**: Entfernt nach einer gesonderten Bestätigung sämtliche bisherigen Google-KI-Freigaben der allgemeinen Bedienhilfe. Gespeicherte lokale Abläufe bleiben erhalten.
 
 Änderungen werden erst über **Speichern** übernommen, gelten nur auf dem eigenen Handy und stoppen einen noch laufenden generischen Auftrag. Das Zurückschalten der zusätzlichen Einschränkungen kann niemals Passwort-/PIN-Ansichten, Echtgeldorders, Zahlungsfunktionen oder Systemberechtigungen freigeben. Jene Sperren sind unabhängig von den Besitzeroptionen und bleiben aktiv. Es gibt keine pauschale Freigabe für zukünftige sensible Einzelaktionen.
+
+## Schutzwahl des Besitzers: fünf feste Regeln
+
+Nach der Auswahl vom 8. November 2026 sollen **nur die bisherigen Nummern 2, 3, 5, 6 und 7** in der Besitzerübersicht als dauerhaft festgelegte Hochschutzpunkte erscheinen:
+
+- **2** Keine selbstständigen Überweisungen oder Zahlungen.
+- **3** Keine Weitergabe von Passwörtern, PINs oder TANs; die autorisierte lokale PIN-Anmeldung bleibt gesondert möglich.
+- **5** Keine Aufnahme/Auswertung geschützter Bildschirme.
+- **6** Keine eigenmächtige Änderung von Systemrechten, App-Installation oder Löschung fremder Daten.
+- **7** Keine mehrdeutigen Klicks oder blinden Wiederholungen unbestätigter Aktionen.
+
+Die früheren Nummern **1, 4 und 8** sind in der Anzeige keine vom Besitzer gewählten *zusätzlichen* festen Hochschutzpunkte mehr. Sie sind jedoch **nicht durch diese Auswahl technisch freigeschaltet**: Für (1) existiert keine freigegebene Echtgeldorder-Ausführung; (4) die Android- oder Kontosperre darf nicht umgangen werden, normale autorisierte Anmeldung ist zulässig; (8) externe KI-Hilfe benötigt weiterhin die App-Freigabe und darf keine privaten Konto-/Zugangsdaten ohne Erlaubnis versenden. Diese unabhängigen gesetzlichen, technischen und Datenschutz-Voraussetzungen bleiben wirksam.
+
+Die Liste ist eine Klarstellung der Besitzerwahl, kein Ausführungsschalter. An den vorhandenen Sicherheitsprüfungen wurde dadurch nichts verändert.
