@@ -71,6 +71,8 @@ Für **18.000 Diagnoseoriginale vom 28.10.2026 10:57:16.042511 UTC bis 29.10.202
 
 Diese neue Berechnung ersetzt keinen damaligen Auswertungsnachweis und ist kein Handelsbacktest oder Renditevergleich. Eine erneute Berechnung darf niemals als wiedergefundenes damaliges Ergebnis etikettiert werden.
 
+**Administrativer Abschluss vom 07.11.2026:** Auf ausdrückliche Nutzerentscheidung ist dieser historische Teilfall ohne damaligen Manifestnachweis als **historisch nicht nachweisbar / administrativ abgeschlossen** zu führen. Das bedeutet nicht, dass die damalige Auswertung oder der ursprüngliche Manifestbeleg rekonstruiert wurde. Die Originale und authentifizierten Archive bleiben erhalten; `historicalEvaluationStatus=unknown`, `historicalManifestRecovered=false`. Die vorhandene rückblickende Statistik bleibt ausdrücklich neu berechnet. Keine erneute Belegsuche, Wiederöffnung, Reparaturmeldung oder Schlüssel-/Restoreprüfung allein wegen der unveränderten Präfixlücke; nur tatsächlich neu auftauchende authentifizierte Originalbelege rechtfertigen eine Nachprüfung. [Abschlussprotokoll](https://github.com/ichrob/gold-dashboard1/issues/1329#issuecomment-6709956908).
+
 Der vollständige Bericht und der aktuelle Manifestsnapshot wurden auf der getrennten Restoreinstanz in `bob_replay_audit.history_coverage_reports` gespeichert und exakt zurückgelesen. Bericht-SHA256: `3f7063060567674cc8cbcdf99d9a0be79625cd255798c45504f0d73b28713613`.
 
 [Abdeckungsbericht und Suchumfang](https://github.com/ichrob/gold-dashboard1/issues/1329#issuecomment-6707232202)
@@ -79,7 +81,7 @@ Der vollständige Bericht und der aktuelle Manifestsnapshot wurden auf der getre
 
 1. Bestehende authentifizierte Belege und deren exakten Bereich verwenden; Schlüsselrettung, komplette Restoreprüfungen und Deployment-Pausen nicht allein wegen historisch konservativer Modulflags wiederholen.
 2. Neue auswertbare Daten durch den vorhandenen Worker fortschreiben lassen. Ein steigender Zähler belegt Fortschritt, aber für sich allein keine Readergleichheit oder vollständige Abdeckung.
-3. Die 18.000 älteren Zeilen als historische Nachweislücke führen. Nur ein tatsächlich gefundener und authentifizierter damaliger Beleg kann diesen Status ändern.
+3. Den administrativ abgeschlossenen Teilfall der 18.000 älteren Diagnosezeilen nicht erneut als Reparaturauftrag oder wiederkehrende Blockade melden. Bei authentisch neuen historischen Originalbelegen gezielt prüfen; keine Statusumdeutung ohne Beleg.
 4. Vor jeder zusätzlich beantragten Originalmutation Backup, Restore, eingriffsspezifische WAL-/Scratch-/Lock-Reserven und Rückweg prüfen. Physische Speicherfreigabe nur mit geeignetem Provider-Vorher-/Nachher-Messpaar behaupten.
 
 PR #1435 bleibt ein begrenzter, nicht produktiv eingebundener Prüfbaustein. `fullOriginalReplayVerified=false`, `deletionAuthorized=false` und `physicalBytesFreed=null` bleiben korrekt. Kein Main-Merge oder Deploy wird durch dieses Protokoll ausgelöst.
