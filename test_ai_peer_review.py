@@ -50,5 +50,52 @@ class SecondAI(unittest.TestCase):
         self.assertEqual(prompt["max_tokens"], 1200)
 
 
+    def test_auto_review_rejects_forks_drafts_and_stale_ci(self):
+        sha = "a" * 40
+        pr = {"state": "open", "user": {"login": "ichrob"},
+              "base": {"repo": {"full_name": peer.REPO}},
+              "head": {"repo": {"full_name": peer.REPO}, "sha": sha},
+              "draft": False, "body": "Fixes BOB-12-push-unhealthy"}
+        with patch.dict(os.environ, {"BOB_AI_AUTO_REVIEW_ENABLED": "1"}, clear=True):
+            self.assertEqual(peer.review_allowed(pr, mode="automatic", head_sha=sha), sha)
+            with self.assertRaises(ValueError):
+                peer.review_allowed(pr, mode="automatic", head_sha="b" * 40)
+            with self.assertRaises(ValueError):
+                peer.review_allowed(pr | {"draft": True}, mode="automatic", head_sha=sha)
+            with self.assertRaises(ValueError):
+                peer.review_allowed(pr | {"user": {"login": "unknown"}}, mode="automatic", head_sha=sha)
+            with self.assertRaises(ValueError):
+                peer.review_allowed(pr | {"body": "No evidence linked"}, mode="automatic", head_sha=sha)
+            with self.assertRaises(ValueError):
+                peer.review_allowed(pr | {"head": {"repo": {"full_name": "someone/fork"}, "sha": sha}},
+                                    mode="automatic", head_sha=sha)
+
+    def test_auto_review_is_opt_in_only(self):
+        sha = "a" * 40
+        pr = {"state": "open", "user": {"login": "ichrob"},
+              "base": {"repo": {"full_name": peer.REPO}},
+              "head": {"repo": {"full_name": peer.REPO}, "sha": sha},
+              "draft": False, "body": "BOB-12-push-unhealthy"}
+        with patch.dict(os.environ, {}, clear=True), self.assertRaises(ValueError):
+            peer.review_allowed(pr, mode="automatic", head_sha=sha)
+
+    def test_second_ai_has_per_commit_and_daily_budget(self):
+        from datetime import datetime, timezone
+        now = datetime(2026, 11, 9, tzinfo=timezone.utc)
+        sha = "a" * 40
+        self.assertEqual(peer.check_review_budget([], sha, now=now), "2026-11-09")
+        c1 = {"user": {"login": "github-actions[bot]"},
+              "body": peer.REVIEW_MARKER + "b" * 40 + ";utcday=2026-11-09 -->"}
+        c2 = {"user": {"login": "github-actions[bot]"},
+              "body": peer.REVIEW_MARKER + "c" * 40 + ";utcday=2026-11-09 -->"}
+        with self.assertRaisesRegex(ValueError, "already-reviewed"):
+            peer.check_review_budget([c1], "b" * 40, now=now)
+        with self.assertRaisesRegex(ValueError, "daily-review-limit"):
+            peer.check_review_budget([c1, c2], sha, now=now)
+        with self.assertRaisesRegex(ValueError, "comment-history-incomplete"):
+            peer.check_review_budget([{}] * 100, sha, now=now)
+
+
+
 if __name__ == "__main__":
     unittest.main()
