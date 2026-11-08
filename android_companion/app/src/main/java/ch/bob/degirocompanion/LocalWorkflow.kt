@@ -81,6 +81,7 @@ internal class WorkflowRun(val app: String, val steps: List<WorkflowStep>, val s
     private var seenTarget = false
     private var expectedId = ""
     private var expectedIndex = -1
+    init { if (steps.size !in 1..limits.maxSteps) stop("Auftrag über eingestellter Schrittgrenze") }
     fun stop(reason: String) { finished = true; status = reason }
     fun tick(frame: WorkflowFrame?, now: Long, unlocked: Boolean, act: (WorkflowStep, Int) -> Boolean) {
         if (finished) return
