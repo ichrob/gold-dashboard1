@@ -57,14 +57,15 @@ class RemoteOcrTests(unittest.TestCase):
         body = json.dumps({"sha256": digest, "passes": ["one", "two", "three"]}).encode()
         opener = Mock()
         opener.open.return_value = FakeResponse(body)
-        with self.settings():
+        with self.settings(), patch.object(remote, '_fetch_identity_token', return_value='signed-id-token'):
             self.assertEqual(remote.recognize({"png": IMAGE}, opener=opener),
                              [["one", "two", "three"]])
         request = opener.open.call_args.args[0]
         sent = json.loads(request.data)
         self.assertEqual(sent["sha256"], digest)
         self.assertEqual(sent["png"], IMAGE)
-        self.assertEqual(request.get_header("Authorization"), "Bearer " + TOKEN)
+        self.assertEqual(request.get_header("Authorization"), "Bearer signed-id-token")
+        self.assertEqual(request.get_header("X-bob-ocr-key"), TOKEN)
         self.assertEqual(opener.open.call_args.kwargs["timeout"], 70)
 
     def test_rejects_corrupt_cross_image_or_single_pass_results(self):
@@ -78,13 +79,13 @@ class RemoteOcrTests(unittest.TestCase):
         for payload in bad_responses:
             opener = Mock()
             opener.open.return_value = FakeResponse(json.dumps(payload).encode())
-            with self.settings(), self.assertRaises(remote.RemoteOcrError):
+            with self.settings(), patch.object(remote, '_fetch_identity_token', return_value='signed-id-token'), self.assertRaises(remote.RemoteOcrError):
                 remote.recognize({"png": IMAGE}, opener=opener)
 
     def test_provider_failure_never_returns_fake_text(self):
         opener = Mock()
         opener.open.side_effect = TimeoutError("external provider failed")
-        with self.settings(), self.assertRaises(remote.RemoteOcrError):
+        with self.settings(), patch.object(remote, '_fetch_identity_token', return_value='signed-id-token'), self.assertRaises(remote.RemoteOcrError):
             remote.recognize({"png": IMAGE}, opener=opener)
 
 
