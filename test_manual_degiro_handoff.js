@@ -25,7 +25,8 @@ assert(!view.children.some(x=>x.textContent==='Order platzieren'),'No submit-ord
 const draft=view.children.find(x=>x.tagName==='details');
 draft.children.find(x=>x.tagName==='button').onclick();
 assert.match(flatten(draft),/Nicht|unbestätigt/);
-let trade={snapshot:{dir:'SHORT',product:{isin:'DE000FG4JXV7',quantity:12,currency:'EUR'}}};
+let trade={snapshot:{dir:'SHORT',product:{isin:'DE000FG4JXV7',quantity:12,currency:'EUR'},
+ purchase:{transactionId:'confirmed-1',at:'2026-11-09T14:00:00Z'}}};
 view=render({active:trade,validPlan:true},{available:true,stop:10.11,currency:'EUR'});
 assert.match(flatten(view),/Verkauf|Ausstieg/);
 assert.match(flatten(view),/Stop|Stopp/);
@@ -33,6 +34,9 @@ assert.match(flatten(view),/12/);
 assert.match(flatten(view),/DE000FG4JXV7/);
 assert.match(flatten(view),/manuell/);
 assert(!/submitOrder|placeOrder|sendOrder|fetch\(/.test(src.slice(start,end)));
-view=render({active:{snapshot:{product:{isin:'INVALID',quantity:0}}},validPlan:false},{});
+view=render({active:{snapshot:{product:{isin:'DE000FG4JXV7',quantity:2}}},validPlan:false},{});
+assert.match(flatten(view),/Ohne eindeutige Ausführungsquittung/);
+view=render({active:{snapshot:{product:{isin:'INVALID',quantity:0},
+ purchase:{transactionId:'confirmed-1',at:'2026-11-09T14:00:00Z'}}},validPlan:false},{});
 assert.match(flatten(view),/Kein Verkaufsentwurf/);
 console.log('DEGIRO manual handoff: buy draft, active position, stop, exit and no trade action passed');
