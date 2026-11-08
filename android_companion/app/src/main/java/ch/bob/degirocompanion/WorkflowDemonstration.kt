@@ -1,7 +1,8 @@
 package ch.bob.degirocompanion
 
 /** Explicit app-scoped demonstration produces a draft, never an executable/cache-approved plan. */
-internal class WorkflowDemonstration(val app: String) {
+internal class WorkflowDemonstration(val app: String,
+    private val maxSteps: Int = 12) {
     val steps = mutableListOf<WorkflowStep>()
     val choices = mutableMapOf<Int, List<String>>()
     var error = ""; private set
@@ -10,7 +11,7 @@ internal class WorkflowDemonstration(val app: String) {
     private var previousFrame: WorkflowFrame? = null
     private var inferredTarget: String? = null
     private fun add(step: WorkflowStep) {
-        if (steps.size >= 12) { error = "Zwölf Schritte erreicht; Aufzeichnung beendet"; return }
+        if (steps.size >= maxSteps.coerceIn(1, WorkflowOwnerLimits.MAX_STEPS)) { error = "Eingestellte Schrittgrenze erreicht; Aufzeichnung beendet"; return }
         steps += step
     }
     fun click(target: String, frame: WorkflowFrame) {
@@ -40,7 +41,7 @@ internal class WorkflowDemonstration(val app: String) {
             val gone = previous.nodes.filter { it.clickable && !it.editable && !it.password && identity(it) !in remaining && WorkflowComposer.validText(identity(it)) }
                 .distinctBy { identity(it) }.singleOrNull()
             if (gone != null && steps.lastOrNull()?.let { it.action == WorkflowAction.CLICK && it.target == identity(gone) } != true) {
-                if (steps.size >= 12) { error = "Zwölf Schritte erreicht; Aufzeichnung beendet"; return }
+                if (steps.size >= maxSteps.coerceIn(1, WorkflowOwnerLimits.MAX_STEPS)) { error = "Eingestellte Schrittgrenze erreicht; Aufzeichnung beendet"; return }
                 val target = identity(gone)
                 // A disappearing view may omit its click event. This is only a tentative
                 // draft step: retain ERGEBNISTEXT until the owner explicitly reviews it.
