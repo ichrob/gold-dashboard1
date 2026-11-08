@@ -86,6 +86,28 @@ class ExecutionReadinessTests(unittest.TestCase):
         self.assertFalse(p["tradeApproved"])
         self.assertFalse(broker_bridge.status()["executionEnabled"])
 
+    def test_fee_reserved_from_cash_and_budget_and_clock_alignment(self):
+        a,b,c=fixture()
+        c["cashEUR"]=100
+        p=tr.build_review(a,b,c,now=NOW)
+        self.assertEqual(p["state"],"MANUAL_REVIEW")
+        self.assertEqual(p["quantity"],9)
+        self.assertLessEqual(p["estimatedWorstCaseLossEUR"],100)
+        b["quoteAt"]=(NOW-timedelta(seconds=85)).isoformat()
+        p=tr.build_review(a,b,c,now=NOW)
+        self.assertEqual(p["state"],"BLOCKED")
+        self.assertIn("Produktkurs und Handelssignal liegen zeitlich auseinander",p["reasons"])
+
+    def test_bridge_returns_non_executable_four_stage_status(self):
+        a,b,c=fixture()
+        p=broker_bridge.prepare_order_review(a,b,c,now=NOW)
+        self.assertEqual(p["state"],"MANUAL_REVIEW")
+        ready=broker_bridge.status()["fourStageReadiness"]
+        self.assertFalse(ready["realOrdersEnabled"])
+        self.assertFalse(ready["canOpenOrders"])
+        self.assertFalse(ready["canSellOrders"])
+        self.assertIn("CONFIRMED_FILL",ready["positionMonitoring"])
+
     def test_low_max_risk_is_full_ko_cash_exposure_not_stop_assumption(self):
         a,b,c=fixture()
         c["maxLossEUR"]=8
