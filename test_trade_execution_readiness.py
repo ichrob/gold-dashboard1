@@ -106,7 +106,7 @@ class ExecutionReadinessTests(unittest.TestCase):
         self.assertFalse(ready["realOrdersEnabled"])
         self.assertFalse(ready["canOpenOrders"])
         self.assertFalse(ready["canSellOrders"])
-        self.assertIn("CONFIRMED_FILL",ready["positionMonitoring"])
+        self.assertIn("CONFIRMED_RECEIPT",ready["positionMonitoring"])
 
     def test_low_max_risk_is_full_ko_cash_exposure_not_stop_assumption(self):
         a,b,c=fixture()
