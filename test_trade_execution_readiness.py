@@ -82,7 +82,9 @@ class ExecutionReadinessTests(unittest.TestCase):
         a["direction"]=b["direction"]="SHORT"
         p=tr.build_review(a,b,c,broker="ibkr",now=NOW)
         self.assertEqual(p["state"],"BROKER_API_NOT_CONNECTED")
-        self.assertEqual(p["orderSide"],"BUY")
+        self.assertIsNone(p["orderSide"])
+        self.assertEqual(p["quantity"],0)
+        self.assertIn("Brokerspezifische Vertrags-ID",p["reasons"][0])
         self.assertFalse(p["tradeApproved"])
         self.assertFalse(broker_bridge.status()["executionEnabled"])
 
