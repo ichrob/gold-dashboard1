@@ -16,6 +16,7 @@ class WorkerTests(unittest.TestCase):
         text='\n'.join(rows)
         payload={'images':[{'png':'synthetic-original-image'}]}
         with patch.object(worker,'guarded_ocr_run',side_effect=worker.OcrMemoryDeferred('low RAM')), \
+             patch('remote_ocr_fallback.configured',return_value=True), \
              patch('remote_ocr_fallback.recognize',return_value=[[text,text]]) as remote:
             parsed=worker.process(payload,'2026-11-08T08:00:00Z')
         remote.assert_called_once()
@@ -24,9 +25,11 @@ class WorkerTests(unittest.TestCase):
                             for x in parsed['items']))
         self.assertTrue(all(not x['listRow']['isExecutableQuote'] for x in parsed['items']))
         with patch.object(worker,'guarded_ocr_run',side_effect=worker.OcrMemoryDeferred('low RAM')), \
-             patch('remote_ocr_fallback.recognize',return_value=None):
+             patch('remote_ocr_fallback.configured',return_value=False), \
+             patch('remote_ocr_fallback.recognize',return_value=None) as remote_disabled:
             with self.assertRaises(worker.OcrMemoryDeferred):
                 worker.process(payload,'2026-11-08T08:00:00Z')
+            remote_disabled.assert_not_called()
 
     def test_working_bitmaps_close_between_passes_and_on_native_failure(self):
         from PIL import Image
