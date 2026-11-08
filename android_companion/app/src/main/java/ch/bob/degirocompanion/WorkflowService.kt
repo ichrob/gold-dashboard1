@@ -190,7 +190,7 @@ class WorkflowService : AccessibilityService() {
     }
     internal fun beginDemonstration(app: String): Boolean {
         if (!begin(app, null)) return false
-        demonstrationDraft = null; demonstrationChoices = emptyMap(); demonstrationError = ""; demonstration = WorkflowDemonstration(app); demonstrationSeen = false
+        WorkflowDraftStore.clear(this); demonstration = WorkflowDemonstration(app); demonstrationSeen = false
         demonstrationAllEvents = 0; demonstrationEvents = 0; demonstrationCheck = "STARTED"
         serviceInfo = serviceInfo.apply {
             eventTypes = eventTypes or AccessibilityEvent.TYPE_VIEW_CLICKED or AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
@@ -279,7 +279,13 @@ class WorkflowService : AccessibilityService() {
         }.start()
     }
     private fun finish(reason: String) {
-        demonstration?.let { demonstrationDraft = it.app to it.draft(); demonstrationChoices = it.choices.toMap(); demonstrationError = it.error }
+        demonstration?.let {
+            demonstrationDraft = it.app to it.draft(); demonstrationChoices = it.choices.toMap()
+            demonstrationError = it.error.ifBlank {
+                if (reason == "Vormachen beendet · Entwurf prüfen" || reason == "Vormachen beendet: andere App geöffnet") "" else reason
+            }
+            WorkflowDraftStore.save(this)
+        }
         demonstration = null; demonstrationSeen = false
         val notify = automatic && reason != "Neue Sitzung"
         replaySteps = null; automatic = false; planning = false; autoCloud = false; autoObservation = null; proposalContext = null
