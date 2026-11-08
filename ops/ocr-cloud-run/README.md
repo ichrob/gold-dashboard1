@@ -1,0 +1,54 @@
+# Bob: optional off-box OCR for memory pressure
+
+**Staging only; NOT deployed or enabled.** This is not an additional always-on
+Bob trading service. Its only role is to read an existing DEGIRO screenshot
+when the authenticated handset path cannot supply appText/local ML Kit and
+the Render OCR child cannot safely start or exceeds its cgroup limit.
+
+Provider candidate: Google Cloud Run (not the connected Google Drive app).
+Plan for 2 GiB memory, 1 vCPU, request concurrency 1, minimum instances 0,
+maximum instances 1, request timeout 90 seconds, no persistent disk, no
+database. The pinned native OCR remains inside a network-denied child
+(seccomp). No API-based paid OCR, no new market sources, no trades.
+
+## Important before ANY deployment
+
+* Cloud Run's monthly free grants are **not a hard spending cap**. Billing,
+  container image registry, log volume, networking or excess use may cost
+  money. An unauthenticated public Cloud Run URL can be abused to incur
+  charges even if application-layer bearer checks reject requests. Use
+  provider IAM / approved private ingress and enforce budgets/quotas; first
+  independently test authentication end-to-end. This repository does **not**
+  run `gcloud` or create paid resources.
+* The existing Render app and Google Drive connection **do not grant Google
+  Cloud Run project ownership or deployment permissions**. Cloud-account
+  authorization must be completed using an eligible project/connector.
+* Never commit or paste a Cloud Run token, screenshot or device ID. Secrets
+  must be entered through the provider's secure secret manager and Render's
+  environment manager. Do not put private values into GitHub Actions logs.
+* Offload is disabled by default (`BOB_REMOTE_OCR_ENABLED` absent or false).
+  It also requires `BOB_REMOTE_OCR_URL` on an HTTPS `*.a.run.app/ocr`
+  host and a separate token of at least 32 characters. Do not enable merely
+  because an endpoint responds: first prove IAM, bounded abuse/cost controls,
+  rollback, failure isolation, genuine original-image matching and 10 unique
+  parsed products.
+* Cloud Run is a **fallback**, not guaranteed realtime. Scale-to-zero
+  introduces cold starts. If it times out, is unreachable, lacks quota or
+  returns malformed results, the current Render import stays waiting-memory
+  / read-failed; previous confirmed lists remain untouched.
+* No capture is made here. The remote endpoint receives only one original
+  PNG (no portfolio, token, account state, price cache or entire batch),
+  never records request bodies, and returns two or three optical text passes.
+  Existing local JS parser must still independently validate exact ten
+  products and their original timestamps. Remote OCR is not an independent
+  broker quote or trade authorization.
+
+Before enabling, run isolated synthetic-image integration tests and
+measure cold/warm latency, per-image RAM, Cloud Run quota and billing on the
+actual provider. Record evidence in existing GitHub issue #1308 (original
+RAM problem) / #1329 (cost/security). Never change the 505-MiB local kill
+threshold just to force successful imports.
+
+Official provider limits:
+https://cloud.google.com/run/pricing
+https://docs.cloud.google.com/run/docs/configuring/instances/memory-limits
