@@ -65,23 +65,31 @@ class DegiroManualHandoffTests(unittest.TestCase):
 
     def test_stop_tightening_only_against_confirmed_broker_stop(self):
         self.assertEqual(stop_update_handoff(position(), proposed_stop_eur=10,
-            broker_confirmed_stop_eur=9, observed_bid_eur=12)["state"],
+            broker_confirmed_stop_eur=9, observed_bid_eur=12, bid_at=AT, bid_source="Issuer", now=NOW)["state"],
             "MANUAL_STOP_REVIEW")
         self.assertEqual(stop_update_handoff(position(), proposed_stop_eur=8,
-            broker_confirmed_stop_eur=9, observed_bid_eur=12)["state"],
+            broker_confirmed_stop_eur=9, observed_bid_eur=12, bid_at=AT, bid_source="Issuer", now=NOW)["state"],
             "BLOCKED")
         self.assertEqual(stop_update_handoff(position(), proposed_stop_eur=10,
-            broker_confirmed_stop_eur=None, observed_bid_eur=12)["state"],
+            broker_confirmed_stop_eur=None, observed_bid_eur=12, bid_at=AT, bid_source="Issuer", now=NOW)["state"],
             "BLOCKED")
         self.assertEqual(stop_update_handoff(position(), proposed_stop_eur=13,
-            broker_confirmed_stop_eur=9, observed_bid_eur=12)["state"],
+            broker_confirmed_stop_eur=9, observed_bid_eur=12, bid_at=AT, bid_source="Issuer", now=NOW)["state"],
             "BLOCKED")
+
+    def test_no_stop_change_without_dated_original_quote(self):
+        p=position()
+        result=stop_update_handoff(p, proposed_stop_eur=10,
+                                   broker_confirmed_stop_eur=9,
+                                   observed_bid_eur=12)
+        self.assertEqual(result["state"], "BLOCKED")
+        self.assertIn("Quellenzeit", result["reasons"][0])
 
     def test_buy_receipt_required_stop_and_sell(self):
         unconfirmed = position()
         unconfirmed["purchase"] = {}
         self.assertEqual(stop_update_handoff(unconfirmed, proposed_stop_eur=10,
-            broker_confirmed_stop_eur=9, observed_bid_eur=12)["state"],
+            broker_confirmed_stop_eur=9, observed_bid_eur=12, bid_at=AT, bid_source="Issuer", now=NOW)["state"],
             "BLOCKED")
         quote = dict(isin="DE000FG4JXV7", currency="EUR",
                      bidEUR=11, quoteAt=AT,
