@@ -56,10 +56,10 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
             proof.assert_called_once();measured.assert_called_once()
         invalid=self.proof();invalid['latestVerifiedAttempt']['recoveryKeyVerified']=False
         with patch('storage_budget.archive_status',return_value=invalid), \
-             patch('render_disk_metrics.report') as measured:
+             patch('render_disk_metrics.report',return_value=volume) as measured:
             self.assertEqual(verified_writer_preflight(object(),now=self.NOW)['status'],
                              'backup-proof-not-fresh')
-            measured.assert_not_called()
+            measured.assert_called_once()
         for change in ({'observedAt':self.NOW-301},
                        {'diskUsage':MAX_VOLUME_BYTES+1},
                        {'unit':'GB'},{'resource':'wrong'}):
@@ -74,10 +74,11 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
         from storage_capacity import CAUTION_BYTES
         volume={'status':'observed','resource':RESOURCE,'unit':'bytes',
                 'observedAt':self.NOW-20,'diskUsage':CAUTION_BYTES-1}
-        with patch('storage_budget.archive_status',return_value=self.proof()), \
+        with patch('storage_budget.archive_status') as proof, \
              patch('render_disk_metrics.report',return_value=volume):
             self.assertEqual(verified_writer_preflight(object(),now=self.NOW)['status'],
                              'capacity-comfortable-no-offload')
+            proof.assert_not_called()
 
     def test_all_automatic_writers_exit_before_sql_without_evidence(self):
         import cold_analysis, cold_metrics, cold_observations, cold_test_evidence
