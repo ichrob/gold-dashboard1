@@ -5,6 +5,21 @@ another repair worker, access market data, restart Render or create orders.
 Initial configuration is **observation only** (`ENABLED=false`). No existing
 GitHub trigger is removed by this change.
 
+## Current staging status (2026-11-08)
+
+The existing `bob-watchdog-clock` Worker is deployed in Cloudflare, the
+`CLOCK` Durable Object is bound, and the Cron trigger
+`4,14,24,34,44,54 * * * *` has been added and independently read back.
+`ENABLED=false` and there is no `GITHUB_TOKEN` secret. In this unarmed state,
+Cron invocations report `observation_only_no_token` to `last_check` instead of
+failing merely because credentials have not yet been installed. This is a
+**Cloudflare clock observation only**, not evidence that GitHub ran the watchdog.
+The repository's native GitHub schedule remains unchanged.
+
+The branch code must be deployed through the secured owner pipeline before
+claiming the new no-token behavior is live; a GitHub commit alone does not
+update a deployed Cloudflare Worker.
+
 ## Deploy and acceptance
 
 1. Use the owner's Cloudflare **Workers Free** account. SQLite-backed Durable
