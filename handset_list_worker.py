@@ -341,8 +341,9 @@ def _process(payload,at,*,progress=None,save_progress=None):
         if save_progress is not None:
             clean=sanitize_native_passes(recognized[0])
             if clean is not None:
-                saved[str(index)]={'key':key,'passes':clean,
-                                   'source':'remote' if remote_sources[index] else 'native'}
+                checkpoint={'key':key,'passes':clean}
+                if remote_sources[index]:checkpoint['source']='remote'
+                saved[str(index)]=checkpoint
                 if len(saved)<=4 and len(json.dumps(saved))<=120000:save_progress(saved)
     try:
         result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':images,'at':at,
