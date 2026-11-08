@@ -137,8 +137,9 @@
   stop.append(sh,sp);
   const sale=document.createElement('details'),sellHead=document.createElement('summary'),info=document.createElement('p');
   sellHead.textContent='Ausstieg bei Stop, Ziel oder Trendumkehr · manuell';
-  info.textContent='In DEGIRO die ISIN '+p.isin+' prüfen und maximal '+qty+
+  info.textContent='In DEGIRO die ISIN '+p.isin+' prüfen. Für einen vollständigen Ausstieg '+qty+
    ' bestätigte Stück verkaufen. Offene Stop-/Verkaufsorders, Handelsplatz, Geldkurs und Gebühren selbst prüfen. '+
+   'Teilverkäufe können im derzeitigen Bob-Journal noch nicht als verbleibende Position automatisch abgeglichen werden. '+
    'Nach tatsächlicher Ausführung den Verkaufsbeleg in Bob dokumentieren.';
   sale.append(sellHead,info);section.append(stop,sale,link);
   return section;
