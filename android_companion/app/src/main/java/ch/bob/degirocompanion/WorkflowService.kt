@@ -37,6 +37,7 @@ class WorkflowService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var selected = ""
     private var ownerLimits = WorkflowOwnerLimits()
+    private var ownerSecurity = WorkflowSecurityPreferences()
     private var until = 0L
     private var recipeGoal = ""
     private var displayRequest = ""
@@ -70,6 +71,9 @@ class WorkflowService : AccessibilityService() {
             autoObservation?.let {
                 it.next(null, SystemClock.elapsedRealtime(), unlocked)
                 if (it.reason.isNotEmpty()) { finish("Gestoppt: " + it.reason); return }
+            }
+            if (!WorkflowSecuritySettings.permitsExecution(ownerSecurity) && run?.finished == false) {
+                finish("Besitzer-Hochschutz: Allgemeine Bedienung auf Nur lesen gestellt"); return
             }
             run?.tick(null, SystemClock.elapsedRealtime(), unlocked) { _, _ -> false }
             run?.let { if (it.finished) { finish(it.status); return } }
@@ -135,6 +139,9 @@ class WorkflowService : AccessibilityService() {
                         return
                     }
                 }
+                if (!WorkflowSecuritySettings.permitsExecution(ownerSecurity) && run?.finished == false) {
+                    finish("Besitzer-Hochschutz: Allgemeine Bedienung auf Nur lesen gestellt"); return
+                }
                 run?.tick(actionFrame, SystemClock.elapsedRealtime(), unlocked) { step, index ->
                     val n = refs.getOrNull(index)
                     // Frame and action originate from the same freshly read tree.
@@ -169,6 +176,10 @@ class WorkflowService : AccessibilityService() {
         epoch++ // Invalidate activity proposals from every preceding owner request.
         finish("Neue Sitzung")
         ownerLimits = WorkflowOwnerSettings.load(this)
+        ownerSecurity = WorkflowSecuritySettings.load(this)
+        if (steps != null && !WorkflowSecuritySettings.permitsExecution(ownerSecurity)) {
+            message = "Besitzer-Hochschutz: Nur lesen aktiviert"; return false
+        }
         if (steps != null && steps.size > ownerLimits.maxSteps) { message = "Auftrag über eingestellter Schrittgrenze"; return false }
         run = null
         recipeGoal = goal; recipeTitle = title; displayRequest = request.ifBlank { goal }; recorded = false
@@ -197,9 +208,12 @@ class WorkflowService : AccessibilityService() {
         return true
     }
     internal fun beginAutomatic(app: String, goal: String, cloud: Boolean): Boolean {
+        if (!WorkflowSecuritySettings.permitsExecution(WorkflowSecuritySettings.load(this))) {
+            stop(); message = "Besitzer-Hochschutz: Nur lesen aktiviert"; return false
+        }
         if (!LocalWorkflow.allowedApp(app) || (LocalWorkflow.parse(goal, WorkflowOwnerSettings.load(this).maxSteps) == null && !WorkflowAiPolicy.safe(goal, 500))) { stop(); return false }
         if (!begin(app, null, goal=goal, title=goal.take(60))) return false
-        automatic = true; autoCloud = cloud
+        automatic = true; autoCloud = cloud && WorkflowSecuritySettings.permitsCloud(ownerSecurity)
         healthActive = true
         WorkflowHealth.record(this,"STARTED","NONE",0,0)
         until = SystemClock.elapsedRealtime() + ownerLimits.sessionMs
