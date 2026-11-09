@@ -52,6 +52,7 @@ jobs:
             -p 127.0.0.1:8443:8443 \
             -e BOB_REMOTE_OCR_TOKEN=only-a-fake-ci-key-not-a-production-secret-12345 \
             -e BOB_OCR_SYNTHETIC_TLS_DIAG=true \
+            -e BOB_OCI_FREE_TIER_OWNER_REVIEWED=true \
             -v /tmp/bob-oci-test/tls.crt:/run/secrets/tls.crt:ro \
             -v /tmp/bob-oci-test/tls.key:/run/secrets/tls.key:ro \
             bob-ocr-oci:test
