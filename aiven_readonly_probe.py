@@ -56,7 +56,7 @@ def probe(environ=None, connect=None):
         if connect is None:
             import psycopg
             connect = psycopg.connect
-        ca = _temporary_ca_certificate(pem + '\\n') if pem else nullcontext(root)
+        ca = _temporary_ca_certificate(pem + '\n') if pem else nullcontext(root)
         # Explicit settings override a weaker sslmode=require in Aiven's URI.
         with ca as ca_path:
             with connect(uri, sslmode='verify-full', sslrootcert=ca_path,
