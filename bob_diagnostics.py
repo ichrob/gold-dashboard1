@@ -415,6 +415,25 @@ def new_studies_brief(paper, now_ms=None):
                 if isinstance(row,dict) and row.get('id') in study_ids]
     originals = study_counts(quality)
     modeled_rows = study_counts(modeled)
+    # Existing simulation report already contains a sanitized reaction record.
+    # Project ONLY fixed vocabulary counters, never private source payloads.
+    from paper_shadow_studies import ORIGINAL_INPUT_REASONS
+    for row in (originals, modeled_rows):
+        reaction_row = next((v for v in row if v.get('id') == 'reaction'), None)
+        control = quality if row is originals else modeled
+        source = next((v for v in (control.get('studies') or [])
+                       if isinstance(v,dict) and v.get('id')=='reaction'),None)
+        causes = source.get('originalBlockReasons') if isinstance(source,dict) else None
+        if reaction_row is not None:
+            reaction_row['recentOriginalBlockCode'] = (
+                source.get('lastOriginalBlockCode')
+                if isinstance(source,dict) and source.get('lastOriginalBlockCode') in ORIGINAL_INPUT_REASONS
+                else None)
+            reaction_row['originalBlockReasons'] = (
+                {code: count for code, count in causes.items()
+                 if code in ORIGINAL_INPUT_REASONS
+                 and type(count) is int and 0 <= count <= 10**9}
+                if isinstance(causes, dict) else {})
     # A compact, deterministic quality alert, not an assertion about cause
     # or a proposal to count estimated model outcomes as product fills.
     notices = []
