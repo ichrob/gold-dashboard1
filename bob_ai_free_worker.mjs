@@ -32,9 +32,11 @@ export async function verifyGithubOIDCDetail(token, getJwks = fetch, now = Date.
   if (typeof token !== "string" || token.length < 100 || token.length > 12000) return "jwt-size";
   const parts = token.split(".");
   if (parts.length !== 3) return "jwt-shape";
+  let phase = "decode";
   try {
     const header = parsePart(parts[0]);
     const payload = parsePart(parts[1]);
+    phase = "claims";
     const timestamp = Math.floor(now / 1000);
     if (header.alg !== "RS256" || typeof header.kid !== "string" || header.kid.length > 160) return "jwt-header";
     if (payload.iss !== ISSUER) return "claim-issuer";
@@ -47,20 +49,26 @@ export async function verifyGithubOIDCDetail(token, getJwks = fetch, now = Date.
         || payload.iat > timestamp + 60 || payload.iat < timestamp - 300
         || payload.exp <= timestamp || payload.exp > timestamp + 600) return "claim-clock";
     // Fixed issuer URL; never read JWKS location from untrusted JWT fields.
+    phase = "jwks-fetch";
     const keysResponse = await getJwks(JWK_URL, { redirect: "error" });
     if (!keysResponse.ok) return "jwks-http";
+    phase = "jwks-parse";
     const keys = await keysResponse.json();
     if (!Array.isArray(keys.keys) || keys.keys.length > 20) return "jwks-shape";
     const jwk = keys.keys.find(k => k.kid === header.kid && k.kty === "RSA" && k.use === "sig");
     if (!jwk || jwk.alg && jwk.alg !== "RS256") return "jwks-kid";
+    phase = "jwk-import";
     const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    phase = "signature-decode";
     const signaturePart = parts[2];
     if (!/^[A-Za-z0-9_-]+$/.test(signaturePart)) return "jwt-signature-shape";
     const signature = Uint8Array.from(atob(signaturePart.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(signaturePart.length / 4) * 4, "=")), c => c.charCodeAt(0));
     const data = new TextEncoder().encode(parts[0] + "." + parts[1]);
+    phase = "signature-verify";
     return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, data) ? "ok" : "signature-invalid";
   } catch (_) {
-    return "jwt-verification-error";
+    // Never expose exception text, JWT data, key IDs, URLs or headers.
+    return "exception-" + phase;
   }
 }
 
