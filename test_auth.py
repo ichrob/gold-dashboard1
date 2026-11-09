@@ -100,6 +100,20 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(self.request('POST','/logout',headers={'Cookie':session,'Origin':'https://bob.example'})[0],303)
         self.assertEqual(self.request('GET','/',headers={'Cookie':session})[0],303)
 
+    def test_oauth_connections_link_keeps_target_during_real_password_login(self):
+        status, headers, body, _ = self.request('GET','/login?view=oauth-connections')
+        self.assertEqual(status,200)
+        self.assertIn(b'name="return_view" value="oauth-connections"',body)
+        token = re.search(b'name="csrf" value="([^"]+)"',body)[1].decode()
+        form = urlencode({'username':'test-user','password':'test-only-password',
+                          'csrf':token,'return_view':'oauth-connections'})
+        status, headers, _, _ = self.request('POST','/login',form,
+            {'Origin':'https://bob.example',
+             'Content-Type':'application/x-www-form-urlencoded',
+             'Cookie':f'{bob_auth.CSRF_COOKIE}={token}'})
+        self.assertEqual(status,303)
+        self.assertEqual(headers['Location'],'/oauth/connections')
+
     def test_handset_batch_survives_actual_login_redirect_and_post(self):
         batch = '0123456789abcdef' * 2
         for method in ('GET', 'HEAD'):
