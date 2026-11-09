@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import urllib.request
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, urlencode
 
 from ai_peer_review import (
@@ -25,14 +26,17 @@ def github_oidc():
     temporary = os.getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
     parsed = urlparse(url)
     host = parsed.hostname or ""
-    # Actions' runner OIDC endpoints include regional pipelinesghub hosts.
-    # Restrict to GitHub's exact actions.githubusercontent.com domain.
+    # Runner-provided OIDC endpoints have regional names on GitHub's
+    # actions.githubusercontent.com domain. Never send bearer material off-domain.
+    if not url or not temporary:
+        raise ValueError("oidc-runner-vars-missing")
     allowed_host = (host == "token.actions.githubusercontent.com"
-                    or re.fullmatch(r"pipelines[a-z0-9-]*[.]actions[.]githubusercontent[.]com", host) is not None)
-    if (not temporary or parsed.scheme != "https" or not allowed_host
-            or parsed.username or parsed.password or parsed.port not in (None, 443)
-            or parsed.fragment):
-        raise ValueError("github-oidc-unavailable")
+                    or host.endswith(".actions.githubusercontent.com"))
+    if not allowed_host:
+        raise ValueError("oidc-host-rejected")
+    if (parsed.scheme != "https" or parsed.username or parsed.password
+            or parsed.port not in (None, 443) or parsed.fragment):
+        raise ValueError("oidc-url-invalid")
     separator = "&" if parsed.query else "?"
     req = urllib.request.Request(
         url + separator + urlencode({"audience": AUDIENCE}),
@@ -109,7 +113,19 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        print("Cloudflare free review blocked at stage " + STAGE + "; no raw provider errors or credentials logged.",
+    except Exception as exc:
+        # Never emit a bearer token, request URL, full HTTP body or raw exceptions.
+        if isinstance(exc, ValueError) and str(exc) in {
+                "oidc-runner-vars-missing", "oidc-host-rejected", "oidc-url-invalid",
+                "bad-oidc-token", "oidc-response-too-large"}:
+            code = str(exc)
+        elif isinstance(exc, HTTPError):
+            code = "http-" + str(exc.code)
+        elif isinstance(exc, URLError):
+            code = "network-unavailable"
+        else:
+            code = type(exc).__name__
+        print("Cloudflare free review blocked at stage " + STAGE
+              + ", code " + code + "; no raw provider errors or credentials logged.",
               file=sys.stderr)
         sys.exit(1)

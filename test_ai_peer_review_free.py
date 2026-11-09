@@ -15,7 +15,7 @@ class FreeOidcReviewTests(unittest.TestCase):
     def test_github_oidc_needs_actions_environment(self):
         with patch.dict(os.environ, {}, clear=True), patch(
             "urllib.request.build_opener") as network:
-            with self.assertRaisesRegex(ValueError, "github-oidc-unavailable"):
+            with self.assertRaisesRegex(ValueError, "oidc-runner-vars-missing"):
                 f.github_oidc()
             network.assert_not_called()
 
@@ -24,7 +24,7 @@ class FreeOidcReviewTests(unittest.TestCase):
             "ACTIONS_ID_TOKEN_REQUEST_URL": "https://evil.example/token",
             "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "test-only"}, clear=True), patch(
             "urllib.request.build_opener") as network:
-            with self.assertRaisesRegex(ValueError, "github-oidc-unavailable"):
+            with self.assertRaisesRegex(ValueError, "oidc-host-rejected"):
                 f.github_oidc()
             network.assert_not_called()
 
