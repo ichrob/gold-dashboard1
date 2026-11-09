@@ -3,7 +3,7 @@
  * Every request must carry a signed, tightly scoped GitHub Actions OIDC JWT.
  * No database, trade action, GitHub writes, or paid-model fallback.
  */
-export const MODEL = "@cf/zai-org/glm-4.7-flash";
+export const MODEL = "@cf/qwen/qwen2.5-coder-32b-instruct";
 export const AUDIENCE = "urn:bob:free-ai-code-review:v1";
 const ISSUER = "https://token.actions.githubusercontent.com";
 const JWK_URL = ISSUER + "/.well-known/jwks";
