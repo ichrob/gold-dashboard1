@@ -182,6 +182,14 @@ def transition(state, action, p, now=None):
         return {}
     if action == 'list':
         return {'grants':[{'id':k,'created':v['created'],'expires':v['expires']} for k,v in grants.items()]}
+    if action == 'revoke-gemini':
+        # Owner-only through the Bob browser route. Invalidates all Gemini
+        # access/refresh tokens without touching any ChatGPT grants.
+        for gid, grant in list(grants.items()):
+            client = clients.get(grant.get('client_id'), {})
+            if client.get('redirect_uri') == GEMINI_REDIRECT:
+                grants.pop(gid)
+        return {'ok':True}
     if action == 'revoke-all':
         for kind in ('grants','access','refresh','codes','pending'):
             state[kind] = {}
