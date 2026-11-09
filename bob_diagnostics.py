@@ -376,6 +376,63 @@ def simulation_runtime_brief(paper):
     return projection
 
 
+def new_studies_brief(paper):
+    """Retain bounded, independent new-study evidence when history is truncated.
+
+    Project ONLY already-read, sanitized study controls. No new SQL, retries,
+    paper writes, inferred trades or success claims from a running worker.
+    """
+    if not isinstance(paper, dict):
+        return None
+    keys = ('qualityCampaign', 'shadowStudies', 'intradayTimingStudy')
+    if not any(isinstance(paper.get(k), dict) for k in keys):
+        return None
+    quality = paper.get('qualityCampaign') or {}
+    shadow = paper.get('shadowStudies') or {}
+    timing = paper.get('intradayTimingStudy') or {}
+    entry = shadow.get('entryExitComparison') or {}
+    modeled = quality.get('modeledSimulation') or {}
+    def value(v, k):
+        return fields(v if isinstance(v, dict) else {}, (k,)).get(k)
+    def core(v):
+        return fields(v if isinstance(v, dict) else {}, ('status', 'checkedAt'))
+    qrows = quality.get('studies') if isinstance(quality.get('studies'), list) else []
+    originals = []
+    for item in qrows[:4]:
+        if isinstance(item, dict) and item.get('id') in (
+                'reaction','warning-confirmed','entry-delay','sideways-filter'):
+            originals.append(fields(item, ('id','cycles','original','invalid',
+                    'workerErrors','started','complete','inconclusive','open')))
+    srows = shadow.get('studies') if isinstance(shadow.get('studies'), list) else []
+    shadows = []
+    for item in srows[:3]:
+        if isinstance(item, dict) and item.get('study') in (
+                'regime-routing','wait-vs-enter','product-e2e'):
+            shadows.append(fields(item, ('study','status','checkedAt','casesStarted',
+                'casesPriced','casesInconclusive','openCases')))
+    variants = timing.get('variants') if isinstance(timing.get('variants'), list) else None
+    arms = entry.get('variants') if isinstance(entry.get('variants'), dict) else None
+    return {
+        'status':'observed' if (all(isinstance(paper.get(k),dict) for k in keys)
+            and all(isinstance(v,dict) and v.get('status') not in
+                    (None, 'unavailable','failed','partial')
+                    for v in (quality,shadow,timing,entry))) else 'partial',
+        'readOnly':True, 'realOrders':False,
+        'scope':'new-studies-sanitized-control-sample-not-execution-proof',
+        'quality':{**core(quality), 'studies':originals,
+                   'modeled':core(modeled)},
+        'shadow':{'status':value(shadow,'status'),'studies':shadows},
+        'entryExit':{**core(entry),
+                     'episodesSampled':value(entry,'episodesSampled'),
+                     'variantsObserved':len(arms) if arms is not None else None},
+        'intraday':{**core(timing),
+                    'variantsObserved':len(variants) if variants is not None else None,
+                    'legacyOpenPositions':value(timing,'legacyOpenPositions')},
+        'strategyWinnerConfirmed':False,
+        'fullOriginalHistoryVerified':False,
+    }
+
+
 def collect(readers):
     areas = {}
     for name, reader in readers.items():
@@ -411,6 +468,11 @@ def collect(readers):
     brief = simulation_runtime_brief(areas.get('simulationAndPush'))
     if brief.get('status') != 'unavailable':
         areas['simulationRuntimeBrief'] = brief
+    # New studies must remain inspectable even when their detailed 18-arm
+    # report exceeds the private response cap.
+    studies = new_studies_brief(areas.get('simulationAndPush'))
+    if studies is not None:
+        areas['newStudiesBrief'] = studies
     # The web process may not run the evaluator itself. Prefer real observations
     # from the push worker when its local capture is unavailable; never recompute.
     worker_analysis = (areas.get('simulationAndPush') or {}).get('analysis')
@@ -1435,7 +1497,7 @@ DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
                     'storage')
 _FOCUS_AREAS = {
     'storage': ('storageBrief',),
-    'simulation': ('paperProfitEvidence', 'simulationRuntimeBrief', 'simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
+    'simulation': ('newStudiesBrief', 'paperProfitEvidence', 'simulationRuntimeBrief', 'simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
                    'comparisonHealth', 'entryBlockEvidence', 'background', 'collection',
                    'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'sources': ('signalFreshness', 'market', 'sourceReliability', 'collection', 'background', 'analysis'),
