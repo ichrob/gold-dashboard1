@@ -76,7 +76,8 @@ def extract_only_bundle():
                     shutil.copyfileobj(source, sink, 1024 * 1024)
         if partial.stat().st_size != manifest_and_member()["bundle_bytes"]:
             raise ValueError("bundle-size-mismatch")
-        os.rename(partial, BUNDLE)
+        # link() fails if the target appeared concurrently; never overwrite.
+        os.link(partial, BUNDLE)
     finally:
         if partial.exists():
             partial.unlink()
