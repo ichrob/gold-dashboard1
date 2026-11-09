@@ -17,6 +17,21 @@ HORIZON_MS = 60 * 60000
 TOLERANCE_MS = 60000
 ZURICH = ZoneInfo("Europe/Zurich")
 SIGNAL_COST_PCT = 0.16   # Illustrative round-trip XAU benchmark, not DEGIRO costs.
+# Fixed diagnostic vocabulary: safe to publish counts without timestamps,
+# quotes, provider paths or private product identifiers.
+ORIGINAL_INPUT_REASONS = frozenset((
+    "spot-identity-unverified",
+    "spot-source-clock-missing",
+    "spot-source-not-fresh",
+    "spot-or-analysis-price-invalid",
+    "spot-analysis-price-mismatch",
+    "analysis-not-ready",
+    "analysis-price-not-fresh",
+    "analysis-source-clock-mismatch",
+    "original-signal-bar-missing",
+    "original-evidence-unverified",
+))
+
 PRODUCT_FEE_EUR = 1.0
 PRODUCT_SLIPPAGE = 0.0005  # Assumption per side, separate from observed spread.
 
