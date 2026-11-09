@@ -10,18 +10,24 @@ import gemini_peer_review_free as g
 
 class GeminiReviewSafetyTests(unittest.TestCase):
     def test_opt_in_disabled_by_default(self):
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(g.enabled())
-        with patch.dict(os.environ, {"BOB_GEMINI_FREE_ONLY": "confirmed-unbilled-free-project"}, clear=True):
-            self.assertFalse(g.enabled())
-        with patch.dict(os.environ, {"BOB_GEMINI_AUTO_REVIEW_ENABLED": "1"}, clear=True):
-            self.assertFalse(g.enabled())
-        with patch.dict(os.environ, {
-            "BOB_GEMINI_FREE_ONLY": "confirmed-unbilled-free-project",
-            "BOB_GEMINI_AUTO_REVIEW_ENABLED": "1",
-        }, clear=True):
-            self.assertTrue(g.enabled())
-
+        # Fixed clock avoids failing all of Bob CI when the model cutoff arrives.
+        with patch.object(g, "datetime") as clock:
+            clock.now.return_value.date.return_value = date(2026, 11, 9)
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertFalse(g.enabled())
+            with patch.dict(os.environ, {
+                "BOB_GEMINI_FREE_ONLY": "confirmed-unbilled-free-project"
+            }, clear=True):
+                self.assertFalse(g.enabled())
+            with patch.dict(os.environ, {
+                "BOB_GEMINI_AUTO_REVIEW_ENABLED": "1"
+            }, clear=True):
+                self.assertFalse(g.enabled())
+            with patch.dict(os.environ, {
+                "BOB_GEMINI_FREE_ONLY": "confirmed-unbilled-free-project",
+                "BOB_GEMINI_AUTO_REVIEW_ENABLED": "1",
+            }, clear=True):
+                self.assertTrue(g.enabled())
 
     def test_model_sunset_fails_closed(self):
         with patch.dict(os.environ, {
