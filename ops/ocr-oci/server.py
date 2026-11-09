@@ -76,14 +76,29 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(422, {"error": "recognition_failed"})
 
 
+class TLSServer(HTTPServer):
+    """A bare TCP scanner must not kill the HTTPS worker process."""
+    def __init__(self, address, handler, context):
+        self.tls_context = context
+        super().__init__(address, handler)
+
+    def get_request(self):
+        while True:
+            raw, peer = super().get_request()
+            raw.settimeout(15)
+            try:
+                return self.tls_context.wrap_socket(raw, server_side=True), peer
+            except (ssl.SSLError, TimeoutError, ConnectionError):
+                raw.close()
+
+
 def serve():
     cert = os.environ.get("BOB_ORACLE_OCR_TLS_CERT", "/run/secrets/tls.crt")
     key = os.environ.get("BOB_ORACLE_OCR_TLS_KEY", "/run/secrets/tls.key")
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(certfile=cert, keyfile=key)
-    server = HTTPServer(("0.0.0.0", 8443), Handler)
-    server.socket = context.wrap_socket(server.socket, server_side=True)
+    server = TLSServer(("0.0.0.0", 8443), Handler, context)
     server.serve_forever()
 
 
