@@ -392,6 +392,16 @@ def new_studies_brief(paper):
     timing = paper.get('intradayTimingStudy') or {}
     entry = shadow.get('entryExitComparison') or {}
     modeled = quality.get('modeledSimulation') or {}
+    # The last episode's checkedAt can be days old while the study's worker
+    # still evaluates live inputs. These are separate original timestamps.
+    observation = entry.get('inputObservation') if isinstance(entry,dict) else None
+    observation = observation if isinstance(observation,dict) else {}
+    input_reason = observation.get('reason')
+    allowed_reasons = ('original-input-unverified','waiting-for-direction',
+                       'active-episode-limit','direction-already-active',
+                       'eligible-episode-input')
+    input_quality = observation.get('inputQuality')
+    input_quality = input_quality if isinstance(input_quality,dict) else {}
     def value(v, k):
         return fields(v if isinstance(v, dict) else {}, (k,)).get(k)
     def core(v):
@@ -424,7 +434,13 @@ def new_studies_brief(paper):
         'shadow':{'status':value(shadow,'status'),'studies':shadows},
         'entryExit':{**core(entry),
                      'episodesSampled':value(entry,'episodesSampled'),
-                     'variantsObserved':len(arms) if arms is not None else None},
+                     'variantsObserved':len(arms) if arms is not None else None,
+                     'workerInputCheckedAt':value(observation,'checkedAt'),
+                     'workerInputReason':(input_reason if input_reason in allowed_reasons
+                                          else 'unavailable'),
+                     'workerInputVerified':(input_quality.get('verified')
+                                            if type(input_quality.get('verified')) is bool
+                                            else None)},
         'intraday':{**core(timing),
                     'variantsObserved':len(variants) if variants is not None else None,
                     'legacyOpenPositions':value(timing,'legacyOpenPositions')},
