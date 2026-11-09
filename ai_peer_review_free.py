@@ -77,6 +77,10 @@ def cloudflare_review(diff, pr, sha, jwt):
                 "claim-workflow", "claim-event", "claim-clock", "jwks-http",
                 "jwks-shape", "jwks-kid", "jwt-signature-shape",
                 "signature-invalid", "jwt-verification-error",
+                "exception-decode", "exception-claims",
+                "exception-jwks-fetch", "exception-jwks-parse",
+                "exception-jwk-import", "exception-signature-decode",
+                "exception-signature-verify",
             }:
                 raise ValueError("worker-oidc-" + reason) from None
         raise

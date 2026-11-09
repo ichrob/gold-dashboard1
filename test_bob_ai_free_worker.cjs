@@ -30,6 +30,8 @@ const path = require("node:path");
   try {
     assert.equal(await worker.verifyGithubOIDC(jwt({})),true);
     assert.equal(await worker.verifyGithubOIDCDetail(jwt({})), "ok");
+    const failingJwks = async () => {throw new Error("never-print-this-secret");};
+    assert.equal(await worker.verifyGithubOIDCDetail(jwt({}), failingJwks), "exception-jwks-fetch");
     assert.equal(await worker.verifyGithubOIDCDetail(jwt({aud:"wrong"})), "claim-audience");
     assert.equal(await worker.verifyGithubOIDCDetail(jwt({workflow_ref:"wrong"})), "claim-workflow");
     assert.equal(await worker.verifyGithubOIDCDetail(jwt({repository:"wrong/other"})), "claim-repository");
