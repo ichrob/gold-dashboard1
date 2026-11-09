@@ -29,6 +29,10 @@ const path = require("node:path");
   };
   try {
     assert.equal(await worker.verifyGithubOIDC(jwt({})),true);
+    assert.equal(await worker.verifyGithubOIDCDetail(jwt({})), "ok");
+    assert.equal(await worker.verifyGithubOIDCDetail(jwt({aud:"wrong"})), "claim-audience");
+    assert.equal(await worker.verifyGithubOIDCDetail(jwt({workflow_ref:"wrong"})), "claim-workflow");
+    assert.equal(await worker.verifyGithubOIDCDetail(jwt({repository:"wrong/other"})), "claim-repository");
     for(const overrides of [
       {aud:"else"},{repository:"attacker/repo"},{ref:"refs/heads/feature"},
       {workflow_ref:"ichrob/gold-dashboard1/.github/workflows/ci.yml@refs/heads/main"},
@@ -48,6 +52,11 @@ const path = require("node:path");
     });
     const noToken=await worker.default.fetch(create("fake",{pr:42,sha:"a".repeat(40),diff}),env);
     assert.equal(noToken.status,401);assert.equal(calls.length,0);
+    const wrongClaim = await worker.default.fetch(create(jwt({workflow_ref:"other"}),{pr:42,sha:"a".repeat(40),diff}),env);
+    assert.equal(wrongClaim.status,401);
+    assert.equal(wrongClaim.headers.get("x-bob-oidc-check"),"claim-workflow");
+    assert.equal(JSON.stringify(await wrongClaim.json()).includes("other"),false);
+    assert.equal(calls.length,0);
     const badPayload=await worker.default.fetch(create(jwt({}),{pr:42,sha:"a".repeat(40),diff:"SECRET=oops"}),env);
     assert.equal(badPayload.status,400);assert.equal(calls.length,0);
     const okay=await worker.default.fetch(create(jwt({}),{pr:42,sha:"a".repeat(40),diff}),env);
