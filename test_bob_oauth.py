@@ -174,6 +174,28 @@ class StateTests(unittest.TestCase):
         self.assertFalse(self.call('check',token=gemini_again['access_token'])['valid'])
         self.assertTrue(self.call('check',token=chatgpt['access_token'])['valid'])
 
+    def test_owner_grant_inventory_names_client_and_scopes_without_tokens(self):
+        chat = self.exchange(self.authorize())
+        gemini = self.call('register',redirect_uris=[store.GEMINI_REDIRECT],
+                           scope=store.DIAGNOSTICS_SCOPE)
+        cid = gemini['client_id']
+        req = self.begin(client_id=cid,redirect_uri=store.GEMINI_REDIRECT,
+                         scope=store.DIAGNOSTICS_SCOPE)['request']
+        code = self.call('approve',request=req,until=self.now+10000)['code']
+        gtoken = self.exchange(code,client_id=cid,
+                               redirect_uri=store.GEMINI_REDIRECT)
+        rows = self.call('list')['grants']
+        self.assertEqual(len(rows),2)
+        self.assertEqual({x['client'] for x in rows},{'ChatGPT','Gemini CLI'})
+        self.assertEqual({x['client']:x['scopes'] for x in rows},
+                         {'ChatGPT':[store.SCOPE],
+                          'Gemini CLI':[store.DIAGNOSTICS_SCOPE]})
+        self.assertNotIn(chat['access_token'],str(rows))
+        self.assertNotIn(gtoken['refresh_token'],str(rows))
+        self.call('revoke-gemini')
+        self.assertEqual([x['client'] for x in self.call('list')['grants']],
+                         ['ChatGPT'])
+
     def test_revocation(self):
         tokens = self.exchange(self.authorize())
         self.call('revoke',token=tokens['refresh_token'],client_id='wrong')
@@ -348,6 +370,28 @@ class HttpTests(unittest.TestCase):
                          {'csrf':csrf},self.session)[0],303)
         self.assertFalse(store.transition(self.state,'check',
                           {'token':gemini_token})['valid'])
+
+    def test_connection_page_reports_grant_not_tool_permission(self):
+        # A browser session alone can inspect grants but cannot create one.
+        self.assertEqual(self.request('GET','/oauth/connections')[0],303)
+        code,_,page=self.request('GET','/oauth/connections',
+                                 headers={'Cookie':self.session})
+        self.assertEqual(code,200)
+        self.assertIn(b'Termux-Wartung (ChatGPT): Keine aktive OAuth-Freigabe',page)
+        self.assertIn(b'Gemini CLI: Keine aktive OAuth-Freigabe',page)
+        cid = store.transition(self.state,'register',
+                {'redirect_uris':[store.REDIRECT]})['client_id']
+        self.state['grants']['safe-test-grant'] = {
+            'client_id':cid, 'scope':store.SCOPE+' '+store.TERMUX_SCOPE,
+            'created':time.time(), 'expires':time.time()+1000
+        }
+        code,_,page=self.request('GET','/oauth/connections',
+                                 headers={'Cookie':self.session})
+        self.assertEqual(code,200)
+        self.assertIn(b'Termux-Wartung (ChatGPT): OAuth-Freigabe vorhanden',page)
+        self.assertIn(b'externe Connector-Berechtigung',page)
+        self.assertNotIn(b'safe-test-grant',page)
+        self.assertNotIn(b'client_id',page)
 
     def test_daily_factor_cannot_be_bypassed(self):
         self.begin()
