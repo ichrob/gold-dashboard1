@@ -2394,8 +2394,59 @@ function renderDegiroVenueInference(p){
   '<a href="'+proof.policyUrl+'" target="_blank" rel="noopener noreferrer">DEGIRO: Ausführungsrichtlinie</a>'+
   '<div>Öffentliche Quellen geprüft am 16.10.2026; für diese Ableitung höchstens 30 Tage verwendet.</div></details></div>';
 }
+// DEGIRO's 'Übersicht' has a last-price clock and labelled bid/ask/close,
+// unlike the older 'Kursdaten' layout. Its clock must NOT be described as
+// separately published bid/ask time, and 'Schluss' has no source timestamp.
+// Read-only historical image evidence; no order/eligibility effect.
+function parseDegiroOverviewObservation(raw,expectedIsin,venueOnly=false){
+ if(!validIsin(expectedIsin)||typeof raw!=='string'||raw.length>15000)return null;
+ const header=raw.search(/(?:^|\n)\s*(?:Übersicht|Uebersicht|Ubersicht)\s*(?=\r?\n|$)/i);
+ const marker=raw.search(/Symbol\s*\|\s*ISIN/i);
+ if(header<0||marker<=header||marker-header>3000)return null;
+ const part=raw.slice(header,marker);
+ if(!/\bZuletzt\b/i.test(part)||!/\bSchluss\b/i.test(part)
+   ||!/\bGeld\b/i.test(part)||!/\bBrief\b/i.test(part)
+   ||/\bverzögert\b|\bdelayed\b/i.test(part))return null;
+ const tokens=[...new Set(raw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])];
+ const ids=[...new Set(tokens.map(token=>normalizeOcrIsin(token,raw).isin))];
+ if(ids.length!==1||ids[0]!==expectedIsin)return null;
+ const venueMatches=[...raw.slice(marker).matchAll(/(?:^|\n)\s*(?:Börse|Boerse|Borse)\s*[:=]?\s*(?:\r?\n\s*)?([^\r\n]+)/gi)];
+ if(venueMatches.length!==1)return null;
+ const venue=venueMatches[0][1].trim();
+ if(!venue||venue.length>100||/^(?:-|—|unbekannt)$/i.test(venue))return null;
+ // A preceding account balance (often CHF) is outside the product table.
+ // The overview's own EUR symbols identify the product quotation currency.
+ const price=label=>{
+  const pattern=new RegExp('(?:^|\\s)'+label+'\\s*[:=]?\\s*€\\s*([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?![0-9.,])','gi');
+  const rows=[...part.matchAll(pattern)];
+  if(rows.length!==1)return null;
+  const value=Number(rows[0][1].replace(',','.'));
+  return Number.isFinite(value)&&value>0?value:null;
+ };
+ const bid=price('Geld'),ask=price('Brief'),last=price('Zuletzt'),close=price('Schluss');
+ if(!(last>0&&close>0&&bid>0&&ask>=bid))return null;
+ const lastStart=part.search(/\bZuletzt\b/i),bidStart=part.search(/\bGeld\b/i);
+ if(lastStart<0||bidStart<=lastStart)return null;
+ const lastSection=part.slice(lastStart,bidStart);
+ const dateMatches=[...lastSection.matchAll(/\b(\d{2}[/.]\d{2}[/.]\d{4}\s+\d{2}:\d{2}(?::\d{2})?)\b/g)];
+ if(dateMatches.length!==1||!selectionTimeWindow(dateMatches[0][1]))return null;
+ const sourceTime=dateMatches[0][1];
+ const displayedDayChangeAmount=last-close;
+ const displayedDayChangePct=(last/close-1)*100;
+ // The actual DEGIRO screen sometimes shows its rounded +/- and % as well.
+ // Neither string is allowed to override the arithmetically checked values.
+ return {isin:expectedIsin,source:'DEGIRO-Produktdetail',venue,currency:'EUR',
+   ...(venueOnly?{}:{bid,ask}),sourceTime,
+   timeBasis:'Zuletzt-Anzeige, Minutenauflösung; keine eigene Geld-/Brief-Quellenzeit',
+   lastPrice:last,previousClose:close,displayedDayChangeAmount,displayedDayChangePct,
+   overviewPriceEvidence:'last-vs-displayed-close',
+   brokerDisplayConfirmed:true,orderWindowVerified:false,orderSubmitted:false,
+   executionGuaranteed:false,isExecutableQuote:false};
+}
 function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
  raw=normalizeReviewedDegiroIdentity(raw);
+ const overview=parseDegiroOverviewObservation(raw,expectedIsin,venueOnly);
+ if(overview)return overview;
  if(!validIsin(expectedIsin)||!/\bKursdaten\b/i.test(raw)
     ||!/\b(?:Börse|Boerse|Borse)\b/i.test(raw)
     ||!/Symbol\s*\|\s*ISIN/i.test(raw))return null;
@@ -2670,6 +2721,20 @@ function productDailyChangeView(p,now=Date.now()){
  const d=p.quote?.dailyChange;
  const at=Date.parse(d?.at),ref=Date.parse(d?.referenceAt);
  const estimatedClose=d?.basis==='bid-vs-last-observed-prior-day';
+ // Display-only fallback: a deliberately imported DEGIRO overview image
+ // may show 'Zuletzt' and 'Schluss' even if issuer feeds lack a prior close.
+ // Never mix a screenshot closing price with the latest SG bid.
+ const screen=p?.snapshot?.degiroDisplayedQuote;
+ const screenClock=selectionTimeWindow(screen?.sourceTime);
+ const screenState=degiroScreenQuoteState(screen,p?.isin,now);
+ const screenValid=screen?.overviewPriceEvidence==='last-vs-displayed-close'&&
+  ['display-recent','historical'].includes(screenState.state)&&
+  Number.isFinite(screen?.lastPrice)&&screen.lastPrice>0&&
+  Number.isFinite(screen?.previousClose)&&screen.previousClose>0&&
+  Number.isFinite(screen?.displayedDayChangePct)&&
+  Math.abs(screen.displayedDayChangePct-(screen.lastPrice/screen.previousClose-1)*100)<0.000001&&
+  screenClock&&screenClock.start<=now&&
+  zurichListDay(screenClock.start).day===zurichListDay(now).day;
  const valid=d?.isin===p.isin&&(d.basis==='bid-vs-previous-close'||estimatedClose)&&
   Number.isFinite(d.percent)&&Number.isFinite(d.previousClose)&&d.previousClose>0&&
   Number.isFinite(d.bid)&&d.bid>0&&['EUR','CHF'].includes(d.currency)&&
@@ -2677,13 +2742,18 @@ function productDailyChangeView(p,now=Date.now()){
   zurichListDay(d.at).day===zurichListDay(now).day&&
   zurichListDay(d.referenceAt).day===previousZurichTradingDay(now)&&
   Math.abs(d.percent-(d.bid/d.previousClose-1)*100)<0.000001;
+ const percent=valid?d.percent:screenValid?screen.displayedDayChangePct:null;
  const stale=valid&&now-at>90000;
- const value=valid?(d.percent>0?'+':'')+d.percent.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' %':'—';
- const color=valid?(d.percent>0?'#166534':d.percent<0?'#b91c1c':'#475569'):'#475569';
+ const value=percent!==null?(percent>0?'+':'')+percent.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' %':'—';
+ const color=percent!==null?(percent>0?'#166534':percent<0?'#b91c1c':'#475569'):'#475569';
  const basis=estimatedClose?'letztem belegtem Geldkurs des vorherigen Handelstags (kein offizieller Schlusskurs)':'Vortagesschluss';
  const note=valid?(stale?'Veraltet · ':'')+'Aktueller Geldkurs gegenüber '+basis+' · '+d.currency+' · '+d.source+
   ' · Vergleich '+new Date(ref).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+
-  ' · Kurszeit '+new Date(at).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'}):'Tagesvergleich nicht verfügbar · datierter Vortages-Referenzkurs oder heutiger Kurs fehlt';
+  ' · Kurszeit '+new Date(at).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'}):
+  screenValid?'DEGIRO-Bildstand · letzter angezeigter Kurs '+screen.lastPrice.toLocaleString('de-CH',{minimumFractionDigits:2})+
+  ' EUR gegenüber angezeigtem Schluss '+screen.previousClose.toLocaleString('de-CH',{minimumFractionDigits:2})+
+  ' EUR · Bildzeit '+screen.sourceTime+' · keine Live-Kurszeit, kein DEGIRO-Ausführungskurs':
+  'Tagesvergleich nicht verfügbar · datierter Vortages-Referenzkurs oder heutiger Kurs fehlt';
  return '<div data-product-daily-change style="grid-column:1/-1;min-width:0;padding:6px;border-radius:7px;background:#f2f5f9">'+
   '<div class="small">Heute · Tagesänderung</div><strong style="color:'+color+'">'+esc(value)+'</strong>'+
   '<div class="small">'+esc(note)+'</div><div class="small">Anzeigeabruf alle 3 Sekunden · Quellentakt kann abweichen</div></div>';
