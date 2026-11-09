@@ -33,6 +33,9 @@ ANTIGRAVITY_REDIRECT = 'https://antigravity.google/oauth-callback'
 GEMINI_READ_SCOPES = frozenset((SCOPE, DIAGNOSTICS_SCOPE))
 GOOGLE_READ_REDIRECTS = frozenset((GEMINI_REDIRECT, ANTIGRAVITY_REDIRECT))
 ACCESS_TTL = 3600
+# Allow a mobile browser -> Termux handoff without weakening PKCE or single use.
+# Remain below the OAuth 2.0 ten-minute maximum recommendation.
+CODE_TTL = 8 * 60
 GRANT_TTL = 28 * 86400
 
 
@@ -139,7 +142,7 @@ def transition(state, action, p, now=None):
             return {**response, 'error':'access_denied'}
         gid, code = secret(), secret('boc_')
         grants[gid] = {'client_id':req['client_id'], 'expires':until, 'created':now, 'scope':req.get('scope', SCOPE)}
-        codes[digest(code)] = {**req, 'grant':gid, 'used':False, 'expires':now+120}
+        codes[digest(code)] = {**req, 'grant':gid, 'used':False, 'expires':now+CODE_TTL}
         return {**response, 'code':code}
     if action == 'token':
         cid = p.get('client_id','')
