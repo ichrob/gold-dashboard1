@@ -35,5 +35,12 @@
 - Bei Sicherheits-/Produktnachweisfehlern **fail closed** bleiben. Kein künstliches Schließen von Wartefällen ohne neue Originalbelege.
 - Eine vorhandene Cloudflare-Workers-AI-Zweitprüfung (Qwen) ist **nicht Gemini** und gewährt dir keine stillschweigenden Rechte; greife ihre Dateien oder Deployments nur nach begründetem Auftrag an.
 
+## Handy-Entwickler (Free-only, öffentliche Vorschläge)
+- Auf Android: GitHub → Actions → `Bob Gemini - Handy-Entwickler (kostenlos, Vorschlag)` → Run workflow, Branch `main`, öffentliche Owner-Issue-Nummer und eine vorhandene kleine öffentliche Datei (z. B. `GEMINI.md`) angeben. Workflow: `.github/workflows/bob-gemini-mobile-developer.yml`.
+- Alternativ vom Besitzer `ichrob` als neuer Kommentar in einem offenen eigenen Issue: `/bob-gemini-dev GEMINI.md`. Andere Kommentartexte/Absender, PRs und andere Dateipfade lösen keinen Modellaufruf aus.
+- Anleitung: [BOB_GEMINI_MOBILE_DEVELOPER.md](BOB_GEMINI_MOBILE_DEVELOPER.md).
+- Das erzeugt **nur einen unverbindlichen öffentlichen Issue-Kommentar** mit Diff-/Testideen: führt keinen Code aus, ändert keine Dateien, erstellt keine PRs, merged/deployed nicht und vergibt keine privaten Bob-, DEGIRO-, Termux- oder MCP-Zugänge.
+- Ausschließlich im bestätigten **unbilled Free**-Google-Projekt ohne Paid-Billing verwenden; Kostenstatus regelmäßig kontrollieren. Niemals Secrets, Depotdaten oder private Logs veröffentlichen. Cloudflare-Zweit-KI bleibt unabhängig.
+
 ## Für jeden Abschlussbericht
 **Issue/PR · Commit-SHA · geänderte Dateien · Tests (mit Link und Ergebnis) · Live-Beweis oder „nicht geprüft“ · neue Risiken · Rollback · nächste konkrete Handlung.**
