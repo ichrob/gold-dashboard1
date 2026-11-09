@@ -27,11 +27,17 @@ VARIANTS = {
     'nomacd5': dict(minutes=5, omit='macd', label='5m · ohne zusätzliche MACD-Bedingung'),
     'pullback5': dict(minutes=5, pullback=True, label='5m · Rücksetzer nach Ausbruch'),
     'timestop5': dict(minutes=5, time_stop=True, label='5m · Zeitstopp bei fehlendem Fortschritt'),
+    # Added prospectively, without resetting the ongoing 48 original study arms.
+    # A NEW closed 5m push is evaluated on its own clock, not by refreshing an old 15m signal.
+    'follow5': dict(minutes=5, continuation=True,
+                    label='5m · frischer Folgeimpuls LONG/SHORT (30–300 Minuten)'),
 }
 NOTE = ('Vorwärts-Test auf Gold-Spot, keine KO-Produktrendite. 0,16 % Gesamtkosten sind eine Annahme. '
         'Original- und Schätzfälle getrennt; Verluste und Stops nur an beobachteten Kursen. '
         'Keine automatische Übernahme oder bestätigte Überlegenheit. Unterschiedliche Einstiegszeiten, '
-        'keine Behauptung gepaarter Trades. 5m ist die Studienreferenz, nicht die vollständige Bob-Hauptlogik.')
+        'keine Behauptung gepaarter Trades. 5m ist die Studienreferenz, nicht die vollständige Bob-Hauptlogik. '
+        'Folgeimpuls5 läuft erst ab Aktivierung als separate Beobachtungsvariante; kein Live-Einstieg, '
+        'keine KO-Produktfreigabe, keine rückwirkend erfundenen Gewinne.')
 
 
 def session(at):
@@ -137,6 +143,55 @@ def frame_signal(rows, minutes, now, pullback=False):
                 macd='LONG' if hist>0 else 'SHORT' if hist<0 else 'NEUTRAL', atr=atr,
                 estimated=any(r.get('estimated') for r in past),
                 level=hi if side=='LONG' else lo, reason=None if side else 'no-breakout')
+
+
+def fresh_continuation_signal(rows, now):
+    """Independent *prospective* LONG/SHORT re-entry hypothesis, not an approval.
+
+    A genuinely NEW, fully closed five-minute candle can confirm a continuation
+    even when the original 15-minute breakout is older. Do not recycle/reset the
+    older signal's timestamp. Require two prior closed 5m bars, correct 1m source,
+    fresh close and an extension cap; the shared hour/EMA/MACD, reference-price,
+    cost and stop gates remain in place in gate()/advance().
+    """
+    base = frame_signal(rows, 5, now)
+    if base.get('available') is not True or not positive(base.get('atr')):
+        return base
+    bars = aggregate(rows, 5, now)
+    if len(bars) < 3:
+        return {**base, 'direction':None, 'reason':'continuation-closed-bars-missing'}
+    last, previous, older = bars[-1], bars[-2], bars[-3]
+    if (last['closeTime'] != base.get('closedAt')
+            or not 0 <= now-last['closeTime'] <= 90000):
+        return {**base, 'direction':None, 'reason':'continuation-signal-not-fresh'}
+    past = [r for r in rows if last['closeTime']-105*MINUTE <= r['openTime'] < last['closeTime']]
+    if len(past) != 105:
+        return {**base, 'direction':None, 'reason':'continuation-original-lookback-missing'}
+    e20 = ema([r['close'] for r in past],20)[-1]
+    stretch = abs(last['close']-e20)/base['atr']
+    # Still restrict chasing overextended trends even in the experimental arm.
+    if stretch > 2.0:
+        return {**base, 'direction':None, 'reason':'continuation-overextended-2atr',
+                'extensionAtr':round(stretch,4)}
+    side = base.get('direction')
+    if side in ('LONG','SHORT'):
+        setup = 'fresh-breakout'
+        level = base.get('level')
+    else:
+        minimum_body = .2*base['atr']
+        growing = (previous['close'] > older['close'] and last['close'] > previous['high']
+                   and last['close'] > last['open'] and last['close']-last['open'] >= minimum_body
+                   and last['close'] > e20)
+        falling = (previous['close'] < older['close'] and last['close'] < previous['low']
+                   and last['close'] < last['open'] and last['open']-last['close'] >= minimum_body
+                   and last['close'] < e20)
+        side = 'LONG' if growing else 'SHORT' if falling else None
+        setup = 'closed-5m-follow-through'
+        level = previous['high'] if growing else previous['low'] if falling else None
+    return {**base, 'direction':side, 'barAt':last['openTime'],
+            'closedAt':last['closeTime'], 'level':level,
+            'setup':setup if side else None, 'extensionAtr':round(stretch,4),
+            'reason':None if side else 'no-fresh-continuation'}
 
 
 def gate(signal, trend, config):
@@ -281,9 +336,12 @@ def advance(old, bundle, market, selection, quotes, now):
         modeled = mode=='modeled'
         rows, error = minute_history(bundle,now,modeled)
         signals = {(m,p):frame_signal(rows,m,now,p) for m,p in ((3,False),(5,False),(7,False),(5,True))} if rows else {}
+        if rows:
+            signals[(5,'continuation')] = fresh_continuation_signal(rows,now)
         price = source(bundle,now,modeled)
         for name,cfg in VARIANTS.items():
-            sig = signals.get((cfg['minutes'],bool(cfg.get('pullback'))),dict(available=False,reason=error))
+            key_signal=(cfg['minutes'], 'continuation' if cfg.get('continuation') else bool(cfg.get('pullback')))
+            sig = signals.get(key_signal,dict(available=False,reason=error))
             allowed, reason = gate(sig,trend,cfg)
             if (allowed and price['available'] and market.get('ready') is True
                     and market.get('priceFresh') is True and number(market.get('dataAt'))
@@ -297,7 +355,8 @@ def advance(old, bundle, market, selection, quotes, now):
                     label=cfg['label'],started=0,closed=0,inconclusive=0,estimatedClosed=0,
                     originalClosed=0,originalSumNetPct=0.,estimatedSumNetPct=0.,
                     sumNetPct=0.,worstNetPct=None,maxAdversePct=0.,falseStarts=0,
-                    lastSignal=None,position=None,blockCounts={},reversalExits=0,reversalEntries=0))
+                    lastSignal=None,position=None,blockCounts={},reversalExits=0,reversalEntries=0,
+                    firstObservedAt=now,followThroughEntries=0,baselineOverlapEntries=0))
                 a['reason'] = reason if not allowed else None if price['available'] else 'spot-source-unavailable'
                 p = a['position']
                 if p:
@@ -367,9 +426,16 @@ def advance(old, bundle, market, selection, quotes, now):
                     a['reason']='entry-too-late'; a['lastSignal']=signal_key
                     continue
                 a['started'] += 1; a['lastSignal']=signal_key
+                if cfg.get('continuation'):
+                    if sig.get('setup')=='closed-5m-follow-through':
+                        a['followThroughEntries'] += 1
+                    else:
+                        a['baselineOverlapEntries'] += 1
                 a['position'] = dict(id=f'{VERSION}:{key}:{int(now)}',arm=key,version=VERSION,
                     ruleVersion=market.get('ruleVersion'),entryObservedAt=now,entrySourceAt=price['at'],
-                    signalEvidence=copy.deepcopy(sig), signalClosedAt=sig['closedAt'],entryPrice=price['price'],direction=sig['direction'],
+                    signalEvidence=copy.deepcopy(sig), signalClosedAt=sig['closedAt'],
+                    setupType=sig.get('setup') if cfg.get('continuation') else None,
+                    entryPrice=price['price'],direction=sig['direction'],
                     hourDirection=trend.get('direction'),stop=price['price']-sign*risk,target=target,risk=risk,
                     horizonMinutes=horizon,costAssumptionPct=COST_PCT,estimatedUsed=bool(sig.get('estimated')),
                     lastSourceAt=price['at'],lastObservedAt=now,maxAdversePct=0.,maxFavorablePct=0.,
@@ -482,4 +548,5 @@ def report(conn):
     return dict(version=VERSION,status=s['status'],startedAt=s['startedAt'],checkedAt=s['checkedAt'],
                 deadlineAt=s['deadlineAt'],variants=arms,latency=audit,recentLatency=s['recentLatency'],
                 horizonsMinutes=list(HORIZONS),timeframesMinutes=[3,5,7],lookbackMinutes=105,
+                continuationVariant='follow5',
                 exitPolicy=EXIT_POLICY,strategyWinnerConfirmed=False,liveRulesChanged=False,realOrders=False,note=NOTE)
