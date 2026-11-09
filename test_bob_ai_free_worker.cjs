@@ -23,13 +23,24 @@ const path = require("node:path");
     return msg+"."+sign("RSA-SHA256",Buffer.from(msg),privateKey).toString("base64url");
   };
   const oldFetch = globalThis.fetch;
-  globalThis.fetch = async url => {
+  globalThis.fetch = async (url, options) => {
     assert.equal(url,"https://token.actions.githubusercontent.com/.well-known/jwks");
+    assert.equal(options?.redirect,"manual");
     return Response.json({keys:[jwk]});
   };
   try {
     assert.equal(await worker.verifyGithubOIDC(jwt({})),true);
     assert.equal(await worker.verifyGithubOIDCDetail(jwt({})), "ok");
+    // A malicious or unexpected JWKS redirect must NOT be followed.
+    let lookedAtRedirect = false;
+    const redirectJwks = async (url, options) => {
+      assert.equal(url,"https://token.actions.githubusercontent.com/.well-known/jwks");
+      assert.equal(options.redirect,"manual");
+      lookedAtRedirect = true;
+      return new Response(null,{status:302,headers:{location:"https://evil.example/keys"}});
+    };
+    assert.equal(await worker.verifyGithubOIDCDetail(jwt({}),redirectJwks),"jwks-http");
+    assert.equal(lookedAtRedirect,true);
     const failingJwks = async () => {throw new Error("never-print-this-secret");};
     assert.equal(await worker.verifyGithubOIDCDetail(jwt({}), failingJwks), "exception-jwks-fetch");
     assert.equal(await worker.verifyGithubOIDCDetail(jwt({aud:"wrong"})), "claim-audience");
