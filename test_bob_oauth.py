@@ -165,6 +165,14 @@ class StateTests(unittest.TestCase):
         self.call('revoke',token=token['refresh_token'],client_id=gid)
         self.assertFalse(self.call('check',token=token['access_token'])['valid'])
         self.assertTrue(self.call('check',token=chatgpt['access_token'])['valid'])
+        # Recreate Gemini separately to test the owner-only disconnect action.
+        req = self.begin(client_id=gid,redirect_uri=store.GEMINI_REDIRECT,
+                         scope=allowed)['request']
+        code = self.call('approve',request=req,until=self.now+10000)['code']
+        gemini_again = self.exchange(code,client_id=gid,redirect_uri=store.GEMINI_REDIRECT)
+        self.call('revoke-gemini')
+        self.assertFalse(self.call('check',token=gemini_again['access_token'])['valid'])
+        self.assertTrue(self.call('check',token=chatgpt['access_token'])['valid'])
 
     def test_revocation(self):
         tokens = self.exchange(self.authorize())
@@ -327,6 +335,19 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status,200)
         self.assertEqual(set(json.loads(body)['scope'].split()),
                          {store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        gemini_token = json.loads(body)['access_token']
+        # Only an authenticated owner with Bob's CSRF can revoke this client.
+        status,_,page=self.request('GET','/oauth/connections',
+                                   headers={'Cookie':self.session})
+        self.assertEqual(status,200)
+        self.assertIn(b'Nur Gemini-Zugriff widerrufen',page)
+        self.assertEqual(self.form('/oauth/disconnect-gemini',
+                         {'csrf':'wrong'},self.session)[0],403)
+        csrf = oauth.csrf({'Cookie':self.session})
+        self.assertEqual(self.form('/oauth/disconnect-gemini',
+                         {'csrf':csrf},self.session)[0],303)
+        self.assertFalse(store.transition(self.state,'check',
+                          {'token':gemini_token})['valid'])
 
     def test_daily_factor_cannot_be_bypassed(self):
         self.begin()
