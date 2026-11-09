@@ -87,6 +87,26 @@ class AivenProbeTests(unittest.TestCase):
             self.assertNotIn('SECRET', str(result))
             self.assertNotIn('aivencloud.com', str(result))
 
+    def test_inline_render_pem_is_not_exposed_or_persisted(self):
+        pem = '-----BEGIN CERTIFICATE-----\\nQUJDRA==\\n-----END CERTIFICATE-----'
+        with tempfile.TemporaryDirectory() as ignored:
+            paths = []
+            def connect(*args, **kwargs):
+                cert_path = Path(kwargs['sslrootcert'])
+                paths.append(cert_path)
+                self.assertEqual(cert_path.read_text(), pem + '\\n')
+                self.assertEqual(cert_path.stat().st_mode & 0o077, 0)
+                return FakeConnection(FakeCursor())
+            result = probe({'BOB_AIVEN_TEST_DATABASE_URL': URI,
+                            'BOB_AIVEN_TEST_CA_PEM': pem}, connect)
+            self.assertEqual(result, {'status': 'connected-read-only', 'readOnly': True})
+            self.assertFalse(paths[0].exists())
+
+    def test_malformed_inline_pem_rejected(self):
+        self.assertEqual(probe({'BOB_AIVEN_TEST_DATABASE_URL': URI,
+                                'BOB_AIVEN_TEST_CA_PEM': 'BAD CERTIFICATE'})['status'],
+                         'invalid-configuration')
+
     def test_read_only_must_be_confirmed(self):
         with tempfile.TemporaryDirectory() as directory:
             ca = Path(directory, 'ca.pem')
