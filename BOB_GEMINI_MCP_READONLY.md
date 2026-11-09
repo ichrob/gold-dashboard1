@@ -12,6 +12,7 @@ Google Gemini CLI unterstützt Remote-MCP mit OAuth 2.0, PKCE und konfigurierbar
 - Erlaubte Tools nach Eigentümerfreigabe: `bob_product_audit`, `bob_product_gaps`, `bob_diagnostics`, `bob_signal_history`, `bob_push_history`.
 - **Ausgeschlossen:** `bob:phone:control`, `bob:termux:execute`, `bob:push:test`, Schreibzugriffe/SQL, Render-/Cloudflare-/Aiven-/GitHub-Adminrechte und echte DEGIRO-Orders. Diese Rechte werden für den Gemini-Client serverseitig **auch bei falscher Anwendungskonfiguration** abgewiesen.
 - Die originale Besitzeranmeldung und separate Bestätigung (ggf. Passkey) bleiben Pflicht. HTTPS bis zum Bob-Server, OAuth-Tokens kurzlebig, Hashes im bestehenden internen Speicher, Rotation/Widerruf unverändert.
+- Der Eigentümer kann unter `https://bob-private-scanner.onrender.com/oauth/connections` mit **„Nur Gemini-Zugriff widerrufen“** ausschließlich Geminis Grants ungültig machen. Anmeldung, Tagesfaktor und CSRF-Schutz sind Pflicht; ChatGPT bleibt verbunden. Die zweite Schaltfläche widerruft wie bisher **alle** Freigaben.
 - Das derzeitige allgemeine OAuth-Freigabedatum **16.11.2026** bleibt unverändert. Eine Verlängerung benötigt einen eigenen geprüften Auftrag und eine erneute Freigabe. Der neue Client darf diese Grenze nicht umgehen.
 
 ## Eigene Gemini-Konfiguration – ohne Geheimnisse
