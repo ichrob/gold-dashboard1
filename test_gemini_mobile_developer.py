@@ -111,6 +111,16 @@ class GeminiMobileDeveloperTests(unittest.TestCase):
                 g.run()
                 api.assert_not_called()
 
+    def test_gemini_md_references_existing_safe_phone_workflow(self):
+        guide = Path("GEMINI.md").read_text()
+        self.assertLessEqual(len(guide), 6500)
+        self.assertIn(".github/workflows/bob-gemini-mobile-developer.yml", guide)
+        self.assertIn("BOB_GEMINI_MOBILE_DEVELOPER.md", guide)
+        self.assertIn("/bob-gemini-dev GEMINI.md", guide)
+        self.assertIn("keinen Code aus", guide)
+        self.assertTrue(Path(".github/workflows/bob-gemini-mobile-developer.yml").is_file())
+        self.assertTrue(Path("BOB_GEMINI_MOBILE_DEVELOPER.md").is_file())
+
     def test_workflow_manual_or_exact_owner_comment_without_code_write(self):
         source = Path(".github/workflows/bob-gemini-mobile-developer.yml").read_text()
         # Owner-only exact comment, no arbitrary user text reaching shell.
