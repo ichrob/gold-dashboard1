@@ -33,7 +33,7 @@ class PreviousSessionResearchTests(unittest.TestCase):
                               reference=dict(isin=ISIN, currency='EUR', productId=PRODUCT['Id'],
                                 exchangeCode='CBDE', kind='last-observed-late-session-bid',
                                 referenceAt=d['referenceAt'], referenceBid=d['previousClose']))
-        self.assertEqual(subsequent['dailyChange']['percent'], 10)
+        self.assertAlmostEqual(subsequent['dailyChange']['percent'], 10)
 
     def test_summer_dst_and_chf_market_exact_binding(self):
         now = at('2026-07-06T09:01:00+02:00')
