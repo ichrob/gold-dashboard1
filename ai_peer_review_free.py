@@ -17,6 +17,7 @@ from ai_peer_review import (
 
 AUDIENCE = "urn:bob:free-ai-code-review:v1"
 WORKER = "https://bob-free-ai-review.robsimon.workers.dev/review"
+STAGE = "preflight"  # Safe fixed diagnostic stage; no raw provider exceptions.
 
 
 def github_oidc():
@@ -67,6 +68,8 @@ def cloudflare_review(diff, pr, sha, jwt):
 
 
 def main():
+    global STAGE
+    STAGE = "preflight"
     if os.getenv("BOB_AI_FREE_ONLY") != "confirmed-workers-free":
         raise ValueError("workers-free-unconfirmed")
     github = os.getenv("GITHUB_TOKEN", "")
@@ -74,22 +77,30 @@ def main():
     if not github or not re.fullmatch(r"[1-9]\d{0,7}", pr):
         raise ValueError("github-config-missing")
     base = "https://api.github.com/repos/" + REPO + "/pulls/" + pr
+    STAGE = "read-pr"
     info = request_json(base, github)
+    STAGE = "validate-pr"
     sha = review_allowed(info, mode=os.getenv("BOB_AI_MODE", "manual"),
                          head_sha=os.getenv("BOB_CI_HEAD_SHA"))
     if not isinstance(sha, str) or not re.fullmatch(r"[a-f0-9]{40}", sha):
         raise ValueError("review-head-unknown")
+    STAGE = "read-comments"
     comments = request_json("https://api.github.com/repos/" + REPO + "/issues/" + pr
                             + "/comments?per_page=100", github)
     day = check_review_budget(comments, sha)
+    STAGE = "read-public-diff"
     diff = safe_files(request_json(base + "/files?per_page=50", github))
     # OIDC is only obtained after local, free, author, SHA and dedup checks pass.
-    comment = cloudflare_review(diff, int(pr), sha, github_oidc())
+    STAGE = "oidc-token"
+    jwt = github_oidc()
+    STAGE = "worker-inference"
+    comment = cloudflare_review(diff, int(pr), sha, jwt)
     body = (REVIEW_MARKER + sha + ";utcday=" + day + " -->\n"
             "### Unabhängige Zweit-KI (Cloudflare Workers Free, GitHub OIDC)\n\n"
             + comment + "\n\n"
             "*Vorschlag ohne Codeausführung, Merge oder Handelsfreigabe. "
             "Eine tatsächliche Reparatur erfordert unabhängige Tests und Live-Nachweis.*")
+    STAGE = "post-public-review"
     request_json("https://api.github.com/repos/" + REPO + "/issues/" + pr
                  + "/comments", github, "POST", {"body": body})
     print("Cloudflare free OIDC code review posted for PR #" + pr)
@@ -99,6 +110,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        print("Cloudflare free review blocked; no raw provider errors or credentials logged.",
+        print("Cloudflare free review blocked at stage " + STAGE + "; no raw provider errors or credentials logged.",
               file=sys.stderr)
         sys.exit(1)
