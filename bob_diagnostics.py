@@ -376,7 +376,7 @@ def simulation_runtime_brief(paper):
     return projection
 
 
-def new_studies_brief(paper):
+def new_studies_brief(paper, now_ms=None):
     """Retain bounded, independent new-study evidence when history is truncated.
 
     Project ONLY already-read, sanitized study controls. No new SQL, retries,
@@ -406,13 +406,55 @@ def new_studies_brief(paper):
         return fields(v if isinstance(v, dict) else {}, (k,)).get(k)
     def core(v):
         return fields(v if isinstance(v, dict) else {}, ('status', 'checkedAt'))
-    qrows = quality.get('studies') if isinstance(quality.get('studies'), list) else []
-    originals = []
-    for item in qrows[:4]:
-        if isinstance(item, dict) and item.get('id') in (
-                'reaction','warning-confirmed','entry-delay','sideways-filter'):
-            originals.append(fields(item, ('id','cycles','original','invalid',
-                    'workerErrors','started','complete','inconclusive','open')))
+    study_ids = ('reaction','warning-confirmed','entry-delay','sideways-filter')
+    counters = ('id','cycles','original','invalid','estimated','workerErrors',
+                'started','complete','inconclusive','open','estimatedComplete')
+    def study_counts(control):
+        values = control.get('studies') if isinstance(control.get('studies'),list) else []
+        return [fields(row,counters) for row in values[:4]
+                if isinstance(row,dict) and row.get('id') in study_ids]
+    originals = study_counts(quality)
+    modeled_rows = study_counts(modeled)
+    # A compact, deterministic quality alert, not an assertion about cause
+    # or a proposal to count estimated model outcomes as product fills.
+    notices = []
+    def warn(code, study, detail):
+        if len(notices) < 5:
+            notices.append({'code':code,'study':study,'severity':'warning',
+                            'detail':detail})
+    reaction = next((x for x in originals if x.get('id')=='reaction'),{})
+    cycles, invalid = reaction.get('cycles'),reaction.get('invalid')
+    if (type(cycles) is int and type(invalid) is int
+            and cycles >= 100 and 0 <= invalid <= cycles
+            and invalid >= 20 and invalid * 100 >= cycles * 2):
+        warn('STUDY_ORIGINAL_INPUT_GAPS','reaction',
+             str(invalid)+'/'+str(cycles)+' kumulierte Eingangsprüfungen ungültig; Quellenzeiten nachprüfen')
+    for study in ('warning-confirmed','entry-delay','sideways-filter'):
+        row = next((x for x in originals if x.get('id')==study),{})
+        complete, inconclusive = row.get('complete'),row.get('inconclusive')
+        if (type(complete) is int and type(inconclusive) is int
+                and complete >= 0 and inconclusive >= 0
+                and complete + inconclusive >= 10
+                and inconclusive * 2 >= complete + inconclusive):
+            warn('STUDY_OUTCOMES_INCONCLUSIVE',study,
+                 str(inconclusive)+'/'+str(complete+inconclusive)+' abgeschlossene Fälle nicht vergleichbar')
+    if (quality.get('status')=='collecting' and
+            modeled.get('status') in ('not-started','unavailable','failed')
+            and type(cycles) is int and cycles >= 100):
+        warn('STUDY_MODEL_FALLBACK_NOT_RUNNING','modeled',
+             'Berechnete Studienvariante nicht aktiv')
+    # Only trading-window staleness is a worker incident. "Waiting for
+    # direction" and intentionally retired shadow studies are never errors.
+    health = paper.get('paper') if isinstance(paper.get('paper'),dict) else {}
+    now_ms = time.time()*1000 if now_ms is None else now_ms
+    if health.get('sessionMode') == 'trading' and type(now_ms) in (int,float):
+        for name, at in (('quality',quality.get('checkedAt')),
+                         ('intraday',timing.get('checkedAt')),
+                         ('entry-exit',observation.get('checkedAt'))):
+            if (type(at) in (int,float) and math.isfinite(at)
+                    and 0 <= now_ms-at and now_ms-at > 180000):
+                warn('STUDY_WORKER_OBSERVATION_STALE',name,
+                     'Letzte gespeicherte Studienprüfung über 180 Sekunden alt')
     srows = shadow.get('studies') if isinstance(shadow.get('studies'), list) else []
     shadows = []
     for item in srows[:3]:
@@ -430,7 +472,9 @@ def new_studies_brief(paper):
         'readOnly':True, 'realOrders':False,
         'scope':'new-studies-sanitized-control-sample-not-execution-proof',
         'quality':{**core(quality), 'studies':originals,
-                   'modeled':core(modeled)},
+                   'modeled':{**core(modeled), 'studies':modeled_rows}},
+        'attention':notices,
+        'attentionStatus':'needs-attention' if notices else 'no-current-study-alert',
         'shadow':{'status':value(shadow,'status'),'studies':shadows},
         'entryExit':{**core(entry),
                      'episodesSampled':value(entry,'episodesSampled'),
