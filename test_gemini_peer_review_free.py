@@ -3,7 +3,7 @@ import json
 import os
 import unittest
 from datetime import date, datetime, timezone
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, patch
 
 import gemini_peer_review_free as g
 
@@ -33,7 +33,7 @@ class GeminiReviewSafetyTests(unittest.TestCase):
 
     def test_request_has_bounded_thinking_and_no_real_network(self):
         reply = {"candidates": [{"content": {"parts": [{"text": "Keine Regression."}]}}]}
-        fake_opener = Mock()
+        fake_opener = MagicMock()
         fake_opener.open.return_value.__enter__.return_value.read.return_value = (
             json.dumps(reply).encode("utf-8")
         )
