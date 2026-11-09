@@ -100,6 +100,8 @@ class GeminiTermuxOfflineProbeTests(unittest.TestCase):
         self.assertNotIn("urllib.request", source)
         self.assertNotIn("requests.", source)
         self.assertNotIn(".extractall(", source)
+        self.assertNotIn("os.link(", source)
+        self.assertIn('BUNDLE.open("xb")', source)
         self.assertNotIn("shell=True", source)
         self.assertNotIn("GEMINI_API_KEY\"", source)
 

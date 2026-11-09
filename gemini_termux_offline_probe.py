@@ -76,8 +76,10 @@ def extract_only_bundle():
                     shutil.copyfileobj(source, sink, 1024 * 1024)
         if partial.stat().st_size != manifest_and_member()["bundle_bytes"]:
             raise ValueError("bundle-size-mismatch")
-        # link() fails if the target appeared concurrently; never overwrite.
-        os.link(partial, BUNDLE)
+        # Android's Termux Python may lack hard-link support. Exclusive mode
+        # still prevents overwriting an existing file or symlink.
+        with partial.open("rb") as source, BUNDLE.open("xb") as destination:
+            shutil.copyfileobj(source, destination, 1024 * 1024)
     finally:
         if partial.exists():
             partial.unlink()
