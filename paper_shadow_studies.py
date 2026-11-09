@@ -90,9 +90,37 @@ def original_input(bundle, market, now, analysis_timeframe="15m"):
           and positive(price) and number(data_at) and number(at)
           and abs(data_at-at)<=2000 and 0<=now-at<=60000
           and matching)
+    # Keep the original admission decision exactly unchanged. Explain each
+    # rejected input by ONE fixed, non-sensitive reason so prospective studies
+    # can distinguish a late spot from a missing CLOSED signal candle.
+    # These reasons are observational only; they never grant paper/broker entry.
+    if good:
+        reason_code = None
+    elif (spots.get("is_genuine_xauusd_spot") is not True
+          or spots.get("xaus_is_spot") is not True):
+        reason_code = "spot-identity-unverified"
+    elif not number(at):
+        reason_code = "spot-source-clock-missing"
+    elif not 0 <= now-at <= 60000:
+        reason_code = "spot-source-not-fresh"
+    elif not positive(source_price) or not positive(price):
+        reason_code = "spot-or-analysis-price-invalid"
+    elif abs(source_price-price) > .001:
+        reason_code = "spot-analysis-price-mismatch"
+    elif market.get("ready") is not True:
+        reason_code = "analysis-not-ready"
+    elif market.get("priceFresh") is not True:
+        reason_code = "analysis-price-not-fresh"
+    elif not number(data_at) or abs(data_at-at) > 2000:
+        reason_code = "analysis-source-clock-mismatch"
+    elif not matching:
+        reason_code = "original-signal-bar-missing"
+    else:
+        reason_code = "original-evidence-unverified"
     return dict(verified=bool(good),sourceAt=at if number(at) else None,
         analysisBarAt=analysis_at if number(analysis_at) else None,
         price=price if positive(price) else None,closed15mMatched=matching,
+        reasonCode=reason_code,
         reason=None if good else "original-spot-or-15m-evidence-unverified")
 
 
