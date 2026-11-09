@@ -31,6 +31,25 @@ class PaperEvaluationTests(unittest.TestCase):
         self.assertNotIn("caseId",json.dumps(x))
         self.assertNotIn("grossPct",json.dumps(x))
 
+    def test_november_relaunch_receipts_are_valid_without_loss_of_originals(self):
+        # Current paper_portfolios.POLICIES includes both isolated campaigns.
+        # Final receipts may arrive after their runs close: they must not
+        # indefinitely block this append-only evaluation's cursor.
+        for profile in ("trend800nov", "normal1000nov"):
+            with self.subTest(profile=profile):
+                row=list(self.item(profile=profile, key="nov-closed",
+                                   gross=Decimal("-1.25"),
+                                   at=datetime(2026,11,12,12,tzinfo=timezone.utc)))
+                row[2]="2026-11-12"
+                original=tuple(row)
+                accepted=paper.classify(original)
+                self.assertEqual(accepted[:3],(profile,"2026-11-12","negative"))
+                self.assertEqual(len(accepted[3]),64)
+                self.assertEqual(row[4],"a"*64)
+                self.assertEqual(paper.fold([original])[(profile,"2026-11-12")]["negative"],1)
+        with self.assertRaises(ValueError):
+            paper.classify(self.item(profile="unapproved-paper-account"))
+
     def test_invalid_or_out_of_order_never_produce_evaluation(self):
         with self.assertRaises(ValueError):
             paper.fold([self.item(key="c2"),self.item(key="c1")])
