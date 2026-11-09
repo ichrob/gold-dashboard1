@@ -44,6 +44,19 @@ class FreeOidcReviewTests(unittest.TestCase):
         self.assertIn("audience=", req.full_url)
         self.assertNotIn("temporary-gh-runner-only", req.full_url)
 
+    def test_automatic_non_repair_pr_is_ignored_without_ai_or_oidc(self):
+        env = {"BOB_AI_FREE_ONLY": "confirmed-workers-free",
+               "BOB_AI_MODE": "automatic",
+               "GITHUB_TOKEN": "ci-only", "BOB_PR_NUMBER": "1499"}
+        with patch.dict(os.environ, env, clear=True), \
+             patch.object(f, "request_json", return_value={"body": "Ordinary maintenance"}) as github, \
+             patch.object(f, "github_oidc") as oidc, \
+             patch.object(f, "cloudflare_review") as worker:
+            self.assertIsNone(f.main())
+            github.assert_called_once()
+            oidc.assert_not_called()
+            worker.assert_not_called()
+
     def test_worker_request_is_fixed_and_requires_verified_response(self):
         response = Mock()
         response.read.return_value = json.dumps(
