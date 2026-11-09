@@ -1771,6 +1771,18 @@ class Handler(BaseHTTPRequestHandler):
         except (psycopg.OperationalError, TooManyRequests) as exc:
             print(f"BOB_PUSH database_busy path={path} error={type(exc).__name__}", flush=True)
             send_json(self, 503, {"error": "Push-Service kurzzeitig belegt", "retryable": True})
+        except TimeoutError:
+            # Admission timeouts are already handled inside the audit reader.
+            # A timeout before that point (for example a slow request body)
+            # is retryable only for the read-only endpoint, never a write.
+            if path == '/decision-audit/read':
+                print('BOB_AUDIT read_deferred reason=read-timeout', flush=True)
+                send_json(self, 503, {
+                    'error': 'Historische Auswertung vorübergehend belegt',
+                    'retryable': True, 'dataComplete': False})
+            else:
+                print('push-service error: TimeoutError', flush=True)
+                send_json(self, 500, {"error": "Interner Push-Service-Fehler"})
         except Exception as exc:
             print("push-service error:", type(exc).__name__, flush=True)
             send_json(self, 500, {"error": "Interner Push-Service-Fehler"})
