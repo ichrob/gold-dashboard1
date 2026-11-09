@@ -42,7 +42,7 @@ const portal={isin,quote:{isin,metadata:{status:1},comdirectFieldsBackup:{
  strike:{value:3860.4758,source:portalUrl}}}}};
 const reference=ui.productPortalReferenceView(portal,now);
 assert(reference.includes('17'),reference);
-assert(reference.includes('3860'),reference);
+assert(reference.includes('860.4758'),reference);
 assert(reference.includes('unbestätigt'),reference);
 assert(reference.includes('kein eigener Kurs-/Hebelzeitpunkt'),reference);
 for(const bad of [
