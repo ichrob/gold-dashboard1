@@ -50,6 +50,16 @@ Sources:
    Always-Free shape, 1 OCPU/4 GB, no added paid resources, a functioning
    ARM64 build, and a verified TLS connection.
 
+A separate metadata sanity check on the Oracle VM, from this repository:
+
+```sh
+python3 ops/ocr-oci/verify_always_free_shape.py
+```
+
+It must confirm A1 Flex, precisely 1 OCPU and 4 GB. **This does not verify
+billing status**; you must still confirm the account and all selected VM,
+boot-volume and network resources are labeled Always Free in the console.
+
 ## Connection without buying a domain or a Cloudflare plan
 
 The currently connected Cloudflare account has no managed DNS zones. A
