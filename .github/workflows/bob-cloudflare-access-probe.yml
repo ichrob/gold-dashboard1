@@ -30,3 +30,9 @@ jobs:
             echo "probe=$KIND status=$STATUS"
             grep -iE '^(server:|cf-mitigated:|content-type:)' /tmp/cf-headers || true
           done
+
+          # Inference must NEVER run without a valid GitHub OIDC token.
+          REVIEW="https://bob-free-ai-review.robsimon.workers.dev/review"
+          STATUS="$(curl --connect-timeout 5 --max-time 12 --retry 0 --silent --show-error             --user-agent 'curl/8.7.1' -X POST             -H 'Accept: application/json' -H 'Content-Type: application/json'             --data '{"pr":1,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","diff":"FILE: test.py\\n+x()"}'             --output /dev/null --write-out '%{http_code}' "$REVIEW" || true)"
+          echo "unauthenticated-review status=$STATUS (expect 401)"
+          test "$STATUS" = "401"
