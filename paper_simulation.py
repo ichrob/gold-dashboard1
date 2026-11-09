@@ -479,10 +479,82 @@ def entry_block_context(market, choice, control):
         'direction':market.get('direction', 'NEUTRAL'),
         'isin':choice.get('isin'),
         'goldAt':market.get('dataAt'),
+        'signalBarAt':market.get('analysisBarAt'),
         'ruleVersion':market.get('ruleVersion'),
         'signalSource':control.get('signalSource'),
         'plan':safe_plan,
     }
+
+
+# Storage stays bounded to a single Swiss trading day, with at most 96 quarter-hour
+# slots and fixed reason codes. This is diagnostic evidence, never entry approval.
+PAPER_ENTRY_BUCKET_MS = 15 * 60000
+PAPER_ENTRY_MAX_BUCKETS = 96
+PAPER_ENTRY_WINDOW_PROFILES = frozenset(('trend800nov', 'normal1000nov'))
+
+
+def paper_entry_reason_code(reason):
+    """Collapse volatile/free-text reasons without persisting product identifiers."""
+    text = str(reason or '')
+    if 'Preis über 1,5 ATR von EMA20' in text and 'älter als 15 Minuten' in text:
+        return 'ema-stretch-and-signal-age'
+    if 'Preis über 1,5 ATR von EMA20' in text:
+        return 'ema-stretch'
+    if 'älter als 15 Minuten' in text:
+        return 'signal-age'
+    if text.startswith('Goldkurs nicht aktuell'):
+        return 'gold-stale'
+    if text.startswith('ABWARTEN: kein bestätigter gültiger Goldplan'):
+        return 'gold-plan-missing'
+    if 'Stopp-/Zielplan' in text or text.startswith('Einstieg wartet:'):
+        return 'plan-or-timing'
+    if text.startswith('KO-Schutz:'):
+        return 'ko-safety'
+    if 'Produkt' in text or 'Kurs' in text:
+        return 'product-or-quote'
+    if 'Risikobudget' in text or 'Tagesverlustgrenze' in text:
+        return 'capital-risk'
+    if text.startswith('Einstiegscheckliste:'):
+        return 'entry-checklist'
+    if text.startswith('Diese Signal-Kerze wurde bereits'):
+        return 'duplicate-bar'
+    return 'other'
+
+
+def paper_entry_time_bucket(day_data, now, wait, entry):
+    """Record ONLY future observation-time aggregate; never fabricate backfills.
+
+    Swiss 15-minute wall-clock boundaries coincide with UTC epoch 15-minute
+    boundaries, including around daylight-saving transitions. The source clock
+    is retained separately and never turned into an approved execution time.
+    """
+    if type(now) not in (int, float) or not math.isfinite(now) or now <= 0:
+        return
+    buckets = day_data.setdefault('entryTimeBuckets15mV1', {})
+    if not isinstance(buckets, dict):
+        return
+    slot = str(int(now // PAPER_ENTRY_BUCKET_MS) * PAPER_ENTRY_BUCKET_MS)
+    if slot not in buckets and len(buckets) >= PAPER_ENTRY_MAX_BUCKETS:
+        day_data['entryTimeBucketsTruncated'] = True
+        return
+    item = buckets.setdefault(slot, dict(firstAt=now, lastAt=now, checks=0,
+                                         reasonCodes={}, directions={}))
+    item['checks'] += 1
+    item['lastAt'] = now
+    code = paper_entry_reason_code(wait)
+    item['reasonCodes'][code] = item['reasonCodes'].get(code, 0) + 1
+    direction = entry.get('direction') if isinstance(entry, dict) else None
+    direction = direction if direction in ('LONG', 'SHORT', 'NEUTRAL') else 'unknown'
+    item['directions'][direction] = item['directions'].get(direction, 0) + 1
+    gold_at = entry.get('goldAt') if isinstance(entry, dict) else None
+    if type(gold_at) in (int, float) and math.isfinite(gold_at) and gold_at > 0:
+        item.setdefault('firstGoldAt', gold_at)
+        item['lastGoldAt'] = gold_at
+    signal_at = entry.get('signalBarAt') if isinstance(entry, dict) else None
+    if type(signal_at) in (int, float) and math.isfinite(signal_at) and signal_at > 0:
+        item.setdefault('firstSignalBarAt', signal_at)
+        item['lastSignalBarAt'] = signal_at
+    day_data.setdefault('entryTimeBucketsFirstObservedAt', now)
 
 
 def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=None,entry=None,checklist=None):
@@ -510,6 +582,9 @@ def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=
         if entry:
             counts=d.setdefault('entryBlockCounts',{})
             counts[wait]=counts.get(wait,0)+1
+            if (isinstance(capital, dict)
+                    and capital.get('portfolio') in PAPER_ENTRY_WINDOW_PROFILES):
+                paper_entry_time_bucket(d, now, wait, entry)
             records=d.setdefault('entryBlocks',[])
             observed=dict(at=now,reason=wait,**entry)
             if records and all(records[-1].get(k)==observed.get(k) for k in ('reason','direction','isin')):
