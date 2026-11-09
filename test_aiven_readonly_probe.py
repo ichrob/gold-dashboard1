@@ -88,13 +88,13 @@ class AivenProbeTests(unittest.TestCase):
             self.assertNotIn('aivencloud.com', str(result))
 
     def test_inline_render_pem_is_not_exposed_or_persisted(self):
-        pem = '-----BEGIN CERTIFICATE-----\\nQUJDRA==\\n-----END CERTIFICATE-----'
+        pem = '-----BEGIN CERTIFICATE-----\nQUJDRA==\n-----END CERTIFICATE-----'
         with tempfile.TemporaryDirectory() as ignored:
             paths = []
             def connect(*args, **kwargs):
                 cert_path = Path(kwargs['sslrootcert'])
                 paths.append(cert_path)
-                self.assertEqual(cert_path.read_text(), pem + '\\n')
+                self.assertEqual(cert_path.read_text(), pem + '\n')
                 self.assertEqual(cert_path.stat().st_mode & 0o077, 0)
                 return FakeConnection(FakeCursor())
             result = probe({'BOB_AIVEN_TEST_DATABASE_URL': URI,
