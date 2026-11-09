@@ -1,6 +1,6 @@
 # Gemini auf dem Android-Handy: kostenlose Entwickler-Vorschläge
 
-**Status 09.11.2026:** Der bestehende Gemini-Free-Code-Review hat einen echten Kommentar in PR #1484 erstellt. Dieser zusätzliche **manuell auslösbare** Entwicklerlauf ist erst nach Merge dieses PR auf `main` nutzbar. Ein erfolgreicher CI-Lauf und ein anschließender echter Test sind noch erforderlich.
+**Status 09.11.2026:** Der bestehende Gemini-Free-Code-Review hat einen echten Kommentar in PR #1484 erstellt. Der Handy-Entwickler ist auf `main` integriert und hat einen ersten manuellen Lauf in Issue #1497 mit einem öffentlichen Kommentar erfolgreich absolviert. Die neue Alternative für ein vom Besitzer ausgelöstes Issue-Kommando ist bis zu einer gesonderten Live-Abnahme noch nicht bestätigt.
 
 ## Funktionsumfang
 - Android/Chrome oder GitHub-App steuert `GitHub Actions` auf einem kostenlosen Standard-Runner des **öffentlichen** Projekts `ichrob/gold-dashboard1`.
@@ -20,6 +20,11 @@
 3. GitHub → **Actions** → **Bob Gemini - Handy-Entwickler (kostenlos, Vorschlag)** → **Run workflow**. `main`, Issue-Nummer und Dateipfad eintragen → Run workflow.
 4. Nach dem Lauf beim **gleichen Issue** den Kommentar `Gemini · Handy-Entwicklerentwurf` lesen. Er enthält einen Code-Vorschlag und Testideen. Kein Kopieren zwischen KI-Chats erforderlich.
 5. Die unabhängige Reparaturkontrolle lässt daraus nötigenfalls einen geprüften Branch/PR mit CI und Live-Abnahme entstehen. Ein Kommentar ist noch **keine** tatsächliche Programmänderung.
+
+## Noch weniger Handy-Bedienung: einzelner autorisierter GitHub-Kommentar
+Alternativ zum manuellen Actions-Formular kann auf **einem eigenen offenen öffentlichen Bob-Issue** vom Repository-Konto `ichrob` der **exakte** Kommentar `/bob-gemini-dev GEMINI.md` hinterlassen werden. Nur bei einem **neu erstellten** Owner-Kommentar und nur für die feste Datei `GEMINI.md` startet der entsprechende GitHub-Action-Job. Andere Kommentare (auch Bot-Ausgaben), PR-Kommentare, fremde Nutzer und Varianten des Befehls führen zu **keinem Gemini-Modellaufruf**. So kann ChatGPT über seinen bereits freigegebenen GitHub-Kommentarzugang einen explizit beauftragten, sicheren öffentlichen Test auslösen – **ohne** Benutzung von GitHub Actions Dispatch oder Weitergabe von Zugangsdaten.
+
+Die normalen Sicherheits- und Free-only-Gates gelten unverändert. Der Kommentar startet ausschließlich einen öffentlichen, unverbindlichen Codevorschlag; keine Codeänderung oder Deployment-Freigabe. Der neue Trigger ist erst nach vollständiger CI, Merge auf `main` und echtem Ausführungsnachweis als funktionsfähig zu bezeichnen.
 
 ## Sicherheits- und Leistungsgrenzen
 - Eigentümerprüfung (`ichrob`), nur offene Issues, feste öffentliche Repo-URL, streng validierte Dateipfade, Dateigrößenlimit, einfache Geheimnisfilter und Kommentar-Deduplizierung.
