@@ -30,6 +30,56 @@ Sources:
 - https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier.htm
 - https://www.oracle.com/cloud/free/faq/
 
+## Additional owner-requested NO-PAID safeguards (09 Nov 2026)
+
+**Account-level hard stop:** Keep the OCI tenancy as **Free Trial / Always Free**,
+never click `Upgrade` or activate `Pay As You Go`. Oracle says the
+registration card is not charged for OCI usage without an upgrade, although
+there can be a temporary authorization hold. A free trial may temporarily
+permit paid resource shapes using trial credits; **do not create them**.
+Neither ChatGPT nor Bob may accept an account upgrade. OCI billing plan
+cannot be proven from VM instance metadata or a GitHub flag.
+
+**OCI-level restrictions to configure after signup, before VM deployment:**
+create a dedicated `BobOCR` compartment with narrowly limited IAM
+permissions and a compartment quota policy restricting resource families
+to the approved ARM compute shape and storage. OCI quotas can deny resource
+types, while OCI **Budgets are only alerts**, not a hard spending stop.
+For official policy syntax and service-specific quota names, use
+https://docs.oracle.com/en-us/iaas/Content/Quotas/Concepts/quota_policy_syntax.htm .
+Do **not** paste unverified `zero ... in tenancy` rules: these could also
+block other existing Oracle services. No quotas or IAM policies have yet been
+created in the actual Oracle account.
+
+**Bob's local gate is in GitHub, not Oracle Billing:** before any later
+human-led deployment, `python ops/ocr-oci/free_only_guard.py /private/plan.json`
+checks the plan's exact explicit allowlist: one A1 Flex VM with 1 OCPU, 4 GiB
+RAM, 50 GB Always-Free boot volume, home region and Free-eligible ARM image,
+no paid API, no extras, no paid plan, no autoscale, no upgrade, no provisioning
+API and a separate human review flag. It defaults to **DENIED** on the
+example plan (`owner_account_reviewed=false`). This does not establish the
+Oracle billing account status, nor prevent the owner/admin from creating
+other OCI resources directly in the Oracle Console.
+
+The OCI OCR application also refuses to start until
+`BOB_OCI_FREE_TIER_OWNER_REVIEWED=true` is explicitly supplied as a runtime
+environment variable after real account and resource review. It is omitted
+in normal operation and only set for the **synthetic GitHub TLS test**.
+Even with that flag, external Bob calls remain off unless both independent
+Render-side gates are deliberately enabled. No automatic paid-capacity
+fallback exists. If free OCI capacity is unavailable, **do not create the VM**.
+
+**Post-trial audit:** Before and after the trial expiry, verify the OCI account
+still says Always Free and check that no non-free instances, volumes, images,
+paid network services or outside-home-region resources exist. If the owner
+sees a paid-plan banner or unexpected usage, keep the external OCR disabled.
+Do not mistake a budget alarm or Cloud credits for a €0 guarantee.
+
+Official terms:
+- https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier.htm
+- https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm
+- https://docs.oracle.com/en/solutions/oci-best-practices/track-and-manage-usage-and-cost1.html
+
 ## Owner account setup (account action, not automated here)
 
 1. Open https://signup.oraclecloud.com/ . Select the correct home country,
