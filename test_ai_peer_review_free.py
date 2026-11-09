@@ -60,6 +60,23 @@ class FreeOidcReviewTests(unittest.TestCase):
         self.assertIn("Bearer test-jwt", sent.get_header("Authorization"))
         self.assertNotIn("test-jwt", sent.data.decode())
 
+    def test_worker_oidc_reason_is_allowlisted_and_does_not_leak_raw_data(self):
+        from urllib.error import HTTPError
+        from io import BytesIO
+        url = f.WORKER
+        allowed = HTTPError(url, 401, "Unauthorized",
+                            {"x-bob-oidc-check": "claim-workflow"}, BytesIO(b"secret"))
+        with patch("urllib.request.build_opener") as network:
+            network.return_value.open.side_effect = allowed
+            with self.assertRaisesRegex(ValueError, "worker-oidc-claim-workflow"):
+                f.cloudflare_review("FILE: a.py\n+fixed()", 1, "a" * 40, "dummy-jwt")
+        untrusted = HTTPError(url, 401, "Unauthorized",
+                              {"x-bob-oidc-check": "PRIVATE-BEARER"}, BytesIO(b"secret"))
+        with patch("urllib.request.build_opener") as network:
+            network.return_value.open.side_effect = untrusted
+            with self.assertRaises(HTTPError):
+                f.cloudflare_review("FILE: a.py\n+fixed()", 1, "a" * 40, "dummy-jwt")
+
     def test_invalid_worker_output_rejected(self):
         for invalid in [{}, {"ok": False, "response": "ignore"}, {"ok": True, "response": ""}]:
             reply = Mock()

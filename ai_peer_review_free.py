@@ -64,8 +64,22 @@ def cloudflare_review(diff, pr, sha, jwt):
         # its standard curl/8.7.1 identifier passes the no-AI health probe.
         "User-Agent": "curl/8.7.1",
         "Authorization": "Bearer " + jwt})
-    with urllib.request.build_opener(NoRedirect()).open(req, timeout=50) as response:
-        raw = response.read(7501)
+    try:
+        with urllib.request.build_opener(NoRedirect()).open(req, timeout=50) as response:
+            raw = response.read(7501)
+    except HTTPError as exc:
+        # The worker may send only a fixed enum, never private token claims.
+        if exc.code == 401:
+            reason = exc.headers.get("x-bob-oidc-check", "") if exc.headers else ""
+            if reason in {
+                "jwt-size", "jwt-shape", "jwt-header", "claim-issuer",
+                "claim-audience", "claim-repository", "claim-ref",
+                "claim-workflow", "claim-event", "claim-clock", "jwks-http",
+                "jwks-shape", "jwks-kid", "jwt-signature-shape",
+                "signature-invalid", "jwt-verification-error",
+            }:
+                raise ValueError("worker-oidc-" + reason) from None
+        raise
     if len(raw) > 7500:
         raise ValueError("worker-response-too-large")
     response = json.loads(raw)
@@ -119,9 +133,12 @@ if __name__ == "__main__":
         main()
     except Exception as exc:
         # Never emit a bearer token, request URL, full HTTP body or raw exceptions.
-        if isinstance(exc, ValueError) and str(exc) in {
-                "oidc-runner-vars-missing", "oidc-host-rejected", "oidc-url-invalid",
-                "bad-oidc-token", "oidc-response-too-large"}:
+        if isinstance(exc, ValueError) and (
+                str(exc) in {
+                    "oidc-runner-vars-missing", "oidc-host-rejected",
+                    "oidc-url-invalid", "bad-oidc-token",
+                    "oidc-response-too-large"} or
+                str(exc).startswith("worker-oidc-")):
             code = str(exc)
         elif isinstance(exc, HTTPError):
             code = "http-" + str(exc.code)

@@ -24,38 +24,49 @@ function parsePart(value) {
   return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))));
 }
 
-export async function verifyGithubOIDC(token, getJwks = fetch, now = Date.now()) {
-  if (typeof token !== "string" || token.length < 100 || token.length > 12000) return false;
+/**
+ * Return ONLY a fixed validation stage. Never return token values, headers,
+ * payload data, key IDs or private errors. Every non-"ok" stage denies AI.
+ */
+export async function verifyGithubOIDCDetail(token, getJwks = fetch, now = Date.now()) {
+  if (typeof token !== "string" || token.length < 100 || token.length > 12000) return "jwt-size";
   const parts = token.split(".");
-  if (parts.length !== 3) return false;
+  if (parts.length !== 3) return "jwt-shape";
   try {
     const header = parsePart(parts[0]);
     const payload = parsePart(parts[1]);
     const timestamp = Math.floor(now / 1000);
-    if (header.alg !== "RS256" || typeof header.kid !== "string" || header.kid.length > 160) return false;
-    if (payload.iss !== ISSUER || payload.aud !== AUDIENCE
-      || payload.repository !== REPOSITORY || payload.repository_owner !== "ichrob"
-      || payload.ref !== "refs/heads/main" || payload.workflow_ref !== WORKFLOW_REF
-      || !["workflow_run", "workflow_dispatch"].includes(payload.event_name)
-      || !Number.isInteger(payload.iat) || !Number.isInteger(payload.exp)
-      || payload.iat > timestamp + 60 || payload.iat < timestamp - 300
-      || payload.exp <= timestamp || payload.exp > timestamp + 600) return false;
-    // Never use any user-selected URL for key discovery.
+    if (header.alg !== "RS256" || typeof header.kid !== "string" || header.kid.length > 160) return "jwt-header";
+    if (payload.iss !== ISSUER) return "claim-issuer";
+    if (payload.aud !== AUDIENCE) return "claim-audience";
+    if (payload.repository !== REPOSITORY || payload.repository_owner !== "ichrob") return "claim-repository";
+    if (payload.ref !== "refs/heads/main") return "claim-ref";
+    if (payload.workflow_ref !== WORKFLOW_REF) return "claim-workflow";
+    if (!["workflow_run", "workflow_dispatch"].includes(payload.event_name)) return "claim-event";
+    if (!Number.isInteger(payload.iat) || !Number.isInteger(payload.exp)
+        || payload.iat > timestamp + 60 || payload.iat < timestamp - 300
+        || payload.exp <= timestamp || payload.exp > timestamp + 600) return "claim-clock";
+    // Fixed issuer URL; never read JWKS location from untrusted JWT fields.
     const keysResponse = await getJwks(JWK_URL, { redirect: "error" });
-    if (!keysResponse.ok) return false;
+    if (!keysResponse.ok) return "jwks-http";
     const keys = await keysResponse.json();
-    if (!Array.isArray(keys.keys) || keys.keys.length > 20) return false;
+    if (!Array.isArray(keys.keys) || keys.keys.length > 20) return "jwks-shape";
     const jwk = keys.keys.find(k => k.kid === header.kid && k.kty === "RSA" && k.use === "sig");
-    if (!jwk || jwk.alg && jwk.alg !== "RS256") return false;
+    if (!jwk || jwk.alg && jwk.alg !== "RS256") return "jwks-kid";
     const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
     const signaturePart = parts[2];
-    if (!/^[A-Za-z0-9_-]+$/.test(signaturePart)) return false;
+    if (!/^[A-Za-z0-9_-]+$/.test(signaturePart)) return "jwt-signature-shape";
     const signature = Uint8Array.from(atob(signaturePart.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(signaturePart.length / 4) * 4, "=")), c => c.charCodeAt(0));
     const data = new TextEncoder().encode(parts[0] + "." + parts[1]);
-    return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, data);
+    return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, data) ? "ok" : "signature-invalid";
   } catch (_) {
-    return false;
+    return "jwt-verification-error";
   }
+}
+
+// Backwards-compatible boolean API for the offline negative-case tests.
+export async function verifyGithubOIDC(token, getJwks = fetch, now = Date.now()) {
+  return await verifyGithubOIDCDetail(token, getJwks, now) === "ok";
 }
 
 export function validReviewRequest(value) {
@@ -80,7 +91,14 @@ export default {
     if (u.pathname !== "/review" || request.method !== "POST") return denial("not-found", 404);
     if (!env || !env.AI || typeof env.AI.run !== "function") return denial("ai-not-configured", 503);
     const auth = request.headers.get("authorization") || "";
-    if (!auth.startsWith("Bearer ") || !await verifyGithubOIDC(auth.slice(7))) return denial("unauthorized", 401);
+    if (!auth.startsWith("Bearer ")) return denial("unauthorized", 401);
+    const oidcCheck = await verifyGithubOIDCDetail(auth.slice(7));
+    if (oidcCheck !== "ok") {
+      // Fixed enum only. No user claims, tokens, signatures or fetched data.
+      const response = denial("unauthorized", 401);
+      response.headers.set("x-bob-oidc-check", oidcCheck);
+      return response;
+    }
     if (Number(request.headers.get("content-length") || "0") > 8500) return denial("request-too-large", 413);
     let body;
     try {
