@@ -421,7 +421,7 @@ def new_studies_brief(paper, now_ms=None):
     for row in (originals, modeled_rows):
         reaction_row = next((v for v in row if v.get('id') == 'reaction'), None)
         control = quality if row is originals else modeled
-        source = next((v for v in control.get('studies',[])
+        source = next((v for v in (control.get('studies') or [])
                        if isinstance(v,dict) and v.get('id')=='reaction'),None)
         causes = source.get('originalBlockReasons') if isinstance(source,dict) else None
         if reaction_row is not None:
