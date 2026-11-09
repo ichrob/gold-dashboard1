@@ -47,17 +47,9 @@ jobs:
             -v /tmp/bob-oci-test/tls.key:/run/secrets/tls.key:ro \
             bob-ocr-oci:test
           trap 'docker logs bob-oci-tls-ci 2>&1 | tail -35 || true; docker rm -f bob-oci-tls-ci >/dev/null 2>&1 || true' EXIT
-          python - <<'PY'
-          import socket, time
-          for _ in range(50):
-              try:
-                  with socket.create_connection(("127.0.0.1", 8443), timeout=1):
-                      break
-              except OSError:
-                  time.sleep(.2)
-          else:
-              raise SystemExit("OCR TLS service failed to listen")
-          PY
+          # Docker publishes its proxy before the Python TLS process is ready.
+          # Never use a bare TCP connect as a TLS service readiness check.
+          sleep 3
           docker ps -a --filter name=bob-oci-tls-ci --format 'status={{.Status}}'
           docker logs --tail 20 bob-oci-tls-ci || true
           openssl s_client -brief -verify_ip 127.0.0.1 -CAfile /tmp/bob-oci-test/tls.crt \
