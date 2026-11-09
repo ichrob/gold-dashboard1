@@ -56,8 +56,14 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["timeout"],55)
         self.assertIn("--ocr",run.call_args.args[0])
 
+    def test_missing_owner_free_tier_review_blocks_service_start(self):
+        with patch.dict(server.os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "owner_free_tier_review_required"):
+                server.serve()
+
     def test_tls_only_service_fails_if_certificate_absent(self):
         with patch.dict(server.os.environ, {
+                "BOB_OCI_FREE_TIER_OWNER_REVIEWED": "true",
                 "BOB_ORACLE_OCR_TLS_CERT": "/nonexistent/tls.crt",
                 "BOB_ORACLE_OCR_TLS_KEY": "/nonexistent/tls.key"}, clear=True):
             with self.assertRaises((FileNotFoundError, OSError)):
