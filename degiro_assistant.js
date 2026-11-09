@@ -2661,19 +2661,29 @@ function compactProductValues(p,now=Date.now()){
  const missing=[['Geld',bid],['Brief',ask],['Hebel',lever]].filter(([,v])=>!(v>0)).map(([name])=>name);
  return {verified,fields,analysis,bid,ask,lever,leverageKind,leverageAt,calculated,missing,bidOnly};
 }
+function previousZurichTradingDay(now=Date.now()){
+ const date=new Date(zurichListDay(now).day+'T12:00:00Z');
+ do{date.setUTCDate(date.getUTCDate()-1);}while(date.getUTCDay()===0||date.getUTCDay()===6);
+ return date.toISOString().slice(0,10);
+}
 function productDailyChangeView(p,now=Date.now()){
  const d=p.quote?.dailyChange;
  const at=Date.parse(d?.at),ref=Date.parse(d?.referenceAt);
- const valid=d?.isin===p.isin&&d.basis==='bid-vs-previous-close'&&
-  Number.isFinite(d.percent)&&d.previousClose>0&&d.bid>0&&
+ const estimatedClose=d?.basis==='bid-vs-last-observed-prior-day';
+ const valid=d?.isin===p.isin&&(d.basis==='bid-vs-previous-close'||estimatedClose)&&
+  Number.isFinite(d.percent)&&Number.isFinite(d.previousClose)&&d.previousClose>0&&
+  Number.isFinite(d.bid)&&d.bid>0&&['EUR','CHF'].includes(d.currency)&&
   Number.isFinite(at)&&Number.isFinite(ref)&&ref<at&&at<=now&&
   zurichListDay(d.at).day===zurichListDay(now).day&&
+  zurichListDay(d.referenceAt).day===previousZurichTradingDay(now)&&
   Math.abs(d.percent-(d.bid/d.previousClose-1)*100)<0.000001;
  const stale=valid&&now-at>90000;
  const value=valid?(d.percent>0?'+':'')+d.percent.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' %':'—';
  const color=valid?(d.percent>0?'#166534':d.percent<0?'#b91c1c':'#475569'):'#475569';
- const note=valid?(stale?'Veraltet · ':'')+'Geldkurs / Vortagesschluss · '+d.currency+' · '+d.source+
-  ' · Kurszeit '+new Date(at).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'}):'Tagesvergleich nicht verfügbar · Vortagesschluss oder heutiger Kurs fehlt';
+ const basis=estimatedClose?'letztem belegtem Geldkurs des vorherigen Handelstags (kein offizieller Schlusskurs)':'Vortagesschluss';
+ const note=valid?(stale?'Veraltet · ':'')+'Aktueller Geldkurs gegenüber '+basis+' · '+d.currency+' · '+d.source+
+  ' · Vergleich '+new Date(ref).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+
+  ' · Kurszeit '+new Date(at).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'}):'Tagesvergleich nicht verfügbar · datierter Vortages-Referenzkurs oder heutiger Kurs fehlt';
  return '<div data-product-daily-change style="grid-column:1/-1;min-width:0;padding:6px;border-radius:7px;background:#f2f5f9">'+
   '<div class="small">Heute · Tagesänderung</div><strong style="color:'+color+'">'+esc(value)+'</strong>'+
   '<div class="small">'+esc(note)+'</div><div class="small">Anzeigeabruf alle 3 Sekunden · Quellentakt kann abweichen</div></div>';
