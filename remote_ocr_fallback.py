@@ -1,12 +1,14 @@
-"""Opt-in isolated OCR fallback for memory-blocked DEGIRO screenshot imports.
+"""Optional Oracle Always Free OCR fallback. Default: no external requests.
 
-Never transmits data unless explicitly enabled AND configured to an allowlisted
-Google Cloud Run HTTPS hostname. No retry, no redirect, no product approval.
+Only a verified OCI Always Free VM with dedicated TLS trust and a second
+application key may receive an original screenshot. No redirects or retries.
 """
 import base64
 import hashlib
+import ipaddress
 import json
 import os
+import ssl
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler
 
@@ -21,94 +23,83 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 def configured():
-    # Two independent switches guard metered off-box calls. The second
-    # explicitly acknowledges that provider costs cannot be capped at zero.
-    # Under the owner zero-cost policy, leave it unset and block remote OCR.
-    return (os.environ.get("BOB_REMOTE_OCR_ENABLED") == "true"
-            and os.environ.get("BOB_REMOTE_OCR_COST_POLICY")
-                == "metered_risk_explicitly_accepted")
+    return (os.environ.get("BOB_REMOTE_OCR_ENABLED") == "true" and
+            os.environ.get("BOB_REMOTE_OCR_COST_POLICY") ==
+            "oci_always_free_verified")
 
 
-def _fetch_identity_token(audience):
-    """Google Cloud Run IAM token using a securely configured service account.
-
-    Never use an unauthenticated public Cloud Run endpoint. Keep JSON keys only
-    in provider-managed secrets; do not log or persist credentials.
-    """
-    value = os.environ.get("BOB_REMOTE_OCR_GCP_SA_JSON", "")
-    if len(value) < 100 or len(value) > 12_000:
-        raise RemoteOcrError("missing_cloud_identity")
+def _target():
+    raw = os.environ.get("BOB_REMOTE_OCR_URL", "")
+    approved = os.environ.get("BOB_REMOTE_OCR_ALLOWED_IP", "")
+    cert = os.environ.get("BOB_REMOTE_OCR_TLS_CA_PEM", "")
+    key = os.environ.get("BOB_REMOTE_OCR_TOKEN", "")
     try:
-        info = json.loads(value)
-        if info.get("type") != "service_account":
-            raise ValueError("service account required")
-        from google.oauth2 import service_account
-        from google.auth.transport.requests import Request as AuthRequest
-        credentials = service_account.IDTokenCredentials.from_service_account_info(
-            info, target_audience=audience)
-        credentials.refresh(AuthRequest())
-        if not credentials.token:
-            raise ValueError("no ID token")
-        return credentials.token
-    except Exception:
-        raise RemoteOcrError("cloud_identity_unavailable") from None
+        parts = urlsplit(raw)
+        host = parts.hostname or ""
+        address = ipaddress.IPv4Address(host)
+        approved_ip = ipaddress.IPv4Address(approved)
+        valid = (parts.scheme == "https" and parts.port == 8443
+                 and parts.path == "/ocr" and not parts.query and not parts.fragment
+                 and parts.username is None and parts.password is None
+                 and address == approved_ip and address.is_global
+                 and len(cert) <= 10000 and cert.strip().startswith("-----BEGIN CERTIFICATE-----")
+                 and len(key) >= 32 and len(key) <= 256
+                 and all(33 <= ord(char) <= 126 for char in key))
+    except (ValueError, TypeError):
+        valid = False
+    if not valid:
+        raise RemoteOcrError("invalid_private_configuration")
+    try:
+        context = ssl.create_default_context(cadata=cert)
+    except (ValueError, ssl.SSLError):
+        raise RemoteOcrError("invalid_tls_trust") from None
+    # urllib's HTTPSHandler verifies the peer certificate, including its IP SAN.
+    return raw, key, context
 
 
 def recognize(image, enhanced=False, *, opener=None):
-    """Return [passes] or None when disabled. The caller revalidates locally."""
+    """Return [two_or_three_passes] or None. Existing local parser verifies all."""
     if not configured():
         return None
-    target = os.environ.get("BOB_REMOTE_OCR_URL", "")
-    token = os.environ.get("BOB_REMOTE_OCR_TOKEN", "")
-    parts = urlsplit(target)
-    host = parts.hostname or ""
-    if (parts.scheme != "https" or not host.endswith(".a.run.app")
-            or parts.port is not None or parts.username or parts.password
-            or parts.path != "/ocr" or parts.query or parts.fragment
-            or len(token) < 32 or any(ord(ch) < 33 or ord(ch) > 126 for ch in token)):
-        raise RemoteOcrError("invalid_private_configuration")
-    data = image.get("png") if isinstance(image, dict) else None
-    if not isinstance(data, str) or len(data) > 8_000_000 or len(data) < 100:
+    target, key, context = _target()
+    png = image.get("png") if isinstance(image, dict) else None
+    if not isinstance(png, str) or len(png) < 100 or len(png) > 8_000_000:
         raise RemoteOcrError("invalid_input_size")
     try:
-        raw = base64.b64decode(data, validate=True)
+        data = base64.b64decode(png, validate=True)
     except (ValueError, base64.binascii.Error):
         raise RemoteOcrError("invalid_base64") from None
-    if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
         raise RemoteOcrError("not_png")
-    digest = hashlib.sha256(raw).hexdigest()
-    body = json.dumps({"png": data, "sha256": digest, "enhanced": enhanced is True},
-                      separators=(",", ":")).encode()
-    # Cloud Run IAM validates this short-lived Google-signed ID token before
-    # allocating the container; the secondary secret restricts app-layer use.
-    identity = _fetch_identity_token(parts.scheme + "://" + parts.netloc)
-    request = Request(target, data=body, method="POST", headers={
+    digest = hashlib.sha256(data).hexdigest()
+    payload = json.dumps({"png": png, "sha256": digest, "enhanced": enhanced is True},
+                         separators=(",", ":")).encode()
+    request = Request(target, data=payload, method="POST", headers={
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + identity,
-        "X-Bob-Ocr-Key": token,
+        "X-Bob-Ocr-Key": key,
         "Accept": "application/json",
     })
-    client = opener or build_opener(HTTPSHandler(), _NoRedirect())
+    client = opener or build_opener(HTTPSHandler(context=context), _NoRedirect())
     try:
         with client.open(request, timeout=70) as response:
             if response.status != 200:
                 raise RemoteOcrError("provider_unavailable")
-            response_body = response.read(90_001)
+            body = response.read(90_001)
     except RemoteOcrError:
         raise
     except Exception:
         raise RemoteOcrError("provider_unavailable") from None
-    if len(response_body) > 90_000:
+    if len(body) > 90_000:
         raise RemoteOcrError("response_too_large")
     try:
-        message = json.loads(response_body)
+        message = json.loads(body)
     except (ValueError, UnicodeDecodeError):
         raise RemoteOcrError("invalid_response") from None
     if not isinstance(message, dict) or set(message) != {"sha256", "passes"}:
         raise RemoteOcrError("invalid_response")
     passes = message["passes"]
-    if (message["sha256"] != digest or not isinstance(passes, list)
-            or not 2 <= len(passes) <= 3
-            or any(not isinstance(p, str) or len(p) > 30_000 for p in passes)):
+    if (message["sha256"] != digest or not isinstance(passes, list) or
+        not 2 <= len(passes) <= 3 or
+        any(not isinstance(p, str) or len(p) > 30_000 for p in passes)):
         raise RemoteOcrError("invalid_response")
     return [passes]
