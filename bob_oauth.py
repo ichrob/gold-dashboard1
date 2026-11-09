@@ -181,6 +181,8 @@ def route(handler,user,password):
                     grants = rpc('list',user).get('grants',[])
                     respond(handler,200,page('KI-Verbindungen zu Bob',
                         '<p>Aktive Freigaben: '+str(len(grants))+'</p><p>Hier kannst du alle OAuth-Freigaben sofort beenden. Dein Bob-Login bleibt bestehen.</p>'
+                        '<form method="post" action="/oauth/disconnect-gemini"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
+                        '<button>Nur Gemini-Zugriff widerrufen</button></form>'
                         '<form method="post" action="/oauth/disconnect"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
                         '<button>Alle Freigaben widerrufen</button></form><p><a href="/">Zurück zu Bob</a></p>'),page=True)
             else:respond(handler,404,{'error':'not_found'})
@@ -195,15 +197,15 @@ def route(handler,user,password):
                 else:
                     result = rpc('token' if path.endswith('/token') else 'revoke',user,**fields)
                     respond(handler,400 if 'error' in result else 200,result)
-            elif path in ('/oauth/consent','/oauth/disconnect'):
+            elif path in ('/oauth/consent','/oauth/disconnect','/oauth/disconnect-gemini'):
                 if handler.headers.get('Origin') != ORIGIN:
                     respond(handler,403,{'error':'origin_required'}); return True
                 if not browser_ready(handler,user,password):return True
                 fields = read_body(handler)
-                if path=='/oauth/disconnect':
+                if path in ('/oauth/disconnect', '/oauth/disconnect-gemini'):
                     if not hmac.compare_digest(fields.get('csrf',''),csrf(handler.headers)):
                         respond(handler,403,{'error':'invalid_csrf'}); return True
-                    rpc('revoke-all',user)
+                    rpc('revoke-gemini' if path.endswith('-gemini') else 'revoke-all',user)
                     respond(handler,303,location='/oauth/connections')
                 else:
                     nonce = bob_auth.cookie(handler.headers,COOKIE)
