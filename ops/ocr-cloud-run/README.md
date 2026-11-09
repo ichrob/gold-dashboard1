@@ -1,5 +1,37 @@
 # Bob: optional off-box OCR for memory pressure
 
+## Zero-extra-charge provider decision
+
+The owner requires a strict no-extra-charge design. No paid billing
+activation or cloud resources may be created by this repository.
+
+1. **Google Cloud Free Trial (short test only):** an eligible new customer
+   receives a free-trial billing account with USD 300 / 90 days. Google
+   says it does not bill usage during that trial unless the owner manually
+   upgrades to a paid account. It stops workloads when the trial ends.
+   The owner must verify the Billing page literally says **Free Trial**,
+   and must never select **Upgrade**. A normal paid Cloud Billing account
+   plus Cloud Run spend caps is not a strict zero-charge guarantee.
+2. **Oracle OCI Always Free (longer-term candidate):** up to 2 Arm OCPUs
+   and 12 GiB RAM aggregate on eligible Always Free tenancy, without
+   paid-account upgrade; instance capacity is not guaranteed and idle
+   instances may be reclaimed. Python ONNX/OpenCV Arm compatibility and
+   isolated synthetic OCR must be proven *before* migrating the fallback.
+   This repository only implements the Google Cloud Run transport today.
+3. **Offline handset path (always preferred):** local Samsung ML Kit and
+   Accessibility text remain first, keeping images on the device as far as
+   possible and avoiding provider billing and remote image access.
+
+For every path, preserve the disabled default and local ten-item evidence
+gate. Do not allow Google billing to be linked or a container deployed
+solely because a provider has a recurring Free Tier: free allowance,
+alerts-only budgets and spend caps are not a hard EUR 0 safeguard.
+
+References:
+- https://cloud.google.com/signup-faqs
+- https://docs.cloud.google.com/billing/docs/how-to/budgets-spend-caps
+- https://docs.oracle.com/de-de/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm
+
 **Staging only; NOT deployed or enabled.** This is not an additional always-on
 Bob trading service. Its only role is to read an existing DEGIRO screenshot
 when the authenticated handset path cannot supply appText/local ML Kit and
