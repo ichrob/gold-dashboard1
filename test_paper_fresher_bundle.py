@@ -86,5 +86,79 @@ class FreshPaperBundleTests(unittest.TestCase):
             self.assertIs(paper.newer_queued_paper_bundle(old,new,value),old)
 
 
+class OriginalStudyCandleRetryTests(unittest.TestCase):
+    """Original source-time recheck only, without estimates or market-gate bypass."""
+
+    NOW = 1792690000000
+
+    def originals(self):
+        from test_paper_shadow_studies import observed
+        old, market = observed(self.NOW-20000)
+        newer, _ = observed(self.NOW-5000)
+        bar=(self.NOW//300000-1)*300000
+        market.update(analysisBarAt=bar,entryTiming='five-minute-confirmation',
+                      ready=True,priceFresh=True)
+        newer['history']['bars_by_tf']['5m']=[
+            dict(openTime=bar, instrument='XAU/USD',isOpen=False)]
+        return old,newer,market
+
+    def test_fresh_spot_with_missing_5m_rechecks_one_new_original_bundle(self):
+        import copy
+        old,new,base=self.originals()
+        original=copy.deepcopy((old,new))
+        calls=[]
+        def analyze(bundle,settings,priority):
+            calls.append(bundle)
+            return dict(base,dataAt=paper.stamp(bundle['spots']['spot_price_as_of']),
+                        price=bundle['spots']['xaus'])
+        self.assertTrue(paper.study_closed_bar_retry_needed(
+            old,analyze(old,{},2),self.NOW))
+        calls.clear()
+        selected,market=paper.analyze_latest_bundle(
+            old,{},lambda:new,analyze,lambda:self.NOW)
+        self.assertIs(selected,new)
+        self.assertEqual(calls,[old,new])
+        self.assertEqual(market['dataAt'],paper.stamp(new['spots']['spot_price_as_of']))
+        self.assertFalse(paper.study_closed_bar_retry_needed(selected,market,self.NOW))
+        self.assertEqual((old,new),original)
+
+    def test_no_new_original_or_no_missing_bar_means_no_extra_analysis(self):
+        old,new,base=self.originals()
+        calls=[]
+        def analyze(b,s,priority):
+            calls.append(b)
+            return dict(base,dataAt=paper.stamp(b['spots']['spot_price_as_of']),
+                        price=b['spots']['xaus'])
+        # No newer timestamp: another call would not fix the original gap.
+        same=old
+        selected,_=paper.analyze_latest_bundle(
+            old,{},lambda:same,analyze,lambda:self.NOW)
+        self.assertIs(selected,old)
+        self.assertEqual(len(calls),1)
+        calls.clear()
+        # A matching original 5m candle means source input is already complete.
+        old['history']['bars_by_tf']['5m']=new['history']['bars_by_tf']['5m']
+        selected,_=paper.analyze_latest_bundle(
+            old,{},lambda:new,analyze,lambda:self.NOW)
+        self.assertIs(selected,old)
+        self.assertEqual(len(calls),1)
+
+    def test_future_or_unverified_queued_spot_never_bypasses_candle_checks(self):
+        old,new,base=self.originals()
+        calls=[]
+        def analyze(b,s,priority):
+            calls.append(b)
+            return dict(base,dataAt=paper.stamp(b['spots']['spot_price_as_of']),
+                        price=b['spots']['xaus'])
+        new['spots']['is_genuine_xauusd_spot']=False
+        selected,_=paper.analyze_latest_bundle(
+            old,{},lambda:new,analyze,lambda:self.NOW)
+        self.assertIs(selected,old)
+        self.assertEqual(len(calls),1)
+        self.assertFalse(paper.study_closed_bar_retry_needed(
+            old,dict(base,priceFresh=False),self.NOW))
+        self.assertFalse(paper.study_closed_bar_retry_needed(
+            old,dict(base,dataAt=self.NOW+100000),self.NOW))
+
 if __name__=='__main__':
     unittest.main()

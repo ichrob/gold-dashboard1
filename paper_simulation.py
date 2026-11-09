@@ -863,6 +863,29 @@ def newer_queued_paper_bundle(current, candidate, now_ms):
             and (old_time is None or new_time>old_time) else current)
 
 
+def study_closed_bar_retry_needed(bundle, market, now_ms):
+    """Retry once when the evaluator is fresh but its ORIGINAL signal bar is absent.
+
+    This is only a request to re-evaluate a strictly newer, complete, original
+    queued bundle. It NEVER approves a study input, adds a candle, changes a
+    broker quote or labels a synthetic value as observed.
+    """
+    if (not isinstance(market, dict) or market.get('ready') is not True
+            or market.get('priceFresh') is not True
+            or not finite(now_ms)):
+        return False
+    timeframe=('5m' if market.get('entryTiming') in
+               ('five-minute-confirmation', 'two-minute-follow-through-v1')
+               else '15m')
+    from paper_shadow_studies import original_input
+    observed=original_input(bundle,market,now_ms,timeframe)
+    stamp=observed.get('sourceAt')
+    return (observed.get('closed15mMatched') is False
+            and finite(stamp) and finite(market.get('dataAt'))
+            and abs(stamp-market['dataAt'])<=2000
+            and 0<=now_ms-stamp<=60000)
+
+
 def analyze_latest_bundle(bundle, settings, latest, analyze, clock):
     """At most one re-evaluation of a newer complete observed bundle.
 
@@ -871,8 +894,15 @@ def analyze_latest_bundle(bundle, settings, latest, analyze, clock):
     """
     market=analyze(bundle,settings,priority=2)
     stamp=market.get('dataAt')
-    if (market.get('ready') is False or market.get('priceFresh') is False
-            or not finite(stamp) or not 0<=clock()-stamp<=45000):
+    observed_now=clock()
+    # A fresh spot clock does NOT prove the corresponding completed 5m/15m
+    # candle has arrived. Waiting indefinitely loses original-input evidence.
+    # Prefer one already queued newer COMPLETE snapshot, then re-evaluate
+    # its own market bundle without mixing or altering source times.
+    retry=(market.get('ready') is False or market.get('priceFresh') is False
+           or not finite(stamp) or not 0<=observed_now-stamp<=45000
+           or study_closed_bar_retry_needed(bundle,market,observed_now))
+    if retry:
         candidate=newer_queued_paper_bundle(bundle,latest(),clock())
         if candidate is not bundle:
             bundle=candidate
