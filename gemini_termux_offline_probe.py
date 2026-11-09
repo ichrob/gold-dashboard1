@@ -28,8 +28,9 @@ MAX_TARBALL = 35 * 1024 * 1024
 MAX_BUNDLE = 110 * 1024 * 1024
 
 
-def manifest_and_member(tarball=TARBALL):
+def manifest_and_member(tarball=None):
     """Return validated metadata and ONE regular archive member, never extractall."""
+    tarball = TARBALL if tarball is None else tarball
     if not tarball.is_file() or tarball.is_symlink():
         raise ValueError("archive-missing")
     if tarball.stat().st_size > MAX_TARBALL:
