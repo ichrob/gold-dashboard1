@@ -181,7 +181,17 @@ def transition(state, action, p, now=None):
             grants.pop(record['grant'],None)
         return {}
     if action == 'list':
-        return {'grants':[{'id':k,'created':v['created'],'expires':v['expires']} for k,v in grants.items()]}
+        # Safe owner-only summary. Never include access/refresh tokens or PKCE
+        # material. This is a grant inventory, not a connector-platform check.
+        rows = []
+        for gid, grant in grants.items():
+            redirect = clients.get(grant.get('client_id'), {}).get('redirect_uri')
+            label = ('Gemini CLI' if redirect == GEMINI_REDIRECT else
+                     'ChatGPT' if redirect == REDIRECT else 'Unbekannt')
+            rows.append({'id':gid, 'created':grant['created'],
+                         'expires':grant['expires'], 'client':label,
+                         'scopes':sorted(set(str(grant.get('scope', SCOPE)).split()))})
+        return {'grants':rows}
     if action == 'revoke-gemini':
         # Owner-only through the Bob browser route. Invalidates all Gemini
         # access/refresh tokens without touching any ChatGPT grants.
