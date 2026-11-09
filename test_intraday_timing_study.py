@@ -109,11 +109,12 @@ class StateMachine(unittest.TestCase):
         with patch.object(s,'frame_signal',side_effect=forced):
             return s.advance(state,b,m,{}, {},now)
 
-    def test_real_signal_pipeline_and_48_bounded_arms(self):
+    def test_real_signal_pipeline_and_54_bounded_arms(self):
         b,m=sample();state=s.seed(NOW);before=copy.deepcopy((b,m,state))
         result,closed=s.advance(state,b,m,{}, {},NOW)
         self.assertEqual((b,m,state),before)
-        self.assertEqual(len(result['arms']),48)
+        self.assertEqual(len(result['arms']),2*len(s.VARIANTS)*len(s.HORIZONS))
+        self.assertEqual(result['arms']['original:follow5:30']['started'],1)
         self.assertEqual(result['arms']['original:base5:30']['started'],1)
         self.assertEqual(result['arms']['original:pullback5:30']['started'],0)
         self.assertFalse(closed)
@@ -124,7 +125,7 @@ class StateMachine(unittest.TestCase):
         again,done=self.run_tick(state)
         self.assertEqual(again,state);self.assertFalse(done)
         again,done=self.run_tick(state,NOW+120000)
-        self.assertEqual(len(done),48)
+        self.assertEqual(len(done),2*len(s.VARIANTS)*len(s.HORIZONS))
         self.assertTrue(all(p['status']=='inconclusive' and p['netPct'] is None for p in done))
         self.assertTrue(all(a['started']==1 and not a['position'] for a in again['arms'].values()))
 
@@ -228,7 +229,7 @@ class Database(unittest.TestCase):
                 b,m=sample()
                 s.tick(conn,b,m,{}, {},NOW);s.tick(conn,b,m,{}, {},NOW)
                 report=s.report(conn)
-                self.assertEqual(len(report['variants']),48)
+                self.assertEqual(len(report['variants']),2*len(s.VARIANTS)*len(s.HORIZONS))
                 b,m=sample(NOW+30000,3990.)
                 s.tick(conn,b,m,{}, {},NOW+30000)
                 before=conn.execute('SELECT count(*) FROM bob_intraday_timing_cases').fetchone()[0]
@@ -248,7 +249,7 @@ class ReversalTests(unittest.TestCase):
         m.update(ready=True,priceFresh=True,direction='SHORT',analysisBarAt=NOW-240000)
         with patch.object(s,'frame_signal',side_effect=forced):
             out,closed=s.advance(state,b,m,{}, {},NOW+60000)
-        self.assertEqual(len(closed),48)
+        self.assertEqual(len(closed),2*len(s.VARIANTS)*len(s.HORIZONS))
         self.assertTrue(all(p['exitReason']=='trend-reversal' and p['exitSourceAt']==NOW+60000 for p in closed))
         self.assertTrue(all(a['reversalExits']==1 and a['position'] is None for a in out['arms'].values()))
         self.assertTrue(all(p['reversalEvidence']['kind']=='confirmed-main-opposite' for p in closed))
@@ -289,15 +290,20 @@ class ReversalTests(unittest.TestCase):
                     'barAt':NOW-240000,'closedAt':NOW+60000,'level':4001.}
         with patch.object(s,'frame_signal',side_effect=short):
             state,closed=s.advance(state,b,m,{}, {},NOW+60000)
-            self.assertEqual(len(closed),48)
+            self.assertEqual(len(closed),2*len(s.VARIANTS)*len(s.HORIZONS))
             # A later evaluation of the same quote is not another fill.
             state,again=s.advance(state,b,m,{}, {},NOW+61000)
             self.assertTrue(all(a['position'] is None for a in state['arms'].values()))
             b,m=sample(NOW+90000,trend='SHORT')
             state,again=s.advance(state,b,m,{}, {},NOW+90000)
         self.assertFalse(again)
-        self.assertTrue(all(a['position']['direction']=='SHORT' for a in state['arms'].values()))
-        self.assertTrue(all(a['reversalEntries']==1 and a['position']['followsReversalCaseId'] for a in state['arms'].values()))
+        # The new follow5 arm requires its own fresh five-minute bar; a mocked
+        # main-signal clock is not proof of a fresh continuation entry.
+        reopened=[a for a in state['arms'].values() if a['position']]
+        self.assertGreater(len(reopened),0)
+        self.assertTrue(all(a['position']['direction']=='SHORT' for a in reopened))
+        self.assertTrue(all(a['reversalEntries']==1 and a['position']['followsReversalCaseId'] for a in reopened))
+        self.assertIsNone(state['arms']['original:follow5:30']['position'])
 
     def test_stop_precedes_reversal_and_estimated_reversal_stays_labelled(self):
         state=self.opened();b,m=sample(NOW+30000,3997.)
@@ -333,5 +339,5 @@ class ReversalMigration(unittest.TestCase):
                 self.assertEqual(new['entryAfterSourceAt'],NOW+60000)
                 self.assertTrue(all(a['started']==0 for a in new['arms'].values()))
                 cases=conn.execute('SELECT campaign,payload FROM bob_intraday_timing_cases').fetchall()
-                self.assertEqual(len(cases),48)
+                self.assertEqual(len(cases),2*len(s.VARIANTS)*len(s.HORIZONS))
                 self.assertTrue(all(k==s.LEGACY_VERSION and p['exitPolicyChangedAt']==NOW+60000 for k,p in cases))
