@@ -27,7 +27,7 @@ def github_oidc():
     # Actions' runner OIDC endpoints include regional pipelinesghub hosts.
     # Restrict to GitHub's exact actions.githubusercontent.com domain.
     allowed_host = (host == "token.actions.githubusercontent.com"
-                    or re.fullmatch(r"pipelines[a-z0-9-]*\\.actions\\.githubusercontent\\.com", host) is not None)
+                    or re.fullmatch(r"pipelines[a-z0-9-]*[.]actions[.]githubusercontent[.]com", host) is not None)
     if (not temporary or parsed.scheme != "https" or not allowed_host
             or parsed.username or parsed.password or parsed.port not in (None, 443)
             or parsed.fragment):
