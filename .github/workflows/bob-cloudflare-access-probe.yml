@@ -1,0 +1,32 @@
+name: Bob Cloudflare OIDC edge diagnostic (temporary, no AI call)
+
+on:
+  push:
+    branches:
+      - ci/bob-cloudflare-access-probe-20261109
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check protected Cloudflare health without invoking AI
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://bob-free-ai-review.robsimon.workers.dev/health"
+          for KIND in default curl browser; do
+            case "$KIND" in
+              default) UA="Python-urllib/3.12" ;;
+              curl) UA="curl/8.7.1" ;;
+              browser) UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36" ;;
+            esac
+            STATUS="$(curl --connect-timeout 5 --max-time 12 --retry 0 --silent --show-error \
+              --user-agent "$UA" -H 'Accept: application/json' \
+              --dump-header /tmp/cf-headers --output /dev/null --write-out '%{http_code}' "$URL" || true)"
+            echo "probe=$KIND status=$STATUS"
+            grep -iE '^(server:|cf-mitigated:|content-type:)' /tmp/cf-headers || true
+          done
