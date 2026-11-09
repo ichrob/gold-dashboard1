@@ -133,6 +133,18 @@ class PublicTermsTests(unittest.TestCase):
             self.assertEqual(a['sourceFailureCode'],'HTTP_403');self.assertEqual(net.call_count,1)
 
 
+    def test_conflicting_identity_inside_terms_is_never_approved(self):
+        # #726: Correct page heading, but a DIFFERENT ISIN in Stammdaten.
+        # The original terms must not be associated with the requested product.
+        mismatched = PAGE.replace(
+            'Symbol -- ISIN ' + ISIN + ' WKN',
+            'Symbol -- ISIN DE000FG5GUT1 WKN',
+        )
+        self.assertNotEqual(mismatched, PAGE)
+        self.assertIn('WKN: FG5GUT ISIN: ' + ISIN, mismatched)
+        with self.assertRaises(ValueError):
+            p.parse_page(mismatched, ISIN, NOW)
+
     def test_wrong_exact_isin_never_confirms_public_terms(self):
         # Regression guard for missing/incorrect public product identity evidence.
         wrong_page = PAGE.replace(ISIN, 'DE000FG5GUT1')
