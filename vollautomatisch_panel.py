@@ -316,7 +316,7 @@ PANEL = r"""
       'capital-risk':'Risikobudget','entry-checklist':'Pflichtcheckliste',
       'duplicate-bar':'Bereits simulierte Kerze',other:'Sonstige Sperre'};
      const windows=Object.entries(st.entryTimeBuckets15mV1||{})
-      .filter(([start,record])=>/^\\d+$/.test(start)&&record&&Number.isFinite(record.checks))
+      .filter(([start,record])=>/^\d+$/.test(start)&&record&&Number.isFinite(record.checks))
       .sort(([a],[b])=>Number(a)-Number(b));
      blockText.textContent=[
       ...(windows.length?['Zeitfenster (ab tatsächlicher Einführung; Prüfungen, keine verpassten Trades):']:[]),
