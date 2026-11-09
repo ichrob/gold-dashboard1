@@ -1,8 +1,10 @@
 name: Bob Reparatur-Nachweise (separater PR-Check)
 
-# The gate runs trusted main code, NEVER code from the incoming PR.
+# The gate checks out ONLY trusted main code, never the incoming PR head.
+# A plain pull_request event uses a read-only token, has no fork secrets and
+# survives GitHub's public-repo pull_request_target policy enforcement.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened, edited, ready_for_review]
 
 permissions:
