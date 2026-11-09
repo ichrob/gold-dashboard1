@@ -9,7 +9,7 @@ import os
 import re
 import sys
 import urllib.request
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from urllib.error import HTTPError, URLError
 
 from ai_peer_review import (
@@ -20,6 +20,9 @@ from bob_issue_watchdog import CODES
 
 MARKER = "<!-- BOB_GEMINI_REVIEW_V1:sha="
 MODEL = "gemini-2.5-flash"
+# Google announced routing changes for this model starting 2026-12-01.
+# Fail closed before model/price behavior can change without fresh review.
+MODEL_REVIEW_REQUIRED_ON = date(2026, 12, 1)
 ENDPOINT = ("https://generativelanguage.googleapis.com/v1beta/models/"
             + MODEL + ":generateContent")
 SHA = re.compile(r"^[a-f0-9]{40}$")
@@ -28,7 +31,8 @@ PR = re.compile(r"^[1-9][0-9]{0,7}$")
 
 def enabled():
     """Owner assertion is an opt-in, NOT technical proof of Google billing."""
-    return (os.getenv("BOB_GEMINI_FREE_ONLY") == "confirmed-unbilled-free-project"
+    return (datetime.now(timezone.utc).date() < MODEL_REVIEW_REQUIRED_ON
+            and os.getenv("BOB_GEMINI_FREE_ONLY") == "confirmed-unbilled-free-project"
             and os.getenv("BOB_GEMINI_AUTO_REVIEW_ENABLED") == "1")
 
 
@@ -71,7 +75,8 @@ def gemini_request(diff, key):
                "contents": [{"role": "user", "parts": [{
                    "text": "ÖFFENTLICHE BOB-CODEÄNDERUNGEN (gekürzt):\n" + diff
                }]}],
-               "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1200}}
+               "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2500,
+                                    "thinkingConfig": {"thinkingBudget": 1024}}}
     request = urllib.request.Request(
         ENDPOINT, data=json.dumps(payload).encode("utf-8"), method="POST",
         headers={"x-goog-api-key": key, "Content-Type": "application/json",
