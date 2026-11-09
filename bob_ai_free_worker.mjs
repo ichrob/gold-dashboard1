@@ -50,7 +50,9 @@ export async function verifyGithubOIDCDetail(token, getJwks = fetch, now = Date.
         || payload.exp <= timestamp || payload.exp > timestamp + 600) return "claim-clock";
     // Fixed issuer URL; never read JWKS location from untrusted JWT fields.
     phase = "jwks-fetch";
-    const keysResponse = await getJwks(JWK_URL, { redirect: "error" });
+    // Workers implements only 'follow' and 'manual'. 'error' throws before I/O.
+    // 'manual' does not follow redirects; all 3xx responses fail the !ok gate.
+    const keysResponse = await getJwks(JWK_URL, { redirect: "manual" });
     if (!keysResponse.ok) return "jwks-http";
     phase = "jwks-parse";
     const keys = await keysResponse.json();
