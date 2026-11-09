@@ -310,7 +310,12 @@ class HttpTests(unittest.TestCase):
     def test_discovery_and_no_anonymous_report(self):
         status,_,body = self.request('GET','/.well-known/oauth-authorization-server')
         self.assertEqual(status,200)
-        self.assertEqual(json.loads(body)['code_challenge_methods_supported'],['S256'])
+        metadata=json.loads(body)
+        self.assertEqual(metadata['code_challenge_methods_supported'],['S256'])
+        # Antigravity must use the already implemented exact-redirect DCR
+        # fallback until a separately reviewed CIMD feature is advertised.
+        self.assertEqual(metadata['registration_endpoint'],store.ORIGIN+'/oauth/register')
+        self.assertNotIn('client_id_metadata_document_supported',metadata)
         status,h,_ = self.request('POST','/mcp','{}',{'Content-Type':'application/json'})
         self.assertEqual(status,401)
         self.assertIn('resource_metadata=',h['WWW-Authenticate'])
