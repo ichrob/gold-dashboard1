@@ -35,6 +35,9 @@ Die Konfiguration verwendet `thinkingLevel=minimal`, maximal 1.800 Gesamtausgabe
 
 Die reine GitHub-Codeprüfung benötigt keinen direkten Chat-Zugriff auf die Gemini-App.
 
+## GitHub-Kommentarberechtigung (technischer Nachweis 09.11.2026)
+Der Gemini-3.5-Flash-Lite-Aufruf im dritten Testlauf von GitHub Action 42583856208 erreichte erfolgreich den Schritt `post-review-comment`, dessen GitHub-POST jedoch HTTP 403 lieferte. Das Modell selbst war damit erreichbar; **eine Veröffentlichung des Modelltexts ist nicht belegt**. GitHub hat Fälle bestätigt, in denen `issues: write` und `pull-requests: read` für PR-Timeline-Kommentare nicht ausreichen. Die Workflow-Berechtigung ist deshalb gezielt um `pull-requests: write` ergänzt; der erlaubte Codepfad schreibt ausschließlich einen geprüften, gekürzten Issue-/PR-Kommentar und besitzt keine Merge-/Deploy-/Order-Funktion. Ein echter vierter kontrollierter Review-Abnahmelauf muss bestätigen, dass der neue Kommentar mit vollständigem PR-Head-SHA erscheint. Ein wegen HTTP 403 verworfener Modelltext wird nicht im Log persistiert; ein neuer Modellaufruf ist für den Veröffentlichungstest nötig.
+
 ## Kosten-/Sicherheitsgrenzen
 - Google beschreibt `gemini-2.5-flash` in der Developer API mit begrenztem **Free Tier**, inklusive Nutzung der Free-Eingaben zur Verbesserung von Google-Produkten. Ausschließlich gefilterte **öffentliche Quellcode-Patches** senden. Keine privaten Screenshots, DEGIRO-/Depotdaten, Passwörter oder Bob-Diagnose-Originale.
 - Nur **ein** KI-Aufruf nach Nachweis- und Duplikatprüfung; höchstens zwei Gemini-Kommentare pro PR und UTC-Tag und einer pro Commit; keine providerseitigen Wiederholungen/keine kostenpflichtigen Modell-Fallbacks.

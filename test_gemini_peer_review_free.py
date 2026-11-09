@@ -1,6 +1,7 @@
 """Offline safety checks; never require a Google API key or send a network call."""
 import json
 import os
+from pathlib import Path
 import unittest
 from datetime import date, datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -85,6 +86,12 @@ class GeminiReviewSafetyTests(unittest.TestCase):
             g.gemini_request("A" * 100, "invalid")
         with self.assertRaises(ValueError):
             g.gemini_request("short", "x" * 50)
+
+    def test_github_pr_timeline_comment_permissions(self):
+        workflow = Path(".github/workflows/bob-gemini-free-review.yml").read_text()
+        self.assertIn("issues: write", workflow)
+        self.assertIn("pull-requests: write", workflow)
+        self.assertNotIn("pull-requests: read", workflow)
 
     def test_no_network_when_unconfigured(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(g, "request_json") as api:

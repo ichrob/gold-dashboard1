@@ -12,6 +12,8 @@ on:
     types: [completed]
 
 # Only public patches are sent to Google Gemini API.
+# GitHub currently requires pull-requests: write alongside issues: write
+# for POST /issues/{pr}/comments; no code merge or PR mutation is performed.
 # This workflow cannot merge, deploy, trade, change secrets or alter PR code.
 # It is inert until ALL THREE owner-controlled settings are configured:
 # - Actions secret: GEMINI_API_KEY (from an unbilled Google AI Studio Free project)
@@ -20,7 +22,7 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: bob-gemini-review-${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.workflow_run.pull_requests[0].number || 'other' }}
