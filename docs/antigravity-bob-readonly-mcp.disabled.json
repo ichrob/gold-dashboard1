@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "bob-private-readonly": {
+      "serverUrl": "https://bob-private-scanner.onrender.com/mcp",
+      "enabledTools": [
+        "bob_product_audit",
+        "bob_product_gaps",
+        "bob_diagnostics",
+        "bob_signal_history",
+        "bob_push_history"
+      ],
+      "disabled": true,
+      "timeoutSeconds": 30
+    }
+  }
+}
