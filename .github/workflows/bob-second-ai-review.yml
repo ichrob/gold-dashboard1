@@ -11,11 +11,13 @@ on:
     workflows: ["Bob CI"]
     types: [completed]
 
-# Trusted main code, never untrusted PR code; no paid fallback.
+# The AI is called through a FREE Worker bound to Workers AI.
+# No permanent API key or paid fallback is stored in GitHub.
 permissions:
   contents: read
   issues: write
   pull-requests: write
+  id-token: write
 
 concurrency:
   group: bob-second-ai-peer-review
@@ -23,18 +25,15 @@ concurrency:
 
 jobs:
   review:
-    # Automatic review requires two separate opt-ins and a successful PR CI.
     if: >-
-      vars.BOB_AI_FREE_ONLY == 'confirmed-workers-free' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (vars.BOB_AI_AUTO_REVIEW_ENABLED == '1' &&
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'pull_request' &&
-        github.event.workflow_run.pull_requests[0].number != null))
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.pull_requests[0].number != null)
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Checkout trusted main, not untrusted PR contents
+      - name: Checkout trusted main code (never PR source)
         uses: actions/checkout@v6
         with:
           ref: main
@@ -43,16 +42,14 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Free-tier and safety tests
-        run: python -m unittest -v test_ai_peer_review.py test_bob_ai_quality_gate.py
-      - name: One bounded Cloudflare review, then one PR comment
+      - name: Free review safety tests
+        run: python -m unittest -v test_ai_peer_review.py test_ai_peer_review_free.py test_bob_ai_quality_gate.py
+      - name: One signed GitHub OIDC call to Cloudflare Workers Free
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BOB_AI_FREE_ONLY: ${{ vars.BOB_AI_FREE_ONLY }}
-          BOB_AI_AUTO_REVIEW_ENABLED: ${{ vars.BOB_AI_AUTO_REVIEW_ENABLED }}
+          BOB_AI_FREE_ONLY: "confirmed-workers-free"
+          BOB_AI_AUTO_REVIEW_ENABLED: "1"
           BOB_AI_MODE: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}
           BOB_CI_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          BOB_CF_AI_ACCOUNT_ID: ${{ secrets.BOB_CF_AI_ACCOUNT_ID }}
-          BOB_CF_AI_TOKEN: ${{ secrets.BOB_CF_AI_TOKEN }}
           BOB_PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.workflow_run.pull_requests[0].number }}
-        run: python ai_peer_review.py
+        run: python ai_peer_review_free.py
