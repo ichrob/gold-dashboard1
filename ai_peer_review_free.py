@@ -105,6 +105,14 @@ def main():
     base = "https://api.github.com/repos/" + REPO + "/pulls/" + pr
     STAGE = "read-pr"
     info = request_json(base, github)
+    # A successful ordinary PR CI is not an AI repair request. Skip silently
+    # rather than failing a watchdog job for a missing Bob incident marker.
+    if os.getenv("BOB_AI_MODE", "manual") == "automatic" and isinstance(info, dict):
+        from bob_ai_quality_gate import CASE
+        body = info.get("body")
+        if (body is None or isinstance(body, str)) and not CASE.findall((body or "")[:10000]):
+            print("No Bob repair-case marker; no external AI call.")
+            return
     STAGE = "validate-pr"
     sha = review_allowed(info, mode=os.getenv("BOB_AI_MODE", "manual"),
                          head_sha=os.getenv("BOB_CI_HEAD_SHA"))

@@ -6,6 +6,9 @@ const path = require("node:path");
 
 (async () => {
   const worker = await import(pathToFileURL(path.join(__dirname, "bob_ai_free_worker.mjs")).href);
+  assert.match(worker.REVIEW_POLICY,/TEILAUSSCHNITT/);
+  assert.match(worker.REVIEW_POLICY,/NameError/);
+  assert.match(worker.REVIEW_POLICY,/unbestätigt/);
   const {privateKey, publicKey} = generateKeyPairSync("rsa", {modulusLength: 2048});
   const jwk = publicKey.export({format:"jwk"});
   Object.assign(jwk, {kid:"test-key",alg:"RS256",use:"sig"});
@@ -77,6 +80,7 @@ const path = require("node:path");
     assert.equal((await okay.json()).response,"Prüfung: kein klarer Fehler.");
     assert.equal(calls.length,1);
     assert.equal(calls[0][0],worker.MODEL);
+    assert.equal(calls[0][1].messages[0].content,worker.REVIEW_POLICY);
     console.log("Cloudflare OIDC AI worker security tests OK");
   } finally {
     globalThis.fetch=oldFetch;
