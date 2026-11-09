@@ -144,6 +144,15 @@ class PublicTermsTests(unittest.TestCase):
         self.assertIn('WKN: FG5GUT ISIN: ' + ISIN, mismatched)
         with self.assertRaises(ValueError):
             p.parse_page(mismatched, ISIN, NOW)
+        # Independent second mismatch: correct header and exact ISIN, wrong
+        # internal WKN. Neither identifier may certify the other.
+        wrong_wkn = PAGE.replace(
+            'Symbol -- ISIN ' + ISIN + ' WKN FG5GUT',
+            'Symbol -- ISIN ' + ISIN + ' WKN FG5GUA',
+        )
+        self.assertNotEqual(wrong_wkn, PAGE)
+        with self.assertRaises(ValueError):
+            p.parse_page(wrong_wkn, ISIN, NOW)
 
     def test_wrong_exact_isin_never_confirms_public_terms(self):
         # Regression guard for missing/incorrect public product identity evidence.
