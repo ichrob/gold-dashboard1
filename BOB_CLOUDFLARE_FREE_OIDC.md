@@ -26,7 +26,7 @@ GitHub-OIDC-Token. Fremde und gefälschte Token werden abgelehnt.
    an https://bob-free-ai-review.robsimon.workers.dev/review erstellt.
 4. Der Cloudflare Worker validiert Signatur und GitHub-Claims vollständig
    sowie die streng begrenzte, bereits gefilterte öffentliche Diff-Eingabe.
-5. Workers AI / GLM-4.7-Flash gibt eine **unverbindliche** unabhängige
+5. Workers AI / Qwen2.5-Coder-32B-Instruct gibt eine **unverbindliche** unabhängige
    Codeprüfung zurück. GitHub legt maximal einen neuen PR-Kommentar an.
 6. Keine automatischen Merges, Orders, Strategie-/KO- oder Stop-Änderungen.
    Die bestehenden Reparaturwächter und unabhängigen Live-Beweise bleiben führend.
