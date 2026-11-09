@@ -1,8 +1,9 @@
 """Offline safety checks; never require a Google API key or send a network call."""
+import json
 import os
 import unittest
-from datetime import datetime, timezone
-from unittest.mock import patch
+from datetime import date, datetime, timezone
+from unittest.mock import Mock, patch
 
 import gemini_peer_review_free as g
 
@@ -20,6 +21,29 @@ class GeminiReviewSafetyTests(unittest.TestCase):
             "BOB_GEMINI_AUTO_REVIEW_ENABLED": "1",
         }, clear=True):
             self.assertTrue(g.enabled())
+
+
+    def test_model_sunset_fails_closed(self):
+        with patch.dict(os.environ, {
+            "BOB_GEMINI_FREE_ONLY": "confirmed-unbilled-free-project",
+            "BOB_GEMINI_AUTO_REVIEW_ENABLED": "1",
+        }, clear=True), patch.object(g, "datetime") as clock:
+            clock.now.return_value.date.return_value = date(2026, 12, 1)
+            self.assertFalse(g.enabled())
+
+    def test_request_has_bounded_thinking_and_no_real_network(self):
+        reply = {"candidates": [{"content": {"parts": [{"text": "Keine Regression."}]}}]}
+        fake_opener = Mock()
+        fake_opener.open.return_value.__enter__.return_value.read.return_value = (
+            json.dumps(reply).encode("utf-8")
+        )
+        with patch.object(g.urllib.request, "build_opener", return_value=fake_opener):
+            answer = g.gemini_request("PUBLIC-DIFF: test case", "x" * 32)
+        self.assertEqual(answer, "Keine Regression.")
+        request = fake_opener.open.call_args.args[0]
+        payload = json.loads(request.data)
+        self.assertEqual(payload["generationConfig"]["thinkingConfig"]["thinkingBudget"], 1024)
+        self.assertEqual(payload["generationConfig"]["maxOutputTokens"], 2500)
 
     def test_budget_rejects_incomplete_history(self):
         with self.assertRaises(ValueError):
