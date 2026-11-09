@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 
 spec=importlib.util.spec_from_file_location("bob_external_ocr_server",
-    Path(__file__).resolve().parent/"ops"/"ocr-cloud-run"/"server.py")
+    Path(__file__).resolve().parent/"ops"/"ocr-oci"/"server.py")
 server=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(server)
 RAW=b"\x89PNG\r\n\x1a\n"+b"synthetic" * 30
@@ -55,6 +55,13 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(handler.respond.call_args.args[1]["passes"],["read1","read2"])
         self.assertEqual(run.call_args.kwargs["timeout"],55)
         self.assertIn("--ocr",run.call_args.args[0])
+
+    def test_tls_only_service_fails_if_certificate_absent(self):
+        with patch.dict(server.os.environ, {
+                "BOB_ORACLE_OCR_TLS_CERT": "/nonexistent/tls.crt",
+                "BOB_ORACLE_OCR_TLS_KEY": "/nonexistent/tls.key"}, clear=True):
+            with self.assertRaises((FileNotFoundError, OSError)):
+                server.serve()
 
     def test_mismatched_input_hash_is_never_accepted(self):
         handler=self.handler(TOKEN)
