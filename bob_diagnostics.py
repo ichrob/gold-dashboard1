@@ -335,6 +335,14 @@ def simulation_runtime_brief(paper):
     health = paper.get('paper')
     if not isinstance(health, dict):
         return dict(missing, reason='paper-heartbeat-unavailable')
+    # An older/minimal paper snapshot has no durable-account counters.
+    # Do not add a misleading placeholder to the size-limited report in
+    # that case; the existing simulation status remains authoritative.
+    total = health.get('accountsTotal')
+    checked = health.get('accountsChecked')
+    if (type(total) is not int or type(checked) is not int
+            or not 0 <= checked <= total <= 100):
+        return dict(missing, reason='paper-account-counts-unavailable')
     state = health.get('state')
     if state not in ('ok', 'warming', 'degraded', 'paused'):
         state = 'unavailable'
@@ -400,7 +408,9 @@ def collect(readers):
             'reason': 'paper-account-control-projection-unavailable'}
     # Keep the actual paper heartbeat even when the heavy simulation area is
     # omitted by the response-size cap; no new IO or changed trading rules.
-    areas['simulationRuntimeBrief'] = simulation_runtime_brief(areas.get('simulationAndPush'))
+    brief = simulation_runtime_brief(areas.get('simulationAndPush'))
+    if brief.get('status') != 'unavailable':
+        areas['simulationRuntimeBrief'] = brief
     # The web process may not run the evaluator itself. Prefer real observations
     # from the push worker when its local capture is unavailable; never recompute.
     worker_analysis = (areas.get('simulationAndPush') or {}).get('analysis')
