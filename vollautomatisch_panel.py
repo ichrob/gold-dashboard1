@@ -309,7 +309,22 @@ PANEL = r"""
      const blocks=document.createElement('details'),blockTitle=document.createElement('summary');
      blockTitle.textContent='Einstiegssperren · Tagesprotokoll';blocks.append(blockTitle);
      const blockText=document.createElement('p');blockText.className='small';blockText.style='white-space:pre-line';
+     const bucketLabels={'gold-plan-missing':'Goldplan fehlt','gold-stale':'Goldkurs veraltet',
+      'ema-stretch-and-signal-age':'EMA20-Abstand + Signalalter','ema-stretch':'EMA20-Abstand',
+      'signal-age':'Altes Signal','plan-or-timing':'Plan oder Zeitfenster',
+      'ko-safety':'KO-Schutz','product-or-quote':'Produkt-/Eurokursnachweis',
+      'capital-risk':'Risikobudget','entry-checklist':'Pflichtcheckliste',
+      'duplicate-bar':'Bereits simulierte Kerze',other:'Sonstige Sperre'};
+     const windows=Object.entries(st.entryTimeBuckets15mV1||{})
+      .filter(([start,record])=>/^\d+$/.test(start)&&record&&Number.isFinite(record.checks))
+      .sort(([a],[b])=>Number(a)-Number(b));
      blockText.textContent=[
+      ...(windows.length?['Zeitfenster (ab tatsächlicher Einführung; Prüfungen, keine verpassten Trades):']:[]),
+      ...windows.map(([start,record])=>time(Number(start))+'–'+time(Number(start)+15*60000)+
+       ' · '+record.checks+' Prüfungen'+
+       ' · '+Object.entries(record.directions||{}).map(([direction,count])=>direction+' '+count).join(', ')+
+       ' · '+Object.entries(record.reasonCodes||{}).map(([code,count])=>
+        (bucketLabels[code]||'Sonstige Sperre')+' '+count).join(', ')),
       ...(Object.entries(st.entryBlockCounts||{}).map(([reason,count])=>count+' Prüfungen: '+reason)),
       ...(st.entryBlocks||[]).map(x=>time(x.at)+' bis '+time(x.lastAt)+' · '+x.direction+(x.isin?' · '+x.isin:'')+' · '+x.reason),
       st.entryBlocksTruncated?'Letzte 200 Änderungen der Sperrgründe; Tageszähler vollständig.':'',

@@ -772,6 +772,44 @@ def entry_block_evidence(conn, portfolios, limit=5):
                 safe_counts.append({'reason':clean_text(str(reason))[:500],
                                     'checks':count})
             safe_counts.sort(key=lambda item: (-item['checks'], item['reason']))
+            # Compact quarter-hour evidence is deliberately separate from the
+            # capped 200-row detail sequence. The first bucket is the real
+            # first persisted observation, never a recreated historical window.
+            time_windows = []
+            raw_windows = payload.get('entryTimeBuckets15mV1')
+            if (profile in ('trend800nov', 'normal1000nov')
+                    and isinstance(raw_windows, dict)):
+                allowed_codes = {
+                    'ema-stretch-and-signal-age', 'ema-stretch', 'signal-age',
+                    'gold-stale', 'gold-plan-missing', 'plan-or-timing',
+                    'ko-safety', 'product-or-quote', 'capital-risk',
+                    'entry-checklist', 'duplicate-bar', 'other'}
+                for k, item in sorted(raw_windows.items(),
+                                      key=lambda x: str(x[0]), reverse=True)[:16]:
+                    if not isinstance(item, dict) or not str(k).isdigit():
+                        continue
+                    start = int(k)
+                    if start <= 0 or start % 900000:
+                        continue
+                    checks = item.get('checks')
+                    if type(checks) is not int or checks < 0:
+                        continue
+                    directions = item.get('directions')
+                    reasons = item.get('reasonCodes')
+                    if not isinstance(directions, dict) or not isinstance(reasons, dict):
+                        continue
+                    safe_dirs = {direction:count for direction,count in directions.items()
+                        if direction in allowed_directions and type(count) is int and count >= 0}
+                    safe_codes = {code:count for code,count in reasons.items()
+                        if code in allowed_codes and type(count) is int and count >= 0}
+                    item_out = {'startAt':start,'checks':checks,
+                                'directions':safe_dirs,'reasonCodes':safe_codes}
+                    for time_key in ('firstAt','lastAt','firstGoldAt','lastGoldAt',
+                                     'firstSignalBarAt','lastSignalBarAt'):
+                        value = item.get(time_key)
+                        if type(value) in (int,float) and math.isfinite(value) and value > 0:
+                            item_out[time_key] = value
+                    time_windows.append(item_out)
             latest = []
             for record in blocks[-limit:]:
                 if not isinstance(record, dict):
@@ -808,6 +846,15 @@ def entry_block_evidence(conn, portfolios, limit=5):
                 'omittedRecords':max(0, len(blocks) - len(latest)),
                 'sourceTruncated':payload.get('entryBlocksTruncated') is True,
                 'latest':latest,
+                'timeWindows15m':time_windows,
+                'timeWindowsStored':(len(raw_windows) if isinstance(raw_windows,dict)
+                    and profile in ('trend800nov','normal1000nov') else 0),
+                'timeWindowsReadLimit':16,
+                'timeWindowsForwardOnly':True,
+                'timeWindowsFirstObservedAt':(payload.get('entryTimeBucketsFirstObservedAt')
+                    if type(payload.get('entryTimeBucketsFirstObservedAt')) in (int,float)
+                    and math.isfinite(payload['entryTimeBucketsFirstObservedAt']) else None),
+                'timeWindowsTruncated':payload.get('entryTimeBucketsTruncated') is True,
             })
         except Exception:
             accounts.append({'profile':profile, 'status':'unavailable',
@@ -823,7 +870,9 @@ def entry_block_evidence(conn, portfolios, limit=5):
         'paperDayRetention':'separate-per-day-records',
         'scope':'latest-saved-paper-day-per-account-bounded-projection',
         'note':'Counts remain separate from the capped detail sequence. '
-               'A later record does not reconstruct an earlier missing decision.',
+               'Quarter-hour buckets are forward-only aggregates, not evidence '
+               'of exact signal-by-signal approval. A later record cannot '
+               'reconstruct an earlier missing decision.',
     }
 
 
