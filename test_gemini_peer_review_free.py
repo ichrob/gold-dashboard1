@@ -34,7 +34,7 @@ class GeminiReviewSafetyTests(unittest.TestCase):
             "BOB_GEMINI_FREE_ONLY": "confirmed-unbilled-free-project",
             "BOB_GEMINI_AUTO_REVIEW_ENABLED": "1",
         }, clear=True), patch.object(g, "datetime") as clock:
-            clock.now.return_value.date.return_value = date(2026, 12, 1)
+            clock.now.return_value.date.return_value = date(2027, 1, 1)
             self.assertFalse(g.enabled())
 
     def test_request_has_bounded_thinking_and_no_real_network(self):
@@ -48,8 +48,10 @@ class GeminiReviewSafetyTests(unittest.TestCase):
         self.assertEqual(answer, "Keine Regression.")
         request = fake_opener.open.call_args.args[0]
         payload = json.loads(request.data)
-        self.assertEqual(payload["generationConfig"]["thinkingConfig"]["thinkingBudget"], 1024)
-        self.assertEqual(payload["generationConfig"]["maxOutputTokens"], 2500)
+        self.assertEqual(payload["generationConfig"]["thinkingConfig"]["thinkingLevel"], "low")
+        self.assertNotIn("temperature", payload["generationConfig"])
+        self.assertIn("gemini-3.8-flash:generateContent", request.full_url)
+        self.assertEqual(payload["generationConfig"]["maxOutputTokens"], 3500)
 
     def test_budget_rejects_incomplete_history(self):
         with self.assertRaises(ValueError):

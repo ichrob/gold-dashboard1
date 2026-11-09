@@ -27,8 +27,13 @@ Die vorhandene Cloudflare-Workers-AI/Zweitprüfung bleibt unberührt. Sie ist **
 5. Den separaten Draft-PR prüfen, Tests und GitHub Actions kontrollieren; erst danach zum Merge freigeben. Erst **ab Merge auf `main`** kann der Review-Workflow auf spätere passende Pull Requests reagieren.
 6. Auf GitHub Actions → „Bob Gemini - unabhaengige kostenlose Zweitpruefung“ → Run workflow zum kontrollierten manuellen Test einen **öffentlichen** internen PR als Nummer angeben. Der normale automatische Modus verlangt einen aktuellen erfolgreich abgeschlossenen `Bob CI` PR-Lauf sowie gültige Reparaturfallmarkierung, autorisierten PR-Autor, gleichen Repository-Ursprung und einen Nicht-Draft-PR.
 
-## Automatischer Modellwechsel-Schutz (vor 01.12.2026)
-Google hat für `gemini-2.5-flash` eine automatische Weiterleitung ab 01.12.2026 angekündigt. Um unbemerkte Modell- oder Abrechnungsänderungen zu vermeiden, verweigert `gemini_peer_review_free.py` ab **01.12.2026 UTC** **alle** Gemini-Anfragen, selbst bei vorhandenen GitHub-Variablen. Nach erneutem Anbieter-/Preis-/Free-Projekt-Check und expliziter Freigabe muss zuerst ein geprüfter Nachfolge-PR den festen Modellnamen und diesen Sperrtermin aktualisieren. Keine Umgehung durch bloße Einstellungsänderung. `gemini-2.5-flash` wird bis dahin mit höchstens 1.024 Denk- und 2.500 Gesamtausgabetokens pro Aufruf angefragt; keine zusätzlichen kostenpflichtigen Anfragen.
+## Verifizierter Modellzugang und Ablaufdatum
+
+Der erste Live-PR-Test am 09.11.2026 mit `gemini-2.5-flash` scheiterte HTTP 404. Googles Entwicklerteam dokumentiert eingeschränkten 2.5-Zugriff für neue Projekte und empfiehlt `gemini-3.8-flash` bzw. `gemini-3.5-flash-lite`. Wir verwenden deshalb **ausschließlich Gemini 3.8 Flash** mit separat bestätigtem Free-Projekt. Google weist im aktuellen Standard-Free-Tier kostenlose Ein- und Ausgaben aus. Das ist **keine technische Prüfung der Kontoabrechnung**.
+
+Die Konfiguration verwendet `thinkingLevel=low`, maximal 3.500 Gesamtausgabetokens und einen einzigen begrenzten API-Aufruf ohne Retry oder Paid-Fallback. Zur erneuten Free-/Modell-/Providerprüfung verweigert der Code ab **01.01.2027 UTC** alle Gemini-Anfragen, bis ein geprüfter Folge-PR Modell und Sperrtermin aktualisiert. Eine Änderung der GitHub-Variablen allein hebt die Sperre nicht auf.
+
+Die reine GitHub-Codeprüfung benötigt keinen direkten Chat-Zugriff auf die Gemini-App.
 
 ## Kosten-/Sicherheitsgrenzen
 - Google beschreibt `gemini-2.5-flash` in der Developer API mit begrenztem **Free Tier**, inklusive Nutzung der Free-Eingaben zur Verbesserung von Google-Produkten. Ausschließlich gefilterte **öffentliche Quellcode-Patches** senden. Keine privaten Screenshots, DEGIRO-/Depotdaten, Passwörter oder Bob-Diagnose-Originale.

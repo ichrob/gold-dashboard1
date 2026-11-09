@@ -19,10 +19,11 @@ from bob_ai_quality_gate import CASE
 from bob_issue_watchdog import CODES
 
 MARKER = "<!-- BOB_GEMINI_REVIEW_V1:sha="
-MODEL = "gemini-2.5-flash"
-# Google announced routing changes for this model starting 2026-12-01.
-# Fail closed before model/price behavior can change without fresh review.
-MODEL_REVIEW_REQUIRED_ON = date(2026, 12, 1)
+STAGE = "preflight"
+MODEL = "gemini-3.8-flash"
+# Reconfirm the free-project/model policy before the provider 2027 price revision.
+# This remains a hard fail-closed sunset, not a billed fallback.
+MODEL_REVIEW_REQUIRED_ON = date(2027, 1, 1)
 ENDPOINT = ("https://generativelanguage.googleapis.com/v1beta/models/"
             + MODEL + ":generateContent")
 SHA = re.compile(r"^[a-f0-9]{40}$")
@@ -75,8 +76,8 @@ def gemini_request(diff, key):
                "contents": [{"role": "user", "parts": [{
                    "text": "ÖFFENTLICHE BOB-CODEÄNDERUNGEN (gekürzt):\n" + diff
                }]}],
-               "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2500,
-                                    "thinkingConfig": {"thinkingBudget": 1024}}}
+               "generationConfig": {"maxOutputTokens": 3500,
+                                    "thinkingConfig": {"thinkingLevel": "low"}}}
     request = urllib.request.Request(
         ENDPOINT, data=json.dumps(payload).encode("utf-8"), method="POST",
         headers={"x-goog-api-key": key, "Content-Type": "application/json",
@@ -98,6 +99,8 @@ def gemini_request(diff, key):
 
 
 def run():
+    global STAGE
+    STAGE = "preflight"
     # Never call Google unless user confirms a genuinely unbilled Free project,
     # separately opts in and stores a key as a GitHub Actions Secret.
     if not enabled():
@@ -111,6 +114,7 @@ def run():
         print("Gemini disabled: authorization/PR not configured.")
         return
     base = "https://api.github.com/repos/" + REPO
+    STAGE = "read-pr"
     pr_data = request_json(base + "/pulls/" + number, token)
     if not isinstance(pr_data, dict):
         raise ValueError("invalid-pr")
@@ -131,23 +135,27 @@ def run():
                          head_sha=os.getenv("BOB_CI_HEAD_SHA"))
     if not isinstance(sha, str) or not SHA.fullmatch(sha):
         raise ValueError("unknown-pr-sha")
+    STAGE = "read-comments"
     comments = request_json(base + "/issues/" + number + "/comments?per_page=100",
                             token)
     day = review_budget(comments, sha)
     if day is None:
         print("Gemini already reviewed or daily budget exhausted; skipped.")
         return
+    STAGE = "read-public-diff"
     diff = safe_files(request_json(base + "/pulls/" + number +
                                    "/files?per_page=50", token))
+    STAGE = "model-generate"
     reply = gemini_request(diff, key)
     comment = (MARKER + sha + ";utcday=" + day + " -->\n"
                "### Google Gemini · unabhängige Code-Gegenprüfung\n\n"
-               "Modell: Gemini 2.5 Flash; nur gefilterte, öffentliche Patches. "
+               "Modell: Gemini 3.8 Flash; nur gefilterte, öffentliche Patches. "
                "Kein Zugriff auf private Bob-/DEGIRO-Daten.\n\n"
                + reply + "\n\n"
                "*Unverbindliche KI-Analyse, nicht automatisch umgesetzt; "
                "kein Merge, Deploy, Order- oder Reparaturnachweis. "
                "CI und unabhängige Live-Prüfung bleiben erforderlich.*")
+    STAGE = "post-review-comment"
     request_json(base + "/issues/" + number + "/comments", token,
                  "POST", {"body": comment})
     print("Gemini public-only review posted on PR #" + number)
@@ -171,6 +179,6 @@ if __name__ == "__main__":
             } else "validation-error"
         else:
             code = type(exc).__name__
-        print("Gemini read-only review unavailable: " + code
+        print("Gemini read-only review unavailable at " + STAGE + ": " + code
               + "; no provider details disclosed.", file=sys.stderr)
         sys.exit(1)
