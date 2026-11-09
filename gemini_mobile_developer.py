@@ -54,7 +54,7 @@ def public_issue(issue):
     title = issue.get("title", "")
     body = issue.get("body", "")
     if (not isinstance(title, str) or not isinstance(body, str)
-            or not 15 <= len(title + body) <= 4400
+            or not 15 <= len(title + body) <= 7000
             or PRIVATE_CONTENT.search(title + "\n" + body)):
         raise ValueError("issue-not-public-safe")
     return title.strip() + "\n" + body.strip()
