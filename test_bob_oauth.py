@@ -371,6 +371,29 @@ class HttpTests(unittest.TestCase):
         self.assertFalse(store.transition(self.state,'check',
                           {'token':gemini_token})['valid'])
 
+    def test_connections_returns_to_same_page_after_login_and_passkey(self):
+        # A direct link from a private ChatGPT conversation must not drop the
+        # destination when the owner first signs in on their phone.
+        status, h, _ = self.request('GET','/oauth/connections')
+        self.assertEqual(status,303)
+        self.assertEqual(h['Location'],'/login?view=oauth-connections')
+        self.assertEqual(self.request('GET','/oauth/connections',
+            headers={'Cookie':self.session})[0],200)
+        with patch.object(oauth.bob_passkey,'require',
+                          side_effect=oauth.bob_passkey.PasskeyRequired):
+            status, h, _ = self.request('GET','/oauth/connections',
+                headers={'Cookie':self.session})
+            self.assertEqual(status,303)
+            self.assertEqual(h['Location'],'/passkey?connections=1')
+        # The existing OAuth consent passkey flow is not changed.
+        js = __import__('pathlib').Path('passkey.js').read_text()
+        self.assertIn("next.get('connections')==='1'",js)
+        self.assertIn("location.replace('/oauth/connections')",js)
+        self.assertIn("next.get('oauth')==='1'",js)
+        self.assertIn("location.replace('/oauth/resume')",js)
+        self.assertIn("next.get('archive')==='1'",js)
+        self.assertIn("location.replace('/archive/connect')",js)
+
     def test_connection_page_reports_grant_not_tool_permission(self):
         # A browser session alone can inspect grants but cannot create one.
         self.assertEqual(self.request('GET','/oauth/connections')[0],303)
