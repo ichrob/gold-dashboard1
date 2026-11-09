@@ -14,6 +14,7 @@ on:
       - 'test_remote_ocr_fallback.py'
       - 'test_external_ocr_server.py'
       - 'test_oci_shape_guard.py'
+      - 'test_oci_free_only_guard.py'
   workflow_dispatch:
 
 permissions:
@@ -25,6 +26,13 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Prove OCI free-only guard is fail-closed (offline)
+        run: |
+          python -m unittest -v test_oci_free_only_guard test_oci_shape_guard
+          if python ops/ocr-oci/free_only_guard.py ops/ocr-oci/always_free_plan.example.json; then
+            echo "ERROR: Unverified OCI plan must never pass the free-only lock"
+            exit 1
+          fi
       - name: Build Oracle-compatible native ARM64 image without deployment
         run: |
           test "$(uname -m)" = "aarch64"
