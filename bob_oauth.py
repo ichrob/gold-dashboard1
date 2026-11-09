@@ -179,8 +179,24 @@ def route(handler,user,password):
             elif path=='/oauth/connections':
                 if browser_ready(handler,user,password):
                     grants = rpc('list',user).get('grants',[])
+                    # OAuth grant existence alone does not prove that a
+                    # ChatGPT client connection currently permits tool writes.
+                    termux_granted = any(isinstance(g,dict) and
+                        g.get('client') == 'ChatGPT' and
+                        TERMUX_SCOPE in g.get('scopes',[]) for g in grants)
+                    gemini_granted = any(isinstance(g,dict) and
+                        g.get('client') == 'Gemini CLI' for g in grants)
+                    termux_text = ('OAuth-Freigabe vorhanden; externe Connector-Berechtigung '
+                                   'und aktive Handy-Sitzung zusätzlich prüfen'
+                                   if termux_granted else 'Keine aktive OAuth-Freigabe')
+                    gemini_text = ('OAuth-Freigabe vorhanden; externer Live-Zugriff nicht '
+                                   'allein dadurch nachgewiesen'
+                                   if gemini_granted else 'Keine aktive OAuth-Freigabe')
                     respond(handler,200,page('KI-Verbindungen zu Bob',
-                        '<p>Aktive Freigaben: '+str(len(grants))+'</p><p>Hier kannst du alle OAuth-Freigaben sofort beenden. Dein Bob-Login bleibt bestehen.</p>'
+                        '<p>Aktive Freigaben: '+str(len(grants))+'</p>'
+                        '<p>Termux-Wartung (ChatGPT): '+termux_text+'</p>'
+                        '<p>Gemini CLI: '+gemini_text+'</p>'
+                        '<p>Hier kannst du alle OAuth-Freigaben sofort beenden. Dein Bob-Login bleibt bestehen.</p>'
                         '<form method="post" action="/oauth/disconnect-gemini"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
                         '<button>Nur Gemini-Zugriff widerrufen</button></form>'
                         '<form method="post" action="/oauth/disconnect"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
