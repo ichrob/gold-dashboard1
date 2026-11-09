@@ -132,4 +132,11 @@ class PublicTermsTests(unittest.TestCase):
             a=p.get_product(ISIN);b=p.get_product(ISIN)
             self.assertEqual(a['sourceFailureCode'],'HTTP_403');self.assertEqual(net.call_count,1)
 
+
+    def test_wrong_exact_isin_never_confirms_public_terms(self):
+        # Regression guard for missing/incorrect public product identity evidence.
+        wrong_page = PAGE.replace(ISIN, 'DE000FG5GUT1')
+        with self.assertRaises(ValueError):
+            p.parse_page(wrong_page, ISIN, NOW)
+
 if __name__=='__main__':unittest.main()
