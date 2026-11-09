@@ -47,6 +47,18 @@ class GeminiMobileDeveloperTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 g.public_issue(invalid)
 
+    def test_long_owner_issue_from_github_is_accepted_but_bounded(self):
+        # Issue #1497 is longer than the original 4,400-character limit.
+        item = {"state": "open", "user": {"login": "ichrob"},
+                "title": "Gemini developer integration",
+                "body": "Public requirements. " * 250}
+        self.assertGreater(len(item["title"] + item["body"]), 4400)
+        self.assertLess(len(item["title"] + item["body"]), 7000)
+        self.assertIn("Public requirements.", g.public_issue(item))
+        item["body"] = "Public requirements. " * 400
+        with self.assertRaises(ValueError):
+            g.public_issue(item)
+
     def test_public_file_validation(self):
         source = "# public module\n" + "x = True\n" * 20
         encoded = base64.b64encode(source.encode()).decode()
