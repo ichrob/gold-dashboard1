@@ -304,6 +304,8 @@ class HttpTests(unittest.TestCase):
         status,_,page=self.request('GET','/oauth/resume',headers={'Cookie':cookies})
         self.assertEqual(status,200)
         self.assertIn(b'Gemini CLI mit Bob verbinden',page)
+        self.assertIn(b'Google-Datenschutz:',page)
+        self.assertIn(b'Google-Produkten verwendet',page)
         self.assertNotIn(b'Termux-Wartung erlauben',page)
         nonce=pending_cookie.split('=',1)[1]
         self.assertEqual(self.form('/oauth/consent',{'request':nonce,'decision':'approve'},
