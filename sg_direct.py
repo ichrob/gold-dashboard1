@@ -18,6 +18,7 @@ _PRODUCT_LOCKS = {}
 _CACHE = {}
 _TERMS = {}
 _EIGHT_REFERENCES = {}  # Bounded original 08:00 evidence across rolling Live responses.
+_PRIOR_CLOSE_REFERENCES = {}  # Last original SG bid near 22:00, exact ISIN/venue.
 _MARKETS = {}  # Exact ISIN -> market, only after validated issuer properties.
 INTERVAL = 30
 
@@ -397,6 +398,19 @@ def get_quote(isin, terms_only=False):
                         _EIGHT_REFERENCES.pop(next(iter(_EIGHT_REFERENCES)))
                     _EIGHT_REFERENCES[isin] = dict(since_eight)
                     result['changeSinceEight'] = since_eight
+                # Compare only a genuine, dated bid from the last minutes of
+                # the preceding trading session. A cached historical reference
+                # is neither re-dated nor promoted to a DEGIRO quote.
+                from product_prior_close import evaluate as previous_session_change
+                comparison = previous_session_change(
+                    product, points, isin, verified_id=verified_id, market=market,
+                    reference=_PRIOR_CLOSE_REFERENCES.get(isin))
+                if comparison['dailyChange'] is not None:
+                    result['dailyChange'] = comparison['dailyChange']
+                if comparison['lateReference'] is not None:
+                    if len(_PRIOR_CLOSE_REFERENCES) >= 256 and isin not in _PRIOR_CLOSE_REFERENCES:
+                        _PRIOR_CLOSE_REFERENCES.pop(next(iter(_PRIOR_CLOSE_REFERENCES)))
+                    _PRIOR_CLOSE_REFERENCES[isin] = comparison['lateReference']
         except Exception as exc:
             result.update(sourceFailure=not result['productVerified'],
                           quoteFailureCode='SG_SOURCE_UNAVAILABLE', reason=q.sg_source_error(exc, stage))
