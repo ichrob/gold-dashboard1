@@ -56,6 +56,7 @@ class FreeOidcReviewTests(unittest.TestCase):
         sent = opener.open.call_args.args[0]
         self.assertEqual(sent.full_url, f.WORKER)
         self.assertEqual(sent.get_method(), "POST")
+        self.assertEqual(sent.get_header("User-agent"), "curl/8.7.1")
         self.assertIn("Bearer test-jwt", sent.get_header("Authorization"))
         self.assertNotIn("test-jwt", sent.data.decode())
 
