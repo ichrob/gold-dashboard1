@@ -45,7 +45,7 @@ jobs:
             -v /tmp/bob-oci-test/tls.crt:/run/secrets/tls.crt:ro \
             -v /tmp/bob-oci-test/tls.key:/run/secrets/tls.key:ro \
             bob-ocr-oci:test
-          trap 'docker rm -f bob-oci-tls-ci >/dev/null 2>&1 || true' EXIT
+          trap 'docker logs bob-oci-tls-ci 2>&1 | tail -35 || true; docker rm -f bob-oci-tls-ci >/dev/null 2>&1 || true' EXIT
           python - <<'PY'
           import socket, time
           for _ in range(50):
