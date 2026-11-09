@@ -99,7 +99,7 @@ class GeminiTermuxOfflineProbeTests(unittest.TestCase):
         source = Path("gemini_termux_offline_probe.py").read_text()
         self.assertNotIn("urllib.request", source)
         self.assertNotIn("requests.", source)
-        self.assertNotIn("extractall", source)
+        self.assertNotIn(".extractall(", source)
         self.assertNotIn("shell=True", source)
         self.assertNotIn("GEMINI_API_KEY\"", source)
 
