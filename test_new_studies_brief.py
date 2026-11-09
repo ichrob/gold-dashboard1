@@ -25,7 +25,12 @@ class NewStudiesBriefTests(unittest.TestCase):
                          {'study':'wait-vs-enter','status':'retired','casesStarted':10},
                          {'study':'product-e2e','status':'retired','openCases':0}],
               'entryExitComparison':{'status':'waiting-for-first-episode',
-                                      'episodesSampled':0,'variants':{str(i):{}
+                                      'episodesSampled':0,'checkedAt':5000,
+                                      'inputObservation':{'checkedAt':9020,
+                                        'reason':'waiting-for-direction',
+                                        'inputQuality':{'verified':True,
+                                            'token':'SENSITIVE_TOKEN'}},
+                                      'variants':{str(i):{}
                                         for i in range(18)},
                                       'raw':'SENSITIVE_TOKEN'}},
             'intradayTimingStudy':{'status':'collecting','checkedAt':9010,
@@ -40,6 +45,10 @@ class NewStudiesBriefTests(unittest.TestCase):
         self.assertEqual(result['quality']['modeled']['status'],'collecting')
         self.assertEqual(result['shadow']['studies'][0]['status'],'retired')
         self.assertEqual(result['entryExit']['variantsObserved'],18)
+        self.assertEqual(result['entryExit']['checkedAt'],5000)
+        self.assertEqual(result['entryExit']['workerInputCheckedAt'],9020)
+        self.assertEqual(result['entryExit']['workerInputReason'],'waiting-for-direction')
+        self.assertTrue(result['entryExit']['workerInputVerified'])
         self.assertEqual(result['intraday']['variantsObserved'],48)
         self.assertFalse(result['strategyWinnerConfirmed'])
         self.assertFalse(result['fullOriginalHistoryVerified'])
@@ -54,6 +63,8 @@ class NewStudiesBriefTests(unittest.TestCase):
         self.assertEqual(result['status'],'partial')
         self.assertEqual(result['quality']['status'],'unavailable')
         self.assertIsNone(result['intraday']['variantsObserved'])
+        self.assertEqual(result['entryExit']['workerInputReason'],'unavailable')
+        self.assertIsNone(result['entryExit']['workerInputCheckedAt'])
 
 
 if __name__ == '__main__':
