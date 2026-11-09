@@ -35,10 +35,10 @@ assert.equal(result.executionGuaranteed,false);
 assert.match(result.timeBasis,/keine eigene Geld-/);
 assert.equal(api.degiroScreenQuoteState(result,isin,now).state,'display-recent');
 let displayed=api.productDailyChangeView({isin,quote:{isin},snapshot:{degiroDisplayedQuote:result}},now);
-assert.match(displayed,/\+12,62 %/,displayed);
+assert.match(displayed,/\+12[.,]62 %/,displayed);
 assert.match(displayed,/DEGIRO-Bildstand/,displayed);
 assert.match(displayed,/keine Live-Kurszeit/,displayed);
-assert.match(displayed,/18,47/,displayed);
+assert.match(displayed,/18[.,]47/,displayed);
 assert.doesNotMatch(displayed,/Aktueller Geldkurs gegenüber Vortagesschluss/);
 displayed=api.productDailyChangeView({isin,quote:{isin},snapshot:{degiroDisplayedQuote:result}},
  Date.parse('2026-11-09T12:00:00+01:00'));
@@ -46,7 +46,7 @@ assert.match(displayed,/DEGIRO-Bildstand/,displayed);
 displayed=api.productDailyChangeView({isin,quote:{isin},snapshot:{degiroDisplayedQuote:result}},
  Date.parse('2026-11-10T09:55:00+01:00'));
 assert.match(displayed,/Tagesvergleich nicht verfügbar/,displayed);
-assert.doesNotMatch(displayed,/\+12,62 %/,displayed);
+assert.doesNotMatch(displayed,/\+12[.,]62 %/,displayed);
 
 const exact=api.parseDegiroDisplayedQuote(original.replace('Societe Generale OTC','Société Générale OTC'),isin);
 assert(exact,'Accented trading venue must be preserved');
