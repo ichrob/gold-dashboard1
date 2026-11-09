@@ -1,0 +1,33 @@
+name: Bob Oracle Always Free ARM OCR packaging (staging only)
+
+on:
+  pull_request:
+    paths:
+      - 'ops/ocr-oci/**'
+      - 'remote_ocr_fallback.py'
+      - 'handset_list_worker.py'
+      - 'handset_ocr_engine.py'
+      - 'video_ocr.py'
+      - 'memory_watch.py'
+      - 'ocr_sandbox.py'
+      - 'ocr_workload_priority.py'
+      - 'test_remote_ocr_fallback.py'
+      - 'test_external_ocr_server.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-arm64-synthetic:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Oracle-compatible native ARM64 image without deployment
+        run: |
+          test "$(uname -m)" = "aarch64"
+          docker build --pull --platform linux/arm64 -f ops/ocr-oci/Dockerfile -t bob-ocr-oci:test .
+      - name: Prove native OCR and Linux network isolation on synthetic image
+        run: |
+          docker run --rm --platform linux/arm64 --entrypoint python bob-ocr-oci:test ops/ocr-oci/smoke.py
