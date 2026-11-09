@@ -160,4 +160,28 @@ class AdmissionTests(unittest.TestCase):
              patch.object(push_server,'send_json'):
             handler.do_POST()
         write.assert_called_once()
+    def test_audit_read_transport_timeout_is_retryable_but_write_is_not(self):
+        import push_server
+        for path, expected_status in (('/decision-audit/read', 503),
+                                      ('/decision-audit/write', 500)):
+            with self.subTest(path=path):
+                handler=object.__new__(push_server.Handler)
+                handler.path=path
+                handler.headers={'X-Bob-Push-Token':'test'}
+                with patch.object(push_server,'PUSH_SERVICE_TOKEN','test'), \
+                     patch.object(push_server,'json_body',
+                                  side_effect=TimeoutError('simulated slow body')), \
+                     patch.object(push_server,'db') as db, \
+                     patch.object(push_server,'send_json') as send:
+                    handler.do_POST()
+                db.assert_not_called()
+                send.assert_called_once()
+                self.assertEqual(send.call_args.args[1], expected_status)
+                response=send.call_args.args[2]
+                if path.endswith('/read'):
+                    self.assertIs(response['retryable'], True)
+                    self.assertIs(response['dataComplete'], False)
+                else:
+                    self.assertNotIn('retryable', response)
+
 if __name__=='__main__':unittest.main()
