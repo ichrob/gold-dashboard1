@@ -20,7 +20,7 @@ from bob_issue_watchdog import CODES
 
 MARKER = "<!-- BOB_GEMINI_REVIEW_V1:sha="
 STAGE = "preflight"
-MODEL = "gemini-3.8-flash"
+MODEL = "gemini-3.5-flash-lite"
 # Reconfirm the free-project/model policy before the provider 2027 price revision.
 # This remains a hard fail-closed sunset, not a billed fallback.
 MODEL_REVIEW_REQUIRED_ON = date(2027, 1, 1)
@@ -76,14 +76,14 @@ def gemini_request(diff, key):
                "contents": [{"role": "user", "parts": [{
                    "text": "ÖFFENTLICHE BOB-CODEÄNDERUNGEN (gekürzt):\n" + diff
                }]}],
-               "generationConfig": {"maxOutputTokens": 3500,
-                                    "thinkingConfig": {"thinkingLevel": "low"}}}
+               "generationConfig": {"maxOutputTokens": 1800,
+                                    "thinkingConfig": {"thinkingLevel": "minimal"}}}
     request = urllib.request.Request(
         ENDPOINT, data=json.dumps(payload).encode("utf-8"), method="POST",
         headers={"x-goog-api-key": key, "Content-Type": "application/json",
                  "Accept": "application/json"})
     # Never redirect the API request or print the key / provider response body.
-    with urllib.request.build_opener(NoRedirect()).open(request, timeout=40) as response:
+    with urllib.request.build_opener(NoRedirect()).open(request, timeout=55) as response:
         raw = response.read(18001)
     if len(raw) > 18000:
         raise ValueError("model-response-too-large")
@@ -149,7 +149,7 @@ def run():
     reply = gemini_request(diff, key)
     comment = (MARKER + sha + ";utcday=" + day + " -->\n"
                "### Google Gemini · unabhängige Code-Gegenprüfung\n\n"
-               "Modell: Gemini 3.8 Flash; nur gefilterte, öffentliche Patches. "
+               "Modell: Gemini 3.5 Flash-Lite; nur gefilterte, öffentliche Patches. "
                "Kein Zugriff auf private Bob-/DEGIRO-Daten.\n\n"
                + reply + "\n\n"
                "*Unverbindliche KI-Analyse, nicht automatisch umgesetzt; "

@@ -48,10 +48,10 @@ class GeminiReviewSafetyTests(unittest.TestCase):
         self.assertEqual(answer, "Keine Regression.")
         request = fake_opener.open.call_args.args[0]
         payload = json.loads(request.data)
-        self.assertEqual(payload["generationConfig"]["thinkingConfig"]["thinkingLevel"], "low")
+        self.assertEqual(payload["generationConfig"]["thinkingConfig"]["thinkingLevel"], "minimal")
         self.assertNotIn("temperature", payload["generationConfig"])
-        self.assertIn("gemini-3.8-flash:generateContent", request.full_url)
-        self.assertEqual(payload["generationConfig"]["maxOutputTokens"], 3500)
+        self.assertIn("gemini-3.5-flash-lite:generateContent", request.full_url)
+        self.assertEqual(payload["generationConfig"]["maxOutputTokens"], 1800)
 
     def test_budget_rejects_incomplete_history(self):
         with self.assertRaises(ValueError):

@@ -29,9 +29,9 @@ Die vorhandene Cloudflare-Workers-AI/Zweitprüfung bleibt unberührt. Sie ist **
 
 ## Verifizierter Modellzugang und Ablaufdatum
 
-Der erste Live-PR-Test am 09.11.2026 mit `gemini-2.5-flash` scheiterte HTTP 404. Googles Entwicklerteam dokumentiert eingeschränkten 2.5-Zugriff für neue Projekte und empfiehlt `gemini-3.8-flash` bzw. `gemini-3.5-flash-lite`. Wir verwenden deshalb **ausschließlich Gemini 3.8 Flash** mit separat bestätigtem Free-Projekt. Google weist im aktuellen Standard-Free-Tier kostenlose Ein- und Ausgaben aus. Das ist **keine technische Prüfung der Kontoabrechnung**.
+Der erste Live-PR-Test am 09.11.2026 mit `gemini-2.5-flash` scheiterte HTTP 404. Googles Entwicklerteam dokumentiert eingeschränkten 2.5-Zugriff für neue Projekte und empfiehlt `gemini-3.8-flash` bzw. `gemini-3.5-flash-lite`. Nach dem 404-Wechsel auf Gemini 3.8 Flash scheiterte auch ein einzelner echter Prüfaufruf am festen 40-Sekunden-Limit (GitHub Action 42583856208, zweiter Lauf, Stage model-generate). Für kurze, wiederholbare Codegegenprüfungen verwenden wir nun **ausschließlich Gemini 3.5 Flash-Lite**, das Google ausdrücklich für geringe Latenz und Subagent-Aufgaben vorsieht, mit separat bestätigtem Free-Projekt. Google weist im aktuellen Standard-Free-Tier kostenlose Ein- und Ausgaben aus. Das ist **keine technische Prüfung der Kontoabrechnung**.
 
-Die Konfiguration verwendet `thinkingLevel=low`, maximal 3.500 Gesamtausgabetokens und einen einzigen begrenzten API-Aufruf ohne Retry oder Paid-Fallback. Zur erneuten Free-/Modell-/Providerprüfung verweigert der Code ab **01.01.2027 UTC** alle Gemini-Anfragen, bis ein geprüfter Folge-PR Modell und Sperrtermin aktualisiert. Eine Änderung der GitHub-Variablen allein hebt die Sperre nicht auf.
+Die Konfiguration verwendet `thinkingLevel=minimal`, maximal 1.800 Gesamtausgabetokens, einen begrenzten Timeout von 55 Sekunden und genau einen API-Aufruf ohne Retry oder Paid-Fallback. Zur erneuten Free-/Modell-/Providerprüfung verweigert der Code ab **01.01.2027 UTC** alle Gemini-Anfragen, bis ein geprüfter Folge-PR Modell und Sperrtermin aktualisiert. Eine Änderung der GitHub-Variablen allein hebt die Sperre nicht auf.
 
 Die reine GitHub-Codeprüfung benötigt keinen direkten Chat-Zugriff auf die Gemini-App.
 
