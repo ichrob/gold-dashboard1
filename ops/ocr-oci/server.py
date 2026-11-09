@@ -88,7 +88,9 @@ class TLSServer(HTTPServer):
             raw.settimeout(15)
             try:
                 return self.tls_context.wrap_socket(raw, server_side=True), peer
-            except (ssl.SSLError, TimeoutError, ConnectionError):
+            except (ssl.SSLError, TimeoutError, ConnectionError) as exc:
+                if os.environ.get('BOB_OCR_SYNTHETIC_TLS_DIAG') == 'true':
+                    print('CI_TLS_HANDSHAKE='+type(exc).__name__, flush=True)
                 raw.close()
 
 
