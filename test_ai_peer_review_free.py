@@ -28,6 +28,22 @@ class FreeOidcReviewTests(unittest.TestCase):
                 f.github_oidc()
             network.assert_not_called()
 
+    def test_regional_github_oidc_endpoint_is_accepted(self):
+        reply = Mock()
+        reply.read.return_value = json.dumps({"value": "x"*130}).encode()
+        opener = MagicMock()
+        opener.open.return_value.__enter__.return_value = reply
+        with patch.dict(os.environ, {
+            "ACTIONS_ID_TOKEN_REQUEST_URL":
+                "https://pipelinesghubeus7.actions.githubusercontent.com/_apis/token?api-version=2.0",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "temporary-gh-runner-only"}, clear=True), \
+             patch("urllib.request.build_opener", return_value=opener):
+            self.assertEqual(f.github_oidc(), "x"*130)
+        req = opener.open.call_args.args[0]
+        self.assertTrue(req.full_url.startswith("https://pipelinesghubeus7.actions.githubusercontent.com/"))
+        self.assertIn("audience=", req.full_url)
+        self.assertNotIn("temporary-gh-runner-only", req.full_url)
+
     def test_worker_request_is_fixed_and_requires_verified_response(self):
         response = Mock()
         response.read.return_value = json.dumps(
