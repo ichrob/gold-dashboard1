@@ -2552,6 +2552,21 @@ def start_agentmail_recovery():
             _AGENTMAIL_RECOVERY_THREAD.start()
 
 
+def _aiven_canary_once():
+    """One opt-in Aiven read-only probe; never blocks or changes Bob's database."""
+    try:
+        from aiven_readonly_probe import probe
+        status = probe().get("status", "internal-error")
+        if status not in ("connected-read-only", "connection-not-confirmed",
+                          "read-only-not-confirmed", "query-not-confirmed",
+                          "invalid-configuration", "not-configured"):
+            status = "internal-error"
+    except Exception:
+        status = "internal-error"
+    # Never log URI, host, certificate, raw database exception, or credential.
+    print("BOB_AIVEN_CANARY status=" + status, flush=True)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v2 process={PROCESS_ID}", flush=True)
@@ -2569,6 +2584,9 @@ if __name__ == "__main__":
     start_agentmail_recovery()
     import weekend_archive
     weekend_archive.start(build_live_bundle,market_cards.snapshot)
+    if os.environ.get("BOB_AIVEN_TEST_DATABASE_URL"):
+        threading.Thread(target=_aiven_canary_once,
+                         name="bob-aiven-canary", daemon=True).start()
     BobHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress
