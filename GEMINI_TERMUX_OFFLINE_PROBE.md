@@ -51,6 +51,23 @@ Das kostenlose Google-Modell darf bis zu einer gesonderten Datenschutzfreigabe
 keine privaten Bob-Diagnosen, Depotdaten oder Screenshot-Originale bekommen.
 Keine Gemini-/GitHub-/ChatGPT-API-Schlüssel im Termux-Skript eintragen.
 
-**Erfolgsdefinition:** `inspect`, `extract` und `version` melden jeweils
-eine eigene bestätigte Gerätequittung, zuletzt `VERSION_CONFIRMED_0.67.0`.
-Bei `VERSION_TIMEOUT`, `VERSION_UNVERIFIED` oder fehlender Quittung stoppen.
+**Tatsächlicher Android-Livetest vom 09.11.2026:** `inspect` war erfolgreich.
+Die erste Extraktion scheiterte an fehlendem `os.link()` in Termux-Python 3.14.
+Der geprüfte Portabilitätsfix nutzt daher ausschließlich `open("xb")` und
+verhindert weiterhin das Überschreiben vorhandener Dateien. Damit wurde
+`EXTRACTED_OFFLINE_NO_SECRETS` bestätigt. Die einzelne Startdatei ist jedoch
+**nicht ausführbar ohne weitere Chunk-Dateien**. Das npm-Archiv enthält 446
+Bundle-Dateien. Eine getrennte, lokal beschränkte Archivprüfung (449 Mitglieder,
+nur normale Dateien/Verzeichnisse, keine Traversalpfade, 94,4 MB) wurde
+erfolgreich ausgeführt; das vollständige Bundle wurde daraufhin in einem
+separaten Verzeichnis mit Python-`tarfile` und `filter="data"` entpackt.
+Selbst damit endeten auf dem Android-Gerät die reinen Versionsstarts mit
+**`VERSION_TIMEOUT` bei sieben und zwölf Sekunden**. Deshalb ist weiterhin
+**kein funktionierender Gemini-CLI-Client nachgewiesen**. Keine weiteren
+Startversuche oder privaten OAuth-Freigaben ohne neues überprüfbares Vorgehen.
+
+`extract` in diesem Prüfskript bleibt **nur eine sichere Einzeldatei-/
+Manifestprüfung**, keine vollständige Gemini-Installation. Eine erfolgreiche
+Versionsprüfung müsste die gesamte, gesondert validierte Bundle-Struktur
+verwenden; ein isoliertes Einzeldatei-Ergebnis darf nie als funktionsfähige CLI
+ausgegeben werden.
