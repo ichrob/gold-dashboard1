@@ -56,9 +56,16 @@ after 30 days. It is not a permanent free restore service. An unavailable test
 server fails closed; never silently fall back to production or upgrade the plan.
 Google OAuth in Testing also requires review before claiming durable authorization.
 
-The existing 30-minute database samples and 500/700 MB caution/action thresholds
-continue. Logical database size does not mean physical free disk space. Preserving
-originals means this phase provides external backup, not database reclamation.
+The existing 30-minute database samples continue. Following the owner's
+08.11.2026 5-GB capacity decision, the former 500/700-MB *logical database*
+thresholds must not accelerate cold offload. With fresh, verified Render provider
+measurements below 50% of the physical 5-GB capacity, cold payload writers
+skip original replacement; independently verified backups and measurements
+continue. At higher occupancy, the cadence may increase only on trusted volume
+measurements; age alone must not be equated with a completed, unused business
+window. Retention and in-use evidence must be checked before future expansion
+of eligible families. No implicit purge is permitted. Logical JSON shrinkage
+is not physical disk space recovered.
 
 ## Tests
 
