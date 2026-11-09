@@ -2705,6 +2705,31 @@ function productEightClockView(p,now=Date.now()){
   '<div class="small">Heute ab 08:00 Uhr</div><strong style="color:'+color+'">'+esc(value)+'</strong>'+
   '<div class="small">'+esc(note)+'</div><div class="small">Schweizer Zeit · Anzeigeabruf alle 3 Sekunden</div></div>';
 }
+// Exact-ISIN historical portal figures are useful even when current bid/ask
+// and original leverage times are unavailable. Presentation only: never copy
+// to verified product fields, risk ranking or execution eligibility.
+function productPortalReferenceView(p,now=Date.now()){
+ const q=p?.quote,backup=q?.comdirectFieldsBackup;
+ if(!p?.isin||!q||q.isin!==p.isin||!backup||backup.isin!==p.isin||
+    !['active','conflict'].includes(backup.state)||backup.inactive===true||
+    q.metadata?.status===2||knockoutStatus(p))return '';
+ const url='https://www.comdirect.de/inf/zertifikate/'+p.isin;
+ if(backup.source!==url)return '';
+ const checked=Date.parse(backup.checkedAt);
+ if(!Number.isFinite(checked)||checked>now||now-checked>14*3600000)return '';
+ const obs=backup.observations||{};
+ const values=[['leverage','Hebel','×'],['ko','KO-Schwelle',' USD'],['strike','Basispreis',' USD']]
+  .flatMap(([key,label,unit])=>{
+   const item=obs[key];
+   if(!item||item.source!==url||!Number.isFinite(item.value)||item.value<=0)return [];
+   return [label+' '+Number(item.value).toLocaleString('de-CH',{maximumFractionDigits:4})+unit];
+  });
+ if(!values.length)return '';
+ return '<div class="small" data-unverified-portal-values style="padding:7px;border-radius:7px;background:#fff7ed;color:#7c2d12">'+
+  '<b>Zusätzliche Portal-Referenzwerte (unbestätigt)</b> · '+esc(values.join(' · '))+
+  '<div>comdirect-Abruf '+esc(new Date(checked).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}))+
+  ' · kein eigener Kurs-/Hebelzeitpunkt · nicht als aktueller Geld-/Briefkurs oder Handelsfreigabe verwenden.</div></div>';
+}
 function goldProductCompactView(p,now=Date.now()){
  const values=compactProductValues(p,now);
  const {verified,fields,bid,ask,lever,missing}=values,status=productDataStatus(p,now);
@@ -2734,6 +2759,7 @@ function goldProductCompactView(p,now=Date.now()){
     '<div style="min-width:0;padding:6px;border-radius:7px;background:#f2f5f9"><div class="small">'+esc(label)+'</div><strong>'+esc(value.trim())+'</strong></div>').join('')+
   productDailyChangeView(p,now)+productEightClockView(p,now)+'</div><div class="small" data-analysis-status>'+esc(detail)+(timestamp?' · Kurszeit '+esc(timestamp):' · Kurszeit fehlt')+'</div>'+
   (leverageNote?'<div class="small" data-compact-leverage-source>'+esc(leverageNote)+'</div>':'')+
+  (missing.length?productPortalReferenceView(p,now):'')+
   (missing.length?'<div class="small" data-product-auto-repair role="status">'+esc(pendingQuotes.has(p.index)?'Automatische Quellenprüfung läuft':p.quote?.sourceFailure?'Letzter Abruf fehlgeschlagen · automatische Wiederholung vorgesehen':['night','weekend'].includes(window.BobDegiroPhase?.())?'Automatische Quellenprüfung in Handelspause': 'Automatische Quellenprüfung im 30-Sekunden-Zyklus vorgesehen')+' · '+esc(missing.join(', '))+' bleibt bis zum gültigen Nachweis offen.</div>':'')+
   '<details><summary>Abgleich und Bearbeitung</summary><div class="small" data-gold-sync="'+esc(sync.state)+'">'+esc(sync.message)+'</div>'+
   '<div class="small" data-gold-repair>'+esc(goldProductRepairStatus(p,now))+'</div></details>'+
