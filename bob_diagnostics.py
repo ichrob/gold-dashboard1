@@ -321,6 +321,61 @@ def market_snapshot(live, cached_at, now=None):
             'freshnessNote':'120s cache threshold; compare collection cadence and session mode before diagnosing a stalled job'}
 
 
+def simulation_runtime_brief(paper):
+    """Small, read-only paper heartbeat retained if detailed MCP data is omitted.
+
+    This is a projection of already loaded controls, never another database
+    query, live trade verification, quote validation or performance claim.
+    """
+    missing = {'status':'unavailable', 'readOnly':True, 'realOrders':False,
+               'scope':'bounded-stored-paper-heartbeat-not-trade-outcome-proof'}
+    if not isinstance(paper, dict) or paper.get('status') not in (
+            'observed', 'partial', 'unavailable'):
+        return dict(missing, reason='paper-report-unavailable')
+    health = paper.get('paper')
+    if not isinstance(health, dict):
+        return dict(missing, reason='paper-heartbeat-unavailable')
+    # An older/minimal paper snapshot has no durable-account counters.
+    # Do not add a misleading placeholder to the size-limited report in
+    # that case; the existing simulation status remains authoritative.
+    total = health.get('accountsTotal')
+    checked = health.get('accountsChecked')
+    if (type(total) is not int or type(checked) is not int
+            or not 0 <= checked <= total <= 100):
+        return dict(missing, reason='paper-account-counts-unavailable')
+    state = health.get('state')
+    if state not in ('ok', 'warming', 'degraded', 'paused'):
+        state = 'unavailable'
+    accounts = paper.get('accounts')
+    accounts = accounts if isinstance(accounts, list) else []
+    push = paper.get('push') if isinstance(paper.get('push'), dict) else {}
+    admission = paper.get('reportAdmission')
+    campaign = paper.get('qualityCampaign')
+    projection = {
+        **missing,
+        'status':('observed' if paper.get('status') == 'observed'
+                  and state in ('ok', 'warming', 'paused') else 'partial'),
+        'paper':{**fields(health, ('sessionMode','accountsTotal','accountsChecked',
+                                  'maxCheckAgeSeconds')), 'state':state},
+        'profilesObserved':len(accounts),
+        'runningProfiles':sum(a.get('status') == 'running' for a in accounts
+                               if isinstance(a, dict)),
+        'completedProfiles':sum(a.get('status') == 'completed' for a in accounts
+                                 if isinstance(a, dict)),
+        'evaluator':fields(push.get('evaluator'), ('completed','failed',
+                           'queueTimeouts','waiting','inFlight','lastDurationMs')),
+        'reportAdmission':fields(admission, ('activeLoads','capacityTimeouts',
+                                  'queueFull','joiningTimeouts')),
+        'qualityCampaign':fields(campaign, ('status','state')),
+        'sourceStatus':paper.get('status'),
+        'freshMarketInputsVerified':False,
+        'strategyWinnerConfirmed':False,
+        'note':'Durable account checks are not verified signal quality, product '
+               'fills, profit or complete historical test coverage.'
+    }
+    return projection
+
+
 def collect(readers):
     areas = {}
     for name, reader in readers.items():
@@ -351,6 +406,11 @@ def collect(readers):
             'status': 'unavailable', 'readOnly': True, 'realOrders': False,
             'strategyWinnerConfirmed': False,
             'reason': 'paper-account-control-projection-unavailable'}
+    # Keep the actual paper heartbeat even when the heavy simulation area is
+    # omitted by the response-size cap; no new IO or changed trading rules.
+    brief = simulation_runtime_brief(areas.get('simulationAndPush'))
+    if brief.get('status') != 'unavailable':
+        areas['simulationRuntimeBrief'] = brief
     # The web process may not run the evaluator itself. Prefer real observations
     # from the push worker when its local capture is unavailable; never recompute.
     worker_analysis = (areas.get('simulationAndPush') or {}).get('analysis')
@@ -1375,7 +1435,7 @@ DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
                     'storage')
 _FOCUS_AREAS = {
     'storage': ('storageBrief',),
-    'simulation': ('paperProfitEvidence', 'simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
+    'simulation': ('paperProfitEvidence', 'simulationRuntimeBrief', 'simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
                    'comparisonHealth', 'entryBlockEvidence', 'background', 'collection',
                    'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'sources': ('signalFreshness', 'market', 'sourceReliability', 'collection', 'background', 'analysis'),
