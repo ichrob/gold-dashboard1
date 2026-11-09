@@ -1,4 +1,7 @@
-# Gemini CLI: eigener, sicherer Lesezugriff auf Bob (MCP)
+# Gemini CLI: historischer OAuth-Vorbereitungspfad (nicht mehr empfohlen)
+
+**Aktueller mobiler Weg ab 09.11.2026:** Für persönliche Free-/Pro-/Ultra-Nutzer ist nach Googles Umstellung am 18.06.2026 **Antigravity CLI** statt der alten Gemini CLI zu verwenden. Seit Oktober 2026 gibt es eine offizielle Android-Termux-Version; siehe [BOB_ANTIGRAVITY_TERMUX.md](BOB_ANTIGRAVITY_TERMUX.md) und die deaktivierte MCP-Vorlage [docs/antigravity-bob-readonly-mcp.disabled.json](docs/antigravity-bob-readonly-mcp.disabled.json). Die hier beschriebene ältere Callback-Konfiguration ist **noch kein funktionierender Antigravity-Login**. Bestehende ChatGPT- und Bob-Tokens nicht übertragen.
+
 
 **Status:** Dies ist zunächst eine geprüfte Codevorbereitung, **keine** automatisch eingerichtete Verbindung in der Gemini-Handy-App. Erst nach CI, Merge, tatsächlichem Deployment beider Bob-Dienste, Besitzer-Anmeldung/Freigabe und erfolgreichem OAuth-Live-Test darf der Zugang als funktionsfähig gelten.
 
