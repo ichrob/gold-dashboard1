@@ -112,16 +112,21 @@ def read_body(handler, json_body=False):
 
 
 def browser_ready(handler, user, password, *, return_view=""):
-    # Only this fixed local page may opt into an archive-login return.
-    # OAuth's existing return to /oauth/resume remains unchanged.
+    # Preserve only these two *fixed* Bob destinations. Other OAuth consent
+    # requests still return to /oauth/resume, never an arbitrary URL.
     archive = return_view == "archive-connect"
+    connections = return_view == "oauth-connections"
     if not bob_passkey.browser_authenticated(handler.headers,user,password):
-        respond(handler,303,location='/login?view=archive-connect' if archive else '/login')
+        location = ('/login?view=archive-connect' if archive else
+                    '/login?view=oauth-connections' if connections else '/login')
+        respond(handler,303,location=location)
         return False
     try:
         bob_passkey.require(handler.headers,user,password)
     except bob_passkey.PasskeyRequired:
-        respond(handler,303,location='/passkey?archive=1' if archive else '/passkey?oauth=1')
+        location = ('/passkey?archive=1' if archive else
+                    '/passkey?connections=1' if connections else '/passkey?oauth=1')
+        respond(handler,303,location=location)
         return False
     return True
 
@@ -177,7 +182,7 @@ def route(handler,user,password):
                         '<button name="decision" value="approve">'+('Termux-Wartung erlauben' if TERMUX_SCOPE in pending.get('scope',SCOPE).split() else 'Handy-Zugriff erlauben' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else 'Push-Test-Berechtigung erlauben' if PUSH_TEST_SCOPE in pending.get('scope',SCOPE).split() else 'Lesezugriff erlauben')+'</button>'
                         '<button class="secondary" name="decision" value="deny">Abbrechen</button></form>'),page=True)
             elif path=='/oauth/connections':
-                if browser_ready(handler,user,password):
+                if browser_ready(handler,user,password,return_view="oauth-connections"):
                     grants = rpc('list',user).get('grants',[])
                     # OAuth grant existence alone does not prove that a
                     # ChatGPT client connection currently permits tool writes.
