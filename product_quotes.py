@@ -30,7 +30,8 @@ SG_CH_MARKET = frozenset((*SG_CH_PRODUCTS, 'DE000FG8NHQ3'))
 # independently observed on comdirect. SG still MUST confirm its own exact
 # product ID, EUR/CBDE channel, knockout type and terms before any issuer
 # market data can be accepted. A missing SG record is not proof of delisting.
-SG_EUR_DEGIRO_CANDIDATES = frozenset(('DE000SX7PE82', 'DE000FA94U71'))
+SG_EUR_DEGIRO_CANDIDATES = frozenset(('DE000SX7PE82', 'DE000FA94U71',
+                                      'DE000FA9V5S0'))
 
 def sg_on_demand_candidate(isin):
     """Exact, checksum-valid SG issuer lookup for user-supplied SG-family ISINs.
