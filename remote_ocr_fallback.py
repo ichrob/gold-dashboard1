@@ -10,7 +10,7 @@ import json
 import os
 import ssl
 from urllib.parse import urlsplit
-from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler, ProxyHandler
 
 
 class RemoteOcrError(RuntimeError):
@@ -79,7 +79,7 @@ def recognize(image, enhanced=False, *, opener=None):
         "X-Bob-Ocr-Key": key,
         "Accept": "application/json",
     })
-    client = opener or build_opener(HTTPSHandler(context=context), _NoRedirect())
+    client = opener or build_opener(HTTPSHandler(context=context), ProxyHandler({}), _NoRedirect())
     try:
         with client.open(request, timeout=70) as response:
             if response.status != 200:
