@@ -1,17 +1,18 @@
-"""No cloud calls: prove the opt-in OCR transport fails closed."""
+"""Oracle OCR transport contracts: all images synthetic, no network calls."""
 import base64
 import hashlib
 import json
 import os
 import unittest
 from unittest.mock import Mock, patch
-
 import remote_ocr_fallback as remote
 
 
 IMAGE = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"synthetic" * 30).decode()
 TOKEN = "x" * 48
-URL = "https://bob-ocr-test-123-europe-west3.a.run.app/ocr"
+ADDRESS = "9.9.9.9"   # Only in mocked tests. Never contacted.
+URL = "https://" + ADDRESS + ":8443/ocr"
+CA = "-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----"
 
 
 class FakeResponse:
@@ -28,83 +29,90 @@ class FakeResponse:
 
 class RemoteOcrTests(unittest.TestCase):
     def settings(self, **kwargs):
-        params = dict(BOB_REMOTE_OCR_ENABLED="true",
-                      BOB_REMOTE_OCR_COST_POLICY="metered_risk_explicitly_accepted",
-                      BOB_REMOTE_OCR_URL=URL, BOB_REMOTE_OCR_TOKEN=TOKEN)
-        params.update(kwargs)
-        return patch.dict(os.environ, params, clear=True)
+        values = dict(
+            BOB_REMOTE_OCR_ENABLED="true",
+            BOB_REMOTE_OCR_COST_POLICY="oci_always_free_verified",
+            BOB_REMOTE_OCR_URL=URL,
+            BOB_REMOTE_OCR_ALLOWED_IP=ADDRESS,
+            BOB_REMOTE_OCR_TLS_CA_PEM=CA,
+            BOB_REMOTE_OCR_TOKEN=TOKEN)
+        values.update(kwargs)
+        return patch.dict(os.environ, values, clear=True)
 
-    def test_default_off_does_not_attempt_any_connection(self):
+    def test_default_off_and_cost_lock_both_block_network(self):
         opener = Mock()
         with patch.dict(os.environ, {}, clear=True):
             self.assertIsNone(remote.recognize({"png": IMAGE}, opener=opener))
-        opener.open.assert_not_called()
-
-    def test_zero_cost_policy_blocks_remote_even_if_enabled_by_mistake(self):
-        opener = Mock()
-        for policy in ("", "zero_cost", "free_tier", "false"):
+        for policy in ("", "free_tier", "metered_risk_explicitly_accepted"):
             with self.settings(BOB_REMOTE_OCR_COST_POLICY=policy):
                 self.assertIsNone(remote.recognize({"png": IMAGE}, opener=opener))
         opener.open.assert_not_called()
 
-    def test_invalid_host_or_absent_secret_fails_closed(self):
-        for url in ("http://bob-ocr.a.run.app/ocr",
-                    "https://evil.example/ocr",
-                    "https://bob-ocr.a.run.app.evil.example/ocr",
-                    "https://bob-ocr.a.run.app/redirect",
-                    "https://bob-ocr.a.run.app/ocr?token=unsafe"):
+    def test_url_must_match_explicit_global_ip_and_https_port(self):
+        invalid = [
+            "http://9.9.9.9:8443/ocr",
+            "https://9.9.9.9:443/ocr",
+            "https://93.184.216.34:8443/ocr",
+            "https://10.0.0.4:8443/ocr",
+            "https://9.9.9.9:8443/other",
+            "https://9.9.9.9:8443/ocr?token=x",
+            "https://evil.example:8443/ocr",
+        ]
+        for url in invalid:
             with self.settings(BOB_REMOTE_OCR_URL=url):
                 with self.assertRaises(remote.RemoteOcrError):
                     remote.recognize({"png": IMAGE}, opener=Mock())
-        with self.settings(BOB_REMOTE_OCR_TOKEN="short"):
+        with self.settings(BOB_REMOTE_OCR_ALLOWED_IP="10.0.0.4"):
             with self.assertRaises(remote.RemoteOcrError):
                 remote.recognize({"png": IMAGE}, opener=Mock())
 
-    def test_missing_iam_identity_never_sends_private_screenshot(self):
-        opener = Mock()
+    def test_missing_cert_and_wrong_key_block_before_network(self):
+        for changes in (dict(BOB_REMOTE_OCR_TLS_CA_PEM=""),
+                        dict(BOB_REMOTE_OCR_TOKEN="short")):
+            opener = Mock()
+            with self.settings(**changes):
+                with self.assertRaises(remote.RemoteOcrError):
+                    remote.recognize({"png": IMAGE}, opener=opener)
+            opener.open.assert_not_called()
+
+    def test_invalid_certificate_cannot_be_silently_trusted(self):
         with self.settings(), self.assertRaises(remote.RemoteOcrError):
-            remote.recognize({"png": IMAGE}, opener=opener)
-        opener.open.assert_not_called()
+            remote.recognize({"png": IMAGE}, opener=Mock())
 
-    def test_redirect_is_forbidden_even_with_authentication(self):
-        with self.assertRaises(remote.RemoteOcrError):
-            remote._NoRedirect().redirect_request(None,None,302,"redirect",{},"https://evil.example/ocr")
-
-    def test_correlation_and_exact_pass_count(self):
+    def test_valid_certificate_context_and_image_digest(self):
         digest = hashlib.sha256(base64.b64decode(IMAGE)).hexdigest()
-        body = json.dumps({"sha256": digest, "passes": ["one", "two", "three"]}).encode()
+        response = json.dumps({"sha256": digest, "passes": ["one", "two"]}).encode()
         opener = Mock()
-        opener.open.return_value = FakeResponse(body)
-        with self.settings(), patch.object(remote, '_fetch_identity_token', return_value='signed-id-token'):
-            self.assertEqual(remote.recognize({"png": IMAGE}, opener=opener),
-                             [["one", "two", "three"]])
+        opener.open.return_value = FakeResponse(response)
+        with self.settings(), patch.object(remote.ssl, "create_default_context", return_value=Mock()) as trust:
+            self.assertEqual(remote.recognize({"png": IMAGE}, opener=opener), [["one", "two"]])
+        self.assertEqual(trust.call_args.kwargs["cadata"], CA)
         request = opener.open.call_args.args[0]
-        sent = json.loads(request.data)
-        self.assertEqual(sent["sha256"], digest)
-        self.assertEqual(sent["png"], IMAGE)
-        self.assertEqual(request.get_header("Authorization"), "Bearer signed-id-token")
         self.assertEqual(request.get_header("X-bob-ocr-key"), TOKEN)
+        self.assertEqual(json.loads(request.data)["sha256"], digest)
         self.assertEqual(opener.open.call_args.kwargs["timeout"], 70)
 
-    def test_rejects_corrupt_cross_image_or_single_pass_results(self):
-        bad_responses = [
-            {"sha256": "0" * 64, "passes": ["one", "two"]},
-            {"sha256": hashlib.sha256(base64.b64decode(IMAGE)).hexdigest(),
-             "passes": ["one"]},
-            {"sha256": hashlib.sha256(base64.b64decode(IMAGE)).hexdigest(),
-             "passes": ["one", "two"], "approved": True},
-        ]
-        for payload in bad_responses:
+    def test_cross_image_and_incomplete_results_rejected(self):
+        digest = hashlib.sha256(base64.b64decode(IMAGE)).hexdigest()
+        for result in ({"sha256": "0" * 64, "passes": ["a", "b"]},
+                       {"sha256": digest, "passes": ["one"]},
+                       {"sha256": digest, "passes": ["one", "two"], "approved": True}):
             opener = Mock()
-            opener.open.return_value = FakeResponse(json.dumps(payload).encode())
-            with self.settings(), patch.object(remote, '_fetch_identity_token', return_value='signed-id-token'), self.assertRaises(remote.RemoteOcrError):
+            opener.open.return_value = FakeResponse(json.dumps(result).encode())
+            with self.settings(), patch.object(remote.ssl, "create_default_context", return_value=Mock()), \
+                 self.assertRaises(remote.RemoteOcrError):
                 remote.recognize({"png": IMAGE}, opener=opener)
 
-    def test_provider_failure_never_returns_fake_text(self):
+    def test_no_redirect_or_retry_after_provider_failure(self):
+        with self.assertRaises(remote.RemoteOcrError):
+            remote._NoRedirect().redirect_request(
+                None, None, 302, "redirect", {}, "https://evil.example/ocr")
         opener = Mock()
-        opener.open.side_effect = TimeoutError("external provider failed")
-        with self.settings(), patch.object(remote, '_fetch_identity_token', return_value='signed-id-token'), self.assertRaises(remote.RemoteOcrError):
+        opener.open.side_effect = TimeoutError("provider unavailable")
+        with self.settings(), patch.object(remote.ssl, "create_default_context", return_value=Mock()), \
+             self.assertRaises(remote.RemoteOcrError):
             remote.recognize({"png": IMAGE}, opener=opener)
+        self.assertEqual(opener.open.call_count, 1)
 
 
 if __name__ == "__main__":
