@@ -196,6 +196,59 @@ class StateTests(unittest.TestCase):
         self.assertEqual([x['client'] for x in self.call('list')['grants']],
                          ['ChatGPT'])
 
+    def test_antigravity_pinned_client_isolated_from_other_oauth_clients(self):
+        allowed = store.SCOPE + ' ' + store.DIAGNOSTICS_SCOPE
+        # Register both Google clients and ChatGPT without replacing/revoking
+        # any existing client, using only three exact pinned callback URLs.
+        gemini = self.call('register',redirect_uris=[store.GEMINI_REDIRECT])
+        agy = self.call('register',redirect_uris=[store.ANTIGRAVITY_REDIRECT],scope=allowed)
+        aid = agy['client_id']
+        self.assertNotEqual(aid,gemini['client_id'])
+        self.assertNotEqual(aid,self.cid)
+        self.assertEqual(agy['client_name'],'Bob Antigravity Read-only')
+        self.assertEqual(len(self.state['clients']),3)
+        self.assertEqual(self.call('register',redirect_uris=[store.ANTIGRAVITY_REDIRECT])['client_id'],aid)
+        for bad in (store.ANTIGRAVITY_REDIRECT+'/',store.ANTIGRAVITY_REDIRECT+'?x=1',
+                    'http://antigravity.google/oauth-callback',
+                    'https://antigravity.google.evil.example/oauth-callback',
+                    'https://antigravity.google/*'):
+            self.assertIn('error',self.call('register',redirect_uris=[bad]))
+        for forbidden in (store.TERMUX_SCOPE,store.PHONE_SCOPE,store.PUSH_TEST_SCOPE):
+            self.assertIn('error',self.call('register',
+                             redirect_uris=[store.ANTIGRAVITY_REDIRECT],scope=forbidden))
+            self.assertIn('error',self.begin(client_id=aid,
+                             redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                             scope=allowed+' '+forbidden))
+        self.assertIn('error',self.begin(client_id=aid,
+                        redirect_uri=store.GEMINI_REDIRECT,scope=allowed))
+        self.assertIn('error',self.begin(client_id=aid,
+                        redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                        scope=allowed,code_challenge_method='plain'))
+        req=self.begin(client_id=aid,redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                       scope=allowed)['request']
+        self.assertEqual(self.call('pending',request=req)['client_name'],'Antigravity CLI')
+        code=self.call('approve',request=req,until=self.now+10000)['code']
+        self.assertIn('error',self.exchange(code))
+        agy_tokens=self.exchange(code,client_id=aid,redirect_uri=store.ANTIGRAVITY_REDIRECT)
+        self.assertEqual(set(agy_tokens['scope'].split()),{store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        self.assertTrue(self.call('check',token=agy_tokens['access_token'])['valid'])
+        self.assertEqual(self.call('token',grant_type='refresh_token',client_id=aid,
+                         refresh_token=agy_tokens['refresh_token'],resource=store.RESOURCE,
+                         scope=store.TERMUX_SCOPE)['error'],'invalid_scope')
+        chat=self.exchange(self.authorize())
+        req2=self.begin(client_id=gemini['client_id'],redirect_uri=store.GEMINI_REDIRECT,
+                        scope=store.SCOPE)['request']
+        code2=self.call('approve',request=req2,until=self.now+10000)['code']
+        old=self.exchange(code2,client_id=gemini['client_id'],redirect_uri=store.GEMINI_REDIRECT)
+        names={x['client'] for x in self.call('list')['grants']}
+        self.assertEqual(names,{'ChatGPT','Gemini CLI','Antigravity CLI'})
+        self.call('revoke-gemini')
+        self.assertFalse(self.call('check',token=old['access_token'])['valid'])
+        self.assertTrue(self.call('check',token=agy_tokens['access_token'])['valid'])
+        self.call('revoke-antigravity')
+        self.assertFalse(self.call('check',token=agy_tokens['access_token'])['valid'])
+        self.assertTrue(self.call('check',token=chat['access_token'])['valid'])
+
     def test_revocation(self):
         tokens = self.exchange(self.authorize())
         self.call('revoke',token=tokens['refresh_token'],client_id='wrong')
@@ -257,7 +310,12 @@ class HttpTests(unittest.TestCase):
     def test_discovery_and_no_anonymous_report(self):
         status,_,body = self.request('GET','/.well-known/oauth-authorization-server')
         self.assertEqual(status,200)
-        self.assertEqual(json.loads(body)['code_challenge_methods_supported'],['S256'])
+        metadata=json.loads(body)
+        self.assertEqual(metadata['code_challenge_methods_supported'],['S256'])
+        # Antigravity must use the already implemented exact-redirect DCR
+        # fallback until a separately reviewed CIMD feature is advertised.
+        self.assertEqual(metadata['registration_endpoint'],store.ORIGIN+'/oauth/register')
+        self.assertNotIn('client_id_metadata_document_supported',metadata)
         status,h,_ = self.request('POST','/mcp','{}',{'Content-Type':'application/json'})
         self.assertEqual(status,401)
         self.assertIn('resource_metadata=',h['WWW-Authenticate'])
@@ -370,6 +428,66 @@ class HttpTests(unittest.TestCase):
                          {'csrf':csrf},self.session)[0],303)
         self.assertFalse(store.transition(self.state,'check',
                           {'token':gemini_token})['valid'])
+
+    def test_antigravity_owner_consent_scopes_and_independent_revoke_http(self):
+        scopes = store.SCOPE + ' ' + store.DIAGNOSTICS_SCOPE
+        status,_,body=self.request('POST','/oauth/register',
+            json.dumps({'redirect_uris':[store.ANTIGRAVITY_REDIRECT],'scope':scopes}),
+            {'Content-Type':'application/json'})
+        self.assertEqual(status,201)
+        cid=json.loads(body)['client_id']
+        verifier='a'*43
+        params=dict(client_id=cid,redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                    response_type='code',scope=scopes,resource=store.RESOURCE,
+                    state='antigravity-test',code_challenge=store.challenge(verifier),
+                    code_challenge_method='S256')
+        status,headers,_=self.request('GET','/oauth/authorize?'+urlencode(params))
+        self.assertEqual(status,303)
+        csrf_cookie=headers['Set-Cookie'].split(';')[0]
+        cookies=csrf_cookie+'; '+self.session
+        status,_,page=self.request('GET','/oauth/resume',headers={'Cookie':cookies})
+        self.assertEqual(status,200)
+        self.assertIn(b'Antigravity CLI mit Bob verbinden',page)
+        self.assertIn(b'Google-Datenschutz:',page)
+        self.assertNotIn(b'Termux-Wartung erlauben',page)
+        nonce=csrf_cookie.split('=',1)[1]
+        self.assertEqual(self.form('/oauth/consent',
+                         {'request':nonce,'decision':'approve'},cookies,
+                         origin='https://evil.example')[0],403)
+        status,_,body=self.form('/oauth/consent',
+                         {'request':nonce,'decision':'approve'},cookies)
+        self.assertEqual(status,200)
+        self.assertIn(b'Zur',body)
+        self.assertIn(b'Antigravity CLI',body)
+        import html
+        callback=html.unescape(re.search(r'href="([^"]+)"',body.decode()).group(1))
+        self.assertEqual(callback.split('?')[0],store.ANTIGRAVITY_REDIRECT)
+        returned=parse_qs(urlparse(callback).query)
+        self.assertEqual(returned['iss'],[store.ORIGIN])
+        status,_,body=self.form('/oauth/token',
+                {'grant_type':'authorization_code','client_id':cid,
+                 'redirect_uri':store.ANTIGRAVITY_REDIRECT,'code':returned['code'][0],
+                 'code_verifier':verifier,'resource':store.RESOURCE})
+        self.assertEqual(status,200)
+        token=json.loads(body)['access_token']
+        self.assertEqual(set(json.loads(body)['scope'].split()),
+                         {store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+        payload={'jsonrpc':'2.0','id':1,'method':'tools/call',
+                 'params':{'name':'bob_termux_execute','arguments':{}}}
+        status,_,body=self.request('POST','/mcp',json.dumps(payload),headers)
+        self.assertEqual(status,200)
+        self.assertIn('error',json.loads(body))
+        status,_,page=self.request('GET','/oauth/connections',
+                                   headers={'Cookie':self.session})
+        self.assertEqual(status,200)
+        self.assertIn(b'Antigravity CLI: OAuth-Freigabe vorhanden',page)
+        self.assertIn(b'Nur Antigravity-Zugriff widerrufen',page)
+        self.assertEqual(self.form('/oauth/disconnect-antigravity',
+                         {'csrf':'wrong'},self.session)[0],403)
+        self.assertEqual(self.form('/oauth/disconnect-antigravity',
+                         {'csrf':oauth.csrf({'Cookie':self.session})},self.session)[0],303)
+        self.assertFalse(store.transition(self.state,'check',{'token':token})['valid'])
 
     def test_connections_returns_to_same_page_after_login_and_passkey(self):
         # A direct link from a private ChatGPT conversation must not drop the

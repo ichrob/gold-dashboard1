@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, build_opener, HTTPSHandler
 import bob_auth
 import bob_passkey
-from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE, REDIRECT, GEMINI_REDIRECT
+from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE, REDIRECT, GEMINI_REDIRECT, ANTIGRAVITY_REDIRECT
 
 COOKIE = '__Host-bob_oauth'
 UNTIL = '2026-11-16T23:59:59+01:00'
@@ -167,10 +167,10 @@ def route(handler,user,password):
                 elif browser_ready(handler,user,password):
                     until = datetime.fromisoformat(UNTIL).strftime('%d.%m.%Y')
                     client_name = pending.get('client_name', 'ChatGPT')
-                    if client_name not in ('ChatGPT', 'Gemini CLI'):
+                    if client_name not in ('ChatGPT', 'Gemini CLI', 'Antigravity CLI'):
                         raise ValueError('Unrecognized OAuth client')
                     respond(handler,200,page(client_name+' mit Bob verbinden',
-                        ('<p><strong>Google-Datenschutz:</strong> Im kostenlosen Gemini-Tarif können private Daten, die die KI über diese Schnittstelle abruft, an Google übertragen und zur Verbesserung von Google-Produkten verwendet werden. Erlaube diesen Zugriff nur, wenn du diese Datenweitergabe ausdrücklich willst. Das ist keine kostenfreie private Datenverarbeitung.</p>' if client_name == 'Gemini CLI' else '') +
+                        ('<p><strong>Google-Datenschutz:</strong> Im kostenlosen Gemini-Tarif können private Daten, die die KI über diese Schnittstelle abruft, an Google übertragen und zur Verbesserung von Google-Produkten verwendet werden. Erlaube diesen Zugriff nur, wenn du diese Datenweitergabe ausdrücklich willst. Das ist keine kostenfreie private Datenverarbeitung.</p>' if client_name in ('Gemini CLI', 'Antigravity CLI') else '') +
                         ('<p>Die ausgewählte KI darf deine privaten Produktprüfberichte mit ISINs, Quellen, Zeitstempeln und fehlenden Nachweisen lesen.</p>' if SCOPE in pending.get('scope', SCOPE).split() else '') +
                         ('<p>Zusätzlich freigegeben: Diagnoseberichte zu Marktanalyse, Hintergrundjobs, Simulationen, Push-Überwachung, Recherche und offenen Problemen. Keine Zugangsdaten oder vollständigen Protokolle.</p>' if DIAGNOSTICS_SCOPE in pending.get('scope', SCOPE).split() else '') +
                         ('<p>Termux-Wartung: ChatGPT darf während einer separat am Samsung freigegebenen Sitzung Shellbefehle mit den Rechten der Termux-App ausführen. Diese können Termux-Dateien lesen und ändern; begrenzte Ausgaben werden an Bob/ChatGPT übertragen. Keine automatische Passwortfreigabe. Keine Sandbox. STOPP sperrt neue Aufträge.</p>' if TERMUX_SCOPE in pending.get('scope',SCOPE).split() else '') +
@@ -191,19 +191,27 @@ def route(handler,user,password):
                         TERMUX_SCOPE in g.get('scopes',[]) for g in grants)
                     gemini_granted = any(isinstance(g,dict) and
                         g.get('client') == 'Gemini CLI' for g in grants)
+                    antigravity_granted = any(isinstance(g,dict) and
+                        g.get('client') == 'Antigravity CLI' for g in grants)
                     termux_text = ('OAuth-Freigabe vorhanden; externe Connector-Berechtigung '
                                    'und aktive Handy-Sitzung zusätzlich prüfen'
                                    if termux_granted else 'Keine aktive OAuth-Freigabe')
                     gemini_text = ('OAuth-Freigabe vorhanden; externer Live-Zugriff nicht '
                                    'allein dadurch nachgewiesen'
                                    if gemini_granted else 'Keine aktive OAuth-Freigabe')
+                    antigravity_text = ('OAuth-Freigabe vorhanden; tatsächlichen Lesezugriff '
+                                        'getrennt prüfen'
+                                        if antigravity_granted else 'Keine aktive OAuth-Freigabe')
                     respond(handler,200,page('KI-Verbindungen zu Bob',
                         '<p>Aktive Freigaben: '+str(len(grants))+'</p>'
                         '<p>Termux-Wartung (ChatGPT): '+termux_text+'</p>'
                         '<p>Gemini CLI: '+gemini_text+'</p>'
+                        '<p>Antigravity CLI: '+antigravity_text+'</p>'
                         '<p>Hier kannst du alle OAuth-Freigaben sofort beenden. Dein Bob-Login bleibt bestehen.</p>'
                         '<form method="post" action="/oauth/disconnect-gemini"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
                         '<button>Nur Gemini-Zugriff widerrufen</button></form>'
+                        '<form method="post" action="/oauth/disconnect-antigravity"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
+                        '<button>Nur Antigravity-Zugriff widerrufen</button></form>'
                         '<form method="post" action="/oauth/disconnect"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
                         '<button>Alle Freigaben widerrufen</button></form><p><a href="/">Zurück zu Bob</a></p>'),page=True)
             else:respond(handler,404,{'error':'not_found'})
@@ -218,15 +226,16 @@ def route(handler,user,password):
                 else:
                     result = rpc('token' if path.endswith('/token') else 'revoke',user,**fields)
                     respond(handler,400 if 'error' in result else 200,result)
-            elif path in ('/oauth/consent','/oauth/disconnect','/oauth/disconnect-gemini'):
+            elif path in ('/oauth/consent','/oauth/disconnect','/oauth/disconnect-gemini','/oauth/disconnect-antigravity'):
                 if handler.headers.get('Origin') != ORIGIN:
                     respond(handler,403,{'error':'origin_required'}); return True
                 if not browser_ready(handler,user,password):return True
                 fields = read_body(handler)
-                if path in ('/oauth/disconnect', '/oauth/disconnect-gemini'):
+                if path in ('/oauth/disconnect', '/oauth/disconnect-gemini', '/oauth/disconnect-antigravity'):
                     if not hmac.compare_digest(fields.get('csrf',''),csrf(handler.headers)):
                         respond(handler,403,{'error':'invalid_csrf'}); return True
-                    rpc('revoke-gemini' if path.endswith('-gemini') else 'revoke-all',user)
+                    rpc('revoke-antigravity' if path.endswith('-antigravity') else
+                        'revoke-gemini' if path.endswith('-gemini') else 'revoke-all',user)
                     respond(handler,303,location='/oauth/connections')
                 else:
                     nonce = bob_auth.cookie(handler.headers,COOKIE)
@@ -236,9 +245,10 @@ def route(handler,user,password):
                     if 'redirect_uri' not in result:
                         respond(handler,400,{'error':'invalid_request'})
                     else:
-                        if result.get('redirect_uri') not in (REDIRECT, GEMINI_REDIRECT):
+                        if result.get('redirect_uri') not in (REDIRECT, GEMINI_REDIRECT, ANTIGRAVITY_REDIRECT):
                             raise ValueError('Unexpected OAuth callback')
-                        client_name = ('Gemini CLI' if result['redirect_uri'] == GEMINI_REDIRECT else 'ChatGPT')
+                        client_name = ('Antigravity CLI' if result['redirect_uri'] == ANTIGRAVITY_REDIRECT else
+                                       'Gemini CLI' if result['redirect_uri'] == GEMINI_REDIRECT else 'ChatGPT')
                         destination = result.pop('redirect_uri')+'?'+urlencode(result)
                         # A form redirect remains subject to form-action across the
                         # client's redirect chain (including Android app links).

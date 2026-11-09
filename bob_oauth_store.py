@@ -27,7 +27,11 @@ REDIRECT = 'https://chatgpt.com/connector_platform_oauth_redirect'
 # app cannot use this callback, and registration alone grants NO private access.
 # Keep this exact (never wildcard/variable-port) for audited user consent.
 GEMINI_REDIRECT = 'http://localhost:8765/oauth/callback'
+# Official Antigravity CLI's documented OAuth callback. No dynamic host, path,
+# port, query or wildcard is accepted. Registration alone grants no access.
+ANTIGRAVITY_REDIRECT = 'https://antigravity.google/oauth-callback'
 GEMINI_READ_SCOPES = frozenset((SCOPE, DIAGNOSTICS_SCOPE))
+GOOGLE_READ_REDIRECTS = frozenset((GEMINI_REDIRECT, ANTIGRAVITY_REDIRECT))
 ACCESS_TTL = 3600
 GRANT_TTL = 28 * 86400
 
@@ -73,34 +77,35 @@ def transition(state, action, p, now=None):
 
     if action == 'register':
         redirect_uris = p.get('redirect_uris')
-        if (redirect_uris not in ([REDIRECT], [GEMINI_REDIRECT])
+        if (redirect_uris not in ([REDIRECT], [GEMINI_REDIRECT], [ANTIGRAVITY_REDIRECT])
                 or p.get('token_endpoint_auth_method','none') != 'none'
                 or set(p.get('grant_types',['authorization_code','refresh_token'])) != {'authorization_code','refresh_token'}
                 or p.get('response_types',['code']) != ['code'] or not valid_scope(p.get('scope',SCOPE))):
             return error('invalid_client_metadata')
         uri = redirect_uris[0]
         requested = set(p.get('scope', SCOPE).split())
-        # Gemini never gets handset, Termux or push-test rights. No wildcard
-        # local URLs, and at most two distinct exact public clients.
-        if uri == GEMINI_REDIRECT and not requested <= GEMINI_READ_SCOPES:
+        # Google clients never get handset, Termux or push-test rights.
+        # All callbacks are pinned exactly, with at most three client entries.
+        if uri in GOOGLE_READ_REDIRECTS and not requested <= GEMINI_READ_SCOPES:
             return error('invalid_scope')
         cid = next((key for key, client in clients.items()
                     if client.get('redirect_uri') == uri), None)
         if cid is None:
-            if len(clients) >= 2:
+            if len(clients) >= 3:
                 return error('temporarily_unavailable')
             cid = secret('bob_')
         clients[cid] = {'redirect_uri':uri}
         return {'client_id':cid, 'client_id_issued_at':int(now), 'redirect_uris':[uri],
                 'grant_types':['authorization_code','refresh_token'], 'response_types':['code'],
                 'token_endpoint_auth_method':'none', 'scope':p.get('scope', SCOPE),
-                'client_name': 'Bob Gemini Read-only' if uri == GEMINI_REDIRECT else 'Bob Lesezugang'}
+                'client_name': ('Bob Antigravity Read-only' if uri == ANTIGRAVITY_REDIRECT else
+                                'Bob Gemini Read-only' if uri == GEMINI_REDIRECT else 'Bob Lesezugang')}
     if action == 'begin':
         cid = p.get('client_id','')
         if cid not in clients or p.get('redirect_uri') != clients[cid]['redirect_uri']:
             return error('invalid_client')
         requested = set(p.get('scope', SCOPE).split()) if isinstance(p.get('scope', SCOPE), str) else set()
-        if (clients[cid]['redirect_uri'] == GEMINI_REDIRECT
+        if (clients[cid]['redirect_uri'] in GOOGLE_READ_REDIRECTS
                 and not requested <= GEMINI_READ_SCOPES):
             return error('invalid_scope')
         if (p.get('response_type') != 'code' or not valid_scope(p.get('scope', SCOPE))
@@ -123,7 +128,8 @@ def transition(state, action, p, now=None):
         if action == 'pending':
             client = clients.get(req.get('client_id'), {})
             return {'ok':True, 'scope':req.get('scope', SCOPE),
-                    'client_name': 'Gemini CLI' if client.get('redirect_uri') == GEMINI_REDIRECT else 'ChatGPT'}
+                    'client_name': ('Antigravity CLI' if client.get('redirect_uri') == ANTIGRAVITY_REDIRECT else
+                                    'Gemini CLI' if client.get('redirect_uri') == GEMINI_REDIRECT else 'ChatGPT')}
         pending.pop(key)
         response = {'redirect_uri':req['redirect_uri'], 'state':req['state'], 'iss':ORIGIN}
         if action == 'deny':
@@ -186,12 +192,21 @@ def transition(state, action, p, now=None):
         rows = []
         for gid, grant in grants.items():
             redirect = clients.get(grant.get('client_id'), {}).get('redirect_uri')
-            label = ('Gemini CLI' if redirect == GEMINI_REDIRECT else
+            label = ('Antigravity CLI' if redirect == ANTIGRAVITY_REDIRECT else
+                     'Gemini CLI' if redirect == GEMINI_REDIRECT else
                      'ChatGPT' if redirect == REDIRECT else 'Unbekannt')
             rows.append({'id':gid, 'created':grant['created'],
                          'expires':grant['expires'], 'client':label,
                          'scopes':sorted(set(str(grant.get('scope', SCOPE)).split()))})
         return {'grants':rows}
+    if action == 'revoke-antigravity':
+        # Independent owner-controlled Antigravity revocation; existing Google
+        # Gemini and ChatGPT grants remain untouched.
+        for gid, grant in list(grants.items()):
+            client = clients.get(grant.get('client_id'), {})
+            if client.get('redirect_uri') == ANTIGRAVITY_REDIRECT:
+                grants.pop(gid)
+        return {'ok':True}
     if action == 'revoke-gemini':
         # Owner-only through the Bob browser route. Invalidates all Gemini
         # access/refresh tokens without touching any ChatGPT grants.
