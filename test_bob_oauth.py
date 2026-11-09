@@ -60,6 +60,20 @@ class StateTests(unittest.TestCase):
         self.assertNotIn(tokens['access_token'],json.dumps(self.state))
         self.assertNotIn(tokens['refresh_token'],json.dumps(self.state))
 
+    def test_mobile_handoff_code_remains_single_use_and_expires(self):
+        # Android browser -> Termux switching can take more than two minutes;
+        # the verifier, exact redirect, client, scope and resource still bind the code.
+        self.assertEqual(store.CODE_TTL, 8 * 60)
+        code = self.authorize()
+        self.now += store.CODE_TTL - 1
+        token = self.exchange(code)
+        self.assertIn('access_token', token)
+        # Replaying the already exchanged code must never work.
+        self.assertEqual(self.exchange(code)['error'], 'invalid_grant')
+        late_code = self.authorize()
+        self.now += store.CODE_TTL + 1
+        self.assertEqual(self.exchange(late_code)['error'], 'invalid_grant')
+
     def test_push_test_scope_requires_new_explicit_consent(self):
         tokens=self.exchange(self.authorize())
         self.assertNotIn(store.PUSH_TEST_SCOPE,self.call('check',token=tokens['access_token'])['scope'])

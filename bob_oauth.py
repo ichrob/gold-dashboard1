@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, build_opener, HTTPSHandler
 import bob_auth
 import bob_passkey
-from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE, REDIRECT, GEMINI_REDIRECT, ANTIGRAVITY_REDIRECT
+from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE, REDIRECT, GEMINI_REDIRECT, ANTIGRAVITY_REDIRECT, CODE_TTL
 
 COOKIE = '__Host-bob_oauth'
 UNTIL = '2026-11-16T23:59:59+01:00'
@@ -257,7 +257,7 @@ def route(handler,user,password):
                         respond(handler,200,page('Zurück zu '+client_name,
                             '<p>Deine Entscheidung wurde gespeichert. Schließe die Verbindung jetzt in '+client_name+' ab.</p>'
                             '<p><a rel="noreferrer" referrerpolicy="no-referrer" style="display:block;padding:14px;border-radius:10px;background:#2358b6;color:white;text-align:center;text-decoration:none" href="'+html.escape(destination,quote=True)+'">Zurück zu '+client_name+'</a></p>'
-                            '<p>Tippe jetzt auf den Button. Der Rückkehrlink gilt zwei Minuten. Diese Seite nicht neu laden und das Freigabeformular nicht erneut absenden.</p>'),
+                            '<p>Tippe jetzt auf den Button. Der Rückkehrlink gilt höchstens '+str(CODE_TTL//60)+' Minuten ab der Freigabe. Diese Seite nicht neu laden und das Freigabeformular nicht erneut absenden.</p>'),
                             cookies=[cookie('',0)],page=True)
             else:respond(handler,404,{'error':'not_found'})
         else:respond(handler,405,{'error':'method_not_allowed'})
