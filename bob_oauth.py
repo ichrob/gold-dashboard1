@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, build_opener, HTTPSHandler
 import bob_auth
 import bob_passkey
-from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE, REDIRECT
+from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE, REDIRECT, GEMINI_REDIRECT
 
 COOKIE = '__Host-bob_oauth'
 UNTIL = '2026-11-16T23:59:59+01:00'
@@ -158,11 +158,15 @@ def route(handler,user,password):
                 nonce = bob_auth.cookie(handler.headers,COOKIE)
                 pending = rpc('pending',user,request=nonce)
                 if not pending.get('ok'):
-                    respond(handler,400,page('Verbindung erneut starten','<p>Die Anfrage ist abgelaufen. Starte die Verbindung erneut in ChatGPT.</p>'),page=True)
+                    respond(handler,400,page('Verbindung erneut starten','<p>Die Anfrage ist abgelaufen. Starte die Verbindung erneut in deiner KI-Anwendung.</p>'),page=True)
                 elif browser_ready(handler,user,password):
                     until = datetime.fromisoformat(UNTIL).strftime('%d.%m.%Y')
-                    respond(handler,200,page('ChatGPT mit Bob verbinden',
-                        ('<p>ChatGPT darf deine privaten Produktprüfberichte mit ISINs, Quellen, Zeitstempeln und fehlenden Nachweisen lesen.</p>' if SCOPE in pending.get('scope', SCOPE).split() else '') +
+                    client_name = pending.get('client_name', 'ChatGPT')
+                    if client_name not in ('ChatGPT', 'Gemini CLI'):
+                        raise ValueError('Unrecognized OAuth client')
+                    respond(handler,200,page(client_name+' mit Bob verbinden',
+                        ('<p><strong>Google-Datenschutz:</strong> Im kostenlosen Gemini-Tarif können private Daten, die die KI über diese Schnittstelle abruft, an Google übertragen und zur Verbesserung von Google-Produkten verwendet werden. Erlaube diesen Zugriff nur, wenn du diese Datenweitergabe ausdrücklich willst. Das ist keine kostenfreie private Datenverarbeitung.</p>' if client_name == 'Gemini CLI' else '') +
+                        ('<p>Die ausgewählte KI darf deine privaten Produktprüfberichte mit ISINs, Quellen, Zeitstempeln und fehlenden Nachweisen lesen.</p>' if SCOPE in pending.get('scope', SCOPE).split() else '') +
                         ('<p>Zusätzlich freigegeben: Diagnoseberichte zu Marktanalyse, Hintergrundjobs, Simulationen, Push-Überwachung, Recherche und offenen Problemen. Keine Zugangsdaten oder vollständigen Protokolle.</p>' if DIAGNOSTICS_SCOPE in pending.get('scope', SCOPE).split() else '') +
                         ('<p>Termux-Wartung: ChatGPT darf während einer separat am Samsung freigegebenen Sitzung Shellbefehle mit den Rechten der Termux-App ausführen. Diese können Termux-Dateien lesen und ändern; begrenzte Ausgaben werden an Bob/ChatGPT übertragen. Keine automatische Passwortfreigabe. Keine Sandbox. STOPP sperrt neue Aufträge.</p>' if TERMUX_SCOPE in pending.get('scope',SCOPE).split() else '') +
                         ('<p>Zusätzlicher Handy-Zugriff: In einer am Handy gestarteten Sitzung Produktstatus lesen, Gold-/ISIN-Suchschritte und Produktlesen auslösen sowie stoppen. Keine Orders oder freie Handy-Bedienung.</p>' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else '') +
@@ -175,8 +179,10 @@ def route(handler,user,password):
             elif path=='/oauth/connections':
                 if browser_ready(handler,user,password):
                     grants = rpc('list',user).get('grants',[])
-                    respond(handler,200,page('ChatGPT-Zugriff',
+                    respond(handler,200,page('KI-Verbindungen zu Bob',
                         '<p>Aktive Freigaben: '+str(len(grants))+'</p><p>Hier kannst du alle OAuth-Freigaben sofort beenden. Dein Bob-Login bleibt bestehen.</p>'
+                        '<form method="post" action="/oauth/disconnect-gemini"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
+                        '<button>Nur Gemini-Zugriff widerrufen</button></form>'
                         '<form method="post" action="/oauth/disconnect"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
                         '<button>Alle Freigaben widerrufen</button></form><p><a href="/">Zurück zu Bob</a></p>'),page=True)
             else:respond(handler,404,{'error':'not_found'})
@@ -191,15 +197,15 @@ def route(handler,user,password):
                 else:
                     result = rpc('token' if path.endswith('/token') else 'revoke',user,**fields)
                     respond(handler,400 if 'error' in result else 200,result)
-            elif path in ('/oauth/consent','/oauth/disconnect'):
+            elif path in ('/oauth/consent','/oauth/disconnect','/oauth/disconnect-gemini'):
                 if handler.headers.get('Origin') != ORIGIN:
                     respond(handler,403,{'error':'origin_required'}); return True
                 if not browser_ready(handler,user,password):return True
                 fields = read_body(handler)
-                if path=='/oauth/disconnect':
+                if path in ('/oauth/disconnect', '/oauth/disconnect-gemini'):
                     if not hmac.compare_digest(fields.get('csrf',''),csrf(handler.headers)):
                         respond(handler,403,{'error':'invalid_csrf'}); return True
-                    rpc('revoke-all',user)
+                    rpc('revoke-gemini' if path.endswith('-gemini') else 'revoke-all',user)
                     respond(handler,303,location='/oauth/connections')
                 else:
                     nonce = bob_auth.cookie(handler.headers,COOKIE)
@@ -209,16 +215,17 @@ def route(handler,user,password):
                     if 'redirect_uri' not in result:
                         respond(handler,400,{'error':'invalid_request'})
                     else:
-                        if result.get('redirect_uri') != REDIRECT:
+                        if result.get('redirect_uri') not in (REDIRECT, GEMINI_REDIRECT):
                             raise ValueError('Unexpected OAuth callback')
+                        client_name = ('Gemini CLI' if result['redirect_uri'] == GEMINI_REDIRECT else 'ChatGPT')
                         destination = result.pop('redirect_uri')+'?'+urlencode(result)
                         # A form redirect remains subject to form-action across the
                         # client's redirect chain (including Android app links).
                         # A user-activated link completes the same PKCE flow without
                         # broadening CSP or resubmitting the consumed consent form.
-                        respond(handler,200,page('Zurück zu ChatGPT',
-                            '<p>Deine Entscheidung wurde gespeichert. Schließe die Verbindung jetzt in ChatGPT ab.</p>'
-                            '<p><a rel="noreferrer" referrerpolicy="no-referrer" style="display:block;padding:14px;border-radius:10px;background:#2358b6;color:white;text-align:center;text-decoration:none" href="'+html.escape(destination,quote=True)+'">Zurück zu ChatGPT</a></p>'
+                        respond(handler,200,page('Zurück zu '+client_name,
+                            '<p>Deine Entscheidung wurde gespeichert. Schließe die Verbindung jetzt in '+client_name+' ab.</p>'
+                            '<p><a rel="noreferrer" referrerpolicy="no-referrer" style="display:block;padding:14px;border-radius:10px;background:#2358b6;color:white;text-align:center;text-decoration:none" href="'+html.escape(destination,quote=True)+'">Zurück zu '+client_name+'</a></p>'
                             '<p>Tippe jetzt auf den Button. Der Rückkehrlink gilt zwei Minuten. Diese Seite nicht neu laden und das Freigabeformular nicht erneut absenden.</p>'),
                             cookies=[cookie('',0)],page=True)
             else:respond(handler,404,{'error':'not_found'})

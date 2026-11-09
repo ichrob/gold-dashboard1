@@ -127,6 +127,53 @@ class StateTests(unittest.TestCase):
             self.assertEqual(self.cid,self.call('register',redirect_uris=[store.REDIRECT])['client_id'])
         self.assertEqual(len(self.state['clients']),1)
 
+    def test_gemini_client_registration_and_read_only_scopes(self):
+        allowed = store.SCOPE + ' ' + store.DIAGNOSTICS_SCOPE
+        gemini = self.call('register',redirect_uris=[store.GEMINI_REDIRECT],scope=allowed)
+        gid = gemini['client_id']
+        self.assertNotEqual(gid,self.cid)
+        self.assertEqual(gemini['client_name'],'Bob Gemini Read-only')
+        self.assertEqual(self.call('register',redirect_uris=[store.REDIRECT])['client_id'],self.cid)
+        self.assertEqual(self.call('register',redirect_uris=[store.GEMINI_REDIRECT],scope=allowed)['client_id'],gid)
+        self.assertEqual(len(self.state['clients']),2)
+        for url in ('http://localhost:8766/oauth/callback',
+                    'http://127.0.0.1:8765/oauth/callback',
+                    'http://localhost:8765/oauth/callback?other=1',
+                    'https://evil.example/oauth/callback'):
+            self.assertIn('error',self.call('register',redirect_uris=[url]))
+        for forbidden in (store.PHONE_SCOPE,store.TERMUX_SCOPE,store.PUSH_TEST_SCOPE):
+            self.assertIn('error',self.call('register',
+                          redirect_uris=[store.GEMINI_REDIRECT],scope=forbidden))
+            self.assertIn('error',self.begin(client_id=gid,
+                          redirect_uri=store.GEMINI_REDIRECT,scope=allowed+' '+forbidden))
+        self.assertIn('error',self.begin(client_id=gid,redirect_uri=store.REDIRECT))
+        req = self.begin(client_id=gid,redirect_uri=store.GEMINI_REDIRECT,
+                         scope=allowed)['request']
+        pending = self.call('pending',request=req)
+        self.assertEqual(pending['client_name'],'Gemini CLI')
+        self.assertEqual(set(pending['scope'].split()),{store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        code = self.call('approve',request=req,until=self.now+10000)['code']
+        self.assertIn('error',self.exchange(code))
+        token = self.exchange(code,client_id=gid,redirect_uri=store.GEMINI_REDIRECT)
+        self.assertEqual(set(token['scope'].split()),{store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        self.assertTrue(self.call('check',token=token['access_token'])['valid'])
+        self.assertEqual(self.call('token',grant_type='refresh_token',client_id=gid,
+                          refresh_token=token['refresh_token'],resource=store.RESOURCE,
+                          scope=store.PHONE_SCOPE)['error'],'invalid_scope')
+        # Independent: deleting only Gemini's grant does not revoke ChatGPT.
+        chatgpt = self.exchange(self.authorize())
+        self.call('revoke',token=token['refresh_token'],client_id=gid)
+        self.assertFalse(self.call('check',token=token['access_token'])['valid'])
+        self.assertTrue(self.call('check',token=chatgpt['access_token'])['valid'])
+        # Recreate Gemini separately to test the owner-only disconnect action.
+        req = self.begin(client_id=gid,redirect_uri=store.GEMINI_REDIRECT,
+                         scope=allowed)['request']
+        code = self.call('approve',request=req,until=self.now+10000)['code']
+        gemini_again = self.exchange(code,client_id=gid,redirect_uri=store.GEMINI_REDIRECT)
+        self.call('revoke-gemini')
+        self.assertFalse(self.call('check',token=gemini_again['access_token'])['valid'])
+        self.assertTrue(self.call('check',token=chatgpt['access_token'])['valid'])
+
     def test_revocation(self):
         tokens = self.exchange(self.authorize())
         self.call('revoke',token=tokens['refresh_token'],client_id='wrong')
@@ -245,6 +292,62 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.form('/oauth/disconnect',{'csrf':'wrong'},cookies)[0],403)
         self.assertEqual(self.form('/oauth/disconnect',{'csrf':oauth.csrf({'Cookie':self.session})},cookies)[0],303)
         self.assertEqual(self.request('POST','/mcp','{}',headers)[0],401)
+
+    def test_gemini_local_callback_is_owner_approved_and_not_chatgpt(self):
+        allowed = store.SCOPE+' '+store.DIAGNOSTICS_SCOPE
+        status,_,body = self.request('POST','/oauth/register',
+            json.dumps({'redirect_uris':[store.GEMINI_REDIRECT],'scope':allowed}),
+            {'Content-Type':'application/json'})
+        self.assertEqual(status,201)
+        gid = json.loads(body)['client_id']
+        verifier = 't'*43
+        params = dict(client_id=gid,redirect_uri=store.GEMINI_REDIRECT,
+                      response_type='code',scope=allowed,resource=store.RESOURCE,
+                      state='gemini-flow',code_challenge=store.challenge(verifier),
+                      code_challenge_method='S256')
+        status,headers,_=self.request('GET','/oauth/authorize?'+urlencode(params))
+        self.assertEqual(status,303)
+        pending_cookie=headers['Set-Cookie'].split(';')[0]
+        cookies=pending_cookie+'; '+self.session
+        status,_,page=self.request('GET','/oauth/resume',headers={'Cookie':cookies})
+        self.assertEqual(status,200)
+        self.assertIn(b'Gemini CLI mit Bob verbinden',page)
+        self.assertIn(b'Google-Datenschutz:',page)
+        self.assertIn(b'Google-Produkten verwendet',page)
+        self.assertNotIn(b'Termux-Wartung erlauben',page)
+        nonce=pending_cookie.split('=',1)[1]
+        self.assertEqual(self.form('/oauth/consent',{'request':nonce,'decision':'approve'},
+                         cookies,origin='https://evil.example')[0],403)
+        status,_,body=self.form('/oauth/consent',
+                               {'request':nonce,'decision':'approve'},cookies)
+        self.assertEqual(status,200)
+        self.assertIn(b'Zur\xc3\xbcck zu Gemini CLI',body)
+        import html
+        url=html.unescape(re.search(r'href="([^"]+)"',body.decode()).group(1))
+        self.assertEqual(url.split('?')[0],store.GEMINI_REDIRECT)
+        value=parse_qs(urlparse(url).query)
+        self.assertEqual(value['iss'],[store.ORIGIN])
+        status,_,body=self.form('/oauth/token',
+                               dict(grant_type='authorization_code',
+                                    client_id=gid,redirect_uri=store.GEMINI_REDIRECT,
+                                    code=value['code'][0],code_verifier=verifier,
+                                    resource=store.RESOURCE))
+        self.assertEqual(status,200)
+        self.assertEqual(set(json.loads(body)['scope'].split()),
+                         {store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        gemini_token = json.loads(body)['access_token']
+        # Only an authenticated owner with Bob's CSRF can revoke this client.
+        status,_,page=self.request('GET','/oauth/connections',
+                                   headers={'Cookie':self.session})
+        self.assertEqual(status,200)
+        self.assertIn(b'Nur Gemini-Zugriff widerrufen',page)
+        self.assertEqual(self.form('/oauth/disconnect-gemini',
+                         {'csrf':'wrong'},self.session)[0],403)
+        csrf = oauth.csrf({'Cookie':self.session})
+        self.assertEqual(self.form('/oauth/disconnect-gemini',
+                         {'csrf':csrf},self.session)[0],303)
+        self.assertFalse(store.transition(self.state,'check',
+                          {'token':gemini_token})['valid'])
 
     def test_daily_factor_cannot_be_bypassed(self):
         self.begin()
