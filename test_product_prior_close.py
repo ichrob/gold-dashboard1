@@ -22,8 +22,8 @@ class PreviousSessionResearchTests(unittest.TestCase):
         d = out['dailyChange']
         self.assertAlmostEqual(d['percent'], 10)
         self.assertEqual(d['previousClose'], 10)
-        self.assertEqual(d['referenceAt'], '2026-11-06T21:59:00+01:00')
-        self.assertEqual(d['at'], '2026-11-09T09:00:00+01:00')
+        self.assertEqual(d['referenceAt'], '2026-11-06T20:59:00+00:00')
+        self.assertEqual(d['at'], '2026-11-09T08:00:00+00:00')
         self.assertEqual(d['basis'], 'bid-vs-last-observed-prior-day')
         self.assertEqual(d['currency'], 'EUR')
         self.assertFalse(d['isExecutableQuote'])
@@ -69,7 +69,7 @@ class PreviousSessionResearchTests(unittest.TestCase):
         out=evaluate(PRODUCT,points,ISIN,now=now)
         self.assertIsNone(out['dailyChange'])
         self.assertEqual(out['lateReference']['referenceBid'],10)
-        self.assertEqual(out['lateReference']['referenceAt'],'2026-11-09T21:59:30+01:00')
+        self.assertEqual(out['lateReference']['referenceAt'],'2026-11-09T20:59:30+00:00')
 
     def test_no_historical_or_terminal_percent_ever_fabricated(self):
         now=at('2026-11-09T09:00:00+01:00')
