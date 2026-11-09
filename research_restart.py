@@ -147,8 +147,20 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
     valid = quality.get('simulationUsable',False) if modeled else quality['verified']
     if quality['verified']:
         q['original'] += 1
-    elif not valid:
-        q['invalid'] += 1
+    else:
+        # Cumulative compact counters are not reconstructed for historic
+        # observations. They start at this code revision without rewriting
+        # existing original cases or model-only outcomes.
+        code = quality.get('reasonCode')
+        from paper_shadow_studies import ORIGINAL_INPUT_REASONS
+        if code not in ORIGINAL_INPUT_REASONS:
+            code = "original-evidence-unverified"
+        reasons = q.setdefault('originalBlockReasons', {})
+        reasons[code] = reasons.get(code, 0) + 1
+        q['lastOriginalBlockAt'] = now
+        q['lastOriginalBlockCode'] = code
+        if not valid:
+            q['invalid'] += 1
     fresh = valid and (state['lastSourceAt'] is None or at > state['lastSourceAt'])
     if valid and not fresh:
         q['duplicateSource'] += 1
