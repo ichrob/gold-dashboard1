@@ -413,8 +413,10 @@ def new_studies_brief(paper):
     variants = timing.get('variants') if isinstance(timing.get('variants'), list) else None
     arms = entry.get('variants') if isinstance(entry.get('variants'), dict) else None
     return {
-        'status':'observed' if all(isinstance(paper.get(k),dict) for k in keys)
-            else 'partial',
+        'status':'observed' if (all(isinstance(paper.get(k),dict) for k in keys)
+            and all(isinstance(v,dict) and v.get('status') not in
+                    (None, 'unavailable','failed','partial')
+                    for v in (quality,shadow,timing,entry))) else 'partial',
         'readOnly':True, 'realOrders':False,
         'scope':'new-studies-sanitized-control-sample-not-execution-proof',
         'quality':{**core(quality), 'studies':originals,
