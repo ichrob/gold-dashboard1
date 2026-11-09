@@ -95,6 +95,11 @@ class TLSServer(HTTPServer):
 
 
 def serve():
+    # An Oracle container may never be started accidentally from a sample
+    # docker run or if the operator has not reviewed the real OCI plan.
+    # This is an app lock, not a substitute for Oracle account/quotas checks.
+    if os.environ.get("BOB_OCI_FREE_TIER_OWNER_REVIEWED") != "true":
+        raise RuntimeError("oci_owner_free_tier_review_required")
     cert = os.environ.get("BOB_ORACLE_OCR_TLS_CERT", "/run/secrets/tls.crt")
     key = os.environ.get("BOB_ORACLE_OCR_TLS_KEY", "/run/secrets/tls.key")
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
