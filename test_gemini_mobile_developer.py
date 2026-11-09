@@ -111,7 +111,27 @@ class GeminiMobileDeveloperTests(unittest.TestCase):
                 g.run()
                 api.assert_not_called()
 
-    def test_workflow_is_only_manual_and_cannot_write_repository(self):
+    def test_workflow_manual_or_exact_owner_comment_without_code_write(self):
+        source = Path(".github/workflows/bob-gemini-mobile-developer.yml").read_text()
+        # Owner-only exact comment, no arbitrary user text reaching shell.
+        self.assertIn("workflow_dispatch:", source)
+        self.assertIn("issue_comment:", source)
+        self.assertIn("types: [created]", source)
+        self.assertIn("github.event.comment.user.login == 'ichrob'", source)
+        self.assertIn("github.event.comment.body == '/bob-gemini-dev GEMINI.md'", source)
+        self.assertIn("!github.event.issue.pull_request", source)
+        self.assertIn("github.event_name == 'workflow_dispatch'", source)
+        self.assertIn("github.event.issue.number || inputs.issue_number", source)
+        self.assertIn("'GEMINI.md' || inputs.target_file", source)
+        self.assertIn("contents: read", source)
+        self.assertIn("issues: write", source)
+        self.assertNotIn("contents: write", source)
+        self.assertNotIn("pull-requests: write", source)
+        self.assertNotIn("id-token: write", source)
+        self.assertNotIn("schedule:", source)
+        self.assertIn("persist-credentials: false", source)
+
+
         source = Path(".github/workflows/bob-gemini-mobile-developer.yml").read_text()
         self.assertIn("workflow_dispatch:", source)
         self.assertIn("contents: read", source)
