@@ -31,6 +31,17 @@ VARIANTS = {
     # A NEW closed 5m push is evaluated on its own clock, not by refreshing an old 15m signal.
     'follow5': dict(minutes=5, continuation=True,
                     label='5m · frischer Folgeimpuls LONG/SHORT (30–300 Minuten)'),
+    # New forward-only arms. Old cases remain immutable and keep their original rule.
+    'fast3neutral': dict(minutes=3, neutral=True,
+                         label='3m · schneller Einstieg bei neutralem 1h-Kontext'),
+    'follow5neutral': dict(minutes=5, continuation=True, neutral=True,
+                           label='5m · frischer Folgeimpuls bei neutralem 1h-Kontext'),
+    'score65': dict(minutes=5, score_long=65, score_short=35,
+                    label='5m · Kollektivrichtungswert 65/35'),
+    'score70': dict(minutes=5, score_long=70, score_short=30,
+                    label='5m · Kollektivrichtungswert 70/30'),
+    'rr20': dict(minutes=5, min_remaining_rr=2.0,
+                 label='5m · Mindestzielabstand 2,0R (Vergleich zu 1,5R)'),
 }
 NOTE = ('Vorwärts-Test auf Gold-Spot, keine KO-Produktrendite. 0,16 % Gesamtkosten sind eine Annahme. '
         'Original- und Schätzfälle getrennt; Verluste und Stops nur an beobachteten Kursen. '
@@ -194,6 +205,27 @@ def fresh_continuation_signal(rows, now):
             'reason':None if side else 'no-fresh-continuation'}
 
 
+def score_gate(signal, market, config):
+    """Apply only optional study score arms; never change the main Bob score gate."""
+    if 'score_long' not in config:
+        return True, None
+    score=market.get('score')
+    if not number(score):
+        return False, 'collective-score-unavailable'
+    side=signal.get('direction')
+    if (side=='LONG' and score<config['score_long'] or
+        side=='SHORT' and score>config['score_short']):
+        return False, 'collective-score-too-weak'
+    return True, None
+
+
+def target_room(target, price, risk, side, config):
+    """A future risk-adjusted target, never a presumed product fill."""
+    if not positive(target) or not positive(price) or not positive(risk):
+        return False
+    return (1 if side=='LONG' else -1)*(target-price)/risk >= config.get('min_remaining_rr',1.5)
+
+
 def gate(signal, trend, config):
     if not signal.get('available'):
         return False, signal.get('reason','signal-input-missing')
@@ -343,6 +375,8 @@ def advance(old, bundle, market, selection, quotes, now):
             key_signal=(cfg['minutes'], 'continuation' if cfg.get('continuation') else bool(cfg.get('pullback')))
             sig = signals.get(key_signal,dict(available=False,reason=error))
             allowed, reason = gate(sig,trend,cfg)
+            if allowed:
+                allowed,reason=score_gate(sig,market,cfg)
             if (allowed and price['available'] and market.get('ready') is True
                     and market.get('priceFresh') is True and number(market.get('dataAt'))
                     and abs(market['dataAt']-price['at'])<=2000
@@ -422,7 +456,7 @@ def advance(old, bundle, market, selection, quotes, now):
                 risk = sig['atr']*1.5
                 # Frozen objective, reject already extended entry with insufficient room.
                 target = sig['level']+sign*3*risk
-                if sign*(target-price['price'])/risk < 1.5:
+                if not target_room(target,price['price'],risk,sig['direction'],cfg):
                     a['reason']='entry-too-late'; a['lastSignal']=signal_key
                     continue
                 a['started'] += 1; a['lastSignal']=signal_key
