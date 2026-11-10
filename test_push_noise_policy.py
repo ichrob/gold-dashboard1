@@ -43,7 +43,18 @@ class NoisePolicyTests(unittest.TestCase):
         state, events = self.tick(state, 120)
         self.assertNotIn('data-recovered', self.kinds(events))
         state, events = self.tick(state, 150)
-        self.assertIn('data-recovered', self.kinds(events))
+        self.assertNotIn('data-recovered', self.kinds(events))
+        self.assertTrue(state['healthy'])
+        self.assertTrue(state['announcedHealthy'])
+        self.assertNotIn('healthPending', state)
+        self.assertTrue(any(entry['kind'] == 'data-recovered' and entry['outcome'] == 'suppressed'
+                            for entry in state['pushHistory']))
+        # A new real outage must still be reported after silent recovery.
+        for seconds in (180, 210):
+            state, events = self.tick(state, seconds, ready=False)
+            self.assertNotIn('data-unavailable', self.kinds(events))
+        state, events = self.tick(state, 240, ready=False)
+        self.assertIn('data-unavailable', self.kinds(events))
 
     def test_direction_confirmation_neutral_and_restart(self):
         state, events = self.tick()

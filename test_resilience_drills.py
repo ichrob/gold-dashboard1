@@ -14,8 +14,12 @@ class Drills(unittest.TestCase):
             self.assertFalse(any(e['data']['eventKind']=='target' for e in events))
         self.assertIn('data-unavailable',[e['data']['eventKind'] for e in events])
         state,_=b.advance(state,self.settings,self.market,False,True,now=90000)
-        _,events=b.advance(state,self.settings,self.market,False,True,now=120000)
-        self.assertIn('data-recovered',[e['data']['eventKind'] for e in events])
+        state,events=b.advance(state,self.settings,self.market,False,True,now=120000)
+        self.assertNotIn('data-recovered',[e['data']['eventKind'] for e in events])
+        self.assertTrue(state['healthy'])
+        self.assertTrue(state['announcedHealthy'])
+        self.assertTrue(any(item['kind']=='data-recovered' and item['outcome']=='suppressed'
+                            for item in state['pushHistory']))
     def test_transport_recovery(self):
         from test_background_push import BackgroundDelivery
         case=BackgroundDelivery('test_background_failure_keeps_checkpoint_and_success_persists')
