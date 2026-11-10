@@ -833,6 +833,14 @@ def entry_block_evidence(conn, portfolios, limit=5):
                 safe_counts.append({'reason':clean_text(str(reason))[:500],
                                     'checks':count})
             safe_counts.sort(key=lambda item: (-item['checks'], item['reason']))
+            # Preserve reason coverage when only the top five labels fit in the
+            # bounded read response. Never label the omitted checks "unknown".
+            hidden = safe_counts[limit:]
+            from paper_simulation import paper_entry_reason_code
+            remainder_codes = {}
+            for missing in hidden:
+                code = paper_entry_reason_code(missing['reason'])
+                remainder_codes[code] = remainder_codes.get(code,0)+missing['checks']
             # Compact quarter-hour evidence is deliberately separate from the
             # capped 200-row detail sequence. The first bucket is the real
             # first persisted observation, never a recreated historical window.
@@ -903,6 +911,8 @@ def entry_block_evidence(conn, portfolios, limit=5):
                 'distinctReasons':len(safe_counts),
                 'reasonCounts':safe_counts[:limit],
                 'reasonCountsTruncated':len(safe_counts) > limit,
+                'otherReasonChecks':sum(row['checks'] for row in hidden),
+                'otherReasonCategories':remainder_codes,
                 'storedRecords':len(blocks), 'returnedRecords':len(latest),
                 'omittedRecords':max(0, len(blocks) - len(latest)),
                 'sourceTruncated':payload.get('entryBlocksTruncated') is True,
