@@ -54,8 +54,11 @@ def bearer_authenticated(headers, user, required_scope=SCOPE):
         raise bob_auth.AuthenticationUnavailable() from None
 
 
-def challenge_header():
-    return 'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource", scope="'+SCOPE+'"'
+def challenge_header(owner_diagnostics=False):
+    # This header only *requests* additional read scopes during a fresh OAuth
+    # flow. No token or grant changes without the owner's PKCE browser consent.
+    scopes = SCOPE + ' ' + DIAGNOSTICS_SCOPE if owner_diagnostics else SCOPE
+    return 'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource", scope="'+scopes+'"'
 
 
 def resume_location(headers):
