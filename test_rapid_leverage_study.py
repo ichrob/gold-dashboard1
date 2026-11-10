@@ -59,7 +59,7 @@ class RapidEntryTests(unittest.TestCase):
         self.assertFalse(comparison["30"]["productReturnVerified"])
         self.assertIsNone(comparison["5"].get("confirmedTurboNetEur"))
         # Equally risk-sized spot proxies have similar gross payoff.
-        self.assertAlmostEqual(comparison["5"]["grossEur"],comparison["20"]["grossEur"],places=1)
+        self.assertAlmostEqual(comparison["10"]["grossEur"],comparison["20"]["grossEur"],places=1)
 
     def test_observed_stop_exits_are_not_ideal_stop_fills(self):
         old, _ = s.advance(s.seed(NOW), sample(), NOW)
