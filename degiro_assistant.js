@@ -1781,7 +1781,7 @@ function productProblemLabels(p){
  if(result.complete)return [];
  const paused=typeof expectedQuotePause==='function'&&expectedQuotePause(p);
  const analysis=typeof currentSgChfAnalysisProof==='function'?currentSgChfAnalysisProof(p):null;
- const labels=analysis&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?['DEGIRO-Handelsplatznachweis']:[];
+ const labels=[]; // Broker listing does not block research or paper analyses.
  if(typeof productFxIssue==='function'&&productFxIssue(p))labels.push('Wechselkurs veraltet oder nicht verfügbar');
  // Missing evidence is different from a missing numeric value. A datable
  // analysis quote must not be shown as an absent Geld/Brief pair merely because
@@ -1795,10 +1795,9 @@ function productProblemLabels(p){
   // These are fallback screenshot requirements, not absent issuer analysis data.
   // Keep contradictory evidence and all contract/KO failures visible.
   if(analysis&&/^(?:Zusätzlicher Live-Nachweis offen|Detailbild mit derselben ISIN|Aktuelles Kursbild mit Geld\/Brief in EUR|Kurszeit mit Datum: höchstens 14 Stunden alt; keine ergänzten Sekunden|Aktuelles Detailbild mit Hebel und zugehöriger Zeit)$/.test(r))continue;
-  if(/DEGIRO-Handelsplatznachweis/i.test(r))found.push('DEGIRO-Handelsplatznachweis');
   if(/Hebel/i.test(r))found.push(leveragePresent?'Hebelzeit / Quellenprüfung':'Hebel');
   if(/Kurszeit|Quellenzeit|Zeitstempel|Kurs.*(alt|zeit)|Geld.*Brief.*Zeit/i.test(r))found.push('Kurszeit');
-  if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push(pairPresent?(degiroVenueObserved(p)||degiroVenueInferred(p)?'Kursart / Ausführbarkeit':'Kursart / DEGIRO-Handelsplatznachweis'):'Kursnachweis');
+  if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push(pairPresent?'Kursart / Ausführbarkeit':'Kursnachweis');
   if(/Basispreis|Finanzierungslevel/i.test(r))found.push('Basispreis');
   if(/KO|Knock-out|Barriere/i.test(r))found.push('KO-Nachweis');
   if(/Bezugsverhältnis/i.test(r))found.push('Bezugsverhältnis');
@@ -2173,7 +2172,7 @@ function renderProductDirectionStatus(p,now=Date.now()){
   // Keep productDirectionCheck and all trading/collection gates unchanged.
   const venue=degiroVenueObserved(p)?'<span style="color:#15803d">✓ DEGIRO-Handelsplatz belegt</span>':
    degiroVenueInferred(p,listArchive,now)?'<span>Handelsplatz aus Quellen abgeleitet</span>':
-   '<span style="color:#92400e">⚠ DEGIRO-Handelsplatznachweis offen</span>';
+   ''; // No missing-DEGIRO-venue blocker on analysis cards.
   return '<span data-direction-data-status data-sg-chf-analysis-only role="status" aria-label="Kurs und Hebel aktuell für die Analyse; gemeinsamer Zeitbezug bestätigt; Ausführungskurs bei DEGIRO nicht bestätigt" style="display:inline-flex;gap:6px;flex-wrap:wrap"><strong style="color:#15803d">✓ Kurs/Hebel aktuell · Analyse</strong><span style="color:#15803d">✓ Gemeinsamer Zeitbezug bestätigt</span>'+venue+'<span data-execution-proof-open style="color:#92400e">Ausführungskurs bei DEGIRO: nicht bestätigt</span></span>';
  }
 
@@ -3908,8 +3907,8 @@ function analysisReleaseQuote(p,now=Date.now()){
 function finalProductStatus(p,now=Date.now(),reference){
  if(knockoutStatus(p))return {complete:false,terminal:true,reasons:["Ausgeknockt – keine weiteren Daten erforderlich"]};
  const status=productTermsStatus(p,now),reasons=status.reasons.slice();
- const venue=sharedVenueStatus(p,now);
- if(venue?.required&&!venue.current)reasons.push('DEGIRO-Handelsplatznachweis offen');
+ // A broker venue screenshot is not a prerequisite for product analysis,
+ // ranking, or paper simulations. Execution must still be checked separately.
  const q=p.quote?.isin===p.isin?p.quote:null;
  const r=q?.productVerified&&q.metadata?.contract===q.futureResearch?.contract?q.futureResearch:null;
  const pair=(x,source)=>!!source&&n(x?.bid)>0&&n(x?.ask)>=n(x.bid)&&!x.delayed&&freshTimes([x.bidAt,x.askAt],now,90);
