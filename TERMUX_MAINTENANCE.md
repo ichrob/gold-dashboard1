@@ -13,7 +13,7 @@ Handy-Lesezugriff freigegeben. Die Installation einer APK allein aktiviert nicht
    mit der **zusätzlichen** Berechtigung `bob:termux:execute` verbinden. Alte Tokens
    behalten exakt ihre bisherigen Rechte. Die Tools heißen `bob_termux_status`
    und `bob_termux_execute`; ohne sichtbare Tools keine Bedienbarkeit behaupten.
-4. Auf dem Samsung „Termux-Wartung für ChatGPT · 30 Minuten“ öffnen und den
+4. Auf dem Samsung „Termux-Wartung für ChatGPT · 2 Stunden“ öffnen und den
    Berechtigungsumfang bestätigen. Kein Passwort und kein API-Schlüssel im Chat.
 5. Erster Gerätetest: `printf 'BOB_TERMUX_OK\n'; python --version` mit eigener
    Request-ID. Erst das zugehörige bestätigte Ergebnis belegt Ausführung.
@@ -27,6 +27,13 @@ Klartext aus dem Offline-Tresor, Finanzorders oder dauerhafte Hintergrunddienste
 übertragen oder ausführen. Der Tresor bleibt passwortgeschützt; das Passwort
 wird nicht gespeichert oder fernabgefragt. Die Werkzeuge können einen fehlenden
 unabhängigen Recovery-Nachweis nicht ohne echte Entschlüsselungsprüfung ersetzen.
+
+Die Wartung wird **nur nach lokalem Start** für höchstens 120 Minuten geöffnet.
+Ein laufender 30-Minuten-Zeitraum der bisherigen APK lässt sich nicht nachträglich
+verlängern: erst das signierte Bob-Handy-Update installieren, dann eine neue
+Sitzung ausdrücklich starten. STOPP, Ablauf nach zwei Stunden und das Beenden
+oder Neustarten des App-Prozesses entziehen die Berechtigung. Die längere Dauer
+erhöht die Zeit, in der die freigegebene Termux-Shell erreichbar sein kann.
 
 Jeder Auftrag hat eine eigene ID; Wiederholungen liefern denselben Status und
 führen den Auftrag nicht erneut aus. Maximal 60 Jobs/Sitzung, 6000 UTF-8-Bytes

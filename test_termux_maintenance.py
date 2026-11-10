@@ -42,6 +42,37 @@ class Policy(unittest.TestCase):
         s,_=t.exchange(s,dict(sessionId=SID,expiresAt=NOW+1800,active=True,result=None),NOW+2)
         self.assertFalse(s['active'])
 
+    def test_two_hour_handset_window_and_hard_server_cap(self):
+        self.assertEqual(t.MAX_SESSION_SECONDS, 7200)
+        two_hours=dict(sessionId=SID,expiresAt=NOW+7200,active=True,result=None)
+        state2,reply=t.exchange({},two_hours,NOW)
+        self.assertEqual(state2['expiresAt'],NOW+7200)
+        self.assertEqual(reply['sessionId'],SID)
+        state2,_=t.exchange(state2,{**two_hours,'expiresAt':NOW+7300},NOW+100)
+        self.assertEqual(state2['expiresAt'],NOW+7200)  # no heartbeat extension
+        state2,reply=t.exchange(state2,dict(sessionId=SID,expiresAt=NOW+7200,active=False,result=None),NOW+101)
+        self.assertFalse(state2['active'])
+        self.assertIsNone(reply['command'])
+        state2,_=t.exchange(state2,two_hours,NOW+102)
+        self.assertFalse(state2['active'])  # STOP is irreversible
+        with self.assertRaises(ValueError):
+            t.exchange({},dict(sessionId=SID,expiresAt=NOW+7206,active=True,result=None),NOW)
+        # Existing APKs may still send 30-minute sessions while users update.
+        self.assertEqual(state()['expiresAt'],NOW+1800)
+
+    def test_android_duration_contract_and_owner_consent_text(self):
+        root=Path('android_companion/app/src/main/java/ch/bob/degirocompanion')
+        handset=(root/'TermuxMaintenance.kt').read_text()
+        ui=(root/'MainActivity.kt').read_text()
+        self.assertIn('SESSION_DURATION_MILLIS = 7_200_000L',handset)
+        self.assertIn('SESSION_DURATION_SECONDS = 7_200L',handset)
+        self.assertIn('SystemClock.elapsedRealtime()+SESSION_DURATION_MILLIS',handset)
+        self.assertIn('System.currentTimeMillis()/1000+SESSION_DURATION_SECONDS',handset)
+        self.assertIn('handler.postDelayed({if(session==id)stop(c)},SESSION_DURATION_MILLIS)',handset)
+        self.assertIn('Termux-Wartung für ChatGPT · 2 Stunden',ui)
+        self.assertIn('Während 2 Stunden darf',ui)
+        self.assertIn('button("Termux-Wartung stoppen")',ui)
+
     def test_deadline_cannot_be_extended(self):
         s=state();s,_=t.exchange(s,dict(sessionId=SID,expiresAt=NOW+1810,active=True,result=None),NOW+10)
         self.assertEqual(s['expiresAt'],NOW+1800)
