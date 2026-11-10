@@ -60,10 +60,10 @@ def _public_page_explicit_troy_ounce(body):
     Investing.com has stopped populating commodityData.unit in some pages.
     Never trust strings embedded only in scripts or an arbitrary unit label.
     """
-    visible = re.sub(r'(?is)<(?:script|style)\\b[^>]*>.*?</(?:script|style)\\s*>',
+    visible = re.sub(r'(?is)<(?:script|style)\b[^>]*>.*?</(?:script|style)\s*>',
                      ' ', body)
-    visible = re.sub(r'\\s+', ' ', html.unescape(re.sub(r'<[^>]*>', ' ', visible)))
-    return bool(re.search(r'\\bEinheit\\s*:?\\s*.{0,110}?\\b1\\s+Feinunze\\b',
+    visible = re.sub(r'\s+', ' ', html.unescape(re.sub(r'<[^>]*>', ' ', visible)))
+    return bool(re.search(r'\bEinheit\s*:?\s*.{0,110}?\b1\s+Feinunze\b',
                           visible, re.I))
 
 
