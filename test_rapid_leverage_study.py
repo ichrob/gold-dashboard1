@@ -57,6 +57,10 @@ class RapidEntryTests(unittest.TestCase):
         self.assertLess(comparison["20"]["investedEur"],comparison["5"]["investedEur"])
         self.assertLessEqual(comparison["20"]["investedEur"],650)
         self.assertFalse(comparison["30"]["productReturnVerified"])
+        self.assertGreater(comparison["20"]["sameExposureCounterfactual"]["modeledNetEur"],
+                           comparison["5"]["sameExposureCounterfactual"]["modeledNetEur"])
+        self.assertGreater(comparison["20"]["sameExposureCounterfactual"]["modeledStopRiskPctOfAccount"],
+                           comparison["5"]["sameExposureCounterfactual"]["modeledStopRiskPctOfAccount"])
         self.assertIsNone(comparison["5"].get("confirmedTurboNetEur"))
         # Equally risk-sized spot proxies have similar gross payoff.
         self.assertAlmostEqual(comparison["10"]["grossEur"],comparison["20"]["grossEur"],places=1)
