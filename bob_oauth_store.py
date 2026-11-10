@@ -122,6 +122,8 @@ def transition(state, action, p, now=None):
         pending[digest(nonce)] = {k:p[k] for k in ('client_id','redirect_uri','state','code_challenge')}
         pending[digest(nonce)]['expires'] = now + 900
         pending[digest(nonce)]['scope'] = p.get('scope', SCOPE)
+        # The resource was explicitly checked above. Bind the grant to it.
+        pending[digest(nonce)]['resource'] = RESOURCE
         return {'request':nonce}
     if action in ('pending', 'approve', 'deny'):
         key = digest(p.get('request',''))
@@ -141,7 +143,9 @@ def transition(state, action, p, now=None):
         if until <= now or len(grants) >= 32:
             return {**response, 'error':'access_denied'}
         gid, code = secret(), secret('boc_')
-        grants[gid] = {'client_id':req['client_id'], 'expires':until, 'created':now, 'scope':req.get('scope', SCOPE)}
+        grants[gid] = {'client_id':req['client_id'], 'expires':until, 'created':now,
+                       'scope':req.get('scope', SCOPE),
+                       'resource':req.get('resource', RESOURCE)}
         codes[digest(code)] = {**req, 'grant':gid, 'used':False, 'expires':now+CODE_TTL}
         return {**response, 'code':code}
     if action == 'token':
@@ -151,9 +155,16 @@ def transition(state, action, p, now=None):
         # Keep strict audience binding, but distinguish a missing/mismatched
         # OAuth Resource Indicator from an unsupported scope. Never echo the
         # client-supplied resource, scope, client ID or token in these errors.
-        if p.get('resource') != RESOURCE:
-            reason = 'resource_missing' if 'resource' not in p else 'resource_mismatch'
-            return {'error':'invalid_target', 'error_description':reason}
+        # Antigravity CLI 1.5.3 omits the resource indicator for OAuth
+        # token requests during MCP scope step-up. An omission may inherit the
+        # resource explicitly bound to the approved grant (RFC 8707). Only
+        # the pinned Antigravity redirect is eligible for this exception.
+        missing_resource = 'resource' not in p
+        antigravity = clients[cid].get('redirect_uri') == ANTIGRAVITY_REDIRECT
+        if missing_resource and not antigravity:
+            return {'error':'invalid_target', 'error_description':'resource_missing'}
+        if not missing_resource and p['resource'] != RESOURCE:
+            return {'error':'invalid_target', 'error_description':'resource_mismatch'}
         if not valid_scope(p.get('scope',SCOPE)):
             return {'error':'invalid_scope', 'error_description':'unsupported_scope'}
         if p.get('grant_type') == 'authorization_code':
@@ -163,7 +174,13 @@ def transition(state, action, p, now=None):
                     or not re.fullmatch(r'[A-Za-z0-9._~-]{43,128}',verifier)
                     or not hmac.compare_digest(challenge(verifier),record['code_challenge'])):
                 return error('invalid_grant')
-            if 'scope' in p and set(p['scope'].split()) != set(grants.get(record['grant'], {}).get('scope', SCOPE).split()):
+            bound_grant = grants.get(record['grant'], {})
+            # Older grants predate the persisted resource field, but they
+            # were all issued after begin() checked the exact RESOURCE.
+            if missing_resource and (record.get('resource', RESOURCE) != RESOURCE or
+                                     bound_grant.get('resource', RESOURCE) != RESOURCE):
+                return {'error':'invalid_target', 'error_description':'resource_mismatch'}
+            if 'scope' in p and set(p['scope'].split()) != set(bound_grant.get('scope', SCOPE).split()):
                 return error('invalid_scope')
             if record['used']:
                 grants.pop(record['grant'],None)
@@ -174,7 +191,9 @@ def transition(state, action, p, now=None):
             grant = grants.get(record['grant']) if record else None
             if not grant or grant['client_id'] != cid:
                 return error('invalid_grant')
-            if 'scope' in p and set(p['scope'].split()) != set(grants.get(record['grant'], {}).get('scope', SCOPE).split()):
+            if missing_resource and grant.get('resource', RESOURCE) != RESOURCE:
+                return {'error':'invalid_target', 'error_description':'resource_mismatch'}
+            if 'scope' in p and set(p['scope'].split()) != set(grant.get('scope', SCOPE).split()):
                 return error('invalid_scope')
             if record['used']:
                 grants.pop(record['grant'],None)
