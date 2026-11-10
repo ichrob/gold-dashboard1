@@ -21,6 +21,8 @@ class BrokerVenueTests(unittest.TestCase):
         self.assertNotIn('venue',r['missing'])
         self.assertIn('quote',r['missing'])
         self.assertFalse(r['degiroVerified']);self.assertFalse(r['tradeApproved'])
+        self.assertTrue(r['brokerVenueStatus']['brokerDisplayObserved'])
+        self.assertFalse(r['brokerVenueStatus']['executionVerified'])
         self.assertEqual(r['brokerVenueEvidence']['timePrecision'],'minute')
         p.pop('brokerVenueEvidence')
         self.assertNotIn('venue',audit.examine(p,q,self.now.timestamp()*1000)['missing'])
