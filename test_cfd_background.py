@@ -35,6 +35,53 @@ class CfdBackgroundTests(unittest.TestCase):
         with patch.object(c,'_next_fetch',0),patch.object(c,'_fetch',return_value=self.quote):
             c.collect_once();self.assertEqual(c.health()['state'],'current')
 
+
+    def test_safe_provider_failure_codes_preserve_source_age_and_recover(self):
+        from urllib.error import HTTPError, URLError
+        provider_errors = [
+            (HTTPError(c.URL,403,'ignored',{},None),'http-403'),
+            (HTTPError(c.URL,429,'ignored',{},None),'http-429'),
+            (HTTPError(c.URL,503,'ignored',{},None),'http-503'),
+            (TimeoutError('ignored'),'provider-timeout'),
+            (URLError(TimeoutError('ignored')),'provider-timeout'),
+            (URLError(OSError('private detail')),'provider-network'),
+            (ValueError('private body'),'provider-content-invalid'),
+            (OSError('private address'),'provider-network'),
+        ]
+        with patch.object(c,'_fetch',return_value=self.quote):
+            c.collect_once()
+        original = c.health()['sourceAt']
+        for err, expected in provider_errors:
+            with self.subTest(expected=expected):
+                with patch.object(c,'_next_fetch',0):
+                    with patch.object(c,'_fetch',side_effect=err):
+                        c.collect_once()
+                state = c.health()
+                self.assertEqual(state['state'],'unavailable')
+                self.assertEqual(state['sourceAt'],original)
+                self.assertEqual(state['failureCode'],expected)
+                self.assertGreater(state['failureAt'],0)
+                self.assertNotIn('private',str(state))
+        with patch.object(c,'_next_fetch',0):
+            with patch.object(c,'_fetch',return_value=self.quote):
+                c.collect_once()
+        self.assertEqual(c.health()['state'],'current')
+        self.assertIsNone(c.health()['failureCode'])
+        self.assertIsNone(c.health()['failureAt'])
+
+    def test_cooldown_does_not_replace_original_http_block_reason(self):
+        from urllib.error import HTTPError
+        with patch.object(c,'_fetch',side_effect=HTTPError(c.URL,403,'blocked',{},None)):
+            c.collect_once()
+        stamp = c.health()['failureAt']
+        self.assertEqual(c.health()['failureCode'],'http-403')
+        with patch.object(c,'_next_fetch',float('inf')):
+            c.collect_once()
+        self.assertEqual(c.health()['state'],'unavailable')
+        self.assertEqual(c.health()['failureCode'],'http-403')
+        self.assertEqual(c.health()['failureAt'],stamp)
+        self.assertIsNone(c.health()['sourceAt'])
+
     def test_cached_source_never_gets_a_new_time_or_realtime_label(self):
         epoch=datetime.fromisoformat(self.quote['at']).timestamp()
         with patch.object(c,'_fetch',return_value=self.quote):c.collect_once()
