@@ -36,6 +36,36 @@ for(const side of ['LONG','SHORT']){
  assert.equal(reject.allowed,false,'chase '+side);
  assert.match(reject.reason,/ATR/);
 }
+// Separate closed-5m follow-through may re-open an older same-direction trend.
+// It must NOT refresh the timestamp of the older 15m confirmation.
+function followThroughBundle(direction){
+ const b=bundle(direction),sign=direction==='LONG'?1:-1;
+ const five=b.history.bars_by_tf['5m'],p=five.at(-3).close;
+ function setBar(bar,open,close){
+  bar.open=open;bar.close=close;bar.high=Math.max(open,close)+.05;
+  bar.low=Math.min(open,close)-.05;
+ }
+ setBar(five.at(-2),p,p+sign*.8);
+ setBar(five.at(-1),p+sign*.8,p+sign*1.6);
+ b.spots.xaus=five.at(-1).close+sign*.04;
+ return b;
+}
+for(const direction of ['LONG','SHORT']){
+ const b=followThroughBundle(direction),r=guard.check(b,direction,now,now-31*M);
+ assert.equal(r.allowed,true,direction+' '+JSON.stringify(r));
+ assert.equal(r.setup,'fresh-5m-continuation');
+ assert.equal(r.freshContinuation,true);
+ assert.equal(r.freshContinuationAt,now);
+ assert.equal(r.signalAgeMinutes,31); // original 15m clock is not forged
+ const noBreak=JSON.parse(JSON.stringify(b));
+ const prev=noBreak.history.bars_by_tf['5m'].at(-2),latest=noBreak.history.bars_by_tf['5m'].at(-1);
+ if(direction==='LONG')prev.high=latest.close+.5;
+ else prev.low=latest.close-.5;
+ assert.equal(guard.check(noBreak,direction,now,now-31*M).allowed,false,'no real close breakout');
+ const old=JSON.parse(JSON.stringify(b)),later=now+2*M;
+ old.spots.spot_price_as_of=new Date(later-10000).toISOString();
+ assert.equal(guard.check(old,direction,later,later-31*M).allowed,false,'2-minute-old continuation cannot be reused');
+}
 const base=bundle('LONG');
 const tamper=[
  b=>{b.spots.spot_price_as_of=new Date(now-130000).toISOString();},
