@@ -538,7 +538,8 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
         "venueEvidence": "https://www.finanzen.ch/derivate/"+isin.lower() if swiss_dots else None,
         "brokerVenueEvidence": broker_venue if has_broker_venue else None,
         "brokerVenueStatus": dict(venue_status, required=False, researchGate=False,
-                                  executionVerified=bool(has_broker_venue)),
+                                  brokerDisplayObserved=bool(has_broker_venue),
+                                  executionVerified=False),
         "venueAction": None,
         "autoRecovery": ("Vom Emittenten als beendet gemeldet · keine neue Handelsfreigabe; fehlende laufende Kurse sind kein Reparaturfehler"
                          if terminated else "SG stellt nur Geld; Briefkurs fehlt beim Anbieter. Quellen werden erneut geprüft, keine Handelsfreigabe."
