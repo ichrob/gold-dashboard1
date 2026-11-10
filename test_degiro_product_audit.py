@@ -103,6 +103,9 @@ class ProductAuditTests(unittest.TestCase):
                            missingChecks={'venue':4},missingSince={'venue':iso(NOW-300000)},
                            needsKiHelp=True,tradeApproved=False,degiroVerified=False,
                            sourceStatusEvidence={'issuerVerified':True},
+                           brokerVenueStatus={'required':True,'current':False,
+                                              'state':'missing'},
+                           venueAction='DEGIRO-Handelsplatznachweis per Screenshot hochladen',
                            quoteSourceAt=iso(NOW-5000),leverageSourceAt=iso(NOW-4500),
                            source='SG · official saved original')]}
         frozen=deepcopy(old)
@@ -110,6 +113,10 @@ class ProductAuditTests(unittest.TestCase):
         row=view['items'][0]
         self.assertEqual(row['missing'],[])
         self.assertEqual(row['state'],'issuer-evidence-complete')
+        self.assertFalse(row['brokerVenueStatus']['required'])
+        self.assertFalse(row['brokerVenueStatus']['executionVerified'])
+        self.assertIsNone(row['venueAction'])
+        self.assertTrue(old['items'][0]['brokerVenueStatus']['required'])
         self.assertEqual(row['quoteSourceAt'],iso(NOW-5000))
         self.assertEqual(row['leverageSourceAt'],iso(NOW-4500))
         self.assertEqual(view['lastCheckedAt'],iso(NOW))
