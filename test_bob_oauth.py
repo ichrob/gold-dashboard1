@@ -503,6 +503,91 @@ class HttpTests(unittest.TestCase):
                          {'csrf':oauth.csrf({'Cookie':self.session})},self.session)[0],303)
         self.assertFalse(store.transition(self.state,'check',{'token':token})['valid'])
 
+    def test_antigravity_diagnostic_step_up_requires_new_owner_consent(self):
+        # Product-only Antigravity grants continue working for product reads,
+        # but diagnosis needs a real OAuth 403 challenge + a separate consent.
+        status,_,body=self.request('POST','/oauth/register',
+            json.dumps({'redirect_uris':[store.ANTIGRAVITY_REDIRECT]}),
+            {'Content-Type':'application/json'})
+        self.assertEqual(status,201)
+        cid=json.loads(body)['client_id']
+        verifier='z'*43
+        def begin(scope):
+            params=dict(client_id=cid,redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                response_type='code',scope=scope,resource=store.RESOURCE,
+                state='stepup-test',code_challenge=store.challenge(verifier),
+                code_challenge_method='S256')
+            code,headers,_=self.request('GET','/oauth/authorize?'+urlencode(params))
+            self.assertEqual(code,303)
+            cookie=headers['Set-Cookie'].split(';')[0]
+            return cookie,cookie.split('=',1)[1]
+        def approve(cookie,nonce):
+            cookies=cookie+'; '+self.session
+            code,_,page=self.request('GET','/oauth/resume',headers={'Cookie':cookies})
+            self.assertEqual(code,200)
+            self.assertIn(b'Antigravity CLI mit Bob verbinden',page)
+            self.assertEqual(self.form('/oauth/consent',
+                {'request':nonce,'decision':'approve'},cookies,origin='https://evil.example')[0],403)
+            code,_,page=self.form('/oauth/consent',
+                {'request':nonce,'decision':'approve'},cookies)
+            self.assertEqual(code,200)
+            import html
+            callback=html.unescape(re.search(r'href="([^"]+)"',page.decode()).group(1))
+            return parse_qs(urlparse(callback).query)['code'][0]
+        def token(code):
+            status,_,body=self.form('/oauth/token',
+                {'grant_type':'authorization_code','client_id':cid,
+                 'redirect_uri':store.ANTIGRAVITY_REDIRECT,'code':code,
+                 'code_verifier':verifier,'resource':store.RESOURCE})
+            self.assertEqual(status,200)
+            return json.loads(body)
+        cookie,nonce=begin(store.SCOPE)
+        original=token(approve(cookie,nonce))
+        self.assertEqual(original['scope'],store.SCOPE)
+        auth={'Authorization':'Bearer '+original['access_token'],
+              'Content-Type':'application/json'}
+        request={'jsonrpc':'2.0','id':77,'method':'tools/call',
+                 'params':{'name':'bob_diagnostics','arguments':{'focus':'overview'}}}
+        with patch.object(server,'read_diagnostics_for_mcp',
+                          side_effect=AssertionError('Unauthorized reader accessed')) as reader:
+            status,headers,body=self.request('POST','/mcp',json.dumps(request),auth)
+            self.assertEqual(status,403)
+            self.assertEqual(reader.call_count,0)
+        challenge=headers.get('WWW-Authenticate','')
+        self.assertIn('error="insufficient_scope"',challenge)
+        self.assertIn(store.SCOPE,challenge)
+        self.assertIn(store.DIAGNOSTICS_SCOPE,challenge)
+        self.assertIn('resource_metadata=',challenge)
+        self.assertNotIn(store.TERMUX_SCOPE,challenge)
+        self.assertNotIn(store.PHONE_SCOPE,challenge)
+        self.assertNotIn(store.PUSH_TEST_SCOPE,challenge)
+        self.assertTrue(json.loads(body)['result']['isError'])
+        request['params']['name']='bob_product_gaps'
+        request['params']['arguments']={}
+        with patch.object(server,'read_private_product_audit_for_mcp',
+                          return_value={'status':'observed','items':[]}) as reader:
+            status,headers,body=self.request('POST','/mcp',json.dumps(request),auth)
+            self.assertEqual(status,200)
+            self.assertNotIn('WWW-Authenticate',headers)
+            self.assertEqual(reader.call_count,1)
+        cookie,nonce=begin(store.SCOPE+' '+store.DIAGNOSTICS_SCOPE)
+        authorized=token(approve(cookie,nonce))
+        self.assertEqual(set(authorized['scope'].split()),
+                         {store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        self.assertEqual(store.transition(self.state,'check',
+            {'token':original['access_token']})['scope'],store.SCOPE)
+        request['params']['name']='bob_diagnostics'
+        request['params']['arguments']={'focus':'overview'}
+        authorized_header={**auth,'Authorization':'Bearer '+authorized['access_token']}
+        with patch.object(server,'read_diagnostics_for_mcp',
+                          return_value={'status':'observed','observedAt':'2026-11-10T00:00:00Z'}):
+            with patch('bob_diagnostics.focused_report',side_effect=lambda report,focus:report):
+                with patch('bob_diagnostics.bounded_report',side_effect=lambda report,limit:report):
+                    status,headers,body=self.request('POST','/mcp',json.dumps(request),authorized_header)
+        self.assertEqual(status,200)
+        self.assertNotIn('WWW-Authenticate',headers)
+        self.assertFalse(json.loads(body)['result']['isError'])
+
     def test_connections_returns_to_same_page_after_login_and_passkey(self):
         # A direct link from a private ChatGPT conversation must not drop the
         # destination when the owner first signs in on their phone.
