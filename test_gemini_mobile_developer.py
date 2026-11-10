@@ -83,7 +83,8 @@ class GeminiMobileDeveloperTests(unittest.TestCase):
             g.already_requested([{}] * 100, marker, "2026-11-09")
 
     def test_model_request_has_bounded_tokens_and_no_actual_network(self):
-        response = {"candidates": [{"content": {"parts": [{"text": "Patch idea only"}]}}]}
+        patch_text = "--- a/test_sample.py\n+++ b/test_sample.py\n@@ -1,1 +1,1 @@\n-old = True\n+new = True"
+        response = {"candidates": [{"content": {"parts": [{"text": patch_text}]}}]}
         fake = MagicMock()
         fake.open.return_value.__enter__.return_value.read.return_value = (
             json.dumps(response).encode()
@@ -91,13 +92,30 @@ class GeminiMobileDeveloperTests(unittest.TestCase):
         with patch.object(g.urllib.request, "build_opener", return_value=fake):
             actual = g.model_proposal("Issue text", "test_sample.py",
                                       "# public source", "a" * 40)
-        self.assertEqual(actual, "Patch idea only")
+        self.assertEqual(actual, patch_text)
         request = fake.open.call_args.args[0]
         payload = json.loads(request.data)
         self.assertEqual(payload["generationConfig"]["maxOutputTokens"], 1900)
         self.assertEqual(payload["generationConfig"]["thinkingConfig"]["thinkingLevel"],
                          "minimal")
         self.assertIn("gemini-3.5-flash-lite", request.full_url)
+
+    def test_rejects_empty_and_malformed_diff(self):
+        for invalid in (
+            "--- GEMINI.md",
+            "Patch idea only",
+            "--- a/GEMINI.md\n+++ b/GEMINI.md",
+            "--- a/GEMINI.md\n+++ b/GEMINI.md\n@@ -1,1 +1,1 @@",
+            "--- a/GEMINI.md\n+++ b/GEMINI.md\n@@ -1,1 +1,1 @@\n+",
+        ):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                    ValueError, "model-no-valid-diff"):
+                g.verified_diff_or_explanation(invalid, "GEMINI.md")
+        good = ("--- a/GEMINI.md\n+++ b/GEMINI.md\n"
+                "@@ -1,1 +1,1 @@\n-Alt\n+Neu")
+        self.assertEqual(g.verified_diff_or_explanation(good, "GEMINI.md"), good)
+        refusal = "nicht sicher änderbar: " + "Die öffentliche Beweislage ist unzureichend. " * 3
+        self.assertEqual(g.verified_diff_or_explanation(refusal, "GEMINI.md"), refusal)
 
     def test_no_external_call_without_free_project_or_key(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(g, "request_json") as api:

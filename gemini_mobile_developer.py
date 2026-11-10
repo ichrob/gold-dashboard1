@@ -95,6 +95,24 @@ def already_requested(comments, marker, day):
     return False
 
 
+def verified_diff_or_explanation(reply, path):
+    """Reject empty or placeholder AI output before posting a proposal."""
+    if not isinstance(reply, str):
+        raise ValueError("model-no-valid-diff")
+    # A substantive, explicitly reasoned refusal remains permissible.
+    if "nicht sicher änderbar" in reply.lower() and len(reply.strip()) >= 100:
+        return reply
+    lines = reply.splitlines()
+    filename = path
+    if (not any(line in ("--- a/" + filename, "--- " + filename) for line in lines)
+            or not any(line in ("+++ b/" + filename, "+++ " + filename) for line in lines)
+            or not any(re.match(r"^@@ -[0-9]+(?:,[0-9]+)? \+[0-9]+(?:,[0-9]+)? @@", line) for line in lines)
+            or not any(len(line) > 1 and line[0] in "+-" and not line.startswith(("+++", "---"))
+                       for line in lines)):
+        raise ValueError("model-no-valid-diff")
+    return reply
+
+
 def model_proposal(issue_text, path, source, key):
     if not isinstance(key, str) or not 15 <= len(key) <= 512:
         raise ValueError("no-google-key")
@@ -138,6 +156,7 @@ def model_proposal(issue_text, path, source, key):
     ).strip()
     if not reply or len(reply) > 5400 or PRIVATE_CONTENT.search(reply):
         raise ValueError("model-invalid-or-sensitive")
+    reply = verified_diff_or_explanation(reply, path)
     return re.sub(r"https?://\S+", "[externer Link entfernt]", reply)[:5000]
 
 
@@ -198,6 +217,7 @@ if __name__ == "__main__":
             "public-file-too-large-or-sensitive", "comment-history-incomplete",
             "daily-issue-budget-exhausted", "no-google-key",
             "model-response-too-large", "model-empty", "model-invalid-or-sensitive",
+            "model-no-valid-diff",
         }:
             code = str(exc)
         else:
