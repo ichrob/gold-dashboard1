@@ -351,12 +351,14 @@ class ProductAuditTests(unittest.TestCase):
                      priceKind="observed-issuer",isExecutableQuote=True)
         quote["metadata"].update(currency="CHF",issuerExchangeCode="CBSW")
         result=audit.examine(product,quote,NOW)
-        self.assertIn("venue",result["missing"])
+        self.assertNotIn("venue",result["missing"])
         self.assertNotIn("underlying",result["missing"])
         self.assertEqual(result["issuerVenue"],"Swiss DOTS (CHF)")
         self.assertFalse(result["degiroVerified"])
         self.assertFalse(result["tradeApproved"])
-        self.assertIn("DEGIRO",result["venueAction"])
+        self.assertIsNone(result["venueAction"])
+        self.assertFalse(result["brokerVenueStatus"]["required"])
+        self.assertFalse(result["brokerVenueStatus"]["executionVerified"])
         # Only source-validated exact products may carry this conclusion.
         quote["productVerified"]=False
         self.assertNotIn("venue",audit.examine(product,quote,NOW)["missing"])
