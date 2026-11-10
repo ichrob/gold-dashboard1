@@ -122,12 +122,15 @@ class StateMachine(unittest.TestCase):
 
     def test_duplicates_gap_and_no_same_cycle_reentry(self):
         state,_=self.run_tick(s.seed(NOW))
+        opened=sum(a['position'] is not None for a in state['arms'].values())
         again,done=self.run_tick(state)
         self.assertEqual(again,state);self.assertFalse(done)
         again,done=self.run_tick(state,NOW+120000)
-        self.assertEqual(len(done),2*len(s.VARIANTS)*len(s.HORIZONS))
+        self.assertEqual(len(done),opened)
         self.assertTrue(all(p['status']=='inconclusive' and p['netPct'] is None for p in done))
-        self.assertTrue(all(a['started']==1 and not a['position'] for a in again['arms'].values()))
+        # Score-threshold arms reject this deliberately score-free synthetic market.
+        self.assertTrue(all(a['started']==(0 if a['variant'] in ('score65','score70') else 1)
+                            and not a['position'] for a in again['arms'].values()))
 
     def test_time_stop_and_horizons_use_observed_price(self):
         state,_=self.run_tick(s.seed(NOW));done=[]
@@ -172,11 +175,12 @@ class StateMachine(unittest.TestCase):
         self.assertEqual(late['arms']['original:base5:30']['reason'],'entry-too-late')
 
     def test_expiry_drains_no_new_positions_and_caps(self):
-        state,_=self.run_tick(s.seed(NOW));state['deadlineAt']=NOW+1
+        state,_=self.run_tick(s.seed(NOW));starts={k:a['started'] for k,a in state['arms'].items()}
+        state['deadlineAt']=NOW+1
         state,done=self.run_tick(state,NOW+30000,3997.)
         self.assertEqual(state['status'],'completed-review-required')
         state,done=self.run_tick(state,NOW+60000)
-        self.assertTrue(all(a['started']==1 for a in state['arms'].values()))
+        self.assertTrue(all(a['started']==starts[k] for k,a in state['arms'].items()))
 
     def test_future_and_stale_prices_never_create_entries(self):
         for shift in (1,-61000):
@@ -245,13 +249,14 @@ class ReversalTests(unittest.TestCase):
             return s.advance(s.seed(NOW),b,m,{}, {},NOW)[0]
 
     def test_main_reversal_exits_all_horizons_before_deadline(self):
-        state=self.opened();b,m=sample(NOW+60000)
+        state=self.opened();opened=sum(a['position'] is not None for a in state['arms'].values())
+        b,m=sample(NOW+60000)
         m.update(ready=True,priceFresh=True,direction='SHORT',analysisBarAt=NOW-240000)
         with patch.object(s,'frame_signal',side_effect=forced):
             out,closed=s.advance(state,b,m,{}, {},NOW+60000)
-        self.assertEqual(len(closed),2*len(s.VARIANTS)*len(s.HORIZONS))
+        self.assertEqual(len(closed),opened)
         self.assertTrue(all(p['exitReason']=='trend-reversal' and p['exitSourceAt']==NOW+60000 for p in closed))
-        self.assertTrue(all(a['reversalExits']==1 and a['position'] is None for a in out['arms'].values()))
+        self.assertTrue(all(a['reversalExits']==a['started'] and a['position'] is None for a in out['arms'].values()))
         self.assertTrue(all(p['reversalEvidence']['kind']=='confirmed-main-opposite' for p in closed))
 
     def test_local_two_closed_bars_exit_without_hour_or_entry_gate(self):
@@ -283,14 +288,15 @@ class ReversalTests(unittest.TestCase):
             self.assertIsNone(s.reversal_evidence([],5,NOW+60000,p,m,price))
 
     def test_reentry_requires_new_quote_and_independent_opposite_entry(self):
-        state=self.opened();b,m=sample(NOW+60000,trend='SHORT')
+        state=self.opened();opened=sum(a['position'] is not None for a in state['arms'].values())
+        b,m=sample(NOW+60000,trend='SHORT')
         m.update(ready=True,priceFresh=True,direction='SHORT',analysisBarAt=NOW-240000)
         def short(rows,minutes,now,pullback=False):
             return {**forced(rows,minutes,now,pullback),'direction':'SHORT','ema':'SHORT','macd':'SHORT',
                     'barAt':NOW-240000,'closedAt':NOW+60000,'level':4001.}
         with patch.object(s,'frame_signal',side_effect=short):
             state,closed=s.advance(state,b,m,{}, {},NOW+60000)
-            self.assertEqual(len(closed),2*len(s.VARIANTS)*len(s.HORIZONS))
+            self.assertEqual(len(closed),opened)
             # A later evaluation of the same quote is not another fill.
             state,again=s.advance(state,b,m,{}, {},NOW+61000)
             self.assertTrue(all(a['position'] is None for a in state['arms'].values()))
@@ -315,7 +321,7 @@ class ReversalTests(unittest.TestCase):
         with patch.object(s,'reversal_evidence',return_value=dict(direction='SHORT',estimated=True)):
             out,closed=s.advance(state,b,m,{}, {},NOW+30000)
         self.assertTrue(all(p['estimatedUsed'] for p in closed))
-        self.assertTrue(all(a['estimatedClosed']==1 for a in out['arms'].values()))
+        self.assertTrue(all(a['estimatedClosed']==a['started'] for a in out['arms'].values()))
 
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'test PostgreSQL unavailable')
@@ -328,6 +334,7 @@ class ReversalMigration(unittest.TestCase):
                 conn.execute('SET LOCAL search_path TO timing_reversal_test')
                 s.init(conn)
                 state=ReversalTests().opened();state['version']=s.LEGACY_VERSION
+                opened=sum(a['position'] is not None for a in state['arms'].values())
                 conn.execute('INSERT INTO bob_intraday_timing_state VALUES(%s,%s::jsonb)',(s.LEGACY_VERSION,json.dumps(state)))
                 b,m=sample(NOW+60000)
                 m.update(ready=True,priceFresh=True,direction='SHORT',analysisBarAt=NOW-240000)
@@ -339,5 +346,5 @@ class ReversalMigration(unittest.TestCase):
                 self.assertEqual(new['entryAfterSourceAt'],NOW+60000)
                 self.assertTrue(all(a['started']==0 for a in new['arms'].values()))
                 cases=conn.execute('SELECT campaign,payload FROM bob_intraday_timing_cases').fetchall()
-                self.assertEqual(len(cases),2*len(s.VARIANTS)*len(s.HORIZONS))
+                self.assertEqual(len(cases),opened)
                 self.assertTrue(all(k==s.LEGACY_VERSION and p['exitPolicyChangedAt']==NOW+60000 for k,p in cases))
