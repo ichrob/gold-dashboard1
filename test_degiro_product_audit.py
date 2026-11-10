@@ -341,6 +341,17 @@ class ProductAuditTests(unittest.TestCase):
         self.assertFalse(item["degiroVerified"])
         self.assertFalse(item["tradeApproved"])
 
+    def test_official_bnp_factor_future_is_excluded_without_false_missing_quotes(self):
+        item=audit.examine(dict(isin='DE000PU0D101',productDirection='LONG',
+                                isinConfirmed=True),{},NOW)
+        self.assertEqual(item['state'],'excluded-factor')
+        self.assertEqual(item['missing'],['factor'])
+        self.assertFalse(item['sourceStatusEvidence']['issuerVerified'])
+        self.assertIn('bnpparibas.com',item['sourceStatusEvidence']['officialReference'])
+        self.assertIsNone(item['quoteSourceAt'])
+        self.assertFalse(item['tradeApproved'])
+        self.assertFalse(item['degiroVerified'])
+
     def test_sg_swiss_dots_chf_is_not_degiro_quote(self):
         # Confirmed by official Swissquote platform and independent SG product
         # listing: DE000FG8NHQ3 is a CHF Swiss DOTS knock-out warrant.
