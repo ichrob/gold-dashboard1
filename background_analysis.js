@@ -80,8 +80,10 @@ function evaluate(input, {render=false}={}){
    const targetPlan=Number.isFinite(stop)&&stop>0?targetModel(direction,price,stop,2):{};
    const target=targetPlan.target;
    if(Number.isFinite(stop)&&stop>0&&Number.isFinite(target)&&target>0&&targetPlan.entrySuitable!==false){
-    plan={targetCheck:targetPlan,entrySuitable:targetPlan.entrySuitable,kind:'candidate',direction,entry:price,stop,target,unit:'USD/oz',at:Date.now()};
-    entryPlanState={state:'ready',code:'PLAN_READY',reason:'Aktueller technischer Einstiegsplan vorhanden'};
+    plan={targetCheck:targetPlan,entrySuitable:targetPlan.entrySuitable,kind:'candidate',direction,entry:price,stop,target,unit:'USD/oz',at:Date.now(),
+      entrySetup:entryTimingGate.setup||'confirmed-main',holdingWindowMinutes:[30,300]};
+    entryPlanState={state:'ready',code:entryTimingGate.freshContinuation?'FRESH_5M_CONTINUATION':'PLAN_READY',
+       reason:entryTimingGate.freshContinuation?'Neuer 5m-Folgeimpuls bestätigt; Produkt- und KO-Nachweise separat erforderlich':'Aktueller technischer Einstiegsplan vorhanden'};
    }else entryPlanState={state:'blocked',code:targetPlan.entrySuitable===false?'TARGET_OBSTACLE':'RISK_PLAN_UNAVAILABLE',
     reason:targetPlan.warning||targetPlan.reason||riskData.reason||'Stopp oder Ziel nicht gültig berechenbar'};
   }
