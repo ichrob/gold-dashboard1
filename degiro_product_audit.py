@@ -360,8 +360,9 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
     if not valid_isin(isin) or not (
             product.get('isinConfirmed') or identity_matches or broker_identity_matches):
         missing.append('list-identity')
-    if swiss_dots and not has_broker_venue:
-        missing.append("venue")
+    # A DEGIRO venue screenshot is OPTIONAL for analysis and paper studies.
+    # Absence must not appear as a missing product term or block a study.
+    # This does NOT establish account-level execution approval.
     if not verified:
         missing.append("identity") if "identity" not in missing else None
     if direction not in ("LONG", "SHORT") or metadata.get("direction", quote.get("direction")) != direction:
@@ -536,11 +537,9 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
         "issuerVenue": "Swiss DOTS (CHF)" if swiss_dots else None,
         "venueEvidence": "https://www.finanzen.ch/derivate/"+isin.lower() if swiss_dots else None,
         "brokerVenueEvidence": broker_venue if has_broker_venue else None,
-        "brokerVenueStatus": dict(venue_status, required=swiss_dots),
-        "venueAction": ("Keine Swiss-DOTS-Quotierung als DEGIRO-Kurs verwenden. "
-                        "DEGIRO-Kursdatenbild mit ISIN, Börse, Währung und Datum hochladen; "
-                        "Bob übernimmt eindeutige Angaben automatisch."
-                        if swiss_dots and not has_broker_venue else None),
+        "brokerVenueStatus": dict(venue_status, required=False, researchGate=False,
+                                  executionVerified=bool(has_broker_venue)),
+        "venueAction": None,
         "autoRecovery": ("Vom Emittenten als beendet gemeldet · keine neue Handelsfreigabe; fehlende laufende Kurse sind kein Reparaturfehler"
                          if terminated else "SG stellt nur Geld; Briefkurs fehlt beim Anbieter. Quellen werden erneut geprüft, keine Handelsfreigabe."
                          if quote.get("quoteFailureCode") == "SG_BID_ONLY" else "Vorhandene Emittenten- und Ersatzquellen werden bei der nächsten Aktualisierung erneut geprüft"),
