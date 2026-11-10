@@ -51,11 +51,13 @@ RELAUNCH_ID = 'trend-vs-main-20261109'
 POLICIES['trend800nov'] = dict(POLICIES['trend800'],
     id='trend800nov', title='Neu: 800 € · Trend/Stopp/Wiedereinstieg · 09.11.–04.12.',
     campaign=True, relaunch=True, campaign_id=RELAUNCH_ID,
-    start_at=RELAUNCH_START, campaign_end=RELAUNCH_END)
+    start_at=RELAUNCH_START, campaign_end=RELAUNCH_END,
+    max_holding_minutes=300)
 POLICIES['normal1000nov'] = dict(POLICIES['normal1000oct'],
     id='normal1000nov', title='Neu: 1.000 € · bestätigtes Hauptsignal · 09.11.–04.12.',
     campaign=True, relaunch=True, campaign_id=RELAUNCH_ID,
-    start_at=RELAUNCH_START, campaign_end=RELAUNCH_END)
+    start_at=RELAUNCH_START, campaign_end=RELAUNCH_END,
+    max_holding_minutes=300)
 
 _TABLES = ('bob_paper_control', 'bob_paper_cases', 'bob_paper_days')
 
