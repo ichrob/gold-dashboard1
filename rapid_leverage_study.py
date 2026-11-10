@@ -88,8 +88,8 @@ def candidate_signals(rows, now, events=()):
     last_change = b["close"] - prev["close"]
     previous_high = max(x["high"] for x in bars[-7:-1])
     previous_low = min(x["low"] for x in bars[-7:-1])
-    breakout = ("LONG" if b["close"] > previous_high + .1 * atr and body >= .25 * atr
-                else "SHORT" if b["close"] < previous_low - .1 * atr and body >= .25 * atr
+    breakout = ("LONG" if b["close"] > previous_high + .1 * atr and sign > 0 and body >= .25 * atr
+                else "SHORT" if b["close"] < previous_low - .1 * atr and sign < 0 and body >= .25 * atr
                 else None)
     strong = abs(last_change) >= .8 * atr and body >= .5 * atr
     impulse = ("LONG" if strong and sign > 0 and b["high"] - b["close"] <= .25 * (b["high"] - b["low"])
@@ -98,10 +98,12 @@ def candidate_signals(rows, now, events=()):
     # Prior momentum, a bounded counter-bar, then a resumed closed-bar move.
     prior_sign = 1 if third["close"] > third["open"] else -1
     retrace = abs(prev["close"] - third["close"])
-    pullback = ("LONG" if prior_sign > 0 and prev["close"] < third["close"]
+    pullback = ("LONG" if prior_sign > 0 and third["close"]-third["open"] >= .5*atr
+                and prev["close"] < prev["open"] and prev["close"] < third["close"]
                 and .15 * atr <= retrace <= .9 * atr and sign > 0
                 and b["close"] > prev["high"] and body >= .25 * atr
-                else "SHORT" if prior_sign < 0 and prev["close"] > third["close"]
+                else "SHORT" if prior_sign < 0 and third["open"]-third["close"] >= .5*atr
+                and prev["close"] > prev["open"] and prev["close"] > third["close"]
                 and .15 * atr <= retrace <= .9 * atr and sign < 0
                 and b["close"] < prev["low"] and body >= .25 * atr
                 else None)
