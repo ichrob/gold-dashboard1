@@ -86,6 +86,73 @@ class StateTests(unittest.TestCase):
         self.assertEqual(bad_refresh['error'], 'invalid_target')
         self.assertIn('access_token', self.refresh(tok['refresh_token']))
         
+    def test_antigravity_missing_token_resource_inherits_owner_bound_audience(self):
+        allowed = store.SCOPE + ' ' + store.DIAGNOSTICS_SCOPE
+        ag = self.call('register', redirect_uris=[store.ANTIGRAVITY_REDIRECT],
+                       scope=allowed)['client_id']
+        # Authorization requests still MUST specify the correct resource.
+        begin = dict(client_id=ag, redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                     scope=store.SCOPE, resource=store.RESOURCE)
+        self.assertIn('error', self.begin(**{**begin, 'resource':None}))
+        self.assertIn('error', self.begin(**{**begin, 'resource':'https://other.example/mcp'}))
+        request = self.begin(**begin)['request']
+        self.assertEqual(self.state['pending'][store.digest(request)]['resource'], store.RESOURCE)
+        code = self.call('approve', request=request, until=self.now+10000)['code']
+        fields = dict(client_id=ag, redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                      grant_type='authorization_code', code=code, code_verifier=self.verifier)
+        for wrong in (None, '', 'https://other.example/mcp', store.ORIGIN):
+            self.assertEqual(self.call('token', **fields, resource=wrong)['error'],
+                             'invalid_target')
+        self.assertIn('error', self.call('token', **{**fields, 'client_id':self.cid}))
+        # Missing on token exchange is safe only for a PKCE-bound grant.
+        missing = self.call('token', **fields)
+        self.assertEqual(missing['scope'], store.SCOPE)
+        self.assertEqual(self.call('check', token=missing['access_token'])['resource'],store.RESOURCE)
+        self.assertEqual(self.call('token', grant_type='refresh_token', client_id=ag,
+                         refresh_token=missing['refresh_token'],
+                         scope=store.DIAGNOSTICS_SCOPE)['error'], 'invalid_scope')
+        self.assertEqual(self.call('check',token=missing['access_token'])['scope'],store.SCOPE)
+        # Legacy grants were also issued only with explicitly checked RESOURCE.
+        next(iter(self.state['grants'].values())).pop('resource', None)
+        renewed = self.call('token', grant_type='refresh_token', client_id=ag,
+                            refresh_token=missing['refresh_token'])
+        self.assertEqual(renewed['scope'], store.SCOPE)
+        self.assertEqual(self.call('token', grant_type='refresh_token', client_id=ag,
+                            refresh_token=renewed['refresh_token'],
+                            resource='https://other.example/mcp')['error'], 'invalid_target')
+        # A new diagnostic grant still needs a separate, explicit approval.
+        request2 = self.begin(**{**begin, 'scope':allowed})['request']
+        self.assertEqual(set(self.call('pending',request=request2)['scope'].split()),
+                         {store.SCOPE, store.DIAGNOSTICS_SCOPE})
+        code2 = self.call('approve',request=request2,until=self.now+10000)['code']
+        full = self.call('token', **{**fields, 'code':code2})
+        self.assertEqual(set(full['scope'].split()),{store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        self.assertEqual(self.call('check',token=missing['access_token'])['scope'],store.SCOPE)
+        # Replaying the old code is deliberately last: it revokes the
+        # associated grant by design, and would otherwise invalidate
+        # subsequent refresh assertions.
+        self.assertEqual(self.call('token', **fields)['error'], 'invalid_grant')
+        self.assertFalse(self.call('check',token=missing['access_token'])['valid'])
+
+    def test_other_clients_still_require_resource_on_token_endpoint(self):
+        code = self.authorize()
+        response = self.call('token', client_id=self.cid,
+             redirect_uri=store.REDIRECT, grant_type='authorization_code',
+             code=code, code_verifier=self.verifier)
+        self.assertEqual(response['error'], 'invalid_target')
+        self.assertEqual(response['error_description'], 'resource_missing')
+        self.assertIn('access_token', self.exchange(code))
+        gem = self.call('register',redirect_uris=[store.GEMINI_REDIRECT],
+                        scope=store.SCOPE)['client_id']
+        request = self.begin(client_id=gem, redirect_uri=store.GEMINI_REDIRECT)['request']
+        code = self.call('approve',request=request,until=self.now+10000)['code']
+        result = self.call('token',client_id=gem, redirect_uri=store.GEMINI_REDIRECT,
+                           grant_type='authorization_code',code=code,
+                           code_verifier=self.verifier)
+        self.assertEqual(result['error_description'],'resource_missing')
+        self.assertIn('access_token',
+            self.exchange(code,client_id=gem,redirect_uri=store.GEMINI_REDIRECT))
+
     def test_mobile_handoff_code_remains_single_use_and_expires(self):
         # Android browser -> Termux switching can take more than two minutes;
         # the verifier, exact redirect, client, scope and resource still bind the code.
