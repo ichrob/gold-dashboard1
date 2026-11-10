@@ -315,16 +315,26 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
     # SG's verified factor response intentionally has no live quote/term fields.
     # Accept its existing productType spelling as well as the canonical type;
     # an excluded factor is not fifteen independent missing-data incidents.
-    if verified and 'FACTOR' in (metadata.get('type'), metadata.get('productType')):
+    # One exact, immutable issuer identification also excludes a factor even
+    # when the ordinary quote adapter cannot parse the future-based instrument.
+    # BNP's official product details: derivate.bnpparibas.com/product-details/DE000PU0D101/
+    # This is identity/type evidence ONLY, never a fresh bid/ask or KO record.
+    official_factor = isin == 'DE000PU0D101'
+    if (verified and 'FACTOR' in (metadata.get('type'), metadata.get('productType'))) or official_factor:
         return dict(isin=isin, direction=direction, state='excluded-factor', excluded=True,
             missing=['factor'], messages=[CODES['factor']],
-            source=str(quote.get('source') or 'Emittent')[:80],
-            sourceStatusEvidence=dict(issuerVerified=True, issuerProductType='FACTOR',
-                                      issuerStatus=metadata.get('status')),
+            source=('BNP Paribas · offizieller Faktor-15-Produktnachweis' if official_factor
+                    else str(quote.get('source') or 'Emittent')[:80]),
+            sourceStatusEvidence=dict(issuerVerified=verified, issuerProductType='FACTOR',
+                issuerStatus=metadata.get('status'),
+                officialReference=('https://derivate.bnpparibas.com/product-details/DE000PU0D101/'
+                    if official_factor else None)),
             timeEvidence=dict(missing=[], leverageBasis='unavailable', terms={}),
             quoteSourceAt=None, leverageSourceAt=None, issuerLeverageObservation=None,
             leverageObservation=None, sourceObservations=[],
-            dataQuoteSource=None, dataQuoteKind=None, identityEvidence='issuer-confirmed-excluded',
+            dataQuoteSource=None, dataQuoteKind=None,
+            identityEvidence=('public-issuer-factor-exclusion' if official_factor and not verified
+                              else 'issuer-confirmed-excluded'),
             tradeApproved=False, degiroVerified=False,
             autoRecovery='Faktorprodukt ausgeschlossen; keine laufenden Kurs-, Hebel- oder KO-Nachweise erforderlich.')
     snapshot = product.get('snapshot') or {}
