@@ -108,7 +108,6 @@ class StateTests(unittest.TestCase):
         missing = self.call('token', **fields)
         self.assertEqual(missing['scope'], store.SCOPE)
         self.assertEqual(self.call('check', token=missing['access_token'])['resource'],store.RESOURCE)
-        self.assertEqual(self.call('token', **fields)['error'], 'invalid_grant')
         self.assertEqual(self.call('token', grant_type='refresh_token', client_id=ag,
                          refresh_token=missing['refresh_token'],
                          scope=store.DIAGNOSTICS_SCOPE)['error'], 'invalid_scope')
@@ -129,6 +128,11 @@ class StateTests(unittest.TestCase):
         full = self.call('token', **{**fields, 'code':code2})
         self.assertEqual(set(full['scope'].split()),{store.SCOPE,store.DIAGNOSTICS_SCOPE})
         self.assertEqual(self.call('check',token=missing['access_token'])['scope'],store.SCOPE)
+        # Replaying the old code is deliberately last: it revokes the
+        # associated grant by design, and would otherwise invalidate
+        # subsequent refresh assertions.
+        self.assertEqual(self.call('token', **fields)['error'], 'invalid_grant')
+        self.assertFalse(self.call('check',token=missing['access_token'])['valid'])
 
     def test_other_clients_still_require_resource_on_token_endpoint(self):
         code = self.authorize()
