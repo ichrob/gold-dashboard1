@@ -74,9 +74,40 @@ def atr5(bars):
     return sum(ranges) / len(ranges) if len(ranges) == 14 else None
 
 
-def candidate_signals(rows, now, events=()):
-    """Uses already closed five-minute bars, with no later-price knowledge."""
-    bars = candles.aggregate(rows, 5, now)
+def original_five_minute_bars(bundle, now):
+    """Strict fallback to SAME XAU/USD instrument's original closed 5m feed.
+
+    This is not OHLC reconstruction, spot-tick interpolation or a mixed-source
+    backfill. Accept only 20 contiguous source-identical, fully closed 5m bars.
+    """
+    raw = (((bundle or {}).get("history") or {}).get("bars_by_tf") or {}).get("5m") or []
+    if not isinstance(raw, list):
+        return [], "five-minute-history-missing"
+    eligible = [b for b in raw if isinstance(b, dict)
+                and type(b.get("openTime")) is int and b["openTime"]+5*MINUTE <= now]
+    last = eligible[-20:]
+    if len(last) < 20:
+        return [], "five-minute-original-coverage-short"
+    sources = {b.get("source") for b in last}
+    if len(sources) != 1 or not next(iter(sources)) or any(
+        b.get("instrument") != "XAU/USD" or b.get("isOpen") is not False
+        or b.get("providerIsOpen") is True or b.get("estimated") is True
+        or b["openTime"] % (5*MINUTE) != 0
+        or not all(positive(b.get(k)) for k in ("open","high","low","close"))
+        or not b["low"] <= min(b["open"],b["close"]) <= max(b["open"],b["close"]) <= b["high"]
+        for b in last):
+        return [], "five-minute-original-invalid"
+    if any(b["openTime"]-a["openTime"] != 5*MINUTE for a,b in zip(last,last[1:])):
+        return [], "five-minute-history-gap"
+    if not 0 <= now-(last[-1]["openTime"]+5*MINUTE) <= 90000:
+        return [], "five-minute-signal-not-fresh"
+    return [dict(openTime=b["openTime"],closeTime=b["openTime"]+5*MINUTE,
+                 open=b["open"],high=b["high"],low=b["low"],close=b["close"]) for b in last], None
+
+
+def candidate_signals(rows, now, events=(), *, original_bars=None):
+    """Closed original 1m aggregation or strict original 5m bars, never estimates."""
+    bars = original_bars if original_bars is not None else candles.aggregate(rows, 5, now)
     if len(bars) < 20 or not 0 <= now - bars[-1]["closeTime"] <= 90000:
         return {name: dict(direction=None, reason="fresh-closed-5m-missing") for name in SETUPS}
     b, prev, third = bars[-1], bars[-2], bars[-3]
@@ -132,7 +163,7 @@ def seed(now):
                                                        netEur=0.0, completed=0, wins=0,
                                                        maxDrawdownPct=0.0, excluded=0)
                                          for lev in LEVERS}) for name in SETUPS},
-                recent=[], originalEvidenceComplete=False)
+                recent=[], lastInput=None, originalEvidenceComplete=False)
 
 
 def open_position(name, signal, price, now, arm):
@@ -215,8 +246,19 @@ def advance(original, bundle, now, events=()):
     state["checkedAt"] = now
     rows, error = candles.minute_history(bundle, now, modeled=False)
     price = candles.source(bundle, now, modeled=False)
-    signals = candidate_signals(rows, now, events) if rows else {
-        name: dict(direction=None, reason=error or "minute-history-missing") for name in SETUPS}
+    original_bars = candles.aggregate(rows, 5, now) if rows else []
+    basis = "closed-original-1m"
+    if len(original_bars) < 20 or not 0 <= now-original_bars[-1]["closeTime"] <= 90000:
+        original_bars, fallback_reason = original_five_minute_bars(bundle, now)
+        basis = "closed-original-5m" if original_bars else None
+        error = fallback_reason if not original_bars else None
+    signals = candidate_signals(rows, now, events, original_bars=original_bars) if original_bars else {
+        name: dict(direction=None, reason=error or "closed-original-bars-missing") for name in SETUPS}
+    state["lastInput"] = dict(checkedAt=now, basis=basis, lastClosedAt=(
+        original_bars[-1]["closeTime"] if original_bars else None),
+        bars=len(original_bars), reason=error if not original_bars else None,
+        originalSpotFresh=price["available"] and not price["estimated"],
+        sourceAt=price["at"] if price["available"] else None)
     completed = []
     for name in SETUPS:
         arm = state["arms"][name]
@@ -267,16 +309,19 @@ def advance(original, bundle, now, events=()):
                 arm["position"] = None
             continue  # Never close and reopen on one observation.
         key = f"{sig.get('closedAt')}:{sig.get('direction')}"
-        arm["lastReason"] = sig.get("reason")
-        if sig.get("reason"):
-            if key != arm.get("lastCheckedSignal"):
-                why = sig["reason"]
-                arm["blockCounts"][why] = arm["blockCounts"].get(why, 0)+1
+        why = (sig.get("reason")
+               if sig.get("direction") not in ("LONG", "SHORT") else
+               "original-spot-unavailable" if not price["available"] or price["estimated"] else
+               "market-session-closed" if not local_session(now) else
+               "closed-signal-too-old" if now-sig["closedAt"] > 90000 else
+               "spot-before-signal" if price["at"] < sig["closedAt"] else
+               "case-limit-reached" if arm["started"] >= MAX_TRADES_PER_SETUP else
+               "signal-already-used" if key == arm["lastSignal"] else None)
+        arm["lastReason"] = why
+        if why and key != arm.get("lastCheckedSignal"):
+            arm["blockCounts"][why] = arm["blockCounts"].get(why, 0)+1
         arm["lastCheckedSignal"] = key
-        if (sig.get("direction") not in ("LONG", "SHORT") or
-                not price["available"] or not rows or not local_session(now)
-                or now - sig["closedAt"] > 90000 or price["at"] < sig["closedAt"] or
-                arm["started"] >= MAX_TRADES_PER_SETUP or key == arm["lastSignal"]):
+        if why:
             continue
         position, why = open_position(name, sig, price, now, arm)
         if not position:
@@ -331,6 +376,7 @@ def report(conn):
                                  for lev,slot in a["levers"].items()]))
     return dict(version=VERSION, startedAt=s["startedAt"], checkedAt=s["checkedAt"],
                 status=s["status"], setups=arms, recent=s["recent"],
+                lastInput=s.get("lastInput"),
                 comparisonMode="same-observed-entry-stop-exit; risk-budgeted-spot-proxy",
                 riskFraction=RISK_FRACTION, maxExposure=MAX_EXPOSURE,
                 realOrders=False, originalDataOnly=True, productReturnVerified=False,
