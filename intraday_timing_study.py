@@ -31,6 +31,17 @@ VARIANTS = {
     # A NEW closed 5m push is evaluated on its own clock, not by refreshing an old 15m signal.
     'follow5': dict(minutes=5, continuation=True,
                     label='5m · frischer Folgeimpuls LONG/SHORT (30–300 Minuten)'),
+    # New forward-only arms. Old cases remain immutable and keep their original rule.
+    'fast3neutral': dict(minutes=3, neutral=True,
+                         label='3m · schneller Einstieg bei neutralem 1h-Kontext'),
+    'follow5neutral': dict(minutes=5, continuation=True, neutral=True,
+                           label='5m · frischer Folgeimpuls bei neutralem 1h-Kontext'),
+    'score65': dict(minutes=5, score_long=65, score_short=35,
+                    label='5m · Kollektivrichtungswert 65/35'),
+    'score70': dict(minutes=5, score_long=70, score_short=30,
+                    label='5m · Kollektivrichtungswert 70/30'),
+    'rr20': dict(minutes=5, min_remaining_rr=2.0,
+                 label='5m · Mindestzielabstand 2,0R (Vergleich zu 1,5R)'),
 }
 NOTE = ('Vorwärts-Test auf Gold-Spot, keine KO-Produktrendite. 0,16 % Gesamtkosten sind eine Annahme. '
         'Original- und Schätzfälle getrennt; Verluste und Stops nur an beobachteten Kursen. '
@@ -343,6 +354,13 @@ def advance(old, bundle, market, selection, quotes, now):
             key_signal=(cfg['minutes'], 'continuation' if cfg.get('continuation') else bool(cfg.get('pullback')))
             sig = signals.get(key_signal,dict(available=False,reason=error))
             allowed, reason = gate(sig,trend,cfg)
+            if allowed and 'score_long' in cfg:
+                score=market.get('score')
+                if not number(score):
+                    allowed,reason=False,'collective-score-unavailable'
+                elif (sig['direction']=='LONG' and score<cfg['score_long'] or
+                      sig['direction']=='SHORT' and score>cfg['score_short']):
+                    allowed,reason=False,'collective-score-too-weak'
             if (allowed and price['available'] and market.get('ready') is True
                     and market.get('priceFresh') is True and number(market.get('dataAt'))
                     and abs(market['dataAt']-price['at'])<=2000
@@ -422,7 +440,7 @@ def advance(old, bundle, market, selection, quotes, now):
                 risk = sig['atr']*1.5
                 # Frozen objective, reject already extended entry with insufficient room.
                 target = sig['level']+sign*3*risk
-                if sign*(target-price['price'])/risk < 1.5:
+                if sign*(target-price['price'])/risk < cfg.get('min_remaining_rr',1.5):
                     a['reason']='entry-too-late'; a['lastSignal']=signal_key
                     continue
                 a['started'] += 1; a['lastSignal']=signal_key
