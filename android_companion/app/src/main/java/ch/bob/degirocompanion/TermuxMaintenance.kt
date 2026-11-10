@@ -15,6 +15,8 @@ import java.util.concurrent.Executors
 /** Separate, explicit local consent. This is Termux-UID execution, NOT a sandbox. */
 internal object TermuxMaintenance {
     const val RESULT_ACTION="ch.bob.degirocompanion.TERMUX_MAINTENANCE_RESULT"
+    private const val SESSION_DURATION_MILLIS = 7_200_000L
+    private const val SESSION_DURATION_SECONDS = 7_200L
     private val handler=Handler(Looper.getMainLooper())
     private val network=Executors.newSingleThreadExecutor()
     private var session=""
@@ -32,10 +34,10 @@ internal object TermuxMaintenance {
         check(!active() && pending.isEmpty()) { "Vorherige Wartung zuerst beenden." }
         check(c.packageManager.getLaunchIntentForPackage(TermuxBridge.PACKAGE)!=null) { "Termux fehlt." }
         session=UUID.randomUUID().toString().replace("-","");policy=TermuxTaskPolicy();result=null
-        deadline=SystemClock.elapsedRealtime()+1800000;expires=System.currentTimeMillis()/1000+1800
-        message="Termux-Wartung aktiv · 30 Minuten · Shellzugriff mit Termux-Rechten."
+        deadline=SystemClock.elapsedRealtime()+SESSION_DURATION_MILLIS;expires=System.currentTimeMillis()/1000+SESSION_DURATION_SECONDS
+        message="Termux-Wartung aktiv · 2 Stunden · Shellzugriff mit Termux-Rechten."
         val id=session
-        handler.postDelayed({if(session==id)stop(c)},1800000)
+        handler.postDelayed({if(session==id)stop(c)},SESSION_DURATION_MILLIS)
         poll(c.applicationContext,id)
     }
     private fun payload(id:String,enabled:Boolean)=JSONObject().put("sessionId",id)
