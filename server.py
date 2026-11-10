@@ -2113,11 +2113,32 @@ class Handler(BaseHTTPRequestHandler):
                 status, output = 400, bob_mcp.error(None, -32700, "Invalid JSON request")
             except (HTTPError, URLError, OSError, TimeoutError, RuntimeError):
                 status, output = 503, bob_mcp.error(None, -32001, "Private audit temporarily unavailable")
+            # OAuth step-up: a valid product-only token must receive the
+            # standards-compliant HTTP 403 scope challenge when it requests
+            # diagnostics, rather than only a JSON-RPC isError inside HTTP 200.
+            # The challenge is created by bob_mcp.authorization_required,
+            # never from client-supplied text or report content. User consent
+            # through the existing PKCE / browser / passkey flow remains mandatory.
+            step_up_challenge = None
+            if status == 200 and isinstance(output, dict):
+                result = output.get("result")
+                if isinstance(result, dict) and result.get("isError") is True:
+                    meta = result.get("_meta", {})
+                    challenges = meta.get("mcp/www_authenticate") if isinstance(meta, dict) else None
+                    if (isinstance(challenges, list) and len(challenges) == 1
+                            and isinstance(challenges[0], str)
+                            and challenges[0].startswith('Bearer resource_metadata="'
+                                + bob_oauth.ORIGIN + '/.well-known/oauth-protected-resource"')
+                            and 'error="insufficient_scope"' in challenges[0]):
+                        step_up_challenge = challenges[0]
+                        status = 403
             if output is None:
                 body = b""
             else:
                 body = json.dumps(output, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
             self.send_response(status)
+            if step_up_challenge is not None:
+                self.send_header("WWW-Authenticate", step_up_challenge)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
