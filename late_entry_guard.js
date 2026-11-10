@@ -11,8 +11,8 @@
  const STEPS={'5m':300000,'15m':900000};
  const finite=v=>typeof v==='number'&&Number.isFinite(v);
  const pos=v=>finite(v)&&v>0;
- const initial={version:'late-entry-v1',available:false,allowed:false,late:false,
-                reason:'Keine geprüfte Einstiegschance',mode:'ABWARTEN',maxDeviationAtr:1.5,
+ const initial={version:'late-entry-v2',available:false,allowed:false,late:false,
+                reason:'Keine geprüfte Einstiegschance',mode:'ABWARTEN',maxDeviationAtr:1.5,maxFreshContinuationDeviationAtr:2.0,
                 maxImpulseAtr:2.5,maxSignalMinutes:15};
  function gate(bundle,direction,now=Date.now(),confirmedAt=null){
    const fail=reason=>({...initial,reason});
@@ -67,18 +67,33 @@
       sign*(latest.close-latest.open)>0 &&
       sign*(prev2.close-prev.close)>0 &&
       deviation>=-0.25&&deviation<=0.80&&impulse<1.20;
+   // A late 15m signal may be followed by an independently NEW, source-verified
+   // closed 5m breakout. Never reuse the old confirmation time, an open bar or a wick.
+   const minutesSinceFiveClose=(now-latest.openTime-STEPS['5m'])/60000;
+   const continuation=minutesSinceFiveClose>=0&&minutesSinceFiveClose<=1.5
+      &&deviation>0&&deviation<=2.0&&impulse<=2.5
+      &&sign*(prev.close-prev.open)>0
+      &&sign*(latest.close-latest.open)>0
+      &&sign*(prev.close-prev2.close)>0
+      &&sign*(latest.close-(sign>0?prev.high:prev.low))>0
+      &&sign*(latest.close-prev.close)>=0.15*atr
+      &&sign*(spot.xaus-latest.close)>=-0.25*atr;
    const reasons=[];
-   if(deviation>1.5)reasons.push('Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt');
+   if(deviation>1.5&&!continuation)reasons.push('Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt');
    if(impulse>2.5&&deviation>0.80)reasons.push('Bewegung der letzten 3×5m-Kerzen bereits über 2,5 ATR');
-   if((age===null||age>15)&&!reset)
+   if((age===null||age>15)&&!reset&&!continuation)
      reasons.push(age===null?'Signalzeit unbekannt; kein neues bestätigtes Rücksetzer-Setup':
                             'Bestätigtes Einstiegssignal älter als 15 Minuten ohne neuen Rücksetzer');
    const metrics={...initial,available:true,late:reasons.length>0,allowed:reasons.length===0,
        mode:reasons.length?'ABWARTEN':'EINSTIEGSFENSTER',direction,
-       reason:reasons.join(' · ')||(reset?'Neuer Rücksetzer mit bestätigter Fortsetzung':
+       setup:reasons.length?'blocked':continuation?'fresh-5m-continuation':reset?'closed-5m-pullback':'confirmed-main',
+       reason:reasons.join(' · ')||(continuation?'Neuer, geschlossener 5m-Folgeimpuls; nicht dem alten 15m-Signal hinterherlaufen':
+                                  reset?'Neuer Rücksetzer mit bestätigter Fortsetzung':
                                   'Bestätigung aktuell, Bewegung nicht überdehnt'),
        deviationAtr:Math.round(deviation*100)/100,impulseAtr:Math.round(impulse*100)/100,
        signalAgeMinutes:age===null?null:Math.round(age*10)/10,
+       freshContinuation:continuation&&reasons.length===0,
+       freshContinuationAt:continuation?latest.openTime+STEPS['5m']:null,
        pullbackReset:reset,atr5m:atr,barAt:latest.openTime,
        priceAt:closeTime,reference:spot.xaus};
    return metrics;
