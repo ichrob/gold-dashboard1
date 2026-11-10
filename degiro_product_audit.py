@@ -762,6 +762,90 @@ def store(conn, feed, quotes, now_ms):
     return report
 
 
+
+def research_compatibility_view(stored, now_ms):
+    """View old audit rows under the current research rules, without re-dating.
+
+    Source-backed bid/ask/KO timestamps, database records and the original audit
+    completion timestamp are immutable. An older venue *research blocker* is
+    removed from this read-only display only; this grants no broker execution.
+    The one exact BNP future-factor ISIN is excluded using official public
+    product identity, never an assumed issuer price or synthetic KO barrier.
+    """
+    if not isinstance(stored, dict) or not isinstance(stored.get("items"), list):
+        return stored
+    changed = False
+    output = []
+    for raw in stored["items"]:
+        if not isinstance(raw, dict):
+            output.append(raw)
+            continue
+        isin = raw.get("isin")
+        missing = raw.get("missing")
+        if isin == "DE000PU0D101" and raw.get("state") != "excluded-factor":
+            # This is a type/exclusion projection, NOT a newly observed issuer
+            # quote, original proof clock or evidence of account tradability.
+            factor = examine({"isin":isin,"productDirection":raw.get("direction")},
+                             {}, now_ms)
+            factor["originalAuditState"] = raw.get("state")
+            factor["originalAuditCheckedAt"] = stored.get("lastCheckedAt")
+            factor["needsKiHelp"] = False
+            output.append(factor)
+            changed = True
+            continue
+        if not isinstance(missing, list) or "venue" not in missing:
+            output.append(raw)
+            continue
+        # Existing stored row may contain old venue-specific counters. Keep
+        # independent product failures and their exact source provenance.
+        row = deepcopy(raw)
+        row["missing"] = [code for code in missing if code != "venue"]
+        if isinstance(row.get("messages"), list):
+            if len(row["messages"]) == len(missing):
+                row["messages"] = [message for code, message in
+                                   zip(missing, row["messages"]) if code != "venue"]
+            else:
+                row["messages"] = [CODES.get(code, "Nachweis prüfen")
+                                   for code in row["missing"]]
+        for key in ("missingChecks","missingSince"):
+            if isinstance(row.get(key), dict):
+                row[key].pop("venue", None)
+        counts = row.get("missingChecks")
+        if isinstance(counts, dict):
+            row["consecutiveChecks"] = max(
+                [v for v in counts.values() if type(v) is int and v>=0],
+                default=0)
+            row["needsKiHelp"] = (row["consecutiveChecks"] >= 3 and
+                                   bool(row["missing"]))
+        if (row.get("state") == "incomplete" and not row["missing"] and
+            isinstance(row.get("sourceStatusEvidence"), dict) and
+            row["sourceStatusEvidence"].get("issuerVerified") is True):
+            row["state"] = ("analysis-evidence-complete"
+                            if row.get("leverageObservation") else
+                            "issuer-evidence-complete")
+        row["researchVenueGateRequired"] = False
+        row["tradeApproved"] = False
+        row["degiroVerified"] = False
+        output.append(row)
+        changed = True
+    if not changed:
+        return stored
+    view = dict(stored)
+    view["items"] = output
+    # These counters describe *the view* of saved research evidence. Do not
+    # update lastCheckedAt, quoteSourceAt, leverageSourceAt or market status.
+    if view.get("status") == "ok":
+        view["incomplete"] = sum(x.get("state")=="incomplete" for x in output
+                                  if isinstance(x,dict))
+        view["needsHelp"] = sum(x.get("needsKiHelp") is True for x in output
+                                 if isinstance(x,dict))
+    view["excluded"] = sum(x.get("state")=="excluded-factor" for x in output
+                           if isinstance(x,dict))
+    view["researchCompatibilityView"] = "venue-optional-and-factor-excluded-v1"
+    view["underlyingAuditUnchanged"] = True
+    return view
+
+
 def read(conn, now_ms=None):
     now_ms = now_ms if now_ms is not None else datetime.now(timezone.utc).timestamp()*1000
     # Check against current list generation, not an old audit after a fresh upload.
@@ -775,7 +859,7 @@ def read(conn, now_ms=None):
                 "lastCheckedAt":None,"listUploadedAt":generation,
                 "incomplete":None,"needsHelp":None, "items":[],
                 "readOnly":True,"degiroConnected":False}
-    report = dict(row[0])
+    report = research_compatibility_view(dict(row[0]), now_ms)
     # Handset data is an independent, historical, non-trading display layer.
     # NEVER overwrite issuer quotes, audit missing-codes, or trade approval.
     try:
