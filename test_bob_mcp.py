@@ -52,6 +52,38 @@ class BobMcpTests(unittest.TestCase):
         self.assertEqual((status,response),(202,None))
         self.assertEqual(calls,[])
 
+    def test_antigravity_parameter_cache_alias_only_for_two_read_only_tools(self):
+        # Google CLI 1.5.3 cache bug #368 expects mcpTool.parameters,
+        # although MCP requires inputSchema. Keep both identical.
+        tools = bob_mcp.tool_definitions(diagnostics=True, products=True,
+                                          remote_phone=True, remote_termux=True,
+                                          remote_push=True)
+        by_name = {t['name']:t for t in tools}
+        self.assertEqual(set(by_name), {t['name'] for t in tools})
+        for name in ('bob_product_gaps', 'bob_diagnostics'):
+            t = by_name[name]
+            self.assertEqual(t['parameters'], t['inputSchema'])
+            self.assertIsNot(t['parameters'], t['inputSchema'])
+            self.assertEqual(t['inputSchema']['type'], 'object')
+            self.assertTrue(t['annotations']['readOnlyHint'])
+            self.assertFalse(t['annotations']['destructiveHint'])
+            self.assertEqual(t['securitySchemes'][0]['scopes'],
+                             [bob_mcp.DIAGNOSTICS_SCOPE if name == 'bob_diagnostics'
+                              else bob_mcp.SCOPE])
+        for t in tools:
+            if t['name'] not in ('bob_product_gaps','bob_diagnostics'):
+                self.assertNotIn('parameters', t)
+        # A published argument-schema alias must not bypass strict runtime
+        # validation, even when an agent submits a schema-like payload.
+        status, reply = bob_mcp.handle(
+            {'jsonrpc':'2.0','id':3,'method':'tools/call',
+             'params':{'name':'bob_diagnostics',
+                       'arguments':{'focus':'overview','execute':True}}},
+            lambda: self.fail('product report must not be fetched'),
+            lambda: self.fail('diagnostics must not be fetched'))
+        self.assertEqual(status, 200)
+        self.assertEqual(reply['error']['code'],-32602)
+
     def test_full_report_and_missing_fields_preserve_source_status(self):
         report={"status":"stale","listUploadedAt":"2026-10-15T08:00:00Z",
                 "total":1, "incomplete":None, "lastCheckedAt":"old-clock",
