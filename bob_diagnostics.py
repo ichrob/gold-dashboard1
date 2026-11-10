@@ -1091,6 +1091,15 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
             conn.execute("SET LOCAL statement_timeout='3s'")
     except Exception:
         result['intradayTimingStudy'] = {'status':'unavailable','realOrders':False}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            result['rapidLeverageStudy'] = __import__('rapid_leverage_study').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        result['rapidLeverageStudy'] = {
+            'status':'unavailable','realOrders':False,
+            'productReturnVerified':False,'strategyWinnerConfirmed':False}
     result['shadowStudies']['entryExitComparison'] = comparison
     return result
 
