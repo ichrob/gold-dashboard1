@@ -385,7 +385,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
                           if market.get('analysisError') else 'Aktualität oder zeitliche Abstimmung der vorhandenen Markt-/Analysedaten nicht bestätigt. Berechnung mit vorhandenen Werten läuft weiter; Überwachung eingeschränkt.')
                 add('data-unavailable', 'DATENSTATUS · Berechnung mit veralteten Werten', reason, channel)
             else:
-                add('data-recovered', 'DATENSTATUS · Überwachung fortgesetzt', 'Aktuelle Daten wieder vorhanden. Keine Entwarnung für einen Trade.', channel)
+                # A recovered data feed is a state transition, not an actionable push.
+                # Preserve the durable health state and audit trail silently.
+                audit('data-recovered', 'suppressed', 'Aktuelle Daten wieder vorhanden; kein Wiederaufnahme-Push')
             state['announcedHealthy'] = healthy
             state.pop('healthPending', None)
         state['dataStatus'] = 'active' if healthy else 'unavailable'
