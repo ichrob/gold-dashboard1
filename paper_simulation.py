@@ -30,7 +30,7 @@ VERSION = 'paper-lifecycle-v2'
 START = datetime(2026, 10, 8, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000
 NOTE = ('Vorwärts-Simulation ohne Orders. Eine Position, rund 50 % Teilgewinn am ersten Ziel; '
         'Rest folgt Bobs Gewinnschutz und Zielverlängerung. Stop wird niemals gelockert. '
-        'Goldplan maximal vier Stunden, spätestens 21:45 Zürich. '
+        'Goldplan maximal vier Stunden, neue November-Konten maximal fünf Stunden; immer spätestens 21:45 Zürich. '
         'Nur beobachtete Kurse, keine Ausführung oder sichere Treffer zwischen Messungen. '
         'Produktvergleich: Einstieg Brief / Ausstieg Geld; Anbieterquotierung, kein DEGIRO-Ausführungsnachweis. '
         'Gebühren, Finanzierung, Slippage und Nettogewinn unbekannt. '
@@ -270,10 +270,12 @@ def sync(conn, payload):
             WHERE selection_evidence IS NOT NULL OR product_selection IS NOT NULL''')
     return dict(ok=True,products=len(safe['products']),listUploadedAt=uploaded)
 
-def new_case(market, choice, quote, now, cash=100., cost_model=None,bundle=None):
+def new_case(market, choice, quote, now, cash=100., cost_model=None,bundle=None,max_holding_minutes=240):
     p=copy.deepcopy(market['plan']);direction=p['direction'];risk=abs(p['entry']-p['stop'])
     local=datetime.fromtimestamp(now/1000,ZoneInfo('Europe/Zurich'))
-    end=min(now+4*3600000,local.replace(hour=21,minute=45,second=0,microsecond=0).timestamp()*1000)
+    if type(max_holding_minutes) is not int or not 1<=max_holding_minutes<=300:
+        raise ValueError('Ungültiges Intraday-Zeitlimit')
+    end=min(now+max_holding_minutes*60000,local.replace(hour=21,minute=45,second=0,microsecond=0).timestamp()*1000)
     key=hashlib.sha256(json.dumps([VERSION,market.get('ruleVersion'),market.get('learningPolicy'),market.get('analysisBarAt'),direction,choice['isin']],sort_keys=True).encode()).hexdigest()
     # No currency model is guessed from a leverage number or future contract.
     q=None if choice.get('indicative') or choice.get('estimated') else fresh_quote(quote,now,choice['isin'])
@@ -827,7 +829,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 budget=min(control['cash'], (control.get('equity') or control['cash'])*
                            (profile_policy['exposure_fraction'] if profile_policy else 1.))
                 entry_checklist=paper_entry_review.capture(market,choice,quotes.get(choice['isin']),now,True,'Alle bisherigen Einstiegssperren bestanden',control,profile_policy)
-                c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget,cost_model=cost_model,bundle=bundle)
+                c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget,cost_model=cost_model,bundle=bundle,
+                    max_holding_minutes=int((profile_policy or {}).get('max_holding_minutes',240)))
                 c['entryChecklist']=entry_checklist
                 c['selectionEvidence']=__import__('paper_evidence_chain').capture_selection(selection, choice, now)
                 if c.get('koGuardRequired'):
