@@ -60,6 +60,32 @@ class StateTests(unittest.TestCase):
         self.assertNotIn(tokens['access_token'],json.dumps(self.state))
         self.assertNotIn(tokens['refresh_token'],json.dumps(self.state))
 
+    def test_token_target_errors_are_safe_and_scope_errors_are_distinct(self):
+        code = self.authorize()
+        missing = self.exchange(code, resource=None)
+        self.assertEqual(missing['error'], 'invalid_target')
+        self.assertEqual(missing['error_description'], 'resource_mismatch')
+        # Omission, not a null field, is a distinct interoperability signal.
+        missing_field = self.call('token', client_id=self.cid,
+            grant_type='authorization_code', redirect_uri=store.REDIRECT,
+            code=code, code_verifier=self.verifier)
+        self.assertEqual(missing_field['error_description'], 'resource_missing')
+        mismatch = self.exchange(code, resource='https://other.example/mcp')
+        self.assertEqual(mismatch['error_description'], 'resource_mismatch')
+        self.assertNotIn('other.example', json.dumps(mismatch))
+        unsupported = self.exchange(code, scope='bob:unapproved:write')
+        self.assertEqual(unsupported['error'], 'invalid_scope')
+        self.assertEqual(unsupported['error_description'], 'unsupported_scope')
+        self.assertNotIn('bob:unapproved:write', json.dumps(unsupported))
+        # None of these failures consumes the single-use PKCE code or
+        # broadens access, and the valid original resource still works.
+        self.assertIn('access_token', self.exchange(code))
+        grant = self.authorize()
+        tok = self.exchange(grant)
+        bad_refresh = self.refresh(tok['refresh_token'], resource=None)
+        self.assertEqual(bad_refresh['error'], 'invalid_target')
+        self.assertIn('access_token', self.refresh(tok['refresh_token']))
+        
     def test_mobile_handoff_code_remains_single_use_and_expires(self):
         # Android browser -> Termux switching can take more than two minutes;
         # the verifier, exact redirect, client, scope and resource still bind the code.
