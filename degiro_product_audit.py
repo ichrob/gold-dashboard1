@@ -823,6 +823,15 @@ def research_compatibility_view(stored, now_ms):
             row["state"] = ("analysis-evidence-complete"
                             if row.get("leverageObservation") else
                             "issuer-evidence-complete")
+        # Old report schema also stored a separate venue-action prompt and
+        # brokerVenueStatus.required=true. The code-only research gate is gone,
+        # so do not keep a contradictory screenshot request in the view.
+        status = row.get("brokerVenueStatus")
+        if isinstance(status, dict):
+            row["brokerVenueStatus"] = dict(status,
+                required=False, researchGate=False, executionVerified=False,
+                brokerDisplayObserved=status.get("current") is True)
+        row["venueAction"] = None
         row["researchVenueGateRequired"] = False
         row["tradeApproved"] = False
         row["degiroVerified"] = False
