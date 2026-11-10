@@ -148,8 +148,14 @@ def transition(state, action, p, now=None):
         cid = p.get('client_id','')
         if cid not in clients:
             return error('invalid_client')
-        if p.get('resource') != RESOURCE or not valid_scope(p.get('scope',SCOPE)):
-            return error('invalid_target')
+        # Keep strict audience binding, but distinguish a missing/mismatched
+        # OAuth Resource Indicator from an unsupported scope. Never echo the
+        # client-supplied resource, scope, client ID or token in these errors.
+        if p.get('resource') != RESOURCE:
+            reason = 'resource_missing' if 'resource' not in p else 'resource_mismatch'
+            return {'error':'invalid_target', 'error_description':reason}
+        if not valid_scope(p.get('scope',SCOPE)):
+            return {'error':'invalid_scope', 'error_description':'unsupported_scope'}
         if p.get('grant_type') == 'authorization_code':
             record = codes.get(digest(p.get('code','')))
             verifier = p.get('code_verifier','')
