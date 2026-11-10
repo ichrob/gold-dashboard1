@@ -75,7 +75,7 @@ class SourceRefreshTests(unittest.TestCase):
         result=audit.examine(dict(isin=isin,direction='LONG'),rows[isin],now.timestamp()*1000)
         for key in ('quote','quote-time','underlying','currency'):
             self.assertNotIn(key,result['missing'])
-        self.assertIn('venue',result['missing'])
+        self.assertNotIn('venue',result['missing'])
         self.assertFalse(result['tradeApproved'])
 
     def test_each_backup_refresh_recalculates_before_private_audit(self):
@@ -111,7 +111,7 @@ class SourceRefreshTests(unittest.TestCase):
             out=audit.examine(product,q,NOW)
             for key in ('list-identity','underlying','currency'):
                 self.assertNotIn(key,out['missing'])
-            self.assertIn('venue',out['missing'])
+            self.assertNotIn('venue',out['missing'])
             product['currency']='EUR'
             self.assertIn('currency',audit.examine(product,q,NOW)['missing'])
 

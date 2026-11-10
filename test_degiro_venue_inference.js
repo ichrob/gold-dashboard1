@@ -57,8 +57,9 @@ window.BobProductAuditReport={status:'ok',lastCheckedAt:at,listUploadedAt:archiv
 assert.equal(bob.sharedVenueStatus(tested,now).state,'historical');
 assert.equal(bob.degiroVenueObserved(tested),false);
 assert.equal(bob.degiroVenueInferred(tested,archive,now),null);
-assert(bob.finalProductStatus(tested,now).reasons.includes('DEGIRO-Handelsplatznachweis offen'));
-assert(bob.productProblemLabels(tested).includes('DEGIRO-Handelsplatznachweis'));
+assert(!bob.finalProductStatus(tested,now).reasons.includes('DEGIRO-Handelsplatznachweis offen'));
+assert(!bob.productProblemLabels(tested).includes('DEGIRO-Handelsplatznachweis'));
+assert.equal(bob.currentQuote(tested,now),false,'missing executable proof stays unapproved');
 assert(bob.renderProductIdentity(tested,now).includes('✗'));
 assert(bob.renderVenueHistory(tested).includes('2026-10-15 12:00'));
 window.BobProductAuditReport.status='stale';

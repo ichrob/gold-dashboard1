@@ -95,6 +95,42 @@ class RapidEntryTests(unittest.TestCase):
         self.assertIsNone(final["arms"]["breakout"]["position"])
         self.assertEqual(final["arms"]["breakout"]["started"],1)
 
+    def test_fresh_unmixed_original_5m_recovers_missing_1m_without_estimation(self):
+        b=sample()
+        rows,error=s.candles.minute_history(b,NOW,False)
+        self.assertIsNone(error)
+        bars=s.candles.aggregate(rows,5,NOW)
+        b["history"]["bars_by_tf"]["5m"]=[
+            dict(openTime=x["openTime"],open=x["open"],high=x["high"],
+                 low=x["low"],close=x["close"],instrument="XAU/USD",
+                 source="verified-fixture",isOpen=False)
+            for x in bars]
+        b["history"]["bars_by_tf"]["1m"].pop(10)
+        state,_=s.advance(s.seed(NOW),b,NOW)
+        self.assertEqual(state["lastInput"]["basis"],"closed-original-5m")
+        self.assertEqual(state["arms"]["breakout"]["started"],1)
+        self.assertFalse(state["arms"]["breakout"]["position"]["signal"]["estimated"])
+
+    def test_original_5m_conflicts_and_gaps_are_not_reconstructed(self):
+        b=sample()
+        rows,_=s.candles.minute_history(b,NOW,False)
+        bars=s.candles.aggregate(rows,5,NOW)
+        b["history"]["bars_by_tf"]["5m"]=[
+            dict(openTime=x["openTime"],open=x["open"],high=x["high"],
+                 low=x["low"],close=x["close"],instrument="XAU/USD",
+                 source="verified-fixture",isOpen=False)
+            for x in bars]
+        b["history"]["bars_by_tf"]["1m"].pop(10)
+        b["history"]["bars_by_tf"]["5m"][-1]["estimated"]=True
+        state,_=s.advance(s.seed(NOW),b,NOW)
+        self.assertEqual(state["arms"]["breakout"]["started"],0)
+        self.assertEqual(state["lastInput"]["reason"],"five-minute-original-invalid")
+        b["history"]["bars_by_tf"]["5m"][-1].pop("estimated")
+        b["history"]["bars_by_tf"]["5m"].pop(-5)
+        state,_=s.advance(s.seed(NOW),b,NOW)
+        self.assertEqual(state["arms"]["breakout"]["started"],0)
+        self.assertEqual(state["lastInput"]["reason"],"five-minute-history-gap")
+
     def test_missing_minute_source_and_stale_data_do_not_open_positions(self):
         b=sample()
         b["history"]["bars_by_tf"]["1m"].pop(10)

@@ -65,7 +65,9 @@ function evaluate(input,now=Date.now()){
     watches:Object.fromEntries(Object.entries(input.positions||{}).map(([key,p])=>[key,Risk.monitor(p.watch,{active:true,tradeId:p.id,dir:p.direction,entry:p.goldEntry,stop:p.goldStop},signal,now)]))};
   }
   const flow=api.selectionWorkflow(products,context,input.bundle,input.references||[]);
-  const valid=p=>!/FAKTOR|FACTOR/i.test(p.name||'')&&!api.knockoutStatus(p);
+  // Official BNP PU0D10 is a 15x GOLD FUTURE factor product, never a KO.
+  // Exclude by exact ISIN even when an uploaded list omits the product type.
+  const valid=p=>p.isin!=='DE000PU0D101'&&!/FAKTOR|FACTOR/i.test(p.name||'')&&!api.knockoutStatus(p);
   const papers=[];
   if(api.selectionMarketGate(context).ok)for(const p of products){
    if(!valid(p)||api.isFutureProduct(p)||!p.isinConfirmed||!p.quote?.paperSelectionOnly

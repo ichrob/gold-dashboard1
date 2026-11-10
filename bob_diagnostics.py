@@ -384,12 +384,13 @@ def new_studies_brief(paper, now_ms=None):
     """
     if not isinstance(paper, dict):
         return None
-    keys = ('qualityCampaign', 'shadowStudies', 'intradayTimingStudy')
+    keys = ('qualityCampaign', 'shadowStudies', 'intradayTimingStudy', 'rapidLeverageStudy')
     if not any(isinstance(paper.get(k), dict) for k in keys):
         return None
     quality = paper.get('qualityCampaign') or {}
     shadow = paper.get('shadowStudies') or {}
     timing = paper.get('intradayTimingStudy') or {}
+    rapid = paper.get('rapidLeverageStudy') or {}
     entry = shadow.get('entryExitComparison') or {}
     modeled = quality.get('modeledSimulation') or {}
     # The last episode's checkedAt can be days old while the study's worker
@@ -507,9 +508,69 @@ def new_studies_brief(paper, now_ms=None):
         'intraday':{**core(timing),
                     'variantsObserved':len(variants) if variants is not None else None,
                     'legacyOpenPositions':value(timing,'legacyOpenPositions')},
+        'rapid':rapid_leverage_brief(rapid),
         'strategyWinnerConfirmed':False,
         'fullOriginalHistoryVerified':False,
     }
+
+
+def rapid_leverage_brief(control):
+    """Tiny source-grounded, status-only projection of rapid shadow portfolios.
+
+    Do not manufacture executions or copy full trades, products or private logs.
+    """
+    if not isinstance(control, dict) or not control:
+        return {'status':'unavailable','readOnly':True,'realOrders':False,
+                'productReturnVerified':False,'reason':'rapid-study-report-missing'}
+    permitted = {'breakout','impulse','pullback','news-impulse'}
+    allowed_blockers = {'no-setup','no-verified-scheduled-release',
+        'minute-history-gap','minute-evidence-invalid','mixed-minute-sources',
+        'five-minute-original-coverage-short','five-minute-original-invalid',
+        'five-minute-history-gap','five-minute-signal-not-fresh',
+        'original-spot-unavailable','market-session-closed','closed-signal-too-old',
+        'spot-before-signal','case-limit-reached','signal-already-used',
+        'stop-distance-invalid','closed-original-bars-missing','fresh-closed-5m-missing'}
+    result={'status':control.get('status') if control.get('status') in
+            ('collecting','awaiting-first-worker-check','completed-review-required')
+            else 'unavailable',
+            'readOnly':True,'realOrders':False,'productReturnVerified':False,
+            'strategyWinnerConfirmed':False}
+    for key in ('startedAt','checkedAt'):
+        val=control.get(key)
+        if type(val) in (int,float) and math.isfinite(val) and val>=0:
+            result[key]=val
+    source=control.get('lastInput')
+    if isinstance(source,dict):
+        result['lastInput']={
+            'basis':source.get('basis') if source.get('basis') in
+                ('closed-original-1m','closed-original-5m') else None,
+            'bars':source.get('bars') if type(source.get('bars')) is int and 0<=source['bars']<=120 else None,
+            'reason':source.get('reason') if source.get('reason') in allowed_blockers else None,
+            'originalSpotFresh':source.get('originalSpotFresh') is True,
+            'sourceAt':source.get('sourceAt') if type(source.get('sourceAt')) in (int,float) else None}
+    setups=[]
+    for a in (control.get('setups') or [])[:4]:
+        if not isinstance(a,dict) or a.get('setup') not in permitted:
+            continue
+        n=lambda key: a[key] if type(a.get(key)) is int and 0<=a[key]<=1000000 else None
+        row={'setup':a['setup'],'started':n('started'),'closed':n('closed'),
+             'inconclusive':n('inconclusive'),'open':a.get('open') is True,
+             'latestBlockReason':a.get('latestBlockReason') if
+                a.get('latestBlockReason') in allowed_blockers else None,
+             'levers':[]}
+        for leverage in (5,10,20,30):
+            entry=next((v for v in a.get('levers') or []
+                if isinstance(v,dict) and v.get('leverage')==leverage),None)
+            if entry:
+                modeled=entry.get('modeledReturnPct')
+                row['levers'].append({'leverage':leverage,
+                    'modeledReturnPct':modeled if type(modeled) in (int,float)
+                    and math.isfinite(modeled) and abs(modeled)<=100000 else None,
+                    'completed':entry.get('completed') if type(entry.get('completed')) is int else None})
+        setups.append(row)
+    result['setups']=setups
+    result['scope']='original-spot-paper-counterfactual-not-product-profit'
+    return result
 
 
 def collect(readers):
@@ -772,6 +833,14 @@ def entry_block_evidence(conn, portfolios, limit=5):
                 safe_counts.append({'reason':clean_text(str(reason))[:500],
                                     'checks':count})
             safe_counts.sort(key=lambda item: (-item['checks'], item['reason']))
+            # Preserve reason coverage when only the top five labels fit in the
+            # bounded read response. Never label the omitted checks "unknown".
+            hidden = safe_counts[limit:]
+            from paper_simulation import paper_entry_reason_code
+            remainder_codes = {}
+            for missing in hidden:
+                code = paper_entry_reason_code(missing['reason'])
+                remainder_codes[code] = remainder_codes.get(code,0)+missing['checks']
             # Compact quarter-hour evidence is deliberately separate from the
             # capped 200-row detail sequence. The first bucket is the real
             # first persisted observation, never a recreated historical window.
@@ -842,6 +911,8 @@ def entry_block_evidence(conn, portfolios, limit=5):
                 'distinctReasons':len(safe_counts),
                 'reasonCounts':safe_counts[:limit],
                 'reasonCountsTruncated':len(safe_counts) > limit,
+                'otherReasonChecks':sum(row['checks'] for row in hidden),
+                'otherReasonCategories':remainder_codes,
                 'storedRecords':len(blocks), 'returnedRecords':len(latest),
                 'omittedRecords':max(0, len(blocks) - len(latest)),
                 'sourceTruncated':payload.get('entryBlocksTruncated') is True,

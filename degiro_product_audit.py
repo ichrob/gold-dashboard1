@@ -315,16 +315,26 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
     # SG's verified factor response intentionally has no live quote/term fields.
     # Accept its existing productType spelling as well as the canonical type;
     # an excluded factor is not fifteen independent missing-data incidents.
-    if verified and 'FACTOR' in (metadata.get('type'), metadata.get('productType')):
+    # One exact, immutable issuer identification also excludes a factor even
+    # when the ordinary quote adapter cannot parse the future-based instrument.
+    # BNP's official product details: derivate.bnpparibas.com/product-details/DE000PU0D101/
+    # This is identity/type evidence ONLY, never a fresh bid/ask or KO record.
+    official_factor = isin == 'DE000PU0D101'
+    if (verified and 'FACTOR' in (metadata.get('type'), metadata.get('productType'))) or official_factor:
         return dict(isin=isin, direction=direction, state='excluded-factor', excluded=True,
             missing=['factor'], messages=[CODES['factor']],
-            source=str(quote.get('source') or 'Emittent')[:80],
-            sourceStatusEvidence=dict(issuerVerified=True, issuerProductType='FACTOR',
-                                      issuerStatus=metadata.get('status')),
+            source=('BNP Paribas · offizieller Faktor-15-Produktnachweis' if official_factor
+                    else str(quote.get('source') or 'Emittent')[:80]),
+            sourceStatusEvidence=dict(issuerVerified=verified, issuerProductType='FACTOR',
+                issuerStatus=metadata.get('status'),
+                officialReference=('https://derivate.bnpparibas.com/product-details/DE000PU0D101/'
+                    if official_factor else None)),
             timeEvidence=dict(missing=[], leverageBasis='unavailable', terms={}),
             quoteSourceAt=None, leverageSourceAt=None, issuerLeverageObservation=None,
             leverageObservation=None, sourceObservations=[],
-            dataQuoteSource=None, dataQuoteKind=None, identityEvidence='issuer-confirmed-excluded',
+            dataQuoteSource=None, dataQuoteKind=None,
+            identityEvidence=('public-issuer-factor-exclusion' if official_factor and not verified
+                              else 'issuer-confirmed-excluded'),
             tradeApproved=False, degiroVerified=False,
             autoRecovery='Faktorprodukt ausgeschlossen; keine laufenden Kurs-, Hebel- oder KO-Nachweise erforderlich.')
     snapshot = product.get('snapshot') or {}
@@ -360,8 +370,9 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
     if not valid_isin(isin) or not (
             product.get('isinConfirmed') or identity_matches or broker_identity_matches):
         missing.append('list-identity')
-    if swiss_dots and not has_broker_venue:
-        missing.append("venue")
+    # A DEGIRO venue screenshot is OPTIONAL for analysis and paper studies.
+    # Absence must not appear as a missing product term or block a study.
+    # This does NOT establish account-level execution approval.
     if not verified:
         missing.append("identity") if "identity" not in missing else None
     if direction not in ("LONG", "SHORT") or metadata.get("direction", quote.get("direction")) != direction:
@@ -536,11 +547,10 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
         "issuerVenue": "Swiss DOTS (CHF)" if swiss_dots else None,
         "venueEvidence": "https://www.finanzen.ch/derivate/"+isin.lower() if swiss_dots else None,
         "brokerVenueEvidence": broker_venue if has_broker_venue else None,
-        "brokerVenueStatus": dict(venue_status, required=swiss_dots),
-        "venueAction": ("Keine Swiss-DOTS-Quotierung als DEGIRO-Kurs verwenden. "
-                        "DEGIRO-Kursdatenbild mit ISIN, Börse, Währung und Datum hochladen; "
-                        "Bob übernimmt eindeutige Angaben automatisch."
-                        if swiss_dots and not has_broker_venue else None),
+        "brokerVenueStatus": dict(venue_status, required=False, researchGate=False,
+                                  brokerDisplayObserved=bool(has_broker_venue),
+                                  executionVerified=False),
+        "venueAction": None,
         "autoRecovery": ("Vom Emittenten als beendet gemeldet · keine neue Handelsfreigabe; fehlende laufende Kurse sind kein Reparaturfehler"
                          if terminated else "SG stellt nur Geld; Briefkurs fehlt beim Anbieter. Quellen werden erneut geprüft, keine Handelsfreigabe."
                          if quote.get("quoteFailureCode") == "SG_BID_ONLY" else "Vorhandene Emittenten- und Ersatzquellen werden bei der nächsten Aktualisierung erneut geprüft"),

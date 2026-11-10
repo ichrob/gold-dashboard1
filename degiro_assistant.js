@@ -1781,7 +1781,7 @@ function productProblemLabels(p){
  if(result.complete)return [];
  const paused=typeof expectedQuotePause==='function'&&expectedQuotePause(p);
  const analysis=typeof currentSgChfAnalysisProof==='function'?currentSgChfAnalysisProof(p):null;
- const labels=analysis&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?['DEGIRO-Handelsplatznachweis']:[];
+ const labels=[]; // Broker listing does not block research or paper analyses.
  if(typeof productFxIssue==='function'&&productFxIssue(p))labels.push('Wechselkurs veraltet oder nicht verfügbar');
  // Missing evidence is different from a missing numeric value. A datable
  // analysis quote must not be shown as an absent Geld/Brief pair merely because
@@ -1795,10 +1795,9 @@ function productProblemLabels(p){
   // These are fallback screenshot requirements, not absent issuer analysis data.
   // Keep contradictory evidence and all contract/KO failures visible.
   if(analysis&&/^(?:Zusätzlicher Live-Nachweis offen|Detailbild mit derselben ISIN|Aktuelles Kursbild mit Geld\/Brief in EUR|Kurszeit mit Datum: höchstens 14 Stunden alt; keine ergänzten Sekunden|Aktuelles Detailbild mit Hebel und zugehöriger Zeit)$/.test(r))continue;
-  if(/DEGIRO-Handelsplatznachweis/i.test(r))found.push('DEGIRO-Handelsplatznachweis');
   if(/Hebel/i.test(r))found.push(leveragePresent?'Hebelzeit / Quellenprüfung':'Hebel');
   if(/Kurszeit|Quellenzeit|Zeitstempel|Kurs.*(alt|zeit)|Geld.*Brief.*Zeit/i.test(r))found.push('Kurszeit');
-  if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push(pairPresent?(degiroVenueObserved(p)||degiroVenueInferred(p)?'Kursart / Ausführbarkeit':'Kursart / DEGIRO-Handelsplatznachweis'):'Kursnachweis');
+  if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push(pairPresent?'Kursart / Ausführbarkeit':'Kursnachweis');
   if(/Basispreis|Finanzierungslevel/i.test(r))found.push('Basispreis');
   if(/KO|Knock-out|Barriere/i.test(r))found.push('KO-Nachweis');
   if(/Bezugsverhältnis/i.test(r))found.push('Bezugsverhältnis');
@@ -2173,7 +2172,7 @@ function renderProductDirectionStatus(p,now=Date.now()){
   // Keep productDirectionCheck and all trading/collection gates unchanged.
   const venue=degiroVenueObserved(p)?'<span style="color:#15803d">✓ DEGIRO-Handelsplatz belegt</span>':
    degiroVenueInferred(p,listArchive,now)?'<span>Handelsplatz aus Quellen abgeleitet</span>':
-   '<span style="color:#92400e">⚠ DEGIRO-Handelsplatznachweis offen</span>';
+   ''; // No missing-DEGIRO-venue blocker on analysis cards.
   return '<span data-direction-data-status data-sg-chf-analysis-only role="status" aria-label="Kurs und Hebel aktuell für die Analyse; gemeinsamer Zeitbezug bestätigt; Ausführungskurs bei DEGIRO nicht bestätigt" style="display:inline-flex;gap:6px;flex-wrap:wrap"><strong style="color:#15803d">✓ Kurs/Hebel aktuell · Analyse</strong><span style="color:#15803d">✓ Gemeinsamer Zeitbezug bestätigt</span>'+venue+'<span data-execution-proof-open style="color:#92400e">Ausführungskurs bei DEGIRO: nicht bestätigt</span></span>';
  }
 
@@ -2914,7 +2913,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const next=serverEvidence?'Serveranalyse vorhanden: keine neuen Bilder nötig. Keine bestätigte DEGIRO-Ausführung; lokale Produktfreigabe und Risikoprüfung bleiben separat.':venueMissing?productHelpState(p).action:automaticQuoteIssue?'Automatischer Kurs- und Hebelabruf wird erneut geprüft. Vorhandene Werte bleiben mit ihrem ursprünglichen Datenstand nutzbar; derzeit keine neuen Bilder erforderlich.':complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „Werte und Aktualitätsprüfung“ prüfen.':automaticRecoveryPending?'Bob prüft die zugelassenen Emittentenquellen automatisch erneut. Fehlende oder unklare Nachweise bleiben gesperrt und werden unter „Problem“ dokumentiert. Nur wenn diese Quellen keine ausreichenden Daten liefern, können zusätzliche Originalbelege notwendig sein.':'Offene Angaben unter „Werte und Aktualitätsprüfung“ ansehen und nur diese ergänzen.';
  return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere">'+
  goldProductCompactView(p)+'<details data-product-technical style="margin-top:10px"><summary>Details · Produktangaben und Aktionen</summary>'+renderProductIdentity(p)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+(typeof renderServerAnalysisEvidence==='function'?renderServerAnalysisEvidence(p):'')+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
- renderServerVenueEvidence(p)+renderVenueHistory(p)+renderDegiroDisplayedQuote(p)+renderDegiroVenueInference(p)+renderDegiroTradingSession(p)+(swissSgVenue&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Offen ist die Zuordnung dieses CHF-Produkts zu einem DEGIRO-Handelsplatz. Die vorhandenen SG-Kurse werden für die Analyse verwendet.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(!serverEvidence&&missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!serverEvidence&&!timeEvidence.confirmed)+' '+esc(serverEvidence?'Server-Nachweis aktuell · lokaler Bildzeitbezug separat geprüft':timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
+ renderServerVenueEvidence(p)+renderVenueHistory(p)+renderDegiroDisplayedQuote(p)+renderDegiroVenueInference(p)+renderDegiroTradingSession(p)+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(!serverEvidence&&missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!serverEvidence&&!timeEvidence.confirmed)+' '+esc(serverEvidence?'Server-Nachweis aktuell · lokaler Bildzeitbezug separat geprüft':timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
  '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p><details><summary>Automatische Suche · letzter Stand</summary>'+renderAutomaticProductCheck(p)+'</details>'+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+
  (selected?'': '<details style="margin-top:8px"><summary>Warum derzeit nicht ausgewählt?</summary><div class="small">'+(allReasons.length?allReasons.map(esc).join('<br>'):neutral?'Keine bestätigte Long-/Short-Marktrichtung. Die vollständigen Produktdaten müssen dafür nicht erneut hochgeladen werden.':'Die aktuelle Markt- und Risikoprüfung hat das Produkt nicht ausgewählt; vollständige Daten allein erteilen keine Freigabe.')+'</div></details>')+
@@ -3908,8 +3907,8 @@ function analysisReleaseQuote(p,now=Date.now()){
 function finalProductStatus(p,now=Date.now(),reference){
  if(knockoutStatus(p))return {complete:false,terminal:true,reasons:["Ausgeknockt – keine weiteren Daten erforderlich"]};
  const status=productTermsStatus(p,now),reasons=status.reasons.slice();
- const venue=sharedVenueStatus(p,now);
- if(venue?.required&&!venue.current)reasons.push('DEGIRO-Handelsplatznachweis offen');
+ // A broker venue screenshot is not a prerequisite for product analysis,
+ // ranking, or paper simulations. Execution must still be checked separately.
  const q=p.quote?.isin===p.isin?p.quote:null;
  const r=q?.productVerified&&q.metadata?.contract===q.futureResearch?.contract?q.futureResearch:null;
  const pair=(x,source)=>!!source&&n(x?.bid)>0&&n(x?.ask)>=n(x.bid)&&!x.delayed&&freshTimes([x.bidAt,x.askAt],now,90);

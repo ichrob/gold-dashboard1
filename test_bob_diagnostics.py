@@ -892,6 +892,31 @@ class FocusedReadAccessTests(unittest.TestCase):
                             for x in t['items']))
 
 
+class RapidStudyDiagnosticTests(unittest.TestCase):
+    def test_rapid_study_brief_is_small_and_keeps_original_clock(self):
+        report=dict(status='collecting',startedAt=1000,checkedAt=1500,
+            lastInput=dict(basis='closed-original-5m',bars=20,reason=None,
+                           originalSpotFresh=True,sourceAt=1400),
+            setups=[dict(setup='breakout',started=1,closed=0,inconclusive=0,open=True,
+                latestBlockReason='signal-already-used',
+                levers=[dict(leverage=5,modeledReturnPct=0.0,completed=0),
+                        dict(leverage=20,modeledReturnPct=0.0,completed=0)],
+                debugSecret='never-forward')])
+        brief=diagnostics.rapid_leverage_brief(report)
+        self.assertEqual(brief['lastInput']['basis'],'closed-original-5m')
+        self.assertTrue(brief['lastInput']['originalSpotFresh'])
+        self.assertEqual(brief['setups'][0]['started'],1)
+        self.assertEqual(brief['setups'][0]['latestBlockReason'],'signal-already-used')
+        self.assertNotIn('debugSecret',json.dumps(brief))
+        self.assertFalse(brief['productReturnVerified'])
+        self.assertFalse(brief['realOrders'])
+
+    def test_missing_rapid_study_is_not_reported_as_healthy(self):
+        result=diagnostics.rapid_leverage_brief(None)
+        self.assertEqual(result['status'],'unavailable')
+        self.assertFalse(result['productReturnVerified'])
+
+
 class FastSimulationStatusTests(unittest.TestCase):
     def test_current_day_uses_indexed_scope_without_historical_reports(self):
         from unittest.mock import MagicMock
