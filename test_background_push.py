@@ -167,7 +167,10 @@ class BackgroundRules(unittest.TestCase):
         s,e=b.advance(s,self.settings,m,False,True,now=30000);self.assertEqual(e,[])
         s,e=b.advance(s,self.settings,m,False,True,now=60000);self.assertEqual(self.kinds(e),['data-unavailable'])
         s,e=b.advance(s,self.settings,self.market,False,True,now=90000);self.assertEqual(e,[])
-        self.assertIn('data-recovered',self.kinds(b.advance(s,self.settings,self.market,False,True,now=120000)[1]))
+        s,e=b.advance(s,self.settings,self.market,False,True,now=120000)
+        self.assertNotIn('data-recovered',self.kinds(e))
+        self.assertTrue(s['healthy'])
+        self.assertTrue(s['announcedHealthy'])
     def test_genuine_early_warning_long_and_short_precede_main_signal(self):
         for side in ('LONG','SHORT'):
             now=1800000000000
