@@ -91,6 +91,15 @@ def tool_definitions(diagnostics=False, products=True, remote_push=False, remote
     if remote_termux:result.extend(__import__('termux_maintenance').definitions())
     if remote_phone:result.extend(__import__('android_remote').definitions())
     for tool in result:
+        # Antigravity CLI 1.5.3 currently exports "mcpTool.parameters"
+        # instead of standard MCP "mcpTool.inputSchema" into its local
+        # tool-schema cache (upstream antigravity-cli#368). Provide a
+        # redundant, nonstandard alias for ONLY these two read-only tools;
+        # all authorization and argument validation still use the regular
+        # tool identity/scopes/inputSchema. Other clients continue seeing
+        # the canonical inputSchema, and no mutating tools gain aliases.
+        if tool['name'] in ('bob_product_gaps', 'bob_diagnostics'):
+            tool['parameters'] = dict(tool['inputSchema'])
         scope = DIAGNOSTICS_SCOPE if tool['name'] in ('bob_diagnostics','bob_signal_history','bob_push_history') else SCOPE
         if tool['name'] in __import__('remote_push').READ_TOOLS:scope=DIAGNOSTICS_SCOPE
         elif tool['name']=='bob_push_test':scope=__import__('remote_push').SCOPE
