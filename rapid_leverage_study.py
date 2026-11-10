@@ -168,11 +168,26 @@ def comparison(position, arm, exit_price):
         # this is not a loss guarantee for a gapping or KO product.
         allocated = min(equity * MAX_EXPOSURE,
                         max(0., equity * RISK_FRACTION / (lev * risk_pct)))
+        # Separate high-risk sensitivity: invest the SAME 65% at every leverage.
+        # NEVER apply this to a paper balance or call it an actual turbo return.
+        fixed_investment = equity * MAX_EXPOSURE
+        fixed_risk_at_stop = fixed_investment * lev * risk_pct
+        fixed_net = (fixed_investment * lev * move
+                     - fixed_investment * ROUND_TRIP_VARIABLE_COST
+                     - ROUND_TRIP_FIXED_EUR) if 1 + lev * move > 0 else None
+        same_exposure = dict(investedEur=round(fixed_investment, 2),
+                             modeledNetEur=round(fixed_net, 2) if fixed_net is not None else None,
+                             modeledLossAtIdealStopEur=round(fixed_risk_at_stop, 2),
+                             modeledStopRiskPctOfAccount=round(100*fixed_risk_at_stop/equity, 2),
+                             possibleTotalCapitalLossEur=round(fixed_investment, 2),
+                             portfolioBooked=False, koBarrierVerified=False,
+                             resultScope="same-euro-exposure-spot-proxy-not-product")
         # Even the spot-leverage proxy becomes nonsensical below -100% value.
         if not positive(allocated) or 1 + lev * move <= 0:
             slot["excluded"] += 1
             results[str(lev)] = dict(status="unpriced-or-wipeout-possible",
-                                     netEur=None, productReturnVerified=False)
+                                     netEur=None, sameExposureCounterfactual=same_exposure,
+                                     productReturnVerified=False)
             continue
         gross = allocated * lev * move
         costs = allocated * ROUND_TRIP_VARIABLE_COST + ROUND_TRIP_FIXED_EUR
@@ -186,7 +201,8 @@ def comparison(position, arm, exit_price):
         slot["wins"] += int(net > 0)
         results[str(lev)] = dict(status="modeled-only", investedEur=round(allocated, 2),
                                 grossEur=round(gross, 2), assumedCostsEur=round(costs, 2),
-                                netEur=round(net, 2), fixedRiskFraction=RISK_FRACTION,
+                                netEur=round(net, 2), sameExposureCounterfactual=same_exposure,
+                                fixedRiskFraction=RISK_FRACTION,
                                 resultScope="leveraged-spot-proxy", productReturnVerified=False,
                                 koBarrierVerified=False, fillVerified=False)
     return results
