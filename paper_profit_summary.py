@@ -60,6 +60,12 @@ def entry_block_code(value):
     return 'other-or-unclassified'
 
 
+ENTRY_BLOCK_CODES = frozenset((
+    'not-observed','source-not-fresh','session-paused','plan-not-ready',
+    'product-quote-missing','knockout-protection','product-not-approved',
+    'signal-score-weak','risk-limit','no-direction','other-or-unclassified'))
+
+
 def snapshot(accounts):
     """Project only explicitly allowlisted account-control numbers already read."""
     unavailable = dict(status='unavailable', readOnly=True, realOrders=False,
@@ -98,9 +104,20 @@ def snapshot(accounts):
             realizedModelProfitEur=number(a.get('realizedProfit')),
             exampleCostsDebitedEur=number(a.get('costsDebitedEur')),
             tradeOutcomeVerified=False,
-            latestEntryBlockCode=(entry_block_code(a.get('reason'))
-                                  if profile in ('trend800nov','normal1000nov')
-                                  else None)))
+            latestEntryBlockCode=(
+                (a.get('lastTradingEntryBlockCode') if
+                 a.get('lastTradingEntryBlockCode') in ENTRY_BLOCK_CODES
+                 else ((a.get('control') or {}).get('lastTradingEntryBlockCode') if
+                       isinstance(a.get('control'),dict) and
+                       (a.get('control') or {}).get('lastTradingEntryBlockCode') in ENTRY_BLOCK_CODES
+                       else entry_block_code(a.get('reason'))))
+                if profile in ('trend800nov','normal1000nov') else None),
+            latestEntryBlockAt=(number(
+                a.get('lastTradingEntryBlockAt') if
+                a.get('lastTradingEntryBlockAt') is not None else
+                (a.get('control') or {}).get('lastTradingEntryBlockAt')
+                if isinstance(a.get('control'),dict) else None,
+                timestamp=True) if profile in ('trend800nov','normal1000nov') else None)))
     complete = all(r.get('source') == 'saved-virtual-control'
                    and r.get('initialCapitalEur') is not None
                    and r.get('equityEur') is not None for r in rows)
