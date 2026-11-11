@@ -67,6 +67,24 @@ def tool_definitions(diagnostics=False, products=True, remote_push=False, remote
             "annotations": {"readOnlyHint":True, "destructiveHint":False, "idempotentHint":True, "openWorldHint":False},
         })
     if diagnostics:
+        from bob_gemini_diagnostics import VIEWS
+        result.extend([
+            {"name": "bob_diagnostics_view",
+             "description": "Read one fixed, paged section of an existing sanitized diagnostic snapshot. No orders, source fabrication, mutations, or new database permissions.",
+             "inputSchema": {"type": "object", "properties": {
+                 "view": {"type": "string", "enum": sorted(VIEWS)},
+                 "page": {"type": "integer", "minimum": 0, "maximum": 20},
+                 "pageSize": {"type": "integer", "minimum": 1, "maximum": 5}},
+                 "required": ["view"], "additionalProperties": False},
+             "annotations": {"readOnlyHint": True, "destructiveHint": False,
+                             "idempotentHint": True, "openWorldHint": False}},
+            {"name": "bob_simulation_audit",
+             "description": "Conservative independent health triage of already sanitized paper studies. Inconclusive cases and unknown profit remain unverified; no real orders or repairs.",
+             "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+             "annotations": {"readOnlyHint": True, "destructiveHint": False,
+                             "idempotentHint": True, "openWorldHint": False}},
+        ])
+    if diagnostics:
         result.append({
             "name":"bob_signal_history",
             "description":"Read original recorded signal decisions and early warnings for an explicit timezone-aware window (max 24h; default last 4h). Includes reasons, original timestamps and direction transitions; no orders, product approvals or proof of push delivery. Paginate using returned bounds and nextOffset; narrow window if scanTruncated.",
@@ -98,9 +116,11 @@ def tool_definitions(diagnostics=False, products=True, remote_push=False, remote
         # all authorization and argument validation still use the regular
         # tool identity/scopes/inputSchema. Other clients continue seeing
         # the canonical inputSchema, and no mutating tools gain aliases.
-        if tool['name'] in ('bob_product_gaps', 'bob_diagnostics'):
+        if tool['name'] in ('bob_product_gaps', 'bob_diagnostics',
+                            'bob_diagnostics_view', 'bob_simulation_audit'):
             tool['parameters'] = dict(tool['inputSchema'])
-        scope = DIAGNOSTICS_SCOPE if tool['name'] in ('bob_diagnostics','bob_signal_history','bob_push_history') else SCOPE
+        scope = DIAGNOSTICS_SCOPE if tool['name'] in ('bob_diagnostics', 'bob_diagnostics_view',
+            'bob_simulation_audit', 'bob_signal_history', 'bob_push_history') else SCOPE
         if tool['name'] in __import__('remote_push').READ_TOOLS:scope=DIAGNOSTICS_SCOPE
         elif tool['name']=='bob_push_test':scope=__import__('remote_push').SCOPE
         if tool['name'] in __import__('android_remote').TOOLS:scope=__import__('android_remote').SCOPE
@@ -215,15 +235,34 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
                 type(args.get("focus", "overview")) is not str or
                 args.get("focus","overview") not in DIAGNOSTIC_FOCUS):
             return 200, error(rid, -32602, "Invalid diagnostic focus")
+    elif params["name"] == "bob_diagnostics_view":
+        from bob_gemini_diagnostics import validate_view
+        try:
+            validate_view(args)
+        except ValueError:
+            return 200, error(rid, -32602, "Invalid diagnostic view")
+    elif params["name"] == "bob_simulation_audit":
+        if args != {}:
+            return 200, error(rid, -32602, "Invalid simulation audit arguments")
     elif args != {}:
         return 200, error(rid, -32602, "Invalid tool arguments")
-    required_scope = DIAGNOSTICS_SCOPE if params["name"] in ("bob_diagnostics","bob_signal_history","bob_push_history") else SCOPE
+    required_scope = DIAGNOSTICS_SCOPE if params["name"] in (
+        "bob_diagnostics", "bob_diagnostics_view", "bob_simulation_audit",
+        "bob_signal_history", "bob_push_history") else SCOPE
     if (required_scope == DIAGNOSTICS_SCOPE and diagnostics_reader is None) or (required_scope == SCOPE and not products):
         return authorization_required(rid, required_scope, products, diagnostics_reader is not None)
     if params["name"] == "bob_signal_history":
         data = signal_history_reader(args) if signal_history_reader else {"status":"unavailable","readOnly":True}
     elif params["name"] == "bob_push_history":
         data = push_history_reader(args) if push_history_reader else {"status":"unavailable","readOnly":True}
+    elif params["name"] in ("bob_diagnostics_view", "bob_simulation_audit"):
+        from bob_gemini_diagnostics import project_view, simulation_audit
+        # Same bounded, serialized snapshot as the existing diagnostics tool.
+        # No extra concurrent DB snapshots or independent repair activity.
+        with _DIAGNOSTICS_LOCK:
+            full_report = diagnostics_reader()
+        data = (project_view(full_report, args) if params["name"] == "bob_diagnostics_view"
+                else simulation_audit(full_report))
     elif params["name"] == "bob_diagnostics":
         from bob_diagnostics import bounded_report, focused_report
         # Focus is projected only after the complete private snapshot exists.
