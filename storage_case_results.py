@@ -17,7 +17,7 @@ from decimal import Decimal
 # Fixed names only: never construct a table name from a request or stored data.
 _PROFILES = ("conservative", "balanced", "offensive", "early100",
              "trend800", "early1000oct", "normal1000oct",
-             "trend800nov", "normal1000nov")
+             "trend800nov", "normal1000nov", "ema3000nov")
 _PAGE = 8
 _RECEIPT = "model-gross-arithmetic-consistent-v1"
 _DAY = re.compile(r"\d{4}-\d{2}-\d{2}\Z")

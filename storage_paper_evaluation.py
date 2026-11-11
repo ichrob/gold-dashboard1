@@ -19,7 +19,7 @@ _DAY = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
 _STATUS = "model-gross-arithmetic-consistent-v1"
 _PROFILES = ("legacy","conservative","balanced","offensive","early100",
              "trend800","early1000oct","normal1000oct",
-             "trend800nov","normal1000nov")
+             "trend800nov","normal1000nov", "ema3000nov")
 _THREAD = None
 _LOCK = threading.Lock()
 _QUERY = """SELECT profile,case_id,day,captured_at,original_sha256,
