@@ -61,6 +61,16 @@ class PaperProfitSummaryTests(unittest.TestCase):
                          'knockout-protection')
         self.assertEqual(profit.entry_block_code('ABWARTEN: keine bestätigte Richtung'),
                          'no-direction')
+        self.assertEqual(profit.entry_block_code(
+            'Einstieg wartet: Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt'),
+            'ema-stretch')
+        self.assertEqual(profit.entry_block_code(
+            'Einstieg wartet: Bestätigtes Einstiegssignal älter als 15 Minuten'),
+            'signal-age')
+        self.assertEqual(profit.entry_block_code(
+            'Einstieg wartet: Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt'
+            ' · Bestätigtes Einstiegssignal älter als 15 Minuten'),
+            'ema-stretch-and-signal-age')
         out = profit.snapshot([
             dict(profile='trend800nov',initialCapital=800,equity=800,
                  reason='Geld-/Briefkurs nicht freigegeben · ISIN PRIVATE-TOKEN'),
@@ -108,7 +118,7 @@ class PaperProfitSummaryTests(unittest.TestCase):
                 'status': 'night-paused',
                 'reason': 'DEGIRO-Nachtmodus · Simulation pausiert',
                 'initialCapital': 800, 'equity': 800,
-                'lastTradingEntryBlockCode': 'plan-not-ready',
+                'lastTradingEntryBlockCode': 'ema-stretch-and-signal-age',
                 'lastTradingEntryBlockAt': 1794343500000,
                 'privateToken': 'NEVER_EXPOSE_THIS'
             },
@@ -162,14 +172,14 @@ class PaperProfitSummaryTests(unittest.TestCase):
 
         self.assertEqual(len(report['accounts']), 2)
         observed = next(a for a in report['accounts'] if a['profile'] == 'trend800nov')
-        self.assertEqual(observed['lastTradingEntryBlockCode'], 'plan-not-ready')
+        self.assertEqual(observed['lastTradingEntryBlockCode'], 'ema-stretch-and-signal-age')
         self.assertEqual(observed['lastTradingEntryBlockAt'], 1794343500000)
         invalid = next(a for a in report['accounts'] if a['profile'] == 'normal1000nov')
         self.assertNotIn('lastTradingEntryBlockCode', invalid)
         self.assertNotIn('lastTradingEntryBlockAt', invalid)
         visible = profit.snapshot(report['accounts'])
         row = next(a for a in visible['rows'] if a['profile'] == 'trend800nov')
-        self.assertEqual(row['latestEntryBlockCode'], 'plan-not-ready')
+        self.assertEqual(row['latestEntryBlockCode'], 'ema-stretch-and-signal-age')
         self.assertEqual(row['latestEntryBlockAt'], 1794343500000)
         self.assertNotIn('NEVER_EXPOSE_THIS', json.dumps(visible))
         self.assertNotIn('SECRET_INSTEAD_OF_ENUM', json.dumps(visible))
