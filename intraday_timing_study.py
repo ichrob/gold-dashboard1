@@ -42,6 +42,10 @@ VARIANTS = {
                     label='5m · Kollektivrichtungswert 70/30'),
     'rr20': dict(minutes=5, min_remaining_rr=2.0,
                  label='5m · Mindestzielabstand 2,0R (Vergleich zu 1,5R)'),
+    'breakeven5': dict(minutes=5, protective_exit='break-even',
+                       label='5m · Einstandsstopp erst nach beobachtetem +1R'),
+    'trailatr5': dict(minutes=5, protective_exit='atr-trailing',
+                      label='5m · ATR-Gewinnschutz nach beobachtetem +1,5R'),
 }
 NOTE = ('Vorwärts-Test auf Gold-Spot, keine KO-Produktrendite. 0,16 % Gesamtkosten sind eine Annahme. '
         'Original- und Schätzfälle getrennt; Verluste und Stops nur an beobachteten Kursen. '
@@ -347,6 +351,35 @@ def summarize_arm(a):
     return {k:copy.deepcopy(v) for k,v in a.items() if k not in ('position','lastSignal')}
 
 
+def prospective_protective_stop(position, observed_price, config):
+    """Paper-only stop proposal from a fresh, actually observed price.
+
+    Never moves the existing stop away from the entry, assumes a historical
+    intrabar fill, or changes the main Bob stop manager. No proposal before
+    1R favorable movement. At 1.5R the ATR arm can protect more than entry.
+    """
+    mode = config.get('protective_exit')
+    if mode not in ('break-even', 'atr-trailing'):
+        return None
+    side = position.get('direction')
+    entry, risk, current = (position.get('entryPrice'),
+                            position.get('risk'), position.get('stop'))
+    if side not in ('LONG', 'SHORT') or not all(
+            positive(v) for v in (entry, risk, current, observed_price)):
+        return None
+    sign = 1 if side == 'LONG' else -1
+    progress = sign * (observed_price - entry)
+    if progress < risk:
+        return None
+    proposal = entry
+    if mode == 'atr-trailing' and progress >= 1.5 * risk:
+        atr = position.get('atr')
+        if not positive(atr):
+            return None  # Never invent an ATR from incomplete evidence.
+        proposal = observed_price - sign * atr
+    return proposal if positive(proposal) and sign * (proposal-current) > 0 else None
+
+
 def advance(old, bundle, market, selection, quotes, now):
     state = copy.deepcopy(old)
     if number(state.get('checkedAt')) and now <= state['checkedAt']:
@@ -416,6 +449,12 @@ def advance(old, bundle, market, selection, quotes, now):
                                'horizon' if held>=horizon*MINUTE else
                                'no-progress' if cfg.get('time_stop') and held>=horizon*MINUTE/3
                                and sign*(price['price']-p['entryPrice'])<.25*p['risk'] else None)
+                        if not why:
+                            proposed_stop = prospective_protective_stop(p,price['price'],cfg)
+                            if proposed_stop is not None:
+                                p['stop'] = proposed_stop
+                                p['stopAdjustments'] = p.get('stopAdjustments',0)+1
+                                p['lastStopObservedAt'] = price['at']
                         if why:
                             if why=='trend-reversal':
                                 p['reversalEvidence']=reversal
@@ -471,6 +510,7 @@ def advance(old, bundle, market, selection, quotes, now):
                     setupType=sig.get('setup') if cfg.get('continuation') else None,
                     entryPrice=price['price'],direction=sig['direction'],
                     hourDirection=trend.get('direction'),stop=price['price']-sign*risk,target=target,risk=risk,
+                    atr=sig['atr'],stopAdjustments=0,
                     horizonMinutes=horizon,costAssumptionPct=COST_PCT,estimatedUsed=bool(sig.get('estimated')),
                     lastSourceAt=price['at'],lastObservedAt=now,maxAdversePct=0.,maxFavorablePct=0.,
                     status='open',exitPolicy=EXIT_POLICY,realOrders=False,productReturnVerified=False)
