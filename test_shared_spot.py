@@ -79,7 +79,9 @@ class SharedSpotTests(unittest.TestCase):
 
     def test_near_expiry_observation_gets_one_bounded_early_retry(self):
         payload={**self.payload,'updatedAt':(self.now-timedelta(seconds=35)).isoformat()}
-        with self.assertLogs(level='INFO') as captured:
+        # Patch the emission call directly so a global test-suite logging.disable()
+        # cannot hide the evidence contract from this isolated regression test.
+        with patch.object(s.logging,'info') as info:
             with patch.object(product_quotes,'issuer_json',return_value=payload) as request:
                 self.assertEqual(s.current()['at'],payload['updatedAt'])
                 self.assertEqual(request.call_count,1)
@@ -90,12 +92,19 @@ class SharedSpotTests(unittest.TestCase):
                 with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
                     self.assertEqual(s.current()['at'],payload['updatedAt'])
                 self.assertEqual(request.call_count,2)
-        evidence=[row for row in captured.output if 'BOB_SPOT_FETCH_EVIDENCE' in row]
+        evidence=[call for call in info.call_args_list
+                  if call.args and call.args[0].startswith('BOB_SPOT_FETCH_EVIDENCE')]
         self.assertEqual(len(evidence),2)
-        self.assertIn('source_at='+payload['updatedAt'],evidence[0])
-        self.assertIn('repeated=False early_retry=False route=0',evidence[0])
-        self.assertIn('repeated=True early_retry=True route=0',evidence[1])
-        self.assertNotIn(str(payload['price']), '\n'.join(evidence))
+        first,second=evidence
+        self.assertEqual(first.args[1],payload['updatedAt'])
+        self.assertFalse(first.args[3])
+        self.assertFalse(first.args[4])
+        self.assertEqual(first.args[5],0)
+        self.assertEqual(second.args[1],payload['updatedAt'])
+        self.assertTrue(second.args[3])
+        self.assertTrue(second.args[4])
+        self.assertEqual(second.args[5],0)
+        self.assertNotIn(str(payload['price']),str(evidence))
 
     def test_ageing_cached_quote_refreshes_before_minute_signal_expires(self):
         # Provider observation is already 35s old, but our HTTP cache is only 6s old.
