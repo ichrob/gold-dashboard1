@@ -48,8 +48,36 @@ jobs:
             https://bob-private-scanner.onrender.com/health -o /tmp/bob-health.json
           curl -fsS --max-time 25 --retry 2 --retry-delay 6 --retry-all-errors \
             https://bob-private-scanner.onrender.com/health/background -o /tmp/bob-monitor-health.json
+          # A push may add a durable paper profile. Render marks the new service
+          # live before that profile has completed its first worker cycle. Retry
+          # this exact rollout snapshot once; scheduled checks and a second
+          # degraded result still fail closed.
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && python - <<'PY'
+          import json
+          import os
+
+          with open('/tmp/bob-push-health.json', encoding='utf-8') as f:
+              push = json.load(f)
+          with open('/tmp/bob-health.json', encoding='utf-8') as f:
+              scanner = json.load(f)
+          expected = os.environ['GITHUB_SHA']
+          pending = (push.get('build') != expected
+                     or scanner.get('build') != expected
+                     or (push.get('paperObservation') or {}).get('state') == 'degraded')
+          raise SystemExit(0 if pending else 1)
+          PY
+          then
+            sleep 20
+            curl -fsS --max-time 30 --retry 2 --retry-delay 6 --retry-all-errors \
+              https://bob-push-service.onrender.com/health -o /tmp/bob-push-health.json
+            curl -fsS --max-time 30 --retry 2 --retry-delay 6 --retry-all-errors \
+              https://bob-private-scanner.onrender.com/health -o /tmp/bob-health.json
+            curl -fsS --max-time 25 --retry 2 --retry-delay 6 --retry-all-errors \
+              https://bob-private-scanner.onrender.com/health/background -o /tmp/bob-monitor-health.json
+          fi
           python - <<'PY'
           import json
+          import os
           from datetime import datetime
           from zoneinfo import ZoneInfo
 
@@ -62,6 +90,10 @@ jobs:
           health=read('/tmp/bob-health.json')
           monitor=read('/tmp/bob-monitor-health.json')
           push=read('/tmp/bob-push-health.json')
+          if os.environ.get('GITHUB_EVENT_NAME') == 'push':
+              expected=os.environ['GITHUB_SHA']
+              assert push.get('build')==expected, 'Push rollout revision not active'
+              assert health.get('build')==expected, 'Scanner rollout revision not active'
           assert push.get('ok') is True, 'Push/database unavailable'
           assert health.get('status')=='ok', 'Bob reports degraded market collection'
           collector=health.get('automaticCollection') or {}
