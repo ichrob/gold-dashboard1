@@ -79,16 +79,22 @@ class SharedSpotTests(unittest.TestCase):
 
     def test_near_expiry_observation_gets_one_bounded_early_retry(self):
         payload={**self.payload,'updatedAt':(self.now-timedelta(seconds=35)).isoformat()}
-        with patch.object(product_quotes,'issuer_json',return_value=payload) as request:
-            self.assertEqual(s.current()['at'],payload['updatedAt'])
-            self.assertEqual(request.call_count,1)
-            with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
+        with self.assertLogs(level='INFO') as captured:
+            with patch.object(product_quotes,'issuer_json',return_value=payload) as request:
                 self.assertEqual(s.current()['at'],payload['updatedAt'])
-            self.assertEqual(request.call_count,2)
-            # Repeating the same original source time cannot create a fast loop.
-            with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
-                self.assertEqual(s.current()['at'],payload['updatedAt'])
-            self.assertEqual(request.call_count,2)
+                self.assertEqual(request.call_count,1)
+                with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
+                    self.assertEqual(s.current()['at'],payload['updatedAt'])
+                self.assertEqual(request.call_count,2)
+                # Repeating the same original source time cannot create a fast loop.
+                with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
+                    self.assertEqual(s.current()['at'],payload['updatedAt'])
+                self.assertEqual(request.call_count,2)
+        evidence=[row for row in captured.output if 'BOB_SPOT_FETCH_EVIDENCE' in row]
+        self.assertEqual(len(evidence),2)
+        self.assertIn('repeated=False early_retry=False route=0',evidence[0])
+        self.assertIn('repeated=True early_retry=True route=0',evidence[1])
+        self.assertNotIn(str(payload['price']), '\n'.join(evidence))
 
     def test_ageing_cached_quote_refreshes_before_minute_signal_expires(self):
         # Provider observation is already 35s old, but our HTTP cache is only 6s old.
