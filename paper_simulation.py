@@ -1187,6 +1187,11 @@ def quality_generation_pending(last_generation, current_generation):
     """
     return (isinstance(current_generation, int) and
             current_generation > last_generation)
+
+
+def next_quality_generation(current, selected, generation):
+    """Advance only when the admissible study candidate actually changed."""
+    return generation + 1 if selected is not current else generation
 def observed_quotes(products):
     """Read completed raw issuer observations without network work or paper projection."""
     with _guard:
@@ -1644,11 +1649,12 @@ def enqueue(bundle, db):
     global _latest,_study_latest,_thread,_bundle_generation
     with _guard:
         _latest=bundle
-        _bundle_generation+=1
         previous_study_latest=_study_latest
         observed_now=time.time()*1000
         _study_latest=newer_queued_paper_bundle(
             previous_study_latest,bundle,observed_now)
+        _bundle_generation=next_quality_generation(
+            previous_study_latest,_study_latest,_bundle_generation)
         rejection=rejected_newer_paper_bundle_evidence(
             previous_study_latest,bundle,observed_now)
         outcome=('selected' if _study_latest is bundle else
