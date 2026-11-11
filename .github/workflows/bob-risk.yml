@@ -2,6 +2,10 @@ name: Bob Risiko
 on:
   pull_request:
     paths:
+      - 'repair_flow.py'
+      - 'test_repair_flow.py'
+      - 'bob_problems.py'
+      - 'bob_problem_mirror.py'
       # Archive replay and offline COPY validation require the same safety checks.
       - 'storage_archive_*.py'
       - 'test_storage_archive_*.py'
