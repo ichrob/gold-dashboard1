@@ -71,6 +71,9 @@ class WorkerTests(unittest.TestCase):
             result=worker.process({'images':images},'2026-11-03T08:00:00Z')
         heavy.assert_not_called()
         self.assertEqual(len(result['items']),10)
+        self.assertEqual(result['recognitionRoute'],{
+            'appTextImages':0,'phoneMlKitImages':3,'serverOcrFallbackImages':0,
+            'missingPhoneReadingImages':0,'rejectedPhoneReadingImages':0})
         self.assertTrue(all(x['listRow']['extractionMethod']=='on-device-mlkit-two-scale'
                             for x in result['items']))
         self.assertTrue(all(x['listRow']['crossChecked'] for x in result['items']))
@@ -96,6 +99,9 @@ class WorkerTests(unittest.TestCase):
         with patch.object(worker,'guarded_ocr_run',side_effect=AssertionError('Native model started')) as native:
             result=worker.process({'images':images},'2026-11-05T18:10:00Z')
         native.assert_not_called()
+        self.assertEqual(result['recognitionRoute'],{
+            'appTextImages':2,'phoneMlKitImages':1,'serverOcrFallbackImages':0,
+            'missingPhoneReadingImages':0,'rejectedPhoneReadingImages':0})
         self.assertEqual(json.dumps(images),original)
         self.assertEqual(len(result['items']),10)
         self.assertTrue(all(x['listRow']['ratio']==.1 for x in result['items']))
@@ -150,6 +156,56 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(all(item['listRow']['extractionMethod']=='on-device-mlkit-two-scale' for item in result['items']))
         self.assertTrue(all(item['listRow']['crossChecked'] for item in result['items']))
         self.assertTrue(all(item['originalIsin'] in raw_ids for item in result['items']))
+
+    def test_only_missing_phone_evidence_goes_to_server_fallback(self):
+        from types import SimpleNamespace
+        images=[{'png':'image-a','appText':{'before':['safe'], 'after':['safe']}},
+                {'png':'image-b'},
+                {'png':'image-c','localOcr':{'expectedIsins':['DE000ZZ00016'],'passes':[['r'],['r']]}}]
+        responses=[
+            SimpleNamespace(stdout=json.dumps([['paired','paired'], None, ['mlkit','mlkit']])),
+            SimpleNamespace(stdout=json.dumps([['native-pass-one','native-pass-two']])),
+            SimpleNamespace(stdout=json.dumps({'items':[],'evidence':{}})),
+        ]
+        with patch('evaluator_runtime.run',side_effect=responses) as runner:
+            result=worker.process({'images':images},'2026-11-11T08:00:00Z')
+        self.assertEqual(runner.call_count,3)
+        self.assertEqual(sum('--ocr' in call.args[0] for call in runner.call_args_list),1)
+        self.assertEqual(result['recognitionRoute'],{
+            'appTextImages':1,'phoneMlKitImages':1,'serverOcrFallbackImages':1,
+            'missingPhoneReadingImages':1,'rejectedPhoneReadingImages':0})
+        self.assertEqual(images[1],{'png':'image-b'})
+
+    def test_invalid_phone_reading_falls_back_without_claiming_accepted_mlkit(self):
+        from types import SimpleNamespace
+        image={'png':'original','localOcr':{'expectedIsins':['DE000ZZ00016'],
+            'passes':[['contradiction'],['contradiction']]}}
+        responses=[
+            SimpleNamespace(stdout='[null]'),
+            SimpleNamespace(stdout=json.dumps([['one','two']])),
+            SimpleNamespace(stdout=json.dumps({'items':[],'evidence':{}})),
+        ]
+        with patch('evaluator_runtime.run',side_effect=responses):
+            result=worker.process({'images':[image]},'2026-11-11T08:00:00Z')
+        self.assertEqual(result['recognitionRoute'],{
+            'appTextImages':0,'phoneMlKitImages':0,'serverOcrFallbackImages':1,
+            'missingPhoneReadingImages':0,'rejectedPhoneReadingImages':1})
+        self.assertEqual(image['png'],'original')
+
+    def test_ocr_route_rejects_invalid_counts_and_keeps_old_batches_compatible(self):
+        valid={'appTextImages':2,'phoneMlKitImages':1,'serverOcrFallbackImages':1,
+               'missingPhoneReadingImages':1,'rejectedPhoneReadingImages':0}
+        self.assertIsNone(worker.bounded_recognition_route(None))
+        self.assertEqual(worker.bounded_recognition_route(valid),valid)
+        for invalid in (
+            {**valid,'serverOcrFallbackImages':2},
+            {**valid,'missingPhoneReadingImages':0},
+            {**valid,'appTextImages':True},
+            {**valid,'serverOcrFallbackImages':5},
+            {**valid,'accountId':'private'}
+        ):
+            with self.assertRaises(ValueError):
+                worker.bounded_recognition_route(invalid)
 
     def test_ocr_defers_before_spawn_when_headroom_is_insufficient(self):
         with patch.object(worker,'container_memory_bytes',return_value=305*1024*1024),patch('subprocess.Popen') as spawn:
@@ -223,6 +279,31 @@ class WorkerTests(unittest.TestCase):
         with patch('paper_simulation.sync',side_effect=ValueError('invalid evidence')) as sync:
             with self.assertRaises(ValueError):worker.persist_parsed(connect,'a'*32,parsed,sleep)
             self.assertEqual(sync.call_count,1)
+
+    def test_import_receipt_records_only_bounded_routing_counts(self):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+        route={'appTextImages':2,'phoneMlKitImages':1,'serverOcrFallbackImages':0,
+               'missingPhoneReadingImages':0,'rejectedPhoneReadingImages':0}
+        parsed={'items':[{'isin':str(n)} for n in range(10)],
+                'evidence':{'products':[]},'recognitionRoute':route}
+        written=[]
+        class Conn:
+            def execute(self,sql,args=()):
+                if sql.startswith('SELECT'): return SimpleNamespace(fetchone=lambda:(None,))
+                written.append((sql,args))
+            def commit(self): pass
+        @contextmanager
+        def connect():
+            yield Conn()
+        with patch('paper_simulation.sync',return_value={'ok':True,'products':10}):
+            self.assertEqual(worker.persist_parsed(connect,'f'*32,parsed),'synced')
+        self.assertEqual(len(written),1)
+        receipt=json.loads(written[0][1][1])
+        self.assertEqual(receipt['recognitionRoute'],route)
+        self.assertEqual(receipt['stage'],'synced')
+        self.assertNotIn('images',receipt)
+        self.assertNotIn('account',str(receipt).lower())
 
     def test_strip_context_overlaps_but_line_ownership_never_doubles(self):
         for height in (1,511,512,513,896,897,1536,2400,3200):
