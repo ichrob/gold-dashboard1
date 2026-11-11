@@ -32,6 +32,9 @@ CODES = {
     "push-unreachable": "Push-/Datenbankdienst nicht erreichbar",
     "push-unhealthy": "Push-/Datenbank-Gesundheitsprüfung fehlgeschlagen",
     "paper-unhealthy": "Papierkonten-Hintergrundstatus beeinträchtigt",
+    "study-original-input-degraded": "Neue Originalkurs-Prüfungen für Studien wiederholt ungültig",
+    "study-outcome-coverage-degraded": "Neue Originalstudien-Ausgänge wiederholt nicht auswertbar",
+    "study-worker-stale": "Forschungsstudie wird während aktiver Sitzung nicht mehr geprüft",
     "product-quote-evidence-missing": "Emittentenkurse oder eigenständige Kurszeiten unvollständig",
     "product-leverage-clock-missing": "Emittentenhebel oder dessen eigener bzw. eindeutig gemeinsamer Zeitbezug fehlt",
     "product-ko-validity-missing": "KO-Wert oder dessen gültiger Datennachweis fehlt",
@@ -42,6 +45,8 @@ CODES = {
 # private audit. This marker is NOT an issue type and is never published.
 PRODUCT_AUDIT_UNKNOWN = "_private-product-audit-unavailable"
 PRODUCT_CODES = frozenset(code for code in CODES if code.startswith("product-"))
+STUDY_CODES = frozenset(code for code in CODES if code.startswith("study-"))
+STUDY_SCOPE = "bob-original-study-watchdog-v1"
 PRODUCT_CONFIRMATION_SECONDS = 120
 
 
@@ -109,6 +114,19 @@ def classify(app, background, push, *, market_open=True):
             paper = push.get("paperObservation")
             if isinstance(paper, dict) and paper.get("state") not in ("ok", "warming"):
                 errors.append("paper-unhealthy")
+        if market_open:
+            # Fixed public-safe research signals only. Absence/unavailability
+            # is UNKNOWN: never interpret missing data as a verified recovery.
+            research = push.get("studyHealth")
+            if (isinstance(research,dict)
+                    and research.get("scope")==STUDY_SCOPE
+                    and research.get("readOnly") is True
+                    and research.get("realOrders") is False
+                    and research.get("status") in ("observed","stale")
+                    and isinstance(research.get("codes"),list)
+                    and len(research["codes"])<=len(STUDY_CODES)):
+                errors.extend(code for code in research["codes"]
+                              if type(code) is str and code in STUDY_CODES)
         if "productAuditCodes" in push:
             product_codes = push["productAuditCodes"]
             if not isinstance(product_codes, list):
@@ -290,7 +308,10 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request,
         recovery_codes = frozenset(code for code in recovery_codes if code in CODES)
     # This public watchdog sees only anonymous error codes. It cannot verify
     # the underlying broker or issuer records, so never auto-close product issues.
-    product_titles = {issue_title(code) for code in PRODUCT_CODES | {"trade-setup-stalled", "screenshot-import-failed"}}
+    # Data-dependent research findings need prospective ORIGINAL evidence
+    # before closure. An empty/stale/missing health projection cannot close them.
+    product_titles = {issue_title(code) for code in PRODUCT_CODES | STUDY_CODES
+                      | {"trade-setup-stalled", "screenshot-import-failed"}}
     actions = []
 
     def close_duplicates(rows):
