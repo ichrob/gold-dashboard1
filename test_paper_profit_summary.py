@@ -93,8 +93,10 @@ class PaperProfitSummaryTests(unittest.TestCase):
             initialCapital=800,equity=800,
             lastTradingEntryBlockCode='PRIVATE_TOKEN',
             reason='DEGIRO-Nachtmodus · Simulation pausiert')])
+        # Without a saved session status, the generic fallback only
+        # classifies the supplied text. It is not a confirmed night session.
         self.assertEqual(next(x for x in malformed['rows'] if
-            x['profile']=='trend800nov')['latestEntryBlockCode'],'not-observed')
+            x['profile']=='trend800nov')['latestEntryBlockCode'],'session-paused')
         self.assertNotIn('PRIVATE_TOKEN',json.dumps(malformed))
         night_without_trade = profit.snapshot([dict(
             profile='normal1000nov', initialCapital=1000, equity=1000,
