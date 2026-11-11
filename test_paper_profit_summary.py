@@ -61,6 +61,16 @@ class PaperProfitSummaryTests(unittest.TestCase):
                          'knockout-protection')
         self.assertEqual(profit.entry_block_code('ABWARTEN: keine bestätigte Richtung'),
                          'no-direction')
+        self.assertEqual(profit.entry_block_code(
+            'Einstieg wartet: Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt'),
+            'ema-stretch')
+        self.assertEqual(profit.entry_block_code(
+            'Einstieg wartet: Bestätigtes Einstiegssignal älter als 15 Minuten'),
+            'signal-age')
+        self.assertEqual(profit.entry_block_code(
+            'Einstieg wartet: Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt'
+            ' · Bestätigtes Einstiegssignal älter als 15 Minuten'),
+            'ema-stretch-and-signal-age')
         out = profit.snapshot([
             dict(profile='trend800nov',initialCapital=800,equity=800,
                  reason='Geld-/Briefkurs nicht freigegeben · ISIN PRIVATE-TOKEN'),
@@ -83,10 +93,100 @@ class PaperProfitSummaryTests(unittest.TestCase):
             initialCapital=800,equity=800,
             lastTradingEntryBlockCode='PRIVATE_TOKEN',
             reason='DEGIRO-Nachtmodus · Simulation pausiert')])
+        # Without a saved session status, the generic fallback only
+        # classifies the supplied text. It is not a confirmed night session.
         self.assertEqual(next(x for x in malformed['rows'] if
             x['profile']=='trend800nov')['latestEntryBlockCode'],'session-paused')
         self.assertNotIn('PRIVATE_TOKEN',json.dumps(malformed))
+        night_without_trade = profit.snapshot([dict(
+            profile='normal1000nov', initialCapital=1000, equity=1000,
+            status='night-paused',
+            reason='DEGIRO-Produkte nachts nicht handelbar · Simulation pausiert')])
+        night_row = next(x for x in night_without_trade['rows']
+                         if x['profile'] == 'normal1000nov')
+        self.assertEqual(night_row['latestEntryBlockCode'], 'not-observed')
+        self.assertIsNone(night_row['latestEntryBlockAt'])
 
+
+    def test_live_push_projection_keeps_last_trading_block_without_private_text(self):
+        # Regression: the paper ledger stores the block, but the private
+        # read-only push projection previously omitted both persisted fields.
+        from unittest.mock import patch
+        import report_admission
+        import decision_audit
+
+        controls = {
+            'trend800nov': {
+                'status': 'night-paused',
+                'reason': 'DEGIRO-Nachtmodus · Simulation pausiert',
+                'initialCapital': 800, 'equity': 800,
+                'lastTradingEntryBlockCode': 'ema-stretch-and-signal-age',
+                'lastTradingEntryBlockAt': 1794343500000,
+                'privateToken': 'NEVER_EXPOSE_THIS'
+            },
+            'normal1000nov': {
+                'status': 'night-paused',
+                'reason': 'DEGIRO-Nachtmodus · Simulation pausiert',
+                'initialCapital': 1000, 'equity': 1000,
+                'lastTradingEntryBlockCode': 'SECRET_INSTEAD_OF_ENUM',
+                'lastTradingEntryBlockAt': float('nan')
+            }
+        }
+
+        class Cursor:
+            def __init__(self, row):
+                self.row = row
+
+            def fetchone(self):
+                return self.row
+
+        class Connection:
+            def execute(self, sql):
+                if 'FROM subscriptions' in sql:
+                    return Cursor((0, 0))
+                for profile, control in controls.items():
+                    if 'FROM paper_control_' + profile in sql:
+                        return Cursor((control,))
+                raise AssertionError('Unexpected SQL in read-only projection')
+
+        class Portfolios:
+            POLICIES = {'trend800nov': {}, 'normal1000nov': {}}
+
+            @staticmethod
+            def names(profile):
+                return {'bob_paper_control': 'paper_control_' + profile}
+
+        class PaperHealth:
+            @staticmethod
+            def snapshot(_):
+                return {'state': 'paused'}
+
+        class Evaluator:
+            @staticmethod
+            def status():
+                return {'completed': 0, 'failed': 0}
+
+        with patch.object(report_admission, 'status', return_value={}), \
+             patch.object(decision_audit, 'prospective_query_probe', return_value={}):
+            report = diagnostics.push_snapshot(
+                Connection(), Evaluator(), PaperHealth(), Portfolios(),
+                extended=False)
+
+        self.assertEqual(len(report['accounts']), 2)
+        observed = next(a for a in report['accounts'] if a['profile'] == 'trend800nov')
+        self.assertEqual(observed['lastTradingEntryBlockCode'], 'ema-stretch-and-signal-age')
+        self.assertEqual(observed['lastTradingEntryBlockAt'], 1794343500000)
+        invalid = next(a for a in report['accounts'] if a['profile'] == 'normal1000nov')
+        self.assertNotIn('lastTradingEntryBlockCode', invalid)
+        self.assertNotIn('lastTradingEntryBlockAt', invalid)
+        visible = profit.snapshot(report['accounts'])
+        row = next(a for a in visible['rows'] if a['profile'] == 'trend800nov')
+        self.assertEqual(row['latestEntryBlockCode'], 'ema-stretch-and-signal-age')
+        self.assertEqual(row['latestEntryBlockAt'], 1794343500000)
+        self.assertNotIn('NEVER_EXPOSE_THIS', json.dumps(visible))
+        self.assertNotIn('SECRET_INSTEAD_OF_ENUM', json.dumps(visible))
+        self.assertFalse(visible['netProductReturnsVerified'])
+        self.assertFalse(visible['strategyWinnerConfirmed'])
 
     def test_visibility_survives_focused_and_bounded_reports(self):
         source = {'status': 'observed', 'accounts': [

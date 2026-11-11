@@ -31,6 +31,17 @@ def entry_block_code(value):
     if not isinstance(value,str) or not value.strip():
         return 'not-observed'
     reason=value.lower()
+    # These two timing gates are the dominant actual November no-entry
+    # observations. Reuse the fixed codes from the 15-minute paper buckets.
+    # Never expose the original free-text reason or change entry approval.
+    ema_stretch = 'preis über 1,5 atr von ema20' in reason
+    signal_age = 'älter als 15 minuten' in reason
+    if ema_stretch and signal_age:
+        return 'ema-stretch-and-signal-age'
+    if ema_stretch:
+        return 'ema-stretch'
+    if signal_age:
+        return 'signal-age'
     if any(word in reason for word in ('goldkurs nicht aktuell','quellenzeit','marktdaten',
                                       'daten fehlen','quellenlücke')):
         return 'source-not-fresh'
@@ -63,7 +74,8 @@ def entry_block_code(value):
 ENTRY_BLOCK_CODES = frozenset((
     'not-observed','source-not-fresh','session-paused','plan-not-ready',
     'product-quote-missing','knockout-protection','product-not-approved',
-    'signal-score-weak','risk-limit','no-direction','other-or-unclassified'))
+    'signal-score-weak','risk-limit','no-direction','other-or-unclassified',
+    'ema-stretch-and-signal-age','ema-stretch','signal-age'))
 
 
 FORWARD_VERSION = 'prospective-paper-v1'
@@ -213,11 +225,19 @@ def snapshot(accounts):
         if profile in ('trend800nov','normal1000nov'):
             stored = a.get('lastTradingEntryBlockCode',
                            control.get('lastTradingEntryBlockCode'))
-            last_code = (stored if isinstance(stored,str) and stored in ENTRY_BLOCK_CODES
-                         else entry_block_code(a.get('reason') or control.get('reason')))
-            last_at = number(a.get('lastTradingEntryBlockAt',
-                                   control.get('lastTradingEntryBlockAt')),
-                             timestamp=True)
+            stored_valid = isinstance(stored, str) and stored in ENTRY_BLOCK_CODES
+            if stored_valid:
+                last_code = stored
+                last_at = number(a.get('lastTradingEntryBlockAt',
+                                       control.get('lastTradingEntryBlockAt')),
+                                 timestamp=True)
+            elif status in ('night-paused', 'market-closed', 'preparing',
+                            'scheduled', 'completed'):
+                # A current after-hours reason is not evidence of an actual
+                # trading-window entry blocker. Never invent its time.
+                last_code = 'not-observed'
+            else:
+                last_code = entry_block_code(a.get('reason') or control.get('reason'))
         rows.append(dict(
             profile=profile, source='saved-virtual-control',
             status=status,
