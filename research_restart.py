@@ -39,9 +39,11 @@ def seed(now):
                 quality=dict(cycles=0, original=0, invalid=0, missingIntervals=0,
                              duplicateSource=0, waits=0, signals=0,
                              workerErrors=0, stopObserved=0, targetObserved=0,
-                             recentOriginalChecks=[], recentOriginalOutcomes=[]),
+                             recentOriginalChecks=[], recentOriginalOutcomes=[],
+                             recentOriginalFailureEvidence=[]),
                 studies={s: dict(started=0, complete=0, inconclusive=0,
-                                 lastKey=None, open=[], sums={}, observedWorst={}) for s in STUDIES})
+                                 lastKey=None, open=[], sums={}, observedWorst={},
+                                 inconclusiveEvidenceReasons={}) for s in STUDIES})
 
 
 def init(conn):
@@ -110,6 +112,63 @@ def warning_direction(market, now):
 def leg(direction=None, entry=None, wait=False):
     return dict(direction=direction, entry=copy.deepcopy(entry), wait=wait,
                 adversePct=0., stopObserved=False, targetObserved=False)
+
+
+# Fixed, bounded evidence categories; none of these can make an input valid.
+TERMINAL_EVIDENCE_REASONS = frozenset((
+    'original-source-gap-over-90s',
+    'worker-observation-gap-over-90s',
+    'delayed-entry-original-unobserved',
+    'original-path-unverified',
+    'terminal-original-exit-unobserved',
+    'estimated-path-unverified',
+))
+
+
+def original_failure_evidence(quality, bundle, market, now, timeframe):
+    """Preserve a tiny, causal-clock witness without prices, broker data or IDs.
+
+    Read-only explanation of a rejection. Never changes verified, freshness or
+    the source/analysis admission policy, and never infers a historical cause.
+    """
+    from paper_shadow_studies import ORIGINAL_INPUT_REASONS, number
+    source = quality.get('sourceAt')
+    analysis = quality.get('analysisBarAt')
+    data_at = market.get('dataAt')
+    spots = (bundle or {}).get('spots') or {}
+    code = quality.get('reasonCode')
+    if code not in ORIGINAL_INPUT_REASONS:
+        code = 'original-evidence-unverified'
+    age = round(now - source) if number(source) and number(now) else None
+    drift = round(data_at - source) if number(data_at) and number(source) else None
+    return dict(
+        checkedAt=int(now), sourceAt=int(source) if number(source) else None,
+        analysisBarAt=int(analysis) if number(analysis) else None,
+        reasonCode=code, timeframe=timeframe,
+        sourceAgeMs=age if age is not None and -86400000 <= age <= 86400000 else None,
+        dataSourceDeltaMs=drift if drift is not None and abs(drift) <= 86400000 else None,
+        identityVerified=(spots.get('is_genuine_xauusd_spot') is True
+                          and spots.get('xaus_is_spot') is True),
+        closedSignalBarMatched=quality.get('closedSignalBarMatched') is True,
+        clockRelation=('missing' if age is None else 'future' if age < 0
+                       else 'stale-over-60s' if age > 60000 else 'within-60s'))
+
+
+def terminal_evidence_reason(case, *, modeled=False):
+    """Why a closed *inconclusive* reference case cannot be valued."""
+    flags = case.get('evidenceFlags') or {}
+    # Modeled paths never masquerade as observed original gaps.
+    if modeled:
+        return 'estimated-path-unverified'
+    if flags.get('sourceGapOver90s'):
+        return 'original-source-gap-over-90s'
+    if flags.get('workerGapOver90s'):
+        return 'worker-observation-gap-over-90s'
+    if flags.get('delayedEntryWindowMissed'):
+        return 'delayed-entry-original-unobserved'
+    if case.get('dataGap'):
+        return 'original-path-unverified'
+    return 'terminal-original-exit-unobserved'
 
 
 def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
@@ -182,6 +241,18 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
         q['lastOriginalBlockCode'] = code
         if not valid:
             q['invalid'] += 1
+        if not modeled:
+            witnesses = q.get('recentOriginalFailureEvidence')
+            witnesses = witnesses if isinstance(witnesses, list) else []
+            # Prospective evidence only. Older 713 invalid results retain their
+            # original counts and cannot be retrospectively reconstructed.
+            q['recentOriginalFailureEvidence'] = (
+                [row for row in witnesses[-15:]
+                 if isinstance(row, dict)
+                 and type(row.get('checkedAt')) is int
+                 and 0 <= now - row['checkedAt'] <= 20 * 60000]
+                + [original_failure_evidence(quality, bundle, market, now, timeframe)]
+            )[-16:]
     fresh = valid and (state['lastSourceAt'] is None or at > state['lastSourceAt'])
     if valid and not fresh:
         q['duplicateSource'] += 1
@@ -232,6 +303,7 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                     case['dataGap'] = True
             if not modeled and gap:
                 case['dataGap'] = True
+                case.setdefault('evidenceFlags', {})['workerGapOver90s'] = True
             if fresh:
                 if at-case['lastAt'] > 90000:
                     if modeled and at-case['lastAt'] <= MAX_WORKER_GAP and same_session(case['lastAt'],at):
@@ -239,6 +311,7 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                         case['unobservedPath'] = True
                     else:
                         case['dataGap'] = True
+                        case.setdefault('evidenceFlags', {})['sourceGapOver90s'] = True
                 case['lastAt'] = at
                 # Frozen direction; opposite signals do not fill the old intent.
                 for name, l in case['legs'].items():
@@ -256,6 +329,7 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                                     l['wait'] = True
                                 elif at > due+GRACE:
                                     case['dataGap'] = True
+                                    case.setdefault('evidenceFlags', {})['delayedEntryWindowMissed'] = True
                     if l['entry']:
                         sign = 1 if l['direction'] == 'LONG' else -1
                         move = sign*(quality['price']/l['entry']['price']-1)*100
@@ -278,6 +352,9 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                 pending.append(case)
                 continue
             case['closedAt'] = now
+            case['outcomeEvidenceCode'] = (
+                'observed-common-horizon' if case['status'] == 'complete'
+                else terminal_evidence_reason(case, modeled=modeled))
             case['returnsPct'] = {}
             if case['status'] == 'complete':
                 for name, l in case['legs'].items():
@@ -291,6 +368,11 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                     ctl['estimatedComplete'] = ctl.get('estimatedComplete',0)+1
             else:
                 ctl['inconclusive'] += 1
+                counts = ctl.setdefault('inconclusiveEvidenceReasons', {})
+                reason = case['outcomeEvidenceCode']
+                if reason not in TERMINAL_EVIDENCE_REASONS:
+                    reason = 'original-path-unverified'
+                counts[reason] = counts.get(reason, 0) + 1
             if not modeled and case.get('inputGapPolicy') == 'original-observed-over-90s-v2':
                 # Never reclassify historical original cases or model runs.
                 rows = q['recentOriginalOutcomes']
@@ -388,11 +470,29 @@ def report(conn):
 
 
 def study_rows(state):
-    studies = [dict(id='reaction', label=LABELS['reaction'], **state['quality'])]
+    quality = state['quality']
+    cause_counts = quality.get('originalBlockReasons')
+    categorized = (sum(v for k, v in cause_counts.items()
+                       if k in __import__('paper_shadow_studies').ORIGINAL_INPUT_REASONS
+                       and type(v) is int and v >= 0)
+                   if isinstance(cause_counts, dict) else 0)
+    reaction = dict(id='reaction', label=LABELS['reaction'], **quality)
+    # Historical checks predate reason counters; the remainder is not a
+    # newly determined or independently verified cause.
+    reaction['originalLegacyUnclassified'] = max(0, quality['invalid'] - categorized)
+    studies = [reaction]
     for name, c in state['studies'].items():
         total = c['complete']+c['inconclusive']
+        reasons = c.get('inconclusiveEvidenceReasons')
+        reasons = ({key: value for key, value in reasons.items()
+                    if key in TERMINAL_EVIDENCE_REASONS
+                    and type(value) is int and 0 <= value <= c['inconclusive']}
+                   if isinstance(reasons, dict) else {})
+        categorized = sum(reasons.values())
         studies.append(dict(id=name, label=LABELS[name], started=c['started'], complete=c['complete'],
                             inconclusive=c['inconclusive'], open=len(c['open']),
+                            inconclusiveEvidenceReasons=reasons,
+                            historicalInconclusiveUnclassified=max(0, c['inconclusive'] - categorized),
                             qualityPct=round(100*c['complete']/total, 1) if total else None,
                             meanNetReferencePct={k:v/c['complete'] for k,v in c['sums'].items()} if c['complete'] else {},
                             estimatedComplete=c.get('estimatedComplete',0),
