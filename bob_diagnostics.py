@@ -409,8 +409,7 @@ def new_studies_brief(paper, now_ms=None):
         return fields(v if isinstance(v, dict) else {}, ('status', 'checkedAt'))
     study_ids = ('reaction','warning-confirmed','entry-delay','sideways-filter')
     counters = ('id','cycles','original','invalid','estimated','workerErrors',
-                'started','complete','inconclusive','open','estimatedComplete',
-                'originalLegacyUnclassified','historicalInconclusiveUnclassified')
+                'started','complete','inconclusive','open','estimatedComplete')
     def study_counts(control):
         values = control.get('studies') if isinstance(control.get('studies'),list) else []
         return [fields(row,counters) for row in values[:4]
@@ -449,7 +448,12 @@ def new_studies_brief(paper, now_ms=None):
                     witnesses.append(fields(item, ('checkedAt','sourceAt','analysisBarAt',
                         'reasonCode','timeframe','sourceAgeMs','dataSourceDeltaMs',
                         'identityVerified','closedSignalBarMatched','clockRelation')))
-            reaction_row['recentOriginalFailureEvidence'] = witnesses
+            if witnesses:
+                reaction_row['recentOriginalFailureEvidence'] = witnesses
+            if (isinstance(source, dict)
+                    and type(source.get('originalLegacyUnclassified')) is int
+                    and source['originalLegacyUnclassified'] >= 0):
+                reaction_row['originalLegacyUnclassified'] = source['originalLegacyUnclassified']
         fixed_outcome_reasons = (
             'original-source-gap-over-90s', 'worker-observation-gap-over-90s',
             'delayed-entry-original-unobserved', 'original-path-unverified',
@@ -461,10 +465,16 @@ def new_studies_brief(paper, now_ms=None):
             raw = next((v for v in (control.get('studies') or [])
                         if isinstance(v,dict) and v.get('id')==displayed.get('id')),None)
             reasons = raw.get('inconclusiveEvidenceReasons') if isinstance(raw,dict) else None
-            displayed['inconclusiveEvidenceReasons'] = (
-                {code: count for code, count in reasons.items()
-                 if code in fixed_outcome_reasons and type(count) is int
-                 and 0 <= count <= 10**9} if isinstance(reasons,dict) else {})
+            safe_reasons = ({code: count for code, count in reasons.items()
+                             if code in fixed_outcome_reasons and type(count) is int
+                             and 0 <= count <= 10**9}
+                            if isinstance(reasons,dict) else {})
+            if safe_reasons:
+                displayed['inconclusiveEvidenceReasons'] = safe_reasons
+            if (isinstance(raw, dict)
+                    and type(raw.get('historicalInconclusiveUnclassified')) is int
+                    and raw['historicalInconclusiveUnclassified'] >= 0):
+                displayed['historicalInconclusiveUnclassified'] = raw['historicalInconclusiveUnclassified']
     # A compact, deterministic quality alert, not an assertion about cause
     # or a proposal to count estimated model outcomes as product fills.
     notices = []
