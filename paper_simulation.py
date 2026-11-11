@@ -1567,12 +1567,13 @@ def _worker(db):
                         # paper ledgers and live signal decisions keep their exact snapshot.
                         with _guard:
                             quality_generation=_bundle_generation
+                            quality_candidate=_study_latest
                         if quality_generation_pending(
                                 last_quality_generation, quality_generation):
                             quality_bundle,quality_market=bundle,market
                             try:
                                 quality_bundle,quality_market=refresh_original_study_input(
-                                    bundle,market,settings,latest_paper_bundle,
+                                    bundle,market,settings,lambda:quality_candidate,
                                     background_push.analyze,lambda:time.time()*1000,
                                     evidence_phase='quality-final')
                                 if quality_bundle is not bundle:
