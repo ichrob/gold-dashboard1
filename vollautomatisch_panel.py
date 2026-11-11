@@ -39,7 +39,8 @@ PANEL = r"""
  </div>
 </section>
 <section class="card" id="bob-portfolio-comparison" style="margin:12px 0;padding:15px;border:1px solid #cbd5e1;border-radius:14px;background:#fff;color:#17263a">
- <h3>Neun unabhängige Geldsimulationen</h3>
+ <h3>Zehn unabhängige Geldsimulationen</h3>
+ <p class="small">Neu: 3.000 € virtuell · EMA-Abstand bis 2,5 ATR. Start ab Aktivierung, maximal fünf Stunden je Trade und spätestens bis 21:45 Zürich. Signalalter, Stopps, KO-Prüfung und Tagesverlustgrenze bleiben erhalten.</p>
  <p class="small">Die sieben bisherigen virtuellen Konten bleiben mit ihrer unveränderten Historie erhalten. Zwei neue, getrennte Vergleiche laufen vom 09.11.2026 08:00 bis 04.12.2026 16:00 Uhr Zürich: 800 € Trend/Stopp/Wiedereinstieg gegen 1.000 € bestätigtes Hauptsignal. Nur beobachtete Originalkurse, keine nachträglichen Trades, keine echten Orders und keine automatische DEGIRO-Ausführung. Ein Hauptsignal allein ist noch keine gültige Produkt-Kaufbestätigung.</p>
  <button type="button" id="bobProfilesRefresh" class="bob-primary">Simulationen prüfen</button>
  <p id="bobProfilesStatus" class="small" role="status">Prüfstand wird geladen …</p>
@@ -148,7 +149,7 @@ PANEL = r"""
   async function refreshProfiles(){
    if(profileBusy)return;
    profileBusy=true;
-   profilesStatus.textContent='Alle neun Testkonten werden geprüft …';
+   profilesStatus.textContent='Alle zehn Testkonten werden geprüft …';
    try{
     const day=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich'}).format(new Date());
     const response=await fetch('/api/audit/read',{method:'POST',credentials:'same-origin',
@@ -157,9 +158,9 @@ PANEL = r"""
     if(!response.ok)throw Error('HTTP '+response.status);
     const data=await response.json();
     if(data.mode!=='independent-prospective-paper-accounts'||data.realOrders!==false||
-       !Array.isArray(data.accounts)||data.accounts.length!==9||
+       !Array.isArray(data.accounts)||data.accounts.length!==10||
        !['trend800nov','normal1000nov'].every(id=>data.accounts.some(a=>a.profile===id)))
-      throw Error('Neun-Konten-Auswertung oder neue Vergleichskonten nicht verfügbar');
+      throw Error('Zehn-Konten-Auswertung oder neue Vergleichskonten nicht verfügbar');
     profilesCards.replaceChildren();
     if(data.campaignComparison){
      const comparison=data.campaignComparison,summary=document.createElement('p');
@@ -180,12 +181,12 @@ PANEL = r"""
       ' · Keine bestätigten Nettogewinne oder Echtgeldorders.';
      profilesCards.append(summary);
     }
-    const names={early1000oct:'Frühwarnung · 1.000 € · bis Fr 16 Uhr',normal1000oct:'Hauptsignal · 1.000 € · bis Fr 16 Uhr',conservative:'Konservativ',balanced:'Bob Lernkonto · 100 € (ausgewogen)',offensive:'Offensiv',trend800:'800 € · Bob-Stopp & Wiedereinstieg',early100:'Frühimpuls 100 € (LONG/SHORT)',trend800nov:'Neu · 800 € Trend/Stopp/Wiedereinstieg',normal1000nov:'Neu · 1.000 € bestätigtes Hauptsignal'};
+    const names={early1000oct:'Frühwarnung · 1.000 € · bis Fr 16 Uhr',normal1000oct:'Hauptsignal · 1.000 € · bis Fr 16 Uhr',conservative:'Konservativ',balanced:'Bob Lernkonto · 100 € (ausgewogen)',offensive:'Offensiv',trend800:'800 € · Bob-Stopp & Wiedereinstieg',early100:'Frühimpuls 100 € (LONG/SHORT)',trend800nov:'Neu · 800 € Trend/Stopp/Wiedereinstieg',normal1000nov:'Neu · 1.000 € bestätigtes Hauptsignal',ema3000nov:'Neu · 3.000 € · EMA-Abstand bis 2,5 ATR'};
     for(const acc of data.accounts){
      const c=acc.control||{},p=acc.riskPolicy||{},st=acc.stats||{},perf=acc.performance||{};
      const card=document.createElement('div');card.style='padding:12px;border:1px solid #cbd5e1;border-radius:12px;min-width:0';
      const heading=document.createElement('h4');heading.style='margin:0 0 8px';heading.textContent=names[acc.profile]||acc.profile;card.append(heading);
-     if(acc.profile==='trend800nov'||acc.profile==='normal1000nov'){
+     if(acc.profile==='trend800nov'||acc.profile==='normal1000nov'||acc.profile==='ema3000nov'){
       const reasons=Object.entries(st.entryBlockCounts||{}).filter(x=>Number.isFinite(x[1])&&x[1]>0)
        .sort((a,b)=>b[1]-a[1]);
       const explanation=document.createElement('p');

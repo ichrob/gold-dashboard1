@@ -11,7 +11,7 @@ from vollautomatisch_panel import PANEL
 class NovemberPaperVisibilityTests(unittest.TestCase):
     def test_nine_account_contract_and_separate_november_profiles(self):
         self.assertIn("data.mode!=='independent-prospective-paper-accounts'", PANEL)
-        self.assertIn("data.accounts.length!==9", PANEL)
+        self.assertIn("data.accounts.length!==10", PANEL)
         self.assertIn("'trend800nov','normal1000nov'", PANEL)
         self.assertIn("trend800nov:'Neu · 800 € Trend/Stopp/Wiedereinstieg'", PANEL)
         self.assertIn("normal1000nov:'Neu · 1.000 € bestätigtes Hauptsignal'", PANEL)

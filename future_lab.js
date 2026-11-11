@@ -76,12 +76,20 @@ function stressCases(){
  });
 }
 function snapshot(raw){
- if(!raw||!['four-independent-paper-accounts','five-independent-paper-accounts','seven-independent-paper-accounts'].includes(raw.mode)||raw.realOrders!==false||
-    !Array.isArray(raw.accounts)||raw.accounts.length!==(raw.mode==='seven-independent-paper-accounts'?7:raw.mode==='five-independent-paper-accounts'?5:4))throw Error('Papierkonto-Daten nicht bestätigt');
+ const original=['conservative','balanced','offensive','trend800'];
+ const modes={
+  'four-independent-paper-accounts':original,
+  'five-independent-paper-accounts':[...original,'early100'],
+  'seven-independent-paper-accounts':[...original,'early100','early1000oct','normal1000oct'],
+  'independent-prospective-paper-accounts':[...original,'early100','early1000oct','normal1000oct','trend800nov','normal1000nov','ema3000nov']
+ };
+ const allowed=modes[raw?.mode];
+ if(!allowed||raw.realOrders!==false||!Array.isArray(raw.accounts)||
+    !(raw.accounts.length===allowed.length||raw.mode==='independent-prospective-paper-accounts'&&raw.accounts.length===9))throw Error('Papierkonto-Daten nicht bestätigt');
  const names=new Set(),items=[];
  for(const a of raw.accounts){
-  if(!(raw.mode==='seven-independent-paper-accounts'?['conservative','balanced','offensive','trend800','early100','early1000oct','normal1000oct']:raw.mode==='five-independent-paper-accounts'?['conservative','balanced','offensive','trend800','early100']:['conservative','balanced','offensive','trend800']).includes(a.profile)||names.has(a.profile))
-   throw Error('Doppelte oder unbekannte Kontenkennung');names.add(a.profile);
+  if(!allowed.includes(a.profile)||names.has(a.profile))throw Error('Doppelte oder unbekannte Kontenkennung');
+  names.add(a.profile);
   const ctl=a.control||{},p=a.performance||{},day=a.stats||{};
   const daily=Array.isArray(a.daily)?a.daily:[];
   const observedDays=new Set(daily.filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x.day)&&Number.isFinite(Number(x.lastCheckedAt))&&Number(x.lastCheckedAt)>0).map(x=>x.day)).size;
@@ -104,7 +112,7 @@ function mount(parent){
  const el=(tag,txt)=>{const e=document.createElement(tag);if(txt!=null)e.textContent=txt;return e;};
  const shell=el('section');shell.id='bobFutureLab';shell.className='card';shell.style.cssText='margin-top:12px;padding:14px;border:1px solid #b6c5d5';
  const head=el('h3','Zukunft · Entwicklungs- und Testzentrale');
- const preface=el('p','Entwicklungsfahrplan mit Prüfkriterien. Die vorhandenen fünf Paper-Konten können hier ausgelesen werden. Alle Sicherheits-Probeläufe verwenden ausdrücklich erfundene Beispiele; es gibt hier keine Broker- oder Echtgeldfunktion.');
+ const preface=el('p','Entwicklungsfahrplan mit Prüfkriterien. Die vorhandenen Paper-Konten können hier ausgelesen werden. Alle Sicherheits-Probeläufe verwenden ausdrücklich erfundene Beispiele; es gibt hier keine Broker- oder Echtgeldfunktion.');
  preface.className='small';
  const banner=el('p','Modus: Planung und Paper-Test. Echtgeld gesperrt; keine neue Broker-Anbindung.');
  banner.style.cssText='padding:10px;border-radius:10px;background:#eef4ff;color:#194476;font-weight:700';
@@ -172,7 +180,7 @@ function mount(parent){
   }catch(e){obsStatus.textContent='Forschungsdaten nicht verfügbar: '+String(e.message||e)+'. Keine Ergebnisse erfunden.';}
   finally{obsBusy=false;obsButton.disabled=false;}
  });
- const displayName={conservative:'Konservativ · 100 €',balanced:'Ausgewogen · 100 €',offensive:'Offensiv · 100 €',trend800:'Bob-Stopp & Wiedereinstieg · 800 €',early100:'Frühimpuls · 100 €'};
+ const displayName={conservative:'Konservativ · 100 €',balanced:'Ausgewogen · 100 €',offensive:'Offensiv · 100 €',trend800:'Bob-Stopp & Wiedereinstieg · 800 €',early100:'Frühimpuls · 100 €',early1000oct:'Frühwarnung · 1.000 € (Alt)',normal1000oct:'Hauptsignal · 1.000 € (Alt)',trend800nov:'Trend/Stopp · 800 € (November)',normal1000nov:'Hauptsignal · 1.000 € (November)',ema3000nov:'EMA bis 2,5 ATR · 3.000 € (Test)'};
  let busy=false;
  paperBtn.addEventListener('click',async()=>{
   if(busy)return;busy=true;paperBtn.disabled=true;paperStatus.textContent='Vorhandene Paper-Daten werden gelesen …';

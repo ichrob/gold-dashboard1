@@ -908,7 +908,7 @@ def entry_block_evidence(conn, portfolios, limit=5):
             # first persisted observation, never a recreated historical window.
             time_windows = []
             raw_windows = payload.get('entryTimeBuckets15mV1')
-            if (profile in ('trend800nov', 'normal1000nov')
+            if (profile in ('trend800nov', 'normal1000nov', 'ema3000nov')
                     and isinstance(raw_windows, dict)):
                 allowed_codes = {
                     'ema-stretch-and-signal-age', 'ema-stretch', 'signal-age',
@@ -981,7 +981,7 @@ def entry_block_evidence(conn, portfolios, limit=5):
                 'latest':latest,
                 'timeWindows15m':time_windows,
                 'timeWindowsStored':(len(raw_windows) if isinstance(raw_windows,dict)
-                    and profile in ('trend800nov','normal1000nov') else 0),
+                    and profile in ('trend800nov','normal1000nov','ema3000nov') else 0),
                 'timeWindowsReadLimit':16,
                 'timeWindowsForwardOnly':True,
                 'timeWindowsFirstObservedAt':(payload.get('entryTimeBucketsFirstObservedAt')
@@ -1021,7 +1021,7 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         # The paper ledger already persists the latest trading-window blocker.
         # Keep only enum-validated codes and finite timestamps in this private
         # diagnostic projection; night-session reasons must not overwrite it.
-        if profile in ('trend800nov', 'normal1000nov'):
+        if profile in ('trend800nov', 'normal1000nov', 'ema3000nov'):
             from paper_profit_summary import ENTRY_BLOCK_CODES, number
             block_code = source_control.get('lastTradingEntryBlockCode')
             if isinstance(block_code, str) and block_code in ENTRY_BLOCK_CODES:

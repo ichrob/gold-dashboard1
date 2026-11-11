@@ -86,3 +86,20 @@ for(const [i,change] of tamper.entries()){
 }
 assert.equal(guard.check(base,'NEUTRAL',now).allowed,false);
 console.log('Late entry protection: timely LONG/SHORT, aged, chase, invalid source/time, mixed basis and price divergence OK');
+// Paper 2.5 ATR changes only the distance veto. Live API ignores extra arguments.
+for(const side of ['LONG','SHORT']){
+ let found=false;
+ for(let burst=.1;burst<3;burst+=.05){
+  const b=bundle(side,burst),live=guard.check(b,side,now,now-3*M);
+  const paper=guard.checkPaper25(b,side,now,now-3*M);
+  if(live.deviationAtr>2&&live.deviationAtr<2.5&&paper.allowed){
+   found=true;assert.equal(live.allowed,false);assert.equal(paper.paperOnly,true);
+   assert.deepStrictEqual(guard.check(b,side,now,now-3*M,true),live);
+   assert.equal(guard.checkPaper25(b,side,now,now-31*M).allowed,false);
+   b.spots.spot_price_as_of=new Date(now-61000).toISOString();
+   assert.equal(guard.checkPaper25(b,side,now,now-3*M).allowed,false);
+   break;
+  }
+ }
+ assert(found,'paper-only stretched '+side+' case exercised');
+}

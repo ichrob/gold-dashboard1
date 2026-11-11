@@ -87,6 +87,19 @@ function evaluate(input, {render=false}={}){
    }else entryPlanState={state:'blocked',code:targetPlan.entrySuitable===false?'TARGET_OBSTACLE':'RISK_PLAN_UNAVAILABLE',
     reason:targetPlan.warning||targetPlan.reason||riskData.reason||'Stopp oder Ziel nicht gültig berechenbar'};
   }
+  // Separate prospective paper plan: only EMA distance changes, never live approval.
+  const relaxedGate=LateEntry.checkPaper25(bundle,direction,Date.now(),confirmationAt);
+  let relaxedPlan=null,relaxedReason=relaxedGate.reason;
+  if(ready&&priceFresh&&direction!=='NEUTRAL'&&relaxedGate.allowed&&!input.trade?.active){
+   const stop=stopModel(direction,price,A.at,input.trailAtr||1.5).stop;
+   const targetPlan=Number.isFinite(stop)&&stop>0?targetModel(direction,price,stop,2):{};
+   if(Number.isFinite(stop)&&stop>0&&Number.isFinite(targetPlan.target)&&targetPlan.target>0&&targetPlan.entrySuitable!==false){
+    relaxedPlan={targetCheck:targetPlan,entrySuitable:targetPlan.entrySuitable,kind:'candidate',direction,
+     entry:price,stop,target:targetPlan.target,unit:'USD/oz',at:Date.now(),experimental:true,
+     source:'ema25-paper-v1',entrySetup:relaxedGate.setup,holdingWindowMinutes:[30,300]};
+   }else relaxedReason=targetPlan.warning||targetPlan.reason||riskData.reason||'Stopp oder Ziel nicht gültig berechenbar';
+  }
+  const relaxedPaper={version:'ema25-paper-v1',paperOnly:true,gate:relaxedGate,plan:relaxedPlan,reason:relaxedReason};
   if(input.trade?.active&&['entry','stop','target'].every(k=>Number.isFinite(input.trade[k])&&input.trade[k]>0))plan={kind:'active-monitor',direction:input.trade.dir,entry:input.trade.entry,stop:input.trade.stop,target:input.trade.target,unit:'USD/oz',at:Date.now(),isin:input.trade.product?.isin||null};
   if(plan?.kind==='active-monitor')entryPlanState={state:'monitoring',code:'ACTIVE_TRADE',reason:'Bestehenden Trade überwachen; keine neue Einstiegsfreigabe'};
   const preparationPlan=warningPaperPlan||earlyPaperPlan;
@@ -94,7 +107,7 @@ function evaluate(input, {render=false}={}){
    sourceAt:Number.isFinite(at)?at:null,signalBarAt:earlyWarning.signalBarAt||earlyImpulse.barAt||null,
    reason:preparationPlan?'Vorwarn-Plan vorbereitet; Bestätigung und aktuelle Produktnachweise bleiben erforderlich':warningPaperPlanReason||earlyPaperPlanReason||earlyWarning.reason,
    plan:preparationPlan,entryApproved:false,productApproved:false,positionSize:null};
-  return {entryPlanState,entryPreparation,monitorPlan,entryTimingGate,entryTiming:signalState.entryTiming||'five-minute-confirmation',confirmationAt:signalState.confirmationAt||null,baseDirection:signalState.baseDirection||direction,learningPolicy:signalState.learningPolicy,dmi:dmiContext(bundle),continuedPlan:continuedTradePlan(input.trade,bundle),fx:bundle.spots?.usd_eur_meta||null,fxByCurrency:{EUR:bundle.spots?.usd_eur_meta||null,CHF:bundle.spots?.usd_chf_meta||null},marketReview:bundle.marketReview||null,plan,trendContext,earlyImpulse,earlyWarning,warningPaperPlan,warningPaperPlanReason,earlyPaperPlan,earlyPaperPlanReason,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),analysisWarnings:analysisAgeWarnings(),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,suggestedTargetPlan,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
+  return {relaxedPaper,entryPlanState,entryPreparation,monitorPlan,entryTimingGate,entryTiming:signalState.entryTiming||'five-minute-confirmation',confirmationAt:signalState.confirmationAt||null,baseDirection:signalState.baseDirection||direction,learningPolicy:signalState.learningPolicy,dmi:dmiContext(bundle),continuedPlan:continuedTradePlan(input.trade,bundle),fx:bundle.spots?.usd_eur_meta||null,fxByCurrency:{EUR:bundle.spots?.usd_eur_meta||null,CHF:bundle.spots?.usd_chf_meta||null},marketReview:bundle.marketReview||null,plan,trendContext,earlyImpulse,earlyWarning,warningPaperPlan,warningPaperPlanReason,earlyPaperPlan,earlyPaperPlanReason,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),analysisWarnings:analysisAgeWarnings(),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,suggestedTargetPlan,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
  })()`,env,{timeout:8000});
  if(input.riskEnabled===true||input.riskMarketEnabled===true){
   const clock=Date.now(),signal=Risk.analyze(input.bundle,clock);
