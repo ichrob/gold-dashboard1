@@ -1,6 +1,7 @@
 """Paper-only, zero-network fresh queued input preference tests."""
 import unittest
 from datetime import datetime, timezone, timedelta
+from unittest.mock import patch
 import paper_simulation as paper
 
 
@@ -153,6 +154,32 @@ class OriginalStudyCandleRetryTests(unittest.TestCase):
             paper.stamp(new['spots']['spot_price_as_of']))
         self.assertEqual(old['trace'],'old')
         self.assertEqual(new['trace'],'new')
+
+    def test_final_study_handoff_retains_freshest_original_across_later_arrivals(self):
+        # Background requests are ordered by collection time. A later request
+        # may still carry an older provider clock and must not hide the fresher
+        # complete ORIGINAL already queued for the final quality handoff.
+        fresh=bundle(self.NOW,5)
+        later_but_older=bundle(self.NOW,55)
+        class Running:
+            @staticmethod
+            def is_alive():
+                return True
+
+        saved=(paper._latest,paper._study_latest,paper._thread)
+        try:
+            paper._latest=paper._study_latest=None
+            paper._thread=Running()
+            with patch.object(paper.background_push,'degiro_session',return_value='trading'), \
+                    patch.object(paper.time,'time',return_value=self.NOW/1000):
+                paper.enqueue(fresh,None)
+                paper.enqueue(later_but_older,None)
+
+            self.assertIs(paper._latest,later_but_older)
+            self.assertIs(paper.latest_paper_bundle(),fresh)
+        finally:
+            paper._latest,paper._study_latest,paper._thread=saved
+            paper._bundle_ready.clear()
 
     def test_no_new_original_or_no_missing_bar_means_no_extra_analysis(self):
         old,new,base=self.originals()
