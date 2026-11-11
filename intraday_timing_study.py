@@ -29,6 +29,8 @@ VARIANTS = {
     'timestop5': dict(minutes=5, time_stop=True, label='5m · Zeitstopp bei fehlendem Fortschritt'),
     # Added prospectively, without resetting the ongoing 48 original study arms.
     # A NEW closed 5m push is evaluated on its own clock, not by refreshing an old 15m signal.
+    'relaxedfollow5': dict(minutes=5, continuation=True, relaxed=True,
+                           label='5m · gelockerter Folgeimpuls bis nächste Kerze'),
     'follow5': dict(minutes=5, continuation=True,
                     label='5m · frischer Folgeimpuls LONG/SHORT (30–300 Minuten)'),
     # New forward-only arms. Old cases remain immutable and keep their original rule.
@@ -160,7 +162,7 @@ def frame_signal(rows, minutes, now, pullback=False):
                 level=hi if side=='LONG' else lo, reason=None if side else 'no-breakout')
 
 
-def fresh_continuation_signal(rows, now):
+def fresh_continuation_signal(rows, now, *, relaxed=False):
     """Independent *prospective* LONG/SHORT re-entry hypothesis, not an approval.
 
     A genuinely NEW, fully closed five-minute candle can confirm a continuation
@@ -177,7 +179,8 @@ def fresh_continuation_signal(rows, now):
         return {**base, 'direction':None, 'reason':'continuation-closed-bars-missing'}
     last, previous, older = bars[-1], bars[-2], bars[-3]
     if (last['closeTime'] != base.get('closedAt')
-            or not 0 <= now-last['closeTime'] <= 90000):
+            or not (0 <= now-last['closeTime'] < 5*MINUTE if relaxed
+                    else 0 <= now-last['closeTime'] <= 90000)):
         return {**base, 'direction':None, 'reason':'continuation-signal-not-fresh'}
     past = [r for r in rows if last['closeTime']-105*MINUTE <= r['openTime'] < last['closeTime']]
     if len(past) != 105:
@@ -185,7 +188,7 @@ def fresh_continuation_signal(rows, now):
     e20 = ema([r['close'] for r in past],20)[-1]
     stretch = abs(last['close']-e20)/base['atr']
     # Still restrict chasing overextended trends even in the experimental arm.
-    if stretch > 2.0:
+    if stretch > 2.0 and not relaxed:
         return {**base, 'direction':None, 'reason':'continuation-overextended-2atr',
                 'extensionAtr':round(stretch,4)}
     side = base.get('direction')
@@ -206,6 +209,9 @@ def fresh_continuation_signal(rows, now):
     return {**base, 'direction':side, 'barAt':last['openTime'],
             'closedAt':last['closeTime'], 'level':level,
             'setup':setup if side else None, 'extensionAtr':round(stretch,4),
+            'referenceClose':last['close'],
+            'entryPolicy':'relaxed-follow5-v1' if relaxed else 'strict-follow5',
+            'riskWarnings':['ema-extension-over-2atr'] if stretch>2.0 else [],
             'reason':None if side else 'no-fresh-continuation'}
 
 
@@ -403,9 +409,10 @@ def advance(old, bundle, market, selection, quotes, now):
         signals = {(m,p):frame_signal(rows,m,now,p) for m,p in ((3,False),(5,False),(7,False),(5,True))} if rows else {}
         if rows:
             signals[(5,'continuation')] = fresh_continuation_signal(rows,now)
+            signals[(5,'relaxed')] = fresh_continuation_signal(rows,now,relaxed=True)
         price = source(bundle,now,modeled)
         for name,cfg in VARIANTS.items():
-            key_signal=(cfg['minutes'], 'continuation' if cfg.get('continuation') else bool(cfg.get('pullback')))
+            key_signal=(cfg['minutes'], 'relaxed' if cfg.get('relaxed') else 'continuation' if cfg.get('continuation') else bool(cfg.get('pullback')))
             sig = signals.get(key_signal,dict(available=False,reason=error))
             allowed, reason = gate(sig,trend,cfg)
             if allowed:
@@ -492,6 +499,9 @@ def advance(old, bundle, market, selection, quotes, now):
                 if price['at'] < sig['closedAt'] or price['at']<=max(a.get('lastExitSourceAt',0),state.get('entryAfterSourceAt',0)):
                     continue
                 sign = 1 if sig['direction']=='LONG' else -1
+                if cfg.get('relaxed') and abs(price['price']-sig['referenceClose']) > .8*sig['atr']:
+                    a['reason']='entry-price-drift-over-0.8atr'
+                    continue
                 risk = sig['atr']*1.5
                 # Frozen objective, reject already extended entry with insufficient room.
                 target = sig['level']+sign*3*risk
