@@ -432,6 +432,35 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(status,expected)
             self.assertNotIn('WWW-Authenticate',h)
 
+    def test_antigravity_owner_diagnostics_scope_request_is_opt_in(self):
+        # Only a fixed, non-secret opt-in changes the *requested* scopes.
+        # Neither a forged hint nor a normal anonymous connection grants data.
+        variants = (
+            (None, store.SCOPE),
+            ('products-and-diagnostics', store.SCOPE + ' ' + store.DIAGNOSTICS_SCOPE),
+            ('products-and-diagnostics-extra', store.SCOPE),
+        )
+        for hint, expected in variants:
+            headers = {'Content-Type': 'application/json'}
+            if hint is not None:
+                headers['X-Bob-Owner-Read-Scopes'] = hint
+            with self.subTest(hint=hint):
+                status, response_headers, _ = self.request('POST', '/mcp', '{}', headers)
+                self.assertEqual(status, 401)
+                challenge = response_headers.get('WWW-Authenticate', '')
+                self.assertIn('resource_metadata=', challenge)
+                self.assertIn('scope="' + expected + '"', challenge)
+                for blocked in (store.PHONE_SCOPE, store.TERMUX_SCOPE, store.PUSH_TEST_SCOPE):
+                    self.assertNotIn(blocked, challenge)
+        with patch.object(server, 'read_diagnostics_for_mcp',
+                          side_effect=AssertionError('Unauthenticated diagnostic read')) as reader:
+            headers = {'Content-Type': 'application/json',
+                       'X-Bob-Owner-Read-Scopes': 'products-and-diagnostics'}
+            payload = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                       'params': {'name': 'bob_diagnostics', 'arguments': {'focus': 'overview'}}}
+            self.assertEqual(self.request('POST', '/mcp', json.dumps(payload), headers)[0], 401)
+            self.assertEqual(reader.call_count, 0)
+
     def test_actual_consent_and_read_only_mcp_flow(self):
         self.begin()
         status,h,_ = self.request('GET','/oauth/resume',headers={'Cookie':self.cookie})
@@ -638,7 +667,8 @@ class HttpTests(unittest.TestCase):
         original=token(approve(cookie,nonce))
         self.assertEqual(original['scope'],store.SCOPE)
         auth={'Authorization':'Bearer '+original['access_token'],
-              'Content-Type':'application/json'}
+              'Content-Type':'application/json',
+              'X-Bob-Owner-Read-Scopes':'products-and-diagnostics'}
         request={'jsonrpc':'2.0','id':77,'method':'tools/call',
                  'params':{'name':'bob_diagnostics','arguments':{'focus':'overview'}}}
         with patch.object(server,'read_diagnostics_for_mcp',

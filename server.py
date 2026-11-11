@@ -2087,8 +2087,13 @@ class Handler(BaseHTTPRequestHandler):
             phone_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.PHONE_SCOPE)
             termux_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.TERMUX_SCOPE)
             if not products_allowed and not diagnostics_allowed and not push_test_allowed and not phone_allowed and not termux_allowed:
+                # A dedicated, non-secret client hint opts into requesting BOTH
+                # read scopes during a new OAuth login. Authentication and PKCE
+                # owner consent remain mandatory; legacy clients are unchanged.
+                owner_diagnostics = (self.headers.get("X-Bob-Owner-Read-Scopes", "")
+                                     == "products-and-diagnostics")
                 self.send_response(401)
-                self.send_header("WWW-Authenticate", bob_oauth.challenge_header())
+                self.send_header("WWW-Authenticate", bob_oauth.challenge_header(owner_diagnostics))
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
