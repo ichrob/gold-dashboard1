@@ -30,6 +30,64 @@ class GeminiReviewSafetyTests(unittest.TestCase):
             }, clear=True):
                 self.assertTrue(g.enabled())
 
+    def _owner_pr(self):
+        return {"state": "open", "draft": False,
+                "user": {"login": "ichrob"},
+                "base": {"repo": {"full_name": "ichrob/gold-dashboard1"}},
+                "head": {"repo": {"full_name": "ichrob/gold-dashboard1"},
+                         "sha": "a" * 40}}
+
+    def test_default_review_for_owner_pr_without_repair_marker(self):
+        pr = self._owner_pr()
+        self.assertEqual(
+            g.reviewed_pr_sha(pr, mode="automatic", head_sha="a" * 40),
+            "a" * 40)
+        # A same-repo Gemini proposal opened by GitHub Actions is also reviewable.
+        pr["user"]["login"] = "github-actions[bot]"
+        self.assertEqual(g.reviewed_pr_sha(pr, mode="manual"), "a" * 40)
+
+    def test_no_review_for_fork_stranger_draft_or_stale_ci(self):
+        pr = self._owner_pr()
+        cases = [
+            {**pr, "user": {"login": "unknown"}},
+            {**pr, "draft": True},
+            {**pr, "head": {"repo": {"full_name": "other/fork"},
+                             "sha": "a" * 40}},
+            {**pr, "base": {"repo": {"full_name": "other/fork"}}},
+        ]
+        for bad in cases:
+            with self.subTest(case=bad), self.assertRaises(ValueError):
+                g.reviewed_pr_sha(bad, mode="automatic", head_sha="a" * 40)
+        with self.assertRaisesRegex(ValueError, "draft-or-stale-ci"):
+            g.reviewed_pr_sha(pr, mode="automatic", head_sha="b" * 40)
+        with self.assertRaisesRegex(ValueError, "review-mode-denied"):
+            g.reviewed_pr_sha(pr, mode="something-else")
+
+    def test_owner_default_allow_and_explicit_revocation(self):
+        self.assertTrue(g.owner_allows_review([]))
+        comments = [
+            {"id": 1, "user": {"login": "ichrob"},
+             "body": "/bob-peer-review-off"},
+            {"id": 2, "user": {"login": "external"},
+             "body": "/bob-peer-review-on"},
+            {"id": 3, "user": {"login": "github-actions[bot]"},
+             "body": "/bob-peer-review-on"},
+            {"id": 4, "user": {"login": "ichrob"},
+             "body": "/bob-peer-review-on more text"},
+        ]
+        self.assertFalse(g.owner_allows_review(comments))
+        comments.append({"id": 5, "user": {"login": "ichrob"},
+                         "body": "/bob-peer-review-on"})
+        self.assertTrue(g.owner_allows_review(comments))
+        comments.append({"id": 6, "user": {"login": "ichrob"},
+                         "body": "/bob-peer-review-off"})
+        self.assertFalse(g.owner_allows_review(list(reversed(comments))))
+        with self.assertRaisesRegex(ValueError, "review-history-incomplete"):
+            g.owner_allows_review([{}] * 100)
+        with self.assertRaisesRegex(ValueError, "review-history-incomplete"):
+            g.owner_allows_review([{"user": {"login": "ichrob"},
+                                    "body": "/bob-peer-review-off"}])
+
     def test_model_sunset_fails_closed(self):
         with patch.dict(os.environ, {
             "BOB_GEMINI_FREE_ONLY": "confirmed-unbilled-free-project",
