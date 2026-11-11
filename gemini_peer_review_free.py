@@ -32,7 +32,7 @@ def enabled():
     """Owner assertion is an opt-in, NOT technical proof of Google billing."""
     return (datetime.now(timezone.utc).date() < MODEL_REVIEW_REQUIRED_ON
             and os.getenv("BOB_GEMINI_FREE_ONLY") == "confirmed-unbilled-free-project"
-            and os.getenv("BOB_GEMINI_AUTO_REVIEW_ENABLED") == "1")
+            and os.getenv("BOB_GEMINI_AUTO_REVIEW_ENABLED") != "0")
 
 
 # Only the repository owner may opt a specific PR out of peer review.
