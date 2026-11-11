@@ -2518,8 +2518,15 @@ def fibonacci_monitor_loop():
                 try:
                     with urlopen(request,timeout=45) as response:
                         background_result=json.loads(response.read(4096))
-                    diagnostic_history.emit('transport', source_trace, {'outcome':'background-accepted'})
-                    print("BOB_BACKGROUND checked sent="+str(background_result.get('sent',0)),flush=True)
+                    accepted=background_result.get('accepted') is True
+                    diagnostic_history.emit(
+                        'transport',source_trace,
+                        {'outcome':'background-accepted' if accepted else 'background-rejected'})
+                    print("BOB_BACKGROUND checked accepted="+
+                          str(accepted)+
+                          " trace="+source_trace+
+                          " source_at="+str((background_bundle.get('spots') or {}).get('spot_price_as_of'))+
+                          " sent="+str(background_result.get('sent',0)),flush=True)
                 except Exception as exc:
                     background_ok = False
                     diagnostic_history.emit('transport', source_trace, {'outcome':'background-failed','errorType':type(exc).__name__})
