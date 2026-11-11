@@ -65,6 +65,14 @@ def primary(blocking=True):
                     after = datetime.fromisoformat(q['at'])
                     if after < before or (after == before and q['price'] != _quote['price']):
                         raise ValueError('Spot-Kurszeit rückläufig oder widersprüchlicher Kurs')
+                # Prospective source-clock evidence only: no price, product or
+                # account data. This distinguishes a provider-repeated original
+                # timestamp from a Bob handoff delay without changing polling.
+                logging.info(
+                    "BOB_SPOT_FETCH_EVIDENCE source_at=%s age_ms=%d repeated=%s early_retry=%s route=%d",
+                    q['at'], int(round(age * 1000)), q['at'] == previous_at,
+                    poll_interval == NEAR_EXPIRY_RETRY_SECONDS, _route,
+                )
                 if _error:
                     logging.info("BOB_MARKET_RECOVERY source=spot state=recovered")
                 # A provider observation first received close to expiry gets one
