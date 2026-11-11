@@ -107,10 +107,52 @@ class FreshPaperBundleTests(unittest.TestCase):
                 paper.enqueue(rejected,None)
             line=output.getvalue()
             self.assertIn('BOB_STUDY_CANDIDATE_REJECTED',line)
+            self.assertIn('BOB_STUDY_CANDIDATE_ENQUEUE outcome=rejected',line)
+            self.assertIn('candidate_trace=',line)
+            self.assertIn('selected_source_at_ms=',line)
             self.assertIn('reason=observed-closed-15m-missing',line)
             self.assertNotIn("'spots'",line)
             self.assertNotIn("'history'",line)
             self.assertIs(paper._study_latest,old)
+        finally:
+            paper._latest,paper._study_latest,paper._thread=saved
+            paper._bundle_ready.clear()
+
+    def test_enqueue_and_final_selection_share_redacted_bundle_trace(self):
+        old=bundle(self.NOW,45)
+        newer=bundle(self.NOW,5)
+        for item in (old,newer):
+            item['spots']['xaus']=4000.0
+        class Running:
+            @staticmethod
+            def is_alive():
+                return True
+        saved=(paper._latest,paper._study_latest,paper._thread)
+        try:
+            paper._latest=paper._study_latest=old
+            paper._thread=Running()
+            output=io.StringIO()
+            with patch.object(paper.background_push,'degiro_session',return_value='trading'), \
+                    patch.object(paper.time,'time',return_value=self.NOW/1000), \
+                    redirect_stdout(output):
+                paper.enqueue(newer,None)
+                market=dict(ready=True,priceFresh=False,
+                            dataAt=self.NOW-45000,analysisBarAt=self.NOW-300000)
+                selected,_=paper.refresh_original_study_input(
+                    old,market,{},paper.latest_paper_bundle,
+                    lambda candidate,settings,priority: dict(
+                        ready=True,priceFresh=True,
+                        dataAt=paper.stamp(candidate['spots']['spot_price_as_of']),
+                        analysisBarAt=self.NOW-300000),
+                    lambda:self.NOW,evidence_phase='quality-final')
+            lines=output.getvalue()
+            trace=paper.study_bundle_handoff_evidence(newer)['trace']
+            self.assertIs(selected,newer)
+            self.assertIn('BOB_STUDY_CANDIDATE_ENQUEUE outcome=selected',lines)
+            self.assertIn('BOB_STUDY_FINAL_SELECTION phase=quality-final outcome=reused',lines)
+            self.assertGreaterEqual(lines.count('selected_trace='+trace),2)
+            self.assertNotIn('4000.0',lines)
+            self.assertNotIn("'spots'",lines)
         finally:
             paper._latest,paper._study_latest,paper._thread=saved
             paper._bundle_ready.clear()

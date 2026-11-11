@@ -950,6 +950,69 @@ def newer_queued_paper_bundle(current, candidate, now_ms):
             and (old_time is None or new_time>old_time) else current)
 
 
+def study_bundle_handoff_evidence(bundle):
+    """Return bounded clocks and the existing deterministic bundle trace.
+
+    This is diagnostic metadata only. It never decides whether a bundle is
+    admissible and never exposes prices, products, account data or prompts.
+    """
+    if not isinstance(bundle,dict):
+        return dict(trace='none',sourceAt=None,closed15mAt=None)
+    spots=bundle.get('spots')
+    source=spots.get('spot_price_as_of') if isinstance(spots,dict) else None
+    source_at=None
+    if isinstance(source,str):
+        try:
+            parsed=datetime.fromisoformat(source.replace('Z','+00:00'))
+            if parsed.tzinfo is not None:
+                value=parsed.timestamp()*1000
+                if math.isfinite(value) and value>0:
+                    source_at=int(value)
+        except (TypeError,ValueError,OverflowError):
+            pass
+    closed_at=None
+    history=bundle.get('history')
+    frames=history.get('bars_by_tf') if isinstance(history,dict) else None
+    bars=frames.get('15m') if isinstance(frames,dict) else None
+    if isinstance(bars,list):
+        for bar in reversed(bars):
+            if not isinstance(bar,dict):
+                continue
+            value=bar.get('openTime')
+            if (type(value) in (int,float) and math.isfinite(value) and value>0
+                    and bar.get('isOpen') is not True
+                    and bar.get('providerIsOpen') is not True
+                    and bar.get('estimated') is not True):
+                closed_at=int(value)
+                break
+    try:
+        trace=__import__('diagnostic_history').trace(bundle)
+    except Exception:
+        trace='unavailable'
+    return dict(trace=trace,sourceAt=source_at,closed15mAt=closed_at)
+
+
+def print_study_handoff_evidence(marker, outcome, current, candidate, selected,
+                                 checked_at_ms):
+    """Emit one redacted decision record for actual enqueue/final selection."""
+    current_e=study_bundle_handoff_evidence(current)
+    candidate_e=study_bundle_handoff_evidence(candidate)
+    selected_e=study_bundle_handoff_evidence(selected)
+    print(marker+
+          ' outcome='+outcome+
+          ' checked_at_ms='+str(int(checked_at_ms))+
+          ' current_trace='+current_e['trace']+
+          ' current_source_at_ms='+str(current_e['sourceAt'])+
+          ' current_closed_15m_at_ms='+str(current_e['closed15mAt'])+
+          ' candidate_trace='+candidate_e['trace']+
+          ' candidate_source_at_ms='+str(candidate_e['sourceAt'])+
+          ' candidate_closed_15m_at_ms='+str(candidate_e['closed15mAt'])+
+          ' selected_trace='+selected_e['trace']+
+          ' selected_source_at_ms='+str(selected_e['sourceAt'])+
+          ' selected_closed_15m_at_ms='+str(selected_e['closed15mAt']),
+          flush=True)
+
+
 def rejected_newer_paper_bundle_evidence(current, candidate, now_ms):
     """Explain only a newer-provider-clock candidate rejected by the selector.
 
@@ -1039,7 +1102,8 @@ def study_closed_bar_retry_needed(bundle, market, now_ms):
             and 0<=now_ms-stamp<=60000)
 
 
-def refresh_original_study_input(bundle, market, settings, latest, analyze, clock):
+def refresh_original_study_input(bundle, market, settings, latest, analyze, clock,
+                                 evidence_phase='analysis'):
     """At the final study handoff, prefer one queued fresher ORIGINAL snapshot.
 
     Quote/audit/portfolio work may outlive the input's 60-second admission
@@ -1053,7 +1117,12 @@ def refresh_original_study_input(bundle, market, settings, latest, analyze, cloc
            or not finite(stamp) or not 0<=observed_now-stamp<=45000
            or study_closed_bar_retry_needed(bundle,market,observed_now))
     if retry:
-        candidate=newer_queued_paper_bundle(bundle,latest(),observed_now)
+        queued=latest()
+        candidate=newer_queued_paper_bundle(bundle,queued,observed_now)
+        print_study_handoff_evidence(
+            'BOB_STUDY_FINAL_SELECTION phase='+evidence_phase,
+            'reused' if candidate is not bundle else 'retained',
+            bundle,queued,candidate,observed_now)
         if candidate is not bundle:
             return candidate,analyze(candidate,settings,priority=2)
     return bundle,market
@@ -1479,16 +1548,28 @@ def _worker(db):
                         try:
                             quality_bundle,quality_market=refresh_original_study_input(
                                 bundle,market,settings,latest_paper_bundle,
-                                background_push.analyze,lambda:time.time()*1000)
+                                background_push.analyze,lambda:time.time()*1000,
+                                evidence_phase='quality-final')
                             if quality_bundle is not bundle:
                                 print('BOB_QUALITY_RESEARCH reused_newer_observed_bundle=1',flush=True)
                         except Exception as refresh_exc:
                             print('BOB_QUALITY_RESEARCH refresh_error='+type(refresh_exc).__name__,flush=True)
                         try:
                             with conn.transaction():
+                                quality_checked_at=time.time()*1000
+                                if quality_market.get('priceFresh') is not True:
+                                    quality_evidence=study_bundle_handoff_evidence(quality_bundle)
+                                    print('BOB_STUDY_QUALITY_INPUT '+
+                                          'trace='+quality_evidence['trace']+
+                                          ' source_at_ms='+str(quality_evidence['sourceAt'])+
+                                          ' closed_15m_at_ms='+str(quality_evidence['closed15mAt'])+
+                                          ' checked_at_ms='+str(int(quality_checked_at))+
+                                          ' ready='+str(quality_market.get('ready'))+
+                                          ' price_fresh='+str(quality_market.get('priceFresh')),
+                                          flush=True)
                                 research_restart.tick(
                                     conn,quality_bundle,quality_market,
-                                    time.time()*1000,outcomes)
+                                    quality_checked_at,outcomes)
                         except Exception as research_exc:
                             print('BOB_QUALITY_RESEARCH error='+type(research_exc).__name__,flush=True)
                         conn.commit()
@@ -1548,6 +1629,11 @@ def enqueue(bundle, db):
             previous_study_latest,bundle,observed_now)
         rejection=rejected_newer_paper_bundle_evidence(
             previous_study_latest,bundle,observed_now)
+        outcome=('selected' if _study_latest is bundle else
+                 'rejected' if rejection is not None else 'retained')
+        print_study_handoff_evidence(
+            'BOB_STUDY_CANDIDATE_ENQUEUE',outcome,
+            previous_study_latest,bundle,_study_latest,observed_now)
         if rejection is not None and _study_latest is previous_study_latest:
             print('BOB_STUDY_CANDIDATE_REJECTED '+
                   'reason='+rejection['reasonCode']+
