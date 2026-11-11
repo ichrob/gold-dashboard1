@@ -84,8 +84,16 @@ class PaperProfitSummaryTests(unittest.TestCase):
             lastTradingEntryBlockCode='PRIVATE_TOKEN',
             reason='DEGIRO-Nachtmodus · Simulation pausiert')])
         self.assertEqual(next(x for x in malformed['rows'] if
-            x['profile']=='trend800nov')['latestEntryBlockCode'],'session-paused')
+            x['profile']=='trend800nov')['latestEntryBlockCode'],'not-observed')
         self.assertNotIn('PRIVATE_TOKEN',json.dumps(malformed))
+        night_without_trade = profit.snapshot([dict(
+            profile='normal1000nov', initialCapital=1000, equity=1000,
+            status='night-paused',
+            reason='DEGIRO-Produkte nachts nicht handelbar · Simulation pausiert')])
+        night_row = next(x for x in night_without_trade['rows']
+                         if x['profile'] == 'normal1000nov')
+        self.assertEqual(night_row['latestEntryBlockCode'], 'not-observed')
+        self.assertIsNone(night_row['latestEntryBlockAt'])
 
 
     def test_live_push_projection_keeps_last_trading_block_without_private_text(self):
