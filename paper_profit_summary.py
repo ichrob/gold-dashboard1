@@ -22,6 +22,44 @@ def number(value, *, positive=False, timestamp=False):
     return float(value)
 
 
+def entry_block_code(value):
+    """Classify the latest saved gate without exposing raw product or private data.
+
+    A reason is a current-control observation only. No historical blocker
+    counts, missed-profit estimate or assumption that a trade was possible.
+    """
+    if not isinstance(value,str) or not value.strip():
+        return 'not-observed'
+    reason=value.lower()
+    if any(word in reason for word in ('goldkurs nicht aktuell','quellenzeit','marktdaten',
+                                      'daten fehlen','quellenlücke')):
+        return 'source-not-fresh'
+    if any(word in reason for word in ('außerhalb','nachtmodus','markt geschlossen',
+                                      'börsenpause','einstiegszeit')):
+        return 'session-paused'
+    if any(word in reason for word in ('kein bestätigter gültiger goldplan',
+                                      'stopp-/zielplan','risikoplan','kein gültiger goldplan',
+                                      'kein bestätigter stopp')):
+        return 'plan-not-ready'
+    if any(word in reason for word in ('geld-/brief','geldkurs','briefkurs','kursart',
+                                      'ausführungskurs','quote')):
+        return 'product-quote-missing'
+    if any(word in reason for word in ('ko-schutz','knock-out','ko-barriere',
+                                      'ko-schwelle')):
+        return 'knockout-protection'
+    if any(word in reason for word in ('kein passendes belegtes produkt','kein geeigneter',
+                                      'produkteeinstieg','produktfreigabe','nicht freigegeben')):
+        return 'product-not-approved'
+    if any(word in reason for word in ('kollektivrichtungswert','score zu schwach')):
+        return 'signal-score-weak'
+    if any(word in reason for word in ('tagesrisiko','risikolimit','verlustgrenze')):
+        return 'risk-limit'
+    if any(word in reason for word in ('abwarten','keine bestätigte richtung',
+                                      'keine einstiegsrichtung','signal neutral')):
+        return 'no-direction'
+    return 'other-or-unclassified'
+
+
 def snapshot(accounts):
     """Project only explicitly allowlisted account-control numbers already read."""
     unavailable = dict(status='unavailable', readOnly=True, realOrders=False,
@@ -59,7 +97,10 @@ def snapshot(accounts):
             modelReturnPct=model_pct,
             realizedModelProfitEur=number(a.get('realizedProfit')),
             exampleCostsDebitedEur=number(a.get('costsDebitedEur')),
-            tradeOutcomeVerified=False))
+            tradeOutcomeVerified=False,
+            latestEntryBlockCode=(entry_block_code(a.get('reason'))
+                                  if profile in ('trend800nov','normal1000nov')
+                                  else None)))
     complete = all(r.get('source') == 'saved-virtual-control'
                    and r.get('initialCapitalEur') is not None
                    and r.get('equityEur') is not None for r in rows)
