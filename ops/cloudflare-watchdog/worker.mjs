@@ -5,6 +5,16 @@ const BASE = `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}
 const PERIOD = 600_000;
 const ACTIVE = ['queued', 'in_progress', 'waiting', 'pending', 'requested'];
 
+function safeTransportCode(error) {
+  // Only fixed categories are returned. Never log exception text, secret,
+  // GitHub response body or request headers.
+  const message = typeof error?.message === 'string' ? error.message : '';
+  if (/invalid.*header|header.*invalid|invalid character/i.test(message)) return 'github_header_invalid';
+  if (/different request|outside.*request context/i.test(message)) return 'github_request_context';
+  if (/invalid.*url|url.*invalid/i.test(message)) return 'github_url_invalid';
+  return 'github_network_unavailable';
+}
+
 export async function tick(env, storage, scheduledTime, now = Date.now(), request = fetch) {
   if (!Number.isSafeInteger(scheduledTime) || scheduledTime > now + 5000 || now - scheduledTime > 120_000) {
     throw new Error('invalid_or_stale_tick');
@@ -16,6 +26,11 @@ export async function tick(env, storage, scheduledTime, now = Date.now(), reques
     return { state: env.GITHUB_TOKEN ? 'observation_only_disabled' : 'observation_only_no_token' };
   }
   if (!env.GITHUB_TOKEN) throw new Error('github_token_missing');
+  // Chrome clipboard may include trailing whitespace; trim it without
+  // disclosing the value. Only the expected fine-grained GitHub PAT shape
+  // is eligible for an outbound Authorization header.
+  const token = typeof env.GITHUB_TOKEN === 'string' ? env.GITHUB_TOKEN.trim() : '';
+  if (!/^github_pat_[A-Za-z0-9_]{20,255}$/.test(token)) throw new Error('github_token_format_invalid');
   const slot = Math.floor(scheduledTime / PERIOD);
   let previous;
   try { previous = await storage.get('attempt'); }
@@ -26,14 +41,14 @@ export async function tick(env, storage, scheduledTime, now = Date.now(), reques
   catch { throw new Error('clock_abort_unavailable'); }
   const headers = {
     Accept: 'application/vnd.github+json',
-    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    Authorization: `Bearer ${token}`,
     'X-GitHub-Api-Version': '2026-03-10',
     'User-Agent': 'bob-watchdog-clock',
   };
   async function get(suffix) {
     let response;
     try { response = await request(BASE + suffix, { headers, signal, redirect: 'error' }); }
-    catch { throw new Error('github_network_unavailable'); }
+    catch (error) { throw new Error(safeTransportCode(error)); }
     if (!response || typeof response.ok !== 'boolean') throw new Error('github_response_shape');
     if (!response.ok) throw new Error(`github_read_${response.status}`);
     try { return await response.json(); }
