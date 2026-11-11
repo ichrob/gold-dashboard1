@@ -1007,8 +1007,14 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
     for profile in portfolios.POLICIES:
         table = portfolios.names(profile)['bob_paper_control']
         row = conn.execute(f'SELECT payload FROM {table} WHERE id=1').fetchone()
-        accounts.append({'profile':profile, **fields(row[0] if row else {},
-            ('enabled','status','checkedAt','startAt','endAt','campaign','signalSource','reason','currency','initialCapital','cash','equity','dayProfit','totalProfit','realizedProfit','costsDebitedEur','costPeriodProfit','costsStartedAt','costsNote'))})
+        source_control = row[0] if row and isinstance(row[0], dict) else {}
+        record = {'profile':profile, **fields(source_control,
+            ('enabled','status','checkedAt','startAt','endAt','campaign','signalSource','reason','currency','initialCapital','cash','equity','dayProfit','totalProfit','realizedProfit','costsDebitedEur','costPeriodProfit','costsStartedAt','costsNote'))}
+        # Existing stored forward controls only: fixed small numbers, no raw
+        # trades, provider prices, account credentials or extra database reads.
+        from paper_profit_summary import safe_forward_evidence
+        record['forwardEvidence'] = safe_forward_evidence(source_control.get('forwardValidation'))
+        accounts.append(record)
     # Single bounded aggregate: distinguish no installed subscription from
     # an existing subscription whose notifications are disabled. No endpoints,
     # tokens, personal portfolio rows, or permission claims leave the server.
@@ -1052,8 +1058,16 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
                 with conn.transaction():
                     cases = conn.execute(f'SELECT payload FROM {table} ORDER BY started_at DESC LIMIT 5').fetchall()
                 account['recentCases'] = {'status':'observed','items':[project(paper_case_review.project_case(row[0], account['profile']), CASE) for row in cases]}
+                # Inspect the SAME five already loaded cases; never run a
+                # second historical query or publish their original payloads.
+                account['netEvidenceSample'] = __import__('paper_net_evidence').sample([
+                    paper_case_review.project_case(row[0], account['profile'])
+                    for row in cases])
             except Exception:
                 account['recentCases'] = {'status':'unavailable'}
+                account['netEvidenceSample'] = {'status':'unavailable', 'readOnly':True,
+                    'realOrders':False, 'brokerNetVerified':False,
+                    'reason':'recent-paper-cases-unavailable'}
         # Evidence-only recent-case tally. Never turn unknown/deferred results
         # into closed profits, losses, filled orders or proven source recovery.
         result['recentPaperOutcomes'] = recent_paper_outcomes(accounts)
