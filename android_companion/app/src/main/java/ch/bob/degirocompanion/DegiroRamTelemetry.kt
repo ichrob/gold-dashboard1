@@ -103,6 +103,14 @@ internal object DegiroRamTelemetry {
         }.getOrNull()
     }
 
+    /** Avoid sending old measurements forever through the live diagnostic feed. */
+    fun forDiagnostics(context: Context): JSONObject? {
+        val record = latest(context) ?: return null
+        val millis = runCatching { Instant.parse(record.getString("finishedAt")).toEpochMilli() }
+            .getOrDefault(0L)
+        return record.takeIf { System.currentTimeMillis() - millis in 0L..86_400_000L }
+    }
+
     fun display(context: Context): String {
         val recent = latest(context) ?: return "RAM-Messung: noch kein abgeschlossener Leselauf."
         fun value(name: String) =
