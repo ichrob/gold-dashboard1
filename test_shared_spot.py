@@ -47,6 +47,40 @@ class SharedSpotTests(unittest.TestCase):
         self.assertAlmostEqual(row[1],2,delta=.1)
         self.assertTrue(row[4])
 
+    def test_bundle_bridges_only_imminent_normal_retry_before_expiry(self):
+        old=(self.now-timedelta(seconds=58)).isoformat()
+        newer=(self.now-timedelta(seconds=1)).isoformat()
+        source='Gold-API.com · XAU/USD Spot'
+        original=(4100.,58.,None,source,True,old)
+        refreshed={'price':4141.8,'at':newer,'source':source}
+        with patch.object(s,'current',return_value=refreshed) as current, \
+             patch.object(s,'final_bundle_retry_wait',return_value=2.0), \
+             patch.object(server.time,'sleep') as sleep:
+            row=server.recheck_spot_before_bundle(
+                original,now=self.now.timestamp())
+        sleep.assert_called_once_with(2.0)
+        current.assert_called_once_with()
+        self.assertEqual(row[0],4141.8)
+        self.assertEqual(row[5],newer)
+        self.assertAlmostEqual(row[1],3,delta=.1)
+
+    def test_final_bundle_retry_wait_never_changes_provider_cadence(self):
+        source_at=(self.now-timedelta(seconds=58)).isoformat()
+        s._quote={'price':4100.,'at':source_at,
+                  'source':'Gold-API.com · XAU/USD Spot'}
+        with patch.object(s.time,'monotonic',return_value=100.0), \
+             patch.object(s,'_attempted',72.0), \
+             patch.object(s,'_near_expiry_retried_at',source_at), \
+             patch.object(s,'_retry_at',0):
+            self.assertEqual(s.final_bundle_retry_wait(source_at),2.0)
+            self.assertIsNone(s.final_bundle_retry_wait(source_at,max_wait=1.0))
+            self.assertIsNone(s.final_bundle_retry_wait('other'))
+        with patch.object(s.time,'monotonic',return_value=100.0), \
+             patch.object(s,'_attempted',72.0), \
+             patch.object(s,'_near_expiry_retried_at',source_at), \
+             patch.object(s,'_retry_at',101.0):
+            self.assertIsNone(s.final_bundle_retry_wait(source_at))
+
     def test_late_bundle_recheck_never_promotes_stale_or_conflicting_quote(self):
         old=(self.now-timedelta(seconds=61)).isoformat()
         source='Gold-API.com · XAU/USD Spot'

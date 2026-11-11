@@ -856,7 +856,17 @@ def recheck_spot_before_bundle(spot_result, now=None):
     # the newest closed minute even when the HTTP cache is only seconds old.
     if age >= 30:
         try:
-            from spot_data import current
+            from spot_data import current, final_bundle_retry_wait
+            # If bundle completion lands immediately before the next normal
+            # 30-second source attempt, bridge only that remaining interval.
+            # This is not an extra retry and never keeps an old provider clock
+            # alive: current() and the unchanged <=60s admission gate remain
+            # authoritative after the bounded wait.
+            if age >= 55:
+                wait_seconds = final_bundle_retry_wait(original_at)
+                if wait_seconds is not None:
+                    time.sleep(wait_seconds)
+                    clock = time.time() if now is None else clock + wait_seconds
             refreshed = current()
             candidate_at = datetime.fromisoformat(refreshed['at'].replace('Z', '+00:00'))
             newest_age = time.time() - candidate_at.timestamp() if now is None else clock-candidate_at.timestamp()
