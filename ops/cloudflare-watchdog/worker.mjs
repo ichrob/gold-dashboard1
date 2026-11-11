@@ -1,0 +1,110 @@
+// One clock for the existing watchdog; no market data or repair logic here.
+export const REPO = 'ichrob/gold-dashboard1';
+export const WORKFLOW = 382076329;
+const BASE = `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}`;
+const PERIOD = 600_000;
+const ACTIVE = ['queued', 'in_progress', 'waiting', 'pending', 'requested'];
+
+export async function tick(env, storage, scheduledTime, now = Date.now(), request = fetch) {
+  if (!Number.isSafeInteger(scheduledTime) || scheduledTime > now + 5000 || now - scheduledTime > 120_000) {
+    throw new Error('invalid_or_stale_tick');
+  }
+  // An unarmed clock may record Cron receipt without access to any GitHub credential.
+  // This is not proof of a successful GitHub dispatch or its monitoring job.
+  if (env.ENABLED !== 'true' && !env.GITHUB_TOKEN) return { state: 'observation_only_no_token' };
+  if (!env.GITHUB_TOKEN) throw new Error('github_token_missing');
+  const slot = Math.floor(scheduledTime / PERIOD);
+  const previous = await storage.get('attempt');
+  if (previous && (previous.slot >= slot || now - previous.at < PERIOD)) return { state: 'duplicate_suppressed' };
+  const signal = AbortSignal.timeout(18_000);
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    'X-GitHub-Api-Version': '2026-03-10',
+    'User-Agent': 'bob-watchdog-clock',
+  };
+  async function get(suffix) {
+    const response = await request(BASE + suffix, { headers, signal, redirect: 'error' });
+    if (!response.ok) throw new Error(`github_read_${response.status}`);
+    return response.json();
+  }
+  const workflow = await get('');
+  if (workflow.id !== WORKFLOW || workflow.state !== 'active') throw new Error('workflow_not_active');
+  const lists = await Promise.all([...ACTIVE, 'success'].map(status =>
+    get(`/runs?branch=main&status=${status}&per_page=1`)));
+  for (const list of lists) {
+    if (!Number.isSafeInteger(list.total_count) || list.total_count < 0 || !Array.isArray(list.workflow_runs)
+        || (list.total_count === 0) !== (list.workflow_runs.length === 0)) throw new Error('inconsistent_run_list');
+    for (const run of list.workflow_runs) {
+      if (run.workflow_id !== WORKFLOW || run.head_branch !== 'main') throw new Error('unexpected_run');
+    }
+  }
+  if (lists.slice(0, ACTIVE.length).some(list => list.total_count > 0)) return { state: 'run_already_active' };
+  const last = lists.at(-1).workflow_runs[0];
+  if (last) {
+    const completed = Date.parse(last.updated_at);
+    if (!Number.isFinite(completed) || last.status !== 'completed' || last.conclusion !== 'success') {
+      throw new Error('invalid_success_record');
+    }
+    if (now - completed < PERIOD) return { state: 'recent_success', run_id: last.id };
+  }
+  // Explicit opt-in: an initial deployment only observes, it cannot dispatch.
+  if (env.ENABLED !== 'true') return { state: 'dry_run_would_dispatch' };
+  // Persist BEFORE sending: ambiguous timeout/restart must never retry this slot.
+  const attempt = { slot, at: now, state: 'dispatch_uncertain' };
+  await storage.put('attempt', attempt);
+  let response;
+  try {
+    response = await request(BASE + '/dispatches', {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ref: 'main' }), signal, redirect: 'error',
+    });
+  } catch {
+    throw new Error('dispatch_outcome_unknown');
+  }
+  if (response.status !== 200 && response.status !== 204) {
+    await storage.put('attempt', { ...attempt, state: 'dispatch_rejected', status: response.status });
+    throw new Error(`github_dispatch_${response.status}`);
+  }
+  let runId = null;
+  if (response.status === 200) {
+    try { runId = (await response.json()).workflow_run_id ?? null; } catch { /* accepted; do not repeat */ }
+  }
+  const result = { ...attempt, state: 'dispatch_accepted', run_id: runId };
+  await storage.put('attempt', result);
+  return result;
+}
+
+// SQLite-backed DO storage supplies persistent serialization across invocations.
+export class WatchdogClock {
+  constructor(ctx, env) { this.ctx = ctx; this.env = env; }
+  async fetch(request) {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        const { scheduledTime } = await request.json();
+        const result = await tick(this.env, this.ctx.storage, scheduledTime);
+        await this.ctx.storage.put('last_check', { at: Date.now(), ...result });
+        console.log(JSON.stringify(result));
+        return Response.json(result);
+      } catch (error) {
+        // Never log response bodies, headers, tokens or raw network exceptions.
+        const message = /^(invalid_|inconsistent_|unexpected_|workflow_|github_|dispatch_)/.test(error.message)
+          ? error.message : 'clock_check_failed';
+        await this.ctx.storage.put('last_check', { at: Date.now(), state: 'error', code: message });
+        console.error(message);
+        return Response.json({ state: 'error', code: message }, { status: 502 });
+      }
+    });
+  }
+}
+
+export default {
+  async scheduled(event, env) {
+    const stub = env.CLOCK.get(env.CLOCK.idFromName('bob-existing-watchdog'));
+    const response = await stub.fetch('https://internal/tick', {
+      method: 'POST', body: JSON.stringify({ scheduledTime: event.scheduledTime }),
+    });
+    if (!response.ok) throw new Error('clock_tick_failed');
+  },
+  fetch() { return new Response('Not found', { status: 404 }); },
+};
