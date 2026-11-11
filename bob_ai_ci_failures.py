@@ -27,18 +27,20 @@ def verified_failure(event, *, repo=REPO):
     """Never trust workflow names, run URLs or descriptions outside the enum."""
     if not isinstance(event, dict) or repo != REPO:
         return None
-    if (event.get("action") != "completed"
-            or (event.get("repository") or {}).get("full_name") != REPO):
-        return None
+    parent = event.get("repository")
     run = event.get("workflow_run")
-    if not isinstance(run, dict):
+    if (event.get("action") != "completed" or not isinstance(parent, dict)
+            or parent.get("full_name") != REPO or not isinstance(run, dict)):
+        return None
+    head = run.get("head_repository")
+    if not isinstance(head, dict):
         return None
     code = WORKFLOWS.get(run.get("name")) if type(run.get("name")) is str else None
     if (code not in CODES or run.get("status") != "completed"
             or run.get("conclusion") != "failure"
             or run.get("head_branch") != "main"
             or run.get("event") not in ALLOWED_EVENTS
-            or (run.get("head_repository") or {}).get("full_name") != REPO):
+            or head.get("full_name") != REPO):
         return None
     rid, sha = run.get("id"), run.get("head_sha")
     if (type(rid) is not int or not 1 <= rid <= 10**15
@@ -73,6 +75,7 @@ def route(record, *, token, repo=REPO, requester=github_request):
     if (not token or repo != REPO or not isinstance(record, dict)
             or record.get("code") not in WORKFLOWS.values()
             or type(record.get("run")) is not int
+            or not 1 <= record["run"] <= 10**15
             or type(record.get("sha")) is not str
             or not SHA.fullmatch(record["sha"])):
         raise ValueError("untrusted-routing-input")
