@@ -244,8 +244,13 @@ def _bounded_issue_pages(requester, *, token, repo, path_builder, search=False):
                 if not isinstance(rows, list) or len(rows) > size:
                     raise ValueError("Issue-Liste ungültig")
                 collected.extend(rows)
-                if len(rows) < size or (type(count) is int
-                                        and len(collected) >= count):
+                if len(rows) < size:
+                    if search and type(count) is int and len(collected) < count:
+                        # Search advertised more cases than it returned. Never
+                        # create a new incident from a partial cross-check.
+                        raise ValueError("Issue-Suche unvollständig")
+                    return collected
+                if type(count) is int and len(collected) >= count:
                     return collected
             raise ValueError("Issue-Liste unvollständig")
         except ValueError as exc:
