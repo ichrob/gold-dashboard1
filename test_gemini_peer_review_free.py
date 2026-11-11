@@ -88,6 +88,44 @@ class GeminiReviewSafetyTests(unittest.TestCase):
             g.owner_allows_review([{"user": {"login": "ichrob"},
                                     "body": "/bob-peer-review-off"}])
 
+    def test_owner_veto_stops_api_call_even_when_review_enabled(self):
+        pr = self._owner_pr()
+        comments = [{"id": 123, "user": {"login": "ichrob"},
+                     "body": "/bob-peer-review-off"}]
+        env = {"GITHUB_TOKEN": "github-token",
+               "GEMINI_API_KEY": "a" * 40,
+               "BOB_PR_NUMBER": "1563",
+               "BOB_GEMINI_MODE": "automatic",
+               "BOB_CI_HEAD_SHA": "a" * 40}
+        with patch.dict(os.environ, env, clear=True), \
+             patch.object(g, "enabled", return_value=True), \
+             patch.object(g, "request_json", side_effect=[pr, comments]) as api, \
+             patch.object(g, "gemini_request") as model:
+            g.run()
+            model.assert_not_called()
+            self.assertEqual(api.call_count, 2)
+
+    def test_revocation_during_model_call_blocks_publication(self):
+        pr = self._owner_pr()
+        off = [{"id": 124, "user": {"login": "ichrob"},
+                "body": "/bob-peer-review-off"}]
+        env = {"GITHUB_TOKEN": "github-token",
+               "GEMINI_API_KEY": "a" * 40,
+               "BOB_PR_NUMBER": "1563",
+               "BOB_GEMINI_MODE": "automatic",
+               "BOB_CI_HEAD_SHA": "a" * 40}
+        with patch.dict(os.environ, env, clear=True), \
+             patch.object(g, "enabled", return_value=True), \
+             patch.object(g, "request_json", side_effect=[pr, [], [], off]) as api, \
+             patch.object(g, "safe_files", return_value="FILE: example.py\n@@ -1 +1 @@") as safe, \
+             patch.object(g, "gemini_request", return_value="Kein Fehler.") as model:
+            g.run()
+            safe.assert_called_once()
+            model.assert_called_once()
+            self.assertEqual(api.call_count, 4)
+            self.assertFalse(any(call.args[0].endswith("/comments")
+                                 for call in api.call_args_list))
+
     def test_model_sunset_fails_closed(self):
         with patch.dict(os.environ, {
             "BOB_GEMINI_FREE_ONLY": "confirmed-unbilled-free-project",
