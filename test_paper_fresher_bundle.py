@@ -185,6 +185,12 @@ class FreshPaperBundleTests(unittest.TestCase):
         self.assertFalse(paper.quality_generation_pending(8,8))
         self.assertFalse(paper.quality_generation_pending(9,8))
 
+    def test_only_strictly_selected_candidate_advances_quality_generation(self):
+        current={}
+        selected={}
+        self.assertEqual(paper.next_quality_generation(current,selected,7),8)
+        self.assertEqual(paper.next_quality_generation(current,current,7),7)
+
 
 class OriginalStudyCandleRetryTests(unittest.TestCase):
     """Original source-time recheck only, without estimates or market-gate bypass."""
