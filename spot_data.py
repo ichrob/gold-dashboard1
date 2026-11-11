@@ -68,10 +68,11 @@ def primary(blocking=True):
                 # Prospective source-clock evidence only: no price, product or
                 # account data. This distinguishes a provider-repeated original
                 # timestamp from a Bob handoff delay without changing polling.
-                logging.info(
-                    "BOB_SPOT_FETCH_EVIDENCE source_at=%s age_ms=%d repeated=%s early_retry=%s route=%d",
-                    q['at'], int(round(age * 1000)), q['at'] == previous_at,
-                    poll_interval == NEAR_EXPIRY_RETRY_SECONDS, _route,
+                print(
+                    "BOB_SPOT_FETCH_EVIDENCE source_at=%s age_ms=%d repeated=%s early_retry=%s route=%d"
+                    % (q['at'], int(round(age * 1000)), q['at'] == previous_at,
+                       poll_interval == NEAR_EXPIRY_RETRY_SECONDS, _route),
+                    flush=True,
                 )
                 if _error:
                     logging.info("BOB_MARKET_RECOVERY source=spot state=recovered")
@@ -87,9 +88,10 @@ def primary(blocking=True):
                 # Failed requests have no verified new provider clock. Emit
                 # fixed, price-free attempt context to compare retry timing
                 # with separate original-study witnesses (never the raw error).
-                logging.info(
-                    "BOB_SPOT_FETCH_FAILURE reason=%s early_retry=%s attempted_route=%d",
-                    _error, poll_interval == NEAR_EXPIRY_RETRY_SECONDS, _route,
+                print(
+                    "BOB_SPOT_FETCH_FAILURE reason=%s early_retry=%s attempted_route=%d"
+                    % (_error, poll_interval == NEAR_EXPIRY_RETRY_SECONDS, _route),
+                    flush=True,
                 )
                 # Equivalent documented USD route; one attempt per 30 seconds,
                 # not a new provider or an invented source timestamp.
