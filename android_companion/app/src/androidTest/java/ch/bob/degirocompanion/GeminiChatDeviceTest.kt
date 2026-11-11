@@ -50,8 +50,9 @@ class GeminiChatDeviceTest {
                         if (first.startsWith("POST /permission ")) permission.set(JSONObject(String(body)))
                         val pending = if (received.get() != null && permission.get() == null)
                             """[{"id":"fixture-permission","details":"Run public regression test","options":[{"id":"once","kind":"allow_once"},{"id":"no","kind":"reject_once"}]}]""" else "[]"
+                        val answer = JSONObject.quote(("Verarbeitungsschritt abgeschlossen.\n").repeat(180))
                         val response = if (first.startsWith("GET /status "))
-                            """{"state":"ready","events":[{"id":1,"kind":"answer","text":"Fixture answer"}],"permissions":$pending}"""
+                            """{"state":"ready","events":[{"id":1,"kind":"answer","text":$answer}],"permissions":$pending}"""
                             else """{"accepted":true}"""
                         val bytes = response.toByteArray()
                         socket.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray())
@@ -78,6 +79,18 @@ class GeminiChatDeviceTest {
                     fail("Native chat condition not reached")
                 }
                 waitFor { views -> views.filterIsInstance<Button>().any { it.text == "Auftrag senden" && it.isEnabled } }
+                waitFor { views ->
+                    val scroll = views.filterIsInstance<android.widget.ScrollView>().first()
+                    scroll.scrollY > 0 && !scroll.canScrollVertically(1)
+                }
+                scenario.onActivity { a ->
+                    descendants(a.window.decorView).filterIsInstance<android.widget.ScrollView>().first().scrollTo(0, 0)
+                }
+                // An unchanged /status response must not reset text or undo a user's scroll.
+                Thread.sleep(2000)
+                scenario.onActivity { a ->
+                    assertEquals(0, descendants(a.window.decorView).filterIsInstance<android.widget.ScrollView>().first().scrollY)
+                }
                 scenario.onActivity { a ->
                     val field = descendants(a.window.decorView).filterIsInstance<EditText>().single()
                     field.requestFocus()
@@ -115,11 +128,19 @@ class GeminiChatDeviceTest {
                 scenario.onActivity { a ->
                     val views = descendants(a.window.decorView)
                     assertTrue(views.filterIsInstance<TextView>().any { it.text.toString().contains("Run public regression test") })
+                    for (label in listOf("Einmal erlauben", "Ablehnen")) {
+                        val choice = views.filterIsInstance<Button>().single { it.text == label }
+                        val visible = android.graphics.Rect()
+                        assertTrue("Permission must be reachable without scrolling", choice.getGlobalVisibleRect(visible))
+                        assertEquals(choice.height, visible.height())
+                    }
+                    assertEquals(View.GONE, views.filterIsInstance<EditText>().single().visibility)
                     views.filterIsInstance<Button>().single { it.text == "Ablehnen" }.performClick()
                 }
                 waitFor { permission.get() != null }
                 assertEquals("no", permission.get().getString("option"))
                 assertEquals("fixture-permission", permission.get().getString("id"))
+                waitFor { views -> views.filterIsInstance<EditText>().single().visibility == View.VISIBLE }
             }
         } finally {
             GeminiLocalSession.stop()
