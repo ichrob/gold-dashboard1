@@ -877,7 +877,8 @@ class Handler(BaseHTTPRequestHandler):
                         study_health = bob_study_health.snapshot(
                             control_row[0] if control_row else None,
                             int(time.time()*1000),
-                            trading=paper_heartbeat.get('sessionMode')=='trading')
+                            trading=(paper_heartbeat.get('sessionMode')=='trading'
+                                     and paper_heartbeat.get('state')=='ok'))
                     except Exception as study_exc:
                         print('BOB_STUDY_HEALTH health_error='+type(study_exc).__name__, flush=True)
                         study_health = {
