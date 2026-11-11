@@ -4,6 +4,44 @@
 **Rolle:** Zweiter eigenständiger Entwickler und unabhängiger technischer Prüfer, nicht ein ChatGPT-Subagent.  
 **Projektüberblick und Einrichtung:** [BOB_GEMINI_ONBOARDING.md](BOB_GEMINI_ONBOARDING.md).
 
+
+## Direkter Entwicklungsauftrag und Zugangsübersicht (11.11.2026)
+
+Der Besitzer möchte mit Gemini selbstständig an Bob arbeiten und seine Wünsche
+in Programmänderungen umsetzen lassen. Gemini soll vorhandene Werkzeuge prüfen
+und innerhalb des konkreten Nutzerauftrags nutzen, statt pauschal nur Code zum
+manuellen Kopieren anzubieten. Diese Erlaubnis schafft allein keine technische
+Verbindung. Bereits erteilte, passende Nutzerfreigaben berücksichtigen; fehlt ein
+Werkzeug oder Login, den konkreten fehlenden Zugang nennen. Nicht behaupten,
+der Gemini-Android-Chat besitze automatisch die Rechte eines Actions-Jobs,
+Antigravity oder der ChatGPT-Verbindungen.
+
+| Zugang | Einstieg | Nachweis und Grenze |
+| --- | --- | --- |
+| Öffentlicher Code, Issues, PRs und CI | https://github.com/ichrob/gold-dashboard1 | Mit eigenen verfügbaren Lese-/Webwerkzeugen aktuellen Stand prüfen; Wissen aus einem Chat ist kein Live-Abruf. |
+| Gemini-Codeprüfung / Entwicklungsvorschlag | BOB_GEMINI_MOBILE_DEVELOPER.md; .github/workflows/bob-gemini-free-review.yml; .github/workflows/bob-gemini-mobile-developer.yml | Separater API-/Actions-Weg; öffentliche Kommentare sind nachgewiesen. Keine Übertragung dieses Zugangs an die Gemini-App. |
+| Separater Entwurfs-PR | BOB_GEMINI_AUTONOMOUS.md; .github/workflows/bob-gemini-independent-draft.yml | Opt-in und Free-only-Gates; nur inert gespeicherter Patch. PR #1563 war bei Prüfung am 11.11.2026 noch offen, ungemergt und konfliktbehaftet. Kommentarstart daher nicht als fertig ausgeben. |
+| Eigenständiges Programmieren, Testen und GitHub-Schreiben | Antigravity im Bob-Arbeitsverzeichnis; BOB_ANTIGRAVITY_TERMUX.md | Lokale Installation ist historisch belegt; aktueller Login, Repository, Testausführung und eigener GitHub-Schreibzugang müssen separat geprüft werden. |
+| Private Bob-Diagnosen | https://bob-private-scanner.onrender.com/mcp; BOB_GEMINI_MCP_READONLY.md | Eigener OAuth-Grant und erfolgreicher Werkzeugaufruf nötig; bestehende Vorbereitung ist kein bestätigter Live-Zugang. |
+| Render | bob-private-scanner und bob-push-service | Eigene authentifizierte Render-Verbindung erforderlich. ChatGPT-Verbindungen sind kein Gemini-Zugang; Deploymentstatus gesondert prüfen. |
+| Cloudflare / Aiven / Archiv | Vorhandene Projektanleitungen und getrennte Kontoverbindungen | Kein direkter Gemini-Zugriff durch die Projektrolle nachgewiesen; keine Tokens aus anderen Clients übernehmen. |
+| Bob Handy / Termux | Nutzergeöffnete Wartungssitzung | Sitzung muss aktuell online sein. Beim Abruf am 11.11.2026 um 17:28 Zürich war sie abgelaufen/offline. Das ist kein dauerhafter Zustand. |
+| DEGIRO / SnapTrade | Bestehende Produktnachweise bzw. getrennte Leseberechtigung | Kein automatisch übertragener Depot-/Gerätezugang; keine Echtgeldorders. |
+| ChatGPT-Chats / Aufgaben | Keine automatische gemeinsame Sitzung | Gemeinsamer Projektstand über Repository und belegte Ergebnisse; keine Kenntnis privater Chats behaupten. |
+
+**Erster Schritt in jeder Gemini-Umgebung:** Eigene tatsächlich angebotene
+Werkzeuge auflisten; aktuellen main-Commit lesen; relevante offene Arbeit prüfen.
+Mit vorhandenen Schreib-/Testwerkzeugen einen konkret beauftragten kleinen
+Änderungsfall im eigenen Branch bis zum geprüften PR bearbeiten. Ergebnis mit
+Commit, Tests und Link belegen. Falls der aktuelle Chat keine solchen Werkzeuge
+hat, den verfügbaren Actions-/Antigravity-Weg und genau den fehlenden Schritt
+nennen. Keine Passwörter oder Tokens im Chat anfordern. Nutzerziele sind
+kostenfreier Betrieb, möglichst wenig Handy-Bedienung und überprüfbare Ergebnisse.
+
+Diese Datei ist eine Projektanweisung, keine Zustellbestätigung: Erst wenn Gemini
+sie tatsächlich gelesen und seinen Werkzeugtest ausgeführt hat, ist die Übernahme
+in der jeweiligen Gemini-Sitzung nachgewiesen.
+
 ## Arbeitsstart – immer erneut prüfen
 1. Lies `BOB_GEMINI_ONBOARDING.md`, `INTRADAY.md`, `DATA_FALLBACK_POLICY.md`, `PAPER_SIMULATION.md`, `PRODUCT_RANKING.md`, `BOB_TEST_OVERVIEW.md`, `BOB_SECOND_AI.md` und `BOB_CLOUDFLARE_FREE_OIDC.md` entsprechend dem Auftrag.
 2. Prüfe für den **aktuellen** Zustand zunächst den neuesten `main`-Commit, relevante offene Issues und Pull Requests, tatsächliche CI-Resultate und — **nur wenn eigens autorisiert** — frische read-only-Diagnosen von Bob. Dokumente und historische Chats sind keine Live-Telemetrie.
