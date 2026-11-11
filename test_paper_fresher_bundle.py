@@ -122,6 +122,38 @@ class OriginalStudyCandleRetryTests(unittest.TestCase):
         self.assertFalse(paper.study_closed_bar_retry_needed(selected,market,self.NOW))
         self.assertEqual((old,new),original)
 
+    def test_final_study_handoff_rechecks_snapshot_aged_during_work(self):
+        # Initial analysis is fresh. Fifty seconds of bounded paper work later,
+        # that exact input is stale while a newer complete ORIGINAL is queued.
+        start=self.NOW
+        late=start+50000
+        old=bundle(start,20)
+        new=bundle(late,5)
+        closed_bar=start-1800000
+        for candidate in (old,new):
+            candidate['spots']['xaus']=1.0
+            candidate['history']['bars_by_tf']['15m'][0]['openTime']=closed_bar
+        calls=[]
+        def analyze(candidate,settings,priority):
+            calls.append(candidate)
+            return dict(ready=True,priceFresh=True,price=1.0,
+                        dataAt=paper.stamp(candidate['spots']['spot_price_as_of']),
+                        analysisBarAt=closed_bar,direction=None)
+
+        market=analyze(old,{},2)
+        self.assertFalse(paper.study_closed_bar_retry_needed(old,market,start))
+        calls.clear()
+        selected,refreshed=paper.refresh_original_study_input(
+            old,market,{},lambda:new,analyze,lambda:late)
+
+        self.assertIs(selected,new)
+        self.assertEqual(calls,[new])
+        self.assertEqual(
+            refreshed['dataAt'],
+            paper.stamp(new['spots']['spot_price_as_of']))
+        self.assertEqual(old['trace'],'old')
+        self.assertEqual(new['trace'],'new')
+
     def test_no_new_original_or_no_missing_bar_means_no_extra_analysis(self):
         old,new,base=self.originals()
         calls=[]
