@@ -198,7 +198,18 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                 case['lastEstimate'] = copy.deepcopy(quality) if quality.get('estimated') else dict(
                     method='unobserved-path-between-originals',fromAt=previous_check,toAt=now,
                     calculatedAt=now,simulationOnly=True,extremesKnown=False)
-            if not valid or (gap and not bounded_gap):
+            # A single rejected ORIGINAL tick is not necessarily a >90s
+            # observation gap. Never fill it or infer a stop/exit: only allow
+            # a later authentic source clock within the already accepted window.
+            # Modeled cases deliberately retain their separate gap policy.
+            if modeled:
+                if not valid or (gap and not bounded_gap):
+                    case['dataGap'] = True
+            elif not valid:
+                case['invalidOriginalChecks'] = case.get('invalidOriginalChecks', 0) + 1
+                if number(case.get('lastAt')) and now-case['lastAt'] > 90000:
+                    case['dataGap'] = True
+            if not modeled and gap:
                 case['dataGap'] = True
             if fresh:
                 if at-case['lastAt'] > 90000:
@@ -289,6 +300,8 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
             case = dict(id=VERSION+':'+study+':'+str(int(at)), study=study, at=at,
                         endAt=at+HORIZON, lastAt=at, direction=d, legs=legs,
                         dataGap=False, regime=regime, originalInput=quality,
+                        inputGapPolicy=('estimated-paper-gap-carry-v1' if modeled
+                                        else 'original-observed-over-90s-v2'),
                         plan=copy.deepcopy(market.get('plan')), status='pending',
                         scope='spot-reference-not-product-return', costAssumptionPct=.16)
             if modeled:
