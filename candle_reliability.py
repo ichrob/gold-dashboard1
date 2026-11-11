@@ -151,10 +151,13 @@ def handle(conn,action,payload):
         rows=validated(key,payload.get('rows'))
         if not rows:raise ValueError('Empty checkpoint')
         # Preserve all accepted candle revisions before replacing the rolling checkpoint.
-        # Keep each statement bounded under the route's 1500ms timeout. All
+        # Provider logs show 256-row statements can exceed the route's 1500ms
+        # timeout during concurrent maintenance/research load. Bound each hash/index
+        # probe to half that work; all
         # batches and the checkpoint still share the caller's transaction:
         # a failure rolls everything back, never acknowledging a partial save.
-        for start in range(0, len(rows), 256):
+        evidence_batch_size = 128
+        for start in range(0, len(rows), evidence_batch_size):
             # An advancing checkpoint mostly repeats already archived candles.
             # Filter by the complete revision key before INSERT so those rows
             # do not re-enter the write/conflict path on every source update.
@@ -173,9 +176,11 @@ def handle(conn,action,payload):
                     SELECT 1 FROM bob_candle_evidence e
                     WHERE e.source_key=i.source_key AND e.open_time=i.open_time
                         AND e.fingerprint=i.fingerprint)
-                ON CONFLICT DO NOTHING""",(key,json.dumps(rows[start:start+256],allow_nan=False)))
+                ON CONFLICT DO NOTHING""",(key,json.dumps(
+                    rows[start:start+evidence_batch_size],allow_nan=False)))
             except Exception as exc:
-                print('BOB_CANDLE_WRITE stage=evidence batch='+str(start//256)+
+                print('BOB_CANDLE_WRITE stage=evidence batch='+
+                      str(start//evidence_batch_size)+
                       ' error='+type(exc).__name__,flush=True)
                 raise
         conn.execute('''INSERT INTO bob_candle_checkpoints(key,latest,payload) VALUES(%s,%s,%s::jsonb)
