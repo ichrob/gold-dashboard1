@@ -78,15 +78,26 @@ def validate(conn,model):
 
 
 def tick(conn,now):
-    rows=conn.execute('''SELECT r.id,r.ref,a.payload,m.payload FROM bob_test_repairs r
-        JOIN bob_decision_audit a ON a.id=r.ref->>'decision'
+    # Bound the small repair/model queue before touching the large immutable
+    # decision JSONB archive. The previous LIMIT applied only after the join and
+    # JSON expressions, so a deployment overlap could make this optional model
+    # pass consume the full 10-second statement budget. Candidates that are not
+    # selected remain eligible: processing updates checked_at and naturally
+    # rotates the next bounded page.
+    rows=conn.execute('''WITH candidates AS MATERIALIZED (
+        SELECT r.id,r.ref,m.payload,m.checked_at
+        FROM bob_test_repairs r
         LEFT JOIN bob_gap_models m ON m.id=r.id
-        WHERE r.kind='signal' AND (r.status<>'recovered' OR m.payload->>'status'='modelled')
-        AND (m.checked_at IS NULL OR m.checked_at<%s)
-        ORDER BY CASE WHEN r.ref->>'horizon'='60'
+        WHERE r.kind='signal'
+          AND (r.status<>'recovered' OR m.payload->>'status'='modelled')
+          AND (m.checked_at IS NULL OR m.checked_at<%s)
+        ORDER BY m.checked_at NULLS FIRST,r.id LIMIT 128)
+        SELECT c.id,c.ref,a.payload,c.payload FROM candidates c
+        JOIN bob_decision_audit a ON a.id=c.ref->>'decision'
+        ORDER BY CASE WHEN c.ref->>'horizon'='60'
           AND jsonb_typeof(a.payload->'recordedAt')='number'
           AND (a.payload->>'recordedAt')::double precision>%s THEN 0 ELSE 1 END,
-          m.checked_at NULLS FIRST,r.id LIMIT 24''',(now-3600000,now-7200000)).fetchall()
+          c.checked_at NULLS FIRST,c.id LIMIT 24''',(now-3600000,now-7200000)).fetchall()
     for key,ref,record,saved in rows:
         if saved and saved.get('status')=='modelled':
             # Freeze the initial model; compare later exact-time originals separately.
