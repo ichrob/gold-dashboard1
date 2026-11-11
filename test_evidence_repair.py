@@ -97,12 +97,43 @@ class RepairTests(unittest.TestCase):
 
     def test_bulk_timeout_does_not_prevent_targeted_worker(self):
         import push_server
+        class Guard:
+            def __call__(self):return self
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def execute(self,sql,args=()):
+                self.row=(True,)
+                return self
+            def fetchone(self):return self.row
+        database=Guard()
         with patch('improvement_resilience.run_drills'), \
              patch.object(push_server,'run_audit_harvest_once',side_effect=RuntimeError('bulk timeout')), \
              patch.object(push_server,'run_test_repair_once') as targeted, \
-             patch.object(push_server.time,'sleep',side_effect=InterruptedError):
-            with self.assertRaises(InterruptedError):push_server.audit_outcome_loop()
-        targeted.assert_called_once_with(push_server.db)
+             patch.object(push_server.time,'time',return_value=0):
+            self.assertTrue(push_server.run_audit_outcome_cycle(database))
+        targeted.assert_called_once_with(database)
+
+    def test_deploy_overlap_skips_second_database_wide_repair_cycle(self):
+        import push_server
+        class Guard:
+            def __call__(self):return self
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def execute(self,sql,args=()):
+                self.sql,self.args=sql,args
+                self.row=(False,)
+                return self
+            def fetchone(self):return self.row
+        database=Guard()
+        with patch('improvement_resilience.run_drills') as drills, \
+             patch.object(push_server,'run_audit_harvest_once') as harvest, \
+             patch.object(push_server,'run_test_repair_once') as repair:
+            self.assertFalse(push_server.run_audit_outcome_cycle(database))
+        self.assertIn('pg_try_advisory_xact_lock',database.sql)
+        self.assertEqual(database.args,(push_server.AUDIT_OUTCOME_LOCK,))
+        drills.assert_not_called()
+        harvest.assert_not_called()
+        repair.assert_not_called()
 
     def test_archive_failure_is_not_recovery(self):
         from unittest.mock import MagicMock
