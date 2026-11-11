@@ -56,6 +56,30 @@ class IntradayFasterModes(unittest.TestCase):
         with self.assertRaises(ValueError):
             paper_simulation.new_case(market,product,None,now,max_holding_minutes=360)
 
+    def test_protective_stop_is_forward_only_symmetric_and_never_loosened(self):
+        for side in ('LONG','SHORT'):
+            sign = 1 if side=='LONG' else -1
+            p = {'direction':side,'entryPrice':4000.,'risk':10.,
+                 'atr':5.,'stop':4000.-sign*10.}
+            base = study.VARIANTS['base5']
+            be = study.VARIANTS['breakeven5']
+            atr = study.VARIANTS['trailatr5']
+            self.assertIsNone(study.prospective_protective_stop(
+                p,4000.+sign*9.,be))
+            self.assertIsNone(study.prospective_protective_stop(
+                p,4000.+sign*20.,base))
+            self.assertEqual(study.prospective_protective_stop(
+                p,4000.+sign*10.,be),4000.)
+            self.assertEqual(study.prospective_protective_stop(
+                p,4000.+sign*16.,atr),4000.+sign*11.)
+            locked={**p,'stop':4000.+sign*12.}
+            self.assertIsNone(study.prospective_protective_stop(
+                locked,4000.+sign*15.,atr))
+            self.assertIsNone(study.prospective_protective_stop(
+                {**p,'atr':None},4000.+sign*16.,atr))
+            self.assertIsNone(study.prospective_protective_stop(
+                p,float('nan'),be))
+
 
 if __name__=='__main__':
     unittest.main()
