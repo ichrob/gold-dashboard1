@@ -52,12 +52,14 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
                 'observedAt':self.NOW-20,'diskUsage':MAX_VOLUME_BYTES-10}
         with patch('storage_budget.archive_status',return_value=self.proof()) as proof, \
              patch('render_disk_metrics.report',return_value=volume) as measured:
-            self.assertIsNone(verified_writer_preflight(object(),now=self.NOW))
+            self.assertIsNone(verified_writer_preflight(object(),now=self.NOW,
+                             completed_family=PROACTIVE_CLOSED_FAMILY))
             proof.assert_called_once();measured.assert_called_once()
         invalid=self.proof();invalid['latestVerifiedAttempt']['recoveryKeyVerified']=False
         with patch('storage_budget.archive_status',return_value=invalid), \
              patch('render_disk_metrics.report',return_value=volume) as measured:
-            self.assertEqual(verified_writer_preflight(object(),now=self.NOW)['status'],
+            self.assertEqual(verified_writer_preflight(object(),now=self.NOW,
+                             completed_family=PROACTIVE_CLOSED_FAMILY)['status'],
                              'backup-proof-not-fresh')
             measured.assert_called_once()
         for change in ({'observedAt':self.NOW-301},
@@ -66,7 +68,8 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
             with self.subTest(change=change), \
                  patch('storage_budget.archive_status',return_value=self.proof()), \
                  patch('render_disk_metrics.report',return_value={**volume,**change}):
-                self.assertEqual(verified_writer_preflight(object(),now=self.NOW)['status'],
+                self.assertEqual(verified_writer_preflight(object(),now=self.NOW,
+                             completed_family=PROACTIVE_CLOSED_FAMILY)['status'],
                                  'fresh-volume-proof-unavailable')
 
     def test_comfortable_volume_does_not_rewrite_old_originals(self):
@@ -116,6 +119,18 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
             self.assertEqual(verified_writer_preflight(
                 object(), now=self.NOW, completed_family=PROACTIVE_CLOSED_FAMILY)['status'],
                 'fresh-volume-proof-unavailable')
+
+    def test_age_only_family_denied_at_high_volume_too(self):
+        from render_disk_metrics import RESOURCE
+        from storage_capacity import CAUTION_BYTES
+        volume={'status':'observed','resource':RESOURCE,'unit':'bytes',
+                'observedAt':self.NOW-20,'diskUsage':CAUTION_BYTES+1}
+        with patch('archive_worker.status',return_value={'status':'ready'}), \
+             patch('storage_budget.archive_status') as proof, \
+             patch('render_disk_metrics.report',return_value=volume):
+            self.assertEqual(verified_writer_preflight(object(),now=self.NOW)['status'],
+                             'semantic-retirement-unverified')
+            proof.assert_not_called()
 
     def test_all_automatic_writers_exit_before_sql_without_evidence(self):
         import cold_analysis, cold_metrics, cold_observations, cold_test_evidence
