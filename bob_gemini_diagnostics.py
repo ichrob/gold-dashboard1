@@ -88,7 +88,7 @@ def project_view(report, arguments, *, max_bytes=MAX_BYTES):
                           "reason": "omitted-response-size-limit"}
         result["status"] = "partial"
         result["reason"] = "view-exceeds-response-budget"
-    elif isinstance(value, dict) and value.get("status") in (
+    elif source_present and isinstance(value, dict) and value.get("status") in (
             "partial", "unavailable", "stale", "failed", "degraded"):
         result["status"] = "partial"
     return result
