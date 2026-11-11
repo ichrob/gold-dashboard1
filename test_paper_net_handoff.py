@@ -39,7 +39,10 @@ class DayEvidenceTests(unittest.TestCase):
     def test_sample_is_computed_from_same_selected_day_cases(self):
         db, account = self.run_day([closed_case()])
         # One indexed daily SELECT for the one account, zero new net-audit SQL.
-        selects = [s for s in db.selected if s.startswith("SELECT payload FROM")]
+        # Count only the existing indexed current-day case read. Other
+        # independent study readers may also try SELECT and fail closed.
+        selects = [s for s in db.selected
+                   if s.startswith("SELECT payload FROM") and "WHERE day=%s" in s]
         self.assertEqual(len(selects),1)
         self.assertEqual(account["recentCases"]["status"],"observed")
         net = account["netEvidenceSample"]
