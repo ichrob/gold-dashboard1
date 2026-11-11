@@ -278,6 +278,13 @@ class Bridge:
                 proc.wait(timeout=2)
             except ProcessLookupError:
                 pass
+        if proc:
+            for stream in (proc.stdin, proc.stdout):
+                if stream:
+                    try:
+                        stream.close()
+                    except (OSError, ValueError):
+                        pass
 
     def snapshot(self):
         with self.lock:

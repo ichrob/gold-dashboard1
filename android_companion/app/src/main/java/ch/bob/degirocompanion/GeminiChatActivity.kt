@@ -130,6 +130,7 @@ class GeminiChatActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
         fun label(text: String) = TextView(this).also { it.text = text; it.textSize = 16f; root.addView(it) }
         fun button(text: String, action: () -> Unit) = Button(this).also {

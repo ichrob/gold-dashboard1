@@ -140,6 +140,50 @@ class HttpBoundaryTests(unittest.TestCase):
         self.assertTrue(self.bridge.closed)
 
 
+class AgentTransportTests(unittest.TestCase):
+    def test_actual_stdio_handshake_prompt_and_rejection(self):
+        with tempfile.TemporaryDirectory() as folder:
+            executable = Path(folder)/'fake-agent'
+            executable.write_text("""#!/usr/bin/env python3
+import json,sys
+session='fixture'
+for line in sys.stdin:
+    m=json.loads(line); method=m.get('method'); rid=m.get('id')
+    if method=='initialize':
+        result={'protocolVersion':1}
+    elif method=='session/new':
+        result={'sessionId':session}
+    elif method=='session/prompt':
+        prompt_id=rid
+        print(json.dumps({'jsonrpc':'2.0','id':'permission-1','method':'session/request_permission','params':{'sessionId':session,'toolCall':{'title':'Fixture command'},'options':[{'optionId':'yes','kind':'allow_once'},{'optionId':'no','kind':'reject_once'}]}}),flush=True)
+        continue
+    elif rid=='permission-1':
+        print(json.dumps({'jsonrpc':'2.0','method':'session/update','params':{'sessionId':session,'update':{'sessionUpdate':'agent_message_chunk','content':{'type':'text','text':'Rejected safely'}}}}),flush=True)
+        rid=prompt_id; result={'stopReason':'end_turn'}
+    else:
+        continue
+    print(json.dumps({'jsonrpc':'2.0','id':rid,'result':result}),flush=True)
+""")
+            executable.chmod(0o700)
+            bridge = Bridge(Path(folder), executable)
+            try:
+                bridge.start()
+                self.assertEqual(bridge.state, 'ready')
+                bridge.prompt('fixture request', '1' * 32)
+                end = time.monotonic() + 5
+                while not bridge.permissions and time.monotonic() < end:
+                    time.sleep(.02)
+                key = next(iter(bridge.permissions))
+                bridge.permission(key, 'no')
+                while bridge.state == 'running' and time.monotonic() < end:
+                    time.sleep(.02)
+                self.assertEqual(bridge.state, 'ready')
+                self.assertTrue(any(e['text']=='Rejected safely' for e in bridge.events))
+            finally:
+                bridge.stop()
+            self.assertIsNotNone(bridge.proc.poll())
+
+
 class PackageTests(unittest.TestCase):
     def test_signed_asset_and_no_external_entrypoint(self):
         root = Path(__file__).parent
