@@ -1019,7 +1019,11 @@ def quote_focus(products, market):
 
 def latest_paper_bundle():
     with _guard:
-        return _latest
+        # HTTP/background arrivals are ordered by collection time, not by the
+        # provider's original spot clock. Keep the newest complete ORIGINAL
+        # separately so a later request carrying an older provider snapshot
+        # cannot hide the fresher candidate from the final study handoff.
+        return _study_latest if _study_latest is not None else _latest
 
 
 def late_risk_retry_bundle(current, candidate, now_ms):
@@ -1029,7 +1033,7 @@ def late_risk_retry_bundle(current, candidate, now_ms):
 
 
 # Independent bounded worker: product network calls never delay /background or Push.
-_guard=threading.Lock();_latest=None;_thread=None
+_guard=threading.Lock();_latest=None;_study_latest=None;_thread=None
 _bundle_ready=quote_updates.updates
 _pool=None;_pending={};_quotes={};_requested={}
 _observed_snapshot={}
@@ -1469,9 +1473,11 @@ def enqueue(bundle, db):
     # during a scheduled weekend closure.
     if background_push.degiro_session() != 'trading':
         return
-    global _latest,_thread
+    global _latest,_study_latest,_thread
     with _guard:
         _latest=bundle
+        _study_latest=newer_queued_paper_bundle(
+            _study_latest,bundle,time.time()*1000)
         _bundle_ready.set()
         if _thread is None or not _thread.is_alive():
             _thread=threading.Thread(target=_worker,args=(db,),daemon=True,name='bob-paper-simulation');_thread.start()
