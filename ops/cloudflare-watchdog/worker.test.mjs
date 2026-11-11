@@ -127,14 +127,18 @@ test('operator-only tokenless egress probe uses public GitHub and records one du
     return { status: 200 };
   };
   const first=await tick(f.env,f.storage,now,now,publicRequest);
-  assert.deepEqual(first,{state:'unauth_http_observed',plainStatus:200,optionsStatus:200});
-  assert.equal(calls.length,2);
+  assert.deepEqual(first,{state:'unauth_http_observed',
+    plainStatus:200,headerStatus:200,redirectStatus:200,signalStatus:200});
+  assert.equal(calls.length,4);
   assert(calls.every(x=>x.url==='https://api.github.com/zen'));
   assert.equal(calls[0].options,undefined);
-  assert.equal(calls[1].options.headers.Authorization,undefined);
+  assert(calls.slice(1).every(x=>x.options.headers.Authorization===undefined));
+  assert.equal(calls[1].options.redirect,undefined);
+  assert.equal(calls[2].options.redirect,'error');
+  assert(calls[3].options.signal instanceof AbortSignal);
   assert.equal(f.data.has('attempt'),false);
   assert.equal((await tick(f.env,f.storage,now,now,publicRequest)).state,'unauth_already_attempted');
-  assert.equal(calls.length,2);
+  assert.equal(calls.length,4);
 });
 test('tokenless probe stops and records sanitized outbound failures', async () => {
   const f=fixture();f.env.ENABLED='false';f.env.DIAG_UNAUTH='true';
