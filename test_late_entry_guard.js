@@ -103,3 +103,16 @@ for(const side of ['LONG','SHORT']){
  }
  assert(found,'paper-only stretched '+side+' case exercised');
 }
+// Isolated 5,000 EUR experiment removes only the direct distance rejection.
+for(const side of ['LONG','SHORT']){
+ const b=bundle(side,1.8); b.history.bars_by_tf['5m'].at(-2)[side==='LONG'?'high':'low']=b.history.bars_by_tf['5m'].at(-1)[side==='LONG'?'high':'low']; const opts={paperProfile:'noema5000nov'};
+ const base=guard.check(b,side,now,now-3*M);
+ const test=guard.checkPaperNoEma(b,side,now,now-3*M);
+ assert.match(base.reason,/Preis über 1,5 ATR/);
+ assert.equal(test.allowed,true,JSON.stringify(test));
+ assert.equal(test.emaDistanceDisabled,true);
+ assert.equal(guard.checkPaperNoEma(b,side,now,now-31*M).allowed,false);
+ assert.match(guard.checkPaperNoEma(bundle(side,6),side,now,now-3*M).reason,/2,5 ATR/);
+ b.spots.spot_price_as_of=new Date(now-90000).toISOString();
+ assert.equal(guard.checkPaperNoEma(b,side,now,now-3*M).available,false);
+}

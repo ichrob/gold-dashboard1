@@ -181,7 +181,7 @@ PANEL = r"""
       ' · Keine bestätigten Nettogewinne oder Echtgeldorders.';
      profilesCards.append(summary);
     }
-    const names={early1000oct:'Frühwarnung · 1.000 € · bis Fr 16 Uhr',normal1000oct:'Hauptsignal · 1.000 € · bis Fr 16 Uhr',conservative:'Konservativ',balanced:'Bob Lernkonto · 100 € (ausgewogen)',offensive:'Offensiv',trend800:'800 € · Bob-Stopp & Wiedereinstieg',early100:'Frühimpuls 100 € (LONG/SHORT)',trend800nov:'Neu · 800 € Trend/Stopp/Wiedereinstieg',normal1000nov:'Neu · 1.000 € bestätigtes Hauptsignal',ema3000nov:'Neu · 3.000 € · EMA-Abstand bis 2,5 ATR'};
+    const names={noema5000nov:'5.000 € · EMA-Abstandssperre aus (Test)',early1000oct:'Frühwarnung · 1.000 € · bis Fr 16 Uhr',normal1000oct:'Hauptsignal · 1.000 € · bis Fr 16 Uhr',conservative:'Konservativ',balanced:'Bob Lernkonto · 100 € (ausgewogen)',offensive:'Offensiv',trend800:'800 € · Bob-Stopp & Wiedereinstieg',early100:'Frühimpuls 100 € (LONG/SHORT)',trend800nov:'Neu · 800 € Trend/Stopp/Wiedereinstieg',normal1000nov:'Neu · 1.000 € bestätigtes Hauptsignal',ema3000nov:'Neu · 3.000 € · EMA-Abstand bis 2,5 ATR'};
     for(const acc of data.accounts){
      const c=acc.control||{},p=acc.riskPolicy||{},st=acc.stats||{},perf=acc.performance||{};
      const card=document.createElement('div');card.style='padding:12px;border:1px solid #cbd5e1;border-radius:12px;min-width:0';

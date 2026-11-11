@@ -48,7 +48,7 @@ _ALLOWED = {
     "simulations": ({"legacy", "risk2000", "conservative", "balanced",
                      "offensive", "early100", "trend800",
                      "early1000oct", "normal1000oct", "trend800nov",
-                     "normal1000nov", "ema3000nov"},
+                     "normal1000nov", "ema3000nov", "noema5000nov"},
                     {"open", "closed", "completed", "pending", "failed",
                      "stopped", "inconclusive", "ending-pending-quotes"}),
     "quality": ({"metric"}, {"matched", "mismatch", "unavailable",
@@ -57,14 +57,14 @@ _ALLOWED = {
 }
 
 
-# Eleven sources (legacy + 10 independent ledgers) * 5 rows + 8 risk rows
+# Twelve sources (legacy + 11 independent ledgers) * 4 rows + 8 risk rows
 # remain BELOW the existing 64-row bound; do not raise the RAM/SQL budget.
 # No estimated trade returns, fills, or strategy wins are inferred here.
-_SIM_PER_LEDGER = 5
+_SIM_PER_LEDGER = 4
 _RISK_SAMPLE = 8
 _PROFILE_NAMES = ("conservative", "balanced", "offensive", "early100",
                   "trend800", "early1000oct", "normal1000oct",
-                  "trend800nov", "normal1000nov", "ema3000nov")
+                  "trend800nov", "normal1000nov", "ema3000nov", "noema5000nov")
 
 
 def sample_simulations(conn):

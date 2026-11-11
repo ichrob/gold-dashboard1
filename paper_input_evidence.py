@@ -10,7 +10,7 @@ from decimal import Decimal
 from paper_gap_archive import _times, WINDOW_MS, RETENTION_MS, MAX_EVENTS
 import diagnostic_history
 
-_ALLOWED_PROFILES = frozenset(("conservative", "balanced", "offensive", "early100", "trend800", "early1000oct", "normal1000oct", "trend800nov", "normal1000nov", "ema3000nov"))
+_ALLOWED_PROFILES = frozenset(("conservative", "balanced", "offensive", "early100", "trend800", "early1000oct", "normal1000oct", "trend800nov", "normal1000nov", "ema3000nov", "noema5000nov"))
 _FIELDS = ("profile", "outcome", "ready", "priceFresh", "dataAt", "barAt")
 
 

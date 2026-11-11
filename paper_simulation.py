@@ -493,7 +493,7 @@ def entry_block_context(market, choice, control):
 # slots and fixed reason codes. This is diagnostic evidence, never entry approval.
 PAPER_ENTRY_BUCKET_MS = 15 * 60000
 PAPER_ENTRY_MAX_BUCKETS = 96
-PAPER_ENTRY_WINDOW_PROFILES = frozenset(('trend800nov', 'normal1000nov', 'ema3000nov'))
+PAPER_ENTRY_WINDOW_PROFILES = frozenset(('trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov'))
 
 
 def paper_entry_reason_code(reason):
