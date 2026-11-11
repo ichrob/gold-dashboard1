@@ -62,6 +62,10 @@ def cycle(db, runner=None):
     if _STATE['status'] != 'ready' or not _LOCK.acquire(blocking=False):
         return _STATE
     try:
+        attempt = os.environ.get('BOB_ARCHIVE_ATTEMPT', 'scheduled')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', attempt):
+            _STATE = dict(status='blocked', errorType='InvalidAttemptId', evidenceDeleted=False)
+            return _STATE
         # Shared PostgreSQL session lock: cold writers, ordinary VACUUM and
         # this full export cannot run simultaneously. Acquire before the daily
         # claim; a busy slot must never consume an irrevocable attempt ID.
@@ -76,10 +80,6 @@ def cycle(db, runner=None):
             if hasattr(coordination, 'commit'):
                 coordination.commit()
             day = datetime.now(timezone.utc).date()
-            attempt = os.environ.get('BOB_ARCHIVE_ATTEMPT', 'scheduled')
-            if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', attempt):
-                _STATE = dict(status='blocked', errorType='InvalidAttemptId', evidenceDeleted=False)
-                return _STATE
             with db() as conn:
                 claimed = conn.execute('''INSERT INTO bob_archive_attempts(day,attempt,status)
                     VALUES(%s,%s,'running') ON CONFLICT DO NOTHING RETURNING day''', (day,attempt)).fetchone()
