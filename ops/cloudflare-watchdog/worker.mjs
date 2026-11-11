@@ -35,14 +35,19 @@ export async function probeUnauthGitHub(storage, request = fetch, now = Date.now
     let response = await request(url);
     if (!response || !Number.isInteger(response.status)) return { state: 'unauth_invalid_response', step };
     const plainStatus = response.status;
-    step = 'options';
-    response = await request(url, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'bob-watchdog-clock' },
-      redirect: 'error',
-      signal: AbortSignal.timeout(5000),
-    });
+    step = 'headers';
+    const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'bob-watchdog-clock' };
+    response = await request(url, { headers });
     if (!response || !Number.isInteger(response.status)) return { state: 'unauth_invalid_response', step };
-    return { state: 'unauth_http_observed', plainStatus, optionsStatus: response.status };
+    const headerStatus = response.status;
+    step = 'redirect';
+    response = await request(url, { headers, redirect: 'error' });
+    if (!response || !Number.isInteger(response.status)) return { state: 'unauth_invalid_response', step };
+    const redirectStatus = response.status;
+    step = 'signal';
+    response = await request(url, { headers, redirect: 'error', signal: AbortSignal.timeout(5000) });
+    if (!response || !Number.isInteger(response.status)) return { state: 'unauth_invalid_response', step };
+    return { state: 'unauth_http_observed', plainStatus, headerStatus, redirectStatus, signalStatus: response.status };
   } catch (error) {
     return { state: 'unauth_fetch_failed', step, code: safeTransportCode(error) };
   }
