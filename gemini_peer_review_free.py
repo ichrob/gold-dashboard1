@@ -13,10 +13,8 @@ from datetime import date, datetime, timezone
 from urllib.error import HTTPError, URLError
 
 from ai_peer_review import (
-    NoRedirect, REPO, request_json, review_allowed, safe_files,
+    NoRedirect, REPO, request_json, safe_files,
 )
-from bob_ai_quality_gate import CASE
-from bob_issue_watchdog import CODES
 
 MARKER = "<!-- BOB_GEMINI_REVIEW_V1:sha="
 STAGE = "preflight"
@@ -35,6 +33,59 @@ def enabled():
     return (datetime.now(timezone.utc).date() < MODEL_REVIEW_REQUIRED_ON
             and os.getenv("BOB_GEMINI_FREE_ONLY") == "confirmed-unbilled-free-project"
             and os.getenv("BOB_GEMINI_AUTO_REVIEW_ENABLED") == "1")
+
+
+# Only the repository owner may opt a specific PR out of peer review.
+# Latest exact owner comment wins; a stranger, bot or partial transcript cannot
+# silently enable a review that the owner has disabled.
+REVIEW_OFF = "/bob-peer-review-off"
+REVIEW_ON = "/bob-peer-review-on"
+
+
+def owner_allows_review(comments):
+    """Default allow; explicit owner's newest exact on/off command wins."""
+    if not isinstance(comments, list) or len(comments) >= 100:
+        raise ValueError("review-history-incomplete")
+    last_id, allow = -1, True
+    for row in comments:
+        if not isinstance(row, dict):
+            raise ValueError("review-history-incomplete")
+        if row.get("user", {}).get("login") != "ichrob":
+            continue
+        cmd = row.get("body")
+        if cmd not in (REVIEW_OFF, REVIEW_ON):
+            continue
+        comment_id = row.get("id")
+        if type(comment_id) is not int or comment_id <= 0:
+            raise ValueError("review-history-incomplete")
+        if comment_id > last_id:
+            last_id, allow = comment_id, (cmd == REVIEW_ON)
+    return allow
+
+
+def reviewed_pr_sha(pr_data, *, mode, head_sha=None):
+    """Owner-repo PRs can be checked; never review unknown forks or stale CI."""
+    if not isinstance(pr_data, dict):
+        raise ValueError("invalid-pr")
+    base = pr_data.get("base") or {}
+    head = pr_data.get("head") or {}
+    if (pr_data.get("state") != "open"
+            or pr_data.get("draft") is True
+            or not isinstance(base, dict) or not isinstance(head, dict)
+            or (base.get("repo") or {}).get("full_name") != REPO
+            or (head.get("repo") or {}).get("full_name") != REPO
+            or (pr_data.get("user") or {}).get("login")
+            not in ("ichrob", "github-actions[bot]")):
+        raise ValueError("review-not-authorized")
+    sha = head.get("sha")
+    if not isinstance(sha, str) or not SHA.fullmatch(sha):
+        raise ValueError("unknown-pr-sha")
+    if mode == "automatic":
+        if sha != head_sha:
+            raise ValueError("draft-or-stale-ci")
+    elif mode != "manual":
+        raise ValueError("review-mode-denied")
+    return sha
 
 
 def review_budget(comments, sha, now=None):
@@ -118,26 +169,16 @@ def run():
     pr_data = request_json(base + "/pulls/" + number, token)
     if not isinstance(pr_data, dict):
         raise ValueError("invalid-pr")
-    if mode == "automatic":
-        body = pr_data.get("body")
-        if not isinstance(body, str):
-            return
-        codes = CASE.findall(body[:10000])
-        if len(codes) != 1 or codes[0][1] not in CODES:
-            print("Not a marked Bob repair PR; no Gemini call.")
-            return
-    # Reuse Bob's strict source/author/branch, draft and CI head-SHA checks.
-    # The existing helper requires this harmless internal flag for auto mode;
-    # it never enables Cloudflare calls from this separate process.
-    if mode == "automatic":
-        os.environ["BOB_AI_AUTO_REVIEW_ENABLED"] = "1"
-    sha = review_allowed(pr_data, mode=mode,
-                         head_sha=os.getenv("BOB_CI_HEAD_SHA"))
+    sha = reviewed_pr_sha(pr_data, mode=mode,
+                          head_sha=os.getenv("BOB_CI_HEAD_SHA"))
     if not isinstance(sha, str) or not SHA.fullmatch(sha):
         raise ValueError("unknown-pr-sha")
     STAGE = "read-comments"
     comments = request_json(base + "/issues/" + number + "/comments?per_page=100",
                             token)
+    if not owner_allows_review(comments):
+        print("Gemini review prohibited by repository owner; skipped.")
+        return
     day = review_budget(comments, sha)
     if day is None:
         print("Gemini already reviewed or daily budget exhausted; skipped.")
@@ -155,6 +196,14 @@ def run():
                "*Unverbindliche KI-Analyse, nicht automatisch umgesetzt; "
                "kein Merge, Deploy, Order- oder Reparaturnachweis. "
                "CI und unabhängige Live-Prüfung bleiben erforderlich.*")
+    # Recheck immediately before public publication in case the owner revoked
+    # review while the external model was processing the public diff.
+    STAGE = "recheck-owner-review-policy"
+    latest = request_json(base + "/issues/" + number + "/comments?per_page=100",
+                          token)
+    if not owner_allows_review(latest) or review_budget(latest, sha) is None:
+        print("Gemini review canceled by owner or already published; skipped.")
+        return
     STAGE = "post-review-comment"
     request_json(base + "/issues/" + number + "/comments", token,
                  "POST", {"body": comment})
@@ -173,6 +222,8 @@ if __name__ == "__main__":
         elif isinstance(exc, ValueError):
             code = str(exc) if str(exc) in {
                 "review-history-incomplete", "unknown-pr-sha",
+                "review-not-authorized", "draft-or-stale-ci",
+                "review-mode-denied",
                 "missing-api-key", "invalid-public-diff",
                 "model-response-too-large", "model-empty",
                 "model-invalid-response", "invalid-pr",
