@@ -12,11 +12,14 @@ function chfPaperEvidence(q,now){
  const swiss=n.source==='Swissquote · Swiss DOTS'&&n.venue==='Swiss DOTS'&&n.direction===m.direction
   &&n.sourceUrl==='https://www.swissquote.ch/trading-platform/#fullQuote/'+q.isin+'/672_CHF'
   &&n.priceKind==='market-observation'&&n.marketOpen===true&&n.delayed===false;
- const chart=n.source==='SG · datierter CHF-Chartkurs'&&n.priceKind==='issuer-chart';
- if(!swiss&&!chart)return false;
+ if(!swiss)return false;
  const clocks=[n.bidAt,n.askAt,e.dataAt,e.eurAt,e.chfAt].map(Date.parse);
+ const native=[n.bidAt,n.askAt].map(Date.parse);
  return clocks.every(t=>Number.isFinite(t)&&t<=now&&now-t<=90000)
-  &&Math.max(...clocks)-Math.min(...clocks)<=90000&&Date.parse(q.quoteAt)===Math.min(...clocks);
+  &&Math.max(...clocks)-Math.min(...clocks)<=90000
+  &&Date.parse(n.quoteAt)===Math.min(...native)
+  &&Date.parse(q.bidAt)===native[0]&&Date.parse(q.askAt)===native[1]
+  &&Date.parse(q.quoteAt)===Math.min(...native)&&Date.parse(f.at)===Math.min(...clocks);
 }
 function selectionQuote(q,now){
  if(q?.paperQuoteAccepted!==true)return q;
@@ -33,7 +36,9 @@ function selectionQuote(q,now){
   ||q.conditions?.ratio?.conditionVerified!==true)return q;
  const fields=[q.quoteAt,q.bidAt,q.askAt,i.basisAt,i.fxDataAt,i.fxEffectiveAt];
  const clocks=fields.map(x=>typeof x==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(x)?Date.parse(x):NaN);
- if(clocks.some(t=>!Number.isFinite(t)||t>now||now-t>90000)||clocks[0]!==clocks[1]||clocks[0]!==clocks[2]||Math.max(...clocks)-Math.min(...clocks)>90000)return q;
+ if(clocks.some(t=>!Number.isFinite(t)||t>now||now-t>90000)
+  ||(!chf&&(clocks[0]!==clocks[1]||clocks[0]!==clocks[2]))
+  ||Math.max(...clocks)-Math.min(...clocks)>90000)return q;
  const providerAt=Date.parse(q.leverageAt);
  const useProvider=!q.leverageEstimated&&positive(q.leverage)&&Number.isFinite(providerAt)&&providerAt<=now&&now-providerAt<=90000;
  const leverage=useProvider?q.leverage:i.basisPriceUsd*i.usdEur*i.ratio/q.ask;

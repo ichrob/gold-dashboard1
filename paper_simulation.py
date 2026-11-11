@@ -60,16 +60,12 @@ def chf_paper_quote(q, now, isin):
     clock=datetime.fromtimestamp(now/1000, timezone.utc)
     native=current_pair(q, clock)
     if native is None:
-        if q.get('marketOpen') is False:return None
-        chart=q.get('nativeChartEvidence') or q.get('chartEvidence') or {}
-        if chart.get('currency') != 'CHF' or chart.get('delayed'):
-            return None
-        native=dict(isin=isin, currency='CHF',bid=chart.get('bid'),ask=chart.get('ask'),
-                    bidAt=chart.get('pointAt'),askAt=chart.get('pointAt'),quoteAt=chart.get('pointAt'),
-                    source='SG · datierter CHF-Chartkurs',priceKind='issuer-chart')
+        return None
     times=[stamp(native.get(k)) for k in ('bidAt','askAt')]
+    quote_at=stamp(native.get('quoteAt'))
     if (not finite(native.get('bid')) or not finite(native.get('ask')) or native['ask']<native['bid']
-            or any(t is None or not 0<=now-t<=90000 for t in times)):
+            or any(t is None or not 0<=now-t<=90000 for t in times)
+            or quote_at is None or quote_at != min(times)):
         return None
     from sg_chf import convert_analysis
     converted=convert_analysis(dict(chartEvidence=dict(bid=native['bid'],ask=native['ask'],
@@ -82,7 +78,7 @@ def chf_paper_quote(q, now, isin):
         paperNativeQuote=copy.deepcopy(native),paperFxConversion=fx,currencyConversion=fx,
         paperIssuerSource=q.get('source'),paperIssuerSourceUrl=q.get('sourceUrl'),
         source=native['source'],venue='Swiss DOTS',currency='EUR',bid=chart['bid'],ask=chart['ask'],
-        price=chart['ask'],bidAt=fx['at'],askAt=fx['at'],quoteAt=fx['at'],
+        price=chart['ask'],bidAt=native['bidAt'],askAt=native['askAt'],quoteAt=native['quoteAt'],
         priceKind=native['priceKind'],isExecutableQuote=False,degiroExecutable=False,
         paperQuoteLabel='Simulationskurs · '+native['source']+' · CHF in EUR umgerechnet · keine DEGIRO-Ausführung')
     inputs=(out.get('leverageCalculation') or {}).get('inputs')
