@@ -69,7 +69,7 @@ def start(conn, now):
     for profile, policy in paper_portfolios.POLICIES.items():
         # The older one-time quality restart must never retire or snapshot the
         # independent future-dated November user-requested paper comparison.
-        if policy.get('relaunch'):
+        if policy.get('relaunch') or policy.get('disable_ema_distance'):
             continue
         ledger = paper_portfolios.Ledger(conn, profile)
         row = ledger.execute('SELECT payload FROM bob_paper_control WHERE id=1 FOR UPDATE').fetchone()

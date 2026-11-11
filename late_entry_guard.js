@@ -14,7 +14,7 @@
  const initial={version:'late-entry-v2',available:false,allowed:false,late:false,
                 reason:'Keine geprüfte Einstiegschance',mode:'ABWARTEN',maxDeviationAtr:1.5,maxFreshContinuationDeviationAtr:2.0,
                 maxImpulseAtr:2.5,maxSignalMinutes:15};
- function gate(bundle,direction,now=Date.now(),confirmedAt=null){
+ function gate(bundle,direction,now=Date.now(),confirmedAt=null,options={}){
    const fail=reason=>({...initial,reason});
    if(!['LONG','SHORT'].includes(direction))return fail('Keine bestätigte Einstiegsrichtung');
    if(!finite(now)||now<=0)return fail('Prüfzeit unbekannt');
@@ -83,12 +83,12 @@
    };
    const continuation=Object.values(continuationChecks).every(Boolean);
    const reasons=[];
-   if(deviation>1.5&&!continuation)reasons.push('Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt');
+   if(options.paperProfile!=='noema5000nov'&&deviation>1.5&&!continuation)reasons.push('Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt');
    if(impulse>2.5&&deviation>0.80)reasons.push('Bewegung der letzten 3×5m-Kerzen bereits über 2,5 ATR');
    if((age===null||age>15)&&!reset&&!continuation)
      reasons.push(age===null?'Signalzeit unbekannt; kein neues bestätigtes Rücksetzer-Setup':
                             'Bestätigtes Einstiegssignal älter als 15 Minuten ohne neuen Rücksetzer');
-   const metrics={...initial,available:true,late:reasons.length>0,allowed:reasons.length===0,
+   const metrics={...initial,emaDistanceDisabled:options.paperProfile==='noema5000nov',available:true,late:reasons.length>0,allowed:reasons.length===0,
        mode:reasons.length?'ABWARTEN':'EINSTIEGSFENSTER',direction,
        setup:reasons.length?'blocked':continuation?'fresh-5m-continuation':reset?'closed-5m-pullback':'confirmed-main',
        reason:reasons.join(' · ')||(continuation?'Neuer, geschlossener 5m-Folgeimpuls; nicht dem alten 15m-Signal hinterherlaufen':

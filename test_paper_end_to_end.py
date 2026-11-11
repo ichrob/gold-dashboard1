@@ -67,10 +67,12 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(result['market']['entryTimingGate']['allowed'])
         self.assertIsNone(result['market']['plan'])
         self.assertEqual(result['market']['entryPlanState']['code'],'TARGET_OBSTACLE')
+        self.assertIsNone(result['market']['paperNoEmaEntry']['plan'])
 
     def test_stale_source_cannot_produce_entry_plan(self):
         result,_=fixture(stale=True)
         self.assertFalse(result['market']['priceFresh']);self.assertIsNone(result['market']['plan'])
+        self.assertIsNone(result['market']['paperNoEmaEntry']['plan'])
         conn=Mock();calls=[]
         def execute(sql,args=()):
             calls.append(sql);cur=Mock()

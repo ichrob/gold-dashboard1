@@ -59,6 +59,12 @@ POLICIES['normal1000nov'] = dict(POLICIES['normal1000oct'],
     start_at=RELAUNCH_START, campaign_end=RELAUNCH_END,
     max_holding_minutes=300)
 
+# Forward-only user-requested EMA-distance experiment; no inherited start date.
+POLICIES['noema5000nov'] = dict(POLICIES['normal1000nov'],
+    id='noema5000nov', title='5.000 € · EMA-Abstandssperre aus (Test)',
+    initial_capital_eur=5000., relaunch=False,
+    campaign_id='no-ema-distance-20261111', disable_ema_distance=True)
+
 _TABLES = ('bob_paper_control', 'bob_paper_cases', 'bob_paper_days')
 
 
@@ -240,6 +246,12 @@ def run_all(conn, bundle, market, selection, quotes, now, settings, active=None,
                 if policy.get('early_warning'):
                     m = warning_paper_market(market,now)
                     chosen = warning_selection or {'choices':[], 'reasons':['Keine freigegebenen Frühwarnprodukte']}
+                if policy.get('disable_ema_distance'):
+                    variant = market.get('paperNoEmaEntry') or {}
+                    m = {**market, 'plan': variant.get('plan'),
+                         'entryPlanState': variant.get('entryPlanState') or {'reason': 'EMA-Testanalyse nicht verfügbar'},
+                         'entryTimingGate': variant.get('entryTimingGate') or {},
+                         'paperEntrySource': 'no-ema-distance-paper-v1'}
                 c = active.get(profile)
                 if c and c.get('status') == 'open':
                     scoped = {**settings, 'trade': c['engine']['trade']}
@@ -398,6 +410,8 @@ def report(conn, day=None):
                 'vollständig bepreiste Abschlüsse zuerst, unklare Ausstiege separat.')
         elif policy.get('campaign'):
             data['note']='1.000 EUR virtuell; '+('angezeigte Frühwarnung LONG/SHORT' if policy.get('early_warning') else 'bestätigtes Hauptsignal LONG/SHORT')+'; gleiche Rangliste, Kosten und Schutzregeln. Verlängert bis 06.11.2026 16:00 Europe/Zurich mit bestehendem Kapital und Historie. Fehlende Ausstiegskurse bleiben offen, keine rückdatierten Verkäufe.'
+        if policy.get('disable_ema_distance'):
+            data['note']='5.000 EUR virtuell ab Aktivierung bis 04.12.2026 16:00 Zürich. Nur die direkte EMA20-Abstandssperre ist aus. Signalalter, Impulsgrenze, Goldplan, Produkt-/KO-Schutz, Kosten und Tagesrisiko bleiben aktiv. Keine rückwirkenden Trades.'
         accounts.append(dict(profile=profile, title=policy['title'],
                              riskPolicy={k: policy[k] for k in ('exposure_fraction',
                                   'daily_loss_fraction','score_long','score_short',
@@ -406,7 +420,7 @@ def report(conn, day=None):
                              performance=performance_snapshot(data),**data))
     return dict(ok=True, mode='independent-prospective-paper-accounts',
                 simulatedCapitalEur=sum(p.get('initial_capital_eur',100.) for p in POLICIES.values()), realOrders=False, startAt=START,
-                note='4 × 100 EUR, 2 × 800 EUR und 3 × 1.000 EUR virtuell. Alte Konten bleiben getrennt und unverändert. Neue 800/1.000 EUR Kohorte: gleicher 20-Handelstage-Zeitraum ab 09.11.2026. Kein Echtgeld und keine rückdatierten Einstiege. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital unbekannt. Tatsächliche Brokergebühren nicht bestätigt.',
+                note='4 × 100 EUR, 2 × 800 EUR, 3 × 1.000 EUR und 1 × 5.000 EUR virtuell. Alte Konten bleiben getrennt und unverändert. Neue 800/1.000 EUR Kohorte: gleicher 20-Handelstage-Zeitraum ab 09.11.2026. Kein Echtgeld und keine rückdatierten Einstiege. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital unbekannt. Tatsächliche Brokergebühren nicht bestätigt.',
                 accounts=accounts,campaignComparison=campaign_comparison(accounts),
                 relaunchComparison=relaunch_comparison(accounts))
 

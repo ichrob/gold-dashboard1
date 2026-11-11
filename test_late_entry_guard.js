@@ -86,3 +86,17 @@ for(const [i,change] of tamper.entries()){
 }
 assert.equal(guard.check(base,'NEUTRAL',now).allowed,false);
 console.log('Late entry protection: timely LONG/SHORT, aged, chase, invalid source/time, mixed basis and price divergence OK');
+
+// Isolated 5,000 EUR experiment removes only the direct distance rejection.
+for(const side of ['LONG','SHORT']){
+ const b=bundle(side,1.8); b.history.bars_by_tf['5m'].at(-2)[side==='LONG'?'high':'low']=b.history.bars_by_tf['5m'].at(-1)[side==='LONG'?'high':'low']; const opts={paperProfile:'noema5000nov'};
+ const base=guard.check(b,side,now,now-3*M);
+ const test=guard.check(b,side,now,now-3*M,opts);
+ assert.match(base.reason,/Preis über 1,5 ATR/);
+ assert.equal(test.allowed,true,JSON.stringify(test));
+ assert.equal(test.emaDistanceDisabled,true);
+ assert.equal(guard.check(b,side,now,now-31*M,opts).allowed,false);
+ assert.match(guard.check(bundle(side,6),side,now,now-3*M,opts).reason,/2,5 ATR/);
+ b.spots.spot_price_as_of=new Date(now-90000).toISOString();
+ assert.equal(guard.check(b,side,now,now-3*M,opts).available,false);
+}
