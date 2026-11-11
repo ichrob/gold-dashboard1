@@ -68,9 +68,10 @@ optionaler unabhängiger Gemini-Review -> gesonderte Live-Abnahme.
 PR #1543 ergänzt prospektive Studienwarnungen; PR #1544 behebt eine
 beobachtete GitHub-Listengrenze und muss noch geprüft werden.
 Die bestehende Gemini-Codeprüfung ist opt-in und liest nur öffentliche,
-gefilterte Patches. Für automatische Reviews muss
-BOB_GEMINI_AUTO_REVIEW_ENABLED=1 mit einem unbilled Free-Projekt bestätigt
-werden. Sonst ist der Status ausdrücklich secondary-review-not-run.
+gefilterte Patches. Automatische Gegenprüfung ist nach Besitzerentscheidung standardmäßig erlaubt,
+setzt aber einen bestätigten unbilled Free-Zugang und API-Key voraus.
+BOB_GEMINI_AUTO_REVIEW_ENABLED=0 ist der globale Abschaltschalter.
+Ohne nachgewiesenen kostenlosen Zugang: secondary-review-not-run.
 Keine doppelt gestarteten KI-Reparaturwächter.
 
 ## 3. Paper-Simulationsprüfer
