@@ -34,6 +34,11 @@ HINTS = {
     "product-leverage-clock-missing": ("product_data_quality.py", "test_product_data_quality.py"),
     "product-ko-validity-missing": ("product_data_quality.py", "test_product_data_quality.py"),
     "product-terms-evidence-missing": ("public_product_terms.py", "test_public_product_terms.py"),
+    # Independent GitHub Action signals, no private logs or CI output.
+    "ci-main-failed": (".github/workflows/ci.yml", "test_bob_self_healing.py"),
+    "smoke-main-failed": (".github/workflows/bob-live-smoke.yml", "test_startup_health.py"),
+    "collection-main-failed": (".github/workflows/bob-collection-health.yml", "test_auto_collection.py"),
+    "watchdog-main-failed": (".github/workflows/bob-self-healing.yml", "test_bob_self_healing.py"),
 }
 
 
@@ -73,6 +78,10 @@ def handoff(code, number):
         "oder Cloudflare-Zweitprüfung den neuen Code sicher einem "
         "bekannten Bob-Fehlerfall zuordnen. Ohne echten PR kein Review.\n"
         "**Erster Code-Prüfpunkt:** " + source + "; möglicher Test: " + test + ".\n\n"
+        "**Verantwortung:** ChatGPT-Reparaturwächter ist der EINZIGE Code-Reparatur-Owner; "
+        "Gemini liefert optional eine unabhängige PR-Gegenprüfung, nie einen "
+        "automatischen Merge oder konkurrierende Codeänderungen. Ein GitHub-Issue "
+        "startet selbst kein fremdes ChatGPT-Gespräch.\\n"
         "**ChatGPT-Reparaturwächter:** Originalursache anhand aktueller, berechtigter "
         "Diagnosen nachweisen; minimale Änderung als Pull Request mit Regressionstest "
         "vorschlagen. Kein PR oder Code-Fix ist hiermit bereits gestartet.\n\n"
