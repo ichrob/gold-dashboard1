@@ -28,6 +28,19 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(result['koOutcome'],'unknown')
         self.assertFalse(result['pathComplete'])
 
+class QueryBoundTests(unittest.TestCase):
+    def test_candidate_page_is_materialized_before_decision_archive_join(self):
+        from unittest.mock import Mock
+        conn=Mock()
+        conn.execute.return_value.fetchall.return_value=[]
+        model.tick(conn,1700000000000)
+        sql,args=conn.execute.call_args_list[0].args
+        self.assertIn('WITH candidates AS MATERIALIZED',sql)
+        self.assertLess(sql.index('LIMIT 128'),sql.index('JOIN bob_decision_audit'))
+        self.assertTrue(sql.rstrip().endswith('LIMIT 24'))
+        self.assertEqual(args,(1699996400000,1699992800000))
+
+
 class EvidenceSummaryTests(unittest.TestCase):
     def test_disjoint_states_and_later_original_precedence(self):
         from unittest.mock import Mock
