@@ -899,13 +899,15 @@ class RapidStudyDiagnosticTests(unittest.TestCase):
                            originalSpotFresh=True,sourceAt=1400),
             setups=[dict(setup='breakout',started=1,closed=0,inconclusive=0,open=True,
                 latestBlockReason='signal-already-used',
-                levers=[dict(leverage=5,modeledReturnPct=0.0,completed=0),
-                        dict(leverage=20,modeledReturnPct=0.0,completed=0)],
+                levers=[dict(leverage=x,modeledReturnPct=0.0,completed=0)
+                        for x in (3,5,8,10,15,20,30)],
                 debugSecret='never-forward')])
         brief=diagnostics.rapid_leverage_brief(report)
         self.assertEqual(brief['lastInput']['basis'],'closed-original-5m')
         self.assertTrue(brief['lastInput']['originalSpotFresh'])
         self.assertEqual(brief['setups'][0]['started'],1)
+        self.assertEqual(brief['configurationsReported'],7)
+        self.assertEqual([x['leverage'] for x in brief['setups'][0]['levers']], [3,5,8,10,15,20,30])
         self.assertEqual(brief['setups'][0]['latestBlockReason'],'signal-already-used')
         self.assertNotIn('debugSecret',json.dumps(brief))
         self.assertFalse(brief['productReturnVerified'])
