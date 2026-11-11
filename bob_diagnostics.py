@@ -1010,6 +1010,18 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         source_control = row[0] if row and isinstance(row[0], dict) else {}
         record = {'profile':profile, **fields(source_control,
             ('enabled','status','checkedAt','startAt','endAt','campaign','signalSource','reason','currency','initialCapital','cash','equity','dayProfit','totalProfit','realizedProfit','costsDebitedEur','costPeriodProfit','costsStartedAt','costsNote'))}
+        # The paper ledger already persists the latest trading-window blocker.
+        # Keep only enum-validated codes and finite timestamps in this private
+        # diagnostic projection; night-session reasons must not overwrite it.
+        if profile in ('trend800nov', 'normal1000nov'):
+            from paper_profit_summary import ENTRY_BLOCK_CODES, number
+            block_code = source_control.get('lastTradingEntryBlockCode')
+            if isinstance(block_code, str) and block_code in ENTRY_BLOCK_CODES:
+                record['lastTradingEntryBlockCode'] = block_code
+                block_at = number(source_control.get('lastTradingEntryBlockAt'),
+                                  timestamp=True)
+                if block_at is not None:
+                    record['lastTradingEntryBlockAt'] = block_at
         # Existing stored forward controls only: fixed small numbers, no raw
         # trades, provider prices, account credentials or extra database reads.
         from paper_profit_summary import safe_forward_evidence
