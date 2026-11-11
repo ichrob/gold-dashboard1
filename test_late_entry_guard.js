@@ -62,9 +62,24 @@ for(const direction of ['LONG','SHORT']){
  if(direction==='LONG')prev.high=latest.close+.5;
  else prev.low=latest.close-.5;
  assert.equal(guard.check(noBreak,direction,now,now-31*M).allowed,false,'no real close breakout');
- const old=JSON.parse(JSON.stringify(b)),later=now+2*M;
- old.spots.spot_price_as_of=new Date(later-10000).toISOString();
- assert.equal(guard.check(old,direction,later,later-31*M).allowed,false,'2-minute-old continuation cannot be reused');
+ for(const elapsed of [2*M, 5*M-1]){
+  const current=JSON.parse(JSON.stringify(b)),later=now+elapsed;
+  current.spots.spot_price_as_of=new Date(later-10000).toISOString();
+  const admitted=guard.check(current,direction,later,now-31*M);
+  assert.equal(admitted.allowed,true,'verified continuation remains valid before next close');
+  assert.equal(admitted.freshContinuationAt,now,'original opportunity clock preserved');
+  assert(admitted.signalAgeMinutes>=31,'old main signal never redated');
+  const invalid=JSON.parse(JSON.stringify(current));
+  invalid.spots.xaus=latest.close-(direction==='LONG'?1:-1)*r.atr5m*.3;
+  assert.equal(guard.check(invalid,direction,later,now-31*M).allowed,false,'retracement invalidates extended window');
+  current.spots.spot_price_as_of=new Date(later-60001).toISOString();
+  assert.equal(guard.check(current,direction,later,now-31*M).allowed,false,'fresh source still mandatory');
+ }
+ for(const elapsed of [5*M,6*M]){
+  const expired=JSON.parse(JSON.stringify(b)),later=now+elapsed;
+  expired.spots.spot_price_as_of=new Date(later-10000).toISOString();
+  assert.equal(guard.check(expired,direction,later,now-31*M).allowed,false,'next close expires previous setup even if new bar missing');
+ }
 }
 const base=bundle('LONG');
 const tamper=[
