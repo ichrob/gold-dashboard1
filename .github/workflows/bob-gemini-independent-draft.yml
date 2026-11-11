@@ -1,6 +1,9 @@
 name: Bob Gemini - eigenstaendige Draft-Patch-Vorschlaege
 
 on:
+  # Exact owner-only comment can start a public, inert draft from Android.
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       issue_number:
@@ -20,7 +23,7 @@ permissions:
   issues: read
 
 concurrency:
-  group: bob-gemini-draft-${{ github.event.inputs.issue_number }}
+  group: bob-gemini-draft-${{ github.event_name == 'issue_comment' && github.event.issue.number || inputs.issue_number }}
   cancel-in-progress: false
 
 jobs:
@@ -28,7 +31,12 @@ jobs:
     if: >-
       github.repository == 'ichrob/gold-dashboard1' &&
       github.actor == 'ichrob' &&
-      github.ref == 'refs/heads/main'
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'issue_comment' &&
+        !github.event.issue.pull_request &&
+        github.event.comment.user.login == 'ichrob' &&
+        github.event.comment.body == '/bob-gemini-draft GEMINI.md'))
     runs-on: ubuntu-24.04
     timeout-minutes: 4
     steps:
@@ -49,6 +57,6 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BOB_GEMINI_FREE_ONLY: ${{ vars.BOB_GEMINI_FREE_ONLY }}
           BOB_GEMINI_DRAFT_PR_ENABLED: ${{ vars.BOB_GEMINI_DRAFT_PR_ENABLED }}
-          BOB_GEMINI_DEV_ISSUE: ${{ inputs.issue_number }}
-          BOB_GEMINI_DEV_FILE: ${{ inputs.target_file }}
+          BOB_GEMINI_DEV_ISSUE: ${{ github.event_name == 'issue_comment' && github.event.issue.number || inputs.issue_number }}
+          BOB_GEMINI_DEV_FILE: ${{ github.event_name == 'issue_comment' && 'GEMINI.md' || inputs.target_file }}
         run: python gemini_independent_draft.py
