@@ -34,11 +34,11 @@ _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
 # every delete.
 _PRUNE_CAP_BATCH_SIZE = 500
 _PRUNE_MAX_EVENTS = 60000
-# Keep every exact cap-count statement comfortably below the live query that
-# occasionally exhausted the unchanged five-second maintenance budget.  The
-# append-only journal already has a primary-key index, so bounded keyset scans
-# need no new index, OFFSET or retention-policy change.
-_PRUNE_COUNT_CHUNK_SIZE = 15000
+# A 15,000-key statement still exceeded the unchanged five-second budget
+# under live contention on 11 Nov. Keep each exact primary-key keyset scan
+# below that reproduced bound; total target, retention and delete batch stay
+# unchanged and no new index or OFFSET scan is introduced.
+_PRUNE_COUNT_CHUNK_SIZE = 5000
 _STATS = {'stored':0,'dropped':0,'failures':0,'lastStoredAt':None}
 
 
