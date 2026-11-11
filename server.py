@@ -2489,6 +2489,7 @@ def fibonacci_monitor_loop():
             continue
         cycle_started = time.monotonic()
         poll_seconds = 30  # Connection failure: retry promptly to protect an unknown active trade.
+        active_trades = True  # Unknown monitor state: never change live-risk polling.
         try:
             request = Request(base+"/monitor-status", headers={"X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
             with urlopen(request, timeout=10) as response:
@@ -2544,7 +2545,10 @@ def fibonacci_monitor_loop():
         except Exception as exc:
             FIB_MONITOR_HEALTH.update(status="unavailable", lastCheckedAt=int(time.time()))
             print("BOB_FIB monitor_error="+type(exc).__name__, flush=True)
-        time.sleep(max(1, poll_seconds - (time.monotonic() - cycle_started)))
+        time.sleep(background_push.study_source_edge_delay(
+            poll_seconds, time.monotonic() - cycle_started, time.time(),
+            session=background_push.degiro_session(),
+            active_trade=bool(active_trades)))
 
 _AGENTMAIL_RECOVERY_THREAD = None
 _AGENTMAIL_RECOVERY_LOCK = threading.Lock()
