@@ -41,11 +41,11 @@ export async function probeUnauthGitHub(storage, request = fetch, now = Date.now
     if (!response || !Number.isInteger(response.status)) return { state: 'unauth_invalid_response', step };
     const headerStatus = response.status;
     step = 'redirect';
-    response = await request(url, { headers, redirect: 'error' });
+    response = await request(url, { headers, redirect: 'manual' });
     if (!response || !Number.isInteger(response.status)) return { state: 'unauth_invalid_response', step };
     const redirectStatus = response.status;
     step = 'signal';
-    response = await request(url, { headers, redirect: 'error', signal: AbortSignal.timeout(5000) });
+    response = await request(url, { headers, redirect: 'manual', signal: AbortSignal.timeout(5000) });
     if (!response || !Number.isInteger(response.status)) return { state: 'unauth_invalid_response', step };
     return { state: 'unauth_http_observed', plainStatus, headerStatus, redirectStatus, signalStatus: response.status };
   } catch (error) {
@@ -87,9 +87,12 @@ export async function tick(env, storage, scheduledTime, now = Date.now(), reques
     'X-GitHub-Api-Version': '2026-03-10',
     'User-Agent': 'bob-watchdog-clock',
   };
+  // Redirects are never followed automatically with a bearer token:
+  // Cloudflare may throw before returning HTTP when mode='error'.
+  // In manual mode any 3xx is rejected as an ordinary non-2xx response.
   async function get(suffix) {
     let response;
-    try { response = await request(BASE + suffix, { headers, signal, redirect: 'error' }); }
+    try { response = await request(BASE + suffix, { headers, signal, redirect: 'manual' }); }
     catch (error) { throw new Error(safeTransportCode(error)); }
     if (!response || typeof response.ok !== 'boolean') throw new Error('github_response_shape');
     if (!response.ok) throw new Error(`github_read_${response.status}`);
@@ -125,7 +128,7 @@ export async function tick(env, storage, scheduledTime, now = Date.now(), reques
   try {
     response = await request(BASE + '/dispatches', {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ref: 'main' }), signal, redirect: 'error',
+      body: JSON.stringify({ ref: 'main' }), signal, redirect: 'manual',
     });
   } catch {
     throw new Error('dispatch_outcome_unknown');

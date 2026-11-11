@@ -15,6 +15,7 @@ function fixture(options = {}) {
     if (options.contextError && init.method !== 'POST') throw new TypeError('Cannot perform I/O on behalf of a different request');
     if (options.readError && init.method !== 'POST') return new Response('', { status: options.readError });
     if (options.invalidJson && init.method !== 'POST') return new Response('not-json', {status:200});
+    if (options.getRedirect && init.method !== 'POST') return new Response(null,{status:302,headers:{Location:'https://untrusted.example/never'}});
     if (url.endsWith('/dispatches')) {
       assert.equal(data.get('attempt').state, 'dispatch_uncertain');
       if (options.timeout) throw new Error('network exception with secret');
@@ -47,6 +48,20 @@ for (const active of ['queued', 'in_progress', 'waiting', 'pending', 'requested'
     assert.equal(f.posts().length, 0);
   });
 }
+test('GitHub calls never follow redirects while carrying the bearer token', async () => {
+  const f=fixture({getRedirect:true});
+  await assert.rejects(tick(f.env,f.storage,now,now,f.request),/github_read_302/);
+  assert.equal(f.posts().length,0);
+  assert(f.calls.every(x=>x.init.redirect==='manual'));
+  assert(f.calls.every(x=>x.init.headers.Authorization.startsWith('Bearer github_pat_')));
+});
+test('redirect on dispatch is persisted as rejected, never automatically retried', async () => {
+  const f=fixture({postStatus:302});
+  await assert.rejects(tick(f.env,f.storage,now,now,f.request),/github_dispatch_302/);
+  assert.equal(f.data.get('attempt').state,'dispatch_rejected');
+  assert.equal(f.posts().length,1);
+  assert.equal(f.posts()[0].init.redirect,'manual');
+});
 test('recent success suppresses fallback', async () => {
   const f = fixture({ recent: true });
   assert.equal((await tick(f.env, f.storage, now, now, f.request)).state, 'recent_success');
@@ -134,7 +149,7 @@ test('operator-only tokenless egress probe uses public GitHub and records one du
   assert.equal(calls[0].options,undefined);
   assert(calls.slice(1).every(x=>x.options.headers.Authorization===undefined));
   assert.equal(calls[1].options.redirect,undefined);
-  assert.equal(calls[2].options.redirect,'error');
+  assert.equal(calls[2].options.redirect,'manual');
   assert(calls[3].options.signal instanceof AbortSignal);
   assert.equal(f.data.has('attempt'),false);
   assert.equal((await tick(f.env,f.storage,now,now,publicRequest)).state,'unauth_already_attempted');
