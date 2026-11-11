@@ -1,4 +1,6 @@
 import unittest
+import io
+from contextlib import redirect_stdout
 import time
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
@@ -79,9 +81,8 @@ class SharedSpotTests(unittest.TestCase):
 
     def test_near_expiry_observation_gets_one_bounded_early_retry(self):
         payload={**self.payload,'updatedAt':(self.now-timedelta(seconds=35)).isoformat()}
-        # Patch the emission call directly so a global test-suite logging.disable()
-        # cannot hide the evidence contract from this isolated regression test.
-        with patch.object(s.logging,'info') as info:
+        # Verify actual output even when INFO logging is filtered in production.
+        with redirect_stdout(io.StringIO()) as output, patch.object(s.logging.getLogger(), 'level', s.logging.WARNING):
             with patch.object(product_quotes,'issuer_json',return_value=payload) as request:
                 self.assertEqual(s.current()['at'],payload['updatedAt'])
                 self.assertEqual(request.call_count,1)
@@ -92,18 +93,16 @@ class SharedSpotTests(unittest.TestCase):
                 with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
                     self.assertEqual(s.current()['at'],payload['updatedAt'])
                 self.assertEqual(request.call_count,2)
-        evidence=[call for call in info.call_args_list
-                  if call.args and call.args[0].startswith('BOB_SPOT_FETCH_EVIDENCE')]
+        evidence=[line for line in output.getvalue().splitlines()
+                  if line.startswith('BOB_SPOT_FETCH_EVIDENCE')]
         self.assertEqual(len(evidence),2)
         first,second=evidence
-        self.assertEqual(first.args[1],payload['updatedAt'])
-        self.assertFalse(first.args[3])
-        self.assertFalse(first.args[4])
-        self.assertEqual(first.args[5],0)
-        self.assertEqual(second.args[1],payload['updatedAt'])
-        self.assertTrue(second.args[3])
-        self.assertTrue(second.args[4])
-        self.assertEqual(second.args[5],0)
+        for line in evidence:
+            self.assertIn('source_at='+payload['updatedAt'],line)
+            self.assertRegex(line,r'age_ms=\d+')
+            self.assertIn('route=0',line)
+        self.assertIn('repeated=False early_retry=False',first)
+        self.assertIn('repeated=True early_retry=True',second)
         self.assertNotIn(str(payload['price']),str(evidence))
 
     def test_ageing_cached_quote_refreshes_before_minute_signal_expires(self):
@@ -139,7 +138,7 @@ class SharedSpotTests(unittest.TestCase):
         old=(self.now-timedelta(seconds=35)).isoformat()
         s._quote={'price':4100.,'at':old,'source':'Gold-API.com · XAU/USD Spot'}
         s._attempted=time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1
-        with patch.object(s.logging,'info') as info, \
+        with redirect_stdout(io.StringIO()) as output, \
              patch.object(product_quotes,'issuer_json',
                           side_effect=OSError('private-secret-details')) as request:
             retained=s.primary()
@@ -150,10 +149,10 @@ class SharedSpotTests(unittest.TestCase):
                               time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
                 self.assertEqual(s.primary()['at'],old)
             self.assertEqual(request.call_count,1)
-        evidence=[call for call in info.call_args_list
-                  if call.args and call.args[0].startswith('BOB_SPOT_FETCH_FAILURE')]
-        self.assertEqual(len(evidence),1)
-        self.assertEqual(evidence[0].args[1:4],('OSError',True,0))
+        evidence=[line for line in output.getvalue().splitlines()
+                  if line.startswith('BOB_SPOT_FETCH_FAILURE')]
+        self.assertEqual(evidence,[
+            'BOB_SPOT_FETCH_FAILURE reason=OSError early_retry=True attempted_route=0'])
         self.assertNotIn('private-secret-details',str(evidence))
         self.assertNotIn('4100',str(evidence))
         self.assertEqual(s._route,1)
