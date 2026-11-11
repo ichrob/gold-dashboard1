@@ -193,10 +193,48 @@ def validate_workflow(value, now):
     return dict(value)
 
 
+
+RAM_FIELDS = {'phase','startedAt','finishedAt','durationSec','endReason','sampleIntervalSec',
+              'sampleCount','startPssMiB','sampledPeakPssMiB','endPssMiB',
+              'sampledPeakJavaHeapMiB'}
+RAM_PHASES = {'GOLD_LIST','PRODUCT_DETAILS','SINGLE_PAGE'}
+RAM_REASONS = {'STOPPED','TIMEOUT','ATTEMPT_LIMIT','CLOCK_CHANGED','REPLACED'}
+
+def validate_degiro_ram(value, now):
+    """Fixed, bounded process-memory counters only; reject arbitrary phone data."""
+    if not isinstance(value, dict) or set(value) != RAM_FIELDS:
+        raise ValueError('Invalid RAM telemetry fields')
+    if (type(value['phase']) is not str or type(value['endReason']) is not str or
+            value['phase'] not in RAM_PHASES or value['endReason'] not in RAM_REASONS):
+        raise ValueError('Invalid RAM telemetry enums')
+    start = timestamp(value['startedAt'])
+    end = timestamp(value['finishedAt'])
+    if start > end or not -60 <= (now-end).total_seconds() <= 86400:
+        raise ValueError('RAM telemetry time out of bounds')
+    if type(value['durationSec']) is not int or not 0 <= value['durationSec'] <= 3600:
+        raise ValueError('Invalid RAM duration')
+    if type(value['sampleIntervalSec']) is not int or value['sampleIntervalSec'] != 3:
+        raise ValueError('Invalid RAM sample interval')
+    count = value['sampleCount']
+    if type(count) is not int or not 0 <= count <= 1300:
+        raise ValueError('Invalid RAM sample count')
+    for field in ('startPssMiB','sampledPeakPssMiB','endPssMiB','sampledPeakJavaHeapMiB'):
+        v = value[field]
+        if v is not None and (type(v) not in (int,float) or not 0 <= v <= 32768 or v != v):
+            raise ValueError('Invalid RAM counter')
+    first, peak, last = (value[k] for k in ('startPssMiB','sampledPeakPssMiB','endPssMiB'))
+    if count == 0:
+        if any(value[k] is not None for k in ('startPssMiB','sampledPeakPssMiB',
+                                               'endPssMiB','sampledPeakJavaHeapMiB')):
+            raise ValueError('Unmeasured RAM cannot have values')
+    elif None in (first, peak, last) or first > peak or last > peak:
+        raise ValueError('Inconsistent sampled RAM')
+    return dict(value)
+
 def validate_report(value, now=None):
     now=now or datetime.now(timezone.utc)
     expected={'reportId','observedAt','appVersionCode','lastCode','lastEventAt',*BOOLS}
-    optional={'pinProbe','detailTransfer','workflow'}
+    optional={'pinProbe','detailTransfer','workflow','degiroRam'}
     if not isinstance(value,dict) or not expected <= set(value) or not set(value) <= expected | optional:
         raise ValueError('Invalid diagnostic fields')
     if not isinstance(value['reportId'],str) or not re.fullmatch('[a-f0-9]{32}',value['reportId']):raise ValueError('Invalid report ID')
@@ -215,6 +253,8 @@ def validate_report(value, now=None):
         validate_pin_probe(value['pinProbe'], now)
     if 'detailTransfer' in value:
         validate_detail_transfer(value['detailTransfer'],now)
+    if 'degiroRam' in value:
+        validate_degiro_ram(value['degiroRam'],now)
     return dict(value)
 
 def token_hash(token):

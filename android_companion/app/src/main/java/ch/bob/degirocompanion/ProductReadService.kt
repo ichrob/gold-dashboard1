@@ -282,6 +282,7 @@ class ProductReadService : AccessibilityService() {
             }
         }
         ProductReadRequest.onCancelled = {
+            DegiroRamTelemetry.finish(this, ProductReadRequest.endReason.name)
             resetListCapture()
             val outcome = when (ProductReadRequest.endReason) {
                 ProductReadRequest.End.TIMEOUT -> ProductReadDiagnostics.Outcome.REQUEST_EXPIRED
@@ -312,6 +313,7 @@ class ProductReadService : AccessibilityService() {
             PhoneDiagnostics.queue(this)
         }
         ProductReadRequest.onStarted = {
+            DegiroRamTelemetry.start(this)
             batchReadWindow = null
             batchResultOpened = false
             if(PinReadinessProbe.running) PinReadinessProbe.stop("Produktprüfung gestartet. PIN-Test beendet.")
