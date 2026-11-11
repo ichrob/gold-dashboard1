@@ -36,9 +36,27 @@ class QueryBoundTests(unittest.TestCase):
         model.tick(conn,1700000000000)
         sql,args=conn.execute.call_args_list[0].args
         self.assertIn('WITH candidates AS MATERIALIZED',sql)
-        self.assertLess(sql.index('LIMIT 128'),sql.index('JOIN bob_decision_audit'))
+        self.assertLess(sql.index('LIMIT 128'),sql.index('LEFT JOIN bob_decision_audit'))
         self.assertTrue(sql.rstrip().endswith('LIMIT 24'))
         self.assertEqual(args,(1699996400000,1699992800000))
+
+    def test_archived_decision_is_marked_unavailable_and_rotates(self):
+        class Conn:
+            def __init__(self):self.calls=[];self.rows=[]
+            def execute(self,sql,args=()):
+                self.calls.append((sql,args))
+                self.rows=[('orphan',{'horizon':15},None,None)] if sql.startswith('WITH candidates') else []
+                return self
+            def fetchall(self):return self.rows
+        conn=Conn();now=1700000000000
+        model.tick(conn,now)
+        writes=[args for sql,args in conn.calls if sql.startswith('INSERT INTO bob_gap_models')]
+        self.assertEqual(len(writes),1)
+        key,checked,payload=writes[0]
+        saved=json.loads(payload)
+        self.assertEqual((key,checked),('orphan',now))
+        self.assertEqual(saved['status'],'unavailable')
+        self.assertIn('nicht mehr im Archiv',saved['reason'])
 
 
 class EvidenceSummaryTests(unittest.TestCase):
@@ -92,3 +110,4 @@ class StorageTests(unittest.TestCase):
                 self.assertEqual(c.execute('SELECT payload FROM bob_decision_audit').fetchone()[0],record)
                 self.assertEqual(c.execute('SELECT status FROM bob_test_repairs').fetchone()[0],'escalated')
             finally:c.execute('DROP SCHEMA '+schema+' CASCADE')
+
