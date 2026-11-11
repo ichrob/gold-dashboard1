@@ -1190,9 +1190,17 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
             account['recentCases'] = {'status':'observed', 'day':day,
                 'scope':'current-day-latest-five-not-complete-history',
                 'items':[project(paper_case_review.project_case(row[0], account['profile']), CASE) for row in rows]}
+            # The routine /simulation-status already selected these five daily
+            # rows. Reuse their ORIGINAL raw case payloads for the bounded
+            # model-net proof, without another SELECT or copying event logs.
+            account['netEvidenceSample'] = __import__('paper_net_evidence').sample(
+                [row[0] for row in rows])
         except Exception:
             account['recentCases'] = {'status':'unavailable', 'day':day,
                 'reason':'current-day-case-read-unavailable'}
+            account['netEvidenceSample'] = {'status':'unavailable',
+                'readOnly':True, 'realOrders':False, 'brokerNetVerified':False,
+                'fullHistoryRead':False, 'reason':'current-day-case-read-unavailable'}
     result['recentPaperOutcomes'] = recent_paper_outcomes(result['accounts'])
     try:
         with conn.transaction():
