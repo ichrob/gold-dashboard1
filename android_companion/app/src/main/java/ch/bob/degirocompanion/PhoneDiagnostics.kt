@@ -187,6 +187,7 @@ internal object PhoneDiagnostics {
                 // technical diagnostics. Never attach screen text or product IDs.
                 WorkflowHealth.diagnostic(c)?.let { report.put("workflow", it) }
                 ProductDetailDelivery.diagnostic(c)?.let { report.put("detailTransfer",it) }
+                DegiroRamTelemetry.latest(c)?.let { report.put("degiroRam", it) }
                 p.getString("pinProbe", null)?.let { raw ->
                     runCatching { JSONObject(raw) }.getOrNull()?.let { probe ->
                         val recent = runCatching { System.currentTimeMillis() -
