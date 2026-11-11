@@ -2499,12 +2499,15 @@ def fibonacci_monitor_loop():
             continue
         cycle_started = time.monotonic()
         poll_seconds = 30  # Connection failure: retry promptly to protect an unknown active trade.
+        active_trades = True  # Unknown monitor state: never change live-risk polling.
+        trade_state_known = False
         try:
             request = Request(base+"/monitor-status", headers={"X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
             with urlopen(request, timeout=10) as response:
                 monitors = json.loads(response.read(4096))
                 active = monitors.get("activeMonitors", 0)
                 active_trades = monitors.get("activeTrades", 0)
+                trade_state_known = "activeTrades" in monitors
             poll_seconds = background_push.degiro_poll_seconds(active_trade=bool(active_trades))
             FIB_MONITOR_HEALTH.update(status="checking", lastCheckedAt=int(time.time()),
                                       expectedCycleSeconds=poll_seconds, session=background_push.degiro_session())
@@ -2554,7 +2557,10 @@ def fibonacci_monitor_loop():
         except Exception as exc:
             FIB_MONITOR_HEALTH.update(status="unavailable", lastCheckedAt=int(time.time()))
             print("BOB_FIB monitor_error="+type(exc).__name__, flush=True)
-        time.sleep(max(1, poll_seconds - (time.monotonic() - cycle_started)))
+        time.sleep(background_push.study_source_edge_delay(
+            poll_seconds, time.monotonic() - cycle_started, time.time(),
+            session=background_push.degiro_session(),
+            active_trade=bool(active_trades) or not trade_state_known))
 
 _AGENTMAIL_RECOVERY_THREAD = None
 _AGENTMAIL_RECOVERY_LOCK = threading.Lock()

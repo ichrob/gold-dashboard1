@@ -6,7 +6,7 @@ No SQL, product IDs, raw case payloads, broker records or new market assumptions
 import math
 
 PROFILES = ('conservative', 'balanced', 'offensive', 'early100', 'trend800',
-            'early1000oct', 'normal1000oct', 'trend800nov', 'normal1000nov', 'noema5000nov')
+            'early1000oct', 'normal1000oct', 'trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov')
 STATUSES = ('scheduled', 'running', 'completed', 'ending-pending-quotes',
             'night-paused', 'market-closed', 'preparing', 'stopped', 'unavailable')
 
@@ -222,7 +222,7 @@ def snapshot(accounts):
         # trading-window code saved by the virtual ledger, never the raw text.
         control = a.get('control') if isinstance(a.get('control'),dict) else {}
         last_code, last_at = None, None
-        if profile in ('trend800nov','normal1000nov', 'noema5000nov'):
+        if profile in ('trend800nov','normal1000nov','ema3000nov', 'noema5000nov'):
             stored = a.get('lastTradingEntryBlockCode',
                            control.get('lastTradingEntryBlockCode'))
             stored_valid = isinstance(stored, str) and stored in ENTRY_BLOCK_CODES

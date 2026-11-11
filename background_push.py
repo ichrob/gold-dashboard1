@@ -95,6 +95,37 @@ def degiro_poll_seconds(now_ms=None, active_trade=False):
     return min(300, degiro_seconds_to_transition(now_ms))
 
 
+
+def study_source_edge_delay(poll_seconds, elapsed_seconds, wall_seconds, *,
+                            session, active_trade=False):
+    """Bound the next scanner study fetch to the next observed 30s source edge.
+
+    The ordinary scanner poll may land just BEFORE the provider advances from
+    :00/:30, postponing a complete study bundle for almost another 30 seconds.
+    In the paper-study trading window, use the sooner of the original deadline
+    and the next :05/:35 UTC boundary. This is only a scheduling hint: do not
+    alter provider timestamps, source admission, snapshots, or risk checks.
+    Live-trade monitoring, errors, night/weekend schedules retain their old
+    cadence. Never exceed the original poll interval or create a tight loop.
+    """
+    try:
+        elapsed = float(elapsed_seconds)
+        interval = float(poll_seconds)
+        normal = max(1.0, interval - elapsed)
+        if (session != 'trading' or active_trade or interval != 30.0
+                or not all(math.isfinite(v) for v in (elapsed, interval, wall_seconds))):
+            return normal
+        # Original XAU spot updates observed on :00/:30; five seconds allow
+        # the existing provider cache and bounded bundle build to settle.
+        phase = (float(wall_seconds) - 5.0) % 30.0
+        next_edge = 30.0 - phase if phase else 30.0
+        return min(normal, max(1.0, next_edge))
+    except (TypeError, ValueError, OverflowError):
+        # Preserve the ordinary retry interval for malformed clocks.
+        return max(1.0, float(poll_seconds) - float(elapsed_seconds))
+
+
+
 def weekend_quote_at_close(now_ms, data_at):
     """Only a near-close quote can justify a normal weekend pause, never old failures."""
     close_at = gold_weekend_close(now_ms)
