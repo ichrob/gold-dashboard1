@@ -67,6 +67,29 @@ window. Retention and in-use evidence must be checked before future expansion
 of eligible families. No implicit purge is permitted. Logical JSON shrinkage
 is not physical disk space recovered.
 
+### Proactive finalized comparisons (11.11.2026)
+
+Physical 5-GB occupancy controls urgency, but a final, self-contained
+comparison case may be archived at comfortable occupancy. The exception
+applies ONLY to complete entry/exit comparisons at least 24 hours old with
+every arm terminal, all full original fields present where a trade closed,
+and an unchanged local evaluation projection. Each small batch still needs
+fresh independent AES-GCM/remote-download/isolated restore/recovery-key
+evidence, recent provider WAL/scratch headroom, exact per-row reader
+equality, compare-and-swap and rollback. Source clocks and the local
+evaluation remain unchanged. No plaintext deletion is authorized.
+
+Age-only Gold analysis, market metrics, learning observations, active
+simulations, products, trades, signals, push and operational evidence remain
+subject to the earlier comfortable-capacity skip; age never establishes that
+they are unused. An unavailable proof leaves all originals in PostgreSQL.
+A common nonblocking PostgreSQL advisory lock now serializes scheduled
+full exports, cold-payload writers and standard storage maintenance; a busy
+export does not consume its daily attempt. Existing bounded batches, backoff,
+weekend limits and safety checks remain. This does not prove physical bytes
+freed, nor does it authorize a general purge.
+
+
 ## Tests
 
 `python -m unittest test_archive_worker test_evidence_archive test_drive_evidence_archive`
