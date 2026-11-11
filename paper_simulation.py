@@ -1169,9 +1169,24 @@ def late_risk_retry_bundle(current, candidate, now_ms):
 
 # Independent bounded worker: product network calls never delay /background or Push.
 _guard=threading.Lock();_latest=None;_study_latest=None;_thread=None
+_bundle_generation=0
 _bundle_ready=quote_updates.updates
 _pool=None;_pending={};_quotes={};_requested={}
 _observed_snapshot={}
+
+
+def quality_generation_pending(last_generation, current_generation):
+    """True only for a market bundle generation not yet studied locally.
+
+    Product quote completions deliberately wake the paper worker so virtual
+    product prices can progress.  During a zero-downtime deploy, however, the
+    draining instance no longer receives collector bundles while its pending
+    quote futures can still complete.  Re-running the original-input study for
+    that unchanged local bundle would manufacture stale cycles even though the
+    replacement instance already has a newer original snapshot.
+    """
+    return (isinstance(current_generation, int) and
+            current_generation > last_generation)
 def observed_quotes(products):
     """Read completed raw issuer observations without network work or paper projection."""
     with _guard:
@@ -1372,6 +1387,7 @@ def start_preflight(database):
 
 
 def _worker(db):
+    last_quality_generation=0
     while True:
         _bundle_ready.wait(timeout=30)
         with _guard:
@@ -1544,34 +1560,39 @@ def _worker(db):
                         # while a newer complete collector bundle is already queued.
                         # Refresh only this spot-reference study input; product selection,
                         # paper ledgers and live signal decisions keep their exact snapshot.
-                        quality_bundle,quality_market=bundle,market
-                        try:
-                            quality_bundle,quality_market=refresh_original_study_input(
-                                bundle,market,settings,latest_paper_bundle,
-                                background_push.analyze,lambda:time.time()*1000,
-                                evidence_phase='quality-final')
-                            if quality_bundle is not bundle:
-                                print('BOB_QUALITY_RESEARCH reused_newer_observed_bundle=1',flush=True)
-                        except Exception as refresh_exc:
-                            print('BOB_QUALITY_RESEARCH refresh_error='+type(refresh_exc).__name__,flush=True)
-                        try:
-                            with conn.transaction():
-                                quality_checked_at=time.time()*1000
-                                if quality_market.get('priceFresh') is not True:
-                                    quality_evidence=study_bundle_handoff_evidence(quality_bundle)
-                                    print('BOB_STUDY_QUALITY_INPUT '+
-                                          'trace='+quality_evidence['trace']+
-                                          ' source_at_ms='+str(quality_evidence['sourceAt'])+
-                                          ' closed_15m_at_ms='+str(quality_evidence['closed15mAt'])+
-                                          ' checked_at_ms='+str(int(quality_checked_at))+
-                                          ' ready='+str(quality_market.get('ready'))+
-                                          ' price_fresh='+str(quality_market.get('priceFresh')),
-                                          flush=True)
-                                research_restart.tick(
-                                    conn,quality_bundle,quality_market,
-                                    quality_checked_at,outcomes)
-                        except Exception as research_exc:
-                            print('BOB_QUALITY_RESEARCH error='+type(research_exc).__name__,flush=True)
+                        with _guard:
+                            quality_generation=_bundle_generation
+                        if quality_generation_pending(
+                                last_quality_generation, quality_generation):
+                            quality_bundle,quality_market=bundle,market
+                            try:
+                                quality_bundle,quality_market=refresh_original_study_input(
+                                    bundle,market,settings,latest_paper_bundle,
+                                    background_push.analyze,lambda:time.time()*1000,
+                                    evidence_phase='quality-final')
+                                if quality_bundle is not bundle:
+                                    print('BOB_QUALITY_RESEARCH reused_newer_observed_bundle=1',flush=True)
+                            except Exception as refresh_exc:
+                                print('BOB_QUALITY_RESEARCH refresh_error='+type(refresh_exc).__name__,flush=True)
+                            try:
+                                with conn.transaction():
+                                    quality_checked_at=time.time()*1000
+                                    if quality_market.get('priceFresh') is not True:
+                                        quality_evidence=study_bundle_handoff_evidence(quality_bundle)
+                                        print('BOB_STUDY_QUALITY_INPUT '+
+                                              'trace='+quality_evidence['trace']+
+                                              ' source_at_ms='+str(quality_evidence['sourceAt'])+
+                                              ' closed_15m_at_ms='+str(quality_evidence['closed15mAt'])+
+                                              ' checked_at_ms='+str(int(quality_checked_at))+
+                                              ' ready='+str(quality_market.get('ready'))+
+                                              ' price_fresh='+str(quality_market.get('priceFresh')),
+                                              flush=True)
+                                    research_restart.tick(
+                                        conn,quality_bundle,quality_market,
+                                        quality_checked_at,outcomes)
+                                last_quality_generation=quality_generation
+                            except Exception as research_exc:
+                                print('BOB_QUALITY_RESEARCH error='+type(research_exc).__name__,flush=True)
                         conn.commit()
                         # A post-commit observation of the exact input quality passed
                         # to each virtual account. Failure never changes paper ledgers.
@@ -1620,9 +1641,10 @@ def enqueue(bundle, db):
     # during a scheduled weekend closure.
     if background_push.degiro_session() != 'trading':
         return
-    global _latest,_study_latest,_thread
+    global _latest,_study_latest,_thread,_bundle_generation
     with _guard:
         _latest=bundle
+        _bundle_generation+=1
         previous_study_latest=_study_latest
         observed_now=time.time()*1000
         _study_latest=newer_queued_paper_bundle(
