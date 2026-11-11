@@ -31,6 +31,17 @@ def entry_block_code(value):
     if not isinstance(value,str) or not value.strip():
         return 'not-observed'
     reason=value.lower()
+    # These two timing gates are the dominant actual November no-entry
+    # observations. Reuse the fixed codes from the 15-minute paper buckets.
+    # Never expose the original free-text reason or change entry approval.
+    ema_stretch = 'preis über 1,5 atr von ema20' in reason
+    signal_age = 'älter als 15 minuten' in reason
+    if ema_stretch and signal_age:
+        return 'ema-stretch-and-signal-age'
+    if ema_stretch:
+        return 'ema-stretch'
+    if signal_age:
+        return 'signal-age'
     if any(word in reason for word in ('goldkurs nicht aktuell','quellenzeit','marktdaten',
                                       'daten fehlen','quellenlücke')):
         return 'source-not-fresh'
@@ -63,7 +74,8 @@ def entry_block_code(value):
 ENTRY_BLOCK_CODES = frozenset((
     'not-observed','source-not-fresh','session-paused','plan-not-ready',
     'product-quote-missing','knockout-protection','product-not-approved',
-    'signal-score-weak','risk-limit','no-direction','other-or-unclassified'))
+    'signal-score-weak','risk-limit','no-direction','other-or-unclassified',
+    'ema-stretch-and-signal-age','ema-stretch','signal-age'))
 
 
 FORWARD_VERSION = 'prospective-paper-v1'
