@@ -7,10 +7,12 @@ function fixture(options = {}) {
   const data = new Map();
   const storage = { get: async key => data.get(key), put: async (key, val) => data.set(key, val) };
   const calls = [];
-  const env = { GITHUB_TOKEN: 'test-only', ENABLED: 'true' };
+  const env = { GITHUB_TOKEN: 'github_pat_TEST_ONLY_01234567890123456789', ENABLED: 'true' };
   const request = async (url, init) => {
     calls.push({ url, init });
     if (options.networkError && init.method !== 'POST') throw new TypeError('private network details');
+    if (options.headerError && init.method !== 'POST') throw new TypeError('Invalid character in header content Authorization');
+    if (options.contextError && init.method !== 'POST') throw new TypeError('Cannot perform I/O on behalf of a different request');
     if (options.readError && init.method !== 'POST') return new Response('', { status: options.readError });
     if (options.invalidJson && init.method !== 'POST') return new Response('not-json', {status:200});
     if (url.endsWith('/dispatches')) {
@@ -80,6 +82,8 @@ test('disabled Cron with a saved secret stays entirely offline', async () => {
   assert.equal(f.calls.length, 0); assert.equal(f.data.size, 0);
 });
 for (const options of [{networkError:true,expected:'github_network_unavailable'},
+                       {headerError:true,expected:'github_header_invalid'},
+                       {contextError:true,expected:'github_request_context'},
                        {invalidJson:true,expected:'github_invalid_json'}]) {
   test(`read errors are classified safely: ${options.expected}`, async () => {
     const f = fixture(options);
@@ -92,6 +96,20 @@ test('disabled Cron without secret reports observation only', async () => {
   const f = fixture(); f.env.GITHUB_TOKEN = undefined; f.env.ENABLED = 'false';
   assert.equal((await tick(f.env, f.storage, now, now, f.request)).state, 'observation_only_no_token');
   assert.equal(f.calls.length, 0); assert.equal(f.data.size, 0);
+});
+test('fine-grained token whitespace is trimmed before remote use', async () => {
+  const f = fixture();
+  const original = f.env.GITHUB_TOKEN;
+  f.env.GITHUB_TOKEN = ' \n' + original + '\r\n';
+  assert.equal((await tick(f.env,f.storage,now,now,f.request)).state,'dispatch_accepted');
+  const request = f.calls.find(x => x.url.includes('/actions/workflows/'));
+  assert.equal(request.init.headers.Authorization,'Bearer '+original);
+});
+test('malformed GitHub token fails before any network access', async () => {
+  const f = fixture();
+  f.env.GITHUB_TOKEN = 'Bearer\nprivate\rtext';
+  await assert.rejects(tick(f.env,f.storage,now,now,f.request),/github_token_format_invalid/);
+  assert.equal(f.calls.length,0);
 });
 test('stale tick and enabled clock without secret cannot send', async () => {
   const f = fixture();
