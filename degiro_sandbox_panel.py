@@ -24,6 +24,15 @@ PANEL = r'''
 </details>
 </section>
 <hr>
+<section aria-label="DEGIRO Geld- und Briefkurstest">
+<h4>Geld- und Briefkurse einmalig prüfen</h4>
+<p>Bob sucht die genaue ISIN und Währung. Mehrdeutige Handelsplätze werden abgelehnt.</p>
+<label for="dgQuoteIsin">ISIN</label><input id="dgQuoteIsin" maxlength="12" autocomplete="off" style="width:100%;box-sizing:border-box;padding:12px">
+<label for="dgQuoteCurrency">Produktwährung</label><select id="dgQuoteCurrency"><option>EUR</option><option>CHF</option></select>
+<button id="dgQuoteRun" type="button" disabled>Geld-/Briefkurstest starten</button>
+<p id="dgQuoteResult" role="status">Noch kein Kurstest gestartet. Nutzt den Einmalcode oben, falls erforderlich.</p>
+<p class="small">Nur ein Leseversuch, maximal 45 Sekunden. Empfangene Kurse sind noch kein Nachweis ihrer Originalzeit, Verzögerungsfreiheit oder Ausführbarkeit. Keine Order.</p>
+</section><hr>
 <section aria-label="DEGIRO Ordervorprüfung">
 <h4>Orderentwurf bei DEGIRO prüfen · ohne Bestätigung</h4>
 <p>Einzelner inoffizieller Praxistest. Noch kein automatischer Dauerbetrieb. DEGIRO unterstützt diese Automatisierung nicht. Der Broker prüft nur die eingegebenen Angaben zum Prüfzeitpunkt; eine Ausführung wird nicht garantiert.</p>
@@ -112,7 +121,7 @@ function mount(){
  fetch('/api/degiro/connection-status',{credentials:'same-origin',cache:'no-store'}).then(async response=>{
   if(!response.ok)throw new Error('Status nicht erreichbar');
   const data=await response.json();
-  test.disabled=!data.ready;
+  test.disabled=!data.ready;document.getElementById('dgQuoteRun').disabled=!data.ready;
   connectionStatus.textContent=data.ready?'Bibliothek und Zugangsdaten eingerichtet. Verbindung noch nicht getestet.':(!data.sdkReady?'Bibliothek fehlt oder Version passt nicht. ':'')+(!data.credentialsConfigured?'DEGIRO-Zugangsdaten noch nicht eingerichtet. ':'');
   if(data.lastTest)connectionStatus.textContent='Letzter Lesetest: '+new Date(data.lastTest.checkedAt).toLocaleString()+' · '+(authDetail(data.lastTest)||(data.lastTest.code==='READ_OK'?'Anmeldung und Depotabruf erfolgreich.':'Keine Verbindung bestätigt ('+data.lastTest.code+').'));
  }).catch(()=>{connectionStatus.textContent='Einrichtungsstatus nicht erreichbar.';});
@@ -128,6 +137,24 @@ function mount(){
    connectionStatus.textContent=(messages[data.code]||'Unbekanntes Testergebnis.')+(data.code==='READ_OK'&&!data.logoutConfirmed?' Abmeldung nicht bestätigt; Sitzung in DEGIRO prüfen.':'');
    if(authDetail(data))connectionStatus.textContent=authDetail(data);
   }catch(error){connectionStatus.textContent='Lesetest nicht bestätigt: '+error.message;}finally{test.disabled=false;}
+ });
+
+ const quoteButton=document.getElementById('dgQuoteRun');
+ quoteButton.addEventListener('click',async()=>{
+  const out=document.getElementById('dgQuoteResult');
+  const quoteRequest={isin:document.getElementById('dgQuoteIsin').value.trim().toUpperCase(),currency:document.getElementById('dgQuoteCurrency').value};
+  if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(quoteRequest.isin)){out.textContent='Bitte eine vollständige ISIN eingeben.';return;}
+  if(otp.value&&!/^[0-9]{6}$/.test(otp.value)){out.textContent='Einmalcode muss sechs Ziffern haben.';return;}
+  const body=JSON.stringify({quoteRequest,otp:otp.value});otp.value='';quoteButton.disabled=true;
+  out.textContent='Produktzuordnung und Kurstest laufen … maximal 45 Sekunden.';
+  try{
+   const response=await fetch('/api/degiro/quote-test',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body});
+   if(!response.ok)throw new Error('HTTP '+response.status);
+   const data=await response.json();
+   const reasons={IDENTITY_UNCONFIRMED:'Produkt oder Handelsplatz nicht eindeutig zugeordnet.',QUOTE_INCOMPLETE:'Kein vollständiges, plausibles Geld-/Briefkurspaar empfangen.',QUOTE_UNAVAILABLE:'Kursabruf nicht verfügbar.',AUTH_REQUIRED:'DEGIRO-Anmeldung nicht bestätigt.',SETUP_REQUIRED:'Bibliothek oder Zugangsdaten fehlen.',BUSY:'Ein anderer Leseversuch läuft.',COOLDOWN:'Bitte mindestens 60 Sekunden zwischen Versuchen warten.',TIMEOUT:'Zeitlimit erreicht.',SDK_ERROR:'Technischer Abruf fehlgeschlagen.',INVALID_RESPONSE:'Brokerantwort nicht erkannt.'};
+   out.textContent=data.twoSidedObserved===true?'Geld '+data.bid+' / Brief '+data.ask+' '+quoteRequest.currency+' empfangen. Originalzeit und Ausführbarkeit bleiben unbestätigt.':authDetail(data)||reasons[data.code]||'Kurstest nicht bestätigt.';
+  }catch(error){out.textContent='Kurstest nicht bestätigt: '+error.message;}
+  finally{quoteButton.disabled=false;}
  });
 
  const previewButton=document.getElementById('dgPreviewRun');

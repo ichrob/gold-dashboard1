@@ -15,26 +15,51 @@ QUOTE_CODES = {'QUOTE_OBSERVED', 'QUOTE_INCOMPLETE', 'QUOTE_UNAVAILABLE',
 
 def validate_request(value):
     from snaptrade_portfolio import isin
-    if not isinstance(value, dict) or set(value) != {'productId', 'isin', 'currency', 'exchangeId'}:
+    if not isinstance(value, dict) or set(value) not in ({'isin', 'currency'}, {'productId', 'isin', 'currency', 'exchangeId'}):
         raise ValueError('Exact product identity required')
     if not isin(value['isin']) or value['currency'] not in ('EUR', 'CHF'):
         raise ValueError('Invalid product identity')
-    for key in ('productId', 'exchangeId'):
+    for key in ('productId', 'exchangeId') if 'productId' in value else ():
         if not isinstance(value[key], str) or not re.fullmatch(r'[1-9][0-9]{0,15}', value[key]):
             raise ValueError('Invalid broker identifier')
     return dict(value)
 
 
+def identify_request(api, request):
+    """Optional exact-ISIN lookup; ambiguity and truncated results fail closed."""
+    request = validate_request(request)
+    if 'productId' in request:
+        return request
+    from degiro_connector.trading.models.product_search import LookupRequest
+    response = api.product_search(product_request=LookupRequest(
+        search_text=request['isin'], limit=20, offset=0), raw=True)
+    rows = response.get('products') if isinstance(response, dict) else None
+    if not isinstance(rows, list) or len(rows) >= 20:
+        return None
+    matches = [r for r in rows if isinstance(r, dict) and
+               r.get('isin') == request['isin'] and r.get('currency') == request['currency']]
+    if len(matches) != 1:
+        return None
+    row = matches[0]
+    try:
+        return validate_request({**request, 'productId': str(row.get('id', '')),
+                                 'exchangeId': str(row.get('exchangeId', ''))})
+    except ValueError:
+        return None
+
+
 def resolve_product(value, response):
     """Require the selected broker ID, ISIN, currency and exchange together."""
     value = validate_request(value)
+    if 'productId' not in value:
+        return None
     data = response.get('data') if isinstance(response, dict) else None
     row = data.get(value['productId']) if isinstance(data, dict) else None
     if not isinstance(row, dict):
         return None
     if any(str(row.get(k)) != value[k] for k in ('isin', 'currency', 'exchangeId')):
         return None
-    if str(row.get('id')) != value['productId']:
+    if 'productId' not in value or str(row.get('id')) != value['productId']:
         return None
     feed_id = row.get('vwdId')
     # Support only the documented numeric issueid mapping in this first probe.
@@ -125,6 +150,9 @@ def sample(api, details, request):
     from degiro_connector.quotecast.tools.ticker_to_metric_list import TickerToMetricList
 
     request = validate_request(request)
+    request = identify_request(api, request)
+    if request is None:
+        return {'code': 'IDENTITY_UNCONFIRMED'}
     product = api.get_products_info(product_list=[int(request['productId'])], raw=True)
     feed_id = resolve_product(request, product)
     if feed_id is None:

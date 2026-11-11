@@ -155,3 +155,21 @@ class QuoteTests(unittest.TestCase):
         with patch.object(TickerFetcher,'get_session_id',return_value='abc'), patch.object(TickerFetcher,'subscribe',return_value=True), patch.object(TickerFetcher,'fetch_ticker',return_value=heartbeat) as fetch:
             self.assertEqual(q.sample(api, {'data':{'id':42}}, REQUEST)['code'], 'QUOTE_INCOMPLETE')
         self.assertEqual(fetch.call_count, 3)
+
+    def test_exact_lookup_never_chooses_first_or_ambiguous_listing(self):
+        short = {'isin':REQUEST['isin'],'currency':REQUEST['currency']}
+        row = PRODUCT['data']['123']
+        api = Mock(); api.product_search.return_value = {'products':[row]}
+        self.assertEqual(q.identify_request(api, short), REQUEST)
+        for rows in ([row, {**row,'id':'124','exchangeId':'457'}], [row]*20, [{**row,'currency':'CHF'}], []):
+            api.product_search.return_value = {'products':rows}
+            self.assertIsNone(q.identify_request(api, short))
+
+    def test_lookup_transport_is_only_available_for_exact_quote_request(self):
+        from degiro_readonly_worker import permitted
+        base='https://trader.degiro.nl/product_search/secure/v5/products/lookup'
+        url=base+'?searchText=US0378331005&limit=20&offset=0'
+        self.assertFalse(permitted('GET',url))
+        self.assertTrue(permitted('GET',url,REQUEST))
+        for changed in (url.replace('20','100'),url.replace('US0378331005','OTHER'),url+'#x'):
+            self.assertFalse(permitted('GET',changed,REQUEST))

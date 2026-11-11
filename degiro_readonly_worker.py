@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import sys
-from urllib.parse import urlsplit, urljoin
+from urllib.parse import urlsplit, urljoin, parse_qs
 
 
 def login_diagnostic(response):
@@ -79,11 +79,16 @@ def login_response_metadata(response):
     return result
 
 
-def permitted(method, url):
+def permitted(method, url, quote_request=None):
     parsed = urlsplit(url)
     if parsed.scheme != 'https' or parsed.netloc != 'trader.degiro.nl':
         return False
     path = parsed.path
+    if method == 'GET' and path == '/product_search/secure/v5/products/lookup':
+        query = parse_qs(parsed.query)
+        return (quote_request is not None and not parsed.fragment
+                and query.get('searchText') == [quote_request['isin']]
+                and query.get('limit') == ['20'] and query.get('offset') == ['0'])
     return ((method == 'POST' and path in ('/login/secure/login', '/login/secure/login/totp'))
             or (method == 'GET' and path == '/pa/secure/client')
             or (method == 'POST' and path == '/product_search/secure/v5/products/info')
@@ -110,7 +115,7 @@ def run(otp, emit=None, stop=None, quote_request=None):
     class ReadSession(Session):
         def send(self, request, **kwargs):
             nonlocal login_reason, login_metadata
-            if not permitted(request.method, request.url):
+            if not permitted(request.method, request.url, quote_request):
                 raise ValueError('Request outside read-only allowlist')
             kwargs.update(timeout=(5, 8), allow_redirects=False)
             response = super().send(request, **kwargs)

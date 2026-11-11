@@ -26,7 +26,7 @@ Sources inspected 2026-11-11:
 ## Manual private test after deployment
 
 `POST /api/degiro/quote-test` uses the existing Bob login and same-origin check.
-The request accepts only `otp` (optional six digits) and `quoteRequest`:
+The private DEGIRO panel now includes a manual quote-test button. The request accepts only `otp` (optional six digits) and `quoteRequest`:
 
 ```json
 {
@@ -40,8 +40,7 @@ The request accepts only `otp` (optional six digits) and `quoteRequest`:
 ```
 
 The example is synthetic, not a valid product mapping or a suggested test order.
-Obtain all four fields from the same private original broker listing. There is
-no first-search-result fallback. Product info must match every field and supply
+For an explicit mapping, obtain all four fields from the same private original broker listing. Alternatively send only `isin` and `currency`: the probe performs one exact lookup (limit 20), rejects truncated or ambiguous results, and requires product-info confirmation of the sole matching product and exchange. There is no first-search-result fallback. Product info must match every field and supply
 an `issueid` mapping; `vwdkey` and unknown mappings are explicitly unsupported.
 Do not put a real private product list, credentials, OTP, client ID or session
 ID into public issues, command arguments or logs. Existing credentials remain
@@ -78,3 +77,12 @@ source-clock and delay proof remains necessary even if that test succeeds.
 No real order is needed or permitted to perform this test. If login, mapping or
 subscription fails, preserve the fixed failure code and investigate that stage;
 do not weaken the evidence rules or move the sample into the simulation feed.
+
+## Authentication failure evidence
+
+`BOB_AUTH_DENIED` reports fixed reasons only (missing cookie, unknown/expired
+session, credential-version change, rejected persistent session, invalid session
+state). Each reason is limited to once per minute. It contains no cookie,
+username, password, token, path or request payload. Authorization decisions,
+8-hour/7-day durations and store-outage 503 behavior are unchanged. This is
+cause instrumentation, not a claim that the observed session loss is repaired.
