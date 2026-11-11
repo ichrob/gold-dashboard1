@@ -8,6 +8,7 @@ URL = 'https://api.gold-api.com/price/XAU'
 POLL_SECONDS = 30
 NEAR_EXPIRY_SECONDS = 30  # Original quote age, not time since the HTTP request.
 NEAR_EXPIRY_RETRY_SECONDS = 5
+FINAL_BUNDLE_RETRY_MAX_WAIT_SECONDS = 3
 _lock = threading.Lock()
 _quote = None
 _attempted = float('-inf')
@@ -39,6 +40,25 @@ def _cached_observation():
     if not 0<=age<=60:
         raise ValueError('Gemeinsamer Spot-Kurs veraltet oder Kurszeit zukünftig')
     return dict(quote,refreshWarning='Letzter Abruf fehlgeschlagen; gespeicherter Kurs innerhalb 60 Sekunden' if error else None)
+
+
+def final_bundle_retry_wait(source_at, max_wait=FINAL_BUNDLE_RETRY_MAX_WAIT_SECONDS):
+    """Return a tiny wait until the next already-permitted provider attempt.
+
+    Bundle assembly can finish a couple of seconds before the shared 30-second
+    provider cadence opens again. Waiting is allowed only for the exact cached
+    original, with no active request or provider cooldown, and never extends a
+    source timestamp or changes the ordinary polling interval.
+    """
+    if (not isinstance(source_at, str) or type(max_wait) not in (int, float)
+            or not 0 < max_wait <= FINAL_BUNDLE_RETRY_MAX_WAIT_SECONDS
+            or _lock.locked() or (_quote or {}).get('at') != source_at):
+        return None
+    now = time.monotonic()
+    if now < _retry_at:
+        return None
+    remaining = _poll_interval() - (now - _attempted)
+    return remaining if 0 < remaining <= max_wait else None
 
 
 def primary(blocking=True):
