@@ -204,7 +204,8 @@ def validate_degiro_ram(value, now):
     """Fixed, bounded process-memory counters only; reject arbitrary phone data."""
     if not isinstance(value, dict) or set(value) != RAM_FIELDS:
         raise ValueError('Invalid RAM telemetry fields')
-    if value['phase'] not in RAM_PHASES or value['endReason'] not in RAM_REASONS:
+    if (type(value['phase']) is not str or type(value['endReason']) is not str or
+            value['phase'] not in RAM_PHASES or value['endReason'] not in RAM_REASONS):
         raise ValueError('Invalid RAM telemetry enums')
     start = timestamp(value['startedAt'])
     end = timestamp(value['finishedAt'])
