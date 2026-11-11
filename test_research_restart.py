@@ -137,6 +137,7 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
                 p.init(conn);risk_paper.init(conn);shadow.init(conn);r.init(conn)
                 before=conn.execute('SELECT payload FROM bob_paper_balanced_control').fetchone()[0]
+                ema_start=conn.execute('SELECT payload FROM bob_paper_ema3000nov_control').fetchone()[0]['startAt']
                 conn.commit()
                 r.start(conn,NOW)
                 # A transaction rollback must undo snapshots AND retire flags.
@@ -154,7 +155,10 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(ctl['retiredAt'],NOW)
                 for profile in ('trend800nov', 'normal1000nov', 'ema3000nov'):
                     relaunch=conn.execute('SELECT payload FROM '+p.names(profile)['bob_paper_control']).fetchone()[0]
-                    self.assertEqual(relaunch['startAt'],p.RELAUNCH_START)
+                    if profile == 'ema3000nov':
+                        self.assertEqual(relaunch['startAt'],ema_start)
+                    else:
+                        self.assertEqual(relaunch['startAt'],p.RELAUNCH_START)
                     self.assertEqual(relaunch['endAt'],p.RELAUNCH_END)
                     self.assertNotIn('retiredAt',relaunch)
                     self.assertEqual(relaunch['cash'],p.POLICIES[profile]['initial_capital_eur'])
