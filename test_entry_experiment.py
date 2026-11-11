@@ -17,10 +17,24 @@ class Tests(unittest.TestCase):
     def test_one_parameter_changes_and_symmetric_directions(self):
         for direction in ('LONG','SHORT'):
             variants=self.row(direction)[0]['entryExperiment']['variants']
-            for key in ('reference','atr2','age20'):
+            for key in ('reference','atr2','atr25','age20'):
                 self.assertEqual(variants[key],direction)
             for key in ('atr1','age10','cautious'):
                 self.assertEqual(variants[key],'NEUTRAL')
+
+    def test_new_distance_variant_and_no_old_cohort_backfill(self):
+        for direction in ('LONG','SHORT'):
+            r,t=self.row(direction)
+            r['marketOptimization']['entry']['deviationAtr']=2.25
+            r['entryExperiment']=trial.capture(r)
+            self.assertEqual(r['entryExperiment']['variants']['atr25'],direction)
+            self.assertEqual(r['entryExperiment']['variants']['atr2'],'NEUTRAL')
+            for g in trial.report([(r,t)],audit.outcome)['groups']:
+                self.assertEqual(g['variants']['atr25']['signals'],1)
+                self.assertIsNotNone(g['variants']['atr25']['worstNetEndpointPct'])
+                self.assertIsNone(g['variants']['atr2']['worstNetEndpointPct'])
+            r['entryExperiment']['version']='entry-experiment-v1'
+            self.assertEqual(trial.report([(r,t)],audit.outcome)['sampled'],0)
 
     def test_unknown_input_is_not_a_wait_or_win(self):
         for value in (None, float('nan'), -1, True):
@@ -36,7 +50,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(row,before)
         for g in result['groups']:
             self.assertEqual(g['cases'],1)
-            self.assertEqual(len(g['variants']),7)
+            self.assertEqual(len(g['variants']),8)
             self.assertEqual(g['variants']['cautious']['missedWins'],1)
             self.assertEqual(g['variants']['cautious']['avoidedLosses'],0)
             self.assertAlmostEqual(g['variants']['cautious']['meanDifferencePct'],-.01)

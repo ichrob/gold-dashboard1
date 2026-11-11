@@ -1379,7 +1379,12 @@ ANALYSIS = shape('ready','priceFresh','dataAt','analysisBarAt','price','directio
     entryPreparation=shape('state','direction','sourceAt','signalBarAt','reason','entryApproved','productApproved','positionSize',
         plan=shape('kind','direction','entry','stop','target','unit','source','experimental')),
     earlyWarning=EARLY_WARNING, analysisSnapshot=INDICATORS, trendContext=shape('available','direction','intact','reason'),
-    entryTimingGate=shape('allowed','reason','status'),session=shape('phase','entryAllowed','reason'),
+    entryTimingGate=shape('allowed','reason','status','available','version','setup',
+        'deviationAtr','impulseAtr','signalAgeMinutes','atr5m','barAt','priceAt',
+        'freshContinuation','freshContinuationAt','minutesSinceFiveClose','pullbackReset',
+        continuationChecks=shape('recentClosedBar','distanceWithinTwoAtr','impulseWithinLimit',
+            'previousCandleAligned','latestCandleAligned','previousCloseProgress',
+            'closedBreakout','minimumFollowThrough','spotHoldsBreakout')),session=shape('phase','entryAllowed','reason'),
     dmi=shape('available','mode','direction','reason',
         frames={tf:shape('available','adx','plusDI','minusDI','direction','reason','barAt')
                 for tf in ('5m','15m','1h')}),continuedPlan=PLAN)

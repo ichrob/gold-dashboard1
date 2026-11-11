@@ -1342,11 +1342,11 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    lines.push(review.note);
   }
   const experiment=o.entryExperiment;
-  if(experiment?.version==='entry-experiment-v1'){
+  if(['entry-experiment-v1','entry-experiment-v2'].includes(experiment?.version)){
    lines.push('\nTest Punkte 2 und 4: Einstiegsschwellen und schnell / vorsichtig',experiment.sampled+' Startpunkte · '+experiment.missing+' fehlende Zeiträume · '+experiment.pending+' ausstehend');
    for(const g of experiment.groups||[]){
     lines.push('\n'+phaseNames[g.phase]+' · '+(regimeNames[g.regime]||g.regime)+' · '+g.horizon+' Min. · '+g.cases+' gemeinsame Fälle');
-    for(const [k,m] of Object.entries(g.variants))lines.push(experiment.labels[k]+': '+m.signals+' Signale / '+m.wait+' Abwarten · '+m.wins+' positiv / '+m.losses+' negativ · Mittel '+n(m.sumPct/g.cases)+' % · Differenz zur aktuellen Regel '+n(m.meanDifferencePct)+' Prozentpunkte · '+m.avoidedLosses+' negative Fälle vermieden / '+m.missedWins+' positive Fälle ausgelassen.');
+    for(const [k,m] of Object.entries(g.variants))lines.push(experiment.labels[k]+': '+m.signals+' Signale / '+m.wait+' Abwarten · '+m.wins+' positiv / '+m.losses+' negativ · Mittel '+n(m.sumPct/g.cases)+' % · Differenz zur aktuellen Regel '+n(m.meanDifferencePct)+' Prozentpunkte · '+m.avoidedLosses+' negative Fälle vermieden / '+m.missedWins+' positive Fälle ausgelassen.'+(Number.isFinite(m.worstNetEndpointPct)?' Schlechtester Netto-Endpunkt: '+n(m.worstNetEndpointPct)+' % (kein Verlauf-Drawdown).':''));
    }
    lines.push(experiment.note);
   }

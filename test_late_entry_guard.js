@@ -55,6 +55,7 @@ for(const direction of ['LONG','SHORT']){
  assert.equal(r.allowed,true,direction+' '+JSON.stringify(r));
  assert.equal(r.setup,'fresh-5m-continuation');
  assert.equal(r.freshContinuation,true);
+ assert(Object.values(r.continuationChecks).every(Boolean));
  assert.equal(r.freshContinuationAt,now);
  assert.equal(r.signalAgeMinutes,31); // original 15m clock is not forged
  const noBreak=JSON.parse(JSON.stringify(b));
@@ -62,6 +63,7 @@ for(const direction of ['LONG','SHORT']){
  if(direction==='LONG')prev.high=latest.close+.5;
  else prev.low=latest.close-.5;
  assert.equal(guard.check(noBreak,direction,now,now-31*M).allowed,false,'no real close breakout');
+ assert.equal(guard.check(noBreak,direction,now,now-31*M).continuationChecks.closedBreakout,false);
  const old=JSON.parse(JSON.stringify(b)),later=now+2*M;
  old.spots.spot_price_as_of=new Date(later-10000).toISOString();
  assert.equal(guard.check(old,direction,later,later-31*M).allowed,false,'2-minute-old continuation cannot be reused');

@@ -70,14 +70,18 @@
    // A late 15m signal may be followed by an independently NEW, source-verified
    // closed 5m breakout. Never reuse the old confirmation time, an open bar or a wick.
    const minutesSinceFiveClose=(now-latest.openTime-STEPS['5m'])/60000;
-   const continuation=minutesSinceFiveClose>=0&&minutesSinceFiveClose<=1.5
-      &&deviation>0&&deviation<=2.0&&impulse<=2.5
-      &&sign*(prev.close-prev.open)>0
-      &&sign*(latest.close-latest.open)>0
-      &&sign*(prev.close-prev2.close)>0
-      &&sign*(latest.close-(sign>0?prev.high:prev.low))>0
-      &&sign*(latest.close-prev.close)>=0.15*atr
-      &&sign*(spot.xaus-latest.close)>=-0.25*atr;
+   const continuationChecks={
+     recentClosedBar:minutesSinceFiveClose>=0&&minutesSinceFiveClose<=1.5,
+     distanceWithinTwoAtr:deviation>0&&deviation<=2.0,
+     impulseWithinLimit:impulse<=2.5,
+     previousCandleAligned:sign*(prev.close-prev.open)>0,
+     latestCandleAligned:sign*(latest.close-latest.open)>0,
+     previousCloseProgress:sign*(prev.close-prev2.close)>0,
+     closedBreakout:sign*(latest.close-(sign>0?prev.high:prev.low))>0,
+     minimumFollowThrough:sign*(latest.close-prev.close)>=0.15*atr,
+     spotHoldsBreakout:sign*(spot.xaus-latest.close)>=-0.25*atr
+   };
+   const continuation=Object.values(continuationChecks).every(Boolean);
    const reasons=[];
    if(deviation>1.5&&!continuation)reasons.push('Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt');
    if(impulse>2.5&&deviation>0.80)reasons.push('Bewegung der letzten 3×5m-Kerzen bereits über 2,5 ATR');
@@ -92,6 +96,7 @@
                                   'Bestätigung aktuell, Bewegung nicht überdehnt'),
        deviationAtr:Math.round(deviation*100)/100,impulseAtr:Math.round(impulse*100)/100,
        signalAgeMinutes:age===null?null:Math.round(age*10)/10,
+       continuationChecks,minutesSinceFiveClose,
        freshContinuation:continuation&&reasons.length===0,
        freshContinuationAt:continuation?latest.openTime+STEPS['5m']:null,
        pullbackReset:reset,atr5m:atr,barAt:latest.openTime,
