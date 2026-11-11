@@ -1061,8 +1061,7 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
                 # Inspect the SAME five already loaded cases; never run a
                 # second historical query or publish their original payloads.
                 account['netEvidenceSample'] = __import__('paper_net_evidence').sample([
-                    paper_case_review.project_case(row[0], account['profile'])
-                    for row in cases])
+                    row[0] for row in cases])
             except Exception:
                 account['recentCases'] = {'status':'unavailable'}
                 account['netEvidenceSample'] = {'status':'unavailable', 'readOnly':True,
