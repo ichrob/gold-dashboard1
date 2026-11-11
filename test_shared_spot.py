@@ -92,6 +92,7 @@ class SharedSpotTests(unittest.TestCase):
                 self.assertEqual(request.call_count,2)
         evidence=[row for row in captured.output if 'BOB_SPOT_FETCH_EVIDENCE' in row]
         self.assertEqual(len(evidence),2)
+        self.assertIn('source_at='+payload['updatedAt'],evidence[0])
         self.assertIn('repeated=False early_retry=False route=0',evidence[0])
         self.assertIn('repeated=True early_retry=True route=0',evidence[1])
         self.assertNotIn(str(payload['price']), '\n'.join(evidence))
