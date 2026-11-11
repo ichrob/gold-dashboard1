@@ -950,6 +950,72 @@ def newer_queued_paper_bundle(current, candidate, now_ms):
             and (old_time is None or new_time>old_time) else current)
 
 
+def rejected_newer_paper_bundle_evidence(current, candidate, now_ms):
+    """Explain only a newer-provider-clock candidate rejected by the selector.
+
+    This is bounded, redacted telemetry for diagnosing the final study handoff.
+    It reports source/bar clocks and a fixed reason code, never prices, products,
+    prompts or account data, and it does not change admission behavior.
+    """
+    def source_at(bundle):
+        spots=bundle.get('spots') if isinstance(bundle,dict) else None
+        source=spots.get('spot_price_as_of') if isinstance(spots,dict) else None
+        if not isinstance(source,str):
+            return None
+        try:
+            at=datetime.fromisoformat(source.replace('Z','+00:00'))
+            if at.tzinfo is None:
+                return None
+            value=at.timestamp()*1000
+            return value if math.isfinite(value) and value>0 else None
+        except (TypeError,ValueError,OverflowError):
+            return None
+
+    def closed_15m_at(bundle):
+        history=bundle.get('history') if isinstance(bundle,dict) else None
+        frames=history.get('bars_by_tf') if isinstance(history,dict) else None
+        bars=frames.get('15m') if isinstance(frames,dict) else None
+        if not isinstance(bars,list):
+            return None
+        for bar in reversed(bars):
+            if not isinstance(bar,dict):
+                continue
+            at=bar.get('openTime')
+            if (type(at) in (int,float) and math.isfinite(at) and at>0
+                    and bar.get('isOpen') is not True
+                    and bar.get('providerIsOpen') is not True
+                    and bar.get('estimated') is not True):
+                return at
+        return None
+
+    old_time=source_at(current)
+    new_time=source_at(candidate)
+    if new_time is None or old_time is None or new_time<=old_time:
+        return None
+    spots=candidate.get('spots') if isinstance(candidate,dict) else None
+    new_bar=closed_15m_at(candidate)
+    old_bar=closed_15m_at(current)
+    if not isinstance(spots,dict) or (spots.get('is_genuine_xauusd_spot') is not True
+                                     or spots.get('xaus_is_spot') is not True):
+        reason='spot-identity-unverified'
+    elif new_bar is None:
+        reason='observed-closed-15m-missing'
+    elif old_bar is not None and new_bar<old_bar:
+        reason='observed-closed-15m-rollback'
+    elif type(now_ms) not in (int,float) or not math.isfinite(now_ms):
+        reason='check-clock-invalid'
+    elif now_ms-new_time<0:
+        reason='source-clock-future'
+    elif now_ms-new_time>60000:
+        reason='source-clock-stale'
+    else:
+        return None
+    return dict(reasonCode=reason,currentSourceAt=int(old_time),
+                candidateSourceAt=int(new_time),
+                currentClosed15mAt=int(old_bar) if old_bar is not None else None,
+                candidateClosed15mAt=int(new_bar) if new_bar is not None else None)
+
+
 def study_closed_bar_retry_needed(bundle, market, now_ms):
     """Retry once when the evaluator is fresh but its ORIGINAL signal bar is absent.
 
@@ -1476,8 +1542,20 @@ def enqueue(bundle, db):
     global _latest,_study_latest,_thread
     with _guard:
         _latest=bundle
+        previous_study_latest=_study_latest
+        observed_now=time.time()*1000
         _study_latest=newer_queued_paper_bundle(
-            _study_latest,bundle,time.time()*1000)
+            previous_study_latest,bundle,observed_now)
+        rejection=rejected_newer_paper_bundle_evidence(
+            previous_study_latest,bundle,observed_now)
+        if rejection is not None and _study_latest is previous_study_latest:
+            print('BOB_STUDY_CANDIDATE_REJECTED '+
+                  'reason='+rejection['reasonCode']+
+                  ' current_source_at_ms='+str(rejection['currentSourceAt'])+
+                  ' candidate_source_at_ms='+str(rejection['candidateSourceAt'])+
+                  ' current_closed_15m_at_ms='+str(rejection['currentClosed15mAt'])+
+                  ' candidate_closed_15m_at_ms='+str(rejection['candidateClosed15mAt']),
+                  flush=True)
         _bundle_ready.set()
         if _thread is None or not _thread.is_alive():
             _thread=threading.Thread(target=_worker,args=(db,),daemon=True,name='bob-paper-simulation');_thread.start()

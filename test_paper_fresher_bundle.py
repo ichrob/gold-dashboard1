@@ -1,6 +1,8 @@
 """Paper-only, zero-network fresh queued input preference tests."""
 import unittest
+import io
 from datetime import datetime, timezone, timedelta
+from contextlib import redirect_stdout
 from unittest.mock import patch
 import paper_simulation as paper
 
@@ -65,6 +67,53 @@ class FreshPaperBundleTests(unittest.TestCase):
         newer['history']['bars_by_tf']['15m'][0]['openTime']=self.NOW-100000
         self.assertIs(paper.newer_queued_paper_bundle(old,newer,self.NOW),newer)
         self.assertIs(paper.late_risk_retry_bundle(old,newer,self.NOW),newer)
+
+    def test_rejected_newer_candidate_reports_bounded_reason_and_clocks(self):
+        old=bundle(self.NOW,45)
+        missing=bundle(self.NOW,5,history=False)
+        evidence=paper.rejected_newer_paper_bundle_evidence(
+            old,missing,self.NOW)
+        self.assertEqual(evidence,{
+            'reasonCode':'observed-closed-15m-missing',
+            'currentSourceAt':self.NOW-45000,
+            'candidateSourceAt':self.NOW-5000,
+            'currentClosed15mAt':self.NOW-300000,
+            'candidateClosed15mAt':None})
+
+        rollback=bundle(self.NOW,5)
+        rollback['history']['bars_by_tf']['15m'][0]['openTime']=self.NOW-1200000
+        self.assertEqual(
+            paper.rejected_newer_paper_bundle_evidence(old,rollback,self.NOW)['reasonCode'],
+            'observed-closed-15m-rollback')
+        self.assertIsNone(paper.rejected_newer_paper_bundle_evidence(
+            old,bundle(self.NOW,5),self.NOW))
+
+    def test_enqueue_prints_real_rejection_reason_without_bundle_payload(self):
+        old=bundle(self.NOW,45)
+        rejected=bundle(self.NOW,5,history=False)
+        class Running:
+            @staticmethod
+            def is_alive():
+                return True
+        saved=(paper._latest,paper._study_latest,paper._thread)
+        try:
+            paper._latest=None
+            paper._study_latest=old
+            paper._thread=Running()
+            output=io.StringIO()
+            with patch.object(paper.background_push,'degiro_session',return_value='trading'), \
+                    patch.object(paper.time,'time',return_value=self.NOW/1000), \
+                    redirect_stdout(output):
+                paper.enqueue(rejected,None)
+            line=output.getvalue()
+            self.assertIn('BOB_STUDY_CANDIDATE_REJECTED',line)
+            self.assertIn('reason=observed-closed-15m-missing',line)
+            self.assertNotIn("'spots'",line)
+            self.assertNotIn("'history'",line)
+            self.assertIs(paper._study_latest,old)
+        finally:
+            paper._latest,paper._study_latest,paper._thread=saved
+            paper._bundle_ready.clear()
 
     def test_missing_old_input_can_only_be_replaced_with_verified_source(self):
         original={'spots':{'spot_price_as_of':'invalid'},'history':{}}
