@@ -110,8 +110,8 @@ After documented `github_network_unavailable` during read-only GitHub-API
 access, diagnose egress without touching the existing owner secret. Only while
 `ENABLED=false`, an operator may temporarily set `DIAG_UNAUTH=true`. The
 existing Durable Object then runs **once** against GitHub's public fixed
-`/zen` URL: one minimal `fetch`, and (only after it returns an HTTP response)
-one request with the original Accept/User-Agent/redirect/AbortSignal options.
+`/zen` URL: one minimal `fetch`, and only after each HTTP response up to three further
+GETs adding Accept/User-Agent, then redirect mode, then AbortSignal separately.
 A durable pre-attempt marker makes the probe one-shot; the response body is
 never read, retained or logged, and the token is never sent. Results are only
 numeric HTTP statuses or fixed redacted failure categories. No workflow can
