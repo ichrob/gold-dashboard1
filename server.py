@@ -2280,7 +2280,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if path in ("/api/degiro/connection-test", "/api/degiro/sync/start", "/api/degiro/sync/stop", "/api/degiro/preflight"):
+        if path in ("/api/degiro/connection-test", "/api/degiro/sync/start", "/api/degiro/sync/stop", "/api/degiro/preflight", "/api/degiro/quote-test"):
             if not self.authenticated():
                 bob_auth.send(self, 401)
                 return
@@ -2289,15 +2289,21 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= (2048 if path.endswith("/preflight") else 128):
+                if not 0 < length <= (2048 if path.endswith(("/preflight", "/quote-test")) else 128):
                     raise ValueError("Ungültige Anfragegröße")
                 payload = json.loads(self.rfile.read(length))
-                if not isinstance(payload, dict) or (not path.endswith("/preflight") and set(payload) - {"otp"}):
+                if not isinstance(payload, dict) or (not path.endswith(("/preflight", "/quote-test")) and set(payload) - {"otp"}):
                     raise ValueError("Ungültige Anfrage")
+                if path.endswith("/quote-test"):
+                    from degiro_quote_probe import validate_request
+                    if set(payload) - {"otp", "quoteRequest"}:
+                        raise ValueError("Invalid quote test")
+                    validate_request(payload.get("quoteRequest"))
                 result = (degiro_preflight.probe(payload) if path.endswith("/preflight") else
                           degiro_sync.start(payload.get("otp", "")) if path.endswith("/start") else
                           degiro_sync.stop() if path.endswith("/stop") else
                           {"ok": False, "code": "BUSY"} if degiro_sync.status()["running"] else
+                          degiro_readonly.probe(payload.get("otp", ""), payload["quoteRequest"]) if path.endswith("/quote-test") else
                           degiro_readonly.probe(payload.get("otp", "")))
                 code = 200
             except (ValueError, TypeError):
