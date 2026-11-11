@@ -138,3 +138,23 @@ and no new scope is allowed. The tokenless probe is already persistently
 consumed; do not reset it. A separate disabled, read-only `DRY_RUN` and
 actual `workflow_dispatch`/monitor receipts remain mandatory before declaring
 end-to-end success. Preserve the native GitHub schedule until accepted.
+
+## Run-list consistency follow-up (11.11.2026 04:44 UTC)
+
+The first scheduled authenticated read-only probe after the safe redirect-mode
+patch confirmed that Cloudflare reached the GitHub API using the owner token.
+The request was rejected by Bob's own previous six-filter response invariant
+with `inconsistent_run_list`; **no GitHub workflow dispatch occurred**.
+A filtered GitHub response did not meet the strict count/page agreement; this
+is a list-quality observation, not proof that GitHub CI or Bob itself failed.
+
+The existing worker now requests **one** bounded, unfiltered-by-status latest
+page for only workflow 382076329 on `main` (50 rows maximum) instead of six
+separate status filters. Identity, final timestamps, active run status, recent
+successes and recent nonsuccessful executions are checked independently.
+Unknown/malformed data still fails closed; an active or recent run suppresses
+new dispatch. An old active run outside the bounded page is not independently
+excluded; the existing GitHub concurrency group continues to enforce safety.
+The change never assumes total_count is a verified complete history and never
+permits an unsafe redirect. Do not remove native GitHub Cron until live
+workflow_dispatch and monitor evidence across the owner-approved window.
