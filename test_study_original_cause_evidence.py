@@ -33,6 +33,43 @@ class OriginalEvidenceTests(unittest.TestCase):
         self.assertEqual(state['quality']['invalid'], 2)
         self.assertLessEqual(len(state['quality']['recentOriginalFailureEvidence']), 16)
 
+    def test_failure_witness_expires_after_valid_followups_and_at_read_time(self):
+        bundle, market = sample()
+        bundle['spots']['is_genuine_xauusd_spot'] = False
+        state, _ = r.advance(r.seed(NOW), bundle, market, NOW)
+        self.assertEqual(len(state['quality']['recentOriginalFailureEvidence']), 1)
+
+        # The inclusive twenty-minute boundary remains recent.
+        at_boundary = NOW + 20 * 60000
+        state, _ = r.advance(state, *sample(at_boundary), at_boundary)
+        self.assertEqual(len(state['quality']['recentOriginalFailureEvidence']), 1)
+
+        # A valid next cycle must prune the expired witness without waiting for
+        # another failure. Cumulative counts are preserved.
+        after_boundary = at_boundary + 1
+        state, _ = r.advance(state, *sample(after_boundary), after_boundary)
+        self.assertEqual(state['quality']['recentOriginalFailureEvidence'], [])
+        self.assertEqual(state['quality']['invalid'], 1)
+        self.assertEqual(state['quality']['originalBlockReasons'],
+                         {'spot-identity-unverified': 1})
+
+        # Read-time filtering is independent of worker maintenance: an old
+        # stored snapshot cannot claim an expired witness is still recent.
+        stale_state = r.seed(NOW)
+        stale_state['quality']['recentOriginalFailureEvidence'] = [
+            r.original_failure_evidence(
+                {'sourceAt': NOW, 'analysisBarAt': NOW,
+                 'reasonCode': 'spot-source-not-fresh',
+                 'closedSignalBarMatched': True},
+                sample()[0], sample()[1], NOW, '15m')]
+        report = {'qualityCampaign': {
+            'status': 'collecting', 'checkedAt': NOW,
+            'studies': r.study_rows(stale_state)}}
+        brief = bob_diagnostics.new_studies_brief(report, after_boundary)
+        reaction = next(x for x in brief['quality']['studies']
+                        if x['id'] == 'reaction')
+        self.assertEqual(reaction.get('recentOriginalFailureEvidence', []), [])
+
     def test_future_quote_is_rejected_even_if_market_price_matches(self):
         bundle, market = sample(NOW + 1000)
         result, _ = r.advance(r.seed(NOW), bundle, market, NOW)

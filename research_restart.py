@@ -225,6 +225,17 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
             and row.get('study') in STUDIES
             and type(row.get('complete')) is bool
         ]
+        # "Recent" witnesses must age out even when every following input is
+        # valid. Pruning only while appending another failure left stale causes
+        # visible indefinitely during successful study cycles.
+        witnesses = q.get('recentOriginalFailureEvidence')
+        witnesses = witnesses if isinstance(witnesses, list) else []
+        q['recentOriginalFailureEvidence'] = [
+            row for row in witnesses[-16:]
+            if isinstance(row, dict)
+            and type(row.get('checkedAt')) is int
+            and 0 <= now - row['checkedAt'] <= 20 * 60000
+        ]
     if quality['verified']:
         q['original'] += 1
     else:
@@ -242,15 +253,11 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
         if not valid:
             q['invalid'] += 1
         if not modeled:
-            witnesses = q.get('recentOriginalFailureEvidence')
-            witnesses = witnesses if isinstance(witnesses, list) else []
-            # Prospective evidence only. Older 713 invalid results retain their
+            # Prospective evidence only. Older invalid results retain their
             # original counts and cannot be retrospectively reconstructed.
+            # The per-cycle maintenance above already removed expired rows.
             q['recentOriginalFailureEvidence'] = (
-                [row for row in witnesses[-15:]
-                 if isinstance(row, dict)
-                 and type(row.get('checkedAt')) is int
-                 and 0 <= now - row['checkedAt'] <= 20 * 60000]
+                q['recentOriginalFailureEvidence'][-15:]
                 + [original_failure_evidence(quality, bundle, market, now, timeframe)]
             )[-16:]
     fresh = valid and (state['lastSourceAt'] is None or at > state['lastSourceAt'])

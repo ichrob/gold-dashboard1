@@ -445,6 +445,14 @@ def new_studies_brief(paper, now_ms=None):
                         continue
                     if item.get('timeframe') not in ('5m','15m'):
                         continue
+                    checked_at = item.get('checkedAt')
+                    # Read-time truth guard: a stopped worker or a snapshot read
+                    # between maintenance cycles must not expose an expired
+                    # witness as belonging to the last 20 minutes.
+                    if type(now_ms) in (int, float):
+                        if (type(checked_at) is not int
+                                or not 0 <= now_ms - checked_at <= 20 * 60000):
+                            continue
                     witnesses.append(fields(item, ('checkedAt','sourceAt','analysisBarAt',
                         'reasonCode','timeframe','sourceAgeMs','dataSourceDeltaMs',
                         'identityVerified','closedSignalBarMatched','clockRelation')))
