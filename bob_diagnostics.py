@@ -553,11 +553,22 @@ def rapid_leverage_brief(control):
         if not isinstance(a,dict) or a.get('setup') not in permitted:
             continue
         n=lambda key: a[key] if type(a.get(key)) is int and 0<=a[key]<=1000000 else None
+        review=a.get('modelReview') if isinstance(a.get('modelReview'),dict) else {}
         row={'setup':a['setup'],'started':n('started'),'closed':n('closed'),
              'inconclusive':n('inconclusive'),'open':a.get('open') is True,
              'latestBlockReason':a.get('latestBlockReason') if
                 a.get('latestBlockReason') in allowed_blockers else None,
-             'levers':[]}
+             'modelReview':{
+                'status':review.get('status') if review.get('status') in
+                    ('exploratory-proxy-only','insufficient-comparable-evidence','unavailable')
+                    else 'unavailable',
+                'comparableCases':review.get('comparableCases') if
+                    type(review.get('comparableCases')) is int else None,
+                'exploratoryModelLeader':review.get('exploratoryModelLeader') if
+                    review.get('exploratoryModelLeader') in (3,5,8,10,15,20,30)
+                    and type(review.get('exploratoryModelLeader')) is int else None,
+                'netProductVerified':False,'strategyWinnerConfirmed':False
+             }, 'levers':[]}
         # Report every configured lever in the read-only study; the previous
         # four-value subset hid 3x, 8x and 15x from coverage accounting.
         for leverage in (3,5,8,10,15,20,30):

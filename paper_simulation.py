@@ -877,6 +877,14 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             if not entered:
                 entry_checklist=paper_entry_review.capture(market,choice,quotes.get(choice['isin']) if choice else None,now,False,reason,control,profile_policy)
             control['lastEntryChecklist']=entry_checklist
+            # Persist the last trading-window gate separately: the night
+            # session overwrites control.reason, but not this redacted code.
+            # Never store an ISIN, quote, full blocker text or model profit.
+            if profile_policy and profile_policy.get('relaunch'):
+                from paper_profit_summary import entry_block_code
+                control['lastTradingEntryBlockCode'] = (
+                    None if entered else entry_block_code(reason))
+                control['lastTradingEntryBlockAt'] = now
             control.update(status='running',reason=reason)
             day_update(conn,day,wait=None if entered else reason,now=now,capital=control,checklist=entry_checklist,
                        entry=entry_block_context(market, choice, control)

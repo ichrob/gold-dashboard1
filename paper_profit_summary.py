@@ -22,6 +22,50 @@ def number(value, *, positive=False, timestamp=False):
     return float(value)
 
 
+def entry_block_code(value):
+    """Classify the latest saved gate without exposing raw product or private data.
+
+    A reason is a current-control observation only. No historical blocker
+    counts, missed-profit estimate or assumption that a trade was possible.
+    """
+    if not isinstance(value,str) or not value.strip():
+        return 'not-observed'
+    reason=value.lower()
+    if any(word in reason for word in ('goldkurs nicht aktuell','quellenzeit','marktdaten',
+                                      'daten fehlen','quellenlücke')):
+        return 'source-not-fresh'
+    if any(word in reason for word in ('außerhalb','nachtmodus','markt geschlossen',
+                                      'börsenpause','einstiegszeit')):
+        return 'session-paused'
+    if any(word in reason for word in ('kein bestätigter gültiger goldplan',
+                                      'stopp-/zielplan','risikoplan','kein gültiger goldplan',
+                                      'kein bestätigter stopp')):
+        return 'plan-not-ready'
+    if any(word in reason for word in ('geld-/brief','geldkurs','briefkurs','kursart',
+                                      'ausführungskurs','quote')):
+        return 'product-quote-missing'
+    if any(word in reason for word in ('ko-schutz','knock-out','ko-barriere',
+                                      'ko-schwelle')):
+        return 'knockout-protection'
+    if any(word in reason for word in ('kein passendes belegtes produkt','kein geeigneter',
+                                      'produkteeinstieg','produktfreigabe','nicht freigegeben')):
+        return 'product-not-approved'
+    if any(word in reason for word in ('kollektivrichtungswert','score zu schwach')):
+        return 'signal-score-weak'
+    if any(word in reason for word in ('tagesrisiko','risikolimit','risikobudget','verlustgrenze','tagesverlustgrenze')):
+        return 'risk-limit'
+    if any(word in reason for word in ('abwarten','keine bestätigte richtung',
+                                      'keine einstiegsrichtung','signal neutral')):
+        return 'no-direction'
+    return 'other-or-unclassified'
+
+
+ENTRY_BLOCK_CODES = frozenset((
+    'not-observed','source-not-fresh','session-paused','plan-not-ready',
+    'product-quote-missing','knockout-protection','product-not-approved',
+    'signal-score-weak','risk-limit','no-direction','other-or-unclassified'))
+
+
 def snapshot(accounts):
     """Project only explicitly allowlisted account-control numbers already read."""
     unavailable = dict(status='unavailable', readOnly=True, realOrders=False,
@@ -46,6 +90,18 @@ def snapshot(accounts):
         model_pct = (round((equity / initial - 1) * 100, 4)
                      if initial is not None and equity is not None else None)
         status = a.get('status') if a.get('status') in STATUSES else 'unavailable'
+        # The night pause overwrites the displayed reason. Prefer the last
+        # trading-window code saved by the virtual ledger, never the raw text.
+        control = a.get('control') if isinstance(a.get('control'),dict) else {}
+        last_code, last_at = None, None
+        if profile in ('trend800nov','normal1000nov'):
+            stored = a.get('lastTradingEntryBlockCode',
+                           control.get('lastTradingEntryBlockCode'))
+            last_code = (stored if isinstance(stored,str) and stored in ENTRY_BLOCK_CODES
+                         else entry_block_code(a.get('reason') or control.get('reason')))
+            last_at = number(a.get('lastTradingEntryBlockAt',
+                                   control.get('lastTradingEntryBlockAt')),
+                             timestamp=True)
         rows.append(dict(
             profile=profile, source='saved-virtual-control',
             status=status,
@@ -59,7 +115,9 @@ def snapshot(accounts):
             modelReturnPct=model_pct,
             realizedModelProfitEur=number(a.get('realizedProfit')),
             exampleCostsDebitedEur=number(a.get('costsDebitedEur')),
-            tradeOutcomeVerified=False))
+            tradeOutcomeVerified=False,
+            latestEntryBlockCode=last_code,
+            latestEntryBlockAt=last_at))
     complete = all(r.get('source') == 'saved-virtual-control'
                    and r.get('initialCapitalEur') is not None
                    and r.get('equityEur') is not None for r in rows)
