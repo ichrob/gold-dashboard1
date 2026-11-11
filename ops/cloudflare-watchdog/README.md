@@ -103,3 +103,18 @@ bodies or token values. Do not declare completion or remove GitHub's native
 schedule until an actual external `workflow_dispatch` monitor run succeeds and
 repeat observations span two hours. The earlier 03:44 failure remains an
 unknown transport/runtime error until the next safe diagnostic observation.
+
+## Bounded outbound diagnosis (11.11.2026)
+
+After documented `github_network_unavailable` during read-only GitHub-API
+access, diagnose egress without touching the existing owner secret. Only while
+`ENABLED=false`, an operator may temporarily set `DIAG_UNAUTH=true`. The
+existing Durable Object then runs **once** against GitHub's public fixed
+`/zen` URL: one minimal `fetch`, and only after each HTTP response up to three further
+GETs adding Accept/User-Agent, then redirect mode, then AbortSignal separately.
+A durable pre-attempt marker makes the probe one-shot; the response body is
+never read, retained or logged, and the token is never sent. Results are only
+numeric HTTP statuses or fixed redacted failure categories. No workflow can
+be dispatched in this mode. Restore `DIAG_UNAUTH=false` after observing the
+single result. An error is evidence of the specific observed probe step, not
+proof of invalid GitHub credentials or a general GitHub outage.
