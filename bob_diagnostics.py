@@ -558,7 +558,9 @@ def rapid_leverage_brief(control):
              'latestBlockReason':a.get('latestBlockReason') if
                 a.get('latestBlockReason') in allowed_blockers else None,
              'levers':[]}
-        for leverage in (5,10,20,30):
+        # Report every configured lever in the read-only study; the previous
+        # four-value subset hid 3x, 8x and 15x from coverage accounting.
+        for leverage in (3,5,8,10,15,20,30):
             entry=next((v for v in a.get('levers') or []
                 if isinstance(v,dict) and v.get('leverage')==leverage),None)
             if entry:
@@ -569,6 +571,7 @@ def rapid_leverage_brief(control):
                     'completed':entry.get('completed') if type(entry.get('completed')) is int else None})
         setups.append(row)
     result['setups']=setups
+    result['configurationsReported']=sum(len(a['levers']) for a in setups)
     result['scope']='original-spot-paper-counterfactual-not-product-profit'
     return result
 
