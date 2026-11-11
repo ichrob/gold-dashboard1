@@ -24,6 +24,41 @@ GitHub-Identität des Gemini-CLI. Ein vollwertiger GitHub-Schreibzugang für
 Antigravity erfordert eine separat vom Besitzer autorisierte GitHub-App oder
 ein enges eigenes Konto. ChatGPT-Tokens niemals in Gemini oder Termux kopieren.
 
+## Besitzerregel: gegenseitige Kontrolle grundsätzlich erlaubt (11.11.2026)
+
+**Entscheidung des Besitzers:** ChatGPT und Gemini dürfen sich und Bobs
+Entwicklungsergebnisse standardmäßig gegenseitig kontrollieren: Code,
+öffentliche PRs, freigegebene Originaldaten-Diagnosen, Studien,
+Simulationen, Regressionstests, Sicherheitsprüfungen und ihre eigenen
+Prüfaussagen. Eine Kontrolle unterbleibt, wenn der Besitzer sie für
+den konkreten Fall ausdrücklich verbietet. Das Verbot hat Vorrang vor
+dem Standard, auch wenn die andere KI schon eine Freigabe empfohlen hat.
+
+Für GitHub-PRs genügt ein **exakter neuer Kommentar des Besitzers**
+`/bob-peer-review-off`; der spätere exakte Besitzerkommentar
+`/bob-peer-review-on` hebt die Sperre wieder auf. Fremde Kommentare,
+Bots und frei formulierte Zusätze sind keine Zustimmung. Fehlt der
+vollständig verifizierbare Kommentarverlauf, wird nicht automatisch
+geprüft. Eine bereits veröffentlichte Beurteilung wird durch spätere
+Sperren nicht rückwirkend gelöscht. Für andere Fälle dokumentiert der
+Reparatur-Owner das ausdrückliche Verbot im Arbeitsauftrag und
+veranlasst keine weitere Weitergabe oder Prüfung.
+
+**Gleiches Prüfungsrecht ist kein gleicher Zugang:** Es entsteht dadurch
+weder ein Google-/GitHub-OAuth-Grant noch Zugriff auf private Broker-,
+Depot-, Handy-, Termux-, Cloud- oder ChatGPT-Daten. Nur separat
+berechtigte, bereinigte Read-only-Diagnosen sind zugänglich. Kein neuer
+kostenpflichtiger Modellaufruf vor bestätigtem unbilled-Free-Projekt und
+bestehenden Variablen/Secrets; ohne dies ist der Status
+`review-authorized-but-not-run`, nie `review-completed`.
+
+Jeder Fehlerfall hat weiterhin **genau einen schreibenden Reparatur-Owner**
+(ChatGPT oder Gemini), damit nicht zwei parallele Fixes kollidieren.
+Die jeweils andere KI kann standardmäßig unabhängig prüfen, muss
+aber das ausdrückliche Veto respektieren. Weder gegenseitige Kontrolle
+noch grüne CI erlauben automatische Merges, Deployments, reale Orders,
+Archivlöschung oder Aufweichung der Sicherheitsregeln.
+
 ## 2. Automatische KI-Zusammenarbeit
 
 Vorhandener Bob-Watchdog -> dedupliziertes GitHub-Issue ->
