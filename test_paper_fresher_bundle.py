@@ -177,6 +177,14 @@ class FreshPaperBundleTests(unittest.TestCase):
         for value in (None, float('nan'), True, 'now'):
             self.assertIs(paper.newer_queued_paper_bundle(old,new,value),old)
 
+    def test_quote_only_wakeup_cannot_repeat_original_quality_generation(self):
+        # A new collector enqueue advances the local generation exactly once.
+        self.assertTrue(paper.quality_generation_pending(7,8))
+        # Completed quote futures can wake the same worker again, but must not
+        # turn its unchanged local bundle into another original study cycle.
+        self.assertFalse(paper.quality_generation_pending(8,8))
+        self.assertFalse(paper.quality_generation_pending(9,8))
+
 
 class OriginalStudyCandleRetryTests(unittest.TestCase):
     """Original source-time recheck only, without estimates or market-gate bypass."""
