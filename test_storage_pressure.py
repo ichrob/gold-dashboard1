@@ -132,6 +132,18 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
                              'semantic-retirement-unverified')
             proof.assert_not_called()
 
+    def test_cold_archives_and_maintenance_share_one_session_lock(self):
+        from pathlib import Path
+        shared="hashtext('bob_storage_maintenance_v1')"
+        for name in ('cold_analysis.py','cold_metrics.py',
+                     'cold_observations.py','cold_test_evidence.py',
+                     'storage_maintenance.py','archive_worker.py'):
+            with self.subTest(module=name):
+                self.assertIn(shared, Path(name).read_text())
+        # Age-only cold writers never request the proactive family key.
+        for name in ('cold_analysis.py','cold_metrics.py','cold_observations.py'):
+            self.assertNotIn('completed_family=',Path(name).read_text())
+
     def test_all_automatic_writers_exit_before_sql_without_evidence(self):
         import cold_analysis, cold_metrics, cold_observations, cold_test_evidence
         class Connection:
