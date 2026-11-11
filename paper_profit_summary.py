@@ -119,6 +119,45 @@ def safe_forward_evidence(value):
             'winnerConfirmed':False}
 
 
+def safe_forward_projected(value):
+    """Revalidate the already sanitized in-process forward projection."""
+    if not isinstance(value, dict) or value.get('readOnly') is not True:
+        return safe_forward_evidence(None)
+    result = {'status':'not-observed', 'readOnly':True,
+              'actualNetVerified':False, 'winnerConfirmed':False}
+    if value.get('status') not in ('sample-observed','collecting'):
+        return result
+    start = number(value.get('startedAt'),timestamp=True)
+    validation = number(value.get('validationAt'),timestamp=True)
+    if start is None or validation is None or validation <= start:
+        return result
+    result.update(status=value['status'],startedAt=start,validationAt=validation)
+    excluded=value.get('excluded')
+    result['excluded']=excluded if type(excluded) is int and 0 <= excluded <= 100000 else None
+    for name in ('calibration','validation'):
+        original=value.get(name)
+        original=original if isinstance(original,dict) else {}
+        count=original.get('cases')
+        if type(count) is int and 0 <= count <= 100000:
+            status=('observed' if count else 'not-yet-observed')
+            net=number(original.get('modelNetEur'))
+            gross=number(original.get('modelGrossEur'))
+            if count and (net is None or gross is None):
+                result[name]={'status':'unavailable','cases':None}
+            else:
+                result[name]={'status':status,'cases':count,
+                              'modelNetEur':net if count else None,
+                              'modelGrossEur':gross if count else None}
+        else:
+            result[name]={'status':'unavailable','cases':None}
+    result['sufficientModelHoldoutCases'] = (
+        result['excluded']==0 and
+        all(result[k]['status']=='observed'
+            and result[k]['cases'] >= MIN_HOLDOUT_CASES
+            for k in ('calibration','validation')))
+    return result
+
+
 def safe_net_sample(value):
     """No arbitrary case text/ISIN/quote/secret fields in compact diagnostics."""
     if not isinstance(value,dict) or value.get('status') not in (
@@ -195,9 +234,9 @@ def snapshot(accounts):
             tradeOutcomeVerified=False,
             latestEntryBlockCode=last_code,
             latestEntryBlockAt=last_at,
-            forwardEvidence=safe_forward_evidence(a.get('forwardEvidence')
-                          if a.get('forwardEvidence') is not None
-                          else a.get('forwardValidation')),
+            forwardEvidence=(safe_forward_projected(a['forwardEvidence'])
+                             if a.get('forwardEvidence') is not None
+                             else safe_forward_evidence(a.get('forwardValidation'))),
             recentModelNetSample=safe_net_sample(a.get('netEvidenceSample'))))
     complete = all(r.get('source') == 'saved-virtual-control'
                    and r.get('initialCapitalEur') is not None
