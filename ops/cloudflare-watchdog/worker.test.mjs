@@ -23,14 +23,20 @@ function fixture(options = {}) {
         : Response.json({ workflow_run_id: 123 }, { status: options.postStatus || 200 });
     }
     if (!url.includes('/runs?')) return Response.json({ id: WORKFLOW, state: options.disabled ? 'disabled_manually' : 'active' });
-    const status = new URL(url).searchParams.get('status');
+    assert.equal(new URL(url).searchParams.get('status'),null);
+    assert.equal(new URL(url).searchParams.get('per_page'),'50');
     if (options.malformed) return Response.json({ total_count: 1, workflow_runs: [] });
-    const run = status === options.active ? { workflow_id: WORKFLOW, head_branch: 'main' }
-      : status === 'success' && options.recent ? {
-        workflow_id: WORKFLOW, head_branch: 'main', id: 12, status: 'completed', conclusion: 'success',
-        updated_at: new Date(now - 60_000).toISOString(),
-      } : null;
-    return Response.json({ total_count: run ? 1 : 0, workflow_runs: run ? [run] : [] });
+    const runs = [];
+    if (options.active) runs.push({ workflow_id: WORKFLOW, head_branch: 'main',
+      id: 11, status: options.active, conclusion: null,
+      updated_at: new Date(now - 60_000).toISOString() });
+    if (options.recent) runs.push({ workflow_id: WORKFLOW, head_branch: 'main',
+      id: 12, status: 'completed', conclusion: 'success',
+      updated_at: new Date(now - 60_000).toISOString() });
+    if (options.recentFailure) runs.push({ workflow_id: WORKFLOW, head_branch: 'main',
+      id: 13, status: 'completed', conclusion: 'failure',
+      updated_at: new Date(now - 60_000).toISOString() });
+    return Response.json({ total_count: runs.length, workflow_runs: runs });
   };
   return { data, storage, env, request, calls, posts: () => calls.filter(c => c.init.method === 'POST') };
 }
@@ -61,6 +67,18 @@ test('redirect on dispatch is persisted as rejected, never automatically retried
   assert.equal(f.data.get('attempt').state,'dispatch_rejected');
   assert.equal(f.posts().length,1);
   assert.equal(f.posts()[0].init.redirect,'manual');
+});
+test('checks workflow and one bounded main run page, not six filtered lists', async () => {
+  const f=fixture();
+  await tick(f.env,f.storage,now,now,f.request);
+  const urls=f.calls.filter(x=>x.init.method!=='POST').map(x=>x.url);
+  assert.equal(urls.length,2);
+  assert.match(urls[1],/\/runs\?branch=main&per_page=50$/);
+});
+test('recent failed run defers rather than dispatching a duplicate', async () => {
+  const f=fixture({recentFailure:true});
+  assert.equal((await tick(f.env,f.storage,now,now,f.request)).state,'recent_run_deferred');
+  assert.equal(f.posts().length,0);
 });
 test('recent success suppresses fallback', async () => {
   const f = fixture({ recent: true });
