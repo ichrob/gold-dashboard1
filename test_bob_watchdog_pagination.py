@@ -58,6 +58,14 @@ class WatchdogGitHubPages(unittest.TestCase):
             watcher.open_issue_rows(token="x",repo="ichrob/gold-dashboard1",
                                    requester=incomplete)
 
+        def short_response(method,path,*,token,repo):
+            if path.startswith("/issues?"):return []
+            return dict(total_count=4,incomplete_results=False,
+                        items=[dict(number=1,title="An issue")])
+        with self.assertRaisesRegex(ValueError,"unvollständig"):
+            watcher.open_issue_rows(token="x",repo="ichrob/gold-dashboard1",
+                                   requester=short_response)
+
     def test_single_oversize_or_unbounded_search_never_creates_issue(self):
         def too_large(method,path,*,token,repo):
             raise ValueError("GitHub response too large")
