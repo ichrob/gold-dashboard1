@@ -11,14 +11,18 @@ on:
     workflows: ["Bob CI"]
     types: [completed]
 
+# Default permission: review all eligible public owner/Bot PRs after successful CI.
+# The owner can explicitly veto one PR with the exact comment
+# /bob-peer-review-off (and reverse it with /bob-peer-review-on).
+# No reviewer is granted private access by this permission.
 # Only public patches are sent to Google Gemini API.
 # GitHub currently requires pull-requests: write alongside issues: write
 # for POST /issues/{pr}/comments; no code merge or PR mutation is performed.
 # This workflow cannot merge, deploy, trade, change secrets or alter PR code.
-# It is inert until ALL THREE owner-controlled settings are configured:
-# - Actions secret: GEMINI_API_KEY (from an unbilled Google AI Studio Free project)
+# Owner permits reciprocal review by default; model use still requires:
+# - Actions secret: GEMINI_API_KEY (unbilled Google AI Studio Free project)
 # - Actions variable: BOB_GEMINI_FREE_ONLY=confirmed-unbilled-free-project
-# - Actions variable: BOB_GEMINI_AUTO_REVIEW_ENABLED=1
+# - Set BOB_GEMINI_AUTO_REVIEW_ENABLED=0 for global automatic-review off.
 permissions:
   contents: read
   issues: write
