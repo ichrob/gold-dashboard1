@@ -52,7 +52,7 @@ def entry_block_code(value):
         return 'product-not-approved'
     if any(word in reason for word in ('kollektivrichtungswert','score zu schwach')):
         return 'signal-score-weak'
-    if any(word in reason for word in ('tagesrisiko','risikolimit','verlustgrenze')):
+    if any(word in reason for word in ('tagesrisiko','risikolimit','risikobudget','verlustgrenze','tagesverlustgrenze')):
         return 'risk-limit'
     if any(word in reason for word in ('abwarten','keine bestätigte richtung',
                                       'keine einstiegsrichtung','signal neutral')):
@@ -97,7 +97,7 @@ def snapshot(accounts):
         if profile in ('trend800nov','normal1000nov'):
             stored = a.get('lastTradingEntryBlockCode',
                            control.get('lastTradingEntryBlockCode'))
-            last_code = (stored if stored in ENTRY_BLOCK_CODES
+            last_code = (stored if isinstance(stored,str) and stored in ENTRY_BLOCK_CODES
                          else entry_block_code(a.get('reason') or control.get('reason')))
             last_at = number(a.get('lastTradingEntryBlockAt',
                                    control.get('lastTradingEntryBlockAt')),
