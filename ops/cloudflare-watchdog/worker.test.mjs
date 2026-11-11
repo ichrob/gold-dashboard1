@@ -10,7 +10,9 @@ function fixture(options = {}) {
   const env = { GITHUB_TOKEN: 'test-only', ENABLED: 'true' };
   const request = async (url, init) => {
     calls.push({ url, init });
+    if (options.networkError && init.method !== 'POST') throw new TypeError('private network details');
     if (options.readError && init.method !== 'POST') return new Response('', { status: options.readError });
+    if (options.invalidJson && init.method !== 'POST') return new Response('not-json', {status:200});
     if (url.endsWith('/dispatches')) {
       assert.equal(data.get('attempt').state, 'dispatch_uncertain');
       if (options.timeout) throw new Error('network exception with secret');
@@ -49,7 +51,7 @@ test('recent success suppresses fallback', async () => {
   assert.equal(f.posts().length, 0);
 });
 test('dry run does not mutate dispatch ledger or start a run', async () => {
-  const f = fixture(); f.env.ENABLED = 'false';
+  const f = fixture(); f.env.ENABLED = 'false'; f.env.DRY_RUN = 'true';
   assert.equal((await tick(f.env, f.storage, now, now, f.request)).state, 'dry_run_would_dispatch');
   assert.equal(f.data.size, 0); assert.equal(f.posts().length, 0);
 });
@@ -72,6 +74,20 @@ test('accepted 204 and repeated tick dispatch only once', async () => {
   assert.equal((await tick(f.env, f.storage, now, now, f.request)).state, 'duplicate_suppressed');
   assert.equal(f.posts().length, 1);
 });
+test('disabled Cron with a saved secret stays entirely offline', async () => {
+  const f = fixture(); f.env.ENABLED = 'false';
+  assert.equal((await tick(f.env, f.storage, now, now, f.request)).state, 'observation_only_disabled');
+  assert.equal(f.calls.length, 0); assert.equal(f.data.size, 0);
+});
+for (const options of [{networkError:true,expected:'github_network_unavailable'},
+                       {invalidJson:true,expected:'github_invalid_json'}]) {
+  test(`read errors are classified safely: ${options.expected}`, async () => {
+    const f = fixture(options);
+    await assert.rejects(tick(f.env,f.storage,now,now,f.request),
+      new RegExp(options.expected));
+    assert.equal(f.posts().length,0);
+  });
+}
 test('disabled Cron without secret reports observation only', async () => {
   const f = fixture(); f.env.GITHUB_TOKEN = undefined; f.env.ENABLED = 'false';
   assert.equal((await tick(f.env, f.storage, now, now, f.request)).state, 'observation_only_no_token');

@@ -84,3 +84,22 @@ keinen Tokenwert in Chat, GitHub oder API-Protokollen. Nach Secret-Readback
 (nur Name), kontrollierter Aktivierung und echten `workflow_dispatch`-Läufen
 werden mindestens zwei Stunden Laufkonsistenz geprüft. Vorher den nativen
 GitHub-Cron nicht entfernen. Keine kostenpflichtige Cloudflare-Änderung.
+
+## 11 November 2026 live activation observation
+
+The owner securely installed a GitHub fine-grained Actions token directly as
+Cloudflare `GITHUB_TOKEN` (only the secret name was read back). A controlled
+`ENABLED=true` settings patch kept the Durable Object and secret bindings.
+The first real scheduled Cloudflare tick on 11 Nov at 03:44 UTC returned the
+sanitized `clock_check_failed`/`clock_tick_failed` outcome. No GitHub dispatch
+success was observed. The clock was immediately reverted to `ENABLED=false`,
+without removing the secret, Cron or existing GitHub native fallback.
+
+Security fix: disabled workers now remain fully observation-only even when a
+secret is present. An explicit non-dispatching `DRY_RUN=true` can diagnose
+GitHub API connectivity while `ENABLED=false`; outbound network errors and
+invalid JSON are classified using fixed redacted codes, never raw response
+bodies or token values. Do not declare completion or remove GitHub's native
+schedule until an actual external `workflow_dispatch` monitor run succeeds and
+repeat observations span two hours. The earlier 03:44 failure remains an
+unknown transport/runtime error until the next safe diagnostic observation.
