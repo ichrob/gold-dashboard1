@@ -157,14 +157,15 @@ def original_failure_evidence(quality, bundle, market, now, timeframe):
 def terminal_evidence_reason(case, *, modeled=False):
     """Why a closed *inconclusive* reference case cannot be valued."""
     flags = case.get('evidenceFlags') or {}
+    # Modeled paths never masquerade as observed original gaps.
+    if modeled:
+        return 'estimated-path-unverified'
     if flags.get('sourceGapOver90s'):
         return 'original-source-gap-over-90s'
     if flags.get('workerGapOver90s'):
         return 'worker-observation-gap-over-90s'
     if flags.get('delayedEntryWindowMissed'):
         return 'delayed-entry-original-unobserved'
-    if modeled:
-        return 'estimated-path-unverified'
     if case.get('dataGap'):
         return 'original-path-unverified'
     return 'terminal-original-exit-unobserved'
