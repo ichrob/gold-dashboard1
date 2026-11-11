@@ -8,6 +8,10 @@ Eligibility and independent recovery/reader proof remain separate gates.
 from storage_capacity import CAUTION_BYTES as CAUTION_VOLUME_BYTES
 from storage_capacity import ACTION_BYTES as ACTION_VOLUME_BYTES
 
+# Only final, self-contained comparisons can bypass the low-usage backoff.
+# Age-only source selection is never proof of retirement.
+PROACTIVE_CLOSED_FAMILY = 'entry-exit-comparison-final-v1'
+
 
 def policy(database_bytes, volume_bytes=None):
     if type(database_bytes) is not int or database_bytes < 0:
@@ -48,7 +52,7 @@ def delay(result):
 
 
 
-def verified_writer_preflight(conn, now=None):
+def verified_writer_preflight(conn, now=None, *, completed_family=None):
     """Read-only, fail-closed gate before any automatic cold-payload replacement.
 
     The full original remains SQL-local until a fresh reviewed-evidence
@@ -63,6 +67,8 @@ def verified_writer_preflight(conn, now=None):
     import render_disk_metrics
 
     seconds = time.time() if now is None else now
+    if __import__('archive_worker').status().get('status') == 'running':
+        return {'status': 'archive-running', 'movedRows': 0}
     # Check capacity before expensive archive-credential/proof work. With
     # comfortable physical headroom, no writer proceeds even if the most
     # recent independent recovery receipt has aged out.
@@ -76,10 +82,11 @@ def verified_writer_preflight(conn, now=None):
             type(volume.get('diskUsage')) is not int or
             volume['diskUsage'] > MAX_VOLUME_BYTES):
         return {'status': 'fresh-volume-proof-unavailable', 'movedRows': 0}
-    # Below half the actual 5-GB volume, do not replace any original
-    # payload merely to meet a historical small-DB operating target.
-    # Continue independent backup receipts and fixed capacity monitoring.
-    if volume['diskUsage'] < CAUTION_VOLUME_BYTES:
+    # Low usage controls urgency, not eligibility for fully finalized
+    # comparisons. Other age-only families retain the conservative gate.
+    # The comparison writer enforces every terminal arm and exact readthrough.
+    if (volume['diskUsage'] < CAUTION_VOLUME_BYTES and
+            completed_family != PROACTIVE_CLOSED_FAMILY):
         return {'status': 'capacity-comfortable-no-offload', 'movedRows': 0}
     if _proof_state(archive_status(conn), seconds) != 'verified-fresh':
         return {'status': 'backup-proof-not-fresh', 'movedRows': 0}
