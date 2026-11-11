@@ -38,7 +38,8 @@ def seed(now):
                 lessons=copy.deepcopy(LESSONS), checkedAt=None, lastSourceAt=None,
                 quality=dict(cycles=0, original=0, invalid=0, missingIntervals=0,
                              duplicateSource=0, waits=0, signals=0,
-                             workerErrors=0, stopObserved=0, targetObserved=0),
+                             workerErrors=0, stopObserved=0, targetObserved=0,
+                             recentOriginalChecks=[], recentOriginalOutcomes=[]),
                 studies={s: dict(started=0, complete=0, inconclusive=0,
                                  lastKey=None, open=[], sums={}, observedWorst={}) for s in STUDIES})
 
@@ -145,6 +146,26 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
     q['cycles'] += 1
     q['workerErrors'] += sum(str(v).startswith('error') for v in (worker_outcomes or {}).values())
     valid = quality.get('simulationUsable',False) if modeled else quality['verified']
+    if not modeled:
+        # Only prospective, bounded study-health evidence. Cumulative
+        # historical invalid counts never trigger a new watchdog incident.
+        checks = q.get('recentOriginalChecks')
+        checks = checks if isinstance(checks,list) else []
+        q['recentOriginalChecks'] = [
+            row for row in checks[-63:]
+            if isinstance(row,dict) and type(row.get('at')) is int
+            and 0 <= now-row['at'] <= 20*60000
+            and type(row.get('valid')) is bool
+        ] + [dict(at=int(now),valid=bool(quality['verified']))]
+        outcomes = q.get('recentOriginalOutcomes')
+        outcomes = outcomes if isinstance(outcomes,list) else []
+        q['recentOriginalOutcomes'] = [
+            row for row in outcomes[-63:]
+            if isinstance(row,dict) and type(row.get('at')) is int
+            and 0 <= now-row['at'] <= 4*3600000
+            and row.get('study') in STUDIES
+            and type(row.get('complete')) is bool
+        ]
     if quality['verified']:
         q['original'] += 1
     else:
@@ -270,6 +291,12 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                     ctl['estimatedComplete'] = ctl.get('estimatedComplete',0)+1
             else:
                 ctl['inconclusive'] += 1
+            if not modeled and case.get('inputGapPolicy') == 'original-observed-over-90s-v2':
+                # Never reclassify historical original cases or model runs.
+                rows = q['recentOriginalOutcomes']
+                rows.append(dict(at=int(now),study=study,
+                                 complete=case['status']=='complete'))
+                q['recentOriginalOutcomes'] = rows[-64:]
             closed.append(case)
         ctl['open'] = pending
     if fresh:
