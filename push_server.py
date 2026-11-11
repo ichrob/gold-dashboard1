@@ -630,27 +630,54 @@ def run_improvement_review_once(database):
     return status
 
 
-def audit_outcome_loop():
-    while True:
+AUDIT_OUTCOME_LOCK = 'bob_audit_outcome_loop_v1'
+
+
+def run_audit_outcome_cycle(database):
+    """Run one DB-wide repair cycle; overlapping deploy instances skip safely."""
+    # Render keeps the prior revision alive briefly during a zero-downtime
+    # rollout. A process-local thread guard therefore cannot prevent two
+    # instances from starting the same repair/harvest work. Hold a
+    # transaction-scoped advisory lock on a dedicated pooled connection while
+    # the existing bounded workers use their own transactions. The lock is
+    # released automatically on commit, rollback, disconnect or process exit.
+    with database() as guard:
+        acquired = guard.execute(
+            'SELECT pg_try_advisory_xact_lock(hashtext(%s))',
+            (AUDIT_OUTCOME_LOCK,)).fetchone()[0]
+        if not acquired:
+            print('BOB_AUDIT_CYCLE state=overlap-skipped', flush=True)
+            return False
         try:
             import improvement_resilience
-            improvement_resilience.run_drills(db)
+            improvement_resilience.run_drills(database)
         except Exception as exc:
             print("BOB_RESILIENCE error="+type(exc).__name__,flush=True)
         try:
-            run_audit_harvest_once(db)
+            run_audit_harvest_once(database)
         except Exception as exc:
             # Bulk backfill timeouts must not block targeted repair attempts.
             print('BOB_AUDIT_HARVEST error='+type(exc).__name__, flush=True)
         try:
-            run_test_repair_once(db)
+            run_test_repair_once(database)
         except Exception as exc:
             print('BOB_TEST_REPAIR error='+type(exc).__name__,flush=True)
         try:
             if int(time.time()*1000)>=improvement_tracker.START:
-                run_improvement_review_once(db)
+                run_improvement_review_once(database)
         except Exception as exc:
             print('BOB_IMPROVEMENT review_error='+type(exc).__name__,flush=True)
+        return True
+
+
+def audit_outcome_loop():
+    while True:
+        try:
+            run_audit_outcome_cycle(db)
+        except Exception as exc:
+            # Lock admission/connectivity failure is visible but cannot stop the
+            # daemon thread or trigger an unsafe immediate retry loop.
+            print('BOB_AUDIT_CYCLE error='+type(exc).__name__, flush=True)
         time.sleep(120)
 
 
