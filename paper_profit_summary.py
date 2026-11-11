@@ -90,6 +90,18 @@ def snapshot(accounts):
         model_pct = (round((equity / initial - 1) * 100, 4)
                      if initial is not None and equity is not None else None)
         status = a.get('status') if a.get('status') in STATUSES else 'unavailable'
+        # The night pause overwrites the displayed reason. Prefer the last
+        # trading-window code saved by the virtual ledger, never the raw text.
+        control = a.get('control') if isinstance(a.get('control'),dict) else {}
+        last_code, last_at = None, None
+        if profile in ('trend800nov','normal1000nov'):
+            stored = a.get('lastTradingEntryBlockCode',
+                           control.get('lastTradingEntryBlockCode'))
+            last_code = (stored if stored in ENTRY_BLOCK_CODES
+                         else entry_block_code(a.get('reason') or control.get('reason')))
+            last_at = number(a.get('lastTradingEntryBlockAt',
+                                   control.get('lastTradingEntryBlockAt')),
+                             timestamp=True)
         rows.append(dict(
             profile=profile, source='saved-virtual-control',
             status=status,
@@ -104,20 +116,8 @@ def snapshot(accounts):
             realizedModelProfitEur=number(a.get('realizedProfit')),
             exampleCostsDebitedEur=number(a.get('costsDebitedEur')),
             tradeOutcomeVerified=False,
-            latestEntryBlockCode=(
-                (a.get('lastTradingEntryBlockCode') if
-                 a.get('lastTradingEntryBlockCode') in ENTRY_BLOCK_CODES
-                 else ((a.get('control') or {}).get('lastTradingEntryBlockCode') if
-                       isinstance(a.get('control'),dict) and
-                       (a.get('control') or {}).get('lastTradingEntryBlockCode') in ENTRY_BLOCK_CODES
-                       else entry_block_code(a.get('reason'))))
-                if profile in ('trend800nov','normal1000nov') else None),
-            latestEntryBlockAt=(number(
-                a.get('lastTradingEntryBlockAt') if
-                a.get('lastTradingEntryBlockAt') is not None else
-                (a.get('control') or {}).get('lastTradingEntryBlockAt')
-                if isinstance(a.get('control'),dict) else None,
-                timestamp=True) if profile in ('trend800nov','normal1000nov') else None)))
+            latestEntryBlockCode=last_code,
+            latestEntryBlockAt=last_at))
     complete = all(r.get('source') == 'saved-virtual-control'
                    and r.get('initialCapitalEur') is not None
                    and r.get('equityEur') is not None for r in rows)
