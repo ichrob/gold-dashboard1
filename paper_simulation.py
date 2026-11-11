@@ -973,6 +973,26 @@ def study_closed_bar_retry_needed(bundle, market, now_ms):
             and 0<=now_ms-stamp<=60000)
 
 
+def refresh_original_study_input(bundle, market, settings, latest, analyze, clock):
+    """At the final study handoff, prefer one queued fresher ORIGINAL snapshot.
+
+    Quote/audit/portfolio work may outlive the input's 60-second admission
+    window after the first analysis. Recheck only an already queued complete
+    observed bundle, at most once, without fetching, mixing snapshots or
+    changing any freshness/identity gate.
+    """
+    observed_now=clock()
+    stamp=market.get('dataAt')
+    retry=(market.get('ready') is False or market.get('priceFresh') is False
+           or not finite(stamp) or not 0<=observed_now-stamp<=45000
+           or study_closed_bar_retry_needed(bundle,market,observed_now))
+    if retry:
+        candidate=newer_queued_paper_bundle(bundle,latest(),observed_now)
+        if candidate is not bundle:
+            return candidate,analyze(candidate,settings,priority=2)
+    return bundle,market
+
+
 def analyze_latest_bundle(bundle, settings, latest, analyze, clock):
     """At most one re-evaluation of a newer complete observed bundle.
 
@@ -980,21 +1000,8 @@ def analyze_latest_bundle(bundle, settings, latest, analyze, clock):
     interpolate a gap, or rerun a portfolio against a previous source clock.
     """
     market=analyze(bundle,settings,priority=2)
-    stamp=market.get('dataAt')
-    observed_now=clock()
-    # A fresh spot clock does NOT prove the corresponding completed 5m/15m
-    # candle has arrived. Waiting indefinitely loses original-input evidence.
-    # Prefer one already queued newer COMPLETE snapshot, then re-evaluate
-    # its own market bundle without mixing or altering source times.
-    retry=(market.get('ready') is False or market.get('priceFresh') is False
-           or not finite(stamp) or not 0<=observed_now-stamp<=45000
-           or study_closed_bar_retry_needed(bundle,market,observed_now))
-    if retry:
-        candidate=newer_queued_paper_bundle(bundle,latest(),clock())
-        if candidate is not bundle:
-            bundle=candidate
-            market=analyze(bundle,settings,priority=2)
-    return bundle,market
+    return refresh_original_study_input(
+        bundle,market,settings,latest,analyze,clock)
 
 
 def quote_focus(products, market):
@@ -1393,9 +1400,25 @@ def _worker(db):
                                 print('BOB_RISK_PAPER retried_newer_observed_bundle=1',flush=True)
                         except Exception as late_risk_exc:
                             print('BOB_RISK_PAPER late_retry_error='+type(late_risk_exc).__name__,flush=True)
+                        # The original quality campaign runs after slower quote/audit/
+                        # portfolio work. Its earlier valid snapshot can age beyond 60s
+                        # while a newer complete collector bundle is already queued.
+                        # Refresh only this spot-reference study input; product selection,
+                        # paper ledgers and live signal decisions keep their exact snapshot.
+                        quality_bundle,quality_market=bundle,market
+                        try:
+                            quality_bundle,quality_market=refresh_original_study_input(
+                                bundle,market,settings,latest_paper_bundle,
+                                background_push.analyze,lambda:time.time()*1000)
+                            if quality_bundle is not bundle:
+                                print('BOB_QUALITY_RESEARCH reused_newer_observed_bundle=1',flush=True)
+                        except Exception as refresh_exc:
+                            print('BOB_QUALITY_RESEARCH refresh_error='+type(refresh_exc).__name__,flush=True)
                         try:
                             with conn.transaction():
-                                research_restart.tick(conn,bundle,market,time.time()*1000,outcomes)
+                                research_restart.tick(
+                                    conn,quality_bundle,quality_market,
+                                    time.time()*1000,outcomes)
                         except Exception as research_exc:
                             print('BOB_QUALITY_RESEARCH error='+type(research_exc).__name__,flush=True)
                         conn.commit()
