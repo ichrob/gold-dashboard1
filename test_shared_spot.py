@@ -135,6 +135,30 @@ class SharedSpotTests(unittest.TestCase):
         with patch.object(s,'_quote',{**s._quote,'at':(self.now-timedelta(seconds=90)).isoformat()}),patch.object(s,'_error',None):
             with self.assertRaises(ValueError):s.current()
 
+    def test_failed_early_retry_records_only_bounded_attempt_context(self):
+        old=(self.now-timedelta(seconds=35)).isoformat()
+        s._quote={'price':4100.,'at':old,'source':'Gold-API.com · XAU/USD Spot'}
+        s._attempted=time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1
+        with patch.object(s.logging,'info') as info, \
+             patch.object(product_quotes,'issuer_json',
+                          side_effect=OSError('private-secret-details')) as request:
+            retained=s.primary()
+            self.assertEqual(retained['at'],old)
+            self.assertEqual(request.call_count,1)
+            # A failed early retry must not become a rapid retry loop.
+            with patch.object(s,'_attempted',
+                              time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
+                self.assertEqual(s.primary()['at'],old)
+            self.assertEqual(request.call_count,1)
+        evidence=[call for call in info.call_args_list
+                  if call.args and call.args[0].startswith('BOB_SPOT_FETCH_FAILURE')]
+        self.assertEqual(len(evidence),1)
+        self.assertEqual(evidence[0].args[1:4],('OSError',True,0))
+        self.assertNotIn('private-secret-details',str(evidence))
+        self.assertNotIn('4100',str(evidence))
+        self.assertEqual(s._route,1)
+        self.assertEqual(s._near_expiry_retried_at,old)
+
     def test_failed_clock_rotates_route_then_recovers_without_redating(self):
         stale={**self.payload, 'updatedAt':(self.now-timedelta(seconds=90)).isoformat()}
         with patch.object(product_quotes,'issuer_json',side_effect=[stale,self.payload]) as request:

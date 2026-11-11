@@ -84,6 +84,13 @@ def primary(blocking=True):
                 _error = type(exc).__name__
                 if previous_at and poll_interval == NEAR_EXPIRY_RETRY_SECONDS:
                     _near_expiry_retried_at = previous_at
+                # Failed requests have no verified new provider clock. Emit
+                # fixed, price-free attempt context to compare retry timing
+                # with separate original-study witnesses (never the raw error).
+                logging.info(
+                    "BOB_SPOT_FETCH_FAILURE reason=%s early_retry=%s attempted_route=%d",
+                    _error, poll_interval == NEAR_EXPIRY_RETRY_SECONDS, _route,
+                )
                 # Equivalent documented USD route; one attempt per 30 seconds,
                 # not a new provider or an invented source timestamp.
                 code = getattr(exc, 'code', None)
