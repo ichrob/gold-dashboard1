@@ -19,7 +19,7 @@ class GeminiReviewSafetyTests(unittest.TestCase):
             with patch.dict(os.environ, {
                 "BOB_GEMINI_FREE_ONLY": "confirmed-unbilled-free-project"
             }, clear=True):
-                self.assertFalse(g.enabled())
+                self.assertTrue(g.enabled())
             with patch.dict(os.environ, {
                 "BOB_GEMINI_AUTO_REVIEW_ENABLED": "1"
             }, clear=True):
@@ -29,6 +29,11 @@ class GeminiReviewSafetyTests(unittest.TestCase):
                 "BOB_GEMINI_AUTO_REVIEW_ENABLED": "1",
             }, clear=True):
                 self.assertTrue(g.enabled())
+            with patch.dict(os.environ, {
+                "BOB_GEMINI_FREE_ONLY": "confirmed-unbilled-free-project",
+                "BOB_GEMINI_AUTO_REVIEW_ENABLED": "0",
+            }, clear=True):
+                self.assertFalse(g.enabled())
 
     def _owner_pr(self):
         return {"state": "open", "draft": False,
