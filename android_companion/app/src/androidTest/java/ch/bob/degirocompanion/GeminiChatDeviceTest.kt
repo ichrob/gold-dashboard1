@@ -78,6 +78,31 @@ class GeminiChatDeviceTest {
                     fail("Native chat condition not reached")
                 }
                 waitFor { views -> views.filterIsInstance<Button>().any { it.text == "Auftrag senden" && it.isEnabled } }
+                scenario.onActivity { a ->
+                    val field = descendants(a.window.decorView).filterIsInstance<EditText>().single()
+                    field.requestFocus()
+                    (a.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                        .showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                }
+                waitFor { views ->
+                    val field = views.filterIsInstance<EditText>().single()
+                    val insets = field.rootWindowInsets
+                    if (android.os.Build.VERSION.SDK_INT < 30 || insets == null ||
+                        !insets.isVisible(android.view.WindowInsets.Type.ime())) false
+                    else {
+                        val bottom = field.rootView.height - insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+                        val controls = listOf<View>(field) + views.filterIsInstance<Button>()
+                            .filter { it.text == "Auftrag senden" || it.text == "Auftrag diktieren" }
+                        controls.size == 3 && controls.all { view ->
+                            val location = IntArray(2); view.getLocationInWindow(location)
+                            view.isShown && view.height > 0 && location[1] + view.height <= bottom
+                        }
+                    }
+                }
+                scenario.onActivity { a ->
+                    (a.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                        .hideSoftInputFromWindow(a.window.decorView.windowToken, 0)
+                }
                 val prompt = "Test only: \$(not-a-command); quote \"ok\""
                 scenario.onActivity { a ->
                     val views = descendants(a.window.decorView)
