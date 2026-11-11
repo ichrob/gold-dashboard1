@@ -3,7 +3,7 @@ import copy
 import json
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import bob_problems
 import bob_problem_mirror
@@ -70,6 +70,25 @@ class RepairFlowTests(unittest.TestCase):
         self.assertTrue(flow.summary(index,now=NOW.timestamp())['truncated'])
         value=dict(VALUE,token='PRIVATE')
         self.assertEqual(flow.sanitize(value,now=NOW.timestamp()),VALUE)
+
+    def test_actual_server_diagnostics_preserve_nested_flow_and_strip_extra_data(self):
+        import server
+        # This exercises the actual nested problems reader, not a synthetic
+        # copy: the scalar fields() helper previously silently removed the dict.
+        index=bob_problems.from_issues([self.issue()],now=NOW)
+        index['problems'][0]['repairFlow']['secret']='PRIVATE'
+        index['problems'][0]['secret']='PRIVATE'
+        with patch.object(server.bob_problems,'snapshot',return_value=index), \
+             patch.object(server.bob_diagnostics,'collect',side_effect=lambda readers:
+                 {'observedAt':NOW.isoformat(),'areas':{'problems':readers['problems']()}}):
+            report=server.read_diagnostics_for_mcp()
+        item=report['areas']['problems']['items'][0]
+        self.assertEqual(item['repairFlow'],VALUE)
+        self.assertNotIn('PRIVATE',str(report))
+
+    def test_diagnostic_projection_rejects_invalid_nested_claim(self):
+        for value in (None, [], dict(VALUE,owner='outsider'),dict(VALUE,phase='verified')):
+            self.assertNotIn('repairFlow',flow.diagnostic_item({'repairFlow':value},now=NOW.timestamp()))
 
 
 if __name__ == '__main__':

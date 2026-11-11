@@ -55,6 +55,18 @@ def marker(value, *, created_at=None, now=None):
     return ('\n' + PREFIX + ';'.join(k + '=' + value[k] for k in KEYS) + ' -->') if value else ''
 
 
+def diagnostic_item(item, *, now=None):
+    """Explicit nested projection: diagnostics.fields deliberately drops dicts."""
+    from bob_diagnostics import fields
+    item = item if isinstance(item, dict) else {}
+    result = fields(item, ('code', 'number', 'state', 'createdAt', 'updatedAt',
+                          'title', 'reason', 'message', 'kiStatus', 'kiStatusLabel'))
+    value = sanitize(item.get('repairFlow'), created_at=item.get('createdAt'), now=now)
+    if value is not None:
+        result['repairFlow'] = value
+    return result
+
+
 def summary(index, *, now=None):
     """Age/acknowledgement coverage of this open-index sample, not success rate."""
     now = datetime.now(timezone.utc).timestamp() if now is None else now

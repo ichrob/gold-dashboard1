@@ -153,7 +153,7 @@ def read_diagnostics_for_mcp():
         value = bob_problems.snapshot()
         return {**bob_diagnostics.fields(value, ('status','count','checkedAt')),
                 'repairFlowSummary':__import__('repair_flow').summary(value),
-                'items':[bob_diagnostics.fields(item, ('code','number','state','createdAt','updatedAt','title','reason','message','kiStatus','kiStatusLabel','repairFlow','review'))
+                'items':[__import__('repair_flow').diagnostic_item(item)
                          for item in value.get('problems', [])[:100]]}
     report = bob_diagnostics.collect({
         'market':lambda:bob_diagnostics.market_snapshot(_live_cache, _live_cache_at),
