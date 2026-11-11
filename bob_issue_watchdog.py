@@ -216,48 +216,68 @@ def issue_title(code):
     return "[Bob KI-Hilfe] " + code
 
 
-def open_issue_rows(*, token, repo, requester=github_request):
-    """Read open repository issues through list and independent search APIs."""
-    issues = []
-    for page in range(1, 11):
-        path = "/issues?state=open&per_page=100"
-        if page > 1:
-            path += "&page=" + str(page)
-        rows = requester("GET", path, token=token, repo=repo)
-        if not isinstance(rows, list):
-            raise ValueError("Issue-Liste ungültig")
-        issues.extend(rows)
-        if len(rows) < 100:
-            break
-    else:
-        raise ValueError("Issue-Liste unvollständig")
+def _bounded_issue_pages(requester, *, token, repo, path_builder, search=False):
+    """Bounded, lossless pagination, retrying from page ONE on oversized JSON.
 
-    # The workflow token has repeatedly received a complete HTTP response that
-    # nevertheless omitted existing open help issues from the repository list.
-    # GitHub's independent search index is the fail-closed cross-check before
-    # a new public incident can be created.
+    GitHub issue bodies may be very long. Fetching 100 public issues in one
+    response exceeds the watchdog's existing 200 kB cap. Never lift that cap,
+    silently drop an older canonical incident, or mistake a partial list for
+    the full issue inventory.
+    """
+    MAX_ROWS = 250
+    for size in (10, 5, 2, 1):
+        collected = []
+        try:
+            for page in range(1, (MAX_ROWS // size) + 1):
+                response = requester("GET", path_builder(size, page),
+                                     token=token, repo=repo)
+                if search and isinstance(response, dict):
+                    if response.get("incomplete_results") is True:
+                        raise ValueError("Issue-Suche unvollständig")
+                    count = response.get("total_count")
+                    if type(count) is int and count > MAX_ROWS:
+                        raise ValueError("Issue-Suche zu umfangreich")
+                    rows = response.get("items")
+                else:
+                    count = None
+                    rows = response
+                if not isinstance(rows, list) or len(rows) > size:
+                    raise ValueError("Issue-Liste ungültig")
+                collected.extend(rows)
+                if len(rows) < size or (type(count) is int
+                                        and len(collected) >= count):
+                    return collected
+            raise ValueError("Issue-Liste unvollständig")
+        except ValueError as exc:
+            if str(exc) == "GitHub response too large":
+                # Restart at page 1 with a smaller fixed page size. Moving
+                # from page N of one size to page N of another skips issues.
+                continue
+            raise
+    raise ValueError("GitHub response too large")
+
+
+def open_issue_rows(*, token, repo, requester=github_request):
+    """One complete indexed issue list plus independent GitHub title search.
+
+    The independent search catches open help issues omitted from the list by
+    transient GitHub API indexing. No creation when either source is partial.
+    """
+    issues = _bounded_issue_pages(
+        requester, token=token, repo=repo,
+        path_builder=lambda size,page: (
+            "/issues?state=open&per_page=" + str(size) + "&page=" + str(page)))
     query = quote_plus(
         'repo:' + repo + ' is:issue is:open in:title "[Bob KI-Hilfe]"'
     )
-    search = requester(
-        "GET", "/search/issues?q=" + query + "&per_page=30",
-        token=token, repo=repo
-    )
-    if isinstance(search, dict):
-        search_rows = search.get("items")
-    else:
-        # Test requesters historically model all GET endpoints as issue lists.
-        search_rows = search
-    if not isinstance(search_rows, list):
-        raise ValueError("Issue-Suche ungültig")
-    issues.extend(search_rows)
-
-    # The same issue normally appears in both sources. Prefer the search copy
-    # because it is the independently recovered observation and deduplicate by
-    # immutable issue number before downstream sanitization.
+    issues += _bounded_issue_pages(
+        requester, token=token, repo=repo, search=True,
+        path_builder=lambda size,page: (
+            "/search/issues?q=" + query + "&per_page=" + str(size)
+            + "&page=" + str(page)))
     unique = {}
     for row in issues:
-        if isinstance(row, dict) and isinstance(row.get("number"), int):
+        if isinstance(row, dict) and type(row.get("number")) is int:
             unique[row["number"]] = row
     return list(unique.values())
 
