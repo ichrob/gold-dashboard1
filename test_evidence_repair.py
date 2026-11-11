@@ -162,6 +162,25 @@ class RepairPersistenceTests(unittest.TestCase):
             self.assertTrue(reader.execute('SELECT pg_try_advisory_xact_lock_shared(hashtext(%s))',key).fetchone()[0])
             reader.rollback()
 
+    def test_deploy_overlap_advisory_lock_excludes_second_cycle(self):
+        import psycopg
+        import push_server
+        dsn=os.environ['BOB_TEST_DATABASE_URL']
+        with psycopg.connect(dsn) as held, psycopg.connect(dsn) as runner:
+            held.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',
+                         (push_server.AUDIT_OUTCOME_LOCK,))
+            class Borrow:
+                def __enter__(self):return runner
+                def __exit__(self,*args):runner.rollback()
+            database=lambda:Borrow()
+            with patch('improvement_resilience.run_drills') as drills, \
+                 patch.object(push_server,'run_audit_harvest_once') as harvest, \
+                 patch.object(push_server,'run_test_repair_once') as repair:
+                self.assertFalse(push_server.run_audit_outcome_cycle(database))
+            drills.assert_not_called()
+            harvest.assert_not_called()
+            repair.assert_not_called()
+
     def test_technical_archive_failure_keeps_technical_group(self):
         import psycopg,uuid
         from psycopg import sql
