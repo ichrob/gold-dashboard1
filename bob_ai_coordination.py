@@ -81,7 +81,7 @@ def handoff(code, number):
         "**Verantwortung:** ChatGPT-Reparaturwächter ist der EINZIGE Code-Reparatur-Owner; "
         "Gemini liefert optional eine unabhängige PR-Gegenprüfung, nie einen "
         "automatischen Merge oder konkurrierende Codeänderungen. Ein GitHub-Issue "
-        "startet selbst kein fremdes ChatGPT-Gespräch.\\n"
+        "startet selbst kein fremdes ChatGPT-Gespräch.\n"
         "**ChatGPT-Reparaturwächter:** Originalursache anhand aktueller, berechtigter "
         "Diagnosen nachweisen; minimale Änderung als Pull Request mit Regressionstest "
         "vorschlagen. Kein PR oder Code-Fix ist hiermit bereits gestartet.\n\n"
