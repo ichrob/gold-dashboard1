@@ -147,6 +147,33 @@ class StateMachine(unittest.TestCase):
         self.assertEqual(base['exitReason'],'horizon')
         self.assertIsNotNone(state['arms']['original:base5:300']['position'])
 
+    def test_new_stop_variants_move_only_on_observed_favorable_prices(self):
+        state,_=self.run_tick(s.seed(NOW))
+        key='original:trailatr5:30'
+        first=state['arms'][key]['position']
+        self.assertIsNotNone(first)
+        self.assertEqual(first['stopAdjustments'],0)
+        initial=first['stop']
+        # +1.6R is favorable, but neither the target nor reversal is reached.
+        moved,closed=self.run_tick(state,NOW+30000,
+                                   first['entryPrice']+1.6*first['risk'])
+        self.assertFalse(any(x['arm']==key for x in closed))
+        position=moved['arms'][key]['position']
+        self.assertGreater(position['stop'],initial)
+        self.assertEqual(position['stopAdjustments'],1)
+        self.assertEqual(position['lastStopObservedAt'],NOW+30000)
+        self.assertEqual(moved['arms']['original:base5:30']['position']['stop'],initial)
+        self.assertEqual(moved['arms']['original:breakeven5:30']['position']['stop'],
+                         first['entryPrice'])
+        # Falling through a trailing stop closes at the *next observed price*,
+        # never at an invented ideal stop fill.
+        exit_price=position['stop']-0.2
+        finished,done=self.run_tick(moved,NOW+60000,exit_price)
+        exit_case=next(x for x in done if x['arm']==key)
+        self.assertEqual(exit_case['exitReason'],'stop')
+        self.assertEqual(exit_case['exitPrice'],exit_price)
+        self.assertIsNone(finished['arms'][key]['position'])
+
     def test_stop_records_adverse_and_false_start_not_target_fill(self):
         state,_=self.run_tick(s.seed(NOW));state,done=self.run_tick(state,NOW+30000,3997.)
         p=next(p for p in done if p['arm']=='original:base5:30')
