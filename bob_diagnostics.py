@@ -409,7 +409,8 @@ def new_studies_brief(paper, now_ms=None):
         return fields(v if isinstance(v, dict) else {}, ('status', 'checkedAt'))
     study_ids = ('reaction','warning-confirmed','entry-delay','sideways-filter')
     counters = ('id','cycles','original','invalid','estimated','workerErrors',
-                'started','complete','inconclusive','open','estimatedComplete')
+                'started','complete','inconclusive','open','estimatedComplete',
+                'originalLegacyUnclassified','historicalInconclusiveUnclassified')
     def study_counts(control):
         values = control.get('studies') if isinstance(control.get('studies'),list) else []
         return [fields(row,counters) for row in values[:4]
@@ -435,6 +436,35 @@ def new_studies_brief(paper, now_ms=None):
                  if code in ORIGINAL_INPUT_REASONS
                  and type(count) is int and 0 <= count <= 10**9}
                 if isinstance(causes, dict) else {})
+            # Only bounded NEW diagnostic witnesses. Historical uncategorized
+            # checks cannot be reconstructed or labelled with these clocks.
+            recent = source.get('recentOriginalFailureEvidence') if isinstance(source,dict) else None
+            witnesses = []
+            if isinstance(recent, list):
+                for item in recent[-12:]:
+                    if not isinstance(item, dict) or item.get('reasonCode') not in ORIGINAL_INPUT_REASONS:
+                        continue
+                    if item.get('timeframe') not in ('5m','15m'):
+                        continue
+                    witnesses.append(fields(item, ('checkedAt','sourceAt','analysisBarAt',
+                        'reasonCode','timeframe','sourceAgeMs','dataSourceDeltaMs',
+                        'identityVerified','closedSignalBarMatched','clockRelation')))
+            reaction_row['recentOriginalFailureEvidence'] = witnesses
+        fixed_outcome_reasons = (
+            'original-source-gap-over-90s', 'worker-observation-gap-over-90s',
+            'delayed-entry-original-unobserved', 'original-path-unverified',
+            'terminal-original-exit-unobserved', 'estimated-path-unverified',
+        )
+        for displayed in row:
+            if displayed.get('id') == 'reaction':
+                continue
+            raw = next((v for v in (control.get('studies') or [])
+                        if isinstance(v,dict) and v.get('id')==displayed.get('id')),None)
+            reasons = raw.get('inconclusiveEvidenceReasons') if isinstance(raw,dict) else None
+            displayed['inconclusiveEvidenceReasons'] = (
+                {code: count for code, count in reasons.items()
+                 if code in fixed_outcome_reasons and type(count) is int
+                 and 0 <= count <= 10**9} if isinstance(reasons,dict) else {})
     # A compact, deterministic quality alert, not an assertion about cause
     # or a proposal to count estimated model outcomes as product fills.
     notices = []
