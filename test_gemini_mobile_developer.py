@@ -70,6 +70,33 @@ class GeminiMobileDeveloperTests(unittest.TestCase):
             g.public_file({**obj, "content": base64.b64encode(
                 b"password=veryLongSensitivePassword").decode()})
 
+    def test_public_file_longer_guide_has_bounded_limit(self):
+        source = "# public notes\n" + "evidence checked\n" * 430
+        obj = {"encoding": "base64", "sha": "a" * 40,
+               "content": base64.b64encode(source.encode()).decode()}
+        self.assertGreater(len(source), 6500)
+        self.assertLessEqual(len(source), 8000)
+        self.assertEqual(g.public_file(obj), source)
+        too_long = "#" + "x" * 8000
+        with self.assertRaises(ValueError):
+            g.public_file({**obj, "content": base64.b64encode(
+                too_long.encode()).decode()})
+
+    def test_draft_prompt_requests_pure_diff(self):
+        diff = "--- a/GEMINI.md\n+++ b/GEMINI.md\n@@ -1 +1 @@\n-old\n+new"
+        response = {"candidates": [{"content": {"parts": [{"text": diff}]}}]}
+        fake = MagicMock()
+        fake.open.return_value.__enter__.return_value.read.return_value = (
+            json.dumps(response).encode())
+        with patch.object(g.urllib.request, "build_opener", return_value=fake):
+            self.assertEqual(g.model_proposal("Public task", "GEMINI.md",
+                                              "# small public file", "a" * 40,
+                                              patch_only=True), diff)
+        request = fake.open.call_args.args[0]
+        prompt = json.loads(request.data)["systemInstruction"]["parts"][0]["text"]
+        self.assertIn("NUR", prompt)
+        self.assertIn("keine Einleitung", prompt)
+
     def test_dedup_and_budget(self):
         marker = g.MARKER + "issue=1497;fingerprint=abc;day=2026-11-09 -->"
         comments = [{"user": {"login": "github-actions[bot]"}, "body": marker + "\nA"}]
@@ -131,7 +158,7 @@ class GeminiMobileDeveloperTests(unittest.TestCase):
 
     def test_gemini_md_references_existing_safe_phone_workflow(self):
         guide = Path("GEMINI.md").read_text()
-        self.assertLessEqual(len(guide), 6500)
+        self.assertLessEqual(len(guide), 8000)
         self.assertIn(".github/workflows/bob-gemini-mobile-developer.yml", guide)
         self.assertIn("BOB_GEMINI_MOBILE_DEVELOPER.md", guide)
         self.assertIn("/bob-gemini-dev GEMINI.md", guide)
