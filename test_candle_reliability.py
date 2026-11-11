@@ -123,7 +123,7 @@ class ReliabilityTests(unittest.TestCase):
         c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
         batches = [json.loads(call.args[1][1]) for call in conn.execute.call_args_list
                    if 'INSERT INTO bob_candle_evidence' in call.args[0]]
-        self.assertEqual([len(batch) for batch in batches], [256, 256, 88])
+        self.assertEqual([len(batch) for batch in batches], [128, 128, 128, 128, 88])
         self.assertEqual([row for batch in batches for row in batch], c.validated('biquote/1m', rows))
         conn.commit.assert_not_called()
         conn.reset_mock()
@@ -132,6 +132,24 @@ class ReliabilityTests(unittest.TestCase):
             c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
         self.assertFalse(any('INSERT INTO bob_candle_checkpoints' in call.args[0]
                              for call in conn.execute.call_args_list))
+        conn.commit.assert_not_called()
+
+    def test_evidence_statement_work_stays_below_observed_timeout_batch(self):
+        conn = MagicMock()
+        rows = self.rows(600)
+        executed = []
+        def execute(sql, params=None):
+            if 'INSERT INTO bob_candle_evidence' in sql:
+                batch = json.loads(params[1])
+                executed.append(batch)
+                if len(batch) > 128:
+                    raise TimeoutError('simulated statement timeout under concurrent database load')
+            return MagicMock()
+        conn.execute.side_effect = execute
+        c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
+        self.assertEqual([len(batch) for batch in executed], [128, 128, 128, 128, 88])
+        self.assertEqual([row for batch in executed for row in batch],
+                         c.validated('biquote/1m', rows))
         conn.commit.assert_not_called()
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'PostgreSQL integration')
