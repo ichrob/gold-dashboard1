@@ -101,24 +101,36 @@ export async function tick(env, storage, scheduledTime, now = Date.now(), reques
   }
   const workflow = await get('');
   if (workflow.id !== WORKFLOW || workflow.state !== 'active') throw new Error('workflow_not_active');
-  const lists = await Promise.all([...ACTIVE, 'success'].map(status =>
-    get(`/runs?branch=main&status=${status}&per_page=1`)));
-  for (const list of lists) {
-    if (!Number.isSafeInteger(list.total_count) || list.total_count < 0 || !Array.isArray(list.workflow_runs)
-        || (list.total_count === 0) !== (list.workflow_runs.length === 0)) throw new Error('inconsistent_run_list');
-    for (const run of list.workflow_runs) {
-      if (run.workflow_id !== WORKFLOW || run.head_branch !== 'main') throw new Error('unexpected_run');
+  // GitHub's per-status list endpoints can return inconsistent total_count
+  // vs. page lengths. One fixed latest-runs page avoids six independent
+  // filtered searches and the related secondary rate/consistency pressure.
+  // Page size and run identities are bounded; uncertainty always fails closed.
+  const page = await get('/runs?branch=main&per_page=50');
+  if (!page || !Number.isSafeInteger(page.total_count) || page.total_count < 0
+      || !Array.isArray(page.workflow_runs) || page.workflow_runs.length > 50
+      || (page.total_count === 0) !== (page.workflow_runs.length === 0)) {
+    throw new Error('inconsistent_run_list');
+  }
+  let latestSuccessful = null;
+  let recentNonSuccess = false;
+  for (const run of page.workflow_runs) {
+    if (run.workflow_id !== WORKFLOW || run.head_branch !== 'main'
+        || !Number.isSafeInteger(run.id) || run.id <= 0
+        || typeof run.updated_at !== 'string') throw new Error('unexpected_run');
+    const updatedAt = Date.parse(run.updated_at);
+    if (!Number.isFinite(updatedAt) || updatedAt > now + 5000) throw new Error('invalid_run_clock');
+    if (ACTIVE.includes(run.status)) return { state: 'run_already_active' };
+    if (run.status !== 'completed') throw new Error('unexpected_run_status');
+    if (typeof run.conclusion !== 'string') throw new Error('unsettled_run');
+    if (now - updatedAt < PERIOD) {
+      if (run.conclusion === 'success') latestSuccessful ??= run.id;
+      else recentNonSuccess = true;
     }
   }
-  if (lists.slice(0, ACTIVE.length).some(list => list.total_count > 0)) return { state: 'run_already_active' };
-  const last = lists.at(-1).workflow_runs[0];
-  if (last) {
-    const completed = Date.parse(last.updated_at);
-    if (!Number.isFinite(completed) || last.status !== 'completed' || last.conclusion !== 'success') {
-      throw new Error('invalid_success_record');
-    }
-    if (now - completed < PERIOD) return { state: 'recent_success', run_id: last.id };
-  }
+  if (latestSuccessful !== null) return { state: 'recent_success', run_id: latestSuccessful };
+  // A recent failed/skipped/cancelled run must not lead to an immediate
+  // second dispatch while GitHub's result indexes are settling.
+  if (recentNonSuccess) return { state: 'recent_run_deferred' };
   // Explicit opt-in: an initial deployment only observes, it cannot dispatch.
   if (env.ENABLED !== 'true') return { state: 'dry_run_would_dispatch' };
   // Persist BEFORE sending: ambiguous timeout/restart must never retry this slot.
