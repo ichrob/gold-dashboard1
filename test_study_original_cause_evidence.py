@@ -120,7 +120,7 @@ class TerminalEvidenceTests(unittest.TestCase):
         self.assertTrue(c['evidenceFlags']['delayedEntryWindowMissed'])
         self.assertIsNone(c['legs']['60s']['entry'])
         closed = []
-        for elapsed in range(160000, r.HORIZON + 1, 30000):
+        for elapsed in list(range(160000, r.HORIZON, 30000)) + [r.HORIZON]:
             state, out = r.advance(state, *sample(NOW + elapsed), NOW + elapsed)
             closed.extend(out)
         delay = next(x for x in closed if x['study'] == 'entry-delay')
