@@ -39,6 +39,12 @@ CODES = {
     "product-leverage-clock-missing": "Emittentenhebel oder dessen eigener bzw. eindeutig gemeinsamer Zeitbezug fehlt",
     "product-ko-validity-missing": "KO-Wert oder dessen gültiger Datennachweis fehlt",
     "product-terms-evidence-missing": "Produktstammdaten oder zugehörige Nachweise unvollständig",
+    # GitHub's own independent CI/health watchdogs. A successful /health
+    # poll cannot close a failed build or a failed GitHub workflow.
+    "ci-main-failed": "Produktiver GitHub-CI-Prüflauf fehlgeschlagen",
+    "smoke-main-failed": "GitHub-Live-Smoke-Prüfung fehlgeschlagen",
+    "collection-main-failed": "GitHub-Datensammlungsprüfung fehlgeschlagen",
+    "watchdog-main-failed": "GitHub-KI-Fehlerwächterlauf fehlgeschlagen",
 }
 
 # Internal marker to avoid closing unresolved incidents on an unavailable
@@ -46,6 +52,12 @@ CODES = {
 PRODUCT_AUDIT_UNKNOWN = "_private-product-audit-unavailable"
 PRODUCT_CODES = frozenset(code for code in CODES if code.startswith("product-"))
 STUDY_CODES = frozenset(code for code in CODES if code.startswith("study-"))
+# These are verified by independent GitHub Actions evidence, not by a missing
+# /health code. Only separately evidenced GitHub recovery may close them.
+EXTERNAL_CODES = frozenset((
+    "ci-main-failed", "smoke-main-failed",
+    "collection-main-failed", "watchdog-main-failed",
+))
 STUDY_SCOPE = "bob-original-study-watchdog-v1"
 PRODUCT_CONFIRMATION_SECONDS = 120
 
@@ -339,7 +351,8 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request,
     # the underlying broker or issuer records, so never auto-close product issues.
     # Data-dependent research findings need prospective ORIGINAL evidence
     # before closure. An empty/stale/missing health projection cannot close them.
-    product_titles = {issue_title(code) for code in PRODUCT_CODES | STUDY_CODES
+    product_titles = {issue_title(code) for code in
+                      PRODUCT_CODES | STUDY_CODES | EXTERNAL_CODES
                       | {"trade-setup-stalled", "screenshot-import-failed"}}
     actions = []
 
