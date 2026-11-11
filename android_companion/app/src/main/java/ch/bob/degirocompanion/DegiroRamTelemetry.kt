@@ -6,7 +6,7 @@ import android.os.SystemClock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
-import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
@@ -20,8 +20,13 @@ internal object DegiroRamTelemetry {
     private const val HISTORY = "recent_runs"
     private const val LIMIT = 12
     private const val INTERVAL_SEC = 3L
-    private val thread = Executors.newSingleThreadScheduledExecutor { job ->
+    private val thread = ScheduledThreadPoolExecutor(1) { job ->
         Thread(job, "bob-degiro-ram").apply { isDaemon = true }
+    }.apply {
+        // No idle sampler thread or retained cancelled jobs after a reading run.
+        removeOnCancelPolicy = true
+        setKeepAliveTime(15L, TimeUnit.SECONDS)
+        allowCoreThreadTimeOut(true)
     }
     private val lock = Any()
     private data class Run(val phase: String, val startedAt: String,
