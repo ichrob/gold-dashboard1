@@ -213,11 +213,19 @@ def snapshot(accounts):
         if profile in ('trend800nov','normal1000nov'):
             stored = a.get('lastTradingEntryBlockCode',
                            control.get('lastTradingEntryBlockCode'))
-            last_code = (stored if isinstance(stored,str) and stored in ENTRY_BLOCK_CODES
-                         else entry_block_code(a.get('reason') or control.get('reason')))
-            last_at = number(a.get('lastTradingEntryBlockAt',
-                                   control.get('lastTradingEntryBlockAt')),
-                             timestamp=True)
+            stored_valid = isinstance(stored, str) and stored in ENTRY_BLOCK_CODES
+            if stored_valid:
+                last_code = stored
+                last_at = number(a.get('lastTradingEntryBlockAt',
+                                       control.get('lastTradingEntryBlockAt')),
+                                 timestamp=True)
+            elif status in ('night-paused', 'market-closed', 'preparing',
+                            'scheduled', 'completed'):
+                # A current after-hours reason is not evidence of an actual
+                # trading-window entry blocker. Never invent its time.
+                last_code = 'not-observed'
+            else:
+                last_code = entry_block_code(a.get('reason') or control.get('reason'))
         rows.append(dict(
             profile=profile, source='saved-virtual-control',
             status=status,
