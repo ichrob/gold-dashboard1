@@ -100,6 +100,11 @@ jobs:
             node "$test"
           done
 
+      - name: Cloudflare watchdog isolated tests and bundle dry-run
+        run: |
+          node --test ops/cloudflare-watchdog/worker.test.mjs
+          npx --yes wrangler@4.158.0 deploy --dry-run --config ops/cloudflare-watchdog/wrangler.jsonc
+
       - name: Browser binary cache
         uses: actions/cache@v4
         with:
