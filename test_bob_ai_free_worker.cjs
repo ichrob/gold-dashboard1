@@ -55,7 +55,11 @@ const path = require("node:path");
       {exp:now-30},{iat:now-1000},{event_name:"push"}
     ]) assert.equal(await worker.verifyGithubOIDC(jwt(overrides)),false);
     const forged=jwt({});
-    assert.equal(await worker.verifyGithubOIDC(forged.slice(0,-2)+"AA"),false);
+    // The original random signature can genuinely end in "AA". Change an
+    // actual encoded signature byte, rather than guessing its final suffix.
+    const [header,claimsPart,signature] = forged.split(".");
+    const tampered = header+"."+claimsPart+"."+(signature[0]==="A"?"B":"A")+signature.slice(1);
+    assert.equal(await worker.verifyGithubOIDC(tampered),false);
     assert.equal(await worker.verifyGithubOIDC("Bearer fake"),false);
     const diff="FILE: server.py\n@@ -1 +1 @@\n-x()\n+y()";
     assert.equal(worker.validReviewRequest({pr:42,sha:"a".repeat(40),diff}),true);
