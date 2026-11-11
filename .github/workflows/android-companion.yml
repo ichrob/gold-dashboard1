@@ -132,7 +132,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
             adb install android_companion/workflowfixture/build/outputs/apk/debug/workflowfixture-debug.apk
-            gradle -p android_companion :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=ch.bob.degirocompanion.WorkflowDeviceTest --no-daemon --stacktrace
+            gradle -p android_companion :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=ch.bob.degirocompanion.WorkflowDeviceTest,ch.bob.degirocompanion.GeminiChatDeviceTest --no-daemon --stacktrace
       - name: Retain device test reports
         if: always()
         uses: actions/upload-artifact@v4

@@ -124,6 +124,9 @@ class MainActivity : Activity() {
             startActivity(Intent(this, ProductReadActivity::class.java)
                 .putExtra(ProductReadActivity.EXTRA_START_COMPLETE_FLOW, true))
         }
+        button("Mit Gemini an Bob arbeiten") {
+            startActivity(Intent(this, GeminiChatActivity::class.java))
+        }
         button("Meine Aufträge · Screenshots, Sprache und Abläufe") {
             startActivity(Intent(this, WorkflowActivity::class.java))
         }
@@ -743,6 +746,7 @@ class MainActivity : Activity() {
     }
 
     private fun emergencyStop() {
+        GeminiLocalSession.stop()
         WorkflowService.stop()
         TermuxMaintenance.stop(this)
         getSharedPreferences("product_reader", MODE_PRIVATE).edit().putBoolean("enabled", false).apply()

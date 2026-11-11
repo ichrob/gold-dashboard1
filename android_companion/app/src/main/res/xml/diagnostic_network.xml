@@ -6,4 +6,8 @@
         <domain includeSubdomains="false">bob-private-scanner.onrender.com</domain>
         <trust-anchors><certificates src="system" /></trust-anchors>
     </domain-config>
+    <!-- Device-local authenticated ACP bridge only; no LAN/domain cleartext. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
 </network-security-config>

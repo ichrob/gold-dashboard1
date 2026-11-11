@@ -74,7 +74,12 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertEqual(base.get('cleartextTrafficPermitted'),'false')
         self.assertEqual(len(base.find('trust-anchors')),0)
         domains=root.findall('domain-config')
-        self.assertEqual(len(domains),1)
+        self.assertEqual(len(domains),2)
+        loopback = domains[1]
+        self.assertEqual(loopback.get('cleartextTrafficPermitted'), 'true')
+        self.assertEqual(loopback.find('domain').text, '127.0.0.1')
+        self.assertEqual(loopback.find('domain').get('includeSubdomains'), 'false')
+        self.assertIsNone(loopback.find('trust-anchors'))
         self.assertEqual(domains[0].find('domain').text,'bob-private-scanner.onrender.com')
         self.assertEqual(domains[0].find('domain').get('includeSubdomains'),'false')
         self.assertEqual(domains[0].find('trust-anchors/certificates').get('src'),'system')
