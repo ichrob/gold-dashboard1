@@ -866,6 +866,23 @@ class Handler(BaseHTTPRequestHandler):
                         paper_heartbeat = {"state":"unavailable", "accountsTotal":len(__import__("paper_portfolios").POLICIES),
                                            "accountsChecked":0,"realOrders":False,
                                            "scope":"paper-account-heartbeat-not-quote-quality"}
+                    # One bounded indexed row. Public /health contains ONLY
+                    # allowlisted codes; unavailable never means "recovered".
+                    try:
+                        import bob_study_health
+                        import research_restart
+                        control_row = conn.execute(
+                            'SELECT payload FROM bob_quality_campaign WHERE id=%s',
+                            (research_restart.VERSION,)).fetchone()
+                        study_health = bob_study_health.snapshot(
+                            control_row[0] if control_row else None,
+                            int(time.time()*1000),
+                            trading=paper_heartbeat.get('sessionMode')=='trading')
+                    except Exception as study_exc:
+                        print('BOB_STUDY_HEALTH health_error='+type(study_exc).__name__, flush=True)
+                        study_health = {
+                            'status':'unavailable','codes':[], 'readOnly':True,
+                            'realOrders':False,'scope':'bob-original-study-watchdog-v1'}
                     improvement_protocol=conn.execute('SELECT payload FROM bob_improvement_protocol WHERE id=%s',(improvement_tracker.VERSION,)).fetchone()
                     improvement_schedule={'configured':bool(improvement_protocol and improvement_protocol[0]==improvement_tracker.PROTOCOL),'startAt':improvement_tracker.START,'mode':'research-only'}
                     # The public endpoint reveals ONLY allowlisted diagnostic
@@ -877,7 +894,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception as audit_exc:
                         print("BOB_PRODUCT_AUDIT health_error="+type(audit_exc).__name__, flush=True)
                         product_codes = None  # Unknown is NOT a confirmed repair.
-                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "backgroundProcessing": background_handoff.worker.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule,"runtimeWatchdog":__import__('runtime_watchdog').snapshot(),"handsetListWorker":__import__('handset_list_worker').status()})
+                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "backgroundProcessing": background_handoff.worker.status(), "paperObservation":paper_heartbeat, "studyHealth":study_health, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule,"runtimeWatchdog":__import__('runtime_watchdog').snapshot(),"handsetListWorker":__import__('handset_list_worker').status()})
                 return
             if path == "/push-delivery-history":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
