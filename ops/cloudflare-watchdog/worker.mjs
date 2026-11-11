@@ -15,9 +15,46 @@ function safeTransportCode(error) {
   return 'github_network_unavailable';
 }
 
+// One bounded, tokenless probe for the actual Cloudflare->GitHub egress path.
+// Operationally opt-in only while DISABLED. All results are fixed states,
+// numeric HTTP statuses or allowlisted error codes; never retain response bodies.
+// The durable marker is written BEFORE attempting remote I/O; no automatic retries.
+export async function probeUnauthGitHub(storage, request = fetch, now = Date.now()) {
+  const key = 'unauth-egress-probe-20261111-v1';
+  let prior;
+  try { prior = await storage.get(key); }
+  catch { return { state: 'unauth_storage_unavailable' }; }
+  if (prior) return { state: 'unauth_already_attempted' };
+  try { await storage.put(key, { at: now, status: 'started' }); }
+  catch { return { state: 'unauth_storage_unavailable' }; }
+  // No credentials, no workflow launch, no external dependency or new service.
+  // GitHub's fixed public /zen endpoint tests the same api.github.com host.
+  const url = 'https://api.github.com/zen';
+  let step = 'plain';
+  try {
+    let response = await request(url);
+    if (!response || !Number.isInteger(response.status)) return { state: 'unauth_invalid_response', step };
+    const plainStatus = response.status;
+    step = 'options';
+    response = await request(url, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'bob-watchdog-clock' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response || !Number.isInteger(response.status)) return { state: 'unauth_invalid_response', step };
+    return { state: 'unauth_http_observed', plainStatus, optionsStatus: response.status };
+  } catch (error) {
+    return { state: 'unauth_fetch_failed', step, code: safeTransportCode(error) };
+  }
+}
+
 export async function tick(env, storage, scheduledTime, now = Date.now(), request = fetch) {
   if (!Number.isSafeInteger(scheduledTime) || scheduledTime > now + 5000 || now - scheduledTime > 120_000) {
     throw new Error('invalid_or_stale_tick');
+  }
+  // Operator-only tokenless egress diagnostic; never dispatch in this mode.
+  if (env.ENABLED !== 'true' && env.DIAG_UNAUTH === 'true') {
+    return probeUnauthGitHub(storage, request, now);
   }
   // An unarmed clock may record Cron receipt without access to any GitHub credential.
   // This is not proof of a successful GitHub dispatch or its monitoring job.
