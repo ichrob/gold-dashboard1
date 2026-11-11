@@ -93,7 +93,7 @@ def tick(conn,now):
           AND (m.checked_at IS NULL OR m.checked_at<%s)
         ORDER BY m.checked_at NULLS FIRST,r.id LIMIT 128)
         SELECT c.id,c.ref,a.payload,c.payload FROM candidates c
-        JOIN bob_decision_audit a ON a.id=c.ref->>'decision'
+        LEFT JOIN bob_decision_audit a ON a.id=c.ref->>'decision'
         ORDER BY CASE WHEN c.ref->>'horizon'='60'
           AND jsonb_typeof(a.payload->'recordedAt')='number'
           AND (a.payload->>'recordedAt')::double precision>%s THEN 0 ELSE 1 END,
@@ -102,6 +102,14 @@ def tick(conn,now):
         if saved and saved.get('status')=='modelled':
             # Freeze the initial model; compare later exact-time originals separately.
             result=dict(saved,validation=validate(conn,saved),lastComparedAt=now)
+        elif record is None:
+            # The immutable decision can legitimately have aged out while its
+            # unresolved repair case remains. Record that bounded, fail-closed
+            # outcome so orphaned rows rotate instead of pinning the first page
+            # forever and starving later model candidates.
+            result=dict(version=VERSION,status='unavailable',
+                reason='Ursprüngliche Entscheidung ist nicht mehr im Archiv; rückblickendes Modell nicht berechenbar.',
+                calculatedAt=now)
         else:
             at=record.get('recordedAt');horizon=ref.get('horizon')
             if not positive(at) or horizon not in (15,60,240) or at+horizon*60000>now:continue
@@ -187,3 +195,4 @@ def recent_followups(conn, now):
         scope='missing-60m-outcomes-in-latest-100-decisions',
         realOrders=False,originalEvidenceUnchanged=True,
         note='Original vorhanden: Verarbeitung steht aus. Schätzungen sind separat gespeicherte rückblickende Spotmodelle, keine Originalreparatur oder KO-Produktrendite.')
+
