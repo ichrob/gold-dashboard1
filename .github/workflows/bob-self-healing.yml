@@ -16,6 +16,10 @@ on:
       - bob_problem_mirror.py
       - bob_problems.py
       - bob_issue_watchdog.py
+      - bob_study_health.py
+      - research_restart.py
+      - bob_ai_coordination.py
+      - push_server.py
       - .github/workflows/bob-self-healing.yml
   workflow_dispatch:
 
