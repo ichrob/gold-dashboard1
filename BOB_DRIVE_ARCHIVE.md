@@ -81,7 +81,8 @@ evaluation remain unchanged. No plaintext deletion is authorized.
 
 Age-only Gold analysis, market metrics, learning observations, active
 simulations, products, trades, signals, push and operational evidence remain
-subject to the earlier comfortable-capacity skip; age never establishes that
+blocked from automatic replacement at any occupancy until separately
+verified as no longer needed; age never establishes that
 they are unused. An unavailable proof leaves all originals in PostgreSQL.
 A common nonblocking PostgreSQL advisory lock now serializes scheduled
 full exports, cold-payload writers and standard storage maintenance; a busy
