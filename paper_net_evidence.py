@@ -37,6 +37,13 @@ def _reason(case):
     if (case.get("status") != "closed" or case.get("productReturnKnown") is not True
             or case.get("pendingUnits") != 0 or case.get("remainingUnits") != 0):
         return "not-closed-or-unsettled", None
+    # A later deferred model sale after a missing quote is not the original
+    # exit execution and may not certify a complete same-time strategy trade.
+    if any(isinstance(e, dict) and e.get('kind') in (
+            'data-gap', 'deferred-sale', 'ko-barrier-crossed-observed',
+            'product-terminated', 'knockout-confirmed')
+            for e in (case.get('events') or [])):
+        return "non-eligible-or-synthetic", None
     try:
         from paper_evidence_chain import review
         chain = review(case)
