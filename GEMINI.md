@@ -44,3 +44,11 @@
 
 ## Für jeden Abschlussbericht
 **Issue/PR · Commit-SHA · geänderte Dateien · Tests (mit Link und Ergebnis) · Live-Beweis oder „nicht geprüft“ · neue Risiken · Rollback · nächste konkrete Handlung.**
+
+
+
+## Gemini-Ausbau ab November 2026
+
+Die sechs Erweiterungen, sicheren Subagenten und den manuellen
+Draft-PR-Workflow beschreibt [BOB_GEMINI_AUTONOMOUS.md](BOB_GEMINI_AUTONOMOUS.md).
+Nur nach echten CI-, Consent-, Free-Tier- und Live-Nachweisen aktivieren.
