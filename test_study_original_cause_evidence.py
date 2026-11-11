@@ -95,6 +95,12 @@ class TerminalEvidenceTests(unittest.TestCase):
             state, out = r.advance(state, *sample(NOW + elapsed), NOW + elapsed)
             closed += out
         self.assertEqual(closed, [])
+        # A genuine quote immediately before the horizon avoids conflating a
+        # terminal-window omission with a separate >90s source-path gap.
+        last_before_due = r.HORIZON - 1
+        state, out = r.advance(state, *sample(NOW + last_before_due),
+                               NOW + last_before_due)
+        self.assertEqual(out, [])
         # At/after terminal, spot identity stays unverified. Even though wall
         # time advances normally, no quote may be admitted as a virtual exit.
         for elapsed in (r.HORIZON, r.HORIZON + 30000,
