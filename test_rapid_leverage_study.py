@@ -158,6 +158,26 @@ class RapidEntryTests(unittest.TestCase):
         self.assertFalse(closed)
         self.assertEqual(state,frozen)
 
+    def test_model_review_requires_complete_comparable_original_outcomes(self):
+        arm=s.seed(NOW)['arms']['impulse']
+        none=s.model_review(arm)
+        self.assertEqual(none['status'],'insufficient-comparable-evidence')
+        self.assertIsNone(none['exploratoryModelLeader'])
+        for k,slot in arm['levers'].items():
+            slot.update(completed=20,netEur=5.*int(k),excluded=0,maxDrawdownPct=3.)
+        arm.update(started=20,closed=20,inconclusive=1)
+        self.assertIsNone(s.model_review(arm)['exploratoryModelLeader'])
+        arm['inconclusive']=0
+        review=s.model_review(arm)
+        self.assertEqual(review['status'],'exploratory-proxy-only')
+        self.assertEqual(review['exploratoryModelLeader'],30)
+        self.assertFalse(review['netProductVerified'])
+        arm['levers']['30']['excluded']=1
+        self.assertIsNone(s.model_review(arm)['exploratoryModelLeader'])
+        arm['levers']['30']['excluded']=0
+        arm['levers']['30']['completed']=19
+        self.assertIsNone(s.model_review(arm)['exploratoryModelLeader'])
+
     def test_no_strategy_promotion_and_paper_only(self):
         st=s.seed(NOW)
         self.assertEqual(set(st["arms"]),set(s.SETUPS))
