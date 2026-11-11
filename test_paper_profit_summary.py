@@ -54,6 +54,25 @@ class PaperProfitSummaryTests(unittest.TestCase):
         self.assertIsNone(next(a for a in out['rows'] if a['profile']=='normal1000nov')['initialCapitalEur'])
         json.dumps(out, allow_nan=False)
 
+    def test_november_blockers_are_classified_without_leaking_private_reasons(self):
+        self.assertEqual(profit.entry_block_code('Goldkurs nicht aktuell bestätigt; Quellenzeit prüfen'),
+                         'source-not-fresh')
+        self.assertEqual(profit.entry_block_code('KO-Schutz: Barriere fehlt'),
+                         'knockout-protection')
+        self.assertEqual(profit.entry_block_code('ABWARTEN: keine bestätigte Richtung'),
+                         'no-direction')
+        out = profit.snapshot([
+            dict(profile='trend800nov',initialCapital=800,equity=800,
+                 reason='Geld-/Briefkurs nicht freigegeben · ISIN PRIVATE-TOKEN'),
+            dict(profile='normal1000nov',initialCapital=1000,equity=1000,
+                 reason='ABWARTEN: keine bestätigte Richtung')])
+        by_id={a['profile']:a for a in out['rows']}
+        self.assertEqual(by_id['trend800nov']['latestEntryBlockCode'],'product-quote-missing')
+        self.assertEqual(by_id['normal1000nov']['latestEntryBlockCode'],'no-direction')
+        self.assertNotIn('PRIVATE-TOKEN',json.dumps(out))
+        self.assertFalse(out['netProductReturnsVerified'])
+
+
     def test_visibility_survives_focused_and_bounded_reports(self):
         source = {'status': 'observed', 'accounts': [
             {'profile': 'trend800', 'initialCapital': 800,
