@@ -154,7 +154,7 @@ def run_once(factory=codec.connect):
     with factory() as conn:
         guard=__import__('storage_pressure').verified_writer_preflight(conn)
         if guard is not None:return guard
-        if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_cold_analysis_v1'))").fetchone()[0]:
+        if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_storage_maintenance_v1'))").fetchone()[0]:
             return {'status':'busy'}
         init(conn);drive=codec.runtime_drive(conn);results=[];deadline=time.monotonic()+120
         for _ in range(64):

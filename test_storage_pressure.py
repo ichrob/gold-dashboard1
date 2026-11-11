@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 from datetime import datetime, timezone
-from storage_pressure import policy, delay, verified_writer_preflight
+from storage_pressure import policy, delay, verified_writer_preflight, PROACTIVE_CLOSED_FAMILY
 
 class PressureTests(unittest.TestCase):
     def test_boundaries(self):
@@ -52,12 +52,14 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
                 'observedAt':self.NOW-20,'diskUsage':MAX_VOLUME_BYTES-10}
         with patch('storage_budget.archive_status',return_value=self.proof()) as proof, \
              patch('render_disk_metrics.report',return_value=volume) as measured:
-            self.assertIsNone(verified_writer_preflight(object(),now=self.NOW))
+            self.assertIsNone(verified_writer_preflight(object(),now=self.NOW,
+                             completed_family=PROACTIVE_CLOSED_FAMILY))
             proof.assert_called_once();measured.assert_called_once()
         invalid=self.proof();invalid['latestVerifiedAttempt']['recoveryKeyVerified']=False
         with patch('storage_budget.archive_status',return_value=invalid), \
              patch('render_disk_metrics.report',return_value=volume) as measured:
-            self.assertEqual(verified_writer_preflight(object(),now=self.NOW)['status'],
+            self.assertEqual(verified_writer_preflight(object(),now=self.NOW,
+                             completed_family=PROACTIVE_CLOSED_FAMILY)['status'],
                              'backup-proof-not-fresh')
             measured.assert_called_once()
         for change in ({'observedAt':self.NOW-301},
@@ -66,7 +68,8 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
             with self.subTest(change=change), \
                  patch('storage_budget.archive_status',return_value=self.proof()), \
                  patch('render_disk_metrics.report',return_value={**volume,**change}):
-                self.assertEqual(verified_writer_preflight(object(),now=self.NOW)['status'],
+                self.assertEqual(verified_writer_preflight(object(),now=self.NOW,
+                             completed_family=PROACTIVE_CLOSED_FAMILY)['status'],
                                  'fresh-volume-proof-unavailable')
 
     def test_comfortable_volume_does_not_rewrite_old_originals(self):
@@ -79,6 +82,67 @@ class OffloadEvidenceGuardTests(unittest.TestCase):
             self.assertEqual(verified_writer_preflight(object(),now=self.NOW)['status'],
                              'capacity-comfortable-no-offload')
             proof.assert_not_called()
+
+    def test_low_usage_final_comparison_still_needs_live_recovery_and_volume(self):
+        from render_disk_metrics import RESOURCE
+        from storage_capacity import CAUTION_BYTES, MAX_VOLUME_BYTES
+        volume={'status':'observed','resource':RESOURCE,'unit':'bytes',
+                'observedAt':self.NOW-20,'diskUsage':CAUTION_BYTES-1}
+        with patch('archive_worker.status',return_value={'status':'ready'}), \
+             patch('storage_budget.archive_status',return_value=self.proof()), \
+             patch('render_disk_metrics.report',return_value=volume):
+            self.assertIsNone(verified_writer_preflight(
+                object(), now=self.NOW, completed_family=PROACTIVE_CLOSED_FAMILY))
+            self.assertEqual(verified_writer_preflight(
+                object(), now=self.NOW, completed_family='analysis-age-only')['status'],
+                'capacity-comfortable-no-offload')
+        invalid=self.proof()
+        invalid['latestVerifiedAttempt']['recoveryKeyVerified']=False
+        with patch('archive_worker.status',return_value={'status':'ready'}), \
+             patch('storage_budget.archive_status',return_value=invalid), \
+             patch('render_disk_metrics.report',return_value=volume):
+            self.assertEqual(verified_writer_preflight(
+                object(), now=self.NOW, completed_family=PROACTIVE_CLOSED_FAMILY)['status'],
+                'backup-proof-not-fresh')
+        with patch('archive_worker.status',return_value={'status':'running'}), \
+             patch('storage_budget.archive_status') as proof, \
+             patch('render_disk_metrics.report') as measured:
+            self.assertEqual(verified_writer_preflight(
+                object(), now=self.NOW, completed_family=PROACTIVE_CLOSED_FAMILY)['status'],
+                'archive-running')
+            proof.assert_not_called()
+            measured.assert_not_called()
+        with patch('archive_worker.status',return_value={'status':'ready'}), \
+             patch('storage_budget.archive_status',return_value=self.proof()), \
+             patch('render_disk_metrics.report',return_value={
+                 **volume,'diskUsage':MAX_VOLUME_BYTES+1}):
+            self.assertEqual(verified_writer_preflight(
+                object(), now=self.NOW, completed_family=PROACTIVE_CLOSED_FAMILY)['status'],
+                'fresh-volume-proof-unavailable')
+
+    def test_age_only_family_denied_at_high_volume_too(self):
+        from render_disk_metrics import RESOURCE
+        from storage_capacity import CAUTION_BYTES
+        volume={'status':'observed','resource':RESOURCE,'unit':'bytes',
+                'observedAt':self.NOW-20,'diskUsage':CAUTION_BYTES+1}
+        with patch('archive_worker.status',return_value={'status':'ready'}), \
+             patch('storage_budget.archive_status') as proof, \
+             patch('render_disk_metrics.report',return_value=volume):
+            self.assertEqual(verified_writer_preflight(object(),now=self.NOW)['status'],
+                             'semantic-retirement-unverified')
+            proof.assert_not_called()
+
+    def test_cold_archives_and_maintenance_share_one_session_lock(self):
+        from pathlib import Path
+        shared="hashtext('bob_storage_maintenance_v1')"
+        for name in ('cold_analysis.py','cold_metrics.py',
+                     'cold_observations.py','cold_test_evidence.py',
+                     'storage_maintenance.py','archive_worker.py'):
+            with self.subTest(module=name):
+                self.assertIn(shared, Path(name).read_text())
+        # Age-only cold writers never request the proactive family key.
+        for name in ('cold_analysis.py','cold_metrics.py','cold_observations.py'):
+            self.assertNotIn('completed_family=',Path(name).read_text())
 
     def test_all_automatic_writers_exit_before_sql_without_evidence(self):
         import cold_analysis, cold_metrics, cold_observations, cold_test_evidence

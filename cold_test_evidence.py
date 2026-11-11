@@ -165,10 +165,14 @@ def run_once(factory=codec.connect):
             raise ValueError('Dedicated autocommit connection required')
         # The completed-test family needs the same fresh independent recovery
         # AND provider-measured WAL/scratch reserve as all other cold writers.
-        guard = __import__('storage_pressure').verified_writer_preflight(conn)
+        # Only this completed, terminal-state comparison family may proceed
+        # at comfortable volume usage. Every candidate is verified by eligible().
+        import storage_pressure
+        guard = storage_pressure.verified_writer_preflight(
+            conn, completed_family=storage_pressure.PROACTIVE_CLOSED_FAMILY)
         if guard is not None:
             return guard
-        if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_cold_test_v1'))").fetchone()[0]:
+        if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_storage_maintenance_v1'))").fetchone()[0]:
             return {'status': 'busy', 'movedRows': 0}
         init(conn)
         return offload_batch(conn, codec.runtime_drive(conn))
