@@ -280,6 +280,31 @@ class WorkerTests(unittest.TestCase):
             with self.assertRaises(ValueError):worker.persist_parsed(connect,'a'*32,parsed,sleep)
             self.assertEqual(sync.call_count,1)
 
+    def test_import_receipt_records_only_bounded_routing_counts(self):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+        route={'appTextImages':2,'phoneMlKitImages':1,'serverOcrFallbackImages':0,
+               'missingPhoneReadingImages':0,'rejectedPhoneReadingImages':0}
+        parsed={'items':[{'isin':str(n)} for n in range(10)],
+                'evidence':{'products':[]},'recognitionRoute':route}
+        written=[]
+        class Conn:
+            def execute(self,sql,args=()):
+                if sql.startswith('SELECT'): return SimpleNamespace(fetchone=lambda:(None,))
+                written.append((sql,args))
+            def commit(self): pass
+        @contextmanager
+        def connect():
+            yield Conn()
+        with patch('paper_simulation.sync',return_value={'ok':True,'products':10}):
+            self.assertEqual(worker.persist_parsed(connect,'f'*32,parsed),'synced')
+        self.assertEqual(len(written),1)
+        receipt=json.loads(written[0][1][1])
+        self.assertEqual(receipt['recognitionRoute'],route)
+        self.assertEqual(receipt['stage'],'synced')
+        self.assertNotIn('images',receipt)
+        self.assertNotIn('account',str(receipt).lower())
+
     def test_strip_context_overlaps_but_line_ownership_never_doubles(self):
         for height in (1,511,512,513,896,897,1536,2400,3200):
             strips=list(worker.ocr_strips(height))
