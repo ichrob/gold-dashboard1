@@ -263,7 +263,7 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(h._PRUNE_CAP_BATCH_SIZE, 500)
         self.assertEqual(h._PRUNE_MAX_EVENTS, 60000)
 
-    def test_cap_count_is_exact_and_split_into_bounded_keyset_statements(self):
+    def test_cap_count_is_exact_below_reproduced_contended_statement_bound(self):
         class Result:
             def __init__(self, row):
                 self.row = row
@@ -279,6 +279,10 @@ class HistoryTests(unittest.TestCase):
             def execute(self, sql, params=()):
                 self.statements.append((sql, params))
                 limit = params[-1]
+                # Reproduce the live 11 Nov failure boundary: the former
+                # 15,000-key statement is canceled under contention.
+                if limit > 5000:
+                    raise TimeoutError('synthetic statement budget')
                 chunk = min(limit, self.remaining)
                 self.remaining -= chunk
                 cursor = format(len(self.statements), '032x') if chunk else None
@@ -286,14 +290,15 @@ class HistoryTests(unittest.TestCase):
 
         conn = Conn()
         self.assertEqual(h._bounded_cap_count(conn), 60500)
-        self.assertEqual(len(conn.statements), 5)
-        self.assertEqual(conn.statements[0][1], (15000,))
+        self.assertEqual(len(conn.statements), 13)
+        self.assertEqual(conn.statements[0][1], (5000,))
         self.assertEqual(conn.statements[-1][1][-1], 500)
         for index, (sql, params) in enumerate(conn.statements):
             self.assertIn('SELECT id FROM bob_diagnostic_history', sql)
             self.assertIn('ORDER BY id ASC', sql)
             self.assertIn('LIMIT %s', sql)
             self.assertNotIn('OFFSET', sql)
+            self.assertLessEqual(params[-1], 5000)
             self.assertLessEqual(params[-1], h._PRUNE_COUNT_CHUNK_SIZE)
             if index:
                 self.assertIn('WHERE id > %s', sql)
