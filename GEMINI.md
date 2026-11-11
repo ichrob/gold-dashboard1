@@ -44,3 +44,26 @@
 
 ## Für jeden Abschlussbericht
 **Issue/PR · Commit-SHA · geänderte Dateien · Tests (mit Link und Ergebnis) · Live-Beweis oder „nicht geprüft“ · neue Risiken · Rollback · nächste konkrete Handlung.**
+
+
+## Neue Spezialisten und sicherer Draft-Entwicklerweg (Stand 11.11.2026)
+
+Siehe BOB_GEMINI_AUTONOMOUS.md für alle sechs Ausbaustufen, Sicherheitsgrenzen
+und die tatsächliche Live-Abnahme. Im Repo-Workspace können die Custom Agents
+aus .agents/agents/ bei Bedarf über die Antigravity-Agentenverwaltung
+aufgerufen werden. Diese Prüfer dürfen keine Shell-, Order- oder Schreibtools
+eigenständig verwenden und erben keine privaten MCP-Verbindungen.
+
+Neuer explizit manueller Owner-Workflow:
+.github/workflows/bob-gemini-independent-draft.yml.
+Er erzeugt bei bestätigtem unbilled Free-Projekt und separatem Opt-in nur einen
+DRAFT-PR mit einem inert gespeicherten Gemini-Unified-Diff. Er wendet diesen
+Patch nicht auf produktiven Bob-Code an und führt ihn nicht aus.
+Nur verifizierte offene öffentliche Owner-Issues und kurze öffentliche Dateien
+sind erlaubt. Ein richtiger separater GitHub-Zugang für Gemini-Antigravity
+ist damit nicht automatisch eingerichtet.
+
+Neue geplante, gesondert abzuprüfende Read-only-MCP-Tools:
+bob_diagnostics_view und bob_simulation_audit (bestehender
+bob:diagnostics:read-Scope). Sie ersetzen nicht die ursprünglichen
+Originalzeitstempel, Papier-Evidenzen oder Risiko-/Stopregeln.
