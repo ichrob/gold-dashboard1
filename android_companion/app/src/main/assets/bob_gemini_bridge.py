@@ -10,6 +10,7 @@ import argparse
 from collections import deque
 import fcntl
 import hmac
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -53,6 +54,7 @@ class Bridge:
         self.closed = False
         self.born = self.touched = time.monotonic()
         self.first_prompt = True
+        self.accepted_requests = {}
 
     def event(self, kind, text):
         with self.lock:
@@ -201,12 +203,22 @@ class Bridge:
             self.send({'jsonrpc': '2.0', 'id': rid, 'error': {'code': -32601,
                        'message': 'Client capability not supported'}})
 
-    def prompt(self, text):
+    def prompt(self, text, request_id):
         if not isinstance(text, str) or not text.strip() or len(text) > 12000 or '\x00' in text:
             raise ValueError('INVALID_PROMPT')
+        if not isinstance(request_id, str) or not re.fullmatch('[0-9a-f]{32}', request_id):
+            raise ValueError('INVALID_REQUEST_ID')
+        digest = hashlib.sha256(text.encode()).hexdigest()
         with self.lock:
+            if request_id in self.accepted_requests:
+                if self.accepted_requests[request_id] != digest:
+                    raise ValueError('REQUEST_ID_CONFLICT')
+                return
             if self.closed or self.state != 'ready':
                 raise ValueError('NOT_READY')
+            if len(self.accepted_requests) >= 100:
+                raise ValueError('SESSION_REQUEST_LIMIT')
+            self.accepted_requests[request_id] = digest
             self.state = 'running'
             first = self.first_prompt
             self.first_prompt = False
@@ -321,7 +333,7 @@ def handler_for(bridge, token, port):
                 if not isinstance(body, dict):
                     raise ValueError('INVALID_BODY')
                 if self.path == '/prompt':
-                    bridge.prompt(body.get('text'))
+                    bridge.prompt(body.get('text'), body.get('requestId'))
                 elif self.path == '/permission':
                     bridge.permission(body.get('id'), body.get('option'))
                 elif self.path == '/stop':

@@ -79,8 +79,17 @@ internal object GeminiLocalSession {
                 c.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             }
             if (c.responseCode != 200) throw IllegalStateException("REQUEST_REJECTED")
-            val bytes = c.inputStream.use { it.readBytes() }
-            require(bytes.size <= 3000000)
+            val bytes = c.inputStream.use { stream ->
+                val output = ByteArrayOutputStream()
+                val chunk = ByteArray(8192)
+                while (true) {
+                    val n = stream.read(chunk)
+                    if (n < 0) break
+                    require(output.size() + n <= 3000000)
+                    output.write(chunk, 0, n)
+                }
+                output.toByteArray()
+            }
             return JSONObject(String(bytes, Charsets.UTF_8))
         } finally { c.disconnect() }
     }
@@ -114,6 +123,8 @@ class GeminiChatActivity : Activity() {
     private var polling = false
     private var permissionSignature = ""
     private var lastEvent = 0L
+    private var pendingText = ""
+    private var pendingRequest = ""
     private val history = StringBuilder()
     private val tick = Runnable { poll() }
 
@@ -162,8 +173,13 @@ class GeminiChatActivity : Activity() {
             val text = input.text.toString().trim()
             if (text.isEmpty()) return@button
             send.isEnabled = false
-            GeminiLocalSession.request("/prompt", JSONObject().put("text", text)) { r ->
-                if (r?.optBoolean("accepted") == true) input.setText("")
+            if (pendingText != text || pendingRequest.isEmpty()) {
+                pendingText = text; pendingRequest = java.util.UUID.randomUUID().toString().replace("-", "")
+            }
+            GeminiLocalSession.request("/prompt", JSONObject().put("text", text).put("requestId", pendingRequest)) { r ->
+                if (r?.optBoolean("accepted") == true) {
+                    input.setText(""); pendingText = ""; pendingRequest = ""
+                }
                 else status.text = "Auftrag nicht bestätigt. Eingabe bleibt erhalten; erst Status prüfen."
                 poll()
             }

@@ -59,7 +59,7 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertEqual(self.sent[-1]['result']['outcome']['outcome'], 'cancelled')
         self.assertEqual(self.bridge.state, 'stopped')
         with self.assertRaises(ValueError):
-            self.bridge.prompt('continue')
+            self.bridge.prompt('continue', 'f' * 32)
 
     def test_expired_and_idle_permissions_cannot_execute(self):
         self.request()
@@ -83,11 +83,21 @@ class BridgeProtocolTests(unittest.TestCase):
     def test_prompt_is_serial_and_not_shell_interpolated(self):
         self.bridge.state = 'ready'
         with patch('bob_gemini_bridge.threading.Thread') as thread:
-            self.bridge.prompt('$(touch /tmp/unsafe); "quote"')
+            self.bridge.prompt('$(touch /tmp/unsafe); "quote"', 'a' * 32)
             self.assertIn('$(touch /tmp/unsafe)', thread.call_args.kwargs['args'][0])
             with self.assertRaises(ValueError):
-                self.bridge.prompt('second job')
+                self.bridge.prompt('second job', 'b' * 32)
         self.assertEqual(self.sent, [])
+
+    def test_lost_ack_retry_does_not_repeat_development_job(self):
+        self.bridge.state = 'ready'
+        with patch('bob_gemini_bridge.threading.Thread') as thread:
+            self.bridge.prompt('fix', 'a' * 32)
+            self.bridge.state = 'ready'
+            self.bridge.prompt('fix', 'a' * 32)
+            self.assertEqual(thread.call_count, 1)
+            with self.assertRaises(ValueError):
+                self.bridge.prompt('different change', 'a' * 32)
 
 
 class HttpBoundaryTests(unittest.TestCase):
