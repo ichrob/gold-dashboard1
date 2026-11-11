@@ -359,6 +359,38 @@ def tick(conn, bundle, now):
         (VERSION,json.dumps(state,allow_nan=False)))
 
 
+def model_review(arm):
+    """Bounded, descriptive sample check. NEVER a claim of turbo profitability.
+
+    A leverage proxy must not win by missing its losing observations. Outcomes
+    with missing exit evidence, excluded proxies or unmatched case counts
+    cannot establish superiority, even when one visible return looks better.
+    """
+    if not isinstance(arm,dict):
+        return dict(status='unavailable',comparableCases=0,minimumCases=20,
+                    exploratoryModelLeader=None,netProductVerified=False)
+    slots=arm.get('levers') or {}
+    if not isinstance(slots,dict):
+        slots={}
+    counts=[x.get('completed') for x in slots.values()
+            if isinstance(x,dict) and type(x.get('completed')) is int]
+    count=min(counts) if len(counts)==len(LEVERS) else 0
+    equal=len(counts)==len(LEVERS) and len(set(counts))==1
+    eligible=(count>=20 and equal and arm.get('inconclusive')==0 and
+              all(type(x.get('excluded')) is int and x['excluded']==0
+                  and finite(x.get('netEur')) and finite(x.get('maxDrawdownPct'))
+                  for x in slots.values() if isinstance(x,dict)))
+    leader=None
+    if eligible:
+        leader=max(LEVERS, key=lambda lev:slots[str(lev)]['netEur'])
+    return dict(status='exploratory-proxy-only' if eligible else 'insufficient-comparable-evidence',
+                comparableCases=count,minimumCases=20,
+                unpricedCases=arm.get('inconclusive') if type(arm.get('inconclusive')) is int else None,
+                exploratoryModelLeader=leader,
+                strategyWinnerConfirmed=False,netProductVerified=False,
+                fullOriginalHistoryVerified=False)
+
+
 def report(conn):
     row = conn.execute("SELECT payload FROM bob_rapid_leverage_state WHERE id=%s",
                        (VERSION,)).fetchone()
@@ -371,6 +403,7 @@ def report(conn):
         arms.append(dict(setup=name, started=a["started"], closed=a["closed"],
                          inconclusive=a["inconclusive"], open=bool(a.get("position")),
                          latestBlockReason=a["lastReason"], blockCounts=a["blockCounts"],
+                         modelReview=model_review(a),
                          levers=[dict(leverage=int(lev), **slot,
                                       modeledReturnPct=round(100*(slot["equityEur"]/INITIAL_EUR-1),3))
                                  for lev,slot in a["levers"].items()]))
