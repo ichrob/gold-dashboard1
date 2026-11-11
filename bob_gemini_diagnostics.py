@@ -124,7 +124,9 @@ def simulation_audit(report):
         and not root.get("truncated")
         and not omitted
         and source.get("status") == "observed"
-        and bool(paper.get("netProductReturnsVerified") is True)
+        and study.get("fullOriginalHistoryVerified") is True
+        and paper.get("fullHistoryRead") is True
+        and paper.get("netProductReturnsVerified") is True
     )
     return {"readOnly": True, "realOrders": False,
             "observedAt": root.get("observedAt"),
