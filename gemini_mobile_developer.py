@@ -71,7 +71,7 @@ def public_file(file_data):
         source = raw.decode("utf-8")
     except (UnicodeError, ValueError):
         raise ValueError("public-file-invalid") from None
-    if (not 50 <= len(source) <= 6500 or PRIVATE_CONTENT.search(source)):
+    if (not 50 <= len(source) <= 8000 or PRIVATE_CONTENT.search(source)):
         raise ValueError("public-file-too-large-or-sensitive")
     return source
 
