@@ -118,3 +118,23 @@ numeric HTTP statuses or fixed redacted failure categories. No workflow can
 be dispatched in this mode. Restore `DIAG_UNAUTH=false` after observing the
 single result. An error is evidence of the specific observed probe step, not
 proof of invalid GitHub credentials or a general GitHub outage.
+
+## Confirmed redirect-mode incompatibility (11.11.2026)
+
+A real Cloudflare Cron at 04:34:10 UTC performed the once-only tokenless
+GitHub outbound probe. The plain GitHub GET and the GET carrying ordinary
+Accept/User-Agent headers returned valid HTTP responses. The next step,
+adding `redirect: 'error'`, failed before an HTTP response and produced the
+redacted code `github_network_unavailable` at step `redirect`. Therefore the
+prior generic network warning did **not** prove blocked outbound networking or
+an invalid fine-grained PAT. The exact underlying redirect target was not
+captured and is not assumed.
+
+The worker now uses `redirect: 'manual'` for every authorized GitHub GET
+and the workflow-dispatch POST. In this mode Cloudflare must return a 3xx as
+an HTTP response; existing strict success-status checks reject it without
+following the Location target or forwarding credentials. No automatic redirect
+and no new scope is allowed. The tokenless probe is already persistently
+consumed; do not reset it. A separate disabled, read-only `DRY_RUN` and
+actual `workflow_dispatch`/monitor receipts remain mandatory before declaring
+end-to-end success. Preserve the native GitHub schedule until accepted.
