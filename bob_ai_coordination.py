@@ -27,6 +27,9 @@ HINTS = {
     "push-unreachable": ("push_server.py", "test_push_monitor.py"),
     "push-unhealthy": ("push_server.py", "test_push_delivery_evidence.py"),
     "paper-unhealthy": ("paper_health.py", "test_paper_health.py"),
+    "study-original-input-degraded": ("research_restart.py", "test_bob_study_health.py"),
+    "study-outcome-coverage-degraded": ("research_restart.py", "test_research_restart.py"),
+    "study-worker-stale": ("paper_simulation.py", "test_bob_study_health.py"),
     "product-quote-evidence-missing": ("product_quotes.py", "test_product_quotes.py"),
     "product-leverage-clock-missing": ("product_data_quality.py", "test_product_data_quality.py"),
     "product-ko-validity-missing": ("product_data_quality.py", "test_product_data_quality.py"),
@@ -70,7 +73,8 @@ def handoff(code, number):
         "vorschlagen. Kein PR oder Code-Fix ist hiermit bereits gestartet.\n\n"
         "**Zweit-KI:** Nach bereitgestelltem PR den begrenzten, unabhängigen "
         "Code-Review prüfen lassen, sofern kostenloser Anbieter verifiziert und "
-        "explizit freigeschaltet ist. Ohne diese Voraussetzung kein KI-Aufruf.\n\n"
+        "explizit freigeschaltet ist. **Status bis zum echten Review-Beleg: "
+        "nicht überprüft.** Ohne diese Voraussetzung kein KI-Aufruf.\n\n"
         "**Qualitätsschranke:** CI erfolgreich, unabhängige Prüfung, anschließend "
         "separater Live-Nachweis. Nicht automatisch als gelöst markieren. "
         "Originale, KO-/Produktnachweise und Handels- oder Risikoregeln "
