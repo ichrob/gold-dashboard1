@@ -63,3 +63,25 @@ class ReadOnlyHTTPTest(PaperHTTPTest):
             with urlopen(self.request('/api/degiro/sync/stop',body=b'{}'),timeout=5) as response:
                 self.assertEqual(json.load(response)['code'],'STOPPING')
             stop.assert_called_once()
+
+    def test_quote_probe_requires_auth_origin_and_exact_identity(self):
+        with patch.object(self.server_module.degiro_readonly, 'probe') as probe:
+            for auth, origin, body, expected in ((False, True, b'{}', 401), (True, False, b'{}', 403),
+                                                (True, True, b'{}', 400), (True, True, b'{"quoteRequest":{},"url":"x"}', 400)):
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(self.request('/api/degiro/quote-test', auth, origin, body), timeout=5)
+                self.assertEqual(error.exception.code, expected)
+            probe.assert_not_called()
+
+    def test_quote_probe_no_store_and_busy_session(self):
+        from test_degiro_quote_probe import REQUEST
+        payload = json.dumps({'otp': '001234', 'quoteRequest': REQUEST}).encode()
+        with patch.object(self.server_module.degiro_readonly, 'probe', return_value={'code':'QUOTE_OBSERVED', 'isExecutableQuote':False}) as probe, patch.object(self.server_module.degiro_sync, 'status', return_value={'running':False}):
+            with urlopen(self.request('/api/degiro/quote-test', body=payload), timeout=5) as response:
+                self.assertEqual(response.headers.get('Cache-Control'), 'no-store')
+                self.assertFalse(json.load(response)['isExecutableQuote'])
+            probe.assert_called_once_with('001234', REQUEST)
+        with patch.object(self.server_module.degiro_readonly, 'probe') as probe, patch.object(self.server_module.degiro_sync, 'status', return_value={'running':True}):
+            with urlopen(self.request('/api/degiro/quote-test', body=payload), timeout=5) as response:
+                self.assertEqual(json.load(response)['code'], 'BUSY')
+            probe.assert_not_called()
