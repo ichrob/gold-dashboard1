@@ -85,9 +85,10 @@ def verified_writer_preflight(conn, now=None, *, completed_family=None):
     # Low usage controls urgency, not eligibility for fully finalized
     # comparisons. Other age-only families retain the conservative gate.
     # The comparison writer enforces every terminal arm and exact readthrough.
-    if (volume['diskUsage'] < CAUTION_VOLUME_BYTES and
-            completed_family != PROACTIVE_CLOSED_FAMILY):
-        return {'status': 'capacity-comfortable-no-offload', 'movedRows': 0}
+    if completed_family != PROACTIVE_CLOSED_FAMILY:
+        return {'status': ('capacity-comfortable-no-offload'
+                if volume['diskUsage'] < CAUTION_VOLUME_BYTES
+                else 'semantic-retirement-unverified'), 'movedRows': 0}
     if _proof_state(archive_status(conn), seconds) != 'verified-fresh':
         return {'status': 'backup-proof-not-fresh', 'movedRows': 0}
     return None
