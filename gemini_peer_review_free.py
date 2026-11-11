@@ -1,4 +1,4 @@
-"""Opt-in Gemini API review of public Bob repair PRs, no execution or deployment.
+"""Owner-authorized default Gemini review of eligible public Bob PRs; no deployment.
 
 All HTTP traffic is restricted to GitHub's fixed repository and Google's
 fixed Gemini model endpoint. PR patches are untrusted data and are filtered by
@@ -152,8 +152,8 @@ def gemini_request(diff, key):
 def run():
     global STAGE
     STAGE = "preflight"
-    # Never call Google unless user confirms a genuinely unbilled Free project,
-    # separately opts in and stores a key as a GitHub Actions Secret.
+    # Owner explicitly allowed reviews by default; never call Google without
+    # confirmed unbilled Free project and protected GitHub Actions API key.
     if not enabled():
         print("Gemini disabled: explicit verified Free-only opt-in missing.")
         return
