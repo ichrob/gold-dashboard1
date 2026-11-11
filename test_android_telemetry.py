@@ -81,6 +81,38 @@ class Boundary(unittest.TestCase):
         with self.assertRaises(ValueError):
             a.validate_report(p)
 
+
+    def test_bounded_degiro_process_ram_without_phone_content(self):
+        end=datetime.now(timezone.utc)
+        good=dict(phase='GOLD_LIST',startedAt=(end-timedelta(seconds=21)).isoformat(),
+                  finishedAt=end.isoformat(),durationSec=21,endReason='STOPPED',
+                  sampleIntervalSec=3,sampleCount=8,startPssMiB=100.0,
+                  sampledPeakPssMiB=130.5,endPssMiB=110.2,
+                  sampledPeakJavaHeapMiB=49.1)
+        p=report();p['degiroRam']=good
+        self.assertEqual(a.validate_report(p)['degiroRam']['sampledPeakPssMiB'],130.5)
+        self.assertNotIn('isin',json.dumps(p).lower())
+        for bad in [
+            dict(good,screenText='account'),
+            dict(good,session='remote token'),
+            dict(good,phase='private-app'),
+            dict(good,sampleIntervalSec=0),
+            dict(good,sampleCount=True),
+            dict(good,peakPssMiB='13.5'),
+            dict(good,sampledPeakPssMiB=90.0),
+            dict(good,endPssMiB=-1),
+            dict(good,startedAt=(end+timedelta(minutes=1)).isoformat()),
+            dict(good,finishedAt=(end-timedelta(days=2)).isoformat()),
+        ]:
+            p['degiroRam']=bad
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                a.validate_report(p)
+        zero=dict(good,sampleCount=0,startPssMiB=None,
+                  sampledPeakPssMiB=None,endPssMiB=None,
+                  sampledPeakJavaHeapMiB=None)
+        p['degiroRam']=zero
+        a.validate_report(p)
+
     def test_token_must_be_high_entropy_shape(self):
         for token in ['',None,'password','a'*63,'A'*64]:
             with self.assertRaises(PermissionError):a.token_hash(token)
