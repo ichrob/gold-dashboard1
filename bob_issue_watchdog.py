@@ -124,9 +124,13 @@ def classify(app, background, push, *, market_open=True):
                     and research.get("realOrders") is False
                     and research.get("status") in ("observed","stale")
                     and isinstance(research.get("codes"),list)
-                    and len(research["codes"])<=len(STUDY_CODES)):
-                errors.extend(code for code in research["codes"]
-                              if type(code) is str and code in STUDY_CODES)
+                    and len(research["codes"])<=len(STUDY_CODES)
+                    and all(type(code) is str and code in STUDY_CODES
+                            for code in research["codes"])
+                    and len(research["codes"])==len(set(research["codes"]))):
+                # Reject the entire projection when any code is unknown.
+                # A mixed, forged list may not slip a "good" code through.
+                errors.extend(research["codes"])
         if "productAuditCodes" in push:
             product_codes = push["productAuditCodes"]
             if not isinstance(product_codes, list):
