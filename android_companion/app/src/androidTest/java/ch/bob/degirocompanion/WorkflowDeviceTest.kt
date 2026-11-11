@@ -318,6 +318,10 @@ class WorkflowDeviceTest {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         await("Demonstration did not observe fixture") { WorkflowService.observation?.app == app }
         assertNull(WorkflowService.run)
+        // The accessibility tree can precede the input-ready window. The API 35
+        // log showed InputDispatcher dropping our DOWN on ActivityRecordInputSink.
+        // Wait for launch/splash events to settle, then fetch fresh bounds.
+        automation.waitForIdle(1000, 10000)
         val button = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Suche").single()
         val buttonSensitive = if (android.os.Build.VERSION.SDK_INT >= 34) button.isAccessibilityDataSensitive else false
         val buttonBounds = android.graphics.Rect(); button.getBoundsInScreen(buttonBounds)

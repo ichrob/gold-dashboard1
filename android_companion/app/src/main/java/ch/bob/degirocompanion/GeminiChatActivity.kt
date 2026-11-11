@@ -8,6 +8,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.speech.RecognizerIntent
+import android.os.Build
+import android.view.WindowInsets
 import android.widget.*
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -131,10 +134,28 @@ class GeminiChatActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
-        fun label(text: String) = TextView(this).also { it.text = text; it.textSize = 16f; root.addView(it) }
+        val padding = (12 * resources.displayMetrics.density).toInt()
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false)
+            root.setOnApplyWindowInsetsListener { view, insets ->
+                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                val ime = insets.getInsets(WindowInsets.Type.ime())
+                view.setPadding(padding + bars.left, padding + bars.top,
+                    padding + bars.right, padding + maxOf(bars.bottom, ime.bottom))
+                insets
+            }
+        } else {
+            root.fitsSystemWindows = true
+            root.setPadding(padding, padding, padding, padding)
+        }
+        // Controls and history can scroll even with a large font or a tall keyboard.
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply { addView(content); isFillViewport = true }
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        fun label(text: String) = TextView(this).also { it.text = text; it.textSize = 16f; content.addView(it) }
         fun button(text: String, action: () -> Unit) = Button(this).also {
-            it.text = text; it.isAllCaps = false; it.setOnClickListener { action() }; root.addView(it)
+            it.text = text; it.isAllCaps = false; it.setOnClickListener { action() }; content.addView(it)
         }
         label("Mit Gemini an Bob arbeiten")
         status = label("Gemini noch nicht verbunden. Deine Google-Anmeldung bleibt in Termux.")
@@ -158,18 +179,26 @@ class GeminiChatActivity : Activity() {
             status.text = "STOPP angefordert. Bereits ausgeführte Änderungen bleiben bestehen."
         }
         transcript = TextView(this).apply { textSize = 16f; setTextIsSelectable(true) }
-        val scroll = ScrollView(this).apply { addView(transcript) }
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        content.addView(transcript)
         permissions = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val permissionScroll = ScrollView(this).apply { addView(permissions) }
-        root.addView(permissionScroll, LinearLayout.LayoutParams(-1, 220))
+        content.addView(permissions)
         input = EditText(this).apply {
             hint = "Dein Auftrag – schreiben oder mit der Tastatur diktieren"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            minLines = 2; maxLines = 4
+            minLines = 2; maxLines = 3
+            setTextColor(android.graphics.Color.BLACK)
+            setHintTextColor(android.graphics.Color.DKGRAY)
+            setBackgroundColor(android.graphics.Color.WHITE)
             filters = arrayOf(android.text.InputFilter.LengthFilter(12000))
         }
         root.addView(input)
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        root.addView(actions)
+        val dictate = Button(this).apply {
+            text = "Auftrag diktieren"; isAllCaps = false
+            setOnClickListener { openSpeechInput() }
+        }
+        actions.addView(dictate, LinearLayout.LayoutParams(0, -2, 1f))
         send = button("Auftrag senden") {
             val text = input.text.toString().trim()
             if (text.isEmpty()) return@button
@@ -185,8 +214,41 @@ class GeminiChatActivity : Activity() {
                 poll()
             }
         }
+        content.removeView(send)
+        actions.addView(send, LinearLayout.LayoutParams(0, -2, 1f))
         send.isEnabled = false
         setContentView(root)
+        root.requestApplyInsets()
+    }
+
+    private fun openSpeechInput() {
+        val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "de-DE")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Deinen Bob-Auftrag diktieren; anschließend prüfen und senden")
+        }
+        try {
+            startActivityForResult(request, 4102)
+        } catch (_: android.content.ActivityNotFoundException) {
+            Toast.makeText(this, "Sprachdialog fehlt. Nutze das Mikrofon unten links in der Tastatur.", Toast.LENGTH_LONG).show()
+            input.requestFocus()
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                .showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    @Deprecated("Platform activity result callback")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 4102 || resultCode != RESULT_OK) return
+        val spoken = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
+        if (spoken.isNullOrEmpty()) return
+        // Keep the draft; dictation inserts at the selection and never submits a prompt.
+        val start = input.selectionStart.coerceAtLeast(0)
+        val end = input.selectionEnd.coerceAtLeast(start)
+        input.text.replace(start, end, spoken)
+        input.requestFocus()
     }
 
     override fun onResume() { super.onResume(); visible = true; poll() }
