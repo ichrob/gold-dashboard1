@@ -118,6 +118,37 @@ test('stale tick and enabled clock without secret cannot send', async () => {
   await assert.rejects(tick(f.env, f.storage, now, now, f.request), /github_token_missing/);
   assert.equal(f.calls.length, 0);
 });
+test('operator-only tokenless egress probe uses public GitHub and records one durable claim', async () => {
+  const f = fixture(); f.env.ENABLED='false'; f.env.DIAG_UNAUTH='true';
+  f.env.GITHUB_TOKEN='synthetic-secret-never-transmit';
+  const calls=[];
+  const publicRequest=async (url, options) => {
+    calls.push({ url, options });
+    return { status: 200 };
+  };
+  const first=await tick(f.env,f.storage,now,now,publicRequest);
+  assert.deepEqual(first,{state:'unauth_http_observed',plainStatus:200,optionsStatus:200});
+  assert.equal(calls.length,2);
+  assert(calls.every(x=>x.url==='https://api.github.com/zen'));
+  assert.equal(calls[0].options,undefined);
+  assert.equal(calls[1].options.headers.Authorization,undefined);
+  assert.equal(f.data.has('attempt'),false);
+  assert.equal((await tick(f.env,f.storage,now,now,publicRequest)).state,'unauth_already_attempted');
+  assert.equal(calls.length,2);
+});
+test('tokenless probe stops and records sanitized outbound failures', async () => {
+  const f=fixture();f.env.ENABLED='false';f.env.DIAG_UNAUTH='true';
+  const bad=async ()=>{ throw new Error('secret-in-error-value'); };
+  const result=await tick(f.env,f.storage,now,now,bad);
+  assert.deepEqual(result,{state:'unauth_fetch_failed',step:'plain',code:'github_network_unavailable'});
+  assert.equal(JSON.stringify(result).includes('secret'),false);
+  assert.equal((await tick(f.env,f.storage,now,now,bad)).state,'unauth_already_attempted');
+});
+test('tokenless probe requires ENABLED=false and never overrides real workflow protection', async () => {
+  const f=fixture();f.env.DIAG_UNAUTH='true'; // still ENABLED=true
+  assert.equal((await tick(f.env,f.storage,now,now,f.request)).state,'dispatch_accepted');
+  assert.equal(f.posts().length,1);
+});
 test('public HTTP requests never trigger dispatch', async () => {
   assert.equal((await worker.fetch()).status, 404);
 });
