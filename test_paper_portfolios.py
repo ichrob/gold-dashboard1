@@ -195,7 +195,7 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(count,0)
             view=profiles.report(conn, '2026-10-12')
             self.assertEqual(view['mode'],'independent-prospective-paper-accounts')
-            self.assertEqual(view['simulatedCapitalEur'],8000)
+            self.assertEqual(view['simulatedCapitalEur'],13000)
             self.assertFalse(view['realOrders'])
             self.assertEqual(len(view['accounts']),11)
             self.assertEqual({x['profile'] for x in view['accounts']},set(profiles.POLICIES))

@@ -451,7 +451,7 @@ def report(conn, day=None):
                              performance=performance_snapshot(data),**data))
     return dict(ok=True, mode='independent-prospective-paper-accounts',
                 simulatedCapitalEur=sum(p.get('initial_capital_eur',100.) for p in POLICIES.values()), realOrders=False, startAt=START,
-                note='4 × 100 EUR, 2 × 800 EUR, 3 × 1.000 EUR 1 × 3.000 EUR und 1 × 5.000 EUR virtuell. Alte Konten bleiben getrennt und unverändert. Neue 800/1.000 EUR Kohorte: gleicher 20-Handelstage-Zeitraum ab 09.11.2026. Kein Echtgeld und keine rückdatierten Einstiege. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital unbekannt. Tatsächliche Brokergebühren nicht bestätigt.',
+                note='4 × 100 EUR, 2 × 800 EUR, 3 × 1.000 EUR, 1 × 3.000 EUR und 1 × 5.000 EUR virtuell. Alte Konten bleiben getrennt und unverändert. Neue 800/1.000 EUR Kohorte: gleicher 20-Handelstage-Zeitraum ab 09.11.2026. Kein Echtgeld und keine rückdatierten Einstiege. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital unbekannt. Tatsächliche Brokergebühren nicht bestätigt.',
                 accounts=accounts,campaignComparison=campaign_comparison(accounts),
                 relaunchComparison=relaunch_comparison(accounts))
 
