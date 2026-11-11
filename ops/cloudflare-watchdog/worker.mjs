@@ -11,12 +11,19 @@ export async function tick(env, storage, scheduledTime, now = Date.now(), reques
   }
   // An unarmed clock may record Cron receipt without access to any GitHub credential.
   // This is not proof of a successful GitHub dispatch or its monitoring job.
-  if (env.ENABLED !== 'true' && !env.GITHUB_TOKEN) return { state: 'observation_only_no_token' };
+  if (env.ENABLED !== 'true' && env.DRY_RUN !== 'true') {
+    // Merely installing a Secret must NEVER start GitHub reads or noisy errors.
+    return { state: env.GITHUB_TOKEN ? 'observation_only_disabled' : 'observation_only_no_token' };
+  }
   if (!env.GITHUB_TOKEN) throw new Error('github_token_missing');
   const slot = Math.floor(scheduledTime / PERIOD);
-  const previous = await storage.get('attempt');
+  let previous;
+  try { previous = await storage.get('attempt'); }
+  catch { throw new Error('clock_storage_unavailable'); }
   if (previous && (previous.slot >= slot || now - previous.at < PERIOD)) return { state: 'duplicate_suppressed' };
-  const signal = AbortSignal.timeout(18_000);
+  let signal;
+  try { signal = AbortSignal.timeout(18_000); }
+  catch { throw new Error('clock_abort_unavailable'); }
   const headers = {
     Accept: 'application/vnd.github+json',
     Authorization: `Bearer ${env.GITHUB_TOKEN}`,
@@ -24,9 +31,13 @@ export async function tick(env, storage, scheduledTime, now = Date.now(), reques
     'User-Agent': 'bob-watchdog-clock',
   };
   async function get(suffix) {
-    const response = await request(BASE + suffix, { headers, signal, redirect: 'error' });
+    let response;
+    try { response = await request(BASE + suffix, { headers, signal, redirect: 'error' }); }
+    catch { throw new Error('github_network_unavailable'); }
+    if (!response || typeof response.ok !== 'boolean') throw new Error('github_response_shape');
     if (!response.ok) throw new Error(`github_read_${response.status}`);
-    return response.json();
+    try { return await response.json(); }
+    catch { throw new Error('github_invalid_json'); }
   }
   const workflow = await get('');
   if (workflow.id !== WORKFLOW || workflow.state !== 'active') throw new Error('workflow_not_active');
@@ -88,7 +99,7 @@ export class WatchdogClock {
         return Response.json(result);
       } catch (error) {
         // Never log response bodies, headers, tokens or raw network exceptions.
-        const message = /^(invalid_|inconsistent_|unexpected_|workflow_|github_|dispatch_)/.test(error.message)
+        const message = /^(invalid_|inconsistent_|unexpected_|workflow_|github_|dispatch_|clock_)/.test(error.message)
           ? error.message : 'clock_check_failed';
         await this.ctx.storage.put('last_check', { at: Date.now(), state: 'error', code: message });
         console.error(message);
