@@ -121,6 +121,9 @@ class GeminiChatActivity : Activity() {
     private lateinit var input: EditText
     private lateinit var permissions: LinearLayout
     private lateinit var send: Button
+    private lateinit var historyScroll: ScrollView
+    private lateinit var composerActions: LinearLayout
+    private var latestProgress = ""
     private val handler = Handler(Looper.getMainLooper())
     private var visible = false
     private var polling = false
@@ -151,21 +154,24 @@ class GeminiChatActivity : Activity() {
         }
         // Controls and history can scroll even with a large font or a tall keyboard.
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply { addView(content); isFillViewport = true }
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        historyScroll = ScrollView(this).apply { addView(content); isFillViewport = true }
+        root.addView(historyScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         fun label(text: String) = TextView(this).also { it.text = text; it.textSize = 16f; content.addView(it) }
         fun button(text: String, action: () -> Unit) = Button(this).also {
             it.text = text; it.isAllCaps = false; it.setOnClickListener { action() }; content.addView(it)
         }
         label("Mit Gemini an Bob arbeiten")
         status = label("Gemini noch nicht verbunden. Deine Google-Anmeldung bleibt in Termux.")
+        content.removeView(status)
+        status.maxLines = 3
+        root.addView(status, 0)
         button("Gemini verbinden") {
             if (GeminiLocalSession.active()) { poll(); return@button }
             AlertDialog.Builder(this).setTitle("Gemini für Bob starten")
                 .setMessage("Deine Aufträge und die von Gemini gelesenen Inhalte werden über deine bestehende Google-Anmeldung verarbeitet. Gemini kann mit deinen Termux-Rechten Code bearbeiten und vorhandene Zugänge nutzen. Freigabefragen erscheinen hier; keine pauschale Freigabe aller Befehle. Keine kostenpflichtige API wird eingerichtet. Nutze deinen kostenlosen persönlichen Zugang. Die Sitzung läuft höchstens 2 Stunden und endet nach 2 Minuten ohne Verbindung zu dieser Ansicht. Android kann sie unterbrechen. Keine Passwörter oder Schlüssel in den Chat eingeben.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Verbinden") { _, _ ->
-                    lastEvent = 0L; history.clear(); permissionSignature = ""; transcript.text = ""
+                    lastEvent = 0L; history.clear(); permissionSignature = ""; latestProgress = ""; transcript.text = ""
                     val r = GeminiLocalSession.start(this)
                     status.text = if (r == "STARTED") "Gemini startet …" else r
                     poll()
@@ -175,13 +181,16 @@ class GeminiChatActivity : Activity() {
             input.setText("Prüfe deine tatsächlich verfügbaren Bob-Entwicklungszugänge: GitHub, Bob-Diagnosen, Render, Cloudflare und Aiven. Prüfe GitHub-Rechte mit gh, bei anderen Verbindungen zunächst nur Werkzeugverfügbarkeit. Keine Schlüssel, privaten Logs oder Depotdaten ausgeben. Keine neuen Konten oder kostenpflichtigen Ressourcen anlegen. Nenne getrennt: eingerichtet, tatsächlich geprüft und Anmeldung fehlt. Kein ChatGPT erforderlich.")
         }
         button("STOPP · Gemini-Sitzung beenden") {
-            GeminiLocalSession.stop(); permissions.removeAllViews(); send.isEnabled = false
+            GeminiLocalSession.stop(); permissions.removeAllViews(); showPermissionPanel(false); send.isEnabled = false
             status.text = "STOPP angefordert. Bereits ausgeführte Änderungen bleiben bestehen."
         }
-        transcript = TextView(this).apply { textSize = 16f; setTextIsSelectable(true) }
+        // A selectable TextView installs its own scrolling movement handler.
+        // Let the outer ScrollView own vertical gestures and keep idle polls inert.
+        transcript = TextView(this).apply { textSize = 16f }
         content.addView(transcript)
         permissions = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(permissions)
+        permissions.visibility = android.view.View.GONE
+        root.addView(permissions)
         input = EditText(this).apply {
             hint = "Dein Auftrag – schreiben oder mit der Tastatur diktieren"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -192,7 +201,8 @@ class GeminiChatActivity : Activity() {
             filters = arrayOf(android.text.InputFilter.LengthFilter(12000))
         }
         root.addView(input)
-        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        composerActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val actions = composerActions
         root.addView(actions)
         val dictate = Button(this).apply {
             text = "Auftrag diktieren"; isAllCaps = false
@@ -219,6 +229,17 @@ class GeminiChatActivity : Activity() {
         send.isEnabled = false
         setContentView(root)
         root.requestApplyInsets()
+    }
+
+    private fun showPermissionPanel(show: Boolean) {
+        permissions.visibility = if (show) android.view.View.VISIBLE else android.view.View.GONE
+        input.visibility = if (show) android.view.View.GONE else android.view.View.VISIBLE
+        composerActions.visibility = if (show) android.view.View.GONE else android.view.View.VISIBLE
+        if (show) {
+            input.clearFocus()
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                .hideSoftInputFromWindow(input.windowToken, 0)
+        }
     }
 
     private fun openSpeechInput() {
@@ -274,6 +295,7 @@ class GeminiChatActivity : Activity() {
                     "stopped" -> "Sitzung beendet. Neu verbinden erforderlich."
                     else -> "Gemini startet …"
                 }
+                val previousEvent = lastEvent
                 val events = r.optJSONArray("events")
                 for (i in 0 until (events?.length() ?: 0)) {
                     val e = events!!.getJSONObject(i); val id = e.optLong("id")
@@ -281,36 +303,52 @@ class GeminiChatActivity : Activity() {
                     if (lastEvent != 0L && id > lastEvent + 1) history.append("\n[Ältere Anzeigeeinträge nicht mehr verfügbar]\n")
                     lastEvent = id
                     val kind = e.optString("kind")
+                    if (kind != "user" && kind != "answer") latestProgress = e.optString("text")
                     if (kind == "answer") history.append(e.optString("text"))
                     else history.append("\n\n${if (kind == "user") "Du" else "Status"}: ${e.optString("text")}\n")
                 }
                 if (history.length > 120000) history.delete(0, history.length - 100000)
-                transcript.text = history.toString()
+                if (previousEvent != lastEvent) {
+                    transcript.text = history.toString()
+                    historyScroll.post { historyScroll.fullScroll(android.view.View.FOCUS_DOWN) }
+                }
+                if (state == "running" && latestProgress.isNotBlank())
+                    status.text = "Gemini arbeitet · " + latestProgress
                 if (state == "stopped") GeminiLocalSession.stop()
                 val pending = r.optJSONArray("permissions")
                 val signature = pending?.toString() ?: "[]"
                 if (signature != permissionSignature) {
                     permissionSignature = signature; permissions.removeAllViews()
-                    for (i in 0 until (pending?.length() ?: 0)) {
+                    val needsPermission = (pending?.length() ?: 0) > 0
+                    showPermissionPanel(needsPermission)
+                    // Present one explicit decision at a time, outside the history.
+                    // A subsequent poll presents the next pending request.
+                    for (i in 0 until minOf(1, pending?.length() ?: 0)) {
                         val item = pending!!.getJSONObject(i)
                         val detail = TextView(this).apply { text = "Freigabe erforderlich:\n" + item.optString("details"); setTextIsSelectable(true) }
-                        permissions.addView(detail)
+                        val detailScroll = ScrollView(this).apply { addView(detail) }
+                        permissions.addView(detailScroll, LinearLayout.LayoutParams(-1,
+                            (100 * resources.displayMetrics.density).toInt()))
+                        val choices = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                        permissions.addView(choices)
                         val opts = item.getJSONArray("options")
                         for (j in 0 until opts.length()) {
                             val option = opts.getJSONObject(j)
-                            permissions.addView(Button(this).apply {
+                            choices.addView(Button(this).apply {
                                 text = if (option.optString("kind") == "allow_once") "Einmal erlauben" else "Ablehnen"
+                                isAllCaps = false
                                 setOnClickListener {
-                                    isEnabled = false
+                                    for (k in 0 until choices.childCount) choices.getChildAt(k).isEnabled = false
                                     GeminiLocalSession.request("/permission", JSONObject().put("id", item.getString("id")).put("option", option.getString("id"))) { reply ->
                                         if (reply == null) status.text = "Freigabe nicht bestätigt. Aktuellen Status prüfen."
                                         permissionSignature = ""; poll()
                                     }
                                 }
-                            })
+                            }, LinearLayout.LayoutParams(0, -2, 1f))
                         }
                     }
                 }
+                if ((pending?.length() ?: 0) > 0) status.text = "Freigabe erforderlich · bitte unten entscheiden"
             }
             if (visible && GeminiLocalSession.active()) handler.postDelayed(tick, 1500)
         }
