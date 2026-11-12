@@ -10,6 +10,17 @@ from test_android_telemetry import Handler
 NOW=1793271600
 
 class DetailsTest(unittest.TestCase):
+    def test_missing_audit_table_does_not_abort_read_planning(self):
+        class EmptyDb:
+            def execute(self,sql,params=()):
+                if not sql.startswith("SELECT to_regclass("):
+                    raise AssertionError('Missing audit table must not be queried')
+                return self
+            def fetchone(self):return (None,)
+        ended=a.reader_terminal_isins(EmptyDb(),[dict(isin=ISIN)],NOW)
+        self.assertEqual(ended,set())
+        self.assertEqual(len(a.detail_plan([dict(isin=ISIN)],[],NOW,ended)),1)
+
     def test_server_terminal_audit_drives_new_list_and_selected_plan(self):
         active='DE000FE2JJ20'
         proof=dict(issuerVerified=True,issuerTerminal=True,issuerStatus=2,issuerRawStatus=8)
@@ -57,6 +68,7 @@ class DetailsTest(unittest.TestCase):
                     self.result=({'stage':'synced'},[dict(isin=ISIN),dict(isin=active)],datetime.fromtimestamp(NOW-30,timezone.utc))
                 elif sql.startswith('SELECT payload FROM bob_paper_products'):
                     self.result=({'products':[dict(isin=ISIN),dict(isin=active)]},)
+                elif sql.startswith("SELECT to_regclass("):self.result=('bob_degiro_product_audit',)
                 elif sql.startswith('SELECT payload FROM bob_degiro_product_audit'):self.result=(audit,)
                 else:return super().execute(sql,params)
                 return self

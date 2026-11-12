@@ -31,6 +31,9 @@ def reader_terminal_isins(conn, products, now):
     does not copy old quotes/terms or change audit-generation/trading gates.
     Fresh contradictory verified product evidence always wins.
     """
+    available=conn.execute("SELECT to_regclass('bob_degiro_product_audit')").fetchone()
+    if not available or not available[0]:
+        return set()
     row=conn.execute('SELECT payload FROM bob_degiro_product_audit WHERE id=1').fetchone()
     audit=row[0] if row and isinstance(row[0],dict) else {}
     try:
