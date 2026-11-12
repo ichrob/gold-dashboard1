@@ -153,13 +153,9 @@ class ProductReadActivity : Activity() {
         button("Gold-Produkte suchen und auslesen") { startGoldRead() }
         button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {
             AlertDialog.Builder(this).setTitle("Produktsuche mit ChatGPT bedienen")
-                .setMessage("Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
+                .setMessage("Bob verwendet eine eingerichtete PIN bei Bedarf einmal lokal und startet die Sitzung erst nach bestätigter Marktseite. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein. Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
                 .setNegativeButton("Abbrechen",null).setPositiveButton("Sitzung starten") { _,_ ->
-                    runCatching {
-                        check(preferences.getBoolean("enabled",false)) { "Lesedienst zuerst einschalten." }
-                        val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO fehlt")
-                        PhoneRemote.start(this);startActivity(launch)
-                    }.onFailure { PhoneRemote.stop(this,"START_FAILED");result.text=it.message }
+                    startChatGptSession()
                 }.show()
         }
         button("Bisherige Morgenliste prüfen / übertragen") { primaryAction() }
@@ -288,6 +284,39 @@ class ProductReadActivity : Activity() {
         }
     }
     override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
+    /** Explicit local button: reuse the verified login, then wait for remote read commands. */
+    private fun startChatGptSession() {
+        var secret: ByteArray? = null
+        var started = false
+        try {
+            check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
+            check(!PinReadinessProbe.running && !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime()) && !LoginToReadHandoff.pending(SystemClock.elapsedRealtime())) { "Laufende Sitzung zuerst stoppen." }
+            check(PhoneDiagnostics.paired(this)) { "Automatische Diagnose zuerst verbinden." }
+            val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+            if (LocalPinVault.exists(this)) {
+                check(PhoneDiagnostics.keypadTestVerified(this) && LocalPinVault.available(this)) { "Lokale PIN-Einrichtung prüfen und Handy entsperren." }
+                secret = LocalPinVault.load(this)
+                LoginToReadHandoff.arm(SystemClock.elapsedRealtime(), sessionOnly = true)
+                started = true
+                PinReadinessProbe.startLocalLogin(secret!!)
+                result.text = "DEGIRO wird lokal angemeldet. Nach bestätigter Marktseite steht die ChatGPT-Lesesitzung bereit."
+            } else {
+                started = true
+                PhoneRemote.start(this)
+                check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
+                result.text = "ChatGPT-Lesesitzung gestartet. DEGIRO muss bereits angemeldet sein; keine PIN lokal gespeichert."
+            }
+            startActivity(launch)
+        } catch (e: Exception) {
+            if (started) {
+                LoginToReadHandoff.clear()
+                if (PinReadinessProbe.running) PinReadinessProbe.stop("ChatGPT-Sitzungsstart abgebrochen.")
+                PhoneRemote.stop(this,"START_FAILED")
+            }
+            result.text = if (secret == null && e is IllegalStateException) e.message
+                else "ChatGPT-Sitzung konnte nicht gestartet werden. Lokale PIN-Einrichtung prüfen."
+        } finally { secret?.fill(0) }
+    }
     /** Shared prerequisites for lookup and product opening: local login if enrolled, then the requested target. */
     private fun startPreparedGoal(query: String) {
         var secret: ByteArray? = null
