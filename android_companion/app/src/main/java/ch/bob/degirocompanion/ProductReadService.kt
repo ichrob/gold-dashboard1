@@ -164,7 +164,7 @@ class ProductReadService : AccessibilityService() {
      * Markets WebView settles. Retry that one state only, never another app,
      * a locked device, a login/order view, or a new unrequested session.
      */
-    private fun beginReadAfterVerifiedPin(attempt: Int, searchQuery: String? = null, ticket: Int = LoginToReadHandoff.generation) {
+    private fun beginReadAfterVerifiedPin(attempt: Int, searchQuery: String? = null, ticket: Int = LoginToReadHandoff.generation, sessionOnly: Boolean = false) {
         if (ticket != LoginToReadHandoff.generation) return
         fun fail(code: String) {
             PhoneRemote.stop(this,code)
@@ -192,7 +192,7 @@ class ProductReadService : AccessibilityService() {
         val root=rootInActiveWindow
         if(root==null) {
             if(PostLoginRootRetryPolicy.canRetry(attempt)) {
-                handler.postDelayed({beginReadAfterVerifiedPin(attempt+1,searchQuery,ticket)},350)
+                handler.postDelayed({beginReadAfterVerifiedPin(attempt+1,searchQuery,ticket,sessionOnly)},350)
             } else fail("LOGIN_HANDOFF_NO_ROOT")
             return
         }
@@ -201,9 +201,12 @@ class ProductReadService : AccessibilityService() {
         if(!brokerVisible) { fail("LOGIN_HANDOFF_OTHER_APP");return }
         runCatching {
             PhoneRemote.start(this)
-            if(searchQuery != null) GoldSearchRun.startSearch(searchQuery)
-            else if(!MorningReadRun.resumeRecent(this)) GoldSearchRun.start()
-            ProductReadRequest.start(SystemClock.elapsedRealtime())
+            check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
+            if (!sessionOnly) {
+                if(searchQuery != null) GoldSearchRun.startSearch(searchQuery)
+                else if(!MorningReadRun.resumeRecent(this)) GoldSearchRun.start()
+                ProductReadRequest.start(SystemClock.elapsedRealtime())
+            }
             PhoneDiagnostics.queue(this)
         }.onFailure { fail("LOGIN_HANDOFF_START_FAILED") }
     }
@@ -221,13 +224,14 @@ class ProductReadService : AccessibilityService() {
             if (workflowNext != null) handler.post {
                 if (workflowTicket == WorkflowLoginHandoff.generation) workflowNext()
             } else if (workflowPending) WorkflowService.message = "DEGIRO-Anmeldung nicht bestätigt; Auftrag nicht gestartet: " + PinReadinessProbe.resultCode
+            val sessionOnly = LoginToReadHandoff.sessionOnly
             val searchQuery = LoginToReadHandoff.searchQuery
             val proceed = LoginToReadHandoff.consume(PinReadinessProbe.resultCode, SystemClock.elapsedRealtime())
             runCatching { localLoginEventScope(false) }
             handler.removeCallbacks(pinProbeTick)
             PhoneDiagnostics.recordPinProbe(this)
             val ticket = LoginToReadHandoff.generation
-            if (proceed) handler.post { beginReadAfterVerifiedPin(0,searchQuery,ticket) }
+            if (proceed) handler.post { beginReadAfterVerifiedPin(0,searchQuery,ticket,sessionOnly) }
         }
         PinReadinessProbe.onTimeout = {
             // Return only from the app explicitly opened for this test, never another foreground app.
