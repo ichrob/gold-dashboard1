@@ -4,6 +4,12 @@ package ch.bob.degirocompanion
 internal object RunOutbox {
     const val CURRENT = "outbox"
     const val PREFIX = "saved_run_"
+    // One local checkpoint, never a delivery candidate. Upload acknowledgement
+    // must not remove the last read position or select an older archive to resume.
+    const val RESUME = "resume_checkpoint"
+    fun resumable(entries: Map<String, String>): String? = entries[CURRENT] ?: entries[RESUME]
+    fun checkpoint(entries: Map<String, String>, raw: String): Map<String, String> =
+        entries + (RESUME to raw)
     /** Local-only generation for detecting new evidence in the durable queue.
      * The digest is never sent to Bob or exposed in logs. */
     fun generation(entries: Map<String,String>): String {
@@ -30,7 +36,8 @@ internal object RunOutbox {
         }
     }
     fun acknowledge(entries: Map<String, String>, key: String, expected: String, running: Boolean): Map<String, String>? {
-        if (entries[key] != expected || (key == CURRENT && running)) return null
-        return entries - key
+        if (key !in candidateKeys(entries) || entries[key] != expected || (key == CURRENT && running)) return null
+        // Also retain a pre-update current report which has no checkpoint yet.
+        return if (key == CURRENT) checkpoint(entries - key, expected) else entries - key
     }
 }

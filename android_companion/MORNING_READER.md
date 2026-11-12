@@ -99,3 +99,26 @@ ML-Kit-Anhang. Das ist **kein** Nachweis, dass alle zehn Produkte
 erfolgreich importiert wurden. Die tatsächliche Ende-zu-Ende-Prüfung
 auf der installierten signierten APK und in DEGIRO bleibt ein
 eigenständiges Abnahmekriterium.
+
+## Fortsetzen nach bestätigter Übertragung
+
+Der letzte aktuelle Lesestand wird lokal unter einem separaten Checkpoint
+atomar mit jeder Berichtsversion gespeichert. Dieser einzelne Checkpoint ist
+kein Upload-Kandidat. Die Bestätigung eines aktuellen Uploads entfernt nur den
+Uploadauftrag; sie erhält auch bei alten, noch nicht migrierten Berichten den
+Fortsetzungsstand. Bestätigungen älterer Archive ändern ihn nicht.
+
+„Unterbrochenen Listenlauf fortsetzen“ und der vorhandene automatische
+Wiederaufnahmeversuch verwenden ausschließlich den aktuellen Lauf oder diesen
+Checkpoint. Sie wählen niemals einen alten zurückgestellten Upload. Vor einem
+Schreibvorgang gelten weiterhin Listenalter, offene Produkte, Versuchsgrenzen
+und die bestehenden Anmelde-/Leseschutzprüfungen. Ein neuer Leselauf ersetzt den
+einzelnen Checkpoint; Originalberichte in der Uploadwarteschlange bleiben erhalten.
+
+Für die Geräteabnahme einen Leselauf unterbrechen, dessen Upload bestätigen
+lassen, Bob Handy neu öffnen und „Fortsetzen“ wählen. Bereits vollständig
+bearbeitete Produkte dürfen nicht erneut gelesen werden; die Berichtsversion
+muss steigen und die nächste bestätigte Übertragung zum selben Lauf gehören.
+Die Tests ändern keine Echtgeldorders oder Ordermaskenberechtigungen.
+Bereits vor diesem Update bestätigte und lokal entfernte Läufe werden dadurch
+nicht nachträglich wiederhergestellt. Dann ist ein neuer Leselauf erforderlich.

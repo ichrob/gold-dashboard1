@@ -38,7 +38,7 @@ internal object MorningReadRun {
     fun summary(): String = if (running) "Produkt ${index+1} von $count · $target · Versuch $attempt/2" else "Listenlauf nicht aktiv."
     fun expired(now: Long = SystemClock.elapsedRealtime()) = now < started || now-started >= 15*60*1000
     private fun entries(c: Context): Map<String,String> = prefs(c).all.filterKeys {
-        it == RunOutbox.CURRENT || it.startsWith(RunOutbox.PREFIX)
+        it == RunOutbox.CURRENT || it == RunOutbox.RESUME || it.startsWith(RunOutbox.PREFIX)
     }.mapValues { it.value as String }
     fun pending(c: Context): String? = entries(c).let { it[RunOutbox.pendingKey(it)] }
     fun outboxGeneration(c: Context): String = RunOutbox.generation(entries(c))
@@ -64,7 +64,7 @@ internal object MorningReadRun {
             val events=d.getJSONArray("events");val last=events.optJSONObject(events.length()-1)
             "$read Produkte gelesen · ${rows.length()} geprüft · ${d.getJSONArray("isins").length()} angefragt.\n"+
                 (if(last!=null) "Zuletzt: ${MorningReadUiPolicy.reason(last.optString("code"))}.\n" else "Noch kein Produkt gelesen.\n")+
-                "${entries(c).size} Protokoll(e) lokal gespeichert; neuer Start bleibt möglich."
+                "${RunOutbox.candidateKeys(entries(c)).size} Protokoll(e) zur Übertragung gespeichert; neuer Start bleibt möglich."
         }.getOrDefault("Lokales Protokoll vorhanden; bitte an Bob übertragen.")
     }
     fun challenge(c: Context): String {
@@ -121,7 +121,7 @@ internal object MorningReadRun {
         val before=entries(c)
         val after=if(newRun) RunOutbox.start(before,data.toString(),RunOutbox.PREFIX+UUID.randomUUID().toString())
             else before + (RunOutbox.CURRENT to data.toString())
-        check(saveEntries(c,before,after)) { "Lokale Speicherung fehlgeschlagen. Lesen gestoppt." }
+        check(saveEntries(c,before,RunOutbox.checkpoint(after,data.toString()))) { "Lokale Speicherung fehlgeschlagen. Lesen gestoppt." }
     }
     fun event(c: Context, code: String) {
         val d=data ?: return
@@ -183,7 +183,7 @@ internal object MorningReadRun {
     }
     /** Called only from the locally requested Start, after the usual session/login gates. */
     fun resumeRecent(c: Context): Boolean {
-        val raw=entries(c)[RunOutbox.CURRENT] ?: return false
+        val raw=RunOutbox.resumable(entries(c)) ?: return false
         val saved=runCatching { JSONObject(raw) }.getOrNull() ?: return false
         val age=runCatching { System.currentTimeMillis()-Instant.parse(saved.getString("listUploadedAt")).toEpochMilli() }.getOrNull() ?: return false
         val events=saved.optJSONArray("events") ?: return false
@@ -200,12 +200,11 @@ internal object MorningReadRun {
     }
     fun resume(c: Context) {
         check(!running) { "Listenlauf läuft bereits." }
-        val raw=pending(c) ?: error("Kein gespeicherter Lauf.")
+        val before=entries(c)
+        val raw=RunOutbox.resumable(before)
+            ?: error("Kein fortsetzbarer aktueller Lauf. Bitte Gold-Produkte suchen und auslesen starten. Ältere Übertragungsberichte bleiben erhalten.")
         val saved=JSONObject(raw)
         check(System.currentTimeMillis()-Instant.parse(saved.getString("listUploadedAt")).toEpochMilli() in 0..86400000) { "Liste abgelaufen. Ergebnisse zuerst übertragen und neue Liste holen." }
-        val before=entries(c)
-        val key=RunOutbox.pendingKey(before) ?: error("Kein gespeicherter Lauf.")
-        check(saveEntries(c,before,(before-key)+(RunOutbox.CURRENT to raw))) { "Lokale Speicherung fehlgeschlagen." }
         data=saved;index=0;skipCompleted()
         check(index<count) { "Keine weiteren Leseversuche offen. Gespeicherte Ergebnisse an Bob übertragen." }
         GoldSearchRun.clear()
@@ -224,7 +223,7 @@ internal object MorningReadRun {
     }
     fun acknowledge(c: Context, batchId: String, revision: Int): Boolean {
         val before=entries(c)
-        val match=before.entries.firstOrNull { (_,raw) -> runCatching {
+        val match=before.filterKeys { it in RunOutbox.candidateKeys(before) }.entries.firstOrNull { (_,raw) -> runCatching {
             val saved=JSONObject(raw)
             saved.optString("batchId")==batchId && saved.optInt("revision")==revision
         }.getOrDefault(false) } ?: return false
