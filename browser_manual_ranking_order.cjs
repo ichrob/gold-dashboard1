@@ -83,6 +83,11 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
   assert.equal(await panel.locator('#bobManualScreenAt').inputValue(),'');
   assert((await panel.locator('[data-manual-handset-status]').textContent()).includes('12,5'));
   assert((await panel.locator('[data-manual-handset-status]').textContent()).includes('kein aktueller Kurs'));
+  const modelText=await panel.locator('[data-handset-model-result]').innerText();
+  assert(modelText.includes('Modellrisiko'));
+  assert(modelText.includes('Modellszenario'));
+  assert(modelText.includes('kein aktueller ausführbarer Kurs'));
+  assert.equal(await panel.locator('[data-handset-model-result] button').count(),0);
   // A manual correction must survive the next automatic audit refresh.
   await panel.locator('[data-manual-broker-compare] summary').click();
   await panel.locator('#bobManualScreenBid').fill('20.15');
