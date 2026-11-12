@@ -172,6 +172,96 @@ def research_ema(rows, period=20):
     return current
 
 
+
+def _contiguous_closes(rows, minimum):
+    if len(rows) < minimum:
+        return None
+    ordered = sorted(rows, key=lambda x: x['openTime'])
+    if not ordered or any(r.get('researchOnly') is not True or
+                          r.get('isExecutableQuote') is not False for r in ordered):
+        return None
+    step = INTERVAL_MS.get(ordered[0]['interval'])
+    if not step or any(r['symbol'] != ordered[0]['symbol'] or
+                       r['interval'] != ordered[0]['interval'] for r in ordered):
+        return None
+    if any(b['openTime']-a['openTime'] != step for a,b in zip(ordered,ordered[1:])):
+        return None
+    return ordered
+
+
+def research_macd(rows, fast=12, slow=26, signal=9):
+    """Internally compare EMA12/26 and MACD signal; never publish derived values."""
+    if not (2 <= fast < slow and signal >= 2):
+        raise ValueError('periods')
+    ordered=_contiguous_closes(rows, slow+signal-1)
+    if ordered is None:
+        return None
+    prices=[r['close'] for r in ordered]
+    def ema(values, period):
+        result=[None]*(period-1)
+        current=sum(values[:period])/period
+        result.append(current)
+        alpha=2/(period+1)
+        for v in values[period:]:
+            current+=alpha*(v-current)
+            result.append(current)
+        return result
+    fast_values=ema(prices,fast)
+    slow_values=ema(prices,slow)
+    macd=[f-s for f,s in zip(fast_values,slow_values) if f is not None and s is not None]
+    signal_value=ema(macd,signal)[-1]
+    return {'macd':macd[-1],'signal':signal_value,'histogram':macd[-1]-signal_value}
+
+
+def research_rsi(rows, period=14):
+    if period < 2:
+        raise ValueError('period')
+    ordered=_contiguous_closes(rows,period+1)
+    if ordered is None:
+        return None
+    prices=[r['close'] for r in ordered]
+    deltas=[b-a for a,b in zip(prices,prices[1:])]
+    gains=[max(d,0) for d in deltas]
+    losses=[max(-d,0) for d in deltas]
+    ag=sum(gains[:period])/period
+    al=sum(losses[:period])/period
+    for gain,loss in zip(gains[period:],losses[period:]):
+        ag=(ag*(period-1)+gain)/period
+        al=(al*(period-1)+loss)/period
+    return 100.0 if al==0 else 100-100/(1+ag/al)
+
+
+def research_atr(rows, period=14):
+    if period < 2:
+        raise ValueError('period')
+    ordered=_contiguous_closes(rows,period+1)
+    if ordered is None:
+        return None
+    ranges=[]
+    for before,bar in zip(ordered,ordered[1:]):
+        ranges.append(max(bar['high']-bar['low'],
+                          abs(bar['high']-before['close']),
+                          abs(bar['low']-before['close'])))
+    atr=sum(ranges[:period])/period
+    for true_range in ranges[period:]:
+        atr=(atr*(period-1)+true_range)/period
+    return atr
+
+
+def compare_entry_shadow(rows, *, direction='LONG', hold_bars=3):
+    """Gross spot-reference comparison only, not an executable product or realized P/L."""
+    if direction not in ('LONG','SHORT') or hold_bars < 1:
+        raise ValueError('parameters')
+    ordered=_contiguous_closes(rows,hold_bars+1)
+    if ordered is None:
+        return {'code':'INSUFFICIENT_CONTIGUOUS_RESEARCH'}
+    entry=ordered[-1-hold_bars]['close']
+    exit_price=ordered[-1]['close']
+    move=(exit_price/entry-1)*(1 if direction=='LONG' else -1)
+    return {'code':'RESEARCH_SPOT_REFERENCE_ONLY','grossMoveFraction':move,
+            'barsHeld':hold_bars,'executableProductPnL':False,
+            'researchOnly':True}
+
 def fetch_research(db, symbol, interval, start_ms, end_ms, *, now_ms=None, opener=None):
     """Manual, one-request, opt-in probe; no scheduler, retries or redirects."""
     if symbol not in SYMBOLS or interval not in INTERVAL_MS:
@@ -197,7 +287,7 @@ def fetch_research(db, symbol, interval, start_ms, end_ms, *, now_ms=None, opene
             return {'code':'CREDIT_BUDGET_EXHAUSTED'}
     stamp = lambda ms: datetime.fromtimestamp(ms/1000, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     params = urlencode(dict(symbol=symbol,interval=interval,timezone='UTC',
-                            start_date=stamp(start_ms),end_date=stamp(end_ms),
+                            start_date=stamp(start_ms),end_date=stamp(end_ms-step),
                             outputsize=MAX_BARS,apikey=key))
     try:
         client = opener or build_opener(NoRedirect())
