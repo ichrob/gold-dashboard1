@@ -2,6 +2,9 @@ name: Bob Risiko
 on:
   pull_request:
     paths:
+      # Public AI-review filters decide which code leaves GitHub for external review.
+      - 'ai_peer_review.py'
+      - 'test_ai_peer_review.py'
       - 'repair_flow.py'
       - 'test_repair_flow.py'
       - 'bob_problems.py'

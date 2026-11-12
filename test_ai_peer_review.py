@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -35,6 +36,24 @@ class SecondAI(unittest.TestCase):
         self.assertIn("+new()", diff)
         with self.assertRaisesRegex(ValueError, "no-safe"):
             peer.safe_files([{"filename": "server.py", "patch": "a" * 4501}])
+
+    def test_bounded_public_html_patch_is_reviewable(self):
+        diff = peer.safe_files([{
+            "filename": "Bob.html",
+            "patch": "@@ -1 +1 @@\n-<main>old</main>\n+<main>new</main>",
+        }])
+        self.assertIn("FILE: Bob.html", diff)
+        self.assertIn("+<main>new</main>", diff)
+
+    def test_review_filter_changes_trigger_risk_and_codeql(self):
+        for workflow in (
+            ".github/workflows/bob-risk.yml",
+            ".github/workflows/bob-codeql-security.yml",
+        ):
+            with self.subTest(workflow=workflow):
+                body = Path(workflow).read_text()
+                self.assertIn("- 'ai_peer_review.py'", body)
+                self.assertIn("- 'test_ai_peer_review.py'", body)
 
     def test_invalid_cloudflare_responses_never_publish(self):
         for data in [{"success": False}, {"success": True, "result": {"response": ""}}]:

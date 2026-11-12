@@ -12,7 +12,7 @@ REPO = "ichrob/gold-dashboard1"
 MODEL = "@cf/zai-org/glm-4.7-flash"
 ACCOUNT = re.compile(r"^[a-f0-9]{32}$")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9_.\-/]{1,180}$")
-SUFFIXES = (".py", ".js", ".cjs", ".yml", ".yaml", ".md")
+SUFFIXES = (".py", ".js", ".cjs", ".html", ".yml", ".yaml", ".md")
 SECRETS = re.compile(
     r"-----BEGIN |(?i:api[_-]?key|access[_-]?token|authorization\s*[:=]|bearer\s+|"
     r"password\s*[:=]|passwort\s*[:=]|secret\s*[:=]|private[_-]?key|"
