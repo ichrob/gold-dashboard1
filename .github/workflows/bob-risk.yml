@@ -147,6 +147,11 @@ on:
       - 'sw.js'
       - 'browser_risk_workspace.cjs'
       - 'Bob.html'
+      - 'degiro_assistant.js'
+      - 'manual_ranking_order.js'
+      - 'test_manual_ranking_order.js'
+      - 'browser_manual_ranking_order.cjs'
+      - 'degiro_android_bridge.js'
       - 'degiro_handoff.js'
       - 'bob_unified_workspace.js'
       - 'real_trade_journal.js'
@@ -177,6 +182,7 @@ jobs:
           python -m unittest test_risk_background
           node test_unapproved_comparison_ranking.js
           node test_early_product_ranking.js
+          node test_manual_ranking_order.js
       - uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -190,12 +196,14 @@ jobs:
           NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_risk_workspace.cjs
           NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_zentrale.cjs
           NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_simple_home.cjs
+          NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_manual_ranking_order.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: risk-mobile-preview
           path: |
             risk-mobile.png
+            manual-order-mobile.png
             /tmp/zentrale-workspace.png
             /tmp/zentrale-home.png
             /tmp/bob-simple-home.png
