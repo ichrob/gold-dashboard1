@@ -26,6 +26,8 @@ class ProductReadActivity : Activity() {
         internal const val EXTRA_START_COMPLETE_FLOW = "ch.bob.degirocompanion.START_COMPLETE_FLOW"
     }
     private var startCompleteFlowOnFirstResume = false
+    private val refreshTickets=ReadPreparationTickets()
+    private var refreshPreparing=false
     private var startGoldReadOnFirstResume = false
     private var pendingCapability: String? = null
     private var pendingGoalQuery: String? = null
@@ -69,6 +71,7 @@ class ProductReadActivity : Activity() {
         capabilityActions["Silber-Hebelprodukte suchen"] = { startPreparedGoal("Silber") }
         capabilityActions["Gold-Hebelprodukte suchen"] = { startPreparedGoal("Gold") }
         button("Prüfung stoppen") {
+            refreshTickets.cancel();refreshPreparing=false
             if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
             PhoneRemote.stop(this,"USER_STOP")
             GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
@@ -151,6 +154,7 @@ class ProductReadActivity : Activity() {
         }
         button("Automatische Diagnose ausschalten") { PhoneDiagnostics.disable(this);refresh() }
         button("Gold-Produkte suchen und auslesen") { startGoldRead() }
+        button("Einzelne Produktkurse aktualisieren · höchstens 3") { chooseQuoteRefresh() }
         button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {
             AlertDialog.Builder(this).setTitle("Vorhandenen Produkteinleser starten")
                 .setMessage("Bob startet den vorhandenen vollständigen Gold-Produkteinleser: DEGIRO öffnen, bei Bedarf lokal anmelden, suchen, Produktseiten lesen und zurückkehren. Ergebnisse und Fehler werden über die verbundene Diagnose an Bob gemeldet. Einzelne ChatGPT-Klickaufträge sind dafür nicht erforderlich. Bob verwendet eine eingerichtete PIN einmal lokal und beginnt nach bestätigter Marktseite. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein. Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
@@ -283,7 +287,7 @@ class ProductReadActivity : Activity() {
             startAutomaticTest()
         }
     }
-    override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
+    override fun onPause() { refreshTickets.cancel();refreshPreparing=false;statusHandler.removeCallbacks(statusTick); super.onPause() }
     /** Explicit local button: reuse the verified login, then wait for remote read commands. */
     /** Use the established complete reader, including its local login and
      * automatic search/list/detail/return flow. No remote step loop. */
@@ -370,6 +374,84 @@ class ProductReadActivity : Activity() {
             result.text = if (secret == null && e is IllegalStateException) e.message
                 else "Lokale PIN-Eingabe konnte nicht gestartet werden. Einrichtung, Gerätesperre und Lesedienst prüfen."
         } finally { secret?.fill(0) }
+    }
+    private fun chooseQuoteRefresh() {
+        runCatching {
+            check(!refreshPreparing && !MorningReadRun.running && !GoldSearchRun.running && !PinReadinessProbe.running) { "Lauf zuerst abschließen oder stoppen." }
+            val saved=org.json.JSONObject(MorningReadRun.refreshSourceSnapshot(this) ?: error("Zuerst eine Goldliste einlesen."))
+            check(System.currentTimeMillis()-java.time.Instant.parse(saved.getString("listUploadedAt")).toEpochMilli() in 0..14*60*60*1000L) { "Gespeicherte Liste älter als 14 Stunden. Goldliste neu einlesen." }
+            val ids=saved.getJSONArray("isins")
+            val names=(0 until ids.length()).map { ids.getString(it) }.toTypedArray()
+            val checked=BooleanArray(names.size)
+            AlertDialog.Builder(this).setTitle("Produktkurse gezielt auffrischen")
+                .setMultiChoiceItems(names,checked) { dialog,which,value ->
+                    if(value && checked.count { it }>3) {
+                        checked[which]=false
+                        (dialog as AlertDialog).listView.setItemChecked(which,false)
+                        android.widget.Toast.makeText(this,"Höchstens drei Produkte pro Lauf.",android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }.setNegativeButton("Abbrechen",null)
+                .setPositiveButton("Ausgewählte Kurse lesen") { _,_ ->
+                    requestQuoteRefresh(saved,names.filterIndexed { i,_ -> checked[i] })
+                }.show()
+        }.onFailure { result.text=it.message ?: "Kursauffrischung nicht verfügbar." }
+    }
+    private fun requestQuoteRefresh(saved:org.json.JSONObject, selected:List<String>) {
+        runCatching {
+            check(selected.size in 1..3) { "Ein bis drei Produkte auswählen." }
+            check(PhoneDiagnostics.paired(this) && preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Diagnose verbinden und Lesedienst einschalten." }
+            check(!refreshPreparing) { "Kursauffrischung wird bereits vorbereitet." }
+            refreshPreparing=true
+            val refreshTicket=refreshTickets.issue()
+            result.text="Bob prüft die ausgewählten Produkte gegen den ursprünglichen Listennachweis."
+            val app=applicationContext
+            Thread {
+                val answer=runCatching { PhoneDiagnostics.listStatus(app,org.json.JSONObject()
+                    .put("batchId",saved.getString("listBatchId")).put("refreshIsins",org.json.JSONArray(selected))) }
+                runOnUiThread {
+                    if(!refreshTickets.accepts(refreshTicket) || !refreshPreparing || isFinishing || isDestroyed) return@runOnUiThread
+                    refreshPreparing=false
+                    var secret:ByteArray?=null
+                    var started=false
+                    runCatching {
+                        val reply=answer.getOrThrow()
+                        check(reply.optString("batchId")==saved.getString("listBatchId") &&
+                            reply.optJSONObject("import")?.optString("stage")=="synced")
+                        val ids=reply.optJSONArray("refreshIsins") ?: error("Kursplan fehlt.")
+                        val ordered=(0 until ids.length()).map { ids.getString(it) }
+                        check(ordered.isNotEmpty()) { "Ausgewählte Produkte sind als beendet bestätigt; kein erneuter Kursabruf." }
+                        check(ordered.size<=3 && ordered.all { it in selected })
+                        val plan=SelectiveDetailPlan.parse(reply.optJSONArray("refreshPlan"),ordered) ?: error("Kursplan nicht eindeutig.")
+                        check(!MorningReadRun.running && !GoldSearchRun.running && !PinReadinessProbe.running &&
+                            !ProductReadRequest.active(SystemClock.elapsedRealtime()) && !LoginToReadHandoff.pending(SystemClock.elapsedRealtime())) { "Anderer Lauf aktiv; keine zweite Bedienung gestartet." }
+                        val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+                        MorningReadRun.rememberRefreshSource(this,saved.toString())
+                        val intent=LoginToReadHandoff.DetailRefresh(saved.getString("listBatchId"),saved.getString("listUploadedAt"),plan)
+                        if(LocalPinVault.exists(this)) {
+                            check(PhoneDiagnostics.keypadTestVerified(this) && LocalPinVault.available(this)) { "Lokale PIN-Einrichtung prüfen und Handy entsperren." }
+                            secret=LocalPinVault.load(this)
+                            if(PhoneRemote.active()) PhoneRemote.stop(this,"STOPPED")
+                            LoginToReadHandoff.arm(SystemClock.elapsedRealtime(),detailRefresh=intent)
+                            started=true;PinReadinessProbe.startLocalLogin(secret!!)
+                        } else {
+                            if(!PhoneRemote.active()) PhoneRemote.start(this)
+                            started=true;check(PhoneRemote.active())
+                            MorningReadRun.beginDiscovered(this,ordered,intent.batch,plan.associate { it.isin to it.missingFields },intent.listAt)
+                            ProductReadRequest.start(SystemClock.elapsedRealtime())
+                        }
+                        result.text="${plan.size} ausgewählte Produkte werden gelesen; ${selected.size-plan.size} bestätigte beendete Produkte ausgelassen. Ohne gespeicherte PIN muss DEGIRO angemeldet sein."
+                        startActivity(launch)
+                    }.onFailure {
+                        if(started) {
+                            LoginToReadHandoff.clear()
+                            if(PinReadinessProbe.localLoginActive) PinReadinessProbe.stop("Kursauffrischung gestoppt.")
+                            MorningReadRun.stop(this,"TRANSFER_ERROR");ProductReadRequest.cancel();PhoneRemote.stop(this,"START_FAILED")
+                        }
+                        result.text=it.message ?: "Kursauffrischung nicht gestartet."
+                    }.also { secret?.fill(0) }
+                }
+            }.start()
+        }.onFailure { refreshPreparing=false;result.text=it.message ?: "Kursauffrischung nicht gestartet." }
     }
     private fun startGoldRead() {
             var startedHere=false

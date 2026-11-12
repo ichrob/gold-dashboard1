@@ -35,14 +35,14 @@ class VerificationChallengeTest {
     }
     @Test fun ordinaryProductTextRemainsUsable() {
         for (text in listOf("Gold", "Kursdaten", "Security", "Human Resources", "Brief 10,20",
-            "Security Check", "Sicherheitsüberprüfung", "Security Check abgeschlossen",
+            "Security Check", "Sicherheitsprüfung", "Sicherheitsüberprüfung", "Security Check abgeschlossen",
             "Informationen zur Sicherheitsüberprüfung", "Sicherheitsüberprüfung erfolgreich",
             "Wird geladen", "Loading", "Bitte warten", "Verbindung wird hergestellt")) {
             assertFalse(text, VerificationChallenge.detected(text))
             assertFalse(text, LocalWorkflow.protected(WorkflowFrame("nl.degiro.trader", 1,
                 listOf(WorkflowNode(text, "", false, false)))))
             val action = MorningReadPolicy.discoverGold(listOf(MorningReadPolicy.Node(text)))
-            assertNotEquals(text, "PROTECTED_VERIFICATION", action.code)
+            assertFalse(text, action.code.startsWith("PROTECTED_"))
             val result = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE,
                 listOf(QuoteLayout.Line(text, 0, 0, 500, 30)), "2026-11-12T12:00:00Z")
             assertNotEquals(text, ProductScreenEvidence.Reason.PROTECTED, result.reason)

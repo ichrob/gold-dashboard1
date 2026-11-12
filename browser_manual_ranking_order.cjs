@@ -85,6 +85,9 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
   assert((await panel.locator('[data-manual-handset-status]').textContent()).includes('kein aktueller Kurs'));
   const modelText=await panel.locator('[data-handset-model-result]').innerText();
   assert(modelText.includes('Modellrisiko'));
+  const completion=await panel.locator('[data-handset-run-summary]').innerText();
+  assert(completion.includes('1 vollständig'));
+  assert(completion.includes('1 von 1 ausgewählten Modellvergleichen berechenbar'));
   assert(modelText.includes('Modellszenario'));
   assert(modelText.includes('kein aktueller ausführbarer Kurs'));
   assert.equal(await panel.locator('[data-handset-model-result] button').count(),0);

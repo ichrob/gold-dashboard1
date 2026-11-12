@@ -15,6 +15,30 @@ MAX_BODY=8100000
 DETAIL_FIELDS = ('Geld', 'Brief', 'Anzeigezeit', 'Hebel', 'KO-Schwelle',
                  'Basispreis', 'Bv', 'Währung')
 
+def confirmed_terminal(product, isin):
+    q = product.get('quote') if isinstance(product, dict) else None
+    if not isinstance(q, dict) or q.get('isin') != isin or q.get('productVerified') is not True:
+        return False
+    meta = q.get('metadata')
+    status = meta.get('status') if isinstance(meta, dict) else None
+    return type(status) is int and bool(status & (2 | 8 | 16 | 32))
+
+
+def refresh_plan(items, products, selected):
+    from product_quotes import valid_isin
+    if (not isinstance(selected, list) or not 1 <= len(selected) <= 3 or
+            any(not isinstance(i, str) or not valid_isin(i) for i in selected) or
+            len(set(selected)) != len(selected)):
+        raise ValueError('Select one to three distinct ISINs')
+    universe = {x.get('isin') for x in items if isinstance(x, dict) and
+                not (isinstance(x.get('listRow'), dict) and x['listRow'].get('excluded'))}
+    if not set(selected) <= universe:
+        raise ValueError('Refresh outside owned list')
+    by_id = {p.get('isin'): p for p in products if isinstance(p, dict)}
+    return [{'isin': i, 'missingFields': ['Geld', 'Brief', 'Anzeigezeit', 'Hebel']}
+            for i in selected if not confirmed_terminal(by_id.get(i, {}), i)]
+
+
 def detail_plan(items, products, now):
     """Request only still-missing/expired fields, preserving exact list order.
 
@@ -46,6 +70,8 @@ def detail_plan(items, products, now):
             continue
         seen.add(isin)
         p = by_id.get(isin, {})
+        if confirmed_terminal(p, isin):
+            continue
         # Missing input values are independent; don't re-read a proven KO or
         # ratio just because the current bid/ask pair has expired.
         missing = [label for key, label in
@@ -260,12 +286,18 @@ def handle(conn,payload,now):
         if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')
         row=conn.execute('SELECT import_receipt, parsed_items, created_at FROM bob_android_list_images WHERE batch_id=%s AND token_hash=%s',(batch,digest)).fetchone()
         plan=[]
+        refresh=[]
         reuse_batch=None
         reuse_plan=[]
         if row and row[0] and row[0].get('stage')=='synced':
             saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
             products=(saved[0] or {}).get('products',[]) if saved else []
             plan=detail_plan(row[1] or [],products,now)
+            selected=payload.get('value',{}).get('refreshIsins')
+            if selected is not None:
+                if row[2] is None or not 0 <= now-row[2].timestamp() <= 14*3600:
+                    raise ValueError('Owned list expired for targeted refresh')
+                refresh=refresh_plan(row[1] or [],products,selected)
         # A native OCR attempt may remain waiting-memory or fail exactly
         # with MemoryError on the 512-MiB server. These states prove that
         # this NEW batch was NOT verified. Never weaken the cgroup guard.
@@ -293,6 +325,7 @@ def handle(conn,payload,now):
                     reuse_batch=previous[0]
         return {'ok':True,'batchId':batch,'import':row[0] if row else None,
                 'detailIsins':[x['isin'] for x in plan],'detailPlan':plan,
+                'refreshPlan':refresh,'refreshIsins':[x['isin'] for x in refresh],
                 'existingListBatchId':reuse_batch,
                 'existingDetailIsins':[x['isin'] for x in reuse_plan],
                 'existingDetailPlan':reuse_plan}
