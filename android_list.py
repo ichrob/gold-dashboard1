@@ -24,7 +24,42 @@ def confirmed_terminal(product, isin):
     return type(status) is int and bool(status & (2 | 8 | 16 | 32))
 
 
-def refresh_plan(items, products, selected):
+def reader_terminal_isins(conn, products, now):
+    """Use existing issuer terminal proofs only for bounded read scheduling.
+
+    A new screenshot does not revive an exact, issuer-terminated ISIN. This
+    does not copy old quotes/terms or change audit-generation/trading gates.
+    Fresh contradictory verified product evidence always wins.
+    """
+    row=conn.execute('SELECT payload FROM bob_degiro_product_audit WHERE id=1').fetchone()
+    audit=row[0] if row and isinstance(row[0],dict) else {}
+    try:
+        checked=datetime.fromisoformat(audit.get('lastCheckedAt','').replace('Z','+00:00'))
+        if checked.tzinfo is None or not 0 <= now-checked.timestamp() <= 14*3600:
+            return set()
+    except (ValueError,TypeError,AttributeError,OverflowError):
+        return set()
+    by_id={p.get('isin'):p for p in products if isinstance(p,dict)}
+    terminal=set()
+    for item in audit.get('items',[]):
+        if not isinstance(item,dict) or item.get('isin') not in by_id:
+            continue
+        isin=item['isin']; proof=item.get('sourceStatusEvidence')
+        if not isinstance(proof,dict):continue
+        raw=proof.get('issuerRawStatus')
+        if (item.get('state')!='terminated' or proof.get('issuerVerified') is not True
+                or proof.get('issuerTerminal') is not True or type(proof.get('issuerStatus')) is not int
+                or proof['issuerStatus']!=2 or type(raw) is not int or not raw & (2|8|16|32)):
+            continue
+        q=by_id[isin].get('quote')
+        if isinstance(q,dict) and q.get('productVerified') is True:
+            # Even an ambiguous/conflicting verified identity must not be skipped.
+            if not confirmed_terminal(by_id[isin],isin):continue
+        terminal.add(isin)
+    return terminal
+
+
+def refresh_plan(items, products, selected, terminal_isins=()):
     from product_quotes import valid_isin
     if (not isinstance(selected, list) or not 1 <= len(selected) <= 3 or
             any(not isinstance(i, str) or not valid_isin(i) for i in selected) or
@@ -36,10 +71,10 @@ def refresh_plan(items, products, selected):
         raise ValueError('Refresh outside owned list')
     by_id = {p.get('isin'): p for p in products if isinstance(p, dict)}
     return [{'isin': i, 'missingFields': ['Geld', 'Brief', 'Anzeigezeit', 'Hebel']}
-            for i in selected if not confirmed_terminal(by_id.get(i, {}), i)]
+            for i in selected if i not in terminal_isins and not confirmed_terminal(by_id.get(i, {}), i)]
 
 
-def detail_plan(items, products, now):
+def detail_plan(items, products, now, terminal_isins=()):
     """Request only still-missing/expired fields, preserving exact list order.
 
     This is a read-only *research* plan, never a trading approval. Original
@@ -70,7 +105,7 @@ def detail_plan(items, products, now):
             continue
         seen.add(isin)
         p = by_id.get(isin, {})
-        if confirmed_terminal(p, isin):
+        if isin in terminal_isins or confirmed_terminal(p, isin):
             continue
         # Missing input values are independent; don't re-read a proven KO or
         # ratio just because the current bid/ask pair has expired.
@@ -292,12 +327,13 @@ def handle(conn,payload,now):
         if row and row[0] and row[0].get('stage')=='synced':
             saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
             products=(saved[0] or {}).get('products',[]) if saved else []
-            plan=detail_plan(row[1] or [],products,now)
+            terminal_isins=reader_terminal_isins(conn,products,now)
+            plan=detail_plan(row[1] or [],products,now,terminal_isins)
             selected=payload.get('value',{}).get('refreshIsins')
             if selected is not None:
                 if row[2] is None or not 0 <= now-row[2].timestamp() <= 14*3600:
                     raise ValueError('Owned list expired for targeted refresh')
-                refresh=refresh_plan(row[1] or [],products,selected)
+                refresh=refresh_plan(row[1] or [],products,selected,terminal_isins)
         # A native OCR attempt may remain waiting-memory or fail exactly
         # with MemoryError on the 512-MiB server. These states prove that
         # this NEW batch was NOT verified. Never weaken the cgroup guard.
@@ -320,7 +356,7 @@ def handle(conn,payload,now):
             if previous and reusable_daily_items(previous[1]):
                 saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
                 products=(saved[0] or {}).get('products',[]) if saved else []
-                reuse_plan=detail_plan(previous[1],products,now)
+                reuse_plan=detail_plan(previous[1],products,now,reader_terminal_isins(conn,products,now))
                 if reuse_plan:
                     reuse_batch=previous[0]
         return {'ok':True,'batchId':batch,'import':row[0] if row else None,
