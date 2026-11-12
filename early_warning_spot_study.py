@@ -84,6 +84,7 @@ def warning_eligible(market, quality, now):
                 and w.get("extensionRisk") is not True and w.get("direction") in ("LONG", "SHORT")
                 and shared.number(w.get("signalBarAt"))
                 and w["signalBarAt"] == quality.get("fiveMinuteCloseAt")
+                and quality["sourceAt"] >= w["signalBarAt"]
                 and shared.number(w.get("expiresAt")) and now < w["expiresAt"]
                 and shared.positive(atr) and 0.0001 < atr/quality["price"] < 0.1
                 and 0 <= now-quality["sourceAt"] <= 60000
