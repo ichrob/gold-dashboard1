@@ -271,7 +271,16 @@ def restore_check(archive, expected_sha256, restore_dsn, *, temporary_session=Fa
         manifest = json.loads(z.read('manifest.json'))
         if manifest.get('version') != VERSION or not manifest.get('tables'):
             raise ValueError('Invalid archive manifest')
-        with psycopg.connect(restore_dsn) as conn:
+        with psycopg.connect(restore_dsn, connect_timeout=5,
+                             options='-c statement_timeout=120000 -c lock_timeout=3000 '
+                                     '-c work_mem=2048 -c maintenance_work_mem=16384 '
+                                     '-c max_parallel_workers_per_gather=0') as conn:
+            # Target-local coordination also covers manual checks and different
+            # source deployments. Retained across each segment's rollback.
+            from aiven_health import TARGET_LOCK_SQL
+            if conn.execute(TARGET_LOCK_SQL).fetchone() != (True,):
+                raise ValueError('Restore target busy; no parallel restore permitted')
+            conn.commit()
             if conn.info.server_version // 10000 != manifest['postgresVersion'] // 10000:
                 raise ValueError('Matching PostgreSQL major version required')
             if conn.info.dbname == manifest['sourceDatabase'] and not temporary_session:
