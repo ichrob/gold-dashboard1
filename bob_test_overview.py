@@ -15,6 +15,46 @@ def count(value):
     return value if type(value) is int and value >= 0 else None
 
 
+def handset_comparisons(areas):
+    """Compact view of existing calculations, without reading or writing accounts."""
+    chain = (areas.get('androidReader') or {}).get('evidenceChain') or {}
+    if not isinstance(chain.get('products'), list):
+        return dict(status='unavailable', items=[], accepted=0, missingFx=0, unpaired=0)
+    import math
+    finite = lambda v: type(v) in (int, float) and math.isfinite(v)
+    items, missing_fx, unpaired = [], 0, 0
+    for product in chain['products'][:100]:
+        pair = product.get('illustrativeReplay') or {}
+        if not pair:
+            unpaired += 1
+            continue
+        cost = pair.get('costModelReplay') or {}
+        if cost.get('status') == 'missing-dated-fx':
+            missing_fx += 1
+            continue
+        if cost.get('status') != 'illustrative-one-unit-model' or not all(
+                finite(cost.get(k)) for k in ('grossEur', 'modelNetEur', 'feesEur', 'slippageEur')):
+            continue
+        fx = cost.get('fxConversion') or {}
+        refs = {r.get('originalHash'): r for r in product.get('originals', [])}
+        items.append(dict(isin=product.get('isin'), quantity=cost.get('quantity'),
+            grossEur=cost['grossEur'], modelNetEur=cost['modelNetEur'],
+            feesEur=cost['feesEur'], slippageEur=cost['slippageEur'],
+            entryAt=(refs.get(pair.get('entryHash')) or {}).get('observedAt'),
+            exitAt=(refs.get(pair.get('exitHash')) or {}).get('observedAt'),
+            fxApproximation=fx.get('acceptedForModel') is True,
+            fxDate=fx.get('date'), fxSource=fx.get('source'),
+            strategyPerformance=False))
+    return dict(status='observed', items=items, accepted=len(items),
+        dailyFxAccepted=sum(x['fxApproximation'] for x in items),
+        missingFx=missing_fx, unpaired=unpaired, sampledRuns=chain.get('sampledRuns'),
+        fullHistoryRead=False,
+        note='Historische Modellvergleiche je einem Stück, keine Strategietrades. '
+             'Spread enthalten; Gebühren und Slippage sind Modellannahmen. '
+             'Tageskurs-Näherungen sind für diese Berechnung akzeptiert. '
+             'Keine Kontobuchung und kein Nachweis tatsächlich erzielter Gewinne.')
+
+
 def snapshot(report, now):
     areas=report.get('areas') or {}
     evidence=areas.get('comparisonEvidence') or {}
@@ -141,6 +181,7 @@ def snapshot(report, now):
     timing=dict((areas.get('simulationAndPush') or {}).get('intradayTimingStudy') or {})
     timing['observationFresh']=fresh(timing.get('checkedAt'),now,120)
     return dict(version=1,readOnly=True,realOrders=False,items=rows,
+        handsetComparisons=handset_comparisons(areas),
         intradayTimingStudy=timing,
         qualityCampaign=campaign,
         recentFollowups=health.get('recentFollowups') or {'status':'unavailable'},
