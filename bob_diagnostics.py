@@ -414,6 +414,17 @@ def new_studies_brief(paper, now_ms=None):
         values = control.get('studies') if isinstance(control.get('studies'),list) else []
         return [fields(row,counters) for row in values[:4]
                 if isinstance(row,dict) and row.get('id') in study_ids]
+    historical = quality.get('historicalReview')
+    historical_brief = None
+    if isinstance(historical, dict) and historical.get('status') == 'observed':
+        counts = historical.get('counts') or {}
+        historical_brief = dict(status='observed', cutoffAt=historical.get('cutoffAt'),
+            counts={k:counts[k] for k in ('reviewed','modeled','unavailable')
+                    if type(counts.get(k)) is int and counts[k] >= 0},
+            byStudy={k:v for k,v in (historical.get('byStudy') or {}).items()
+                     if k in study_ids and type(v) is int and v >= 0},
+            truncated=historical.get('truncated') is True,
+            originalEvidenceUnchanged=True, originalResultVerified=False)
     originals = study_counts(quality)
     modeled_rows = study_counts(modeled)
     # Existing simulation report already contains a sanitized reaction record.
@@ -500,6 +511,14 @@ def new_studies_brief(paper, now_ms=None):
     for study in ('warning-confirmed','entry-delay','sideways-filter'):
         row = next((x for x in originals if x.get('id')==study),{})
         complete, inconclusive = row.get('complete'),row.get('inconclusive')
+        reviewed = (historical_brief.get('byStudy', {}).get(study, 0)
+                    if historical_brief else 0)
+        # Administrative closure is not a successful original outcome. Keep
+        # original counters visible, but don't present fully reviewed history
+        # as a current repair alert. Any additional unresolved case still warns.
+        if (type(inconclusive) is int and 0 < inconclusive == reviewed
+                and historical_brief.get('truncated') is False):
+            continue
         if (type(complete) is int and type(inconclusive) is int
                 and complete >= 0 and inconclusive >= 0
                 and complete + inconclusive >= 10
@@ -540,7 +559,8 @@ def new_studies_brief(paper, now_ms=None):
         'readOnly':True, 'realOrders':False,
         'scope':'new-studies-sanitized-control-sample-not-execution-proof',
         'quality':{**core(quality), 'studies':originals,
-                   'modeled':{**core(modeled), 'studies':modeled_rows}},
+                   'modeled':{**core(modeled), 'studies':modeled_rows},
+                   **({'historicalReview': historical_brief} if historical_brief else {})},
         'attention':notices,
         'attentionStatus':'needs-attention' if notices else 'no-current-study-alert',
         'shadow':{'status':value(shadow,'status'),'studies':shadows},

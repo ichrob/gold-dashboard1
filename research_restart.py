@@ -508,6 +508,7 @@ def report(conn):
     return dict(version=VERSION, status=state['status'], startedAt=state['startedAt'],
                 checkedAt=state['checkedAt'], deadlineAt=state['deadlineAt'], studies=studies,
                 modeledSimulation=modeled,
+                historicalReview=__import__('study_case_review').report(conn, VERSION),
                 lessons=state['lessons'], lastDecision=state.get('lastDecision'), legacySnapshots=state.get('legacySnapshots'),
                 realOrders=False, liveRulesChanged=False, winnerVerified=False,
                 note='60-Minuten-Spotvergleich mit 0,16 % Modellkosten; keine KO-Produktrendite. Originalauswertung und Simulation mit Schätzungen separat. Maximal 20 Kalendertage/200 Fälle je Vergleich, danach gesonderte Prüfung an neuen Daten. Stop/Ziel nur beobachtet, keine Ausführung behauptet.')

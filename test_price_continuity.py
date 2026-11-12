@@ -70,6 +70,34 @@ class ContinuityTests(unittest.TestCase):
         r['issuerModelSource']['isin']='wrong'
         self.assertEqual(self.run_model(r)['priceContinuity']['state'],'unavailable')
 
+    def test_sg_quote_outage_uses_separately_verified_terms_only(self):
+        from test_hybrid_product_price import record
+        r=record(); r.pop('chartEvidence')
+        r.update(sourceFailure=True,quoteFailureCode='SG_SOURCE_UNAVAILABLE')
+        for k in ('ko','strike'):
+            r['conditions'][k]=dict(value=r['metadata'][k],conditionVerified=True,dateText='15.10.2026')
+        obs={k:dict(value=r['metadata'][k]) for k in ('ratio','direction','currency','underlying')}
+        obs.update(quanto=dict(value=False,conditionVerified=True),issuer=dict(value='Société Générale'))
+        r['comdirectFieldsBackup']=dict(isin=r['isin'],state='active',conflicts=[],inactive=False,
+            source='https://www.comdirect.de/inf/zertifikate/'+r['isin'],checkedAt=at(2),observations=obs)
+        before=copy.deepcopy(r)
+        out=self.run_model(r)
+        self.assertEqual(out['priceContinuity']['state'],'calculated')
+        self.assertEqual(out['priceContinuity']['kind'],'intrinsic')
+        self.assertTrue(out['sourceFailure']);self.assertFalse(out['eligible'])
+        self.assertNotIn('bid',out['priceContinuity'])
+        self.assertEqual(r,before)
+        for change in ('old-terms','old-corroboration','quanto','ended','wrong-ratio','unknown-structure','other-error'):
+            bad=copy.deepcopy(r)
+            if change=='old-terms':bad['conditions']['ko']['dateText']='14.10.2026'
+            if change=='old-corroboration':bad['comdirectFieldsBackup']['checkedAt']=at(301)
+            if change=='quanto':bad['comdirectFieldsBackup']['observations']['quanto']['value']=True
+            if change=='ended':bad['metadata']['status']=2
+            if change=='wrong-ratio':bad['comdirectFieldsBackup']['observations']['ratio']['value']=.01
+            if change=='unknown-structure':bad['metadata']['simpleNonQuantoTurbo']=False
+            if change=='other-error':bad['quoteFailureCode']='UNRECOGNIZED'
+            self.assertEqual(self.run_model(bad)['priceContinuity']['state'],'unavailable',change)
+
     def test_cached_output_does_not_extend_input_lifetime(self):
         out=self.run_model()
         self.assertEqual(self.run_model(out,inputs(spot_age=90)[0])['priceContinuity']['state'],'unavailable')

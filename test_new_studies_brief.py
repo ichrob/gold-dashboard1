@@ -104,6 +104,18 @@ class NewStudiesBriefTests(unittest.TestCase):
         self.assertFalse(report['strategyWinnerConfirmed'])
         self.assertFalse(report['fullOriginalHistoryVerified'])
 
+    def test_closed_history_is_not_a_current_repair_alert_but_new_cases_are(self):
+        paper={'qualityCampaign':{'studies':[{'id':'entry-delay','complete':3,'inconclusive':12}],
+            'historicalReview':{'status':'observed','counts':{'reviewed':12,'modeled':7,'unavailable':5},
+                                'byStudy':{'entry-delay':12},'truncated':False}}}
+        out=diag.new_studies_brief(paper)
+        self.assertNotIn('STUDY_OUTCOMES_INCONCLUSIVE',[x['code'] for x in out['attention']])
+        self.assertEqual(out['quality']['studies'][0]['inconclusive'],12)
+        self.assertEqual(out['quality']['historicalReview']['counts']['modeled'],7)
+        paper['qualityCampaign']['studies'][0]['inconclusive']=13
+        out=diag.new_studies_brief(paper)
+        self.assertIn('STUDY_OUTCOMES_INCONCLUSIVE',[x['code'] for x in out['attention']])
+
     def test_worker_stale_only_in_trading_and_valid_wait_is_not_an_error(self):
         paper={
             'paper':{'sessionMode':'trading'},

@@ -237,6 +237,15 @@ function testOverviewLines(value){
   for(const t of campaign.studies||[])lines.push(t.label+': '+(t.id==='reaction'?'Prüfungen '+n(t.cycles)+' · ungültige Eingaben '+n(t.invalid)+' · Verarbeitungslücken '+n(t.missingIntervals)+' · Kontofehler '+n(t.workerErrors):'vollständig '+n(t.complete)+' · nicht auswertbar '+n(t.inconclusive)+' · offen '+n(t.open)));
   for(const l of campaign.lessons||[])lines.push((l.status==='hypothesis'?'Zu prüfen: ':'Qualitätsregel: ')+l.text);
   lines.push(campaign.note);
+  const review=campaign.historicalReview;
+  if(review?.status==='observed'){
+   lines.push('Historische Prüfung abgeschlossen: '+n(review.counts?.reviewed)+' Fälle · '+n(review.counts?.modeled)+' mit Endpunktmodell berechnet · '+n(review.counts?.unavailable)+' ohne ausreichende Berechnungsgrundlage.'+(review.truncated?' Teilmenge; weitere Fälle nicht geprüft.':''));
+   for(const r of review.items||[]){
+    const values=Object.entries(r.returnsPct||{}).filter(([,v])=>typeof v==='number'&&Number.isFinite(v)).map(([k,v])=>k+': '+v.toFixed(3)+' %');
+    lines.push(r.study+' · '+clock(r.closedAt)+' · '+(r.modelStatus==='endpoint-model'?'Rückblickendes Spot-Endpunktmodell: '+values.join(' · '):'Abgeschlossen mit unbestätigtem Originalergebnis; Berechnungsgrundlage fehlt.'));
+   }
+   lines.push(review.note);
+  }
   const model=campaign.modeledSimulation;
   if(model?.studies){
    lines.push('Simulation mit Schätzwerten · '+(states[model.status]||'nicht bestätigt')+' · Beginn: '+clock(model.startedAt));
