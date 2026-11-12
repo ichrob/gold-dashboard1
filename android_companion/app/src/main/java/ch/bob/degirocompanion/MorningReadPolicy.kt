@@ -93,6 +93,7 @@ internal object MorningReadPolicy {
         hint.ifBlank { if ((showingHint && searchLabel(text)) ||
             normalized(text).equals("Mit Namen, ISIN oder Symbol suchen",ignoreCase=true)) text else "" }
     private fun protection(nodes: List<Node>): String? {
+        if (nodes.any { n -> listOf(n.text,n.description,n.hint).any(VerificationChallenge::detected) }) return "PROTECTED_VERIFICATION"
         if (nodes.any { it.password }) return "PROTECTED_PASSWORD"
         if (nodes.any { it.sensitive && it.editable }) return "PROTECTED_SENSITIVE_INPUT"
         if (nodes.any { it.sensitive }) return "PROTECTED_SENSITIVE_CONTENT"

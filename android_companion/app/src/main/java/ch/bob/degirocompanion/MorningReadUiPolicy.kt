@@ -45,6 +45,7 @@ internal object MorningReadUiPolicy {
         "LOGIN_HANDOFF_DISABLED" -> "DEGIRO erkannt, aber Android-Leseberechtigung wurde deaktiviert."
         "SCREEN_LOCKED" -> "Bildschirm wurde gesperrt"
         "USER_INTERRUPTED", "USER_STOP" -> "Prüfung durch Bedienung beendet"
+        "PROTECTED_VERIFICATION" -> "Sicherheitsabfrage erkannt; bitte selbst in DEGIRO prüfen und anschließend neu starten"
         "PROTECTED_PASSWORD" -> "Passwortfeld sichtbar; zuerst selbst in DEGIRO anmelden"
         "PROTECTED_LOGIN" -> "Anmeldemerkmal sichtbar; Lesen sicher angehalten"
         "PROTECTED_ORDER" -> "Ordermerkmal erkannt; Lesen sicher angehalten"
