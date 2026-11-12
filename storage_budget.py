@@ -117,6 +117,9 @@ def archive_status(conn):
     ledger mutation, token exposure or external archive read is performed.
     """
     process = __import__('archive_worker').status()
+    aiven = __import__('aiven_health').status()
+    if aiven['enabled']:
+        process = {**process, 'aivenHealth': aiven}
     try:
         with conn.transaction() if hasattr(conn, 'transaction') else nullcontext():
             latest = conn.execute('''SELECT status,updated_at,receipt FROM bob_archive_attempts

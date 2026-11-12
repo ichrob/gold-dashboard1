@@ -1854,6 +1854,8 @@ if __name__ == "__main__":
     # Optional single short read of the archival attempt receipt (redacted).
     # No external DB port or HTTP endpoint; opt-in diagnosis only.
     __import__("archive_receipt_status_probe").start_if_enabled()
+    # Small read-only samples of the existing isolated Aiven restore target.
+    __import__("aiven_health").start()
     # Optional bounded catch-up of the *existing* diagnostic retention, only
     # after a fresh separate-server Google Drive backup restore receipt.
     __import__("diagnostic_archived_catchup").start()
