@@ -21,8 +21,17 @@ def init(conn):
         (id TEXT PRIMARY KEY, complete BOOLEAN NOT NULL, payload JSONB NOT NULL)''')
     conn.execute('''CREATE TABLE IF NOT EXISTS bob_entry_exit_input_status
         (singleton BOOLEAN PRIMARY KEY CHECK(singleton), payload JSONB NOT NULL)''')
-    conn.execute('''CREATE INDEX IF NOT EXISTS bob_entry_exit_pending
-        ON bob_entry_exit_comparison(id) WHERE complete=FALSE''')
+    # PostgreSQL takes a SHARE relation lock even for a no-op
+    # CREATE INDEX IF NOT EXISTS.  During a rolling deploy the new instance
+    # keeps that lock until the full startup transaction commits, which can
+    # make the still-serving instance's study UPDATE hit lock_timeout.  Check
+    # the catalog first so established databases do not take the DDL lock on
+    # every process start.  IF NOT EXISTS remains the first-install race guard.
+    pending_index = conn.execute(
+        "SELECT to_regclass('bob_entry_exit_pending')").fetchone()
+    if not pending_index or pending_index[0] is None:
+        conn.execute('''CREATE INDEX IF NOT EXISTS bob_entry_exit_pending
+            ON bob_entry_exit_comparison(id) WHERE complete=FALSE''')
 
 
 def original_input(bundle, market, now):
