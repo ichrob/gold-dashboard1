@@ -392,6 +392,7 @@ def new_studies_brief(paper, now_ms=None):
     timing = paper.get('intradayTimingStudy') or {}
     rapid = paper.get('rapidLeverageStudy') or {}
     entry = shadow.get('entryExitComparison') or {}
+    early_spot = shadow.get('earlyWarningSpotStudy') or {}
     modeled = quality.get('modeledSimulation') or {}
     # The last episode's checkedAt can be days old while the study's worker
     # still evaluates live inputs. These are separate original timestamps.
@@ -573,6 +574,14 @@ def new_studies_brief(paper, now_ms=None):
                      'workerInputVerified':(input_quality.get('verified')
                                             if type(input_quality.get('verified')) is bool
                                             else None)},
+        'earlyWarningSpot':{**core(early_spot),
+                            'casesSampled':value(early_spot,'casesSampled'),
+                            'open':value(early_spot,'open'),
+                            'complete':value(early_spot,'complete'),
+                            'inconclusive':value(early_spot,'inconclusive'),
+                            'mainNeverConfirmed':value(early_spot,'mainNeverConfirmed'),
+                            'pairedCompleted':value(early_spot,'pairedCompleted'),
+                            'productReturnVerified':False},
         'intraday':{**core(timing),
                     'variantsObserved':len(variants) if variants is not None else None,
                     'legacyOpenPositions':value(timing,'legacyOpenPositions')},
@@ -1288,6 +1297,15 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
             'status':'unavailable','realOrders':False,
             'productReturnVerified':False,'strategyWinnerConfirmed':False}
     result['shadowStudies']['entryExitComparison'] = comparison
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            early_spot = __import__('early_warning_spot_study').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        early_spot = {'status':'unavailable','reason':'early-spot-report-unavailable',
+                      'readOnly':True,'realOrders':False,'productReturnVerified':False}
+    result['shadowStudies']['earlyWarningSpotStudy'] = early_spot
     return result
 
 
