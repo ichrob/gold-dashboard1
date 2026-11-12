@@ -36,6 +36,14 @@ class SecondAI(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no-safe"):
             peer.safe_files([{"filename": "server.py", "patch": "a" * 4501}])
 
+    def test_bounded_public_html_patch_is_reviewable(self):
+        diff = peer.safe_files([{
+            "filename": "Bob.html",
+            "patch": "@@ -1 +1 @@\n-<main>old</main>\n+<main>new</main>",
+        }])
+        self.assertIn("FILE: Bob.html", diff)
+        self.assertIn("+<main>new</main>", diff)
+
     def test_invalid_cloudflare_responses_never_publish(self):
         for data in [{"success": False}, {"success": True, "result": {"response": ""}}]:
             with self.subTest(data=data), self.assertRaises(ValueError):
