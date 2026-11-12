@@ -236,9 +236,11 @@ def handle(conn,payload):
 
 def status(conn):
     """Bounded read-only AI/guardian diagnosis; no broker account data or raw text."""
-    rows=conn.execute('SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 5').fetchall()
+    rows=conn.execute('SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 50').fetchall()
+    from handset_evidence_chain import project
+    chain=project([row[0] for row in rows])
     runs=[]
-    for row in rows:
+    for row in rows[:5]:
         r=row[0]
         runs.append(dict(batchId=r['batchId'],revision=r['revision'],receivedAt=r['receivedAt'],
             appVersionCode=r.get('appVersionCode'),listUploadedAt=r['listUploadedAt'],listSource=r.get('listSource','bob-saved-list'),requested=len(r['isins']),
@@ -246,5 +248,5 @@ def status(conn):
                 requestedFields=x.get('requestedFields'),
                 missingFields=(x.get('observation') or {}).get('missingFields',list(REQUIRED)),
                 matchedCurrentList=x['matchedCurrentList']) for x in r['results']],events=r['events'][-12:]))
-    return dict(status='observed' if runs else 'not-observed',readOnly=True,runs=runs,
+    return dict(status='observed' if runs else 'not-observed',readOnly=True,runs=runs,evidenceChain=chain,
                 scope='unverified-app-reader-results-not-trade-proof')
