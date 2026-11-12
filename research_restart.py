@@ -6,6 +6,7 @@ All returns are fixed-horizon spot benchmarks, NOT executable KO returns.
 import copy
 import hashlib
 import json
+import math
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -125,6 +126,38 @@ TERMINAL_EVIDENCE_REASONS = frozenset((
 ))
 
 
+def worker_observation_gap(previous_check, now, observations=None):
+    """Return whether actual enqueue observations contain a gap over 90s.
+
+    A quality tick only runs for a strictly newer admissible study bundle.
+    Retained enqueue candidates still prove that the worker observed the
+    collector handoff, but must never count as a fresh source or fill a study
+    path.  Use their bounded process-local timestamps solely for the worker
+    cadence classification.  Missing or malformed evidence fails back to the
+    original checkedAt clock; the strict 90-second threshold is unchanged.
+    """
+    if type(previous_check) not in (int, float) or not math.isfinite(previous_check):
+        return False
+    if type(now) not in (int, float) or not math.isfinite(now) or now < previous_check:
+        return True
+    if observations is None:
+        return now - previous_check > 90000
+    if not isinstance(observations, (list, tuple)):
+        return now - previous_check > 90000
+    points = [previous_check]
+    last_observed = None
+    for value in observations:
+        if type(value) not in (int, float) or not math.isfinite(value):
+            return now - previous_check > 90000
+        if last_observed is not None and value < last_observed:
+            return True
+        last_observed = value
+        if previous_check < value < now and value > points[-1]:
+            points.append(value)
+    points.append(now)
+    return any(end - start > 90000 for start, end in zip(points, points[1:]))
+
+
 def original_failure_evidence(quality, bundle, market, now, timeframe):
     """Preserve a tiny, causal-clock witness without prices, broker data or IDs.
 
@@ -171,7 +204,8 @@ def terminal_evidence_reason(case, *, modeled=False):
     return 'terminal-original-exit-unobserved'
 
 
-def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
+def advance(old, bundle, market, now, worker_outcomes=None,
+            worker_observations=None, *, modeled=False):
     """Pure state machine; all variants share a frozen event and common end.
 
     Gaps >90s exclude a case, even if an end quote later appears. Repeated source
@@ -265,7 +299,7 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
         q['duplicateSource'] += 1
     # Session breaks are not outages. An open hour-long case crossing them is
     # still excluded, and new cases stop at 20:55 Zurich.
-    gap = bool(previous_check and now-previous_check > 90000)
+    gap = worker_observation_gap(previous_check, now, worker_observations)
     if gap:
         a = datetime.fromtimestamp(previous_check/1000, ZoneInfo('Europe/Zurich'))
         b = datetime.fromtimestamp(now/1000, ZoneInfo('Europe/Zurich'))
@@ -432,7 +466,8 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
     return state, closed
 
 
-def tick(conn, bundle, market, now, worker_outcomes=None):
+def tick(conn, bundle, market, now, worker_outcomes=None,
+         worker_observations=None):
     row = conn.execute('SELECT payload FROM bob_quality_campaign WHERE id=%s FOR UPDATE', (VERSION,)).fetchone()
     if not row:
         raise RuntimeError('quality-campaign-not-initialized')
@@ -441,14 +476,16 @@ def tick(conn, bundle, market, now, worker_outcomes=None):
         return
     original = copy.deepcopy(row[0])
     model_state = original.pop('modeledSimulation',None)
-    state, closed = advance(original, bundle, market, now, worker_outcomes)
+    state, closed = advance(original, bundle, market, now, worker_outcomes,
+                            worker_observations)
     # A prospective companion starts once, without reclassifying old originals.
     # Same signals and costs; only its bounded data-gap policy differs.
     if model_state is None:
         model_state = seed(now)
         model_state['deadlineAt'] = state['deadlineAt']
-    model_state, model_closed = advance(model_state,bundle,market,now,
-                                       worker_outcomes,modeled=True)
+    model_state, model_closed = advance(
+        model_state,bundle,market,now,worker_outcomes,worker_observations,
+        modeled=True)
     state['modeledSimulation'] = model_state
     closed += model_closed
     for case in closed:
