@@ -234,7 +234,7 @@ def validate_degiro_ram(value, now):
 def validate_report(value, now=None):
     now=now or datetime.now(timezone.utc)
     expected={'reportId','observedAt','appVersionCode','lastCode','lastEventAt',*BOOLS}
-    optional={'pinProbe','detailTransfer','workflow','degiroRam'}
+    optional={'pinProbe','detailTransfer','workflow','degiroRam','runDelivery'}
     if not isinstance(value,dict) or not expected <= set(value) or not set(value) <= expected | optional:
         raise ValueError('Invalid diagnostic fields')
     if not isinstance(value['reportId'],str) or not re.fullmatch('[a-f0-9]{32}',value['reportId']):raise ValueError('Invalid report ID')
@@ -247,6 +247,18 @@ def validate_report(value, now=None):
     if value['lastEventAt'] is not None:
         event=timestamp(value['lastEventAt'])
         if event.year<2020 or (now-event).total_seconds() < -60:raise ValueError('Invalid event time')
+    if 'runDelivery' in value:
+        delivery=value['runDelivery']
+        if (not isinstance(delivery,dict) or
+                set(delivery)!={'currentPending','currentConfirmed','archivedPending'} or
+                type(delivery['currentPending']) is not bool or
+                type(delivery['currentConfirmed']) is not bool or
+                (delivery['currentPending'] and delivery['currentConfirmed']) or
+                type(delivery['archivedPending']) is not int or
+                not 0<=delivery['archivedPending']<=100000):
+            raise ValueError('Invalid run delivery summary')
+        if value['pendingRun'] != (delivery['currentPending'] or delivery['archivedPending']>0):
+            raise ValueError('Inconsistent run delivery summary')
     if 'workflow' in value:
         validate_workflow(value['workflow'],now)
     if 'pinProbe' in value:

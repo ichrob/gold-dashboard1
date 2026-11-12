@@ -45,6 +45,12 @@ internal object MorningReadRun {
         it == RunOutbox.CURRENT || it == RunOutbox.RESUME || it.startsWith(RunOutbox.PREFIX)
     }.mapValues { it.value as String }
     fun pending(c: Context): String? = entries(c).let { it[RunOutbox.pendingKey(it)] }
+    fun deliveryDiagnostic(c: Context): JSONObject {
+        val saved=entries(c)
+        return JSONObject().put("currentPending",RunOutbox.currentPending(saved))
+            .put("currentConfirmed",RunOutbox.currentConfirmed(saved))
+            .put("archivedPending",RunOutbox.archivedPending(saved))
+    }
     fun outboxGeneration(c: Context): String = RunOutbox.generation(entries(c))
     /** An upload attempt may skip an unavailable historical batch in memory
      * without deleting or rewriting any saved original observation. */
@@ -68,13 +74,13 @@ internal object MorningReadRun {
             val read=codes.count { it=="COMPLETE" }
             val partial=codes.count { it=="PARTIAL" }
             val noQuotes=codes.count { it in setOf("NO_QUOTES","QUOTES_UNAVAILABLE") }
-            val confirmed=prefs(c).getString("lastDeliveredBatch",null)==d.optString("batchId") &&
-                prefs(c).getInt("lastDeliveredRevision",-1)==d.optInt("revision")
+            val saved=entries(c)
+            val confirmed=RunOutbox.currentConfirmed(saved)
             val receipt=if(confirmed) "Übertragung dieses Laufs bestätigt. " else "Endgültige Übertragung dieses Laufs noch nicht bestätigt. "
             val events=d.getJSONArray("events");val last=events.optJSONObject(events.length()-1)
             "$read vollständig · $partial teilweise · $noQuotes ohne Kurspaar · ${rows.length()} von ${d.getJSONArray("isins").length()} geprüft.\n"+
                 (if(last!=null) "Zuletzt: ${MorningReadUiPolicy.reason(last.optString("code"))}.\n" else "Noch kein Produkt gelesen.\n")+
-                receipt+"${RunOutbox.candidateKeys(entries(c)).size} Protokoll(e) zur Übertragung gespeichert; neuer Start bleibt möglich."
+                receipt+"${RunOutbox.archivedPending(saved)} ältere Protokoll(e) separat zur Übertragung gespeichert; neuer Start bleibt möglich."
         }.getOrDefault("Lokales Protokoll vorhanden; bitte an Bob übertragen.")
     }
     fun challenge(c: Context): String {

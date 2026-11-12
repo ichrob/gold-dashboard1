@@ -27,6 +27,11 @@ internal object RunOutbox {
     fun candidateKeys(entries: Map<String, String>): List<String> =
         (if (CURRENT in entries) listOf(CURRENT) else emptyList()) +
             entries.keys.filter { it.startsWith(PREFIX) }.sorted()
+    // CURRENT is removed only by an exact server ACK; RESUME survives it.
+    // An older archive is never evidence that the latest run is unconfirmed.
+    fun currentPending(entries: Map<String, String>) = CURRENT in entries
+    fun currentConfirmed(entries: Map<String, String>) = CURRENT !in entries && RESUME in entries
+    fun archivedPending(entries: Map<String, String>) = entries.keys.count { it.startsWith(PREFIX) }
     fun pendingKey(entries: Map<String, String>): String? = candidateKeys(entries).firstOrNull()
     fun start(entries: Map<String, String>, raw: String, archiveKey: String): Map<String, String> {
         require(archiveKey.startsWith(PREFIX) && archiveKey !in entries)

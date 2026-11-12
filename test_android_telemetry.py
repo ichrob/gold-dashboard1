@@ -16,6 +16,26 @@ def report(at=None):
         **{k:False for k in a.BOOLS})
 
 class Boundary(unittest.TestCase):
+    def test_current_receipt_is_independent_of_legacy_pending_archive(self):
+        p=report();p['pendingRun']=True
+        p['runDelivery']={'currentPending':False,'currentConfirmed':True,'archivedPending':2}
+        p['detailTransfer']={'state':'DEFERRED','saved':1,'deferred':2,'at':NOW.isoformat()}
+        self.assertTrue(a.validate_report(p)['runDelivery']['currentConfirmed'])
+        valid=p['runDelivery'].copy()
+        for bad in [dict(valid,currentPending=True),dict(valid,currentConfirmed=1),
+                    dict(valid,archivedPending=True),dict(valid,archivedPending=-1),
+                    dict(valid,archivedPending=100001),dict(valid,batchId='private'),
+                    dict(valid,archivedPending=0)]:
+            p['runDelivery']=bad
+            with self.subTest(bad=bad),self.assertRaises(ValueError):a.validate_report(p)
+        p['runDelivery']=dict(valid,archivedPending=0);p['pendingRun']=False
+        self.assertTrue(a.validate_report(p)['runDelivery']['currentConfirmed'])
+        p['runDelivery']={'currentPending':True,'currentConfirmed':False,'archivedPending':0}
+        p['pendingRun']=True
+        self.assertFalse(a.validate_report(p)['runDelivery']['currentConfirmed'])
+        # Older installed clients do not need to send the new summary.
+        del p['runDelivery'];a.validate_report(p)
+
     def test_workflow_report_contains_only_bounded_technical_result(self):
         valid={'state':'SUCCEEDED','source':'LOCAL','confirmed':2,'total':2,'at':NOW.isoformat()}
         p=report();p['workflow']=valid
