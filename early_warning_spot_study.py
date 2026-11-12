@@ -19,8 +19,11 @@ ZURICH = ZoneInfo("Europe/Zurich")
 
 
 def init(conn):
-    conn.execute("""CREATE TABLE IF NOT EXISTS bob_early_warning_spot_cases (
-        id TEXT PRIMARY KEY, open BOOLEAN NOT NULL, payload JSONB NOT NULL)""")
+    # Avoid redundant DDL/locks during rolling deploys on an existing DB.
+    exists = conn.execute("SELECT to_regclass('bob_early_warning_spot_cases')").fetchone()
+    if not exists or exists[0] is None:
+        conn.execute("""CREATE TABLE IF NOT EXISTS bob_early_warning_spot_cases (
+            id TEXT PRIMARY KEY, open BOOLEAN NOT NULL, payload JSONB NOT NULL)""")
     # No per-tick journal and no large indexes: one row per original warning.
 
 
