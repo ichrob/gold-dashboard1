@@ -4,6 +4,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LoginToReadHandoffTest {
+    @Test fun sessionOnlyIsOneShotAndNeverCarriesASearch() {
+        LoginToReadHandoff.clear()
+        LoginToReadHandoff.arm(1000L, sessionOnly = true)
+        assertTrue(LoginToReadHandoff.sessionOnly)
+        assertNull(LoginToReadHandoff.searchQuery)
+        assertTrue(LoginToReadHandoff.consume("LOCAL_PIN_HOME_VISIBLE", 2000L))
+        assertFalse(LoginToReadHandoff.sessionOnly)
+        assertFalse(LoginToReadHandoff.consume("LOCAL_PIN_HOME_VISIBLE", 2001L))
+        LoginToReadHandoff.arm(3000L)
+        assertFalse(LoginToReadHandoff.sessionOnly)
+        LoginToReadHandoff.clear()
+    }
+
+    @Test fun failedOrExpiredSessionOnlyLoginCannotProceed() {
+        for (code in listOf("LOCAL_PIN_TIMEOUT", "SCREEN_LOCKED", "USER_STOP")) {
+            LoginToReadHandoff.clear()
+            LoginToReadHandoff.arm(1000L, sessionOnly = true)
+            assertFalse(LoginToReadHandoff.consume(code, 2000L))
+            assertFalse(LoginToReadHandoff.sessionOnly)
+        }
+        LoginToReadHandoff.arm(1000L, sessionOnly = true)
+        assertFalse(LoginToReadHandoff.consume("LOCAL_PIN_HOME_VISIBLE", 66000L))
+        assertFalse(LoginToReadHandoff.sessionOnly)
+    }
+
     @Test fun onlyVerifiedMarketScreenCanStartProductReading() {
         LoginToReadHandoff.clear()
         LoginToReadHandoff.arm(1_000L)

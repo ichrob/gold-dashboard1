@@ -224,6 +224,13 @@ function testOverviewLines(value){
  const n=v=>Number.isInteger(v)&&v>=0?String(v):'unbekannt';
  const states={'legacy-positions-draining':'vorherige Positionen werden mit Trendumkehr-Schutz abgeschlossen',collecting:'neue Testphase sammelt',draining:'offene Fälle abschließen','completed-review-required':'Erfassung beendet · Auswertung nötig',retired:'alte Testphase beendet',completed:'Erfassung beendet',checked:'aktuell geprüft','waiting-for-signal':'aktuell geprüft · wartet auf bestätigte Richtung','input-blocked':'aktuell geprüft · Originaldaten nicht bestätigt','night-paused':'planmäßige Nacht-/Wochenendpause',observed:'Stichprobe vorhanden','no-records':'keine Aufzeichnungen',unavailable:'nicht bestätigt'};
  const lines=['Tests und Vergleichstests',value.note];
+ const handset=value.handsetComparisons;
+ if(handset?.status==='observed'){
+  const eur=v=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(2)+' €':'unbekannt';
+  lines.push('Handy-Kursvergleiche: '+n(handset.accepted)+' mit Modellkosten berechnet · '+n(handset.dailyFxAccepted)+' Tageskurs-Umrechnungen akzeptiert · '+n(handset.missingFx)+' Währungsgrundlagen fehlen · '+n(handset.unpaired)+' ohne passendes Kurspaar.');
+  for(const r of handset.items||[])lines.push(r.isin+' · '+clock(r.entryAt)+' bis '+clock(r.exitAt)+' · '+n(r.quantity)+' Stück · vor Modellkosten '+eur(r.grossEur)+' · nach Modellkosten '+eur(r.modelNetEur)+' (Gebühren '+eur(r.feesEur)+', Slippage '+eur(r.slippageEur)+')'+(r.fxApproximation?' · Tageskurs-Näherung '+r.fxDate+' akzeptiert.':'.'));
+  lines.push(handset.note);
+ }
  const campaign=value.qualityCampaign;
  if(campaign?.version){
   lines.push('Neue Testphase: '+campaign.status+' · Ende spätestens: '+clock(campaign.deadlineAt));

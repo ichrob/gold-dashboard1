@@ -64,6 +64,33 @@ class OriginalRecovery(unittest.TestCase):
         state,_=research.advance(state,bundle,market,NOW+120000)
         self.assertTrue(all(a["open"][0]["dataGap"] for a in state["studies"].values()))
 
+    def test_retained_enqueue_observations_do_not_become_a_worker_gap(self):
+        bundle,market=sample()
+        state,_=research.advance(research.seed(NOW),bundle,market,NOW)
+        # Production witness: selected source clocks are exactly 90s apart,
+        # while retained full enqueue candidates prove the worker kept running.
+        # The final tick's processing clock is 74ms over the wall threshold.
+        bundle,market=sample(NOW+90000)
+        observations=[NOW+39781, NOW+59795, NOW+90000]
+        state,_=research.advance(
+            state,bundle,market,NOW+90074,
+            worker_observations=observations)
+        self.assertEqual(state["quality"]["missingIntervals"],0)
+        self.assertEqual(state["lastSourceAt"], NOW+90000)
+        self.assertTrue(all(not a["open"][0]["dataGap"]
+                            for a in state["studies"].values()))
+
+    def test_actual_enqueue_observation_gap_keeps_strict_90_second_gate(self):
+        bundle,market=sample()
+        state,_=research.advance(research.seed(NOW),bundle,market,NOW)
+        bundle,market=sample(NOW+120000)
+        state,_=research.advance(
+            state,bundle,market,NOW+120000,
+            worker_observations=[NOW+90001])
+        self.assertEqual(state["quality"]["missingIntervals"],1)
+        self.assertTrue(all(a["open"][0]["dataGap"]
+                            for a in state["studies"].values()))
+
 
 if __name__=="__main__":
     unittest.main()

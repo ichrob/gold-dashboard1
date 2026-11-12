@@ -190,6 +190,7 @@ class AndroidObservations(unittest.TestCase):
         run_data=a.prepare({**run(),'listSource':'degiro-gold-search',
                             'listUploadedAt': '2026-10-28T11:00:30Z'}, {}, NOW)
         run_data['receivedAt']=NOW.isoformat()
+        run_data['results'][0]['observation']['fields']['Handelsplatz']='Test venue'
         class ReadDb:
             def execute(self,sql):
                 assert 'bob_android_read_runs' in sql
@@ -198,6 +199,8 @@ class AndroidObservations(unittest.TestCase):
         matches=a.research_summary(ReadDb(),'2026-10-28T11:00:00Z',[ISIN],NOW)
         self.assertEqual(matches[ISIN]['code'],'PARTIAL')
         self.assertEqual(matches[ISIN]['fields']['Geld'],'13,06')
+        self.assertEqual(matches[ISIN]['fields']['Handelsplatz'],'Test venue')
+        self.assertEqual(matches[ISIN]['fields']['Hinweis'],'Keine Aussage zur Handelbarkeit')
         self.assertTrue(matches[ISIN]['researchOnly'])
         self.assertFalse(matches[ISIN]['verified'])
         self.assertFalse(matches[ISIN]['tradeApproved'])

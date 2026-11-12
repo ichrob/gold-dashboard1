@@ -1166,6 +1166,7 @@ def late_risk_retry_bundle(current, candidate, now_ms):
 # Independent bounded worker: product network calls never delay /background or Push.
 _guard=threading.Lock();_latest=None;_study_latest=None;_thread=None
 _bundle_generation=0
+_study_enqueue_observations=[]
 _bundle_ready=quote_updates.updates
 _pool=None;_pending={};_quotes={};_requested={}
 _observed_snapshot={}
@@ -1578,6 +1579,9 @@ def _worker(db):
                                 print('BOB_QUALITY_RESEARCH refresh_error='+type(refresh_exc).__name__,flush=True)
                             try:
                                 with conn.transaction():
+                                    with _guard:
+                                        quality_worker_observations=tuple(
+                                            _study_enqueue_observations)
                                     quality_checked_at=time.time()*1000
                                     if quality_market.get('priceFresh') is not True:
                                         quality_evidence=study_bundle_handoff_evidence(quality_bundle)
@@ -1591,7 +1595,8 @@ def _worker(db):
                                               flush=True)
                                     research_restart.tick(
                                         conn,quality_bundle,quality_market,
-                                        quality_checked_at,outcomes)
+                                        quality_checked_at,outcomes,
+                                        quality_worker_observations)
                                 last_quality_generation=quality_generation
                             except Exception as research_exc:
                                 print('BOB_QUALITY_RESEARCH error='+type(research_exc).__name__,flush=True)
@@ -1648,6 +1653,11 @@ def enqueue(bundle, db):
         _latest=bundle
         previous_study_latest=_study_latest
         observed_now=time.time()*1000
+        _study_enqueue_observations.append(observed_now)
+        # Two hours at the configured 30-second cadence. If an even longer
+        # interval elapses without a quality tick, the missing prefix leaves a
+        # >90s edge from checkedAt and therefore still fails closed.
+        del _study_enqueue_observations[:-240]
         _study_latest=newer_queued_paper_bundle(
             previous_study_latest,bundle,observed_now)
         _bundle_generation=next_quality_generation(

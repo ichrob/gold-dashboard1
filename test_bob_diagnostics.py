@@ -221,7 +221,8 @@ class EntryBlockEvidenceTests(unittest.TestCase):
         cursor.fetchone.return_value = ('2026-10-27', {
             'entryBlockCounts': {'Frühwarn-Test: Mindest-CRV nicht erfüllt': 3},
             'entryBlocks': [
-                {'at': 1000, 'lastAt': 2000, 'goldAt': 900, 'checks': 2,
+                {'at': 1000, 'lastAt': 2000, 'goldAt': 900,
+                 'signalBarAt': 600, 'checks': 2,
                  'direction': 'LONG', 'signalSource': 'early-warning-v2',
                  'ruleVersion': 'intraday-responsive-v6',
                  'plan': {'kind': 'candidate', 'entry': 100, 'stop': 90,
@@ -252,6 +253,7 @@ class EntryBlockEvidenceTests(unittest.TestCase):
         self.assertTrue(account['sourceTruncated'])
         self.assertEqual(account['latest'][0]['direction'], 'LONG')
         self.assertEqual(account['latest'][0]['sourceAt'], 900)
+        self.assertEqual(account['latest'][0]['signalBarAt'], 600)
         self.assertEqual(account['latest'][0]['signalSource'], 'early-warning-v2')
         self.assertEqual(account['latest'][0]['plan']['stop'], 90)
         self.assertNotIn('must-not-pass', json.dumps(evidence))

@@ -68,6 +68,17 @@ class GeminiReviewSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "review-mode-denied"):
             g.reviewed_pr_sha(pr, mode="something-else")
 
+    def test_draft_run_skips_without_provider_or_publication(self):
+        pr = {**self._owner_pr(), "draft": True}
+        with patch.dict(os.environ, {"GITHUB_TOKEN": "test-token", "GEMINI_API_KEY": "test-key",
+                                    "BOB_PR_NUMBER": "1618"}, clear=True), \
+             patch.object(g, "enabled", return_value=True), \
+             patch.object(g, "request_json", return_value=pr) as request, \
+             patch.object(g, "gemini_request") as provider:
+            g.run()
+        request.assert_called_once_with("https://api.github.com/repos/ichrob/gold-dashboard1/pulls/1618", "test-token")
+        provider.assert_not_called()
+
     def test_owner_default_allow_and_explicit_revocation(self):
         self.assertTrue(g.owner_allows_review([]))
         comments = [

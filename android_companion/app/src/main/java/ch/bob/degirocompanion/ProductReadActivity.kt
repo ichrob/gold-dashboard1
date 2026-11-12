@@ -152,14 +152,10 @@ class ProductReadActivity : Activity() {
         button("Automatische Diagnose ausschalten") { PhoneDiagnostics.disable(this);refresh() }
         button("Gold-Produkte suchen und auslesen") { startGoldRead() }
         button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {
-            AlertDialog.Builder(this).setTitle("Produktsuche mit ChatGPT bedienen")
-                .setMessage("Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
+            AlertDialog.Builder(this).setTitle("Vorhandenen Produkteinleser starten")
+                .setMessage("Bob startet den vorhandenen vollständigen Gold-Produkteinleser: DEGIRO öffnen, bei Bedarf lokal anmelden, suchen, Produktseiten lesen und zurückkehren. Ergebnisse und Fehler werden über die verbundene Diagnose an Bob gemeldet. Einzelne ChatGPT-Klickaufträge sind dafür nicht erforderlich. Bob verwendet eine eingerichtete PIN einmal lokal und beginnt nach bestätigter Marktseite. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein. Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
                 .setNegativeButton("Abbrechen",null).setPositiveButton("Sitzung starten") { _,_ ->
-                    runCatching {
-                        check(preferences.getBoolean("enabled",false)) { "Lesedienst zuerst einschalten." }
-                        val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO fehlt")
-                        PhoneRemote.start(this);startActivity(launch)
-                    }.onFailure { PhoneRemote.stop(this,"START_FAILED");result.text=it.message }
+                    startChatGptSession()
                 }.show()
         }
         button("Bisherige Morgenliste prüfen / übertragen") { primaryAction() }
@@ -288,6 +284,27 @@ class ProductReadActivity : Activity() {
         }
     }
     override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
+    /** Explicit local button: reuse the verified login, then wait for remote read commands. */
+    /** Use the established complete reader, including its local login and
+     * automatic search/list/detail/return flow. No remote step loop. */
+    private fun startChatGptSession() {
+        val readerBusy = PinReadinessProbe.running || MorningReadRun.running ||
+            GoldSearchRun.running || ProductReadRequest.active(SystemClock.elapsedRealtime()) ||
+            LoginToReadHandoff.pending(SystemClock.elapsedRealtime())
+        if (readerBusy) {
+            runCatching {
+                val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
+                    ?: error("DEGIRO-App fehlt.")
+                startActivity(launch)
+                result.text = "Der bestehende Leselauf wird fortgesetzt. DEGIRO geöffnet lassen."
+            }.onFailure { result.text = "DEGIRO konnte nicht geöffnet werden. Der bestehende Leselauf bleibt erhalten." }
+            return
+        }
+        // End only an idle step-by-step session. The complete reader owns
+        // its next session and existing automatic diagnostic transmission.
+        if (PhoneRemote.active()) PhoneRemote.stop(this, "STOPPED")
+        startAutomaticTest()
+    }
     /** Shared prerequisites for lookup and product opening: local login if enrolled, then the requested target. */
     private fun startPreparedGoal(query: String) {
         var secret: ByteArray? = null
