@@ -14,7 +14,7 @@ internal object MorningReadPolicy {
     enum class Kind { WAIT, SEARCH, FOCUS, QUERY, SUBMIT, CATEGORY, CATEGORY_SCROLL, RESULT, READ, BACK, BLOCK, COLLECT }
     data class Action(val kind: Kind, val index: Int = -1, val code: String = "", val isins: List<String> = emptyList())
     private val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
-    private val login = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code|captcha|sicherheitsprüfung|security check|two.factor|2fa|one.time password|fingerabdruck|biometric|sicherheitscode|authentifizierung")
+    private val login = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code|captcha|two.factor|2fa|one.time password|fingerabdruck|biometric|sicherheitscode|authentifizierung")
     private val orderMarkers = listOf(
         "PROTECTED_ORDER_CONFIRM" to Regex("(?iu)order platzieren|order bestätigen|place order|confirm order"),
         "PROTECTED_ORDER_TYPE" to Regex("(?iu)orderart|ordertyp"),
@@ -93,6 +93,7 @@ internal object MorningReadPolicy {
         hint.ifBlank { if ((showingHint && searchLabel(text)) ||
             normalized(text).equals("Mit Namen, ISIN oder Symbol suchen",ignoreCase=true)) text else "" }
     private fun protection(nodes: List<Node>): String? {
+        if (nodes.any { n -> listOf(n.text,n.description,n.hint).any(VerificationChallenge::detected) }) return "PROTECTED_VERIFICATION"
         if (nodes.any { it.password }) return "PROTECTED_PASSWORD"
         if (nodes.any { it.sensitive && it.editable }) return "PROTECTED_SENSITIVE_INPUT"
         if (nodes.any { it.sensitive }) return "PROTECTED_SENSITIVE_CONTENT"

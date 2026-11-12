@@ -12,7 +12,7 @@ internal data class WorkflowFrame(val app: String, val window: Int, val nodes: L
 internal object LocalWorkflow {
     fun normalize(s: String) = s.trim().lowercase(Locale.GERMAN).replace(Regex("\\s+"), " ")
     private val sensitive = Regex("(?i)(passwort|password|passcode|\\bpin\\b|\\btan\\b|fingerabdruck|biometric|anmelden|sign in|log.?in|kaufen|verkaufen|buy|sell|order|überweisen|transfer money|bezahlen|pay now|löschen|delete|uninstall|deinstallieren|berechtigung|permission|installieren)")
-    fun safeText(text: String) = text.length in 1..300 && !sensitive.containsMatchIn(text) && text.none { it.isISOControl() }
+    fun safeText(text: String) = text.length in 1..300 && !sensitive.containsMatchIn(text) && !VerificationChallenge.detected(text) && text.none { it.isISOControl() }
     fun allowedApp(app: String): Boolean = (app == "nl.degiro.trader") || Regex("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+").matches(app) &&
         !listOf("nl.degiro", "com.termux", "com.android.settings", "com.android.systemui", "com.android.packageinstaller", "com.google.android.packageinstaller", "com.samsung.android.biometrics", "ch.bob.degirocompanion").any { app.startsWith(it) }
 
@@ -66,7 +66,7 @@ internal object LocalWorkflow {
         }
     }
     fun target(step: WorkflowStep, frame: WorkflowFrame): Int? = candidates(step, frame).singleOrNull()
-    fun protected(frame: WorkflowFrame) = frame.nodes.any { it.password || sensitive.containsMatchIn(it.label) }
+    fun protected(frame: WorkflowFrame) = frame.nodes.any { it.password || sensitive.containsMatchIn(it.label) || VerificationChallenge.detected(it.label) }
 }
 
 /** Exactly-once actions; only observation is retried. Failed/uncertain clicks are never replayed. */

@@ -64,7 +64,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    if(before.armed){
     // Await this export's own terminal status, not an old note or a fixed sleep.
     await broker.waitForFunction(writes=>window.gmStatusWrites>writes&&
-     ['staged','error'].includes(GM_getValue('bob-export-status-v1',null)?.state),before.writes,{timeout:12000});
+     ['staged','error'].includes(GM_getValue('bob-export-status-v1',null)?.state),before.writes,{timeout:12000,polling:100});
     const state=await broker.evaluate(()=>GM_getValue('bob-export-status-v1',null)?.state);
     if(state==='error')return false;
     // Follow the UI instruction to return to Bob after choosing the export.

@@ -15,10 +15,21 @@ class ReadNavigationStabilityTest {
         assertFalse(gate.ready("window2:isinB:search",100))
     }
     @Test fun securityChallengesBlockWithoutAClick() {
-        for(label in listOf("Captcha","Sicherheitsprüfung","Two-factor authentication","Verification code","Fingerabdruck")) {
+        for(label in listOf("Two-factor authentication","Verification code","Fingerabdruck")) {
             val action=MorningReadPolicy.decide(listOf(MorningReadPolicy.Node(label)),"DE000FE11U69")
             assertEquals(MorningReadPolicy.Kind.BLOCK,action.kind)
             assertEquals("PROTECTED_LOGIN",action.code)
+        }
+    }
+    @Test fun explicitChallengeUsesSpecificStopButGenericHeadingsDoNot() {
+        for (label in listOf("Captcha", "Sicherheitsprüfung: Ich bin kein Roboter")) {
+            val action=MorningReadPolicy.decide(listOf(MorningReadPolicy.Node(label)),"DE000FE11U69")
+            assertEquals(MorningReadPolicy.Kind.BLOCK, action.kind)
+            assertEquals("PROTECTED_VERIFICATION", action.code)
+        }
+        for (label in listOf("Sicherheitsprüfung", "Security Check")) {
+            val action=MorningReadPolicy.discoverGold(listOf(MorningReadPolicy.Node(label)))
+            assertFalse(action.code.startsWith("PROTECTED_"))
         }
     }
     @Test fun targetedIntentOnlySurvivesVerifiedLoginOnce() {

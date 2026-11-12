@@ -14,6 +14,8 @@ internal object ProductScreenEvidence {
         if (lines.size > 500 || lines.sumOf { it.text.length } > 20000)
             return Result(message = "Ansicht zu umfangreich; bitte eine einzelne Produktseite öffnen.", reason = Reason.TOO_LARGE)
         val text = lines.joinToString("\n") { it.text }
+        if (VerificationChallenge.detected(text))
+            return Result(message = "Sicherheitsabfrage erkannt: bitte selbst in DEGIRO prüfen. Nichts übernommen.", reason = Reason.PROTECTED)
         if (Regex("(?i)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code|order platzieren|order bestätigen|place order|confirm order|orderart|ordertyp|order type|limitpreis|limit price|stückzahl|anzahl kaufen").containsMatchIn(text))
             return Result(message = "Login oder Orderansicht erkannt: nichts übernommen.", reason = Reason.LOGIN_OR_ORDER)
         val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(text.uppercase()).map { it.value }.distinct().toList()
