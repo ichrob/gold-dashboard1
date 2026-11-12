@@ -95,7 +95,108 @@ function evaluate({candidate,product,quote,stopPlan,fx,budgetCHF,riskCHF,feesCHF
   :'Manuelle Richtwerte; bei DEGIRO Preis, Menge, Gebühren und separate VERKAUF-Stop-Order prüfen.';
  return item;
 }
-const session={budgetCHF:'',riskCHF:'',feesCHF:'',last:null};
+
+/* Stage B: a user-transcribed DEGIRO product screen is a *display observation*,
+ * never a broker execution or trade approval. Re-evaluate the current Stage A
+ * risk plan; do not manufacture a stop/source clock from the screenshot.
+ */
+function reconcileBrokerDisplay({candidate,product,preliminary,broker,fx,
+ budgetCHF,riskCHF,feesCHF,now=Date.now(),direction}={}){
+ const empty={available:false,manualFieldsComplete:false,copyAllowed:false,
+  brokerExecutionVerified:false,orderSubmitted:false,reason:'',isin:candidate?.isin||'',
+  source:'DEGIRO-Anzeige · vom Nutzer abgelesen (keine Ausführung)',
+  currency:null,entry:null,stop:null,quantity:null,totalCHF:null,lossCHF:null,
+  difference:null,differencePct:null,sourceAt:null,fxRate:null,fxBasis:null,
+  stopBasis:'Frischer Gold-Stopp-Produktplan aus Phase A; kein DEGIRO-Stoppkurs'};
+ const fail=reason=>({...empty,reason});
+ if(!candidate||!validSide(direction)||candidate.direction!==direction||
+    !product||product.isin!==candidate.isin||product.productDirection!==direction||
+    product.isinConfirmed!==true)
+  return fail('Produktidentität oder Signalrichtung geändert – Vorauswahl neu prüfen.');
+ if(product.quote?.isin&&product.quote.isin!==candidate.isin||
+    product.quote?.sourceDisabled===true||
+    product.quote?.metadata?.tradingHalted===true||
+    product.quote?.metadata?.status!==undefined&&product.quote.metadata.status!==1)
+  return fail('Produktstatus oder Identität nicht mehr gültig.');
+ if(!preliminary?.available||preliminary.isin!==candidate.isin||
+    !fresh(preliminary.quoteAt,now,MAX_QUOTE_AGE)||
+    !positive(preliminary.entry)||!positive(preliminary.stop))
+  return fail('Vorläufiger Kurs-/Stoppplan abgelaufen oder unvollständig – mit frischem Gold-/FX-Plan neu berechnen.');
+ if(!broker||broker.confirmedByUser!==true)
+  return fail('DEGIRO-Bildschirmwerte erst ablesen und durch „Werte neu prüfen“ bestätigen.');
+ const currency=product.quote?.metadata?.currency||product.quote?.currency||preliminary.currency;
+ if(broker.isin!==candidate.isin||broker.currency!==currency||
+    preliminary.currency!==currency||!['EUR','CHF'].includes(currency))
+  return fail('DEGIRO-Bildschirm-ISIN oder Produktwährung weicht vom gewählten Produkt ab.');
+ const bid=Number(broker.bid),ask=Number(broker.ask);
+ if(!positive(bid)||!positive(ask)||ask<bid||!fresh(broker.quoteAt,now,MAX_QUOTE_AGE))
+  return fail('Geld/Brief oder originale DEGIRO-Anzeigezeit fehlen, sind widersprüchlich oder älter als 90 Sekunden.');
+ if(!positive(preliminary.stop)||preliminary.stop>=ask)
+  return fail('Aktueller Briefkurs liegt am/unter dem Modellstopp – neuen Gold-Stopp-/Risiko-Plan prüfen.');
+ if(!positive(budgetCHF)||!positive(riskCHF)||!nonnegative(feesCHF))
+  return fail('Ausdrücklich eingegebene Kapital-, Verlust- und Gebührenwerte fehlen.');
+ let rate=fx?.rate,fxBasis='Frische, unabhängige Markt-FX-Referenz; kein bestätigter DEGIRO-Umrechnungskurs';
+ let directFx=false;
+ const typedFx=broker.fxRateCHF!==undefined&&broker.fxRateCHF!==null&&
+   String(broker.fxRateCHF).trim()!=='';
+ if(currency==='CHF'){
+  rate=1;fxBasis='Produktkonto / Produktpreis beide CHF';
+ }else if(typedFx){
+  rate=Number(broker.fxRateCHF);
+  if(!positive(rate)||!fresh(broker.fxAt,now,MAX_FX_AGE))
+   return fail('Abgelesener DEGIRO-EUR/CHF-Kurs ist ungültig oder zeitlich nicht aktuell.');
+  directFx=true;fxBasis='EUR/CHF aus vom Nutzer abgelesener DEGIRO-Anzeige · '+seenAt(broker.fxAt)+' Zürich';
+ }else if(!fx?.available||!positive(rate)){
+  return fail('Kein frischer EUR/CHF-Referenzkurs vorhanden.');
+ }
+ const typedFunds=broker.buyingPowerCHF!==undefined&&broker.buyingPowerCHF!==null&&
+   String(broker.buyingPowerCHF).trim()!=='';
+ const buyingPower=typedFunds?Number(broker.buyingPowerCHF):null;
+ if(typedFunds&&!positive(buyingPower))
+  return fail('Abgelesene CHF-Kaufkraft fehlt oder ist nicht positiv.');
+ const maxCapital=typedFunds?Math.min(budgetCHF,buyingPower):budgetCHF;
+ if(!(maxCapital>feesCHF&&riskCHF>feesCHF))
+  return fail('Kaufkraft, Kapital oder Risikobudget nach Gebühren zu klein.');
+ const typedLot=broker.lotSize!==undefined&&broker.lotSize!==null&&
+   String(broker.lotSize).trim()!=='';
+ const lot=typedLot?Number(broker.lotSize):1;
+ if(typedLot&&(!Number.isSafeInteger(lot)||lot<=0))
+  return fail('Die angegebene Mindestlosgröße ist ungültig.');
+ const costEach=ask*rate,lossEach=(ask-preliminary.stop)*rate;
+ if(!positive(costEach)||!positive(lossEach))
+  return fail('Einstandspreis und Modellstopp erlauben keine sichere Stückzahlberechnung.');
+ const rawQty=Math.min(Math.floor((maxCapital-feesCHF)/costEach),
+                       Math.floor((riskCHF-feesCHF)/lossEach));
+ const qty=Math.floor(rawQty/lot)*lot;
+ if(!Number.isSafeInteger(qty)||qty<1)
+  return fail('Keine ganze Stückzahl innerhalb der neu berechneten Kapital-/Risikogrenze.');
+ const tick=Number(broker.tickSize);
+ const validTick=broker.tickSize!==undefined&&String(broker.tickSize).trim()!==''&&
+   positive(tick)&&Math.abs(ask-Math.round(ask/tick)*tick)<=Math.max(1e-8,tick*1e-6);
+ const difference=ask-preliminary.entry;
+ const deviationPct=100*difference/preliminary.entry;
+ // A large deviation makes a new independently sourced product/market review
+ // necessary even when the user typed a valid current display price.
+ const deviationReview=Math.abs(deviationPct)>5;
+ const complete=Boolean(String(broker.venue||'').trim()&&
+   broker.orderType==='LIMIT'&&['DAY','GTC'].includes(broker.orderDuration)&&
+   validTick&&typedLot&&typedFunds&&(currency==='CHF'||directFx)&&
+   !deviationReview);
+ return {...empty,available:true,manualFieldsComplete:complete,
+  currency,entry:ask,bid,stop:preliminary.stop,quantity:qty,
+  totalCHF:qty*costEach+feesCHF,lossCHF:qty*lossEach+feesCHF,
+  difference,differencePct:deviationPct,sourceAt:broker.quoteAt,
+  fxRate:rate,fxBasis,venue:String(broker.venue||''),lotSize:lot,
+  reason:complete?
+   'Neu berechnete manuelle Vergleichsvorlage. DEGIRO-Kaufkraft, Ordertyp und echte Ausführbarkeit vor jedem Absenden selbst erneut prüfen.':
+   'Neu berechnet, aber Broker-Orderbedingungen / Kaufkraft / Tick / unabhängige FX-Anzeige unvollständig'+
+   (deviationReview?' oder Modellabweichung über 5 %':'')+
+   '. Keine bestätigte ausführbare Ordervorlage.'};
+}
+const session={budgetCHF:'',riskCHF:'',feesCHF:'',last:null,broker:{
+ isin:'',currency:'',bid:'',ask:'',quoteAt:'',venue:'',buyingPowerCHF:'',
+ fxRateCHF:'',fxAt:'',tickSize:'',lotSize:'',orderType:'',orderDuration:'',confirmedByUser:false
+}};
 function ensurePanel(){
  if(typeof document==='undefined')return null;
  const anchor=document.getElementById('dgTop3Out');
@@ -115,6 +216,28 @@ function ensurePanel(){
   '</div>'+
   '<div data-manual-top3-status class="small" role="status"></div>'+
   '<div data-manual-top3-rows></div>'+
+
+  '<details data-manual-broker-compare><summary>DEGIRO-Anzeigewerte vergleichen und Beträge neu berechnen (keine Order)</summary>'+
+  '<p class="small">Einmalig die <b>tatsächlich auf der DEGIRO-Produktseite</b> sichtbaren Werte eingeben. Anzeigezeit mit Datum und Zeitzone übernehmen, keine erfundenen Sekunden. Bob liest oder bedient keine Ordermaske. Das bloße Öffnen eines Kaufdialogs bestätigt keinen Fill.</p>'+
+  '<div class="grid">'+
+   '<div><label for="bobManualScreenIsin">ISIN im DEGIRO-Bild</label><select id="bobManualScreenIsin"></select></div>'+
+   '<div><label for="bobManualScreenCcy">Produktwährung</label><select id="bobManualScreenCcy"><option value="">Bitte ablesen</option><option value="EUR">EUR</option><option value="CHF">CHF</option></select></div>'+
+   '<div><label for="bobManualScreenBid">DEGIRO Geldkurs</label><input id="bobManualScreenBid" type="number" min="0" step="any" inputmode="decimal"></div>'+
+   '<div><label for="bobManualScreenAsk">DEGIRO Briefkurs</label><input id="bobManualScreenAsk" type="number" min="0" step="any" inputmode="decimal"></div>'+
+   '<div><label for="bobManualScreenAt">Angezeigte DEGIRO-Kurszeit inkl. Zeitzone</label><input id="bobManualScreenAt" type="text" placeholder="2026-11-12T14:02:00+01:00" autocomplete="off"></div>'+
+   '<div><label for="bobManualScreenVenue">Handelsplatz laut Produktseite</label><input id="bobManualScreenVenue" type="text" placeholder="abgelesener Handelsplatz"></div>'+
+   '<div><label for="bobManualScreenFunds">Verfügbare CHF-Kaufkraft laut DEGIRO</label><input id="bobManualScreenFunds" type="number" min="0" step="0.01" inputmode="decimal"></div>'+
+   '<div><label for="bobManualScreenFx">DEGIRO EUR/CHF-Umrechnung (nur bei EUR-Produkt)</label><input id="bobManualScreenFx" type="number" min="0" step="any" inputmode="decimal"></div>'+
+   '<div><label for="bobManualScreenFxAt">DEGIRO FX-Anzeigezeit inkl. Zeitzone</label><input id="bobManualScreenFxAt" type="text" placeholder="2026-11-12T14:02:00+01:00" autocomplete="off"></div>'+
+   '<div><label for="bobManualScreenTick">Zulässiger Preisschritt / Tick</label><input id="bobManualScreenTick" type="number" min="0" step="any" inputmode="decimal"></div>'+
+   '<div><label for="bobManualScreenLot">Losgröße / Stück-Schritt</label><input id="bobManualScreenLot" type="number" min="1" step="1" inputmode="numeric"></div>'+
+   '<div><label for="bobManualScreenOrderType">Angezeigter Kauf-Ordertyp</label><select id="bobManualScreenOrderType"><option value="">Nicht bestätigt</option><option value="LIMIT">LIMIT</option></select></div>'+
+   '<div><label for="bobManualScreenDuration">Angebotene Orderdauer</label><select id="bobManualScreenDuration"><option value="">Nicht bestätigt</option><option value="DAY">Tagesgültig</option><option value="GTC">Unbefristet</option></select></div>'+
+  '</div>'+
+  '<button type="button" data-manual-screen-confirm>Werte erneut prüfen und berechnen – keine Order</button>'+
+  '<div data-manual-broker-result class="small" role="status"></div>'+
+  '<p class="small">Ein Nutzer-Abgleich ist keine Broker-API-Prüfung und keine Orderannahme. Der Stopp bleibt ein Gold-basiertes <b>Modell</b>, kein sichtbarer DEGIRO-Verkaufsstopp. Nach einem tatsächlichen Kauf muss die echte Ausführung separat bestätigt werden.</p>'+
+  '</details>'+
   '<p class="small">Preisfolge: Originalquelle → Ersatzquelle → Berechnung. Die Berechnung ist kein verbindliches DEGIRO-Limit. Ein Schutzstopp ist eine getrennte VERKAUF-Order nach tatsächlichem Kauf; Stop- und KO-Gaps können höhere Verluste verursachen. Stückzahlen sind Planwerte, keine Brokerbestätigung.</p>';
  anchor.insertAdjacentElement('afterend',panel);
  for(const [id,key] of [['bobManualBudget','budgetCHF'],['bobManualRisk','riskCHF'],['bobManualFees','feesCHF']]){
@@ -122,7 +245,27 @@ function ensurePanel(){
   input.value=session[key];
   input.addEventListener('input',()=>{session[key]=input.value;if(session.last)renderFrom(session.last);});
  }
+ for(const [id,key] of [
+  ['bobManualScreenIsin','isin'],['bobManualScreenCcy','currency'],
+  ['bobManualScreenBid','bid'],['bobManualScreenAsk','ask'],['bobManualScreenAt','quoteAt'],
+  ['bobManualScreenVenue','venue'],['bobManualScreenFunds','buyingPowerCHF'],
+  ['bobManualScreenFx','fxRateCHF'],['bobManualScreenFxAt','fxAt'],
+  ['bobManualScreenTick','tickSize'],['bobManualScreenLot','lotSize'],
+  ['bobManualScreenOrderType','orderType'],['bobManualScreenDuration','orderDuration']]){
+  const field=panel.querySelector('#'+id);
+  field.value=session.broker[key]||'';
+  field.addEventListener(field.tagName==='SELECT'?'change':'input',()=>{
+   session.broker[key]=field.value;
+   session.broker.confirmedByUser=false;
+   if(session.last)renderFrom(session.last);
+  });
+ }
  panel.addEventListener('click',async e=>{
+  if(e.target.closest('button[data-manual-screen-confirm]')){
+   session.broker.confirmedByUser=true;
+   if(session.last)renderFrom(session.last);
+   return;
+  }
   const btn=e.target.closest('button[data-manual-copy]');
   if(!btn||btn.disabled)return;
   const value=btn.dataset.manualCopy;
@@ -136,6 +279,40 @@ function ensurePanel(){
  return panel;
 }
 function parseAmount(s){return String(s).trim()===''?NaN:Number(s);}
+
+function renderBrokerComparison(panel,selected,plans,now){
+ const select=panel.querySelector('#bobManualScreenIsin');
+ const options=selected.map(c=>'<option value="'+escape(c.isin)+'">'+escape(c.isin)+'</option>').join('');
+ if(select._html!==options){select.innerHTML=options;select._html=options;}
+ if(!selected.some(c=>c.isin===session.broker.isin)){
+  session.broker.isin=selected[0]?.isin||'';
+  session.broker.confirmedByUser=false;
+ }
+ select.value=session.broker.isin;
+ const out=panel.querySelector('[data-manual-broker-result]');
+ if(!selected.length){
+  out.textContent='Kein aktuelles geeignetes LONG-/SHORT-Produkt für diesen Vergleich ausgewählt.';
+  return;
+ }
+ const row=plans.get(session.broker.isin);
+ const result=reconcileBrokerDisplay({
+  ...row,preliminary:row?.preliminary,broker:session.broker,
+  budgetCHF:parseAmount(session.budgetCHF),riskCHF:parseAmount(session.riskCHF),
+  feesCHF:parseAmount(session.feesCHF),now,direction:row?.candidate?.direction});
+ if(!result.available){
+  out.textContent='Noch kein gültiger erneuter Vergleich: '+result.reason;
+  return;
+ }
+ const sign=result.difference>=0?'+':'';
+ out.textContent='KAUF-Preis abgelesen '+fmt(result.entry,4)+' '+result.currency+
+  ' statt Vorabwert '+fmt(row.preliminary.entry,4)+' '+result.currency+
+  ' (Abweichung '+sign+fmt(result.difference,4)+' / '+sign+fmt(result.differencePct,2)+' %). '+
+  'NEU: '+result.quantity+' ganze Stück · geschätzte Belastung '+fmt(result.totalCHF)+
+  ' CHF einschließlich deiner Gebühren · geschätzter Verlust bis Gold-Modellstopp '+
+  fmt(result.lossCHF)+' CHF · Modellstopp '+fmt(result.stop,4)+' '+result.currency+
+  '. Kurszeit '+seenAt(result.sourceAt)+' Zürich · FX-Basis: '+result.fxBasis+
+  '. '+result.reason+' Kein DEGIRO-Fill, keine automatische Kauf-/Verkaufsorder.';
+}
 function renderFrom(snapshot){
  const panel=ensurePanel();if(!panel)return;
  const now=Date.now(),{flow,products,bundle}=snapshot,side=flow?.direction;
@@ -145,6 +322,7 @@ function renderFrom(snapshot){
   (flow.groups||[]).flatMap(g=>g.candidates||[]).filter((c,i,all)=>all.findIndex(p=>p.isin===c.isin)===i).slice(0,3):[];
  const budgetCHF=parseAmount(session.budgetCHF),riskCHF=parseAmount(session.riskCHF),feesCHF=parseAmount(session.feesCHF);
  const market=root.productMarketPlan?.(side,now);
+ const planByIsin=new Map();
  const offers=selected.map((candidate,i)=>{
   const product=(products||[]).find(p=>p.isin===candidate.isin);
   const currency=product?.quote?.metadata?.currency||product?.quote?.currency;
@@ -154,6 +332,7 @@ function renderFrom(snapshot){
    root.BobDegiro?.productRiskPreview(product,market,now,quote):null;
   const fx=readChfFx(bundle?.spots,now,quote?.currency||currency);
   const plan=evaluate({candidate,product,quote,stopPlan,fx,budgetCHF,riskCHF,feesCHF,now,direction:side});
+  planByIsin.set(candidate.isin,{candidate,product,preliminary:plan,fx,stopPlan});
   const line=(label,value,copy)=>'<div style="margin:5px 0"><b>'+label+':</b> '+escape(value)+
    (copy!==null&&copy!==undefined?'<button type="button" data-manual-copy="'+escape(copy)+'" style="width:auto;margin-left:8px;padding:5px 9px;font-size:12px;background:#334155">Kopieren</button>':'')+'</div>';
   const entry=plan.entry!==null?fmt(plan.entry,4)+' '+plan.currency+'/Stück':'—';
@@ -181,12 +360,13 @@ function renderFrom(snapshot){
   'ABWARTEN · keine aktuellen freigegebenen Ranking-Produkte, daher keine Kauf-/Stop-/Stückzahlwerte.';
  const output=offers.length?offers.join(''):'<p class="small">Keine drei Kandidaten erzwingen. Erst bestätigtes Markt- und Produktsignal abwarten.</p>';
  if(rows._html!==output){rows.innerHTML=output;rows._html=output;}
+ renderBrokerComparison(panel,selected,planByIsin,now);
 }
 function render(flow,products,bundle){
  session.last={flow,products,bundle};
  renderFrom(session.last);
 }
-const api={evaluate,readChfFx,selectQuoteByPriority,render};
+const api={evaluate,reconcileBrokerDisplay,readChfFx,selectQuoteByPriority,render};
 root.BobManualTop3=api;
 if(typeof module!=='undefined')module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

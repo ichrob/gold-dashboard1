@@ -42,3 +42,53 @@ assert.equal(m.readChfFx({},now,'CHF').rate,1);
 assert.equal(m.readChfFx({},now,'USD').available,false);
 assert.equal(test({quote:{...quote,at:iso(now+2000),askAt:iso(now+2000)}}).available,false);
 console.log('manual Top-3 order figures: strict quote, source, FX and risk tests passed');
+
+
+
+// Broker-screen stage: manually transcribed displayed price recalculates budget,
+// quantity and stop risk, but never becomes an executable broker quote or fill.
+const brokerDisplay={isin:candidate.isin,currency:'EUR',bid:20.2,ask:20.3,
+ quoteAt:at,venue:'Societe Generale OTC',buyingPowerCHF:'900',
+ fxRateCHF:'0.9',fxAt:at,tickSize:'0.01',lotSize:'1',
+ orderType:'LIMIT',orderDuration:'DAY',confirmedByUser:true};
+function brokerReview(overrides={},other={}){
+ return m.reconcileBrokerDisplay({candidate,product,preliminary:test(),
+  broker:{...brokerDisplay,...overrides},fx:{available:true,rate:1,note:'Marktreferenz'},
+  budgetCHF:1000,riskCHF:100,feesCHF:8,now,direction:'SHORT',...other});
+}
+const brokerResult=brokerReview();
+assert.equal(brokerResult.available,true);
+assert.equal(brokerResult.entry,20.3);
+assert.equal(brokerResult.stop,18.5);
+assert.equal(brokerResult.quantity,48);
+assert.ok(Math.abs(brokerResult.totalCHF-885)<0.05);
+assert.ok(Math.abs(brokerResult.lossCHF-85.76)<0.01);
+assert.equal(brokerResult.manualFieldsComplete,true);
+assert.equal(brokerResult.copyAllowed,false);
+assert.equal(brokerResult.brokerExecutionVerified,false);
+assert.equal(brokerResult.orderSubmitted,false);
+assert.equal(brokerReview({confirmedByUser:false}).available,false);
+assert.equal(brokerReview({isin:'DE000FG8NHQ3'}).available,false);
+assert.equal(brokerReview({currency:'CHF'}).available,false);
+assert.equal(brokerReview({quoteAt:'12.11.2026 14:01'}).available,false);
+assert.equal(brokerReview({quoteAt:iso(now-91000)}).available,false);
+assert.equal(brokerReview({quoteAt:iso(now+6000)}).available,false);
+assert.equal(brokerReview({bid:21,ask:20.3}).available,false);
+assert.equal(brokerReview({ask:18.4,bid:18.3}).available,false);
+assert.equal(brokerReview({buyingPowerCHF:'0'}).available,false);
+assert.equal(brokerReview({buyingPowerCHF:''}).manualFieldsComplete,false);
+assert.equal(brokerReview({lotSize:'5'}).quantity,45);
+assert.equal(brokerReview({lotSize:'2.5'}).available,false);
+assert.equal(brokerReview({tickSize:'0.07'}).manualFieldsComplete,false);
+assert.equal(brokerReview({venue:''}).manualFieldsComplete,false);
+assert.equal(brokerReview({orderType:''}).manualFieldsComplete,false);
+assert.equal(brokerReview({orderDuration:''}).manualFieldsComplete,false);
+assert.equal(brokerReview({fxRateCHF:''}).manualFieldsComplete,false);
+assert.equal(brokerReview({fxAt:iso(now-91000)}).available,false);
+assert.equal(brokerReview({ask:30,bid:29}).manualFieldsComplete,false); // >5% divergence
+assert.equal(brokerReview({}, {preliminary:test({quote:{...quote,kind:'calculated',
+ modelVerified:true,validationReady:true,validationSamples:30}})}).available,true);
+assert.equal(brokerReview({}, {preliminary:test({stopPlan:{...stopPlan,available:false}})}).available,false);
+assert.equal(brokerReview({}, {product:{...product,quote:{isin:candidate.isin,metadata:{status:2}}}}).available,false);
+assert.equal(brokerReview({}, {riskCHF:8}).available,false);
+console.log('manual Top-3 DEGIRO screen re-evaluation: identity, source clock, FX, risk and no-order gates passed');
