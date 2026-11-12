@@ -938,14 +938,19 @@ class FastSimulationStatusTests(unittest.TestCase):
         # The three independent studies add only one PK-scoped control
         # lookup and one fixed PostgreSQL relation-size catalogue read.
         # One exact campaign lookup, bounded comparison read, and singleton input status.
-        self.assertEqual(len(selects), 8)
+        # One additional PK-indexed LIMIT 100 read for the early-warning
+        # spot-only study; still no unbounded historical reads.
+        self.assertEqual(len(selects), 10)
         sql = [call.args[0] for call in selects]
+        # Entry opportunities add exactly one bounded campaign-state lookup.
+        self.assertEqual(sum('bob_entry_opportunity_state WHERE id=%s' in q for q in sql),1)
         # Fourth independent research report: one single-row PK lookup only.
         self.assertEqual(sum('bob_rapid_leverage_state WHERE id=%s' in q for q in sql), 1)
         self.assertFalse(any('bob_rapid_leverage_cases' in q for q in sql))
         self.assertEqual(sum('bob_intraday_timing_state WHERE id=%s' in q for q in sql),1)
         self.assertFalse(any('bob_intraday_timing_cases' in q for q in sql))
         self.assertEqual(sum('bob_entry_exit_comparison ORDER BY id DESC LIMIT 200' in q for q in sql),1)
+        self.assertEqual(sum('bob_early_warning_spot_cases ORDER BY id DESC LIMIT 100' in q for q in sql),1)
         self.assertEqual(sum('bob_entry_exit_input_status WHERE singleton=TRUE' in q for q in sql),1)
         self.assertEqual(sum("FROM bob_quality_campaign WHERE id=%s" in q for q in sql), 1)
         self.assertFalse(any("bob_quality_cases" in q or "bob_quality_legacy" in q for q in sql))

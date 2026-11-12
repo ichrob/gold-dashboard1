@@ -1316,6 +1316,15 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
     except Exception:
         result['entryOpportunityStudy'] = {'status':'unavailable','realOrders':False}
     result['shadowStudies']['entryExitComparison'] = comparison
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            early_spot = __import__('early_warning_spot_study').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        early_spot = {'status':'unavailable','reason':'early-spot-report-unavailable',
+                      'readOnly':True,'realOrders':False,'productReturnVerified':False}
+    result['shadowStudies']['earlyWarningSpotStudy'] = early_spot
     return result
 
 

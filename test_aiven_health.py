@@ -72,6 +72,17 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(result['status'], 'observation-failed')
         self.assertNotIn('SECRET', str(result))
 
+    def test_existing_ca_and_timeout_parameters_are_retained(self):
+        uri = URI.replace('require', 'verify-full') + '&sslrootcert=/etc/secrets/fixture.pem&connect_timeout=10'
+        result, _, connect = self.inspect(env={'BOB_ARCHIVE_RESTORE_DATABASE_URL': uri})
+        self.assertEqual(result['status'], 'observed')
+        self.assertEqual(connect.call_args.args[0], uri)
+        self.assertEqual(connect.call_args.kwargs['sslmode'], 'verify-full')
+        self.assertEqual(connect.call_args.kwargs['connect_timeout'], 5)
+        for suffix in ('&host=other', '&hostaddr=127.0.0.1', '&options=-csearch_path=public',
+                       '&user=other', '&dbname=other', '&sslrootcert=/second.pem'):
+            self.assertFalse(health.configured({'BOB_ARCHIVE_RESTORE_DATABASE_URL': uri+suffix}))
+
     def test_counter_growth_and_restart_are_not_an_oom_diagnosis(self):
         original, _, _ = self.inspect()
         current = {**original, 'tempBytes': 50, 'deadlocks': 1,

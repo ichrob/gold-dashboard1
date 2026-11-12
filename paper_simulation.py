@@ -191,6 +191,7 @@ def init(conn):
     paper_stop_study.init(conn)
     __import__('paper_shadow_studies').init(conn)
     __import__('paper_entry_exit_comparison').init(conn)
+    __import__('early_warning_spot_study').init(conn)
     __import__('research_restart').init(conn)
     __import__('intraday_timing_study').init(conn)
     __import__('rapid_leverage_study').init(conn)
@@ -1625,6 +1626,15 @@ def _worker(db):
                                     conn,bundle,market,selection,warning_market,warning_selection,quotes,int(time.time()*1000))
                         except Exception as comparison_exc:
                             print('BOB_ENTRY_EXIT_COMPARISON error='+type(comparison_exc).__name__,flush=True)
+                        # Optional original-spot-only warning study, isolated after
+                        # committed account ledgers. No issuer quote or live policy writes.
+                        try:
+                            with conn.transaction():
+                                __import__('early_warning_spot_study').tick(
+                                    conn,bundle,market,int(time.time()*1000))
+                        except Exception as early_spot_exc:
+                            print('BOB_EARLY_WARNING_SPOT_STUDY error='+
+                                  type(early_spot_exc).__name__,flush=True)
                         try:
                             with conn.transaction():
                                 __import__('intraday_timing_study').tick(

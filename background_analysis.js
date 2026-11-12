@@ -105,11 +105,13 @@ function evaluate(input, {render=false}={}){
      source:'ema25-paper-v1',entrySetup:relaxedGate.setup,holdingWindowMinutes:[30,300]};
    }else relaxedReason=targetPlan.warning||targetPlan.reason||riskData.reason||'Stopp oder Ziel nicht gültig berechenbar';
   }
-  const entryOpportunityStudy=Opportunity.evaluate({bundle,direction,now:Date.now(),confirmationAt,
+  let entryOpportunityStudy;
+  try { entryOpportunityStudy=Opportunity.evaluate({bundle,direction,now:Date.now(),confirmationAt,
     ready:ready&&priceFresh&&intradaySession().entryAllowed&&!input.trade?.active,
     rawReason:signalState.reason, riskData,
     makePlan:(side)=>{const stop=stopModel(side,price,A.at,input.trailAtr||1.5).stop;
       return {entry:price,stop,...targetModel(side,price,stop,2)};}});
+  } catch (_) {entryOpportunityStudy={version:Opportunity.VERSION,status:'unavailable',comparisonOnly:true,realOrders:false};}
   const relaxedPaper={version:'ema25-paper-v1',paperOnly:true,gate:relaxedGate,plan:relaxedPlan,reason:relaxedReason};
   if(input.trade?.active&&['entry','stop','target'].every(k=>Number.isFinite(input.trade[k])&&input.trade[k]>0))plan={kind:'active-monitor',direction:input.trade.dir,entry:input.trade.entry,stop:input.trade.stop,target:input.trade.target,unit:'USD/oz',at:Date.now(),isin:input.trade.product?.isin||null};
   if(plan?.kind==='active-monitor')entryPlanState={state:'monitoring',code:'ACTIVE_TRADE',reason:'Bestehenden Trade überwachen; keine neue Einstiegsfreigabe'};
