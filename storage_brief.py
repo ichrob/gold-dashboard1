@@ -371,6 +371,26 @@ def project(storage):
     # same redacted process status in the focused storage view so operators
     # can distinguish a current worker failure from an old persisted attempt.
     result["archive"]["currentWorker"] = _current_archive_worker_brief(worker)
+    health = worker.get('aivenHealth')
+    health = health if isinstance(health, dict) else {}
+    latest = health.get('latest')
+    latest = latest if isinstance(latest, dict) else {}
+    result['archive']['aivenHealth'] = {
+        'enabled': health.get('enabled') is True,
+        'status': _choice(latest.get('status'), frozenset((
+            'observed', 'not-configured', 'restore-busy', 'observation-failed',
+            'invalid-tls-configuration', 'read-only-not-confirmed')), 'not-observed'),
+        'observedAt': _clock(latest.get('observedAt')),
+        'databaseBytes': _number(latest.get('databaseBytes'), maximum=10**12),
+        'clientConnections': _number(latest.get('clientConnections'), maximum=100000),
+        'activeClients': _number(latest.get('activeClients'), maximum=100000),
+        'findings': [value for value in latest.get('findings', [])
+                     if value in ('connection-pressure', 'idle-transaction', 'long-query',
+                                  'postgres-restarted', 'new-deadlock', 'temporary-disk-growth')]
+                    if isinstance(latest.get('findings'), list) else [],
+        'hostMemoryCoverage': 'unavailable',
+        'automaticRestoreAllowed': False,
+    }
     preview = storage.get("decisionProductsPreview")
     preview = preview if isinstance(preview, dict) else {}
     result["referencePreview"] = {
