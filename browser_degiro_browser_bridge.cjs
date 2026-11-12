@@ -14,9 +14,15 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
  try{
   const ctx=await browser.newContext({viewport:{width:360,height:760},acceptDownloads:true});
   const gm={},requests=[],errors=[];
-  await ctx.exposeBinding('gmWrite',async({page},key,value,remove)=>{
+  let gmDelivery=Promise.resolve();
+  await ctx.exposeBinding('gmWrite',({page},key,value,remove)=>{
    if(remove)delete gm[key];else gm[key]=value;
-   await Promise.all(ctx.pages().filter(p=>p!==page).map(p=>p.evaluate(({key,value,remove})=>window.gmRemote(key,value,remove),{key,value,remove}).catch(()=>{})));
+   // Userscript storage changes are asynchronous. Resolve the exposed binding
+   // before notifying the other tab so a result handler can write/delete a
+   // second key without re-entering a still-blocked Playwright binding. Keep
+   // delivery ordered so QUEUE followed by STATUS cannot overtake itself.
+   gmDelivery=gmDelivery.then(()=>Promise.all(ctx.pages().filter(p=>p!==page).map(p=>
+    p.evaluate(({key,value,remove})=>window.gmRemote(key,value,remove),{key,value,remove}).catch(()=>{}))));
   });
   await ctx.exposeBinding('gmRead',()=>gm);
   await ctx.addInitScript(async script=>{
