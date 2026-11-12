@@ -92,9 +92,9 @@ on:
       - 'sw.js'
       - 'browser_risk_workspace.cjs'
       - 'Bob.html'
-      - 'degiro_assistant.js'
       - 'manual_ranking_order.js'
       - 'test_manual_ranking_order.js'
+      - 'degiro_assistant.js'
       - '.github/workflows/bob-risk.yml'
 permissions:
   contents: read
@@ -118,8 +118,8 @@ jobs:
           node test_risk_push_worker.js
           python -m unittest test_risk_background
           node test_unapproved_comparison_ranking.js
-          node test_manual_ranking_order.js
           node test_early_product_ranking.js
+          node test_manual_ranking_order.js
       - uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright

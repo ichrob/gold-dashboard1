@@ -5884,8 +5884,7 @@ function renderRankUI(){
  window.BobPaperSimulation?.sync({...buildPaperListEvidence(),products:paperProductsForSync(ps),references});
  window.BobPush?.updateSelection?.({products:ps,context:selectionContext,bundle:{spots:bundle?.spots,fetched_at:bundle?.fetched_at,history:{data_state:bundle?.history?.data_state}},references,fixedBarriers:window.BobCombined.fixedBarriers()},flow);
  const flowHtml=renderContinuingAnalysis(ps,selectionContext);if(updateProductHtml(o,flowHtml))bindCompactCards(o);
- // Read-only, manual-entry figures based on the very same top-three selection;
- // recheck original quote timestamps on every ranking render. No extra fetch or order.
+ // Optional, local-only manual order comparison: no broker writes or order entry.
  window.BobManualTop3?.render(flow,ps,bundle);
  const approvalOut=document.getElementById('dgApprovalOut');
  const approvalHtml='<details data-product-details="selection-check"><summary>Freigabeprüfung · '+(flow.approved?flow.approvedCount+' geeignete Produkte':'ABWARTEN')+'</summary>'+renderSelectionWorkflow(flow,ps)+'</details>';if(approvalOut&&updateProductHtml(approvalOut,approvalHtml))bindCompactCards(approvalOut);return flow;
