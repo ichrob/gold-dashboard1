@@ -2,6 +2,7 @@
    Does not claim to test the installed Android add-on or a real broker login. */
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs');
+const {randomUUID}=require('node:crypto');
 const engines=require('playwright'),path=require('node:path');
 const {createStorageRelay}=require('./browser_test_storage_relay.cjs');
 const fixtureSource=name=>fs.readFileSync(path.join(process.env.BOB_BRIDGE_TEST_SOURCE||__dirname,name),'utf8');
@@ -194,9 +195,28 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.reload();
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStop').disabled);
   assert.equal(await bob.evaluate(()=>Number(sessionStorage.getItem('bob-export-tab-consent-v1'))),consentDeadline);
-  await broker.evaluate(report=>GM_setValue('bob-export-pending-v1',{id:crypto.randomUUID(),createdAt:Date.now(),expiresAt:Date.now()+600000,report}),{kind:'portfolio',records:[{isin:'US0378331005',quantity:6,product:'Synthetic',currency:'USD'}],cashBalances:[],invalidRows:[]});
+  // This section verifies document-start recovery from already persisted
+  // userscript-manager state. Normal cross-tab delivery is covered above.
+  // Do not notify the old page while it is unloading: that races its result
+  // cleanup against the reload and can lose the synthetic fixture only.
+  const reloadCreatedAt=Date.now();
+  relay.seed('bob-export-pending-v1',{id:randomUUID(),
+   createdAt:reloadCreatedAt,expiresAt:reloadCreatedAt+600000,
+   report:{kind:'portfolio',records:[{isin:'US0378331005',quantity:6,
+    product:'Synthetic',currency:'USD'}],cashBalances:[],invalidRows:[]}});
   await bob.reload();
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===6);
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===6).catch(async error=>{
+   const pageState=await bob.evaluate(()=>({
+    quantity:BobDegiroPortfolio.load(localStorage).records[0]?.quantity,
+    armed:window.GM_getValue('bob-export-arm-v1',0)>Date.now(),
+    pending:window.GM_getValue('bob-export-pending-v1',null),
+    active:!document.querySelector('#bobBridgeStop').disabled,
+    consent:Number(sessionStorage.getItem('bob-export-tab-consent-v1')),
+    results:window.exportResults
+   }));
+   error.message+='; reload recovery state '+JSON.stringify({manager:relay.values,page:pageState});
+   throw error;
+  });
   assert.equal(await bob.evaluate(()=>Number(sessionStorage.getItem('bob-export-tab-consent-v1'))),consentDeadline);
   const freshBob=await ctx.newPage();await freshBob.goto(BOB);
   await freshBob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
