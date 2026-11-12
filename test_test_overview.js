@@ -38,3 +38,7 @@ assert.match(handsetLines,/0 Währungsgrundlagen fehlen/);
 assert.match(handsetLines,/nach Modellkosten -0.28 €/);
 assert.match(handsetLines,/Tageskurs-Näherung 2026-11-06 akzeptiert/);
 assert.doesNotMatch(testOverviewLines({version:1,handsetComparisons:{status:'unavailable'}}).join(' '),/Handy-Kursvergleiche/);
+const reviewed=testOverviewLines({version:1,qualityCampaign:{version:'synthetic',studies:[],historicalReview:{status:'observed',counts:{reviewed:2,modeled:1,unavailable:1},items:[{study:'entry-delay',closedAt:1,modelStatus:'endpoint-model',returnsPct:{'0s':-2.16}},{study:'warning-confirmed',closedAt:2,modelStatus:'unavailable',returnsPct:{}}],note:'Originalergebnisse bleiben unbestätigt.'}}}).join(' ');
+assert.match(reviewed,/2 Fälle · 1 mit Endpunktmodell berechnet · 1 ohne ausreichende Berechnungsgrundlage/);
+assert.match(reviewed,/-2.160 %/);
+assert.match(reviewed,/Originalergebnisse bleiben unbestätigt/);
