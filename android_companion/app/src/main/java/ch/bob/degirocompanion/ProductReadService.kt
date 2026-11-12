@@ -598,6 +598,12 @@ class ProductReadService : AccessibilityService() {
                     }
                     // An ambiguous surface is not proof of the page end. Never publish a
                     // partial candidate as a completed round trip on that basis.
+                    if (VerificationChallenge.detected(lines.joinToString("\n") { it.text })) {
+                        if (MorningReadRun.running) MorningReadRun.stop(this,"PROTECTED_VERIFICATION")
+                        ProductReadRequest.cancel()
+                        pageReader.reset()
+                        return
+                    }
                     if (MorningReadRun.running && (sensitive || lines.any { Regex("(?i)passwort|login|orderart|ordertyp|order bestätigen").containsMatchIn(it.text) })) {
                         MorningReadRun.stop(this,"PROTECTED_VIEW");ProductReadRequest.cancel();return
                     }

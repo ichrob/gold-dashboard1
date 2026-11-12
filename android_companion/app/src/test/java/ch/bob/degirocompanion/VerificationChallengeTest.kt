@@ -16,6 +16,11 @@ class VerificationChallengeTest {
                 listOf(QuoteLayout.Line(text, 0, 0, 500, 30)), "2026-11-12T12:00:00Z")
             assertEquals(text, ProductScreenEvidence.Reason.PROTECTED, result.reason)
             assertTrue(result.draft.isEmpty())
+            val step = ProductPageReader().inspect(1,
+                listOf(QuoteLayout.Line(text, 0, 0, 500, 30)),
+                "2026-11-12T12:00:00Z", false, true, true)
+            assertEquals(ProductPageReader.Move.ABORT, step.move)
+            assertEquals(ProductPageReader.Cause.UNSAFE_VIEW, step.cause)
             for (node in listOf(MorningReadPolicy.Node(text),
                 MorningReadPolicy.Node("", description=text),
                 MorningReadPolicy.Node("", hint=text))) {
