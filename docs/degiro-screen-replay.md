@@ -34,3 +34,34 @@ Test bestätigt weder OCR-Qualität noch die Bedienung einer echten DEGIRO-Sitzu
 Brokerzustimmung, kontinuierliche Kurse oder Ausführbarkeit. Es gibt keine
 Tarnung, künstliche menschliche Bewegung, Sitzungserhaltung oder Liveorders.
 Keine neue Abhängigkeit, kein Dienst, kein Hintergrundjob und keine API-Gebühr.
+
+## Stichprobe mit privaten Originalbildern am 12.11.2026
+
+Zwei vorhandene ältere Originale wurden visuell geprüft, nicht veröffentlicht.
+Die Listenaufnahme stimmt bytegenau mit einer vorhandenen SHA-256-Referenz
+überein; fünf vollständige Zeilen stimmen in ISIN, Währung, Barriere, Basispreis
+und Verhältnis mit der Referenzauswertung überein. Eine angeschnittene Zeile
+bleibt unvollständig. Dies prüft den Referenzabgleich, keine neue Listen-OCR.
+
+Die separate Detailaufnahme wurde lokal mit Tesseract (PSM 6) gelesen und durch
+Bobs unveränderten `parseDegiroDisplayedQuote` verarbeitet. ISIN, Geld, Brief,
+Währung, Handelsplatz und sichtbare Anzeigezeit stimmen mit der visuellen
+Kontrolle überein. Eine falsche Ziel-ISIN sowie veränderte Eingaben mit
+Geld > Brief, fehlendem Brief oder fehlender Zeit wurden jeweils abgewiesen.
+`isExecutableQuote` bleibt false. Die Anzeigezeit ist keine separate Geld-/Briefzeit.
+Dieser Versuch testet nicht Android ML Kit oder den Live-Upload.
+
+Die Aufnahmen stammen von unterschiedlichen Tagen und Produkten. Es existiert
+für diese Stichprobe daher kein belegter zusammenhängender Such-/Detailablauf;
+Aufnahme- und Empfangszeiten wurden nicht erfunden. Kein erfolgreicher kompletter
+Original-Replay und keine Navigationsfreigabe werden daraus abgeleitet.
+
+Die Listenprobe zeigte eine unnötige Einschränkung: Der bekannte Zielwert muss
+in einer Mehrproduktliste genau einmal vorkommen, nicht der einzige Eintrag
+sein. Der Replay-Prüfer akzeptiert jetzt diesen Fall; doppelte oder fehlende
+Zielwerte und fehlerhafte Listen bleiben gesperrt.
+
+Validierung: 17 Python-Tests in `test_degiro_screen_replay` und
+`test_degiro_sandbox`, `test_degiro_exact_verified_images.js` und
+`test_degiro_screen_quote_panel.js` bestanden. Der vollständige Originalablauf
+bleibt bis zu einer passenden privaten Aufnahmefolge offen.

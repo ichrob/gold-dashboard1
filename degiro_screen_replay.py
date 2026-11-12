@@ -49,7 +49,10 @@ def replay(frames, expected_isin, *, max_age_seconds=30):
             return result('UNEXPECTED_SCREEN')
         if phase == 'SEARCH':
             # Exact, unique identity. Never guess the first search result.
-            if frame.get('candidates') != [expected_isin]:
+            candidates = frame.get('candidates')
+            if (type(candidates) is not list or not 1 <= len(candidates) <= 100
+                    or any(not isinstance(item, str) or not item for item in candidates)
+                    or candidates.count(expected_isin) != 1):
                 return result('AMBIGUOUS_IDENTITY')
             journal.append(dict(step='WOULD_OPEN_PRODUCT', executed=False))
             phase = 'DETAIL'

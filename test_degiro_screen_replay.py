@@ -46,6 +46,19 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(result['code'], 'AMBIGUOUS_IDENTITY')
         self.assertEqual(result['journal'], [])
 
+    def test_known_target_in_multi_product_list(self):
+        frames = self.frames()
+        frames[0]["candidates"] = ["OTHER", "SYNTHETIC", "THIRD"]
+        self.assertEqual(replay(frames, "SYNTHETIC")["code"],
+                         "OBSERVATION_ACCEPTED_OFFLINE")
+
+    def test_missing_target_and_malformed_list(self):
+        for candidates in (["OTHER"], ["SYNTHETIC", None], "SYNTHETIC"):
+            frames = self.frames()
+            frames[0]["candidates"] = candidates
+            self.assertEqual(replay(frames, "SYNTHETIC")["code"],
+                             "AMBIGUOUS_IDENTITY")
+
     def test_clock_errors(self):
         for patch, code in [({'receivedAt': 133}, 'STALE_OR_FUTURE_FRAME'),
                             ({'receivedAt': 101}, 'STALE_OR_FUTURE_FRAME'),
