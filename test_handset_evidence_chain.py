@@ -73,6 +73,27 @@ class ChainTests(unittest.TestCase):
             x=copy.deepcopy(b);x['results'][0]['observation']['fields']['Anzeigezeit']=display
             self.assertIsNone(project([x,a])['products'][0]['illustrativeReplay'])
 
+    def test_daily_chf_reference_is_accepted_only_as_ex_post_model(self):
+        from handset_evidence_chain import cost_replay, clock
+        a = dict(currency='CHF', ask=54.31, bid=54.30,
+                 at=clock('2026-11-06T07:36:43Z'), displayTime='06/11/2026 08:36')
+        b = dict(currency='CHF', ask=55.95, bid=55.94,
+                 at=clock('2026-11-06T08:30:12Z'), displayTime='06/11/2026 09:30')
+        original = copy.deepcopy((a,b))
+        cost = cost_replay(a,b)
+        self.assertAlmostEqual(cost['grossEur'], 1.63/.9143, places=5)
+        self.assertAlmostEqual(cost['modelNetEur'], 1.63/.9143-2-(54.31+55.94)/.9143*.0005, places=5)
+        self.assertTrue(cost['fxConversion']['acceptedForModel'])
+        self.assertTrue(cost['fxConversion']['exPost'])
+        self.assertFalse(cost['fxConversion']['intradayVerified'])
+        self.assertFalse(cost['brokerNetVerified'])
+        self.assertFalse(cost['ledgerUpdated'])
+        self.assertEqual((a,b),original)
+        for update in (dict(displayTime='07/11/2026 09:30'),
+                       dict(at=clock('2026-11-07T08:30:12Z')),
+                       dict(displayTime='invalid')):
+            self.assertEqual(cost_replay(a,dict(b,**update))['status'],'missing-dated-fx')
+
     def test_status_integrates_chain_without_mutations(self):
         from android_observations import status
         class Db:
