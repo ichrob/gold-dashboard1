@@ -31,3 +31,10 @@ assert.match(reversalText,/maximale Haltedauer/);
 assert.match(reversalText,/Bestätigte Trendumkehr: vorher aussteigen/);
 assert.match(reversalText,/neuem gültigem Einstieg mit neuer Kursbeobachtung/);
 assert.match(reversalText,/1 Positionen noch offen/);
+
+const handsetLines=testOverviewLines({version:1,handsetComparisons:{status:'observed',accepted:2,dailyFxAccepted:2,missingFx:0,unpaired:1,items:[{isin:'TEST',quantity:1,grossEur:1.78,modelNetEur:-.28,feesEur:2,slippageEur:.06,fxApproximation:true,fxDate:'2026-11-06'}],note:'Keine Kontobuchung'}}).join(' ');
+assert.match(handsetLines,/2 Tageskurs-Umrechnungen akzeptiert/);
+assert.match(handsetLines,/0 Währungsgrundlagen fehlen/);
+assert.match(handsetLines,/nach Modellkosten -0.28 €/);
+assert.match(handsetLines,/Tageskurs-Näherung 2026-11-06 akzeptiert/);
+assert.doesNotMatch(testOverviewLines({version:1,handsetComparisons:{status:'unavailable'}}).join(' '),/Handy-Kursvergleiche/);
