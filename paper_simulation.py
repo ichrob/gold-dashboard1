@@ -194,6 +194,7 @@ def init(conn):
     __import__('research_restart').init(conn)
     __import__('intraday_timing_study').init(conn)
     __import__('rapid_leverage_study').init(conn)
+    __import__('entry_opportunity_study').init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -1630,6 +1631,11 @@ def _worker(db):
                                     conn,bundle,market,selection,quotes,int(time.time()*1000))
                         except Exception as timing_exc:
                             print('BOB_INTRADAY_TIMING error='+type(timing_exc).__name__,flush=True)
+                        try:
+                            with conn.transaction():
+                                __import__('entry_opportunity_study').tick(conn,bundle,market,int(time.time()*1000))
+                        except Exception as opportunity_exc:
+                            print('BOB_ENTRY_OPPORTUNITY error='+type(opportunity_exc).__name__,flush=True)
                         # Independent original-spot study; never touches paper accounts,
                         # live Bob signals, ranking, broker endpoints or push routes.
                         try:

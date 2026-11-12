@@ -577,9 +577,31 @@ def new_studies_brief(paper, now_ms=None):
                     'variantsObserved':len(variants) if variants is not None else None,
                     'legacyOpenPositions':value(timing,'legacyOpenPositions')},
         'rapid':rapid_leverage_brief(rapid),
+        **({'entryOpportunities':entry_opportunity_brief(paper['entryOpportunityStudy'])}
+           if isinstance(paper.get('entryOpportunityStudy'),dict) else {}),
         'strategyWinnerConfirmed':False,
         'fullOriginalHistoryVerified':False,
     }
+
+
+def entry_opportunity_brief(control):
+    if not isinstance(control,dict):
+        return {'status':'unavailable','realOrders':False}
+    result=fields(control,('version','status','checkedAt','startedAt','inputStatus',
+        'episodes','completedPairs','inconclusivePairs','active','horizonMinutes',
+        'assumedRoundTripCostPct','riskBudgetPct','maximumExposurePct','note'))
+    from entry_opportunity_study import ARMS
+    variants=control.get('variants') or {}
+    result['variants']={key:fields(variants[key],('started','closed','skipped','inconclusive',
+        'pairedNetR','pairedModelReturnPct','pairedWins','pairedLosses','worstPairedNetR',
+        'maxObservedAdverseR','maxObservedFavorableR','additionalEntries','avoidedLosses','missedWins'))
+        for key in ARMS if isinstance(variants.get(key),dict)} if isinstance(variants,dict) else {}
+    decisions=control.get('lastDecision')
+    if isinstance(decisions,dict):
+        result['lastDecision']={key:fields(decisions[key],('allowed','reason'))
+            for key in ARMS if isinstance(decisions.get(key),dict)}
+    result.update(strategyWinnerConfirmed=False,productReturnVerified=False,realOrders=False,liveRulesChanged=False)
+    return result
 
 
 def rapid_leverage_brief(control):
@@ -1287,6 +1309,12 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
         result['rapidLeverageStudy'] = {
             'status':'unavailable','realOrders':False,
             'productReturnVerified':False,'strategyWinnerConfirmed':False}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            result['entryOpportunityStudy'] = __import__('entry_opportunity_study').report(conn)
+    except Exception:
+        result['entryOpportunityStudy'] = {'status':'unavailable','realOrders':False}
     result['shadowStudies']['entryExitComparison'] = comparison
     return result
 
