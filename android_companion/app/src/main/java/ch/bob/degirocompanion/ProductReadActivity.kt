@@ -26,6 +26,7 @@ class ProductReadActivity : Activity() {
         internal const val EXTRA_START_COMPLETE_FLOW = "ch.bob.degirocompanion.START_COMPLETE_FLOW"
     }
     private var startCompleteFlowOnFirstResume = false
+    private val refreshTickets=ReadPreparationTickets()
     private var refreshPreparing=false
     private var startGoldReadOnFirstResume = false
     private var pendingCapability: String? = null
@@ -70,7 +71,7 @@ class ProductReadActivity : Activity() {
         capabilityActions["Silber-Hebelprodukte suchen"] = { startPreparedGoal("Silber") }
         capabilityActions["Gold-Hebelprodukte suchen"] = { startPreparedGoal("Gold") }
         button("Prüfung stoppen") {
-            refreshPreparing=false
+            refreshTickets.cancel();refreshPreparing=false
             if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
             PhoneRemote.stop(this,"USER_STOP")
             GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
@@ -286,7 +287,7 @@ class ProductReadActivity : Activity() {
             startAutomaticTest()
         }
     }
-    override fun onPause() { refreshPreparing=false;statusHandler.removeCallbacks(statusTick); super.onPause() }
+    override fun onPause() { refreshTickets.cancel();refreshPreparing=false;statusHandler.removeCallbacks(statusTick); super.onPause() }
     /** Explicit local button: reuse the verified login, then wait for remote read commands. */
     /** Use the established complete reader, including its local login and
      * automatic search/list/detail/return flow. No remote step loop. */
@@ -401,13 +402,14 @@ class ProductReadActivity : Activity() {
             check(PhoneDiagnostics.paired(this) && preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Diagnose verbinden und Lesedienst einschalten." }
             check(!refreshPreparing) { "Kursauffrischung wird bereits vorbereitet." }
             refreshPreparing=true
+            val refreshTicket=refreshTickets.issue()
             result.text="Bob prüft die ausgewählten Produkte gegen den ursprünglichen Listennachweis."
             val app=applicationContext
             Thread {
                 val answer=runCatching { PhoneDiagnostics.listStatus(app,org.json.JSONObject()
                     .put("batchId",saved.getString("listBatchId")).put("refreshIsins",org.json.JSONArray(selected))) }
                 runOnUiThread {
-                    if(!refreshPreparing || isFinishing || isDestroyed) return@runOnUiThread
+                    if(!refreshTickets.accepts(refreshTicket) || !refreshPreparing || isFinishing || isDestroyed) return@runOnUiThread
                     refreshPreparing=false
                     var secret:ByteArray?=null
                     var started=false
