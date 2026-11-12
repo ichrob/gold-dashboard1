@@ -21,7 +21,7 @@ class ChainTests(unittest.TestCase):
         p=project([second,first])['products'][0]
         self.assertEqual(p['observationCount'],1)
         self.assertIsNone(p['illustrativeReplay'])
-        self.assertIn('Hebel',p['repairPlan']['requestedFields'])
+        self.assertEqual(p['repairPlan']['reason'],'device-attempt-budget-exhausted')
 
     def test_same_native_currency_ask_to_bid_replay_keeps_originals_and_excludes_net_performance(self):
         a,b=sample(),sample(3600)
@@ -51,6 +51,27 @@ class ChainTests(unittest.TestCase):
         self.assertEqual(plan['requestedFields'],[])
         self.assertEqual(plan['reason'],'check-product-status-before-reread')
         self.assertFalse(plan['automaticExecution'])
+
+    def test_cost_model_is_same_as_existing_ledger_for_one_unit_without_account_write(self):
+        from paper_ledger_costs import MODEL
+        p=project([sample(3600),sample()])['products'][0]['illustrativeReplay']
+        cost=p['costModelReplay']
+        self.assertEqual(cost['assumptions'],MODEL)
+        self.assertEqual(cost['quantity'],1)
+        self.assertAlmostEqual(cost['modelNetEur'],-.01-2-(13.07+13.06)*.0005)
+        self.assertFalse(cost['ledgerUpdated'])
+        self.assertFalse(cost['brokerNetVerified'])
+        a,b=sample(),sample(3600)
+        for row in (a,b):row['results'][0]['observation']['fields']['Währung']='CHF'
+        cost=project([b,a])['products'][0]['illustrativeReplay']['costModelReplay']
+        self.assertIsNone(cost['modelNetEur'])
+        self.assertEqual(cost['status'],'missing-dated-fx')
+
+    def test_new_capture_with_old_or_reversed_display_clock_is_not_a_price_step(self):
+        a,b=sample(),sample(3600)
+        for display in ('28/10/2026 11:00','28/10/2026 10:59','28/10/2026 11:02'):
+            x=copy.deepcopy(b);x['results'][0]['observation']['fields']['Anzeigezeit']=display
+            self.assertIsNone(project([x,a])['products'][0]['illustrativeReplay'])
 
     def test_status_integrates_chain_without_mutations(self):
         from android_observations import status
