@@ -3,6 +3,9 @@ name: Bob live smoke test
 on:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - '.github/workflows/bob-live-smoke.yml'
   workflow_dispatch:
 
 jobs:
@@ -10,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Wait for Render auto-deploy
+        if: github.event_name == 'push'
         run: sleep 90
 
       - name: Check Bob health
@@ -25,5 +29,31 @@ jobs:
           test "$code" = "401"
           grep -q "Authentication required" /tmp/live.json
           echo "Bob live API protection OK: unauthenticated request returns 401"
+
+      - name: Verify public manual DEGIRO comparison asset and shell
+        run: |
+          set -euo pipefail
+          asset="https://bob-private-scanner.onrender.com/manual_ranking_order.js?v=20261112-screen-reconcile-v4"
+          shell="https://bob-private-scanner.onrender.com/bob-v12"
+          # Validate *deployed HTTP*, not source-tree files. A login HTML page
+          # with status 200 must not be accepted as a JavaScript module.
+          ok=0
+          for n in 1 2 3 4; do
+            code="$(curl --silent --show-error --max-time 25 -o /tmp/bob-manual.js -D /tmp/bob-manual.headers -w '%{http_code}' "$asset" || true)"
+            if [ "$code" = "200" ] &&
+               grep -Eiq '^Content-Type: application/javascript' /tmp/bob-manual.headers &&
+               grep -Eiq '^X-Content-Type-Options: nosniff' /tmp/bob-manual.headers &&
+               grep -Fq 'reconcileBrokerDisplay' /tmp/bob-manual.js &&
+               grep -Fq 'root.BobManualTop3=api' /tmp/bob-manual.js; then
+              ok=1
+              break
+            fi
+            sleep 10
+          done
+          test "$ok" = "1" || { echo "::error::Bob manual comparison module is not served as verified JavaScript"; exit 1; }
+          code="$(curl --silent --show-error --max-time 25 -o /tmp/bob-shell.html -w '%{http_code}' "$shell" || true)"
+          test "$code" = "200"
+          grep -Fq '/manual_ranking_order.js?v=20261112-screen-reconcile-v4' /tmp/bob-shell.html
+          echo "Bob live manual comparison route and shell inclusion verified; no broker activity"
 
       # Render/GitHub auto-deploy verification commit.
