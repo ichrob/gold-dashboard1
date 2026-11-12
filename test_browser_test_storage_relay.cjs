@@ -14,6 +14,13 @@ const {createStorageRelay}=require('./browser_test_storage_relay.cjs');
  }};
  relay=createStorageRelay(()=>[bob,broker]);
 
+ const persisted={id:'reload',createdAt:1};
+ assert.equal(relay.seed('queue',persisted),undefined,
+  'persisted manager state is staged without a cross-tab delivery');
+ assert.deepEqual(relay.values.queue,persisted);
+ assert.deepEqual(events,[],'seeding reload state must not notify the unloading page');
+ relay.seed('queue',null,true);
+
  const queueWrite=relay.write(broker,'queue',{id:'one'});
  const statusWrite=relay.write(broker,'status',{state:'staged'});
  assert.equal(queueWrite,undefined,'storage binding must not wait on cross-tab evaluation');

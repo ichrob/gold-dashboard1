@@ -194,7 +194,15 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.reload();
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStop').disabled);
   assert.equal(await bob.evaluate(()=>Number(sessionStorage.getItem('bob-export-tab-consent-v1'))),consentDeadline);
-  await broker.evaluate(report=>GM_setValue('bob-export-pending-v1',{id:crypto.randomUUID(),createdAt:Date.now(),expiresAt:Date.now()+600000,report}),{kind:'portfolio',records:[{isin:'US0378331005',quantity:6,product:'Synthetic',currency:'USD'}],cashBalances:[],invalidRows:[]});
+  // This section verifies document-start recovery from already persisted
+  // userscript-manager state. Normal cross-tab delivery is covered above.
+  // Do not notify the old page while it is unloading: that races its result
+  // cleanup against the reload and can lose the synthetic fixture only.
+  const reloadCreatedAt=Date.now();
+  relay.seed('bob-export-pending-v1',{id:'synthetic-reload-pending',
+   createdAt:reloadCreatedAt,expiresAt:reloadCreatedAt+600000,
+   report:{kind:'portfolio',records:[{isin:'US0378331005',quantity:6,
+    product:'Synthetic',currency:'USD'}],cashBalances:[],invalidRows:[]}});
   await bob.reload();
   await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===6);
   assert.equal(await bob.evaluate(()=>Number(sessionStorage.getItem('bob-export-tab-consent-v1'))),consentDeadline);
