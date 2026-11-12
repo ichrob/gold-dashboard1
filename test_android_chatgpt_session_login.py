@@ -22,8 +22,8 @@ class SessionLoginTests(unittest.TestCase):
             self.assertIn(guard, automatic)
     def test_handoff_preserves_session_only_across_retry_and_consume(self):
         s = (ROOT/'ProductReadService.kt').read_text()
-        self.assertIn('beginReadAfterVerifiedPin(attempt+1,searchQuery,ticket,sessionOnly)',s)
-        self.assertIn('beginReadAfterVerifiedPin(0,searchQuery,ticket,sessionOnly)',s)
+        self.assertIn('beginReadAfterVerifiedPin(attempt+1,searchQuery,ticket,sessionOnly,freshGold)',s)
+        self.assertIn('beginReadAfterVerifiedPin(0,searchQuery,ticket,sessionOnly,freshGold)',s)
         self.assertLess(s.index('val sessionOnly = LoginToReadHandoff.sessionOnly'), s.index('LoginToReadHandoff.consume('))
         body = s.split('private fun beginReadAfterVerifiedPin',1)[1].split('override fun onServiceConnected',1)[0]
         self.assertIn('if (!sessionOnly) {',body)

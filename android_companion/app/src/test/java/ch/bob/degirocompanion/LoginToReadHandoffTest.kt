@@ -4,6 +4,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LoginToReadHandoffTest {
+    @Test fun freshGoldIntentSurvivesUntilVerifiedLoginAndCannotLeakToNextRun() {
+        LoginToReadHandoff.clear()
+        LoginToReadHandoff.arm(1000L, freshGold = true)
+        assertTrue(LoginToReadHandoff.freshGold)
+        assertTrue(LoginToReadHandoff.consume("LOCAL_PIN_HOME_VISIBLE", 2000L))
+        assertFalse(LoginToReadHandoff.freshGold)
+        LoginToReadHandoff.arm(3000L, freshGold = true)
+        assertFalse(LoginToReadHandoff.consume("LOCAL_PIN_ENTRY_SENT", 4000L))
+        assertFalse(LoginToReadHandoff.freshGold)
+        LoginToReadHandoff.arm(5000L, freshGold = true)
+        assertFalse(LoginToReadHandoff.consume("LOCAL_PIN_HOME_VISIBLE", 70000L))
+        assertFalse(LoginToReadHandoff.freshGold)
+        LoginToReadHandoff.arm(80000L)
+        assertFalse(LoginToReadHandoff.freshGold)
+        LoginToReadHandoff.clear()
+    }
+
     @Test fun sessionOnlyIsOneShotAndNeverCarriesASearch() {
         LoginToReadHandoff.clear()
         LoginToReadHandoff.arm(1000L, sessionOnly = true)
