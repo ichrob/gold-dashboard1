@@ -226,9 +226,36 @@ function importAndroidScreenDraft(draft){
   note:'Bildwerte nur vorbefüllt. Original-Kurszeit, Währung und sämtliche Brokerbedingungen selbst prüfen; keine Ausführung bestätigt.'};
 }
 
+// Consume the existing authenticated audit, without another poll or storage.
+// Receipt/observation times are freshness guards, never original quote clocks.
+function importHandsetReport(report,isin,now=Date.now()){
+ const fail=reason=>({available:false,reason});
+ if(!['ok','partial'].includes(report?.status)||!fresh(report.lastCheckedAt,now,120000))
+  return fail('Aktueller Handy-Lesebericht nicht verfügbar.');
+ const rows=Array.isArray(report.items)?report.items.filter(x=>x?.isin===isin):[];
+ if(rows.length!==1)return fail('Kein eindeutig zugeordneter Handy-Lesebeleg.');
+ const item=rows[0],o=item.handsetObservation,f=o?.fields;
+ if(['terminated','excluded-factor'].includes(item.state)||o?.terminalAtAudit===true||
+    o?.researchOnly!==true||o.verified!==false||o.tradeApproved!==false||
+    o.executionConfirmed!==false||o.sourceTime!==null||!f||
+    !['COMPLETE','PARTIAL'].includes(o.code)||!fresh(o.observedAt,now,90000))
+  return fail('Kein frischer, zulässiger Produkt-Lesebeleg (höchstens 90 Sekunden).');
+ if(!['EUR','CHF'].includes(f['Währung'])||f.Hinweis!=='Keine Aussage zur Handelbarkeit')
+  return fail('Produktwährung fehlt oder die Handy-Anzeige meldet verzögerte/eingeschränkte Kurse.');
+ const draft={isin,verified:false,tradeApproved:false,sourceTime:null,currency:f['Währung'],
+  fields:{bid:f.Geld,ask:f.Brief,venue:f.Handelsplatz,displayedTime:f.Anzeigezeit}};
+ const imported=importAndroidScreenDraft(draft);
+ if(!imported.available)return imported;
+ const number=s=>typeof s==='string'&&/^\d{1,9}(?:[,.]\d{1,4})?$/.test(s)&&positive(Number(s.replace(',','.')))?s:null;
+ return {...imported,observedAt:o.observedAt,
+  leverage:number(f.Hebel),ko:number(f['KO-Schwelle']),
+  fingerprint:JSON.stringify([isin,o.observedAt,f]),
+  note:'Bob Handy automatisch übernommen · ungeprüfte Anzeige. Original-Kurszeit mit Zeitzone prüfen und bestätigen; Erfassungszeit ist keine Kurszeit.'};
+}
+
 const emptyBroker=isin=>({isin:isin||'',currency:'',bid:'',ask:'',quoteAt:'',venue:'',
  buyingPowerCHF:'',fxRateCHF:'',fxAt:'',tickSize:'',lotSize:'',orderType:'',
- orderDuration:'',confirmedByUser:false});
+ orderDuration:'',confirmedByUser:false,edited:false,handsetFingerprint:null});
 const session={budgetCHF:'',riskCHF:'',feesCHF:'',last:null,broker:emptyBroker('')};
 function ensurePanel(){
  if(typeof document==='undefined')return null;
@@ -269,6 +296,7 @@ function ensurePanel(){
   '</div>'+
   '<button type="button" data-manual-screen-import>Geteiltes DEGIRO-Produktbild (ungeprüft) vorbefüllen</button>'+
   '<button type="button" data-manual-screen-confirm>Werte erneut prüfen und berechnen – keine Order</button>'+
+  '<div data-manual-handset-status class="small" role="status"></div>'+
   '<div data-manual-broker-result class="small" role="status"></div>'+
   '<p class="small">Ein Nutzer-Abgleich ist keine Broker-API-Prüfung und keine Orderannahme. Der Stopp bleibt ein Gold-basiertes <b>Modell</b>, kein sichtbarer DEGIRO-Verkaufsstopp. Nach einem tatsächlichen Kauf muss die echte Ausführung separat bestätigt werden.</p>'+
   '</details>'+
@@ -301,6 +329,7 @@ function ensurePanel(){
      const reset=panel.querySelector('#'+inputId);if(reset)reset.value=session.broker[inputKey];
     }
    }else session.broker[key]=field.value;
+   session.broker.edited=key!=='isin';
    session.broker.confirmedByUser=false;
    if(session.last)renderFrom(session.last);
   });
@@ -313,7 +342,7 @@ function ensurePanel(){
     const match=saved.find(row=>row.draft?.isin===session.broker.isin);
     const imported=importAndroidScreenDraft(match?.draft);
     if(!imported.available){status.textContent=imported.reason;return;}
-    session.broker={...emptyBroker(imported.values.isin),...imported.values};
+    session.broker={...emptyBroker(imported.values.isin),...imported.values,edited:true};
     for(const input of panel.querySelectorAll('[id^="bobManualScreen"]')){
      if(input.id!=='bobManualScreenIsin')input.value='';
     }
@@ -350,6 +379,24 @@ function ensurePanel(){
 }
 function parseAmount(s){return String(s).trim()===''?NaN:Number(s);}
 
+function refreshHandset(){if(session.last)renderFrom(session.last);}
+function syncHandset(panel,now){
+ const imported=importHandsetReport(root.BobProductAuditReport,session.broker.isin,now);
+ const status=panel.querySelector('[data-manual-handset-status]');
+ if(!imported.available){status.textContent=imported.reason;return;}
+ status.textContent=imported.note+
+  (imported.displayedTime?' Angezeigte Kurszeit: '+imported.displayedTime+'.':' Kurszeit fehlt im Lesebeleg.')+
+  ' Hebel laut Anzeige: '+(imported.leverage||'fehlt')+' · KO laut Anzeige: '+(imported.ko||'fehlt')+'.';
+ // Never overwrite a user's edits, confirmation or a newer manually shared image.
+ if(session.broker.edited||session.broker.confirmedByUser||
+    session.broker.handsetFingerprint===imported.fingerprint)return;
+ session.broker={...emptyBroker(imported.values.isin),...imported.values,
+  handsetFingerprint:imported.fingerprint};
+ for(const [id,key] of [['Ccy','currency'],['Bid','bid'],['Ask','ask'],['At','quoteAt'],['Venue','venue']]){
+  panel.querySelector('#bobManualScreen'+id).value=session.broker[key]||'';
+ }
+}
+
 function renderBrokerComparison(panel,selected,plans,now){
  const select=panel.querySelector('#bobManualScreenIsin');
  const options=selected.map(c=>'<option value="'+escape(c.isin)+'">'+escape(c.isin)+'</option>').join('');
@@ -363,10 +410,12 @@ function renderBrokerComparison(panel,selected,plans,now){
  select.value=session.broker.isin;
  const out=panel.querySelector('[data-manual-broker-result]');
  if(!selected.length){
+  panel.querySelector('[data-manual-handset-status]').textContent='';
   out.textContent='Kein aktuelles geeignetes LONG-/SHORT-Produkt für diesen Vergleich ausgewählt.';
   return;
  }
  const row=plans.get(session.broker.isin);
+ syncHandset(panel,now);
  const result=reconcileBrokerDisplay({
   ...row,preliminary:row?.preliminary,broker:session.broker,
   budgetCHF:parseAmount(session.budgetCHF),riskCHF:parseAmount(session.riskCHF),
@@ -438,7 +487,7 @@ function render(flow,products,bundle){
  session.last={flow,products,bundle};
  renderFrom(session.last);
 }
-const api={evaluate,reconcileBrokerDisplay,importAndroidScreenDraft,readChfFx,selectQuoteByPriority,render};
+const api={evaluate,reconcileBrokerDisplay,importAndroidScreenDraft,importHandsetReport,refreshHandset,readChfFx,selectQuoteByPriority,render};
 root.BobManualTop3=api;
 if(typeof module!=='undefined')module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

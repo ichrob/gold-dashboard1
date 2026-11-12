@@ -65,6 +65,30 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
   await panel.locator('#bobManualRisk').fill('100');
   await panel.locator('#bobManualFees').fill('8');
   assert((await panel.innerText()).includes('49'),'Preliminary calculation is visible before broker data');
+  // Existing private report automatically supplies current display fields.
+  await page.evaluate(isin=>{
+    const at=new Date(Date.now()-10000).toISOString();
+    window.BobProductAuditReport={status:'ok',lastCheckedAt:at,items:[{
+      isin,state:'analysis-evidence-complete',handsetObservation:{
+        code:'COMPLETE',researchOnly:true,verified:false,tradeApproved:false,
+        executionConfirmed:false,sourceTime:null,observedAt:at,
+        fields:{Geld:'20.10',Brief:'20.20','Währung':'EUR',Handelsplatz:'Test venue',
+          Hebel:'12,5','KO-Schwelle':'4200',Anzeigezeit:'12/11/2026 14:02',
+          Hinweis:'Keine Aussage zur Handelbarkeit'}}}]};
+    window.BobManualTop3.refreshHandset();
+  },isin);
+  assert.equal(await panel.locator('#bobManualScreenBid').inputValue(),'20.1');
+  assert.equal(await panel.locator('#bobManualScreenCcy').inputValue(),'EUR');
+  assert.equal(await panel.locator('#bobManualScreenVenue').inputValue(),'Test venue');
+  assert.equal(await panel.locator('#bobManualScreenAt').inputValue(),'');
+  assert((await panel.locator('[data-manual-handset-status]').textContent()).includes('12,5'));
+  // A manual correction must survive the next automatic audit refresh.
+  await panel.locator('[data-manual-broker-compare] summary').click();
+  await panel.locator('#bobManualScreenBid').fill('20.15');
+  await page.evaluate(()=>window.BobManualTop3.refreshHandset());
+  assert.equal(await panel.locator('#bobManualScreenBid').inputValue(),'20.15');
+  await panel.locator('[data-manual-broker-compare] summary').click();
+  await page.evaluate(()=>{window.BobProductAuditReport=null;});
   const draft=['BOB OCR-ENTWURF – NICHT VERIFIZIERT','ISIN: '+isin,
    'Geld (OCR ungeprüft): 20,20','Brief (OCR ungeprüft): 20,30',
    'Handelsplatz (OCR ungeprüft): Societe Generale OTC',

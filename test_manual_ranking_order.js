@@ -116,3 +116,35 @@ assert.equal(imported.values.confirmedByUser,false);
 assert.equal(m.importAndroidScreenDraft({...shared,tradeApproved:true}).available,false);
 assert.equal(m.importAndroidScreenDraft({...shared,sourceTime:at}).available,false);
 console.log('manual DEGIRO read-only screenshot import never invents source times or trade approval');
+
+// Authenticated handset summary crosses into the existing comparison only as
+// an unconfirmed display. No receipt timestamp or market approval is promoted.
+const handset={code:'COMPLETE',researchOnly:true,verified:false,tradeApproved:false,
+ executionConfirmed:false,sourceTime:null,observedAt:at,fields:{
+ 'Geld':'20.20','Brief':'20.30','Währung':'EUR','Handelsplatz':'Test venue',
+ 'Hebel':'12,5','KO-Schwelle':'4200','Anzeigezeit':'03/11/2026 13:00',
+ 'Hinweis':'Keine Aussage zur Handelbarkeit'}};
+const report={status:'ok',lastCheckedAt:at,items:[{isin:candidate.isin,
+ state:'analysis-evidence-complete',handsetObservation:handset}]};
+const read=(o={},r={})=>m.importHandsetReport({...report,...r,
+ items:[{...report.items[0],handsetObservation:{...handset,...o}}]},candidate.isin,now);
+assert.equal(read().available,true);
+assert.equal(read().values.venue,'Test venue');
+assert.equal(read().values.bid,'20.2');
+assert.equal(read().values.quoteAt,'');
+assert.equal(read().values.confirmedByUser,false);
+assert.equal(read().leverage,'12,5');
+assert.equal(read().ko,'4200');
+assert.equal(read({observedAt:iso(now-90001)}).available,false);
+assert.equal(read({observedAt:iso(now+1)}).available,false);
+assert.equal(read({sourceTime:at}).available,false);
+assert.equal(read({verified:true}).available,false);
+assert.equal(read({terminalAtAudit:true}).available,false);
+assert.equal(read({}, {status:'stale'}).available,false);
+assert.equal(read({}, {lastCheckedAt:iso(now-120001)}).available,false);
+for(const change of [{Hinweis:'Kurse verzögert'},{Hinweis:'Handel eingeschränkt'},
+ {'Währung':'USD'},{Geld:'21.00'},{Geld:'1,234.50'},{Brief:'0'}])
+ assert.equal(read({fields:{...handset.fields,...change}}).available,false);
+assert.equal(m.importHandsetReport({...report,items:[...report.items,...report.items]},candidate.isin,now).available,false);
+assert.equal(m.importHandsetReport({...report,items:[{...report.items[0],state:'terminated'}]},candidate.isin,now).available,false);
+console.log('Handset audit bridge: timestamps, venue, decimal formats, stale/terminal/conflict guards passed');

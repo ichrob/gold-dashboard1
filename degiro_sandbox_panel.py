@@ -72,7 +72,7 @@ PANEL = r'''
 <details><summary>Verbindung und Kosten</summary>
 <p>Keine Zugangsdaten erforderlich. Keine zusätzliche Softwarelizenz oder API-Gebühr für diesen internen Test; bestehende Hostingkosten bleiben bestehen.</p>
 <p>Der optionale degiro-connector-Lesetest ist vorbereitet. Erst ein erfolgreicher Lesetest bestätigt den Depotabruf. Orderfunktionen sind nicht angebunden. Die ausstehende E-Mail-Antwort ist keine Genehmigung. Echtgeldhandel ist nicht aktiviert.</p>
-<p>Der Test läuft einmal nach dem Antippen. Kein fortlaufender Hintergrundhandel. Ergebnisse werden nicht dauerhaft gespeichert.</p>
+<p>Zusätzlich prüft ein künstlicher Bildschirmablauf die eindeutige Produktauswahl und das Lesen einer Detailseite. Dabei werden keine echten Bildschirme erkannt oder bedient. Der Test läuft einmal nach dem Antippen. Kein fortlaufender Hintergrundhandel. Ergebnisse werden nicht dauerhaft gespeichert.</p>
 </details>
 </section>
 <script>
@@ -213,7 +213,8 @@ function mount(){
     const li=document.createElement('li');
     li.textContent=(names[event.event]||event.event)+(event.quantity?' · '+event.quantity+' Stück':'')+(typeof event.price_eur==='number'?' · '+event.price_eur.toFixed(4)+' €':'')+(typeof event.stop_eur==='number'?' · Stop '+event.stop_eur.toFixed(4)+' €':'')+(event.reason?' · '+event.reason:'');log.append(li);
    }
-   status.textContent='✓ Interner Test abgeschlossen · '+data.duplicateRetriesChecked+' Wiederholungen ohne Doppelauftrag geprüft. DEGIRO-Verbindung weiterhin nicht getestet.';
+   if(data.screenReplay?.code!=='OBSERVATION_ACCEPTED_OFFLINE'||data.screenReplay?.actionsExecuted!==0)throw new Error('Bildschirm-Ablauftest fehlgeschlagen');
+   status.textContent='✓ Bildschirm-Ablauftest und interner Test abgeschlossen · '+data.duplicateRetriesChecked+' Wiederholungen ohne Doppelauftrag geprüft. DEGIRO-Verbindung weiterhin nicht getestet.';
   }catch(error){status.textContent='Test fehlgeschlagen: '+error.message;}finally{run.disabled=false;}
  });
 }

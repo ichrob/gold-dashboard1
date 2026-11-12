@@ -421,9 +421,10 @@ PANEL = r'''<section id="bobProductAudit" class="card">
     })();
    latestReport=report;
    window.BobProductAuditReport=report;
+   window.BobManualTop3?.refreshHandset?.();
    window.BobDegiro?.refreshVenueAssessment?.();
    if(!byId('bobProductAuditItems')?.contains(document.activeElement))render(report);
-  }catch(_){latestReport=null;window.BobProductAuditReport=null;render({status:'unavailable',items:[]});}
+  }catch(_){latestReport=null;window.BobProductAuditReport=null;render({status:'unavailable',items:[]});window.BobManualTop3?.refreshHandset?.();}
   finally{clearTimeout(timer);busy=false;}
  }
  function init(){mount();

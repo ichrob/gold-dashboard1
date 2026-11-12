@@ -183,7 +183,7 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
             fields = obs.get('fields') if isinstance(obs, dict) else {}
             if not isinstance(fields, dict): fields = {}
             allowed = ('Geld','Brief','Anzeigezeit','Hebel','KO-Schwelle',
-                       'Basispreis','Bv','Währung')
+                       'Basispreis','Bv','Währung','Handelsplatz','Hinweis')
             # Safe display-only subset from previously validated app observations.
             shown = {k: str(fields[k])[:60] for k in allowed
                      if isinstance(fields.get(k), str) and len(fields[k]) <= 60}
