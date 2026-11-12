@@ -89,6 +89,8 @@ class EarlySpotTests(unittest.TestCase):
             self.assertFalse(study.warning_eligible(clone,q,SOURCE))
         self.assertFalse(study.warning_eligible(m,{**q,"verified":False},SOURCE))
         self.assertFalse(study.warning_eligible(m,{**q,"sourceAt":SOURCE-61000},SOURCE))
+        # A quote from before the 5m close is look-ahead, even if current.
+        self.assertFalse(study.warning_eligible(m,{**q,"sourceAt":BAR+300000-1000},SOURCE))
 
     def test_original_five_minute_candle_requires_source_and_closed_state(self):
         from test_paper_shadow_studies import observed
