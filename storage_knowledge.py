@@ -23,7 +23,7 @@ QUERIES = {
         coalesce(payload->>'status','unclassified')
         FROM bob_improvement_observations
         ORDER BY campaign DESC,slot DESC LIMIT %s""",
-    # Simulation cases span one legacy ledger, seven isolated portfolio
+    # Simulation cases span one legacy ledger, nine isolated portfolio
     # ledgers and a separate 2000-EUR risk study; see sample_simulations().
 
     "quality": """SELECT version || ':' || scope || ':' || bar_at::text,'metric',
@@ -47,7 +47,8 @@ _ALLOWED = {
                                        "completed", "failed", "testing"}),
     "simulations": ({"legacy", "risk2000", "conservative", "balanced",
                      "offensive", "early100", "trend800",
-                     "early1000oct", "normal1000oct"},
+                     "early1000oct", "normal1000oct", "trend800nov",
+                     "normal1000nov", "ema3000nov", "noema5000nov"},
                     {"open", "closed", "completed", "pending", "failed",
                      "stopped", "inconclusive", "ending-pending-quotes"}),
     "quality": ({"metric"}, {"matched", "mismatch", "unavailable",
@@ -56,12 +57,14 @@ _ALLOWED = {
 }
 
 
-# 7 rows per ledger + 8 from the separate risk study = at most 64.
+# Twelve sources (legacy + 11 independent ledgers) * 4 rows + 8 risk rows
+# remain BELOW the existing 64-row bound; do not raise the RAM/SQL budget.
 # No estimated trade returns, fills, or strategy wins are inferred here.
-_SIM_PER_LEDGER = 7
+_SIM_PER_LEDGER = 4
 _RISK_SAMPLE = 8
 _PROFILE_NAMES = ("conservative", "balanced", "offensive", "early100",
-                  "trend800", "early1000oct", "normal1000oct")
+                  "trend800", "early1000oct", "normal1000oct",
+                  "trend800nov", "normal1000nov", "ema3000nov", "noema5000nov")
 
 
 def sample_simulations(conn):

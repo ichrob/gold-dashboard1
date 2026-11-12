@@ -14,6 +14,16 @@ internal class ProductReturnTransition {
         target=previousTarget;window=previousWindow;started=now;backRetried=false
     }
 
+    /** The broker may already be back at its independently verified search.
+     * In that case no additional BACK should leave Markets or abort the batch. */
+    fun confirmSearch(nodes: List<MorningReadPolicy.Node>, previous: String,
+                      currentWindow: Int, now: Long): Boolean {
+        begin(previous, currentWindow, now)
+        val ready = poll(nodes, currentWindow, now) == State.READY
+        clear()
+        return ready
+    }
+
     private fun searchReady(nodes: List<MorningReadPolicy.Node>, previous: String): Boolean {
         fun has(label: String) = nodes.any { it.text.trim().equals(label, true) }
         // A detail's overview/search icon is not the Markets search page.

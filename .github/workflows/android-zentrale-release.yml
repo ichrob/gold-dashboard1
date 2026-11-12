@@ -1,0 +1,209 @@
+name: Bob Zentrale – signierte Android App
+
+# Release signing is NEVER available to pull requests or untrusted debug jobs.
+# After a successful main-branch push CI, check whether Android app source has
+# changed since the last signed release. If so, publish an update automatically.
+# The owner may also explicitly dispatch a release; both routes require the
+# exact passing main SHA and the same pinned private signing identity.
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Bob CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: bob-zentrale-stable-release
+  cancel-in-progress: false
+
+jobs:
+  signed-release:
+    # workflow_run receives repository-write access, so only successful PUSH
+    # CI on main may use it. PR, manual-CI and scheduled CI events are excluded.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_sha == github.sha))
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout audited main revision
+        uses: actions/checkout@v4
+        with:
+          # Need the preceding signed release tag and its full git history so
+          # changes since that release are never guessed from one commit.
+          fetch-depth: 0
+
+      - name: Require current main SHA (and exact automatic CI trigger)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+            triggered="$(jq -r '.workflow_run.head_sha' "$GITHUB_EVENT_PATH")"
+            if [ "$triggered" != "$GITHUB_SHA" ]; then
+              echo "A newer main commit appeared after this CI run; abort stale release." >&2
+              exit 1
+            fi
+          fi
+
+      - name: Require green Bob main CI for this exact commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ci_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=30" --jq '.workflow_runs[] | [.head_sha,.conclusion] | @tsv')"
+          printf '%s\n' "$ci_runs" | grep -Fxq "$GITHUB_SHA"$'\t'"success"
+          echo "Exact main commit passed Bob CI."
+
+      # Signing CERTIFICATE fingerprint is public Android App Links metadata.
+      # Never print the private signing key, store passwords or keystore bytes.
+      # Keep this separate from the signing step; it works for an unchanged APK.
+      - name: Report public certificate digest for verified Android App Links
+        env:
+          CERT_SHA256: ${{ vars.BOB_ANDROID_CERT_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(printf '%s' "$CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ': \r\n ')"
+          [[ "$fingerprint" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "::error::Public Android certificate pin is missing or invalid."
+            exit 1
+          }
+          echo "BOB_ANDROID_PUBLIC_CERT_SHA256=$fingerprint"
+
+      - name: Detect pending Zentrale source changes
+        id: update
+        shell: bash
+        run: |
+          set -euo pipefail
+          last_tag="$(git tag --merged HEAD --list 'bob-zentrale-v*' --sort=-version:refname | head -1)"
+          if [ -z "$last_tag" ]; then
+            echo "needs_release=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$last_tag" HEAD -- android_companion/zentrale/ android_companion/build.gradle.kts android_companion/settings.gradle.kts .github/workflows/android-zentrale-release.yml; then
+            echo "needs_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare temporary protected signing key
+        if: steps.update.outputs.needs_release == 'true'
+        env:
+          BOB_KEY_B64: ${{ secrets.BOB_ANDROID_KEYSTORE_BASE64 }}
+          BOB_STORE_PASSWORD: ${{ secrets.BOB_ANDROID_STORE_PASSWORD }}
+          BOB_KEY_ALIAS: ${{ secrets.BOB_ANDROID_KEY_ALIAS }}
+          BOB_KEY_PASSWORD: ${{ secrets.BOB_ANDROID_KEY_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ vars.BOB_ANDROID_CERT_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in BOB_KEY_B64 BOB_STORE_PASSWORD BOB_KEY_ALIAS BOB_KEY_PASSWORD EXPECTED_CERT_SHA256; do
+            if [ -z "${!name:-}" ]; then
+              echo "Signing configuration incomplete: $name missing. Nothing will be published." >&2
+              exit 1
+            fi
+          done
+          umask 077
+          mkdir -p "$RUNNER_TEMP/bob-signing"
+          printf '%s' "$BOB_KEY_B64" | base64 --decode > "$RUNNER_TEMP/bob-signing/bob-release.p12"
+          test -s "$RUNNER_TEMP/bob-signing/bob-release.p12"
+          printf 'BOB_ANDROID_SIGNING_STORE_FILE=%s\n' "$RUNNER_TEMP/bob-signing/bob-release.p12" >> "$GITHUB_ENV"
+          printf 'BOB_ANDROID_SIGNING_STORE_PASSWORD=%s\n' "$BOB_STORE_PASSWORD" >> "$GITHUB_ENV"
+          printf 'BOB_ANDROID_SIGNING_KEY_ALIAS=%s\n' "$BOB_KEY_ALIAS" >> "$GITHUB_ENV"
+          printf 'BOB_ANDROID_SIGNING_KEY_PASSWORD=%s\n' "$BOB_KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "BOB_ANDROID_VERSION_CODE=$((10000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          echo "BOB_CERT_PIN=$EXPECTED_CERT_SHA256" >> "$GITHUB_ENV"
+
+      - name: JDK 17
+        if: steps.update.outputs.needs_release == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK
+        if: steps.update.outputs.needs_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$ANDROID_HOME"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Gradle
+        if: steps.update.outputs.needs_release == 'true'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Test and build permanent release APK
+        if: steps.update.outputs.needs_release == 'true'
+        run: gradle -p android_companion :zentrale:testDebugUnitTest :zentrale:assembleRelease --no-daemon --stacktrace
+
+      - name: Require correct package, scoped diagnostic permissions and pinned signature
+        if: steps.update.outputs.needs_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=android_companion/zentrale/build/outputs/apk/release/zentrale-release.apk
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" > "$RUNNER_TEMP/bob-badging.txt"
+          grep -Fq "package: name='ch.bob.zentrale'" "$RUNNER_TEMP/bob-badging.txt"
+          grep -Fq "versionCode='$BOB_ANDROID_VERSION_CODE'" "$RUNNER_TEMP/bob-badging.txt"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$apk" > "$RUNNER_TEMP/bob-permissions.txt"
+          actual_permissions="$(sed -n "s/^uses-permission: name='\([^']*\)'.*/\1/p" "$RUNNER_TEMP/bob-permissions.txt")"
+          test "$actual_permissions" = "android.permission.INTERNET"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/bob-signer.txt"
+          actual="$(sed -n 's/.*Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/bob-signer.txt" | head -1 | tr '[:upper:]' '[:lower:]' | tr -d ': \r\n')"
+          expected="$(printf '%s' "$BOB_CERT_PIN" | tr '[:upper:]' '[:lower:]' | tr -d ': \r\n')"
+          [[ "$actual" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$expected" =~ ^[0-9a-f]{64}$ ]]
+          if [ "$actual" != "$expected" ]; then
+            echo "Release blocked: signing certificate differs from pinned certificate." >&2
+            exit 1
+          fi
+          echo "Signed release verified (certificate matches configured pin)."
+
+      - name: Publish one stable APK under GitHub Releases
+        if: steps.update.outputs.needs_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="bob-zentrale-v$BOB_ANDROID_VERSION_CODE"
+          apk="android_companion/zentrale/build/outputs/apk/release/zentrale-release.apk"
+          staged="$RUNNER_TEMP/Bob-Zentrale.apk"
+          cp -- "$apk" "$staged"
+          cmp -- "$apk" "$staged"
+          gh release create "$tag" \
+            "$staged" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Bob Zentrale (Version $BOB_ANDROID_VERSION_CODE)" \
+            --latest=false \
+            --notes "Eigenständige Bob-Zentrale-App mit eigenem Symbol und ohne Browserleiste. Nur Internetberechtigung. Anmeldung mit bestehenden Bob-Zugangsdaten erforderlich. Kein neuer Server; keine Echtgeldorders."
+          published="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          if [ "$published" != "Bob-Zentrale.apk" ]; then
+            echo "Release asset name differs from Bob-Zentrale.apk; do not mark the update verified." >&2
+            exit 1
+          fi
+          echo "Verified Bob-Zentrale.apk release is available at the versioned release tag."
+
+      - name: Erase temporary keystore after job
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${RUNNER_TEMP:-}" ]; then
+            rm -f "$RUNNER_TEMP/bob-signing/bob-release.p12"
+          fi

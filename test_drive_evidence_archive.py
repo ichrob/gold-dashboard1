@@ -39,7 +39,7 @@ class DriveSafety(unittest.TestCase):
                 else:
                     receipt=runner.run('source','restore',d,drive)
                     self.assertTrue(receipt['remoteDownloadVerified'])
-                    self.assertEqual(receipt['storageState'],'caution')
+                    self.assertEqual(receipt['storageState'],'below-budget-threshold')
                     self.assertEqual(len(drive.files),2)
                     self.assertFalse(json.loads(drive.files['1'])['deletionPermitted'])
                 self.assertEqual(check.call_count,2)
@@ -58,7 +58,9 @@ class DriveSafety(unittest.TestCase):
                     'scope':'reviewed-evidence-tables-not-full-database-backup'}
         with tempfile.TemporaryDirectory() as d, \
              patch.dict('os.environ',{'BOB_ARCHIVE_ENCRYPT_BEFORE_UPLOAD':'1',
-                       'PUSH_SERVICE_TOKEN':'secure-test-only-'+'v'*48}), \
+                       'PUSH_SERVICE_TOKEN':'secure-test-only-'+'v'*48,
+                       'BOB_ARCHIVE_RECOVERY_ROOT_TOKEN':'secure-test-only-'+'v'*48,
+                       'BOB_ARCHIVE_RECOVERY_PROOF_ONCE':'1'}), \
              patch.object(runner,'verify_restore_isolation',
                           return_value='separate-database-instance'), \
              patch.object(runner.archive,'export',side_effect=export), \
@@ -67,12 +69,14 @@ class DriveSafety(unittest.TestCase):
         self.assertEqual(check.call_count,2)
         self.assertTrue(receipt['encryptionVerified'])
         self.assertEqual(receipt['encryptionVersion'],'aes-256-gcm-stream-v1')
+        self.assertTrue(receipt['recoveryKeyVerified'])
         self.assertTrue(receipt['remoteDownloadVerified'])
         self.assertNotIn(original,drive.files['0'])
         self.assertTrue(drive.files['0'].startswith(b'BOBAES01'))
         self.assertTrue(drive.files['1'].startswith(b'{'))
         persisted=json.loads(drive.files['1'])
         self.assertTrue(persisted['encryptionVerified'])
+        self.assertTrue(persisted['recoveryKeyVerified'])
 
     def test_encrypted_corrupted_remote_file_never_creates_restore_receipt(self):
         drive=FakeDrive(corrupt=True)

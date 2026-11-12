@@ -51,6 +51,9 @@ def allowed_item(item):
 _lock = threading.Lock()
 _thread = None
 _report = None
+_refresh_thread = None
+_last_refresh = None
+_refresh_error = None
 
 class Plain(HTMLParser):
     def __init__(self):
@@ -391,7 +394,7 @@ def collect(now=None, fetch=download):
             item.update(publication)
     return dict(version='mco-gold-research-v3',checkedAt=now,intervalSeconds=INTERVAL,sources=sources,items=items[:3],
         latestUploads=upload_evidence(latest_uploads),restrictedUploads=upload_evidence(restricted),accessFallback=access_fallback,
-        method='Bis zu drei frei zugängliche Gold-Videos des bestätigten Kanals MCO Markets. Neuere Mitgliedervideos bleiben als fehlender Inhalt ausgewiesen. Neue Videos werden bei geöffnetem Markt etwa alle 15 Minuten und am Wochenende alle zwei Stunden gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Richtungsbewertung mit Textregeln; zusätzliche KI-Zusammenfassung und gespeicherte Videovorschaubilder abhängig vom ausgewiesenen Abrufstatus. Nur grobe KI-Bildtypeinordnung von niedrig aufgelösten Vorschaubildern, keine Kursablesung; fehlender Text bleibt ungeprüft.')
+        method='Bis zu drei frei zugängliche Gold-Videos des bestätigten Kanals MCO Markets. Neuere Mitgliedervideos bleiben als fehlender Inhalt ausgewiesen. Neue Videos werden nur auf ausdrücklichen manuellen Abruf gesucht; bis zu drei Videos je Lauf werden auf abrufbare Untertitel geprüft. Kurzer Kontext aus dem tatsächlich gelesenen Transkript mit Quellenstellen. Richtungsbewertung mit Textregeln; zusätzliche KI-Zusammenfassung und gespeicherte Videovorschaubilder abhängig vom ausgewiesenen Abrufstatus. Nur grobe KI-Bildtypeinordnung von niedrig aufgelösten Vorschaubildern, keine Kursablesung; fehlender Text bleibt ungeprüft.')
 
 
 def mco_video_direction(items, now):
@@ -467,9 +470,12 @@ def summarize(report, now=None):
     return result
 
 def snapshot():
-    with _lock:report=copy.deepcopy(_report)
+    with _lock:
+        report=copy.deepcopy(_report)
+        refreshing=bool(_refresh_thread and _refresh_thread.is_alive())
+        refresh_error=_refresh_error
     import youtube_research
-    report=report or dict(checkedAt=None,sources=[],items=[],method='Recherche startet; noch keine Quellen geprüft.',intervalSeconds=INTERVAL)
+    report=report or dict(checkedAt=None,sources=[],items=[],method='Videorecherche pausiert. Auswertung bei Bedarf manuell starten.',intervalSeconds=INTERVAL)
     kept={x['url'] for x in report['items'][:3]}
     manual={x['url']:x for x in youtube_research.manual_items() if allowed_item(x) and x['url'] in kept}
     for item in report['items']:
@@ -487,7 +493,9 @@ def snapshot():
                 saved=_VERIFIED_PUBLICATIONS.get(youtube_research.video_id(item['url']))
                 if saved:item.update(saved)
             except (ValueError, KeyError):pass
-    return summarize(report)
+    result=summarize(report)
+    result.update(mode='manual',automaticRefresh=False,refreshing=refreshing,refreshError=refresh_error)
+    return result
 
 def resume_retained(items):
     """Retry only retained public videos; normal caches, quotas and proofs apply."""
@@ -518,29 +526,49 @@ def _run():
                     method='Gespeicherte MCO-YouTube-Videolinks. Quelle und Veröffentlichungszeit nicht neu geprüft.')
     except Exception as exc:
         print('BOB_YOUTUBE_ARCHIVE restore_error='+type(exc).__name__,flush=True)
-    while True:
-        try:
-            report=collect()
-            if report.get('items'):
-                pass  # collect() already persisted the verified three-video list
-            else:
-                with _lock:
-                    previous=copy.deepcopy(_report)
-                if previous and previous.get('items'):
-                    report['items']=previous['items']
-                    report['accessFallback']=previous.get('accessFallback',False)
-                    report['latestUploads']=previous.get('latestUploads',[])
-                    report['restrictedUploads']=previous.get('restrictedUploads',[])
-                    resume_retained(report['items'])
-                    report['archived']=True
-                    report['method']='Aktueller Kanalabruf ohne Videoliste. Zuletzt bestätigte öffentliche YouTube-Links bleiben sichtbar, ohne aktuelle Signalfreigabe.'
-            with _lock:_report=report
-        except Exception as exc:
-            print('BOB_YOUTUBE_COLLECT error='+type(exc).__name__,flush=True)
-        threading.Event().wait(retry_interval(locals().get('report')))
+
+
+def _refresh_once():
+    """One user-requested pass. No timer, retries, or startup collection."""
+    global _report, _refresh_error
+    try:
+        report=collect()
+        if not report.get('items'):
+            with _lock:
+                previous=copy.deepcopy(_report)
+            if previous and previous.get('items'):
+                report['items']=previous['items']
+                for key in ('accessFallback','latestUploads','restrictedUploads'):
+                    if key in previous:report[key]=previous[key]
+                report['archived']=True
+                report['method']='Kanalabruf ohne neue Videoliste. Gespeicherte Links bleiben erhalten; keine aktuelle Signalfreigabe.'
+        with _lock:_report=report
+    except Exception as exc:
+        with _lock:_refresh_error=type(exc).__name__
+        print('BOB_YOUTUBE_COLLECT error='+type(exc).__name__,flush=True)
+
+
+def request_refresh():
+    """Authenticated HTTP caller only; at most one pass and one start/minute."""
+    global _refresh_thread, _last_refresh, _refresh_error
+    with _lock:
+        if _thread and _thread.is_alive():
+            return {'ok':True,'status':'restoring'}
+        if _refresh_thread and _refresh_thread.is_alive():
+            return {'ok':True,'status':'running'}
+        now=time.monotonic()
+        if _last_refresh is not None and now-_last_refresh<60:
+            return {'ok':True,'status':'cooldown'}
+        _refresh_thread=threading.Thread(target=_refresh_once,name='bob-video-manual',daemon=True)
+        _last_refresh=now
+        _refresh_error=None
+        _refresh_thread.start()
+    return {'ok':True,'status':'started'}
+
 
 def start():
+    """Restore saved links once; never fetch or analyze videos automatically."""
     global _thread
     with _lock:
-        if _thread is None or not _thread.is_alive():
+        if _thread is None:
             _thread=threading.Thread(target=_run,name='bob-gold-research',daemon=True);_thread.start()

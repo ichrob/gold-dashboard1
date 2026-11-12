@@ -3,6 +3,7 @@
 An absent observation is unknown. An issue is never closed merely because the
 product list looks complete. All clocks remain the clocks of their own source.
 """
+from zentrale_status import phone_view, priority
 import math
 import time
 from datetime import datetime
@@ -23,6 +24,20 @@ def stamp(value):
 def fresh(value, now, seconds):
     at = stamp(value)
     return at is not None and 0 <= now-at <= seconds
+
+
+def storage_view(areas):
+    """Small projection of existing observations; no I/O or new measurements."""
+    from storage_brief import project
+    source = project(areas.get('storage'))
+    volume = source.get('renderVolume') or {}
+    archive = source.get('archive') or {}
+    return dict(databaseBytes=source.get('databaseBytes'),
+        databaseObservedAt=source.get('lastSampleAt'),
+        diskUsedBytes=volume.get('usedBytes'), diskObservedAt=volume.get('observedAt'),
+        archiveVerifiedAt=archive.get('verifiedAt'),
+        restoreVerified=archive.get('restoreVerified') is True,
+        physicalBytesFreed=None, ramBytes=None)
 
 
 def snapshot(report, now=None):
@@ -102,13 +117,13 @@ def snapshot(report, now=None):
         observationKind='readable-snapshot-not-continuous-execution-proof'))
     actions = [dict(code=c['code'], text='Deine Hilfe ist nach Bobs Prüfung nötig. Details im Bereich Probleme.',view='problems')
                for c in cases.values() if index_fresh and c['state'] == 'needs-user']
-    return dict(testOverview=__import__('bob_test_overview').snapshot(report, now), connections=__import__('bob_connections').snapshot(report, now), version=1, observedAt=report.get('observedAt'), readOnly=True, realOrders=False,
+    return dict(phone=phone_view(areas, now), storage=storage_view(areas), testOverview=__import__('bob_test_overview').snapshot(report, now), connections=__import__('bob_connections').snapshot(report, now), version=1, observedAt=report.get('observedAt'), readOnly=True, realOrders=False,
         productStatus=dict(state='unknown' if not product_fresh else 'conflict' if unresolved else 'differences-explained' if conflicts else 'complete' if complete else 'incomplete',
                            checkedAt=products.get('lastCheckedAt'), conflicts=conflicts,
                            unresolvedCount=len(unresolved),explainedCount=len(conflicts)-len(unresolved),
                            unconfirmedTermsCount=len(unconfirmed_terms),
                            tradeApproved=False),
-        cases=list(cases.values()), problemIndexFresh=index_fresh,
+        cases=sorted(cases.values(), key=priority), problemIndexFresh=index_fresh,
         actions=actions, actionStatus='known' if index_fresh else 'unknown', jobs=jobs,
         historicalPolicy=dict(state='closed-without-result-only-after-documented-review',
             reopen='new-original-evidence-only', contributesToProfit=False,

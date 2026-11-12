@@ -79,7 +79,9 @@ def read_chunk(drive, file_id, checksum, *, cached=True, conn=None):
             blob = path.read_bytes()
             if len(blob) > MAX_FILE or digest(blob) != checksum:
                 raise ValueError('Archive checksum mismatch')
-            with gzip.open(path, 'rb') as stream:
+            from cold_chunk_encryption import open_chunk
+            authenticated = open_chunk(path, tmp)
+            with gzip.open(authenticated, 'rb') as stream:
                 raw = stream.read(MAX_RAW + 1)
             if len(raw) > MAX_RAW:
                 raise ValueError('Archive expansion limit')
@@ -186,13 +188,17 @@ def offload_batch(conn, drive, now=None):
         return {'status': 'no-eligible-rows', 'movedRows': 0}
     raw = encoded({'format': FORMAT, 'rows': rows})
     with tempfile.TemporaryDirectory(prefix='bob-cold-write-') as tmp:
-        path = Path(tmp) / ('bob-cold-metrics-' + uuid.uuid4().hex + '.json.gz')
         blob = gzip.compress(raw, mtime=0)
         if len(blob) > MAX_FILE:
             raise ValueError('Compressed archive limit')
-        path.write_bytes(blob)
-        os.chmod(path, 0o600)
-        checksum = digest(blob)
+        plain = Path(tmp) / 'original.gz'
+        plain.write_bytes(blob)
+        os.chmod(plain, 0o600)
+        path = Path(tmp) / ('bob-cold-metrics-' + uuid.uuid4().hex + '.encrypted')
+        from cold_chunk_encryption import seal_chunk
+        checksum = seal_chunk(plain, path)
+        if path.stat().st_size > MAX_FILE:
+            raise ValueError('Encrypted archive limit')
         file_id = drive.upload(path, checksum)
     restored = read_chunk(drive, file_id, checksum, cached=False)
     if encoded(restored) != encoded(rows):
@@ -229,9 +235,13 @@ def connect():
         application_name='bob_cold_metrics', options='-c statement_timeout=10000 -c lock_timeout=1000')
 
 
+@__import__("ocr_workload_priority").maintenance
 def run_once(factory=connect):
     with factory() as conn:
-        if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_cold_metrics_v1'))").fetchone()[0]:
+        guard = __import__('storage_pressure').verified_writer_preflight(conn)
+        if guard is not None:
+            return guard
+        if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_storage_maintenance_v1'))").fetchone()[0]:
             return {'status': 'busy'}
         init(conn)
         drive = runtime_drive(conn)
@@ -282,3 +292,4 @@ def start():
                 time.sleep(__import__('storage_pressure').delay(result))
         _THREAD = threading.Thread(target=loop, name='bob-cold-metrics', daemon=True)
         _THREAD.start()
+

@@ -19,8 +19,11 @@ OVERHEAD = len(MAGIC) + NONCE_SIZE + TAG_SIZE
 MAX_PLAINTEXT_BYTES = 512 * 1024 * 1024
 
 
-def _key():
-    root = os.environ.get("PUSH_SERVICE_TOKEN", "")
+def _key(key_name="PUSH_SERVICE_TOKEN"):
+    # Explicit recovery path only. Never silently try a different key on upload.
+    if key_name not in ("PUSH_SERVICE_TOKEN", "BOB_ARCHIVE_RECOVERY_ROOT_TOKEN"):
+        raise ValueError("Unsupported archive key source")
+    root = os.environ.get(key_name, "")
     if type(root) is not str or len(root) < 32 or len(root) > 4096:
         raise ValueError("Private archive encryption key unavailable")
     return hashlib.sha256(
@@ -74,10 +77,12 @@ def seal(source, destination, expected_sha256):
             "plaintextSha256": expected_sha256, "ciphertextBytes": dst.stat().st_size}
 
 
-def unseal(source, destination, expected_sha256):
+def unseal(source, destination, expected_sha256, *, recovery=False):
     """Reject modified ciphertext before any restore or acceptance receipt."""
     from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
     from cryptography.exceptions import InvalidTag
+    if type(recovery) is not bool:
+        raise ValueError("Invalid recovery selector")
     src, dst = Path(source), Path(destination)
     if src.resolve() == dst.resolve():
         raise ValueError("In-place archive decryption prohibited")
@@ -96,7 +101,8 @@ def unseal(source, destination, expected_sha256):
             tag = ciphertext.read(TAG_SIZE)
             ciphertext.seek(len(MAGIC) + NONCE_SIZE)
             decryptor = Cipher(
-                algorithms.AES(_key()), modes.GCM(header[len(MAGIC):], tag)
+                algorithms.AES(_key("BOB_ARCHIVE_RECOVERY_ROOT_TOKEN" if recovery else "PUSH_SERVICE_TOKEN")),
+                modes.GCM(header[len(MAGIC):], tag)
             ).decryptor()
             decryptor.authenticate_additional_data(MAGIC)
             remaining = size - OVERHEAD
@@ -123,3 +129,48 @@ def unseal(source, destination, expected_sha256):
         raise
     return {"format": FORMAT, "encryptionVerified": True,
             "plaintextSha256": expected_sha256}
+
+
+def verify_recovery(source, expected_sha256):
+    """Verify an independently supplied recovery root against original ciphertext.
+
+    Processes downloaded AES-GCM bytes in 1-MiB chunks; never creates a
+    plaintext copy, logs key material or grants deletion authority. The
+    operator must escrow the original root OUTSIDE the Render deployment.
+    The root must be explicitly supplied in BOB_ARCHIVE_RECOVERY_ROOT_TOKEN.
+    """
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.exceptions import InvalidTag
+    src = Path(source)
+    size = src.stat().st_size
+    if not OVERHEAD < size <= MAX_PLAINTEXT_BYTES + OVERHEAD:
+        raise ValueError("Encrypted archive outside recovery byte budget")
+    if type(expected_sha256) is not str or len(expected_sha256) != 64:
+        raise ValueError("Original archive digest unavailable")
+    original_hash = hashlib.sha256()
+    with open(src, "rb") as ciphertext:
+        header = ciphertext.read(len(MAGIC) + NONCE_SIZE)
+        if len(header) != len(MAGIC) + NONCE_SIZE or not header.startswith(MAGIC):
+            raise ValueError("Unsupported encrypted archive format")
+        ciphertext.seek(-TAG_SIZE, os.SEEK_END)
+        tag = ciphertext.read(TAG_SIZE)
+        ciphertext.seek(len(MAGIC) + NONCE_SIZE)
+        decryptor = Cipher(
+            algorithms.AES(_key("BOB_ARCHIVE_RECOVERY_ROOT_TOKEN")),
+            modes.GCM(header[len(MAGIC):], tag)
+        ).decryptor()
+        decryptor.authenticate_additional_data(MAGIC)
+        remaining = size - OVERHEAD
+        while remaining:
+            block = ciphertext.read(min(CHUNK_SIZE, remaining))
+            if not block:
+                raise ValueError("Truncated encrypted archive")
+            remaining -= len(block)
+            original_hash.update(decryptor.update(block))
+        try:
+            original_hash.update(decryptor.finalize())
+        except InvalidTag as error:
+            raise ValueError("Recovery archive authentication failed") from error
+    if original_hash.hexdigest() != expected_sha256:
+        raise ValueError("Recovered archive digest mismatch")
+    return {"recoveryKeyVerified": True, "encryptionVersion": FORMAT}

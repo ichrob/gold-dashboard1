@@ -31,7 +31,7 @@ for(const bad of [{...products[0],ko:3999},{...products[0],name:'Faktor Gold'},{
 assert.equal(r.ranking([products[0],products[0]],state,market,api,now).length,1);
 const html=r.markup({...state,reason:'<script>bad()</script>'},ranked,{},'SHORT');assert(!html.includes('<script>'));assert(html.includes('GEGEN DEN HAUPTTREND'));assert(html.includes('NICHT ALS DEGIRO-AUSFÜHRUNG BESTÄTIGT'));
 const page=fs.readFileSync('Bob.html','utf8');for(const m of page.matchAll(/<script>([\s\S]*?)<\/script>/g))new vm.Script(m[1]);
-assert(page.includes("['risk','⚡','Risiko']"));assert(page.includes('mount(panels.risk)'));assert(fs.readFileSync('server.py','utf8').includes('"/risk_workspace.js"'));
+assert(page.includes("menuButton('risk','⚡','Risiko'"));assert(page.includes('mount(panels.risk)'));assert(fs.readFileSync('server.py','utf8').includes('"/risk_workspace.js"'));
 console.log('Risk: direction, stale/future/gapped data, KO/factor/identity filters, top-two leverage, LONG/SHORT trailing stops, latched exit, escaping and integration passed.');
 
 

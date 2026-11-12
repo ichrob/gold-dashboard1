@@ -23,6 +23,23 @@ class MemoryDb:
     def fetchone(self):return self.result
 
 class AndroidObservations(unittest.TestCase):
+    def test_explicit_source_absence_keeps_missing_fields_and_no_approval(self):
+        payload=run()
+        raw=DRAFT.replace('Geld (Anzeige ungeprüft): 13,06', 'Zuletzt (Anzeige ungeprüft): 4,98').replace(
+            'Brief (Anzeige ungeprüft): 13,07', 'Kursstatus (Anzeige ungeprüft): Geld/Brief nicht angezeigt')
+        payload['results'][0]['draft']=raw
+        result=a.prepare(payload,{},NOW)['results'][0]
+        self.assertEqual(result['code'],'QUOTES_UNAVAILABLE')
+        self.assertTrue({'Geld','Brief','Anzeigezeit','Hebel'} <= set(result['observation']['missingFields']))
+        self.assertFalse(result['observation']['tradeApproved'])
+        self.assertFalse(result['observation']['executable'])
+        self.assertIsNone(result['observation']['sourceTime'])
+        for extra in ('Geld (Anzeige ungeprüft): 4,97', 'Brief (Anzeige ungeprüft): 4,99'):
+            payload['results'][0]['draft']=raw+'\n'+extra
+            with self.assertRaises(ValueError):a.prepare(payload,{},NOW)
+        payload['results'][0].update(draft='',code='QUOTES_UNAVAILABLE')
+        with self.assertRaises(ValueError):a.prepare(payload,{},NOW)
+
     def test_gold_discovery_is_saved_as_unverified_candidates(self):
         payload=run();payload['listSource']='degiro-gold-search'
         saved=a.prepare(payload,{},NOW)

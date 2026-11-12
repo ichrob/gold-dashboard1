@@ -139,7 +139,10 @@ internal object MorningReadRun {
             (0 until requested.length()).map { requested.getString(it) }
             else listOf("Geld","Brief","Anzeigezeit","Hebel","KO-Schwelle","Basispreis","Bv")
         val missing=required.filterNot { draft.contains("$it (Anzeige ungeprüft): ") }
-        val finalCode=if(draft.isNotEmpty()) (if(missing.isEmpty()) "COMPLETE" else "PARTIAL") else code
+        val finalCode=if(draft.isNotEmpty()) (if(missing.isEmpty()) "COMPLETE"
+            else if(draft.lineSequence().any { it == "Kursstatus (Anzeige ungeprüft): Geld/Brief nicht angezeigt" } &&
+                !draft.contains("Geld (Anzeige ungeprüft): ") && !draft.contains("Brief (Anzeige ungeprüft): ")) "QUOTES_UNAVAILABLE"
+            else "PARTIAL") else code
         val results=data!!.getJSONArray("results")
         val entry=JSONObject().put("isin",target).put("code",finalCode).put("attempts",attempt)
             .put("draft",draft).put("missingFields",JSONArray(missing))
@@ -161,13 +164,39 @@ internal object MorningReadRun {
         if(MorningReadRetryPolicy.retry(finalCode,draft.isNotEmpty(),missing,attempt)) {
             attempt++; reading=false;backSteps=0;return true
         }
-        index++;skipCompleted();attempt=1;reading=false;backSteps=0
+        index++;skipCompleted();attempt=(savedResult()?.optInt("attempts") ?: 0)+1;reading=false;backSteps=0
         if(index>=count) { running=false;return false }
         return true
     }
-    private fun skipCompleted() {
+    private fun savedResult(): JSONObject? {
         val rows=data!!.getJSONArray("results")
-        while(index<count && (0 until rows.length()).any { rows.getJSONObject(it).optString("isin")==target && rows.getJSONObject(it).optString("code")=="COMPLETE" }) index++
+        return (0 until rows.length()).map { rows.getJSONObject(it) }.firstOrNull { it.optString("isin")==target }
+    }
+    private fun skipCompleted() {
+        while(index<count) {
+            val row=savedResult() ?: break
+            val missing=row.optJSONArray("missingFields") ?: JSONArray()
+            if(MorningReadRetryPolicy.retry(row.optString("code"),row.optString("draft").isNotEmpty(),
+                    (0 until missing.length()).map { missing.optString(it) },row.optInt("attempts"))) break
+            index++
+        }
+    }
+    /** Called only from the locally requested Start, after the usual session/login gates. */
+    fun resumeRecent(c: Context): Boolean {
+        val raw=entries(c)[RunOutbox.CURRENT] ?: return false
+        val saved=runCatching { JSONObject(raw) }.getOrNull() ?: return false
+        val age=runCatching { System.currentTimeMillis()-Instant.parse(saved.getString("listUploadedAt")).toEpochMilli() }.getOrNull() ?: return false
+        val events=saved.optJSONArray("events") ?: return false
+        if(!MorningResumePolicy.eligible(age,saved.optInt("resumeCount"),
+                events.optJSONObject(events.length()-1)?.optString("code").orEmpty())) return false
+        val ids=saved.optJSONArray("isins") ?: return false
+        val results=saved.optJSONArray("results") ?: return false
+        // Resume only when at least one product has never been visited. Exhausted
+        // partial results go to the existing source recovery, not another loop.
+        val visited=(0 until results.length()).map { results.getJSONObject(it).optString("isin") }.toSet()
+        if((0 until ids.length()).all { ids.optString(it) in visited }) return false
+        resume(c)
+        return true
     }
     fun resume(c: Context) {
         check(!running) { "Listenlauf läuft bereits." }
@@ -178,9 +207,14 @@ internal object MorningReadRun {
         val key=RunOutbox.pendingKey(before) ?: error("Kein gespeicherter Lauf.")
         check(saveEntries(c,before,(before-key)+(RunOutbox.CURRENT to raw))) { "Lokale Speicherung fehlgeschlagen." }
         data=saved;index=0;skipCompleted()
-        check(index<count) { "Alle Produkte vollständig. Ergebnisse an Bob übertragen." }
+        check(index<count) { "Keine weiteren Leseversuche offen. Gespeicherte Ergebnisse an Bob übertragen." }
         GoldSearchRun.clear()
-        attempt=1;reading=false;backSteps=0;started=SystemClock.elapsedRealtime();running=true
+        attempt=(savedResult()?.optInt("attempts") ?: 0)+1
+        reading=false;backSteps=0;started=SystemClock.elapsedRealtime()
+        data!!.put("resumeCount",data!!.optInt("resumeCount")+1)
+        persist(c)
+        running=true
+        PhoneDiagnostics.queue(c)
     }
     fun stop(c: Context, code: String) {
         val wasRunning=running

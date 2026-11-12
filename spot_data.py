@@ -8,6 +8,7 @@ URL = 'https://api.gold-api.com/price/XAU'
 POLL_SECONDS = 30
 NEAR_EXPIRY_SECONDS = 30  # Original quote age, not time since the HTTP request.
 NEAR_EXPIRY_RETRY_SECONDS = 5
+FINAL_BUNDLE_RETRY_MAX_WAIT_SECONDS = 3
 _lock = threading.Lock()
 _quote = None
 _attempted = float('-inf')
@@ -29,10 +30,43 @@ def _poll_interval():
     return NEAR_EXPIRY_RETRY_SECONDS if age >= NEAR_EXPIRY_SECONDS else POLL_SECONDS
 
 
-def primary():
+def _cached_observation():
+    # The quote dictionary is replaced, never mutated after publication.
+    # A concurrent refresh must not make readers wait on its network lock.
+    quote,error=_quote,_error
+    if not quote or error not in (None,'OSError','URLError','TimeoutError','HTTPError'):
+        raise ValueError('Gemeinsamer Spot-Abruf nicht verfügbar: '+str(error))
+    age=(datetime.now(timezone.utc)-datetime.fromisoformat(quote['at'])).total_seconds()
+    if not 0<=age<=60:
+        raise ValueError('Gemeinsamer Spot-Kurs veraltet oder Kurszeit zukünftig')
+    return dict(quote,refreshWarning='Letzter Abruf fehlgeschlagen; gespeicherter Kurs innerhalb 60 Sekunden' if error else None)
+
+
+def final_bundle_retry_wait(source_at, max_wait=FINAL_BUNDLE_RETRY_MAX_WAIT_SECONDS):
+    """Return a tiny wait until the next already-permitted provider attempt.
+
+    Bundle assembly can finish a couple of seconds before the shared 30-second
+    provider cadence opens again. Waiting is allowed only for the exact cached
+    original, with no active request or provider cooldown, and never extends a
+    source timestamp or changes the ordinary polling interval.
+    """
+    if (not isinstance(source_at, str) or type(max_wait) not in (int, float)
+            or not 0 < max_wait <= FINAL_BUNDLE_RETRY_MAX_WAIT_SECONDS
+            or _lock.locked() or (_quote or {}).get('at') != source_at):
+        return None
+    now = time.monotonic()
+    if now < _retry_at:
+        return None
+    remaining = _poll_interval() - (now - _attempted)
+    return remaining if 0 < remaining <= max_wait else None
+
+
+def primary(blocking=True):
     global _quote, _attempted, _error, _route, _retry_at, _near_expiry_retried_at
     # Serialize provider access, including concurrent browser, monitor and model requests.
-    with _lock:
+    if not _lock.acquire(blocking=blocking):
+        return _cached_observation()
+    try:
         now_monotonic = time.monotonic()
         poll_interval = _poll_interval()
         if now_monotonic - _attempted >= poll_interval and now_monotonic >= _retry_at:
@@ -51,6 +85,15 @@ def primary():
                     after = datetime.fromisoformat(q['at'])
                     if after < before or (after == before and q['price'] != _quote['price']):
                         raise ValueError('Spot-Kurszeit rückläufig oder widersprüchlicher Kurs')
+                # Prospective source-clock evidence only: no price, product or
+                # account data. This distinguishes a provider-repeated original
+                # timestamp from a Bob handoff delay without changing polling.
+                print(
+                    "BOB_SPOT_FETCH_EVIDENCE source_at=%s age_ms=%d repeated=%s early_retry=%s route=%d"
+                    % (q['at'], int(round(age * 1000)), q['at'] == previous_at,
+                       poll_interval == NEAR_EXPIRY_RETRY_SECONDS, _route),
+                    flush=True,
+                )
                 if _error:
                     logging.info("BOB_MARKET_RECOVERY source=spot state=recovered")
                 # A provider observation first received close to expiry gets one
@@ -62,6 +105,14 @@ def primary():
                 _error = type(exc).__name__
                 if previous_at and poll_interval == NEAR_EXPIRY_RETRY_SECONDS:
                     _near_expiry_retried_at = previous_at
+                # Failed requests have no verified new provider clock. Emit
+                # fixed, price-free attempt context to compare retry timing
+                # with separate original-study witnesses (never the raw error).
+                print(
+                    "BOB_SPOT_FETCH_FAILURE reason=%s early_retry=%s attempted_route=%d"
+                    % (_error, poll_interval == NEAR_EXPIRY_RETRY_SECONDS, _route),
+                    flush=True,
+                )
                 # Equivalent documented USD route; one attempt per 30 seconds,
                 # not a new provider or an invented source timestamp.
                 code = getattr(exc, 'code', None)
@@ -81,12 +132,10 @@ def primary():
                                 pass
                     _retry_at = time.monotonic()+delay
                 logging.warning("BOB_MARKET_RECOVERY source=spot state=retrying code=%s", _error)
-        if not _quote or _error not in (None, 'OSError', 'URLError', 'TimeoutError', 'HTTPError'):
-            raise ValueError('Gemeinsamer Spot-Abruf nicht verfügbar: ' + str(_error))
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(_quote['at'])).total_seconds()
-        if not 0 <= age <= 60:
-            raise ValueError('Gemeinsamer Spot-Kurs veraltet oder Kurszeit zukünftig')
-        return dict(_quote, refreshWarning='Letzter Abruf fehlgeschlagen; gespeicherter Kurs innerhalb 60 Sekunden' if _error else None)
+        return _cached_observation()
+    finally:
+        _lock.release()
+
 
 
 def current():
@@ -96,11 +145,15 @@ def current():
     Models tied to a specific provider must still validate that identity.
     """
     try:
-        return primary()
+        return primary(blocking=False)
     except (OSError, ValueError, KeyError, TypeError):
         from xaus_spot import peek
         backup = peek()
         if backup is None:
+            # Cold start: if no checked source exists, wait for the single
+            # running provider call rather than starting another request.
+            if _lock.locked():
+                return primary()
             raise
         return dict(backup, underlying='XAU/USD', proxyKind='xaus-spot',
                     backupActive=True, refreshWarning='Hauptquelle nicht verfügbar; geprüfte XAUS-Ersatzquelle')

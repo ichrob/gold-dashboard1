@@ -7,3 +7,6 @@ dependencyResolutionManagement {
 }
 rootProject.name = "BobAndroidEvidenceLab"
 include(":app")
+include(":zentrale")
+
+include(":workflowfixture")

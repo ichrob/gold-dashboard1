@@ -3,7 +3,7 @@ import json
 import os
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import candle_reliability as c
 import server
 from test_ema200_history_backfill import candle_series,xaus_points
@@ -77,8 +77,138 @@ class ReliabilityTests(unittest.TestCase):
             req.assert_not_called()
         self.assertTrue(c._ROWS)
 
+    def test_failed_series_does_not_starve_later_series_or_statistics(self):
+        first = self.rows()
+        second = copy.deepcopy(first)
+        for row in second:
+            row['source'] = c.SOURCES['xaus']
+        c._ROWS.update({'biquote/1m': first, 'xaus/1m': second})
+        calls = []
+        def request(action, payload):
+            calls.append(payload['key'])
+            if payload['key'] == 'biquote/1m':
+                raise OSError('transient timeout')
+            return {'ok': True}
+        with patch.object(c, 'request', side_effect=request):
+            with self.assertRaises(OSError):
+                c.cycle(server)
+        self.assertEqual(calls, ['biquote/1m', 'xaus/1m', 'statistics'])
+        self.assertNotIn('biquote/1m', c._SAVED)
+        self.assertEqual(len(c._SAVED['xaus/1m']), 32)
+        with patch.object(c, 'request', return_value={'ok': True}) as req:
+            c.cycle(server)
+        self.assertEqual([call.args[1]['key'] for call in req.call_args_list],
+                         ['biquote/1m', 'statistics'])
+
+    def test_only_acknowledged_identical_candles_skip_write(self):
+        c._ROWS['biquote/1m'] = self.rows()
+        with patch.object(c, 'request', return_value={'ok': False}):
+            with self.assertRaises(ValueError):
+                c.cycle(server)
+        self.assertNotIn('biquote/1m', c._SAVED)
+        with patch.object(c, 'request', return_value={'ok': True}) as req:
+            c.cycle(server)
+            req.reset_mock()
+            c.cycle(server)
+            self.assertEqual([call.args[1]['key'] for call in req.call_args_list], ['statistics'])
+            c._ROWS['biquote/1m'][-1]['high'] += 1
+            req.reset_mock()
+            c.cycle(server)
+            self.assertEqual([call.args[1]['key'] for call in req.call_args_list],
+                             ['biquote/1m', 'statistics'])
+
+    def test_evidence_batches_preserve_all_rows_without_partial_commit(self):
+        conn = MagicMock()
+        rows = self.rows(600)
+        c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
+        batches = [json.loads(call.args[1][1]) for call in conn.execute.call_args_list
+                   if 'INSERT INTO bob_candle_evidence' in call.args[0]]
+        self.assertEqual([len(batch) for batch in batches], [128, 128, 128, 128, 88])
+        self.assertEqual([row for batch in batches for row in batch], c.validated('biquote/1m', rows))
+        conn.commit.assert_not_called()
+        conn.reset_mock()
+        conn.execute.side_effect = [None, OSError('second batch failed')]
+        with self.assertRaises(OSError):
+            c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
+        self.assertFalse(any('INSERT INTO bob_candle_checkpoints' in call.args[0]
+                             for call in conn.execute.call_args_list))
+        conn.commit.assert_not_called()
+
+    def test_evidence_statement_work_stays_below_observed_timeout_batch(self):
+        conn = MagicMock()
+        rows = self.rows(600)
+        executed = []
+        def execute(sql, params=None):
+            if 'INSERT INTO bob_candle_evidence' in sql:
+                batch = json.loads(params[1])
+                executed.append(batch)
+                if len(batch) > 128:
+                    raise TimeoutError('simulated statement timeout under concurrent database load')
+            return MagicMock()
+        conn.execute.side_effect = execute
+        c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
+        self.assertEqual([len(batch) for batch in executed], [128, 128, 128, 128, 88])
+        self.assertEqual([row for batch in executed for row in batch],
+                         c.validated('biquote/1m', rows))
+        conn.commit.assert_not_called()
+
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
+    def test_repeated_checkpoint_skips_insert_attempts_but_preserves_revisions(self):
+        import psycopg
+        schema='candle_delta_'+str(time.time_ns())
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('CREATE SCHEMA '+schema)
+            conn.execute('SET search_path TO '+schema)
+            c.init(conn)
+            # BEFORE INSERT also fires for ON CONFLICT DO NOTHING. Count the
+            # attempted writes, not just the final row count, to reproduce the
+            # redundant write path on a mostly unchanged checkpoint.
+            conn.execute('CREATE TABLE insert_attempts (n integer NOT NULL)')
+            conn.execute('INSERT INTO insert_attempts VALUES (0)')
+            conn.execute('''CREATE FUNCTION count_attempt() RETURNS trigger
+                LANGUAGE plpgsql AS $$ BEGIN
+                    UPDATE insert_attempts SET n=n+1;
+                    RETURN NEW;
+                END $$''')
+            conn.execute('''CREATE TRIGGER count_attempt BEFORE INSERT
+                ON bob_candle_evidence FOR EACH ROW EXECUTE FUNCTION count_attempt()''')
+            rows=candle_series(600,step=60000)
+            for row in rows:row['source']=c.SOURCES['biquote']
+            def write(data):
+                conn.execute('UPDATE insert_attempts SET n=0')
+                c.handle(conn,'write',{'key':'biquote/1m','rows':data})
+                return conn.execute('SELECT n FROM insert_attempts').fetchone()[0]
+            self.assertEqual(write(rows),600)
+            self.assertEqual(write(rows),0)
+            changed=copy.deepcopy(rows)
+            changed[-1]['high']+=1
+            self.assertEqual(write(changed),1)
+            self.assertEqual(conn.execute('SELECT count(*) FROM bob_candle_evidence').fetchone()[0],601)
+            self.assertEqual(c.handle(conn,'read',{'key':'biquote/1m'})['rows'],
+                             c.validated('biquote/1m',changed))
+            # Returning an older known revision cannot discard either original.
+            self.assertEqual(write(rows),0)
+            self.assertEqual(conn.execute('SELECT count(*) FROM bob_candle_evidence').fetchone()[0],601)
+            # A missing evidence row must be backfilled even if the checkpoint
+            # already contains the same payload (e.g. an older installation).
+            conn.execute('DELETE FROM bob_candle_evidence WHERE open_time=%s',(rows[0]['openTime'],))
+            self.assertEqual(write(rows),1)
+            # Checkpoint failure must roll back new evidence with it.
+            conn.execute('''CREATE FUNCTION fail_checkpoint() RETURNS trigger
+                LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test rollback'; END $$''')
+            conn.execute('''CREATE TRIGGER fail_checkpoint BEFORE INSERT OR UPDATE
+                ON bob_candle_checkpoints FOR EACH ROW EXECUTE FUNCTION fail_checkpoint()''')
+            newer=copy.deepcopy(rows)
+            newer[-1]['high']+=2
+            with self.assertRaises(psycopg.errors.RaiseException):
+                with conn.transaction():
+                    write(newer)
+            self.assertEqual(conn.execute('SELECT count(*) FROM bob_candle_evidence').fetchone()[0],601)
+            self.assertEqual(c.handle(conn,'read',{'key':'biquote/1m'})['rows'],
+                             c.validated('biquote/1m',rows))
+            conn.execute('DROP SCHEMA '+schema+' CASCADE')
+
     def test_restart_archive_and_monitor_fence(self):
         import psycopg
         schema='candles_'+str(time.time_ns())

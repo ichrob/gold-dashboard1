@@ -111,6 +111,8 @@ def from_issues(rows, *, now=None):
     """Whitelist descriptions, titles and links; reject PRs and unrelated issues."""
     if not isinstance(rows, list):
         raise ValueError("GitHub issues missing")
+    import repair_flow
+    now = now or datetime.now(timezone.utc)
     allowed = {issue_title(code): (code, CODES[code]) for code in CODES}
     # Migration compatibility: one old combined issue, if still open.
     allowed[ISSUE_TITLE] = ("legacy-incident", "Ältere zusammengefasste KI-Hilfeanfrage")
@@ -148,7 +150,7 @@ def from_issues(rows, *, now=None):
         if not isinstance(updated, str) or not re.fullmatch(stamp_pattern, updated):
             updated = None
         state = ki_status(row)
-        items.append({
+        item = {
             "number": number,
             "code": code,
             "message": description,
@@ -159,7 +161,11 @@ def from_issues(rows, *, now=None):
             "kiStatusLabel": KI_STATUS_LABELS[state],
             "caseId": "BOB-" + str(number) + "-" + code,
             "review": ki_review(row),
-        })
+        }
+        flow = repair_flow.parse(_trusted_marker_tail(row), created_at=created, now=now.timestamp())
+        if flow is not None:
+            item['repairFlow'] = flow
+        items.append(item)
     items.sort(key=lambda problem: problem["number"], reverse=True)
     at = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
     return {
@@ -561,6 +567,23 @@ PANEL = r'''<section id="bobProblemPanel" class="card" style="margin:12px 0">
     button.addEventListener('click',()=>copy(report(issue),note));
     article.append(title,meta,link);
     const review=issue.review;
+    const flow=issue.repairFlow;
+    if(flow&&['chatgpt','gemini'].includes(flow.owner)&&
+       ['accepted','working','testing','awaiting-live','blocked'].includes(flow.phase)){
+      const progress=document.createElement('p');progress.className='small';
+      const phases={accepted:'übernommen',working:'in Bearbeitung',testing:'Tests laufen',
+        'awaiting-live':'Funktionsnachprüfung offen',blocked:'blockiert'};
+      progress.textContent='Dokumentierte Übernahme: '+(flow.owner==='chatgpt'?'ChatGPT':'Gemini')+
+        ' · '+phases[flow.phase]+' · übernommen: '+readableDate(flow.acceptedAt)+
+        ' · letzter Fortschritt: '+readableDate(flow.progressAt)+
+        ' · nächste Prüfung: '+readableDate(flow.nextCheckAt)+
+        ' · noch kein Reparaturerfolg';
+      article.append(progress);
+    }else{
+      const pending=document.createElement('p');pending.className='small';
+      pending.textContent='Übernahme und nächster Prüftermin noch nicht dokumentiert.';
+      article.append(pending);
+    }
     if(review&&Number.isInteger(review.pr)&&review.pr>0&&
        typeof review.commit==='string'&&/^[a-f0-9]{40}$/.test(review.commit)&&
        ['proposed','ci-tested','deployed-unverified'].includes(review.phase)){

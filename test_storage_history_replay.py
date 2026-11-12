@@ -1,0 +1,316 @@
+"""Independent history replay is read-only and never licenses deletion."""
+from datetime import datetime, timedelta, timezone
+import json
+import os
+import unittest
+import uuid
+
+import storage_history_evaluations as writer
+import storage_history_replay as replay
+
+
+class ProjectionTests(unittest.TestCase):
+    def setUp(self):
+        self.at = datetime(2026, 10, 30, 10, tzinfo=timezone.utc)
+        self.diagnoses = [
+            ("private-d1", self.at, "input", "ok"),
+            ("private-d2", self.at + timedelta(minutes=1), "analysis", "failed"),
+        ]
+        self.decisions = [
+            ("private-a1", self.at, "LONG", "true"),
+            ("private-a2", self.at + timedelta(minutes=1), "WAIT", "false"),
+        ]
+
+    def test_independent_fingerprint_matches_existing_writer(self):
+        for area, rows in (("diagnoses", self.diagnoses),
+                           ("decisions", self.decisions)):
+            with self.subTest(area=area):
+                self.assertEqual(replay.replay_page(area, rows),
+                                 writer.summarize(area, rows))
+                self.assertNotIn("private-", json.dumps(replay.replay_page(area, rows)))
+
+    def test_manifest_detects_changes_to_order_identity_labels_and_boundaries(self):
+        for area, rows in (("diagnoses", self.diagnoses),
+                           ("decisions", self.decisions)):
+            summary = writer.summarize(area, rows)
+            manifest = (summary["digest"], len(rows),
+                        summary["categories"], summary["outcomes"],
+                        rows[0][1], rows[-1][1])
+            self.assertTrue(replay.matches_manifest(area, rows, manifest))
+            changed_id = [("different", *rows[0][1:]), rows[1]]
+            changed_label = [(*rows[0][:2], "other", rows[0][3]), rows[1]]
+            self.assertFalse(replay.matches_manifest(area, changed_id, manifest))
+            self.assertFalse(replay.matches_manifest(area, changed_label, manifest))
+            self.assertFalse(replay.matches_manifest(
+                area, rows, (*manifest[:4], self.at + timedelta(seconds=1), manifest[5])))
+            with self.assertRaises(ValueError):
+                replay.replay_page(area, [rows[1], rows[0]])
+
+    def test_bounded_sql_reads_without_mutation(self):
+        for area in replay.AREAS:
+            self.assertIn("ORDER BY recorded_at,id LIMIT %s", replay.SOURCE_SQL[area])
+            self.assertIn("ORDER BY recorded_at,id LIMIT 1", replay.TAIL_SQL[area])
+            for query in (replay.SOURCE_SQL[area], replay.TAIL_SQL[area]):
+                for forbidden in ("DELETE ", "UPDATE ", "INSERT ", "SELECT *"):
+                    self.assertNotIn(forbidden, query.upper())
+        with self.assertRaises(ValueError):
+            replay.replay_page("other", [])
+        with self.assertRaises(ValueError):
+            replay.replay_page("diagnoses", self.diagnoses * 201)
+
+    def test_replayed_prefix_not_mistaken_for_complete_history(self):
+        rows = self.diagnoses
+        summary = writer.summarize("diagnoses", rows)
+        manifest = (summary["digest"], len(rows), summary["categories"],
+                    summary["outcomes"], rows[0][1], rows[-1][1])
+        class Fake:
+            def __init__(self, changed=False, pending=False):
+                self.changed = changed
+                self.pending = pending
+                self.data = None
+                self.sql = []
+            def execute(self, sql, params=()):
+                self.sql.append(sql)
+                if "bob_history_eval_cursor" in sql:
+                    self.data = (rows[-1][1], rows[-1][0], len(rows))
+                elif "bob_history_eval_segments" in sql:
+                    self.data = [manifest]
+                elif "SELECT id,recorded_at,stage" in sql:
+                    self.data = [("altered", *rows[0][1:]), rows[1]] if self.changed else rows
+                elif "SELECT recorded_at FROM bob_diagnostic_history" in sql:
+                    self.data = (rows[0][1],)
+                elif "SELECT id FROM bob_diagnostic_history" in sql:
+                    self.data = ("new-after-cursor",) if self.pending else None
+                else:
+                    raise AssertionError("Unexpected SQL")
+                return self
+            def fetchone(self):
+                return self.data
+            def fetchall(self):
+                return self.data
+        cutoff = self.at + timedelta(days=3)
+        good = Fake()
+        result = replay.inspect_area(good, "diagnoses", cutoff)
+        self.assertEqual(result["status"], "verified-stable-projection")
+        self.assertEqual(result["replayedRows"], 2)
+        self.assertEqual(replay.inspect_area(Fake(pending=True),
+            "diagnoses", cutoff)["status"], "verified-prefix-catchup-pending")
+        self.assertEqual(replay.inspect_area(Fake(changed=True),
+            "diagnoses", cutoff)["status"], "source-or-manifest-mismatch")
+        self.assertFalse(any("DELETE" in q.upper() or "UPDATE " in q.upper()
+                             for q in good.sql))
+
+
+    def test_partial_capture_pages_are_replayed_at_their_exact_length(self):
+        # Capture may stop after a short page and later append more historical
+        # rows. Re-reading 400 rows for that first page reports a false mismatch.
+        at = self.at
+        first = [("d1", at, "input", "ok"),
+                 ("d2", at + timedelta(seconds=1), "health", "ok")]
+        second = [("d3", at + timedelta(seconds=2), "analysis", "failed")]
+        def manifest(rows):
+            page = writer.summarize("diagnoses", rows)
+            return (page["digest"], len(rows), page["categories"],
+                    page["outcomes"], rows[0][1], rows[-1][1])
+        class Fake:
+            def __init__(self, bad_count=False):
+                self.data = None
+                self.source = first + second
+                self.manifests = [manifest(first), manifest(second)]
+                if bad_count:
+                    row = self.manifests[0]
+                    self.manifests[0] = (row[0], replay.PAGE_ROWS + 1, *row[2:])
+                self.query_limits = []
+            def execute(self, statement, params=()):
+                if "FROM bob_history_eval_cursor" in statement:
+                    self.data = (second[-1][1], second[-1][0], 3)
+                elif "FROM bob_history_eval_segments" in statement:
+                    self.data = self.manifests
+                elif "SELECT id,recorded_at,stage" in statement:
+                    limit = params[-1]
+                    self.query_limits.append(limit)
+                    low = params[0:2]
+                    eligible = [row for row in self.source
+                                if (row[1], row[0]) > (low[0], low[1])]
+                    self.data = eligible[:limit]
+                elif "SELECT id FROM bob_diagnostic_history" in statement:
+                    self.data = None
+                else:
+                    raise AssertionError("Unexpected read")
+                return self
+            def fetchone(self):
+                return self.data
+            def fetchall(self):
+                return self.data
+        good = Fake()
+        state = replay.inspect_area(good, "diagnoses", at + timedelta(days=4))
+        self.assertEqual(state["status"], "verified-stable-projection")
+        self.assertEqual(state["replayedRows"], 3)
+        self.assertEqual(good.query_limits, [2, 1])
+        invalid = Fake(bad_count=True)
+        state = replay.inspect_area(invalid, "diagnoses", at + timedelta(days=4))
+        self.assertEqual(state["status"], "manifest-count-mismatch")
+        self.assertEqual(invalid.query_limits, [])
+
+
+    def test_retained_diagnostic_prefix_is_not_misreported_as_corruption(self):
+        rows = self.diagnoses
+        summary = writer.summarize("diagnoses", rows)
+        manifest = (summary["digest"], len(rows), summary["categories"],
+                    summary["outcomes"], rows[0][1], rows[-1][1])
+
+        class PrunedJournal:
+            def __init__(self):
+                self.data = None
+                self.statements = []
+            def execute(self, statement, params=()):
+                self.statements.append(statement)
+                if "FROM bob_history_eval_cursor" in statement:
+                    self.data = (rows[-1][1], rows[-1][0], len(rows))
+                elif "FROM bob_history_eval_segments" in statement:
+                    self.data = [manifest]
+                elif "SELECT id,recorded_at,stage" in statement:
+                    self.data = [rows[1]]
+                elif "SELECT recorded_at FROM bob_diagnostic_history" in statement:
+                    self.data = (rows[1][1],)
+                else:
+                    raise AssertionError("Unexpected query")
+                return self
+            def fetchone(self):
+                return self.data
+            def fetchall(self):
+                return self.data
+
+        journal = PrunedJournal()
+        result = replay.inspect_area(journal, "diagnoses",
+                                     self.at + timedelta(days=4))
+        self.assertEqual(result["status"], "source-prefix-not-local")
+        self.assertEqual(result["replayedRows"], 0)
+        self.assertTrue(result["verifiedArchiveReplayRequired"])
+        self.assertNotIn("private-", json.dumps(result))
+        self.assertEqual(
+            sum("SELECT recorded_at FROM bob_diagnostic_history" in q
+                for q in journal.statements), 1)
+        self.assertFalse(any("DELETE " in q.upper() or "UPDATE " in q.upper()
+                             for q in journal.statements))
+
+
+    def test_diagnostic_prefix_gap_is_visible_even_beyond_page_budget(self):
+        # Production can hold more than 200 durable 400-row manifests.
+        # The old early return hid the archive-required prefix behind the cap.
+        first = self.at
+        manifests = [
+            ("a" * 64, 1, {}, {},
+             first + timedelta(seconds=i), first + timedelta(seconds=i))
+            for i in range(replay.MAX_PAGES + 1)
+        ]
+
+        class Fake:
+            def __init__(self, oldest):
+                self.oldest = oldest
+                self.data = None
+                self.sql = []
+            def execute(self, sql, params=()):
+                self.sql.append(sql)
+                if "FROM bob_history_eval_cursor" in sql:
+                    self.data = (first + timedelta(days=1), "last", len(manifests))
+                elif "FROM bob_history_eval_segments" in sql:
+                    self.data = manifests
+                elif "SELECT recorded_at FROM bob_diagnostic_history" in sql:
+                    self.data = (self.oldest,)
+                else:
+                    raise AssertionError("Source replay must not run over budget")
+                return self
+            def fetchone(self):
+                return self.data
+            def fetchall(self):
+                return self.data
+
+        missing = Fake(first + timedelta(hours=1))
+        report = replay.inspect_area(
+            missing, "diagnoses", first + timedelta(days=4))
+        self.assertEqual(report["status"], "source-prefix-not-local")
+        self.assertEqual(report["replayedRows"], 0)
+        self.assertEqual(report["manifestPagesAtLeast"], replay.MAX_PAGES + 1)
+        self.assertTrue(report["pageBudgetExceeded"])
+        self.assertTrue(report["verifiedArchiveReplayRequired"])
+        self.assertEqual(
+            sum("SELECT recorded_at FROM bob_diagnostic_history" in q
+                for q in missing.sql), 1)
+        self.assertFalse(any("DELETE " in q.upper() or "UPDATE " in q.upper()
+                             for q in missing.sql))
+
+        retained = Fake(first)
+        report = replay.inspect_area(
+            retained, "diagnoses", first + timedelta(days=4))
+        self.assertEqual(report["status"], "page-budget-exceeded")
+        self.assertNotIn("verifiedArchiveReplayRequired", report)
+
+
+@unittest.skipUnless(os.environ.get("BOB_TEST_DATABASE_URL"),
+                     "Requires isolated PostgreSQL CI database")
+class IsolatedDatabaseTests(unittest.TestCase):
+    def test_captured_manifests_replay_then_source_change_fails(self):
+        import psycopg
+        from psycopg import sql
+        schema = "history_replay_" + uuid.uuid4().hex
+        now = datetime(2026, 11, 5, 12, tzinfo=timezone.utc)
+        with psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
+                             autocommit=True) as conn:
+            conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+            try:
+                conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+                conn.execute("""CREATE TABLE bob_diagnostic_history(
+                    id text PRIMARY KEY, recorded_at timestamptz NOT NULL,
+                    stage text, payload jsonb)""")
+                conn.execute("""CREATE TABLE bob_decision_audit(
+                    id text PRIMARY KEY, recorded_at timestamptz NOT NULL,
+                    payload jsonb)""")
+                writer.init(conn)
+                conn.execute("""INSERT INTO bob_diagnostic_history VALUES
+                    ('d1','2026-10-30 10:00+00','input','{"outcome":"ok"}'),
+                    ('d2','2026-10-30 10:01+00','analysis','{"outcome":"failed"}')""")
+                conn.execute("""INSERT INTO bob_decision_audit VALUES
+                    ('a1','2026-10-30 10:00+00','{"direction":"LONG","marketEvaluable":true}'),
+                    ('a2','2026-10-30 10:01+00','{"direction":"WAIT","marketEvaluable":false}')""")
+                captured = writer.capture(conn, now)
+                self.assertEqual(captured["areas"]["diagnoses"], "page-recorded")
+                # Use a separate, explicitly read-only session to test the
+                # same snapshot contract used in production.
+                with psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
+                        options="-c default_transaction_read_only=on") as reader:
+                    reader.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+                    reader.commit()  # ensure inspect starts a top-level read-only transaction
+                    result = replay.inspect(reader, now)
+                self.assertEqual(result["status"], "projections-verified-only")
+                self.assertFalse(result["fullOriginalReplayVerified"])
+                self.assertFalse(result["deletionAuthorized"])
+                conn.execute("""UPDATE bob_diagnostic_history
+                    SET payload='{"outcome":"failed"}'::jsonb WHERE id='d1'""")
+                # An independent subsequent snapshot must detect the change.
+                with psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
+                        options="-c default_transaction_read_only=on") as reader:
+                    reader.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+                    reader.commit()
+                    changed = replay.inspect(reader, now)
+                self.assertEqual(changed["areas"]["diagnoses"]["status"],
+                                 "source-or-manifest-mismatch")
+                self.assertEqual(changed["status"], "partial")
+                # Existing capture remains immutable after regular source
+                # retention; absence must not masquerade as a corrupt digest.
+                conn.execute("DELETE FROM bob_diagnostic_history WHERE id='d1'")
+                with psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
+                        options="-c default_transaction_read_only=on") as reader:
+                    reader.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+                    reader.commit()
+                    gap = replay.inspect(reader, now)
+                self.assertEqual(gap["areas"]["diagnoses"]["status"],
+                                 "source-prefix-not-local")
+                self.assertFalse(gap["fullOriginalReplayVerified"])
+                self.assertFalse(gap["deletionAuthorized"])
+            finally:
+                conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -42,6 +42,35 @@ for _name, _early in (('early1000oct', True), ('normal1000oct', False)):
         score_long=70, score_short=30, require_trend=False, early_warning=_early,
         campaign_end=CAMPAIGN_END, campaign=True)
 
+# New, independent 20-trading-day prospective comparison. These are separate
+# ledgers: old completed October accounts and the manual 800 EUR test stay intact.
+# Neither account may enter before Monday's 08:00 Swiss entry window.
+RELAUNCH_START = int(datetime(2026, 11, 9, 8, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000)
+RELAUNCH_END = int(datetime(2026, 12, 4, 16, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000)
+RELAUNCH_ID = 'trend-vs-main-20261109'
+POLICIES['trend800nov'] = dict(POLICIES['trend800'],
+    id='trend800nov', title='Neu: 800 € · Trend/Stopp/Wiedereinstieg · 09.11.–04.12.',
+    campaign=True, relaunch=True, campaign_id=RELAUNCH_ID,
+    start_at=RELAUNCH_START, campaign_end=RELAUNCH_END,
+    max_holding_minutes=300)
+POLICIES['normal1000nov'] = dict(POLICIES['normal1000oct'],
+    id='normal1000nov', title='Neu: 1.000 € · bestätigtes Hauptsignal · 09.11.–04.12.',
+    campaign=True, relaunch=True, campaign_id=RELAUNCH_ID,
+    start_at=RELAUNCH_START, campaign_end=RELAUNCH_END,
+    max_holding_minutes=300)
+
+# Owner-requested isolated 3,000 EUR account, starting at first initialization.
+POLICIES['ema3000nov'] = dict(POLICIES['normal1000oct'],
+    id='ema3000nov', title='3.000 € · EMA-Abstand bis 2,5 ATR · Test',
+    initial_capital_eur=3000., campaign=True, campaign_id='ema25-3000-20261111',
+    campaign_end=RELAUNCH_END, relaxed_ema=True, max_holding_minutes=300)
+
+# Forward-only user-requested EMA-distance experiment; no inherited start date.
+POLICIES['noema5000nov'] = dict(POLICIES['normal1000nov'],
+    id='noema5000nov', title='5.000 € · EMA-Abstandssperre aus (Test)',
+    initial_capital_eur=5000., relaunch=False,
+    campaign_id='no-ema-distance-20261111', disable_ema_distance=True)
+
 _TABLES = ('bob_paper_control', 'bob_paper_cases', 'bob_paper_days')
 
 
@@ -79,7 +108,9 @@ def init(conn):
         # The experimental account starts with the first real deployment/initialization.
         # Existing live accounts retain their original Monday starting timestamps.
         policy=POLICIES[profile]
-        started = int(time.time()*1000) if policy.get('early_impulse') or policy.get('campaign') else START
+        started = (policy['start_at'] if policy.get('relaunch') else
+                   int(time.time()*1000) if policy.get('early_impulse') or policy.get('campaign')
+                   else START)
         starting = dict(version='paper-five-v1' if policy.get('early_impulse') else 'paper-four-v1',
                         startAt=started, enabled=True,
                         status='scheduled', portfolio=profile,
@@ -88,8 +119,8 @@ def init(conn):
                         realizedProfit=0., currency='EUR',
                         capitalPolicy='separate-whole-units-gross-v1')
         if policy.get('campaign'):
-            starting.update(endAt=policy['campaign_end'], campaign='signal-comparison-20261027',
-                            signalSource='early-warning-v2' if policy.get('early_warning') else 'confirmed-main')
+            starting.update(endAt=policy['campaign_end'], campaign=policy.get('campaign_id', 'signal-comparison-20261027'),
+                            signalSource='ema25-paper-v1' if policy.get('relaxed_ema') else 'early-warning-v2' if policy.get('early_warning') else 'confirmed-main')
         conn.execute(f"""INSERT INTO {n['bob_paper_control']} (id,payload)
             VALUES(1,%s::jsonb) ON CONFLICT DO NOTHING""", (json.dumps(starting),))
         conn.execute(f"""CREATE TABLE IF NOT EXISTS {n['bob_paper_cases']} (
@@ -204,6 +235,23 @@ def warning_paper_market(market, now):
     return result
 
 
+def relaxed_paper_market(market):
+    """Consume only the separately computed paper plan; never rewrite live input."""
+    trial = market.get('relaxedPaper') or {}
+    gate = trial.get('gate') or {}
+    plan = trial.get('plan')
+    valid = (trial.get('version') == 'ema25-paper-v1' and trial.get('paperOnly') is True
+        and gate.get('paperOnly') is True and gate.get('maxDeviationAtr') == 2.5
+        and gate.get('allowed') is True and stop_target_audit.valid_plan(plan)
+        and plan.get('source') == 'ema25-paper-v1' and plan.get('experimental') is True
+        and plan.get('direction') == market.get('direction')
+        and plan.get('entry') == market.get('price'))
+    return {**market, 'plan':copy.deepcopy(plan) if valid else None,
+        'entryTimingGate':copy.deepcopy(gate), 'paperEntrySource':'ema25-paper-v1',
+        'entryPlanState':{'state':'ready' if valid else 'waiting',
+            'reason':trial.get('reason') or 'Getrennter EMA-Testplan noch nicht verfügbar'}}
+
+
 def run_all(conn, bundle, market, selection, quotes, now, settings, active=None, early_market=None, early_selection=None, input_observations=None, warning_market=None, warning_selection=None):
     """One savepoint per account: a failure does not consume another account's run.
 
@@ -221,6 +269,14 @@ def run_all(conn, bundle, market, selection, quotes, now, settings, active=None,
                 if policy.get('early_warning'):
                     m = warning_paper_market(market,now)
                     chosen = warning_selection or {'choices':[], 'reasons':['Keine freigegebenen Frühwarnprodukte']}
+                if policy.get('relaxed_ema'):
+                    m = relaxed_paper_market(market)
+                if policy.get('disable_ema_distance'):
+                    variant = market.get('paperNoEmaEntry') or {}
+                    m = {**market, 'plan': variant.get('plan'),
+                         'entryPlanState': variant.get('entryPlanState') or {'reason': 'EMA-Testanalyse nicht verfügbar'},
+                         'entryTimingGate': variant.get('entryTimingGate') or {},
+                         'paperEntrySource': 'no-ema-distance-paper-v1'}
                 c = active.get(profile)
                 if c and c.get('status') == 'open':
                     scoped = {**settings, 'trade': c['engine']['trade']}
@@ -285,7 +341,8 @@ def campaign_comparison(accounts):
             profitEur=c.get('totalProfit'),exampleCostsEur=c.get('costsDebitedEur'),
             closedTrades=perf.get('closedTrades'),pricedTrades=perf.get('pricedTrades'),
             inconclusiveTrades=perf.get('inconclusiveTrades'),
-            observedMaxDrawdownPct=perf.get('observedMaxDrawdownPct')))
+            observedMaxDrawdownPct=perf.get('observedMaxDrawdownPct'),
+            forwardValidation=copy.deepcopy(c.get('forwardValidation'))))
     complete=all(r['status']=='completed' for r in rows)
     valid=complete and all(type(r['profitEur']) in (int,float) and math.isfinite(r['profitEur'])
         and r['inconclusiveTrades']==0 and type(r['pricedTrades']) is int
@@ -298,6 +355,46 @@ def campaign_comparison(accounts):
         note='Virtueller Vergleich mit Beispielkosten; kein Nachweis künftiger Gewinne. Ohne vollständig bepreiste Abschlüsse kein Ergebnisvergleich.')
 
 
+def relaunch_comparison(accounts):
+    """Stored model balances only; no historical replay or winner certification."""
+    rows = []
+    for profile in ('trend800nov', 'normal1000nov'):
+        a = next((item for item in accounts if item.get('profile') == profile), {})
+        c, perf = a.get('control') or {}, a.get('performance') or {}
+        start, equity = c.get('initialCapital'), c.get('equity')
+        model_pct = (round(100 * (equity / start - 1), 4)
+                     if type(start) in (int, float) and math.isfinite(start) and start > 0
+                     and type(equity) in (int, float) and math.isfinite(equity) else None)
+        rows.append(dict(profile=profile, status=c.get('status', 'unavailable'),
+            startAt=c.get('startAt'), endAt=c.get('endAt'),
+            initialCapitalEur=start, equityEur=equity,
+            modelProfitEur=c.get('totalProfit'), modelReturnPct=model_pct,
+            exampleCostsEur=c.get('costsDebitedEur'),
+            closedTrades=perf.get('closedTrades'), pricedTrades=perf.get('pricedTrades'),
+            inconclusiveTrades=perf.get('inconclusiveTrades'),
+            maxDrawdownPct=perf.get('observedMaxDrawdownPct')))
+    ended = all(r['status'] == 'completed' for r in rows)
+    complete = (ended and all(r['modelReturnPct'] is not None
+        and type(r['closedTrades']) is int and r['closedTrades'] > 0
+        and r['closedTrades'] == r['pricedTrades'] and r['inconclusiveTrades'] == 0
+        for r in rows))
+    return dict(id=RELAUNCH_ID, readOnly=True, realOrders=False,
+        startAt=RELAUNCH_START, endAt=RELAUNCH_END,
+        status='completed-model-comparison-only' if complete else
+               'completed-insufficient-evidence' if ended else
+               'scheduled' if all(r['status']=='scheduled' for r in rows) else 'running-or-paused',
+        accounts=rows, modelReturnDifferenceTrendMinusMainPctPoints=(
+            round(rows[0]['modelReturnPct'] - rows[1]['modelReturnPct'], 4)
+            if complete else None),
+        comparableModelClosures=complete, strategyWinnerConfirmed=False,
+        brokerNetVerified=False, noUnverifiedBackfill=True,
+        note='Gleicher Beobachtungszeitraum, aber 800 EUR und 1.000 EUR Startkapital; '
+             'primär prozentual vergleichen. Nur beobachtete Originalkurse für '
+             'virtuelle Käufe/Verkäufe; angenommene Kosten, keine Broker-Fills. '
+             'Fehlende Produktkurse und unvollständige Abschlüsse bleiben unbekannt. '
+             'Kein Strategietestsieger oder Echtgeldauftrag.')
+
+
 def report(conn, day=None):
     import paper_simulation
     accounts = []
@@ -306,9 +403,9 @@ def report(conn, day=None):
         # Six synthetic demos are already available under the separate demo tab.
         data.pop('demonstrations', None)
         data.pop('demonstration', None)
-        if profile=='balanced':
-            import paper_stop_study
-            data['stopStudy']=paper_stop_study.report(conn,data['day'])
+        import paper_stop_study
+        if profile in paper_stop_study.PROFILES:
+            data['stopStudy']=paper_stop_study.report(conn,data['day'],profile)
         if policy.get('early_impulse'):
             data['note']=('Viertes 100-EUR-Testkonto: früher LONG/SHORT-Impuls 5m/15m als eigenständiger virtueller '
                           'Einstiegsversuch, ohne Freigabe des Haupttrends. Dieselben echten Produktnachweise, '
@@ -329,18 +426,34 @@ def report(conn, day=None):
                           'Produktfreigabe und frischer Geld-/Briefkurs vor dem Wiedereinstieg. '
                           'Fehlt der Verkaufskurs, bleibt das Kapital bis zur beobachteten Bewertung gebunden. '
                           'Nur virtuelle Trades, keine DEGIRO-Orders.')
-        if policy.get('campaign'):
+        if policy.get('relaunch'):
+            data['note']=('Neue getrennte Simulation von 09.11.2026 08:00 bis 04.12.2026 '
+                '16:00 Europe/Zurich. Startgeld: '+str(int(policy['initial_capital_eur']))+
+                ' EUR. Altkonto bleibt unverändert. Bestätigte Originalkurse, identische '
+                'Produkt- und KO-Prüfungen, max. 65 % Exposure, Tagesgrenze 3 %, '
+                'Beispielkosten und keine Echtgeldorders. Prozentuale Rendite und '
+                'vollständig bepreiste Abschlüsse zuerst, unklare Ausstiege separat.')
+        elif policy.get('campaign'):
             data['note']='1.000 EUR virtuell; '+('angezeigte Frühwarnung LONG/SHORT' if policy.get('early_warning') else 'bestätigtes Hauptsignal LONG/SHORT')+'; gleiche Rangliste, Kosten und Schutzregeln. Verlängert bis 06.11.2026 16:00 Europe/Zurich mit bestehendem Kapital und Historie. Fehlende Ausstiegskurse bleiben offen, keine rückdatierten Verkäufe.'
+        if policy.get('relaxed_ema'):
+            data['note']=('3.000 EUR virtuell ab erster Aktivierung bis 04.12.2026 16:00 Zürich. '
+                'Nur EMA-Abstand auf 2,5 ATR gelockert; Signalalter, Impuls-, Quellen-, '
+                'Produkt-, KO- und Stop/Ziel-Prüfungen bleiben erhalten. Maximal 65 % Exposure, '
+                '3 % Tagesverlustgrenze und fünf Stunden Haltedauer. Beispielkosten; keine Broker-Fills, '
+                'keine rückdatierten Einstiege. Eigenes Konto, keine Änderung der Hauptsignale.')
+        if policy.get('disable_ema_distance'):
+            data['note']='5.000 EUR virtuell ab Aktivierung bis 04.12.2026 16:00 Zürich. Nur die direkte EMA20-Abstandssperre ist aus. Signalalter, Impulsgrenze, Goldplan, Produkt-/KO-Schutz, Kosten und Tagesrisiko bleiben aktiv. Keine rückwirkenden Trades.'
         accounts.append(dict(profile=profile, title=policy['title'],
                              riskPolicy={k: policy[k] for k in ('exposure_fraction',
                                   'daily_loss_fraction','score_long','score_short',
                                   'require_trend')},
                              exitPolicy='bob-stop-reentry-v1' if policy.get('bob_stop_reentry') else 'trend-follow-v1' if policy.get('hold_trend') else 'bob-partial-target-v2',
                              performance=performance_snapshot(data),**data))
-    return dict(ok=True, mode='seven-independent-paper-accounts',
+    return dict(ok=True, mode='independent-prospective-paper-accounts',
                 simulatedCapitalEur=sum(p.get('initial_capital_eur',100.) for p in POLICIES.values()), realOrders=False, startAt=START,
-                note='4 × 100 EUR, 1 × 800 EUR und 2 × 1.000 EUR virtuell. Der ursprüngliche manuelle 800-EUR-Test bleibt separat. KO-Schutz verlangt eine bestätigte heutige Spot-Barriere und aktuelle Euro-Kurse; er garantiert keinen rechtzeitigen Ausstieg. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital offen. Neue Einstiege ab 19.10.2026 mit Beispielkosten direkt im Spielgeld; frühere Fälle unverändert. Tatsächliche Brokergebühren unbekannt.',
-                accounts=accounts,campaignComparison=campaign_comparison(accounts))
+                note='4 × 100 EUR, 2 × 800 EUR, 3 × 1.000 EUR, 1 × 3.000 EUR und 1 × 5.000 EUR virtuell. Alte Konten bleiben getrennt und unverändert. Neue 800/1.000 EUR Kohorte: gleicher 20-Handelstage-Zeitraum ab 09.11.2026. Kein Echtgeld und keine rückdatierten Einstiege. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital unbekannt. Tatsächliche Brokergebühren nicht bestätigt.',
+                accounts=accounts,campaignComparison=campaign_comparison(accounts),
+                relaunchComparison=relaunch_comparison(accounts))
 
 
 def diagram_report(conn):

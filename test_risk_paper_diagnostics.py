@@ -38,6 +38,26 @@ class RiskPaperDiagnosticsTests(unittest.TestCase):
         self.assertEqual(focused['status'],'partial')
         self.assertEqual(focused['areas']['riskPaper'],result)
 
+    def test_retired_quality_study_is_not_reported_as_stale(self):
+        raw=self.state()
+        raw.update(status='retired',retiredAt=1000500)
+        result=diag.risk_paper_snapshot(raw,1120001)
+        self.assertEqual(result['status'],'retired')
+        self.assertEqual(result['retiredAt'],1000500)
+        self.assertEqual(result['reason'],'quality-campaign-legacy-study-retired')
+        self.assertFalse(result['continuousExecutionVerified'])
+        focused=diag.focused_report({'areas':{'riskPaper':result}},'simulation')
+        self.assertEqual(focused['status'],'observed')
+        self.assertEqual(focused['summary']['assessment'],'observed-only')
+
+    def test_unconfirmed_retirement_does_not_hide_stale_state(self):
+        for status, retired_at in (('running',1000500),('retired',None),
+                                   ('retired',True),('retired',1120002)):
+            raw=self.state()
+            raw.update(status=status,retiredAt=retired_at)
+            result=diag.risk_paper_snapshot(raw,1120001)
+            self.assertEqual(result['status'],'stale')
+
     def test_entry_policy_and_signal_stage_are_visible_without_private_payloads(self):
         raw=self.state()
         raw.update(entryPolicy='risk-early-intraday-v2',entryPolicyStartedAt=999000,

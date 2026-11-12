@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "bob-readonly": {
+      "httpUrl": "https://bob-private-scanner.onrender.com/mcp",
+      "trust": false,
+      "includeTools": [
+        "bob_product_audit",
+        "bob_product_gaps",
+        "bob_diagnostics",
+        "bob_signal_history",
+        "bob_push_history"
+      ],
+      "oauth": {
+        "enabled": true,
+        "redirectUri": "http://localhost:8765/oauth/callback",
+        "scopes": [
+          "bob:products:read",
+          "bob:diagnostics:read"
+        ]
+      }
+    }
+  }
+}

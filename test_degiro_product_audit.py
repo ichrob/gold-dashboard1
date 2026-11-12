@@ -77,7 +77,7 @@ class ProductAuditTests(unittest.TestCase):
         byisin={row['isin']:row for row in report['items']}
         ended=byisin[terminal]
         self.assertEqual(ended['state'],'terminated')
-        self.assertEqual(ended['missing'],['terminated','venue'])
+        self.assertEqual(ended['missing'],['terminated'])
         self.assertFalse(ended['tradeApproved'])
         self.assertIsNone(ended['quoteSourceAt'])
         self.assertTrue(ended['handsetObservation']['historicalOnly'])
@@ -92,6 +92,69 @@ class ProductAuditTests(unittest.TestCase):
         # No persistent source record may be silently mutated by this read.
         self.assertNotIn('handsetObservation',original_terminal)
         self.assertEqual(original_terminal['missing'],['terminated','venue'])
+
+    def test_old_audit_read_removes_only_venue_research_barrier_and_keeps_clocks(self):
+        from copy import deepcopy
+        active='DE000FG8NHQ3'
+        old={'status':'ok','lastCheckedAt':iso(NOW),'listUploadedAt':GEN,
+             'incomplete':1,'needsHelp':1,'excluded':0,'readOnly':True,
+             'items':[dict(isin=active,state='incomplete',missing=['venue'],
+                           messages=[audit.CODES['venue']],consecutiveChecks=4,
+                           missingChecks={'venue':4},missingSince={'venue':iso(NOW-300000)},
+                           needsKiHelp=True,tradeApproved=False,degiroVerified=False,
+                           sourceStatusEvidence={'issuerVerified':True},
+                           brokerVenueStatus={'required':True,'current':False,
+                                              'state':'missing'},
+                           venueAction='DEGIRO-Handelsplatznachweis per Screenshot hochladen',
+                           quoteSourceAt=iso(NOW-5000),leverageSourceAt=iso(NOW-4500),
+                           source='SG · official saved original')]}
+        frozen=deepcopy(old)
+        view=audit.research_compatibility_view(old,NOW)
+        row=view['items'][0]
+        self.assertEqual(row['missing'],[])
+        self.assertEqual(row['state'],'issuer-evidence-complete')
+        self.assertFalse(row['brokerVenueStatus']['required'])
+        self.assertFalse(row['brokerVenueStatus']['executionVerified'])
+        self.assertIsNone(row['venueAction'])
+        self.assertTrue(old['items'][0]['brokerVenueStatus']['required'])
+        self.assertEqual(row['quoteSourceAt'],iso(NOW-5000))
+        self.assertEqual(row['leverageSourceAt'],iso(NOW-4500))
+        self.assertEqual(view['lastCheckedAt'],iso(NOW))
+        self.assertEqual(view['incomplete'],0)
+        self.assertEqual(view['needsHelp'],0)
+        self.assertFalse(row['tradeApproved'])
+        self.assertFalse(row['degiroVerified'])
+        self.assertEqual(old,frozen)  # Original audit remains unchanged
+
+    def test_old_factor_projection_cannot_forge_product_quote_or_refresh_report(self):
+        factor='DE000PU0D101'
+        old={'status':'ok','lastCheckedAt':iso(NOW),'listUploadedAt':GEN,
+             'total':1,'incomplete':1,'needsHelp':1,'excluded':0,
+             'items':[dict(isin=factor,state='incomplete',
+                           missing=['list-identity','quote','ko','ko-time'],
+                           quoteSourceAt=None,needsKiHelp=True,tradeApproved=False)]}
+        fresh=audit.research_compatibility_view(old,NOW)
+        row=fresh['items'][0]
+        self.assertEqual(row['state'],'excluded-factor')
+        self.assertEqual(row['missing'],['factor'])
+        self.assertEqual(row['identityEvidence'],'public-issuer-factor-exclusion')
+        self.assertEqual(fresh['excluded'],1)
+        self.assertEqual(fresh['incomplete'],0)
+        self.assertFalse(row['sourceStatusEvidence']['issuerVerified'])
+        self.assertIsNone(row['quoteSourceAt'])
+        self.assertFalse(row['tradeApproved'])
+        self.assertFalse(row['degiroVerified'])
+        self.assertEqual(fresh['lastCheckedAt'],iso(NOW))
+        self.assertEqual(old['items'][0]['state'],'incomplete')
+        self.assertEqual(old['items'][0]['missing'],
+                         ['list-identity','quote','ko','ko-time'])
+        stale=audit.research_compatibility_view({**old,'status':'stale',
+                                                  'incomplete':None,'needsHelp':None},
+                                                 NOW+audit.REPORT_MAX_MS+100)
+        self.assertEqual(stale['status'],'stale')
+        self.assertIsNone(stale['incomplete'])
+        self.assertIsNone(stale['needsHelp'])
+        self.assertEqual(stale['lastCheckedAt'],iso(NOW))
 
     def test_all_sources_and_native_chart_survive_reporting(self):
         q=provider()
@@ -341,6 +404,17 @@ class ProductAuditTests(unittest.TestCase):
         self.assertFalse(item["degiroVerified"])
         self.assertFalse(item["tradeApproved"])
 
+    def test_official_bnp_factor_future_is_excluded_without_false_missing_quotes(self):
+        item=audit.examine(dict(isin='DE000PU0D101',productDirection='LONG',
+                                isinConfirmed=True),{},NOW)
+        self.assertEqual(item['state'],'excluded-factor')
+        self.assertEqual(item['missing'],['factor'])
+        self.assertFalse(item['sourceStatusEvidence']['issuerVerified'])
+        self.assertIn('bnpparibas.com',item['sourceStatusEvidence']['officialReference'])
+        self.assertIsNone(item['quoteSourceAt'])
+        self.assertFalse(item['tradeApproved'])
+        self.assertFalse(item['degiroVerified'])
+
     def test_sg_swiss_dots_chf_is_not_degiro_quote(self):
         # Confirmed by official Swissquote platform and independent SG product
         # listing: DE000FG8NHQ3 is a CHF Swiss DOTS knock-out warrant.
@@ -351,12 +425,14 @@ class ProductAuditTests(unittest.TestCase):
                      priceKind="observed-issuer",isExecutableQuote=True)
         quote["metadata"].update(currency="CHF",issuerExchangeCode="CBSW")
         result=audit.examine(product,quote,NOW)
-        self.assertIn("venue",result["missing"])
+        self.assertNotIn("venue",result["missing"])
         self.assertNotIn("underlying",result["missing"])
         self.assertEqual(result["issuerVenue"],"Swiss DOTS (CHF)")
         self.assertFalse(result["degiroVerified"])
         self.assertFalse(result["tradeApproved"])
-        self.assertIn("DEGIRO",result["venueAction"])
+        self.assertIsNone(result["venueAction"])
+        self.assertFalse(result["brokerVenueStatus"]["required"])
+        self.assertFalse(result["brokerVenueStatus"]["executionVerified"])
         # Only source-validated exact products may carry this conclusion.
         quote["productVerified"]=False
         self.assertNotIn("venue",audit.examine(product,quote,NOW)["missing"])

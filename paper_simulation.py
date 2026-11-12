@@ -1,5 +1,7 @@
 """Prospective, observed-quote paper cases; never a broker/order connection."""
 import copy
+import re
+import paper_forward_validation
 import hashlib
 import json
 import adaptive_learning as rule_learning
@@ -28,7 +30,7 @@ VERSION = 'paper-lifecycle-v2'
 START = datetime(2026, 10, 8, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000
 NOTE = ('Vorwärts-Simulation ohne Orders. Eine Position, rund 50 % Teilgewinn am ersten Ziel; '
         'Rest folgt Bobs Gewinnschutz und Zielverlängerung. Stop wird niemals gelockert. '
-        'Goldplan maximal vier Stunden, spätestens 21:45 Zürich. '
+        'Goldplan maximal vier Stunden, neue November-Konten maximal fünf Stunden; immer spätestens 21:45 Zürich. '
         'Nur beobachtete Kurse, keine Ausführung oder sichere Treffer zwischen Messungen. '
         'Produktvergleich: Einstieg Brief / Ausstieg Geld; Anbieterquotierung, kein DEGIRO-Ausführungsnachweis. '
         'Gebühren, Finanzierung, Slippage und Nettogewinn unbekannt. '
@@ -58,16 +60,12 @@ def chf_paper_quote(q, now, isin):
     clock=datetime.fromtimestamp(now/1000, timezone.utc)
     native=current_pair(q, clock)
     if native is None:
-        if q.get('marketOpen') is False:return None
-        chart=q.get('nativeChartEvidence') or q.get('chartEvidence') or {}
-        if chart.get('currency') != 'CHF' or chart.get('delayed'):
-            return None
-        native=dict(isin=isin, currency='CHF',bid=chart.get('bid'),ask=chart.get('ask'),
-                    bidAt=chart.get('pointAt'),askAt=chart.get('pointAt'),quoteAt=chart.get('pointAt'),
-                    source='SG · datierter CHF-Chartkurs',priceKind='issuer-chart')
+        return None
     times=[stamp(native.get(k)) for k in ('bidAt','askAt')]
+    quote_at=stamp(native.get('quoteAt'))
     if (not finite(native.get('bid')) or not finite(native.get('ask')) or native['ask']<native['bid']
-            or any(t is None or not 0<=now-t<=90000 for t in times)):
+            or any(t is None or not 0<=now-t<=90000 for t in times)
+            or quote_at is None or quote_at != min(times)):
         return None
     from sg_chf import convert_analysis
     converted=convert_analysis(dict(chartEvidence=dict(bid=native['bid'],ask=native['ask'],
@@ -80,7 +78,7 @@ def chf_paper_quote(q, now, isin):
         paperNativeQuote=copy.deepcopy(native),paperFxConversion=fx,currencyConversion=fx,
         paperIssuerSource=q.get('source'),paperIssuerSourceUrl=q.get('sourceUrl'),
         source=native['source'],venue='Swiss DOTS',currency='EUR',bid=chart['bid'],ask=chart['ask'],
-        price=chart['ask'],bidAt=fx['at'],askAt=fx['at'],quoteAt=fx['at'],
+        price=chart['ask'],bidAt=native['bidAt'],askAt=native['askAt'],quoteAt=native['quoteAt'],
         priceKind=native['priceKind'],isExecutableQuote=False,degiroExecutable=False,
         paperQuoteLabel='Simulationskurs · '+native['source']+' · CHF in EUR umgerechnet · keine DEGIRO-Ausführung')
     inputs=(out.get('leverageCalculation') or {}).get('inputs')
@@ -192,6 +190,10 @@ def init(conn):
     paper_portfolios.init(conn)
     paper_stop_study.init(conn)
     __import__('paper_shadow_studies').init(conn)
+    __import__('paper_entry_exit_comparison').init(conn)
+    __import__('research_restart').init(conn)
+    __import__('intraday_timing_study').init(conn)
+    __import__('rapid_leverage_study').init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -264,10 +266,12 @@ def sync(conn, payload):
             WHERE selection_evidence IS NOT NULL OR product_selection IS NOT NULL''')
     return dict(ok=True,products=len(safe['products']),listUploadedAt=uploaded)
 
-def new_case(market, choice, quote, now, cash=100., cost_model=None,bundle=None):
+def new_case(market, choice, quote, now, cash=100., cost_model=None,bundle=None,max_holding_minutes=240):
     p=copy.deepcopy(market['plan']);direction=p['direction'];risk=abs(p['entry']-p['stop'])
     local=datetime.fromtimestamp(now/1000,ZoneInfo('Europe/Zurich'))
-    end=min(now+4*3600000,local.replace(hour=21,minute=45,second=0,microsecond=0).timestamp()*1000)
+    if type(max_holding_minutes) is not int or not 1<=max_holding_minutes<=300:
+        raise ValueError('Ungültiges Intraday-Zeitlimit')
+    end=min(now+max_holding_minutes*60000,local.replace(hour=21,minute=45,second=0,microsecond=0).timestamp()*1000)
     key=hashlib.sha256(json.dumps([VERSION,market.get('ruleVersion'),market.get('learningPolicy'),market.get('analysisBarAt'),direction,choice['isin']],sort_keys=True).encode()).hexdigest()
     # No currency model is guessed from a leverage number or future contract.
     q=None if choice.get('indicative') or choice.get('estimated') else fresh_quote(quote,now,choice['isin'])
@@ -278,6 +282,8 @@ def new_case(market, choice, quote, now, cash=100., cost_model=None,bundle=None)
                 plan=p,ledgerCostModel=copy.deepcopy(cost_model),product=copy.deepcopy(choice),koGuardRequired=choice.get('koGuardRequired') is True,
                 priceBasis=copy.deepcopy(choice.get('priceBasis')),
                 entryQuote=q,entryAsk=q['ask'] if q else None,
+                entryTiming=dict(version=1,sourceAt=market.get('dataAt'),decisionAt=now,
+                    analysisCompletedAt=market.get('analysisCompletedAt')),
                 analysis=copy.deepcopy(market),lastAt=market['dataAt'],remaining=1.,goldR=0.,productGrossPct=0. if q else None,
                 productReturnKnown=bool(q),netReturnKnown=False,modelOnly=True,partialTaken=False,
                 observedPeakValue=quantity*q['ask'] if quantity else None,
@@ -472,10 +478,82 @@ def entry_block_context(market, choice, control):
         'direction':market.get('direction', 'NEUTRAL'),
         'isin':choice.get('isin'),
         'goldAt':market.get('dataAt'),
+        'signalBarAt':market.get('analysisBarAt'),
         'ruleVersion':market.get('ruleVersion'),
         'signalSource':control.get('signalSource'),
         'plan':safe_plan,
     }
+
+
+# Storage stays bounded to a single Swiss trading day, with at most 96 quarter-hour
+# slots and fixed reason codes. This is diagnostic evidence, never entry approval.
+PAPER_ENTRY_BUCKET_MS = 15 * 60000
+PAPER_ENTRY_MAX_BUCKETS = 96
+PAPER_ENTRY_WINDOW_PROFILES = frozenset(('trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov'))
+
+
+def paper_entry_reason_code(reason):
+    """Collapse volatile/free-text reasons without persisting product identifiers."""
+    text = str(reason or '')
+    if 'Preis über 1,5 ATR von EMA20' in text and 'älter als 15 Minuten' in text:
+        return 'ema-stretch-and-signal-age'
+    if 'Preis über 1,5 ATR von EMA20' in text:
+        return 'ema-stretch'
+    if 'älter als 15 Minuten' in text:
+        return 'signal-age'
+    if text.startswith('Goldkurs nicht aktuell'):
+        return 'gold-stale'
+    if text.startswith('ABWARTEN: kein bestätigter gültiger Goldplan'):
+        return 'gold-plan-missing'
+    if 'Stopp-/Zielplan' in text or text.startswith('Einstieg wartet:'):
+        return 'plan-or-timing'
+    if text.startswith('KO-Schutz:'):
+        return 'ko-safety'
+    if 'Produkt' in text or 'Kurs' in text:
+        return 'product-or-quote'
+    if 'Risikobudget' in text or 'Tagesverlustgrenze' in text:
+        return 'capital-risk'
+    if text.startswith('Einstiegscheckliste:'):
+        return 'entry-checklist'
+    if text.startswith('Diese Signal-Kerze wurde bereits'):
+        return 'duplicate-bar'
+    return 'other'
+
+
+def paper_entry_time_bucket(day_data, now, wait, entry):
+    """Record ONLY future observation-time aggregate; never fabricate backfills.
+
+    Swiss 15-minute wall-clock boundaries coincide with UTC epoch 15-minute
+    boundaries, including around daylight-saving transitions. The source clock
+    is retained separately and never turned into an approved execution time.
+    """
+    if type(now) not in (int, float) or not math.isfinite(now) or now <= 0:
+        return
+    buckets = day_data.setdefault('entryTimeBuckets15mV1', {})
+    if not isinstance(buckets, dict):
+        return
+    slot = str(int(now // PAPER_ENTRY_BUCKET_MS) * PAPER_ENTRY_BUCKET_MS)
+    if slot not in buckets and len(buckets) >= PAPER_ENTRY_MAX_BUCKETS:
+        day_data['entryTimeBucketsTruncated'] = True
+        return
+    item = buckets.setdefault(slot, dict(firstAt=now, lastAt=now, checks=0,
+                                         reasonCodes={}, directions={}))
+    item['checks'] += 1
+    item['lastAt'] = now
+    code = paper_entry_reason_code(wait)
+    item['reasonCodes'][code] = item['reasonCodes'].get(code, 0) + 1
+    direction = entry.get('direction') if isinstance(entry, dict) else None
+    direction = direction if direction in ('LONG', 'SHORT', 'NEUTRAL') else 'unknown'
+    item['directions'][direction] = item['directions'].get(direction, 0) + 1
+    gold_at = entry.get('goldAt') if isinstance(entry, dict) else None
+    if type(gold_at) in (int, float) and math.isfinite(gold_at) and gold_at > 0:
+        item.setdefault('firstGoldAt', gold_at)
+        item['lastGoldAt'] = gold_at
+    signal_at = entry.get('signalBarAt') if isinstance(entry, dict) else None
+    if type(signal_at) in (int, float) and math.isfinite(signal_at) and signal_at > 0:
+        item.setdefault('firstSignalBarAt', signal_at)
+        item['lastSignalBarAt'] = signal_at
+    day_data.setdefault('entryTimeBucketsFirstObservedAt', now)
 
 
 def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=None,entry=None,checklist=None):
@@ -503,6 +581,9 @@ def day_update(conn, day, closed=None, wait=None, now=None,capital=None,product=
         if entry:
             counts=d.setdefault('entryBlockCounts',{})
             counts[wait]=counts.get(wait,0)+1
+            if (isinstance(capital, dict)
+                    and capital.get('portfolio') in PAPER_ENTRY_WINDOW_PROFILES):
+                paper_entry_time_bucket(d, now, wait, entry)
             records=d.setdefault('entryBlocks',[])
             observed=dict(at=now,reason=wait,**entry)
             if records and all(records[-1].get(k)==observed.get(k) for k in ('reason','direction','isin')):
@@ -611,7 +692,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         control.update(ledgerDay=day,dayOpeningEquity=control.get('equity'),dayOpeningRealized=control['realizedProfit'])
     control.update(checkedAt=now,ruleVersion=market.get('ruleVersion'),lastDirection=market.get('direction','NEUTRAL'),lastGold=market.get('price'),goldAt=market.get('dataAt'))
     phase = background_push.degiro_session(now)
-    campaign_end=(profile_policy or {}).get('campaign_end')
+    campaign_end=control.get('retiredAt') or (profile_policy or {}).get('campaign_end')
     if finite(campaign_end) and control.get('endAt') != campaign_end:
         previous_end=control.get('endAt')
         if finite(previous_end) and campaign_end > previous_end:
@@ -631,13 +712,21 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
         return
     if now<control['startAt']:
-        control.update(status='scheduled',reason='Start am 8.10.2026, danach fortlaufend')
+        if profile_policy and profile_policy.get('relaunch'):
+            control.update(status='scheduled', reason='Neuer Vergleich ab 09.11.2026 08:00 Zürich; kein Vorab-Einstieg')
+        else:
+            control.update(status='scheduled',reason='Start am 8.10.2026, danach fortlaufend')
     elif not control.get('enabled'):
         control.update(status='paused',reason='Simulation pausiert')
     else:
+        if not campaign_over and phase=='trading':
+            paper_forward_validation.start(control,market,now)
         active=conn.execute('SELECT id,payload FROM bob_paper_cases WHERE closed_at IS NULL ORDER BY started_at LIMIT 1 FOR UPDATE').fetchone()
         if campaign_over and not active:
-            control.update(status='completed',reason='Vergleich beendet · Freitag 16:00 Zürich',endAt=campaign_end)
+            control.update(status='completed',reason='Alte Testphase abgeschlossen' if control.get('retiredAt') else
+                'Neuer 20-Handelstage-Vergleich beendet · unbekannte Fälle getrennt prüfen'
+                if profile_policy and profile_policy.get('relaunch') else 'Vergleich beendet · Freitag 16:00 Zürich',
+                endAt=campaign_end)
             conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
             return
         if active:
@@ -709,7 +798,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 reason='Frühwarn-Test: '+str(market.get('warningPaperBlockReason') or 'Keine aktuelle gültige Frühwarnung')
             elif not stop_target_audit.valid_plan(plan):
                 reason=('ABWARTEN: kein bestätigter gültiger Goldplan' if market.get('direction') not in ('LONG','SHORT')
-                        else 'Stopp-/Zielplan fehlt oder ist ungültig: '+str(market.get('decisionReason') or 'Planprüfung nicht bestanden'))
+                        else 'Einstieg wartet: '+str((market.get('entryPlanState') or {}).get('reason') or market.get('decisionReason') or 'Stopp-/Zielplan nicht gültig'))
             elif not choice:
                 reason=('KO-Schutz: heute ausgeschlossene ISIN; ' if blocked else 'Kein passendes belegtes Produkt: ')+ '; '.join(selection.get('reasons') or ['kein geeigneter neuer Kandidat'])
             elif profile_policy and (profile_policy.get('early_impulse') or profile_policy.get('campaign')) and choice.get('koGuardRequired') is not True:
@@ -736,7 +825,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 budget=min(control['cash'], (control.get('equity') or control['cash'])*
                            (profile_policy['exposure_fraction'] if profile_policy else 1.))
                 entry_checklist=paper_entry_review.capture(market,choice,quotes.get(choice['isin']),now,True,'Alle bisherigen Einstiegssperren bestanden',control,profile_policy)
-                c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget,cost_model=cost_model,bundle=bundle)
+                c=new_case(market,choice,quotes.get(choice['isin']),now,cash=budget,cost_model=cost_model,bundle=bundle,
+                    max_holding_minutes=int((profile_policy or {}).get('max_holding_minutes',240)))
                 c['entryChecklist']=entry_checklist
                 c['selectionEvidence']=__import__('paper_evidence_chain').capture_selection(selection, choice, now)
                 if c.get('koGuardRequired'):
@@ -764,7 +854,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                         c['trendExtensions']=0
                 if profile_policy and profile_policy.get('campaign'):
                     c['endsAt']=min(c['endsAt'],profile_policy['campaign_end'])
-                    c['campaign']='signal-comparison-20261027'
+                    c['campaign']=profile_policy.get('campaign_id', 'signal-comparison-20261027')
                     c['entryHypothesis']=market.get('paperEntrySource') or 'confirmed-main'
                     c['entrySignalAt']=(market.get('earlyWarning') or {}).get('signalBarAt') if profile_policy.get('early_warning') else market.get('analysisBarAt')
                 entry_control=copy.deepcopy(control)
@@ -783,6 +873,14 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             if not entered:
                 entry_checklist=paper_entry_review.capture(market,choice,quotes.get(choice['isin']) if choice else None,now,False,reason,control,profile_policy)
             control['lastEntryChecklist']=entry_checklist
+            # Persist the last trading-window gate separately: the night
+            # session overwrites control.reason, but not this redacted code.
+            # Never store an ISIN, quote, full blocker text or model profit.
+            if profile_policy and profile_policy.get('relaunch'):
+                from paper_profit_summary import entry_block_code
+                control['lastTradingEntryBlockCode'] = (
+                    None if entered else entry_block_code(reason))
+                control['lastTradingEntryBlockAt'] = now
             control.update(status='running',reason=reason)
             day_update(conn,day,wait=None if entered else reason,now=now,capital=control,checklist=entry_checklist,
                        entry=entry_block_context(market, choice, control)
@@ -848,6 +946,217 @@ def newer_queued_paper_bundle(current, candidate, now_ms):
             and (old_time is None or new_time>old_time) else current)
 
 
+def study_bundle_handoff_evidence(bundle):
+    """Return bounded clocks and the existing deterministic bundle trace.
+
+    This is diagnostic metadata only. It never decides whether a bundle is
+    admissible and never exposes prices, products, account data or prompts.
+    """
+    if not isinstance(bundle,dict):
+        return dict(trace='none',sourceAt=None,closed15mAt=None)
+    spots=bundle.get('spots')
+    source=spots.get('spot_price_as_of') if isinstance(spots,dict) else None
+    source_at=None
+    if isinstance(source,str):
+        try:
+            parsed=datetime.fromisoformat(source.replace('Z','+00:00'))
+            if parsed.tzinfo is not None:
+                value=parsed.timestamp()*1000
+                if math.isfinite(value) and value>0:
+                    source_at=int(value)
+        except (TypeError,ValueError,OverflowError):
+            pass
+    closed_at=None
+    history=bundle.get('history')
+    frames=history.get('bars_by_tf') if isinstance(history,dict) else None
+    bars=frames.get('15m') if isinstance(frames,dict) else None
+    if isinstance(bars,list):
+        for bar in reversed(bars):
+            if not isinstance(bar,dict):
+                continue
+            value=bar.get('openTime')
+            if (type(value) in (int,float) and math.isfinite(value) and value>0
+                    and bar.get('isOpen') is not True
+                    and bar.get('providerIsOpen') is not True
+                    and bar.get('estimated') is not True):
+                closed_at=int(value)
+                break
+    try:
+        trace=__import__('diagnostic_history').trace(bundle)
+    except Exception:
+        trace='unavailable'
+    return dict(trace=trace,sourceAt=source_at,closed15mAt=closed_at)
+
+
+def print_study_handoff_evidence(marker, outcome, current, candidate, selected,
+                                 checked_at_ms):
+    """Emit one redacted decision record for actual enqueue/final selection."""
+    current_e=study_bundle_handoff_evidence(current)
+    candidate_e=study_bundle_handoff_evidence(candidate)
+    selected_e=study_bundle_handoff_evidence(selected)
+    print(marker+
+          ' outcome='+outcome+
+          ' checked_at_ms='+str(int(checked_at_ms))+
+          ' current_trace='+current_e['trace']+
+          ' current_source_at_ms='+str(current_e['sourceAt'])+
+          ' current_closed_15m_at_ms='+str(current_e['closed15mAt'])+
+          ' candidate_trace='+candidate_e['trace']+
+          ' candidate_source_at_ms='+str(candidate_e['sourceAt'])+
+          ' candidate_closed_15m_at_ms='+str(candidate_e['closed15mAt'])+
+          ' selected_trace='+selected_e['trace']+
+          ' selected_source_at_ms='+str(selected_e['sourceAt'])+
+          ' selected_closed_15m_at_ms='+str(selected_e['closed15mAt']),
+          flush=True)
+
+
+def rejected_newer_paper_bundle_evidence(current, candidate, now_ms):
+    """Explain only a newer-provider-clock candidate rejected by the selector.
+
+    This is bounded, redacted telemetry for diagnosing the final study handoff.
+    It reports source/bar clocks and a fixed reason code, never prices, products,
+    prompts or account data, and it does not change admission behavior.
+    """
+    def source_at(bundle):
+        spots=bundle.get('spots') if isinstance(bundle,dict) else None
+        source=spots.get('spot_price_as_of') if isinstance(spots,dict) else None
+        if not isinstance(source,str):
+            return None
+        try:
+            at=datetime.fromisoformat(source.replace('Z','+00:00'))
+            if at.tzinfo is None:
+                return None
+            value=at.timestamp()*1000
+            return value if math.isfinite(value) and value>0 else None
+        except (TypeError,ValueError,OverflowError):
+            return None
+
+    def closed_15m_at(bundle):
+        history=bundle.get('history') if isinstance(bundle,dict) else None
+        frames=history.get('bars_by_tf') if isinstance(history,dict) else None
+        bars=frames.get('15m') if isinstance(frames,dict) else None
+        if not isinstance(bars,list):
+            return None
+        for bar in reversed(bars):
+            if not isinstance(bar,dict):
+                continue
+            at=bar.get('openTime')
+            if (type(at) in (int,float) and math.isfinite(at) and at>0
+                    and bar.get('isOpen') is not True
+                    and bar.get('providerIsOpen') is not True
+                    and bar.get('estimated') is not True):
+                return at
+        return None
+
+    old_time=source_at(current)
+    new_time=source_at(candidate)
+    if new_time is None or old_time is None or new_time<=old_time:
+        return None
+    spots=candidate.get('spots') if isinstance(candidate,dict) else None
+    new_bar=closed_15m_at(candidate)
+    old_bar=closed_15m_at(current)
+    if not isinstance(spots,dict) or (spots.get('is_genuine_xauusd_spot') is not True
+                                     or spots.get('xaus_is_spot') is not True):
+        reason='spot-identity-unverified'
+    elif new_bar is None:
+        reason='observed-closed-15m-missing'
+    elif old_bar is not None and new_bar<old_bar:
+        reason='observed-closed-15m-rollback'
+    elif type(now_ms) not in (int,float) or not math.isfinite(now_ms):
+        reason='check-clock-invalid'
+    elif now_ms-new_time<0:
+        reason='source-clock-future'
+    elif now_ms-new_time>60000:
+        reason='source-clock-stale'
+    else:
+        return None
+    return dict(reasonCode=reason,currentSourceAt=int(old_time),
+                candidateSourceAt=int(new_time),
+                currentClosed15mAt=int(old_bar) if old_bar is not None else None,
+                candidateClosed15mAt=int(new_bar) if new_bar is not None else None)
+
+
+def study_closed_bar_retry_needed(bundle, market, now_ms):
+    """Retry once when the evaluator is fresh but its ORIGINAL signal bar is absent.
+
+    This is only a request to re-evaluate a strictly newer, complete, original
+    queued bundle. It NEVER approves a study input, adds a candle, changes a
+    broker quote or labels a synthetic value as observed.
+    """
+    if (not isinstance(market, dict) or market.get('ready') is not True
+            or market.get('priceFresh') is not True
+            or not finite(now_ms)):
+        return False
+    timeframe=('5m' if market.get('entryTiming') in
+               ('five-minute-confirmation', 'two-minute-follow-through-v1')
+               else '15m')
+    from paper_shadow_studies import original_input
+    observed=original_input(bundle,market,now_ms,timeframe)
+    stamp=observed.get('sourceAt')
+    return (observed.get('closed15mMatched') is False
+            and finite(stamp) and finite(market.get('dataAt'))
+            and abs(stamp-market['dataAt'])<=2000
+            and 0<=now_ms-stamp<=60000)
+
+
+def refresh_original_study_input(bundle, market, settings, latest, analyze, clock,
+                                 evidence_phase='analysis'):
+    """At the final study handoff, prefer one queued fresher ORIGINAL snapshot.
+
+    Quote/audit/portfolio work may outlive the input's 60-second admission
+    window after the first analysis. Recheck only an already queued complete
+    observed bundle, at most once, without fetching, mixing snapshots or
+    changing any freshness/identity gate.
+    """
+    observed_now=clock()
+    stamp=market.get('dataAt')
+    retry=(market.get('ready') is False or market.get('priceFresh') is False
+           or not finite(stamp) or not 0<=observed_now-stamp<=45000
+           or study_closed_bar_retry_needed(bundle,market,observed_now))
+    if retry:
+        queued=latest()
+        candidate=newer_queued_paper_bundle(bundle,queued,observed_now)
+        print_study_handoff_evidence(
+            'BOB_STUDY_FINAL_SELECTION phase='+evidence_phase,
+            'reused' if candidate is not bundle else 'retained',
+            bundle,queued,candidate,observed_now)
+        if candidate is not bundle:
+            return candidate,analyze(candidate,settings,priority=2)
+    return bundle,market
+
+
+def analyze_latest_bundle(bundle, settings, latest, analyze, clock):
+    """At most one re-evaluation of a newer complete observed bundle.
+
+    Never combine spot/analysis from different snapshots, relabel timestamps,
+    interpolate a gap, or rerun a portfolio against a previous source clock.
+    """
+    market=analyze(bundle,settings,priority=2)
+    return refresh_original_study_input(
+        bundle,market,settings,latest,analyze,clock)
+
+
+def quote_focus(products, market):
+    if market.get('ready') is not True or market.get('priceFresh') is not True:
+        return []
+    side=market.get('direction')
+    if side not in ('LONG','SHORT'):
+        side=(market.get('entryPreparation') or {}).get('direction')
+    if side not in ('LONG','SHORT'):
+        return []
+    return [p['isin'] for p in products if p.get('isin') and
+            p.get('productDirection')==side and not p.get('knockedOut') and
+            not re.search(r'\b(?:faktor|factor)\b',p.get('name',''),re.I)][:3]
+
+
+def latest_paper_bundle():
+    with _guard:
+        # HTTP/background arrivals are ordered by collection time, not by the
+        # provider's original spot clock. Keep the newest complete ORIGINAL
+        # separately so a later request carrying an older provider snapshot
+        # cannot hide the fresher candidate from the final study handoff.
+        return _study_latest if _study_latest is not None else _latest
+
+
 def late_risk_retry_bundle(current, candidate, now_ms):
     """Return one newer verified snapshot for a paper-only late retry, else None."""
     selected=newer_queued_paper_bundle(current,candidate,now_ms)
@@ -855,17 +1164,37 @@ def late_risk_retry_bundle(current, candidate, now_ms):
 
 
 # Independent bounded worker: product network calls never delay /background or Push.
-_guard=threading.Lock();_latest=None;_thread=None
+_guard=threading.Lock();_latest=None;_study_latest=None;_thread=None
+_bundle_generation=0
 _bundle_ready=quote_updates.updates
 _pool=None;_pending={};_quotes={};_requested={}
 _observed_snapshot={}
+
+
+def quality_generation_pending(last_generation, current_generation):
+    """True only for a market bundle generation not yet studied locally.
+
+    Product quote completions deliberately wake the paper worker so virtual
+    product prices can progress.  During a zero-downtime deploy, however, the
+    draining instance no longer receives collector bundles while its pending
+    quote futures can still complete.  Re-running the original-input study for
+    that unchanged local bundle would manufacture stale cycles even though the
+    replacement instance already has a newer original snapshot.
+    """
+    return (isinstance(current_generation, int) and
+            current_generation > last_generation)
+
+
+def next_quality_generation(current, selected, generation):
+    """Advance only when the admissible study candidate actually changed."""
+    return generation + 1 if selected is not current else generation
 def observed_quotes(products):
     """Read completed raw issuer observations without network work or paper projection."""
     with _guard:
         return {p['isin']: copy.deepcopy(_observed_snapshot[p['isin']])
                 for p in products if p.get('isin') in _observed_snapshot}
 
-def quote_cache(products, active, now):
+def quote_cache(products, active, now, preferred=()):
     global _pool, _observed_snapshot
     if _pool is None:_pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix='bob-paper-quotes')
     for isin,future in list(_pending.items()):
@@ -881,7 +1210,8 @@ def quote_cache(products, active, now):
     # four slots just because their products occur first in the uploaded list.
     # Active positions retain priority among equally due requests.
     from product_repair_learning import request_order
-    due=request_order([isin for isin in isins if isin not in _pending], active_isins, _requested, now)
+    order_args=([isin for isin in isins if isin not in _pending], active_isins, _requested, now)
+    due=request_order(*order_args, preferred=preferred) if preferred else request_order(*order_args)
     for isin in due:
         if len(_pending)>=4:break
         if now-_requested.get(isin,0)>=30000:
@@ -1058,6 +1388,7 @@ def start_preflight(database):
 
 
 def _worker(db):
+    last_quality_generation=0
     while True:
         _bundle_ready.wait(timeout=30)
         with _guard:
@@ -1067,6 +1398,12 @@ def _worker(db):
             try:
                 with db() as conn:
                     if conn.execute('SELECT pg_try_advisory_xact_lock(72610408)').fetchone()[0]:
+                        import research_restart
+                        try:
+                            with conn.transaction():
+                                research_restart.start(conn,time.time()*1000)
+                        except Exception as restart_exc:
+                            print("BOB_QUALITY_RESTART error="+type(restart_exc).__name__,flush=True)
                         feed=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
                         if feed and not any(p.get('isin') for p in feed[0]['products']):feed=None
                         if not feed:
@@ -1090,7 +1427,12 @@ def _worker(db):
                         try:
                             with conn.transaction():active_isins+=ranking_lifecycle.active_isins(conn)
                             with conn.transaction():active_isins+=paper_stop_study.active_isins(conn)
+                            with conn.transaction():active_isins+=__import__("paper_entry_exit_comparison").active_isins(conn)
                             with conn.transaction():active_isins+=__import__("risk_paper").active_isins(conn)
+                            with conn.transaction():
+                                shadow_positions=conn.execute("SELECT payload FROM bob_shadow_study_control WHERE study=%s",("product-e2e",)).fetchone()
+                                if shadow_positions and (shadow_positions[0].get("position") or {}).get("isin"):
+                                    active_isins.append(shadow_positions[0]["position"]["isin"])
                         except Exception as exc:print('BOB_RANKING_EXITS lookup_error='+type(exc).__name__,flush=True)
                         import product_repair_learning
                         try:
@@ -1108,6 +1450,21 @@ def _worker(db):
                         if fresh is not bundle:
                             bundle=fresh
                             print('BOB_PAPER reused_newer_observed_bundle=1',flush=True)
+                        # Keep optional risk evaluation before the final analysis:
+                        # its runtime must not age a prepared entry snapshot.
+                        try:
+                            with conn.transaction():
+                                risk_now=time.time()*1000
+                                risk_quotes={isin:paper_quote(q,risk_now,isin) for isin,q in quotes.items()}
+                                __import__('risk_paper').tick(conn,bundle,evidence,risk_quotes,risk_now)
+                        except Exception as exc:
+                            print('BOB_RISK_PAPER error='+type(exc).__name__,flush=True)
+                        bundle,market=analyze_latest_bundle(bundle,settings,latest_paper_bundle,
+                            background_push.analyze,lambda:time.time()*1000)
+                        # Work started before analysis may already be complete:
+                        # harvest it now instead of waiting another collector cycle.
+                        quotes=quote_cache(evidence['products'],active_isins,time.time()*1000,
+                                           preferred=quote_focus(evidence['products'],market))
                         # Source refresh may fetch newer timestamps. Audit against
                         # completion time, never the clock from before those reads.
                         now=time.time()*1000
@@ -1125,18 +1482,11 @@ def _worker(db):
                             print('BOB_PRODUCT_AUDIT error='+type(audit_exc).__name__,flush=True)
                         precision_quotes=dict(quotes)
                         quotes={isin:paper_quote(q,now,isin) for isin,q in quotes.items()}
-                        try:
-                            with conn.transaction():
-                                __import__('risk_paper').tick(conn,bundle,evidence,quotes,time.time()*1000)
-                        except Exception as exc:
-                            print('BOB_RISK_PAPER error='+type(exc).__name__,flush=True)
                         # Original four paper policies consume unchanged confirmed direction.
-                        market=background_push.analyze(bundle,settings,priority=2)
                         selection=dict(choices=[],reasons=[])
                         ranking_policy=ranking_learning.policy(conn)
                         precision_due=now%(2*3600000)<=300000
-                        if market.get('ready') and market.get('direction') in ('LONG','SHORT') and (precision_due or any(
-                             p not in active_cases for p,policy in paper_portfolios.POLICIES.items() if not policy.get('early_impulse') and not policy.get('early_warning'))):
+                        if market.get('ready') and market.get('direction') in ('LONG','SHORT'):
                             request={**evidence,'quotes':quotes,'market':market,'bundle':bundle,'rankingPolicy':ranking_policy}
                             p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],input=json.dumps(request),
                                              text=True,capture_output=True,timeout=6,check=True,priority=2)
@@ -1165,7 +1515,7 @@ def _worker(db):
                                 print('BOB_EARLY_PAPER_SELECTION error='+type(early_exc).__name__,flush=True)
                         warning_market=paper_portfolios.warning_paper_market(market,now)
                         warning_selection=dict(choices=[],reasons=['Kein freigegebenes Frühwarnprodukt'])
-                        if now<paper_portfolios.CAMPAIGN_END and 'early1000oct' not in active_cases and warning_market.get('paperEntrySource'):
+                        if warning_market.get('paperEntrySource'):
                             try:
                                 request={**evidence,'quotes':quotes,'market':warning_market,'bundle':bundle,'rankingPolicy':ranking_policy}
                                 p=evaluator_runtime.run(['node',str(Path(__file__).with_name('paper_selection.js'))],
@@ -1206,6 +1556,45 @@ def _worker(db):
                                 print('BOB_RISK_PAPER retried_newer_observed_bundle=1',flush=True)
                         except Exception as late_risk_exc:
                             print('BOB_RISK_PAPER late_retry_error='+type(late_risk_exc).__name__,flush=True)
+                        # The original quality campaign runs after slower quote/audit/
+                        # portfolio work. Its earlier valid snapshot can age beyond 60s
+                        # while a newer complete collector bundle is already queued.
+                        # Refresh only this spot-reference study input; product selection,
+                        # paper ledgers and live signal decisions keep their exact snapshot.
+                        with _guard:
+                            quality_generation=_bundle_generation
+                            quality_candidate=_study_latest
+                        if quality_generation_pending(
+                                last_quality_generation, quality_generation):
+                            quality_bundle,quality_market=bundle,market
+                            try:
+                                quality_bundle,quality_market=refresh_original_study_input(
+                                    bundle,market,settings,lambda:quality_candidate,
+                                    background_push.analyze,lambda:time.time()*1000,
+                                    evidence_phase='quality-final')
+                                if quality_bundle is not bundle:
+                                    print('BOB_QUALITY_RESEARCH reused_newer_observed_bundle=1',flush=True)
+                            except Exception as refresh_exc:
+                                print('BOB_QUALITY_RESEARCH refresh_error='+type(refresh_exc).__name__,flush=True)
+                            try:
+                                with conn.transaction():
+                                    quality_checked_at=time.time()*1000
+                                    if quality_market.get('priceFresh') is not True:
+                                        quality_evidence=study_bundle_handoff_evidence(quality_bundle)
+                                        print('BOB_STUDY_QUALITY_INPUT '+
+                                              'trace='+quality_evidence['trace']+
+                                              ' source_at_ms='+str(quality_evidence['sourceAt'])+
+                                              ' closed_15m_at_ms='+str(quality_evidence['closed15mAt'])+
+                                              ' checked_at_ms='+str(int(quality_checked_at))+
+                                              ' ready='+str(quality_market.get('ready'))+
+                                              ' price_fresh='+str(quality_market.get('priceFresh')),
+                                              flush=True)
+                                    research_restart.tick(
+                                        conn,quality_bundle,quality_market,
+                                        quality_checked_at,outcomes)
+                                last_quality_generation=quality_generation
+                            except Exception as research_exc:
+                                print('BOB_QUALITY_RESEARCH error='+type(research_exc).__name__,flush=True)
                         conn.commit()
                         # A post-commit observation of the exact input quality passed
                         # to each virtual account. Failure never changes paper ledgers.
@@ -1224,6 +1613,25 @@ def _worker(db):
                                     conn,bundle,market,selection,quotes,time.time()*1000)
                         except Exception as shadow_exc:
                             print('BOB_SHADOW_STUDIES error='+type(shadow_exc).__name__,flush=True)
+                        try:
+                            with conn.transaction():
+                                __import__('paper_entry_exit_comparison').tick(
+                                    conn,bundle,market,selection,warning_market,warning_selection,quotes,int(time.time()*1000))
+                        except Exception as comparison_exc:
+                            print('BOB_ENTRY_EXIT_COMPARISON error='+type(comparison_exc).__name__,flush=True)
+                        try:
+                            with conn.transaction():
+                                __import__('intraday_timing_study').tick(
+                                    conn,bundle,market,selection,quotes,int(time.time()*1000))
+                        except Exception as timing_exc:
+                            print('BOB_INTRADAY_TIMING error='+type(timing_exc).__name__,flush=True)
+                        # Independent original-spot study; never touches paper accounts,
+                        # live Bob signals, ranking, broker endpoints or push routes.
+                        try:
+                            with conn.transaction():
+                                __import__('rapid_leverage_study').tick(conn,bundle,int(time.time()*1000))
+                        except Exception as rapid_exc:
+                            print('BOB_RAPID_LEVERAGE error='+type(rapid_exc).__name__,flush=True)
                         print('BOB_PAPER checked profiles='+str(outcomes)+
                               ' direction='+str(market.get('direction'))+
                               ' ready='+str(market.get('ready'))+
@@ -1235,9 +1643,30 @@ def enqueue(bundle, db):
     # during a scheduled weekend closure.
     if background_push.degiro_session() != 'trading':
         return
-    global _latest,_thread
+    global _latest,_study_latest,_thread,_bundle_generation
     with _guard:
         _latest=bundle
+        previous_study_latest=_study_latest
+        observed_now=time.time()*1000
+        _study_latest=newer_queued_paper_bundle(
+            previous_study_latest,bundle,observed_now)
+        _bundle_generation=next_quality_generation(
+            previous_study_latest,_study_latest,_bundle_generation)
+        rejection=rejected_newer_paper_bundle_evidence(
+            previous_study_latest,bundle,observed_now)
+        outcome=('selected' if _study_latest is bundle else
+                 'rejected' if rejection is not None else 'retained')
+        print_study_handoff_evidence(
+            'BOB_STUDY_CANDIDATE_ENQUEUE',outcome,
+            previous_study_latest,bundle,_study_latest,observed_now)
+        if rejection is not None and _study_latest is previous_study_latest:
+            print('BOB_STUDY_CANDIDATE_REJECTED '+
+                  'reason='+rejection['reasonCode']+
+                  ' current_source_at_ms='+str(rejection['currentSourceAt'])+
+                  ' candidate_source_at_ms='+str(rejection['candidateSourceAt'])+
+                  ' current_closed_15m_at_ms='+str(rejection['currentClosed15mAt'])+
+                  ' candidate_closed_15m_at_ms='+str(rejection['candidateClosed15mAt']),
+                  flush=True)
         _bundle_ready.set()
         if _thread is None or not _thread.is_alive():
             _thread=threading.Thread(target=_worker,args=(db,),daemon=True,name='bob-paper-simulation');_thread.start()

@@ -93,3 +93,44 @@ invented. Unpriced units remain pending and are explicitly separated from
 settled results; later quotes are never backdated. No new positions follow.
 Existing five accounts and histories continue unchanged. UI and diagnostics
 include all seven accounts. Results remain paper-only, not broker executions.
+
+
+## Neuer prospektiver Vergleich: 800 EUR Trend vs. 1.000 EUR Hauptsignal (09.11.–04.12.2026)
+
+Auf Nutzerwunsch vom 07.11.2026 werden **zwei neue, isolierte, niemals rückdatierte
+virtuelle Konten** angelegt; die sieben vorangegangenen Konten und ein älterer
+manueller 800-EUR-Test bleiben unverändert archiviert:
+
+- `trend800nov`: neues Kapital 800 EUR; die gleichen Trend-, Bob-Stopp- und
+  Wiedereinstiegsparameter wie `trend800`.
+- `normal1000nov`: neues Kapital 1.000 EUR; bestätigtes Hauptsignal und
+  ursprüngliche Standard-Stopp-/Zielregeln von `normal1000oct`.
+
+**Gemeinsamer Start:** Montag, 09.11.2026, 08:00 Uhr Europe/Zurich. Keine
+künstlichen Wochenend-Trades; beide Konten werden vor diesem Zeitpunkt nur
+als `scheduled` geführt. **Geplantes Ende:** Freitag, 04.12.2026, 16:00 Uhr
+Europe/Zurich, entsprechend vier Wochen mit 20 nominellen Werktagen (nicht
+20 garantierten Börsenhandelstagen). Wenn am Ende ein Produkt-Ausgangskurs
+fehlt, bleibt das Ergebnis offen und wird nicht als 0-EUR-Trade verbucht.
+
+Beide haben je max. 65 % Engagement und 3 % Tagesverlustgrenze für neue
+Einstiege, gleiche Markt-/Produktbeobachtung, **neu** ausdrücklich erforderlichen
+heutigen KO-Nachweis, aktuelle zweiseitige EUR-Produktkurse, dieselben
+angenommenen Gebühren (1 EUR je Auftrag, 0,05 % Slippage je Seite), kein
+Kredit und keine echten Orders. Die bereits vorhandenen Markt-/Sicherheits-
+und Handelszeitfilter bleiben bestehen; Schätzpreise ermöglichen keinen
+virtuellen Produktkauf/-verkauf. Die Konten bleiben getrennt und werden
+auch bei Deployments niemals neu auf den Anfangsbetrag zurückgesetzt.
+
+Aufgrund unterschiedlicher Einzahlungen und Stückzahlen wird als erstes
+die **prozentuale Modellrendite** verglichen, Euro-Ertrag zusätzlich.
+Die Modelle besitzen unterschiedliche Trend-/Einstiegsgates; ein gleicher
+Kalenderzeitraum allein macht jeden Trade nicht identisch. Daher zählt nur
+vollständig beobachtete Trade-/Produktnachweiskette (Einstieg mit Brief,
+Ausstieg mit Geld, originale Zeit, Kosten, KO-/Sperrgründe) zur statistischen
+Abnahme. Zusätzlich dokumentieren: Zahl gültiger Abschlüsse, Datenlücken,
+maximaler Drawdown, Trefferquote, Verluste und Warte-Gründe.
+`relaunchComparison` und `paperProfitEvidence` sind **nur Modellkontostand-
+und Abdeckungsberichte**. `strategyWinnerConfirmed=false` bleibt unverändert,
+bis eine gesonderte, aussagekräftige externe Validierung vorliegt.
+Keine automatische Übernahme in Echtgeld-/Signalregeln.

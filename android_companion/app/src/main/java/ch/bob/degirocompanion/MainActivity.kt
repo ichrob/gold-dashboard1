@@ -1,6 +1,7 @@
 package ch.bob.degirocompanion
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -68,6 +69,8 @@ class MainActivity : Activity() {
     // Ephemeral, coarse status only: never store transcripts or screenshots.
     private var commandOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
     private var speechOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
+    private var termuxCheckLabel: TextView? = null
+    private var localEscrowOpening = false
     private var imageOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
     private var lastDiagnosticImageCount = 0
 
@@ -79,6 +82,11 @@ class MainActivity : Activity() {
     private fun setCommandTextInternally(text: String) {
         internalCommandChange = true
         try { commandInput.setText(text) } finally { internalCommandChange = false }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!localEscrowOpening) termuxCheckLabel?.text = TermuxBridge.displayStatus(this)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -116,8 +124,71 @@ class MainActivity : Activity() {
             startActivity(Intent(this, ProductReadActivity::class.java)
                 .putExtra(ProductReadActivity.EXTRA_START_COMPLETE_FLOW, true))
         }
+        button("Mit Gemini an Bob arbeiten") {
+            startActivity(Intent(this, GeminiChatActivity::class.java))
+        }
+        button("Meine Aufträge · Screenshots, Sprache und Abläufe") {
+            startActivity(Intent(this, WorkflowActivity::class.java))
+        }
         button("DEGIRO-Leser · Einrichtung und Einzelprüfungen") {
             startActivity(Intent(this, ProductReadActivity::class.java))
+        }
+        // Termux is NOT an unrestricted remote terminal. This bridge permits
+        // only fixed local Python help / offline encrypted backup actions.
+        // Passwords remain in Termux's foreground session, never in Bob Handy.
+        val termuxStatus = label(TermuxBridge.displayStatus(this))
+        termuxCheckLabel = termuxStatus
+        val maintenanceStatus=label(TermuxMaintenance.message)
+        button("Termux-Wartung für ChatGPT · 2 Stunden") {
+            AlertDialog.Builder(this).setTitle("Termux-Wartung freigeben?")
+                .setMessage("Während 2 Stunden darf die separat berechtigte ChatGPT-Verbindung Linux-Befehle mit den Rechten von Termux ausführen. Diese können Termux-Dateien lesen und ändern. Bis zu 8 KiB Befehlsausgabe werden an deinen Bob-Server und ChatGPT übertragen. Das ist keine Sandbox. Keine Passwörter in Aufträge eingeben. Pro Befehl höchstens 20 Sekunden, keine dauerhaften Hintergrundprogramme. STOPP sperrt neue Aufträge; ein bereits laufender Befehl endet spätestens mit seinem Zeitlimit. Android kann Hintergrundarbeit unterbrechen. Die bisherige Produktfreigabe reicht hierfür nicht.")
+                .setNegativeButton("Abbrechen",null)
+                .setPositiveButton("Wartung starten") { _,_ ->
+                    runCatching {TermuxMaintenance.start(this)}
+                        .onFailure {maintenanceStatus.text="Wartung nicht gestartet. Diagnosekopplung und Termux prüfen."}
+                        .onSuccess {maintenanceStatus.text=TermuxMaintenance.message}
+                }.show()
+        }
+        button("Termux-Wartung stoppen") {TermuxMaintenance.stop(this);maintenanceStatus.text=TermuxMaintenance.message}
+        button("Termux-Wartungsstatus anzeigen") {maintenanceStatus.text=TermuxMaintenance.message}
+        button("🔌 Termux-Verbindung prüfen") {
+            localEscrowOpening = false
+            val outcome = TermuxBridge.launch(this, TermuxBridge.Action.CHECK)
+            termuxStatus.text = if (outcome == "TERMUX_REQUESTED")
+                "Festen Termux-Test gestartet. Prüfe den sicheren Rückgabecode …"
+            else TermuxBridge.displayStatus(this)
+            // A foreground CHECK runs too quickly to remain as a terminal
+            // session. Only the private exit-code callback proves execution.
+            for (delay in listOf(1000L, 3500L, 7000L, 16000L)) {
+                termuxStatus.postDelayed({
+                    if (!localEscrowOpening)
+                        termuxStatus.text = TermuxBridge.displayStatus(this)
+                }, delay)
+            }
+        }
+        button("🔐 Archivschlüssel offline sichern – nur lokal") {
+            AlertDialog.Builder(this)
+                .setTitle("Bestehenden Archivschlüssel lokal sichern?")
+                .setMessage("Bob Handy stellt die geprüften Python-Skripte aus dieser signierten App bereit und startet Termux. Dort musst du einen temporären Render-API-Schlüssel und ein separates Backup-Passwort verdeckt eingeben. Nur Termux liest den ursprünglichen PUSH_SERVICE_TOKEN über HTTPS und verschlüsselt ihn lokal. Bob Handy und ChatGPT lesen keine Geheimnisse. Die USB-Kopie und Archivprüfung erfolgen danach separat.")
+                .setNegativeButton("Abbrechen", null)
+                .setPositiveButton("Termux öffnen") { _, _ ->
+                    localEscrowOpening = true
+                    val outcome=TermuxBridge.launch(this, TermuxBridge.Action.LOCAL_ESCROW)
+                    // The Termux service may create the terminal session without
+                    // bringing its Activity on top on Android 10+. This second
+                    // launch is triggered by the same local, confirmed tap;
+                    // never by remote commands or automatic background work.
+                    val foreground=if (outcome=="TERMUX_REQUESTED")
+                        TermuxBridge.showForeground(this) else "TERMUX_NOT_REQUESTED"
+                    termuxStatus.text=when {
+                        outcome!="TERMUX_REQUESTED" ->
+                            "Lokale Sicherung nicht gestartet ($outcome). Schlüssel unverändert."
+                        foreground=="TERMUX_ACTIVITY_REQUESTED" ->
+                            "Termux in den Vordergrund angefordert. Der dortige Start und die USB-Sicherung sind noch nicht bestätigt."
+                        else ->
+                            "Termux-Auftrag übergeben, aber automatischer Bildschirmwechsel fehlgeschlagen ($foreground). Termux bitte selbst öffnen und neueste Sitzung prüfen."
+                    }
+                }.show()
         }
         button("📋 Kopierten ChatGPT-Auftrag prüfen") {
             // Explicit tap only. Never monitor or persist the clipboard.
@@ -675,6 +746,9 @@ class MainActivity : Activity() {
     }
 
     private fun emergencyStop() {
+        GeminiLocalSession.stop()
+        WorkflowService.stop()
+        TermuxMaintenance.stop(this)
         getSharedPreferences("product_reader", MODE_PRIVATE).edit().putBoolean("enabled", false).apply()
         ProductReadRequest.cancel(); ProductReadSession.clear(); ProductReadDiagnostics.clear()
         remoteCoupling.stopped()

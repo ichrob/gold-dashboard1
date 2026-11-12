@@ -21,6 +21,11 @@ _DATABASE = None
 # Retention is maintenance, not a prerequisite for diagnostic delivery.
 _LAST_PRUNE = time.monotonic()
 _PRUNE_INTERVAL_SECONDS = 1800
+# Only a confirmed full bounded batch indicates a retention backlog. In that
+# case schedule one more identical 500-row pass after 15 minutes, not a larger
+# transaction. A no-op, skipped lock or failure keeps the 30-minute cadence.
+_PRUNE_CATCHUP_INTERVAL_SECONDS = 900
+_PRUNE_NEXT_INTERVAL_SECONDS = _PRUNE_INTERVAL_SECONDS
 _PRUNE_TIMEOUT = '5s'
 _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
 # Live stage telemetry isolated repeated five-second timeouts to the cap delete,
@@ -29,6 +34,11 @@ _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
 # every delete.
 _PRUNE_CAP_BATCH_SIZE = 500
 _PRUNE_MAX_EVENTS = 60000
+# A 15,000-key statement still exceeded the unchanged five-second budget
+# under live contention on 11 Nov. Keep each exact primary-key keyset scan
+# below that reproduced bound; total target, retention and delete batch stay
+# unchanged and no new index or OFFSET scan is introduced.
+_PRUNE_COUNT_CHUNK_SIZE = 5000
 _STATS = {'stored':0,'dropped':0,'failures':0,'lastStoredAt':None}
 
 
@@ -48,7 +58,8 @@ SCHEMAS = {
     'analysis-failed':diag.shape('timeframe','errorType'),
     'push':diag.shape('outcome','eventsCount',events=[diag.shape('kind','outcome','reason','at')]),
     'push-delivery':diag.shape('outcome','httpStatus','direction','signalBarAt','dataAt',
-                               'test','synthetic','receiptId','receiptState',eventKinds=[None]),
+                               'test','synthetic','receiptId','receiptState','generatedAt','analysisRequestedAt',
+                               'analysisCompletedAt','providerStartedAt','providerDurationMs',eventKinds=[None]),
     'paper-input':diag.shape('phase','checkedAt',profiles=[diag.shape(
         'profile','outcome','ready','priceFresh','dataAt','barAt')]),
     'health':diag.shape('status','session','sourceAt','sourceAgeSeconds','cycleAt','backgroundAt','evidenceVersion',badCodes=[None],goodCodes=[None]),
@@ -106,7 +117,7 @@ def original_spot(payload, observed_at):
 
 
 def write(conn,event):
-    global _LAST_PRUNE
+    global _LAST_PRUNE, _PRUNE_NEXT_INTERVAL_SECONDS
     e=validate(event)
     conn.execute('''INSERT INTO bob_diagnostic_history(id,trace_id,decision_id,stage,observed_at,build,payload)
         VALUES(%s,%s,%s,%s,%s,%s,%s::jsonb) ON CONFLICT(id) DO NOTHING''',
@@ -122,7 +133,7 @@ def write(conn,event):
                     VALUES('gold-api-xau-usd-v1',%s,%s) ON CONFLICT DO NOTHING''',source)
         except Exception:
             print('BOB_DIAGNOSTIC_SPOT archive=unavailable',flush=True)
-    if (time.monotonic()-_LAST_PRUNE>=_PRUNE_INTERVAL_SECONDS
+    if (time.monotonic()-_LAST_PRUNE>=_PRUNE_NEXT_INTERVAL_SECONDS
             and _PRUNE_LOCK.acquire(blocking=False)):
         # Retention maintenance is best-effort. Delivery keeps its short timeout,
         # while the bounded maintenance batch gets a separate finite budget.
@@ -132,17 +143,68 @@ def write(conn,event):
                 with conn.transaction():
                     conn.execute("SET LOCAL statement_timeout='"+_PRUNE_TIMEOUT+"'")
                     removed=prune(conn)
-                print('BOB_DIAGNOSTIC_PRUNE status=completed removed='+str(removed),flush=True)
+                # A completed full batch is the only evidence of backlog; keep
+                # the 7-day/60k retention policy, 500-row cap and 5s budget.
+                _PRUNE_NEXT_INTERVAL_SECONDS = (
+                    _PRUNE_CATCHUP_INTERVAL_SECONDS
+                    if type(removed) is int and removed >= _PRUNE_CAP_BATCH_SIZE
+                    else _PRUNE_INTERVAL_SECONDS)
+                print('BOB_DIAGNOSTIC_PRUNE status=completed removed='+str(removed)+
+                      ' nextSeconds='+str(_PRUNE_NEXT_INTERVAL_SECONDS),flush=True)
             except _PruneStageError as exc:
+                _PRUNE_NEXT_INTERVAL_SECONDS = _PRUNE_INTERVAL_SECONDS
                 print('BOB_DIAGNOSTIC_PRUNE status=deferred stage='+exc.stage+
                       ' error='+exc.error_type,flush=True)
             except Exception as exc:
+                _PRUNE_NEXT_INTERVAL_SECONDS = _PRUNE_INTERVAL_SECONDS
                 print('BOB_DIAGNOSTIC_PRUNE status=deferred stage=transaction error='+
                       type(exc).__name__,flush=True)
             finally:
                 _LAST_PRUNE=time.monotonic()
         finally:
             _PRUNE_LOCK.release()
+
+
+def _bounded_cap_count(conn):
+    """Count exactly up to cap + one delete batch in bounded statements.
+
+    Concurrent appends can only make this conservative for one maintenance
+    cycle: they cannot make it over-delete.  The advisory lock held by prune()
+    prevents another retention worker from deleting between chunks.
+    """
+    target = _PRUNE_MAX_EVENTS + _PRUNE_CAP_BATCH_SIZE
+    total = 0
+    after = None
+    while total < target:
+        limit = min(_PRUNE_COUNT_CHUNK_SIZE, target-total)
+        if after is None:
+            sql = '''WITH bounded_history_chunk AS MATERIALIZED (
+                    SELECT id FROM bob_diagnostic_history
+                    ORDER BY id ASC LIMIT %s
+                )
+                SELECT count(*), max(id) FROM bounded_history_chunk'''
+            params = (limit,)
+        else:
+            sql = '''WITH bounded_history_chunk AS MATERIALIZED (
+                    SELECT id FROM bob_diagnostic_history
+                    WHERE id > %s ORDER BY id ASC LIMIT %s
+                )
+                SELECT count(*), max(id) FROM bounded_history_chunk'''
+            params = (after, limit)
+        counted = conn.execute(sql, params).fetchone()
+        chunk = counted[0] if counted and type(counted[0]) is int else -1
+        next_after = counted[1] if counted and len(counted) > 1 else None
+        if chunk < 0 or chunk > limit:
+            raise ValueError('Invalid bounded diagnostic count')
+        if chunk == 0:
+            break
+        if not isinstance(next_after, str) or not next_after or next_after == after:
+            raise ValueError('Invalid diagnostic count cursor')
+        total += chunk
+        after = next_after
+        if chunk < limit:
+            break
+    return total
 
 
 def prune(conn, archive_cutoff=None):
@@ -180,24 +242,25 @@ def prune(conn, archive_cutoff=None):
                  (archive_cutoff,))
     except Exception as exc:
         raise _PruneStageError('age-delete', exc) from exc
-    # Journal rows are append-only. Count only the compact primary-key index
-    # entries needed to prove this bounded maintenance batch.  A full heap
-    # count becomes expensive once the JSON payload relation is large, while
-    # LIMIT(cap + batch) still gives the exact excess up to the most we may
-    # delete in this transaction.  No ordered OFFSET scan is reintroduced.
+    age_removed=getattr(old,'rowcount',0)
+    # Any successful age deletion is retention progress that must commit.
+    # Running the independent cap count in the same transaction lets a count
+    # timeout roll back even a partial age batch.  Leave the cap check to the
+    # next scheduled pass; neither retention limit nor batch size changes.
+    if isinstance(age_removed,int) and age_removed > 0:
+        return age_removed
+    # Journal rows are append-only. Count only enough rows to prove this
+    # bounded maintenance batch. Split the exact scan into primary-key keyset
+    # chunks so no single count statement has to scan all 60,500 rows under
+    # the unchanged statement timeout. No ordered OFFSET scan is reintroduced.
     # The advisory lock serializes maintenance across both services;
     # concurrent writers can only increase the count, never make this
     # over-delete.
     # Raw archives are separate tables and are never touched here.
     try:
-        counted=conn.execute('''SELECT count(*) FROM (
-                SELECT id FROM bob_diagnostic_history
-                ORDER BY id LIMIT %s
-            ) AS bounded_history''',
-            (_PRUNE_MAX_EVENTS+_PRUNE_CAP_BATCH_SIZE,)).fetchone()
+        total=_bounded_cap_count(conn)
     except Exception as exc:
         raise _PruneStageError('cap-count', exc) from exc
-    total=(counted[0] if counted and isinstance(counted[0],int) else 0)
     excess=max(0,total-_PRUNE_MAX_EVENTS)
     capped=None
     if excess:
@@ -218,7 +281,7 @@ def prune(conn, archive_cutoff=None):
                     (archive_cutoff,cap_batch))
         except Exception as exc:
             raise _PruneStageError('cap-delete', exc) from exc
-    counts=(getattr(old,'rowcount',0),getattr(capped,'rowcount',0))
+    counts=(age_removed,getattr(capped,'rowcount',0))
     return sum(value for value in counts if isinstance(value,int) and value>0)
 
 

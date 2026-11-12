@@ -44,13 +44,50 @@ class BobMcpTests(unittest.TestCase):
             if method == "tools/list":
                 tools = response["result"]["tools"]
                 self.assertEqual({x["name"] for x in tools},
-                                 {"bob_product_audit","bob_product_gaps","bob_diagnostics","bob_signal_history","bob_push_history"})
+                                 {"bob_product_audit","bob_product_gaps","bob_diagnostics",
+                                  "bob_diagnostics_view","bob_simulation_audit",
+                                  "bob_signal_history","bob_push_history"})
                 self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
                 self.assertTrue(all(not x["annotations"]["destructiveHint"] for x in tools))
         status, response = bob_mcp.handle(
             {"jsonrpc":"2.0","method":"notifications/initialized"},reader)
         self.assertEqual((status,response),(202,None))
         self.assertEqual(calls,[])
+
+    def test_antigravity_parameter_cache_alias_only_for_two_read_only_tools(self):
+        # Google CLI 1.5.3 cache bug #368 expects mcpTool.parameters,
+        # although MCP requires inputSchema. Keep both identical.
+        tools = bob_mcp.tool_definitions(diagnostics=True, products=True,
+                                          remote_phone=True, remote_termux=True,
+                                          remote_push=True)
+        by_name = {t['name']:t for t in tools}
+        self.assertEqual(set(by_name), {t['name'] for t in tools})
+        for name in ('bob_product_gaps', 'bob_diagnostics',
+                     'bob_diagnostics_view', 'bob_simulation_audit'):
+            t = by_name[name]
+            self.assertEqual(t['parameters'], t['inputSchema'])
+            self.assertIsNot(t['parameters'], t['inputSchema'])
+            self.assertEqual(t['inputSchema']['type'], 'object')
+            self.assertTrue(t['annotations']['readOnlyHint'])
+            self.assertFalse(t['annotations']['destructiveHint'])
+            self.assertEqual(t['securitySchemes'][0]['scopes'],
+                             [bob_mcp.DIAGNOSTICS_SCOPE if name in (
+                                  'bob_diagnostics', 'bob_diagnostics_view',
+                                  'bob_simulation_audit') else bob_mcp.SCOPE])
+        for t in tools:
+            if t['name'] not in ('bob_product_gaps', 'bob_diagnostics',
+                                  'bob_diagnostics_view', 'bob_simulation_audit'):
+                self.assertNotIn('parameters', t)
+        # A published argument-schema alias must not bypass strict runtime
+        # validation, even when an agent submits a schema-like payload.
+        status, reply = bob_mcp.handle(
+            {'jsonrpc':'2.0','id':3,'method':'tools/call',
+             'params':{'name':'bob_diagnostics',
+                       'arguments':{'focus':'overview','execute':True}}},
+            lambda: self.fail('product report must not be fetched'),
+            lambda: self.fail('diagnostics must not be fetched'))
+        self.assertEqual(status, 200)
+        self.assertEqual(reply['error']['code'],-32602)
 
     def test_full_report_and_missing_fields_preserve_source_status(self):
         report={"status":"stale","listUploadedAt":"2026-10-15T08:00:00Z",

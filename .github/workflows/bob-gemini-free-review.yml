@@ -1,0 +1,65 @@
+name: Bob Gemini - unabhaengige kostenlose Zweitpruefung
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Nummer eines Bob-Pull-Requests fuer einen einmaligen Gemini-Review"
+        required: true
+        type: number
+  workflow_run:
+    workflows: ["Bob CI"]
+    types: [completed]
+
+# Default permission: review all eligible public owner/Bot PRs after successful CI.
+# The owner can explicitly veto one PR with the exact comment
+# /bob-peer-review-off (and reverse it with /bob-peer-review-on).
+# No reviewer is granted private access by this permission.
+# Only public patches are sent to Google Gemini API.
+# GitHub currently requires pull-requests: write alongside issues: write
+# for POST /issues/{pr}/comments; no code merge or PR mutation is performed.
+# This workflow cannot merge, deploy, trade, change secrets or alter PR code.
+# Owner permits reciprocal review by default; model use still requires:
+# - Actions secret: GEMINI_API_KEY (unbilled Google AI Studio Free project)
+# - Actions variable: BOB_GEMINI_FREE_ONLY=confirmed-unbilled-free-project
+# - Set BOB_GEMINI_AUTO_REVIEW_ENABLED=0 for global automatic-review off.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: bob-gemini-review-${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.workflow_run.pull_requests[0].number || 'other' }}
+  cancel-in-progress: false
+
+jobs:
+  gemini:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.pull_requests[0].number != null)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Checkout trusted default branch only (never execute PR source)
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Security and dedup tests (offline, no model calls)
+        run: python -m unittest -v test_gemini_peer_review_free.py
+      - name: Gemini free-only PR analysis, public patches only
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          BOB_GEMINI_FREE_ONLY: ${{ vars.BOB_GEMINI_FREE_ONLY }}
+          BOB_GEMINI_AUTO_REVIEW_ENABLED: ${{ vars.BOB_GEMINI_AUTO_REVIEW_ENABLED }}
+          BOB_GEMINI_MODE: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}
+          BOB_CI_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BOB_PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.workflow_run.pull_requests[0].number }}
+        run: python gemini_peer_review_free.py

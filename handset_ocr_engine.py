@@ -15,7 +15,7 @@ def offline_engine():
         # In the short-lived handset OCR subprocess the default ONNX CPU arena
         # retains large native allocation pools even though each image is read
         # separately. Use direct allocations and disable memory patterns.
-        # Keep the existing strict 400-MiB cgroup kill threshold unchanged.
+        # Keep the existing strict 505-MiB cgroup kill threshold unchanged.
         value.enable_cpu_mem_arena=False
         value.enable_mem_pattern=False
         return value

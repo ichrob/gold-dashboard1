@@ -17,13 +17,13 @@ class SignalStatusTests(unittest.TestCase):
 
     def test_recent_lane_runs_before_archive_without_rewriting_results(self):
         calls=[]
-        with patch.object(audit,'_harvest_at',0),patch.object(audit,'_next_harvest_horizon',return_value=1),patch.object(audit.time,'time',return_value=100),patch.object(audit,'_harvest_recent',side_effect=lambda c,h:calls.append(('new',h))),patch.object(audit,'_harvest_horizon',side_effect=lambda c,h:calls.append(('old',h))):
+        with patch.object(audit,'_harvest_at',0),patch.object(audit,'_next_harvest_horizon',return_value=1),patch.object(audit.time,'time',return_value=100),patch.object(audit,'_harvest_recent',side_effect=lambda c,h,**kw:calls.append(('new',h,kw['batch_size']))),patch.object(audit,'_harvest_horizon',side_effect=lambda c,h:calls.append(('old',h))):
             audit.harvest(MagicMock())
-        self.assertEqual(calls,[('new',1),('old',1)])
+        self.assertEqual(calls,[('new',60,16),('new',1,112),('old',1)])
         conn=Mock();conn.execute.return_value.fetchall.return_value=[('new-id',)]
         audit._harvest_recent(conn,15)
         query,params=conn.execute.call_args_list[0].args
-        self.assertIn('LIMIT 128',query);self.assertIn("payload->>'marketEvaluable'='true'",query)
+        self.assertIn('LIMIT %s',query);self.assertEqual(params[-1],128);self.assertIn("payload->>'marketEvaluable'='true'",query)
         insert=conn.execute.call_args_list[1].args[0]
         self.assertIn('ON CONFLICT DO NOTHING',insert)
         self.assertIn("stream='gold-api-xau-usd-v1'",insert)

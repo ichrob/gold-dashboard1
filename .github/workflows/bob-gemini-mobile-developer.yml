@@ -1,0 +1,61 @@
+name: Bob Gemini - Handy-Entwickler (kostenlos, Vorschlag)
+
+on:
+  # Only a newly-created, exact owner comment can start the additional path.
+  # It cannot provide arbitrary shell text, file names, or private credentials.
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Nummer eines OFFENTLICHEN Bob-Issues vom Kontoinhaber"
+        required: true
+        type: number
+      target_file:
+        description: "Eine existierende KLEINE oeffentliche Codedatei, z.B. gemini_peer_review_free.py"
+        required: true
+        type: string
+
+# Manual on Android, or exact owner-only /bob-gemini-dev GEMINI.md comment.
+# Never executes model text, edits the repository, creates a PR, merges,
+# deploys, trades, accesses Bob's private MCP, or reads cloud credentials.
+# The only write is a bounded public issue comment.
+# Existing secret GEMINI_API_KEY and unbilled Free-only variable reused.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: bob-gemini-mobile-dev-${{ github.event_name == 'issue_comment' && github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  proposal:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       !github.event.issue.pull_request &&
+       github.event.comment.user.login == 'ichrob' &&
+       github.event.comment.body == '/bob-gemini-dev GEMINI.md')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Trusted checkout (main only)
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Unit tests before calling the free model
+        run: python -m unittest -v test_gemini_mobile_developer.py
+      - name: Gemini public-code proposal (never execute)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          BOB_GEMINI_FREE_ONLY: ${{ vars.BOB_GEMINI_FREE_ONLY }}
+          BOB_GEMINI_DEV_ISSUE: ${{ github.event_name == 'issue_comment' && github.event.issue.number || inputs.issue_number }}
+          BOB_GEMINI_DEV_FILE: ${{ github.event_name == 'issue_comment' && 'GEMINI.md' || inputs.target_file }}
+        run: python gemini_mobile_developer.py

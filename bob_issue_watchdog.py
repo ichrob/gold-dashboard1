@@ -32,16 +32,34 @@ CODES = {
     "push-unreachable": "Push-/Datenbankdienst nicht erreichbar",
     "push-unhealthy": "Push-/Datenbank-Gesundheitsprüfung fehlgeschlagen",
     "paper-unhealthy": "Papierkonten-Hintergrundstatus beeinträchtigt",
+    "study-original-input-degraded": "Neue Originalkurs-Prüfungen für Studien wiederholt ungültig",
+    "study-outcome-coverage-degraded": "Neue Originalstudien-Ausgänge wiederholt nicht auswertbar",
+    "study-worker-stale": "Forschungsstudie wird während aktiver Sitzung nicht mehr geprüft",
     "product-quote-evidence-missing": "Emittentenkurse oder eigenständige Kurszeiten unvollständig",
     "product-leverage-clock-missing": "Emittentenhebel oder dessen eigener bzw. eindeutig gemeinsamer Zeitbezug fehlt",
     "product-ko-validity-missing": "KO-Wert oder dessen gültiger Datennachweis fehlt",
     "product-terms-evidence-missing": "Produktstammdaten oder zugehörige Nachweise unvollständig",
+    # GitHub's own independent CI/health watchdogs. A successful /health
+    # poll cannot close a failed build or a failed GitHub workflow.
+    "ci-main-failed": "Produktiver GitHub-CI-Prüflauf fehlgeschlagen",
+    "smoke-main-failed": "GitHub-Live-Smoke-Prüfung fehlgeschlagen",
+    "collection-main-failed": "GitHub-Datensammlungsprüfung fehlgeschlagen",
+    "watchdog-main-failed": "GitHub-KI-Fehlerwächterlauf fehlgeschlagen",
 }
 
 # Internal marker to avoid closing unresolved incidents on an unavailable
 # private audit. This marker is NOT an issue type and is never published.
 PRODUCT_AUDIT_UNKNOWN = "_private-product-audit-unavailable"
 PRODUCT_CODES = frozenset(code for code in CODES if code.startswith("product-"))
+STUDY_CODES = frozenset(code for code in CODES if code.startswith("study-"))
+# These are verified by independent GitHub Actions evidence, not by a missing
+# /health code. Only separately evidenced GitHub recovery may close them.
+EXTERNAL_CODES = frozenset((
+    "ci-main-failed", "smoke-main-failed",
+    "collection-main-failed", "watchdog-main-failed",
+))
+STUDY_SCOPE = "bob-original-study-watchdog-v1"
+PRODUCT_CONFIRMATION_SECONDS = 120
 
 
 def utc_now():
@@ -108,6 +126,23 @@ def classify(app, background, push, *, market_open=True):
             paper = push.get("paperObservation")
             if isinstance(paper, dict) and paper.get("state") not in ("ok", "warming"):
                 errors.append("paper-unhealthy")
+        if market_open:
+            # Fixed public-safe research signals only. Absence/unavailability
+            # is UNKNOWN: never interpret missing data as a verified recovery.
+            research = push.get("studyHealth")
+            if (isinstance(research,dict)
+                    and research.get("scope")==STUDY_SCOPE
+                    and research.get("readOnly") is True
+                    and research.get("realOrders") is False
+                    and research.get("status") in ("observed","stale")
+                    and isinstance(research.get("codes"),list)
+                    and len(research["codes"])<=len(STUDY_CODES)
+                    and all(type(code) is str and code in STUDY_CODES
+                            for code in research["codes"])
+                    and len(research["codes"])==len(set(research["codes"]))):
+                # Reject the entire projection when any code is unknown.
+                # A mixed, forged list may not slip a "good" code through.
+                errors.extend(research["codes"])
         if "productAuditCodes" in push:
             product_codes = push["productAuditCodes"]
             if not isinstance(product_codes, list):
@@ -115,7 +150,16 @@ def classify(app, background, push, *, market_open=True):
             else:
                 # Accept ONLY fixed diagnostic identifiers; never publish
                 # arbitrary source errors, raw data or per-product values.
-                errors.extend(code for code in product_codes if isinstance(code, str) and code in PRODUCT_CODES)
+                # Live issuer quotes are expected only during the configured
+                # trading window.  Static leverage, KO and terms evidence must
+                # remain visible outside that window, but a pre-market quote
+                # gap must not open a public repair incident that heals as soon
+                # as the regular 08:00 source cycle starts.
+                errors.extend(
+                    code for code in product_codes
+                    if (isinstance(code, str) and code in PRODUCT_CODES
+                        and (market_open or code != "product-quote-evidence-missing"))
+                )
         else:
             errors.append(PRODUCT_AUDIT_UNKNOWN)
     return sorted(set(errors))
@@ -184,48 +228,73 @@ def issue_title(code):
     return "[Bob KI-Hilfe] " + code
 
 
-def open_issue_rows(*, token, repo, requester=github_request):
-    """Read open repository issues through list and independent search APIs."""
-    issues = []
-    for page in range(1, 11):
-        path = "/issues?state=open&per_page=100"
-        if page > 1:
-            path += "&page=" + str(page)
-        rows = requester("GET", path, token=token, repo=repo)
-        if not isinstance(rows, list):
-            raise ValueError("Issue-Liste ungültig")
-        issues.extend(rows)
-        if len(rows) < 100:
-            break
-    else:
-        raise ValueError("Issue-Liste unvollständig")
+def _bounded_issue_pages(requester, *, token, repo, path_builder, search=False):
+    """Bounded, lossless pagination, retrying from page ONE on oversized JSON.
 
-    # The workflow token has repeatedly received a complete HTTP response that
-    # nevertheless omitted existing open help issues from the repository list.
-    # GitHub's independent search index is the fail-closed cross-check before
-    # a new public incident can be created.
+    GitHub issue bodies may be very long. Fetching 100 public issues in one
+    response exceeds the watchdog's existing 200 kB cap. Never lift that cap,
+    silently drop an older canonical incident, or mistake a partial list for
+    the full issue inventory.
+    """
+    MAX_ROWS = 250
+    for size in (10, 5, 2, 1):
+        collected = []
+        try:
+            for page in range(1, (MAX_ROWS // size) + 1):
+                response = requester("GET", path_builder(size, page),
+                                     token=token, repo=repo)
+                if search and isinstance(response, dict):
+                    if response.get("incomplete_results") is True:
+                        raise ValueError("Issue-Suche unvollständig")
+                    count = response.get("total_count")
+                    if type(count) is int and count > MAX_ROWS:
+                        raise ValueError("Issue-Suche zu umfangreich")
+                    rows = response.get("items")
+                else:
+                    count = None
+                    rows = response
+                if not isinstance(rows, list) or len(rows) > size:
+                    raise ValueError("Issue-Liste ungültig")
+                collected.extend(rows)
+                if len(rows) < size:
+                    if search and type(count) is int and len(collected) < count:
+                        # Search advertised more cases than it returned. Never
+                        # create a new incident from a partial cross-check.
+                        raise ValueError("Issue-Suche unvollständig")
+                    return collected
+                if type(count) is int and len(collected) >= count:
+                    return collected
+            raise ValueError("Issue-Liste unvollständig")
+        except ValueError as exc:
+            if str(exc) == "GitHub response too large":
+                # Restart at page 1 with a smaller fixed page size. Moving
+                # from page N of one size to page N of another skips issues.
+                continue
+            raise
+    raise ValueError("GitHub response too large")
+
+
+def open_issue_rows(*, token, repo, requester=github_request):
+    """One complete indexed issue list plus independent GitHub title search.
+
+    The independent search catches open help issues omitted from the list by
+    transient GitHub API indexing. No creation when either source is partial.
+    """
+    issues = _bounded_issue_pages(
+        requester, token=token, repo=repo,
+        path_builder=lambda size,page: (
+            "/issues?state=open&per_page=" + str(size) + "&page=" + str(page)))
     query = quote_plus(
         'repo:' + repo + ' is:issue is:open in:title "[Bob KI-Hilfe]"'
     )
-    search = requester(
-        "GET", "/search/issues?q=" + query + "&per_page=30",
-        token=token, repo=repo
-    )
-    if isinstance(search, dict):
-        search_rows = search.get("items")
-    else:
-        # Test requesters historically model all GET endpoints as issue lists.
-        search_rows = search
-    if not isinstance(search_rows, list):
-        raise ValueError("Issue-Suche ungültig")
-    issues.extend(search_rows)
-
-    # The same issue normally appears in both sources. Prefer the search copy
-    # because it is the independently recovered observation and deduplicate by
-    # immutable issue number before downstream sanitization.
+    issues += _bounded_issue_pages(
+        requester, token=token, repo=repo, search=True,
+        path_builder=lambda size,page: (
+            "/search/issues?q=" + query + "&per_page=" + str(size)
+            + "&page=" + str(page)))
     unique = {}
     for row in issues:
-        if isinstance(row, dict) and isinstance(row.get("number"), int):
+        if isinstance(row, dict) and type(row.get("number")) is int:
             unique[row["number"]] = row
     return list(unique.values())
 
@@ -280,7 +349,11 @@ def sync_issue(codes, *, token, repo, at=None, requester=github_request,
         recovery_codes = frozenset(code for code in recovery_codes if code in CODES)
     # This public watchdog sees only anonymous error codes. It cannot verify
     # the underlying broker or issuer records, so never auto-close product issues.
-    product_titles = {issue_title(code) for code in PRODUCT_CODES | {"trade-setup-stalled", "screenshot-import-failed"}}
+    # Data-dependent research findings need prospective ORIGINAL evidence
+    # before closure. An empty/stale/missing health projection cannot close them.
+    product_titles = {issue_title(code) for code in
+                      PRODUCT_CODES | STUDY_CODES | EXTERNAL_CODES
+                      | {"trade-setup-stalled", "screenshot-import-failed"}}
     actions = []
 
     def close_duplicates(rows):
@@ -374,8 +447,26 @@ def main():
     # independent confirmation.
     time.sleep(15)
     second = probe()
-    detected = second
-    healthy_twice = frozenset(CODES) - set(first) - set(second)
+
+    # A new public incident requires the same fault in both base polls. A
+    # second-only failure is a new observation for the next run, not proof of
+    # a persistent episode.
+    confirmed_polls = [set(first), set(second)]
+    detected_set = confirmed_polls[0] & confirmed_polls[1]
+
+    # Product sources can need more than the workflow's fixed rollout wait to
+    # repopulate after a zero-downtime deploy. Recheck only persistent product
+    # findings after a longer settling interval before opening a public issue.
+    persistent_product_codes = detected_set & PRODUCT_CODES
+    if persistent_product_codes:
+        time.sleep(PRODUCT_CONFIRMATION_SECONDS)
+        third = set(probe())
+        confirmed_polls.append(third)
+        detected_set -= PRODUCT_CODES
+        detected_set |= persistent_product_codes & third
+
+    detected = sorted(detected_set)
+    healthy_twice = frozenset(CODES) - set().union(*confirmed_polls)
     at = utc_now()
     print("BOB_WATCHDOG at=" + at + " codes=" + ",".join(detected or ["healthy"]), flush=True)
     token = os.environ.get("GITHUB_TOKEN", "")

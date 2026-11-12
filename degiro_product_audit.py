@@ -315,16 +315,26 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
     # SG's verified factor response intentionally has no live quote/term fields.
     # Accept its existing productType spelling as well as the canonical type;
     # an excluded factor is not fifteen independent missing-data incidents.
-    if verified and 'FACTOR' in (metadata.get('type'), metadata.get('productType')):
+    # One exact, immutable issuer identification also excludes a factor even
+    # when the ordinary quote adapter cannot parse the future-based instrument.
+    # BNP's official product details: derivate.bnpparibas.com/product-details/DE000PU0D101/
+    # This is identity/type evidence ONLY, never a fresh bid/ask or KO record.
+    official_factor = isin == 'DE000PU0D101'
+    if (verified and 'FACTOR' in (metadata.get('type'), metadata.get('productType'))) or official_factor:
         return dict(isin=isin, direction=direction, state='excluded-factor', excluded=True,
             missing=['factor'], messages=[CODES['factor']],
-            source=str(quote.get('source') or 'Emittent')[:80],
-            sourceStatusEvidence=dict(issuerVerified=True, issuerProductType='FACTOR',
-                                      issuerStatus=metadata.get('status')),
+            source=('BNP Paribas · offizieller Faktor-15-Produktnachweis' if official_factor
+                    else str(quote.get('source') or 'Emittent')[:80]),
+            sourceStatusEvidence=dict(issuerVerified=verified, issuerProductType='FACTOR',
+                issuerStatus=metadata.get('status'),
+                officialReference=('https://derivate.bnpparibas.com/product-details/DE000PU0D101/'
+                    if official_factor else None)),
             timeEvidence=dict(missing=[], leverageBasis='unavailable', terms={}),
             quoteSourceAt=None, leverageSourceAt=None, issuerLeverageObservation=None,
             leverageObservation=None, sourceObservations=[],
-            dataQuoteSource=None, dataQuoteKind=None, identityEvidence='issuer-confirmed-excluded',
+            dataQuoteSource=None, dataQuoteKind=None,
+            identityEvidence=('public-issuer-factor-exclusion' if official_factor and not verified
+                              else 'issuer-confirmed-excluded'),
             tradeApproved=False, degiroVerified=False,
             autoRecovery='Faktorprodukt ausgeschlossen; keine laufenden Kurs-, Hebel- oder KO-Nachweise erforderlich.')
     snapshot = product.get('snapshot') or {}
@@ -360,8 +370,9 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
     if not valid_isin(isin) or not (
             product.get('isinConfirmed') or identity_matches or broker_identity_matches):
         missing.append('list-identity')
-    if swiss_dots and not has_broker_venue:
-        missing.append("venue")
+    # A DEGIRO venue screenshot is OPTIONAL for analysis and paper studies.
+    # Absence must not appear as a missing product term or block a study.
+    # This does NOT establish account-level execution approval.
     if not verified:
         missing.append("identity") if "identity" not in missing else None
     if direction not in ("LONG", "SHORT") or metadata.get("direction", quote.get("direction")) != direction:
@@ -536,11 +547,10 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
         "issuerVenue": "Swiss DOTS (CHF)" if swiss_dots else None,
         "venueEvidence": "https://www.finanzen.ch/derivate/"+isin.lower() if swiss_dots else None,
         "brokerVenueEvidence": broker_venue if has_broker_venue else None,
-        "brokerVenueStatus": dict(venue_status, required=swiss_dots),
-        "venueAction": ("Keine Swiss-DOTS-Quotierung als DEGIRO-Kurs verwenden. "
-                        "DEGIRO-Kursdatenbild mit ISIN, Börse, Währung und Datum hochladen; "
-                        "Bob übernimmt eindeutige Angaben automatisch."
-                        if swiss_dots and not has_broker_venue else None),
+        "brokerVenueStatus": dict(venue_status, required=False, researchGate=False,
+                                  brokerDisplayObserved=bool(has_broker_venue),
+                                  executionVerified=False),
+        "venueAction": None,
         "autoRecovery": ("Vom Emittenten als beendet gemeldet · keine neue Handelsfreigabe; fehlende laufende Kurse sind kein Reparaturfehler"
                          if terminated else "SG stellt nur Geld; Briefkurs fehlt beim Anbieter. Quellen werden erneut geprüft, keine Handelsfreigabe."
                          if quote.get("quoteFailureCode") == "SG_BID_ONLY" else "Vorhandene Emittenten- und Ersatzquellen werden bei der nächsten Aktualisierung erneut geprüft"),
@@ -752,6 +762,99 @@ def store(conn, feed, quotes, now_ms):
     return report
 
 
+
+def research_compatibility_view(stored, now_ms):
+    """View old audit rows under the current research rules, without re-dating.
+
+    Source-backed bid/ask/KO timestamps, database records and the original audit
+    completion timestamp are immutable. An older venue *research blocker* is
+    removed from this read-only display only; this grants no broker execution.
+    The one exact BNP future-factor ISIN is excluded using official public
+    product identity, never an assumed issuer price or synthetic KO barrier.
+    """
+    if not isinstance(stored, dict) or not isinstance(stored.get("items"), list):
+        return stored
+    changed = False
+    output = []
+    for raw in stored["items"]:
+        if not isinstance(raw, dict):
+            output.append(raw)
+            continue
+        isin = raw.get("isin")
+        missing = raw.get("missing")
+        if isin == "DE000PU0D101" and raw.get("state") != "excluded-factor":
+            # This is a type/exclusion projection, NOT a newly observed issuer
+            # quote, original proof clock or evidence of account tradability.
+            factor = examine({"isin":isin,"productDirection":raw.get("direction")},
+                             {}, now_ms)
+            factor["originalAuditState"] = raw.get("state")
+            factor["originalAuditCheckedAt"] = stored.get("lastCheckedAt")
+            factor["needsKiHelp"] = False
+            output.append(factor)
+            changed = True
+            continue
+        if not isinstance(missing, list) or "venue" not in missing:
+            output.append(raw)
+            continue
+        # Existing stored row may contain old venue-specific counters. Keep
+        # independent product failures and their exact source provenance.
+        row = deepcopy(raw)
+        row["missing"] = [code for code in missing if code != "venue"]
+        if isinstance(row.get("messages"), list):
+            if len(row["messages"]) == len(missing):
+                row["messages"] = [message for code, message in
+                                   zip(missing, row["messages"]) if code != "venue"]
+            else:
+                row["messages"] = [CODES.get(code, "Nachweis prüfen")
+                                   for code in row["missing"]]
+        for key in ("missingChecks","missingSince"):
+            if isinstance(row.get(key), dict):
+                row[key].pop("venue", None)
+        counts = row.get("missingChecks")
+        if isinstance(counts, dict):
+            row["consecutiveChecks"] = max(
+                [v for v in counts.values() if type(v) is int and v>=0],
+                default=0)
+            row["needsKiHelp"] = (row["consecutiveChecks"] >= 3 and
+                                   bool(row["missing"]))
+        if (row.get("state") == "incomplete" and not row["missing"] and
+            isinstance(row.get("sourceStatusEvidence"), dict) and
+            row["sourceStatusEvidence"].get("issuerVerified") is True):
+            row["state"] = ("analysis-evidence-complete"
+                            if row.get("leverageObservation") else
+                            "issuer-evidence-complete")
+        # Old report schema also stored a separate venue-action prompt and
+        # brokerVenueStatus.required=true. The code-only research gate is gone,
+        # so do not keep a contradictory screenshot request in the view.
+        status = row.get("brokerVenueStatus")
+        if isinstance(status, dict):
+            row["brokerVenueStatus"] = dict(status,
+                required=False, researchGate=False, executionVerified=False,
+                brokerDisplayObserved=status.get("current") is True)
+        row["venueAction"] = None
+        row["researchVenueGateRequired"] = False
+        row["tradeApproved"] = False
+        row["degiroVerified"] = False
+        output.append(row)
+        changed = True
+    if not changed:
+        return stored
+    view = dict(stored)
+    view["items"] = output
+    # These counters describe *the view* of saved research evidence. Do not
+    # update lastCheckedAt, quoteSourceAt, leverageSourceAt or market status.
+    if view.get("status") == "ok":
+        view["incomplete"] = sum(x.get("state")=="incomplete" for x in output
+                                  if isinstance(x,dict))
+        view["needsHelp"] = sum(x.get("needsKiHelp") is True for x in output
+                                 if isinstance(x,dict))
+    view["excluded"] = sum(x.get("state")=="excluded-factor" for x in output
+                           if isinstance(x,dict))
+    view["researchCompatibilityView"] = "venue-optional-and-factor-excluded-v1"
+    view["underlyingAuditUnchanged"] = True
+    return view
+
+
 def read(conn, now_ms=None):
     now_ms = now_ms if now_ms is not None else datetime.now(timezone.utc).timestamp()*1000
     # Check against current list generation, not an old audit after a fresh upload.
@@ -765,7 +868,7 @@ def read(conn, now_ms=None):
                 "lastCheckedAt":None,"listUploadedAt":generation,
                 "incomplete":None,"needsHelp":None, "items":[],
                 "readOnly":True,"degiroConnected":False}
-    report = dict(row[0])
+    report = research_compatibility_view(dict(row[0]), now_ms)
     # Handset data is an independent, historical, non-trading display layer.
     # NEVER overwrite issuer quotes, audit missing-codes, or trade approval.
     try:

@@ -114,9 +114,10 @@ def android_diagnostic_rpc(payload, remote=False):
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:raise RuntimeError('Diagnostics unavailable')
     base=PUSH_SERVICE_URL.rstrip('/')
     if not base.startswith(('https://','http://')):base='https://'+base
-    request=Request(base+('/android-remote' if remote else '/android-diagnostics'),data=json.dumps(payload).encode(),method='POST',
+    workflow=remote and payload.get('action')=='workflow-plan'
+    request=Request(base+('/android-workflow-plan' if workflow else '/android-remote' if remote else '/android-diagnostics'),data=json.dumps(payload).encode(),method='POST',
         headers={'X-Bob-Push-Token':PUSH_SERVICE_TOKEN,'Content-Type':'application/json'})
-    with urlopen(request,timeout=8) as response:return json.loads(response.read(8200000))
+    with urlopen(request,timeout=35 if workflow else 8) as response:return json.loads(response.read(32768 if workflow else 8200000))
 
 
 def read_private_product_audit_for_mcp():
@@ -151,7 +152,8 @@ def read_diagnostics_for_mcp():
     def problems():
         value = bob_problems.snapshot()
         return {**bob_diagnostics.fields(value, ('status','count','checkedAt')),
-                'items':[bob_diagnostics.fields(item, ('code','number','state','updatedAt','title','reason','message','kiStatus','kiStatusLabel'))
+                'repairFlowSummary':__import__('repair_flow').summary(value),
+                'items':[__import__('repair_flow').diagnostic_item(item)
                          for item in value.get('problems', [])[:100]]}
     report = bob_diagnostics.collect({
         'market':lambda:bob_diagnostics.market_snapshot(_live_cache, _live_cache_at),
@@ -330,7 +332,8 @@ def background_health():
     healthy = paused or bool(state["configured"] and age is not None and age <= allowed_age
                    and state["status"] in ("active", "idle", "checking"))
     return {"status": "ok" if healthy else "unavailable", "service": "bob-background",
-            "monitorStatus": state["status"], "lastSuccessAt": last, "ageSeconds": age}
+            "monitorStatus": state["status"], "lastSuccessAt": last, "ageSeconds": age,
+            "expectedCycleSeconds": normal_interval}
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -853,7 +856,17 @@ def recheck_spot_before_bundle(spot_result, now=None):
     # the newest closed minute even when the HTTP cache is only seconds old.
     if age >= 30:
         try:
-            from spot_data import current
+            from spot_data import current, final_bundle_retry_wait
+            # If bundle completion lands immediately before the next normal
+            # 30-second source attempt, bridge only that remaining interval.
+            # This is not an extra retry and never keeps an old provider clock
+            # alive: current() and the unchanged <=60s admission gate remain
+            # authoritative after the bounded wait.
+            if age >= 55:
+                wait_seconds = final_bundle_retry_wait(original_at)
+                if wait_seconds is not None:
+                    time.sleep(wait_seconds)
+                    clock = time.time() if now is None else clock + wait_seconds
             refreshed = current()
             candidate_at = datetime.fromisoformat(refreshed['at'].replace('Z', '+00:00'))
             newest_age = time.time() - candidate_at.timestamp() if now is None else clock-candidate_at.timestamp()
@@ -1328,10 +1341,10 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 bob_handy_landing.send(self, command)
             return
-        if path in ("/", "/index.html", "/bob-live", "/bob-v12") and not self.authenticated():
+        if path in ("/", "/index.html", "/bob-live", "/bob-v12", "/zentrale/workspace") and not self.authenticated():
             # Browser fragments are invisible to servers. The Android companion
             # therefore sends the intended tab as an allowlisted ?view= value.
-            location = bob_auth.login_redirect(urlparse(self.path).query)
+            location = ("/login?view=zentrale" if path == "/zentrale/workspace" else bob_auth.login_redirect(urlparse(self.path).query))
             bob_auth.send(self, 303, location=location)
             return
         # Sensitive data APIs must be authenticated before any data generation.
@@ -1941,7 +1954,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(HTML)
             return
 
-        if path in ("/", "/index.html"):
+        if path in ("/", "/index.html", "/zentrale/workspace"):
             print(f'BOB_ROOT_SHELL path={path} shell_sha_hint=bc7499bb9f3e0a1676022a3d3c2225a236615adf auth_present={bool(self.headers.get("Authorization", ""))}', flush=True)
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -2032,11 +2045,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/login":
             bob_auth.send(self, 200)
             return
-        if path in ("/", "/index.html") and not self.authenticated():
-            location = bob_auth.login_redirect(urlparse(self.path).query)
+        if path in ("/", "/index.html", "/zentrale/workspace") and not self.authenticated():
+            location = ("/login?view=zentrale" if path == "/zentrale/workspace" else bob_auth.login_redirect(urlparse(self.path).query))
             bob_auth.send(self, 303, location=location)
             return
-        if path in ("/", "/index.html"):
+        if path in ("/", "/index.html", "/zentrale/workspace"):
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
                 f"{USER}:{PASSWORD}".encode("utf-8")
@@ -2083,9 +2096,15 @@ class Handler(BaseHTTPRequestHandler):
             diagnostics_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.DIAGNOSTICS_SCOPE)
             push_test_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.PUSH_TEST_SCOPE)
             phone_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.PHONE_SCOPE)
-            if not products_allowed and not diagnostics_allowed and not push_test_allowed and not phone_allowed:
+            termux_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.TERMUX_SCOPE)
+            if not products_allowed and not diagnostics_allowed and not push_test_allowed and not phone_allowed and not termux_allowed:
+                # A dedicated, non-secret client hint opts into requesting BOTH
+                # read scopes during a new OAuth login. Authentication and PKCE
+                # owner consent remain mandatory; legacy clients are unchanged.
+                owner_diagnostics = (self.headers.get("X-Bob-Owner-Read-Scopes", "")
+                                     == "products-and-diagnostics")
                 self.send_response(401)
-                self.send_header("WWW-Authenticate", bob_oauth.challenge_header())
+                self.send_header("WWW-Authenticate", bob_oauth.challenge_header(owner_diagnostics))
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
@@ -2099,6 +2118,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(int(length)).decode("utf-8"))
                 status, output = bob_mcp.handle(payload, read_private_product_audit_for_mcp,
                     read_diagnostics_for_mcp if diagnostics_allowed else None, products=products_allowed,
+                    remote_termux=True, termux_handler=(lambda name,args:android_diagnostic_rpc({'action':'termux-mcp','name':name,'arguments':args},remote=True)) if termux_allowed else None,
                     remote_phone=True, phone_handler=(lambda name,args:android_diagnostic_rpc({'action':'mcp','name':name,'arguments':args},remote=True)) if phone_allowed else None,
                     remote_push=True, push_reader=remote_push_rpc if diagnostics_allowed else None,
                     push_sender=remote_push_rpc if push_test_allowed else None,
@@ -2109,11 +2129,32 @@ class Handler(BaseHTTPRequestHandler):
                 status, output = 400, bob_mcp.error(None, -32700, "Invalid JSON request")
             except (HTTPError, URLError, OSError, TimeoutError, RuntimeError):
                 status, output = 503, bob_mcp.error(None, -32001, "Private audit temporarily unavailable")
+            # OAuth step-up: a valid product-only token must receive the
+            # standards-compliant HTTP 403 scope challenge when it requests
+            # diagnostics, rather than only a JSON-RPC isError inside HTTP 200.
+            # The challenge is created by bob_mcp.authorization_required,
+            # never from client-supplied text or report content. User consent
+            # through the existing PKCE / browser / passkey flow remains mandatory.
+            step_up_challenge = None
+            if status == 200 and isinstance(output, dict):
+                result = output.get("result")
+                if isinstance(result, dict) and result.get("isError") is True:
+                    meta = result.get("_meta", {})
+                    challenges = meta.get("mcp/www_authenticate") if isinstance(meta, dict) else None
+                    if (isinstance(challenges, list) and len(challenges) == 1
+                            and isinstance(challenges[0], str)
+                            and challenges[0].startswith('Bearer resource_metadata="'
+                                + bob_oauth.ORIGIN + '/.well-known/oauth-protected-resource"')
+                            and 'error="insufficient_scope"' in challenges[0]):
+                        step_up_challenge = challenges[0]
+                        status = 403
             if output is None:
                 body = b""
             else:
                 body = json.dumps(output, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
             self.send_response(status)
+            if step_up_challenge is not None:
+                self.send_header("WWW-Authenticate", step_up_challenge)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -2239,7 +2280,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if path in ("/api/degiro/connection-test", "/api/degiro/sync/start", "/api/degiro/sync/stop", "/api/degiro/preflight"):
+        if path in ("/api/degiro/connection-test", "/api/degiro/sync/start", "/api/degiro/sync/stop", "/api/degiro/preflight", "/api/degiro/quote-test"):
             if not self.authenticated():
                 bob_auth.send(self, 401)
                 return
@@ -2248,15 +2289,21 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= (2048 if path.endswith("/preflight") else 128):
+                if not 0 < length <= (2048 if path.endswith(("/preflight", "/quote-test")) else 128):
                     raise ValueError("Ungültige Anfragegröße")
                 payload = json.loads(self.rfile.read(length))
-                if not isinstance(payload, dict) or (not path.endswith("/preflight") and set(payload) - {"otp"}):
+                if not isinstance(payload, dict) or (not path.endswith(("/preflight", "/quote-test")) and set(payload) - {"otp"}):
                     raise ValueError("Ungültige Anfrage")
+                if path.endswith("/quote-test"):
+                    from degiro_quote_probe import validate_request
+                    if set(payload) - {"otp", "quoteRequest"}:
+                        raise ValueError("Invalid quote test")
+                    validate_request(payload.get("quoteRequest"))
                 result = (degiro_preflight.probe(payload) if path.endswith("/preflight") else
                           degiro_sync.start(payload.get("otp", "")) if path.endswith("/start") else
                           degiro_sync.stop() if path.endswith("/stop") else
                           {"ok": False, "code": "BUSY"} if degiro_sync.status()["running"] else
+                          degiro_readonly.probe(payload.get("otp", ""), payload["quoteRequest"]) if path.endswith("/quote-test") else
                           degiro_readonly.probe(payload.get("otp", "")))
                 code = 200
             except (ValueError, TypeError):
@@ -2279,8 +2326,12 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length).decode('utf-8'))
                 if not isinstance(payload, dict):raise ValueError('Ungültige Anfrage')
                 import youtube_research
-                result = youtube_research.from_screenshot(payload) if 'screenshotText' in payload else {'ok': True, 'item': youtube_research.manual(payload)}
-                status = 200
+                if payload == {'action': 'refresh'}:
+                    result = gold_research.request_refresh()
+                    status = 202
+                else:
+                    result = youtube_research.from_screenshot(payload) if 'screenshotText' in payload else {'ok': True, 'item': youtube_research.manual(payload)}
+                    status = 200
             except ValueError as exc:
                 result = {'ok': False, 'error': str(exc)}
                 status = 400
@@ -2454,12 +2505,15 @@ def fibonacci_monitor_loop():
             continue
         cycle_started = time.monotonic()
         poll_seconds = 30  # Connection failure: retry promptly to protect an unknown active trade.
+        active_trades = True  # Unknown monitor state: never change live-risk polling.
+        trade_state_known = False
         try:
             request = Request(base+"/monitor-status", headers={"X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
             with urlopen(request, timeout=10) as response:
                 monitors = json.loads(response.read(4096))
                 active = monitors.get("activeMonitors", 0)
                 active_trades = monitors.get("activeTrades", 0)
+                trade_state_known = "activeTrades" in monitors
             poll_seconds = background_push.degiro_poll_seconds(active_trade=bool(active_trades))
             FIB_MONITOR_HEALTH.update(status="checking", lastCheckedAt=int(time.time()),
                                       expectedCycleSeconds=poll_seconds, session=background_push.degiro_session())
@@ -2483,8 +2537,15 @@ def fibonacci_monitor_loop():
                 try:
                     with urlopen(request,timeout=45) as response:
                         background_result=json.loads(response.read(4096))
-                    diagnostic_history.emit('transport', source_trace, {'outcome':'background-accepted'})
-                    print("BOB_BACKGROUND checked sent="+str(background_result.get('sent',0)),flush=True)
+                    accepted=background_result.get('accepted') is True
+                    diagnostic_history.emit(
+                        'transport',source_trace,
+                        {'outcome':'background-accepted' if accepted else 'background-rejected'})
+                    print("BOB_BACKGROUND checked accepted="+
+                          str(accepted)+
+                          " trace="+source_trace+
+                          " source_at="+str((background_bundle.get('spots') or {}).get('spot_price_as_of'))+
+                          " sent="+str(background_result.get('sent',0)),flush=True)
                 except Exception as exc:
                     background_ok = False
                     diagnostic_history.emit('transport', source_trace, {'outcome':'background-failed','errorType':type(exc).__name__})
@@ -2502,7 +2563,10 @@ def fibonacci_monitor_loop():
         except Exception as exc:
             FIB_MONITOR_HEALTH.update(status="unavailable", lastCheckedAt=int(time.time()))
             print("BOB_FIB monitor_error="+type(exc).__name__, flush=True)
-        time.sleep(max(1, poll_seconds - (time.monotonic() - cycle_started)))
+        time.sleep(background_push.study_source_edge_delay(
+            poll_seconds, time.monotonic() - cycle_started, time.time(),
+            session=background_push.degiro_session(),
+            active_trade=bool(active_trades) or not trade_state_known))
 
 _AGENTMAIL_RECOVERY_THREAD = None
 _AGENTMAIL_RECOVERY_LOCK = threading.Lock()
@@ -2544,6 +2608,21 @@ def start_agentmail_recovery():
             _AGENTMAIL_RECOVERY_THREAD.start()
 
 
+def _aiven_canary_once():
+    """One opt-in Aiven read-only probe; never blocks or changes Bob's database."""
+    try:
+        from aiven_readonly_probe import probe
+        status = probe().get("status", "internal-error")
+        if status not in ("connected-read-only", "connection-not-confirmed",
+                          "read-only-not-confirmed", "query-not-confirmed",
+                          "invalid-configuration", "not-configured"):
+            status = "internal-error"
+    except Exception:
+        status = "internal-error"
+    # Never log URI, host, certificate, raw database exception, or credential.
+    print("BOB_AIVEN_CANARY status=" + status, flush=True)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v2 process={PROCESS_ID}", flush=True)
@@ -2561,6 +2640,9 @@ if __name__ == "__main__":
     start_agentmail_recovery()
     import weekend_archive
     weekend_archive.start(build_live_bundle,market_cards.snapshot)
+    if os.environ.get("BOB_AIVEN_TEST_DATABASE_URL"):
+        threading.Thread(target=_aiven_canary_once,
+                         name="bob-aiven-canary", daemon=True).start()
     BobHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress

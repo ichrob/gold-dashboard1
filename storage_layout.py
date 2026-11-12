@@ -63,6 +63,7 @@ def report(conn):
                 'diagnosticPayloadSample':diagnostic_sample(conn),
                 'diagnosticRecentStageSample':recent_diagnostic_stages(conn),
                 'diagnosticPayloadEqualitySample':diagnostic_payload_equality_sample(conn),
+                'diagnosticPayloadByteSample':diagnostic_payload_byte_sample(conn),
                 'decisionPayloadSample':decision_payload_sample(conn),
                 'decisionProductsCohorts':decision_products_cohorts(conn),
                 'reclaimableBytes':None,
@@ -124,6 +125,42 @@ def recent_diagnostic_stages(conn):
 # Event identities, source times and trace IDs remain distinct and are never returned.
 _DIAGNOSTIC_EQUALITY_SAMPLE_CAP = 256
 _DIAGNOSTIC_EQUALITY_STAGES = ('input', 'analysis')
+
+
+def diagnostic_payload_byte_sample(conn):
+    """Bounded SQL aggregate of actual JSONB payload bytes, never raw data."""
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='1500ms'")
+            rows = conn.execute("""WITH recent AS MATERIALIZED (
+                SELECT stage,payload FROM bob_diagnostic_history
+                ORDER BY recorded_at DESC LIMIT 256
+            ), eligible AS MATERIALIZED (
+                SELECT payload FROM recent WHERE stage='input'
+            ), grouped AS (
+                SELECT payload,count(*) AS copies,
+                       octet_length(payload::text) AS bytes
+                FROM eligible GROUP BY payload
+            )
+            SELECT coalesce(sum(copies),0)::bigint,
+                   coalesce(count(*),0)::bigint,
+                   coalesce(sum(copies*bytes),0)::bigint,
+                   coalesce(sum(bytes),0)::bigint
+            FROM grouped""").fetchone()
+        if not rows or any(type(v) is not int or v < 0 for v in rows):
+            return {'status': 'not-observed', 'readOnly': True}
+        total, distinct, original, shared = rows
+        if total > 256 or distinct > total or shared > original:
+            return {'status': 'not-observed', 'readOnly': True}
+        return {'status': 'sampled', 'readOnly': True,
+                'sampledInputRows': total, 'distinctPayloads': distinct,
+                'originalPayloadJsonBytes': original,
+                'sharedPayloadJsonBytes': shared,
+                'payloadOnlyLogicalDifferenceBytes': original-shared,
+                'physicalBytesFreed': None,
+                'scope': 'bounded-input-json-aggregate-excludes-reference-overhead'}
+    except Exception:
+        return {'status': 'not-observed', 'readOnly': True}
 
 
 def diagnostic_payload_equality_sample(conn):

@@ -4,6 +4,7 @@ No scheduler or startup registration. Defaults to OFF. Exact original JSON stays
 inline unless a separate future operator explicitly approves verified archival.
 Readers must be deployed on BOTH services before enabling this writer.
 """
+from storage_capacity import MAX_VOLUME_BYTES
 import gzip
 import os
 from pathlib import Path
@@ -52,7 +53,7 @@ def _approved(approval, now_seconds):
             0 <= now_seconds-approval['observedAt'] <= 900)
 
 
-def _proof_state(proof, seconds, max_age_seconds=6*3600):
+def _proof_state(proof, seconds, max_age_seconds=6*3600, *, require_recovery=True):
     """Only a persisted restore/download receipt, never caller-provided claims."""
     # Never let an incomplete rolling-deploy attempt erase the older, genuine
     # verified receipt. The timestamp window still applies, so stale backups
@@ -64,6 +65,15 @@ def _proof_state(proof, seconds, max_age_seconds=6*3600):
             receipt.get('remoteDownloadVerified') is not True or
             receipt.get('evidenceDeleted') is True):
         return 'no-verified-restore'
+    # A historical product field is not replaced using legacy plaintext
+    # backups, an unisolated restore, or an encryption key that has not been
+    # independently exercised against the downloaded remote original.
+    if require_recovery and (receipt.get('encryptionVerified') is not True or
+            receipt.get('encryptionVersion') != 'aes-256-gcm-stream-v1' or
+            receipt.get('recoveryKeyVerified') is not True or
+            receipt.get('restoreIsolation') != 'separate-database-instance' or
+            receipt.get('scope') != 'reviewed-evidence-tables-not-full-database-backup'):
+        return 'recovery-or-archive-proof-missing'
     try:
         updated = datetime.fromisoformat(str(receipt['updatedAt']).replace('Z', '+00:00'))
         if updated.tzinfo is None:
@@ -239,7 +249,12 @@ def offload_batch(conn,drive,*,approval=None,now=None,max_updates=None):
             path=Path(tmp)/('decision-products-'+checksum+'.gz')
             path.write_bytes(blob)
             os.chmod(path,0o600)
-            file_id=drive.upload(path,checksum)
+            from cold_chunk_encryption import seal_chunk
+            encrypted=Path(tmp)/('decision-products-'+checksum+'.encrypted')
+            checksum=seal_chunk(path,encrypted)
+            if encrypted.stat().st_size>codec.MAX_FILE:
+                raise codec.ColdArchiveUnavailable('Encrypted decision archive file too large')
+            file_id=drive.upload(encrypted,checksum)
         restored=codec.read_chunk(drive,file_id,checksum,cached=False,conn=conn)
         if codec.encoded(restored)!=codec.encoded(new):
             raise codec.ColdArchiveUnavailable('Remote decision product originals differ')
@@ -311,7 +326,7 @@ def run_once(*,factory=codec.connect,approval=None,now=None,max_updates=None):
                 type(observed) not in (int,float) or
                 not 0 <= seconds-observed <= 300 or
                 type(volume.get('diskUsage')) is not int or
-                volume['diskUsage'] > 750_000_000):
+                volume['diskUsage'] > MAX_VOLUME_BYTES):
             return {'status':'fresh-volume-proof-unavailable','movedRows':0}
         if not conn.execute("SELECT pg_try_advisory_lock(hashtext(%s))",(LOCK,)).fetchone()[0]:
             return {'status':'busy','movedRows':0}
@@ -335,3 +350,4 @@ def status(conn):
                 'diskBytesFreed':None}
     except Exception:
         return {'status':'not-observed','diskBytesFreed':None}
+

@@ -5,6 +5,7 @@ A durable primary-key claim makes a restart incapable of repeating a pilot.
 An explicitly invoked manual routine can replace at most one original after
 independent restore and disk checks by the verified archive writer.
 """
+from storage_capacity import MAX_VOLUME_BYTES
 import json
 import os
 import re
@@ -51,7 +52,7 @@ def _preflight(conn, seconds):
                 type(measured_at) not in (int,float) or
                 not 0 <= seconds-measured_at <=300 or
                 type(volume.get('diskUsage')) is not int or
-                volume['diskUsage']>750_000_000):
+                volume['diskUsage']>MAX_VOLUME_BYTES):
             return 'fresh-volume-proof-unavailable'
     except Exception:
         return 'fresh-volume-proof-unavailable'
@@ -73,6 +74,11 @@ def status(conn):
     """Private reader: never expose attempt IDs or original content."""
     try:
         with conn.transaction():
+            exists=conn.execute("""SELECT to_regclass(
+                'bob_cold_decision_pilot_attempts')""").fetchone()
+            if not exists or exists[0] is None:
+                return {'status':'not-observed','readOnly':True,
+                        'diskBytesFreed':None}
             row=conn.execute("""SELECT status,moved_rows,error_type,updated_at
                 FROM bob_cold_decision_pilot_attempts
                 ORDER BY updated_at DESC LIMIT 1""").fetchone()

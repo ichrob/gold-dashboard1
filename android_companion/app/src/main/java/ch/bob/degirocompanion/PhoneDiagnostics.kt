@@ -24,7 +24,7 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.net.ssl.HttpsURLConnection
 import java.net.URL
 
-/** Opt-in, write-only status transport. Never sends screen text, ISINs or drafts. */
+/** Paired-device transport. Diagnostic reports exclude screen text; workflowPlan sends only explicitly reviewed context. */
 internal object PhoneDiagnostics {
     private const val BASE="https://bob-private-scanner.onrender.com"
     private const val ALIAS="bob_diagnostic_key_v1"
@@ -63,6 +63,8 @@ internal object PhoneDiagnostics {
         queue(c)
         c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(BASE+"/handy/diagnostics#"+hash)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
+    fun workflowPlan(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-workflow/plan",false)
+    fun termuxExchange(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-termux/exchange",false)
     fun remoteExchange(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-remote/exchange",false)
     fun uploadList(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-list/upload",true)
     fun listStatus(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-list/status",false)
@@ -72,11 +74,11 @@ internal object PhoneDiagnostics {
         val credential=token(c)
         val conn=URL(BASE+path).openConnection() as HttpsURLConnection
         try {
-            conn.instanceFollowRedirects=false;conn.connectTimeout=8000;conn.readTimeout=8000
+            conn.instanceFollowRedirects=false;conn.connectTimeout=8000;conn.readTimeout=if(path=="/api/android-workflow/plan") 45000 else 8000
             conn.requestMethod="POST";conn.doOutput=true
             conn.setRequestProperty("Authorization","Bearer "+credential)
             conn.setRequestProperty("Content-Type","application/json")
-            val bytes=body.toString().toByteArray(Charsets.UTF_8);check(bytes.size<=if(list) 8100000 else if(path=="/api/android-list/details") 66000 else 24576)
+            val bytes=body.toString().toByteArray(Charsets.UTF_8);check(bytes.size<=if(list) 8100000 else if(path=="/api/android-list/details" || path=="/api/android-termux/exchange") 66000 else 24576)
             conn.setFixedLengthStreamingMode(bytes.size)
             check(paired(c) && token(c)==credential)
             conn.outputStream.use { it.write(bytes) }
@@ -156,10 +158,19 @@ internal object PhoneDiagnostics {
     fun snapshot(c:Context):String {
         val p=prefs(c)
         val event=runCatching { JSONObject(MorningReadRun.pending(c) ?: "{}").optJSONArray("events")?.let { it.optJSONObject(it.length()-1) } }.getOrNull()
-        if(GoldSearchRun.lastCode!=null) p.edit().putString("lastCode",GoldSearchRun.lastCode)
-            .putString("lastEventAt",GoldSearchRun.lastEventAt).commit()
-        else if(event!=null) p.edit().putString("lastCode",PhoneDiagnosticPolicy.code(event.optString("code")))
-            .putString("lastEventAt",event.optString("at")).commit()
+        // The list's LIST_IMAGES_DELIVERED is not the latest error when the
+        // detail reader subsequently failed. Keep only the newest timestamped
+        // fixed-code observation, including the persisted report on restart.
+        fun seen(code:String?,at:String?) = if(code.isNullOrBlank() || at.isNullOrBlank()) null
+            else PhoneDiagnosticRecency.Event(code,at)
+        PhoneDiagnosticRecency.latest(
+            seen(GoldSearchRun.lastCode,GoldSearchRun.lastEventAt),
+            seen(event?.optString("code"),event?.optString("at")),
+            seen(p.getString("lastCode",null),p.getString("lastEventAt",null))
+        )?.let { newest ->
+            p.edit().putString("lastCode",PhoneDiagnosticPolicy.code(newest.code))
+                .putString("lastEventAt",newest.at).commit()
+        }
         val manager=c.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
         val active=manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any {
             it.resolveInfo.serviceInfo.packageName==c.packageName && it.resolveInfo.serviceInfo.name==ProductReadService::class.java.name
@@ -174,7 +185,9 @@ internal object PhoneDiagnostics {
             .also { report ->
                 // Strictly bounded aggregate only, sent under already opted-in
                 // technical diagnostics. Never attach screen text or product IDs.
+                WorkflowHealth.diagnostic(c)?.let { report.put("workflow", it) }
                 ProductDetailDelivery.diagnostic(c)?.let { report.put("detailTransfer",it) }
+                DegiroRamTelemetry.forDiagnostics(c)?.let { report.put("degiroRam", it) }
                 p.getString("pinProbe", null)?.let { raw ->
                     runCatching { JSONObject(raw) }.getOrNull()?.let { probe ->
                         val recent = runCatching { System.currentTimeMillis() -

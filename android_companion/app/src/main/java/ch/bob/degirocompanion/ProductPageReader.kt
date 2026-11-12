@@ -195,6 +195,15 @@ internal class ProductPageReader {
             if (anchorIds.size != 1 || !SeriesEvidence.validIsin(anchorIds.single())) return Step(Move.NONE, direct, Cause.WAIT_IDENTITY)
             isin = anchorIds.single(); window = windowId
             anchorParameters = scopedParameters(lines)
+            // A read can start at the paired Kursdaten footer (for example
+            // after a retry), without first visiting the numeric header.
+            // Remember this *visible* pairing so a header-only LV visit turns
+            // forward again and rechecks the real ISIN before publication.
+            if (seekingSymbol == null && footerPair != null && seekLeverage &&
+                "Hebel" !in anchorParameters) {
+                verifiedProbeSymbol = footerPair.symbol
+                readBackward = true
+            }
             // Carry header parameters only after an explicit symbol/ISIN row confirms the pairing.
             if (seekingSymbol != null) {
                 if (footerPair != null) {
@@ -349,7 +358,12 @@ internal class ProductPageReader {
         // A complete labelled quote pair is the useful end of this read. Avoid
         // scrolling through unrelated footer sections or probing the page bottom.
         // Publication still requires returning to the original visible ISIN.
-        if (observed.draft.contains("Geld (") && observed.draft.contains("Brief (")) {
+        val pairedHeaderVisit = readBackward && requireParameters &&
+            verifiedProbeSymbol != null && candidate != null
+        // One-sided quotes still need the explicitly requested header terms.
+        // Preserve the observed side; never manufacture the absent counterpart.
+        if ((observed.draft.contains("Geld (") && observed.draft.contains("Brief (")) ||
+                pairedHeaderVisit) {
             if (readBackward && requireParameters && verifiedProbeSymbol != null &&
                 (!anchorParameters.keys.containsAll(listOf("Hebel", "KO-Schwelle", "Basispreis", "Bv")) ||
                  (seekLeverage && !anchorParameters.containsKey("Hebel")))) {

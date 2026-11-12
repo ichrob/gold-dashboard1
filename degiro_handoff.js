@@ -53,6 +53,47 @@ function snapPositions(data,now=Date.now()){
  });
  return found;
 }
+// Persist only user assumptions, never market values, quantities or positions.
+const PREF_KEY='bob.trade.preferences.v1';
+function preferences(value){
+ const out={};if(!value||typeof value!=='object')return out;
+ for(const key of ['budget','fees','maxLoss']){
+  if(value[key]===''){out[key]='';continue;}
+  try{const n=cents(value[key]);if(key==='fees'||n>0)out[key]=String(value[key]);}catch(_){}
+ }
+ if(['EUR','CHF'].includes(value.currency))out.currency=value.currency;
+ const rr=Number(value.minRR);if(Number.isFinite(rr)&&rr>=1&&rr<=100)out.minRR=String(rr);
+ return out;
+}
+// Activities are execution records; holdings and placed orders are not purchases.
+function purchaseCandidates(data,products,known=[],now=Date.now()){
+ if(data?.code!=='READ_OK'||data.readOnly!==true||data.fresh!==true)return [];
+ const result=[];
+ for(const [index,account] of (data.snapshot?.accounts||[]).entries()){
+  const activities=account.journal?.activities,at=Date.parse(activities?.checkedAt);
+  if(activities?.code!=='READ_OK'||activities.complete!==true||!Number.isFinite(at)||at>now||now-at>300000)continue;
+  const rows=activities.rows||[];
+  for(const row of rows){
+   let id;try{id=isin(row.isin);}catch(_){continue;}
+   if(row.type!=='BUY'||!row.key||!['EUR','CHF'].includes(row.currency)||row.optionType||row.fxRate||['option','op','future','future_option','cfd','bond','bnd'].includes(String(row.securityKind).toLowerCase()))continue;
+   if(row.status&&!['EXECUTED','FILLED','COMPLETED','SETTLED','CONFIRMED'].includes(row.status))continue;
+   const product=products.find(p=>p.isin===id&&['LONG','SHORT'].includes(p.direction));if(!product)continue;
+   if(['quantity','price','amount','fee'].some(k=>typeof row[k]==='boolean'))continue;
+   const when=Date.parse(row.date),qty=Number(row.quantity),price=Number(row.price),amount=Number(row.amount),fee=row.fee==null?null:Number(row.fee);
+   if(!Number.isFinite(when)||when>now||day(new Date(when))!==day(new Date(now)))continue;
+   if(!Number.isSafeInteger(qty)||qty<=0||!Number.isFinite(price)||price<=0||row.amount==null||!Number.isFinite(amount))continue;
+   if(fee!==null&&(!Number.isFinite(fee)||fee<0))continue;
+   // Unknown contract multipliers or mismatched cash flows cannot be inferred.
+   if(![qty*price,qty*price+(fee||0)].some(n=>Math.abs(amount+n)<0.005))continue;
+   if(row.securityCurrency&&row.securityCurrency!==row.currency)continue;
+   if(rows.some(r=>r!==row&&r.isin===id&&!['FEE','TAX','DIVIDEND','INTEREST'].includes(r.type)&&(!Number.isFinite(Date.parse(r.date))||Date.parse(r.date)>=when||r.type==='BUY'&&day(new Date(r.date))===day(new Date(now)))))continue;
+   if(known.some(t=>{const p=t.snapshot?.product||{};return t.active||p.isin===id&&Number(p.entry)===price&&Number(p.quantity)===qty;}))continue;
+   result.push({key:'snaptrade-'+String(account.accountKey||index)+'-'+row.key,isin:id,direction:product.direction,currency:row.currency,quantity:qty,entry:price,
+    at:/T.*(?:Z|[+-]\d\d:\d\d)$/.test(row.date)?row.date:'',sourceAt:activities.checkedAt,account:index+1,fee,settlementTotal:fee!==null&&Math.abs(amount+qty*price+fee)<0.005?Math.abs(amount):null});
+  }
+ }
+ return result;
+}
 function summary(o,c){
  const gross=o.qty*o.price;
  let out=`ORDERENTWURF – nicht übermittelt\n${o.side}: ${o.isin}\nStückzahl: ${o.qty}\nLimit je Stück: ${money(o.price)} ${c}\nGeschätzte Gebühren: ${money(o.fees)} ${c}`;
@@ -161,7 +202,7 @@ function calculateProposal(p,input,market={},state=null,now=Date.now()){
   tradeable:false,automaticOrder:false};
 }
 
-const api={day,cents,isin,reserve,summary,maxQuantity,snapPositions,calculateProposal};root.BobDegiroHandoff=api;if(typeof module==='object'&&module.exports)module.exports=api;
+const api={day,cents,isin,reserve,summary,maxQuantity,snapPositions,calculateProposal,preferences,purchaseCandidates};root.BobDegiroHandoff=api;if(typeof module==='object'&&module.exports)module.exports=api;
 if(!root.document)return;
 function mount(){
  const host=document.getElementById('bob-view-degiro2');if(!host)return;
@@ -192,9 +233,19 @@ function mount(){
  <p><a id="dg2-open">DEGIRO öffnen</a></p>
  <p>Falls sich nur die Webseite öffnet, starte die DEGIRO-App über ihr Symbol. ISIN dort selbst suchen. Es werden keine Eingaben oder Bestätigungen in der App automatisiert.</p>
  <p>Planung nur auf diesem Gerät und in diesem Browser. Tageswechsel: Schweizer Zeit. Andere Geräte, gelöschte Browserdaten und echte Orders werden nicht abgeglichen. Keine zusätzliche Softwarelizenz oder API-Gebühr; bestehende Hosting- und Handelskosten bleiben bestehen.</p>`;
+ box.id='bobOrderPreparation';
  host.append(box);box.querySelectorAll('label').forEach(el=>{el.style.display='block';el.style.margin='12px 0';});box.querySelectorAll('input,select').forEach(el=>{el.style.display='block';el.style.padding='10px';el.style.maxWidth='100%';});
  const form=box.querySelector('form'),status=box.querySelector('#dg2-status');let state=null;
  const products=box.querySelector('#dg2-product');
+ const prefNote=document.createElement('p');prefNote.className='small';prefNote.id='bobSavedPreferences';
+ prefNote.textContent='Budget, Währung, Gebühren und Risikovorgaben werden auf diesem Gerät gemerkt. Vor jedem Kauf prüfen.';
+ form.prepend(prefNote);
+ try{const saved=preferences(JSON.parse(localStorage.getItem(PREF_KEY)||'{}'));for(const [key,value] of Object.entries(saved))form.elements[key].value=value;}catch(_){}
+ function savePreferences(){try{localStorage.setItem(PREF_KEY,JSON.stringify(preferences(Object.fromEntries(new FormData(form)))));}catch(_){prefNote.textContent='Vorgaben konnten auf diesem Gerät nicht gespeichert werden.';}}
+ form.addEventListener('input',savePreferences);form.addEventListener('change',savePreferences);
+ const forget=document.createElement('button');forget.type='button';forget.textContent='Gemerkte Vorgaben löschen';
+ forget.onclick=()=>{try{localStorage.removeItem(PREF_KEY);}catch(_){}for(const key of ['budget','fees','maxLoss','minRR'])form.elements[key].value=key==='fees'?'0':key==='minRR'?'2':'';form.elements.currency.value='EUR';lastProposal=null;for(const key of ['qty','price','stop','target'])form.elements[key].value='';form.dispatchEvent(new Event('input',{bubbles:true}));try{localStorage.removeItem(PREF_KEY);}catch(_){}prefNote.textContent='Gemerkte Vorgaben gelöscht. Budget neu eingeben.';};
+ prefNote.after(forget);
  const snap=box.querySelector('#dg2-snap-position'),snapStatus=box.querySelector('#dg2-snap-status');
  let sellPositions=[];let lastProposal=null;
  const output=box.querySelector('#dg2-proposal');
@@ -294,6 +345,105 @@ function mount(){
  }
  localStorage.setItem(KEY,JSON.stringify(next));lastProposal=null;state=next;render();status.textContent='Entwurf gespeichert – keine Order übermittelt.';}catch(err){status.textContent=err.message;}});
  const web='https://trader.degiro.nl/';const link=box.querySelector('#dg2-open');link.href=/Android/i.test(navigator.userAgent||'')?'intent://trader.degiro.nl/#Intent;scheme=https;package=nl.degiro.trader;S.browser_fallback_url='+encodeURIComponent(web)+';end':web;
+ // A single trade-preparation surface, using the existing guarded calculator.
+ const tradePanel=document.getElementById('bob-view-trade');
+ if(tradePanel && location.pathname!=='/zentrale/workspace'){
+  const preparation=document.createElement('details');preparation.id='bobTradePreparation';preparation.className='card bob-disclosure';
+  const title=document.createElement('summary');title.textContent='Trade vorbereiten · vor dem Kauf';preparation.append(title,box);
+  tradePanel.querySelector('h2')?.after(preparation);
+  const legacy=document.createElement('button');legacy.type='button';legacy.dataset.view='trade';legacy.textContent='Vorbereitung in Mein Trade öffnen';legacy.onclick=()=>{preparation.open=true;};host.append(legacy);
+  box.querySelector('h3').textContent='1 · Produkt wählen · 2 · Budget prüfen · 3 · DEGIRO öffnen';
+  const explanation=document.createElement('details'),explanationTitle=document.createElement('summary');explanationTitle.textContent='Hinweise und Depotabgleich';explanation.append(explanationTitle);
+  for(const node of [...box.children])if(node.tagName==='P'&&!['dg2-status','dg2-budget'].includes(node.id)&&!node.querySelector('#dg2-open'))explanation.append(node);
+  explanation.append(snap.closest('label'),forget);box.append(explanation);
+  const advanced=document.createElement('details'),advancedTitle=document.createElement('summary');advancedTitle.textContent='Werte und Risikovorgaben bearbeiten';advanced.append(advancedTitle);
+  for(const key of ['isin','side','qty','price','minRR','stop','target'])advanced.append(form.elements[key].closest('label'));
+  const max=box.querySelector('#dg2-size'),maxNote=max.nextElementSibling;advanced.append(max);if(maxNote?.tagName==='P')advanced.append(maxNote);
+  form.insertBefore(advanced,box.querySelector('#dg2-propose'));
+  // Failed browser validation reveals the existing input instead of trapping focus.
+  form.addEventListener('invalid',()=>{advanced.open=true;preparation.open=true;},true);
+  const summary=document.createElement('p');summary.id='bobOrderValues';summary.setAttribute('role','status');summary.style.whiteSpace='pre-line';output.after(summary);
+  const copies=document.createElement('div');copies.className='bob-simple-copy';summary.after(copies);
+  const copyButtons=[];
+  for(const [key,label] of [['isin','ISIN'],['qty','Stückzahl'],['price','Limit'],['stop','Stop'],['target','Ziel']]){
+   const button=document.createElement('button');button.type='button';button.textContent=label+' kopieren';button.disabled=true;copies.append(button);copyButtons.push([key,button]);
+   button.onclick=async()=>{
+    if(key!=='isin'&&(!lastProposal||Date.now()-Date.parse(lastProposal.source.at)>90000)){invalidate();output.textContent='Vorschlag nicht mehr aktuell. Bitte neu berechnen.';return;}
+    try{await navigator.clipboard.writeText(form.elements[key].value);status.textContent=label+' kopiert. In DEGIRO prüfen.';}
+    catch(_){advanced.open=true;form.elements[key].focus();form.elements[key].select();status.textContent='Bitte markierten Wert kopieren.';}
+   };
+  }
+  function invalidate(){summary.textContent='Noch kein aktueller vollständiger Vorschlag.';for(const [key,button] of copyButtons)button.disabled=key!=='isin'||!validIdentity();}
+  function validIdentity(){try{return !!isin(form.elements.isin.value);}catch(_){return false;}}
+  const propose=box.querySelector('#dg2-propose'),calculate=propose.onclick;
+  propose.onclick=()=>{
+   try{calculate();}catch(_){lastProposal=null;output.textContent='Vorbereitung nicht verfügbar. Eingaben und Produktdaten prüfen.';}
+   if(!lastProposal)for(const key of ['qty','price','stop','target'])form.elements[key].value='';
+   invalidate();
+   if(lastProposal){summary.textContent='ISIN: '+form.elements.isin.value+'\nStückzahl: '+form.elements.qty.value+'\nLimit: '+form.elements.price.value+' '+form.elements.currency.value+'\nStop: '+form.elements.stop.value+' · Ziel: '+form.elements.target.value;
+    for(const [key,button] of copyButtons)button.disabled=!form.elements[key].value;
+   }
+  };
+  let timer;
+  function schedule(event){
+   invalidate();clearTimeout(timer);
+   // Budget/risk changes recalculate only a preview. Manual limit edits are preserved.
+   if(['budget','fees','maxLoss','minRR','currency'].includes(event.target.name))timer=setTimeout(()=>propose.click(),450);
+  }
+  form.addEventListener('input',schedule);form.addEventListener('change',schedule);
+  document.addEventListener('click',event=>{
+   const button=event.target.closest('[data-simple-prepare]');if(!button)return;
+   refreshProducts();const id=button.dataset.simplePrepare;
+   if(![...products.options].some(o=>o.value===id)){status.textContent='Produkt nicht mehr verfügbar. Liste aktualisieren.';return;}
+   products.value=id;products.onchange();savePreferences();invalidate();preparation.open=true;
+   document.querySelector('#bobNavigation [data-view="trade"]')?.click();
+   if(form.elements.budget.value)propose.click();else form.elements.budget.focus();
+   preparation.scrollIntoView({block:'start'});
+  });
+ }
+ const tradeView=document.getElementById('bob-view-trade');
+ if(tradeView&&location.pathname!=='/zentrale/workspace'){
+  const reconcile=document.createElement('section');reconcile.id='bobPurchaseMatch';reconcile.className='card';
+  reconcile.innerHTML='<h3>Kauf abgleichen</h3><p role="status" id="bobPurchaseMatchStatus">Ausgeführte Käufe werden beim Öffnen von Mein Trade geprüft.</p><div id="bobPurchaseMatches"></div><details><summary>Depotabgleich und Quelle</summary><p>Nur ausgeführte Transaktionen aus dem Lesezugang. Ein Bestand ist kein neuer Kauf. Angaben prüfen und fehlende Abrechnungsdaten ergänzen; keine Order wird gesendet.</p><button type="button" id="bobPurchaseMatchRefresh">Depotabgleich aktualisieren</button></details>';
+  document.getElementById('bobTradePreparation')?.after(reconcile);
+  const note=reconcile.querySelector('[role="status"]'),matches=reconcile.querySelector('#bobPurchaseMatches');
+  let checking=false,lastCheck=0;
+  async function checkPurchases(force=false){
+   if(checking||document.hidden||tradeView.hidden||root.BobSession?.expired?.()||(!force&&Date.now()-lastCheck<300000))return;
+   if(root.BobTradeSync?.current?.()?.active===true)return;
+   checking=true;lastCheck=Date.now();note.textContent='Ausgeführte Käufe werden abgeglichen …';
+   try{
+    const response=await fetch('/api/snaptrade/status',{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
+    if(!response.ok)throw Error('Depotabgleich derzeit nicht erreichbar.');
+    const data=await response.json(),candidates=purchaseCandidates(data,root.BobDegiro?.tradeTestProducts?.()||[],root.BobRealTrades?.knownPurchases?.()||[]);
+    matches.replaceChildren();note.textContent=candidates.length?'Kauf erkannt. Kaufdaten prüfen und fehlende Angaben ergänzen.':'Kein eindeutiger aktueller Kauf im Depotzugang bestätigt. Kaufbeleg übernehmen oder später erneut prüfen.';
+    for(const candidate of candidates){
+     const p=document.createElement('p'),button=document.createElement('button');button.type='button';button.textContent='Kaufdaten prüfen';
+     p.textContent=candidate.isin+' · '+candidate.quantity+' Stück × '+candidate.entry+' '+candidate.currency+' · Depot '+candidate.account+' · Quelle '+candidate.sourceAt;matches.append(p,button);
+     button.onclick=()=>{
+      if(Date.now()-Date.parse(candidate.sourceAt)>300000){note.textContent='Depotdaten inzwischen veraltet. Bitte aktualisieren.';return;}
+      if(root.BobTradeSync?.current?.()?.active){note.textContent='Es besteht bereits ein aktiver Trade. Bitte dort prüfen.';return;}
+      const parent=document.getElementById('bobExitEstimate'),purchase=document.getElementById('purchaseForm');if(!parent||!purchase){note.textContent='Kauferfassung lädt noch. Bitte erneut versuchen.';return;}
+      for(const [key,value] of Object.entries({isin:candidate.isin,currency:candidate.currency,direction:candidate.direction,entry:candidate.entry,quantity:candidate.quantity})){
+       const field=parent.querySelector('[data-exit="'+key+'"]');if(field){field.value=value;field.dispatchEvent(new Event('input',{bubbles:true}));}
+      }
+      document.getElementById('purchaseTx').value=candidate.key;
+      document.getElementById('purchaseAt').value=candidate.at;
+      // CHF settlement is only copied when the source explicitly has CHF cash amounts.
+      document.getElementById('purchaseFees').value=candidate.currency==='CHF'&&candidate.fee!==null?candidate.fee:'';
+      document.getElementById('purchaseTotal').value=candidate.currency==='CHF'&&candidate.settlementTotal!==null?candidate.settlementTotal:'';
+      document.getElementById('purchaseStatus').textContent='Ausgeführter Kauf aus SnapTrade vorbefüllt. Quellkennung ist keine originale DEGIRO-Order-ID. Kaufdaten und CHF-Abrechnung prüfen; dann bestätigen.';
+      for(let node=purchase;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;
+      purchase.scrollIntoView({block:'start'});
+     };
+    }
+   }catch(_){note.textContent='Depotabgleich derzeit nicht verfügbar. Kaufbeleg übernehmen; nächster Versuch beim Öffnen oder nach fünf Minuten.';}finally{checking=false;}
+  }
+  reconcile.querySelector('#bobPurchaseMatchRefresh').onclick=()=>checkPurchases(true);
+  document.addEventListener('click',event=>{if(event.target.closest('[data-view="trade"]'))setTimeout(()=>checkPurchases(),0);});
+  document.addEventListener('visibilitychange',()=>checkPurchases());
+  setInterval(()=>checkPurchases(),300000);setTimeout(()=>checkPurchases(),1000);
+ }
  root.addEventListener('bob-order-drafts-restored',()=>{try{state=read();render();status.textContent='Entwürfe aus deiner lokalen Sicherung übernommen. Vor Nutzung erneut prüfen.';}catch(e){status.textContent=e.message;}});
  document.addEventListener('visibilitychange',()=>{if(!document.hidden){try{state=read();render();}catch(e){status.textContent=e.message;}}});
 }

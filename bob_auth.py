@@ -31,7 +31,7 @@ PASSWORD_FAILURE_LIMIT = 5
 PASSWORD_FAILURE_WINDOW = 5 * 60
 
 # UI-only return destinations; NEVER arbitrary paths or redirects.
-SAFE_RETURN_VIEWS = frozenset(("overview", "products", "products-long", "products-leverage", "trade", "simulation", "learning", "research", "problems", "zentrale"))
+SAFE_RETURN_VIEWS = frozenset(("overview", "products", "products-long", "products-leverage", "trade", "simulation", "learning", "research", "problems", "zentrale", "archive-connect", "oauth-connections"))
 
 def safe_return_view(value):
     return value if isinstance(value, str) and value in SAFE_RETURN_VIEWS else ""
@@ -62,6 +62,10 @@ def login_destination(headers, requested_view="", handset_batch=""):
     if destination != "/":
         return destination
     batch = safe_handset_batch(handset_batch)
+    if view == "archive-connect":
+        return "/archive/connect"
+    if view == "oauth-connections":
+        return "/oauth/connections"
     if batch:
         return "/?view=products&handset-list=" + batch + "#bob-morning-images=" + batch
     if view == "zentrale":
@@ -155,6 +159,27 @@ def check_password(supplied_user, candidate, user, password, current):
         return bool(ok)
 
 
+_DENIAL_LOCK = threading.Lock()
+_DENIAL_TIMES = {}
+_DENIAL_REASONS = frozenset({'missing-cookie', 'unknown-session', 'expired-session',
+                            'credential-version-changed', 'persistent-session-rejected',
+                            'invalid-session-state'})
+
+
+def session_denied(reason):
+    """Bounded fixed reasons only: no cookies, credentials, user or URL fields."""
+    if reason in _DENIAL_REASONS:
+        now = time.monotonic()
+        with _DENIAL_LOCK:
+            last = _DENIAL_TIMES.get(reason)
+            report = last is None or now - last >= 60
+            if report:
+                _DENIAL_TIMES[reason] = now
+        if report:
+            print(f'BOB_AUTH_DENIED reason={reason}', flush=True)
+    return False
+
+
 def primary_authenticated(headers, user, password):
     if not user or not password:
         return False
@@ -177,14 +202,24 @@ def primary_authenticated(headers, user, password):
         token = cookie(headers, COOKIE)
         if persistent_token(token):
             try:
-                return session_request('check', token, user, key).get('valid') is True
+                valid = session_request('check', token, user, key).get('valid') is True
+                return True if valid else session_denied('persistent-session-rejected')
             except (OSError, ValueError, TypeError, KeyError):
                 raise AuthenticationUnavailable() from None
+        if not token:
+            return session_denied('missing-cookie')
         with LOCK:
-            expiry, version = SESSIONS.get(token, (0, -1))
-            return expiry > time.time() and version == current['version']
+            saved = SESSIONS.get(token)
+        if saved is None:
+            return session_denied('unknown-session')
+        expiry, version = saved
+        if not expiry > time.time():
+            return session_denied('expired-session')
+        if version != current['version']:
+            return session_denied('credential-version-changed')
+        return True
     except (OSError, ValueError, TypeError, KeyError):
-        return False
+        return session_denied('invalid-session-state')
 
 
 def authenticated(headers, user, password):

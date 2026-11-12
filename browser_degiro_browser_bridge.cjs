@@ -3,6 +3,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs');
 const engines=require('playwright'),path=require('node:path');
+const {createStorageRelay}=require('./browser_test_storage_relay.cjs');
 const fixtureSource=name=>fs.readFileSync(path.join(process.env.BOB_BRIDGE_TEST_SOURCE||__dirname,name),'utf8');
 const engine=process.env.BOB_BRIDGE_BROWSER||'chromium';
 const BOB='https://bob-private-scanner.onrender.com',BROKER='https://trader.degiro.nl';
@@ -13,10 +14,15 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
  const browser=await engines[engine].launch({headless:true,...(engine==='chromium'?{args:['--no-sandbox']}: {})});
  try{
   const ctx=await browser.newContext({viewport:{width:360,height:760},acceptDownloads:true});
-  const gm={},requests=[],errors=[];
-  await ctx.exposeBinding('gmWrite',async({page},key,value,remove)=>{
-   if(remove)delete gm[key];else gm[key]=value;
-   await Promise.all(ctx.pages().filter(p=>p!==page).map(p=>p.evaluate(({key,value,remove})=>window.gmRemote(key,value,remove),{key,value,remove}).catch(()=>{})));
+  const requests=[],errors=[];
+  const relay=createStorageRelay(()=>ctx.pages());
+  const gm=relay.values;
+  await ctx.exposeBinding('gmWrite',({page},key,value,remove)=>{
+   // Userscript storage changes are asynchronous. Resolve the exposed binding
+   // before notifying the other tab so a result handler can write/delete a
+   // second key without re-entering a still-blocked Playwright binding. Keep
+   // delivery ordered so QUEUE followed by STATUS cannot overtake itself.
+   relay.write(page,key,value,remove);
   });
   await ctx.exposeBinding('gmRead',()=>gm);
   await ctx.addInitScript(async script=>{

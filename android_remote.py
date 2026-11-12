@@ -7,7 +7,7 @@ from android_telemetry import token_hash
 
 SCOPE='bob:phone:control'
 TOOLS=('bob_phone_status','bob_phone_command')
-ACTIONS=('inspect','search_gold','search_isin','read_page','stop')
+ACTIONS=('inspect','search_gold','search_isin','read_page','termux_check','stop')
 # The handset runs in the background when DEGIRO is in the foreground. Android
 # may delay remote polls for longer than 20s. Keep the *undelivered* request
 # bounded but separate its deadline from the short device execution lease.
@@ -17,7 +17,7 @@ DELIVERY_LEASE=20
 def definitions():
     common={'deviceId':{'type':'string','pattern':'^[a-f0-9]{12}$'}}
     return [dict(name='bob_phone_status',description='Read the latest user-opened Bob Handy session, product-only observation and command acknowledgement. Cached timestamps are not a live screen; never an order or full-phone access.',inputSchema={'type':'object','properties':common,'additionalProperties':False},annotations={'readOnlyHint':True,'destructiveHint':False,'idempotentHint':True,'openWorldHint':False}),
-      dict(name='bob_phone_command',description='Request one bounded DEGIRO product-reading action in an explicitly opened handset session. search actions perform ONE semantic navigation step; inspect again before continuing. No coordinates, passwords or orders. Queued/delivered does not mean performed. Reuse requestId on retry.',inputSchema={'type':'object','properties':{**common,'sessionId':{'type':'string'},'requestId':{'type':'string'},'action':{'type':'string','enum':list(ACTIONS)},'isin':{'type':'string'}},'required':['deviceId','sessionId','requestId','action'],'additionalProperties':False},annotations={'readOnlyHint':False,'destructiveHint':False,'idempotentHint':True,'openWorldHint':True})]
+      dict(name='bob_phone_command',description='Request one bounded DEGIRO product-reading action in an explicitly opened handset session. search actions perform ONE semantic navigation step; inspect again before continuing. termux_check may request only a fixed on-device help check during a user-opened session: no shell input, secrets, or orders. Queued/delivered does not mean performed. Reuse requestId on retry.',inputSchema={'type':'object','properties':{**common,'sessionId':{'type':'string'},'requestId':{'type':'string'},'action':{'type':'string','enum':list(ACTIONS)},'isin':{'type':'string'}},'required':['deviceId','sessionId','requestId','action'],'additionalProperties':False},annotations={'readOnlyHint':False,'destructiveHint':False,'idempotentHint':True,'openWorldHint':True})]
 
 def identifier(v,n):
     return isinstance(v,str) and re.fullmatch('[a-f0-9]{%d}'%n,v) is not None
@@ -97,10 +97,12 @@ def enqueue(state,a,now):
 
 def init(conn):
     __import__("android_list").init(conn)
+    __import__("termux_maintenance").init(conn)
     conn.execute("CREATE TABLE IF NOT EXISTS bob_android_remote (token_hash TEXT PRIMARY KEY REFERENCES bob_android_diagnostic_devices(token_hash) ON DELETE CASCADE,state JSONB NOT NULL)")
 
 def handle(conn,payload):
     now=int(time.time());op=payload.get('action')
+    if op in ('termux-exchange','termux-mcp'):return __import__('termux_maintenance').handle(conn,payload)
     if op in ('list-upload','list-get','list-receipt','list-status','list-details'):return __import__('android_list').handle(conn,payload,now)
     if op=='exchange':
         digest=token_hash(payload.get('token'))

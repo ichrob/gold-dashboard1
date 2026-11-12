@@ -16,6 +16,28 @@ def report(at=None):
         **{k:False for k in a.BOOLS})
 
 class Boundary(unittest.TestCase):
+    def test_workflow_report_contains_only_bounded_technical_result(self):
+        valid={'state':'SUCCEEDED','source':'LOCAL','confirmed':2,'total':2,'at':NOW.isoformat()}
+        p=report();p['workflow']=valid
+        self.assertEqual(a.validate_report(p)['workflow'],valid)
+        for bad in [dict(valid,goal='private goal'),dict(valid,app='private.app'),
+                    dict(valid,state='raw error'),dict(valid,source='provider key'),
+                    dict(valid,confirmed=True),dict(valid,confirmed=1),dict(valid,total=13),
+                    dict(valid,confirmed=0,total=0),dict(valid,at=(NOW+timedelta(minutes=5)).isoformat())]:
+            p['workflow']=bad
+            with self.subTest(bad=bad),self.assertRaises(ValueError):a.validate_report(p)
+        # Old last-event timestamps are retained, while observedAt records report freshness.
+        p['workflow']=dict(valid,at=(NOW-timedelta(days=3)).isoformat())
+        a.validate_report(p)
+
+    def test_fixed_workflow_reason_and_connection_error(self):
+        value=report(); value['lastCode']='CONNECTION_ERROR'
+        value['workflow']={'state':'STOPPED','source':'LOCAL','confirmed':0,'total':2,
+                           'reason':'CONNECTION_ERROR','at':NOW.isoformat()}
+        self.assertEqual(a.validate_report(value)['workflow']['reason'],'CONNECTION_ERROR')
+        value['workflow']['reason']='private screen text'
+        with self.assertRaises(ValueError): a.validate_report(value)
+
     def test_search_diagnostics_use_fixed_codes_without_screen_content(self):
         for code in ('SEARCH_TREE_EMPTY','SEARCH_NOT_ACTIONABLE','SEARCH_NO_PROGRESS','SEARCH_TRANSITION_PENDING','SEARCH_RETRY_PARENT'):
             value=report();value['lastCode']=code
@@ -58,6 +80,38 @@ class Boundary(unittest.TestCase):
         p['detailTransfer']=valid
         with self.assertRaises(ValueError):
             a.validate_report(p)
+
+
+    def test_bounded_degiro_process_ram_without_phone_content(self):
+        end=datetime.now(timezone.utc)
+        good=dict(phase='GOLD_LIST',startedAt=(end-timedelta(seconds=21)).isoformat(),
+                  finishedAt=end.isoformat(),durationSec=21,endReason='STOPPED',
+                  sampleIntervalSec=3,sampleCount=8,startPssMiB=100.0,
+                  sampledPeakPssMiB=130.5,endPssMiB=110.2,
+                  sampledPeakJavaHeapMiB=49.1)
+        p=report();p['degiroRam']=good
+        self.assertEqual(a.validate_report(p)['degiroRam']['sampledPeakPssMiB'],130.5)
+        self.assertNotIn('isin',json.dumps(p).lower())
+        for bad in [
+            dict(good,screenText='account'),
+            dict(good,session='remote token'),
+            dict(good,phase='private-app'),
+            dict(good,sampleIntervalSec=0),
+            dict(good,sampleCount=True),
+            dict(good,peakPssMiB='13.5'),
+            dict(good,sampledPeakPssMiB=90.0),
+            dict(good,endPssMiB=-1),
+            dict(good,startedAt=(end+timedelta(minutes=1)).isoformat()),
+            dict(good,finishedAt=(end-timedelta(days=2)).isoformat()),
+        ]:
+            p['degiroRam']=bad
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                a.validate_report(p)
+        zero=dict(good,sampleCount=0,startPssMiB=None,
+                  sampledPeakPssMiB=None,endPssMiB=None,
+                  sampledPeakJavaHeapMiB=None)
+        p['degiroRam']=zero
+        a.validate_report(p)
 
     def test_token_must_be_high_entropy_shape(self):
         for token in ['',None,'password','a'*63,'A'*64]:

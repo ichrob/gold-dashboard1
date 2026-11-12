@@ -95,6 +95,37 @@ def degiro_poll_seconds(now_ms=None, active_trade=False):
     return min(300, degiro_seconds_to_transition(now_ms))
 
 
+
+def study_source_edge_delay(poll_seconds, elapsed_seconds, wall_seconds, *,
+                            session, active_trade=False):
+    """Bound the next scanner study fetch to the next observed 30s source edge.
+
+    The ordinary scanner poll may land just BEFORE the provider advances from
+    :00/:30, postponing a complete study bundle for almost another 30 seconds.
+    In the paper-study trading window, use the sooner of the original deadline
+    and the next :05/:35 UTC boundary. This is only a scheduling hint: do not
+    alter provider timestamps, source admission, snapshots, or risk checks.
+    Live-trade monitoring, errors, night/weekend schedules retain their old
+    cadence. Never exceed the original poll interval or create a tight loop.
+    """
+    try:
+        elapsed = float(elapsed_seconds)
+        interval = float(poll_seconds)
+        normal = max(1.0, interval - elapsed)
+        if (session != 'trading' or active_trade or interval != 30.0
+                or not all(math.isfinite(v) for v in (elapsed, interval, wall_seconds))):
+            return normal
+        # Original XAU spot updates observed on :00/:30; five seconds allow
+        # the existing provider cache and bounded bundle build to settle.
+        phase = (float(wall_seconds) - 5.0) % 30.0
+        next_edge = 30.0 - phase if phase else 30.0
+        return min(normal, max(1.0, next_edge))
+    except (TypeError, ValueError, OverflowError):
+        # Preserve the ordinary retry interval for malformed clocks.
+        return max(1.0, float(poll_seconds) - float(elapsed_seconds))
+
+
+
 def weekend_quote_at_close(now_ms, data_at):
     """Only a near-close quote can justify a normal weekend pause, never old failures."""
     close_at = gold_weekend_close(now_ms)
@@ -211,6 +242,7 @@ def analyze(bundle, settings, *, priority=None):
 
 def _analyze(bundle, settings, *, priority=None):
     started = time.monotonic()
+    started_at = time.time()*1000
     payload = json.dumps({**settings, 'bundle': bundle})
     # One fresh process after SIGABRT, within the original ten-second budget.
     # The evaluator rechecks source freshness; no previous result is reused.
@@ -233,6 +265,7 @@ def _analyze(bundle, settings, *, priority=None):
             print('BOB_ANALYSIS_ERROR exit='+str(p.returncode), flush=True)
         raise RuntimeError('Hintergrundanalyse fehlgeschlagen')
     result = json.loads(p.stdout)
+    result.update(analysisRequestedAt=started_at,analysisCompletedAt=time.time()*1000)
     # Diagnostics must never alter or block an existing analysis result.
     try:
         import bob_diagnostics
@@ -311,7 +344,10 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
             reason=reason+' · '+product['isin']+' · Modellreferenz '+product['referenceAt']+'; verfügbarer Wechselkurs und gespeicherte Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
                        'data': {'kind': channel, 'eventKind': kind, 'url': '/#trade' if channel=='trade' else '/', 'dataAt': market.get('dataAt'), 'generatedAt': now,
-                                'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
+                                'analysisRequestedAt':market.get('analysisRequestedAt'), 'analysisCompletedAt':market.get('analysisCompletedAt'),
+                                'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId'),
+                                'direction': market.get('direction') if kind == 'signal-change' else None,
+                                'signalBarAt': market.get('analysisBarAt') if kind == 'signal-change' else None}})
     # Market closure is a third status, not a source outage or a fresh quote.
     # Keep the last genuine timestamp and do not hide failures already seen while open.
     raw_healthy = market.get('ready') is True and market.get('priceFresh') is True
@@ -327,7 +363,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     snapshot = state.get('lastAnalysis') or {}
     if positive(market.get('price')) and positive(market.get('dataAt')) and market['dataAt'] <= now:
         snapshot = {**snapshot, **{key: copy.deepcopy(market.get(key)) for key in
-                    ('price', 'dataAt', 'analysisBarAt', 'score', 'atr', 'macd', 'signal', 'analysisSnapshot', 'trendContext', 'continuedPlan') if market.get(key) is not None}}
+                    ('price', 'dataAt', 'analysisBarAt', 'score', 'atr', 'macd', 'signal', 'analysisSnapshot', 'trendContext', 'continuedPlan', 'entryPlanState', 'entryPreparation', 'analysisRequestedAt', 'analysisCompletedAt') if market.get(key) is not None}}
         state['lastAnalysis'] = snapshot
     calculation = {'available': bool(snapshot), 'stale': not healthy, 'marketClosed': market_closed, 'computedAt': now,
                    'dataAt': snapshot.get('dataAt'), 'price': snapshot.get('price'),
@@ -380,7 +416,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
                           if market.get('analysisError') else 'Aktualität oder zeitliche Abstimmung der vorhandenen Markt-/Analysedaten nicht bestätigt. Berechnung mit vorhandenen Werten läuft weiter; Überwachung eingeschränkt.')
                 add('data-unavailable', 'DATENSTATUS · Berechnung mit veralteten Werten', reason, channel)
             else:
-                add('data-recovered', 'DATENSTATUS · Überwachung fortgesetzt', 'Aktuelle Daten wieder vorhanden. Keine Entwarnung für einen Trade.', channel)
+                # A recovered data feed is a state transition, not an actionable push.
+                # Preserve the durable health state and audit trail silently.
+                audit('data-recovered', 'suppressed', 'Aktuelle Daten wieder vorhanden; kein Wiederaufnahme-Push')
             state['announcedHealthy'] = healthy
             state.pop('healthPending', None)
         state['dataStatus'] = 'active' if healthy else 'unavailable'

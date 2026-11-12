@@ -71,3 +71,126 @@ This is **stage 1**, not completed lossless archival.
 source/summary parity including failed/no-trade cases, measured volume change,
 no real orders, no shortened historical simulations, and zero unauthorised
 source row deletions. Until then retain original data or verified cold pointers.
+
+## Neuer Historien-Evaluationsworker – erste echte Vorwärtsseiten
+
+`storage_history_evaluations.py` verarbeitet ältere als zwei volle Tage
+liegende Diagnose- und Entscheidungsbelege in strikten 400er-Seiten. Er läuft
+mit eigenem DB-Zugang und 15-Minuten-Pause, nie in der heißen Markt-/Push-
+Schreibtransaktion. Die jeweils ursprünglichen Datensatz-Identitäten und
+Originalzeiten gehen in einen SHA-256-Seitenfingerabdruck; der persistente
+Cursor erlaubt nach einem Neustart weiterzuarbeiten. Kategorien und Ergebnisse
+sind eng auf die vorhandenen bekannten Statuswerte begrenzt. Es werden keine
+privaten Originaldaten, Produktkurse oder IDs als Evaluation kopiert.
+
+Der aktuelle Stand bedeutet ausdrücklich **nicht**, dass das komplette
+Quelljournal fehlerfrei und nachträglich unverändert ist: Nachträgliche
+Quellkorrekturen oder rückdatierte neue Ereignisse werden von dieser reinen
+Vorwärtsiteration nicht erneut nachgescannt. Ein vollständiger unabhängiger
+Abgleich und Replay sind eine separate Pflicht vor jeder Referenzmigration.
+Eine solche Manifest-Seite autorisiert **keine Löschung**. Für die anderen
+Bereiche laufen bisher die vorhandenen 64er-Lernstichproben und die
+separaten geschlossenen Paper-Receipt-Scans weiter; vollständige
+Bewertungen aller Simulationen und Qualitätsdaten sind ausdrücklich offen.
+
+## Diagnose-Historien-Replay bei abgelaufener lokaler Aufbewahrung
+
+Der unabhängige, ausschließlich lesende `storage_history_replay.inspect`
+vergleicht unveränderliche Seitenmanifeste mit lokal vorhandenen Originalen.
+Die Diagnosequelle hat eine bestehende 7-Tage-/60.000-Zeilen-Retention.
+Wenn deren frühester noch lokaler Originalzeitpunkt **nach** dem Beginn
+des ersten Manifests liegt, meldet der Replay künftig ausdrücklich
+`source-prefix-not-local` mit `verifiedArchiveReplayRequired=true`.
+Ein echter Hash- oder Inhaltswiderspruch trotz vorhandener lokaler Quelle
+bleibt `source-or-manifest-mismatch`. Die Unterscheidung erfordert
+höchstens einen zusätzlichen indexgestützten, skalaren Lesezugriff und
+liest weder Rohdaten in Logs noch automatisch Drive-Archive.
+
+Bei mehr als 200 gespeicherten Seiten (maximal 80.000 Zeilen im
+bestehenden lokalen Replay) prüft der Reporter nun **vor** seiner
+Seitengrenzen-Rückgabe mit einem einzigen indexgestützten `recorded_at`-
+Minimum, ob der erste Manifestzeitpunkt bereits vor der lokal ältesten
+Diagnose liegt. In diesem Fall meldet er `source-prefix-not-local`
+**zusammen** mit `pageBudgetExceeded=true` und
+`verifiedArchiveReplayRequired=true`. Fehlt die Lücke, bleibt der
+ehrliche Status `page-budget-exceeded`. Damit wird der fehlende
+archivgebundene Prüfschritt auch bei mehr als 80.000 Evaluationen sichtbar,
+ohne ein unbeschränktes Quellscan-Verhalten einzubauen oder eine einzige
+zusätzliche Seite als geprüft zu buchen.
+
+**Diese Diagnose ist keine Wiederherstellung.** Für die historischen
+Seiten bleibt der unabhängige Abgleich an den zuvor verschlüsselten,
+separat restaurierten Originalen und ihren Manifest-Hashes erforderlich.
+Die bestehenden Seiten, Cursors, Archivbelege und Löschsperren werden
+nicht zurückgesetzt oder verändert. `fullOriginalReplayVerified=false`,
+`deletionAuthorized=false`, und `physicalBytesFreed=null` bleiben
+maßgeblich; ein zeitbegrenzter Teilabgleich bei Entscheidungen zählt nicht
+als vollständiger Replay. Keine zusätzlichen Archivversuche/Deployments
+aus diesem Status ableiten.
+
+## Kompakte Tagesbewertung aus bestätigten Papier-Abschlussbelegen
+
+`storage_paper_evaluation.py` liest nachgelagert höchstens 256 bereits
+arithmetisch abgeschlossene, unveränderliche `bob_paper_final_receipts`
+pro Durchgang. Die eigenständige, gedrosselte Aufgabe schreibt je
+Strategieprofil und Quellen-Tag nur die Anzahlen von positivem,
+negativem, unverändertem und unklassifiziertem Modell-Brutto-Ergebnis
+sowie eine quellgebundene SHA-256-Reihenfolge. In der privaten Anzeige
+stehen nur Aggregate und Verarbeitungsstand; keine ISIN, Fallkennungen,
+Ausführungs- oder Kontoinformationen. Die Originalfälle und Belege bleiben
+unverändert, mögliche spätere oder rückdatierte Originaländerungen sind
+weiter nicht vollständig unabhängig nachgescannt.
+
+Diese Aggregation **ist keine bestätigte reale Rendite, keine Netto-
+Gewinnwahrscheinlichkeit und kein Strategiegewinner**. Das gesonderte
+2.000-EUR-Risikomodell hat noch keine gleichwertigen arithmetischen
+Abschlussbelege in `bob_paper_final_receipts` und wird nicht erfunden.
+Vor Archiv-Referenzierung müssen alle Quellenkonten, offene/negative
+Testfälle, Stopps/Ziele, Originalkurse und Replay/Restore unabhängig
+verglichen werden. Keine automatische Falllöschung.
+
+## Historische Qualitätsmessungen – kompakte Tages-Evaluation
+
+`storage_quality_evaluation.py` liest in einem isolierten, alle 15 Minuten
+begrenzten Worker höchstens 256 historische `bob_metric_checks` pro Lauf.
+Je UTC-Tag und feststehender Metrikfamilie (display, dmi, product, trade,
+other) behält eine kleine, eigene Tabelle Status-Zähler und eine aus den
+ursprünglichen Identitäten, Messzeiten und Klassifikationen abgeleitete
+SHA-256-Fingerabdruckkette. Ein eigener Datenbank-Cursor ermöglicht
+Neustarts ohne doppelte Zählung. Bereits in Cold-Archive ausgelagerte
+Metriken werden explizit als `archived-original-not-inline` gezählt,
+nicht als `matched` oder vermeintlich erfolgreiche Qualitätsprüfung.
+Es gibt keine Änderung oder Löschung der Quellen oder bisherigen
+30-Tage-Regel und keine unbegrenzte Query, neue Kosten oder Brokeraktionen.
+
+Die Evaluation ist **nicht** die vollständige Historie und ersetzt nicht
+OHLC, Rechenformeln, Fehlergrenzen, Originalmetriken oder deren unabhängige
+Wiederherstellung. Späte Quelländerungen/rückdatierte Messungen werden durch
+reinen Vorwärtscursor nicht automatisch neu abgeglichen. Nur eine
+separate, quellgebundene und reproduzierbare unabhängige Prüfung kann
+später große Originalpayloads für eine reversible Referenzumstellung
+qualifizieren. `deletionAuthorized=false` und
+`physicalBytesFreed=null` bleiben unverändert.
+
+## Historische Verbesserungsbewertungen – seitenweise und vorläufig
+
+Der zusätzliche Worker storage_improvement_evaluation.py liest höchstens
+128 Beobachtungen pro Lauf aus dem bestehenden (campaign, slot)-Schlüsselindex.
+Er schreibt ein kleines Quellfingerabdruck-Journal, trennt die bereits
+bestehende Eingabe-Gültigkeit (valid/invalid) von optionalen Statuslabels
+(inklusive rejected/failed/pending) und markiert ausgelagerte Cold-Originale
+als solche statt als bestandene Verbesserung. Ein wiederaufnehmbarer Cursor
+vermeidet Doppelzählungen nach Neustarts.
+Er läuft höchstens viertelstündlich auf einer eigenen Datenbankverbindung und
+wartet bei einem aktiven Archivlauf. Der private Speicherbericht zeigt nur die
+bearbeitete Zahl; er veröffentlicht keine Kampagnen, Produkte, Einzelwerte
+oder Quellkennungen. Die Original-Tabellen bleiben unangetastet.
+
+Da Status einer Beobachtung nachträglich verändert und ältere Kampagnen
+nachgetragen werden können, ist diese Vorwärtsiteration ausdrücklich nur eine
+**provisorische Bestandsbewertung**, keine validierte Qualitätssteigerung,
+keine vollständige Historie und keine Freigabe für Datenlöschung oder Payload-Umzug.
+Es fehlen weiterhin unabhängige Rücklese-, Änderungs-, Gap- und Replay-Prüfung
+vor physischer Speicherfreigabe. improvementVerified=false,
+fullHistoryVerified=false, deletionAuthorized=false und
+physicalBytesFreed=null sind feste Sicherheitsgrenzen.

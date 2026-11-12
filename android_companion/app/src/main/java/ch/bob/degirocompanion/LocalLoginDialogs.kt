@@ -252,7 +252,7 @@ internal class LocalLoginDialogs {
                     // fixed-label Markets witness on the next bounded tick.
                     // No dialog or PIN action is dispatched from an incomplete
                     // tree. Unknown views still time out and stop safely.
-                    if (degiro && LoginToReadHandoff.pending(now)) {
+                    if (degiro && (LoginToReadHandoff.pending(now) || WorkflowLoginHandoff.pending(now))) {
                         marketsReadiness.clear()
                         return true
                     }

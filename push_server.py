@@ -116,12 +116,19 @@ def read_audit_report(payload):
     return report_admission.read(key,load)
 
 
+class ReadReportUnavailable(TimeoutError):
+    """A read-only report is temporarily unavailable and safe to retry."""
+
+
 def read_db_report(key, reader):
     """Admit a read-only report before it borrows a pooled connection."""
     def load():
         with db() as conn:
             return reader(conn)
-    return report_admission.read(key, load)
+    try:
+        return report_admission.read(key, load)
+    except TimeoutError as exc:
+        raise ReadReportUnavailable from exc
 
 
 def read_video_evidence(payload):
@@ -132,7 +139,10 @@ def read_video_evidence(payload):
         json.dumps({'videoId': identity}, sort_keys=True).encode()
     ).hexdigest()
     import video_evidence
-    return report_admission.read(key, lambda: video_evidence.handle(db, payload))
+    try:
+        return report_admission.read(key, lambda: video_evidence.handle(db, payload))
+    except TimeoutError as exc:
+        raise ReadReportUnavailable from exc
 
 
 def webpush(**kwargs):
@@ -177,6 +187,8 @@ def webpush(**kwargs):
         stamp = data.get(field)
         return stamp if type(stamp) in (int, float) and 0 < stamp < 4102444800000 else None
 
+    provider_started = time.monotonic()
+    provider_started_at = int(time.time()*1000)
     def log(outcome, status=None):
         print('BOB_PUSH_DELIVERY '+json.dumps({'events': event_kinds, 'outcome': outcome,
               'status': status, 'at': int(time.time()*1000)}), flush=True)
@@ -199,6 +211,11 @@ def webpush(**kwargs):
             'synthetic': is_synthetic,
             'signalBarAt': safe_clock('signalBarAt'),
             'dataAt': safe_clock('dataAt'),
+            'generatedAt': safe_clock('generatedAt'),
+            'analysisRequestedAt':safe_clock('analysisRequestedAt'),
+            'analysisCompletedAt':safe_clock('analysisCompletedAt'),
+            'providerStartedAt':provider_started_at,
+            'providerDurationMs':max(0,round((time.monotonic()-provider_started)*1000)),
             'receiptId': proof['receiptId'] if proof else None}, decision)
 
     try:
@@ -234,6 +251,7 @@ def _init_db_once():
         __import__("remote_push").init(conn)
         __import__("risk_paper").init(conn)
         __import__("paper_shadow_studies").init(conn)
+        __import__("paper_entry_exit_comparison").init(conn)
         bob_recovery.init(conn)
         bob_passkey_store.init(conn)
         bob_oauth_store.init(conn)
@@ -353,21 +371,23 @@ def json_body(handler):
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
 def send_json(handler, status, payload):
-    body = json.dumps(payload, separators=(",", ":")).encode()
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Cache-Control", "no-store")
-    handler.send_header("X-Content-Type-Options", "nosniff")
-    cors(handler)
-    handler.send_header("Content-Length", str(len(body)))
-    try:
-        handler.end_headers()
-        handler.wfile.write(body)
-    except (BrokenPipeError, ConnectionResetError):
-        # The request may already have committed. Never retry it or write a
-        # second error response to a disconnected caller.
-        handler.close_connection = True
-        print('BOB_PUSH_HTTP client_disconnected', flush=True)
+    from json_response import encoded_response, BUFFER_BYTES
+    with encoded_response(payload) as (body, length):
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("X-Content-Type-Options", "nosniff")
+        cors(handler)
+        handler.send_header("Content-Length", str(length))
+        try:
+            handler.end_headers()
+            while chunk := body.read(BUFFER_BYTES):
+                handler.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            # The request may already have committed. Never retry it or write a
+            # second error response to a disconnected caller.
+            handler.close_connection = True
+            print('BOB_PUSH_HTTP client_disconnected', flush=True)
 
 def deliver_product_selection(conn, row, checked):
     sid, sub, previous = row
@@ -610,27 +630,54 @@ def run_improvement_review_once(database):
     return status
 
 
-def audit_outcome_loop():
-    while True:
+AUDIT_OUTCOME_LOCK = 'bob_audit_outcome_loop_v1'
+
+
+def run_audit_outcome_cycle(database):
+    """Run one DB-wide repair cycle; overlapping deploy instances skip safely."""
+    # Render keeps the prior revision alive briefly during a zero-downtime
+    # rollout. A process-local thread guard therefore cannot prevent two
+    # instances from starting the same repair/harvest work. Hold a
+    # transaction-scoped advisory lock on a dedicated pooled connection while
+    # the existing bounded workers use their own transactions. The lock is
+    # released automatically on commit, rollback, disconnect or process exit.
+    with database() as guard:
+        acquired = guard.execute(
+            'SELECT pg_try_advisory_xact_lock(hashtext(%s))',
+            (AUDIT_OUTCOME_LOCK,)).fetchone()[0]
+        if not acquired:
+            print('BOB_AUDIT_CYCLE state=overlap-skipped', flush=True)
+            return False
         try:
             import improvement_resilience
-            improvement_resilience.run_drills(db)
+            improvement_resilience.run_drills(database)
         except Exception as exc:
             print("BOB_RESILIENCE error="+type(exc).__name__,flush=True)
         try:
-            run_audit_harvest_once(db)
+            run_audit_harvest_once(database)
         except Exception as exc:
             # Bulk backfill timeouts must not block targeted repair attempts.
             print('BOB_AUDIT_HARVEST error='+type(exc).__name__, flush=True)
         try:
-            run_test_repair_once(db)
+            run_test_repair_once(database)
         except Exception as exc:
             print('BOB_TEST_REPAIR error='+type(exc).__name__,flush=True)
         try:
             if int(time.time()*1000)>=improvement_tracker.START:
-                run_improvement_review_once(db)
+                run_improvement_review_once(database)
         except Exception as exc:
             print('BOB_IMPROVEMENT review_error='+type(exc).__name__,flush=True)
+        return True
+
+
+def audit_outcome_loop():
+    while True:
+        try:
+            run_audit_outcome_cycle(db)
+        except Exception as exc:
+            # Lock admission/connectivity failure is visible but cannot stop the
+            # daemon thread or trigger an unsafe immediate retry loop.
+            print('BOB_AUDIT_CYCLE error='+type(exc).__name__, flush=True)
         time.sleep(120)
 
 
@@ -846,6 +893,24 @@ class Handler(BaseHTTPRequestHandler):
                         paper_heartbeat = {"state":"unavailable", "accountsTotal":len(__import__("paper_portfolios").POLICIES),
                                            "accountsChecked":0,"realOrders":False,
                                            "scope":"paper-account-heartbeat-not-quote-quality"}
+                    # One bounded indexed row. Public /health contains ONLY
+                    # allowlisted codes; unavailable never means "recovered".
+                    try:
+                        import bob_study_health
+                        import research_restart
+                        control_row = conn.execute(
+                            'SELECT payload FROM bob_quality_campaign WHERE id=%s',
+                            (research_restart.VERSION,)).fetchone()
+                        study_health = bob_study_health.snapshot(
+                            control_row[0] if control_row else None,
+                            int(time.time()*1000),
+                            trading=(paper_heartbeat.get('sessionMode')=='trading'
+                                     and paper_heartbeat.get('state')=='ok'))
+                    except Exception as study_exc:
+                        print('BOB_STUDY_HEALTH health_error='+type(study_exc).__name__, flush=True)
+                        study_health = {
+                            'status':'unavailable','codes':[], 'readOnly':True,
+                            'realOrders':False,'scope':'bob-original-study-watchdog-v1'}
                     improvement_protocol=conn.execute('SELECT payload FROM bob_improvement_protocol WHERE id=%s',(improvement_tracker.VERSION,)).fetchone()
                     improvement_schedule={'configured':bool(improvement_protocol and improvement_protocol[0]==improvement_tracker.PROTOCOL),'startAt':improvement_tracker.START,'mode':'research-only'}
                     # The public endpoint reveals ONLY allowlisted diagnostic
@@ -857,7 +922,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception as audit_exc:
                         print("BOB_PRODUCT_AUDIT health_error="+type(audit_exc).__name__, flush=True)
                         product_codes = None  # Unknown is NOT a confirmed repair.
-                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "backgroundProcessing": background_handoff.worker.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule,"runtimeWatchdog":__import__('runtime_watchdog').snapshot(),"handsetListWorker":__import__('handset_list_worker').status()})
+                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "backgroundProcessing": background_handoff.worker.status(), "paperObservation":paper_heartbeat, "studyHealth":study_health, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule,"runtimeWatchdog":__import__('runtime_watchdog').snapshot(),"handsetListWorker":__import__('handset_list_worker').status()})
                 return
             if path == "/push-delivery-history":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
@@ -1010,6 +1075,10 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 404, {"error": "Not found"})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
+        except ReadReportUnavailable:
+            print(f"BOB_PUSH database_busy path={path} error=ReadReportUnavailable", flush=True)
+            send_json(self, 503, {"error": "Lesebericht vorübergehend belegt",
+                                  "retryable": True, "dataComplete": False})
         except Exception as exc:
             print("push-service error:", type(exc).__name__, flush=True)
             send_json(self, 503, {"error": "Push-Service nicht bereit"})
@@ -1160,6 +1229,15 @@ class Handler(BaseHTTPRequestHandler):
                         real_trade_journal.reconcile_sales(conn)
                         conn.commit()
                 send_json(self,200,result);return
+            if path == '/android-workflow-plan':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                try:
+                    send_json(self,200,__import__('workflow_ai').handle(db,json_body(self)))
+                except PermissionError:send_json(self,401,{'error':'Device not paired or revoked'})
+                except ValueError:send_json(self,400,{'error':'Workflow request rejected'})
+                return
             if path in ('/android-diagnostics','/android-remote'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
@@ -1731,9 +1809,25 @@ class Handler(BaseHTTPRequestHandler):
             send_json(self, 400, {"error": str(exc)})
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
+        except ReadReportUnavailable:
+            print(f"BOB_PUSH database_busy path={path} error=ReadReportUnavailable", flush=True)
+            send_json(self, 503, {"error": "Lesebericht vorübergehend belegt",
+                                  "retryable": True, "dataComplete": False})
         except (psycopg.OperationalError, TooManyRequests) as exc:
             print(f"BOB_PUSH database_busy path={path} error={type(exc).__name__}", flush=True)
             send_json(self, 503, {"error": "Push-Service kurzzeitig belegt", "retryable": True})
+        except TimeoutError:
+            # Admission timeouts are already handled inside the audit reader.
+            # A timeout before that point (for example a slow request body)
+            # is retryable only for the read-only endpoint, never a write.
+            if path == '/decision-audit/read':
+                print('BOB_AUDIT read_deferred reason=read-timeout', flush=True)
+                send_json(self, 503, {
+                    'error': 'Historische Auswertung vorübergehend belegt',
+                    'retryable': True, 'dataComplete': False})
+            else:
+                print('push-service error: TimeoutError', flush=True)
+                send_json(self, 500, {"error": "Interner Push-Service-Fehler"})
         except Exception as exc:
             print("push-service error:", type(exc).__name__, flush=True)
             send_json(self, 500, {"error": "Interner Push-Service-Fehler"})
@@ -1748,6 +1842,9 @@ if __name__ == "__main__":
     init_db()
     diagnostic_history.configure(db)
     __import__("archive_worker").start(db)
+    # Optional single short read of the archival attempt receipt (redacted).
+    # No external DB port or HTTP endpoint; opt-in diagnosis only.
+    __import__("archive_receipt_status_probe").start_if_enabled()
     # Optional bounded catch-up of the *existing* diagnostic retention, only
     # after a fresh separate-server Google Drive backup restore receipt.
     __import__("diagnostic_archived_catchup").start()
@@ -1756,10 +1853,15 @@ if __name__ == "__main__":
     __import__("storage_maintenance").start()
     __import__("cold_metrics").start()
     __import__("cold_analysis").start()
+    __import__("cold_test_evidence").start()
     __import__("cold_observations").start()
     # Model-only settled-case receipts are recorded on an isolated background
     # connection; no extra SQL is added to the live diagnostic/push write path.
     __import__("storage_case_results").start()
+    __import__("storage_history_evaluations").start()
+    __import__("storage_paper_evaluation").start()
+    __import__("storage_quality_evaluation").start()
+    __import__("storage_improvement_evaluation").start()
     __import__("metric_compaction").start()
     print("BOB_PUSH startup=ready", flush=True)
     # Optional, nonblocking binary-only pg_repack toolchain provisioning.
@@ -1783,7 +1885,7 @@ if __name__ == "__main__":
     import memory_watch
     # Reclaim only already-freed glibc allocator pages under sustained pressure.
     # This is a bounded 120s opt-in; no live Python objects or product evidence
-    # are removed. Keeps reserve for strict 400-MiB handset OCR admission.
+    # are removed. Keeps reserve for strict 480-MiB handset OCR admission.
     memory_watch.start(reclaim=True)
     import runtime_watchdog
     runtime_watchdog.start()

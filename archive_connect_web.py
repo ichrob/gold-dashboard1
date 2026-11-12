@@ -70,7 +70,7 @@ def route(handler, user, password):
                 destination=PATH+'/finish?'+urlencode({k:fields.get(k,'') for k in ('state','code')})
                 page(handler,'<p>Bestätige die Rückkehr zu deiner angemeldeten Bob-Sitzung.</p><a rel="noreferrer" href="'+html.escape(destination,quote=True)+'">Verbindung in Bob abschließen</a>')
             return True
-        if not bob_oauth.browser_ready(handler,user,password):
+        if not bob_oauth.browser_ready(handler,user,password,return_view='archive-connect'):
             return True
         if handler.command == 'GET' and path == PATH+'/upload.js':
             data=SCRIPT.encode()
@@ -84,7 +84,11 @@ def route(handler, user, password):
             status=rpc('status',handler.headers)
             body='<p>Die Archivierung bleibt ausgeschaltet. Originaldaten werden nicht gelöscht.</p>'
             if status.get('connected'):
-                body+='<p>Google-Freigabe gespeichert. Die gesonderte Freigabe des privaten Archivordners und der erste Wiederherstellungstest stehen noch aus.</p>'
+                body+='<p>Google-Freigabe gespeichert. Der aktuelle Archiv-Zugriff wird getrennt geprüft.</p>'
+                if status.get('configured'):
+                    # Refresh consent explicitly; keep the old credential until
+                    # the owner completes the normal PKCE-bound Google flow.
+                    body+='<p>Falls die Google-Berechtigung abgelaufen ist, kannst du sie hier selbst erneut freigeben. Bis zur Bestätigung bleibt die bestehende Verbindung gespeichert.</p><form method="post" action="/archive/connect/begin"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'"><button>Google-Zugriff erneut freigeben</button></form>'
             else:
                 body+='<p>1. In deinem Google-Web-Client diese autorisierte Weiterleitungs-URI eintragen und speichern:</p><p style="overflow-wrap:anywhere">'+html.escape(CALLBACK)+'</p>'
                 if not status.get('configured'):

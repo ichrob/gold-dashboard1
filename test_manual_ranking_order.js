@@ -79,7 +79,7 @@ assert.equal(brokerReview({buyingPowerCHF:'0'}).available,false);
 assert.equal(brokerReview({buyingPowerCHF:''}).manualFieldsComplete,false);
 assert.equal(brokerReview({lotSize:'5'}).quantity,45);
 assert.equal(brokerReview({lotSize:'2.5'}).available,false);
-assert.equal(brokerReview({tickSize:'0.07'}).manualFieldsComplete,false);
+assert.equal(brokerReview({tickSize:'0.06'}).manualFieldsComplete,false);
 assert.equal(brokerReview({venue:''}).manualFieldsComplete,false);
 assert.equal(brokerReview({orderType:''}).manualFieldsComplete,false);
 assert.equal(brokerReview({orderDuration:''}).manualFieldsComplete,false);

@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict');
+const {comparisonText}=require('./zentrale/app.js');
+const m={modelNetEur:20,meanEur:2,losses:1,meanLossEur:-1,worstEur:-1,meanObservedPeakEur:3,meanObservedTroughEur:-2,meanGivebackEur:1,excursionCases:10};
+const p={a:'confirmed:fixed:0',b:'confirmed:trailing:0',difference:{cases:10,meanEur:1},baseline:m,candidate:m,excluded:2,differentProducts:0,entryMismatch:0};
+let t=comparisonText({phase:'validation',episodes:12},p);
+assert.match(t.conclusion,/B liegt/);assert.match(t.conclusion,/unzureichend/);
+assert.match(t.lines.join(' '),/ausgeschlossen: 2/);
+assert.match(t.lines.join(' '),/zurückgegeben/);
+p.difference.cases=150;t=comparisonText({phase:'validation',episodes:150},p);
+assert.match(t.conclusion,/Abnahme bleibt offen/);assert.match(t.conclusion,/Kein bestätigter/);
+t=comparisonText({phase:'exploration',episodes:150},p);assert.match(t.conclusion,/Erkundung/);
+p.difference={cases:0,meanEur:null};assert.match(comparisonText({},p).conclusion,/Kein Ergebnisvergleich/);
+assert.match(comparisonText(null,null).conclusion,/keine vergleichbaren/);
+console.log('Comparison results: exploration, insufficiency, zero and no automatic winner verified');

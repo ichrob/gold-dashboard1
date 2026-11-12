@@ -180,7 +180,7 @@ internal object MorningReadPolicy {
     }
     enum class DetailIssue { INPUT_OR_TARGET, MARKER_COUNT, LAUNCHER_LABEL, LAUNCHER_CHILD,
         PROTECTED_CONTENT, ORDER_FIELD, SECTION_MISSING, IDENTITY_CONTEXT }
-    fun detailLauncherIndex(nodes: List<Node>, target: String, anchored: Boolean = false, symbolProbe: Boolean = false, rejected: (DetailIssue) -> Unit = {}): Int? {
+    fun detailLauncherIndex(nodes: List<Node>, target: String, anchored: Boolean = false, symbolProbe: Boolean = false, rejected: (DetailIssue) -> Unit = {}, explicitOwnerTarget: Boolean = false): Int? {
         fun reject(issue: DetailIssue): Int? { rejected(issue); return null }
         if(nodes.size>500 || !SeriesEvidence.validIsin(target) ||
             nodes.any { it.editable || it.containsInput || it.password || it.sensitive }) return reject(DetailIssue.INPUT_OR_TARGET)
@@ -206,8 +206,9 @@ internal object MorningReadPolicy {
         val section=cleaned.any { n -> values(n).any { Regex("(?iu)^(übersicht|overview|kursdaten|produktdetails)$").matches(normalized(it)) } }
         if(!section) return reject(DetailIssue.SECTION_MISSING)
         val productTitle=cleaned.any { n ->
+            (if (explicitOwnerTarget) ownerProductTitle(n.text, target) else
             Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(n.row) &&
-                Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(n.row) &&
+                (Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(n.row) || unlimitedGoldRow(n.row))) &&
                 ids.findAll(n.row.uppercase()).map { it.value }.toSet().let { it.isEmpty() || it==setOf(target) }
         }
         // A missing header is allowed only during an already anchored same-window
@@ -238,11 +239,27 @@ internal object MorningReadPolicy {
 
     /** One BACK from a previously observed product window, never from an order form. */
     fun returnAfterRead(nodes: List<Node>, target: String, window: Int, readWindow: Int?, code: String): Boolean {
-        if (readWindow != window || code !in setOf("READ", "NO_QUOTES", "RETURN_FAILED", "SEEK_LIMIT", "SCROLL_LIMIT")) return false
+        if (readWindow != window || code !in setOf("READ", "NO_QUOTES", "RETURN_FAILED", "SEEK_LIMIT", "SCROLL_LIMIT", "INVALID_QUOTES")) return false
         if (detailLauncherIndex(nodes, target, anchored=true, symbolProbe=true) != null) return true
         if (protection(nodes) != null || nodes.size > 500 || !SeriesEvidence.validIsin(target)) return false
         val action = detailDecision(nodes, target, true)
-        return action.kind == Kind.READ
+        if (action.kind == Kind.READ) return true
+        // Android's WebView can remove the clickable launcher/scroll markers
+        // after a bounded page read. Permit only the one existing global BACK,
+        // NEVER an order click, if the real previous ISIN is STILL visible on
+        // an unprotected informational product screen in the same window.
+        // The next product remains blocked until an independently verified
+        // Markets search screen is observed by ProductReturnTransition.
+        if (protection(nodes) != null || nodes.any {
+                it.editable || it.containsInput || it.password || it.sensitive
+            }) return false
+        val shown = ids.findAll(nodes.joinToString("\n") { it.text.uppercase() })
+            .map { it.value }.toSet()
+        val section=nodes.any {
+            normalized(it.text).lowercase() in setOf("übersicht", "overview",
+                "kursdaten", "produktdetails")
+        }
+        return shown == setOf(target) && section
     }
     fun detailReadLines(nodes: List<Node>, lines: List<QuoteLayout.Line>, target: String,
                         anchored: Boolean = false, symbolProbe: Boolean = false): List<QuoteLayout.Line> {
@@ -280,7 +297,8 @@ internal object MorningReadPolicy {
         return navigate(nodes,target,false,lookupSymbol)
     }
     /** A gesture may target only a unique product-name label, never the row's K/V controls. */
-    fun resultTapIndex(nodes: List<Node>, target: String): Int? {
+    fun resultTapIndex(nodes: List<Node>, target: String, explicitOwnerTarget: Boolean = false): Int? {
+        if (!SeriesEvidence.validIsin(target)) return null
         // A DEGIRO search results page can retain a separate "Order platzieren"
         // launcher. It is NOT a permission to touch that button. Validate the
         // isolated exact launcher and search input, then ignore only that one
@@ -319,8 +337,11 @@ internal object MorningReadPolicy {
         val input=validated.filter { it.editable }.singleOrNull() ?: return null
         if(input.text!=target || !isSearchInput(input.id,input.description,input.hint)) return null
         val controls=Regex("(?iu)\\b(k|v|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b")
-        fun productName(value:String)=Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(value) &&
-            Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(value)
+        fun productName(value: String): Boolean {
+            if (explicitOwnerTarget) return ownerProductTitle(value, target)
+            return Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(value) &&
+                (Regex("(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(value) || unlimitedGoldRow(value))
+        }
         fun safe(n:Node)=n.enabled && !n.editable && !n.containsInput && !n.password && !n.sensitive
         val groups=validated.indices.filter { i ->
             val n=validated[i]
@@ -355,7 +376,7 @@ internal object MorningReadPolicy {
         // no order/login form, and a nearby enclosing product identity. Neither
         // the K/V validated nor their enclosing row may ever be a tap target.
         if(validated.any { it.password || it.sensitive } || protection(validated)!=null ||
-            validated.none { normalized(it.text).equals("Hebelprodukte",ignoreCase=true) }) return null
+            (!explicitOwnerTarget && validated.none { normalized(it.text).equals("Hebelprodukte",ignoreCase=true) })) return null
         val visible=validated.filterNot { it.editable }.flatMap { n ->
             ids.findAll(n.text.uppercase()).map { it.value }.toList()
         }.toSet()
@@ -432,6 +453,10 @@ internal object MorningReadPolicy {
         return inlineTitle.singleOrNull()
     }
 
+    fun searchLeveraged(nodes: List<Node>, query: String, categoryTapped: Boolean = false): Action {
+        if (query !in setOf("Gold","Silber")) return Action(Kind.BLOCK,code="INVALID_VIEW")
+        return navigate(nodes,query,true,{ null },searchOnly=true,categoryTapped=categoryTapped)
+    }
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })
     /** A real search control takes precedence over another backward scroll. */
     fun detailSearchRestore(nodes: List<Node>, importedListRun: Boolean): Action? {
@@ -451,6 +476,18 @@ internal object MorningReadPolicy {
             !searchLabel(it) && !normalized(it).equals("Gold",true)
         }) return null
         return action
+    }
+    /** Exact owner ISIN lookup can open any identified product, without changing Gold import rules. */
+    private fun ownerProductTitle(value: String, target: String): Boolean {
+        val label = normalized(value.replace(target, "", ignoreCase=true)).trim(' ', '|', ':')
+        return label.length in 3..800 && Regex("(?iu)\\p{L}{3,}").containsMatchIn(label) &&
+            label.lowercase() !in setOf("isin", "produkt", "übersicht", "overview", "kursdaten", "produktdetails", "hebelprodukte", "top ergebnisse")
+    }
+    fun ownerProductDecision(nodes: List<Node>, target: String, keyboardReady: Boolean = true): Action {
+        if (ConnectionErrorPolicy.detected(nodes.flatMap { listOf(it.text, it.description) }))
+            return Action(Kind.BLOCK, code="CONNECTION_ERROR")
+        if (detailLauncherIndex(nodes, target, explicitOwnerTarget=true) != null) return Action(Kind.READ)
+        return detailDecision(nodes, target, false, keyboardReady)
     }
     fun detailDecision(nodes: List<Node>, target: String, importedListRun: Boolean,
                        keyboardReady: Boolean = true, resultOpened: Boolean = true, lookupSymbol: (String) -> String? = { null }): Action {
@@ -541,8 +578,17 @@ internal object MorningReadPolicy {
         if(below(inputIndex,index) || below(index,inputIndex)) return reject(LauncherIssue.RELATED_TARGETS)
         return nodes.mapIndexed { i,n -> if(i==index) Node("") else n }
     }
-    private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?, captureAll: Boolean = false, symbolProbe: Boolean = false): Action {
+    // DEGIRO also labels BNP knock-out rows "GOLD Unlimited Long/Short".
+    // Require the issuer, direction and explicit SL/STR/R terms; "Unlimited"
+    // alone must never make an unrelated certificate a Gold KO candidate.
+    private fun unlimitedGoldRow(value: String): Boolean = Regex(
+        "(?iu)^BNP\\s+GOLD\\s+Unlimited\\s+(?:Long|Short)\\s+SL\\s+\\d+(?:[.,]\\d+)?\\s+STR\\s+\\d+(?:[.,]\\d+)?\\s+R\\s+\\d+(?:[.,]\\d+)?\\b"
+    ).containsMatchIn(value.trim())
+
+    private fun navigate(nodes: List<Node>, target: String, discovery: Boolean, lookupSymbol: (String) -> String?, captureAll: Boolean = false, symbolProbe: Boolean = false, searchOnly: Boolean = false, categoryTapped: Boolean = false): Action {
         if (nodes.size > 500) return Action(Kind.BLOCK, code="INVALID_VIEW")
+        if (ConnectionErrorPolicy.detected(nodes.flatMap { listOf(it.text,it.description) }))
+            return Action(Kind.BLOCK,code="CONNECTION_ERROR")
         protection(nodes)?.let { cause ->
             if (cause == "PROTECTED_ORDER_CONFIRM") {
                 if(!discovery) {
@@ -563,7 +609,7 @@ internal object MorningReadPolicy {
                 marketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 recentMarketSearchBesideLauncher(nodes)?.let { return Action(Kind.SEARCH,it) }
                 productSearchWithoutLauncher(nodes)?.let { searchNodes ->
-                    val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll,symbolProbe)
+                    val action=navigate(searchNodes,target,discovery,lookupSymbol,captureAll,symbolProbe,searchOnly,categoryTapped)
                     if(action.kind in setOf(Kind.FOCUS,Kind.QUERY,Kind.SUBMIT,Kind.CATEGORY,Kind.CATEGORY_SCROLL,Kind.RESULT,Kind.COLLECT,Kind.WAIT)) return action
                 }
             }
@@ -576,6 +622,19 @@ internal object MorningReadPolicy {
             if (!nodes[i].enabled) return Action(Kind.WAIT,code="SEARCH_NOT_ACTIONABLE")
             if (nodes[i].text != target) return Action(if(nodes[i].focused) Kind.QUERY else Kind.FOCUS, i)
             if (discovery) {
+                if (searchOnly) {
+                    val category = goldCategory(nodes)
+                    if (category?.code == "CATEGORY_RESULTS_PENDING")
+                        return Action(Kind.COLLECT,code="LEVERAGE_SEARCH_READY")
+                    if (categoryTapped) {
+                        // Some DEGIRO WebViews omit selected state. A fresh results
+                        // page may finish navigation, but must not claim selection verified.
+                        if (category?.kind == Kind.CATEGORY && nodes.any { normalized(it.text).equals("Top Ergebnisse",true) })
+                            return Action(Kind.COLLECT,code="LEVERAGE_SEARCH_TAPPED")
+                        return Action(Kind.WAIT,code="CATEGORY_RESULTS_PENDING")
+                    }
+                    return category ?: Action(if(nodes[i].imeEnter) Kind.SUBMIT else Kind.WAIT,index=i,code="CATEGORY_MISSING")
+                }
                 // Only visible, explicit identities in Gold leverage-product rows.
                 // This is a bounded candidate sample, never a complete catalog or
                 // proof of the underlying, quote freshness, or trade approval.
@@ -584,7 +643,7 @@ internal object MorningReadPolicy {
                     val found=ids.findAll(row.uppercase()).map { it.value }.toSet().singleOrNull()
                     found?.takeIf { SeriesEvidence.validIsin(it) &&
                         Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(row) &&
-                        Regex(if(captureAll) "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short)|faktor|factor)\\b" else "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(row) &&
+                        (Regex(if(captureAll) "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short)|faktor|factor)\\b" else "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(row) || unlimitedGoldRow(row)) &&
                         !Regex(if(captureAll) "(?iu)\\b(kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b" else "(?iu)\\b(faktor|factor|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b").containsMatchIn(row) }
                 }.distinct().take(12)
                 if(candidates.isNotEmpty()) return Action(Kind.COLLECT,isins=candidates)

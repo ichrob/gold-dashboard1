@@ -11,6 +11,50 @@ class ResearchTests(unittest.TestCase):
         for identity,title in [('abcdefghijk','Gold outlook'),('lmnopqrstuv','Gold outlook'),('silverabcde','Silver outlook')]:
             entries+=f'<entry><yt:channelId>{channel}</yt:channelId><title>{title}</title><published>2026-10-07T00:00:00Z</published><link href="https://www.youtube.com/watch?v={identity}"/><media:group><media:description>Gold is mentioned in a standard channel footer.</media:description></media:group></entry>'
         return f'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/"><yt:channelId>{channel}</yt:channelId>{entries}</feed>'.encode()
+    def test_startup_restores_links_without_fetch_or_analysis(self):
+        from unittest.mock import Mock
+        item=g.parse_feed(self.feed(),g.SOURCES[0],self.now)[0][0]
+        with patch.object(g,'_report',None), patch.object(g.youtube_feed_archive,'request',return_value={'items':[item]}) as archive, patch.object(g,'collect') as collect, patch.object(g,'resume_retained') as retry:
+            g._run()
+            archive.assert_called_once_with('read',{})
+            collect.assert_not_called();retry.assert_not_called()
+            result=g.snapshot()
+            self.assertEqual(result['mode'],'manual')
+            self.assertFalse(result['automaticRefresh'])
+            self.assertFalse(result['fresh'])
+            self.assertEqual(len(result['items']),1)
+
+    def test_manual_pass_is_single_flight_and_retains_links_on_empty_result(self):
+        import threading
+        entered=threading.Event();release=threading.Event()
+        item=g.parse_feed(self.feed(),g.SOURCES[0],self.now)[0][0]
+        def collect():
+            entered.set();release.wait(2)
+            return {'items':[],'sources':[],'checkedAt':self.now}
+        with patch.object(g,'_thread',None),patch.object(g,'_refresh_thread',None),patch.object(g,'_last_refresh',None),patch.object(g,'_report',{'items':[item]}),patch.object(g,'collect',side_effect=collect) as fetch,patch.object(g,'resume_retained') as retry:
+            try:
+                self.assertEqual(g.request_refresh()['status'],'started')
+                self.assertTrue(entered.wait(1))
+                self.assertEqual(g.request_refresh()['status'],'running')
+            finally:
+                release.set();g._refresh_thread.join(3)
+            self.assertFalse(g._refresh_thread.is_alive())
+            self.assertEqual(g.request_refresh()['status'],'cooldown')
+            fetch.assert_called_once();retry.assert_not_called()
+            self.assertTrue(g._report['archived'])
+            self.assertEqual(g._report['items'],[item])
+
+    def test_manual_refresh_requires_authentication(self):
+        from unittest.mock import Mock
+        import server
+        handler=object.__new__(server.Handler)
+        handler.path='/api/research/youtube'
+        handler.headers={};handler.authenticated=Mock(return_value=False)
+        with patch.object(server.bob_auth,'send') as send,patch.object(g,'request_refresh') as refresh:
+            handler.do_POST()
+        refresh.assert_not_called()
+        self.assertEqual(send.call_args.args[1],401)
+
     def test_reduced_weekend_research_schedule(self):
         from datetime import datetime
         from zoneinfo import ZoneInfo

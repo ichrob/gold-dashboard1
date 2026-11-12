@@ -5,6 +5,7 @@ or run any physical table rewrite. A successful *remote-download and separate-
 database restore* of the full reviewed-evidence export is required first.
 It runs on its own limited DB connection, never during live push delivery.
 """
+from storage_capacity import COMPACTION_MAX_VOLUME_BYTES
 import json
 import os
 import re
@@ -92,7 +93,7 @@ def run_once(*,factory=connect,now=None,volume=None):
             or volume.get("resource")!="dpg-datjno1srm7s738vv500-a"
             or volume.get("unit")!="bytes"
             or type(volume.get("diskUsage")) is not int
-            or volume["diskUsage"]>725_000_000
+            or volume["diskUsage"]>COMPACTION_MAX_VOLUME_BYTES
             or type(observed) not in (int,float)
             or not 0<=now.timestamp()-observed<=300):
         return {"status":"physical-reserve-unavailable","removed":0,

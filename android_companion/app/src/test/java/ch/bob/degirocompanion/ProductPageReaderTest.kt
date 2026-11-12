@@ -9,6 +9,76 @@ class ProductPageReaderTest {
     private val header = lines("DE000FD0S0G4", "EUR")
     private val quotes = lines("Geld EUR 10,20", "Brief EUR 10,30")
     private fun step(reader: ProductPageReader, data: List<QuoteLayout.Line>, forward: Boolean = true, backward: Boolean = true, window: Int = 1, sensitive: Boolean = false) = reader.inspect(window, data, at, sensitive, forward, backward)
+    @Test fun pairedFooterCanVisitNumericHeaderAndReturnWithoutLosingQuotes() {
+        val footer=lines("Symbol | ISIN 1234567 | DE000SX7PE82", "Kursdaten",
+            "Geld EUR 40,66", "Brief EUR 40,67")
+        val numericHeader=lines("Übersicht", "1234567 • Societe Generale OTC | R",
+            "SG Gold Turbo BEST Open-End Call BAR 3501.67 BP 3501.67 Bv 10 LV 8.71")
+        val r=ProductPageReader()
+        fun read(data: List<QuoteLayout.Line>, backward: Boolean=true)=r.inspect(
+            1,data,at,false,true,backward,requireParameters=true,allowSymbolProbe=true,
+            seekLeverage=true,expectedIsin="DE000SX7PE82")
+        assertEquals(ProductPageReader.Move.BACKWARD,read(footer).move)
+        val turn=read(numericHeader,false)
+        assertEquals(ProductPageReader.Move.FORWARD,turn.move)
+        assertEquals("",turn.result.draft)
+        val done=read(footer,false)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("Hebel (Anzeige ungeprüft): 8,71"))
+        assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 40,66"))
+        assertTrue(done.result.draft.contains("Brief (Anzeige ungeprüft): 40,67"))
+    }
+
+    @Test fun pairedFooterHeaderVisitRejectsChangedIdentityAndNeverInventsLv() {
+        val footer=lines("Symbol | ISIN 1234567 | DE000SX7PE82", "Kursdaten",
+            "Geld EUR 40,66", "Brief EUR 40,67")
+        fun read(r: ProductPageReader, data: List<QuoteLayout.Line>, window: Int=1,
+                 sensitive: Boolean=false)=r.inspect(window,data,at,sensitive,true,false,
+            requireParameters=true,allowSymbolProbe=true,seekLeverage=true,
+            expectedIsin="DE000SX7PE82")
+        fun start()=ProductPageReader().also {
+            assertEquals(ProductPageReader.Move.BACKWARD,it.inspect(1,footer,at,false,
+                true,true,requireParameters=true,allowSymbolProbe=true,seekLeverage=true,
+                expectedIsin="DE000SX7PE82").move)
+        }
+        val title=lines("Übersicht", "1234567 • Societe Generale OTC | R",
+            "SG Gold Turbo BEST Open-End Call BAR 3501.67 BP 3501.67 Bv 10")
+        for (kind in 0..3) {
+            val r=start()
+            val bad=when(kind) {
+                0 -> read(r,title.map { it.copy(text=it.text.replace("1234567","7654321")) })
+                1 -> read(r,title,window=2)
+                2 -> read(r,title,sensitive=true)
+                else -> read(r,lines("DE000FE2JJ20", "Geld EUR 10,00"))
+            }
+            assertEquals(ProductPageReader.Move.ABORT,bad.move)
+            assertEquals("",bad.result.draft)
+        }
+        val r=start()
+        assertEquals(ProductPageReader.Move.FORWARD,read(r,title).move)
+        val done=read(r,footer)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertFalse(done.result.draft.contains("Hebel (Anzeige ungeprüft):"))
+        assertTrue(done.result.draft.contains("Brief (Anzeige ungeprüft): 40,67"))
+    }
+
+    @Test fun pairedOneSidedQuoteStillCollectsExplicitHeaderLeverage() {
+        val r=ProductPageReader()
+        val footer=lines("Symbol | ISIN 1234567 | DE000SX7PE82", "Kursdaten", "Geld CHF 40,66")
+        val title=lines("Übersicht", "1234567 • Societe Generale OTC | R",
+            "SG Gold Turbo BEST Open-End Call BAR 3504.15 BP 3504.15 Bv 10 LV 6.76")
+        fun read(page: List<QuoteLayout.Line>, back: Boolean)=r.inspect(1,page,at,false,
+            true,back,requireParameters=true,allowSymbolProbe=true,seekLeverage=true,
+            expectedIsin="DE000SX7PE82")
+        assertEquals(ProductPageReader.Move.BACKWARD,read(footer,true).move)
+        assertEquals(ProductPageReader.Move.FORWARD,read(title,false).move)
+        val done=read(footer,true)
+        assertEquals(ProductPageReader.Move.FINISHED,done.move)
+        assertTrue(done.result.draft.contains("Hebel (Anzeige ungeprüft): 6,76"))
+        assertTrue(done.result.draft.contains("Geld (Anzeige ungeprüft): 40,66"))
+        assertFalse(done.result.draft.contains("Brief (Anzeige ungeprüft):"))
+    }
+
     @Test fun missingKoCanCompleteWithoutQuoteAfterRealIdentityCheck() {
         val r=ProductPageReader()
         val detail=lines("DE000FD0S0G4 EUR",

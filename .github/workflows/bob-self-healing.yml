@@ -16,6 +16,10 @@ on:
       - bob_problem_mirror.py
       - bob_problems.py
       - bob_issue_watchdog.py
+      - bob_study_health.py
+      - research_restart.py
+      - bob_ai_coordination.py
+      - push_server.py
       - .github/workflows/bob-self-healing.yml
   workflow_dispatch:
 
@@ -47,3 +51,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python bob_issue_watchdog.py
+      - name: Record bounded, idempotent KI handoff for verified open issues
+        if: success()
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python bob_ai_coordination.py

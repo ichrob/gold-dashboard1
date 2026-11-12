@@ -9,6 +9,96 @@ def batch():
     def png(suffix):return base64.b64encode(b'\x89PNG\r\n\x1a\n'+b'\0\0\0\rIHDR'+struct.pack('>II',709,1200)+b'\x08\x02\0\0\0'+suffix).decode()
     return {'batchId':'a'*32,'sessionId':'b'*32,'images':[{'at':datetime.fromtimestamp(NOW-10+i,timezone.utc).isoformat(),'png':png(bytes([i])*8)} for i in range(2)]}
 class ListTests(unittest.TestCase):
+    def test_status_exposes_recognition_counts_without_image_contents(self):
+        from unittest.mock import MagicMock
+        conn=MagicMock()
+        conn.execute.return_value.fetchone.return_value=('bob_android_list_images',)
+        conn.execute.return_value.fetchall.return_value=[(
+            'a'*32,datetime.fromtimestamp(NOW,timezone.utc),3,
+            {'stage':'waiting-memory','count':0},0,None,1,1)]
+        report=images.status(conn)[0]
+        self.assertEqual(report['recognitionAttachments'],{
+            'appTextImages':1,'localOcrImages':1,'imageOnly':1})
+        self.assertEqual(report['import']['stage'],'waiting-memory')
+        self.assertNotIn('payload',report)
+        self.assertNotIn('images',report)
+
+    def test_daily_list_reuse_requires_full_verified_evidence(self):
+        ids=['DE000SQ02JQ6','DE000FG8NHQ3','DE000FB0CVV9','DE000FG0SGZ2',
+             'DE000FG8K0P8','DE000FB0CVK2','DE000SX7PE82','DE000PJ8APE4',
+             'DE000FA94U71','DE000FG4JXV7']
+        complete=[{'isin':isin,'listRow':{}} for isin in ids]
+        self.assertTrue(images.reusable_daily_items(complete))
+        self.assertFalse(images.reusable_daily_items(complete[:9]))
+        self.assertFalse(images.reusable_daily_items(complete+[complete[0]]))
+        self.assertFalse(images.reusable_daily_items(complete[:9]+[complete[0]]))
+        self.assertFalse(images.reusable_daily_items(complete[:9]+[
+            {'isin':'not-an-isin','listRow':{}}]))
+        self.assertFalse(images.reusable_daily_items(complete[:9]+[
+            {'isin':ids[9]}]))
+
+    def test_only_memory_related_ocr_failures_allow_previous_daily_details(self):
+        self.assertTrue(images.deferred_ocr_memory_receipt(
+            {'stage':'waiting-memory','count':0}))
+        self.assertTrue(images.deferred_ocr_memory_receipt(
+            {'stage':'read-failed','error':'MemoryError','count':0}))
+        for receipt in (None, {}, {'stage':'reading'},
+                {'stage':'synced','count':10},
+                {'stage':'read-failed','error':'ListVerificationError'},
+                {'stage':'read-failed','error':'InterruptedWorker'},
+                {'stage':'read-failed','error':'OcrChildError'},
+                {'stage':'read-failed','error':'MemoryErrorX'}):
+            self.assertFalse(images.deferred_ocr_memory_receipt(receipt))
+
+    def test_pending_ocr_is_not_relabelled_as_imported(self):
+        import inspect
+        code=inspect.getsource(images.handle)
+        self.assertIn('deferred_ocr_memory_receipt(row[0])',code)
+        self.assertIn('now-row[2].timestamp() <= 3*3600',code)
+        self.assertIn("'existingListBatchId':reuse_batch",code)
+        self.assertIn("'import':row[0]",code)
+        self.assertIn("AT TIME ZONE 'Europe/Zurich'",code)
+
+    def test_local_ocr_is_strictly_bounded_to_exact_product_rows(self):
+        from product_quotes import valid_isin
+        one='DE000SQ02JQ6'
+        two='DE000FG8NHQ3'
+        self.assertTrue(valid_isin(one) and valid_isin(two))
+        rows=[
+          'SG Gold Turbo Unlimited Mini Call BAR 2166 BP 2125.38 Bv 10 | '+one+' Societe Generale OTC EUR',
+          'SG Gold Knock-Out Warrant Put BAR 4400 BP 4400 Bv 10 | '+two+' Societe Generale OTC CHF']
+        value=batch()
+        value['images'][0]['localOcr']={'expectedIsins':[one,two],'passes':[rows,rows]}
+        self.assertEqual(images.validate(value,NOW),value)
+        from copy import deepcopy
+        for mutate in [
+            lambda a:a['images'][0]['localOcr']['expectedIsins'].reverse(),
+            lambda a:a['images'][0]['localOcr']['passes'][1].pop(),
+            lambda a:a['images'][0]['localOcr']['passes'][0].__setitem__(0,rows[0]+' Kontostand'),
+            lambda a:a['images'][0]['localOcr']['passes'][0].__setitem__(0,rows[0].replace(one,two)),
+            lambda a:a['images'][0]['localOcr']['passes'][0].__setitem__(0,rows[0].replace('Societe Generale OTC EUR','')),
+            lambda a:a['images'][0].update(appText={'before':['x'],'after':['x']})
+        ]:
+            altered=deepcopy(value);mutate(altered)
+            with self.assertRaises((ValueError,TypeError)):
+                images.validate(altered,NOW)
+
+    def test_local_ocr_glyph_normalization_preserves_raw_and_valid_wrong_ids(self):
+        one='DE000SQ02JQ6'; raw='DEOOOSQO2JQ6'; other='DE000FG8NHQ3'
+        row='SG Gold Turbo Unlimited Mini Call BAR 2166 BP 2126.05 Bv 10 | '+raw+' Societe Generale OTC EUR'
+        value=batch()
+        value['images'][0]['localOcr']={'expectedIsins':[one],'passes':[[row],[row]]}
+        self.assertEqual(images.validate(value,NOW),value)
+        self.assertIn(raw,value['images'][0]['localOcr']['passes'][0][0])
+        self.assertEqual(images.canonical_ocr_identity(raw.lower()),one)
+        self.assertEqual(images.canonical_ocr_identity(other),other)
+        self.assertIsNone(images.canonical_ocr_identity('DEOOOSQO2JQ5'))
+        self.assertIsNone(images.canonical_ocr_identity('DEOOOPU8APE4'))
+        for text in (row.replace(raw,other),row.replace(raw,'DEOOOSQO2JQ5'),
+                     row.replace(raw,raw+' '+one)):
+            bad=copy.deepcopy(value);bad['images'][0]['localOcr']['passes'][0][0]=text
+            with self.assertRaises(ValueError):images.validate(bad,NOW)
+
     def test_text_capture_is_bounded_and_immutable(self):
         x=batch();x['images'][0]['appText']={'before':['product row'],'after':['product row']}
         self.assertEqual(images.validate(x,NOW),x)

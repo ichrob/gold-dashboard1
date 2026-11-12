@@ -221,7 +221,8 @@ class EntryBlockEvidenceTests(unittest.TestCase):
         cursor.fetchone.return_value = ('2026-10-27', {
             'entryBlockCounts': {'Frühwarn-Test: Mindest-CRV nicht erfüllt': 3},
             'entryBlocks': [
-                {'at': 1000, 'lastAt': 2000, 'goldAt': 900, 'checks': 2,
+                {'at': 1000, 'lastAt': 2000, 'goldAt': 900,
+                 'signalBarAt': 600, 'checks': 2,
                  'direction': 'LONG', 'signalSource': 'early-warning-v2',
                  'ruleVersion': 'intraday-responsive-v6',
                  'plan': {'kind': 'candidate', 'entry': 100, 'stop': 90,
@@ -252,6 +253,7 @@ class EntryBlockEvidenceTests(unittest.TestCase):
         self.assertTrue(account['sourceTruncated'])
         self.assertEqual(account['latest'][0]['direction'], 'LONG')
         self.assertEqual(account['latest'][0]['sourceAt'], 900)
+        self.assertEqual(account['latest'][0]['signalBarAt'], 600)
         self.assertEqual(account['latest'][0]['signalSource'], 'early-warning-v2')
         self.assertEqual(account['latest'][0]['plan']['stop'], 90)
         self.assertNotIn('must-not-pass', json.dumps(evidence))
@@ -892,6 +894,33 @@ class FocusedReadAccessTests(unittest.TestCase):
                             for x in t['items']))
 
 
+class RapidStudyDiagnosticTests(unittest.TestCase):
+    def test_rapid_study_brief_is_small_and_keeps_original_clock(self):
+        report=dict(status='collecting',startedAt=1000,checkedAt=1500,
+            lastInput=dict(basis='closed-original-5m',bars=20,reason=None,
+                           originalSpotFresh=True,sourceAt=1400),
+            setups=[dict(setup='breakout',started=1,closed=0,inconclusive=0,open=True,
+                latestBlockReason='signal-already-used',
+                levers=[dict(leverage=x,modeledReturnPct=0.0,completed=0)
+                        for x in (3,5,8,10,15,20,30)],
+                debugSecret='never-forward')])
+        brief=diagnostics.rapid_leverage_brief(report)
+        self.assertEqual(brief['lastInput']['basis'],'closed-original-5m')
+        self.assertTrue(brief['lastInput']['originalSpotFresh'])
+        self.assertEqual(brief['setups'][0]['started'],1)
+        self.assertEqual(brief['configurationsReported'],7)
+        self.assertEqual([x['leverage'] for x in brief['setups'][0]['levers']], [3,5,8,10,15,20,30])
+        self.assertEqual(brief['setups'][0]['latestBlockReason'],'signal-already-used')
+        self.assertNotIn('debugSecret',json.dumps(brief))
+        self.assertFalse(brief['productReturnVerified'])
+        self.assertFalse(brief['realOrders'])
+
+    def test_missing_rapid_study_is_not_reported_as_healthy(self):
+        result=diagnostics.rapid_leverage_brief(None)
+        self.assertEqual(result['status'],'unavailable')
+        self.assertFalse(result['productReturnVerified'])
+
+
 class FastSimulationStatusTests(unittest.TestCase):
     def test_current_day_uses_indexed_scope_without_historical_reports(self):
         from unittest.mock import MagicMock
@@ -908,8 +937,18 @@ class FastSimulationStatusTests(unittest.TestCase):
         # The original fast case query is still day-indexed and limited.
         # The three independent studies add only one PK-scoped control
         # lookup and one fixed PostgreSQL relation-size catalogue read.
-        self.assertEqual(len(selects), 3)
+        # One exact campaign lookup, bounded comparison read, and singleton input status.
+        self.assertEqual(len(selects), 8)
         sql = [call.args[0] for call in selects]
+        # Fourth independent research report: one single-row PK lookup only.
+        self.assertEqual(sum('bob_rapid_leverage_state WHERE id=%s' in q for q in sql), 1)
+        self.assertFalse(any('bob_rapid_leverage_cases' in q for q in sql))
+        self.assertEqual(sum('bob_intraday_timing_state WHERE id=%s' in q for q in sql),1)
+        self.assertFalse(any('bob_intraday_timing_cases' in q for q in sql))
+        self.assertEqual(sum('bob_entry_exit_comparison ORDER BY id DESC LIMIT 200' in q for q in sql),1)
+        self.assertEqual(sum('bob_entry_exit_input_status WHERE singleton=TRUE' in q for q in sql),1)
+        self.assertEqual(sum("FROM bob_quality_campaign WHERE id=%s" in q for q in sql), 1)
+        self.assertFalse(any("bob_quality_cases" in q or "bob_quality_legacy" in q for q in sql))
         self.assertEqual(sum('WHERE day=%s ORDER BY started_at DESC LIMIT 5' in q
                              for q in sql), 1)
         self.assertEqual(sum('bob_shadow_study_control' in q and

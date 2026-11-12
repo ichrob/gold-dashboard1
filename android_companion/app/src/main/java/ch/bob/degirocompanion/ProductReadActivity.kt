@@ -20,9 +20,16 @@ import android.widget.TextView
 class ProductReadActivity : Activity() {
     companion object {
         // Only our non-exported activity may receive this from a local UI tap.
+        internal const val EXTRA_GOAL_QUERY = "ch.bob.degirocompanion.GOAL_QUERY"
+        internal const val EXTRA_CAPABILITY = "ch.bob.degirocompanion.LOCAL_CAPABILITY"
+        internal const val EXTRA_START_GOLD_READ = "ch.bob.degirocompanion.START_GOLD_READ"
         internal const val EXTRA_START_COMPLETE_FLOW = "ch.bob.degirocompanion.START_COMPLETE_FLOW"
     }
     private var startCompleteFlowOnFirstResume = false
+    private var startGoldReadOnFirstResume = false
+    private var pendingCapability: String? = null
+    private var pendingGoalQuery: String? = null
+    private val capabilityActions = mutableMapOf<String, () -> Unit>()
     private var displayedRequestActive = false
     private val statusHandler = Handler(Looper.getMainLooper())
     private val statusTick = object : Runnable {
@@ -42,14 +49,25 @@ class ProductReadActivity : Activity() {
         startCompleteFlowOnFirstResume = savedInstanceState == null &&
             intent.getBooleanExtra(EXTRA_START_COMPLETE_FLOW, false)
         intent.removeExtra(EXTRA_START_COMPLETE_FLOW)
+        startGoldReadOnFirstResume = savedInstanceState == null && intent.getBooleanExtra(EXTRA_START_GOLD_READ,false)
+        intent.removeExtra(EXTRA_START_GOLD_READ)
+        pendingCapability = if (savedInstanceState == null) intent.getStringExtra(EXTRA_CAPABILITY)
+            ?.takeIf { title -> WorkflowAppRoute.capabilities.any { it.title == title } } else null
+        intent.removeExtra(EXTRA_CAPABILITY)
+        pendingGoalQuery = if(savedInstanceState == null) intent.getStringExtra(EXTRA_GOAL_QUERY)?.takeIf(DegiroGoal::acceptsQuery) else null
+        intent.removeExtra(EXTRA_GOAL_QUERY)
         val stack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
         var container=stack
         fun button(title: String, action: () -> Unit) {
+            capabilityActions[title] = action
             container.addView(Button(this).apply { text = title; isAllCaps = false; setOnClickListener { action() } })
         }
         container.addView(TextView(this).apply { text = "DEGIRO lesen · Produkt und Morgenliste"; textSize = 21f })
-        primary=Button(this).apply { text="Gesamtablauf starten";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
+        primary=Button(this).apply { text="Bob starten";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
         container.addView(primary)
+        capabilityActions["Bob starten"] = { startAutomaticTest() }
+        capabilityActions["Silber-Hebelprodukte suchen"] = { startPreparedGoal("Silber") }
+        capabilityActions["Gold-Hebelprodukte suchen"] = { startPreparedGoal("Gold") }
         button("Prüfung stoppen") {
             if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
             PhoneRemote.stop(this,"USER_STOP")
@@ -81,21 +99,7 @@ class ProductReadActivity : Activity() {
                 .setMessage("Nur starten, wenn die gespeicherte PIN korrekt ist und alle fünf DEGIRO-Felder leer sind. Bob versucht höchstens diese eine PIN. Bob schließt eindeutig erkannte Fingerabdruck-, Hinweis- und TouchID/FaceID-Einrichtungsdialoge. Handy nicht bedienen. Bei unzugänglichen oder unbekannten Dialogen stoppt Bob. Keine Wiederholung bei Fehlern. Bei einer Unterbrechung verbliebene Eingaben selbst löschen. Die Marktseite muss anschließend tatsächlich erscheinen; Produktlesen startet separat.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Fünf Felder leer · einmal starten") { _, _ ->
-                    var secret: ByteArray? = null
-                    var started = false
-                    try {
-                        check(preferences.getBoolean("enabled", false) && serviceEnabled() && ProductReadDiagnostics.connected)
-                        check(!PinReadinessProbe.running && !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime()))
-                        check(PhoneDiagnostics.keypadTestVerified(this) && LocalPinVault.available(this))
-                        val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("App unavailable")
-                        secret = LocalPinVault.load(this)
-                        started = true
-                        PinReadinessProbe.startLocalLogin(secret)
-                        startActivity(launch)
-                    } catch (_: Exception) {
-                        if (started) PinReadinessProbe.stop("Lokale PIN-Eingabe gestoppt. Bitte DEGIRO prüfen.")
-                        result.text = "Lokale PIN-Eingabe konnte nicht gestartet werden. Einrichtung, Gerätesperre und Lesedienst prüfen."
-                    } finally { secret?.fill(0) }
+                    startLocalLogin()
                 }.show()
         }
         button("Gespeicherte DEGIRO-PIN löschen") {
@@ -146,46 +150,12 @@ class ProductReadActivity : Activity() {
                 }.show()
         }
         button("Automatische Diagnose ausschalten") { PhoneDiagnostics.disable(this);refresh() }
-        button("Gold-Produkte suchen und auslesen") {
-            var startedHere=false
-            var startedPhoneHere=false
-            runCatching {
-                check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
-                check(!MorningReadRun.running && !GoldSearchRun.running) { "Lauf zuerst beenden." }
-                // This button starts a locally approved complete list read.
-                // The guarded search-tap fallback and image upload require an
-                // active PhoneRemote session. Never silently start a run that
-                // cannot click the search or deliver its evidence.
-                val session=GoldReadStartPolicy.decide(PhoneDiagnostics.paired(this),PhoneRemote.active())
-                check(session!=GoldReadStartPolicy.Decision.BLOCK) {
-                    "Zuerst die automatische Diagnose verbinden und in Bob freigeben."
-                }
-                val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt")
-                ProductReadRequest.cancel();ProductReadSession.clear()
-                if(session==GoldReadStartPolicy.Decision.START_SESSION) {
-                    PhoneRemote.start(this)
-                    startedPhoneHere=true
-                }
-                check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
-                GoldSearchRun.start()
-                startedHere=true
-                ProductReadRequest.start(SystemClock.elapsedRealtime())
-                startActivity(launch)
-            }.onFailure {
-                if(startedHere) { GoldSearchRun.stop("STOPPED",java.time.Instant.now().toString());ProductReadRequest.cancel() }
-                if(startedPhoneHere) PhoneRemote.stop(this,"START_FAILED")
-                result.text=it.message ?: "Goldsuche konnte nicht gestartet werden."
-            }
-        }
+        button("Gold-Produkte suchen und auslesen") { startGoldRead() }
         button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {
-            AlertDialog.Builder(this).setTitle("Produktsuche mit ChatGPT bedienen")
-                .setMessage("Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
+            AlertDialog.Builder(this).setTitle("Vorhandenen Produkteinleser starten")
+                .setMessage("Bob startet den vorhandenen vollständigen Gold-Produkteinleser: DEGIRO öffnen, bei Bedarf lokal anmelden, suchen, Produktseiten lesen und zurückkehren. Ergebnisse und Fehler werden über die verbundene Diagnose an Bob gemeldet. Einzelne ChatGPT-Klickaufträge sind dafür nicht erforderlich. Bob verwendet eine eingerichtete PIN einmal lokal und beginnt nach bestätigter Marktseite. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein. Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
                 .setNegativeButton("Abbrechen",null).setPositiveButton("Sitzung starten") { _,_ ->
-                    runCatching {
-                        check(preferences.getBoolean("enabled",false)) { "Lesedienst zuerst einschalten." }
-                        val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO fehlt")
-                        PhoneRemote.start(this);startActivity(launch)
-                    }.onFailure { PhoneRemote.stop(this,"START_FAILED");result.text=it.message }
+                    startChatGptSession()
                 }.show()
         }
         button("Bisherige Morgenliste prüfen / übertragen") { primaryAction() }
@@ -281,6 +251,8 @@ class ProductReadActivity : Activity() {
                 insets
             }
         }
+        capabilityActions["Gold-Produkte suchen und auslesen"] = { startAutomaticTest() }
+        capabilityActions["Gespeicherte PIN einmal eingeben"] = { startLocalLogin() }
         setContentView(scroll)
         scroll.requestApplyInsets()
     }
@@ -290,6 +262,20 @@ class ProductReadActivity : Activity() {
         PhoneDiagnostics.queue(this)
         refresh()
         statusHandler.post(statusTick)
+        pendingGoalQuery?.let { query ->
+            pendingGoalQuery = null
+            startPreparedGoal(query)
+            return
+        }
+        pendingCapability?.let { title ->
+            pendingCapability = null
+            capabilityActions[title]?.invoke()
+            return
+        }
+        if (startGoldReadOnFirstResume) {
+            startGoldReadOnFirstResume = false
+            startGoldRead()
+        }
         if(startCompleteFlowOnFirstResume) {
             // Starting in onCreate would run before this existing onResume
             // PIN-probe cleanup and could cancel the very login we started.
@@ -298,9 +284,135 @@ class ProductReadActivity : Activity() {
         }
     }
     override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
+    /** Explicit local button: reuse the verified login, then wait for remote read commands. */
+    /** Use the established complete reader, including its local login and
+     * automatic search/list/detail/return flow. No remote step loop. */
+    private fun startChatGptSession() {
+        val readerBusy = PinReadinessProbe.running || MorningReadRun.running ||
+            GoldSearchRun.running || ProductReadRequest.active(SystemClock.elapsedRealtime()) ||
+            LoginToReadHandoff.pending(SystemClock.elapsedRealtime())
+        if (readerBusy) {
+            runCatching {
+                val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
+                    ?: error("DEGIRO-App fehlt.")
+                startActivity(launch)
+                result.text = "Der bestehende Leselauf wird fortgesetzt. DEGIRO geöffnet lassen."
+            }.onFailure { result.text = "DEGIRO konnte nicht geöffnet werden. Der bestehende Leselauf bleibt erhalten." }
+            return
+        }
+        // End only an idle step-by-step session. The complete reader owns
+        // its next session and existing automatic diagnostic transmission.
+        if (PhoneRemote.active()) PhoneRemote.stop(this, "STOPPED")
+        startAutomaticTest()
+    }
+    /** Shared prerequisites for lookup and product opening: local login if enrolled, then the requested target. */
+    private fun startPreparedGoal(query: String) {
+        var secret: ByteArray? = null
+        var started = false
+        runCatching {
+            require(DegiroGoal.acceptsQuery(query))
+            check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
+            check(!PinReadinessProbe.running && !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime())) { "Laufenden Auftrag zuerst beenden." }
+            check(PhoneDiagnostics.paired(this)) { "Automatische Diagnose unter Einrichtung verbinden, damit die vorhandene Suchbedienung verfügbar ist." }
+            val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+            LoginToReadHandoff.clear()
+            if (LocalPinVault.exists(this)) {
+                check(PhoneDiagnostics.keypadTestVerified(this) && LocalPinVault.available(this)) { "Lokale PIN-Einrichtung prüfen und Handy entsperren." }
+                secret = LocalPinVault.load(this)
+                LoginToReadHandoff.arm(SystemClock.elapsedRealtime(),query)
+                started = true
+                PinReadinessProbe.startLocalLogin(secret!!)
+            } else {
+                started = true
+                PhoneRemote.start(this)
+                check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
+                GoldSearchRun.startSearch(query)
+                ProductReadRequest.start(SystemClock.elapsedRealtime())
+            }
+            result.text = if(SeriesEvidence.validIsin(query)) "Produkt $query: DEGIRO öffnen, Anmeldung bei Bedarf lokal abschließen, ISIN suchen und das eindeutig passende Produkt öffnen."
+                else "$query-Hebelprodukte: DEGIRO öffnen, bei Bedarf gespeicherte PIN einmal lokal verwenden, Suchfeld öffnen, $query eintragen und Hebelprodukte anzeigen. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein."
+            startActivity(launch)
+        }.onFailure {
+            LoginToReadHandoff.clear()
+            if (started) {
+                if (PinReadinessProbe.running) PinReadinessProbe.stop("Suchauftrag konnte nicht gestartet werden.")
+                GoldSearchRun.stop("START_FAILED",java.time.Instant.now().toString())
+                ProductReadRequest.cancel(); PhoneRemote.stop(this,"START_FAILED")
+            }
+            result.text = if (secret == null) it.message ?: "Suchauftrag konnte nicht gestartet werden." else "Suchauftrag konnte nicht gestartet werden; lokale PIN-Einrichtung prüfen."
+        }
+        secret?.fill(0)
+    }
+    /** Shared by the explicit PIN button and a local owner-authored chat request.
+     * Consume once; never arm the product-reading handoff or send secrets away. */
+    private fun startLocalLogin() {
+        var secret: ByteArray? = null
+        var started = false
+        try {
+            check(preferences.getBoolean("enabled", false) && serviceEnabled() && ProductReadDiagnostics.connected) {
+                "Lokale DEGIRO-Anmeldung: Lesedienst zuerst einschalten."
+            }
+            check(!PinReadinessProbe.running && !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+                "Lokale DEGIRO-Anmeldung: laufenden Auftrag zuerst beenden."
+            }
+            check(LocalPinVault.exists(this)) { "Keine DEGIRO-PIN lokal gespeichert. Unter Einrichtung die PIN nur auf diesem Handy einrichten; nicht ins Auftragsfeld schreiben." }
+            check(PhoneDiagnostics.keypadTestVerified(this)) { "Lokale DEGIRO-Anmeldung: zuerst den Tastaturtest unter Einrichtung abschließen." }
+            check(LocalPinVault.available(this)) { "Handy entsperren, damit die lokal gespeicherte PIN verwendet werden kann." }
+            val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+            secret = LocalPinVault.load(this)
+            LoginToReadHandoff.clear()
+            started = true
+            PinReadinessProbe.startLocalLogin(secret)
+            result.text = "DEGIRO wird geöffnet. Bob verwendet die gespeicherte PIN einmal lokal. Keine KI-Anfrage und kein anschließendes Produktlesen."
+            startActivity(launch)
+        } catch (e: Exception) {
+            if (started) PinReadinessProbe.stop("Lokale PIN-Eingabe gestoppt. Bitte DEGIRO prüfen.")
+            result.text = if (secret == null && e is IllegalStateException) e.message
+                else "Lokale PIN-Eingabe konnte nicht gestartet werden. Einrichtung, Gerätesperre und Lesedienst prüfen."
+        } finally { secret?.fill(0) }
+    }
+    private fun startGoldRead() {
+            var startedHere=false
+            var startedPhoneHere=false
+            runCatching {
+                check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
+                check(!MorningReadRun.running && !GoldSearchRun.running) { "Lauf zuerst beenden." }
+                // This button starts a locally approved complete list read.
+                // The guarded search-tap fallback and image upload require an
+                // active PhoneRemote session. Never silently start a run that
+                // cannot click the search or deliver its evidence.
+                val session=GoldReadStartPolicy.decide(PhoneDiagnostics.paired(this),PhoneRemote.active())
+                check(session!=GoldReadStartPolicy.Decision.BLOCK) {
+                    "Zuerst die automatische Diagnose verbinden und in Bob freigeben."
+                }
+                val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt")
+                ProductReadRequest.cancel();ProductReadSession.clear()
+                if(session==GoldReadStartPolicy.Decision.START_SESSION) {
+                    PhoneRemote.start(this)
+                    startedPhoneHere=true
+                }
+                check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
+                GoldSearchRun.start()
+                startedHere=true
+                ProductReadRequest.start(SystemClock.elapsedRealtime())
+                startActivity(launch)
+            }.onFailure {
+                if(startedHere) { GoldSearchRun.stop("STOPPED",java.time.Instant.now().toString());ProductReadRequest.cancel() }
+                if(startedPhoneHere) PhoneRemote.stop(this,"START_FAILED")
+                result.text=it.message ?: "Goldsuche konnte nicht gestartet werden."
+            }
+    }
     /** One explicit start: local, once-only PIN if enrolled; Gold only after
      * the actual DEGIRO Markets screen has been recognized. No PIN transport. */
     private fun startAutomaticTest() {
+        if (PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running || PinReadinessProbe.running) {
+            runCatching {
+                val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
+                    ?: error("DEGIRO-App fehlt.")
+                startActivity(launch)
+            }.onFailure { result.text = "DEGIRO konnte nicht geöffnet werden. Der bestehende Lauf bleibt erhalten." }
+            return
+        }
         var startedHere=false
         var localPin: ByteArray?=null
         runCatching {
@@ -325,7 +437,7 @@ class ProductReadActivity : Activity() {
                 PhoneRemote.start(this)
                 startedHere=true
                 check(PhoneRemote.active()) { PhoneRemote.message }
-                GoldSearchRun.start()
+                if(!MorningReadRun.resumeRecent(this)) GoldSearchRun.start()
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
                 result.text="DEGIRO wird geöffnet. Wenn keine PIN lokal eingerichtet ist, muss DEGIRO bereits angemeldet sein. Bob sucht anschließend Goldprodukte."
                 startActivity(launch)
@@ -334,6 +446,7 @@ class ProductReadActivity : Activity() {
             LoginToReadHandoff.clear()
             if(PinReadinessProbe.localLoginActive) PinReadinessProbe.stop("Einmalige Anmeldung konnte nicht gestartet werden.")
             if(startedHere) {
+                MorningReadRun.stop(this,"START_FAILED")
                 PhoneRemote.stop(this,"START_FAILED")
                 GoldSearchRun.stop("STOPPED",java.time.Instant.now().toString())
                 ProductReadRequest.cancel()
@@ -369,12 +482,12 @@ class ProductReadActivity : Activity() {
         window.decorView.findViewWithTag<TextView>("pin_probe_status")?.text = PinReadinessProbe.message
         displayedRequestActive = ProductReadRequest.active(SystemClock.elapsedRealtime())
         val value = ProductReadSession.get(SystemClock.elapsedRealtime())
-        primary.text=if(PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running) "Läuft · DEGIRO prüfen" else "Gesamtablauf starten"
+        primary.text=if(PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running) "Läuft · DEGIRO öffnen" else "Bob starten"
         val delivery=MorningListDelivery.status(this)
         val current=when {
             GoldSearchRun.running -> "Goldsuche läuft · zehn Top Ergebnisse erfassen"
             MorningReadRun.running -> delivery+"\n\nFehlende Produktangaben lesen: "+MorningReadRun.summary()
-            delivery.isNotBlank() -> delivery
+            delivery.isNotBlank() -> delivery + "\n\n" + MorningReadRun.savedStatus(this)
             GoldSearchRun.lastCode!=null -> "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty())
             else -> MorningReadRun.summary()
         }
@@ -382,7 +495,7 @@ class ProductReadActivity : Activity() {
         result.text=current+(if(detailDelivery.isNotBlank()) "\n\n"+detailDelivery else "")+
             "\n\n"+PhoneDiagnostics.status(this)+"\n\n"+PhoneRemote.message
 
-        diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + MorningReadRun.savedStatus(this) + "\n\n" + value.message +
+        diagnostics.text = (if (preferences.getBoolean("enabled", false)) (if (serviceEnabled()) (if (ProductReadDiagnostics.connected) "Android-Lesedienst verbunden.\n" else "Dienst aktiviert, aber noch nicht mit Bob verbunden.\n") else "Android-Lesedienst noch ausgeschaltet.\n") else "Leseprüfung ausgeschaltet.\n") + (if (ProductReadRequest.active(SystemClock.elapsedRealtime())) "Prüfung wartet auf eine lesbare Produktseite (maximal 60 Sekunden).\n" else "Keine automatische Prüfung aktiv.\n") + MorningReadRun.savedStatus(this) + "\n\n" + DegiroRamTelemetry.display(this) + "\n\n" + value.message +
             (if (value.draft.isNotBlank()) "\n\n${value.draft}" else "") + "\n\n" + ProductReadDiagnostics.report(SystemClock.elapsedRealtime())
     }
 }

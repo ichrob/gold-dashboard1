@@ -1,10 +1,10 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const html=fs.readFileSync('Bob.html','utf8'),script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1];
+const html=fs.readFileSync('Bob.html','utf8'),script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].find(m=>m[1].includes('function confirmedSignalDirection()'))[1];
 const elements=new Map(),storage=new Map();
-const noop=()=>{};const canvas=new Proxy({},{get:()=>noop,set:()=>true});
+const noop=()=>{};const windowListeners={};const canvas=new Proxy({},{get:()=>noop,set:()=>true});
 const element=id=>{if(!elements.has(id))elements.set(id,{value:({tf:'15m',n:'200',account:'500',risk:'1',trailAtr:'1.5',minRR:'2',displayCcy:'USD'})[id]||'',textContent:'',innerHTML:'',className:'',parentElement:{className:''},style:{},dataset:{},classList:{add:noop,remove:noop,toggle:noop},addEventListener:noop,setAttribute:noop,appendChild:noop,append:noop,selectedOptions:[{textContent:"15 Minuten"}],getContext:()=>canvas,getBoundingClientRect:()=>({width:800,height:300}),width:800,height:220});return elements.get(id);};
 const push={registered:false,serverRegistered:false,activeTrade:false,trade:false,general:false};
-const env={console:{log:noop,warn:noop,info:noop,error:noop},document:{getElementById:element,querySelectorAll:()=>[],querySelector:()=>null,visibilityState:'hidden',addEventListener:noop,createTextNode:text=>({textContent:text}),createElement:()=>element('temp')},window:{addEventListener:noop},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},navigator:{},Notification:{permission:'denied'},BobPush:{state:()=>push,set:()=>push,setActiveTrade:()=>push,emit:async()=>false},BobDegiro:{riskModel:()=>({ok:false,reason:'fixture'})},fetch:async()=>{throw Error('offline fixture')},setTimeout:()=>0,clearTimeout:noop,setInterval:()=>0,AbortController,Date,Math,Number,JSON,URL,Blob,Promise,crypto:require('node:crypto').webcrypto};
+const env={console:{log:noop,warn:noop,info:noop,error:noop},document:{getElementById:element,querySelectorAll:()=>[],querySelector:()=>null,visibilityState:'hidden',addEventListener:noop,createTextNode:text=>({textContent:text}),createElement:()=>element('temp')},window:{addEventListener:(event,fn)=>{(windowListeners[event]??=[]).push(fn);}},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},navigator:{},Notification:{permission:'denied'},BobPush:{state:()=>push,set:()=>push,setActiveTrade:()=>push,emit:async()=>false},BobDegiro:{riskModel:()=>({ok:false,reason:'fixture'})},fetch:async()=>{throw Error('offline fixture')},setTimeout:()=>0,clearTimeout:noop,setInterval:()=>0,AbortController,Date,Math,Number,JSON,URL,Blob,Promise,crypto:require('node:crypto').webcrypto};
 vm.createContext(env);vm.runInContext(script,env);
 
 (async()=>{
@@ -72,5 +72,23 @@ vm.createContext(env);vm.runInContext(script,env);
  const slow=vm.runInContext('loadMTF(false,11,second)',env);timeout();await slow;
  assert.equal(vm.runInContext('mtfInFlight',env),null);
  assert(!diagnostics.some(d=>d.event==='mtf:server-error'&&/abort/i.test(d.details.error||'')));
+ // A navigation can reject a completed verification as TypeError("Failed to fetch").
+ // Only the page-lifecycle case is diagnostic noise; the same visible failure stays an error.
+ env.fetch=async(url,options)=>{
+  if(url.startsWith('/api/diag')){diagnostics.push(JSON.parse(options.body));return {ok:true};}
+  assert(url.startsWith('/api/mtf'));throw new TypeError('Failed to fetch');
+ };
+ const beforeNavigation=diagnostics.length;
+ for(const listener of windowListeners.pagehide||[])listener({persisted:false});
+ vm.runInContext('lastMtfVerifyAt=0',env);
+ await vm.runInContext('loadMTF(false,11,second)',env);await new Promise(setImmediate);
+ const navigationDiagnostics=diagnostics.slice(beforeNavigation);
+ assert(navigationDiagnostics.some(d=>d.event==='mtf:verification-skipped'&&d.details.reason.includes('Seitenwechsel')));
+ assert(!navigationDiagnostics.some(d=>d.event==='mtf:server-error'));
+ for(const listener of windowListeners.pageshow||[])listener({persisted:false});
+ const beforeVisibleFailure=diagnostics.length;
+ vm.runInContext('lastMtfVerifyAt=0',env);
+ await vm.runInContext('loadMTF(false,11,second)',env);await new Promise(setImmediate);
+ assert(diagnostics.slice(beforeVisibleFailure).some(d=>d.event==='mtf:server-error'&&d.details.error==='Failed to fetch'));
  console.log('Review regressions: stale/invalid stop protection, original chart time, MTF late responses and timeout recovery passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

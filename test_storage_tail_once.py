@@ -177,7 +177,7 @@ class TailSafetyTests(unittest.TestCase):
              patch("render_disk_metrics.report",return_value=volume):
             self.assertEqual(tail._preflight(conn,SUNDAY),
                              "approved-for-one-table-vacuum")
-        for bad in ({**volume,"diskUsage":900_000_000},
+        for bad in ({**volume,"diskUsage":4_500_000_000},
                     {**volume,"observedAt":SUNDAY-400},
                     {**volume,"resource":"another-volume"}):
             with self.subTest(volume=bad), \

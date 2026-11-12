@@ -57,7 +57,7 @@ const helper={
 vm.createContext(helper);vm.runInContext(fragment,helper);
 const labels=Array.from(helper.productProblemLabels(product));
 assert(labels.includes("Hebelzeit / Quellenprüfung"));
-assert(labels.includes("Kursart / DEGIRO-Handelsplatznachweis"));
+assert(labels.includes("Kursart / Ausführbarkeit"));
 assert(!labels.includes("Kursnachweis"),JSON.stringify(labels));
 assert(!labels.includes("Produktnachweis"),JSON.stringify(labels));
 helper.degiroVenueObserved=()=>true;
@@ -70,7 +70,7 @@ const noValues=Array.from(helper.productProblemLabels(product));
 assert(noValues.includes("Hebel")&&noValues.includes("Kursnachweis"));
 const helpPart=source.slice(source.indexOf("function productHelpState("),source.indexOf("function renderProductHelp("));
 const helper2={
- productProblemLabels:()=>["Kursart / DEGIRO-Handelsplatznachweis","Hebelzeit / Quellenprüfung"],
+ productProblemLabels:()=>["Kursart / Ausführbarkeit","Hebelzeit / Quellenprüfung"],
  productFieldStates:()=>({bid:{value:16.14},ask:{value:16.15},leverage:{value:23.05}}),
  researchResults:new Map(),pendingQuotes:new Set(),
  n:v=>typeof v==="number"&&Number.isFinite(v)?v:null
@@ -94,7 +94,7 @@ helper.finalProductStatus=()=>({complete:false,reasons:[
  "Widersprüchliche oder ungültige Geldzeit am Original prüfen"
 ]});
 const analysisLabels=Array.from(helper.productProblemLabels(product));
-assert(analysisLabels.includes("DEGIRO-Handelsplatznachweis"));
+assert(!analysisLabels.includes("DEGIRO-Handelsplatznachweis"));
 assert(analysisLabels.includes("KO-Nachweis"));
 assert(!analysisLabels.includes("Produktnachweis"));
 assert(!analysisLabels.includes("Hebelzeit / Quellenprüfung"));
