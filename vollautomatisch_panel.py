@@ -277,7 +277,7 @@ PANEL = r"""
      const study=acc.stopStudy;
      if(study){
       const panel=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('p');
-      title.textContent='Stoppvergleich · fest / ATR / Struktur';body.className='small';body.style='white-space:pre-line;overflow-wrap:anywhere';
+      title.textContent='Stoppvergleich · Bob / 2 % / fest / ATR / Struktur';body.className='small';body.style='white-space:pre-line;overflow-wrap:anywhere';
       body.textContent=[study.total+' Vergleichseinstiege · '+study.paired+' vollständig gepaarte Ergebnisse · '+study.open+' laufend · '+study.unavailable+' nicht vollständig vergleichbar',
        ...(study.variants||[]).map(v=>v.label+': '+v.paired+' gemeinsame Fälle · nach Beispielkosten '+(Number.isFinite(v.modelNetEur)?money.format(v.modelNetEur):'offen')+' · '+v.stopHits+' beobachtete Stopptreffer'),
        'Nur paralleler Simulationstest. Unter 20 vollständigen Vergleichen: Datensammlung; auch danach keine automatische Regelübernahme.',study.note].join('\n\n');
