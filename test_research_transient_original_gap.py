@@ -76,6 +76,7 @@ class OriginalRecovery(unittest.TestCase):
             state,bundle,market,NOW+90074,
             worker_observations=observations)
         self.assertEqual(state["quality"]["missingIntervals"],0)
+        self.assertEqual(state["lastSourceAt"], NOW+90000)
         self.assertTrue(all(not a["open"][0]["dataGap"]
                             for a in state["studies"].values()))
 
