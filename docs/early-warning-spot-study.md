@@ -49,6 +49,7 @@ Durchlauf. Dadurch bleibt die zusätzliche Datenbanklast begrenzt.
 
 Technik: `early_warning_spot_study.py`, integrierter isolierter
 Post-Commit-Tick in `paper_simulation.py`. Diagnose:
-`shadowStudies.earlyWarningSpotStudy` und
-`newStudiesBrief.earlyWarningSpot`. Echtgeldorders,
+`shadowStudies.earlyWarningSpotStudy` im privaten vollständigen
+Simulationsstatus. Die bewusst auf 2.300 Byte begrenzte Kurzdiagnose
+bleibt unvergrößert. Echtgeldorders,
 Hauptsignalregeln, Produktauswahl und Push bleiben unverändert.
