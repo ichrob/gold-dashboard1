@@ -135,7 +135,18 @@ assert.equal(read().values.quoteAt,'');
 assert.equal(read().values.confirmedByUser,false);
 assert.equal(read().leverage,'12,5');
 assert.equal(read().ko,'4200');
-assert.equal(read({observedAt:iso(now-90001)}).available,false);
+assert.equal(read({observedAt:iso(now-90001)}).available,true);
+assert.equal(read({observedAt:iso(now-90001)}).historicalOnly,true);
+assert.equal(read({observedAt:iso(now-90000)}).historicalOnly,false);
+// First product of a four-minute batch must still be available as a draft.
+const batchDraft=read({observedAt:iso(now-4*60000)});
+assert.equal(batchDraft.available,true);
+assert.equal(batchDraft.captureAgeSeconds,240);
+assert.equal(batchDraft.values.quoteAt,'');
+assert.equal(batchDraft.values.confirmedByUser,false);
+assert(batchDraft.note.includes('kein aktueller Kurs'));
+assert.equal(read({observedAt:iso(now-14*60*60*1000)}).available,true);
+assert.equal(read({observedAt:iso(now-14*60*60*1000-1)}).available,false);
 assert.equal(read({observedAt:iso(now+1)}).available,false);
 assert.equal(read({sourceTime:at}).available,false);
 assert.equal(read({verified:true}).available,false);
@@ -148,3 +159,43 @@ for(const change of [{Hinweis:'Kurse verzögert'},{Hinweis:'Handel eingeschränk
 assert.equal(m.importHandsetReport({...report,items:[...report.items,...report.items]},candidate.isin,now).available,false);
 assert.equal(m.importHandsetReport({...report,items:[{...report.items[0],state:'terminated'}]},candidate.isin,now).available,false);
 console.log('Handset audit bridge: timestamps, venue, decimal formats, stale/terminal/conflict guards passed');
+
+const scenarioInput={report,candidate,product:{...product,quote},preliminary:test(),
+ fx:{available:true,rate:0.9},budgetCHF:1000,riskCHF:100,feesCHF:8,now,direction:'SHORT'};
+const scenario=(extra={})=>m.compareHandsetModel({...scenarioInput,...extra});
+const sr=scenario();
+assert.equal(sr.available,true);
+assert.equal(sr.stop,18.5); // no unsupported same-time bid shift
+assert.equal(sr.quantity,54);
+assert(Math.abs(sr.totalCHF-994.58)<1e-8);
+assert(Math.abs(sr.lossCHF-95.48)<1e-8);
+assert.equal(sr.sourceAt,null);
+assert.equal(sr.copyAllowed,false);
+assert.equal(sr.brokerExecutionVerified,false);
+assert.equal(sr.orderSubmitted,false);
+assert.equal(sr.researchOnly,true);
+assert.equal(scenario({report:{...report,items:[{...report.items[0],handsetObservation:{...handset,observedAt:iso(now-4*60000)}}]}}).available,true);
+assert.equal(scenario({preliminary:{...test(),quoteAt:iso(now-90001)}}).available,false);
+assert.equal(scenario({product:{...product,quote:{...quote,currency:'CHF'}}}).available,false);
+assert.equal(scenario({product:{...product,quote:{...quote,metadata:{status:0}}}}).available,false);
+assert.equal(scenario({product:{...product,isinConfirmed:false}}).available,false);
+assert.equal(scenario({direction:'LONG'}).available,false);
+assert.equal(scenario({feesCHF:NaN}).available,false);
+assert.equal(scenario({fx:{available:false,rate:0.9}}).available,false);
+assert.equal(scenario({preliminary:{...test(),stop:20.3}}).available,false);
+assert.equal(scenario({budgetCHF:10}).available,false);
+assert.equal(scenario({report:{...report,items:[{...report.items[0],state:'terminated'}]}}).available,false);
+for(const budgetCHF of [30,100,500,1000])for(const riskCHF of [9,20,50,100]){
+ const r=scenario({budgetCHF,riskCHF});
+ if(r.available){assert(r.totalCHF<=budgetCHF);assert(r.lossCHF<=riskCHF);assert(Number.isSafeInteger(r.quantity));}
+}
+assert.equal(report.items[0].handsetObservation.sourceTime,null);
+assert.equal(report.items[0].handsetObservation.tradeApproved,false);
+console.log('Automatic handset model scenarios: independent stop, budget/risk limits, stale plan and no approval promotion passed');
+const chfReport={...report,items:[{...report.items[0],handsetObservation:{...handset,fields:{...handset.fields,'Währung':'CHF'}}}]};
+const chfScenario=scenario({report:chfReport,product:{...product,quote:{...quote,currency:'CHF'}},preliminary:{...test(),currency:'CHF'},fx:null});
+assert.equal(chfScenario.available,true);
+assert.equal(chfScenario.quantity,48);
+assert(Math.abs(chfScenario.totalCHF-982.4)<1e-8);
+const missingLeverage={...report,items:[{...report.items[0],handsetObservation:{...handset,code:'PARTIAL',fields:{...handset.fields,Hebel:undefined}}}]};
+assert.equal(scenario({report:missingLeverage}).quantity,sr.quantity);

@@ -71,7 +71,7 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
     window.BobProductAuditReport={status:'ok',lastCheckedAt:at,items:[{
       isin,state:'analysis-evidence-complete',handsetObservation:{
         code:'COMPLETE',researchOnly:true,verified:false,tradeApproved:false,
-        executionConfirmed:false,sourceTime:null,observedAt:at,
+        executionConfirmed:false,sourceTime:null,observedAt:new Date(Date.now()-4*60000).toISOString(),
         fields:{Geld:'20.10',Brief:'20.20','Währung':'EUR',Handelsplatz:'Test venue',
           Hebel:'12,5','KO-Schwelle':'4200',Anzeigezeit:'12/11/2026 14:02',
           Hinweis:'Keine Aussage zur Handelbarkeit'}}}]};
@@ -82,6 +82,12 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
   assert.equal(await panel.locator('#bobManualScreenVenue').inputValue(),'Test venue');
   assert.equal(await panel.locator('#bobManualScreenAt').inputValue(),'');
   assert((await panel.locator('[data-manual-handset-status]').textContent()).includes('12,5'));
+  assert((await panel.locator('[data-manual-handset-status]').textContent()).includes('kein aktueller Kurs'));
+  const modelText=await panel.locator('[data-handset-model-result]').innerText();
+  assert(modelText.includes('Modellrisiko'));
+  assert(modelText.includes('Modellszenario'));
+  assert(modelText.includes('kein aktueller ausführbarer Kurs'));
+  assert.equal(await panel.locator('[data-handset-model-result] button').count(),0);
   // A manual correction must survive the next automatic audit refresh.
   await panel.locator('[data-manual-broker-compare] summary').click();
   await panel.locator('#bobManualScreenBid').fill('20.15');

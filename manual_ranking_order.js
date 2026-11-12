@@ -2,6 +2,9 @@
 (function(root){
 'use strict';
 const MAX_QUOTE_AGE=90000,MAX_FX_AGE=90000;
+// Retain a read-only evidence draft across a complete multi-product run.
+// This is not the live quote validity window used by evaluate/reconcile.
+const MAX_HANDSET_EVIDENCE_AGE=14*60*60*1000;
 const positive=n=>typeof n==='number'&&Number.isFinite(n)&&n>0;
 const nonnegative=n=>typeof n==='number'&&Number.isFinite(n)&&n>=0;
 const stamp=s=>typeof s==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(s)?Date.parse(s):NaN;
@@ -238,8 +241,8 @@ function importHandsetReport(report,isin,now=Date.now()){
  if(['terminated','excluded-factor'].includes(item.state)||o?.terminalAtAudit===true||
     o?.researchOnly!==true||o.verified!==false||o.tradeApproved!==false||
     o.executionConfirmed!==false||o.sourceTime!==null||!f||
-    !['COMPLETE','PARTIAL'].includes(o.code)||!fresh(o.observedAt,now,90000))
-  return fail('Kein frischer, zulässiger Produkt-Lesebeleg (höchstens 90 Sekunden).');
+    !['COMPLETE','PARTIAL'].includes(o.code)||!fresh(o.observedAt,now,MAX_HANDSET_EVIDENCE_AGE))
+  return fail('Kein zulässiger gespeicherter Produkt-Lesebeleg (höchstens 14 Stunden).');
  if(!['EUR','CHF'].includes(f['Währung'])||f.Hinweis!=='Keine Aussage zur Handelbarkeit')
   return fail('Produktwährung fehlt oder die Handy-Anzeige meldet verzögerte/eingeschränkte Kurse.');
  const draft={isin,verified:false,tradeApproved:false,sourceTime:null,currency:f['Währung'],
@@ -247,10 +250,70 @@ function importHandsetReport(report,isin,now=Date.now()){
  const imported=importAndroidScreenDraft(draft);
  if(!imported.available)return imported;
  const number=s=>typeof s==='string'&&/^\d{1,9}(?:[,.]\d{1,4})?$/.test(s)&&positive(Number(s.replace(',','.')))?s:null;
- return {...imported,observedAt:o.observedAt,
+ const captureAgeSeconds=Math.floor((now-stamp(o.observedAt))/1000);
+ const historicalOnly=!fresh(o.observedAt,now,MAX_QUOTE_AGE);
+ return {...imported,observedAt:o.observedAt,captureAgeSeconds,historicalOnly,
   leverage:number(f.Hebel),ko:number(f['KO-Schwelle']),
   fingerprint:JSON.stringify([isin,o.observedAt,f]),
-  note:'Bob Handy automatisch übernommen · ungeprüfte Anzeige. Original-Kurszeit mit Zeitzone prüfen und bestätigen; Erfassungszeit ist keine Kurszeit.'};
+  note:(historicalOnly?'Gespeicherter Bob-Handy-Beleg · Erfassung älter als 90 Sekunden; kein aktueller Kurs. ':'Bob Handy automatisch übernommen · ungeprüfte Anzeige. ')+
+   'Original-Kurszeit mit Zeitzone prüfen und bestätigen; Erfassungszeit ist keine Kurszeit.'};
+}
+
+// Automatic what-if calculation: stored display prices + current independent
+// model stop/FX. Different clocks are explicit; no source time is invented and
+// the result never enters ranking, trade approval, copying or model training.
+function compareHandsetModel({report,candidate,product,preliminary,fx,
+ budgetCHF,riskCHF,feesCHF,now=Date.now(),direction}={}){
+ const empty={available:false,researchOnly:true,copyAllowed:false,
+  brokerExecutionVerified:false,orderSubmitted:false,sourceAt:null};
+ const fail=reason=>({...empty,reason});
+ const imported=importHandsetReport(report,candidate?.isin,now);
+ if(!imported.available)return fail(imported.reason);
+ if(!validSide(direction)||candidate?.direction!==direction||
+    product?.isin!==candidate?.isin||product?.isinConfirmed!==true||
+    product?.productDirection!==direction||
+    product.quote?.sourceDisabled===true||product.quote?.metadata?.tradingHalted===true||
+    product.quote?.metadata?.status!==undefined&&product.quote.metadata.status!==1)
+  return fail('Produktidentität, Richtung oder Produktstatus nicht gültig.');
+ if(!preliminary?.available||preliminary.isin!==candidate.isin||
+    !fresh(preliminary.quoteAt,now,MAX_QUOTE_AGE)||
+    !positive(preliminary.entry)||!positive(preliminary.stop))
+  return fail('Aktueller unabhängiger Modellplan fehlt.');
+ const currency=imported.values.currency;
+ if(currency!==preliminary.currency||currency!==(product.quote?.metadata?.currency||product.quote?.currency))
+  return fail('Produktwährungen stimmen nicht überein.');
+ const bid=Number(imported.values.bid),entry=Number(imported.values.ask),stop=preliminary.stop;
+ if(!positive(bid)||!positive(entry)||entry<bid||stop>=entry)
+  return fail('Anzeigekurse passen nicht zum aktuellen Modellstopp.');
+ const rate=currency==='CHF'?1:fx?.rate;
+ if(currency!=='CHF'&&(!fx?.available||!positive(rate)))return fail('Aktuelle EUR/CHF-Referenz fehlt.');
+ if(!positive(budgetCHF)||!positive(riskCHF)||!nonnegative(feesCHF)||
+    budgetCHF<=feesCHF||riskCHF<=feesCHF)
+  return fail('Kapital, Risikobudget und Gebühren in CHF eintragen.');
+ const costEach=entry*rate,lossEach=(entry-stop)*rate;
+ if(!positive(costEach)||!positive(lossEach))return fail('Kosten oder Modellrisiko nicht berechenbar.');
+ const quantity=Math.min(Math.floor((budgetCHF-feesCHF)/costEach),Math.floor((riskCHF-feesCHF)/lossEach));
+ if(!Number.isSafeInteger(quantity)||quantity<1)return fail('Kein ganzes Stück innerhalb von Kapital und Risikobudget.');
+ const totalCHF=quantity*costEach+feesCHF,lossCHF=quantity*lossEach+feesCHF;
+ if(!Number.isFinite(totalCHF)||!Number.isFinite(lossCHF)||totalCHF>budgetCHF||lossCHF>riskCHF)
+  return fail('Berechnung überschreitet Kapital oder Risikobudget.');
+ return {...empty,available:true,isin:candidate.isin,currency,entry,bid,stop,
+  quantity,totalCHF,lossCHF,riskUsagePct:100*lossCHF/riskCHF,
+  difference:entry-preliminary.entry,differencePct:100*(entry-preliminary.entry)/preliminary.entry,
+  observedAt:imported.observedAt,displayedTime:imported.displayedTime,
+  referenceAt:preliminary.quoteAt,historicalOnly:imported.historicalOnly,
+  leverage:imported.leverage,ko:imported.ko,
+  reason:'Modellszenario: gespeicherter Anzeigekurs mit aktuellem Modellstopp und aktueller FX-Referenz. '+
+   'Kurszeiten nicht als zeitgleich bestätigt; kein aktueller ausführbarer Kurs. Keine Anpassung des Stopps aus dieser Zeitdifferenz.'};
+}
+function handsetModelText(result){
+ if(!result.available)return 'Automatischer Handy-Modellvergleich: '+result.reason;
+ return 'Automatischer Handy-Modellvergleich · '+result.quantity+' Stück · '+fmt(result.totalCHF)+
+  ' CHF einschließlich Gebühren · Modellrisiko '+fmt(result.lossCHF)+' CHF ('+fmt(result.riskUsagePct,1)+
+  ' % des Risikobudgets) · Modellstopp '+fmt(result.stop,4)+' '+result.currency+
+  ' · Preisabweichung '+fmt(result.differencePct)+' %. Anzeigezeit: '+(result.displayedTime||'fehlt')+
+  ' (Zeitzone unbestätigt); Erfassung '+seenAt(result.observedAt)+' Zürich; Modellquelle '+seenAt(result.referenceAt)+
+  ' Zürich. '+result.reason;
 }
 
 const emptyBroker=isin=>({isin:isin||'',currency:'',bid:'',ask:'',quoteAt:'',venue:'',
@@ -472,6 +535,8 @@ function renderFrom(snapshot){
    line('Stückzahl',plan.available?String(plan.quantity):'—',orderCopy?String(plan.quantity):null)+
    line('Geschätzter Gesamtbetrag',plan.available?fmt(plan.totalCHF)+' CHF':'—',orderCopy?String(Number(plan.totalCHF.toFixed(2))):null)+
    calculationNote+
+   '<div class="small" data-handset-model-result>'+escape(handsetModelText(compareHandsetModel({report:root.BobProductAuditReport,
+     candidate,product,preliminary:plan,fx,budgetCHF,riskCHF,feesCHF,now,direction:side})))+'</div>'+
    (plan.available?'<div class="small">Modellverlust bei Stopp einschließlich eingegebener Gebühren: ≈ '+fmt(plan.lossCHF)+' CHF. Tatsächlicher Verlust kann durch Gaps, KO oder fehlende Ausführung größer sein.</div>':'')+
    '<div class="small" style="margin-top:7px">'+escape(plan.source?'Quelle: '+plan.source+' · Original-Briefkurszeit '+seenAt(plan.quoteAt)+' Zürich. '+plan.fxNote:'Keine aktuelle Original-Kursquelle.')+'</div>'+
    '<div class="small" style="margin-top:5px;color:'+(plan.available?'#166534':'#9a3412')+'">'+escape(plan.reason)+'</div></article>';
@@ -487,7 +552,7 @@ function render(flow,products,bundle){
  session.last={flow,products,bundle};
  renderFrom(session.last);
 }
-const api={evaluate,reconcileBrokerDisplay,importAndroidScreenDraft,importHandsetReport,refreshHandset,readChfFx,selectQuoteByPriority,render};
+const api={compareHandsetModel,evaluate,reconcileBrokerDisplay,importAndroidScreenDraft,importHandsetReport,refreshHandset,readChfFx,selectQuoteByPriority,render};
 root.BobManualTop3=api;
 if(typeof module!=='undefined')module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
