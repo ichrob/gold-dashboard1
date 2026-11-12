@@ -10,7 +10,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from aiven_readonly_probe import _valid_aiven_uri
 
@@ -26,7 +26,17 @@ def configured(env):
     if not uri:
         return False
     try:
-        return (_valid_aiven_uri(uri) and
+        parts = urlsplit(uri)
+        pairs = parse_qsl(parts.query, keep_blank_values=True)
+        keys = [key for key, _ in pairs]
+        # The existing restore URI carries its CA path and connect timeout.
+        # Preserve those for libpq; reject every endpoint/user/options override.
+        if len(keys) != len(set(keys)) or any(
+                key not in ('sslmode', 'sslrootcert', 'connect_timeout') for key in keys):
+            return False
+        identity_uri = parts._replace(query=urlencode(
+            [(key, value) for key, value in pairs if key == 'sslmode'])).geturl()
+        return (_valid_aiven_uri(identity_uri) and
                 urlsplit(uri).hostname != urlsplit(env.get('DATABASE_URL', '')).hostname)
     except ValueError:
         return False
