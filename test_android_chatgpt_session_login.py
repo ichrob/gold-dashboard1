@@ -8,11 +8,18 @@ class SessionLoginTests(unittest.TestCase):
         button = s.split('button("ChatGPT-Handy-Sitzung starten',1)[1].split('button(',1)[0]
         self.assertIn('startChatGptSession()', button)
         method = s.split('private fun startChatGptSession()',1)[1].split('/** Shared prerequisites',1)[0]
+        self.assertIn('startAutomaticTest()', method)
+        self.assertIn('if (readerBusy)', method)
+        self.assertIn('ProductReadRequest.active', method)
+        self.assertIn('LoginToReadHandoff.pending', method)
+        self.assertLess(method.index('if (readerBusy)'), method.index('PhoneRemote.stop'))
+        self.assertNotIn('sessionOnly = true', method)
+        automatic = s.split('private fun startAutomaticTest()',1)[1].split('private fun primaryAction()',1)[0]
         for guard in ('keypadTestVerified(this)', 'LocalPinVault.available(this)',
-                      'PhoneDiagnostics.paired(this)', 'sessionOnly = true',
-                      'PinReadinessProbe.startLocalLogin(secret!!)', 'finally { secret?.fill(0) }'):
-            self.assertIn(guard, method)
-        self.assertNotIn('GoldSearchRun.start', method)
+                      'PhoneDiagnostics.paired(this)', 'LoginToReadHandoff.arm(SystemClock.elapsedRealtime())',
+                      'PinReadinessProbe.startLocalLogin(localPin!!)', 'localPin?.fill(0)',
+                      'GoldSearchRun.start()', 'MorningReadRun.resumeRecent(this)'):
+            self.assertIn(guard, automatic)
     def test_handoff_preserves_session_only_across_retry_and_consume(self):
         s = (ROOT/'ProductReadService.kt').read_text()
         self.assertIn('beginReadAfterVerifiedPin(attempt+1,searchQuery,ticket,sessionOnly)',s)

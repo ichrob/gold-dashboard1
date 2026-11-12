@@ -152,8 +152,8 @@ class ProductReadActivity : Activity() {
         button("Automatische Diagnose ausschalten") { PhoneDiagnostics.disable(this);refresh() }
         button("Gold-Produkte suchen und auslesen") { startGoldRead() }
         button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {
-            AlertDialog.Builder(this).setTitle("Produktsuche mit ChatGPT bedienen")
-                .setMessage("Bob verwendet eine eingerichtete PIN bei Bedarf einmal lokal und startet die Sitzung erst nach bestätigter Marktseite. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein. Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
+            AlertDialog.Builder(this).setTitle("Vorhandenen Produkteinleser starten")
+                .setMessage("Bob startet den vorhandenen vollständigen Gold-Produkteinleser: DEGIRO öffnen, bei Bedarf lokal anmelden, suchen, Produktseiten lesen und zurückkehren. Ergebnisse und Fehler werden über die verbundene Diagnose an Bob gemeldet. Einzelne ChatGPT-Klickaufträge sind dafür nicht erforderlich. Bob verwendet eine eingerichtete PIN einmal lokal und beginnt nach bestätigter Marktseite. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein. Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
                 .setNegativeButton("Abbrechen",null).setPositiveButton("Sitzung starten") { _,_ ->
                     startChatGptSession()
                 }.show()
@@ -285,37 +285,25 @@ class ProductReadActivity : Activity() {
     }
     override fun onPause() { statusHandler.removeCallbacks(statusTick); super.onPause() }
     /** Explicit local button: reuse the verified login, then wait for remote read commands. */
+    /** Use the established complete reader, including its local login and
+     * automatic search/list/detail/return flow. No remote step loop. */
     private fun startChatGptSession() {
-        var secret: ByteArray? = null
-        var started = false
-        try {
-            check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
-            check(!PinReadinessProbe.running && !PhoneRemote.active() && !MorningReadRun.running && !GoldSearchRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime()) && !LoginToReadHandoff.pending(SystemClock.elapsedRealtime())) { "Laufende Sitzung zuerst stoppen." }
-            check(PhoneDiagnostics.paired(this)) { "Automatische Diagnose zuerst verbinden." }
-            val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
-            if (LocalPinVault.exists(this)) {
-                check(PhoneDiagnostics.keypadTestVerified(this) && LocalPinVault.available(this)) { "Lokale PIN-Einrichtung prüfen und Handy entsperren." }
-                secret = LocalPinVault.load(this)
-                LoginToReadHandoff.arm(SystemClock.elapsedRealtime(), sessionOnly = true)
-                started = true
-                PinReadinessProbe.startLocalLogin(secret!!)
-                result.text = "DEGIRO wird lokal angemeldet. Nach bestätigter Marktseite steht die ChatGPT-Lesesitzung bereit."
-            } else {
-                started = true
-                PhoneRemote.start(this)
-                check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
-                result.text = "ChatGPT-Lesesitzung gestartet. DEGIRO muss bereits angemeldet sein; keine PIN lokal gespeichert."
-            }
-            startActivity(launch)
-        } catch (e: Exception) {
-            if (started) {
-                LoginToReadHandoff.clear()
-                if (PinReadinessProbe.running) PinReadinessProbe.stop("ChatGPT-Sitzungsstart abgebrochen.")
-                PhoneRemote.stop(this,"START_FAILED")
-            }
-            result.text = if (secret == null && e is IllegalStateException) e.message
-                else "ChatGPT-Sitzung konnte nicht gestartet werden. Lokale PIN-Einrichtung prüfen."
-        } finally { secret?.fill(0) }
+        val readerBusy = PinReadinessProbe.running || MorningReadRun.running ||
+            GoldSearchRun.running || ProductReadRequest.active(SystemClock.elapsedRealtime()) ||
+            LoginToReadHandoff.pending(SystemClock.elapsedRealtime())
+        if (readerBusy) {
+            runCatching {
+                val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
+                    ?: error("DEGIRO-App fehlt.")
+                startActivity(launch)
+                result.text = "Der bestehende Leselauf wird fortgesetzt. DEGIRO geöffnet lassen."
+            }.onFailure { result.text = "DEGIRO konnte nicht geöffnet werden. Der bestehende Leselauf bleibt erhalten." }
+            return
+        }
+        // End only an idle step-by-step session. The complete reader owns
+        // its next session and existing automatic diagnostic transmission.
+        if (PhoneRemote.active()) PhoneRemote.stop(this, "STOPPED")
+        startAutomaticTest()
     }
     /** Shared prerequisites for lookup and product opening: local login if enrolled, then the requested target. */
     private fun startPreparedGoal(query: String) {
