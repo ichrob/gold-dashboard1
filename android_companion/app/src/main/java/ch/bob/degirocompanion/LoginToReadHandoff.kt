@@ -10,11 +10,14 @@ internal object LoginToReadHandoff {
     private var armedAt = -1L
     var searchQuery: String? = null; private set
     var sessionOnly = false; private set
+    var freshGold = false; private set
     var generation = 0; private set
-    fun arm(now: Long, query: String? = null, sessionOnly: Boolean = false) {
+    fun arm(now: Long, query: String? = null, sessionOnly: Boolean = false, freshGold: Boolean = false) {
+        require(!freshGold || (!sessionOnly && query == null))
         require(!sessionOnly || query == null)
         require(query == null || DegiroGoal.acceptsQuery(query))
         check(armedAt < 0L) { "Anmeldung läuft bereits." }
+        this.freshGold = freshGold
         generation++; searchQuery = query; this.sessionOnly = sessionOnly; armedAt = now
     }
     fun pending(now: Long): Boolean = armedAt >= 0L && now >= armedAt && now - armedAt < MAX_MILLIS
@@ -24,5 +27,6 @@ internal object LoginToReadHandoff {
         clear()
         return allowed
     }
-    fun clear() { generation++; searchQuery = null; sessionOnly = false; armedAt = -1L }
+    fun clear() { this.freshGold = freshGold
+        generation++; searchQuery = null; sessionOnly = false; freshGold = false; armedAt = -1L }
 }

@@ -374,9 +374,11 @@ class ProductReadActivity : Activity() {
     private fun startGoldRead() {
             var startedHere=false
             var startedPhoneHere=false
+            var localPin: ByteArray? = null
+            var loginStartedHere=false
             runCatching {
                 check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
-                check(!MorningReadRun.running && !GoldSearchRun.running) { "Lauf zuerst beenden." }
+                check(!MorningReadRun.running && !GoldSearchRun.running && !PinReadinessProbe.running && !LoginToReadHandoff.pending(SystemClock.elapsedRealtime()) && !ProductReadRequest.active(SystemClock.elapsedRealtime())) { "Lauf zuerst beenden." }
                 // This button starts a locally approved complete list read.
                 // The guarded search-tap fallback and image upload require an
                 // active PhoneRemote session. Never silently start a run that
@@ -386,6 +388,20 @@ class ProductReadActivity : Activity() {
                     "Zuerst die automatische Diagnose verbinden und in Bob freigeben."
                 }
                 val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt")
+                if(LocalPinVault.exists(this)) {
+                    check(PhoneDiagnostics.keypadTestVerified(this)) { "Lokale PIN ist vorhanden, aber der sichere Tastaturtest fehlt. Unter Einrichtung prüfen." }
+                    check(LocalPinVault.available(this)) { "Handy entsperren, damit der lokale PIN-Schlüssel genutzt werden kann." }
+                    localPin=LocalPinVault.load(this)
+                    // An idle remote session must not suppress the verified-login handoff.
+                    if(PhoneRemote.active()) PhoneRemote.stop(this,"STOPPED")
+                    ProductReadRequest.cancel();ProductReadSession.clear()
+                    LoginToReadHandoff.arm(SystemClock.elapsedRealtime(),freshGold=true)
+                    loginStartedHere=true
+                    PinReadinessProbe.startLocalLogin(localPin!!)
+                    result.text="DEGIRO wird geöffnet. Bob verwendet die gespeicherte PIN einmal lokal. Erst nach bestätigter Marktseite beginnt ein neuer vollständiger Gold-Leselauf."
+                    startActivity(launch)
+                    return@runCatching
+                }
                 ProductReadRequest.cancel();ProductReadSession.clear()
                 if(session==GoldReadStartPolicy.Decision.START_SESSION) {
                     PhoneRemote.start(this)
@@ -397,10 +413,14 @@ class ProductReadActivity : Activity() {
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
                 startActivity(launch)
             }.onFailure {
+                if(loginStartedHere) {
+                    LoginToReadHandoff.clear()
+                    if(PinReadinessProbe.localLoginActive) PinReadinessProbe.stop("Einmalige Anmeldung konnte nicht gestartet werden.")
+                }
                 if(startedHere) { GoldSearchRun.stop("STOPPED",java.time.Instant.now().toString());ProductReadRequest.cancel() }
                 if(startedPhoneHere) PhoneRemote.stop(this,"START_FAILED")
                 result.text=it.message ?: "Goldsuche konnte nicht gestartet werden."
-            }
+            }.also { localPin?.fill(0) }
     }
     /** One explicit start: local, once-only PIN if enrolled; Gold only after
      * the actual DEGIRO Markets screen has been recognized. No PIN transport. */

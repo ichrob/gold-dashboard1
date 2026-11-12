@@ -47,6 +47,18 @@ class OneTapCompleteFlowTest(unittest.TestCase):
         self.assertIn('MorningReadRun.beginDiscovered(this,plan.map { it.isin },batch,', service)
         self.assertIn('plan.associate { it.isin to it.missingFields }', service)
 
+    def test_gold_button_uses_local_login_before_starting_full_reader(self):
+        method = source("ProductReadActivity.kt").split('private fun startGoldRead()', 1)[1].split('/** One explicit start:', 1)[0]
+        self.assertLess(method.index('PinReadinessProbe.startLocalLogin'), method.index('GoldSearchRun.start()'))
+        self.assertIn('freshGold=true', method)
+        self.assertIn('return@runCatching', method)
+        self.assertIn('localPin?.fill(0)', method)
+        self.assertIn('PhoneDiagnostics.keypadTestVerified(this)', method)
+        self.assertIn('!PinReadinessProbe.running', method)
+        service = source("ProductReadService.kt")
+        self.assertIn('freshGold || !MorningReadRun.resumeRecent(this)', service)
+        self.assertIn('attempt+1,searchQuery,ticket,sessionOnly,freshGold', service)
+
     def test_list_receipt_is_not_detail_success(self):
         delivery = source("MorningListDelivery.kt")
         self.assertIn('receipt.optInt("count")==10', delivery)
