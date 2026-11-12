@@ -2,6 +2,9 @@
 (function(root){
 'use strict';
 const MAX_QUOTE_AGE=90000,MAX_FX_AGE=90000;
+// Retain a read-only evidence draft across a complete multi-product run.
+// This is not the live quote validity window used by evaluate/reconcile.
+const MAX_HANDSET_EVIDENCE_AGE=14*60*60*1000;
 const positive=n=>typeof n==='number'&&Number.isFinite(n)&&n>0;
 const nonnegative=n=>typeof n==='number'&&Number.isFinite(n)&&n>=0;
 const stamp=s=>typeof s==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(s)?Date.parse(s):NaN;
@@ -238,8 +241,8 @@ function importHandsetReport(report,isin,now=Date.now()){
  if(['terminated','excluded-factor'].includes(item.state)||o?.terminalAtAudit===true||
     o?.researchOnly!==true||o.verified!==false||o.tradeApproved!==false||
     o.executionConfirmed!==false||o.sourceTime!==null||!f||
-    !['COMPLETE','PARTIAL'].includes(o.code)||!fresh(o.observedAt,now,90000))
-  return fail('Kein frischer, zulässiger Produkt-Lesebeleg (höchstens 90 Sekunden).');
+    !['COMPLETE','PARTIAL'].includes(o.code)||!fresh(o.observedAt,now,MAX_HANDSET_EVIDENCE_AGE))
+  return fail('Kein zulässiger gespeicherter Produkt-Lesebeleg (höchstens 14 Stunden).');
  if(!['EUR','CHF'].includes(f['Währung'])||f.Hinweis!=='Keine Aussage zur Handelbarkeit')
   return fail('Produktwährung fehlt oder die Handy-Anzeige meldet verzögerte/eingeschränkte Kurse.');
  const draft={isin,verified:false,tradeApproved:false,sourceTime:null,currency:f['Währung'],
@@ -247,10 +250,13 @@ function importHandsetReport(report,isin,now=Date.now()){
  const imported=importAndroidScreenDraft(draft);
  if(!imported.available)return imported;
  const number=s=>typeof s==='string'&&/^\d{1,9}(?:[,.]\d{1,4})?$/.test(s)&&positive(Number(s.replace(',','.')))?s:null;
- return {...imported,observedAt:o.observedAt,
+ const captureAgeSeconds=Math.floor((now-stamp(o.observedAt))/1000);
+ const historicalOnly=!fresh(o.observedAt,now,MAX_QUOTE_AGE);
+ return {...imported,observedAt:o.observedAt,captureAgeSeconds,historicalOnly,
   leverage:number(f.Hebel),ko:number(f['KO-Schwelle']),
   fingerprint:JSON.stringify([isin,o.observedAt,f]),
-  note:'Bob Handy automatisch übernommen · ungeprüfte Anzeige. Original-Kurszeit mit Zeitzone prüfen und bestätigen; Erfassungszeit ist keine Kurszeit.'};
+  note:(historicalOnly?'Gespeicherter Bob-Handy-Beleg · Erfassung älter als 90 Sekunden; kein aktueller Kurs. ':'Bob Handy automatisch übernommen · ungeprüfte Anzeige. ')+
+   'Original-Kurszeit mit Zeitzone prüfen und bestätigen; Erfassungszeit ist keine Kurszeit.'};
 }
 
 const emptyBroker=isin=>({isin:isin||'',currency:'',bid:'',ask:'',quoteAt:'',venue:'',
