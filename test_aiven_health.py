@@ -107,4 +107,8 @@ class TargetLockIntegration(unittest.TestCase):
             first.rollback()
             self.assertEqual(second.execute(health.TARGET_LOCK_SQL).fetchone(), (False,))
             first.close()
+            # Backend teardown is asynchronous after the client socket closes.
+            # Wait for actual release, with a hard bound, then verify ownership.
+            second.execute("SET LOCAL statement_timeout = '2s'")
+            second.execute(health.TARGET_LOCK_SQL.replace('pg_try_advisory_lock', 'pg_advisory_lock'))
             self.assertEqual(second.execute(health.TARGET_LOCK_SQL).fetchone(), (True,))
