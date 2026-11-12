@@ -3457,6 +3457,12 @@ async function fetchLiveBundle(force=false){
  try{return await liveBundlePending;}finally{liveBundlePending=null;}
 }
 async function fetchIntradayPoints(){const j=await fetchLiveBundle();return j.history.points||[];}
+// Page replacement (including a service-worker controller change) can reject an
+// already completed same-origin fetch as TypeError("Failed to fetch"). Keep that
+// lifecycle signal separate from genuine, visible MTF transport failures.
+let mtfPageExiting=false;
+window.addEventListener("pagehide",()=>{mtfPageExiting=true;});
+window.addEventListener("pageshow",()=>{mtfPageExiting=false;});
 async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
  try{
   const bundle=suppliedBundle || liveBundleCache || await fetchLiveBundle(force);
@@ -3541,6 +3547,8 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
    const message=e?.message||String(e);
    if(verifyController.signal.aborted||e?.name==='AbortError'||/\babort(?:ed|ing)?\b/i.test(message))
     reportBobDiag('mtf:verification-skipped',{reason:'Zeitbegrenzte Serverprüfung beendet; aktuelle Bundle-Analyse bleibt gültig'});
+   else if(mtfPageExiting&&message==='Failed to fetch')
+    reportBobDiag('mtf:verification-skipped',{reason:'Serverprüfung durch Seitenwechsel beendet; aktuelle Bundle-Analyse bleibt gültig'});
    else reportBobDiag("mtf:server-error",{error:message,reason:"/api/mtf verification exception"});
   }finally{clearTimeout(verifyTimer);}
   if(generation!==null&&generation!==loadGeneration)return MTF;
