@@ -51,9 +51,11 @@ jobs:
             sleep 10
           done
           test "$ok" = "1" || { echo "::error::Bob manual comparison module is not served as verified JavaScript"; exit 1; }
-          code="$(curl --silent --show-error --max-time 25 -o /tmp/bob-shell.html -w '%{http_code}' "$shell" || true)"
-          test "$code" = "200"
-          grep -Fq '/manual_ranking_order.js?v=20261112-screen-reconcile-v4' /tmp/bob-shell.html
-          echo "Bob live manual comparison route and shell inclusion verified; no broker activity"
+          # Bob's full HTML shell is deliberately protected. Without Bob login,
+          # a 303 redirect to /login is correct. Never bypass the guard in smoke.
+          code="$(curl --silent --show-error --max-time 25 -o /tmp/bob-shell-redirect -D /tmp/bob-shell.headers -w '%{http_code}' "$shell" || true)"
+          test "$code" = "303" || { echo "::error::Bob shell authentication redirect changed"; exit 1; }
+          grep -Eiq '^Location: /login' /tmp/bob-shell.headers
+          echo "Bob manual comparison JavaScript HTTP 200 and protected shell HTTP 303 verified; no broker activity"
 
       # Render/GitHub auto-deploy verification commit.
