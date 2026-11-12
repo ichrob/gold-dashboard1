@@ -65,3 +65,32 @@ Validierung: 17 Python-Tests in `test_degiro_screen_replay` und
 `test_degiro_sandbox`, `test_degiro_exact_verified_images.js` und
 `test_degiro_screen_quote_panel.js` bestanden. Der vollständige Originalablauf
 bleibt bis zu einer passenden privaten Aufnahmefolge offen.
+
+
+## Samsung-Abnahme der Vergleichsanbindung
+
+Voraussetzung: veröffentlichter Build mit `importHandsetReport`, unveränderte
+Bob-Handy-App, aktive vom Nutzer geöffnete Lesesitzung und DEGIRO-Anmeldung.
+Keine Ordermaske öffnen. Bestehenden Gold-Produktleselauf verwenden; keine
+neue Einrichtung oder Wiederholung bereits funktionierender Suchschritte.
+
+1. Einen frischen Produkt-Lesebeleg einschließlich sichtbarer Kurszeit,
+   Währung, Handelsplatz, Hebel und KO übertragen. Originale bleiben privat.
+2. Im authentifizierten Audit dieselbe ISIN, ursprüngliche Erfassungszeit,
+   unveränderte Feldwerte und Übertragungsbestätigung kontrollieren.
+3. Bei vorhandenem Rankingkandidaten die Vergleichsansicht öffnen. Geld/Brief,
+   Währung und Handelsplatz sollen ohne Abschreiben vorbefüllt sein; Hebel und
+   KO stehen als abgelesene Angaben daneben. Bei ABWARTEN keinen Kandidaten
+   erzwingen. Neue Beobachtungen dürfen manuelle Korrekturen nicht überschreiben.
+4. Die originale Kurszeit mit Datum und Zeitzone selbst prüfen. Die bisherige
+   Handy-Anzeige hat nur Minutenpräzision ohne Zeitzone; Aufnahme-/Uploadzeit
+   darf dieses fehlende Merkmal nicht ersetzen. Einsatz, Risikobudget und
+   Gebühren bewusst eingeben, dann vorhandene Neuberechnung bestätigen.
+5. Stückzahl, Modellstopp, CHF-Betrag und Modellverlust gegen dieselbe ISIN,
+   frische Markt-/FX-Daten und angezeigte Kurse vergleichen. Nach 90 Sekunden
+   oder Produktwechsel muss die alte Beobachtung unbrauchbar werden.
+
+Die automatische Zuordnung ist implementiert; automatische verifizierte
+Kurszeitübernahme und reale Samsung-Ende-zu-Ende-Abnahme bleiben offen.
+Kein Ausführungsnachweis, keine Order, kein Kauf/Verkauf und keine Stopänderung
+an einer realen Position entstehen durch diesen Test.

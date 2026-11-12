@@ -81,7 +81,7 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
   assert.equal(await panel.locator('#bobManualScreenCcy').inputValue(),'EUR');
   assert.equal(await panel.locator('#bobManualScreenVenue').inputValue(),'Test venue');
   assert.equal(await panel.locator('#bobManualScreenAt').inputValue(),'');
-  assert((await panel.locator('[data-manual-handset-status]').innerText()).includes('12,5'));
+  assert((await panel.locator('[data-manual-handset-status]').textContent()).includes('12,5'));
   // A manual correction must survive the next automatic audit refresh.
   await panel.locator('[data-manual-broker-compare] summary').click();
   await panel.locator('#bobManualScreenBid').fill('20.15');
