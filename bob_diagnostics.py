@@ -955,7 +955,8 @@ def entry_block_evidence(conn, portfolios, limit=5):
                         and record.get('checks') >= 0 else None),
                 }
                 for source, target in (('at', 'at'), ('lastAt', 'lastAt'),
-                                       ('goldAt', 'sourceAt')):
+                                       ('goldAt', 'sourceAt'),
+                                       ('signalBarAt', 'signalBarAt')):
                     value = record.get(source)
                     if type(value) in (int, float) and math.isfinite(value) and value >= 0:
                         item[target] = value
