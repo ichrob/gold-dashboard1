@@ -16,6 +16,19 @@ def payload():
 
 
 class GoldFallbackTests(unittest.TestCase):
+    def test_metal_metadata_requires_explicit_utc_request_context(self):
+        # Real response shape, synthetic prices: no provider data redistributed.
+        d = payload()
+        d['meta'] = dict(symbol='XAU/USD', interval='1h', type='Precious Metal',
+                         currency_base='Gold Spot', currency_quote='US Dollar')
+        with self.assertRaises(ValueError): g.normalize(d, T, NOW)
+        self.assertEqual(g.normalize(d, T, NOW, requested_timezone='UTC')['openTime'], T)
+        for key, value in [('exchange_timezone', 'Europe/Zurich'),
+                           ('exchange_timezone', None), ('currency_quote', 'EUR')]:
+            bad = copy.deepcopy(d); bad['meta'][key] = value
+            with self.assertRaises(ValueError):
+                g.normalize(bad, T, NOW, requested_timezone='UTC')
+
     def test_exact_original_clock_and_missing_volume(self):
         row=g.normalize(payload(),T,NOW)
         self.assertEqual(row['openTime'],T)

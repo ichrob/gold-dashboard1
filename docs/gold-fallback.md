@@ -14,8 +14,15 @@ with biquote/XAUS. No new dependencies, services, subscriptions or orders.
 - Twelve Data lists XAU/USD as a commodity trial symbol. Basic is limited to
   8 API credits/minute and 800/day; commodities are generally listed under Grow.
   Trial access is not proof of permanent free production/display entitlement.
-- A public demo probe did not supply usable bars. No account-specific free
-  entitlement or successful authenticated XAU/USD historical request is proven.
+- An authenticated Basic 8 account was verified on 2026-11-12 (800 daily / 8
+  minutely credits). Its official API playground returned status=ok for XAU/USD
+  interval=1h, timezone=utc, including the closed 2026-11-11 22:00 UTC candle
+  when requesting 22:00 through 23:00 UTC. The current-hour probe also succeeded.
+  This proves account-specific access at test time, not a backend deployment or
+  unrestricted display/storage rights. No credentials or raw prices are published.
+- The actual precious-metal metadata omits exchange_timezone. The fetch adapter
+  now supplies its explicit UTC request context; imports without that context
+  still fail closed. Conflicting metadata is never overridden.
 - Alpha Vantage GOLD_SILVER_HISTORY supports daily/weekly/monthly, not hourly.
 
 Sources:
@@ -23,6 +30,8 @@ https://support.twelvedata.com/en/articles/5335783-trial
 https://twelvedata.com/exchanges/commodity?group=core
 https://support.twelvedata.com/en/articles/5214728-getting-historical-data
 https://www.alphavantage.co/documentation/#gold-silver-history
+https://twelvedata.com/markets/300755/commodity/xau-usd
+https://twelvedata.com/terms
 
 ## Controlled acceptance
 
@@ -38,7 +47,8 @@ Run one closed UTC-hour probe, e.g.:
 
 The request spans one hour; the parser selects only the exact requested open
 clock. A missing candle remains missing. It validates symbol, interval, UTC
-metadata, duplicates, positive finite OHLC, bounds and closed time. No redirects,
+metadata (or explicit UTC request context for the verified metal shape), duplicates,
+positive finite OHLC, bounds and closed time. No redirects,
 no retries, ten-second timeout, bounded response; exception URLs are never logged.
 Output is a research observation, never a broker execution quote.
 
@@ -55,7 +65,8 @@ automation; this manual probe is deliberately not a background polling service.
 ## Remaining acceptance gates
 
 1. Confirm source-specific sessions/holidays and exact candle timestamp convention.
-2. Confirm free account entitlement and obtain one authenticated original response.
+2. Authenticated Basic access is proven in the provider playground. Confirm intended
+   usage/display/storage rights and configure the backend secret before enabling.
 3. Check overlap against a complete same-provider series; never splice foreign bars
    into the primary source's hole or retrospectively claim a simulated fill.
 4. Validate durable storage, bounded request budgets and backoff before scheduling.
