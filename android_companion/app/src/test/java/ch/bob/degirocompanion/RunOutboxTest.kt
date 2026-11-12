@@ -4,6 +4,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RunOutboxTest {
+    @Test fun currentReceiptSurvivesDeferredArchivesAndLateArchiveAck() {
+        val initial=RunOutbox.checkpoint(mapOf(RunOutbox.CURRENT to "latest",
+            "saved_run_1" to "old", "saved_run_2" to "older"),"latest")
+        assertTrue(RunOutbox.currentPending(initial))
+        assertFalse(RunOutbox.currentConfirmed(initial))
+        assertNull(RunOutbox.acknowledge(initial,RunOutbox.CURRENT,"wrong",false))
+        assertNull(RunOutbox.acknowledge(initial,RunOutbox.CURRENT,"latest",true))
+        val confirmed=RunOutbox.acknowledge(initial,RunOutbox.CURRENT,"latest",false)!!
+        assertTrue(RunOutbox.currentConfirmed(confirmed))
+        assertFalse(RunOutbox.currentPending(confirmed))
+        assertEquals(2,RunOutbox.archivedPending(confirmed))
+        assertNotNull(RunOutbox.pendingKey(confirmed)) // legacy whole-outbox signal remains true
+        val restarted=confirmed.toMap()
+        val late=RunOutbox.acknowledge(restarted,"saved_run_1","old",false)!!
+        assertTrue(RunOutbox.currentConfirmed(late))
+        assertEquals(1,RunOutbox.archivedPending(late))
+        val newer=RunOutbox.start(late,"new revision","saved_run_3")
+        assertFalse(RunOutbox.currentConfirmed(newer))
+        assertTrue(RunOutbox.currentPending(newer))
+        assertFalse(RunOutbox.currentConfirmed(emptyMap()))
+        assertFalse(RunOutbox.currentConfirmed(mapOf("saved_run_1" to "old")))
+    }
+
     @Test fun consecutiveStartsPreserveEveryUnacknowledgedRun() {
         val first=mapOf("outbox" to "first")
         val second=RunOutbox.start(first,"second","saved_run_1")

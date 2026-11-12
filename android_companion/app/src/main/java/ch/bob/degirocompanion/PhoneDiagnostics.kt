@@ -185,6 +185,7 @@ internal object PhoneDiagnostics {
             .also { report ->
                 // Strictly bounded aggregate only, sent under already opted-in
                 // technical diagnostics. Never attach screen text or product IDs.
+                report.put("runDelivery",MorningReadRun.deliveryDiagnostic(c))
                 WorkflowHealth.diagnostic(c)?.let { report.put("workflow", it) }
                 ProductDetailDelivery.diagnostic(c)?.let { report.put("detailTransfer",it) }
                 DegiroRamTelemetry.forDiagnostics(c)?.let { report.put("degiroRam", it) }
