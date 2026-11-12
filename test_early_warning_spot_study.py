@@ -90,6 +90,27 @@ class EarlySpotTests(unittest.TestCase):
         self.assertFalse(study.warning_eligible(m,{**q,"verified":False},SOURCE))
         self.assertFalse(study.warning_eligible(m,{**q,"sourceAt":SOURCE-61000},SOURCE))
 
+    def test_original_five_minute_candle_requires_source_and_closed_state(self):
+        from test_paper_shadow_studies import observed
+        from test_paper_ko_guard import NOW
+        bundle, market = observed(at=NOW, direction="NEUTRAL")
+        bar = (NOW // 300000 - 1) * 300000
+        bundle["history"]["bars_by_tf"]["5m"] = [
+            dict(instrument="XAU/USD",openTime=bar,isOpen=False)]
+        old = copy.deepcopy((bundle,market))
+        accepted = study.original(bundle,market,NOW)
+        self.assertTrue(accepted["verified"])
+        self.assertEqual((bundle,market),old)
+        for change in ("open","estimated","wrong-instrument","source-mismatch"):
+            bad = copy.deepcopy(bundle)
+            m = copy.deepcopy(market)
+            candle = bad["history"]["bars_by_tf"]["5m"][0]
+            if change == "open": candle["isOpen"] = True
+            if change == "estimated": candle["estimated"] = True
+            if change == "wrong-instrument": candle["instrument"] = "XAU/USD Future"
+            if change == "source-mismatch": bad["spots"]["xaus"] += 10
+            self.assertFalse(study.original(bad,m,NOW)["verified"],change)
+
     def test_diagnostic_preview_exposes_no_fake_product_profit(self):
         m,q = sample();s=study.new_case(m,q)
         class FakeConn:
