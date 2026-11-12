@@ -80,49 +80,46 @@ def confirm_exact_reader(rows, readback):
     return True
 
 
-def run(source_dsn, restore_dsn, enabled=None):
-    """At most 96 local inserts per temporary table; no permanent SQL writes."""
+def measure_synthetic(conn, rows):
+    """Measure real PostgreSQL storage only for controlled session TEMP tables.
+
+    Caller is responsible for a trusted isolated connection. This helper
+    neither opens connections nor reads or changes any permanent relations.
+    """
     import psycopg
-    rows = fixtures()
     payloads = validate_fixtures(rows)
-    enabled = os.environ.get("BOB_STORAGE_COMPRESSION_PROBE_ONCE") if enabled is None else enabled
     results = {}
-    with psycopg.connect(
-            restore_dsn, connect_timeout=10, autocommit=True,
-            application_name="bob_isolated_synthetic_jsonb_probe",
-            options="-c statement_timeout=10000 -c lock_timeout=1000") as conn:
-        require_isolated_restore(conn, source_dsn, restore_dsn, enabled)
-        for method in METHODS:
-            # Only hardcoded names; never interpolate user strings into SQL.
-            table = "pg_temp.bob_jsonb_synthetic_" + method
-            try:
-                conn.execute("CREATE TEMP TABLE " + table +
-                             " (row_id integer PRIMARY KEY, payload jsonb COMPRESSION " +
-                             method + ") ON COMMIT PRESERVE ROWS")
-                with conn.cursor() as cur:
-                    cur.executemany("INSERT INTO " + table +
-                                    " (row_id,payload) VALUES (%s,%s::jsonb)",
-                                    list(enumerate(payloads)))
-                readback = conn.execute(
-                    "SELECT row_id,payload::text FROM " + table +
-                    " ORDER BY row_id").fetchall()
-                confirm_exact_reader(rows, readback)
-                allocated = conn.execute(
-                    "SELECT pg_total_relation_size(%s::regclass)",
-                    (table,)).fetchone()[0]
-                counts = conn.execute(
-                    "SELECT coalesce(pg_column_compression(payload),'none'),count(*) "
-                    "FROM " + table +
-                    " GROUP BY 1 ORDER BY 1").fetchall()
-                results[method] = {"status": "verified-synthetic",
-                                   "temporaryRelationBytes": allocated,
-                                   "rowsVerified": len(readback),
-                                   "compression": {name: count for name, count in counts}}
-            except psycopg.errors.FeatureNotSupported:
-                # The instance might not provide LZ4. Not a safety failure.
-                if method == "pglz":
-                    raise
-                results[method] = {"status": "method-unavailable"}
+    for method in METHODS:
+        # Hardcoded table and compression identifiers; no input SQL fragments.
+        table = "pg_temp.bob_jsonb_synthetic_" + method
+        try:
+            conn.execute("CREATE TEMP TABLE " + table +
+                         " (row_id integer PRIMARY KEY, payload jsonb COMPRESSION " +
+                         method + ") ON COMMIT PRESERVE ROWS")
+            with conn.cursor() as cur:
+                cur.executemany("INSERT INTO " + table +
+                                " (row_id,payload) VALUES (%s,%s::jsonb)",
+                                list(enumerate(payloads)))
+            readback = conn.execute(
+                "SELECT row_id,payload::text FROM " + table +
+                " ORDER BY row_id").fetchall()
+            confirm_exact_reader(rows, readback)
+            allocated = conn.execute(
+                "SELECT pg_total_relation_size(%s::regclass)",
+                (table,)).fetchone()[0]
+            counts = conn.execute(
+                "SELECT coalesce(pg_column_compression(payload),'none'),count(*) "
+                "FROM " + table +
+                " GROUP BY 1 ORDER BY 1").fetchall()
+            results[method] = {"status": "verified-synthetic",
+                               "temporaryRelationBytes": allocated,
+                               "rowsVerified": len(readback),
+                               "compression": {name: count for name, count in counts}}
+        except psycopg.errors.FeatureNotSupported:
+            # A server without LZ4 support is a test outcome, not success.
+            if method == "pglz":
+                raise
+            results[method] = {"status": "method-unavailable"}
     baseline = results.get("pglz", {})
     alternative = results.get("lz4", {})
     difference = (baseline["temporaryRelationBytes"] -
@@ -135,6 +132,33 @@ def run(source_dsn, restore_dsn, enabled=None):
             "readerEquality": True, "productionRowsChanged": False,
             "physicalBytesFreed": None,
             "scope": "temporary-synthetic-sizing-not-real-data-or-provider-savings"}
+
+
+def run(source_dsn, restore_dsn, enabled=None):
+    """At most 96 local inserts per temporary table; no permanent SQL writes."""
+    import psycopg
+    rows = fixtures()
+    validate_fixtures(rows)
+    enabled = os.environ.get("BOB_STORAGE_COMPRESSION_PROBE_ONCE") if enabled is None else enabled
+    # Verify DSN host+name difference before making even the target connection.
+    if enabled != "1":
+        raise PermissionError("Operator-only probe disabled")
+    if not source_dsn or not restore_dsn:
+        raise ValueError("Both existing database identities required")
+    from psycopg.conninfo import conninfo_to_dict
+    src = conninfo_to_dict(source_dsn)
+    dst = conninfo_to_dict(restore_dsn)
+    if (not src.get("host") or not dst.get("host")
+            or src["host"] == dst["host"]
+            or src.get("dbname") == dst.get("dbname")
+            or dst.get("dbname") != RESTORE_DB):
+        raise ValueError("Separate named restore host required")
+    with psycopg.connect(
+            restore_dsn, connect_timeout=10, autocommit=True,
+            application_name="bob_isolated_synthetic_jsonb_probe",
+            options="-c statement_timeout=10000 -c lock_timeout=1000") as conn:
+        require_isolated_restore(conn, source_dsn, restore_dsn, enabled)
+        return measure_synthetic(conn, rows)
 
 
 if __name__ == "__main__":
