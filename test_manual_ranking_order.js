@@ -92,3 +92,25 @@ assert.equal(brokerReview({}, {preliminary:test({stopPlan:{...stopPlan,available
 assert.equal(brokerReview({}, {product:{...product,quote:{isin:candidate.isin,metadata:{status:2}}}}).available,false);
 assert.equal(brokerReview({}, {riskCHF:8}).available,false);
 console.log('manual Top-3 DEGIRO screen re-evaluation: identity, source clock, FX, risk and no-order gates passed');
+
+
+// User-shared DEGIRO product image: reusable bid/ask, but NEVER auto-fill an
+// invented source timestamp or elevate OCR to an order execution quote.
+globalThis.BobAndroidEvidence=require('./degiro_android_bridge.js');
+const shared=globalThis.BobAndroidEvidence.readDraft([
+ 'BOB OCR-ENTWURF – NICHT VERIFIZIERT',
+ 'ISIN: DE000FG4JXV7',
+ 'Geld (OCR ungeprüft): 20,20',
+ 'Brief (OCR ungeprüft): 20,30',
+ 'Handelsplatz (OCR ungeprüft): Societe Generale OTC',
+ 'Anzeigezeit (OCR ungeprüft): 12/11/2026 14:02'
+].join('\n'));
+const imported=m.importAndroidScreenDraft(shared);
+assert.equal(imported.available,true);
+assert.equal(imported.values.bid,'20.2');
+assert.equal(imported.values.ask,'20.3');
+assert.equal(imported.values.quoteAt,'');
+assert.equal(imported.values.confirmedByUser,false);
+assert.equal(m.importAndroidScreenDraft({...shared,tradeApproved:true}).available,false);
+assert.equal(m.importAndroidScreenDraft({...shared,sourceTime:at}).available,false);
+console.log('manual DEGIRO read-only screenshot import never invents source times or trade approval');

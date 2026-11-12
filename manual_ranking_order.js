@@ -193,6 +193,27 @@ function reconcileBrokerDisplay({candidate,product,preliminary,broker,fx,
    (deviationReview?' oder Modellabweichung über 5 %':'')+
    '. Keine bestätigte ausführbare Ordervorlage.'};
 }
+
+/* Reuse an explicitly shared, read-only Android product-image draft.
+ * OCR has no verified quote source clock; the user must supply and recheck
+ * the actual displayed quote time before any repricing can occur.
+ */
+function importAndroidScreenDraft(draft){
+ const unavailable=reason=>({available:false,reason});
+ if(!draft||draft.verified!==false||draft.tradeApproved!==false||draft.sourceTime!==null)
+  return unavailable('Nur eine ungeprüfte, ausdrücklich geteilte DEGIRO-Bildschirmbeobachtung ist zulässig.');
+ let row;
+ try{row=root.BobAndroidEvidence?.displayedPairStatus?.(draft);}catch(_){return unavailable('DEGIRO-Bildentwurf ist unvollständig oder widersprüchlich.');}
+ if(!row||row.state!=='screen-observation'||row.executable!==false||
+    row.canTrade!==false||row.sourceTime!==null)
+  return unavailable('Kein eindeutiges Geld-/Briefpaar im gespeicherten Bild.');
+ return {available:true,displayedTime:row.displayedTime||null,
+  values:{isin:row.isin,currency:['EUR','CHF'].includes(draft.currency)?draft.currency:'',
+   bid:String(row.bid),ask:String(row.ask),venue:row.venue||'',
+   quoteAt:'',confirmedByUser:false},
+  note:'Bildwerte nur vorbefüllt. Original-Kurszeit, Währung und sämtliche Brokerbedingungen selbst prüfen; keine Ausführung bestätigt.'};
+}
+
 const session={budgetCHF:'',riskCHF:'',feesCHF:'',last:null,broker:{
  isin:'',currency:'',bid:'',ask:'',quoteAt:'',venue:'',buyingPowerCHF:'',
  fxRateCHF:'',fxAt:'',tickSize:'',lotSize:'',orderType:'',orderDuration:'',confirmedByUser:false
@@ -234,6 +255,7 @@ function ensurePanel(){
    '<div><label for="bobManualScreenOrderType">Angezeigter Kauf-Ordertyp</label><select id="bobManualScreenOrderType"><option value="">Nicht bestätigt</option><option value="LIMIT">LIMIT</option></select></div>'+
    '<div><label for="bobManualScreenDuration">Angebotene Orderdauer</label><select id="bobManualScreenDuration"><option value="">Nicht bestätigt</option><option value="DAY">Tagesgültig</option><option value="GTC">Unbefristet</option></select></div>'+
   '</div>'+
+  '<button type="button" data-manual-screen-import>Geteiltes DEGIRO-Produktbild (ungeprüft) vorbefüllen</button>'+
   '<button type="button" data-manual-screen-confirm>Werte erneut prüfen und berechnen – keine Order</button>'+
   '<div data-manual-broker-result class="small" role="status"></div>'+
   '<p class="small">Ein Nutzer-Abgleich ist keine Broker-API-Prüfung und keine Orderannahme. Der Stopp bleibt ein Gold-basiertes <b>Modell</b>, kein sichtbarer DEGIRO-Verkaufsstopp. Nach einem tatsächlichen Kauf muss die echte Ausführung separat bestätigt werden.</p>'+
@@ -261,6 +283,28 @@ function ensurePanel(){
   });
  }
  panel.addEventListener('click',async e=>{
+  if(e.target.closest('button[data-manual-screen-import]')){
+   const status=panel.querySelector('[data-manual-broker-result]');
+   try{
+    const saved=root.BobAndroidEvidence?.savedObservations?.(root.localStorage)||[];
+    const match=saved.find(row=>row.draft?.isin===session.broker.isin);
+    const imported=importAndroidScreenDraft(match?.draft);
+    if(!imported.available){status.textContent=imported.reason;return;}
+    Object.assign(session.broker,imported.values);
+    // Refresh only the visible fields, preserving budgets in memory.
+    for(const [id,key] of [
+     ['bobManualScreenIsin','isin'],['bobManualScreenCcy','currency'],
+     ['bobManualScreenBid','bid'],['bobManualScreenAsk','ask'],
+     ['bobManualScreenAt','quoteAt'],['bobManualScreenVenue','venue']]){
+     const field=panel.querySelector('#'+id);
+     if(field)field.value=session.broker[key]||'';
+    }
+    if(session.last)renderFrom(session.last);
+    panel.querySelector('[data-manual-broker-result]').textContent=
+     imported.note+(imported.displayedTime?' Bildanzeige: '+imported.displayedTime+'.':'');
+   }catch(_){status.textContent='Geteiltes Produktbild nicht lesbar; Werte bitte manuell prüfen.';}
+   return;
+  }
   if(e.target.closest('button[data-manual-screen-confirm]')){
    session.broker.confirmedByUser=true;
    if(session.last)renderFrom(session.last);
@@ -366,7 +410,7 @@ function render(flow,products,bundle){
  session.last={flow,products,bundle};
  renderFrom(session.last);
 }
-const api={evaluate,reconcileBrokerDisplay,readChfFx,selectQuoteByPriority,render};
+const api={evaluate,reconcileBrokerDisplay,importAndroidScreenDraft,readChfFx,selectQuoteByPriority,render};
 root.BobManualTop3=api;
 if(typeof module!=='undefined')module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
