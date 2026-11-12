@@ -25,7 +25,7 @@ def hour(value):
     return value
 
 
-def normalize(payload, target, now_ms):
+def normalize(payload, target, now_ms, *, requested_timezone=None):
     """Reject the entire response on ambiguity; timestamps are candle opens."""
     hour(target)
     if type(now_ms) is not int or now_ms <= 0:
@@ -33,8 +33,18 @@ def normalize(payload, target, now_ms):
     if target + HOUR > now_ms:
         raise ValueError('Candle not closed')
     meta = payload.get('meta', {}) if isinstance(payload, dict) else {}
+    if not isinstance(meta, dict):
+        raise ValueError('Invalid metadata')
+    zone = meta.get('exchange_timezone')
+    # Precious-metal responses omit exchange_timezone. Only the fetch boundary
+    # can attest to the UTC request; never assume UTC for arbitrary imports.
+    utc_request = (zone is None and 'exchange_timezone' not in meta
+                   and requested_timezone == 'UTC'
+                   and meta.get('type') == 'Precious Metal'
+                   and meta.get('currency_base') == 'Gold Spot'
+                   and meta.get('currency_quote') == 'US Dollar')
     if (meta.get('symbol') != SYMBOL or meta.get('interval') != '1h'
-            or meta.get('exchange_timezone') != 'UTC'):
+            or not (zone == 'UTC' or utc_request)):
         raise ValueError('Unexpected instrument, interval or timezone')
     values = payload.get('values')
     if not isinstance(values, list) or len(values) > 5:
@@ -88,7 +98,7 @@ def fetch_hour(target, *, now_ms=None):
         payload = json.loads(raw)
         if isinstance(payload, dict) and payload.get('status') == 'error':
             return {'code': 'PROVIDER_REJECTED'}
-        row = normalize(payload, target, now_ms)
+        row = normalize(payload, target, now_ms, requested_timezone=params['timezone'])
         return {'code': 'OBSERVED' if row else 'CANDLE_NOT_RETURNED', 'candle': row}
     except HTTPError as error:
         return {'code': 'HTTP_ERROR', 'httpStatus': error.code}
