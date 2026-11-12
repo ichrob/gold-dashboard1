@@ -182,6 +182,15 @@ def webpush(**kwargs):
                or any(kind.endswith('-test') for kind in event_kinds))
     is_synthetic = data.get('synthetic') is True or any(
         kind.endswith('-test') for kind in event_kinds)
+    # Web Push defaults to normal urgency, which the provider may defer for
+    # device power saving. Prioritize only real time-sensitive alerts; never
+    # change their TTL, triggers, deduplication, target devices, or permissions.
+    time_sensitive = {'early-warning', 'ko-hit', 'stop-hit', 'reversal'}
+    if not is_test and any(kind in time_sensitive for kind in event_kinds):
+        headers = dict(kwargs.get('headers') or {})
+        if not any(str(key).lower() == 'urgency' for key in headers):
+            headers['Urgency'] = 'high'
+        kwargs['headers'] = headers
 
     def safe_clock(field):
         stamp = data.get(field)

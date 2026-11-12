@@ -25,11 +25,15 @@ def latency(record):
     receipt=record.get('browserShowAt')
     try:receipt=datetime.fromisoformat(receipt).timestamp()*1000 if isinstance(receipt,str) else None
     except (ValueError,OverflowError):receipt=None
+    receipt_lag = diff(receipt,record.get('dataAt'))
     return dict(sourceToGeneratedMs=diff(record.get('generatedAt'),record.get('dataAt')),
         analysisPipelineMs=diff(record.get('analysisCompletedAt'),record.get('analysisRequestedAt')),
         generatedToProviderMs=diff(provider,record.get('generatedAt')),
-        sourceToBrowserReceiptMs=diff(receipt,record.get('dataAt')),
-        scope='server-clocks-and-browser-receipt-not-Android-display')
+        # Compatible old field; both values measure the server-side receipt
+        # persistence time, NOT when the browser first showed a notification.
+        sourceToBrowserReceiptMs=receipt_lag,
+        sourceToReceiptStoredMs=receipt_lag,
+        scope='server-clocks-and-receipt-storage-not-browser-or-Android-display')
 
 
 def arguments(value=None, now=None):
