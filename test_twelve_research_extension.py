@@ -88,4 +88,20 @@ class TwelveResearchTests(unittest.TestCase):
         rows[7]['openTime']+=1000
         self.assertIsNone(td.research_ema(rows,20))
 
+
+    def test_internal_indicators_and_non_executable_shadow(self):
+        rows=[{'openTime':START+i*STEP,'interval':'5min','symbol':'XAU/USD',
+               'open':100+i,'high':102+i,'low':99+i,
+               'close':101+i,'researchOnly':True,'isExecutableQuote':False}
+              for i in range(45)]
+        self.assertIsNotNone(td.research_macd(rows))
+        self.assertIsNotNone(td.research_rsi(rows))
+        self.assertIsNotNone(td.research_atr(rows))
+        shadow=td.compare_entry_shadow(rows,direction='LONG')
+        self.assertEqual(shadow['code'],'RESEARCH_SPOT_REFERENCE_ONLY')
+        self.assertFalse(shadow['executableProductPnL'])
+        rows[20]['openTime']+=1234
+        self.assertIsNone(td.research_macd(rows))
+        self.assertEqual(td.compare_entry_shadow(rows)['code'],'INSUFFICIENT_CONTIGUOUS_RESEARCH')
+
 if __name__=='__main__':unittest.main()
