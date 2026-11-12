@@ -306,6 +306,23 @@ function compareHandsetModel({report,candidate,product,preliminary,fx,
   reason:'Modellszenario: gespeicherter Anzeigekurs mit aktuellem Modellstopp und aktueller FX-Referenz. '+
    'Kurszeiten nicht als zeitgleich bestätigt; kein aktueller ausführbarer Kurs. Keine Anpassung des Stopps aus dieser Zeitdifferenz.'};
 }
+function handsetRunSummary(report,comparisons,now=Date.now()){
+ if(!['ok','partial'].includes(report?.status)||!fresh(report.lastCheckedAt,now,120000))
+  return 'Handy-Abschluss: aktueller Prüfbericht fehlt.';
+ const items=Array.isArray(report.items)?report.items:[];
+ const active=items.filter(x=>!['terminated','excluded-factor'].includes(x.state));
+ const complete=active.filter(x=>x.handsetObservation?.code==='COMPLETE').length;
+ const partial=active.filter(x=>x.handsetObservation?.code==='PARTIAL').length;
+ const ended=items.filter(x=>x.state==='terminated').length;
+ const excluded=items.filter(x=>x.state==='excluded-factor').length;
+ const results=Array.isArray(comparisons)?comparisons:[];
+ const ready=results.filter(x=>x.available).length;
+ const reasons=[...new Set(results.filter(x=>!x.available).map(x=>x.reason))];
+ return 'Handy-Abschluss: '+complete+' vollständig · '+partial+' teilweise · '+ended+' beendet · '+excluded+
+  ' Faktor ausgeschlossen. '+ready+' von '+results.length+' ausgewählten Modellvergleichen berechenbar.'+
+  (reasons.length?' Offen: '+reasons.join(' '):'')+
+  ' Gespeicherte Serverbelege; keine Ausführungsbestätigung.';
+}
 function handsetModelText(result){
  if(!result.available)return 'Automatischer Handy-Modellvergleich: '+result.reason;
  return 'Automatischer Handy-Modellvergleich · '+result.quantity+' Stück · '+fmt(result.totalCHF)+
@@ -338,6 +355,7 @@ function ensurePanel(){
    '<div><label for="bobManualFees">Kauf- und Verkaufsgebühren gesamt (CHF)</label><input id="bobManualFees" type="number" min="0" step="0.01" inputmode="decimal" placeholder="nachgewiesen; 0 ausdrücklich"></div>'+
   '</div>'+
   '<div data-manual-top3-status class="small" role="status"></div>'+
+  '<div data-handset-run-summary class="small" role="status"></div>'+
   '<div data-manual-top3-rows></div>'+
 
   '<details data-manual-broker-compare><summary>DEGIRO-Anzeigewerte vergleichen und Beträge neu berechnen (keine Order)</summary>'+
@@ -507,6 +525,7 @@ function renderFrom(snapshot){
  const budgetCHF=parseAmount(session.budgetCHF),riskCHF=parseAmount(session.riskCHF),feesCHF=parseAmount(session.feesCHF);
  const market=root.productMarketPlan?.(side,now);
  const planByIsin=new Map();
+ const handsetComparisons=[];
  const offers=selected.map((candidate,i)=>{
   const product=(products||[]).find(p=>p.isin===candidate.isin);
   const currency=product?.quote?.metadata?.currency||product?.quote?.currency;
@@ -516,6 +535,9 @@ function renderFrom(snapshot){
    root.BobDegiro?.productRiskPreview(product,market,now,quote):null;
   const fx=readChfFx(bundle?.spots,now,quote?.currency||currency);
   const plan=evaluate({candidate,product,quote,stopPlan,fx,budgetCHF,riskCHF,feesCHF,now,direction:side});
+  const handsetComparison=compareHandsetModel({report:root.BobProductAuditReport,
+   candidate,product,preliminary:plan,fx,budgetCHF,riskCHF,feesCHF,now,direction:side});
+  handsetComparisons.push(handsetComparison);
   planByIsin.set(candidate.isin,{candidate,product,preliminary:plan,fx,stopPlan});
   const line=(label,value,copy)=>'<div style="margin:5px 0"><b>'+label+':</b> '+escape(value)+
    (copy!==null&&copy!==undefined?'<button type="button" data-manual-copy="'+escape(copy)+'" style="width:auto;margin-left:8px;padding:5px 9px;font-size:12px;background:#334155">Kopieren</button>':'')+'</div>';
@@ -535,8 +557,7 @@ function renderFrom(snapshot){
    line('Stückzahl',plan.available?String(plan.quantity):'—',orderCopy?String(plan.quantity):null)+
    line('Geschätzter Gesamtbetrag',plan.available?fmt(plan.totalCHF)+' CHF':'—',orderCopy?String(Number(plan.totalCHF.toFixed(2))):null)+
    calculationNote+
-   '<div class="small" data-handset-model-result>'+escape(handsetModelText(compareHandsetModel({report:root.BobProductAuditReport,
-     candidate,product,preliminary:plan,fx,budgetCHF,riskCHF,feesCHF,now,direction:side})))+'</div>'+
+   '<div class="small" data-handset-model-result>'+escape(handsetModelText(handsetComparison))+'</div>'+
    (plan.available?'<div class="small">Modellverlust bei Stopp einschließlich eingegebener Gebühren: ≈ '+fmt(plan.lossCHF)+' CHF. Tatsächlicher Verlust kann durch Gaps, KO oder fehlende Ausführung größer sein.</div>':'')+
    '<div class="small" style="margin-top:7px">'+escape(plan.source?'Quelle: '+plan.source+' · Original-Briefkurszeit '+seenAt(plan.quoteAt)+' Zürich. '+plan.fxNote:'Keine aktuelle Original-Kursquelle.')+'</div>'+
    '<div class="small" style="margin-top:5px;color:'+(plan.available?'#166534':'#9a3412')+'">'+escape(plan.reason)+'</div></article>';
@@ -546,13 +567,14 @@ function renderFrom(snapshot){
   'ABWARTEN · keine aktuellen freigegebenen Ranking-Produkte, daher keine Kauf-/Stop-/Stückzahlwerte.';
  const output=offers.length?offers.join(''):'<p class="small">Keine drei Kandidaten erzwingen. Erst bestätigtes Markt- und Produktsignal abwarten.</p>';
  if(rows._html!==output){rows.innerHTML=output;rows._html=output;}
+ panel.querySelector('[data-handset-run-summary]').textContent=handsetRunSummary(root.BobProductAuditReport,handsetComparisons,now);
  renderBrokerComparison(panel,selected,planByIsin,now);
 }
 function render(flow,products,bundle){
  session.last={flow,products,bundle};
  renderFrom(session.last);
 }
-const api={compareHandsetModel,evaluate,reconcileBrokerDisplay,importAndroidScreenDraft,importHandsetReport,refreshHandset,readChfFx,selectQuoteByPriority,render};
+const api={handsetRunSummary,compareHandsetModel,evaluate,reconcileBrokerDisplay,importAndroidScreenDraft,importHandsetReport,refreshHandset,readChfFx,selectQuoteByPriority,render};
 root.BobManualTop3=api;
 if(typeof module!=='undefined')module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

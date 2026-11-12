@@ -14,7 +14,7 @@ internal object MorningReadPolicy {
     enum class Kind { WAIT, SEARCH, FOCUS, QUERY, SUBMIT, CATEGORY, CATEGORY_SCROLL, RESULT, READ, BACK, BLOCK, COLLECT }
     data class Action(val kind: Kind, val index: Int = -1, val code: String = "", val isins: List<String> = emptyList())
     private val ids = Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
-    private val login = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code")
+    private val login = Regex("(?iu)passwort|password|anmelden|einloggen|login|bestätigungscode|verification code|captcha|sicherheitsprüfung|security check|two.factor|2fa|one.time password|fingerabdruck|biometric|sicherheitscode|authentifizierung")
     private val orderMarkers = listOf(
         "PROTECTED_ORDER_CONFIRM" to Regex("(?iu)order platzieren|order bestätigen|place order|confirm order"),
         "PROTECTED_ORDER_TYPE" to Regex("(?iu)orderart|ordertyp"),

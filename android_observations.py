@@ -156,10 +156,11 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
         universe = {v for v in isins if isinstance(v, str) and valid_isin(v)}
         if not universe: return {}
         rows = conn.execute(
-            "SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 4"
+            "SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 50"
         ).fetchall()
     except (ValueError, TypeError, AttributeError):
         return {}
+    result = {}
     for row in rows:
         run = row[0] if row else {}
         if not isinstance(run, dict) or run.get('listSource') != 'degiro-gold-search':
@@ -174,7 +175,6 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
                 set(run.get('isins', [])) <= universe and
                 isinstance(run.get('results'), list)):
             continue
-        result = {}
         for entry in run['results'][:10]:
             if not isinstance(entry, dict) or entry.get('isin') not in universe:
                 continue
@@ -187,6 +187,13 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
             # Safe display-only subset from previously validated app observations.
             shown = {k: str(fields[k])[:60] for k in allowed
                      if isinstance(fields.get(k), str) and len(fields[k]) <= 60}
+            previous = result.get(isin)
+            if previous:
+                try:
+                    if not shown or (previous.get('observedAt') and timestamp(previous['observedAt']) >= timestamp(obs.get('observedAt'))):
+                        continue
+                except (ValueError, TypeError):
+                    continue
             result[isin] = {
                 'code': entry.get('code') if entry.get('code') in CODES else 'UNAVAILABLE',
                 'fields': shown, 'observedAt': obs.get('observedAt') if shown else None,
@@ -197,9 +204,12 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
                 'appVersionCode': run.get('appVersionCode'),
                 'researchOnly': True, 'verified': False, 'tradeApproved': False,
                 'sourceTime': None, 'executionConfirmed': False,
+                'receivedAt': run.get('receivedAt'),
+                'displayTimePrecision': 'minute' if shown.get('Anzeigezeit') else None,
+                'displayTimezone': None,
+                'clockNote': 'Anzeigezeit ohne bestätigte Zeitzone; Erfassung und Empfang sind getrennte Uhren.',
             }
-        return result
-    return {}
+    return result
 
 
 def init(conn):

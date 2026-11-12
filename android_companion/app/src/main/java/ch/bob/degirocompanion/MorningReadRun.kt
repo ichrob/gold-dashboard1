@@ -20,6 +20,10 @@ internal object MorningReadRun {
     private var started = 0L
     val target: String get() = data?.getJSONArray("isins")?.optString(index).orEmpty()
     val count: Int get() = data?.getJSONArray("isins")?.length() ?: 0
+    fun currentSnapshot(): String? = data?.toString()
+    fun refreshSourceSnapshot(c: Context): String? = prefs(c).getString("refreshSource",null) ?: latestSnapshot(c)
+    fun rememberRefreshSource(c: Context, raw: String) { check(prefs(c).edit().putString("refreshSource",raw).commit()) }
+    fun latestSnapshot(c: Context): String? = RunOutbox.resumable(entries(c))
     fun importedListRun() = running && data?.optString("listBatchId").orEmpty().matches(Regex("[a-f0-9]{32}"))
     /** Only a server-planned, authenticated list follow-up may omit a quote pair. */
     fun requestedTermsOnly(): Set<String> {
@@ -56,15 +60,21 @@ internal object MorningReadRun {
         return edit.commit()
     }
     fun savedStatus(c: Context): String {
-        val raw=pending(c)
+        val raw=latestSnapshot(c)
         if(raw==null) return if(prefs(c).getString("lastDelivered",null)!=null) "Letztes Protokoll von Bob bestätigt. Die Diagnose ist dort abrufbar." else "Noch kein Listenprotokoll übertragen."
         return runCatching {
             val d=JSONObject(raw);val rows=d.getJSONArray("results")
-            val read=(0 until rows.length()).count { rows.getJSONObject(it).optString("draft").isNotEmpty() }
+            val codes=(0 until rows.length()).map { rows.getJSONObject(it).optString("code") }
+            val read=codes.count { it=="COMPLETE" }
+            val partial=codes.count { it=="PARTIAL" }
+            val noQuotes=codes.count { it in setOf("NO_QUOTES","QUOTES_UNAVAILABLE") }
+            val confirmed=prefs(c).getString("lastDeliveredBatch",null)==d.optString("batchId") &&
+                prefs(c).getInt("lastDeliveredRevision",-1)==d.optInt("revision")
+            val receipt=if(confirmed) "Übertragung dieses Laufs bestätigt. " else "Endgültige Übertragung dieses Laufs noch nicht bestätigt. "
             val events=d.getJSONArray("events");val last=events.optJSONObject(events.length()-1)
-            "$read Produkte gelesen · ${rows.length()} geprüft · ${d.getJSONArray("isins").length()} angefragt.\n"+
+            "$read vollständig · $partial teilweise · $noQuotes ohne Kurspaar · ${rows.length()} von ${d.getJSONArray("isins").length()} geprüft.\n"+
                 (if(last!=null) "Zuletzt: ${MorningReadUiPolicy.reason(last.optString("code"))}.\n" else "Noch kein Produkt gelesen.\n")+
-                "${RunOutbox.candidateKeys(entries(c)).size} Protokoll(e) zur Übertragung gespeichert; neuer Start bleibt möglich."
+                receipt+"${RunOutbox.candidateKeys(entries(c)).size} Protokoll(e) zur Übertragung gespeichert; neuer Start bleibt möglich."
         }.getOrDefault("Lokales Protokoll vorhanden; bitte an Bob übertragen.")
     }
     fun challenge(c: Context): String {
@@ -96,18 +106,20 @@ internal object MorningReadRun {
         PhoneDiagnostics.queue(c)
     }
     fun beginDiscovered(c: Context, values: List<String>, listBatchId: String? = null,
-                        requested: Map<String, List<String>>? = null) {
+                        requested: Map<String, List<String>>? = null, originalListAt: String? = null) {
         check(!running) { "Listenlauf läuft bereits." }
         check(values.size in 1..12 && values.distinct()==values && values.all { SeriesEvidence.validIsin(it) })
         check(listBatchId==null || listBatchId.matches(Regex("[a-f0-9]{32}")))
         if(requested!=null) check(requested.keys==values.toSet() &&
             requested.values.all { v -> v.isNotEmpty() && v.size<=SelectiveDetailPlan.fields.size &&
                 v.distinct()==v && v.all { it in SelectiveDetailPlan.fields } })
+        if(originalListAt!=null) check(System.currentTimeMillis()-Instant.parse(originalListAt).toEpochMilli() in 0..14*60*60*1000L)
         data=JSONObject().put("batchId",UUID.randomUUID().toString().replace("-",""))
-            .put("listUploadedAt",Instant.now().toString()).put("listSource","degiro-gold-search")
+            .put("listUploadedAt",originalListAt ?: Instant.now().toString()).put("listSource","degiro-gold-search")
             .put("appVersionCode",c.packageManager.getPackageInfo(c.packageName,0).versionCode)
             .put("revision",0).put("isins",JSONArray(values)).put("results",JSONArray()).put("events",JSONArray())
         if(listBatchId!=null)data!!.put("listBatchId",listBatchId)
+        if(originalListAt==null) rememberRefreshSource(c,data!!.toString())
         if(requested!=null) data!!.put("requestedFields",JSONObject().apply {
             values.forEach { put(it,JSONArray(requested.getValue(it))) }
         })
@@ -161,6 +173,7 @@ internal object MorningReadRun {
             else prior.put("attempts",attempt)
         }
         event(c,finalCode)
+        ProductDetailDelivery.streamCurrent(c)
         if(MorningReadRetryPolicy.retry(finalCode,draft.isNotEmpty(),missing,attempt)) {
             attempt++; reading=false;backSteps=0;return true
         }
@@ -229,7 +242,8 @@ internal object MorningReadRun {
         }.getOrDefault(false) } ?: return false
         val after=RunOutbox.acknowledge(before,match.key,match.value,running) ?: return false
         if(!saveEntries(c,before,after))return false
-        prefs(c).edit().putString("lastDelivered",Instant.now().toString()).commit()
+        prefs(c).edit().putString("lastDelivered",Instant.now().toString())
+            .putString("lastDeliveredBatch",batchId).putInt("lastDeliveredRevision",revision).commit()
         return true
     }
 }

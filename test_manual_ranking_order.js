@@ -199,3 +199,9 @@ assert.equal(chfScenario.quantity,48);
 assert(Math.abs(chfScenario.totalCHF-982.4)<1e-8);
 const missingLeverage={...report,items:[{...report.items[0],handsetObservation:{...handset,code:'PARTIAL',fields:{...handset.fields,Hebel:undefined}}}]};
 assert.equal(scenario({report:missingLeverage}).quantity,sr.quantity);
+
+const summary=m.handsetRunSummary(report,[sr],now);
+assert(summary.includes('1 vollständig'));
+assert(summary.includes('1 von 1 ausgewählten Modellvergleichen berechenbar'));
+assert(m.handsetRunSummary(report,[{available:false,reason:'Kapital fehlt'}],now).includes('Kapital fehlt'));
+assert(m.handsetRunSummary({...report,status:'stale'},[sr],now).includes('Prüfbericht fehlt'));

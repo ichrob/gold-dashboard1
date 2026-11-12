@@ -186,11 +186,31 @@ class AndroidObservations(unittest.TestCase):
         with self.assertRaises(ValueError):
             a.parse_draft(draft.replace('Hebel (','Geld ('),ISIN,NOW,['Hebel'])
 
+    def test_streamed_and_targeted_reads_merge_without_late_revision_rollback(self):
+        import copy
+        first=a.prepare({**run(),'listSource':'degiro-gold-search',
+                         'listUploadedAt':'2026-10-28T11:00:30Z'}, {}, NOW)
+        first['receivedAt']=NOW.isoformat()
+        other=copy.deepcopy(first)
+        other['isins']=['DE000FE2JJ20']
+        other['results'][0]['isin']='DE000FE2JJ20'
+        other['results'][0]['observation']['isin']='DE000FE2JJ20'
+        newer=copy.deepcopy(first)
+        newer['results'][0]['observation']['observedAt']='2026-10-28T11:59:30+00:00'
+        newer['results'][0]['observation']['fields']['Geld']='14,00'
+        class DB:
+            def execute(self,sql):return self
+            def fetchall(self):return [(first,),(other,),(newer,)]
+        result=a.research_summary(DB(),'2026-10-28T11:00:00Z',[ISIN,'DE000FE2JJ20'],NOW)
+        self.assertEqual(set(result),{ISIN,'DE000FE2JJ20'})
+        self.assertEqual(result[ISIN]['fields']['Geld'],'14,00')
+
     def test_research_summary_is_generation_matched_and_never_promotes_market_data(self):
         run_data=a.prepare({**run(),'listSource':'degiro-gold-search',
                             'listUploadedAt': '2026-10-28T11:00:30Z'}, {}, NOW)
         run_data['receivedAt']=NOW.isoformat()
         run_data['results'][0]['observation']['fields']['Handelsplatz']='Test venue'
+        run_data['results'][0]['observation']['fields']['Anzeigezeit']='28/10/2026 12:59'
         class ReadDb:
             def execute(self,sql):
                 assert 'bob_android_read_runs' in sql
@@ -205,6 +225,9 @@ class AndroidObservations(unittest.TestCase):
         self.assertFalse(matches[ISIN]['verified'])
         self.assertFalse(matches[ISIN]['tradeApproved'])
         self.assertIsNone(matches[ISIN]['sourceTime'])
+        self.assertIsNone(matches[ISIN]['displayTimezone'])
+        self.assertEqual(matches[ISIN]['displayTimePrecision'],'minute')
+        self.assertEqual(matches[ISIN]['receivedAt'],NOW.isoformat())
         self.assertEqual(a.research_summary(ReadDb(),'2026-10-28T10:00:00Z',[ISIN],NOW),{})
         self.assertEqual(a.research_summary(ReadDb(),'2026-10-28T11:00:00Z',
                                             ['DE000FE2JJ20'],NOW),{})

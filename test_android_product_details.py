@@ -10,6 +10,23 @@ from test_android_telemetry import Handler
 NOW=1793271600
 
 class DetailsTest(unittest.TestCase):
+    def test_terminal_requires_exact_verified_issuer_status(self):
+        terminal={'isin':ISIN,'quote':{'isin':ISIN,'productVerified':True,'metadata':{'status':2}}}
+        self.assertEqual(a.detail_plan([{'isin':ISIN}],[terminal],NOW),[])
+        self.assertEqual(a.refresh_plan([{'isin':ISIN}],[terminal],[ISIN]),[])
+        for q in [dict(terminal['quote'],productVerified=False),
+                  dict(terminal['quote'],isin='DE000FE2JJ20'),
+                  dict(terminal['quote'],metadata={'status':1,'tradingHalted':True}),
+                  dict(terminal['quote'],metadata={'status':True})]:
+            self.assertTrue(a.detail_plan([{'isin':ISIN}],[dict(terminal,quote=q)],NOW))
+
+    def test_targeted_refresh_is_small_owned_and_quote_only(self):
+        rows=[{'isin':ISIN},{'isin':'DE000FE2JJ20','listRow':{'excluded':True}}]
+        plan=a.refresh_plan(rows,[],[ISIN])
+        self.assertEqual(plan,[{'isin':ISIN,'missingFields':['Geld','Brief','Anzeigezeit','Hebel']}])
+        for ids in [[],[ISIN,ISIN],['DE000FE2JJ20'],['DE000FB0A490'],['bad']]:
+            with self.assertRaises(ValueError):a.refresh_plan(rows,[],ids)
+
     def test_complete_skipped_but_each_missing_field_and_expired_quote_requested(self):
         items=[{'isin':ISIN}]
         p=dict(isin=ISIN,price=10,leverage=20,ko=4000,basisPrice=3999,ratio=.1,currency='EUR',
