@@ -122,6 +122,36 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
     assert(dims.scroll<=dims.client+1,'Manual mobile panel overflows at '+width+': '+JSON.stringify(dims));
   }
   await page.screenshot({path:'manual-order-mobile.png',fullPage:true});
+
+  // A candidate change invalidates every previously typed broker field,
+  // preventing old price, FX, venue, or permission data being reused for an ISIN.
+  const second='DE000FG77FN1';
+  await page.evaluate(second=>{
+    const product2={isin:second,productDirection:'SHORT',isinConfirmed:true,
+     quote:{isin:second,currency:'EUR',productVerified:true,metadata:{currency:'EUR',status:1}}};
+    const at=new Date(Date.now()-10000).toISOString();
+    window.BobStopAssistant.compareQuoteSources=(_q,isin)=>({quotes:[{
+      isin,currency:'EUR',bid:19.9,ask:20,at,askAt:at,
+      source:'Synthetic issuer',kind:'issuer',origin:'issuer',chart:false
+    }]});
+    window.BobDegiro.productRiskPreview=(_p,_m,_n,q)=>({
+      available:q?.ask===20,currency:'EUR',stop:18.5,referenceAt:at
+    });
+    window.BobManualTop3.render({approved:true,direction:'SHORT',
+      groups:[{candidates:[window.__candidate,{isin:second,direction:'SHORT',score:81}]}]},
+      [window.__product,product2],
+      {spots:{usd_chf_meta:{rate:0.9,fetchedAt:at},
+        usd_eur_meta:{rate:0.9,fetchedAt:at}}});
+  },second);
+  await panel.locator('#bobManualScreenIsin').selectOption(second);
+  for(const field of ['#bobManualScreenBid','#bobManualScreenAsk',
+     '#bobManualScreenAt','#bobManualScreenVenue','#bobManualScreenFunds',
+     '#bobManualScreenFx','#bobManualScreenFxAt','#bobManualScreenTick',
+     '#bobManualScreenLot']){
+    assert.equal(await panel.locator(field).inputValue(),'','Old ISIN data persisted in '+field);
+  }
+  assert((await panel.locator('[data-manual-broker-result]').innerText()).includes('Noch kein gültiger'));
+
   assert.deepEqual(errors,[],'No browser errors');
   assert.deepEqual(outbound,[],'No external brokerage/network calls');
   console.log('Mobile synthetic UI: OCR import, no invented time, broker repricing, quantity, stale/KO rejection, 320–390px, no external requests or orders passed.');
