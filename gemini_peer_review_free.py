@@ -169,6 +169,11 @@ def run():
     pr_data = request_json(base + "/pulls/" + number, token)
     if not isinstance(pr_data, dict):
         raise ValueError("invalid-pr")
+    # A draft is intentionally not ready for review, not an authorization fault.
+    # Do not fetch its diff, call the provider, or publish a review.
+    if pr_data.get("draft") is True:
+        print("Gemini review skipped: pull request is a draft.")
+        return
     sha = reviewed_pr_sha(pr_data, mode=mode,
                           head_sha=os.getenv("BOB_CI_HEAD_SHA"))
     if not isinstance(sha, str) or not SHA.fullmatch(sha):
