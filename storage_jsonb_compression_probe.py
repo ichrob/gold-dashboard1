@@ -91,9 +91,13 @@ def measure_synthetic(conn, rows):
     results = {}
     for method in METHODS:
         # Hardcoded table and compression identifiers; no input SQL fragments.
-        table = "pg_temp.bob_jsonb_synthetic_" + method
+        # PostgreSQL forbids schema qualification in CREATE TEMP TABLE.
+        # Subsequent queries qualify pg_temp explicitly to avoid touching
+        # a permanent table, even if search_path differs.
+        temp_name = "bob_jsonb_synthetic_" + method
+        table = "pg_temp." + temp_name
         try:
-            conn.execute("CREATE TEMP TABLE " + table +
+            conn.execute("CREATE TEMP TABLE " + temp_name +
                          " (row_id integer PRIMARY KEY, payload jsonb COMPRESSION " +
                          method + ") ON COMMIT PRESERVE ROWS")
             with conn.cursor() as cur:
