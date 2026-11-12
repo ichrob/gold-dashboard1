@@ -27,6 +27,5 @@ internal object LoginToReadHandoff {
         clear()
         return allowed
     }
-    fun clear() { this.freshGold = freshGold
-        generation++; searchQuery = null; sessionOnly = false; freshGold = false; armedAt = -1L }
+    fun clear() { generation++; searchQuery = null; sessionOnly = false; freshGold = false; armedAt = -1L }
 }
