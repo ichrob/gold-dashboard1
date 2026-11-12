@@ -204,7 +204,18 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    report:{kind:'portfolio',records:[{isin:'US0378331005',quantity:6,
     product:'Synthetic',currency:'USD'}],cashBalances:[],invalidRows:[]}});
   await bob.reload();
-  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===6);
+  await bob.waitForFunction(()=>BobDegiroPortfolio.load(localStorage).records[0].quantity===6).catch(async error=>{
+   const pageState=await bob.evaluate(()=>({
+    quantity:BobDegiroPortfolio.load(localStorage).records[0]?.quantity,
+    armed:GM_getValue('bob-export-arm-v1',0)>Date.now(),
+    pending:GM_getValue('bob-export-pending-v1',null),
+    active:!document.querySelector('#bobBridgeStop').disabled,
+    consent:Number(sessionStorage.getItem('bob-export-tab-consent-v1')),
+    results:window.exportResults
+   }));
+   error.message+='; reload recovery state '+JSON.stringify({manager:relay.values,page:pageState});
+   throw error;
+  });
   assert.equal(await bob.evaluate(()=>Number(sessionStorage.getItem('bob-export-tab-consent-v1'))),consentDeadline);
   const freshBob=await ctx.newPage();await freshBob.goto(BOB);
   await freshBob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
