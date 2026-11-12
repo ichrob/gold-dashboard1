@@ -10,6 +10,73 @@ from test_android_telemetry import Handler
 NOW=1793271600
 
 class DetailsTest(unittest.TestCase):
+    def test_missing_audit_table_does_not_abort_read_planning(self):
+        class EmptyDb:
+            def execute(self,sql,params=()):
+                if not sql.startswith("SELECT to_regclass("):
+                    raise AssertionError('Missing audit table must not be queried')
+                return self
+            def fetchone(self):return (None,)
+        ended=a.reader_terminal_isins(EmptyDb(),[dict(isin=ISIN)],NOW)
+        self.assertEqual(ended,set())
+        self.assertEqual(len(a.detail_plan([dict(isin=ISIN)],[],NOW,ended)),1)
+
+    def test_server_terminal_audit_drives_new_list_and_selected_plan(self):
+        active='DE000FE2JJ20'
+        proof=dict(issuerVerified=True,issuerTerminal=True,issuerStatus=2,issuerRawStatus=8)
+        audit=dict(lastCheckedAt=datetime.fromtimestamp(NOW-60,timezone.utc).isoformat(),
+                   listUploadedAt='previous-list',items=[dict(isin=ISIN,state='terminated',sourceStatusEvidence=proof)])
+        products=[dict(isin=ISIN),dict(isin=active)]
+        class Db:
+            def execute(self,sql,params=()):
+                self.sql=sql
+                return self
+            def fetchone(self):return (audit,)
+        db=Db()
+        ended=a.reader_terminal_isins(db,products,NOW)
+        self.assertEqual(ended,{ISIN})
+        self.assertTrue(db.sql.startswith('SELECT '))
+        rows=[dict(isin=ISIN),dict(isin=active)]
+        self.assertEqual([p['isin'] for p in a.detail_plan(rows,products,NOW,ended)],[active])
+        self.assertEqual(a.refresh_plan(rows,products,[ISIN],ended),[])
+        original=copy.deepcopy(audit)
+        for change in [dict(issuerVerified=False),dict(issuerTerminal=False),
+                       dict(issuerRawStatus=True),dict(issuerRawStatus=1),dict(issuerStatus=True)]:
+            audit['items'][0]['sourceStatusEvidence']={**proof,**change}
+            self.assertEqual(a.reader_terminal_isins(db,products,NOW),set())
+        audit.clear();audit.update(copy.deepcopy(original))
+        # A newer verified active issuer observation overrides the cached terminal proof.
+        products[0]['quote']=dict(isin=ISIN,productVerified=True,metadata={'status':1})
+        self.assertEqual(a.reader_terminal_isins(db,products,NOW),set())
+        del products[0]['quote']
+        for at in [NOW+1,NOW-14*3600-1]:
+            audit['lastCheckedAt']=datetime.fromtimestamp(at,timezone.utc).isoformat()
+            self.assertEqual(a.reader_terminal_isins(db,products,NOW),set())
+        audit.clear();audit.update(original)
+        self.assertEqual(a.reader_terminal_isins(db,[dict(isin=active)],NOW),set())
+        self.assertNotIn('quote',products[0])
+
+    def test_list_status_uses_server_audit_not_screenshot_quote_metadata(self):
+        active='DE000FE2JJ20'
+        audit=dict(lastCheckedAt=datetime.fromtimestamp(NOW-60,timezone.utc).isoformat(),
+            items=[dict(isin=ISIN,state='terminated',sourceStatusEvidence=dict(
+                issuerVerified=True,issuerTerminal=True,issuerStatus=2,issuerRawStatus=8))])
+        class Db(MemoryDb):
+            def execute(self,sql,params=()):
+                if sql.startswith('SELECT token_hash FROM'):self.result=('device',)
+                elif sql.startswith('SELECT import_receipt, parsed_items'):
+                    self.result=({'stage':'synced'},[dict(isin=ISIN),dict(isin=active)],datetime.fromtimestamp(NOW-30,timezone.utc))
+                elif sql.startswith('SELECT payload FROM bob_paper_products'):
+                    self.result=({'products':[dict(isin=ISIN),dict(isin=active)]},)
+                elif sql.startswith("SELECT to_regclass("):self.result=('bob_degiro_product_audit',)
+                elif sql.startswith('SELECT payload FROM bob_degiro_product_audit'):self.result=(audit,)
+                else:return super().execute(sql,params)
+                return self
+        answer=a.handle(Db(),dict(action='list-status',token='a'*64,
+            value=dict(batchId='b'*32,refreshIsins=[ISIN,active])),NOW)
+        self.assertEqual(answer['detailIsins'],[active])
+        self.assertEqual(answer['refreshIsins'],[active])
+
     def test_terminal_requires_exact_verified_issuer_status(self):
         terminal={'isin':ISIN,'quote':{'isin':ISIN,'productVerified':True,'metadata':{'status':2}}}
         self.assertEqual(a.detail_plan([{'isin':ISIN}],[terminal],NOW),[])
