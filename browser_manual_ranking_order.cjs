@@ -97,6 +97,8 @@ const html='<!doctype html><html lang="de"><head><meta charset="utf-8">'+
   result=await panel.locator('[data-manual-broker-result]').innerText();
   assert(result.includes('20.3000'),'Broker display ask price replaces preliminary 20.0000');
   assert(result.includes('48 ganze Stück'),'Quantity recalculated against updated broker display');
+  assert(result.includes('18.8000'),'Model stop reanchored to synchronized broker bid');
+  assert(result.includes('Rechnerische Neuanpassung'),'Stop explicitly labeled theoretical');
   assert(result.includes('keine automatische Kauf-/Verkaufsorder'),'No order action');
   assert.equal(await panel.locator('button[data-manual-copy]').count()>=1,true,'ISIN copy only');
   await panel.locator('#bobManualScreenAt').fill('2026-11-03T12:00:00Z');

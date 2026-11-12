@@ -59,11 +59,13 @@ function brokerReview(overrides={},other={}){
 const brokerResult=brokerReview();
 assert.equal(brokerResult.available,true);
 assert.equal(brokerResult.entry,20.3);
-assert.equal(brokerResult.stop,18.5);
+assert.ok(Math.abs(brokerResult.stop-18.8)<1e-9);
 assert.equal(brokerResult.quantity,48);
 assert.ok(Math.abs(brokerResult.totalCHF-885)<0.05);
-assert.ok(Math.abs(brokerResult.lossCHF-85.76)<0.01);
+assert.ok(Math.abs(brokerResult.lossCHF-72.8)<0.01);
 assert.equal(brokerResult.manualFieldsComplete,true);
+assert.ok(Math.abs(brokerResult.stopShift-0.3)<1e-9);
+assert.equal(brokerReview({quoteAt:iso(now-75000)}).manualFieldsComplete,false);
 assert.equal(brokerResult.copyAllowed,false);
 assert.equal(brokerResult.brokerExecutionVerified,false);
 assert.equal(brokerResult.orderSubmitted,false);
