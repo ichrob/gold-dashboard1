@@ -20,6 +20,13 @@ class StopStudyTests(unittest.TestCase):
         at=NOW+seconds*1000
         return study.advance(s,{**market(s['direction']),'price':gold,'dataAt':at},quote(at,bid,bid+.1),at)
 
+    def test_delayed_registration_cannot_import_a_later_stop(self):
+        case=self.case()
+        case['engine']['trade']['stop']=110
+        state=study.create(case)
+        self.assertEqual(state['engine']['trade']['stop'],90)
+        self.assertEqual(state['variants']['bob']['stop'],90)
+
     def test_current_accounts_and_unique_ids(self):
         states=[study.create(self.case(p)) for p in study.PROFILES]
         self.assertEqual(len(set(s['id'] for s in states)),len(states))

@@ -39,7 +39,7 @@ def create(case):
     return dict(version=VERSION,id=case['profile']+':'+case['id'],profile=case['profile'],day=case['day'],isin=case['product']['isin'],
         startedAt=case['startedAt'],endsAt=case['endsAt'],unit=plan.get('unit'),entry=plan['entry'],direction=plan['direction'],target=plan['target'],
         product=copy.deepcopy(case['product']),koGuardRequired=case.get('koGuardRequired') is True,quantity=case['quantity'],entryAsk=case['entryAsk'],costModel=copy.deepcopy(case.get('ledgerCostModel') or paper_costs.SCENARIOS[0]),
-        engine=copy.deepcopy(case['engine']),setup=copy.deepcopy(frozen),lastGoldAt=case['analysis']['dataAt'],lastQuoteAt=case['entryQuote']['bidAt'],
+        engine={'trade':dict(tradeId=case['id'],dir=plan['direction'],entry=plan['entry'],stop=plan['stop'],target=plan['target'],initialRisk=abs(plan['entry']-plan['stop']),instrument='XAU/USD',active=True,product=None)},setup=copy.deepcopy(frozen),lastGoldAt=case['analysis']['dataAt'],lastQuoteAt=case['entryQuote']['bidAt'],
         gap=False,complete=False,variants={k:dict(label=label,stop=stops.get(k),peakBid=case['entryQuote']['bid'],status='open' if stops.get(k) else 'unavailable',modelNetEur=None)
                                          for k,label in LABELS.items()})
 
