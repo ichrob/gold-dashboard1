@@ -5,6 +5,7 @@ observations and assumed fees are inspected without exposing private quotes,
 ISINs or raw events. Broker net P/L and a strategy winner remain UNVERIFIED.
 """
 import math
+from datetime import datetime
 import paper_costs
 
 LIMIT = 5
@@ -22,6 +23,25 @@ def _num(v):
 
 def _positive(v):
     return _num(v) and v > 0
+
+
+def _source_time(quote, side):
+    """Read stored original milliseconds or timezone-aware provider ISO clocks.
+
+    Match the paper ledger's quoteAt fallback without rewriting stored evidence.
+    Naive dates, booleans, malformed and non-finite clocks are never accepted.
+    """
+    value = quote.get(side) or quote.get("quoteAt")
+    if _positive(value):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        result = parsed.timestamp()*1000 if parsed.tzinfo else None
+        return result if _positive(result) else None
+    except (ValueError, OverflowError, OSError):
+        return None
 
 
 def _close(a, b, tolerance=.02):
@@ -53,6 +73,7 @@ def _reason(case):
         return "original-selection-or-clock-not-proven", None
     product = case.get("product") or {}
     entry = case.get("entryQuote") or {}
+    entry_at = _source_time(entry, "askAt")
     n = case.get("quantity")
     start = case.get("startedAt")
     if (not isinstance(product, dict) or not isinstance(entry, dict)
@@ -60,8 +81,8 @@ def _reason(case):
             or product.get("isin") != entry.get("isin")
             or entry.get("currency") != "EUR"
             or not isinstance(entry.get("source"), str) or not entry.get("source")
-            or not _positive(entry.get("ask")) or not _positive(entry.get("askAt"))
-            or not _positive(start) or not 0 <= start-entry["askAt"] <= 90000):
+            or not _positive(entry.get("ask")) or not _positive(entry_at)
+            or not _positive(start) or not 0 <= start-entry_at <= 90000):
         return "missing-product-price-evidence", None
     if type(n) is not int or not 1 <= n <= 100000:
         return "incomplete-sale-unit-accounting", None
@@ -82,15 +103,16 @@ def _reason(case):
     for event in sale_events:
         quote = event.get("quote") or {}
         when = event.get("recordedAt")
+        bid_at = _source_time(quote, "bidAt") if isinstance(quote, dict) else None
         if (not isinstance(quote, dict)
                 or quote.get("isin") != product["isin"]
                 or quote.get("currency") != "EUR"
                 or not isinstance(quote.get("source"), str) or not quote.get("source")
                 or not _positive(quote.get("bid"))
-                or not _positive(quote.get("bidAt"))
+                or not _positive(bid_at)
                 or not _positive(when)
                 or not start <= when <= end
-                or not 0 <= when-quote["bidAt"] <= 90000):
+                or not 0 <= when-bid_at <= 90000):
             return "missing-product-price-evidence", None
         proceeds += event["units"]*quote["bid"]
     if not _close(case.get("cashReleased"), proceeds):

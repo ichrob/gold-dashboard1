@@ -56,6 +56,33 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn("private-test-instrument",json.dumps(s))
         self.assertNotIn("public-issuer-test",json.dumps(s))
 
+    def test_persisted_provider_iso_clocks_reconcile_without_rewriting(self):
+        from datetime import datetime, timezone, timedelta
+        for tz in (timezone.utc, timezone(timedelta(hours=1))):
+            c=closed_case()
+            for q,side in ((c["entryQuote"],"askAt"),
+                           (c["events"][1]["quote"],"bidAt")):
+                q[side]=datetime.fromtimestamp(q[side]/1000,tz).isoformat()
+            stored=json.loads(json.dumps(c))
+            before=copy.deepcopy(stored)
+            self.assertEqual(proof.sample([stored])["modelEvidenceEligible"],1)
+            self.assertEqual(stored,before)
+            for q,side in ((stored["entryQuote"],"askAt"),
+                           (stored["events"][1]["quote"],"bidAt")):
+                q["quoteAt"]=q.pop(side)
+            self.assertEqual(proof.sample([stored])["modelEvidenceEligible"],1)
+
+    def test_invalid_stale_future_iso_clocks_do_not_certify_results(self):
+        from datetime import datetime, timezone
+        for side in ("entry", "exit"):
+            for value in ("bad", "2026-11-11T12:00:00", True, float("nan"),
+                          datetime.fromtimestamp((T-90001)/1000,timezone.utc).isoformat(),
+                          datetime.fromtimestamp((T+60000)/1000,timezone.utc).isoformat()):
+                c=closed_case()
+                q,key=(c["entryQuote"],"askAt") if side=="entry" else (c["events"][1]["quote"],"bidAt")
+                q[key]=value
+                self.assertEqual(proof.sample([c])["modelEvidenceEligible"],0,(side,value))
+
     def test_missing_original_price_or_clock_denies_validation(self):
         for modifier in (
             lambda c: c["entryQuote"].update(source=None),

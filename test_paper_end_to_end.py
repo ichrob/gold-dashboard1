@@ -102,7 +102,8 @@ class PipelineDatabaseTests(unittest.TestCase):
                         t=NOW+i*30000
                         price=(case['engine']['trade']['stop']+.1 if route=='stop' or i==2
                                else case['engine']['trade']['target']-1)
-                        nq={**q,'bid':9.5 if route=='stop' else 11.+i,'ask':9.6 if route=='stop' else 11.1+i,'quoteAt':t,'bidAt':t,'askAt':t}
+                        source_at=datetime.fromtimestamp(t/1000,timezone.utc).isoformat()
+                        nq={**q,'bid':9.5 if route=='stop' else 11.+i,'ask':9.6 if route=='stop' else 11.1+i,'quoteAt':source_at,'bidAt':source_at,'askAt':source_at}
                         sim.run_once(ledger,result['bundle'],{**m,'price':price,'dataAt':t},selection,{ISIN:nq},t,policy)
                         case=ledger.execute('SELECT payload FROM bob_paper_cases').fetchone()[0]
                         if case['status']!='open':break
@@ -110,6 +111,10 @@ class PipelineDatabaseTests(unittest.TestCase):
                     if route=='target':self.assertIn('partial-profit',[e['kind'] for e in case['events']])
                     control=ledger.execute('SELECT payload FROM bob_paper_control').fetchone()[0]
                     self.assertEqual(control['reflection']['evaluated'],1)
+                    import paper_net_evidence
+                    proof=paper_net_evidence.sample([case])
+                    self.assertEqual(proof['modelEvidenceEligible'],1,proof)
+                    self.assertFalse(proof['brokerNetVerified'])
                     self.assertAlmostEqual(control['cash'],100+case['reflection']['costModel']['modelNetEur'])
                     before=control['cash']
                     sim.run_once(ledger,result['bundle'],{**m,'price':price,'dataAt':t},selection,{ISIN:nq},t,policy)
