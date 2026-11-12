@@ -54,7 +54,22 @@ def frame_health(raw, tf, now_ms):
            else 'insufficient' if count<100 else 'ok')
     return dict(state=state,closed=count,ema200='available' if state=='ok' and count>=200 else 'context-unavailable',
                 lastClosedAt=int(close_at),ageSeconds=round(age/1000,1),
-                source=last.get('source') or 'Quellenangabe fehlt')
+                source=last.get('source') or 'Quellenangabe fehlt',
+                gapEvidence=gap_evidence(rows[-3:], step) if valid and identity else None)
+
+
+def gap_evidence(rows, step):
+    """A missing source timestamp is not proof of an open trading session."""
+    gaps = []
+    for before, after in zip(rows, rows[1:]):
+        count = int((after['openTime']-before['openTime'])//step)-1
+        if count > 0:
+            gaps.append(dict(firstMissingOpenAt=int(before['openTime']+step),
+                             lastMissingOpenAt=int(after['openTime']-step), count=count,
+                             source=after.get('source'), sessionStatus='unverified',
+                             automaticBackfillAllowed=False))
+    return dict(gaps=gaps, meaning='missing-source-bars-not-confirmed-outage',
+                affectsTradeApproval=False)
 
 
 def compare_spot_to_close(spot, frames, now_ms):
