@@ -43,6 +43,74 @@ class Planning(unittest.TestCase):
         self.assertEqual(db.args[1],3)
         self.assertIn('revision=%s',db.sql)
 
+
+    def test_verified_basic_autofx_populate_only_conditional_paper_assumptions(self):
+        now=2_000_000_000
+        proof={'verifiedSettings':{
+            'feeProfile':dict(value='BASIC',capturedAt=now-30,
+                source='degiro-app-owner-confirmed'),
+            'autoFx':dict(value='ON',capturedAt=now-40,
+                source='degiro-app-local-accessibility')}}
+        class Cursor:
+            def __init__(self,value):self.value=value
+            def fetchone(self):return self.value
+            def fetchall(self):return self.value
+        class Db:
+            count=1
+            def execute(self,sql):
+                if 'to_regclass' in sql:return Cursor(('bob_android_remote',))
+                if 'FROM bob_android_remote' in sql:
+                    return Cursor([(proof,)] if self.count==1 else [(proof,),(proof,)])
+                raise AssertionError('Unexpected query')
+        conn=Db()
+        config=dict(CONFIG,feesCHF=None,feeProfile='unknown',fxMode='unknown')
+        model,evidence,conditional=p.planning_context(conn,config,now)
+        self.assertTrue(conditional)
+        self.assertEqual(model['feeProfile'],'CH_STANDARD')
+        self.assertEqual(model['fxMode'],'AUTO_CHF')
+        self.assertIsNone(model['feesCHF'])
+        self.assertEqual(config['feeProfile'],'unknown')
+        self.assertEqual(config['fxMode'],'unknown')
+        self.assertEqual(evidence['autoFx']['source'],'degiro-app-local-accessibility')
+        # More than one phone is ambiguous: never mix their accounts.
+        conn.count=2
+        _,ambiguous,conditional=p.planning_context(conn,config,now)
+        self.assertIsNone(ambiguous)
+        self.assertFalse(conditional)
+        conn.count=1
+        proof['verifiedSettings']['autoFx']['value']='OFF'
+        result,_,conditional=p.planning_context(conn,config,now)
+        self.assertEqual(result['feeProfile'],'CH_STANDARD')
+        self.assertEqual(result['fxMode'],'unknown')
+        self.assertTrue(conditional)
+        # Source staleness or account identity change cannot silently persist.
+        stale=p.read_account_context(conn,now+8*86400)
+        self.assertIsNone(stale)
+        confirmed=dict(config,feeProfile='CH_STANDARD',fxMode='AUTO_CHF')
+        result,_,conditional=p.planning_context(conn,confirmed,now)
+        self.assertEqual(result,confirmed)
+        self.assertFalse(conditional)
+
+    def test_tick_only_passes_effective_model_config_to_bounded_paper_worker(self):
+        config=dict(CONFIG,feesCHF=None,feeProfile='unknown',fxMode='unknown')
+        derived=dict(config,feeProfile='CH_STANDARD',fxMode='AUTO_CHF')
+        state=dict(config=config,effectiveConfig=derived,accountEvidenceConditional=True,
+                   revision=3,result=None)
+        report=dict(listUploadedAt='generation',items=[dict(isin='DE000FG14AV8',
+            state='incomplete',handsetObservation=dict(observedAt='capture'))])
+        class Db:
+            def execute(self,sql,args):self.sql=sql;self.args=args
+        from types import SimpleNamespace
+        with patch.object(p,'read',return_value=state),patch('degiro_product_audit.read',return_value=report),\
+             patch('evaluator_runtime.run',return_value=SimpleNamespace(
+                 stdout=json.dumps(dict(calculatedAt=1000,items=[])))) as run:
+            p.tick(Db(),dict(listUploadedAt='generation',products=[]),{},
+                   dict(handsetPlans={},handsetPlanRevision=3),dict(spots={}),1000)
+        payload=json.loads(run.call_args.kwargs['input'])
+        self.assertEqual(payload['config'],derived)
+        self.assertTrue(payload['accountEvidenceConditional'])
+        self.assertEqual(state['config'],config)
+
     def test_postgres_settings_survive_reads_and_reject_lost_updates(self):
         url=os.environ.get('BOB_TEST_DATABASE_URL')
         if not url:self.skipTest('test database not configured')

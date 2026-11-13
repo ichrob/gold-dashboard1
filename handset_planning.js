@@ -10,7 +10,8 @@ function evaluate(input){
  for(const file of ['degiro_assistant.js','bob_stop_assistant.js','degiro_android_bridge.js','manual_ranking_order.js'])
   vm.runInContext(fs.readFileSync(__dirname+'/'+file,'utf8'),env,{timeout:2000});
  return vm.runInContext(`(()=>{
-  const api=window.BobDegiro,calc=window.BobManualTop3,cfg=input.config||{};
+  const api=window.BobDegiro,calc=window.BobManualTop3,cfg=input.config||{},
+   accountEvidenceConditional=input.accountEvidenceConditional===true;
   const items=(input.report?.items||[]).filter(x=>x.handsetObservation).slice(0,12).map(row=>{
    const isin=row.isin,original=input.products.find(p=>p.isin===isin),q=input.quotes?.[isin];
    const p=original&&q?.isin===isin?{...original,quote:q,
@@ -45,7 +46,9 @@ function evaluate(input){
       entrySuitable:stop?.entrySuitable??null,entryWarning:stop?.entryWarning||null,
       entryApproved:false,copyAllowed:false,rankingPenalty:false,orderSubmitted:false};
     }):[];
-   const reasons=[!imported.available&&imported.reason,
+   const reasons=[accountEvidenceConditional&&
+     'Basic/AutoFX aus datierten Gerätesitzungen nur als Simulationsannahme; tatsächliche Brokergebühren und Kontogleichheit nicht bestätigt.',
+    !imported.available&&imported.reason,
     !stop?.available&&(stop?.reason||'Unabhängiger Produkt-Modellplan fehlt'),
     !input.config&&'CHF-Vorgaben noch nicht dauerhaft gespeichert',
     !feeAssessment.available&&feeAssessment.reason,
@@ -59,7 +62,10 @@ function evaluate(input){
   });
   return {calculatedAt:now,items,available:items.filter(x=>x.available).length,
    conditionalAvailable:items.filter(x=>x.automaticScenarios.some(s=>s.available)).length,
-   configMissing:!input.config,researchOnly:true,realOrders:false,rankingUpdated:false};
+   configMissing:!input.config,
+   accountEvidenceConditional,accountFeeConfirmed:false,
+   brokerExecutionConfirmed:false,
+   researchOnly:true,realOrders:false,rankingUpdated:false};
  })()`,env,{timeout:2000});
 }
 module.exports={evaluate};

@@ -35,6 +35,55 @@ def validate(value):
     return dict(value)
 
 
+# Device proof remains a dated per-field observation. A phone may switch
+# broker accounts; never combine separate sessions as confirmed account
+# identity, real costs, or a permission to submit orders.
+def read_account_context(conn, now=None):
+    now=int(time.time()) if now is None else int(now)
+    table=conn.execute("SELECT to_regclass('bob_android_remote')").fetchone()
+    if not table or not table[0]:return None
+    rows=conn.execute("""SELECT r.state FROM bob_android_remote r
+        JOIN bob_android_diagnostic_devices d USING(token_hash)
+        WHERE NOT d.revoked AND d.expires_at>now() LIMIT 2""").fetchall()
+    if len(rows)!=1:return None
+    values=rows[0][0]
+    if not isinstance(values,dict):return None
+    source=values.get('verifiedSettings')
+    if not isinstance(source,dict):return None
+    results={}
+    for field,choices in (('feeProfile',('BASIC','ACTIVE','TRADER')),
+                          ('autoFx',('ON','OFF'))):
+        value=source.get(field)
+        if not isinstance(value,dict) or set(value)!={'value','capturedAt','source'}:
+            continue
+        if (value.get('value') in choices and type(value.get('capturedAt')) is int
+             and 0<=now-value['capturedAt']<=7*86400 and
+             value.get('source') in ('degiro-app-owner-confirmed',
+                                   'degiro-app-local-accessibility')):
+            results[field]=dict(value)
+    return results or None
+
+
+def planning_context(conn,config,now=None):
+    # Only missing fields get paper-only, reversible scenario assumptions.
+    # No persistent config or order approval is changed here.
+    effective=dict(config) if isinstance(config,dict) else None
+    proof=read_account_context(conn,now)
+    if effective is None or not proof:
+        return effective,proof,False
+    conditional=False
+    if (effective.get('feeProfile','unknown')=='unknown' and
+        proof.get('feeProfile',{}).get('value') in ('BASIC','ACTIVE','TRADER')):
+        effective['feeProfile']='CH_STANDARD'
+        conditional=True
+    if (effective.get('fxMode','unknown')=='unknown' and
+        proof.get('autoFx',{}).get('value')=='ON'):
+        effective['fxMode']='AUTO_CHF'
+        conditional=True
+    # AutoFX OFF does not imply a funded foreign-currency wallet.
+    return effective,proof,conditional
+
+
 def read(conn):
     exists=conn.execute("SELECT to_regclass('bob_handset_planning')").fetchone()
     if not exists or not exists[0]:
@@ -44,7 +93,11 @@ def read(conn):
         return dict(config=None, revision=0, result=None, resultFresh=False, realOrders=False)
     result = row[2]
     age = time.time()*1000-(result or {}).get('calculatedAt', 0)
-    return dict(config=row[0], revision=row[1], result=result,
+    effective,account,conditional=planning_context(conn,row[0])
+    return dict(config=row[0], effectiveConfig=effective,
+                accountEvidence=account, accountEvidenceConditional=conditional,
+                accountIdentityConfirmedAcrossSessions=False,
+                revision=row[1], result=result,
                 resultFresh=bool(result and 0 <= age <= 90000), realOrders=False)
 
 
@@ -90,7 +143,9 @@ def tick(conn, evidence, quotes, market, bundle, now):
     comparison_quotes={row['isin']:prepare(quotes.get(row['isin']),clock) for row in rows[:12]}
     request = dict(report=report, products=evidence.get('products', [])[:12], quotes=comparison_quotes,
                    plans=market.get('handsetPlans') or {}, spots=bundle.get('spots') or {},
-                   config=state['config'], now=now)
+                   config=state.get('effectiveConfig',state['config']),
+                   accountEvidenceConditional=state.get('accountEvidenceConditional',False),
+                   now=now)
     proc = evaluator_runtime.run(['node', str(Path(__file__).with_name('handset_planning.js'))],
         input=json.dumps(request, allow_nan=False), text=True, capture_output=True,
         timeout=6, check=True, priority=2)

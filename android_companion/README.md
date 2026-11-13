@@ -1,3 +1,44 @@
+## DEGIRO-Profilseite: Basic sicher erkennen und übernehmen
+
+Die deutsche DEGIRO-Ansicht **„Anlageprofil → Ihre Handelseinstellungen“**
+ist eine **Profil-Auswahlseite**, **keine Kauf-/Orderbestätigung**.
+Basic/Active/Trader werden als mögliche Karten angezeigt; das Wort
+„Basic“ alleine beweist **nicht**, dass dieses Profil aktuell aktiv ist.
+Bob lässt „Benutzerkonto auswählen“ vollständig unangetastet.
+
+1. Eigentümer öffnet diese Seite in einer bereits angemeldeten DEGIRO-App.
+2. In Bob Handy „DEGIRO-Kontoeinstellungen lesen · 15 Minuten“ einmal
+   bestätigen. Bob erkennt die Seite rein passiv. Das aktuelle Profil wird
+   nur aus einem ausdrücklich von Android als **ausgewählt** markierten
+   Kartenknoten oder einer vollständigen, eindeutigen 3-Karten-Struktur
+   mit genau zwei anderen Auswahlbuttons übernommen.
+3. Falls die DEGIRO-Webansicht lediglich einen **grünen Rahmen** zeigt,
+   Android aber keinen eindeutigen Auswahlnachweis bereitstellt, bleibt
+   der automatische Befund **unbestätigt**. Als transparent markierter
+   Eigentümerbeleg steht der separate Bob-Handy-Knopf
+   **„Basic-Profil bestätigen · keine DEGIRO-Änderung“** bereit. Nur
+   verwenden, wenn man die grün umrandete Basic-Karte selbst gesehen hat;
+   das Bestätigungsfenster erläutert den Unterschied. Der Knopf startet
+   eine lokale Lesesitzung, prüft die Basic-Karte **auf der DEGIRO-Seite**,
+   klickt jedoch nichts an und ändert keine Kontoeinstellung.
+4. Bob speichert das Ergebnis als zeitlich begrenztes, minimiertes
+   `feeProfile=BASIC` mit `source=degiro-app-owner-confirmed` oder dem
+   strengeren `source=degiro-app-local-accessibility`, und erhält
+   `autoFx=ON` als **separaten** datierten Originalbefund. Höchstens
+   sieben Tage alte Statusbelege bleiben im privaten, widerrufbaren
+   Geräteeintrag erhalten, getrennt nach Quelle und Erfassungszeit.
+   Es gibt **keinen** Nachweis derselben Brokeridentität über zwei
+   Lesesitzungen, und **keine** automatische Umstellung von Bobs
+   Echtgeld-/Order-Kostenfreigaben.
+
+Das offizielle Schweizer DEGIRO-Standardpreisverzeichnis (Basic/Active/
+Trader) ist für die **Modellreserve** nutzbar, aber die Auswahl Basic
+beweist weder individuelle abgerechnete Gebühren noch den aktuellen
+ausführbaren Geld-/Briefkurs einer bestimmten ISIN. Für reale Kosten
+sind DEGIRO-Handelsplatz, Orderkosten-Vorschau und Ausführungsbeleg
+separat zu bestätigen. Keine automatischen Brokerorders.
+
+---
 ## Eigene passive Sitzung für Kontoeinstellungen (Nachbesserung zum Produktleser)
 
 Der vorhandene Knopf **„ChatGPT-Handy-Sitzung starten · 15 Minuten“**

@@ -53,6 +53,89 @@ class AccountSettingsEvidenceTest {
         assertEquals("ON",nav.autoFx)
     }
 
+
+    @Test fun actualGermanAccountChoicePageIsNotBrokerOrderConfirmation() {
+        val fullPage=listOf("Ihre Handelseinstellungen",
+            "Basic-Benutzerkonto",
+            "Active-Benutzerkonto","Benutzerkonto auswählen",
+            "Trader-Benutzerkonto","Benutzerkonto auswählen")
+        assertTrue(AccountSettingsEvidence.recognizesSettings(fullPage))
+        assertFalse(AccountSettingsEvidence.hasProtectedLabel("Benutzerkonto auswählen"))
+        val selected=AccountSettingsEvidence.read(app,fullPage)
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",selected.code)
+        assertEquals("BASIC",selected.feeProfile)
+        assertNull(selected.autoFx)
+        assertFalse(selected.toString().contains("Benutzerkonto"))
+        // In a short Samsung viewport, Basic and Active are visible but
+        // Active's select button could be below the fold: never guess.
+        val cropped=listOf("Ihre Handelseinstellungen",
+            "Basic-Benutzerkonto","Active-Benutzerkonto")
+        assertTrue(AccountSettingsEvidence.recognizesSettings(cropped))
+        assertEquals("SETTINGS_UNCONFIRMED",
+            AccountSettingsEvidence.read(app,cropped).code)
+        val lower=listOf("Active-Benutzerkonto","Benutzerkonto auswählen",
+            "Trader-Benutzerkonto","Benutzerkonto auswählen")
+        assertTrue(AccountSettingsEvidence.recognizesSettings(lower))
+        assertEquals("SETTINGS_UNCONFIRMED",
+            AccountSettingsEvidence.read(app,lower).code)
+    }
+
+    @Test fun multipleAccountOptionsAreNotMisreadAsCurrentPlan() {
+        val headings=listOf("Ihre Handelseinstellungen",
+            "Basic-Benutzerkonto","Active-Benutzerkonto","Trader-Benutzerkonto")
+        assertEquals("SETTINGS_UNCONFIRMED",
+            AccountSettingsEvidence.read(app,headings).code)
+        val buttons=listOf("Ihre Handelseinstellungen",
+            "Basic-Benutzerkonto","Benutzerkonto auswählen",
+            "Active-Benutzerkonto","Benutzerkonto auswählen",
+            "Trader-Benutzerkonto","Benutzerkonto auswählen")
+        assertEquals("SETTINGS_UNCONFIRMED",
+            AccountSettingsEvidence.read(app,buttons).code)
+        val lastCardPossiblyCropped=listOf("Ihre Handelseinstellungen",
+            "Basic-Benutzerkonto","Benutzerkonto auswählen",
+            "Active-Benutzerkonto","Benutzerkonto auswählen",
+            "Trader-Benutzerkonto")
+        assertEquals("SETTINGS_UNCONFIRMED",
+            AccountSettingsEvidence.read(app,lastCardPossiblyCropped).code)
+        val semanticallySelected=AccountSettingsEvidence.read(app,headings,
+            selectedProfiles=listOf("ACTIVE"))
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",semanticallySelected.code)
+        assertEquals("ACTIVE",semanticallySelected.feeProfile)
+        val conflict=AccountSettingsEvidence.read(app,headings,
+            selectedProfiles=listOf("ACTIVE","BASIC"))
+        assertEquals("SETTINGS_CONFLICT",conflict.code)
+        assertEquals("SETTINGS_NOT_VISIBLE",
+            AccountSettingsEvidence.read(app,listOf("Produkt", "Basic",
+                "Handel mit Optionen","Benutzerkonto auswählen")).code)
+        assertEquals("PROTECTED_VIEW",
+            AccountSettingsEvidence.read(app,headings+"Order bestätigen").code)
+    }
+
+    @Test fun basicOwnerConfirmationIsScopedToExactVisibleProfilePage() {
+        val page=listOf("Ihre Handelseinstellungen","Basic-Benutzerkonto",
+            "Active-Benutzerkonto","Benutzerkonto auswählen")
+        val e=AccountSettingsEvidence.ownerConfirmedProfile(app,page,"BASIC")
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",e.code)
+        assertEquals("BASIC",e.feeProfile)
+        assertNull(e.autoFx)
+        assertEquals("degiro-app-owner-confirmed",e.source)
+        for (labels in listOf(
+            listOf("Produkt","Basic-Benutzerkonto"),
+            listOf("Ihre Handelseinstellungen","Active-Benutzerkonto"),
+            listOf("Benutzerkonto auswählen","Basic-Benutzerkonto"))) {
+            assertEquals("SETTINGS_UNCONFIRMED",
+                AccountSettingsEvidence.ownerConfirmedProfile(app,labels,"BASIC").code)
+        }
+        assertEquals("SETTINGS_UNCONFIRMED",
+            AccountSettingsEvidence.ownerConfirmedProfile(app,page,"UNKNOWN").code)
+        assertEquals("OTHER_APP",
+            AccountSettingsEvidence.ownerConfirmedProfile("com.other",page,"BASIC").code)
+        assertEquals("PROTECTED_VIEW",
+            AccountSettingsEvidence.ownerConfirmedProfile(app,
+                page+listOf("PIN eingeben"),"BASIC").code)
+        assertEquals("PROTECTED_VIEW",
+            AccountSettingsEvidence.ownerConfirmedProfile(app,page,"BASIC",true).code)
+    }
     @Test fun safetyBoundaryStopsCredentialAndOrderScreens() {
         assertEquals("OTHER_APP", AccountSettingsEvidence.read("com.other.app",
             listOf("Währungseinstellungen", "AutoFX: on")).code)
