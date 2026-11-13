@@ -5,6 +5,7 @@ a calculated approximation (delta assumed +/-1, FX held constant), never SG's
 undated CurrentLeverage. Every changing input keeps its own observation time.
 """
 import json
+import copy
 import math
 import os
 import re
@@ -54,6 +55,23 @@ def market_input(kind):
     with _INPUT_LOCKS[kind]:
         cached = _INPUT_CACHE.get(kind)
         if cached and time.monotonic()-cached[0] < ttl:
+            if kind == 'fx':
+                from fx_data import age, peek_backup
+                now = datetime.now(timezone.utc)
+                try:
+                    usable = (age(cached[1], now) <= 90
+                              and cached[1].get('market_session') == 'open'
+                              and all(cached[1].get('sources', {}).get(c) == 'live'
+                                      for c in ('EUR', 'CHF')))
+                except (ValueError, KeyError, TypeError, OverflowError):
+                    usable = False
+                if not usable:
+                    # Recovery can finish after this cached request. Consume its
+                    # ready observation without waiting for the HTTP TTL, adding
+                    # a request, renewing source clocks or extending that TTL.
+                    standby = peek_backup(now)
+                    if standby is not None:
+                        return copy.deepcopy(standby)
             return cached[1]
         failure = _INPUT_ERRORS.get(kind)
         if failure and time.monotonic()-failure[0] < 30:
