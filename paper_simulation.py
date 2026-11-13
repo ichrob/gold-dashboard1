@@ -1487,6 +1487,7 @@ def _worker(db):
                             print('BOB_RISK_PAPER error='+type(exc).__name__,flush=True)
                         bundle,market=analyze_latest_bundle(bundle,settings,latest_paper_bundle,
                             background_push.analyze,lambda:time.time()*1000)
+                        analysis_checked_at=time.time()*1000
                         # Work started before analysis may already be complete:
                         # harvest it now instead of waiting another collector cycle.
                         quotes=quote_cache(evidence['products'],active_isins,time.time()*1000,
@@ -1598,12 +1599,14 @@ def _worker(db):
                         if quality_generation_pending(
                                 last_quality_generation, quality_generation):
                             quality_bundle,quality_market=bundle,market
+                            quality_input_checked_at=analysis_checked_at
                             try:
                                 quality_bundle,quality_market=refresh_original_study_input(
                                     bundle,market,settings,lambda:quality_candidate,
                                     background_push.analyze,lambda:time.time()*1000,
                                     evidence_phase='quality-final')
                                 if quality_bundle is not bundle:
+                                    quality_input_checked_at=time.time()*1000
                                     print('BOB_QUALITY_RESEARCH reused_newer_observed_bundle=1',flush=True)
                             except Exception as refresh_exc:
                                 print('BOB_QUALITY_RESEARCH refresh_error='+type(refresh_exc).__name__,flush=True)
@@ -1626,7 +1629,8 @@ def _worker(db):
                                     research_restart.tick(
                                         conn,quality_bundle,quality_market,
                                         quality_checked_at,outcomes,
-                                        quality_worker_observations)
+                                        quality_worker_observations,
+                                        input_checked_at=quality_input_checked_at)
                                 last_quality_generation=quality_generation
                             except Exception as research_exc:
                                 print('BOB_QUALITY_RESEARCH error='+type(research_exc).__name__,flush=True)
