@@ -151,16 +151,24 @@ def store_rows(db, rows):
              row['open'], row['high'], row['low'], row['close'], row['fetchedAt'], row['fetchedAt']))
 
 
-def gaps(rows, interval):
+def gaps(rows, interval, *, start_ms=None, end_ms=None):
+    """Detect missing intervals including requested start/end, not proven outages."""
     step = INTERVAL_MS[interval]
-    out = []
-    for left, right in zip(rows, rows[1:]):
-        if right['openTime'] - left['openTime'] > step:
-            out.append({'startMs':left['openTime'] + step,
-                        'endMs':right['openTime'] - step,
-                        'sessionStatus':'unverified',
-                        'automaticBackfillAllowed':False})
-    return out
+    ordered = sorted(rows, key=lambda r: r['openTime'])
+    ranges = []
+    if not ordered:
+        if start_ms is not None and end_ms is not None and end_ms > start_ms:
+            ranges.append((start_ms, end_ms - step))
+    else:
+        if start_ms is not None and ordered[0]['openTime'] > start_ms:
+            ranges.append((start_ms, ordered[0]['openTime'] - step))
+        for left, right in zip(ordered, ordered[1:]):
+            if right['openTime'] - left['openTime'] > step:
+                ranges.append((left['openTime'] + step, right['openTime'] - step))
+        if end_ms is not None and ordered[-1]['openTime'] + step < end_ms:
+            ranges.append((ordered[-1]['openTime'] + step, end_ms - step))
+    return [{'startMs': start, 'endMs': end, 'sessionStatus': 'unverified',
+             'automaticBackfillAllowed': False} for start, end in ranges]
 
 
 def research_ema(rows, period=20):
@@ -340,9 +348,15 @@ def fetch_research(db, symbol, interval, start_ms, end_ms, *, now_ms=None, opene
         if isinstance(payload, dict) and payload.get('status') == 'error':
             return {'code':'PROVIDER_REJECTED'}
         rows = validate_rows(payload, symbol, interval, start_ms, end_ms, now_ms)
+        if not rows:
+            return {'code': 'NO_BARS', 'missingRanges': len(gaps(
+                rows, interval, start_ms=start_ms, end_ms=end_ms)),
+                'researchOnly': True}
         with db:
             store_rows(db, rows)
-        return {'code':'OBSERVED','stored':len(rows),'missing':len(gaps(rows,interval)),
+        return {'code':'OBSERVED','stored':len(rows),
+                'missingRanges':len(gaps(rows,interval,
+                                        start_ms=start_ms,end_ms=end_ms)),
                 'researchOnly':True}
     except HTTPError as exc:
         return {'code':'HTTP_ERROR','httpStatus':exc.code}
