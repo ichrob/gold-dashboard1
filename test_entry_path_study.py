@@ -109,6 +109,11 @@ class EntryPathPostgresTests(unittest.TestCase):
                             valid=True, ready=True, direction='LONG', cohort='v1')
                 conn.execute('INSERT INTO bob_improvement_trials VALUES (%s,%s,%s,%s::jsonb)',
                              ('campaign', base_at, 'development', json.dumps(base)))
+                # The original prior-move guard must retain its real 15m
+                # observation, otherwise the 60m comparison stays unconfirmed.
+                prior = dict(base, at=base_at-900000, priceAt=base_at-900000, price=3990)
+                conn.execute('INSERT INTO bob_improvement_observations VALUES (%s,%s,%s::jsonb)',
+                             ('campaign', base_at-900000, json.dumps(prior)))
                 # Every 30 s in the one-hour post-trial interval stays present;
                 # it must not turn into an artificially full/empty sample.
                 for n in range(1,121):
@@ -122,7 +127,7 @@ class EntryPathPostgresTests(unittest.TestCase):
                 self.assertEqual(result['items'][0]['horizons'][-1]['status'], 'observed')
                 self.assertEqual(result['items'][0]['comparison'][0]['baseline'],
                                  result['items'][0]['horizons'][-1]['directionalPct'] - PROTOCOL['costPct'][0])
-                self.assertEqual(conn.execute('SELECT count(*) FROM bob_improvement_observations').fetchone()[0], 120)
+                self.assertEqual(conn.execute('SELECT count(*) FROM bob_improvement_observations').fetchone()[0], 121)
             finally:
                 conn.rollback()
                 conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
