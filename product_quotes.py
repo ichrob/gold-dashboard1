@@ -801,6 +801,8 @@ def _get_quote_bounded(isin):
     result = _get_quote_primary(isin)
     result = enrich('comdirect-terms', isin, apply_comdirect_fields, result, recovery)
     result = enrich('finanzen-terms', isin, apply_terms_backup, result, recovery)
+    from sg_chf_contract import apply as apply_sg_contract
+    result = enrich('sg-chf-contract', isin, apply_sg_contract, result, recovery)
     result = _restore_exact_sg_metadata(result, isin)
     if result.get('metadata', {}).get('currency') == 'CHF':
         from sg_chf import convert_analysis
