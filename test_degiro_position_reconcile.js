@@ -92,7 +92,7 @@ assert.equal(pdfWithoutCsv.brokerCurrent,false);
 const dubious=pdfCost(buy,0.48,0.03,0.90);
 assert.equal(p.stableMail(dubious).documentedCostsCHF,null);
 const noPdfScope=pdfCost(buy,0.48,0.03,0.45);
-noPdfScope.result.sourceKind='DEGIRO-execution-email-HTML';
+noPdfScope.result.sourceKind='unrelated-email-HTML';
 assert.equal(p.stableMail(noPdfScope).documentedCostsCHF,null);
 const htmlReceipt={...pdfBuy,result:{...pdfBuy.result,
  sourceKind:'DEGIRO-execution-email-HTML'}};
