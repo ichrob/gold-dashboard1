@@ -40,3 +40,90 @@ class PathTests(unittest.TestCase):
         rows=[self.row(i/2,4000) for i in range(1,121)]
         r=evaluate(self.base,rows+rows,self.at+3600000)
         self.assertEqual(r['coveragePct'],100)
+
+
+class EntryPathDatabaseReadTests(unittest.TestCase):
+    def test_indexed_windows_preserve_observations(self):
+        from unittest.mock import Mock
+        from entry_path_study import read, VERSION, PROTOCOL
+
+        at = 1800000000000
+        base = dict(at=at, priceAt=at, price=4000, valid=True,
+                    ready=True, direction='LONG', cohort='v1')
+        old = dict(base, at=at-7200000, priceAt=at-7200000)
+        one = dict(base, at=at+3600000, priceAt=at+3600000, price=4020)
+        class Cursor:
+            def __init__(self, values): self.values = values
+            def fetchone(self): return self.values
+            def fetchall(self): return self.values
+        queries = []
+        class Conn:
+            def execute(self, query, params):
+                queries.append((query, params))
+                if 'bob_improvement_protocol' in query:
+                    return Cursor((PROTOCOL,))
+                if 'FROM bob_improvement_trials' in query:
+                    return Cursor([(at, 'development', base),
+                                   (at-7200000, 'validation', old)])
+                if 'FROM bob_improvement_observations o' in query:
+                    self.assert_window(params)
+                    return Cursor([(one,)] if params[1] == at-900000 else [])
+                raise AssertionError('unexpected SQL')
+            def assert_window(self, params):
+                assert params[1] in (at-900000, at-7200000-900000)
+                assert params[2] - params[1] == 4800000
+        result = read(Conn(), 'fixed-campaign', at+3800000)
+        self.assertEqual(len(result['items']), 2)
+        self.assertEqual(result['items'][0]['horizons'][-1]['status'], 'observed')
+        self.assertEqual(result['items'][1]['horizons'][-1]['status'], 'missing')
+        self.assertEqual(len(queries), 4)
+        self.assertTrue(all('WITH trials AS' not in q for q,_ in queries))
+        self.assertTrue(all('ORDER BY o.slot' in q for q,_ in queries[2:]))
+        self.assertEqual([p for _,p in queries[2:]],
+                         [('fixed-campaign', at-900000, at+3900000),
+                          ('fixed-campaign', at-7200000-900000, at-7200000+3900000)])
+
+
+import os
+@unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'), 'CI PostgreSQL integration')
+class EntryPathPostgresTests(unittest.TestCase):
+    def test_multi_trial_indexed_read_keeps_all_original_samples(self):
+        import json
+        import uuid
+        import psycopg
+        from psycopg import sql
+        from entry_path_study import read, VERSION, PROTOCOL
+
+        schema = 'entrypath_bounded_' + uuid.uuid4().hex
+        base_at = 1800000000000
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            try:
+                conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                conn.execute('CREATE TABLE bob_improvement_protocol (id TEXT PRIMARY KEY, payload JSONB)')
+                conn.execute('CREATE TABLE bob_improvement_trials (campaign TEXT, slot BIGINT, phase TEXT, payload JSONB, PRIMARY KEY(campaign,slot))')
+                conn.execute('CREATE TABLE bob_improvement_observations (campaign TEXT, slot BIGINT, payload JSONB, PRIMARY KEY(campaign,slot))')
+                conn.execute('INSERT INTO bob_improvement_protocol VALUES (%s,%s::jsonb)',
+                             (VERSION, json.dumps(PROTOCOL)))
+                base = dict(at=base_at, priceAt=base_at, price=4000,
+                            valid=True, ready=True, direction='LONG', cohort='v1')
+                conn.execute('INSERT INTO bob_improvement_trials VALUES (%s,%s,%s,%s::jsonb)',
+                             ('campaign', base_at, 'development', json.dumps(base)))
+                # Every 30 s in the one-hour post-trial interval stays present;
+                # it must not turn into an artificially full/empty sample.
+                for n in range(1,121):
+                    item = dict(base, at=base_at+n*30000, priceAt=base_at+n*30000,
+                                price=4000+n/100)
+                    conn.execute('INSERT INTO bob_improvement_observations VALUES (%s,%s,%s::jsonb)',
+                                 ('campaign', base_at+n*30000, json.dumps(item)))
+                conn.commit()
+                result = read(conn, 'campaign', base_at+3700000)
+                self.assertEqual(result['items'][0]['coveragePct'], 100)
+                self.assertEqual(result['items'][0]['horizons'][-1]['status'], 'observed')
+                self.assertEqual(result['items'][0]['comparison'][0]['baseline'],
+                                 result['items'][0]['horizons'][-1]['directionalPct'] - PROTOCOL['costPct'][0])
+                self.assertEqual(conn.execute('SELECT count(*) FROM bob_improvement_observations').fetchone()[0], 120)
+            finally:
+                conn.rollback()
+                conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+                conn.commit()
