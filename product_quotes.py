@@ -24,7 +24,12 @@ SG_CH_PRODUCTS = {'DE000FG34XV8': 7039911, 'DE000FG14AV8': 6901337}
 # Exact FB0CVV issuer identity and EUR/Put terms confirmed on SG's own
 # public product page (26.10.2026). Product ID and quote must STILL come from
 # SG Products/<ISIN>; never substitute WKN, screen time, or a BNP price.
-SG_DISCOVERY_PRODUCTS = frozenset(('DE000FG7N6Z2', 'DE000FG8NHQ3', 'DE000FB0CVV9'))
+SG_DISCOVERY_PRODUCTS = frozenset((
+    'DE000FG7N6Z2', 'DE000FG8NHQ3', 'DE000FB0CVV9',
+    # Exact SG issuer product webpage shows FA9UFD as a Gold BEST Turbo Call.
+    # The official Products/<ISIN> JSON reply must STILL establish ID/terms.
+    'DE000FA9UFD4',
+))
 SG_CH_MARKET = frozenset((*SG_CH_PRODUCTS, 'DE000FG8NHQ3'))
 # Exact 03-Nov-2026 DEGIRO-listed EUR Gold products whose identity was
 # independently observed on comdirect. SG still MUST confirm its own exact
@@ -610,6 +615,11 @@ def get_issuer_quote(isin):
         # its undated quotes into the BNP (or any other) product result.
         result = dict(result, sgDiscovery=dict(
             attempted=True, verified=False,
+            # This is a separate SG provider attempt; a later BNP HTTP error
+            # must never be reported as the SG endpoint's response.
+            failureCode=(str(sg_attempt.get('quoteFailureCode')
+                             or sg_attempt.get('sourceFailureCode') or '')[:60]
+                         or None),
             reason=sg_attempt.get('reason', 'SG-Identität nicht bestätigt')))
     with _LOCK:
         if len(_CACHE) >= 256:

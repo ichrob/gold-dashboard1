@@ -34,6 +34,36 @@ def feed():
 
 
 class ProductAuditTests(unittest.TestCase):
+    def test_failed_sg_discovery_and_bnp_fallback_have_distinct_origins(self):
+        q = provider()
+        q.update(source="comdirect Informer · öffentliche Produktdaten",
+                 found=False, quoteFailureCode="HTTP_404",
+                 issuerResearch=dict(
+                     source="BNP Paribas · öffentliche Produktrecherche",
+                     quoteFailureCode="HTTP_404",
+                     sgDiscovery=dict(attempted=True, verified=False,
+                                      failureCode="SG_SOURCE_UNAVAILABLE")))
+        row = audit.examine(feed()["products"][0], q, NOW)
+        origin = row["sourceStatusEvidence"]
+        self.assertEqual(origin["issuerQuoteFailureProvider"], "BNP")
+        self.assertEqual(origin["issuerQuoteFailureCode"], "HTTP_404")
+        self.assertEqual(origin["sgFailureCode"], "SG_SOURCE_UNAVAILABLE")
+        self.assertFalse(row["tradeApproved"])
+
+        # The pre-fix path never attempted SG, so BNP 404 is not an SG error.
+        old = dict(q, issuerResearch=dict(q["issuerResearch"]))
+        del old["issuerResearch"]["sgDiscovery"]
+        old_result = audit.examine(feed()["products"][0], old, NOW)
+        self.assertIsNone(old_result["sourceStatusEvidence"]["sgFailureCode"])
+        self.assertEqual(old_result["sourceStatusEvidence"]["issuerQuoteFailureProvider"], "BNP")
+
+        direct = dict(provider(), source="Société Générale · Direktimport",
+                      found=False, quoteFailureCode="SG_SOURCE_UNAVAILABLE")
+        direct_result = audit.examine(feed()["products"][0], direct, NOW)
+        self.assertEqual(direct_result["sourceStatusEvidence"]["sgFailureCode"],
+                         "SG_SOURCE_UNAVAILABLE")
+        self.assertEqual(direct_result["sourceStatusEvidence"]["issuerQuoteFailureProvider"], "SG")
+
     def test_terminated_original_handset_history_is_visible_but_not_trade_evidence(self):
         from unittest.mock import patch
 
