@@ -3996,7 +3996,7 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
   draft={...draft,paired:false,partialQuote:{bid:null,ask:null}};
   x.price='';x.spread='';
  }
- if(draft.hasQuote&&!draft.paired&&!draft.partialQuote)return{ok:false,reason:'Produkt erkannt'+(identity.basis==='WKN'?' über WKN '+identity.wkn:'')+', aber Geld-/Briefpaar nicht vollständig oder eindeutig. Bitte beide Kurse im selben Bild zeigen.'};
+ if(draft.hasQuote&&!draft.paired&&!draft.partialQuote&&!displayWithoutVenue)return{ok:false,reason:'Produkt erkannt'+(identity.basis==='WKN'?' über WKN '+identity.wkn:'')+', aber Geld-/Briefpaar nicht vollständig oder eindeutig. Bitte beide Kurse im selben Bild zeigen.'};
  // A quote screen without a visible venue is recorded only as a historical
  // display observation, not as a sourced product quote or ranking input.
  const bid=displayWithoutVenue?null:draft.partialQuote?draft.partialQuote.bid:draft.paired?n(draft.fields.bid):amount("Geld|Bid"),
