@@ -13,6 +13,7 @@ def attach(quote, now):
     if not isinstance(quote, dict) or quote.get('productModel'):
         return quote
     from product_quotes import valid_isin
+    from sg_chf_contract import valid_source
     isin=quote.get('isin')
     m=quote.get('metadata') or {}
     terms=quote.get('conditions') or {}
@@ -30,7 +31,9 @@ def attach(quote, now):
             or backup.get('state') != 'active' or proof.get('quanto') is not False
             or any(proof.get(k) for k in ('conflict','revoked','ocrCorrection'))
             or proof.get('isin') != isin
-            or proof.get('source') != 'https://www.finanzen.ch/derivate/'+isin.lower()
+            or not (proof.get('source') == 'https://www.finanzen.ch/derivate/'+isin.lower()
+                or (proof.get('evidenceKind') == 'sg-kid' and valid_source(proof.get('source'),isin)
+                    and isinstance(proof.get('documentSha256'),str) and len(proof['documentSha256'])==64))
             or proof.get('type') != 'Knock-out Warrant'
             or any(proof.get(k) != m.get(k) for k in
                    ('direction','currency','underlying','ratio','ko','strike'))):
@@ -81,6 +84,7 @@ def prepare(quote, now):
     proof=backup.get('currencyTreatment') or {}
     out['handsetModelCheck']=dict(
         modelAttached=bool(out.get('productModel')),
+        issuerContract=out.get('issuerContractCheck'),evidenceKind=proof.get('evidenceKind'),
         backupState=backup.get('state'),backupCode=backup.get('code'),
         evidencePresent=bool(proof),reviewedAt=proof.get('reviewedAt'),
         classification=meta.get('classificationId'),fixedTerms=meta.get('termsFixed'),
