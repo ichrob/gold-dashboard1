@@ -28,8 +28,12 @@ QUERIES = {
          + interval '60 minutes' > now() THEN 'pending-horizon'
     ELSE 'outcome-not-recorded' END
     FROM bob_improvement_trials WHERE campaign=%s ORDER BY slot DESC LIMIT 101""",
- 'list-price-pairs': """SELECT extract(epoch FROM quote_at)*1000,'paired-observation'
-    FROM bob_list_price_pairs ORDER BY quote_at DESC LIMIT 101""",
+ 'list-price-pairs': """SELECT extract(epoch FROM p.quote_at)*1000,'paired-observation'
+    FROM (SELECT isin FROM bob_list_price_anchors ORDER BY isin LIMIT 12) AS anchors
+    CROSS JOIN LATERAL (
+        SELECT quote_at FROM bob_list_price_pairs
+        WHERE isin=anchors.isin ORDER BY quote_at DESC LIMIT 101
+    ) AS p ORDER BY p.quote_at DESC LIMIT 101""",
  'three-stop-study': """SELECT NULL, CASE WHEN complete THEN 'terminal-not-necessarily-comparable' ELSE 'pending' END
     FROM bob_paper_stop_studies ORDER BY id LIMIT 101""",
  'stop-target-cases': """SELECT extract(epoch FROM checked_at)*1000,
@@ -98,6 +102,11 @@ def report(conn, now=None):
             # A failed probe must not poison the connection or hide other studies.
             items[name] = dict(status='unavailable', reason='comparison-read-failed',
                                studyCompletedVerified=False)
+    # The index on (isin, quote_at DESC) supports bounded per-list lookup, not
+    # a global sort of all historical pairs.  Disclose the narrower diagnostic
+    # sample explicitly; historical rows remain stored and are NOT called absent.
+    items['list-price-pairs']['sampleScope'] = 'current-list-anchors-only'
+    items['list-price-pairs']['historicalCoverageVerified'] = False
     items['legacy-fast-cautious']['collectionWindowEnded'] = now >= intraday_comparison.END
     items['legacy-fast-cautious']['newCasesExpected'] = intraday_comparison.active(now)
     import adaptive_learning
@@ -139,5 +148,7 @@ def report(conn, now=None):
         note='Stored outcomes and terminal cases are not verified profitable or completed research studies. '
              'No-records is not success. Pending 60-minute horizons and ineligible trials are not missing results. '
              'Latest clocks refer only to the disclosed bounded sample; '
-             'three-stop and correction samples are in ID order, not recency order.')
+             'three-stop and correction samples are in ID order, not recency order. '
+             'List-price pairs sample only the currently anchored saved-list ISINs; '
+             'historical pairs outside that set remain stored and are not counted.')
 
