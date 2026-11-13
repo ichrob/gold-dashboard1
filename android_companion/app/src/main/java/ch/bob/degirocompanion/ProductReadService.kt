@@ -896,7 +896,8 @@ class ProductReadService : AccessibilityService() {
      * explicitly opened by the owner. No taps, editable nodes, account numbers,
      * raw label transfer, or permission changes occur here.
      */
-    private fun accountSettingsScan(root:AccessibilityNodeInfo):AccountSettingsEvidence.Result? {
+    private fun accountSettingsScan(root:AccessibilityNodeInfo,
+                                    ownerConfirmedProfile:String?=null):AccountSettingsEvidence.Result? {
         val labels=mutableListOf<String>()
         val selectedProfiles=mutableSetOf<String>()
         var visited=0
@@ -931,8 +932,15 @@ class ProductReadService : AccessibilityService() {
         // Never interpret an unrelated product, portfolio or order screen as
         // account settings; keep the normal product protections in charge.
         if(!AccountSettingsEvidence.recognizesSettings(labels))return null
-        return AccountSettingsEvidence.read(ProductScreenEvidence.PACKAGE,labels,
+        val parsed=AccountSettingsEvidence.read(ProductScreenEvidence.PACKAGE,labels,
             sensitive,selectedProfiles.toList())
+        if(ownerConfirmedProfile==null)return parsed
+        // A manual declaration cannot override a contradictory result
+        // from real selected-state or complete-card evidence.
+        if(parsed.feeProfile!=null && parsed.feeProfile!=ownerConfirmedProfile)
+            return AccountSettingsEvidence.Result("SETTINGS_CONFLICT")
+        return AccountSettingsEvidence.ownerConfirmedProfile(
+            ProductScreenEvidence.PACKAGE,labels,ownerConfirmedProfile,sensitive)
     }
 
     private fun accountSettingsReceipt(e:AccountSettingsEvidence.Result):org.json.JSONObject {
@@ -940,7 +948,7 @@ class ProductReadService : AccessibilityService() {
         if(e.code in setOf("ACCOUNT_SETTINGS_COMPLETE","ACCOUNT_SETTINGS_PARTIAL")) {
             val status=if(e.code=="ACCOUNT_SETTINGS_COMPLETE") "COMPLETE" else "PARTIAL"
             receipt.put("accountSettings",org.json.JSONObject()
-                .put("source","degiro-app-local-accessibility")
+                .put("source",e.source)
                 .put("capturedAt",System.currentTimeMillis()/1000)
                 .put("status",status)
                 .put("feeProfile",e.feeProfile ?: org.json.JSONObject.NULL)
@@ -974,7 +982,9 @@ class ProductReadService : AccessibilityService() {
             val actionName=command?.optString("action") ?: "inspect"
             // A visible account settings screen is never a search or product
             // navigation target, regardless of the previously queued command.
-            val settings=accountSettingsScan(root)
+            val ownerClaim=command?.optString("ownerConfirmedProfile")
+                ?.takeIf { PhoneRemote.ownerConfirmationAllowed(it) }
+            val settings=accountSettingsScan(root,ownerClaim)
             if(actionName=="read_account_settings")
                 return accountSettingsReceipt(settings ?: AccountSettingsEvidence.Result("SETTINGS_NOT_VISIBLE"))
             if(settings!=null)
