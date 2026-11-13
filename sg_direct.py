@@ -17,6 +17,8 @@ _LOCK = threading.Lock()
 _PRODUCT_LOCKS = {}
 _CACHE = {}
 _TERMS = {}
+_EIGHT_REFERENCES = {}  # Bounded original 08:00 evidence across rolling Live responses.
+_PRIOR_CLOSE_REFERENCES = {}  # Last original SG bid near 22:00, exact ISIN/venue.
 _MARKETS = {}  # Exact ISIN -> market, only after validated issuer properties.
 INTERVAL = 30
 
@@ -330,7 +332,8 @@ def get_quote(isin, terms_only=False):
                     # Only a missing identity permits one other public market.
                     # Never retry access denials or accept a wrong-channel reply.
                     known = isin in q.SG_DIRECT_PRODUCTS or isin in q.SG_DISCOVERY_PRODUCTS
-                    if exc.code != 404 or known or market[1] != 'CBDE':
+                    if (exc.code != 404 or known or market[1] != 'CBDE'
+                            or isin in q.SG_EUR_DEGIRO_CANDIDATES):
                         raise
                     market = ('https://www.sg-zertifikate.ch/', 'CBSW', 'CHF')
                     origin = market[0]
@@ -388,6 +391,26 @@ def get_quote(isin, terms_only=False):
                     associate_shared_observation(result)
                     result['reason'] = ('SG-Direktimport aktiv (30 s): Stammdaten übernommen; '
                         'Geld/Brief als datierter Chartnachweis. Basispreis/KO verwenden den Zeitbezug der automatischen Abrufserie; Hebelnachweise werden separat geprüft.')
+                since_eight = q.sg_change_since_eight(product, points, isin,
+                    verified_id=verified_id, market=market, reference=_EIGHT_REFERENCES.get(isin))
+                if since_eight:
+                    if len(_EIGHT_REFERENCES) >= 256 and isin not in _EIGHT_REFERENCES:
+                        _EIGHT_REFERENCES.pop(next(iter(_EIGHT_REFERENCES)))
+                    _EIGHT_REFERENCES[isin] = dict(since_eight)
+                    result['changeSinceEight'] = since_eight
+                # Compare only a genuine, dated bid from the last minutes of
+                # the preceding trading session. A cached historical reference
+                # is neither re-dated nor promoted to a DEGIRO quote.
+                from product_prior_close import evaluate as previous_session_change
+                comparison = previous_session_change(
+                    product, points, isin, verified_id=verified_id, market=market,
+                    reference=_PRIOR_CLOSE_REFERENCES.get(isin))
+                if comparison['dailyChange'] is not None:
+                    result['dailyChange'] = comparison['dailyChange']
+                if comparison['lateReference'] is not None:
+                    if len(_PRIOR_CLOSE_REFERENCES) >= 256 and isin not in _PRIOR_CLOSE_REFERENCES:
+                        _PRIOR_CLOSE_REFERENCES.pop(next(iter(_PRIOR_CLOSE_REFERENCES)))
+                    _PRIOR_CLOSE_REFERENCES[isin] = comparison['lateReference']
         except Exception as exc:
             result.update(sourceFailure=not result['productVerified'],
                           quoteFailureCode='SG_SOURCE_UNAVAILABLE', reason=q.sg_source_error(exc, stage))

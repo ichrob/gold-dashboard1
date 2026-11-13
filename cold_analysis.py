@@ -87,23 +87,29 @@ def get(conn, row_id, *, drive=None):
 def offload_batch(conn, drive):
     if not conn.autocommit:
         raise ValueError('Dedicated autocommit connection required')
-    candidates=conn.execute('''SELECT id,stage,observed_at,build,payload FROM bob_diagnostic_history
-        WHERE stage='analysis' AND recorded_at<now()-interval '6 hours' AND NOT(payload ? %s)
-        AND pg_column_size(payload)>512 AND octet_length(payload::text)<65536
-        ORDER BY recorded_at,id LIMIT %s''',(TAG,codec.MAX_ROWS)).fetchall()
-    rows=[]; size=len(codec.encoded({'format':codec.FORMAT,'rows':[]}))
-    for candidate in candidates:
-        row=list(candidate); n=len(codec.encoded(row))+(1 if rows else 0)
-        if size+n>codec.MAX_RAW:break
-        rows.append(row);size+=n
-    if not rows:return {'status':'no-eligible-rows','movedRows':0}
+    # The old unbounded JSONB/TOAST filter can scan all already-archived
+    # analysis history merely to return no candidates. Keep all eligibility
+    # and CAS invariants, but evaluate at most a few indexed pages per cycle.
+    import cold_analysis_candidate_scan as candidate_scan
+    previous_cursor = candidate_scan.cursor()
+    rows, next_cursor, scan_meta = candidate_scan.scan(conn, previous_cursor)
+    if not rows:
+        candidate_scan.commit_cursor(next_cursor)
+        return {'status':('no-eligible-rows' if scan_meta['atEndOfAvailableWindow']
+                          else 'scan-continues'), 'movedRows':0,
+                'scannedRows':scan_meta['scannedRows'],
+                'candidateScanBounded':True}
     raw=codec.encoded({'format':codec.FORMAT,'rows':rows})
     with tempfile.TemporaryDirectory(prefix='bob-analysis-cold-') as tmp:
-        path=Path(tmp)/('analysis-'+uuid.uuid4().hex+'.gz')
         blob=gzip.compress(raw,mtime=0)
         if len(blob)>codec.MAX_FILE:raise ValueError('Archive size limit')
-        path.write_bytes(blob);os.chmod(path,0o600)
-        checksum=codec.digest(blob);file_id=drive.upload(path,checksum)
+        plain=Path(tmp)/'original.gz'
+        plain.write_bytes(blob);os.chmod(plain,0o600)
+        path=Path(tmp)/('analysis-'+uuid.uuid4().hex+'.encrypted')
+        from cold_chunk_encryption import seal_chunk
+        checksum=seal_chunk(plain,path)
+        if path.stat().st_size>codec.MAX_FILE:raise ValueError('Encrypted archive limit')
+        file_id=drive.upload(path,checksum)
     restored=codec.read_chunk(drive,file_id,checksum,cached=False)
     if codec.encoded(restored)!=codec.encoded(rows):
         raise codec.ColdArchiveUnavailable('Original analysis download differs')
@@ -122,8 +128,14 @@ def offload_batch(conn, drive):
         conn.execute('''INSERT INTO bob_cold_analysis_batches
             (batch_key,file_id,sha256,moved_rows,original_json_bytes,reference_json_bytes,row_ids)
             VALUES(%s,%s,%s,%s,%s,%s,%s)''',(key,file_id,checksum,len(moved),original,references,moved))
+    # Advance only after the remote original has been downloaded, validated
+    # and the compare-and-swap transaction has committed. On exceptions the
+    # cursor is untouched; the source remains eligible on the next safe pass.
+    candidate_scan.commit_cursor(next_cursor)
     return {'status':'verified-offload','movedRows':len(moved),'originalJsonBytes':original,
-            'referenceJsonBytes':references,'readThroughVerified':True,'diskBytesFreed':None}
+            'referenceJsonBytes':references,'readThroughVerified':True,
+            'scannedRows':scan_meta['scannedRows'],
+            'candidateScanBounded':True,'diskBytesFreed':None}
 
 
 def status(conn):
@@ -137,9 +149,12 @@ def status(conn):
     except Exception:return {'status':'not-observed','diskBytesFreed':None}
 
 
+@__import__("ocr_workload_priority").maintenance
 def run_once(factory=codec.connect):
     with factory() as conn:
-        if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_cold_analysis_v1'))").fetchone()[0]:
+        guard=__import__('storage_pressure').verified_writer_preflight(conn)
+        if guard is not None:return guard
+        if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_storage_maintenance_v1'))").fetchone()[0]:
             return {'status':'busy'}
         init(conn);drive=codec.runtime_drive(conn);results=[];deadline=time.monotonic()+120
         for _ in range(64):

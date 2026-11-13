@@ -5,13 +5,27 @@ package ch.bob.degirocompanion
  * is ever authorized by this transition. */
 internal class ProductReturnTransition {
     enum class State { IDLE, WAITING, READY, FAILED }
+    enum class Failure { NONE, TIMEOUT, PROTECTED, WINDOW, INPUT, IDENTITY }
+    var failure = Failure.NONE
+        private set
+    private fun fail(reason: Failure): State { clear(); failure=reason; return State.FAILED }
     private var target: String? = null
     private var window: Int? = null
     private var started = 0L
     private var backRetried = false
 
     fun begin(previousTarget: String, previousWindow: Int, now: Long) {
-        target=previousTarget;window=previousWindow;started=now;backRetried=false
+        target=previousTarget;window=previousWindow;started=now;backRetried=false;failure=Failure.NONE
+    }
+
+    /** The broker may already be back at its independently verified search.
+     * In that case no additional BACK should leave Markets or abort the batch. */
+    fun confirmSearch(nodes: List<MorningReadPolicy.Node>, previous: String,
+                      currentWindow: Int, now: Long): Boolean {
+        begin(previous, currentWindow, now)
+        val ready = poll(nodes, currentWindow, now) == State.READY
+        clear()
+        return ready
     }
 
     private fun searchReady(nodes: List<MorningReadPolicy.Node>, previous: String): Boolean {
@@ -39,27 +53,40 @@ internal class ProductReturnTransition {
     fun poll(nodes: List<MorningReadPolicy.Node>, currentWindow: Int, now: Long): State {
         val previous=target ?: return State.IDLE
         if (now < started || now-started >= 5000) {
-            clear(); return State.FAILED
+            return fail(Failure.TIMEOUT)
         }
         // Real order forms, sensitive inputs, and credentials are never
         // mistaken for a transient WebView or a search return.
         val dangerous=Regex("(?iu)order bestätigen|confirm order|limitpreis|orderart|ordertyp|stückzahl|anzahl kaufen|passwort|password|anmelden|login|verification code")
         if (nodes.any { n -> n.password || n.sensitive ||
                 listOf(n.text,n.description,n.hint).any { dangerous.containsMatchIn(it) } }) {
-            clear(); return State.FAILED
+            return fail(Failure.PROTECTED)
         }
         if (searchReady(nodes,previous)) {
             clear(); return State.READY
         }
         // An unrecognized input, a different visible product or an unexpected
         // window switch is never interpreted as the next product's search.
-        if (currentWindow != window || nodes.any { it.editable }) {
-            clear(); return State.FAILED
+        if (currentWindow != window) return fail(Failure.WINDOW)
+        val inputs=nodes.filter { it.editable }
+        if (inputs.isNotEmpty()) {
+            // A rebuilding Markets WebView may expose its known search field
+            // before its header. WAIT performs no action and retains the original
+            // deadline; it never authorizes another ISIN or an extra BACK.
+            val partialSearch=inputs.size==1 && inputs.single().enabled &&
+                MorningReadPolicy.isSearchInput(inputs.single().id,
+                    inputs.single().description,inputs.single().hint) &&
+                nodes.none { it.password || it.sensitive ||
+                    it.text.trim().lowercase() in setOf("kursdaten","produktdetails",
+                        "orderdetails","orderübersicht","orderzusammenfassung") } &&
+                MorningReadPolicy.detailDecision(nodes,previous,true).kind != MorningReadPolicy.Kind.BLOCK
+            if(partialSearch) return State.WAITING
+            return fail(Failure.INPUT)
         }
         val visible=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
             .findAll(nodes.joinToString("\n") { it.text.uppercase() }).map { it.value }.toSet()
         if (visible.isNotEmpty() && visible!=setOf(previous)) {
-            clear(); return State.FAILED
+            return fail(Failure.IDENTITY)
         }
         // Await a verified search; do not silently fall through to the next
         // product when the old detail or a partially rebuilt overview persists.

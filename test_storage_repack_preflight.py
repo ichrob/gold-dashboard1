@@ -24,9 +24,17 @@ class CapacityTests(unittest.TestCase):
         self.assertIsNone(result['diskBytesFreed'])
         self.assertEqual(result['table'],'public.bob_improvement_observations')
 
+    def test_upgraded_volume_removes_old_750mb_block_without_authorizing_execution(self):
+        r = candidate.evaluate(**{**self.kwargs(), 'disk_usage': 759_200_000})
+        self.assertTrue(r['conservativeCapacityThresholdMet'])
+        self.assertEqual(r['estimatedHeadroomAfterTwoCopies'],
+                         5_000_000_000 - 759_200_000 - 2 * 66_838_528)
+        self.assertFalse(r['readyToExecute'])
+        self.assertFalse(r['deletionAuthorized'])
+
     def test_insufficient_capacity_or_restore_blocks_but_not_claims_savings(self):
-        for override in ({'disk_usage':890_000_000},
-                         {'disk_usage':755_000_000},
+        for override in ({'disk_usage':4_450_000_000},
+                         {'disk_usage':3_775_000_000},
                          {'table_bytes':120_000_000},
                          {'current_backup':False},
                          {'pg_major':15},

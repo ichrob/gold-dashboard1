@@ -60,6 +60,113 @@ class StateTests(unittest.TestCase):
         self.assertNotIn(tokens['access_token'],json.dumps(self.state))
         self.assertNotIn(tokens['refresh_token'],json.dumps(self.state))
 
+    def test_token_target_errors_are_safe_and_scope_errors_are_distinct(self):
+        code = self.authorize()
+        missing = self.exchange(code, resource=None)
+        self.assertEqual(missing['error'], 'invalid_target')
+        self.assertEqual(missing['error_description'], 'resource_mismatch')
+        # Omission, not a null field, is a distinct interoperability signal.
+        missing_field = self.call('token', client_id=self.cid,
+            grant_type='authorization_code', redirect_uri=store.REDIRECT,
+            code=code, code_verifier=self.verifier)
+        self.assertEqual(missing_field['error_description'], 'resource_missing')
+        mismatch = self.exchange(code, resource='https://other.example/mcp')
+        self.assertEqual(mismatch['error_description'], 'resource_mismatch')
+        self.assertNotIn('other.example', json.dumps(mismatch))
+        unsupported = self.exchange(code, scope='bob:unapproved:write')
+        self.assertEqual(unsupported['error'], 'invalid_scope')
+        self.assertEqual(unsupported['error_description'], 'unsupported_scope')
+        self.assertNotIn('bob:unapproved:write', json.dumps(unsupported))
+        # None of these failures consumes the single-use PKCE code or
+        # broadens access, and the valid original resource still works.
+        self.assertIn('access_token', self.exchange(code))
+        grant = self.authorize()
+        tok = self.exchange(grant)
+        bad_refresh = self.refresh(tok['refresh_token'], resource=None)
+        self.assertEqual(bad_refresh['error'], 'invalid_target')
+        self.assertIn('access_token', self.refresh(tok['refresh_token']))
+        
+    def test_antigravity_missing_token_resource_inherits_owner_bound_audience(self):
+        allowed = store.SCOPE + ' ' + store.DIAGNOSTICS_SCOPE
+        ag = self.call('register', redirect_uris=[store.ANTIGRAVITY_REDIRECT],
+                       scope=allowed)['client_id']
+        # Authorization requests still MUST specify the correct resource.
+        begin = dict(client_id=ag, redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                     scope=store.SCOPE, resource=store.RESOURCE)
+        self.assertIn('error', self.begin(**{**begin, 'resource':None}))
+        self.assertIn('error', self.begin(**{**begin, 'resource':'https://other.example/mcp'}))
+        request = self.begin(**begin)['request']
+        self.assertEqual(self.state['pending'][store.digest(request)]['resource'], store.RESOURCE)
+        code = self.call('approve', request=request, until=self.now+10000)['code']
+        fields = dict(client_id=ag, redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                      grant_type='authorization_code', code=code, code_verifier=self.verifier)
+        for wrong in (None, '', 'https://other.example/mcp', store.ORIGIN):
+            self.assertEqual(self.call('token', **fields, resource=wrong)['error'],
+                             'invalid_target')
+        self.assertIn('error', self.call('token', **{**fields, 'client_id':self.cid}))
+        # Missing on token exchange is safe only for a PKCE-bound grant.
+        missing = self.call('token', **fields)
+        self.assertEqual(missing['scope'], store.SCOPE)
+        self.assertEqual(self.call('check', token=missing['access_token'])['resource'],store.RESOURCE)
+        self.assertEqual(self.call('token', grant_type='refresh_token', client_id=ag,
+                         refresh_token=missing['refresh_token'],
+                         scope=store.DIAGNOSTICS_SCOPE)['error'], 'invalid_scope')
+        self.assertEqual(self.call('check',token=missing['access_token'])['scope'],store.SCOPE)
+        # Legacy grants were also issued only with explicitly checked RESOURCE.
+        next(iter(self.state['grants'].values())).pop('resource', None)
+        renewed = self.call('token', grant_type='refresh_token', client_id=ag,
+                            refresh_token=missing['refresh_token'])
+        self.assertEqual(renewed['scope'], store.SCOPE)
+        self.assertEqual(self.call('token', grant_type='refresh_token', client_id=ag,
+                            refresh_token=renewed['refresh_token'],
+                            resource='https://other.example/mcp')['error'], 'invalid_target')
+        # A new diagnostic grant still needs a separate, explicit approval.
+        request2 = self.begin(**{**begin, 'scope':allowed})['request']
+        self.assertEqual(set(self.call('pending',request=request2)['scope'].split()),
+                         {store.SCOPE, store.DIAGNOSTICS_SCOPE})
+        code2 = self.call('approve',request=request2,until=self.now+10000)['code']
+        full = self.call('token', **{**fields, 'code':code2})
+        self.assertEqual(set(full['scope'].split()),{store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        self.assertEqual(self.call('check',token=missing['access_token'])['scope'],store.SCOPE)
+        # Replaying the old code is deliberately last: it revokes the
+        # associated grant by design, and would otherwise invalidate
+        # subsequent refresh assertions.
+        self.assertEqual(self.call('token', **fields)['error'], 'invalid_grant')
+        self.assertFalse(self.call('check',token=missing['access_token'])['valid'])
+
+    def test_other_clients_still_require_resource_on_token_endpoint(self):
+        code = self.authorize()
+        response = self.call('token', client_id=self.cid,
+             redirect_uri=store.REDIRECT, grant_type='authorization_code',
+             code=code, code_verifier=self.verifier)
+        self.assertEqual(response['error'], 'invalid_target')
+        self.assertEqual(response['error_description'], 'resource_missing')
+        self.assertIn('access_token', self.exchange(code))
+        gem = self.call('register',redirect_uris=[store.GEMINI_REDIRECT],
+                        scope=store.SCOPE)['client_id']
+        request = self.begin(client_id=gem, redirect_uri=store.GEMINI_REDIRECT)['request']
+        code = self.call('approve',request=request,until=self.now+10000)['code']
+        result = self.call('token',client_id=gem, redirect_uri=store.GEMINI_REDIRECT,
+                           grant_type='authorization_code',code=code,
+                           code_verifier=self.verifier)
+        self.assertEqual(result['error_description'],'resource_missing')
+        self.assertIn('access_token',
+            self.exchange(code,client_id=gem,redirect_uri=store.GEMINI_REDIRECT))
+
+    def test_mobile_handoff_code_remains_single_use_and_expires(self):
+        # Android browser -> Termux switching can take more than two minutes;
+        # the verifier, exact redirect, client, scope and resource still bind the code.
+        self.assertEqual(store.CODE_TTL, 8 * 60)
+        code = self.authorize()
+        self.now += store.CODE_TTL - 1
+        token = self.exchange(code)
+        self.assertIn('access_token', token)
+        # Replaying the already exchanged code must never work.
+        self.assertEqual(self.exchange(code)['error'], 'invalid_grant')
+        late_code = self.authorize()
+        self.now += store.CODE_TTL + 1
+        self.assertEqual(self.exchange(late_code)['error'], 'invalid_grant')
+
     def test_push_test_scope_requires_new_explicit_consent(self):
         tokens=self.exchange(self.authorize())
         self.assertNotIn(store.PUSH_TEST_SCOPE,self.call('check',token=tokens['access_token'])['scope'])
@@ -127,6 +234,128 @@ class StateTests(unittest.TestCase):
             self.assertEqual(self.cid,self.call('register',redirect_uris=[store.REDIRECT])['client_id'])
         self.assertEqual(len(self.state['clients']),1)
 
+    def test_gemini_client_registration_and_read_only_scopes(self):
+        allowed = store.SCOPE + ' ' + store.DIAGNOSTICS_SCOPE
+        gemini = self.call('register',redirect_uris=[store.GEMINI_REDIRECT],scope=allowed)
+        gid = gemini['client_id']
+        self.assertNotEqual(gid,self.cid)
+        self.assertEqual(gemini['client_name'],'Bob Gemini Read-only')
+        self.assertEqual(self.call('register',redirect_uris=[store.REDIRECT])['client_id'],self.cid)
+        self.assertEqual(self.call('register',redirect_uris=[store.GEMINI_REDIRECT],scope=allowed)['client_id'],gid)
+        self.assertEqual(len(self.state['clients']),2)
+        for url in ('http://localhost:8766/oauth/callback',
+                    'http://127.0.0.1:8765/oauth/callback',
+                    'http://localhost:8765/oauth/callback?other=1',
+                    'https://evil.example/oauth/callback'):
+            self.assertIn('error',self.call('register',redirect_uris=[url]))
+        for forbidden in (store.PHONE_SCOPE,store.TERMUX_SCOPE,store.PUSH_TEST_SCOPE):
+            self.assertIn('error',self.call('register',
+                          redirect_uris=[store.GEMINI_REDIRECT],scope=forbidden))
+            self.assertIn('error',self.begin(client_id=gid,
+                          redirect_uri=store.GEMINI_REDIRECT,scope=allowed+' '+forbidden))
+        self.assertIn('error',self.begin(client_id=gid,redirect_uri=store.REDIRECT))
+        req = self.begin(client_id=gid,redirect_uri=store.GEMINI_REDIRECT,
+                         scope=allowed)['request']
+        pending = self.call('pending',request=req)
+        self.assertEqual(pending['client_name'],'Gemini CLI')
+        self.assertEqual(set(pending['scope'].split()),{store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        code = self.call('approve',request=req,until=self.now+10000)['code']
+        self.assertIn('error',self.exchange(code))
+        token = self.exchange(code,client_id=gid,redirect_uri=store.GEMINI_REDIRECT)
+        self.assertEqual(set(token['scope'].split()),{store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        self.assertTrue(self.call('check',token=token['access_token'])['valid'])
+        self.assertEqual(self.call('token',grant_type='refresh_token',client_id=gid,
+                          refresh_token=token['refresh_token'],resource=store.RESOURCE,
+                          scope=store.PHONE_SCOPE)['error'],'invalid_scope')
+        # Independent: deleting only Gemini's grant does not revoke ChatGPT.
+        chatgpt = self.exchange(self.authorize())
+        self.call('revoke',token=token['refresh_token'],client_id=gid)
+        self.assertFalse(self.call('check',token=token['access_token'])['valid'])
+        self.assertTrue(self.call('check',token=chatgpt['access_token'])['valid'])
+        # Recreate Gemini separately to test the owner-only disconnect action.
+        req = self.begin(client_id=gid,redirect_uri=store.GEMINI_REDIRECT,
+                         scope=allowed)['request']
+        code = self.call('approve',request=req,until=self.now+10000)['code']
+        gemini_again = self.exchange(code,client_id=gid,redirect_uri=store.GEMINI_REDIRECT)
+        self.call('revoke-gemini')
+        self.assertFalse(self.call('check',token=gemini_again['access_token'])['valid'])
+        self.assertTrue(self.call('check',token=chatgpt['access_token'])['valid'])
+
+    def test_owner_grant_inventory_names_client_and_scopes_without_tokens(self):
+        chat = self.exchange(self.authorize())
+        gemini = self.call('register',redirect_uris=[store.GEMINI_REDIRECT],
+                           scope=store.DIAGNOSTICS_SCOPE)
+        cid = gemini['client_id']
+        req = self.begin(client_id=cid,redirect_uri=store.GEMINI_REDIRECT,
+                         scope=store.DIAGNOSTICS_SCOPE)['request']
+        code = self.call('approve',request=req,until=self.now+10000)['code']
+        gtoken = self.exchange(code,client_id=cid,
+                               redirect_uri=store.GEMINI_REDIRECT)
+        rows = self.call('list')['grants']
+        self.assertEqual(len(rows),2)
+        self.assertEqual({x['client'] for x in rows},{'ChatGPT','Gemini CLI'})
+        self.assertEqual({x['client']:x['scopes'] for x in rows},
+                         {'ChatGPT':[store.SCOPE],
+                          'Gemini CLI':[store.DIAGNOSTICS_SCOPE]})
+        self.assertNotIn(chat['access_token'],str(rows))
+        self.assertNotIn(gtoken['refresh_token'],str(rows))
+        self.call('revoke-gemini')
+        self.assertEqual([x['client'] for x in self.call('list')['grants']],
+                         ['ChatGPT'])
+
+    def test_antigravity_pinned_client_isolated_from_other_oauth_clients(self):
+        allowed = store.SCOPE + ' ' + store.DIAGNOSTICS_SCOPE
+        # Register both Google clients and ChatGPT without replacing/revoking
+        # any existing client, using only three exact pinned callback URLs.
+        gemini = self.call('register',redirect_uris=[store.GEMINI_REDIRECT])
+        agy = self.call('register',redirect_uris=[store.ANTIGRAVITY_REDIRECT],scope=allowed)
+        aid = agy['client_id']
+        self.assertNotEqual(aid,gemini['client_id'])
+        self.assertNotEqual(aid,self.cid)
+        self.assertEqual(agy['client_name'],'Bob Antigravity Read-only')
+        self.assertEqual(len(self.state['clients']),3)
+        self.assertEqual(self.call('register',redirect_uris=[store.ANTIGRAVITY_REDIRECT])['client_id'],aid)
+        for bad in (store.ANTIGRAVITY_REDIRECT+'/',store.ANTIGRAVITY_REDIRECT+'?x=1',
+                    'http://antigravity.google/oauth-callback',
+                    'https://antigravity.google.evil.example/oauth-callback',
+                    'https://antigravity.google/*'):
+            self.assertIn('error',self.call('register',redirect_uris=[bad]))
+        for forbidden in (store.TERMUX_SCOPE,store.PHONE_SCOPE,store.PUSH_TEST_SCOPE):
+            self.assertIn('error',self.call('register',
+                             redirect_uris=[store.ANTIGRAVITY_REDIRECT],scope=forbidden))
+            self.assertIn('error',self.begin(client_id=aid,
+                             redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                             scope=allowed+' '+forbidden))
+        self.assertIn('error',self.begin(client_id=aid,
+                        redirect_uri=store.GEMINI_REDIRECT,scope=allowed))
+        self.assertIn('error',self.begin(client_id=aid,
+                        redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                        scope=allowed,code_challenge_method='plain'))
+        req=self.begin(client_id=aid,redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                       scope=allowed)['request']
+        self.assertEqual(self.call('pending',request=req)['client_name'],'Antigravity CLI')
+        code=self.call('approve',request=req,until=self.now+10000)['code']
+        self.assertIn('error',self.exchange(code))
+        agy_tokens=self.exchange(code,client_id=aid,redirect_uri=store.ANTIGRAVITY_REDIRECT)
+        self.assertEqual(set(agy_tokens['scope'].split()),{store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        self.assertTrue(self.call('check',token=agy_tokens['access_token'])['valid'])
+        self.assertEqual(self.call('token',grant_type='refresh_token',client_id=aid,
+                         refresh_token=agy_tokens['refresh_token'],resource=store.RESOURCE,
+                         scope=store.TERMUX_SCOPE)['error'],'invalid_scope')
+        chat=self.exchange(self.authorize())
+        req2=self.begin(client_id=gemini['client_id'],redirect_uri=store.GEMINI_REDIRECT,
+                        scope=store.SCOPE)['request']
+        code2=self.call('approve',request=req2,until=self.now+10000)['code']
+        old=self.exchange(code2,client_id=gemini['client_id'],redirect_uri=store.GEMINI_REDIRECT)
+        names={x['client'] for x in self.call('list')['grants']}
+        self.assertEqual(names,{'ChatGPT','Gemini CLI','Antigravity CLI'})
+        self.call('revoke-gemini')
+        self.assertFalse(self.call('check',token=old['access_token'])['valid'])
+        self.assertTrue(self.call('check',token=agy_tokens['access_token'])['valid'])
+        self.call('revoke-antigravity')
+        self.assertFalse(self.call('check',token=agy_tokens['access_token'])['valid'])
+        self.assertTrue(self.call('check',token=chat['access_token'])['valid'])
+
     def test_revocation(self):
         tokens = self.exchange(self.authorize())
         self.call('revoke',token=tokens['refresh_token'],client_id='wrong')
@@ -188,7 +417,12 @@ class HttpTests(unittest.TestCase):
     def test_discovery_and_no_anonymous_report(self):
         status,_,body = self.request('GET','/.well-known/oauth-authorization-server')
         self.assertEqual(status,200)
-        self.assertEqual(json.loads(body)['code_challenge_methods_supported'],['S256'])
+        metadata=json.loads(body)
+        self.assertEqual(metadata['code_challenge_methods_supported'],['S256'])
+        # Antigravity must use the already implemented exact-redirect DCR
+        # fallback until a separately reviewed CIMD feature is advertised.
+        self.assertEqual(metadata['registration_endpoint'],store.ORIGIN+'/oauth/register')
+        self.assertNotIn('client_id_metadata_document_supported',metadata)
         status,h,_ = self.request('POST','/mcp','{}',{'Content-Type':'application/json'})
         self.assertEqual(status,401)
         self.assertIn('resource_metadata=',h['WWW-Authenticate'])
@@ -197,6 +431,35 @@ class HttpTests(unittest.TestCase):
             status,h,_ = self.request('GET',path)
             self.assertEqual(status,expected)
             self.assertNotIn('WWW-Authenticate',h)
+
+    def test_antigravity_owner_diagnostics_scope_request_is_opt_in(self):
+        # Only a fixed, non-secret opt-in changes the *requested* scopes.
+        # Neither a forged hint nor a normal anonymous connection grants data.
+        variants = (
+            (None, store.SCOPE),
+            ('products-and-diagnostics', store.SCOPE + ' ' + store.DIAGNOSTICS_SCOPE),
+            ('products-and-diagnostics-extra', store.SCOPE),
+        )
+        for hint, expected in variants:
+            headers = {'Content-Type': 'application/json'}
+            if hint is not None:
+                headers['X-Bob-Owner-Read-Scopes'] = hint
+            with self.subTest(hint=hint):
+                status, response_headers, _ = self.request('POST', '/mcp', '{}', headers)
+                self.assertEqual(status, 401)
+                challenge = response_headers.get('WWW-Authenticate', '')
+                self.assertIn('resource_metadata=', challenge)
+                self.assertIn('scope="' + expected + '"', challenge)
+                for blocked in (store.PHONE_SCOPE, store.TERMUX_SCOPE, store.PUSH_TEST_SCOPE):
+                    self.assertNotIn(blocked, challenge)
+        with patch.object(server, 'read_diagnostics_for_mcp',
+                          side_effect=AssertionError('Unauthenticated diagnostic read')) as reader:
+            headers = {'Content-Type': 'application/json',
+                       'X-Bob-Owner-Read-Scopes': 'products-and-diagnostics'}
+            payload = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                       'params': {'name': 'bob_diagnostics', 'arguments': {'focus': 'overview'}}}
+            self.assertEqual(self.request('POST', '/mcp', json.dumps(payload), headers)[0], 401)
+            self.assertEqual(reader.call_count, 0)
 
     def test_actual_consent_and_read_only_mcp_flow(self):
         self.begin()
@@ -245,6 +508,253 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.form('/oauth/disconnect',{'csrf':'wrong'},cookies)[0],403)
         self.assertEqual(self.form('/oauth/disconnect',{'csrf':oauth.csrf({'Cookie':self.session})},cookies)[0],303)
         self.assertEqual(self.request('POST','/mcp','{}',headers)[0],401)
+
+    def test_gemini_local_callback_is_owner_approved_and_not_chatgpt(self):
+        allowed = store.SCOPE+' '+store.DIAGNOSTICS_SCOPE
+        status,_,body = self.request('POST','/oauth/register',
+            json.dumps({'redirect_uris':[store.GEMINI_REDIRECT],'scope':allowed}),
+            {'Content-Type':'application/json'})
+        self.assertEqual(status,201)
+        gid = json.loads(body)['client_id']
+        verifier = 't'*43
+        params = dict(client_id=gid,redirect_uri=store.GEMINI_REDIRECT,
+                      response_type='code',scope=allowed,resource=store.RESOURCE,
+                      state='gemini-flow',code_challenge=store.challenge(verifier),
+                      code_challenge_method='S256')
+        status,headers,_=self.request('GET','/oauth/authorize?'+urlencode(params))
+        self.assertEqual(status,303)
+        pending_cookie=headers['Set-Cookie'].split(';')[0]
+        cookies=pending_cookie+'; '+self.session
+        status,_,page=self.request('GET','/oauth/resume',headers={'Cookie':cookies})
+        self.assertEqual(status,200)
+        self.assertIn(b'Gemini CLI mit Bob verbinden',page)
+        self.assertIn(b'Google-Datenschutz:',page)
+        self.assertIn(b'Google-Produkten verwendet',page)
+        self.assertNotIn(b'Termux-Wartung erlauben',page)
+        nonce=pending_cookie.split('=',1)[1]
+        self.assertEqual(self.form('/oauth/consent',{'request':nonce,'decision':'approve'},
+                         cookies,origin='https://evil.example')[0],403)
+        status,_,body=self.form('/oauth/consent',
+                               {'request':nonce,'decision':'approve'},cookies)
+        self.assertEqual(status,200)
+        self.assertIn(b'Zur\xc3\xbcck zu Gemini CLI',body)
+        import html
+        url=html.unescape(re.search(r'href="([^"]+)"',body.decode()).group(1))
+        self.assertEqual(url.split('?')[0],store.GEMINI_REDIRECT)
+        value=parse_qs(urlparse(url).query)
+        self.assertEqual(value['iss'],[store.ORIGIN])
+        status,_,body=self.form('/oauth/token',
+                               dict(grant_type='authorization_code',
+                                    client_id=gid,redirect_uri=store.GEMINI_REDIRECT,
+                                    code=value['code'][0],code_verifier=verifier,
+                                    resource=store.RESOURCE))
+        self.assertEqual(status,200)
+        self.assertEqual(set(json.loads(body)['scope'].split()),
+                         {store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        gemini_token = json.loads(body)['access_token']
+        # Only an authenticated owner with Bob's CSRF can revoke this client.
+        status,_,page=self.request('GET','/oauth/connections',
+                                   headers={'Cookie':self.session})
+        self.assertEqual(status,200)
+        self.assertIn(b'Nur Gemini-Zugriff widerrufen',page)
+        self.assertEqual(self.form('/oauth/disconnect-gemini',
+                         {'csrf':'wrong'},self.session)[0],403)
+        csrf = oauth.csrf({'Cookie':self.session})
+        self.assertEqual(self.form('/oauth/disconnect-gemini',
+                         {'csrf':csrf},self.session)[0],303)
+        self.assertFalse(store.transition(self.state,'check',
+                          {'token':gemini_token})['valid'])
+
+    def test_antigravity_owner_consent_scopes_and_independent_revoke_http(self):
+        scopes = store.SCOPE + ' ' + store.DIAGNOSTICS_SCOPE
+        status,_,body=self.request('POST','/oauth/register',
+            json.dumps({'redirect_uris':[store.ANTIGRAVITY_REDIRECT],'scope':scopes}),
+            {'Content-Type':'application/json'})
+        self.assertEqual(status,201)
+        cid=json.loads(body)['client_id']
+        verifier='a'*43
+        params=dict(client_id=cid,redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                    response_type='code',scope=scopes,resource=store.RESOURCE,
+                    state='antigravity-test',code_challenge=store.challenge(verifier),
+                    code_challenge_method='S256')
+        status,headers,_=self.request('GET','/oauth/authorize?'+urlencode(params))
+        self.assertEqual(status,303)
+        csrf_cookie=headers['Set-Cookie'].split(';')[0]
+        cookies=csrf_cookie+'; '+self.session
+        status,_,page=self.request('GET','/oauth/resume',headers={'Cookie':cookies})
+        self.assertEqual(status,200)
+        self.assertIn(b'Antigravity CLI mit Bob verbinden',page)
+        self.assertIn(b'Google-Datenschutz:',page)
+        self.assertNotIn(b'Termux-Wartung erlauben',page)
+        nonce=csrf_cookie.split('=',1)[1]
+        self.assertEqual(self.form('/oauth/consent',
+                         {'request':nonce,'decision':'approve'},cookies,
+                         origin='https://evil.example')[0],403)
+        status,_,body=self.form('/oauth/consent',
+                         {'request':nonce,'decision':'approve'},cookies)
+        self.assertEqual(status,200)
+        self.assertIn(b'Zur',body)
+        self.assertIn(b'Antigravity CLI',body)
+        import html
+        callback=html.unescape(re.search(r'href="([^"]+)"',body.decode()).group(1))
+        self.assertEqual(callback.split('?')[0],store.ANTIGRAVITY_REDIRECT)
+        returned=parse_qs(urlparse(callback).query)
+        self.assertEqual(returned['iss'],[store.ORIGIN])
+        status,_,body=self.form('/oauth/token',
+                {'grant_type':'authorization_code','client_id':cid,
+                 'redirect_uri':store.ANTIGRAVITY_REDIRECT,'code':returned['code'][0],
+                 'code_verifier':verifier,'resource':store.RESOURCE})
+        self.assertEqual(status,200)
+        token=json.loads(body)['access_token']
+        self.assertEqual(set(json.loads(body)['scope'].split()),
+                         {store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'}
+        payload={'jsonrpc':'2.0','id':1,'method':'tools/call',
+                 'params':{'name':'bob_termux_execute','arguments':{}}}
+        status,_,body=self.request('POST','/mcp',json.dumps(payload),headers)
+        self.assertEqual(status,200)
+        self.assertIn('error',json.loads(body))
+        status,_,page=self.request('GET','/oauth/connections',
+                                   headers={'Cookie':self.session})
+        self.assertEqual(status,200)
+        self.assertIn(b'Antigravity CLI: OAuth-Freigabe vorhanden',page)
+        self.assertIn(b'Nur Antigravity-Zugriff widerrufen',page)
+        self.assertEqual(self.form('/oauth/disconnect-antigravity',
+                         {'csrf':'wrong'},self.session)[0],403)
+        self.assertEqual(self.form('/oauth/disconnect-antigravity',
+                         {'csrf':oauth.csrf({'Cookie':self.session})},self.session)[0],303)
+        self.assertFalse(store.transition(self.state,'check',{'token':token})['valid'])
+
+    def test_antigravity_diagnostic_step_up_requires_new_owner_consent(self):
+        # Product-only Antigravity grants continue working for product reads,
+        # but diagnosis needs a real OAuth 403 challenge + a separate consent.
+        status,_,body=self.request('POST','/oauth/register',
+            json.dumps({'redirect_uris':[store.ANTIGRAVITY_REDIRECT]}),
+            {'Content-Type':'application/json'})
+        self.assertEqual(status,201)
+        cid=json.loads(body)['client_id']
+        verifier='z'*43
+        def begin(scope):
+            params=dict(client_id=cid,redirect_uri=store.ANTIGRAVITY_REDIRECT,
+                response_type='code',scope=scope,resource=store.RESOURCE,
+                state='stepup-test',code_challenge=store.challenge(verifier),
+                code_challenge_method='S256')
+            code,headers,_=self.request('GET','/oauth/authorize?'+urlencode(params))
+            self.assertEqual(code,303)
+            cookie=headers['Set-Cookie'].split(';')[0]
+            return cookie,cookie.split('=',1)[1]
+        def approve(cookie,nonce):
+            cookies=cookie+'; '+self.session
+            code,_,page=self.request('GET','/oauth/resume',headers={'Cookie':cookies})
+            self.assertEqual(code,200)
+            self.assertIn(b'Antigravity CLI mit Bob verbinden',page)
+            self.assertEqual(self.form('/oauth/consent',
+                {'request':nonce,'decision':'approve'},cookies,origin='https://evil.example')[0],403)
+            code,_,page=self.form('/oauth/consent',
+                {'request':nonce,'decision':'approve'},cookies)
+            self.assertEqual(code,200)
+            import html
+            callback=html.unescape(re.search(r'href="([^"]+)"',page.decode()).group(1))
+            return parse_qs(urlparse(callback).query)['code'][0]
+        def token(code):
+            status,_,body=self.form('/oauth/token',
+                {'grant_type':'authorization_code','client_id':cid,
+                 'redirect_uri':store.ANTIGRAVITY_REDIRECT,'code':code,
+                 'code_verifier':verifier,'resource':store.RESOURCE})
+            self.assertEqual(status,200)
+            return json.loads(body)
+        cookie,nonce=begin(store.SCOPE)
+        original=token(approve(cookie,nonce))
+        self.assertEqual(original['scope'],store.SCOPE)
+        auth={'Authorization':'Bearer '+original['access_token'],
+              'Content-Type':'application/json',
+              'X-Bob-Owner-Read-Scopes':'products-and-diagnostics'}
+        request={'jsonrpc':'2.0','id':77,'method':'tools/call',
+                 'params':{'name':'bob_diagnostics','arguments':{'focus':'overview'}}}
+        with patch.object(server,'read_diagnostics_for_mcp',
+                          side_effect=AssertionError('Unauthorized reader accessed')) as reader:
+            status,headers,body=self.request('POST','/mcp',json.dumps(request),auth)
+            self.assertEqual(status,403)
+            self.assertEqual(reader.call_count,0)
+        challenge=headers.get('WWW-Authenticate','')
+        self.assertIn('error="insufficient_scope"',challenge)
+        self.assertIn(store.SCOPE,challenge)
+        self.assertIn(store.DIAGNOSTICS_SCOPE,challenge)
+        self.assertIn('resource_metadata=',challenge)
+        self.assertNotIn(store.TERMUX_SCOPE,challenge)
+        self.assertNotIn(store.PHONE_SCOPE,challenge)
+        self.assertNotIn(store.PUSH_TEST_SCOPE,challenge)
+        self.assertTrue(json.loads(body)['result']['isError'])
+        request['params']['name']='bob_product_gaps'
+        request['params']['arguments']={}
+        with patch.object(server,'read_private_product_audit_for_mcp',
+                          return_value={'status':'observed','items':[]}) as reader:
+            status,headers,body=self.request('POST','/mcp',json.dumps(request),auth)
+            self.assertEqual(status,200)
+            self.assertNotIn('WWW-Authenticate',headers)
+            self.assertEqual(reader.call_count,1)
+        cookie,nonce=begin(store.SCOPE+' '+store.DIAGNOSTICS_SCOPE)
+        authorized=token(approve(cookie,nonce))
+        self.assertEqual(set(authorized['scope'].split()),
+                         {store.SCOPE,store.DIAGNOSTICS_SCOPE})
+        self.assertEqual(store.transition(self.state,'check',
+            {'token':original['access_token']})['scope'],store.SCOPE)
+        request['params']['name']='bob_diagnostics'
+        request['params']['arguments']={'focus':'overview'}
+        authorized_header={**auth,'Authorization':'Bearer '+authorized['access_token']}
+        with patch.object(server,'read_diagnostics_for_mcp',
+                          return_value={'status':'observed','observedAt':'2026-11-10T00:00:00Z'}):
+            with patch('bob_diagnostics.focused_report',side_effect=lambda report,focus:report):
+                with patch('bob_diagnostics.bounded_report',side_effect=lambda report,limit:report):
+                    status,headers,body=self.request('POST','/mcp',json.dumps(request),authorized_header)
+        self.assertEqual(status,200)
+        self.assertNotIn('WWW-Authenticate',headers)
+        self.assertFalse(json.loads(body)['result']['isError'])
+
+    def test_connections_returns_to_same_page_after_login_and_passkey(self):
+        # A direct link from a private ChatGPT conversation must not drop the
+        # destination when the owner first signs in on their phone.
+        status, h, _ = self.request('GET','/oauth/connections')
+        self.assertEqual(status,303)
+        self.assertEqual(h['Location'],'/login?view=oauth-connections')
+        self.assertEqual(self.request('GET','/oauth/connections',
+            headers={'Cookie':self.session})[0],200)
+        with patch.object(oauth.bob_passkey,'require',
+                          side_effect=oauth.bob_passkey.PasskeyRequired):
+            status, h, _ = self.request('GET','/oauth/connections',
+                headers={'Cookie':self.session})
+            self.assertEqual(status,303)
+            self.assertEqual(h['Location'],'/passkey?connections=1')
+        # The existing OAuth consent passkey flow is not changed.
+        js = __import__('pathlib').Path('passkey.js').read_text()
+        self.assertIn("next.get('connections')==='1'",js)
+        self.assertIn("location.replace('/oauth/connections')",js)
+        self.assertIn("next.get('oauth')==='1'",js)
+        self.assertIn("location.replace('/oauth/resume')",js)
+        self.assertIn("next.get('archive')==='1'",js)
+        self.assertIn("location.replace('/archive/connect')",js)
+
+    def test_connection_page_reports_grant_not_tool_permission(self):
+        # A browser session alone can inspect grants but cannot create one.
+        self.assertEqual(self.request('GET','/oauth/connections')[0],303)
+        code,_,page=self.request('GET','/oauth/connections',
+                                 headers={'Cookie':self.session})
+        self.assertEqual(code,200)
+        self.assertIn(b'Termux-Wartung (ChatGPT): Keine aktive OAuth-Freigabe',page)
+        self.assertIn(b'Gemini CLI: Keine aktive OAuth-Freigabe',page)
+        cid = store.transition(self.state,'register',
+                {'redirect_uris':[store.REDIRECT]})['client_id']
+        self.state['grants']['safe-test-grant'] = {
+            'client_id':cid, 'scope':store.SCOPE+' '+store.TERMUX_SCOPE,
+            'created':time.time(), 'expires':time.time()+1000
+        }
+        code,_,page=self.request('GET','/oauth/connections',
+                                 headers={'Cookie':self.session})
+        self.assertEqual(code,200)
+        self.assertIn(b'Termux-Wartung (ChatGPT): OAuth-Freigabe vorhanden',page)
+        self.assertIn(b'externe Connector-Berechtigung',page)
+        self.assertNotIn(b'safe-test-grant',page)
+        self.assertNotIn(b'client_id',page)
 
     def test_daily_factor_cannot_be_bypassed(self):
         self.begin()

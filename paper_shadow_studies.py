@@ -17,6 +17,21 @@ HORIZON_MS = 60 * 60000
 TOLERANCE_MS = 60000
 ZURICH = ZoneInfo("Europe/Zurich")
 SIGNAL_COST_PCT = 0.16   # Illustrative round-trip XAU benchmark, not DEGIRO costs.
+# Fixed diagnostic vocabulary: safe to publish counts without timestamps,
+# quotes, provider paths or private product identifiers.
+ORIGINAL_INPUT_REASONS = frozenset((
+    "spot-identity-unverified",
+    "spot-source-clock-missing",
+    "spot-source-not-fresh",
+    "spot-or-analysis-price-invalid",
+    "spot-analysis-price-mismatch",
+    "analysis-not-ready",
+    "analysis-price-not-fresh",
+    "analysis-source-clock-mismatch",
+    "original-signal-bar-missing",
+    "original-evidence-unverified",
+))
+
 PRODUCT_FEE_EUR = 1.0
 PRODUCT_SLIPPAGE = 0.0005  # Assumption per side, separate from observed spread.
 
@@ -59,7 +74,7 @@ def init(conn):
             (study,json.dumps(seed(study,now))))
 
 
-def original_input(bundle, market, now):
+def original_input(bundle, market, now, analysis_timeframe="15m"):
     """Assert that the exact market spot is the original source observation.
 
     A future or estimated clock, absent closed 15m bar, or a different source
@@ -68,7 +83,7 @@ def original_input(bundle, market, now):
     from paper_simulation import stamp
     spots=(bundle or {}).get("spots") or {}
     history=(bundle or {}).get("history") or {}
-    bars=(history.get("bars_by_tf") or {}).get("15m") or []
+    bars=(history.get("bars_by_tf") or {}).get(analysis_timeframe) or []
     at=stamp(spots.get("spot_price_as_of"))
     price=market.get("price")
     data_at=market.get("dataAt")
@@ -78,7 +93,7 @@ def original_input(bundle, market, now):
                    and b.get("isOpen") is not True
                    and b.get("providerIsOpen") is not True
                    and b.get("estimated") is not True]
-    matching=any(b["openTime"] == analysis_at for b in verified_bars)
+    matching=any(b["openTime"] == analysis_at and b["openTime"]+({"5m":300000,"15m":900000}[analysis_timeframe])<=now for b in verified_bars)
     source_price=spots.get("xaus")
     good=(spots.get("is_genuine_xauusd_spot") is True
           and spots.get("xaus_is_spot") is True
@@ -90,9 +105,37 @@ def original_input(bundle, market, now):
           and positive(price) and number(data_at) and number(at)
           and abs(data_at-at)<=2000 and 0<=now-at<=60000
           and matching)
+    # Keep the original admission decision exactly unchanged. Explain each
+    # rejected input by ONE fixed, non-sensitive reason so prospective studies
+    # can distinguish a late spot from a missing CLOSED signal candle.
+    # These reasons are observational only; they never grant paper/broker entry.
+    if good:
+        reason_code = None
+    elif (spots.get("is_genuine_xauusd_spot") is not True
+          or spots.get("xaus_is_spot") is not True):
+        reason_code = "spot-identity-unverified"
+    elif not number(at):
+        reason_code = "spot-source-clock-missing"
+    elif not 0 <= now-at <= 60000:
+        reason_code = "spot-source-not-fresh"
+    elif not positive(source_price) or not positive(price):
+        reason_code = "spot-or-analysis-price-invalid"
+    elif abs(source_price-price) > .001:
+        reason_code = "spot-analysis-price-mismatch"
+    elif market.get("ready") is not True:
+        reason_code = "analysis-not-ready"
+    elif market.get("priceFresh") is not True:
+        reason_code = "analysis-price-not-fresh"
+    elif not number(data_at) or abs(data_at-at) > 2000:
+        reason_code = "analysis-source-clock-mismatch"
+    elif not matching:
+        reason_code = "original-signal-bar-missing"
+    else:
+        reason_code = "original-evidence-unverified"
     return dict(verified=bool(good),sourceAt=at if number(at) else None,
         analysisBarAt=analysis_at if number(analysis_at) else None,
         price=price if positive(price) else None,closed15mMatched=matching,
+        reasonCode=reason_code,
         reason=None if good else "original-spot-or-15m-evidence-unverified")
 
 
@@ -177,7 +220,7 @@ def update_signal_study(conn,control,study,decision,quality,now):
                 else "casesInconclusive"]+=1
     control["openCases"]=pending
     bar=quality.get("analysisBarAt")
-    if (quality["verified"] and number(bar)
+    if (not control.get("retiredAt") and quality["verified"] and number(bar)
             and bar!=control.get("lastBarAt")):
         control["lastBarAt"]=bar
         # No trade at all if both models agree on ABWARTEN.
@@ -283,6 +326,9 @@ def product_study(conn,control,quality,market,selection,quotes,now):
             else:
                 record.update(state="exit-unpriced",reason="dated-exit-bid-or-ko-proof-missing")
         return record
+    if control.get('retiredAt'):
+        record['reason']='legacy-study-retired-no-new-entry'
+        return record
     if not quality["verified"]:
         record["reason"]="original-spot-input-not-confirmed"
         return record
@@ -372,6 +418,12 @@ def tick(conn,bundle,market,selection,quotes,now=None):
         if row is None:
             raise RuntimeError("shadow-studies-not-initialized")
         control=copy.deepcopy(row[0])
+        if control.get("retiredAt") and not control.get("position") and not control.get("openCases"):
+            if control.get("status")!="retired":
+                control["status"]="retired"
+                conn.execute("UPDATE bob_shadow_study_control SET payload=%s::jsonb WHERE study=%s",
+                             (json.dumps(control),study))
+            continue
         if study=="product-e2e":
             result=product_study(conn,control,quality,market,selection,quotes,now)
             result["modelEquityEur"]=mark_product_equity(

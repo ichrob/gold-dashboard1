@@ -5,7 +5,7 @@ import time
 from collections import OrderedDict
 
 STAGES = frozenset(('comdirect-fetch', 'swissquote-fetch', 'comdirect-terms',
-                    'finanzen-terms', 'comdirect-quote', 'swissquote-quote'))
+                    'finanzen-terms', 'sg-chf-contract', 'comdirect-quote', 'swissquote-quote'))
 _LOCK = threading.Lock()
 _FAILURES = OrderedDict()
 _SOURCE_FAILURES = {}

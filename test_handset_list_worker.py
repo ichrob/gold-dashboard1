@@ -5,6 +5,43 @@ from unittest.mock import patch
 import handset_list_worker as worker
 
 class WorkerTests(unittest.TestCase):
+    def test_working_bitmaps_close_between_passes_and_on_native_failure(self):
+        from PIL import Image
+        for fail in (False,True):
+            source=Image.new('RGB',(300,600),'white')
+            working=[]
+            original_resize=Image.Image.resize
+            def resize(image,*args,**kwargs):
+                value=original_resize(image,*args,**kwargs)
+                working.append(value)
+                return value
+            def engine(*args,**kwargs):
+                if fail:raise RuntimeError('native engine failure')
+                # The preceding pass is already closed before the next pass.
+                for previous in working[:-1]:
+                    with self.assertRaises(ValueError):previous.getpixel((0,0))
+                return [],None
+            with patch.object(Image.Image,'resize',resize),patch('memory_watch.release_free_pages'):
+                if fail:
+                    with self.assertRaises(RuntimeError):worker.recognize_image(source,engine)
+                else:self.assertEqual(worker.recognize_image(source,engine),['','',''])
+            for image in working:
+                with self.assertRaises(ValueError):image.getpixel((0,0))
+            self.assertEqual(source.getpixel((0,0)),(255,255,255))
+            source.close()
+
+    def test_memory_deferrals_are_bounded_across_saved_receipts(self):
+        receipt=None
+        for count in range(1,5):
+            receipt=worker.deferred_memory_receipt('a'*32,receipt)
+            self.assertEqual(receipt['memoryDeferrals'],count)
+            self.assertEqual(receipt['retryAllowed'],count<4)
+            self.assertEqual(receipt['stage'],'waiting-memory' if count<4 else 'read-failed')
+        self.assertEqual(receipt['error'],'MemoryError')
+        self.assertEqual(receipt['reason'],'OCR_MEMORY_WAIT_EXHAUSTED')
+        for invalid in (-1,True,'3',None):
+            self.assertEqual(worker.memory_deferrals({'memoryDeferrals':invalid}),0)
+
     def test_semantic_path_never_starts_ocr(self):
         from types import SimpleNamespace
         text={'before':['row'],'after':['row']}
@@ -15,12 +52,199 @@ class WorkerTests(unittest.TestCase):
         self.assertNotIn('private image',run.call_args_list[0].kwargs['input'])
         self.assertEqual(json.loads(run.call_args_list[1].kwargs['input'])['appSources'],[True])
 
+    def test_phone_mlkit_pair_prevents_heavy_server_ocr_and_keeps_source(self):
+        from product_quotes import valid_isin
+        def identifier(number):
+            stem='DE000ZZ'+str(number).zfill(4)
+            return next(stem+str(x) for x in range(10) if valid_isin(stem+str(x)))
+        def row(number):
+            return ('SG Gold Turbo BEST Open-End Call BAR 4000 BP 4000 Bv 10 | '+
+                identifier(number)+' Societe Generale OTC EUR')
+        images=[]
+        for numbers in ([1,2,3,4],[4,5,6,7],[7,8,9,10]):
+            lines=[row(n) for n in numbers]
+            images.append({'png':'not decoded on semantic fast path',
+                           'localOcr':{'expectedIsins':[identifier(n) for n in numbers],
+                                       'passes':[lines,lines]}})
+        with patch('handset_list_worker.guarded_ocr_run',
+                   side_effect=AssertionError('Native OCR was invoked')) as heavy:
+            result=worker.process({'images':images},'2026-11-03T08:00:00Z')
+        heavy.assert_not_called()
+        self.assertEqual(len(result['items']),10)
+        self.assertEqual(result['recognitionRoute'],{
+            'appTextImages':0,'phoneMlKitImages':3,'serverOcrFallbackImages':0,
+            'missingPhoneReadingImages':0,'rejectedPhoneReadingImages':0})
+        self.assertTrue(all(x['listRow']['extractionMethod']=='on-device-mlkit-two-scale'
+                            for x in result['items']))
+        self.assertTrue(all(x['listRow']['crossChecked'] for x in result['items']))
+        self.assertTrue(all(x['listRow']['source']=='DEGIRO-Listenbild'
+                            for x in result['items']))
+        self.assertTrue(all(not x['listRow']['isExecutableQuote'] for x in result['items']))
+
+    def test_mixed_phone_batch_with_optical_ratio_label_never_loads_native_models(self):
+        from product_quotes import valid_isin
+        def identifier(n):
+            stem='DE000ZZ'+str(n).zfill(4)
+            return next(stem+str(x) for x in range(10) if valid_isin(stem+str(x)))
+        def row(n):
+            return f'SG Gold Turbo BEST Open-End Call BAR 4000 BP 3999.25 Bv 10 | {identifier(n)} Societe Generale OTC EUR'
+        first=[row(n).replace('Bv 10', 'By 10') for n in range(1,5)]
+        second=[row(n).replace('Bv 10', 'By 10' if n != 4 else 'Bv 10') for n in range(1,5)]
+        images=[{'png':'must never be decoded', 'localOcr':{
+            'expectedIsins':[identifier(n) for n in range(1,5)], 'passes':[first,second]}}]
+        for group in ([5,6,7,8,9],[6,7,8,9,10]):
+            rows=[row(n) for n in group]
+            images.append({'png':'must never be decoded', 'appText':{'before':rows,'after':rows}})
+        original=json.dumps(images)
+        with patch.object(worker,'guarded_ocr_run',side_effect=AssertionError('Native model started')) as native:
+            result=worker.process({'images':images},'2026-11-05T18:10:00Z')
+        native.assert_not_called()
+        self.assertEqual(result['recognitionRoute'],{
+            'appTextImages':2,'phoneMlKitImages':1,'serverOcrFallbackImages':0,
+            'missingPhoneReadingImages':0,'rejectedPhoneReadingImages':0})
+        self.assertEqual(json.dumps(images),original)
+        self.assertEqual(len(result['items']),10)
+        self.assertTrue(all(x['listRow']['ratio']==.1 for x in result['items']))
+        self.assertTrue(all(not x['listRow']['isExecutableQuote'] for x in result['items']))
+        self.assertTrue(all(x['listRow']['extractionMethod']=='on-device-mlkit-two-scale' for x in result['items'][:4]))
+        # Two optical values must still agree; label repair cannot fix a number.
+        images[0]['localOcr']['passes'][1][0]=second[0].replace('By 10', 'By 100')
+        with patch.object(worker,'guarded_ocr_run',side_effect=AssertionError('Native model started')):
+            with self.assertRaises(worker.ListVerificationError):
+                worker.process({'images':images},'2026-11-05T18:10:00Z')
+
+    def test_positioned_semantic_rows_import_ten_without_native_ocr(self):
+        from product_quotes import valid_isin
+        def row(number):
+            stem='DE000ZZ'+str(number).zfill(4)
+            isin=next(stem+str(n) for n in range(10) if valid_isin(stem+str(n)))
+            return ('SG Gold Turbo BEST Open-End Call BAR 4000 BP 4000 Bv 10 | '+
+                    isin+' Societe Generale OTC EUR')
+        images=[]
+        for group in ([1,2,3,4],[4,5,6,7],[7,8,9,10]):
+            rows=[row(n) for n in group]
+            images.append({'png':'original retained but never decoded',
+                           'appText':{'before':rows,'after':list(rows)}})
+        with patch('handset_list_worker.guarded_ocr_run',
+                   side_effect=AssertionError('Native OCR must not start')) as heavy:
+            result=worker.process({'images':images},'2026-11-05T08:00:00Z')
+        heavy.assert_not_called()
+        self.assertEqual(len(result['items']),10)
+        self.assertTrue(all(item['listRow']['extractionMethod']=='accessibility-before-after'
+                            for item in result['items']))
+        self.assertTrue(all(item['listRow']['textCaptureMatched'] for item in result['items']))
+        self.assertTrue(all(not item['listRow']['crossChecked'] for item in result['items']))
+
+    def test_raw_local_ocr_glyph_rows_reach_ten_product_parser_without_native_ocr(self):
+        from product_quotes import valid_isin
+        images=[]
+        raw_ids=[]
+        for group in ([1,2,3,4],[4,5,6,7],[7,8,9,10]):
+            ids=[];rows=[]
+            for number in group:
+                stem='DE000ZZ'+str(number).zfill(4)
+                isin=next(stem+str(n) for n in range(10) if valid_isin(stem+str(n)))
+                optical=isin.replace('0','O')
+                ids.append(isin);raw_ids.append(optical)
+                rows.append('SG Gold Turbo BEST Open-End Call BAR 4000 BP 4000 Bv 10 | '+
+                            optical+' Societe Generale OTC EUR')
+            images.append({'png':'original retained','localOcr':{'expectedIsins':ids,'passes':[rows,list(rows)]}})
+        with patch('handset_list_worker.guarded_ocr_run',side_effect=AssertionError('Native OCR invoked')) as heavy:
+            result=worker.process({'images':images},'2026-11-05T08:00:00Z')
+        heavy.assert_not_called()
+        self.assertEqual(len(result['items']),10)
+        self.assertTrue(all(item['listRow']['extractionMethod']=='on-device-mlkit-two-scale' for item in result['items']))
+        self.assertTrue(all(item['listRow']['crossChecked'] for item in result['items']))
+        self.assertTrue(all(item['originalIsin'] in raw_ids for item in result['items']))
+
+    def test_only_missing_phone_evidence_goes_to_server_fallback(self):
+        from types import SimpleNamespace
+        images=[{'png':'image-a','appText':{'before':['safe'], 'after':['safe']}},
+                {'png':'image-b'},
+                {'png':'image-c','localOcr':{'expectedIsins':['DE000ZZ00016'],'passes':[['r'],['r']]}}]
+        responses=[
+            SimpleNamespace(stdout=json.dumps([['paired','paired'], None, ['mlkit','mlkit']])),
+            SimpleNamespace(stdout=json.dumps([['native-pass-one','native-pass-two']])),
+            SimpleNamespace(stdout=json.dumps({'items':[],'evidence':{}})),
+        ]
+        with patch('evaluator_runtime.run',side_effect=responses) as runner:
+            result=worker.process({'images':images},'2026-11-11T08:00:00Z')
+        self.assertEqual(runner.call_count,3)
+        self.assertEqual(sum('--ocr' in call.args[0] for call in runner.call_args_list),1)
+        self.assertEqual(result['recognitionRoute'],{
+            'appTextImages':1,'phoneMlKitImages':1,'serverOcrFallbackImages':1,
+            'missingPhoneReadingImages':1,'rejectedPhoneReadingImages':0})
+        self.assertEqual(images[1],{'png':'image-b'})
+
+    def test_invalid_phone_reading_falls_back_without_claiming_accepted_mlkit(self):
+        from types import SimpleNamespace
+        image={'png':'original','localOcr':{'expectedIsins':['DE000ZZ00016'],
+            'passes':[['contradiction'],['contradiction']]}}
+        responses=[
+            SimpleNamespace(stdout='[null]'),
+            SimpleNamespace(stdout=json.dumps([['one','two']])),
+            SimpleNamespace(stdout=json.dumps({'items':[],'evidence':{}})),
+        ]
+        with patch('evaluator_runtime.run',side_effect=responses):
+            result=worker.process({'images':[image]},'2026-11-11T08:00:00Z')
+        self.assertEqual(result['recognitionRoute'],{
+            'appTextImages':0,'phoneMlKitImages':0,'serverOcrFallbackImages':1,
+            'missingPhoneReadingImages':0,'rejectedPhoneReadingImages':1})
+        self.assertEqual(image['png'],'original')
+
+    def test_ocr_route_rejects_invalid_counts_and_keeps_old_batches_compatible(self):
+        valid={'appTextImages':2,'phoneMlKitImages':1,'serverOcrFallbackImages':1,
+               'missingPhoneReadingImages':1,'rejectedPhoneReadingImages':0}
+        self.assertIsNone(worker.bounded_recognition_route(None))
+        self.assertEqual(worker.bounded_recognition_route(valid),valid)
+        for invalid in (
+            {**valid,'serverOcrFallbackImages':2},
+            {**valid,'missingPhoneReadingImages':0},
+            {**valid,'appTextImages':True},
+            {**valid,'serverOcrFallbackImages':5},
+            {**valid,'accountId':'private'}
+        ):
+            with self.assertRaises(ValueError):
+                worker.bounded_recognition_route(invalid)
+
     def test_ocr_defers_before_spawn_when_headroom_is_insufficient(self):
-        with patch.object(worker,'container_memory_bytes',return_value=300*1024*1024),patch('subprocess.Popen') as spawn:
+        with patch.object(worker,'container_memory_bytes',return_value=305*1024*1024),patch('subprocess.Popen') as spawn:
             with self.assertRaises(worker.OcrMemoryDeferred):
                 worker.guarded_ocr_run(['ocr'],input='[]',text=True,capture_output=True,timeout=35,check=True,env={},close_fds=True)
             spawn.assert_not_called()
 
+
+    def test_505_policy_keeps_200_mib_start_reserve(self):
+        from types import SimpleNamespace
+        for mib in (305,400,504,505,None):
+            used=None if mib is None else mib*1024*1024
+            with patch.object(worker,'container_memory_bytes',return_value=used), \
+                 patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn:
+                with self.assertRaises(worker.OcrMemoryDeferred):
+                    worker.guarded_ocr_run(['ocr'],input='[]',text=True,capture_output=True,
+                        timeout=35,check=True,env={},close_fds=True)
+                spawn.assert_not_called()
+        with patch.object(worker,'container_memory_bytes',return_value=304*1024*1024), \
+             patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn, \
+             patch.object(worker,'wait_ocr',return_value=0):
+            result=worker.guarded_ocr_run(['ocr'],input='[]',text=True,capture_output=True,
+                timeout=35,check=True,env={},close_fds=True)
+            spawn.assert_called_once();self.assertEqual(result.returncode,0)
+        self.assertEqual(worker.status()['ocrMemoryLimitMiB'],505)
+        self.assertEqual(worker.status()['ocrStartReserveMiB'],200)
+
+    def test_ocr_can_cross_old_ceiling_but_is_killed_at_505(self):
+        class Child:
+            args=['ocr'];killed=False
+            def poll(self):return None
+            def kill(self):self.killed=True
+            def wait(self,timeout=None):return -9
+        child=Child();samples=iter([480,500,504,505]);observed=[]
+        def memory():
+            value=next(samples);observed.append(value);return value*1024*1024
+        with self.assertRaises(MemoryError):
+            worker.wait_ocr(child,memory,clock=lambda:0,sleep=lambda _:None)
+        self.assertEqual(observed,[480,500,504,505]);self.assertTrue(child.killed)
 
     def test_persistence_retries_transient_conflicts_after_transaction_exit(self):
         from types import SimpleNamespace
@@ -55,6 +279,31 @@ class WorkerTests(unittest.TestCase):
         with patch('paper_simulation.sync',side_effect=ValueError('invalid evidence')) as sync:
             with self.assertRaises(ValueError):worker.persist_parsed(connect,'a'*32,parsed,sleep)
             self.assertEqual(sync.call_count,1)
+
+    def test_import_receipt_records_only_bounded_routing_counts(self):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+        route={'appTextImages':2,'phoneMlKitImages':1,'serverOcrFallbackImages':0,
+               'missingPhoneReadingImages':0,'rejectedPhoneReadingImages':0}
+        parsed={'items':[{'isin':str(n)} for n in range(10)],
+                'evidence':{'products':[]},'recognitionRoute':route}
+        written=[]
+        class Conn:
+            def execute(self,sql,args=()):
+                if sql.startswith('SELECT'): return SimpleNamespace(fetchone=lambda:(None,))
+                written.append((sql,args))
+            def commit(self): pass
+        @contextmanager
+        def connect():
+            yield Conn()
+        with patch('paper_simulation.sync',return_value={'ok':True,'products':10}):
+            self.assertEqual(worker.persist_parsed(connect,'f'*32,parsed),'synced')
+        self.assertEqual(len(written),1)
+        receipt=json.loads(written[0][1][1])
+        self.assertEqual(receipt['recognitionRoute'],route)
+        self.assertEqual(receipt['stage'],'synced')
+        self.assertNotIn('images',receipt)
+        self.assertNotIn('account',str(receipt).lower())
 
     def test_strip_context_overlaps_but_line_ownership_never_doubles(self):
         for height in (1,511,512,513,896,897,1536,2400,3200):
@@ -317,6 +566,26 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(conn.execute('SELECT count(*) FROM retry_probe').fetchone()[0],1)
                 self.assertEqual(conn.execute('SELECT processing_attempts FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0],6)
                 self.assertEqual(android_list.handle(conn,{'action':'list-status','token':'a'*64,'value':{'batchId':value['batchId']}},now)['import']['stage'],'synced')
+
+            # Sustained admission pressure must finish across worker restarts,
+            # not reset processing_attempts forever. Original payload survives.
+            with connect() as conn:
+                conn.execute("UPDATE bob_android_list_images SET processing_attempts=0,processing_at=NULL,import_receipt=NULL WHERE batch_id=%s",(value['batchId'],))
+            def deferred(*_):raise worker.OcrMemoryDeferred('private text')
+            for count in range(1,5):
+                self.assertTrue(worker.tick(connect,deferred))
+                with connect() as conn:
+                    receipt,attempts,payload=conn.execute('SELECT import_receipt,processing_attempts,payload FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()
+                    self.assertEqual(receipt['memoryDeferrals'],count)
+                    self.assertEqual(attempts,0 if count<4 else 6)
+                    self.assertEqual(payload['images'],value['images'])
+                    # Late browser receipts cannot reset the durable budget.
+                    android_list.handle(conn,{'action':'list-receipt','value':{'batchId':value['batchId'],'stage':'reading','count':0}},now)
+                    after=conn.execute('SELECT import_receipt FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0]
+                    self.assertEqual(after['memoryDeferrals'],count)
+                    if count==4:self.assertEqual(after,receipt)
+                    conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes' WHERE batch_id=%s",(value['batchId'],))
+            self.assertFalse(worker.tick(connect,lambda *_:self.fail('Exhausted memory retries must stop')))
 
         finally:
             with psycopg.connect(url) as admin:admin.execute('DROP SCHEMA '+schema+' CASCADE')

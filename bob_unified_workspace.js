@@ -222,8 +222,70 @@ function testOverviewLines(value){
  if(value?.version!==1)return ['Testübersicht: Nachweise nicht verfügbar.'];
  const clock=v=>{if(!v)return 'unbekannt';const d=new Date(typeof v==='number'?(v>100000000000?v:v*1000):v);return Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';};
  const n=v=>Number.isInteger(v)&&v>=0?String(v):'unbekannt';
- const states={checked:'aktuell geprüft',observed:'Stichprobe vorhanden','no-records':'keine Aufzeichnungen',unavailable:'nicht bestätigt'};
+ const states={'legacy-positions-draining':'vorherige Positionen werden mit Trendumkehr-Schutz abgeschlossen',collecting:'neue Testphase sammelt',draining:'offene Fälle abschließen','completed-review-required':'Erfassung beendet · Auswertung nötig',retired:'alte Testphase beendet',completed:'Erfassung beendet',checked:'aktuell geprüft','waiting-for-signal':'aktuell geprüft · wartet auf bestätigte Richtung','input-blocked':'aktuell geprüft · Originaldaten nicht bestätigt','night-paused':'planmäßige Nacht-/Wochenendpause',observed:'Stichprobe vorhanden','no-records':'keine Aufzeichnungen',unavailable:'nicht bestätigt'};
  const lines=['Tests und Vergleichstests',value.note];
+ const handset=value.handsetComparisons;
+ if(handset?.status==='observed'){
+  const eur=v=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(2)+' €':'unbekannt';
+  lines.push('Handy-Kursvergleiche: '+n(handset.accepted)+' mit Modellkosten berechnet · '+n(handset.dailyFxAccepted)+' Tageskurs-Umrechnungen akzeptiert · '+n(handset.missingFx)+' Währungsgrundlagen fehlen · '+n(handset.unpaired)+' ohne passendes Kurspaar.');
+  for(const r of handset.items||[])lines.push(r.isin+' · '+clock(r.entryAt)+' bis '+clock(r.exitAt)+' · '+n(r.quantity)+' Stück · vor Modellkosten '+eur(r.grossEur)+' · nach Modellkosten '+eur(r.modelNetEur)+' (Gebühren '+eur(r.feesEur)+', Slippage '+eur(r.slippageEur)+')'+(r.fxApproximation?' · Tageskurs-Näherung '+r.fxDate+' akzeptiert.':'.'));
+  lines.push(handset.note);
+ }
+ const campaign=value.qualityCampaign;
+ if(campaign?.version){
+  lines.push('Neue Testphase: '+campaign.status+' · Ende spätestens: '+clock(campaign.deadlineAt));
+  for(const t of campaign.studies||[])lines.push(t.label+': '+(t.id==='reaction'?'Prüfungen '+n(t.cycles)+' · ungültige Eingaben '+n(t.invalid)+' · Verarbeitungslücken '+n(t.missingIntervals)+' · Kontofehler '+n(t.workerErrors):'vollständig '+n(t.complete)+' · nicht auswertbar '+n(t.inconclusive)+' · offen '+n(t.open)));
+  for(const l of campaign.lessons||[])lines.push((l.status==='hypothesis'?'Zu prüfen: ':'Qualitätsregel: ')+l.text);
+  lines.push(campaign.note);
+  const review=campaign.historicalReview;
+  if(review?.status==='observed'){
+   lines.push('Historische Prüfung abgeschlossen: '+n(review.counts?.reviewed)+' Fälle · '+n(review.counts?.modeled)+' mit Endpunktmodell berechnet · '+n(review.counts?.unavailable)+' ohne ausreichende Berechnungsgrundlage.'+(review.truncated?' Teilmenge; weitere Fälle nicht geprüft.':''));
+   for(const r of review.items||[]){
+    const values=Object.entries(r.returnsPct||{}).filter(([,v])=>typeof v==='number'&&Number.isFinite(v)).map(([k,v])=>k+': '+v.toFixed(3)+' %');
+    lines.push(r.study+' · '+clock(r.closedAt)+' · '+(r.modelStatus==='endpoint-model'?'Rückblickendes Spot-Endpunktmodell: '+values.join(' · '):'Abgeschlossen mit unbestätigtem Originalergebnis; Berechnungsgrundlage fehlt.'));
+   }
+   lines.push(review.note);
+  }
+  const model=campaign.modeledSimulation;
+  if(model?.studies){
+   lines.push('Simulation mit Schätzwerten · '+(states[model.status]||'nicht bestätigt')+' · Beginn: '+clock(model.startedAt));
+   for(const t of model.studies){
+    lines.push(t.label+': '+(t.id==='reaction'?'Prüfungen '+n(t.cycles)+' · geschätzte Eingaben '+n(t.estimated):'ausgewertet '+n(t.complete)+' · davon mit Schätzung '+n(t.estimatedComplete)+' · offen '+n(t.open)+' · weiterhin nicht auswertbar '+n(t.inconclusive)));
+    const returns=Object.entries(t.meanNetReferencePct||{}).filter(([,v])=>typeof v==='number'&&Number.isFinite(v)).map(([k,v])=>k+': '+v.toFixed(3)+' %');
+    if(returns.length)lines.push('Mittlere Spot-Modelländerung nach angenommenen Kosten · '+returns.join(' · '));
+   }
+   lines.push(model.note);
+  }
+ }
+ const timing=value.intradayTimingStudy;
+ if(timing?.version){
+  const pct=v=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(3)+' %':'noch unbekannt';
+  lines.push('Intraday-Vergleich · 3 / 5 / 7 Minuten · maximale Haltedauer 30 / 180 / 300 Minuten');
+  if(timing.legacyOpenPositions)lines.push('Vorherige Testphase: '+n(timing.legacyOpenPositions)+' Positionen noch offen; neue Testphase startet nach deren Abschluss.');
+  if(timing.exitPolicy)lines.push('Bestätigte Trendumkehr: vorher aussteigen. Gegenrichtung nur nach neuem gültigem Einstieg mit neuer Kursbeobachtung.');
+  lines.push((timing.observationFresh?'Zuletzt aktuell geprüft':'Aktueller Lauf nicht bestätigt')+' · '+clock(timing.checkedAt)+' · '+(states[timing.status]||timing.status));
+  for(const mode of ['original','modeled']){
+   const arms=(timing.variants||[]).filter(a=>a.mode===mode);
+   lines.push(mode==='original'?'Vergleich mit Originaldaten':'Getrennter Modelllauf · bis zu zwei fehlende Minuten errechnet');
+   for(const name of [...new Set(arms.map(a=>a.variant))]){
+    const group=arms.filter(a=>a.variant===name);
+    lines.push(group[0].label+': '+group.map(a=>a.horizonMinutes+' min: '+n(a.closed)+' abgeschlossen / '+n(a.inconclusive)+' ungeklärt, '+pct(a.meanOriginalNetPct)+' Original, '+pct(a.meanEstimatedNetPct)+' geschätzt, '+n(a.falseStarts)+' Fehlstarts, '+n(a.reversalExits)+' Trendumkehr-Ausstiege / '+n(a.reversalEntries)+' Folgeeinstiege, Gegenbewegung '+pct(a.closed?a.maxAdversePct:null)).join(' · '));
+   }
+  }
+  const t=timing.latency;
+  if(t?.firstWarningObservedAt){
+   lines.push('Letztes Szenario '+t.direction+': Frühwarnung erstmals beobachtet '+clock(t.firstWarningObservedAt)+' · Hauptbestätigung '+clock(t.confirmationObservedAt)+' · Produktkurs verfügbar '+clock(t.productObservedAt));
+   lines.push('Grund der Hauptentscheidung: '+(t.blockingReason||'unbekannt')+' · Quellenalter '+(Number.isFinite(t.sourceAgeMs)?Math.round(t.sourceAgeMs/1000)+' s':'unbekannt'));
+   lines.push('Push vom Anbieter angenommen: '+clock(t.pushSentAt)+' · Browserbeleg: '+clock(t.pushBrowserReceiptAt)+' · '+(t.pushEvidence||'Zustellung unbekannt')+(t.pushScanTruncated?' · Versandstichprobe begrenzt.':''));
+  }
+  lines.push(timing.note);
+ }
+ const followups=value.recentFollowups;
+ if(followups?.status==='observed'){
+  const labels={'invalid-original-start':'Startnachweis ungültig','source-window-pending':'Original-Zeitfenster noch offen','original-awaiting-harvest':'Originalkurs vorhanden · Verarbeitung steht aus',estimated:'mit Schätzwerten ausgewertet','original-missing-model-unavailable':'Original und geeignete Modellstützpunkte fehlen','original-missing-model-pending':'Original fehlt · Modellprüfung ausstehend'};
+  for(const f of followups.items||[])lines.push('60-Minuten-Ergebnis '+clock(f.recordedAt)+': '+(labels[f.state]||'nicht bestätigt')+'.');
+  lines.push(followups.note);
+ }
  for(const r of value.items||[])lines.push(r.label+' · '+(states[r.state]||'nicht bestätigt')+' · Beginn: '+clock(r.startedAt)+' · Letzte Beobachtung: '+clock(r.lastObservedAt)+' · Stichprobe: '+n(r.sampledRecords)+' · Vergleichbare Fälle: '+n(r.comparableCases)+' · Abschluss nicht bestätigt. '+r.missing);
  lines.push('Nachweisketten: '+(value.chainSampleAvailable?'Stichproben vorhanden':'keine Fallnachweise in diesem Bericht'));
  for(const c of value.evidenceChains||[])lines.push('Fall '+clock(c.startedAt)+': '+(c.stages||[]).map(s=>s.label+': '+(s.observed?'vorhanden':'nicht belegt')).join(' · ')+'. '+c.note);
@@ -247,15 +309,15 @@ function mountSimpleHome(doc,workspace){
  const quotes=home.querySelector('.gold-market');
  const chart=doc.getElementById('chart')?.closest('.card');
  for(const child of [...home.children]){
-  if(child===detail||child===quotes||child===chart)continue;
+  if(child===detail||child===quotes||child===chart||child.id==='pushOpened')continue;
   if(child.classList.contains('bob-status'))doc.getElementById('bobSystemDetails')?.append(child);
   else if(child.querySelector('#bobSelectionSummary'))products.append(child);
   else detail.append(child);
  }
  const card=doc.createElement('section');card.id='bobSimpleHome';card.className='card';
- card.innerHTML='<h2>Was ist jetzt wichtig?</h2>'+
+ card.innerHTML='<h2>Goldmarkt</h2>'+
  '<div id="bobHomeSignal" class="bob-home-signal" role="status">ABWARTEN · Daten werden geprüft</div>'+
- '<p id="bobHomeNext"></p>'+
+ '<p id="bobHomeNext" class="bob-home-reason"></p><p id="bobHomeReason" class="small"></p>'+
  '<section id="bobHomeTrade" class="bob-home-trade" hidden><h3>Dein aktiver Trade</h3><p id="bobHomeIdentity"></p>'+
  '<dl><div><dt>Gewinn / Verlust</dt><dd id="bobHomePnl">—</dd></div><div><dt>Stop · berechnet</dt><dd id="bobHomeStop">—</dd></div><div><dt>Ziel · berechnet</dt><dd id="bobHomeTarget">—</dd></div></dl>'+
  '<details><summary>Kursstand und Berechnung</summary><p id="bobHomeTradeNote"></p></details></section>'+
@@ -263,33 +325,70 @@ function mountSimpleHome(doc,workspace){
  '<button type="button" id="bobHomeSecondary" data-view="trade">Trade eintragen</button></div>'+
  '<details id="bobHomeProblems"><summary id="bobHomeProblemTitle">Probleme · Status wird geprüft</summary><p id="bobHomeProblemText"></p><button type="button" data-view="problems">Probleme und Bearbeitung ansehen</button></details>';
  home.prepend(card);
+ detail.append(doc.getElementById('bobHomeProblems'));
  // Keep the next action visible even with long warnings or large text.
- doc.getElementById('bobHomeSignal').after(card.querySelector('.bob-home-actions'));
+ doc.getElementById('bobHomeReason').after(card.querySelector('.bob-home-actions'));
  // Move the original live warning, preserving expiry, withdrawal and ranking updates.
  const earlyWarning=doc.getElementById('earlyImpulseStatus');
- if(earlyWarning)card.querySelector('.bob-home-actions').after(earlyWarning);
+ if(earlyWarning){
+  const compact=doc.createElement('p');compact.id='bobEarlyCompact';compact.className='bob-early-compact';compact.setAttribute('role','status');
+  card.querySelector('.bob-home-actions').after(compact);
+  const explanation=fold(detail,'bobEarlyDetails','Frühwarnung · vollständige Erklärung');explanation.append(earlyWarning);
+ }
  if(quotes)card.after(quotes);
  // Keep the original interactive chart outside every collapsed analysis panel.
  if(chart)(quotes||card).after(chart);
+ const openedPush=doc.getElementById('pushOpened');
+ if(openedPush&&!openedPush.hidden)home.prepend(openedPush);
  const put=(id,value)=>{const el=doc.getElementById(id);if(el&&el.textContent!==value)el.textContent=value;};
  const read=id=>doc.getElementById(id)?.textContent?.trim()||'';
+ let lastTradeMode=null;
+ function refreshTradeMode(active,expired){
+  const panel=doc.getElementById('bob-view-trade'),preparation=doc.getElementById('bobTradePreparation');if(!panel||!preparation)return;
+  let banner=doc.getElementById('bobTradeMode');
+  if(!banner){
+   banner=doc.createElement('section');banner.id='bobTradeMode';banner.className='card';
+   banner.innerHTML='<h3 id="bobTradeModeTitle"></h3><p id="bobTradeModeText" role="status"></p><button type="button" id="bobTradeModeAction"></button>';
+   panel.querySelector('h2').after(banner);
+  }
+  const server=root.BobRealTrades?.monitorStatus?.(),pending=server?.fresh&&server.pending>0;
+  const mode=expired?'expired':active?'active':pending?'pending':'prepare';
+  if(mode!==lastTradeMode){preparation.open=mode==='prepare';if(mode==='active'){const purchase=doc.getElementById('bobPurchaseRecord');if(purchase)purchase.open=false;}lastTradeMode=mode;}
+  if(active){const summary=doc.getElementById('bobTradeSummary');if(summary&&banner.nextElementSibling!==summary)banner.after(summary);}
+  const titles={expired:'Anmeldung prüfen',active:'Dein aktiver Trade',pending:'Kauf erkannt · Daten werden ergänzt',prepare:'Deinen nächsten Trade vorbereiten'};
+  put('bobTradeModeTitle',titles[mode]);
+  put('bobTradeModeText',mode==='expired'?'Erneut anmelden, damit der Status geprüft werden kann.':mode==='active'?'Gewinn/Verlust, Stop und Ziel stehen unten. Prüfe den Überwachungs- und Push-Status.':mode==='pending'?'Kaufdaten sind gespeichert. Bob ergänzt Produktdaten und prüft den Überwachungsstart. Fehlende Nachweise findest du bei den Kaufdetails.':'Produkt auswählen, gemerktes Budget prüfen und den Kauf selbst bei DEGIRO bestätigen. Bereits gekauft? Kaufabgleich oder Kaufbeleg nutzen.');
+  const action=doc.getElementById('bobTradeModeAction');action.disabled=expired;
+  action.textContent=active?'Überwachung und Push prüfen':pending?'Kaufdetails prüfen':'Passende Produkte wählen';
+  action.onclick=()=>{if(active)doc.getElementById('bobOpenMonitoring')?.click();else if(pending){const d=doc.getElementById('bobPurchaseRecord');if(d){d.open=true;d.scrollIntoView({block:'start'});}}else doc.querySelector('#bobNavigation [data-view="products"]')?.click();};
+  // Old step-by-step guidance is kept in Details, away from the next action.
+  const progress=doc.getElementById('bobTradeProgress');if((active||pending)&&progress?.querySelector('p')?.textContent)put('bobTradeModeText',progress.querySelector('p').textContent);if(progress&&progress.parentElement===panel)doc.getElementById('bobTradeDetails')?.append(progress);
+  const depot=doc.getElementById('bobPurchaseMatch');if(depot)depot.hidden=active||expired||!!pending;
+  const monitor=doc.getElementById('bobOpenMonitoring');if(monitor)monitor.hidden=true; // The next-action button opens the same controls.
+ }
  function refresh(){
   if(doc.hidden)return;
   const expired=root.BobSession?.expired?.()===true;
   const signal=read('quickSignal')||'ABWARTEN · Daten werden geprüft';
   const direction=!expired&&/\bLONG\b/.test(signal)?'LONG':!expired&&/\bSHORT\b/.test(signal)?'SHORT':'ABWARTEN';
-  put('bobHomeSignal',expired?'ABWARTEN · Anmeldung prüfen':signal);
+  put('bobHomeSignal',expired?'ABWARTEN · Anmeldung prüfen':direction);
+  put('bobHomeReason',read('bobShortReason')||'Marktdaten werden geprüft.');
+  const warning=read('earlyImpulseStatus');
+  const compactWarning=warning.split('\n').filter(Boolean).slice(0,2).join(' · ');
+  const checked=warning.match(/Geprüft:[^\n]*/)?.[0]||'';
+  put('bobEarlyCompact',[compactWarning,checked].filter(Boolean).join(' · '));
   doc.getElementById('bobHomeSignal').dataset.direction=direction;
   const trade=root.BobTradeSync?.current?.();
   const active=!expired&&trade?.active===true&&trade?.test!==true;
   const box=doc.getElementById('bobHomeTrade');box.hidden=!active;
+  refreshTradeMode(active,expired);
   let view=null;try{if(active)view=root.BobTradeSync?.overview?.();}catch(_){}
   put('bobHomeIdentity',trade?.product?.isin||'Produktzuordnung fehlt');
   for(const [id,key] of [['bobHomePnl','pnl'],['bobHomeStop','stop'],['bobHomeTarget','target'],['bobHomeTradeNote','note']])put(id,view?.[key]||'Noch nicht bestätigt');
   put('bobHomeNext',expired?'Bitte melde dich erneut an.':active?(view?.action||'Prüfe deinen Trade und den Status der Überwachung.'):direction==='ABWARTEN'?'Keine aktive Position · Abwarten.': 'Keine aktive Position · Produkte und Nachweise prüfen.');
   const primary=doc.getElementById('bobHomePrimary'),secondary=doc.getElementById('bobHomeSecondary');
-  primary.dataset.view=active?'trade':'products';put('bobHomePrimary',active?'Mein Trade ansehen':'Produkte ansehen');
-  secondary.dataset.view=active?'products':'trade';put('bobHomeSecondary',active?'Produkte ansehen':'Trade eintragen');
+  primary.dataset.view=active?'trade':'products';put('bobHomePrimary',active?'Trade überwachen':direction==='ABWARTEN'?'Produktstatus ansehen':'Passende Produkte');
+  secondary.dataset.view=active?'products':'trade';put('bobHomeSecondary',active?'Produkte ansehen':'Kauf bereits ausgeführt?');
   // Copy the existing archive's status verbatim; an unknown or stale index is
   // never converted into "all clear" or "sent to ChatGPT".
   const summary=read('bobProblemsSummary');
@@ -666,3 +765,4 @@ function mount(){
 if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',mount);
 else mount();
 })(typeof window!=='undefined'?window:globalThis);
+

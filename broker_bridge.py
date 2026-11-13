@@ -106,6 +106,39 @@ def route_signal(broker, direction, isin=None):
     }
 
 
+def prepare_order_review(signal, product, risk, broker="degiro", now=None):
+    """Connect existing signal/ranking data to a strict non-executing worksheet.
+
+    Never treat the result as a brokerage order or a source of live quotes.
+    Real user/account execution permissions are not known here.
+    """
+    from trade_execution_readiness import build_review
+    return build_review(signal, product, risk, broker=broker, now=now)
+
+
+def manual_degiro_buy_handoff(review, now=None):
+    """Read-only counterpart to the manual order worksheet."""
+    from degiro_manual_trade_handoff import buy_handoff
+    return buy_handoff(review, now=now)
+
+
+def manual_degiro_stop_handoff(snapshot, **kwargs):
+    """Prepare a stricter stop suggestion; never update a broker order."""
+    from degiro_manual_trade_handoff import stop_update_handoff
+    return stop_update_handoff(snapshot, **kwargs)
+
+
+def manual_degiro_sell_handoff(snapshot, quote, **kwargs):
+    """Prepare manual sale only for a confirmed active position."""
+    from degiro_manual_trade_handoff import sell_handoff
+    return sell_handoff(snapshot, quote, **kwargs)
+
+
+def __readiness_status():
+    from trade_execution_readiness import pipeline_status
+    return pipeline_status()
+
+
 def status():
     return {
         "mode": "CONNECTION_SCAFFOLD_ONLY",
@@ -115,10 +148,20 @@ def status():
                          "mode": "MANUAL_ONLY", "apiConnected": False,
                          "orderExecutionEnabled": False,
                          "signalDelivery": "ANALYSIS_AND_MANUAL_REVIEW"},
+        "manualTradeHandoff": {
+            "buy": "LOCAL_MANUAL_REVIEW_ONLY",
+            "stopUpdate": "LOCAL_MANUAL_REVIEW_ONLY",
+            "sell": "LOCAL_MANUAL_REVIEW_ONLY",
+            "manualAppOpen": "OWNER_CLICK_ONLY",
+            "confirmedFillMonitor": "EXISTING_REAL_TRADE_JOURNAL",
+            "brokerOrdersPlaced": False,
+            "brokerStopsChanged": False,
+        },
         "futureBrokerMode": "PAPER_API_CONNECTION_REQUIRED",
         "executionEnabled": False,
         "liveOrders": False,
         "paperOrders": False,
+        "fourStageReadiness": __readiness_status(),
         "credentialsConfigured": False,
         "brokers": [{
             "id": identifier, **spec,

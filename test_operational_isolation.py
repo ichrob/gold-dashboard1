@@ -27,7 +27,7 @@ class OperationalIsolation(unittest.TestCase):
         with patch.object(audit,'_harvest_at',0),patch.object(audit.time,'time',return_value=100),patch.object(audit,'_next_harvest_horizon',return_value=15),patch.object(audit,'_harvest_recent'),patch.object(audit,'_harvest_horizon',side_effect=[psycopg.errors.QueryCanceled(),None]) as archive:
             audit.harvest(conn)
             self.assertEqual(archive.call_args_list[-1].kwargs,{'batch_size':8})
-            self.assertEqual(conn.transaction.call_count,3)
+            self.assertEqual(conn.transaction.call_count,4)
     def test_oldest_horizon_choice_is_durable_and_skips_busy_rows(self):
         conn=Mock();conn.execute.return_value.fetchone.return_value=(240,)
         self.assertEqual(audit._next_harvest_horizon(conn),240)

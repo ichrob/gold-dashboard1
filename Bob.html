@@ -275,6 +275,9 @@ body.bob-mobile{font-size:16px}
 .bob-mobile #bobTradePushControls .bob-push-card-icon{display:none}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 
+
+#bobNavigation [data-training-detail]{display:none!important}
+.bob-central-entry{font-size:14px;white-space:nowrap;margin-left:auto}.bob-simple-copy{display:flex;flex-wrap:wrap;gap:6px}.bob-simple-copy button{flex:1;min-width:110px}.bob-compact-product{padding:14px;border:1px solid #dce3ed;border-radius:16px;margin:12px 0}.bob-home-actions #bobHomeSecondary{background:transparent;color:#40536b;font-size:14px;padding:8px}.bob-home-reason{font-size:16px!important}.bob-early-compact{font-size:14px;white-space:normal}.bob-nav button{max-width:240px}#bobNavigation > a{display:flex;align-items:center;justify-content:center;margin:0;text-decoration:none;font-size:12px;min-width:0}
 </style>
 </head>
 <body>
@@ -348,7 +351,7 @@ try{
 <div class="sub">XAU/USD · technische Analyse · DEGIRO bleibt manuell</div>
 </div>
 
-<section class="gold-market" aria-labelledby="goldMarketTitle" data-design="kompakte-liste-v2"><h2 id="goldMarketTitle">Goldmarkt</h2><div class="gold-quotes"><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-Spot</h3><div class="gold-symbol">XAU/USD</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-spot-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-spot-change">— %</span></div><div class="gold-change-label" id="gold-spot-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-spot-state">Lade Kurs …</div><div id="gold-spot-time">Kurszeit fehlt</div><div id="gold-spot-source"></div></div></article><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-CFD</h3><div class="gold-symbol">Investing.com</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-cfd-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-cfd-change">— %</span></div><div class="gold-change-label" id="gold-cfd-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-cfd-state">Lade Kurs …</div><div id="gold-cfd-time">Kurszeit fehlt</div><div id="gold-cfd-source"></div></div><div class="gold-estimate-inline"><div><span id="gold-estimate-price">—</span> USD · Bobs Futures-Schätzung</div><div class="gold-meta"><div id="gold-estimate-state">Lade Schätzung …</div><div id="gold-estimate-time">Stand: nicht verfügbar</div></div></div></article></div><p class="gold-market-note">USD je Feinunze · Veränderung zum Vortagesschluss der jeweiligen Quelle.<br>Gold-CFD: Normalbetrieb 30 Sekunden, Nachtmodus fünf Minuten – bei aktiven Trades bleibt die engmaschige Risikoüberwachung erhalten. Quellenzeiten bleiben erhalten.<span id="gold-session-mode" role="status"></span><span id="gold-special-session" role="status"></span></p></section>
+<section class="gold-market" aria-labelledby="goldMarketTitle" data-design="kompakte-liste-v2"><h2 id="goldMarketTitle">Goldmarkt</h2><div class="gold-quotes"><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-Spot</h3><div class="gold-symbol">XAU/USD</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-spot-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-spot-change">— %</span></div><div class="gold-change-label" id="gold-spot-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-spot-state">Lade Kurs …</div><div id="gold-spot-time">Kurszeit fehlt</div><div id="gold-spot-source"></div></div></article><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-CFD</h3><div class="gold-symbol">Investing.com</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-cfd-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-cfd-change">— %</span></div><div class="gold-change-label" id="gold-cfd-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-cfd-state">Lade Kurs …</div><div id="gold-cfd-time">Kurszeit fehlt</div><div id="gold-cfd-source"></div></div></article></div><p class="gold-market-note">USD je Feinunze · Veränderung zum Vortagesschluss der jeweiligen Quelle.<br>Gold-CFD: Normalbetrieb 30 Sekunden, Nachtmodus fünf Minuten – bei aktiven Trades bleibt die engmaschige Risikoüberwachung erhalten. Quellenzeiten bleiben erhalten.<span id="gold-session-mode" role="status"></span><span id="gold-special-session" role="status"></span></p></section>
 
 <script>
 (function(){
@@ -394,7 +397,8 @@ try{
   if(!q)return;
   if(!positive(q.price)){if(key==='estimate'){quotes[key]=q;render(key);}return;}
   const old=quotes[key],at=Date.parse(q.at),before=Date.parse(old?.at);
-  if(old&&Number.isFinite(before)&&(!Number.isFinite(at)||at<before))return;
+  if(old&&Number.isFinite(before)&&(!Number.isFinite(at)||at<before||(at===before&&q.price!==old.price)))return;
+  if(old&&at===before&&q.changePct==null&&old.changePct!=null)q={...q,changePct:old.changePct,changeLabel:old.changeLabel};
   quotes[key]=q;
   // Display-only historical cache; never fed to trade/technical eligibility.
   if(window.BobWeekendPause&&!window.BobWeekendPause()&&Number.isFinite(at)&&at<=Date.now()){
@@ -414,9 +418,41 @@ try{
   if(busy||window.BobSession?.expired()||window.BobWeekendPause?.())return;
   if(window.BobDegiroPhase?.()==='night' && Date.now()-lastRequestAt<300000)return;
   lastRequestAt=Date.now();busy=true;const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
-  try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();accept('future',data.future);accept('estimate',data.estimate);accept('cfd',data.cfd);const notice=document.getElementById('gold-special-session');if(notice)notice.textContent=data.sessionAdvisory?' · Börsenkalender: '+data.sessionAdvisory.name+' · '+data.sessionAdvisory.note:'';}catch(_){}
+  try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();if(data.spot?.kind==='spot'&&data.spot?.symbol==='XAU/USD')accept('spot',data.spot);accept('future',data.future);accept('estimate',data.estimate);accept('cfd',data.cfd);const notice=document.getElementById('gold-special-session');if(notice)notice.textContent=data.sessionAdvisory?' · Börsenkalender: '+data.sessionAdvisory.name+' · '+data.sessionAdvisory.note:'';}catch(_){}
   finally{clearTimeout(timer);busy=false;render('spot');render('future');render('estimate');render('cfd');}
  }
+ // Runs independently of the analysis script. No new market request or trading action.
+ const uiTab=typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():null;
+ const uiStarted=Date.now();let uiLastCode='',uiReportedAt=0,uiReporting=false;
+ async function reportUi(code){
+  if(!uiTab||uiReporting||(code===uiLastCode&&Date.now()-uiReportedAt<120000))return;
+  uiReporting=true;
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),5000);
+  try{
+   const r=await fetch('/api/diag',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({event:'market-ui:observation',details:{tab:uiTab,code}}),signal:ctl.signal});
+   if(r.ok){uiLastCode=code;uiReportedAt=Date.now();}
+  }catch(_){}finally{clearTimeout(timer);uiReporting=false;}
+ }
+ async function checkUi(){
+  const price=el('spot','price');
+  const overview=document.getElementById('bob-view-overview');
+  if(document.visibilityState!=='visible'||window.BobSession?.expired()||(overview&&overview.hidden))return;
+  const q=quotes.spot,at=Date.parse(q?.at),fresh=positive(q?.price)&&Number.isFinite(at)&&Date.now()>=at&&Date.now()-at<=120000;
+  if(!fresh){await reportUi('data-unavailable');return;}
+  if(!price){await reportUi('spot-hidden');return;}
+  const expected=number(q.price),warning=document.getElementById('earlyImpulseStatus');
+  const hidden=!price.getClientRects().length||(typeof getComputedStyle==='function'&&getComputedStyle(price).visibility==='hidden');
+  const mismatch=price.textContent!==expected;
+  const stuck=Date.now()-uiStarted>45000&&warning&&!warning.dataset.marketRendered;
+  const code=hidden?'spot-hidden':mismatch?'spot-mismatch':stuck?'warning-unrendered':'ok';
+  await reportUi(code);
+  if(mismatch)render('spot'); // Only redraw the same original quote and timestamp.
+  if(stuck){try{window.renderEarlyImpulseStatus?.();}catch(_){} }
+  if(code!=='ok'&&!hidden&&price.textContent===expected&&(!warning||warning.dataset.marketRendered))await reportUi('ok');
+ }
+ setInterval(()=>{void checkUi();},10000);
+ document.addEventListener('visibilitychange',()=>{void checkUi();});
  function renderSessionMode(){
   const el=document.getElementById('gold-session-mode');if(!el)return;
   const phase=window.BobDegiroPhase?.();
@@ -482,6 +518,7 @@ try{
 <div class="card">
 <h2 style="margin:0 0 10px">⚡ Schnellansicht</h2>
 <p><b>Neuer Einstieg</b> · Abwarten bedeutet keinen Ausstieg aus einem offenen Trade.</p>
+<section id="pushOpened" hidden style="border:2px solid #d97706;border-radius:10px;padding:12px;margin-bottom:12px"><h3 style="margin-top:0">Geöffnete Push-Nachricht</h3><p id="pushOpenedText" style="white-space:pre-line"></p><button type="button" id="pushOpenedDismiss">Schließen</button></section>
 <div id="quickSignal" class="signal neutral">Warte auf Live-Daten</div>
 <div id="activePositionSignal" class="signal neutral" role="status">Dein Trade: KEIN AKTIVER TRADE</div>
 <p id="activePositionReason">Einen bei DEGIRO eröffneten Trade in Bob aktivieren.</p>
@@ -498,7 +535,7 @@ try{
 <div class="analysis-block neutral"><span>MTF-Bestätigung · Zeitebenen</span><b id="blockMtf">DATEN FEHLEN</b><small id="blockMtfNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Volatilität · Schwankungsstärke</span><b id="blockVolatility">DATEN FEHLEN</b><small id="blockVolatilityNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Marktstruktur · Hochs und Tiefs</span><b id="blockStructure">DATEN FEHLEN</b><small id="blockStructureNote">Daten fehlen</small></div>
-</div><div id="earlyImpulseStatus" class="small" style="margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:12px;white-space:pre-line">Frühimpuls LONG/SHORT · Vergleichstest wird geladen …</div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div><div id="marketInputQuality" class="small" style="margin-top:10px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;white-space:pre-line">Datenqualität wird geprüft …</div>
+</div><div id="earlyImpulseStatus" class="small" style="margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:12px;white-space:pre-line">FRÜHWARNSYSTEM · Daten noch nicht verfügbar. Keine aktuelle Vorwarnung bestätigt.</div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div><div id="marketInputQuality" class="small" style="margin-top:10px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;white-space:pre-line">Datenqualität wird geprüft …</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 <details id="bobMarketAnalysis" class="bob-disclosure" style="margin-top:12px"><summary>Marktanalyse von Bob</summary><div id="bobMarketNarrative" class="small" style="white-space:pre-line;margin-top:10px">Noch keine aktuelle Marktanalyse verfügbar.</div></details>
@@ -828,7 +865,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    if(!Array.isArray(r.items)||!Array.isArray(r.sources)||!r.counts)throw Error('YouTube-Liste momentan unvollständig.');
    if(r.items.length){rememberVideos(r.items);$('youtubeListStatus').textContent=r.items.length+' von höchstens 3 gespeicherten Videos.';}
    else showLastVideos('Keine Videos vom Kanalabruf erhalten');
-   $('goldResearchStatus').textContent=(r.fresh?'Stand: ':'Nicht aktuell / noch nicht verfügbar: ')+date(r.checkedAt)+' (Zürich) · automatischer Abruf etwa alle '+Math.round((r.intervalSeconds||900)/60)+' Minuten';
+   $('goldResearchStatus').textContent=(r.fresh?'Stand: ':'Nicht aktuell / noch nicht verfügbar: ')+date(r.checkedAt)+' (Zürich) · nur manueller Abruf'+(r.refreshing?' · Auswertung läuft':r.refreshError?' · letzter Abruf fehlgeschlagen':'');
    $('goldResearchCounts').textContent=r.scanned+' Kanal-Einträge geprüft · '+r.successfulFeeds+'/'+r.sources.length+' Kanalabrufe erfolgreich · '+r.videosFound+' Gold-Videos gefunden · '+r.videosAnalyzed+' Videos mit auswertbarem Text.'+(r.accessFallback?' Frei zugängliche Ersatzvideos; neuere Mitgliedervideos fehlen.':'')+' Die MCO-Einschätzung beruht nur auf bestätigten Untertiteln der neuesten Uploads.';
    const c=$('goldResearchConsensus'),mco=r.mcoOutlook||'NICHT_ANALYSIERT';
    const label={LONG:'LONG',SHORT:'SHORT',UNKLAR:'Unklar',NICHT_ANALYSIERT:'Noch nicht analysiert'}[mco]||'Noch nicht analysiert';
@@ -1177,7 +1214,17 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
  $('youtubeResearchUrl').addEventListener('input',()=>{$('youtubeResearchStatus').textContent='';$('youtubeResearchResolved').replaceChildren();$('youtubeResearchCandidates').replaceChildren();});
  $('youtubeResearchAnalyze').addEventListener('click',()=>inspectVideo(false));
  $('youtubeResearchImport').addEventListener('click',()=>inspectVideo(true));
- $('goldResearchRefresh').addEventListener('click',load);
+ $('goldResearchRefresh').addEventListener('click',async()=>{
+  const button=$('goldResearchRefresh');button.disabled=true;
+  try{
+   const response=await fetch('/api/research/youtube',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'refresh'})});
+   if(!response.ok)throw Error(response.status===401?'Bitte erneut anmelden.':'Videorecherche konnte nicht gestartet werden.');
+   const result=await response.json();
+   await load();
+   if(result.status==='restoring'||result.status==='cooldown')$('goldResearchStatus').textContent='Bitte kurz warten und erneut starten.';
+  }catch(error){$('goldResearchStatus').textContent=error.message;}
+  finally{button.disabled=false;}
+ });
  document.addEventListener('click',e=>{if(e.target.closest?.('[data-view="research"]'))load();});
  document.addEventListener('DOMContentLoaded',()=>{updateUnreadBadge();showLastVideos('Aktualisierung läuft');load();});
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!$('goldResearchItems').querySelector('details[open]'))load();});
@@ -1193,6 +1240,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 <script src="/risk_workspace.js?v=20261028-v1"></script>
 <script src="/degiro_assistant.js?v=20261026-reviewed-list-retry-v2"></script>
 <script src="/bob_stop_assistant.js?v=20261016-chf-v1"></script>
+<script src="/degiro_android_bridge.js?v=20261112-readonly-ocr"></script>
+<script src="/manual_ranking_order.js?v=20261112-screen-reconcile-v4"></script>
 <script src="/product_trade_curve.js?v=20261018-trade-details"></script>
 <script src="/real_trade_journal.js"></script>
 <script src="/training_help.js?v=20261018-v1"></script>
@@ -1328,11 +1377,11 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    lines.push(review.note);
   }
   const experiment=o.entryExperiment;
-  if(experiment?.version==='entry-experiment-v1'){
+  if(['entry-experiment-v1','entry-experiment-v2'].includes(experiment?.version)){
    lines.push('\nTest Punkte 2 und 4: Einstiegsschwellen und schnell / vorsichtig',experiment.sampled+' Startpunkte · '+experiment.missing+' fehlende Zeiträume · '+experiment.pending+' ausstehend');
    for(const g of experiment.groups||[]){
     lines.push('\n'+phaseNames[g.phase]+' · '+(regimeNames[g.regime]||g.regime)+' · '+g.horizon+' Min. · '+g.cases+' gemeinsame Fälle');
-    for(const [k,m] of Object.entries(g.variants))lines.push(experiment.labels[k]+': '+m.signals+' Signale / '+m.wait+' Abwarten · '+m.wins+' positiv / '+m.losses+' negativ · Mittel '+n(m.sumPct/g.cases)+' % · Differenz zur aktuellen Regel '+n(m.meanDifferencePct)+' Prozentpunkte · '+m.avoidedLosses+' negative Fälle vermieden / '+m.missedWins+' positive Fälle ausgelassen.');
+    for(const [k,m] of Object.entries(g.variants))lines.push(experiment.labels[k]+': '+m.signals+' Signale / '+m.wait+' Abwarten · '+m.wins+' positiv / '+m.losses+' negativ · Mittel '+n(m.sumPct/g.cases)+' % · Differenz zur aktuellen Regel '+n(m.meanDifferencePct)+' Prozentpunkte · '+m.avoidedLosses+' negative Fälle vermieden / '+m.missedWins+' positive Fälle ausgelassen.'+(Number.isFinite(m.worstNetEndpointPct)?' Schlechtester Netto-Endpunkt: '+n(m.worstNetEndpointPct)+' % (kein Verlauf-Drawdown).':''));
    }
    lines.push(experiment.note);
   }
@@ -1697,12 +1746,20 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
 (function(){
  function initMobile(){
   const main=document.querySelector('main');if(!main||document.getElementById('bobNavigation'))return;
+  const central=location.pathname==='/zentrale/workspace';
+  if(central){
+   document.body.classList.add('central-workspace');
+   const theme=document.createElement('link');theme.rel='stylesheet';theme.href='/zentrale/theme.css';document.head.append(theme);
+  }
+  const centralSection=key=>key==='settings'?'settings':key==='problems'?'maintenance':'studies';
+  const management=new Set(['simulation','auto','learning','diagrams','improve','research','future','problems','settings']);
+  const workspaceUrl=key=>'/zentrale/workspace?view='+encodeURIComponent(key)+'#'+encodeURIComponent(key);
   const byId=id=>document.getElementById(id);
   const card=id=>byId(id)?.closest('.card');
   const quick=card('quickSignal'),manual=card('dgType'),push=card('generalPushBtn');
   const header=document.querySelector('h1')?.parentElement;
   const panels={};
-  for(const [key,label] of Object.entries({overview:'Start',products:'Produkte',risk:'Risiko',trade:'Mein Trade',auto:'Automatische Simulation',future:'Zukunft',research:'Recherche',learning:'Lernen & Ergebnisse',diagrams:'Diagramme',simulation:'Simulation',improve:'Besser werden',degiro:'DEGIRO',degiro2:'DEGIRO-Handy-Assistent',settings:'Einstellungen',help:'Hilfe',problems:'Probleme',more:'Mehr'})){
+  for(const [key,label] of Object.entries({overview:'Markt',products:'Produkte',risk:'Risiko',trade:'Mein Trade',auto:'Automatische Simulation',future:'Zukunft',research:'Recherche',learning:'Lernen & Ergebnisse',diagrams:'Diagramme',simulation:'Simulation',improve:'Besser werden',degiro:'DEGIRO',degiro2:'DEGIRO-Handy-Assistent',settings:'Einstellungen',help:'Hilfe',problems:'Probleme',more:'Mehr'})){
    const el=document.createElement('section');el.id='bob-view-'+key;el.setAttribute('aria-label',label);el.hidden=key!=='overview';
    if(key!=='overview'){const h=document.createElement('h2');h.textContent=label;h.tabIndex=-1;el.append(h);}
    panels[key]=el;main.append(el);
@@ -1808,7 +1865,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   move(card('tradeStateBtn'),'trade');
   const guide=document.createElement('div');guide.className='card';guide.id='bobTradeGuide';guide.innerHTML='<h3>Trade erfassen · drei Schritte</h3><p class="small">Bob überwacht eine von dir erfasste Position. Einen Kauf führst du selbst bei DEGIRO aus.</p><p id="bobTradeNext" class="bob-short"></p><button type="button" class="bob-primary" data-view="products">1 · Produkt auswählen</button><button type="button" id="bobTradeOpen">2 · Einstieg und Stückzahl ergänzen</button><button type="button" id="bobTradeTestOpen">Trade-Test · Produkt auswählen</button>';panels.trade.append(guide);window.BobManualTradeTest?.mount(guide);fold(byId('bobTradeTestOpen'),'Fiktiven Trade testen');
   byId('bobTradeOpen').addEventListener('click',()=>{const upload=byId('bobExitEstimate');for(let node=upload;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;upload?.scrollIntoView({behavior:'smooth',block:'start'});byId('exit-entry')?.focus();});
-  const enter=document.createElement('button');enter.id='bobTradeScreenshotUpload';enter.type='button';enter.className='bob-primary';enter.textContent='DEGIRO-Screenshots hochladen';enter.setAttribute('aria-describedby','bobTradeScreenshotHint');enter.addEventListener('click',()=>{const upload=byId('bobTradeUpload');for(let node=upload;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;byId('trade-images')?.click();upload?.scrollIntoView({behavior:'smooth',block:'start'});});
+  const enter=document.createElement('button');enter.id='bobTradeScreenshotUpload';enter.type='button';enter.className='bob-primary';enter.textContent='Kaufbeleg übernehmen';enter.setAttribute('aria-describedby','bobTradeScreenshotHint');enter.addEventListener('click',()=>{const upload=byId('bobTradeUpload');for(let node=upload;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;byId('trade-images')?.click();upload?.scrollIntoView({behavior:'smooth',block:'start'});});
   const uploadHint=document.createElement('p');uploadHint.id='bobTradeScreenshotHint';uploadHint.className='small';uploadHint.textContent='Bis zu 4 Bilder: Kaufbestätigung, Position und Produktdetails mit ISIN. Bob liest die sichtbaren Werte aus. Danach prüfen und übernehmen; fehlende Angaben zeigt Bob an.';
   guide.querySelector('button').before(enter,uploadHint);
   move(byId('bobExitEstimate'),'trade');move(byId('bobTradeUpload'),'trade');fold(byId('bobTradeUpload'),'Screenshots und erkannte Werte prüfen');move(card('stopPanel'),'trade');
@@ -1978,14 +2035,24 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   document.addEventListener('change',updateTradeGuide);
   setInterval(updateTradeGuide,1000);updateTradeGuide();
   const logout=document.querySelector('form[action="/logout"]');move(logout,'settings');
-  if(header){header.className='bob-heading';header.querySelector('h1').textContent='Bob';header.querySelector('.sub').textContent='Dein Gold- und Produktassistent';main.prepend(header);}
+  if(header){header.className='bob-heading';header.querySelector('h1').textContent=central?'Bob Zentrale':'Bob';header.querySelector('.sub').textContent=central?'Verwalten, testen und verbessern':'Dein Gold- und Produktassistent';main.prepend(header);}
   Object.values(panels).forEach(el=>main.append(el));
   const nav=document.createElement('nav');nav.id='bobNavigation';nav.className='bob-nav';nav.setAttribute('aria-label','Hauptnavigation');
   window.BobDiagrams?.mount(panels.diagrams);
   const moreMenu=document.createElement('div');moreMenu.className='bob-more-menu';
   function menuButton(key,icon,label,note){return '<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'">'+icon+' '+label+'<small>'+note+'</small></button>';}
   moreMenu.innerHTML=[['problems','⚠','Probleme','Offene Fälle und automatische Bearbeitung'],['improve','↗','Besser werden','Ziele, Fortschritt und belegte Ergebnisse'],['simulation','▷','Simulation','Spielgeld, automatische Tests und Vergleiche'],['learning','↗','Lernen & Ergebnisse','Trade-Auswertung und Fortschritt'],['diagrams','▥','Diagramme','Vergleiche und Fortschritte'],['research','▶','Recherche','MCO-Goldvideos und Analysen'],['future','◇','Zukunft','Pläne und Broker'],['degiro','▤','DEGIRO','Dein reservierter Bereich'],['degiro2','↗','DEGIRO-Handy-Assistent','Vorbereitung und manuelle Übergabe'],['settings','⚙','Einstellungen','Push, Verbindung und Abmelden'],['help','?','Hilfe','Wofür Bob ist und wie du ihn bedienst']].map(args=>menuButton(...args)).join('');
-  // Group existing destinations, retaining their buttons and navigation targets.
+  const hubLink=document.createElement('a');hubLink.href='/zentrale/';hubLink.className='card';
+  hubLink.textContent='Bob Zentrale · Verwaltung, Simulationen, Wartung und Speicher';
+  panels.more.append(hubLink);
+  if(central){
+   hubLink.textContent='← Überblick der Zentrale';
+   const assistant=document.createElement('a');assistant.href='/';assistant.className='card';assistant.textContent='Zum Bob Assistenten';panels.more.append(assistant);
+   document.title='Bob Zentrale · Verwaltung';panels.more.querySelector('h2').textContent='Verwaltung';
+   document.querySelector('link[rel="manifest"]')?.setAttribute('href','/zentrale/manifest.webmanifest');
+  }
+  // One administrative workspace; the trading menu only retains trading/help.
+
   for(const [title,keys] of [
    ['Trainieren und auswerten',['simulation','learning','diagrams','improve']],
    ['Recherche',['research']],
@@ -1995,7 +2062,8 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const group=document.createElement('section');group.className='bob-more-group';
    const heading=document.createElement('h3');heading.textContent=title;
    const menu=document.createElement('div');menu.className='bob-more-menu';
-   for(const key of keys){const button=moreMenu.querySelector('[data-view="'+key+'"]');if(button)menu.append(button);}
+   for(const key of keys.filter(key=>central?management.has(key):!management.has(key))){const button=moreMenu.querySelector('[data-view="'+key+'"]');if(button)menu.append(button);}
+   if(!menu.children.length)continue;
    group.append(heading,menu);panels.more.append(group);
    if(title==='Trainieren und auswerten')window.BobTrainingHelp?.mount(group);
   }
@@ -2023,7 +2091,9 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    back.textContent='← '+panels[parent].getAttribute('aria-label');panels[key].prepend(back);
   }
   for(const key of ['improve','simulation','learning','diagrams','research','future','degiro','degiro2','settings','help']){
-   const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view='more';back.textContent='← Mehr';panels[key].prepend(back);
+   const back=document.createElement('button');back.type='button';back.className='bob-back';back.dataset.view='more';back.textContent='← Mehr';
+   if(central){const link=document.createElement('a');link.className='bob-back';link.href='/zentrale/#'+centralSection(key);link.textContent='← '+({studies:'Tests & Lernen',maintenance:'Wartung',settings:'Einstellungen'}[centralSection(key)]);panels[key].prepend(link);}
+   else panels[key].prepend(back);
   }
 
   // Compact trade view: keep the original controls and their handlers intact.
@@ -2064,7 +2134,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
     const label=tradeToggle.querySelector('label');if(label)label.textContent='Aktiver Trade';
     pushGrid.append(tradeToggle);
    }
-   panels.trade.querySelector('h2').after(push);
+   tradeDetails.append(push);
   }
   const settingsLink=document.createElement('div');settingsLink.className='bob-more-menu';
   settingsLink.innerHTML=menuButton('settings','⚙','Push und Verbindung','Push-Einrichtung öffnen')+menuButton('degiro2','↗','DEGIRO-Handy-Assistent','Auch direkt unter Mehr erreichbar');
@@ -2090,15 +2160,25 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    <li><b>Überwachen:</b> Aktiven Trade kontrollieren, Trade-Benachrichtigungen bei Bedarf einschalten. Stopp, Ziel und Warnungen beachten; Änderungen selbst bei DEGIRO vornehmen.</li>
    <li><b>Nach dem Verkauf:</b> Verkauf dokumentieren und prüfen, ob Bob die Überwachung beendet hat. „Trade beendet“ in Bob verkauft kein Produkt bei DEGIRO.</li>
    </ol><h3>Wo finde ich was?</h3>
-   <p><b>Mehr → Simulation:</b> laufende Spielgeldtests und Teststatus. <b>Lernen &amp; Ergebnisse:</b> abgeschlossene Trades, Auswertungen und Nachweise für Verbesserungen. Offene oder fehlende Daten zählen nicht als Erfolg.</p>
-   <p><b>Mehr → Diagramme:</b> Markt, Mein Trade, Simulation und Lernen. <b>Recherche:</b> Videos, Zusammenfassungen und MCO vs. Bob. <b>DEGIRO-Handy-Assistent:</b> der frühere Bereich „DEGIRO 2“. Der separate DEGIRO-Bereich bleibt dein reservierter Platzhalter.</p>
-   <p><b>Mehr → Einstellungen:</b> Push-Einrichtung, Verbindung und Abmelden. Marktbeobachtung und Aktiver Trade stehen gemeinsam oben in Mein Trade. <b>Probleme:</b> technische Meldungen und automatische KI-Prüfung; Produktnachweise stehen bei Produkte.</p>
+   <p><b>Bob Zentrale → Simulationen:</b> laufende Spielgeldtests und Teststatus. <b>Lernen &amp; Ergebnisse:</b> abgeschlossene Trades, Auswertungen und Nachweise für Verbesserungen. Offene oder fehlende Daten zählen nicht als Erfolg.</p>
+   <p><b>Bob Zentrale → Diagramme:</b> Markt, Mein Trade, Simulation und Lernen. <b>Recherche:</b> Videos, Zusammenfassungen und MCO vs. Bob. <b>DEGIRO-Handy-Assistent:</b> der frühere Bereich „DEGIRO 2“. Der separate DEGIRO-Bereich bleibt dein reservierter Platzhalter.</p>
+   <p><b>Bob Zentrale → Einstellungen:</b> Push-Einrichtung, Verbindung und Abmelden. Marktbeobachtung und Aktiver Trade stehen gemeinsam oben in Mein Trade. <b>Probleme:</b> technische Meldungen und automatische KI-Prüfung; Produktnachweise stehen bei Produkte.</p>
    <details class="bob-disclosure"><summary>Wenn etwas fehlt</summary><p>Bei fehlenden oder veralteten Kursen den Datenstatus unter Einstellungen öffnen. Bei falschen Trade-Angaben „Daten korrigieren“ nutzen. Unter Mein Trade → Details bleiben zusätzliche Eingaben und Nachweise erhalten.</p><p>Benachrichtigungen benötigen die Browser- beziehungsweise Handyberechtigung. Ein eingeschalteter Schalter allein bestätigt noch keine erfolgreiche Hintergrundüberwachung.</p></details>`;
   panels.help.append(help);
   const helpLink=document.createElement('div');helpLink.className='bob-more-menu';helpLink.innerHTML=menuButton('help','?','Bedienungsanleitung','Bob Schritt für Schritt');panels.settings.append(helpLink);
 
 
-  nav.innerHTML=[['overview','◫','Start'],['products','▤','Produkte'],['risk','⚡','Risiko'],['trade','◎','Mein Trade'],['more','☰','Mehr']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='more'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
+  nav.innerHTML=[['overview','◫','Markt'],['products','▤','Produkte'],['trade','◎','Mein Trade']].map(([key,icon,label])=>'<button type="button" data-view="'+key+'" aria-controls="bob-view-'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+(key==='more'?'<strong class="bob-problem-count" data-problem-count hidden aria-hidden="true"></strong>':'')+'</button>').join('');document.body.append(nav);
+  if(!central){
+   const link=document.createElement('a');link.href='/zentrale/';link.textContent='Zentrale';link.className='bob-central-entry';header?.append(link);
+   const tools=document.createElement('details');tools.className='card bob-disclosure';tools.id='bobProductTools';
+   tools.innerHTML='<summary>Liste, Risiko und weitere Möglichkeiten</summary>'+menuButton('risk','⚡','Risiko','Bestehende Risikoansicht')+menuButton('degiro','▤','DEGIRO-Liste','Liste und Import')+menuButton('more','?','Weitere Hilfe','Bedienung und weitere Funktionen');
+   panels.products.append(tools);
+  }
+  if(central){
+   nav.setAttribute('aria-label','Zentrale Navigation');
+   nav.innerHTML=[['overview','⌂','Start'],['studies','▥','Tests & Lernen'],['maintenance','⚙','Wartung'],['settings','☷','Einstellungen']].map(([key,icon,label])=>'<a href="/zentrale/#'+key+'" data-central-section="'+key+'"><span aria-hidden="true">'+icon+'</span>'+label+'</a>').join('');
+  }
   // Bob-Handy action locator: lookup by stable control ID instead of
   // content-card position. Never click or send automatically.
   const handyActionTargets=Object.freeze({problems:'bobMobileHelpShare'});
@@ -2133,8 +2213,13 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    followUps.push(setTimeout(()=>{align();cleanup();},850));
    return true;
   }
-  function show(key,focus=true){if(['products-long','products-leverage'].includes(key))key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='more'&&['problems','improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
-  document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){show(b.dataset.view);history.replaceState(null,'','#'+b.dataset.view);}});
+  function show(key,focus=true){
+   if(central&&(!key||key==='more')){location.replace('/zentrale/#studies');return false;}
+   if(central)for(const link of nav.querySelectorAll('[data-central-section]')){if(link.dataset.centralSection===centralSection(key))link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
+   if(!central&&management.has(key)){location.replace(workspaceUrl(key));return false;}
+   if(central&&key!=='more'&&!management.has(key)){location.assign('/?view='+encodeURIComponent(key||'overview')+'#'+encodeURIComponent(key||'overview'));return false;}
+   if(['products-long','products-leverage'].includes(key))key='products';if(!panels[key])key='overview';for(const [k,el]of Object.entries(panels))el.hidden=k!==key;for(const btn of nav.querySelectorAll('button')){if(btn.dataset.view===key||(btn.dataset.view==='products'&&['risk','degiro','degiro2','more','help'].includes(key))||(btn.dataset.view==='more'&&(!central||!nav.querySelector('[data-view="'+key+'"]'))&&['problems','improve','auto','future','research','learning','diagrams','degiro','degiro2','simulation','settings','help'].includes(key)))btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');}if(key==='overview'&&typeof draw==='function')requestAnimationFrame(()=>draw());if(focus){window.scrollTo(0,0);const h=panels[key].querySelector('h2');if(h){h.tabIndex=-1;h.focus({preventScroll:true});}}}
+  document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b){if(show(b.dataset.view)===false)return;history.replaceState(null,'','#'+b.dataset.view);}});
   // The Android voice command explicitly requests the Gold-Hebelprodukte list.
   // An ordinary manual tap on the Produkte tab still opens the overview normally.
   // The companion sends ?view=products#products, surviving a password login.
@@ -2357,12 +2442,12 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
    const summary=revealGoldLeveragedProducts(panels.products);
    if(summary)stabilizeGoldDeepLinkScroll(summary);
   });
-  for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{show('settings');history.replaceState(null,'','#settings');if(b.dataset.status==='push')byId('bobPushSetup')?.scrollIntoView({behavior:'smooth',block:'start'});else{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});}});
+  for(const b of status.querySelectorAll('button'))b.addEventListener('click',()=>{if(show('settings')===false)return;history.replaceState(null,'','#settings');if(b.dataset.status==='push')byId('bobPushSetup')?.scrollIntoView({behavior:'smooth',block:'start'});else{system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});}});
   byId('bobNextAction')?.addEventListener('click',()=>{
    const destination=byId('bobNextAction').dataset.destination;
-   if(destination==='data'){show('settings');history.replaceState(null,'','#settings');system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});system.querySelector('summary')?.focus();}
+   if(destination==='data'){if(show('settings')===false)return;history.replaceState(null,'','#settings');system.open=true;system.scrollIntoView({behavior:'smooth',block:'start'});system.querySelector('summary')?.focus();}
    else if(destination==='analysis'){const details=byId('bobMarketAnalysis');if(details){details.open=true;details.scrollIntoView({behavior:'smooth',block:'start'});details.querySelector('summary')?.focus();}}
-   else{show(destination);history.replaceState(null,'','#'+destination);}
+   else{if(show(destination)===false)return;history.replaceState(null,'','#'+destination);}
   });
   function text(id){return byId(id)?.textContent.trim()||'';}
   function update(){
@@ -2397,7 +2482,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   }
   // Observe only original outputs, never our derived labels (avoids observer loops).
   const observer=new MutationObserver(update);for(const id of ['quickSignal','analysisQuality','analysisAge','decisionExplanation','blockTrendNote','blockMomentumNote','blockVolatilityNote','blockStructureNote','quickReason','sourceSummary','pushStatus','fibMonitorStatus','auditSave','improvementStatus','generalPushBtn','dgTop3Out','tradeStateBtn']){const el=byId(id);if(el)observer.observe(el,{childList:true,subtree:true,characterData:true});}
-  document.body.classList.add('bob-mobile');update();show(location.hash.slice(1),false);
+  document.body.classList.add('bob-mobile');update();show(location.hash.slice(1)||new URLSearchParams(location.search).get('view')||'',false);
   // Locate the button on explicit Bob-Handy entry even if a future
   // redesign moves its card; then let the user scroll normally.
   stabilizeHandyActionEntry();
@@ -2539,7 +2624,7 @@ Die DEGIRO-Produktwahl bleibt manuell: verfügbare Wertpapiere, KO-Level, Finanz
   else start();
 })();
 </script>
-/* BOB_ISIN_COPY_END */
+<!-- BOB_ISIN_COPY_END -->
 
 <script>
 
@@ -2609,7 +2694,7 @@ async function syncPushPreferencesImpl(){
    if(tradeMgmt?.active&&!tradeMgmt.test&&pushState.trade&&!tradeMgmt.fibonacciMonitor){
     const snapshot=captureFibonacciMonitor();if(snapshot){tradeMgmt.fibonacciMonitor=snapshot;saveTradeMgmt();}
    }
-   const reg=await navigator.serviceWorker.ready;
+   const reg=await (window.BobPush?.registration?window.BobPush.registration():navigator.serviceWorker.ready);
    const sub=await reg.pushManager.getSubscription();
    if(!sub){if(status)status.textContent="Fibonacci-Überwachung: Server-Push-Abonnement fehlt.";return false;}
    let backgroundTrade=null;
@@ -2668,7 +2753,7 @@ async function testBackgroundPush(scenario='delivery'){
   if(early&&!pushState.general)throw Error('Für Frühwarn-Tests zuerst Marktbeobachtung aktivieren.');
   if(!pushState.general&&!pushState.trade)throw Error("Für den Test zuerst Marktsignale oder Aktiver Trade einschalten.");
   if(!await syncPushPreferences())throw Error('Push-Einstellungen nicht am Server bestätigt: '+($('fibMonitorStatus')?.textContent||'Bitte „Push aktualisieren“ und erneut testen.'));
-  const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();
+  const reg=await (window.BobPush?.registration?window.BobPush.registration():navigator.serviceWorker.ready),sub=await reg.pushManager.getSubscription();
   if(!sub)throw Error('Zuerst Gerät für Push registrieren.');
   const r=await fetch('/api/push/test-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint,scenario})});
   if(!r.ok){
@@ -3168,13 +3253,27 @@ function earlyWarningContext(bundle,now=Date.now()){
  return {...base,available:true,state:expired?'expired':'waiting',reason:expired?
   'Vorwarnung abgelaufen – seit 15 Minuten kein neuer bestätigter Frühimpuls':current.reason};
 }
+function earlyPreparationText(q,bundle=liveBundleCache,now=Date.now()){
+ if(!q?.available||!['active','watch'].includes(q.state)||!['LONG','SHORT'].includes(q.direction)||q.extensionRisk||!Number.isFinite(q.expiresAt)||q.expiresAt<=now)return '';
+ const spot=bundle?.spots||{},price=Number(spot.xaus),at=Date.parse(spot.spot_price_as_of||'');
+ if(spot.is_genuine_xauusd_spot!==true||spot.spot_error||!Number.isFinite(price)||price<=0||!Number.isFinite(at)||now<at||now-at>60000)return '\nVorbereitung wartet auf aktuellen Goldkurs.';
+ const fixed=intradayRiskData(bundle,now);
+ if(!fixed.available)return '\nVorbereitung wartet: '+fixed.reason;
+ const mult=Number($('trailAtr')?.value)||1.5,minRR=Number($('minRR')?.value)||2;
+ const stop=stopModel(q.direction,price,fixed.atr,mult,fixed).stop;
+ const target=Number.isFinite(stop)&&stop>0?targetModel(q.direction,price,stop,minRR,fixed):{};
+ if(!Number.isFinite(target.target)||target.entrySuitable===false)return '\nVorbereitung wartet: '+(target.warning||target.reason||'kein gültiger Stopp-/Zielplan');
+ return '\nVorbereitet · Goldreferenz '+price.toFixed(2)+' USD/oz · Gold-Stopp '+stop.toFixed(2)+' · Gold-Ziel '+target.target.toFixed(2)+
+  '\nVorwarn-Plan zur Vorbereitung; Produktkurse und Einstieg müssen bestätigt werden. Quelle: '+new Date(at).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'});
+}
+
 function renderEarlyImpulseStatus(){
  const el=$('earlyImpulseStatus');if(!el)return;
  const q=earlyWarningContext(liveBundleCache),active=signalState?.dir||'NEUTRAL';
- window.BobDegiro?.renderEarlyProductPanel(q);
+ // Optional product rendering must not prevent the market warning from updating.
  const clock=t=>new Date(t).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'});
  const hasDirection=['LONG','SHORT'].includes(q.direction);
- const labels={unavailable:'DATEN FEHLEN – kein aktuelles Frühwarnsignal',paused:'WOCHENENDPAUSE',
+ const labels={unavailable:'DATEN FEHLEN – kein aktuelles Frühwarnsignal',paused:'PAUSIERT',
   waiting:'ÜBERWACHUNG AKTIV · kein klarer Frühimpuls',withdrawn:'VORWARNUNG ZURÜCKGENOMMEN',expired:'VORWARNUNG ABGELAUFEN'};
  const heading=hasDirection?(active===q.direction?q.direction+' · Hauptsignal ebenfalls bestätigt':
   q.state==='watch'?q.direction+' weiter beobachten · Impuls nachlassend':q.direction+' zeichnet sich ab · VORWARNUNG'):labels[q.state];
@@ -3185,7 +3284,12 @@ function renderEarlyImpulseStatus(){
   (q.extensionRisk?'\n⚠ Bewegung bereits weit gelaufen – erhöhtes Rückschlagrisiko':'')+
   '\nGeprüft: '+clock(q.checkedAt)+' (Zürich) · Hauptsignal: '+active+
   '\nBeobachtung: keine Handelsfreigabe. Marktbeobachtung-Push nur bei frischer, geschlossener Signalkerze und nicht bereits bestätigter Hauptrichtung.'+
-  (window.BobDegiro?.earlyProductRankingText(q)||'');
+  earlyPreparationText(q,liveBundleCache);
+ try{
+  window.BobDegiro?.renderEarlyProductPanel?.(q);
+  el.textContent+=window.BobDegiro?.earlyProductRankingText?.(q)||'';
+ }catch(error){console.warn('[BOB] Early product panel unavailable',error);}
+ el.dataset.marketRendered='true';
 }
 
 // Recheck expiry even when a fetch or the main analysis fails; no extra network request.
@@ -3350,6 +3454,8 @@ async function fetchLiveBundle(force=false){
    const previous=liveBundleCache?.spots;
    if(previous&&(Date.parse(spot.spot_price_as_of)<Date.parse(previous.spot_price_as_of)||
       (Date.parse(spot.spot_price_as_of)===Date.parse(previous.spot_price_as_of)&&spot.xaus!==previous.xaus)))throw Error('Widersprüchlicher Spot-Datensatz');
+   // Publish the checked original before optional history work can delay display.
+   window.BobGoldCards?.spot(j);
    // Historical candles are a separate input. A fallback must never replace spot.
    const serverBars=j.history?.bars_by_tf||{};
    if(!technicalHistoryFresh(serverBars['5m'],'5m',now)||!technicalHistoryFresh(serverBars['1h'],'1h',now)){
@@ -3392,6 +3498,12 @@ async function fetchLiveBundle(force=false){
  try{return await liveBundlePending;}finally{liveBundlePending=null;}
 }
 async function fetchIntradayPoints(){const j=await fetchLiveBundle();return j.history.points||[];}
+// Page replacement (including a service-worker controller change) can reject an
+// already completed same-origin fetch as TypeError("Failed to fetch"). Keep that
+// lifecycle signal separate from genuine, visible MTF transport failures.
+let mtfPageExiting=false;
+window.addEventListener("pagehide",()=>{mtfPageExiting=true;});
+window.addEventListener("pageshow",()=>{mtfPageExiting=false;});
 async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
  try{
   const bundle=suppliedBundle || liveBundleCache || await fetchLiveBundle(force);
@@ -3476,6 +3588,8 @@ async function _loadMTFImpl(force=false, generation=null, suppliedBundle=null){
    const message=e?.message||String(e);
    if(verifyController.signal.aborted||e?.name==='AbortError'||/\babort(?:ed|ing)?\b/i.test(message))
     reportBobDiag('mtf:verification-skipped',{reason:'Zeitbegrenzte Serverprüfung beendet; aktuelle Bundle-Analyse bleibt gültig'});
+   else if(mtfPageExiting&&message==='Failed to fetch')
+    reportBobDiag('mtf:verification-skipped',{reason:'Serverprüfung durch Seitenwechsel beendet; aktuelle Bundle-Analyse bleibt gültig'});
    else reportBobDiag("mtf:server-error",{error:message,reason:"/api/mtf verification exception"});
   }finally{clearTimeout(verifyTimer);}
   if(generation!==null&&generation!==loadGeneration)return MTF;
@@ -4347,7 +4461,7 @@ window.BobTradeSync={
   if(snapshot?.active!==false||!snapshot.tradeId||snapshot.tradeId!==tradeMgmt.tradeId||tradeMgmt.test||!tradeMgmt.active)return false;
   tradeMgmt={...tradeMgmt,...snapshot,active:false,fibonacciMonitor:null};
   localStorage.setItem('goldScannerTradeMgmt',JSON.stringify(tradeMgmt));
-  if(typeof navigator!=='undefined'&&navigator.serviceWorker)navigator.serviceWorker.ready.then(reg=>reg.active?.postMessage({type:'BOB_TRADE_CLOSED',tradeId:snapshot.tradeId})).catch(()=>{});
+  if(typeof navigator!=='undefined'&&navigator.serviceWorker)(window.BobPush?.registration?window.BobPush.registration():navigator.serviceWorker.ready).then(reg=>reg.active?.postMessage({type:'BOB_TRADE_CLOSED',tradeId:snapshot.tradeId})).catch(()=>{});
   pushState=BobPush.setActiveTrade(false);renderPush();
   renderActiveTradePlan();renderPositionStatus();restoreTradeMgmt();
   syncPushPreferences();return true;
@@ -4954,7 +5068,7 @@ if("serviceWorker" in navigator){
   });
   window.addEventListener("load",()=>{
     sessionStorage.removeItem("bob-sw-reloaded");
-    navigator.serviceWorker.register("/sw.js?v=23",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register(location.pathname.startsWith("/zentrale/")?"/zentrale/sw.js":"/sw.js?v=23",{updateViaCache:"none"}).then(reg=>reg.update()).catch(()=>{});
     // MTF watchdog: if the live analysis rendered but the MTF cells did not,
     // retry from the already cached live bundle without requiring a page reload.
     let mtfWatchdogRuns=0;
@@ -5050,6 +5164,61 @@ setInterval(()=>{
 },30000);
 </script><form method="post" action="/logout" style="text-align:center;margin:24px"><button type="submit">Abmelden</button></form>
 
+
+
+<script>
+// Read-only explanation: opening a historic push never changes signal/trade state.
+(function(){
+ let opened=null;
+ function clean(value){
+  if(!value||!['early-warning','early-warning-withdrawn','signal-change','market-scenario'].includes(value.eventKind))return null;
+  const out={eventKind:value.eventKind,direction:['LONG','SHORT'].includes(value.direction)?value.direction:'unbekannt'};
+  for(const key of ['generatedAt','signalBarAt','dataAt','expiresAt'])if(Number.isSafeInteger(value[key])&&value[key]>0)out[key]=value[key];
+  return out;
+ }
+ function describe(event,current,now=Date.now()){
+  const clock=t=>t?new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'nicht protokolliert';
+  const kind={'early-warning':'FRÜHWARNUNG','early-warning-withdrawn':'FRÜHWARNUNG ZURÜCKGENOMMEN','signal-change':'BESTÄTIGTES EINSTIEGSSIGNAL','market-scenario':'BESTÄTIGTES SZENARIO · EINSTIEG ABWARTEN'}[event.eventKind];
+  return kind+' · '+event.direction+'\nGemeldet: '+clock(event.generatedAt)+' (Zürich)'+
+   (event.expiresAt&&now>=event.expiresAt?'\nDie ursprüngliche Meldung ist abgelaufen.':'')+
+   '\n\nAktueller Stand: '+clock(current.checkedAt)+
+   '\nHaupttrend: '+current.trend+' · Frühwarnung: '+current.warning+
+   '\nEinstieg: '+current.entry+'\n'+current.reason+
+   '\nDie damalige Meldung ist keine aktuelle Produktfreigabe.';
+ }
+ function render(){
+  if(!opened)return;
+  const now=Date.now(),warning=earlyWarningContext(liveBundleCache,now),trend=sustainedTrendContext(liveBundleCache,now);
+  const last5m=(liveBundleCache?.history?.bars_by_tf?.['5m']||[]).filter(b=>!b.isOpen&&!b.providerIsOpen&&b.openTime+300000<=now).at(-1)?.openTime;
+  const fresh=currentSpotUsable()&&analysisAgeWarnings().length===0&&Number.isFinite(last5m)&&now-last5m<=600000;
+  const current={checkedAt:now,trend:trend.available?trend.direction:'nicht bestätigt',
+   warning:warning.available&&['active','watch'].includes(warning.state)?warning.direction+' ('+(warning.state==='watch'?'Beobachtung':'Frühimpuls')+')':warning.reason,
+   entry:fresh&&A.ready&&['LONG','SHORT'].includes(signalState.dir)?signalState.dir:'ABWARTEN',
+   reason:fresh?(signalState.reason||'Bestätigung ausstehend'):'Datenaktualität nicht bestätigt; aktuelle Analyse abwarten.'};
+  document.getElementById('pushOpenedText').textContent=describe(opened,current,now);
+ }
+ function show(value){
+  const event=clean(value);if(!event)return;
+  opened=event;
+  document.querySelector('[data-view="overview"]')?.click();
+  const panel=document.getElementById('pushOpened');panel.hidden=false;
+  document.getElementById('bob-view-overview')?.prepend(panel);
+  render();panel.scrollIntoView({block:'start'});
+ }
+ function fromHash(){
+  if(!location.hash.startsWith('#push='))return;
+  try{const raw=location.hash.slice(6);if(raw.length<=1500)show(JSON.parse(decodeURIComponent(raw)));}catch(_){}
+ }
+ if(navigator.serviceWorker)navigator.serviceWorker.addEventListener('message',event=>{
+  if(event.data?.type==='BOB_PUSH_CLICK'&&event.data.data?.kind==='general')show(event.data.data);
+ });
+ document.getElementById('pushOpenedDismiss').addEventListener('click',()=>{opened=null;document.getElementById('pushOpened').hidden=true;});
+ window.addEventListener('hashchange',fromHash);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)render();});
+ setInterval(()=>{if(!document.hidden)render();},10000);
+ fromHash();
+})();
+</script>
 
 </body></html>
 

@@ -18,6 +18,9 @@ from datetime import datetime, timezone
 
 VERSION = 'bob-evidence-archive-v3'
 # Reviewed evidence only: never OAuth, passkeys, sessions, subscriptions or settings.
+# Future snapshots include evaluation page manifests/cursors in the SAME read-only
+# export snapshot as source originals. Older archive versions are not retrofitted;
+# this neither restores missing retained-away rows nor authorizes migration.
 TABLES = frozenset('''bob_spot_observations bob_candle_evidence bob_candle_checkpoints
 bob_comparison_predictions bob_comparison_truths bob_decision_audit bob_decision_outcomes
 bob_future_predictions bob_future_truths bob_product_predictions bob_product_truths
@@ -35,6 +38,7 @@ bob_rule_learning bob_rule_learning_samples bob_ranking_events bob_ranking_lifec
 bob_ranking_samples bob_ranking_state bob_gap_models bob_source_reliability
 bob_broker_venue_evidence bob_broker_venue_history bob_degiro_candidate_proofs
 bob_degiro_product_audit bob_storage_samples bob_metric_checks
+bob_history_eval_segments bob_history_eval_cursor
 bob_diagnostic_history bob_real_trades bob_real_trade_events bob_research_enhancements
 bob_research_transcripts bob_research_priorities bob_youtube_feed_archive bob_video_ocr'''.split())
 TYPE = re.compile(r'^(?:text|boolean|smallint|integer|bigint|real|double precision|bytea|json|jsonb|date|uuid|numeric(?:\(\d+(?:,\d+)?\))?|character varying(?:\(\d+\))?|character(?:\(\d+\))?|timestamp(?:\(\d+\))? (?:with|without) time zone|time(?:\(\d+\))? (?:with|without) time zone|interval)(?:\[\])?$')
@@ -55,7 +59,7 @@ def selected_tables():
         'bob_cold_decision_product_objects', 'bob_cold_decision_product_refs',
         'bob_cold_decision_product_scan', 'bob_cold_decision_pilot_attempts',
     }
-    return TABLES | cold_ledgers | {table for profile in POLICIES for table in names(profile).values()}
+    return TABLES | cold_ledgers | __import__('cold_test_evidence').BACKUP_TABLES | {table for profile in POLICIES for table in names(profile).values()}
 
 
 def digest(path):
@@ -267,7 +271,16 @@ def restore_check(archive, expected_sha256, restore_dsn, *, temporary_session=Fa
         manifest = json.loads(z.read('manifest.json'))
         if manifest.get('version') != VERSION or not manifest.get('tables'):
             raise ValueError('Invalid archive manifest')
-        with psycopg.connect(restore_dsn) as conn:
+        with psycopg.connect(restore_dsn, connect_timeout=5,
+                             options='-c statement_timeout=120000 -c lock_timeout=3000 '
+                                     '-c work_mem=2048 -c maintenance_work_mem=16384 '
+                                     '-c max_parallel_workers_per_gather=0') as conn:
+            # Target-local coordination also covers manual checks and different
+            # source deployments. Retained across each segment's rollback.
+            from aiven_health import TARGET_LOCK_SQL
+            if conn.execute(TARGET_LOCK_SQL).fetchone() != (True,):
+                raise ValueError('Restore target busy; no parallel restore permitted')
+            conn.commit()
             if conn.info.server_version // 10000 != manifest['postgresVersion'] // 10000:
                 raise ValueError('Matching PostgreSQL major version required')
             if conn.info.dbname == manifest['sourceDatabase'] and not temporary_session:

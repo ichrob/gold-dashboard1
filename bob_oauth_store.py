@@ -17,12 +17,25 @@ SCOPE = 'bob:products:read'
 DIAGNOSTICS_SCOPE = 'bob:diagnostics:read'
 PUSH_TEST_SCOPE = 'bob:push:test'
 PHONE_SCOPE = 'bob:phone:control'
+TERMUX_SCOPE = 'bob:termux:execute'
 
 def valid_scope(value):
-    return isinstance(value, str) and bool(value.split()) and set(value.split()) <= {SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE}
+    return isinstance(value, str) and bool(value.split()) and set(value.split()) <= {SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE}
 
 REDIRECT = 'https://chatgpt.com/connector_platform_oauth_redirect'
+# Gemini CLI supports a pinned local OAuth callback. The normal Gemini chat
+# app cannot use this callback, and registration alone grants NO private access.
+# Keep this exact (never wildcard/variable-port) for audited user consent.
+GEMINI_REDIRECT = 'http://localhost:8765/oauth/callback'
+# Official Antigravity CLI's documented OAuth callback. No dynamic host, path,
+# port, query or wildcard is accepted. Registration alone grants no access.
+ANTIGRAVITY_REDIRECT = 'https://antigravity.google/oauth-callback'
+GEMINI_READ_SCOPES = frozenset((SCOPE, DIAGNOSTICS_SCOPE))
+GOOGLE_READ_REDIRECTS = frozenset((GEMINI_REDIRECT, ANTIGRAVITY_REDIRECT))
 ACCESS_TTL = 3600
+# Allow a mobile browser -> Termux handoff without weakening PKCE or single use.
+# Remain below the OAuth 2.0 ten-minute maximum recommendation.
+CODE_TTL = 8 * 60
 GRANT_TTL = 28 * 86400
 
 
@@ -66,21 +79,38 @@ def transition(state, action, p, now=None):
                 'expires_in':int(expires-now), 'scope':grant.get('scope', SCOPE)}
 
     if action == 'register':
-        if (p.get('redirect_uris') != [REDIRECT] or p.get('token_endpoint_auth_method','none') != 'none'
+        redirect_uris = p.get('redirect_uris')
+        if (redirect_uris not in ([REDIRECT], [GEMINI_REDIRECT], [ANTIGRAVITY_REDIRECT])
+                or p.get('token_endpoint_auth_method','none') != 'none'
                 or set(p.get('grant_types',['authorization_code','refresh_token'])) != {'authorization_code','refresh_token'}
                 or p.get('response_types',['code']) != ['code'] or not valid_scope(p.get('scope',SCOPE))):
             return error('invalid_client_metadata')
-        # This private, single-user server permits exactly one public client
-        # configuration. Reuse its public ID; registration cannot exhaust state.
-        cid = next(iter(clients), None) or secret('bob_')
-        clients[cid] = {'redirect_uri':REDIRECT}
-        return {'client_id':cid, 'client_id_issued_at':int(now), 'redirect_uris':[REDIRECT],
+        uri = redirect_uris[0]
+        requested = set(p.get('scope', SCOPE).split())
+        # Google clients never get handset, Termux or push-test rights.
+        # All callbacks are pinned exactly, with at most three client entries.
+        if uri in GOOGLE_READ_REDIRECTS and not requested <= GEMINI_READ_SCOPES:
+            return error('invalid_scope')
+        cid = next((key for key, client in clients.items()
+                    if client.get('redirect_uri') == uri), None)
+        if cid is None:
+            if len(clients) >= 3:
+                return error('temporarily_unavailable')
+            cid = secret('bob_')
+        clients[cid] = {'redirect_uri':uri}
+        return {'client_id':cid, 'client_id_issued_at':int(now), 'redirect_uris':[uri],
                 'grant_types':['authorization_code','refresh_token'], 'response_types':['code'],
-                'token_endpoint_auth_method':'none', 'scope':p.get('scope', SCOPE), 'client_name':'Bob Lesezugang'}
+                'token_endpoint_auth_method':'none', 'scope':p.get('scope', SCOPE),
+                'client_name': ('Bob Antigravity Read-only' if uri == ANTIGRAVITY_REDIRECT else
+                                'Bob Gemini Read-only' if uri == GEMINI_REDIRECT else 'Bob Lesezugang')}
     if action == 'begin':
         cid = p.get('client_id','')
         if cid not in clients or p.get('redirect_uri') != clients[cid]['redirect_uri']:
             return error('invalid_client')
+        requested = set(p.get('scope', SCOPE).split()) if isinstance(p.get('scope', SCOPE), str) else set()
+        if (clients[cid]['redirect_uri'] in GOOGLE_READ_REDIRECTS
+                and not requested <= GEMINI_READ_SCOPES):
+            return error('invalid_scope')
         if (p.get('response_type') != 'code' or not valid_scope(p.get('scope', SCOPE))
                 or p.get('resource') != RESOURCE or p.get('code_challenge_method') != 'S256'
                 or not re.fullmatch('[A-Za-z0-9_-]{43}', p.get('code_challenge',''))
@@ -92,6 +122,8 @@ def transition(state, action, p, now=None):
         pending[digest(nonce)] = {k:p[k] for k in ('client_id','redirect_uri','state','code_challenge')}
         pending[digest(nonce)]['expires'] = now + 900
         pending[digest(nonce)]['scope'] = p.get('scope', SCOPE)
+        # The resource was explicitly checked above. Bind the grant to it.
+        pending[digest(nonce)]['resource'] = RESOURCE
         return {'request':nonce}
     if action in ('pending', 'approve', 'deny'):
         key = digest(p.get('request',''))
@@ -99,7 +131,10 @@ def transition(state, action, p, now=None):
         if not req:
             return error('invalid_request')
         if action == 'pending':
-            return {'ok':True, 'scope':req.get('scope', SCOPE)}
+            client = clients.get(req.get('client_id'), {})
+            return {'ok':True, 'scope':req.get('scope', SCOPE),
+                    'client_name': ('Antigravity CLI' if client.get('redirect_uri') == ANTIGRAVITY_REDIRECT else
+                                    'Gemini CLI' if client.get('redirect_uri') == GEMINI_REDIRECT else 'ChatGPT')}
         pending.pop(key)
         response = {'redirect_uri':req['redirect_uri'], 'state':req['state'], 'iss':ORIGIN}
         if action == 'deny':
@@ -108,15 +143,30 @@ def transition(state, action, p, now=None):
         if until <= now or len(grants) >= 32:
             return {**response, 'error':'access_denied'}
         gid, code = secret(), secret('boc_')
-        grants[gid] = {'client_id':req['client_id'], 'expires':until, 'created':now, 'scope':req.get('scope', SCOPE)}
-        codes[digest(code)] = {**req, 'grant':gid, 'used':False, 'expires':now+120}
+        grants[gid] = {'client_id':req['client_id'], 'expires':until, 'created':now,
+                       'scope':req.get('scope', SCOPE),
+                       'resource':req.get('resource', RESOURCE)}
+        codes[digest(code)] = {**req, 'grant':gid, 'used':False, 'expires':now+CODE_TTL}
         return {**response, 'code':code}
     if action == 'token':
         cid = p.get('client_id','')
         if cid not in clients:
             return error('invalid_client')
-        if p.get('resource') != RESOURCE or not valid_scope(p.get('scope',SCOPE)):
-            return error('invalid_target')
+        # Keep strict audience binding, but distinguish a missing/mismatched
+        # OAuth Resource Indicator from an unsupported scope. Never echo the
+        # client-supplied resource, scope, client ID or token in these errors.
+        # Antigravity CLI 1.5.3 omits the resource indicator for OAuth
+        # token requests during MCP scope step-up. An omission may inherit the
+        # resource explicitly bound to the approved grant (RFC 8707). Only
+        # the pinned Antigravity redirect is eligible for this exception.
+        missing_resource = 'resource' not in p
+        antigravity = clients[cid].get('redirect_uri') == ANTIGRAVITY_REDIRECT
+        if missing_resource and not antigravity:
+            return {'error':'invalid_target', 'error_description':'resource_missing'}
+        if not missing_resource and p['resource'] != RESOURCE:
+            return {'error':'invalid_target', 'error_description':'resource_mismatch'}
+        if not valid_scope(p.get('scope',SCOPE)):
+            return {'error':'invalid_scope', 'error_description':'unsupported_scope'}
         if p.get('grant_type') == 'authorization_code':
             record = codes.get(digest(p.get('code','')))
             verifier = p.get('code_verifier','')
@@ -124,7 +174,13 @@ def transition(state, action, p, now=None):
                     or not re.fullmatch(r'[A-Za-z0-9._~-]{43,128}',verifier)
                     or not hmac.compare_digest(challenge(verifier),record['code_challenge'])):
                 return error('invalid_grant')
-            if 'scope' in p and set(p['scope'].split()) != set(grants.get(record['grant'], {}).get('scope', SCOPE).split()):
+            bound_grant = grants.get(record['grant'], {})
+            # Older grants predate the persisted resource field, but they
+            # were all issued after begin() checked the exact RESOURCE.
+            if missing_resource and (record.get('resource', RESOURCE) != RESOURCE or
+                                     bound_grant.get('resource', RESOURCE) != RESOURCE):
+                return {'error':'invalid_target', 'error_description':'resource_mismatch'}
+            if 'scope' in p and set(p['scope'].split()) != set(bound_grant.get('scope', SCOPE).split()):
                 return error('invalid_scope')
             if record['used']:
                 grants.pop(record['grant'],None)
@@ -135,7 +191,9 @@ def transition(state, action, p, now=None):
             grant = grants.get(record['grant']) if record else None
             if not grant or grant['client_id'] != cid:
                 return error('invalid_grant')
-            if 'scope' in p and set(p['scope'].split()) != set(grants.get(record['grant'], {}).get('scope', SCOPE).split()):
+            if missing_resource and grant.get('resource', RESOURCE) != RESOURCE:
+                return {'error':'invalid_target', 'error_description':'resource_mismatch'}
+            if 'scope' in p and set(p['scope'].split()) != set(grant.get('scope', SCOPE).split()):
                 return error('invalid_scope')
             if record['used']:
                 grants.pop(record['grant'],None)
@@ -157,7 +215,34 @@ def transition(state, action, p, now=None):
             grants.pop(record['grant'],None)
         return {}
     if action == 'list':
-        return {'grants':[{'id':k,'created':v['created'],'expires':v['expires']} for k,v in grants.items()]}
+        # Safe owner-only summary. Never include access/refresh tokens or PKCE
+        # material. This is a grant inventory, not a connector-platform check.
+        rows = []
+        for gid, grant in grants.items():
+            redirect = clients.get(grant.get('client_id'), {}).get('redirect_uri')
+            label = ('Antigravity CLI' if redirect == ANTIGRAVITY_REDIRECT else
+                     'Gemini CLI' if redirect == GEMINI_REDIRECT else
+                     'ChatGPT' if redirect == REDIRECT else 'Unbekannt')
+            rows.append({'id':gid, 'created':grant['created'],
+                         'expires':grant['expires'], 'client':label,
+                         'scopes':sorted(set(str(grant.get('scope', SCOPE)).split()))})
+        return {'grants':rows}
+    if action == 'revoke-antigravity':
+        # Independent owner-controlled Antigravity revocation; existing Google
+        # Gemini and ChatGPT grants remain untouched.
+        for gid, grant in list(grants.items()):
+            client = clients.get(grant.get('client_id'), {})
+            if client.get('redirect_uri') == ANTIGRAVITY_REDIRECT:
+                grants.pop(gid)
+        return {'ok':True}
+    if action == 'revoke-gemini':
+        # Owner-only through the Bob browser route. Invalidates all Gemini
+        # access/refresh tokens without touching any ChatGPT grants.
+        for gid, grant in list(grants.items()):
+            client = clients.get(grant.get('client_id'), {})
+            if client.get('redirect_uri') == GEMINI_REDIRECT:
+                grants.pop(gid)
+        return {'ok':True}
     if action == 'revoke-all':
         for kind in ('grants','access','refresh','codes','pending'):
             state[kind] = {}

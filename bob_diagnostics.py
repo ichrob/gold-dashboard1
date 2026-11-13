@@ -321,6 +321,362 @@ def market_snapshot(live, cached_at, now=None):
             'freshnessNote':'120s cache threshold; compare collection cadence and session mode before diagnosing a stalled job'}
 
 
+def simulation_runtime_brief(paper):
+    """Small, read-only paper heartbeat retained if detailed MCP data is omitted.
+
+    This is a projection of already loaded controls, never another database
+    query, live trade verification, quote validation or performance claim.
+    """
+    missing = {'status':'unavailable', 'readOnly':True, 'realOrders':False,
+               'scope':'bounded-stored-paper-heartbeat-not-trade-outcome-proof'}
+    if not isinstance(paper, dict) or paper.get('status') not in (
+            'observed', 'partial', 'unavailable'):
+        return dict(missing, reason='paper-report-unavailable')
+    health = paper.get('paper')
+    if not isinstance(health, dict):
+        return dict(missing, reason='paper-heartbeat-unavailable')
+    # An older/minimal paper snapshot has no durable-account counters.
+    # Do not add a misleading placeholder to the size-limited report in
+    # that case; the existing simulation status remains authoritative.
+    total = health.get('accountsTotal')
+    checked = health.get('accountsChecked')
+    if (type(total) is not int or type(checked) is not int
+            or not 0 <= checked <= total <= 100):
+        return dict(missing, reason='paper-account-counts-unavailable')
+    state = health.get('state')
+    if state not in ('ok', 'warming', 'degraded', 'paused'):
+        state = 'unavailable'
+    accounts = paper.get('accounts')
+    accounts = accounts if isinstance(accounts, list) else []
+    push = paper.get('push') if isinstance(paper.get('push'), dict) else {}
+    admission = paper.get('reportAdmission')
+    campaign = paper.get('qualityCampaign')
+    projection = {
+        **missing,
+        'status':('observed' if paper.get('status') == 'observed'
+                  and state in ('ok', 'warming', 'paused') else 'partial'),
+        'paper':{**fields(health, ('sessionMode','accountsTotal','accountsChecked',
+                                  'maxCheckAgeSeconds')), 'state':state},
+        'profilesObserved':len(accounts),
+        'runningProfiles':sum(a.get('status') == 'running' for a in accounts
+                               if isinstance(a, dict)),
+        'completedProfiles':sum(a.get('status') == 'completed' for a in accounts
+                                 if isinstance(a, dict)),
+        'evaluator':fields(push.get('evaluator'), ('completed','failed',
+                           'queueTimeouts','waiting','inFlight','lastDurationMs')),
+        'reportAdmission':fields(admission, ('activeLoads','capacityTimeouts',
+                                  'queueFull','joiningTimeouts')),
+        'qualityCampaign':fields(campaign, ('status','state')),
+        'sourceStatus':paper.get('status'),
+        'freshMarketInputsVerified':False,
+        'strategyWinnerConfirmed':False,
+        'note':'Durable account checks are not verified signal quality, product '
+               'fills, profit or complete historical test coverage.'
+    }
+    return projection
+
+
+def new_studies_brief(paper, now_ms=None):
+    """Retain bounded, independent new-study evidence when history is truncated.
+
+    Project ONLY already-read, sanitized study controls. No new SQL, retries,
+    paper writes, inferred trades or success claims from a running worker.
+    """
+    if not isinstance(paper, dict):
+        return None
+    keys = ('qualityCampaign', 'shadowStudies', 'intradayTimingStudy', 'rapidLeverageStudy')
+    if not any(isinstance(paper.get(k), dict) for k in keys):
+        return None
+    quality = paper.get('qualityCampaign') or {}
+    shadow = paper.get('shadowStudies') or {}
+    timing = paper.get('intradayTimingStudy') or {}
+    rapid = paper.get('rapidLeverageStudy') or {}
+    entry = shadow.get('entryExitComparison') or {}
+    modeled = quality.get('modeledSimulation') or {}
+    # The last episode's checkedAt can be days old while the study's worker
+    # still evaluates live inputs. These are separate original timestamps.
+    observation = entry.get('inputObservation') if isinstance(entry,dict) else None
+    observation = observation if isinstance(observation,dict) else {}
+    input_reason = observation.get('reason')
+    allowed_reasons = ('original-input-unverified','waiting-for-direction',
+                       'active-episode-limit','direction-already-active',
+                       'eligible-episode-input')
+    input_quality = observation.get('inputQuality')
+    input_quality = input_quality if isinstance(input_quality,dict) else {}
+    def value(v, k):
+        return fields(v if isinstance(v, dict) else {}, (k,)).get(k)
+    def core(v):
+        return fields(v if isinstance(v, dict) else {}, ('status', 'checkedAt'))
+    study_ids = ('reaction','warning-confirmed','entry-delay','sideways-filter')
+    counters = ('id','cycles','original','invalid','estimated','workerErrors',
+                'started','complete','inconclusive','open','estimatedComplete')
+    def study_counts(control):
+        values = control.get('studies') if isinstance(control.get('studies'),list) else []
+        return [fields(row,counters) for row in values[:4]
+                if isinstance(row,dict) and row.get('id') in study_ids]
+    historical = quality.get('historicalReview')
+    historical_brief = None
+    if isinstance(historical, dict) and historical.get('status') == 'observed':
+        counts = historical.get('counts') or {}
+        historical_brief = dict(status='observed', cutoffAt=historical.get('cutoffAt'),
+            counts={k:counts[k] for k in ('reviewed','modeled','unavailable')
+                    if type(counts.get(k)) is int and counts[k] >= 0},
+            byStudy={k:v for k,v in (historical.get('byStudy') or {}).items()
+                     if k in study_ids and type(v) is int and v >= 0},
+            truncated=historical.get('truncated') is True,
+            originalEvidenceUnchanged=True, originalResultVerified=False)
+    originals = study_counts(quality)
+    modeled_rows = study_counts(modeled)
+    # Existing simulation report already contains a sanitized reaction record.
+    # Project ONLY fixed vocabulary counters, never private source payloads.
+    from paper_shadow_studies import ORIGINAL_INPUT_REASONS
+    for row in (originals, modeled_rows):
+        reaction_row = next((v for v in row if v.get('id') == 'reaction'), None)
+        control = quality if row is originals else modeled
+        source = next((v for v in (control.get('studies') or [])
+                       if isinstance(v,dict) and v.get('id')=='reaction'),None)
+        causes = source.get('originalBlockReasons') if isinstance(source,dict) else None
+        if reaction_row is not None:
+            reaction_row['recentOriginalBlockCode'] = (
+                source.get('lastOriginalBlockCode')
+                if isinstance(source,dict) and source.get('lastOriginalBlockCode') in ORIGINAL_INPUT_REASONS
+                else None)
+            reaction_row['originalBlockReasons'] = (
+                {code: count for code, count in causes.items()
+                 if code in ORIGINAL_INPUT_REASONS
+                 and type(count) is int and 0 <= count <= 10**9}
+                if isinstance(causes, dict) else {})
+            # Only bounded NEW diagnostic witnesses. Historical uncategorized
+            # checks cannot be reconstructed or labelled with these clocks.
+            recent = source.get('recentOriginalFailureEvidence') if isinstance(source,dict) else None
+            witnesses = []
+            if isinstance(recent, list):
+                for item in recent[-12:]:
+                    if not isinstance(item, dict) or item.get('reasonCode') not in ORIGINAL_INPUT_REASONS:
+                        continue
+                    if item.get('timeframe') not in ('5m','15m'):
+                        continue
+                    checked_at = item.get('checkedAt')
+                    # Read-time truth guard: a stopped worker or a snapshot read
+                    # between maintenance cycles must not expose an expired
+                    # witness as belonging to the last 20 minutes.
+                    if type(now_ms) in (int, float):
+                        if (type(checked_at) is not int
+                                or not 0 <= now_ms - checked_at <= 20 * 60000):
+                            continue
+                    witnesses.append(fields(item, ('checkedAt','sourceAt','analysisBarAt',
+                        'reasonCode','timeframe','sourceAgeMs','dataSourceDeltaMs',
+                        'identityVerified','closedSignalBarMatched','clockRelation')))
+            if witnesses:
+                reaction_row['recentOriginalFailureEvidence'] = witnesses
+            if (isinstance(source, dict)
+                    and type(source.get('originalLegacyUnclassified')) is int
+                    and source['originalLegacyUnclassified'] >= 0):
+                reaction_row['originalLegacyUnclassified'] = source['originalLegacyUnclassified']
+        fixed_outcome_reasons = (
+            'original-source-gap-over-90s', 'worker-observation-gap-over-90s',
+            'delayed-entry-original-unobserved', 'original-path-unverified',
+            'terminal-original-exit-unobserved', 'estimated-path-unverified',
+        )
+        for displayed in row:
+            if displayed.get('id') == 'reaction':
+                continue
+            raw = next((v for v in (control.get('studies') or [])
+                        if isinstance(v,dict) and v.get('id')==displayed.get('id')),None)
+            reasons = raw.get('inconclusiveEvidenceReasons') if isinstance(raw,dict) else None
+            safe_reasons = ({code: count for code, count in reasons.items()
+                             if code in fixed_outcome_reasons and type(count) is int
+                             and 0 <= count <= 10**9}
+                            if isinstance(reasons,dict) else {})
+            if safe_reasons:
+                displayed['inconclusiveEvidenceReasons'] = safe_reasons
+            if (isinstance(raw, dict)
+                    and type(raw.get('historicalInconclusiveUnclassified')) is int
+                    and raw['historicalInconclusiveUnclassified'] >= 0):
+                displayed['historicalInconclusiveUnclassified'] = raw['historicalInconclusiveUnclassified']
+    # A compact, deterministic quality alert, not an assertion about cause
+    # or a proposal to count estimated model outcomes as product fills.
+    notices = []
+    def warn(code, study, detail):
+        if len(notices) < 5:
+            notices.append({'code':code,'study':study,'severity':'warning',
+                            'detail':detail})
+    reaction = next((x for x in originals if x.get('id')=='reaction'),{})
+    cycles, invalid = reaction.get('cycles'),reaction.get('invalid')
+    if (type(cycles) is int and type(invalid) is int
+            and cycles >= 100 and 0 <= invalid <= cycles
+            and invalid >= 20 and invalid * 100 >= cycles * 2):
+        warn('STUDY_ORIGINAL_INPUT_GAPS','reaction',
+             str(invalid)+'/'+str(cycles)+' kumulierte Eingangsprüfungen ungültig; Quellenzeiten nachprüfen')
+    for study in ('warning-confirmed','entry-delay','sideways-filter'):
+        row = next((x for x in originals if x.get('id')==study),{})
+        complete, inconclusive = row.get('complete'),row.get('inconclusive')
+        reviewed = (historical_brief.get('byStudy', {}).get(study, 0)
+                    if historical_brief else 0)
+        # Administrative closure is not a successful original outcome. Keep
+        # original counters visible, but don't present fully reviewed history
+        # as a current repair alert. Any additional unresolved case still warns.
+        if (type(inconclusive) is int and 0 < inconclusive == reviewed
+                and historical_brief.get('truncated') is False):
+            continue
+        if (type(complete) is int and type(inconclusive) is int
+                and complete >= 0 and inconclusive >= 0
+                and complete + inconclusive >= 10
+                and inconclusive * 2 >= complete + inconclusive):
+            warn('STUDY_OUTCOMES_INCONCLUSIVE',study,
+                 str(inconclusive)+'/'+str(complete+inconclusive)+' abgeschlossene Fälle nicht vergleichbar')
+    if (quality.get('status')=='collecting' and
+            modeled.get('status') in ('not-started','unavailable','failed')
+            and type(cycles) is int and cycles >= 100):
+        warn('STUDY_MODEL_FALLBACK_NOT_RUNNING','modeled',
+             'Berechnete Studienvariante nicht aktiv')
+    # Only trading-window staleness is a worker incident. "Waiting for
+    # direction" and intentionally retired shadow studies are never errors.
+    health = paper.get('paper') if isinstance(paper.get('paper'),dict) else {}
+    now_ms = time.time()*1000 if now_ms is None else now_ms
+    if health.get('sessionMode') == 'trading' and type(now_ms) in (int,float):
+        for name, at in (('quality',quality.get('checkedAt')),
+                         ('intraday',timing.get('checkedAt')),
+                         ('entry-exit',observation.get('checkedAt'))):
+            if (type(at) in (int,float) and math.isfinite(at)
+                    and 0 <= now_ms-at and now_ms-at > 180000):
+                warn('STUDY_WORKER_OBSERVATION_STALE',name,
+                     'Letzte gespeicherte Studienprüfung über 180 Sekunden alt')
+    srows = shadow.get('studies') if isinstance(shadow.get('studies'), list) else []
+    shadows = []
+    for item in srows[:3]:
+        if isinstance(item, dict) and item.get('study') in (
+                'regime-routing','wait-vs-enter','product-e2e'):
+            shadows.append(fields(item, ('study','status','checkedAt','casesStarted',
+                'casesPriced','casesInconclusive','openCases')))
+    variants = timing.get('variants') if isinstance(timing.get('variants'), list) else None
+    arms = entry.get('variants') if isinstance(entry.get('variants'), dict) else None
+    return {
+        'status':'observed' if (all(isinstance(paper.get(k),dict) for k in keys)
+            and all(isinstance(v,dict) and v.get('status') not in
+                    (None, 'unavailable','failed','partial')
+                    for v in (quality,shadow,timing,entry))) else 'partial',
+        'readOnly':True, 'realOrders':False,
+        'scope':'new-studies-sanitized-control-sample-not-execution-proof',
+        'quality':{**core(quality), 'studies':originals,
+                   'modeled':{**core(modeled), 'studies':modeled_rows},
+                   **({'historicalReview': historical_brief} if historical_brief else {})},
+        'attention':notices,
+        'attentionStatus':'needs-attention' if notices else 'no-current-study-alert',
+        'shadow':{'status':value(shadow,'status'),'studies':shadows},
+        'entryExit':{**core(entry),
+                     'episodesSampled':value(entry,'episodesSampled'),
+                     'variantsObserved':len(arms) if arms is not None else None,
+                     'workerInputCheckedAt':value(observation,'checkedAt'),
+                     'workerInputReason':(input_reason if input_reason in allowed_reasons
+                                          else 'unavailable'),
+                     'workerInputVerified':(input_quality.get('verified')
+                                            if type(input_quality.get('verified')) is bool
+                                            else None)},
+        'intraday':{**core(timing),
+                    'variantsObserved':len(variants) if variants is not None else None,
+                    'legacyOpenPositions':value(timing,'legacyOpenPositions')},
+        'rapid':rapid_leverage_brief(rapid),
+        **({'entryOpportunities':entry_opportunity_brief(paper['entryOpportunityStudy'])}
+           if isinstance(paper.get('entryOpportunityStudy'),dict) else {}),
+        'strategyWinnerConfirmed':False,
+        'fullOriginalHistoryVerified':False,
+    }
+
+
+def entry_opportunity_brief(control):
+    if not isinstance(control,dict):
+        return {'status':'unavailable','realOrders':False}
+    result=fields(control,('version','status','checkedAt','startedAt','inputStatus',
+        'episodes','completedPairs','inconclusivePairs','active','horizonMinutes',
+        'assumedRoundTripCostPct','riskBudgetPct','maximumExposurePct','note'))
+    from entry_opportunity_study import ARMS
+    variants=control.get('variants') or {}
+    result['variants']={key:fields(variants[key],('started','closed','skipped','inconclusive',
+        'pairedNetR','pairedModelReturnPct','pairedWins','pairedLosses','worstPairedNetR',
+        'maxObservedAdverseR','maxObservedFavorableR','additionalEntries','avoidedLosses','missedWins'))
+        for key in ARMS if isinstance(variants.get(key),dict)} if isinstance(variants,dict) else {}
+    decisions=control.get('lastDecision')
+    if isinstance(decisions,dict):
+        result['lastDecision']={key:fields(decisions[key],('allowed','reason'))
+            for key in ARMS if isinstance(decisions.get(key),dict)}
+    result.update(strategyWinnerConfirmed=False,productReturnVerified=False,realOrders=False,liveRulesChanged=False)
+    return result
+
+
+def rapid_leverage_brief(control):
+    """Tiny source-grounded, status-only projection of rapid shadow portfolios.
+
+    Do not manufacture executions or copy full trades, products or private logs.
+    """
+    if not isinstance(control, dict) or not control:
+        return {'status':'unavailable','readOnly':True,'realOrders':False,
+                'productReturnVerified':False,'reason':'rapid-study-report-missing'}
+    permitted = {'breakout','impulse','pullback','news-impulse'}
+    allowed_blockers = {'no-setup','no-verified-scheduled-release',
+        'minute-history-gap','minute-evidence-invalid','mixed-minute-sources',
+        'five-minute-original-coverage-short','five-minute-original-invalid',
+        'five-minute-history-gap','five-minute-signal-not-fresh',
+        'original-spot-unavailable','market-session-closed','closed-signal-too-old',
+        'spot-before-signal','case-limit-reached','signal-already-used',
+        'stop-distance-invalid','closed-original-bars-missing','fresh-closed-5m-missing'}
+    result={'status':control.get('status') if control.get('status') in
+            ('collecting','awaiting-first-worker-check','completed-review-required')
+            else 'unavailable',
+            'readOnly':True,'realOrders':False,'productReturnVerified':False,
+            'strategyWinnerConfirmed':False}
+    for key in ('startedAt','checkedAt'):
+        val=control.get(key)
+        if type(val) in (int,float) and math.isfinite(val) and val>=0:
+            result[key]=val
+    source=control.get('lastInput')
+    if isinstance(source,dict):
+        result['lastInput']={
+            'basis':source.get('basis') if source.get('basis') in
+                ('closed-original-1m','closed-original-5m') else None,
+            'bars':source.get('bars') if type(source.get('bars')) is int and 0<=source['bars']<=120 else None,
+            'reason':source.get('reason') if source.get('reason') in allowed_blockers else None,
+            'originalSpotFresh':source.get('originalSpotFresh') is True,
+            'sourceAt':source.get('sourceAt') if type(source.get('sourceAt')) in (int,float) else None}
+    setups=[]
+    for a in (control.get('setups') or [])[:4]:
+        if not isinstance(a,dict) or a.get('setup') not in permitted:
+            continue
+        n=lambda key: a[key] if type(a.get(key)) is int and 0<=a[key]<=1000000 else None
+        review=a.get('modelReview') if isinstance(a.get('modelReview'),dict) else {}
+        row={'setup':a['setup'],'started':n('started'),'closed':n('closed'),
+             'inconclusive':n('inconclusive'),'open':a.get('open') is True,
+             'latestBlockReason':a.get('latestBlockReason') if
+                a.get('latestBlockReason') in allowed_blockers else None,
+             'modelReview':{
+                'status':review.get('status') if review.get('status') in
+                    ('exploratory-proxy-only','insufficient-comparable-evidence','unavailable')
+                    else 'unavailable',
+                'comparableCases':review.get('comparableCases') if
+                    type(review.get('comparableCases')) is int else None,
+                'exploratoryModelLeader':review.get('exploratoryModelLeader') if
+                    review.get('exploratoryModelLeader') in (3,5,8,10,15,20,30)
+                    and type(review.get('exploratoryModelLeader')) is int else None,
+                'netProductVerified':False,'strategyWinnerConfirmed':False
+             }, 'levers':[]}
+        # Report every configured lever in the read-only study; the previous
+        # four-value subset hid 3x, 8x and 15x from coverage accounting.
+        for leverage in (3,5,8,10,15,20,30):
+            entry=next((v for v in a.get('levers') or []
+                if isinstance(v,dict) and v.get('leverage')==leverage),None)
+            if entry:
+                modeled=entry.get('modeledReturnPct')
+                row['levers'].append({'leverage':leverage,
+                    'modeledReturnPct':modeled if type(modeled) in (int,float)
+                    and math.isfinite(modeled) and abs(modeled)<=100000 else None,
+                    'completed':entry.get('completed') if type(entry.get('completed')) is int else None})
+        setups.append(row)
+    result['setups']=setups
+    result['configurationsReported']=sum(len(a['levers']) for a in setups)
+    result['scope']='original-spot-paper-counterfactual-not-product-profit'
+    return result
+
+
 def collect(readers):
     areas = {}
     for name, reader in readers.items():
@@ -330,6 +686,37 @@ def collect(readers):
         except Exception:
             # Exception messages can contain URLs, credentials or database values.
             areas[name] = {'status':'unavailable'}
+    # Keep a tiny storage status even when the full storage area is later
+    # omitted by the private MCP response-size budget. No extra I/O.
+    # Status is always sourced from this same already collected snapshot.
+    from storage_brief import project as storage_brief
+    areas['storageBrief'] = storage_brief(areas.get('storage'))
+    # Retain only read-only virtual control balances. The larger paper area may
+    # be omitted by the MCP size cap; this separate bounded projection is not
+    # a historical trade replay or confirmation of a profitable strategy.
+    try:
+        from paper_profit_summary import snapshot as profit_snapshot
+        paper = areas.get('simulationAndPush')
+        accounts = paper.get('accounts') if isinstance(paper, dict) else None
+        # No extra diagnostic area for unrelated simulation-only reports.
+        # Preserve existing bounded-report size behavior when accounts are absent.
+        if isinstance(accounts, list):
+            areas['paperProfitEvidence'] = profit_snapshot(accounts)
+    except Exception:
+        areas['paperProfitEvidence'] = {
+            'status': 'unavailable', 'readOnly': True, 'realOrders': False,
+            'strategyWinnerConfirmed': False,
+            'reason': 'paper-account-control-projection-unavailable'}
+    # Keep the actual paper heartbeat even when the heavy simulation area is
+    # omitted by the response-size cap; no new IO or changed trading rules.
+    brief = simulation_runtime_brief(areas.get('simulationAndPush'))
+    if brief.get('status') != 'unavailable':
+        areas['simulationRuntimeBrief'] = brief
+    # New studies must remain inspectable even when their detailed 18-arm
+    # report exceeds the private response cap.
+    studies = new_studies_brief(areas.get('simulationAndPush'))
+    if studies is not None:
+        areas['newStudiesBrief'] = studies
     # The web process may not run the evaluator itself. Prefer real observations
     # from the push worker when its local capture is unavailable; never recompute.
     worker_analysis = (areas.get('simulationAndPush') or {}).get('analysis')
@@ -458,6 +845,8 @@ def collect(readers):
         areas['simulationAndPush'].pop('researchReports', None)
     if (areas.get('analysis') or {}).get('status') == 'unavailable' and isinstance(worker_analysis, dict) and worker_analysis.get('status') == 'observed':
         areas['analysis'] = {**worker_analysis, 'observationSource':'push-worker'}
+    import signal_freshness
+    areas['signalFreshness'] = signal_freshness.snapshot(areas)
     return {'readOnly':True, 'realOrders':False,
             'observedAt':datetime.now(timezone.utc).isoformat(),
             'status':'partial' if any(a.get('status') == 'unavailable' for a in areas.values()) else 'observed',
@@ -548,6 +937,52 @@ def entry_block_evidence(conn, portfolios, limit=5):
                 safe_counts.append({'reason':clean_text(str(reason))[:500],
                                     'checks':count})
             safe_counts.sort(key=lambda item: (-item['checks'], item['reason']))
+            # Preserve reason coverage when only the top five labels fit in the
+            # bounded read response. Never label the omitted checks "unknown".
+            hidden = safe_counts[limit:]
+            from paper_simulation import paper_entry_reason_code
+            remainder_codes = {}
+            for missing in hidden:
+                code = paper_entry_reason_code(missing['reason'])
+                remainder_codes[code] = remainder_codes.get(code,0)+missing['checks']
+            # Compact quarter-hour evidence is deliberately separate from the
+            # capped 200-row detail sequence. The first bucket is the real
+            # first persisted observation, never a recreated historical window.
+            time_windows = []
+            raw_windows = payload.get('entryTimeBuckets15mV1')
+            if (profile in ('trend800nov', 'normal1000nov', 'ema3000nov')
+                    and isinstance(raw_windows, dict)):
+                allowed_codes = {
+                    'ema-stretch-and-signal-age', 'ema-stretch', 'signal-age',
+                    'gold-stale', 'gold-plan-missing', 'plan-or-timing',
+                    'ko-safety', 'product-or-quote', 'capital-risk',
+                    'entry-checklist', 'duplicate-bar', 'other'}
+                for k, item in sorted(raw_windows.items(),
+                                      key=lambda x: str(x[0]), reverse=True)[:16]:
+                    if not isinstance(item, dict) or not str(k).isdigit():
+                        continue
+                    start = int(k)
+                    if start <= 0 or start % 900000:
+                        continue
+                    checks = item.get('checks')
+                    if type(checks) is not int or checks < 0:
+                        continue
+                    directions = item.get('directions')
+                    reasons = item.get('reasonCodes')
+                    if not isinstance(directions, dict) or not isinstance(reasons, dict):
+                        continue
+                    safe_dirs = {direction:count for direction,count in directions.items()
+                        if direction in allowed_directions and type(count) is int and count >= 0}
+                    safe_codes = {code:count for code,count in reasons.items()
+                        if code in allowed_codes and type(count) is int and count >= 0}
+                    item_out = {'startAt':start,'checks':checks,
+                                'directions':safe_dirs,'reasonCodes':safe_codes}
+                    for time_key in ('firstAt','lastAt','firstGoldAt','lastGoldAt',
+                                     'firstSignalBarAt','lastSignalBarAt'):
+                        value = item.get(time_key)
+                        if type(value) in (int,float) and math.isfinite(value) and value > 0:
+                            item_out[time_key] = value
+                    time_windows.append(item_out)
             latest = []
             for record in blocks[-limit:]:
                 if not isinstance(record, dict):
@@ -562,7 +997,8 @@ def entry_block_evidence(conn, portfolios, limit=5):
                         and record.get('checks') >= 0 else None),
                 }
                 for source, target in (('at', 'at'), ('lastAt', 'lastAt'),
-                                       ('goldAt', 'sourceAt')):
+                                       ('goldAt', 'sourceAt'),
+                                       ('signalBarAt', 'signalBarAt')):
                     value = record.get(source)
                     if type(value) in (int, float) and math.isfinite(value) and value >= 0:
                         item[target] = value
@@ -580,10 +1016,21 @@ def entry_block_evidence(conn, portfolios, limit=5):
                 'distinctReasons':len(safe_counts),
                 'reasonCounts':safe_counts[:limit],
                 'reasonCountsTruncated':len(safe_counts) > limit,
+                'otherReasonChecks':sum(row['checks'] for row in hidden),
+                'otherReasonCategories':remainder_codes,
                 'storedRecords':len(blocks), 'returnedRecords':len(latest),
                 'omittedRecords':max(0, len(blocks) - len(latest)),
                 'sourceTruncated':payload.get('entryBlocksTruncated') is True,
                 'latest':latest,
+                'timeWindows15m':time_windows,
+                'timeWindowsStored':(len(raw_windows) if isinstance(raw_windows,dict)
+                    and profile in ('trend800nov','normal1000nov','ema3000nov') else 0),
+                'timeWindowsReadLimit':16,
+                'timeWindowsForwardOnly':True,
+                'timeWindowsFirstObservedAt':(payload.get('entryTimeBucketsFirstObservedAt')
+                    if type(payload.get('entryTimeBucketsFirstObservedAt')) in (int,float)
+                    and math.isfinite(payload['entryTimeBucketsFirstObservedAt']) else None),
+                'timeWindowsTruncated':payload.get('entryTimeBucketsTruncated') is True,
             })
         except Exception:
             accounts.append({'profile':profile, 'status':'unavailable',
@@ -599,7 +1046,9 @@ def entry_block_evidence(conn, portfolios, limit=5):
         'paperDayRetention':'separate-per-day-records',
         'scope':'latest-saved-paper-day-per-account-bounded-projection',
         'note':'Counts remain separate from the capped detail sequence. '
-               'A later record does not reconstruct an earlier missing decision.',
+               'Quarter-hour buckets are forward-only aggregates, not evidence '
+               'of exact signal-by-signal approval. A later record cannot '
+               'reconstruct an earlier missing decision.',
     }
 
 
@@ -609,8 +1058,26 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
     for profile in portfolios.POLICIES:
         table = portfolios.names(profile)['bob_paper_control']
         row = conn.execute(f'SELECT payload FROM {table} WHERE id=1').fetchone()
-        accounts.append({'profile':profile, **fields(row[0] if row else {},
-            ('enabled','status','checkedAt','startAt','endAt','campaign','signalSource','reason','currency','initialCapital','cash','equity','dayProfit','totalProfit','realizedProfit','costsDebitedEur','costPeriodProfit','costsStartedAt','costsNote'))})
+        source_control = row[0] if row and isinstance(row[0], dict) else {}
+        record = {'profile':profile, **fields(source_control,
+            ('enabled','status','checkedAt','startAt','endAt','campaign','signalSource','reason','currency','initialCapital','cash','equity','dayProfit','totalProfit','realizedProfit','costsDebitedEur','costPeriodProfit','costsStartedAt','costsNote'))}
+        # The paper ledger already persists the latest trading-window blocker.
+        # Keep only enum-validated codes and finite timestamps in this private
+        # diagnostic projection; night-session reasons must not overwrite it.
+        if profile in ('trend800nov', 'normal1000nov', 'ema3000nov'):
+            from paper_profit_summary import ENTRY_BLOCK_CODES, number
+            block_code = source_control.get('lastTradingEntryBlockCode')
+            if isinstance(block_code, str) and block_code in ENTRY_BLOCK_CODES:
+                record['lastTradingEntryBlockCode'] = block_code
+                block_at = number(source_control.get('lastTradingEntryBlockAt'),
+                                  timestamp=True)
+                if block_at is not None:
+                    record['lastTradingEntryBlockAt'] = block_at
+        # Existing stored forward controls only: fixed small numbers, no raw
+        # trades, provider prices, account credentials or extra database reads.
+        from paper_profit_summary import safe_forward_evidence
+        record['forwardEvidence'] = safe_forward_evidence(source_control.get('forwardValidation'))
+        accounts.append(record)
     # Single bounded aggregate: distinguish no installed subscription from
     # an existing subscription whose notifications are disabled. No endpoints,
     # tokens, personal portfolio rows, or permission claims leave the server.
@@ -654,8 +1121,15 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
                 with conn.transaction():
                     cases = conn.execute(f'SELECT payload FROM {table} ORDER BY started_at DESC LIMIT 5').fetchall()
                 account['recentCases'] = {'status':'observed','items':[project(paper_case_review.project_case(row[0], account['profile']), CASE) for row in cases]}
+                # Inspect the SAME five already loaded cases; never run a
+                # second historical query or publish their original payloads.
+                account['netEvidenceSample'] = __import__('paper_net_evidence').sample([
+                    row[0] for row in cases])
             except Exception:
                 account['recentCases'] = {'status':'unavailable'}
+                account['netEvidenceSample'] = {'status':'unavailable', 'readOnly':True,
+                    'realOrders':False, 'brokerNetVerified':False,
+                    'reason':'recent-paper-cases-unavailable'}
         # Evidence-only recent-case tally. Never turn unknown/deferred results
         # into closed profits, losses, filled orders or proven source recovery.
         result['recentPaperOutcomes'] = recent_paper_outcomes(accounts)
@@ -714,6 +1188,10 @@ def risk_paper_snapshot(value, now=None):
     if value.get('version') != 'risk-paper-2000-v1' or value.get('realOrders') is not False:
         return dict(base, reason='risk-paper-state-invalid')
     now = time.time()*1000 if now is None else now
+    retired_at = value.get('retiredAt')
+    retired = (value.get('status') == 'retired'
+               and type(retired_at) in (int, float)
+               and math.isfinite(retired_at) and 0 < retired_at <= now)
     at = value.get('checkedAt')
     valid_clock = (type(at) in (int, float) and math.isfinite(at)
                    and 0 < at <= now)
@@ -737,10 +1215,10 @@ def risk_paper_snapshot(value, now=None):
         })
     complete = all(a['status'] == 'observed' for a in accounts)
     return {**base,
-            'status':('unavailable' if not valid_clock else 'stale' if age > 120
-                      else 'observed' if complete else 'partial'),
-            **fields(value, ('version','startedAt','checkedAt','costAssumptionPerSide',
-                             'entryPolicyStartedAt','dataPolicy')),
+            'status':('retired' if retired else 'unavailable' if not valid_clock
+                      else 'stale' if age > 120 else 'observed' if complete else 'partial'),
+            **fields(value, ('version','startedAt','checkedAt','retiredAt',
+                             'costAssumptionPerSide','entryPolicyStartedAt','dataPolicy')),
             # Fixed public rule identifiers only; never pass arbitrary strings
             # around the generic credential scrubber ("risk-" contains "sk-").
             'entryPolicy':next((p for p in ('risk-early-intraday-v2','risk-confirmed-v1')
@@ -748,7 +1226,8 @@ def risk_paper_snapshot(value, now=None):
             'signal':fields(value.get('signal'), ('ready','direction','stage','reason','at','barAt',
                 'dataMode','source','sourceAt','computedAt','estimateMethod','anchorBarAt','estimated')),
             'ageSeconds':age, 'staleAfterSeconds':120, 'accounts':accounts,
-            'reason':None if valid_clock else 'risk-paper-heartbeat-unconfirmed',
+            'reason':('quality-campaign-legacy-study-retired' if retired else
+                      None if valid_clock else 'risk-paper-heartbeat-unconfirmed'),
             'note':'Stored virtual accounts with assumed costs. A fresh check does not '
                    'prove an entry, continuous monitoring or verified returns.'}
 
@@ -774,10 +1253,23 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
             account['recentCases'] = {'status':'observed', 'day':day,
                 'scope':'current-day-latest-five-not-complete-history',
                 'items':[project(paper_case_review.project_case(row[0], account['profile']), CASE) for row in rows]}
+            # The routine /simulation-status already selected these five daily
+            # rows. Reuse their ORIGINAL raw case payloads for the bounded
+            # model-net proof, without another SELECT or copying event logs.
+            account['netEvidenceSample'] = __import__('paper_net_evidence').sample(
+                [row[0] for row in rows])
         except Exception:
             account['recentCases'] = {'status':'unavailable', 'day':day,
                 'reason':'current-day-case-read-unavailable'}
+            account['netEvidenceSample'] = {'status':'unavailable',
+                'readOnly':True, 'realOrders':False, 'brokerNetVerified':False,
+                'fullHistoryRead':False, 'reason':'current-day-case-read-unavailable'}
     result['recentPaperOutcomes'] = recent_paper_outcomes(result['accounts'])
+    try:
+        with conn.transaction():
+            result['qualityCampaign'] = __import__('research_restart').report(conn)
+    except Exception:
+        result['qualityCampaign'] = {'status':'unavailable','realOrders':False}
     try:
         with conn.transaction():
             conn.execute("SET LOCAL statement_timeout='700ms'")
@@ -786,6 +1278,53 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
     except Exception:
         result['shadowStudies'] = {'status':'unavailable','readOnly':True,
                                    'reason':'shadow-study-report-unavailable'}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            comparison = __import__('paper_entry_exit_comparison').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        comparison = {'status':'unavailable','reason':'entry-exit-report-unavailable'}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            comparison['evaluation'] = __import__('paper_comparison_report').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        comparison['evaluation'] = {'version':1, 'status':'unavailable',
+            'reason':'comparison-evaluation-unavailable', 'strategyWinnerConfirmed':False}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            result['intradayTimingStudy'] = __import__('intraday_timing_study').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        result['intradayTimingStudy'] = {'status':'unavailable','realOrders':False}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            result['rapidLeverageStudy'] = __import__('rapid_leverage_study').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        result['rapidLeverageStudy'] = {
+            'status':'unavailable','realOrders':False,
+            'productReturnVerified':False,'strategyWinnerConfirmed':False}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            result['entryOpportunityStudy'] = __import__('entry_opportunity_study').report(conn)
+    except Exception:
+        result['entryOpportunityStudy'] = {'status':'unavailable','realOrders':False}
+    result['shadowStudies']['entryExitComparison'] = comparison
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='700ms'")
+            early_spot = __import__('early_warning_spot_study').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        early_spot = {'status':'unavailable','reason':'early-spot-report-unavailable',
+                      'readOnly':True,'realOrders':False,'productReturnVerified':False}
+    result['shadowStudies']['earlyWarningSpotStudy'] = early_spot
     return result
 
 
@@ -829,7 +1368,23 @@ def comparison_status(conn, portfolios):
         except Exception:
             recent = {'status':'unavailable',
                 'reason':'bounded-case-evidence-read-unavailable'}
-        samples.append({'profile':profile, 'recentCases':recent})
+        forward=None
+        forward_status='unavailable'
+        try:
+            control_table=portfolios.names(profile)['bob_paper_control']
+            with conn.transaction():
+                conn.execute("SET LOCAL statement_timeout='500ms'")
+                saved_forward=conn.execute(f"SELECT payload->'forwardValidation' FROM {control_table} WHERE id=1").fetchone()
+                forward=saved_forward[0] if saved_forward and isinstance(saved_forward[0],dict) else None
+                conn.execute("SET LOCAL statement_timeout='3s'")
+            forward_status='observed' if forward else 'not-started'
+        except Exception:
+            # Optional validation metrics cannot hide readable case evidence.
+            pass
+        phase=shape('cases','netEur','grossEur','wins','expectancyEur','profitFactor','meanSourceAgeMs','lastAt')
+        samples.append({'profile':profile, 'recentCases':recent,'forwardValidationStatus':forward_status,
+            'forwardValidation':project(forward,shape('version','startedAt','validationAt','excluded',
+                'actualNetKnown','strategyWinnerConfirmed','automaticPolicyChanges',calibration=phase,validation=phase)) if recent.get('status')=='observed' and forward else None})
     partial = (comparison.get('status') == 'partial'
                or blocks.get('status') == 'unavailable'
                or any(row['recentCases']['status'] == 'unavailable'
@@ -877,8 +1432,17 @@ INDICATORS = shape('timeframe','score','rsi','macd','sig','hist','atr','adx','em
 PLAN = shape('available','reason','dir','entry','stop','target','computedAt','dataAt','currency','method','stale')
 EARLY_WARNING = shape('version','monitoring','available','state','direction','checkedAt','signalBarAt','expiresAt','invalidationPrice','extensionRisk','comparisonOnly','affectsApproval','reason')
 ANALYSIS = shape('ready','priceFresh','dataAt','analysisBarAt','price','direction','baseDirection','mtf','score','atr','macd','signal','decisionReason','ruleVersion','suggestedStop','suggestedTarget',
+    analysisRequestedAt=None,analysisCompletedAt=None,
+    entryPlanState=shape('state','code','reason'),
+    entryPreparation=shape('state','direction','sourceAt','signalBarAt','reason','entryApproved','productApproved','positionSize',
+        plan=shape('kind','direction','entry','stop','target','unit','source','experimental')),
     earlyWarning=EARLY_WARNING, analysisSnapshot=INDICATORS, trendContext=shape('available','direction','intact','reason'),
-    entryTimingGate=shape('allowed','reason','status'),session=shape('phase','entryAllowed','reason'),
+    entryTimingGate=shape('allowed','reason','status','available','version','setup',
+        'deviationAtr','impulseAtr','signalAgeMinutes','atr5m','barAt','priceAt',
+        'freshContinuation','freshContinuationAt','minutesSinceFiveClose','pullbackReset',
+        continuationChecks=shape('recentClosedBar','distanceWithinTwoAtr','impulseWithinLimit',
+            'previousCandleAligned','latestCandleAligned','previousCloseProgress',
+            'closedBreakout','minimumFollowThrough','spotHoldsBreakout')),session=shape('phase','entryAllowed','reason'),
     dmi=shape('available','mode','direction','reason',
         frames={tf:shape('available','adx','plusDI','minusDI','direction','reason','barAt')
                 for tf in ('5m','15m','1h')}),continuedPlan=PLAN)
@@ -1146,7 +1710,7 @@ def new_feature_snapshot(areas, *, mobile_asset_loaded=False):
 
 
 def research_snapshot(value):
-    return project(value,shape('checkedAt','fresh','successfulFeeds','intervalSeconds','videosFound','videosAnalyzed','mcoOutlook','mcoReason','accessFallback',
+    return project(value,shape('mode','automaticRefresh','refreshing','refreshError','checkedAt','fresh','successfulFeeds','intervalSeconds','videosFound','videosAnalyzed','mcoOutlook','mcoReason','accessFallback',
         restrictedUploads=[shape('title','publishedAt','transcriptAccess')],
         sources=[shape('id','status','checkedAt','scanned','relevant','error')],
         items=[shape('title','publishedAt','outlook','current','coverage','transcriptAnalyzed','trustedTranscript','transcriptAccess','transcriptProvider','transcriptLanguage','transcriptWords','analysisStatus','error','publicFallback','accessNote',
@@ -1274,6 +1838,8 @@ def broker_sync_snapshot(value):
                             'intervalSeconds', 'liveOrdersEnabled', 'liveQuotes'))
     result['lastConnectionTest'] = fields(value.get('lastConnectionTest') if isinstance(value, dict) else None,
                                          ('code', 'checkedAt', 'authReason'))
+    result['lastQuoteTest'] = fields(value.get('lastQuoteTest') if isinstance(value, dict) else None,
+                                    ('code', 'checkedAt', 'authReason', 'twoSidedObserved', 'sourceTimesVerified', 'isExecutableQuote'))
     from degiro_readonly import safe_login_response
     result['loginResponse'] = safe_login_response(value.get('loginResponse') if isinstance(value, dict) else None)
     last_test = value.get('lastConnectionTest') if isinstance(value, dict) else None
@@ -1295,19 +1861,21 @@ def broker_sync_snapshot(value):
 # Stable, permission-preserving views of the *existing sanitized* report.
 # They do not add database queries, OAuth grants, device access, or evaluations.
 DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
-                    'sources', 'research', 'repairs', 'mobile', 'products')
+                    'sources', 'research', 'repairs', 'mobile', 'products',
+                    'storage')
 _FOCUS_AREAS = {
-    'simulation': ('simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
+    'storage': ('storageBrief',),
+    'simulation': ('newStudiesBrief', 'paperProfitEvidence', 'simulationRuntimeBrief', 'simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
                    'comparisonHealth', 'entryBlockEvidence', 'background', 'collection',
                    'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
-    'sources': ('market', 'sourceReliability', 'collection', 'background', 'analysis'),
+    'sources': ('signalFreshness', 'market', 'sourceReliability', 'collection', 'background', 'analysis'),
     'research': ('research', 'strategyResearch', 'strategyReport', 'newFeatures'),
     'mobile': ('androidTelemetry', 'androidReader', 'newFeatures', 'runtime', 'degiroSync', 'products'),
     'products': ('products', 'degiroSync', 'gapEvidence'),
-    'repairs': ('selfHealing', 'problems', 'background', 'diagnosticTriage', 'operationsSummary',
+    'repairs': ('signalFreshness', 'selfHealing', 'problems', 'background', 'diagnosticTriage', 'operationsSummary',
                 'healthCadence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'trades': ('background', 'diagnosticTriage'),
-    'signals': ('analysis', 'background', 'diagnosticTriage', 'pushDeliveries',
+    'signals': ('signalFreshness', 'analysis', 'background', 'diagnosticTriage', 'pushDeliveries',
                 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
 }
 
@@ -1459,6 +2027,9 @@ def focused_report(report, focus='overview'):
     original = report.get('areas') or {}
     areas = {name: original[name] for name in _FOCUS_AREAS[focus]
              if name in original}
+    if focus == 'storage' and 'storageBrief' not in areas:
+        from storage_brief import project
+        areas['storageBrief'] = project(original.get('storage'))
     if focus in ('trades', 'signals', 'repairs'):
         sim = original.get('simulationAndPush')
         if isinstance(sim, dict):
@@ -1514,6 +2085,11 @@ def triage_snapshot(areas):
                              'evidenceAt':evidence_at,
                              'finding':explanation,'nextCheck':next_check,
                              'repairVerified':False,'tradeApproval':False})
+    ui = (areas.get('runtime') or {}).get('marketUi') or {}
+    if ui.get('codes'):
+        add('MARKET_UI_RENDER_FAILURE','high',ui.get('lastObservedAt'),
+            'Geöffnete Bob-Seite meldet Anzeigefehler: '+', '.join(ui['codes']),
+            'DOM-Anzeige und vorhandene Kursdaten prüfen; Erholungsnachweis abwarten.')
     background = areas.get('background') or {}
     if background.get('status') not in ('ok','observed'):
         add('BACKGROUND_NOT_CONFIRMED','high',

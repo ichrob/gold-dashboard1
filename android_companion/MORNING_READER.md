@@ -52,3 +52,73 @@ Der Hauptknopf zeigt die aktuell nötige Aktion: Dienst einschalten, Morgenliste
 Bei aktivierter automatischer Rückgabe werden auch Abbrüche übertragen. Eine Bildschirmsperre wird respektiert; der Browser wird erst nach dem Entsperren geöffnet. Pro gespeicherter Version erfolgt höchstens ein automatischer Öffnungsversuch. Nach Dienst-/App-Unterbrechung wird die offene Diagnose beim nächsten Öffnen von Bob Handy angeboten beziehungsweise automatisch übertragen. Ein bewusster STOPP schaltet das Lesen und automatische Öffnen aus. Manuelle Übertragung bleibt möglich.
 
 Dies ist Diagnosezugriff auf übertragene Bob-Protokolle, kein Fernzugriff auf das Samsung, keine allgemeine Bildschirmfreigabe und keine Konto- oder Ordersteuerung.
+
+## Lokale OCR zuerst – ohne Oracle oder neuen Cloudanbieter (11.11.2026)
+
+Dieser Ablauf nutzt **bereits implementierten produktiven Code**:
+
+1. DEGIRO-Accessibility-Texte werden vor und nach dem genehmigten
+   Fenster-Screenshot verglichen. Nur vollständige, identische Produktzeilen
+   werden als `appText` an den vorhandenen privaten Server übertragen.
+2. Wo der App-Text unvollständig ist, versucht **Bob Handy** die
+   Offline-Texterkennung mit dem in der signierten APK enthaltenen Google-ML-Kit.
+   Zwei unterschiedlich skalierte echte Bildlesungen und ggf. strikt auf
+   Produkte begrenzte Region-Lesungen sind nötig. Erst akzeptierte
+   `localOcr`-Paare werden übertragen.
+3. Auf dem Server bereitet `handset_list_worker.process` zuerst diese
+   akzeptierten `appText`- und `localOcr`-Anhänge auf. Nur Bilder,
+   **für die daraus kein vollständiger akzeptierter Bildpass entsteht**,
+   dürfen in den bestehenden RAM-überwachten lokalen RapidOCR-Prozess fallen.
+   Der Bilder-Originalnachweis bleibt im privaten Tagesbatch enthalten;
+   bei Speicherknappheit wird der OCR-Versuch begrenzt verschoben.
+4. Die abschließende Prüfung fordert weiterhin 10 eindeutige Produkte,
+   übereinstimmende Original-Felder/ISIN und bestehende Handelsbarrieren.
+   **Weder** Smartphone-Lesung noch Server-Fallback genehmigen eine Order.
+   Keine Werte werden aus unterschiedlichen Bildern oder falschen Zeiten
+   zu einem angeblich originalen Einzelkurs zusammengefügt.
+
+Neue rein numerische Provenienzfelder im **erfolgreichen privaten**
+Importbeleg: `recognitionRoute.appTextImages`,
+`phoneMlKitImages`, `serverOcrFallbackImages`,
+`missingPhoneReadingImages`, `rejectedPhoneReadingImages`.
+Diese zeigen, ob ein tatsächlich importierter Batch ganz ohne
+serverseitige optische Erkennung auskam. Keine ISIN, Screenshots,
+Kontowerte oder Bildkoordinaten werden in den Zählern gespeichert.
+Ältere Belege ohne diese Felder bleiben gültig.
+
+**Oracle nicht erforderlich.** Das nicht aktivierte
+[Oracle-Always-Free-Experiment #1474](https://github.com/ichrob/gold-dashboard1/pull/1474)
+bleibt ein gesonderter Entwurf; diese Änderung erstellt keine VM,
+keinen Cloud-Dienst, keine neuen Secrets, keine Zahlungspflicht und
+keinen Remote-OCR-Bildversand. Der bestehende 505-MiB-OCR-Grenzwächter
+und die 200-MiB-Startreserve werden nicht aufgeweicht.
+
+Die gespeicherte Samsung-Lesediagnose enthält bereits den technischen
+Nachweis von drei Listenscreens mit zwei App-Text- und einem lokalen
+ML-Kit-Anhang. Das ist **kein** Nachweis, dass alle zehn Produkte
+erfolgreich importiert wurden. Die tatsächliche Ende-zu-Ende-Prüfung
+auf der installierten signierten APK und in DEGIRO bleibt ein
+eigenständiges Abnahmekriterium.
+
+## Fortsetzen nach bestätigter Übertragung
+
+Der letzte aktuelle Lesestand wird lokal unter einem separaten Checkpoint
+atomar mit jeder Berichtsversion gespeichert. Dieser einzelne Checkpoint ist
+kein Upload-Kandidat. Die Bestätigung eines aktuellen Uploads entfernt nur den
+Uploadauftrag; sie erhält auch bei alten, noch nicht migrierten Berichten den
+Fortsetzungsstand. Bestätigungen älterer Archive ändern ihn nicht.
+
+„Unterbrochenen Listenlauf fortsetzen“ und der vorhandene automatische
+Wiederaufnahmeversuch verwenden ausschließlich den aktuellen Lauf oder diesen
+Checkpoint. Sie wählen niemals einen alten zurückgestellten Upload. Vor einem
+Schreibvorgang gelten weiterhin Listenalter, offene Produkte, Versuchsgrenzen
+und die bestehenden Anmelde-/Leseschutzprüfungen. Ein neuer Leselauf ersetzt den
+einzelnen Checkpoint; Originalberichte in der Uploadwarteschlange bleiben erhalten.
+
+Für die Geräteabnahme einen Leselauf unterbrechen, dessen Upload bestätigen
+lassen, Bob Handy neu öffnen und „Fortsetzen“ wählen. Bereits vollständig
+bearbeitete Produkte dürfen nicht erneut gelesen werden; die Berichtsversion
+muss steigen und die nächste bestätigte Übertragung zum selben Lauf gehören.
+Die Tests ändern keine Echtgeldorders oder Ordermaskenberechtigungen.
+Bereits vor diesem Update bestätigte und lokal entfernte Läufe werden dadurch
+nicht nachträglich wiederhergestellt. Dann ist ein neuer Leselauf erforderlich.

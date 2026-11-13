@@ -9,6 +9,7 @@ PANEL = r"""
  <p class="small"><b>DEGIRO:</b> Bob analysiert LONG/SHORT und unterstützt deine manuelle Kauf- oder Verkaufsentscheidung. Keine API-Verbindung, keine automatische Order. Den angebotenen Preis prüfst du im DEGIRO-Orderfenster.</p>
  <p class="small"><b>Andere Broker:</b> Interactive Brokers und IG Bank Schweiz sind als zukünftige API-Routen vorbereitet. Erst offizielle Konto-/Instrumentenprüfung, dann Demo-/Paper-Tests, anschließend nur nach gesonderter Zustimmung eine mögliche Live-Anbindung.</p>
  <p id="bob-broker-route-confirmation" class="small" role="status">Automatische Brokerorders deaktiviert · keine Zugangsdaten erforderlich.</p>
+ <p id="bob-broker-four-stage" class="small" role="status" style="white-space:pre-line">Vierstufenprüfung: Signal → Produkt/Risiko → manuelle Ordervorbereitung → bestätigte Ausführung und Überwachung.</p>
  <button type="button" id="bob-broker-route-refresh">Brokermodus prüfen</button>
 </section>
 <section id="bob-self-review-panel" class="card" style="margin:12px 0;padding:15px;border:1px solid #cbd5e1;border-radius:14px;background:#fff;color:#17263a">
@@ -38,8 +39,9 @@ PANEL = r"""
  </div>
 </section>
 <section class="card" id="bob-portfolio-comparison" style="margin:12px 0;padding:15px;border:1px solid #cbd5e1;border-radius:14px;background:#fff;color:#17263a">
- <h3>Sieben unabhängige Geldsimulationen</h3>
- <p class="small">Vier 100-€-Testkonten und ein 800-€-Trendfolgekonto. Die ersten vier bisherigen Konten starten wie bisher am Montag, 12.10.2026 um 08:00 Uhr (Zürich); das neue Frühimpuls-Testkonto erst ab seiner Aktivierung. Keine echten Orders, kein DEGIRO-Zugriff. Die zwei 1.000-€-Konten vergleichen Frühwarnung und Hauptsignal mit bestehendem Kapital und Historie weiter bis Freitag, 06.11.2026, 16:00 Uhr Zürich. Alle Konten nutzen dieselben beobachteten Kurse. Der bestehende manuelle 800-Euro-Test unter Mein Trade bleibt vollständig unangetastet.</p>
+ <h3>Zehn unabhängige Geldsimulationen</h3>
+ <p class="small">Neu: 3.000 € virtuell · EMA-Abstand bis 2,5 ATR. Start ab Aktivierung, maximal fünf Stunden je Trade und spätestens bis 21:45 Zürich. Signalalter, Stopps, KO-Prüfung und Tagesverlustgrenze bleiben erhalten.</p>
+ <p class="small">Die sieben bisherigen virtuellen Konten bleiben mit ihrer unveränderten Historie erhalten. Zwei neue, getrennte Vergleiche laufen vom 09.11.2026 08:00 bis 04.12.2026 16:00 Uhr Zürich: 800 € Trend/Stopp/Wiedereinstieg gegen 1.000 € bestätigtes Hauptsignal. Nur beobachtete Originalkurse, keine nachträglichen Trades, keine echten Orders und keine automatische DEGIRO-Ausführung. Ein Hauptsignal allein ist noch keine gültige Produkt-Kaufbestätigung.</p>
  <button type="button" id="bobProfilesRefresh" class="bob-primary">Simulationen prüfen</button>
  <p id="bobProfilesStatus" class="small" role="status">Prüfstand wird geladen …</p>
  <div id="bobProfilesCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:12px"></div>
@@ -106,6 +108,7 @@ PANEL = r"""
     }finally{reviewButton.disabled=false;}
   });
   const brokerStatus=document.getElementById('bob-broker-route-confirmation');
+  const brokerStages=document.getElementById('bob-broker-four-stage');
   const brokerRefresh=document.getElementById('bob-broker-route-refresh');
   async function refreshBrokerStatus(){
     if(!brokerStatus||!brokerRefresh)return;
@@ -118,8 +121,18 @@ PANEL = r"""
          readiness.liveOrders!==false||readiness.paperOrders!==false||
          readiness.manualBroker?.mode!=='MANUAL_ONLY')throw Error('unexpected policy');
       brokerStatus.textContent='Bestätigt: DEGIRO nur manuell · API-Broker nicht verbunden · Paper- und Echtgeldorders deaktiviert.';
+      const stages=readiness.fourStageReadiness;
+      if(!stages||stages.realOrdersEnabled!==false||stages.quoteIsExecutable!==false||
+         stages.canOpenOrders!==false||stages.canSellOrders!==false)throw Error('missing protection');
+      if(brokerStages)brokerStages.textContent=[
+        '1. Signalanalyse: vorhanden, benötigt frische und bestätigte Daten.',
+        '2. Produkt/Risiko: vorhandenes Ranking mit strenger Ordervorprüfung.',
+        '3. DEGIRO: Ordervorschlag nur manuell prüfen; keine automatische Order.',
+        '4. Position: Überwachung nur nach echtem bestätigtem Kaufbeleg.'
+      ].join('\n');
     }catch(_){
       brokerStatus.textContent='Aktueller Brokerstatus nicht abrufbar. Keine automatische Orderfreigabe.';
+      if(brokerStages)brokerStages.textContent='Vierstufenstatus nicht bestätigt; keine Ausführung zulässig.';
     }finally{brokerRefresh.disabled=false;}
   }
   if(brokerRefresh)brokerRefresh.addEventListener('click',refreshBrokerStatus);
@@ -136,7 +149,7 @@ PANEL = r"""
   async function refreshProfiles(){
    if(profileBusy)return;
    profileBusy=true;
-   profilesStatus.textContent='Alle sieben Testkonten werden geprüft …';
+   profilesStatus.textContent='Alle zehn Testkonten werden geprüft …';
    try{
     const day=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Zurich'}).format(new Date());
     const response=await fetch('/api/audit/read',{method:'POST',credentials:'same-origin',
@@ -144,8 +157,10 @@ PANEL = r"""
       body:JSON.stringify({mode:'simulation-profiles',day})});
     if(!response.ok)throw Error('HTTP '+response.status);
     const data=await response.json();
-    if(data.mode!=='seven-independent-paper-accounts'||data.realOrders!==false||
-       !Array.isArray(data.accounts)||data.accounts.length!==7)throw Error('Sieben-Konten-Auswertung ungültig');
+    if(data.mode!=='independent-prospective-paper-accounts'||data.realOrders!==false||
+       !Array.isArray(data.accounts)||data.accounts.length!==10||
+       !['trend800nov','normal1000nov'].every(id=>data.accounts.some(a=>a.profile===id)))
+      throw Error('Zehn-Konten-Auswertung oder neue Vergleichskonten nicht verfügbar');
     profilesCards.replaceChildren();
     if(data.campaignComparison){
      const comparison=data.campaignComparison,summary=document.createElement('p');
@@ -154,11 +169,38 @@ PANEL = r"""
        (Number.isFinite(comparison.differenceEarlyMinusMainEur)?' · Frühwarnung minus Hauptsignal: '+money.format(comparison.differenceEarlyMinusMainEur):'')+' · '+comparison.note;
      profilesCards.append(summary);
     }
-    const names={early1000oct:'Frühwarnung · 1.000 € · bis Fr 16 Uhr',normal1000oct:'Hauptsignal · 1.000 € · bis Fr 16 Uhr',conservative:'Konservativ',balanced:'Bob Lernkonto · 100 € (ausgewogen)',offensive:'Offensiv',trend800:'800 € · Bob-Stopp & Wiedereinstieg',early100:'Frühimpuls 100 € (LONG/SHORT)'};
+    if(data.relaunchComparison){
+     const comparison=data.relaunchComparison,summary=document.createElement('p');
+     summary.className='small';
+     const states={'scheduled':'noch nicht gestartet','running-or-paused':'läuft oder pausiert','completed-insufficient-evidence':'beendet, ohne ausreichend belegte Ergebnisse','completed-model-comparison-only':'beendet, nur Modellvergleich'};
+     summary.textContent='Neuer 800-/1.000-€-Vergleich ab 09.11.: '+(states[comparison.status]||'ungeprüft')+
+      ' · bis 04.12.2026 · '+(comparison.comparableModelClosures===true &&
+       Number.isFinite(comparison.modelReturnDifferenceTrendMinusMainPctPoints)?
+       'Modell-Differenz Trend minus Hauptsignal: '+comparison.modelReturnDifferenceTrendMinusMainPctPoints.toFixed(2)+' Prozentpunkte':
+       'noch kein belastbarer Vergleich')+
+      ' · Keine bestätigten Nettogewinne oder Echtgeldorders.';
+     profilesCards.append(summary);
+    }
+    const names={noema5000nov:'5.000 € · EMA-Abstandssperre aus (Test)',early1000oct:'Frühwarnung · 1.000 € · bis Fr 16 Uhr',normal1000oct:'Hauptsignal · 1.000 € · bis Fr 16 Uhr',conservative:'Konservativ',balanced:'Bob Lernkonto · 100 € (ausgewogen)',offensive:'Offensiv',trend800:'800 € · Bob-Stopp & Wiedereinstieg',early100:'Frühimpuls 100 € (LONG/SHORT)',trend800nov:'Neu · 800 € Trend/Stopp/Wiedereinstieg',normal1000nov:'Neu · 1.000 € bestätigtes Hauptsignal',ema3000nov:'Neu · 3.000 € · EMA-Abstand bis 2,5 ATR'};
     for(const acc of data.accounts){
      const c=acc.control||{},p=acc.riskPolicy||{},st=acc.stats||{},perf=acc.performance||{};
      const card=document.createElement('div');card.style='padding:12px;border:1px solid #cbd5e1;border-radius:12px;min-width:0';
      const heading=document.createElement('h4');heading.style='margin:0 0 8px';heading.textContent=names[acc.profile]||acc.profile;card.append(heading);
+     if(acc.profile==='trend800nov'||acc.profile==='normal1000nov'||acc.profile==='ema3000nov'){
+      const reasons=Object.entries(st.entryBlockCounts||{}).filter(x=>Number.isFinite(x[1])&&x[1]>0)
+       .sort((a,b)=>b[1]-a[1]);
+      const explanation=document.createElement('p');
+      explanation.className='small';
+      explanation.style='white-space:pre-line;overflow-wrap:anywhere';
+      explanation.textContent=[
+       'Letzter dokumentierter Nicht-Einstieg: '+(st.lastWait||c.reason||'Noch kein konkreter Sperrgrund gespeichert'),
+       'Häufigste Sperrgründe heute (Prüfungen, nicht verpasste Trades):',
+       ...(reasons.length?reasons.slice(0,5).map(([why,n])=>n+' × '+why):['Noch keine Tageszähler vorhanden']),
+       st.entryBlocksTruncated?'Nur die letzten 200 Wechsel im Detail gespeichert; ältere Tageszeiten nicht rückwirkend belegbar.':'',
+       'Hauptsignal allein genügt nicht: Goldplan, Timing, aktuelle EUR-Geld-/Briefkurse und KO-Nachweise müssen gemeinsam passen.'
+      ].filter(Boolean).join('\n');
+      card.append(explanation);
+     }
      const lines=[
       'Fiktiver Anfang: '+money.format(c.initialCapital??100),
       ...(c.endAt?['Testende: '+time(c.endAt)]:[]),
@@ -190,6 +232,16 @@ PANEL = r"""
      detail.textContent=lines.join('\n');card.append(detail);
      const review=document.createElement('details'),reviewTitle=document.createElement('summary'),reviewBody=document.createElement('p');
      reviewTitle.textContent='Selbstprüfung · erkannte Probleme';reviewBody.className='small';reviewBody.style='white-space:pre-line';
+     const forward=c.forwardValidation;
+     if(forward){
+      const validation=document.createElement('p');validation.className='small';
+      const a=forward.calibration||{},b=forward.validation||{};
+      validation.textContent='Neue Vorwärtsprüfung: erste 24 Stunden Kalibrierung, danach getrennter Prüfzeitraum. '+
+       'Bepreiste Fälle: '+(a.cases||0)+' / '+(b.cases||0)+' · Beispiel-Netto: '+
+       (a.cases?money.format(a.netEur):'offen')+' / '+(b.cases?money.format(b.netEur):'offen')+
+       ' · Ausgeschlossen: '+forward.excluded+'. Diese Auswertung ändert keine Regeln und bestätigt keine Echtgeldgewinne.';
+      card.appendChild(validation);
+     }
      const reflection=c.reflection;
      reviewBody.textContent=reflection?[
       'Seit '+time(reflection.since)+' · '+reflection.reviewed+' ausgewertete Abschlüsse · '+reflection.unpriced+' ohne belegtes Ergebnis',
@@ -225,7 +277,7 @@ PANEL = r"""
      const study=acc.stopStudy;
      if(study){
       const panel=document.createElement('details'),title=document.createElement('summary'),body=document.createElement('p');
-      title.textContent='Stoppvergleich · fest / ATR / Struktur';body.className='small';body.style='white-space:pre-line;overflow-wrap:anywhere';
+      title.textContent='Stoppvergleich · Bob / 2 % / fest / ATR / Struktur';body.className='small';body.style='white-space:pre-line;overflow-wrap:anywhere';
       body.textContent=[study.total+' Vergleichseinstiege · '+study.paired+' vollständig gepaarte Ergebnisse · '+study.open+' laufend · '+study.unavailable+' nicht vollständig vergleichbar',
        ...(study.variants||[]).map(v=>v.label+': '+v.paired+' gemeinsame Fälle · nach Beispielkosten '+(Number.isFinite(v.modelNetEur)?money.format(v.modelNetEur):'offen')+' · '+v.stopHits+' beobachtete Stopptreffer'),
        'Nur paralleler Simulationstest. Unter 20 vollständigen Vergleichen: Datensammlung; auch danach keine automatische Regelübernahme.',study.note].join('\n\n');
@@ -258,7 +310,22 @@ PANEL = r"""
      const blocks=document.createElement('details'),blockTitle=document.createElement('summary');
      blockTitle.textContent='Einstiegssperren · Tagesprotokoll';blocks.append(blockTitle);
      const blockText=document.createElement('p');blockText.className='small';blockText.style='white-space:pre-line';
+     const bucketLabels={'gold-plan-missing':'Goldplan fehlt','gold-stale':'Goldkurs veraltet',
+      'ema-stretch-and-signal-age':'EMA20-Abstand + Signalalter','ema-stretch':'EMA20-Abstand',
+      'signal-age':'Altes Signal','plan-or-timing':'Plan oder Zeitfenster',
+      'ko-safety':'KO-Schutz','product-or-quote':'Produkt-/Eurokursnachweis',
+      'capital-risk':'Risikobudget','entry-checklist':'Pflichtcheckliste',
+      'duplicate-bar':'Bereits simulierte Kerze',other:'Sonstige Sperre'};
+     const windows=Object.entries(st.entryTimeBuckets15mV1||{})
+      .filter(([start,record])=>/^\d+$/.test(start)&&record&&Number.isFinite(record.checks))
+      .sort(([a],[b])=>Number(a)-Number(b));
      blockText.textContent=[
+      ...(windows.length?['Zeitfenster (ab tatsächlicher Einführung; Prüfungen, keine verpassten Trades):']:[]),
+      ...windows.map(([start,record])=>time(Number(start))+'–'+time(Number(start)+15*60000)+
+       ' · '+record.checks+' Prüfungen'+
+       ' · '+Object.entries(record.directions||{}).map(([direction,count])=>direction+' '+count).join(', ')+
+       ' · '+Object.entries(record.reasonCodes||{}).map(([code,count])=>
+        (bucketLabels[code]||'Sonstige Sperre')+' '+count).join(', ')),
       ...(Object.entries(st.entryBlockCounts||{}).map(([reason,count])=>count+' Prüfungen: '+reason)),
       ...(st.entryBlocks||[]).map(x=>time(x.at)+' bis '+time(x.lastAt)+' · '+x.direction+(x.isin?' · '+x.isin:'')+' · '+x.reason),
       st.entryBlocksTruncated?'Letzte 200 Änderungen der Sperrgründe; Tageszähler vollständig.':'',

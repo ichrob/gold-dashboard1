@@ -5,6 +5,7 @@ opted-in weekend. The persistent claim makes a restart unable to repeat it.
 VACUUM is regular, not FULL, and remains 10-second SKIP_LOCKED. No archives
 or content-addressed product pointers are created by this module.
 """
+from storage_capacity import MAX_VOLUME_BYTES
 import json
 import os
 import re
@@ -54,7 +55,10 @@ def _preflight(conn, seconds):
         if archive_worker.status().get("status") == "running":
             return "archive-running"
         proof = storage_budget.archive_status(conn)
-        if proof_gate._proof_state(proof, seconds) != "verified-fresh":
+        # Physical reclaim of already-dead pages is not an original-pointer
+        # migration; require the existing independent restore, not a new
+        # offload-only key-escrow receipt.
+        if proof_gate._proof_state(proof, seconds, require_recovery=False) != "verified-fresh":
             return "backup-proof-not-fresh"
         volume = render_disk_metrics.report()
         observed = volume.get("observedAt")
@@ -64,7 +68,7 @@ def _preflight(conn, seconds):
                 or type(observed) not in (int, float)
                 or not 0 <= seconds - observed <= 300
                 or type(volume.get("diskUsage")) is not int
-                or volume["diskUsage"] > 750_000_000):
+                or volume["diskUsage"] > MAX_VOLUME_BYTES):
             return "fresh-volume-proof-unavailable"
     except Exception:
         return "proof-unavailable"

@@ -47,6 +47,54 @@ class ComdirectFieldsTests(unittest.TestCase):
         quote=q.parse_page(HTML.replace('4.105,0000 USD Basispreis','-- Basispreis'),ISIN,NOW)
         self.assertEqual(quote['bid'],5.43)
 
+    def test_sg_classic_type_alias_requires_class_and_matching_direction(self):
+        for side in ('LONG', 'SHORT'):
+            p=self.primary()
+            p['metadata'].update(simpleTurbo=True,classificationId=43,direction=side)
+            original=dict(value='Classic Turbo-Optionsscheine',source='issuer',at='original')
+            p['conditions']['type']=original
+            fields=self.parse()
+            fields['observations']['direction']['value']=side
+            before=copy.deepcopy(p)
+            out=self.apply(p,fields)
+            self.assertNotIn('type',out['comdirectFieldsBackup']['conflicts'])
+            self.assertEqual(out['conditions']['type'],original)
+            self.assertEqual(p,before)
+            self.assertFalse(out['eligible'])
+            for changes in (dict(classificationId=45),dict(classificationId=None),
+                            dict(simpleTurbo=False)):
+                bad=copy.deepcopy(p);bad['metadata'].update(changes)
+                self.assertIn('type',self.apply(bad,fields)['comdirectFieldsBackup']['conflicts'])
+            bad=copy.deepcopy(fields)
+            bad['observations']['direction']['value']='LONG' if side=='SHORT' else 'SHORT'
+            self.assertIn('direction',self.apply(p,bad)['comdirectFieldsBackup']['conflicts'])
+            p['conditions']['type']['value']='Faktor-Zertifikat'
+            self.assertIn('type',self.apply(p,fields)['comdirectFieldsBackup']['conflicts'])
+
+    def test_classic_alias_restores_explicit_non_quanto_model_chain(self):
+        from leverage_backup import reconcile_model
+        from hybrid_product_price import model_for
+        now=NOW.replace(hour=12)
+        fields=f.parse_page(HTML,ISIN,now)
+        p=self.primary()
+        p.update(importActive=True,sourceUrl='https://www.sg-zertifikate.de/product-details/'+ISIN.lower())
+        p['metadata'].update(simpleTurbo=True,classificationId=43,quantoState='unknown',
+            simpleNonQuantoTurbo=False,underlyingType='SPOT',issuerExchangeCode='CBDE',
+            ratio=.1,ko=4105.,strike=4105.)
+        p['conditions']['type']=dict(value='Classic Turbo-Optionsscheine',source='issuer')
+        out=reconcile_model(self.apply(p,fields),now)
+        self.assertTrue(out['metadata']['simpleNonQuantoTurbo'])
+        self.assertTrue(model_for(out,now)['verifiedSimpleTurbo'])
+        self.assertFalse(out['eligible'])
+        for mutate in (lambda x:x['observations']['quanto'].update(value=True),
+                       lambda x:x['observations']['quanto'].update(conditionVerified=False),
+                       lambda x:x['observations']['quanto'].update(reviewedAt=NOW.isoformat()),
+                       lambda x:x['observations'].pop('quanto')):
+            bad=copy.deepcopy(fields);mutate(bad)
+            rejected=reconcile_model(self.apply(p,bad),now)
+            self.assertFalse(rejected['metadata']['simpleNonQuantoTurbo'])
+            self.assertIsNone(model_for(rejected,now))
+
     def test_missing_values_fill_without_eligibility_or_fake_clock(self):
         out=self.apply()
         self.assertEqual(out['conditions']['ratio']['value'],.1)

@@ -34,6 +34,7 @@ assert.equal(screenshots.length,1);
 assert.equal(screenshots[0].hasSeconds,true);
 assert.equal(screenshots[0].side,'BUY');
 const buy=mail('BUY',4,12.5,'14:05:06','a'.repeat(64));
+assert.equal(p.stableMail(buy).currency,'EUR');
 const sell=mail('SELL',2,13,'14:07:08','b'.repeat(64));
 let result=p.compare(csv,parsed,{configured:true,items:[buy,sell]});
 assert.equal(result.status,'observed');

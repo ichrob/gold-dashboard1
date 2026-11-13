@@ -15,7 +15,69 @@ MAX_BODY=8100000
 DETAIL_FIELDS = ('Geld', 'Brief', 'Anzeigezeit', 'Hebel', 'KO-Schwelle',
                  'Basispreis', 'Bv', 'Währung')
 
-def detail_plan(items, products, now):
+def confirmed_terminal(product, isin):
+    q = product.get('quote') if isinstance(product, dict) else None
+    if not isinstance(q, dict) or q.get('isin') != isin or q.get('productVerified') is not True:
+        return False
+    meta = q.get('metadata')
+    status = meta.get('status') if isinstance(meta, dict) else None
+    return type(status) is int and bool(status & (2 | 8 | 16 | 32))
+
+
+def reader_terminal_isins(conn, products, now):
+    """Use existing issuer terminal proofs only for bounded read scheduling.
+
+    A new screenshot does not revive an exact, issuer-terminated ISIN. This
+    does not copy old quotes/terms or change audit-generation/trading gates.
+    Fresh contradictory verified product evidence always wins.
+    """
+    available=conn.execute("SELECT to_regclass('bob_degiro_product_audit')").fetchone()
+    if not available or not available[0]:
+        return set()
+    row=conn.execute('SELECT payload FROM bob_degiro_product_audit WHERE id=1').fetchone()
+    audit=row[0] if row and isinstance(row[0],dict) else {}
+    try:
+        checked=datetime.fromisoformat(audit.get('lastCheckedAt','').replace('Z','+00:00'))
+        if checked.tzinfo is None or not 0 <= now-checked.timestamp() <= 14*3600:
+            return set()
+    except (ValueError,TypeError,AttributeError,OverflowError):
+        return set()
+    by_id={p.get('isin'):p for p in products if isinstance(p,dict)}
+    terminal=set()
+    for item in audit.get('items',[]):
+        if not isinstance(item,dict) or item.get('isin') not in by_id:
+            continue
+        isin=item['isin']; proof=item.get('sourceStatusEvidence')
+        if not isinstance(proof,dict):continue
+        raw=proof.get('issuerRawStatus')
+        if (item.get('state')!='terminated' or proof.get('issuerVerified') is not True
+                or proof.get('issuerTerminal') is not True or type(proof.get('issuerStatus')) is not int
+                or proof['issuerStatus']!=2 or type(raw) is not int or not raw & (2|8|16|32)):
+            continue
+        q=by_id[isin].get('quote')
+        if isinstance(q,dict) and q.get('productVerified') is True:
+            # Even an ambiguous/conflicting verified identity must not be skipped.
+            if not confirmed_terminal(by_id[isin],isin):continue
+        terminal.add(isin)
+    return terminal
+
+
+def refresh_plan(items, products, selected, terminal_isins=()):
+    from product_quotes import valid_isin
+    if (not isinstance(selected, list) or not 1 <= len(selected) <= 3 or
+            any(not isinstance(i, str) or not valid_isin(i) for i in selected) or
+            len(set(selected)) != len(selected)):
+        raise ValueError('Select one to three distinct ISINs')
+    universe = {x.get('isin') for x in items if isinstance(x, dict) and
+                not (isinstance(x.get('listRow'), dict) and x['listRow'].get('excluded'))}
+    if not set(selected) <= universe:
+        raise ValueError('Refresh outside owned list')
+    by_id = {p.get('isin'): p for p in products if isinstance(p, dict)}
+    return [{'isin': i, 'missingFields': ['Geld', 'Brief', 'Anzeigezeit', 'Hebel']}
+            for i in selected if i not in terminal_isins and not confirmed_terminal(by_id.get(i, {}), i)]
+
+
+def detail_plan(items, products, now, terminal_isins=()):
     """Request only still-missing/expired fields, preserving exact list order.
 
     This is a read-only *research* plan, never a trading approval. Original
@@ -46,6 +108,8 @@ def detail_plan(items, products, now):
             continue
         seen.add(isin)
         p = by_id.get(isin, {})
+        if isin in terminal_isins or confirmed_terminal(p, isin):
+            continue
         # Missing input values are independent; don't re-read a proven KO or
         # ratio just because the current bid/ask pair has expired.
         missing = [label for key, label in
@@ -75,6 +139,46 @@ def detail_plan(items, products, now):
             break
     return result
 
+def deferred_ocr_memory_receipt(value):
+    """A memory-deferral receipt is NOT a verified ten-row list."""
+    return (isinstance(value,dict)
+            and (value.get('stage') == 'waiting-memory'
+                 or (value.get('stage') == 'read-failed'
+                     and value.get('error') == 'MemoryError')))
+
+
+def reusable_daily_items(items):
+    """Validate a PREVIOUS synced ten-row list, never the new pending images."""
+    from product_quotes import valid_isin
+    if not isinstance(items,list) or len(items)!=10:
+        return False
+    ids=[]
+    for item in items:
+        if (not isinstance(item,dict) or not isinstance(item.get('isin'),str)
+                or not valid_isin(item['isin']) or
+                not isinstance(item.get('listRow'),dict)):
+            return False
+        ids.append(item['isin'])
+    return len(set(ids))==10
+
+
+OCR_IDENTITY_TOKEN = re.compile(r'\b(?:[A-Z]{2}[A-Z0-9]{9}[0-9]|DE[0OQ]{3}[A-Z0-9]{7})\b', re.I)
+
+
+def canonical_ocr_identity(raw):
+    """German OCR glyph rule only; preserve raw rows and valid DE000 identities."""
+    from product_quotes import valid_isin
+    value = raw.upper()
+    if len(value) != 12:
+        return None
+    if valid_isin(value) and value.startswith('DE000'):
+        return value
+    if not re.fullmatch(r'DE[0OQ]{3}[A-Z0-9]{7}', value):
+        return value if valid_isin(value) else None
+    candidate = 'DE000' + value[-7:].replace('O', '0').replace('I', '1')
+    return candidate if valid_isin(candidate) else None
+
+
 def validate(value, now):
     if not isinstance(value,dict) or set(value)!={'batchId','sessionId','images'}:
         raise ValueError('Invalid list batch')
@@ -84,7 +188,9 @@ def validate(value, now):
     if not isinstance(images,list) or not 1<=len(images)<=4:raise ValueError('One to four images required')
     seen=set();previous=0
     for image in images:
-        if not isinstance(image,dict) or set(image) not in ({'at','png'},{'at','png','appText'}):raise ValueError('Invalid image')
+        if not isinstance(image,dict) or set(image) not in (
+                {'at','png'}, {'at','png','appText'}, {'at','png','localOcr'}):
+            raise ValueError('Invalid image')
         if 'appText' in image:
             text=image['appText']
             if not isinstance(text,dict) or set(text)!={'before','after'}:raise ValueError('Invalid app text')
@@ -92,6 +198,35 @@ def validate(value, now):
                 if not isinstance(readings,list) or not 1<=len(readings)<=10:raise ValueError('Invalid app rows')
                 if any(not isinstance(row,str) or not 1<=len(row)<=800 or '\x00' in row for row in readings):raise ValueError('Invalid app row')
             if text['before']!=text['after']:raise ValueError('App text changed during capture')
+        if 'localOcr' in image:
+            # Two on-device passes of the same cropped PNG, not two issuers.
+            from product_quotes import valid_isin
+            local=image['localOcr']
+            if not isinstance(local,dict) or set(local)!={'expectedIsins','passes'}:
+                raise ValueError('Invalid local OCR')
+            ids=local['expectedIsins']
+            passes=local['passes']
+            if (not isinstance(ids,list) or not 1<=len(ids)<=10
+                    or any(type(v) is not str or not valid_isin(v) for v in ids)
+                    or len(set(ids))!=len(ids)
+                    or not isinstance(passes,list) or len(passes)!=2):
+                raise ValueError('Invalid local OCR identities')
+            for reading in passes:
+                if not isinstance(reading,list) or len(reading)!=len(ids):
+                    raise ValueError('Invalid local OCR rows')
+                for index,row in enumerate(reading):
+                    if type(row) is not str or not 1<=len(row)<=800:
+                        raise ValueError('Invalid local OCR text')
+                    line=row.lower()
+                    if (not line.startswith(('sg gold','bnp gold'))
+                            or not line.upper().endswith(('OTC EUR','OTC CHF'))
+                            or any(word in line for word in (
+                                'passwort','password','kontostand',
+                                'portfolio','order bestätigen','stückzahl kaufen'))):
+                        raise ValueError('OCR row outside permitted product layout')
+                    found=[canonical_ocr_identity(m.group()) for m in OCR_IDENTITY_TOKEN.finditer(row)]
+                    if found!=[ids[index]]:
+                        raise ValueError('OCR product identity mismatch')
         stamp=datetime.fromisoformat(image['at'].replace('Z','+00:00'))
         if stamp.tzinfo is None or not now-86400<=stamp.timestamp()<=now+5 or stamp.timestamp()<previous:raise ValueError('Invalid capture time')
         previous=stamp.timestamp()
@@ -113,6 +248,8 @@ def init(conn):
     conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS parsed_items JSONB")
     conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS processing_at TIMESTAMPTZ")
     conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS processing_attempts INTEGER NOT NULL DEFAULT 0")
+    # Reproducible, bounded OCR work only; original image payload is unchanged.
+    conn.execute("ALTER TABLE bob_android_list_images ADD COLUMN IF NOT EXISTS ocr_progress JSONB")
 
 IMPORT_STAGES = frozenset(('waiting-memory','fetching','images-ready','reading','stored','synced','fetch-failed','read-failed','store-failed','superseded'))
 
@@ -127,17 +264,29 @@ def receipt(value, now):
 
 def status(conn):
     if not conn.execute("SELECT to_regclass('bob_android_list_images')").fetchone()[0]:return []
-    rows=conn.execute("""SELECT i.batch_id, i.created_at, jsonb_array_length(i.payload->'images'), i.import_receipt, i.processing_attempts, i.processing_at
+    rows=conn.execute("""SELECT i.batch_id, i.created_at, jsonb_array_length(i.payload->'images'), i.import_receipt, i.processing_attempts, i.processing_at,
+        (SELECT count(*) FROM jsonb_array_elements(i.payload->'images') image WHERE image ? 'appText'),
+        (SELECT count(*) FROM jsonb_array_elements(i.payload->'images') image WHERE image ? 'localOcr')
         FROM bob_android_list_images i JOIN bob_android_diagnostic_devices d USING(token_hash)
         WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
         ORDER BY i.created_at DESC LIMIT 5""").fetchall()
-    return [{'batchId':r[0],'uploadedAt':r[1].isoformat(),'imageCount':r[2],'import':r[3],'processingAttempts':r[4],'processingAt':r[5].isoformat() if r[5] else None} for r in rows]
+    # Counts only: no PNG, OCR strings, coordinates or product/account values.
+    # Presence is not parser acceptance or proof of a successful import.
+    return [{'batchId':r[0],'uploadedAt':r[1].isoformat(),'imageCount':r[2],'import':r[3],'processingAttempts':r[4],'processingAt':r[5].isoformat() if r[5] else None,
+             'recognitionAttachments':{'appTextImages':r[6],'localOcrImages':r[7],
+                 'imageOnly':r[2]-r[6]-r[7]}} for r in rows]
 
 def handle(conn,payload,now):
-    conn.execute("DELETE FROM bob_android_list_images WHERE created_at<now()-interval '24 hours'")
+    # Original screenshots with verified parsed fields may carry unique venue
+    # evidence. Never delete them just because another API request arrived.
+    # The background retention worker removes only expired, truly obsolete
+    # unparsed copies under the separate device/day/replacement safety gate.
     if payload['action']=='list-receipt':
         value=receipt(payload.get('value'),now)
-        row=conn.execute('''UPDATE bob_android_list_images i SET import_receipt=CASE WHEN i.import_receipt->>'stage' IN ('synced','superseded') THEN i.import_receipt ELSE %s::jsonb END
+        row=conn.execute('''UPDATE bob_android_list_images i SET import_receipt=CASE WHEN i.import_receipt->>'stage' IN ('synced','superseded')
+            OR i.import_receipt->>'reason'='OCR_MEMORY_WAIT_EXHAUSTED' THEN i.import_receipt
+            ELSE %s::jsonb || CASE WHEN i.import_receipt ? 'memoryDeferrals'
+                THEN jsonb_build_object('memoryDeferrals',i.import_receipt->'memoryDeferrals') ELSE '{}'::jsonb END END
             FROM bob_android_diagnostic_devices d WHERE i.token_hash=d.token_hash AND i.batch_id=%s
             AND NOT d.revoked AND d.expires_at>now() RETURNING i.batch_id''',
             (json.dumps(value),value['batchId'])).fetchone()
@@ -173,13 +322,52 @@ def handle(conn,payload,now):
     if payload['action']=='list-status':
         batch=payload.get('value',{}).get('batchId')
         if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')
-        row=conn.execute('SELECT import_receipt, parsed_items FROM bob_android_list_images WHERE batch_id=%s AND token_hash=%s',(batch,digest)).fetchone()
+        row=conn.execute('SELECT import_receipt, parsed_items, created_at FROM bob_android_list_images WHERE batch_id=%s AND token_hash=%s',(batch,digest)).fetchone()
         plan=[]
+        refresh=[]
+        reuse_batch=None
+        reuse_plan=[]
         if row and row[0] and row[0].get('stage')=='synced':
             saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
             products=(saved[0] or {}).get('products',[]) if saved else []
-            plan=detail_plan(row[1] or [],products,now)
-        return {'ok':True,'batchId':batch,'import':row[0] if row else None,'detailIsins':[x['isin'] for x in plan],'detailPlan':plan}
+            terminal_isins=reader_terminal_isins(conn,products,now)
+            plan=detail_plan(row[1] or [],products,now,terminal_isins)
+            selected=payload.get('value',{}).get('refreshIsins')
+            if selected is not None:
+                if row[2] is None or not 0 <= now-row[2].timestamp() <= 14*3600:
+                    raise ValueError('Owned list expired for targeted refresh')
+                refresh=refresh_plan(row[1] or [],products,selected,terminal_isins)
+        # A native OCR attempt may remain waiting-memory or fail exactly
+        # with MemoryError on the 512-MiB server. These states prove that
+        # this NEW batch was NOT verified. Never weaken the cgroup guard.
+        # Only offer a PREVIOUS,
+        # device-owned, already-synced list from the SAME Zurich calendar day
+        # (at most fourteen hours old), for read-only detail refreshing.
+        # The new images and their truthful waiting-memory receipt are kept.
+        if (row and deferred_ocr_memory_receipt(row[0])
+                and row[2] is not None and 10 <= now-row[2].timestamp() <= 3*3600):
+            previous=conn.execute("""
+                SELECT batch_id, parsed_items FROM bob_android_list_images
+                WHERE token_hash=%s AND batch_id<>%s
+                  AND import_receipt->>'stage'='synced'
+                  AND parsed_items IS NOT NULL
+                  AND jsonb_array_length(parsed_items)=10
+                  AND created_at>now()-interval '14 hours'
+                  AND (created_at AT TIME ZONE 'Europe/Zurich')::date =
+                      (now() AT TIME ZONE 'Europe/Zurich')::date
+                ORDER BY created_at DESC LIMIT 1""",(digest,batch)).fetchone()
+            if previous and reusable_daily_items(previous[1]):
+                saved=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
+                products=(saved[0] or {}).get('products',[]) if saved else []
+                reuse_plan=detail_plan(previous[1],products,now,reader_terminal_isins(conn,products,now))
+                if reuse_plan:
+                    reuse_batch=previous[0]
+        return {'ok':True,'batchId':batch,'import':row[0] if row else None,
+                'detailIsins':[x['isin'] for x in plan],'detailPlan':plan,
+                'refreshPlan':refresh,'refreshIsins':[x['isin'] for x in refresh],
+                'existingListBatchId':reuse_batch,
+                'existingDetailIsins':[x['isin'] for x in reuse_plan],
+                'existingDetailPlan':reuse_plan}
     value=validate(payload.get('value'),now)
     row=conn.execute('SELECT state FROM bob_android_remote WHERE token_hash=%s FOR UPDATE',(digest,)).fetchone()
     state=row[0] if row else {}

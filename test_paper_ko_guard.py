@@ -102,6 +102,29 @@ class KoGuardTests(unittest.TestCase):
         self.assertTrue(any(e['kind']=='ko-barrier-crossed-observed'
                             for e in out['events']))
 
+    def test_boundary_touch_point_01_is_not_a_verified_ko_loss_or_fill(self):
+        # A spot observation 0.01 past the barrier is not an issuer settlement
+        # or executable product bid. Both LONG and SHORT remain unpriced.
+        for side, barrier, touched in (
+                ('LONG', 3900., 3899.99), ('SHORT', 4100., 4100.01)):
+            with self.subTest(side=side):
+                opened = sim.new_case(market(direction=side), choice(side),
+                    quote(ko=barrier, side=side), NOW, cash=100.)
+                self.assertEqual(opened['status'], 'open')
+                later = sim.advance_case(opened,
+                    market(price=touched, direction=side, at=NOW+30000),
+                    quote(NOW+30000, ko=barrier, side=side, bid=9.50),
+                    NOW+30000)
+                self.assertEqual(later['status'], 'inconclusive')
+                self.assertEqual(later['koWatchStatus'], 'crossed-observed')
+                self.assertFalse(later['productReturnKnown'])
+                self.assertIsNone(later['productGrossPct'])
+                self.assertEqual(later['cashReleased'], 0)
+                self.assertEqual(later['pendingUnits'], opened['quantity'])
+                self.assertNotIn('exitReason', later)
+                self.assertFalse(any(e['kind'] in ('ko-safety-exit','stop')
+                    for e in later['events']))
+
     def test_no_trusted_terms_never_fake_ko_sale(self):
         c=sim.new_case(market(),choice(),quote(),NOW,cash=100.)
         stale=quote(NOW+30000)

@@ -24,6 +24,189 @@ class Protocol(unittest.TestCase):
             with self.assertRaises(ValueError):r.arguments('bob_phone_command',a)
         self.assertTrue(r.valid_isin(ISIN))
         r.arguments('bob_phone_command',dict(command('search_isin'),isin=ISIN))
+    def test_termux_check_is_bounded_and_not_a_shell(self):
+        accepted=r.arguments('bob_phone_command',command('termux_check'))
+        self.assertEqual(accepted['action'],'termux_check')
+        self.assertNotIn('command',accepted)
+        self.assertNotIn('argv',accepted)
+        for extras in (dict(text='ls -la'),dict(args=['cat','secret']),
+                       dict(commandLine='printenv'),dict(isin=ISIN)):
+            with self.subTest(extras=extras), self.assertRaises(ValueError):
+                r.arguments('bob_phone_command',dict(command('termux_check'),**extras))
+        self.assertIn('termux_check',r.definitions()[1]['inputSchema']
+                      ['properties']['action']['enum'])
+
+    def test_account_settings_require_a_delivered_read_and_redacted_enums(self):
+        args=r.arguments('bob_phone_command',command('read_account_settings'))
+        self.assertEqual(args['action'],'read_account_settings')
+        self.assertIn('read_account_settings',r.definitions()[1]['inputSchema']['properties']['action']['enum'])
+        s=self.state();a=command('read_account_settings')
+        r.enqueue(s,a,NOW)
+        v=value();v['observation']['accountSettings']={
+            'source':'degiro-app-local-accessibility','capturedAt':NOW,
+            'status':'PARTIAL','feeProfile':None,'autoFx':'ON'}
+        v['observation']['code']='ACCOUNT_SETTINGS_PARTIAL'
+        v['ack']={'requestId':a['requestId'],'code':'ACCOUNT_SETTINGS_PARTIAL'}
+        # Queued is not delivered: a device cannot create an unsolicited read.
+        with self.assertRaises(ValueError):r.exchange(s,v,NOW)
+        s,_=r.exchange(s,value(),NOW)
+        self.assertEqual(s['commands'][0]['status'],'delivered')
+        accepted,_=r.exchange(s,v,NOW)
+        self.assertEqual(accepted['commands'][0]['status'],'acknowledged')
+        self.assertEqual(accepted['observation']['accountSettings']['autoFx'],'ON')
+        self.assertNotIn('feesCHF',accepted['observation']['accountSettings'])
+        self.assertEqual(accepted['accountSettings']['autoFx'],'ON')
+        self.assertFalse(accepted['accountSettings']['accountFeeConfirmed'])
+        self.assertFalse(accepted['accountSettings']['brokerExecutionConfirmed'])
+        # Later product heartbeats may not erase the consented settings receipt.
+        after,_=r.exchange(accepted,value(),NOW+1)
+        self.assertEqual(after['accountSettings']['capturedAt'],NOW)
+        # Network retries remain idempotent after a lost response.
+        r.exchange(accepted,v,NOW)
+        for bad in (
+            {'feeProfile':'basic'}, {'autoFx':'AUTO_CHF'}, {'feesCHF':0},
+            {'source':'untrusted'}, {'status':'COMPLETE'}, {'capturedAt':NOW-61},
+            {'accountNumber':'secret'}):
+            wrong=value();wrong['observation']['code']='ACCOUNT_SETTINGS_PARTIAL'
+            wrong['observation']['accountSettings']={**v['observation']['accountSettings'],**bad}
+            wrong['ack']=v['ack']
+            with self.subTest(bad=bad),self.assertRaises(ValueError):
+                r.exchange(accepted,wrong,NOW)
+        wrong=value();wrong['observation']['accountSettings']=v['observation']['accountSettings']
+        wrong['observation']['code']='ACCOUNT_SETTINGS_PARTIAL'
+        wrong['ack']={'requestId':'c'*32,'code':'ACCOUNT_SETTINGS_PARTIAL'}
+        with self.assertRaises(ValueError):r.exchange(accepted,wrong,NOW)
+
+    def test_local_owner_settings_receipt_without_stale_connector_command(self):
+        # Current ChatGPT connector still exposes product actions only. The
+        # dedicated on-device settings button grants one scoped, local read.
+        s0=self.state()
+        owner=value();owner['purpose']='owner_account_settings'
+        s,response=r.exchange({},owner,NOW)
+        self.assertEqual(s['purpose'],'owner_account_settings')
+        self.assertIsNone(response['command'])
+        v=copy.deepcopy(owner)
+        v['observation'].update(code='ACCOUNT_SETTINGS_PARTIAL',
+                                accountSettings=dict(
+                                    source='degiro-app-local-accessibility',
+                                    capturedAt=NOW,status='PARTIAL',
+                                    feeProfile=None,autoFx='ON'))
+        saved,_=r.exchange(s,v,NOW)
+        self.assertEqual(saved['accountSettings']['autoFx'],'ON')
+        self.assertIsNone(saved['accountSettings']['feeProfile'])
+        self.assertFalse(saved['accountSettings']['accountFeeConfirmed'])
+        self.assertFalse(saved['accountSettings']['brokerExecutionConfirmed'])
+        self.assertEqual(saved['commands'],[])
+        # Safe duplicate after a network retry; a changed receipt is not.
+        r.exchange(saved,v,NOW)
+        altered=copy.deepcopy(v)
+        altered['observation']['accountSettings']['autoFx']='OFF'
+        with self.assertRaises(ValueError):r.exchange(saved,altered,NOW)
+        altered=copy.deepcopy(v)
+        altered['observation']['accountSettings']['accountNumber']='secret'
+        with self.assertRaises(ValueError):r.exchange(saved,altered,NOW)
+        altered=copy.deepcopy(v)
+        altered['observation']['isins']=['DE000FE2JJ20']
+        with self.assertRaises(ValueError):r.exchange(saved,altered,NOW)
+        # Session purpose can never be escalated after starting a product read.
+        with self.assertRaises(ValueError):r.exchange(s0,owner,NOW)
+        with self.assertRaises(ValueError):r.exchange(saved,value(),NOW)
+        # A product-only heartbeat cannot invent a valid owner receipt.
+        normal=copy.deepcopy(v)
+        normal['purpose']='product_read'
+        with self.assertRaises(ValueError):r.exchange(s0,normal,NOW)
+        # Inactive session is not permission to send further account data.
+        stopped=copy.deepcopy(v);stopped['active']=False
+        with self.assertRaises(ValueError):r.exchange(s,stopped,NOW)
+        # No unrecognized session purposes, extra keys or fake ack.
+        wrong=copy.deepcopy(owner);wrong['purpose']='broker_orders'
+        with self.assertRaises(ValueError):r.exchange({},wrong,NOW)
+        wrong=copy.deepcopy(owner);wrong['credentials']='secret'
+        with self.assertRaises(ValueError):r.exchange({},wrong,NOW)
+        wrong=copy.deepcopy(v);wrong['ack']={'requestId':'c'*32,
+                                          'code':'ACCOUNT_SETTINGS_PARTIAL'}
+        with self.assertRaises(ValueError):r.exchange(s,wrong,NOW)
+        # Receipt remains visible through subsequent safe heartbeat.
+        after,_=r.exchange(saved,owner,NOW+1)
+        self.assertEqual(after['accountSettings']['autoFx'],'ON')
+
+    def test_basic_owner_confirmation_is_not_an_executed_fee_or_remote_command(self):
+        owner=value()
+        owner['purpose']='owner_account_settings'
+        state,_=r.exchange({},owner,NOW)
+        receipt=copy.deepcopy(owner)
+        receipt['observation'].update(code='ACCOUNT_SETTINGS_PARTIAL',
+             accountSettings={'source':'degiro-app-owner-confirmed',
+                 'capturedAt':NOW,'status':'PARTIAL',
+                 'feeProfile':'BASIC','autoFx':None})
+        saved,_=r.exchange(state,receipt,NOW)
+        self.assertEqual(saved['verifiedSettings']['feeProfile']['value'],'BASIC')
+        self.assertEqual(saved['verifiedSettings']['feeProfile']['source'],
+                         'degiro-app-owner-confirmed')
+        self.assertFalse(saved['accountSettings']['accountFeeConfirmed'])
+        self.assertFalse(saved['accountSettings']['brokerExecutionConfirmed'])
+        self.assertFalse(saved['sameAccountAcrossSessionsConfirmed'])
+        self.assertEqual(saved['commands'],[])
+        r.exchange(saved,receipt,NOW)  # retry, unchanged
+        altered=copy.deepcopy(receipt)
+        altered['observation']['accountSettings']['autoFx']='ON'
+        altered['observation']['accountSettings']['status']='COMPLETE'
+        altered['observation']['code']='ACCOUNT_SETTINGS_COMPLETE'
+        with self.assertRaises(ValueError):r.exchange(saved,altered,NOW)
+        altered=copy.deepcopy(receipt)
+        altered['observation']['accountSettings']['feeProfile']='TRADER'
+        with self.assertRaises(ValueError):r.exchange(saved,altered,NOW)
+        altered=copy.deepcopy(receipt)
+        altered['purpose']='product_read'
+        with self.assertRaises(ValueError):r.exchange(saved,altered,NOW)
+        # The remote MCP command cannot impersonate a local owner assertion.
+        a=command('read_account_settings');r.enqueue(state,a,NOW)
+        state,_=r.exchange(state,owner,NOW)
+        altered=copy.deepcopy(receipt)
+        altered['ack']={'requestId':a['requestId'],'code':'ACCOUNT_SETTINGS_PARTIAL'}
+        altered['purpose']='product_read'
+        with self.assertRaises(ValueError):r.exchange(state,altered,NOW)
+
+    def test_basic_and_autofx_evidence_survive_separate_bounded_sessions(self):
+        owner=value();owner['purpose']='owner_account_settings'
+        state,_=r.exchange({},owner,NOW)
+        basic=copy.deepcopy(owner)
+        basic['observation'].update(code='ACCOUNT_SETTINGS_PARTIAL',
+            accountSettings={'source':'degiro-app-owner-confirmed',
+                'capturedAt':NOW,'status':'PARTIAL',
+                'feeProfile':'BASIC','autoFx':None})
+        state,_=r.exchange(state,basic,NOW)
+        # New owner-started session: retain verified enums, not session grant.
+        next_value=value();next_value['purpose']='owner_account_settings'
+        next_value['sessionId']='c'*32
+        next_value['expiresAt']=NOW+920
+        next_value['observation']['at']=NOW+20
+        state,_=r.exchange(state,next_value,NOW+20)
+        self.assertEqual(state['commands'],[])
+        self.assertEqual(state['verifiedSettings']['feeProfile']['value'],'BASIC')
+        self.assertNotIn('accountSettings',state)
+        fx=copy.deepcopy(next_value)
+        fx['observation'].update(code='ACCOUNT_SETTINGS_PARTIAL',
+            accountSettings={'source':'degiro-app-local-accessibility',
+                'capturedAt':NOW+20,'status':'PARTIAL',
+                'feeProfile':None,'autoFx':'ON'})
+        state,_=r.exchange(state,fx,NOW+20)
+        self.assertEqual(state['verifiedSettings']['autoFx']['value'],'ON')
+        self.assertEqual(state['verifiedSettings']['feeProfile']['value'],'BASIC')
+        self.assertFalse(state['sameAccountAcrossSessionsConfirmed'])
+        # Neither evidence can be silently upgraded into a fee/FX trade approval.
+        self.assertFalse(state['accountSettings']['accountFeeConfirmed'])
+        self.assertFalse(state['accountSettings']['brokerExecutionConfirmed'])
+        # Ageing out discards old settings; do not keep permanent cross-account
+        # state after the user might have switched DEGIRO accounts.
+        later=copy.deepcopy(next_value)
+        later['sessionId']='d'*32
+        far=NOW+r.ACCOUNT_EVIDENCE_MAX_AGE+30  # later than both receipts
+        later['expiresAt']=far+900
+        later['observation']['at']=far
+        state,_=r.exchange(state,later,far)
+        self.assertEqual(state['verifiedSettings'],{})
+
     def test_queue_delivery_ack_and_no_replay(self):
         s=self.state();a=command();self.assertEqual(r.enqueue(s,a,NOW)['status'],'queued')
         s,out=r.exchange(s,value(),NOW+1);self.assertEqual(out['command']['requestId'],a['requestId'])

@@ -8,13 +8,13 @@ from product_quotes import valid_isin
 FIELDS = ('Geld','Brief','Zuletzt','Anzeigezeit','Hebel','KO-Schwelle','Basispreis','Bv','Handelsplatz')
 REQUIRED = ('Geld','Brief','Anzeigezeit','Hebel','KO-Schwelle','Basispreis','Bv')
 REQUESTABLE = REQUIRED + ('Währung',)
-CODES = set('LIST_TOP_RESULTS_MISSING LIST_TOP_RESULTS_OVERFLOW LIST_TOP_RESULTS_INCOMPLETE KEYBOARD_HIDE_FAILED LIST_IMAGES_DELIVERED LIST_FIRST_CAPTURED LIST_UPLOAD_FAILED LIST_SCROLL_UNAVAILABLE LIST_SCROLL_REJECTED LIST_SCROLL_NO_PROGRESS LIST_CAPTURE_FAILED LIST_CAPTURE_ANDROID_VERSION LIST_CAPTURE_SEARCH_MISSING LIST_CAPTURE_BOUNDS LIST_CAPTURE_WINDOW_CHANGED SEARCH_NO_PROGRESS SEARCH_TRANSITION_PENDING SEARCH_RETRY_PARENT COMPLETE PARTIAL READ_TIMEOUT SEARCH_MISSING SEARCH_TREE_EMPTY SEARCH_NOT_ACTIONABLE GOLD_IDENTITIES_MISSING SEARCH_AMBIGUOUS RESULT_MISSING NAVIGATION_REJECTED PROTECTED_VIEW PROTECTED_PASSWORD PROTECTED_LOGIN PROTECTED_ORDER PROTECTED_ORDER_CONFIRM PROTECTED_ORDER_TYPE PROTECTED_ORDER_PRICE PROTECTED_ORDER_QUANTITY PROTECTED_SENSITIVE_INPUT PROTECTED_SENSITIVE_CONTENT UNRECOGNIZED_INPUT INVALID_VIEW IDENTITY_CHANGED NO_QUOTES RETURN_FAILED SCROLL_LIMIT INVALID_QUOTES SEEK_LIMIT SCROLL_LAYOUT_CHANGED UNSAFE_VIEW USER_STOP STOPPED RUN_TIMEOUT USER_INTERRUPTED TRANSFER_ERROR STORAGE_ERROR SCREEN_LOCKED SERVICE_INTERRUPTED'.split())
+CODES = set('CONNECTION_ERROR LIST_TOP_RESULTS_MISSING LIST_TOP_RESULTS_OVERFLOW LIST_TOP_RESULTS_INCOMPLETE KEYBOARD_HIDE_FAILED LIST_IMAGES_DELIVERED LIST_FIRST_CAPTURED LIST_UPLOAD_FAILED LIST_SCROLL_UNAVAILABLE LIST_SCROLL_REJECTED LIST_SCROLL_NO_PROGRESS LIST_CAPTURE_FAILED LIST_CAPTURE_ANDROID_VERSION LIST_CAPTURE_SEARCH_MISSING LIST_CAPTURE_BOUNDS LIST_CAPTURE_WINDOW_CHANGED SEARCH_NO_PROGRESS SEARCH_TRANSITION_PENDING SEARCH_RETRY_PARENT COMPLETE PARTIAL READ_TIMEOUT SEARCH_MISSING SEARCH_TREE_EMPTY SEARCH_NOT_ACTIONABLE GOLD_IDENTITIES_MISSING SEARCH_AMBIGUOUS RESULT_MISSING NAVIGATION_REJECTED PROTECTED_VIEW PROTECTED_PASSWORD PROTECTED_LOGIN PROTECTED_ORDER PROTECTED_ORDER_CONFIRM PROTECTED_ORDER_TYPE PROTECTED_ORDER_PRICE PROTECTED_ORDER_QUANTITY PROTECTED_SENSITIVE_INPUT PROTECTED_SENSITIVE_CONTENT UNRECOGNIZED_INPUT INVALID_VIEW IDENTITY_CHANGED NO_QUOTES RETURN_FAILED SCROLL_LIMIT INVALID_QUOTES SEEK_LIMIT SCROLL_LAYOUT_CHANGED UNSAFE_VIEW USER_STOP STOPPED RUN_TIMEOUT USER_INTERRUPTED TRANSFER_ERROR STORAGE_ERROR SCREEN_LOCKED SERVICE_INTERRUPTED'.split())
 
 # Fixed app navigation/stop events can accompany already captured observations.
 # They never establish quote completeness or loosen draft validation.
 # 10423+ intentionally records this fail-closed handoff when BACK/search cannot
 # be verified. It is a diagnostic result, never a successful read or quote.
-CODES.update("RETURN_NOT_CONFIRMED".split())
+CODES.update("RETURN_NOT_CONFIRMED QUOTES_UNAVAILABLE".split())
 CODES.update("RESULT_TAP_SENT RESULT_TAP_REJECTED LIST_RESTORE_NO_TARGET LIST_RESTORE_LIMIT LIST_RESTORE_REJECTED CATEGORY_NO_PROGRESS CATEGORY_AMBIGUOUS CATEGORY_RESULTS_PENDING CATEGORY_STRIP_AMBIGUOUS SESSION_EXPIRED SESSION_MISMATCH REMOTE_STOP SERVICE_STOPPED SERVICE_MISSING READ_ERROR".split())
 
 
@@ -41,7 +41,7 @@ def parse_draft(raw, isin, now, requested_fields=None):
             if m[1] in fixed: raise ValueError('Doppelte Angabe')
             fixed[m[1]]=m[2];continue
         m=re.fullmatch(r'(.+) \(Anzeige ungeprüft\): (.{1,60})',line)
-        if not m or m[1] not in FIELDS+('Währung','Hinweis') or m[1] in fields: raise ValueError('Unbekanntes oder doppeltes Feld')
+        if not m or m[1] not in FIELDS+('Währung','Hinweis','Kursstatus') or m[1] in fields: raise ValueError('Unbekanntes oder doppeltes Feld')
         fields[m[1]]=m[2]
     if fixed.get('ISIN')!=isin or fixed.get('Quelle')!='DEGIRO-App': raise ValueError('Produktkennung stimmt nicht')
     at=timestamp(fixed.get('Erfasst'))
@@ -72,6 +72,9 @@ def parse_draft(raw, isin, now, requested_fields=None):
 
             raise ValueError('Kurs fehlt')
     if 'Geld' in fields and 'Brief' in fields and float(fields['Geld'].replace(',','.'))>float(fields['Brief'].replace(',','.')): raise ValueError('Widersprüchliches Kurspaar')
+    if 'Kursstatus' in fields and (fields['Kursstatus'] != 'Geld/Brief nicht angezeigt' or
+            'Geld' in fields or 'Brief' in fields):
+        raise ValueError('Widersprüchlicher Kursstatus')
     if 'Anzeigezeit' in fields:
         datetime.strptime(fields['Anzeigezeit'],'%d/%m/%Y %H:%M')
     if 'Handelsplatz' in fields and not re.fullmatch(r'[\w ./-]{2,48}',fields['Handelsplatz']): raise ValueError('Handelsplatz ungültig')
@@ -122,7 +125,9 @@ def prepare(payload, feed, now=None):
             observation['missingFields']=[name for name in required_fields
                                           if name not in observation['fields']]
         code=('PARTIAL' if observation['missingFields'] else 'COMPLETE') if observation else row.get('code')
-        if not isinstance(code,str) or code not in CODES or (not observation and code in ('COMPLETE','PARTIAL')): raise ValueError('Unbekannter oder unbelegter Lesestatus')
+        if observation and observation['missingFields'] and observation['fields'].get('Kursstatus') == 'Geld/Brief nicht angezeigt':
+            code='QUOTES_UNAVAILABLE'
+        if not isinstance(code,str) or code not in CODES or (not observation and code in ('COMPLETE','PARTIAL','QUOTES_UNAVAILABLE')): raise ValueError('Unbekannter oder unbelegter Lesestatus')
         results.append(dict(isin=row['isin'],code=code,attempts=attempts,observation=observation,
                             requestedFields=required_fields,
                             matchedCurrentList=row['isin'] in current))
@@ -151,10 +156,11 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
         universe = {v for v in isins if isinstance(v, str) and valid_isin(v)}
         if not universe: return {}
         rows = conn.execute(
-            "SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 4"
+            "SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 50"
         ).fetchall()
     except (ValueError, TypeError, AttributeError):
         return {}
+    result = {}
     for row in rows:
         run = row[0] if row else {}
         if not isinstance(run, dict) or run.get('listSource') != 'degiro-gold-search':
@@ -169,7 +175,6 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
                 set(run.get('isins', [])) <= universe and
                 isinstance(run.get('results'), list)):
             continue
-        result = {}
         for entry in run['results'][:10]:
             if not isinstance(entry, dict) or entry.get('isin') not in universe:
                 continue
@@ -178,10 +183,17 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
             fields = obs.get('fields') if isinstance(obs, dict) else {}
             if not isinstance(fields, dict): fields = {}
             allowed = ('Geld','Brief','Anzeigezeit','Hebel','KO-Schwelle',
-                       'Basispreis','Bv','Währung')
+                       'Basispreis','Bv','Währung','Handelsplatz','Hinweis')
             # Safe display-only subset from previously validated app observations.
             shown = {k: str(fields[k])[:60] for k in allowed
                      if isinstance(fields.get(k), str) and len(fields[k]) <= 60}
+            previous = result.get(isin)
+            if previous:
+                try:
+                    if not shown or (previous.get('observedAt') and timestamp(previous['observedAt']) >= timestamp(obs.get('observedAt'))):
+                        continue
+                except (ValueError, TypeError):
+                    continue
             result[isin] = {
                 'code': entry.get('code') if entry.get('code') in CODES else 'UNAVAILABLE',
                 'fields': shown, 'observedAt': obs.get('observedAt') if shown else None,
@@ -192,9 +204,12 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
                 'appVersionCode': run.get('appVersionCode'),
                 'researchOnly': True, 'verified': False, 'tradeApproved': False,
                 'sourceTime': None, 'executionConfirmed': False,
+                'receivedAt': run.get('receivedAt'),
+                'displayTimePrecision': 'minute' if shown.get('Anzeigezeit') else None,
+                'displayTimezone': None,
+                'clockNote': 'Anzeigezeit ohne bestätigte Zeitzone; Erfassung und Empfang sind getrennte Uhren.',
             }
-        return result
-    return {}
+    return result
 
 
 def init(conn):
@@ -205,6 +220,8 @@ def init(conn):
 
 def handle(conn,payload):
     if not isinstance(payload,dict): raise ValueError('Ungültige Anfrage')
+    if payload.get('action') in ('plan-read','plan-save'):
+        return __import__('handset_planning').handle(conn,payload)
     if payload.get('action')=='read':
         rows=conn.execute('SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 20').fetchall()
         return dict(ok=True,runs=[r[0] for r in rows],verified=False,tradeApproved=False)
@@ -221,6 +238,8 @@ def handle(conn,payload):
         return dict(ok=True,saved=True,batchId=batch,revision=revision,duplicate=True,verified=False,tradeApproved=False)
     row=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
     result=prepare(run,row[0] if row else {})
+    from handset_import_assessment import assess
+    result['importAssessment']=assess(result)
     result['transferHash']=digest
     conn.execute('''INSERT INTO bob_android_read_runs(batch_id,payload) VALUES(%s,%s::jsonb)
         ON CONFLICT(batch_id) DO NOTHING''',(key,json.dumps(result)))
@@ -231,15 +250,25 @@ def handle(conn,payload):
 
 def status(conn):
     """Bounded read-only AI/guardian diagnosis; no broker account data or raw text."""
-    rows=conn.execute('SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 5').fetchall()
+    rows=conn.execute('SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 50').fetchall()
+    from handset_evidence_chain import project
+    chain=project([row[0] for row in rows])
     runs=[]
-    for row in rows:
+    for row in rows[:5]:
         r=row[0]
+        from handset_import_assessment import assess
+        assessment=r.get('importAssessment') or assess(r)
         runs.append(dict(batchId=r['batchId'],revision=r['revision'],receivedAt=r['receivedAt'],
+            importAssessment=assessment, importAssessmentPersisted='importAssessment' in r,
             appVersionCode=r.get('appVersionCode'),listUploadedAt=r['listUploadedAt'],listSource=r.get('listSource','bob-saved-list'),requested=len(r['isins']),
             results=[dict(isin=x['isin'],code=x['code'],attempts=x['attempts'],
                 requestedFields=x.get('requestedFields'),
                 missingFields=(x.get('observation') or {}).get('missingFields',list(REQUIRED)),
                 matchedCurrentList=x['matchedCurrentList']) for x in r['results']],events=r['events'][-12:]))
-    return dict(status='observed' if runs else 'not-observed',readOnly=True,runs=runs,
+    try:
+        with conn.transaction():
+            planning=__import__('handset_planning').read(conn)
+    except Exception:
+        planning=dict(status='unavailable',resultFresh=False)
+    return dict(status='observed' if runs else 'not-observed',readOnly=True,runs=runs,evidenceChain=chain,planning=planning,
                 scope='unverified-app-reader-results-not-trade-proof')

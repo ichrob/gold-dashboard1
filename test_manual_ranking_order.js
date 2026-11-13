@@ -1,0 +1,224 @@
+'use strict';
+const assert=require('node:assert/strict');
+const m=require('./manual_ranking_order.js');
+const now=Date.parse('2026-11-03T12:00:00Z');
+const iso=ms=>new Date(ms).toISOString();
+const at=iso(now-30000);
+const candidate={isin:'DE000FG4JXV7',direction:'SHORT'};
+const product={isin:candidate.isin,productDirection:'SHORT',isinConfirmed:true};
+const quote={isin:candidate.isin,currency:'EUR',ask:20,bid:19.9,at,askAt:at,kind:'issuer',source:'Originalanbieter'};
+const stopPlan={available:true,currency:'EUR',stop:18.5,referenceAt:at};
+function test(extra={}){
+ return m.evaluate({candidate,product,quote,stopPlan,fx:{available:true,rate:1,note:'Test'},budgetCHF:1000,riskCHF:100,feesCHF:8,now,direction:'SHORT',...extra});
+}
+let x=test();
+assert.equal(x.available,true);
+assert.equal(x.quantity,49);
+assert.equal(x.totalCHF,988);
+assert.equal(x.lossCHF,81.5);
+assert.equal(x.entry,20);assert.equal(x.stop,18.5);
+assert.equal(test({riskCHF:50}).quantity,28);
+assert.equal(test({budgetCHF:30,riskCHF:100,feesCHF:8}).quantity,1);
+assert.equal(test({direction:'LONG'}).available,false);
+assert.equal(test({product:{...product,isin:'DE000FG8NHQ3'}}).available,false);
+assert.equal(test({quote:{...quote,askAt:iso(now-91000)}}).available,false);
+assert.equal(test({quote:{...quote,askAt:iso(now-70000)}}).available,false); // clocks > 30s apart
+assert.equal(test({quote:{...quote,ask:19.5,bid:20}}).available,false);
+assert.equal(test({quote:{...quote,kind:'calculated'}}).available,false);
+assert.equal(test({quote:{...quote,at:'undated'}}).available,false);
+assert.equal(test({stopPlan:{...stopPlan,stop:21}}).available,false);
+assert.equal(test({stopPlan:{...stopPlan,available:false}}).available,false);
+assert.equal(test({fx:{available:false,reason:'stale'}}).available,false);
+assert.equal(test({feesCHF:NaN}).available,false);
+assert.equal(test({feesCHF:0}).available,true);
+assert.equal(test({riskCHF:8}).available,false);
+assert.equal(test({budgetCHF:0}).available,false);
+const fx=m.readChfFx({usd_chf_meta:{rate:0.8,fetchedAt:at},
+ usd_eur_meta:{rate:0.9,fetchedAt:at}},now,'EUR');
+assert.equal(fx.available,true);assert.ok(Math.abs(fx.rate-(0.8/0.9))<1e-12);
+assert.equal(m.readChfFx({usd_chf_meta:{rate:0.8,fetchedAt:at},
+ usd_eur_meta:{rate:0.9,fetchedAt:iso(now-91000)}},now,'EUR').available,false);
+assert.equal(m.readChfFx({},now,'CHF').rate,1);
+assert.equal(m.readChfFx({},now,'USD').available,false);
+assert.equal(test({quote:{...quote,at:iso(now+2000),askAt:iso(now+2000)}}).available,false);
+console.log('manual Top-3 order figures: strict quote, source, FX and risk tests passed');
+
+
+
+// Broker-screen stage: manually transcribed displayed price recalculates budget,
+// quantity and stop risk, but never becomes an executable broker quote or fill.
+const brokerDisplay={isin:candidate.isin,currency:'EUR',bid:20.2,ask:20.3,
+ quoteAt:at,venue:'Societe Generale OTC',buyingPowerCHF:'900',
+ fxRateCHF:'0.9',fxAt:at,tickSize:'0.01',lotSize:'1',
+ orderType:'LIMIT',orderDuration:'DAY',confirmedByUser:true};
+function brokerReview(overrides={},other={}){
+ return m.reconcileBrokerDisplay({candidate,product,preliminary:test(),
+  broker:{...brokerDisplay,...overrides},fx:{available:true,rate:1,note:'Marktreferenz'},
+  budgetCHF:1000,riskCHF:100,feesCHF:8,now,direction:'SHORT',...other});
+}
+const brokerResult=brokerReview();
+assert.equal(brokerResult.available,true);
+assert.equal(brokerResult.entry,20.3);
+assert.ok(Math.abs(brokerResult.stop-18.8)<1e-9);
+assert.equal(brokerResult.quantity,48);
+assert.ok(Math.abs(brokerResult.totalCHF-885)<0.05);
+assert.ok(Math.abs(brokerResult.lossCHF-72.8)<0.01);
+assert.equal(brokerResult.manualFieldsComplete,true);
+assert.ok(Math.abs(brokerResult.stopShift-0.3)<1e-9);
+assert.equal(brokerReview({quoteAt:iso(now-75000)}).manualFieldsComplete,false);
+assert.equal(brokerResult.copyAllowed,false);
+assert.equal(brokerResult.brokerExecutionVerified,false);
+assert.equal(brokerResult.orderSubmitted,false);
+assert.equal(brokerReview({confirmedByUser:false}).available,false);
+assert.equal(brokerReview({isin:'DE000FG8NHQ3'}).available,false);
+assert.equal(brokerReview({currency:'CHF'}).available,false);
+assert.equal(brokerReview({quoteAt:'12.11.2026 14:01'}).available,false);
+assert.equal(brokerReview({quoteAt:iso(now-91000)}).available,false);
+assert.equal(brokerReview({quoteAt:iso(now+6000)}).available,false);
+assert.equal(brokerReview({bid:21,ask:20.3}).available,false);
+assert.equal(brokerReview({ask:18.4,bid:18.3}).available,false);
+assert.equal(brokerReview({buyingPowerCHF:'0'}).available,false);
+assert.equal(brokerReview({buyingPowerCHF:''}).manualFieldsComplete,false);
+assert.equal(brokerReview({lotSize:'5'}).quantity,45);
+assert.equal(brokerReview({lotSize:'2.5'}).available,false);
+assert.equal(brokerReview({tickSize:'0.06'}).manualFieldsComplete,false);
+assert.equal(brokerReview({venue:''}).manualFieldsComplete,false);
+assert.equal(brokerReview({orderType:''}).manualFieldsComplete,false);
+assert.equal(brokerReview({orderDuration:''}).manualFieldsComplete,false);
+assert.equal(brokerReview({fxRateCHF:''}).manualFieldsComplete,false);
+assert.equal(brokerReview({fxAt:iso(now-91000)}).available,false);
+assert.equal(brokerReview({ask:30,bid:29}).manualFieldsComplete,false); // >5% divergence
+assert.equal(brokerReview({}, {preliminary:test({quote:{...quote,kind:'calculated',
+ modelVerified:true,validationReady:true,validationSamples:30}})}).available,true);
+assert.equal(brokerReview({}, {preliminary:test({stopPlan:{...stopPlan,available:false}})}).available,false);
+assert.equal(brokerReview({}, {product:{...product,quote:{isin:candidate.isin,metadata:{status:2}}}}).available,false);
+assert.equal(brokerReview({}, {riskCHF:8}).available,false);
+console.log('manual Top-3 DEGIRO screen re-evaluation: identity, source clock, FX, risk and no-order gates passed');
+
+
+// User-shared DEGIRO product image: reusable bid/ask, but NEVER auto-fill an
+// invented source timestamp or elevate OCR to an order execution quote.
+globalThis.BobAndroidEvidence=require('./degiro_android_bridge.js');
+const shared=globalThis.BobAndroidEvidence.readDraft([
+ 'BOB OCR-ENTWURF – NICHT VERIFIZIERT',
+ 'ISIN: DE000FG4JXV7',
+ 'Geld (OCR ungeprüft): 20,20',
+ 'Brief (OCR ungeprüft): 20,30',
+ 'Handelsplatz (OCR ungeprüft): Societe Generale OTC',
+ 'Anzeigezeit (OCR ungeprüft): 12/11/2026 14:02'
+].join('\n'));
+const imported=m.importAndroidScreenDraft(shared);
+assert.equal(imported.available,true);
+assert.equal(imported.values.bid,'20.2');
+assert.equal(imported.values.ask,'20.3');
+assert.equal(imported.values.quoteAt,'');
+assert.equal(imported.values.confirmedByUser,false);
+assert.equal(m.importAndroidScreenDraft({...shared,tradeApproved:true}).available,false);
+assert.equal(m.importAndroidScreenDraft({...shared,sourceTime:at}).available,false);
+console.log('manual DEGIRO read-only screenshot import never invents source times or trade approval');
+
+// Authenticated handset summary crosses into the existing comparison only as
+// an unconfirmed display. No receipt timestamp or market approval is promoted.
+const handset={code:'COMPLETE',researchOnly:true,verified:false,tradeApproved:false,
+ executionConfirmed:false,sourceTime:null,observedAt:at,fields:{
+ 'Geld':'20.20','Brief':'20.30','Währung':'EUR','Handelsplatz':'Test venue',
+ 'Hebel':'12,5','KO-Schwelle':'4200','Anzeigezeit':'03/11/2026 13:00',
+ 'Hinweis':'Keine Aussage zur Handelbarkeit'}};
+const report={status:'ok',lastCheckedAt:at,items:[{isin:candidate.isin,
+ state:'analysis-evidence-complete',handsetObservation:handset}]};
+const read=(o={},r={})=>m.importHandsetReport({...report,...r,
+ items:[{...report.items[0],handsetObservation:{...handset,...o}}]},candidate.isin,now);
+assert.equal(read().available,true);
+assert.equal(read().values.venue,'Test venue');
+assert.equal(read().values.bid,'20.2');
+assert.equal(read().values.quoteAt,'');
+assert.equal(read().values.confirmedByUser,false);
+assert.equal(read().leverage,'12,5');
+assert.equal(read().ko,'4200');
+assert.equal(read({observedAt:iso(now-90001)}).available,true);
+assert.equal(read({observedAt:iso(now-90001)}).historicalOnly,true);
+assert.equal(read({observedAt:iso(now-90000)}).historicalOnly,false);
+// First product of a four-minute batch must still be available as a draft.
+const batchDraft=read({observedAt:iso(now-4*60000)});
+assert.equal(batchDraft.available,true);
+assert.equal(batchDraft.captureAgeSeconds,240);
+assert.equal(batchDraft.values.quoteAt,'');
+assert.equal(batchDraft.values.confirmedByUser,false);
+assert(batchDraft.note.includes('kein aktueller Kurs'));
+assert.equal(read({observedAt:iso(now-14*60*60*1000)}).available,true);
+assert.equal(read({observedAt:iso(now-14*60*60*1000-1)}).available,false);
+assert.equal(read({observedAt:iso(now+1)}).available,false);
+assert.equal(read({sourceTime:at}).available,false);
+assert.equal(read({verified:true}).available,false);
+assert.equal(read({terminalAtAudit:true}).available,false);
+assert.equal(read({}, {status:'stale'}).available,false);
+assert.equal(read({}, {lastCheckedAt:iso(now-120001)}).available,false);
+for(const change of [{Hinweis:'Kurse verzögert'},{Hinweis:'Handel eingeschränkt'},
+ {'Währung':'USD'},{Geld:'21.00'},{Geld:'1,234.50'},{Brief:'0'}])
+ assert.equal(read({fields:{...handset.fields,...change}}).available,false);
+assert.equal(m.importHandsetReport({...report,items:[...report.items,...report.items]},candidate.isin,now).available,false);
+assert.equal(m.importHandsetReport({...report,items:[{...report.items[0],state:'terminated'}]},candidate.isin,now).available,false);
+console.log('Handset audit bridge: timestamps, venue, decimal formats, stale/terminal/conflict guards passed');
+
+const scenarioInput={report,candidate,product:{...product,quote},preliminary:test(),
+ fx:{available:true,rate:0.9},budgetCHF:1000,riskCHF:100,feesCHF:8,now,direction:'SHORT'};
+const scenario=(extra={})=>m.compareHandsetModel({...scenarioInput,...extra});
+const sr=scenario();
+assert.equal(sr.available,true);
+assert.equal(sr.stop,18.5); // no unsupported same-time bid shift
+assert.equal(sr.quantity,54);
+assert(Math.abs(sr.totalCHF-994.58)<1e-8);
+assert(Math.abs(sr.lossCHF-95.48)<1e-8);
+assert.equal(sr.sourceAt,null);
+assert.equal(sr.copyAllowed,false);
+assert.equal(sr.brokerExecutionVerified,false);
+assert.equal(sr.orderSubmitted,false);
+assert.equal(sr.researchOnly,true);
+assert.equal(scenario({report:{...report,items:[{...report.items[0],handsetObservation:{...handset,observedAt:iso(now-4*60000)}}]}}).available,true);
+assert.equal(scenario({preliminary:{...test(),quoteAt:iso(now-90001)}}).available,false);
+assert.equal(scenario({product:{...product,quote:{...quote,currency:'CHF'}}}).available,false);
+assert.equal(scenario({product:{...product,quote:{...quote,metadata:{status:0}}}}).available,false);
+assert.equal(scenario({product:{...product,isinConfirmed:false}}).available,false);
+assert.equal(scenario({direction:'LONG'}).available,false);
+assert.equal(scenario({feesCHF:NaN}).available,false);
+assert.equal(scenario({fx:{available:false,rate:0.9}}).available,false);
+assert.equal(scenario({preliminary:{...test(),stop:20.3}}).available,false);
+assert.equal(scenario({budgetCHF:10}).available,false);
+// A rejected preliminary calculation must retain the actual blocker, rather
+// than disguising budget, fee or FX failures as a missing model. Never approve it.
+for(const overrides of [{budgetCHF:10},{riskCHF:8},{feesCHF:null},
+ {fx:{available:false,reason:'Aktuelle Währungsumrechnung fehlt.'}},
+ {stopPlan:{...stopPlan,available:false}}, {quote:{...quote,askAt:iso(now-91000)}}]){
+ const preliminary=test(overrides),blocked=scenario({preliminary});
+ assert.equal(preliminary.available,false);
+ assert.equal(blocked.reason,preliminary.reason);
+ assert.equal(blocked.available,false);
+ assert.equal(blocked.copyAllowed,false);
+ assert.equal(blocked.orderSubmitted,false);
+ assert.equal(blocked.sourceAt,null);
+}
+assert.equal(scenario({preliminary:{available:false,isin:candidate.isin}}).reason,
+ 'Aktueller unabhängiger Modellplan fehlt.');
+assert.equal(scenario({preliminary:{available:false,isin:'OTHER',reason:'Wrong product'}}).reason,
+ 'Aktueller unabhängiger Modellplan fehlt.');
+assert.equal(scenario({report:{...report,items:[{...report.items[0],state:'terminated'}]}}).available,false);
+for(const budgetCHF of [30,100,500,1000])for(const riskCHF of [9,20,50,100]){
+ const r=scenario({budgetCHF,riskCHF});
+ if(r.available){assert(r.totalCHF<=budgetCHF);assert(r.lossCHF<=riskCHF);assert(Number.isSafeInteger(r.quantity));}
+}
+assert.equal(report.items[0].handsetObservation.sourceTime,null);
+assert.equal(report.items[0].handsetObservation.tradeApproved,false);
+console.log('Automatic handset model scenarios: independent stop, budget/risk limits, stale plan and no approval promotion passed');
+const chfReport={...report,items:[{...report.items[0],handsetObservation:{...handset,fields:{...handset.fields,'Währung':'CHF'}}}]};
+const chfScenario=scenario({report:chfReport,product:{...product,quote:{...quote,currency:'CHF'}},preliminary:{...test(),currency:'CHF'},fx:null});
+assert.equal(chfScenario.available,true);
+assert.equal(chfScenario.quantity,48);
+assert(Math.abs(chfScenario.totalCHF-982.4)<1e-8);
+const missingLeverage={...report,items:[{...report.items[0],handsetObservation:{...handset,code:'PARTIAL',fields:{...handset.fields,Hebel:undefined}}}]};
+assert.equal(scenario({report:missingLeverage}).quantity,sr.quantity);
+
+const summary=m.handsetRunSummary(report,[sr],now);
+assert(summary.includes('1 vollständig'));
+assert(summary.includes('1 von 1 ausgewählten Modellvergleichen berechenbar'));
+assert(m.handsetRunSummary(report,[{available:false,reason:'Kapital fehlt'}],now).includes('Kapital fehlt'));
+assert(m.handsetRunSummary({...report,status:'stale'},[sr],now).includes('Prüfbericht fehlt'));

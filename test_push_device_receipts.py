@@ -66,6 +66,41 @@ class PushDeviceReceiptTests(unittest.TestCase):
             self.assertNotIn('endpoint', str(payload))
         self.assertNotEqual(sent[0]['data']['receiptProof'], 'private-secret')
 
+    def test_time_sensitive_alerts_use_high_web_push_urgency(self):
+        cases = (
+            ('early-warning', False, 'high'),
+            ('signal-change', False, 'high'),
+            ('market-scenario', False, 'high'),
+            ('market-scenario', True, None),
+            ('ko-hit', False, 'high'),
+            ('stop-hit', False, 'high'),
+            ('reversal', False, 'high'),
+            ('data-unavailable', False, None),
+            ('early-warning', True, None),
+        )
+        with patch.object(push_server, 'PUSH_SERVICE_TOKEN', 'private-secret'), \
+             patch.object(push_server.diagnostic_history, 'emit'), \
+             patch.object(push_server, '_webpush',
+                          return_value=SimpleNamespace(status_code=201)) as provider:
+            for event_kind, is_test, expected in cases:
+                with self.subTest(event_kind=event_kind, test=is_test):
+                    provider.reset_mock()
+                    push_server.webpush(
+                        subscription_info={'endpoint':'PRIVATE ENDPOINT'},
+                        data=json.dumps({'data':{'eventKind':event_kind,
+                                                 'test':is_test}}), ttl=180)
+                    headers = provider.call_args.kwargs.get('headers', {})
+                    self.assertEqual(headers.get('Urgency'), expected)
+                    self.assertEqual(provider.call_args.kwargs['ttl'], 180)
+
+            # Existing explicitly configured headers must remain intact.
+            push_server.webpush(
+                subscription_info={'endpoint':'PRIVATE ENDPOINT'},
+                data=json.dumps({'data':{'eventKind':'early-warning'}}),
+                headers={'X-Test-Safe':'yes', 'urgency':'normal'}, ttl=180)
+            self.assertEqual(provider.call_args.kwargs['headers'],
+                             {'X-Test-Safe':'yes', 'urgency':'normal'})
+
     def test_journal_projection_does_not_include_signed_proof(self):
         schema = diagnostic_history.SCHEMAS['push-delivery']
         from bob_diagnostics import project
@@ -87,7 +122,8 @@ class PushDeviceReceiptTests(unittest.TestCase):
             'synthetic': False, 'body': 'PRIVATE'})
         conn.execute.side_effect = [
             SimpleNamespace(fetchall=lambda: [provider_row]),
-            SimpleNamespace(fetchall=lambda: [(rid, 'show-resolved', at)])
+            SimpleNamespace(fetchall=lambda: [(
+                push_receipt.event_id(rid,'show-resolved'),rid,'show-resolved',at)])
         ]
         value = push_delivery_history.report(conn)
         record = value['records'][0]
@@ -101,7 +137,8 @@ class PushDeviceReceiptTests(unittest.TestCase):
         conn2 = Mock()
         conn2.execute.side_effect = [
             SimpleNamespace(fetchall=lambda: [provider_row]),
-            SimpleNamespace(fetchall=lambda: [(rid, 'clicked', at)])
+            SimpleNamespace(fetchall=lambda: [(
+                push_receipt.event_id(rid,'clicked'),rid,'clicked',at)])
         ]
         clicked = push_delivery_history.report(conn2)['records'][0]
         self.assertEqual(clicked['handsetReceipt'], 'notification-click-confirmed')

@@ -5,7 +5,8 @@ import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from urllib.request import Request, urlopen
 
 ORIGIN = 'https://www.swissquote.ch/'
@@ -44,7 +45,7 @@ def parse_payload(payload, isin, now=None):
     if (not isinstance(isin, str) or not valid_isin(isin) or data.get('stockKey') != dict(isin=isin, exchangeId=672, currency='CHF')
             or data.get('issuerName') != 'Societe Generale'
             or data.get('stockExchangeName') != 'Swiss DOTS' or data.get('marketCode') != 'DOTS'
-            or data.get('productType') != 'WARRANT' or data.get('eusipaCode') != '2200'
+            or data.get('productType') != 'WARRANT' or data.get('eusipaCode') not in ('2200', '2210')
             or direction not in ('LONG', 'SHORT')
             or (isin in PRODUCTS and direction != PRODUCTS[isin]) or len(underlying) != 1
             or underlying[0].get('isin') != 'XC0009655157' or underlying[0].get('currency') != 'USD'):
@@ -54,7 +55,8 @@ def parse_payload(payload, isin, now=None):
     fields = {}
     values = {'direction': direction, 'currency': 'CHF', 'underlying': 'XAU/USD',
               'issuer': data['issuerName'], 'marketStatus': data.get('marketStatus')}
-    for key, api_key in [('ko', 'knockOut'), ('strike', 'strike')]:
+    ko_key = 'stopLoss' if data.get('eusipaCode') == '2210' else 'knockOut'
+    for key, api_key in [('ko', ko_key), ('strike', 'strike')]:
         item = underlying[0].get(api_key) or {}
         if item.get('currency') == 'USD' and positive(item.get('value')):
             values[key] = item['value']
@@ -87,6 +89,26 @@ def parse_payload(payload, isin, now=None):
             researchOnly=True, isExecutableQuote=False, degiroExecutable=False)
     except (ValueError, KeyError, TypeError):
         out['reasonCode'] = 'QUOTE_UNAVAILABLE'
+    # Same venue/currency throughout: today's bid versus previous trading close.
+    # Do not reuse dailyPriceChangeValues, which refers to the last trade.
+    try:
+        close = quote['closePrice']
+        row = out['quote']
+        at, baseline_at = stamp(row['bidAt']), stamp(close['timestamp'])
+        zone = ZoneInfo('Europe/Zurich')
+        today = now.astimezone(zone).date()
+        previous = today - timedelta(days=1)
+        while previous.weekday() >= 5:
+            previous -= timedelta(days=1)
+        if (close.get('status') == 'AVAILABLE' and positive(close.get('amount'))
+                and at.astimezone(zone).date() == today
+                and baseline_at.astimezone(zone).date() == previous and at <= now):
+            out['dailyChange'] = dict(isin=isin, percent=(row['bid']/close['amount']-1)*100,
+                bid=row['bid'], previousClose=close['amount'], at=row['bidAt'],
+                referenceAt=baseline_at.isoformat(), currency='CHF', source=SOURCE,
+                sourceUrl=url, basis='bid-vs-previous-close', isExecutableQuote=False)
+    except (KeyError, ValueError, TypeError, OverflowError):
+        pass
     return out
 
 
@@ -108,7 +130,9 @@ def fetch(isin):
             raise ValueError('RESPONSE_TOO_LARGE')
         return parse_payload(json.loads(data), isin)
     except Exception as exc:
-        return dict(state='unavailable', reasonCode='HTTP_'+str(exc.code) if hasattr(exc, 'code') else 'SOURCE_UNAVAILABLE')
+        return dict(state='unavailable', reasonCode='HTTP_'+str(exc.code) if hasattr(exc, 'code')
+                    else str(exc) if isinstance(exc, ValueError) and str(exc) in
+                    ('IDENTITY_MISMATCH', 'UNEXPECTED_REDIRECT', 'RESPONSE_TOO_LARGE') else 'SOURCE_UNAVAILABLE')
 
 
 def _refresh(isin):
@@ -133,7 +157,7 @@ def eligible_primary(result, isin):
     return (isinstance(isin, str) and valid_isin(isin) and result.get('isin') == isin
         and result.get('productVerified') is True and not result.get('sourceDisabled')
         and meta.get('status') == 1 and meta.get('issuerExchangeCode') == 'CBSW'
-        and meta.get('currency') == 'CHF'
+        and meta.get('currency') == 'CHF' and meta.get('underlyingType') != 'FUTURE'
         and (meta.get('direction') or result.get('direction')) in ('LONG', 'SHORT'))
 
 
@@ -185,6 +209,8 @@ def apply(result, isin, now=None):
     if not row or not matches_primary(result, row):
         return out
     out['thirdQuote'] = copy.deepcopy(row)
+    if evidence.get('dailyChange'):
+        out['dailyChange'] = copy.deepcopy(evidence['dailyChange'])
     current = current_pair(out, now)
     out['swissquoteBackup']['quoteState'] = 'current' if current else 'stale-or-unavailable'
     # Keep native currency. The existing calculation understands CHF inputs.

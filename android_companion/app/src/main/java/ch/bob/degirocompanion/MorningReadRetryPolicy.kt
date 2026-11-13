@@ -6,7 +6,7 @@ package ch.bob.degirocompanion
  * fallback must handle it separately. Never manufacture a leverage. */
 internal object MorningReadRetryPolicy {
     fun retry(code: String, hasDraft: Boolean, missingFields: Collection<String>, attempt: Int): Boolean {
-        if (code == "COMPLETE" || attempt >= 2) return false
+        if (code == "COMPLETE" || (code == "QUOTES_UNAVAILABLE" && hasDraft) || attempt >= 2) return false
         if (hasDraft && missingFields.isNotEmpty() && missingFields.all { it == "Hebel" }) return false
         return true
     }

@@ -187,14 +187,24 @@ internal object QuoteLayout {
         // This is just what a screenshot displays next to "Zuletzt"; its
         // provenance/timezone is NOT validated, so it never becomes sourceTime.
         val displayedTimes = inlineTimes.toMutableList()
+        // WebView can split the displayed broker date and time into adjacent
+        // accessibility nodes. Bind both to the real Zuletzt row, never to
+        // the Android status-bar clock or the device capture time.
+        val dateFragment=Regex("^(?:0[1-9]|[12][0-9]|3[01])/(?:0[1-9]|1[0-2])/20[0-9]{2}$")
+        val timeFragment=Regex("^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
         for (line in sorted) {
             if (label.matchEntire(line.text.trim())?.groupValues?.get(1)?.equals("Zuletzt", true) != true) continue
-            sorted.filter { other ->
+            val sameRow=sorted.filter { other ->
                 other.left > line.right &&
                 abs(other.centerY-line.centerY) <= max(16,line.height)
-            }.forEach { other ->
+            }
+            sameRow.forEach { other ->
                 date.matchEntire(other.text.trim())?.let { displayedTimes += it.groupValues[1] }
             }
+            for (day in sameRow.filter { dateFragment.matches(it.text.trim()) })
+                for (clock in sameRow.filter { timeFragment.matches(it.text.trim()) })
+                    if (clock.left >= day.right && clock.left - day.right <= 90)
+                        displayedTimes += day.text.trim() + " " + clock.text.trim()
         }
         addIfUnique("Anzeigezeit", displayedTimes)
         // Product leverage can appear as a separate, explicitly labelled

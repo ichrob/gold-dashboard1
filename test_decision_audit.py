@@ -370,17 +370,18 @@ class ProspectiveBoundedRecoveryTests(unittest.TestCase):
     def test_query_fallback_only_adds_safe_fixed_time_constraint(self):
         full_sql,full_params=a._prospective_query()
         self.assertIn("recorded_at >= now()-interval '30 days'",full_sql)
-        self.assertIn('WITH RECURSIVE sampled',full_sql)
+        self.assertIn('generate_series',full_sql)
+        self.assertIn('sampled AS MATERIALIZED',full_sql)
         self.assertIn('CROSS JOIN LATERAL',full_sql)
-        self.assertEqual(full_sql.count('AND recorded_at <= now()'), 2)
+        self.assertEqual(full_sql.count('AND recorded_at <= now()'), 1)
         self.assertNotIn('DISTINCT ON',full_sql)
         recent_sql,recent_params=a._prospective_query(recent=True)
         self.assertIn("recorded_at >= now()-interval '24 hours'",
                       recent_sql)
         self.assertEqual(recent_sql.count(
-            'AND recorded_at <= now()'), 2)
-        self.assertEqual(full_params,(a.RULE_VERSION,a.RULE_VERSION))
-        self.assertEqual(recent_params,(a.RULE_VERSION,a.RULE_VERSION))
+            'AND recorded_at <= now()'), 1)
+        self.assertEqual(full_params,(a.RULE_VERSION,))
+        self.assertEqual(recent_params,(a.RULE_VERSION,))
 
     def test_one_timeout_produces_explicit_partial_not_30_day_result(self):
         from unittest.mock import MagicMock, Mock, patch

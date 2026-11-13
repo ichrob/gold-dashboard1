@@ -162,6 +162,21 @@ function safeUrl(value,filename=''){
  }catch(_){return null;}
 }
 function safeExportUrl(anchor){return anchor?.tagName==='A'?safeUrl(anchor.href,anchor.getAttribute('download')||''):null;}
+// Parse and validate the same strict portfolio format for both HTTP exports
+// and already selected Blob objects. Never log or persist raw CSV text.
+function validatedPortfolio(text){
+ const report=readReport(text,{strict:true});
+ if(report.kind!=='portfolio')throw Error('Bitte Portfolio-CSV exportieren, keine Transaktionsliste.');
+ if(report.invalidRows.length)throw Error('Export enthält ungültige Zeilen; bisheriger Bob-Depotstand bleibt erhalten.');
+ const seen=new Set();for(const row of report.records){if(seen.has(row.isin))throw Error('Doppelte ISIN im Export.');seen.add(row.isin);}
+ return report;
+}
+async function readBlob(blob){
+ if(!(blob instanceof page.Blob)||blob.size>MAX)throw Error('Export größer als 2 MB');
+ // A Blob remains readable even if its object URL is revoked immediately.
+ // This only runs after an explicit trusted CSV selection and original allowlists.
+ return validatedPortfolio(await blob.text());
+}
 async function readExport(url){
  const controller=new page.AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
  try{
@@ -173,19 +188,14 @@ async function readExport(url){
   try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>MAX)throw Error('Export größer als 2 MB');parts.push(decoder.decode(value,{stream:true}));}parts.push(decoder.decode());text=parts.join('');}
   finally{await reader.cancel().catch(()=>{});}
  }else{text=await response.text();if(text.length>MAX)throw Error('Export größer als 2 MB');}
- const report=readReport(text,{strict:true});
- if(report.kind!=='portfolio')throw Error('Bitte Portfolio-CSV exportieren, keine Transaktionsliste.');
- if(report.invalidRows.length)throw Error('Export enthält ungültige Zeilen; bisheriger Bob-Depotstand bleibt erhalten.');
- // Validate duplicates and quantities before staging. No raw CSV/URLs/session data stored.
- const seen=new Set();for(const row of report.records){if(seen.has(row.isin))throw Error('Doppelte ISIN im Export.');seen.add(row.isin);}
- return report;
+ return validatedPortfolio(text);
  }finally{clearTimeout(timeout);}
 }
-async function captureUrl(url){
+async function captureUrl(url,readSelected=()=>readExport(url)){
  if(!url||!armed()||busy)return;
  busy=true;brokerStatus('reading');note('Bob prüft den Portfolioexport …');
  try{
-  const report=await readExport(url);
+  const report=await readSelected();
   if(!armed())throw Error('Übernahme abgelaufen. In Bob erneut aktivieren.');
   const id=crypto.randomUUID();
   GM_setValue(QUEUE,{id,createdAt:now(),expiresAt:now()+TTL,report});brokerStatus('staged');
@@ -209,7 +219,7 @@ if(isBroker){
   const url=originalCreateObjectURL.apply(this,arguments);
   if(armed()&&now()<csvChoiceUntil&&blob instanceof page.Blob&&
      /^(?:text\/(?:csv|plain)|application\/(?:csv|octet-stream|vnd\.ms-excel))(?:;|$)|^$/i.test(blob.type)&&blob.size<=MAX){
-   csvChoiceUntil=0;captureUrl(safeUrl(url));
+   csvChoiceUntil=0;captureUrl(safeUrl(url),()=>readBlob(blob));
   }
   return url;
  };

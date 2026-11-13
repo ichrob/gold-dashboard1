@@ -2,6 +2,14 @@
 (function(){
   const KEY="bobPushV1", LEGACY="goldScannerPush";
   const PUSH_API="/api/push";
+  // Zentrale has its own install scope, but notification preferences and
+  // subscriptions must always address Bob's existing root worker.
+  async function registration(){
+    if(typeof location==='undefined'||!location.pathname.startsWith('/zentrale/'))return navigator.serviceWorker.ready;
+    const reg=await navigator.serviceWorker.getRegistration('/');
+    if(!reg)throw new Error('Push bitte zuerst über „Gerät registrieren“ einrichten.');
+    return reg;
+  }
   const defaults={registered:false,serverRegistered:false,general:false,trade:false,activeTrade:false,risk:false};
   function read(){
     try{
@@ -136,7 +144,7 @@
           const result=await res.json().catch(()=>null);
           serverSent=Boolean(result&&result.sent>0);
           if(result&&result.vapidReset){
-            const reg=await navigator.serviceWorker.ready;
+            const reg=await registration();
             serverSent=await registerServerPush(reg);
             if(serverSent){
               const retry=await fetch("/api/push/send",{
@@ -157,7 +165,7 @@
     const options={body,tag,data:payload.data,renotify:false};
     try{
       if("serviceWorker" in navigator){
-        const reg=await navigator.serviceWorker.ready;
+        const reg=await registration();
         await reg.showNotification(title,options);
         return true;
       }
@@ -168,7 +176,7 @@
   function activeTradeId(){try{const t=JSON.parse(localStorage.getItem('goldScannerTradeMgmt')||'{}');return t.tradeId||t.fibonacciMonitor?.tradeId||null;}catch(_){return null;}}
   function syncWorkerPreferences(){
     if(!('serviceWorker' in navigator))return;
-    navigator.serviceWorker.ready.then(reg=>reg.active?.postMessage({type:'BOB_PUSH_PREFERENCES',risk:read().risk===true,riskMarket:(read().riskMarket??read().risk)===true,general:read().general===true,trade:read().trade===true,activeTrade:read().activeTrade===true,tradeId:activeTradeId()})).catch(()=>{});
+    registration().then(reg=>reg.active?.postMessage({type:'BOB_PUSH_PREFERENCES',risk:read().risk===true,riskMarket:(read().riskMarket??read().risk)===true,general:read().general===true,trade:read().trade===true,activeTrade:read().activeTrade===true,tradeId:activeTradeId()})).catch(()=>{});
   }
   let selectionBusy=false,selectionLastAt=0,selectionLastKey='',selectionGeneration=0;
   function productStatus(text){const el=typeof document!=='undefined'?document.getElementById('productPushStatus'):null;if(el)el.textContent=text;}
@@ -180,7 +188,7 @@
     if(selectionBusy||(key===selectionLastKey&&Date.now()-selectionLastAt<10000))return false;
     selectionBusy=true;const generation=selectionGeneration;
     try{
-      const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();
+      const reg=await registration(),sub=await reg.pushManager.getSubscription();
       if(!sub||!read().general||generation!==selectionGeneration)return false;
       const payload={...evidence,capturedAt:Date.now(),endpoint:sub.endpoint};
       const res=await fetch('/api/push/selection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -199,7 +207,7 @@
     return next;
   }
   function setActiveTrade(value){return set("activeTrade",value);}
-  window.BobPush={state,save,enable,allowed,emit,beginBatch,flushBatch,set,setActiveTrade,updateSelection,syncWorkerPreferences};
+  window.BobPush={registration,state,save,enable,allowed,emit,beginBatch,flushBatch,set,setActiveTrade,updateSelection,syncWorkerPreferences};
   syncWorkerPreferences();
 
   // Active-trade push monitor. This intentionally stays in the push layer:

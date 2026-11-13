@@ -2,6 +2,19 @@ name: Bob Risiko
 on:
   pull_request:
     paths:
+      # Public AI-review filters decide which code leaves GitHub for external review.
+      - 'ai_peer_review.py'
+      - 'test_ai_peer_review.py'
+      - 'repair_flow.py'
+      - 'test_repair_flow.py'
+      - 'bob_problems.py'
+      - 'bob_problem_mirror.py'
+      # Archive replay and offline COPY validation require the same safety checks.
+      - 'storage_archive_*.py'
+      - 'test_storage_archive_*.py'
+      - "termux_maintenance.py"
+      - "bob_termux_runner.py"
+      - "test_termux_maintenance.py"
       - 'risk_workspace.js'
       - 'risk_paper.py'
       - 'paper_selection.js'
@@ -10,8 +23,13 @@ on:
       - 'background_analysis.js'
       - 'background_push.py'
       - 'push_server.py'
+      - 'candle_reliability.py'
+      - 'test_candle_reliability.py'
       # Archival changes can alter historical paper evidence: run risk regressions.
       - 'decision_product_pilot.py'
+      - 'decision_product_single_rollback.py'
+      - 'decision_product_rollback_cli.py'
+      - 'test_decision_product_single_rollback.py'
       - 'decision_product_pilot_cli.py'
       - 'cold_decision_product_writer.py'
       - 'cold_decision_products.py'
@@ -23,17 +41,40 @@ on:
       - 'cold_analysis.py'
       - 'cold_metrics.py'
       - 'cold_observations.py'
+      - '.github/workflows/bob-risk.yml'
+      # Full-history entry/exit reports and cold reader affect risk/evidence.
+      - 'paper_entry_exit_comparison.py'
+      - 'paper_comparison_report.py'
+      - 'cold_test_evidence.py'
+      - 'test_paper_entry_exit_comparison.py'
+      - 'test_cold_test_evidence.py'
       - 'test_cold_archive_maintenance_isolation.py'
       - 'test_cold_analysis.py'
       - 'storage_maintenance.py'
       - 'drive_evidence_archive.py'
       - 'drive_archive_encryption.py'
+      - 'bob_offline_key_escrow.py'
+      - 'bob_render_to_offline_escrow.py'
+      - 'test_bob_render_to_offline_escrow.py'
+      - 'test_bob_offline_key_escrow.py'
       - 'test_drive_archive_encryption.py'
       - 'test_drive_evidence_archive.py'
       - 'test_archive_worker.py'
       - 'diagnostic_archived_catchup.py'
       - 'test_diagnostic_archived_catchup.py'
+      - 'storage_pressure.py'
+      - 'test_storage_pressure.py'
+      - 'ops/cloudflare-watchdog/**'
       - 'storage_budget.py'
+      - 'storage_brief.py'
+      - 'render_disk_metrics.py'
+      - 'test_render_disk_metrics.py'
+      - 'test_storage_brief.py'
+      - 'bob_diagnostics.py'
+      - 'bob_mcp.py'
+      - 'android_remote.py'
+      - 'test_android_remote.py'
+      - 'android_companion/**'
       - 'diagnostic_history.py'
       - 'diagnostic_archived_catchup.py'
       - 'test_diagnostic_archived_catchup.py'
@@ -42,8 +83,20 @@ on:
       - 'storage_budget.py'
       - 'storage_knowledge.py'
       - 'storage_case_results.py'
+      - 'storage_history_evaluations.py'
+      - 'test_storage_history_evaluations.py'
+      - 'storage_history_replay.py'
+      - 'test_storage_history_replay.py'
+      - 'storage_paper_evaluation.py'
+      - 'test_storage_paper_evaluation.py'
+      - 'storage_quality_evaluation.py'
+      - 'test_storage_quality_evaluation.py'
+      - 'storage_improvement_evaluation.py'
+      - 'test_storage_improvement_evaluation.py'
       - 'test_storage_case_results.py'
       - 'test_storage_knowledge.py'
+      - 'diagnostic_reference_shadow.py'
+      - 'test_diagnostic_reference_shadow.py'
       - 'storage_layout.py'
       - 'storage_forensics.py'
       - 'android_image_storage_audit.py'
@@ -94,6 +147,16 @@ on:
       - 'sw.js'
       - 'browser_risk_workspace.cjs'
       - 'Bob.html'
+      - 'degiro_assistant.js'
+      - 'manual_ranking_order.js'
+      - 'test_manual_ranking_order.js'
+      - 'browser_manual_ranking_order.cjs'
+      - 'degiro_android_bridge.js'
+      - 'degiro_handoff.js'
+      - 'bob_unified_workspace.js'
+      - 'real_trade_journal.js'
+      - 'browser_simple_home.cjs'
+      - 'test_simple_trade_automation.js'
       - '.github/workflows/bob-risk.yml'
 permissions:
   contents: read
@@ -112,12 +175,14 @@ jobs:
       - name: Risk rules and existing product guards
         run: |
           node validate_bob.js
+          node test_simple_trade_automation.js
           node test_risk_workspace.js
           node test_risk_background.js
           node test_risk_push_worker.js
           python -m unittest test_risk_background
           node test_unapproved_comparison_ranking.js
           node test_early_product_ranking.js
+          node test_manual_ranking_order.js
       - uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -129,10 +194,19 @@ jobs:
       - name: Mobile navigation and risk view
         run: |
           NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_risk_workspace.cjs
+          NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_zentrale.cjs
           NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_simple_home.cjs
+          NODE_PATH=/tmp/bob-risk-browser/node_modules node browser_manual_ranking_order.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: risk-mobile-preview
-          path: risk-mobile.png
+          path: |
+            risk-mobile.png
+            manual-order-mobile.png
+            /tmp/zentrale-workspace.png
+            /tmp/zentrale-home.png
+            /tmp/bob-simple-home.png
+            /tmp/bob-simple-home-active.png
+            /tmp/bob-simple-trade.png
           if-no-files-found: ignore

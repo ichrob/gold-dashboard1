@@ -50,6 +50,19 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(len(db.calls),2)
         self.assertTrue(all(sql.lstrip().startswith("SELECT") for sql in db.calls))
 
+    def test_known_independent_recovery_stage_is_not_hidden(self):
+        now = datetime.now(timezone.utc)
+        failed = ("failed", now, {
+            "phase": "verify-independent-recovery-key",
+            "errorType": "ValueError",
+            "receipt": {"driveFileId": "private-secret", "recoveryKeyVerified": False},
+        })
+        report = probe._redacted(failed)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["phase"], "verify-independent-recovery-key")
+        self.assertEqual(report["errorType"], "ValueError")
+        self.assertNotIn("private-secret", json.dumps(report))
+
     def test_untrusted_fields_do_not_escape(self):
         now=datetime.now(timezone.utc)
         dangerous=("internal-state",now,

@@ -97,6 +97,41 @@ class ProductReadDiagnosticsTest {
         assertNull(ProductWindowPolicy.select(listOf(ProductWindowPolicy.Window(true, true, false))))
         assertEquals(1, ProductWindowPolicy.select(listOf(ProductWindowPolicy.Window(false, false, true), allowed)))
     }
+    @Test fun sgLeverageShapeDiagnosticsDistinguishMissingAccessibilityFromParserMiss() {
+        val target = "DE000SX7PE82"
+        fun seen(vararg text: String) = text.mapIndexed { i, value ->
+            QuoteLayout.Line(value, 0, i * 50, 500, i * 50 + 30)
+        }
+        ProductReadDiagnostics.reset(1000)
+        ProductReadDiagnostics.detailFieldShape(seen(
+            target,
+            "SG Gold Turbo BEST Open-End Call BAR 3501.67 BP 3501.67 Bv 10 LV 8.71"), target)
+        val parsed = ProductReadDiagnostics.report(1001)
+        assertTrue(parsed.contains("DETAIL_TARGET_ISIN_VISIBLE: 1"))
+        assertTrue(parsed.contains("DETAIL_SG_TITLE_VISIBLE: 1"))
+        assertTrue(parsed.contains("DETAIL_SG_LV_LABEL_VISIBLE: 1"))
+        assertTrue(parsed.contains("DETAIL_SG_LV_PARSED: 1"))
+        for (secret in listOf(target, "3501.67", "8.71"))
+            assertFalse("Raw screen content leaked", parsed.contains(secret))
+
+        // The LV marker is visible but malformed: never treat it as a measured leverage.
+        ProductReadDiagnostics.detailFieldShape(seen(
+            target, "SG Gold Turbo BEST Open-End Call BAR 3501.67 BP 3501.67 Bv 10 LV ?"), target)
+        val unparsed = ProductReadDiagnostics.report(1002)
+        assertTrue(unparsed.contains("DETAIL_SG_LV_UNPARSED: 1"))
+        assertTrue(unparsed.contains("DETAIL_SG_LV_LABEL_VISIBLE: 2"))
+
+        // Kursdaten without SG header: shows what Accessibility exposed, not a parser failure.
+        ProductReadDiagnostics.detailFieldShape(seen(target, "Kursdaten",
+            "Geld EUR 40,66", "Brief EUR 40,67"), target)
+        val noHeader = ProductReadDiagnostics.report(1003)
+        assertTrue(noHeader.contains("DETAIL_TARGET_ISIN_VISIBLE: 3"))
+        assertTrue(noHeader.contains("DETAIL_SG_TITLE_VISIBLE: 2"))
+        assertFalse(noHeader.contains("DETAIL_SG_LV_UNPARSED: 2"))
+        assertFalse(noHeader.contains("40,66"))
+        ProductReadDiagnostics.clear()
+    }
+
     @Test fun reportsOnlyFixedCountersAndExpires() {
         ProductReadDiagnostics.reset(1000)
         ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.NO_ROOT)

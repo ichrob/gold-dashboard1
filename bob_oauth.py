@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, build_opener, HTTPSHandler
 import bob_auth
 import bob_passkey
-from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, REDIRECT
+from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE, REDIRECT, GEMINI_REDIRECT, ANTIGRAVITY_REDIRECT, CODE_TTL
 
 COOKIE = '__Host-bob_oauth'
 UNTIL = '2026-11-16T23:59:59+01:00'
@@ -54,8 +54,11 @@ def bearer_authenticated(headers, user, required_scope=SCOPE):
         raise bob_auth.AuthenticationUnavailable() from None
 
 
-def challenge_header():
-    return 'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource", scope="'+SCOPE+'"'
+def challenge_header(owner_diagnostics=False):
+    # This header only *requests* additional read scopes during a fresh OAuth
+    # flow. No token or grant changes without the owner's PKCE browser consent.
+    scopes = SCOPE + ' ' + DIAGNOSTICS_SCOPE if owner_diagnostics else SCOPE
+    return 'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource", scope="'+scopes+'"'
 
 
 def resume_location(headers):
@@ -111,14 +114,22 @@ def read_body(handler, json_body=False):
     return value
 
 
-def browser_ready(handler, user, password):
+def browser_ready(handler, user, password, *, return_view=""):
+    # Preserve only these two *fixed* Bob destinations. Other OAuth consent
+    # requests still return to /oauth/resume, never an arbitrary URL.
+    archive = return_view == "archive-connect"
+    connections = return_view == "oauth-connections"
     if not bob_passkey.browser_authenticated(handler.headers,user,password):
-        respond(handler,303,location='/login')
+        location = ('/login?view=archive-connect' if archive else
+                    '/login?view=oauth-connections' if connections else '/login')
+        respond(handler,303,location=location)
         return False
     try:
         bob_passkey.require(handler.headers,user,password)
     except bob_passkey.PasskeyRequired:
-        respond(handler,303,location='/passkey?oauth=1')
+        location = ('/passkey?archive=1' if archive else
+                    '/passkey?connections=1' if connections else '/passkey?oauth=1')
+        respond(handler,303,location=location)
         return False
     return True
 
@@ -138,12 +149,12 @@ def route(handler,user,password):
         if handler.command=='GET':
             if path in ('/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp'):
                 respond(handler,200,{'resource':RESOURCE,'authorization_servers':[ORIGIN],
-                                    'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE],'bearer_methods_supported':['header']})
+                                    'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE],'bearer_methods_supported':['header']})
             elif path=='/.well-known/oauth-authorization-server':
                 respond(handler,200,{'issuer':ORIGIN,'authorization_endpoint':ORIGIN+'/oauth/authorize',
                     'token_endpoint':ORIGIN+'/oauth/token','registration_endpoint':ORIGIN+'/oauth/register',
                     'revocation_endpoint':ORIGIN+'/oauth/revoke','response_types_supported':['code'],
-                    'grant_types_supported':['authorization_code','refresh_token'],'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE],
+                    'grant_types_supported':['authorization_code','refresh_token'],'scopes_supported':[SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE],
                     'token_endpoint_auth_methods_supported':['none'],'code_challenge_methods_supported':['S256'],
                     'authorization_response_iss_parameter_supported':True})
             elif path=='/oauth/authorize':
@@ -155,24 +166,55 @@ def route(handler,user,password):
                 nonce = bob_auth.cookie(handler.headers,COOKIE)
                 pending = rpc('pending',user,request=nonce)
                 if not pending.get('ok'):
-                    respond(handler,400,page('Verbindung erneut starten','<p>Die Anfrage ist abgelaufen. Starte die Verbindung erneut in ChatGPT.</p>'),page=True)
+                    respond(handler,400,page('Verbindung erneut starten','<p>Die Anfrage ist abgelaufen. Starte die Verbindung erneut in deiner KI-Anwendung.</p>'),page=True)
                 elif browser_ready(handler,user,password):
                     until = datetime.fromisoformat(UNTIL).strftime('%d.%m.%Y')
-                    respond(handler,200,page('ChatGPT mit Bob verbinden',
-                        ('<p>ChatGPT darf deine privaten Produktprüfberichte mit ISINs, Quellen, Zeitstempeln und fehlenden Nachweisen lesen.</p>' if SCOPE in pending.get('scope', SCOPE).split() else '') +
+                    client_name = pending.get('client_name', 'ChatGPT')
+                    if client_name not in ('ChatGPT', 'Gemini CLI', 'Antigravity CLI'):
+                        raise ValueError('Unrecognized OAuth client')
+                    respond(handler,200,page(client_name+' mit Bob verbinden',
+                        ('<p><strong>Google-Datenschutz:</strong> Im kostenlosen Gemini-Tarif können private Daten, die die KI über diese Schnittstelle abruft, an Google übertragen und zur Verbesserung von Google-Produkten verwendet werden. Erlaube diesen Zugriff nur, wenn du diese Datenweitergabe ausdrücklich willst. Das ist keine kostenfreie private Datenverarbeitung.</p>' if client_name in ('Gemini CLI', 'Antigravity CLI') else '') +
+                        ('<p>Die ausgewählte KI darf deine privaten Produktprüfberichte mit ISINs, Quellen, Zeitstempeln und fehlenden Nachweisen lesen.</p>' if SCOPE in pending.get('scope', SCOPE).split() else '') +
                         ('<p>Zusätzlich freigegeben: Diagnoseberichte zu Marktanalyse, Hintergrundjobs, Simulationen, Push-Überwachung, Recherche und offenen Problemen. Keine Zugangsdaten oder vollständigen Protokolle.</p>' if DIAGNOSTICS_SCOPE in pending.get('scope', SCOPE).split() else '') +
+                        ('<p>Termux-Wartung: ChatGPT darf während einer separat am Samsung freigegebenen Sitzung Shellbefehle mit den Rechten der Termux-App ausführen. Diese können Termux-Dateien lesen und ändern; begrenzte Ausgaben werden an Bob/ChatGPT übertragen. Keine automatische Passwortfreigabe. Keine Sandbox. STOPP sperrt neue Aufträge.</p>' if TERMUX_SCOPE in pending.get('scope',SCOPE).split() else '') +
                         ('<p>Zusätzlicher Handy-Zugriff: In einer am Handy gestarteten Sitzung Produktstatus lesen, Gold-/ISIN-Suchschritte und Produktlesen auslösen sowie stoppen. Keine Orders oder freie Handy-Bedienung.</p>' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else '') +
-                        ('<p>Zusätzliche Schreibberechtigung: klar gekennzeichnete TEST-Pushs für bereits registrierte Geräte auslösen (maximal einer je fünf Minuten und zehn pro Tag/Gerät). Keine freie Nachricht, Registrierung, Änderung der Push-Kanäle oder Android-Berechtigungen.</p>' if PUSH_TEST_SCOPE in pending.get('scope', SCOPE).split() else ('' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else '<p>Keine Änderungen an Bob.</p>')) +
+                        ('<p>Zusätzliche Schreibberechtigung: klar gekennzeichnete TEST-Pushs für bereits registrierte Geräte auslösen (maximal einer je fünf Minuten und zehn pro Tag/Gerät). Keine freie Nachricht, Registrierung, Änderung der Push-Kanäle oder Android-Berechtigungen.</p>' if PUSH_TEST_SCOPE in pending.get('scope', SCOPE).split() else ('' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else '' if TERMUX_SCOPE in pending.get('scope',SCOPE).split() else '<p>Keine Änderungen an Bob.</p>')) +
                         ('<p>Keine Orders, Zugangsdaten oder Depotübertragung. Produktzugriff nur während der am Handy gestarteten Sitzung.</p>' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else '<p>Keine Orders und kein Zugriff auf dein DEGIRO-Konto.</p>') +
                         '<p>Gültig höchstens 28 Tage, längstens bis '+until+'. In Bob jederzeit widerrufbar.</p>'
                         '<form method="post" action="/oauth/consent"><input type="hidden" name="request" value="'+html.escape(nonce)+'">'
-                        '<button name="decision" value="approve">'+('Handy-Zugriff erlauben' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else 'Push-Test-Berechtigung erlauben' if PUSH_TEST_SCOPE in pending.get('scope',SCOPE).split() else 'Lesezugriff erlauben')+'</button>'
+                        '<button name="decision" value="approve">'+('Termux-Wartung erlauben' if TERMUX_SCOPE in pending.get('scope',SCOPE).split() else 'Handy-Zugriff erlauben' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else 'Push-Test-Berechtigung erlauben' if PUSH_TEST_SCOPE in pending.get('scope',SCOPE).split() else 'Lesezugriff erlauben')+'</button>'
                         '<button class="secondary" name="decision" value="deny">Abbrechen</button></form>'),page=True)
             elif path=='/oauth/connections':
-                if browser_ready(handler,user,password):
+                if browser_ready(handler,user,password,return_view="oauth-connections"):
                     grants = rpc('list',user).get('grants',[])
-                    respond(handler,200,page('ChatGPT-Zugriff',
-                        '<p>Aktive Freigaben: '+str(len(grants))+'</p><p>Hier kannst du alle OAuth-Freigaben sofort beenden. Dein Bob-Login bleibt bestehen.</p>'
+                    # OAuth grant existence alone does not prove that a
+                    # ChatGPT client connection currently permits tool writes.
+                    termux_granted = any(isinstance(g,dict) and
+                        g.get('client') == 'ChatGPT' and
+                        TERMUX_SCOPE in g.get('scopes',[]) for g in grants)
+                    gemini_granted = any(isinstance(g,dict) and
+                        g.get('client') == 'Gemini CLI' for g in grants)
+                    antigravity_granted = any(isinstance(g,dict) and
+                        g.get('client') == 'Antigravity CLI' for g in grants)
+                    termux_text = ('OAuth-Freigabe vorhanden; externe Connector-Berechtigung '
+                                   'und aktive Handy-Sitzung zusätzlich prüfen'
+                                   if termux_granted else 'Keine aktive OAuth-Freigabe')
+                    gemini_text = ('OAuth-Freigabe vorhanden; externer Live-Zugriff nicht '
+                                   'allein dadurch nachgewiesen'
+                                   if gemini_granted else 'Keine aktive OAuth-Freigabe')
+                    antigravity_text = ('OAuth-Freigabe vorhanden; tatsächlichen Lesezugriff '
+                                        'getrennt prüfen'
+                                        if antigravity_granted else 'Keine aktive OAuth-Freigabe')
+                    respond(handler,200,page('KI-Verbindungen zu Bob',
+                        '<p>Aktive Freigaben: '+str(len(grants))+'</p>'
+                        '<p>Termux-Wartung (ChatGPT): '+termux_text+'</p>'
+                        '<p>Gemini CLI: '+gemini_text+'</p>'
+                        '<p>Antigravity CLI: '+antigravity_text+'</p>'
+                        '<p>Hier kannst du alle OAuth-Freigaben sofort beenden. Dein Bob-Login bleibt bestehen.</p>'
+                        '<form method="post" action="/oauth/disconnect-gemini"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
+                        '<button>Nur Gemini-Zugriff widerrufen</button></form>'
+                        '<form method="post" action="/oauth/disconnect-antigravity"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
+                        '<button>Nur Antigravity-Zugriff widerrufen</button></form>'
                         '<form method="post" action="/oauth/disconnect"><input type="hidden" name="csrf" value="'+csrf(handler.headers)+'">'
                         '<button>Alle Freigaben widerrufen</button></form><p><a href="/">Zurück zu Bob</a></p>'),page=True)
             else:respond(handler,404,{'error':'not_found'})
@@ -187,15 +229,16 @@ def route(handler,user,password):
                 else:
                     result = rpc('token' if path.endswith('/token') else 'revoke',user,**fields)
                     respond(handler,400 if 'error' in result else 200,result)
-            elif path in ('/oauth/consent','/oauth/disconnect'):
+            elif path in ('/oauth/consent','/oauth/disconnect','/oauth/disconnect-gemini','/oauth/disconnect-antigravity'):
                 if handler.headers.get('Origin') != ORIGIN:
                     respond(handler,403,{'error':'origin_required'}); return True
                 if not browser_ready(handler,user,password):return True
                 fields = read_body(handler)
-                if path=='/oauth/disconnect':
+                if path in ('/oauth/disconnect', '/oauth/disconnect-gemini', '/oauth/disconnect-antigravity'):
                     if not hmac.compare_digest(fields.get('csrf',''),csrf(handler.headers)):
                         respond(handler,403,{'error':'invalid_csrf'}); return True
-                    rpc('revoke-all',user)
+                    rpc('revoke-antigravity' if path.endswith('-antigravity') else
+                        'revoke-gemini' if path.endswith('-gemini') else 'revoke-all',user)
                     respond(handler,303,location='/oauth/connections')
                 else:
                     nonce = bob_auth.cookie(handler.headers,COOKIE)
@@ -205,17 +248,19 @@ def route(handler,user,password):
                     if 'redirect_uri' not in result:
                         respond(handler,400,{'error':'invalid_request'})
                     else:
-                        if result.get('redirect_uri') != REDIRECT:
+                        if result.get('redirect_uri') not in (REDIRECT, GEMINI_REDIRECT, ANTIGRAVITY_REDIRECT):
                             raise ValueError('Unexpected OAuth callback')
+                        client_name = ('Antigravity CLI' if result['redirect_uri'] == ANTIGRAVITY_REDIRECT else
+                                       'Gemini CLI' if result['redirect_uri'] == GEMINI_REDIRECT else 'ChatGPT')
                         destination = result.pop('redirect_uri')+'?'+urlencode(result)
                         # A form redirect remains subject to form-action across the
                         # client's redirect chain (including Android app links).
                         # A user-activated link completes the same PKCE flow without
                         # broadening CSP or resubmitting the consumed consent form.
-                        respond(handler,200,page('Zurück zu ChatGPT',
-                            '<p>Deine Entscheidung wurde gespeichert. Schließe die Verbindung jetzt in ChatGPT ab.</p>'
-                            '<p><a rel="noreferrer" referrerpolicy="no-referrer" style="display:block;padding:14px;border-radius:10px;background:#2358b6;color:white;text-align:center;text-decoration:none" href="'+html.escape(destination,quote=True)+'">Zurück zu ChatGPT</a></p>'
-                            '<p>Tippe jetzt auf den Button. Der Rückkehrlink gilt zwei Minuten. Diese Seite nicht neu laden und das Freigabeformular nicht erneut absenden.</p>'),
+                        respond(handler,200,page('Zurück zu '+client_name,
+                            '<p>Deine Entscheidung wurde gespeichert. Schließe die Verbindung jetzt in '+client_name+' ab.</p>'
+                            '<p><a rel="noreferrer" referrerpolicy="no-referrer" style="display:block;padding:14px;border-radius:10px;background:#2358b6;color:white;text-align:center;text-decoration:none" href="'+html.escape(destination,quote=True)+'">Zurück zu '+client_name+'</a></p>'
+                            '<p>Tippe jetzt auf den Button. Der Rückkehrlink gilt höchstens '+str(CODE_TTL//60)+' Minuten ab der Freigabe. Diese Seite nicht neu laden und das Freigabeformular nicht erneut absenden.</p>'),
                             cookies=[cookie('',0)],page=True)
             else:respond(handler,404,{'error':'not_found'})
         else:respond(handler,405,{'error':'method_not_allowed'})

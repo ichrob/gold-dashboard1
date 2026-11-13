@@ -319,7 +319,18 @@ function technicalQuality(ctx={}){
  return {score,reasons:[conflict?'Kursindikatoren-Kollektiv widerspricht.':value*expected>0?'Kursindikatoren-Kollektiv bestätigt.':'Kursindikatoren-Kollektiv neutral oder widersprüchlich.','EMA, MACD und RSI zählen gemeinsam einmal; Momentum-Anzeige und MTF geben keine Zusatzpunkte. ADX beschreibt nur Trendstärke.'],collectives:1};
 }
 const futureIsins=new Set(["DE000FG309G0"]);
-function isFutureProduct(p){return /\bFUTURE\b/i.test(p.name||p.snapshot?.name||'')||/future/i.test(p.snapshot?.terms?.underlying?.value||'')||!!p.snapshot?.terms?.contract?.value||p.underlyingType==="FUTURE"||p.quote?.metadata?.underlyingType==="FUTURE"||futureIsins.has(String(p.isin||"").trim().toUpperCase());}
+function isFutureProduct(p){
+ const q=p.quote,m=q?.metadata;
+ const verifiedSpot=q?.isin===p.isin&&q?.productVerified===true&&!q.sourceDisabled&&!q.sourceFailure&&
+  m?.underlyingType==='SPOT'&&m?.underlying==='XAU/USD';
+ // Mini Future names describe leverage certificates, not the gold contract.
+ // Only exact verified spot identity can disambiguate that product label.
+ const name=String(p.name||p.snapshot?.name||'');
+ const underlyingName=verifiedSpot?name.replace(/\bmini[\s-]+futures?\b/ig,''):name;
+ return /\bFUTURE\b/i.test(underlyingName)||/future/i.test(p.snapshot?.terms?.underlying?.value||'')||
+  !!p.snapshot?.terms?.contract?.value||p.underlyingType==='FUTURE'||m?.underlyingType==='FUTURE'||
+  futureIsins.has(String(p.isin||'').trim().toUpperCase());
+}
 function futureResearchText(x,now=Date.now()){
  const r=x.futureResearch;if(!r)return "";
  const at=v=>typeof v==="string"&&!Number.isNaN(Date.parse(v))?new Date(v).toLocaleString():"unbekannt";
@@ -396,7 +407,7 @@ function screenshotCurrentState(p,bundle,now=Date.now()){
  const q=p.quote?.isin===p.isin?p.quote:null,shot=p.snapshot?.isin===p.isin?p.snapshot:null;
  const meta=q?.productVerified?q.metadata:null;
  const model=q?.productVerified&&q.productModel?.isin===p.isin?q.productModel:null;
- const future=isFutureProduct(p)||/\bFUTURE\b/i.test(p.name||shot?.name||'');
+ const future=isFutureProduct(p);
  const side=meta?.direction||shot?.direction||p.productDirection,ko=n(fixed?.value)??n(meta?.ko)??n(shot?.ko)??n(p.ko);
  let basis=null,basisLabel='',basisAt=null;
  if(future){
@@ -1781,7 +1792,7 @@ function productProblemLabels(p){
  if(result.complete)return [];
  const paused=typeof expectedQuotePause==='function'&&expectedQuotePause(p);
  const analysis=typeof currentSgChfAnalysisProof==='function'?currentSgChfAnalysisProof(p):null;
- const labels=analysis&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?['DEGIRO-Handelsplatznachweis']:[];
+ const labels=[]; // Broker listing does not block research or paper analyses.
  if(typeof productFxIssue==='function'&&productFxIssue(p))labels.push('Wechselkurs veraltet oder nicht verfügbar');
  // Missing evidence is different from a missing numeric value. A datable
  // analysis quote must not be shown as an absent Geld/Brief pair merely because
@@ -1795,10 +1806,9 @@ function productProblemLabels(p){
   // These are fallback screenshot requirements, not absent issuer analysis data.
   // Keep contradictory evidence and all contract/KO failures visible.
   if(analysis&&/^(?:Zusätzlicher Live-Nachweis offen|Detailbild mit derselben ISIN|Aktuelles Kursbild mit Geld\/Brief in EUR|Kurszeit mit Datum: höchstens 14 Stunden alt; keine ergänzten Sekunden|Aktuelles Detailbild mit Hebel und zugehöriger Zeit)$/.test(r))continue;
-  if(/DEGIRO-Handelsplatznachweis/i.test(r))found.push('DEGIRO-Handelsplatznachweis');
   if(/Hebel/i.test(r))found.push(leveragePresent?'Hebelzeit / Quellenprüfung':'Hebel');
   if(/Kurszeit|Quellenzeit|Zeitstempel|Kurs.*(alt|zeit)|Geld.*Brief.*Zeit/i.test(r))found.push('Kurszeit');
-  if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push(pairPresent?(degiroVenueObserved(p)||degiroVenueInferred(p)?'Kursart / Ausführbarkeit':'Kursart / DEGIRO-Handelsplatznachweis'):'Kursnachweis');
+  if(/Geld|Brief|Kursbild|Produktkurs|Kursnachweis|Live-Nachweis|BNP-Kursabruf/i.test(r))found.push(pairPresent?'Kursart / Ausführbarkeit':'Kursnachweis');
   if(/Basispreis|Finanzierungslevel/i.test(r))found.push('Basispreis');
   if(/KO|Knock-out|Barriere/i.test(r))found.push('KO-Nachweis');
   if(/Bezugsverhältnis/i.test(r))found.push('Bezugsverhältnis');
@@ -2173,7 +2183,7 @@ function renderProductDirectionStatus(p,now=Date.now()){
   // Keep productDirectionCheck and all trading/collection gates unchanged.
   const venue=degiroVenueObserved(p)?'<span style="color:#15803d">✓ DEGIRO-Handelsplatz belegt</span>':
    degiroVenueInferred(p,listArchive,now)?'<span>Handelsplatz aus Quellen abgeleitet</span>':
-   '<span style="color:#92400e">⚠ DEGIRO-Handelsplatznachweis offen</span>';
+   ''; // No missing-DEGIRO-venue blocker on analysis cards.
   return '<span data-direction-data-status data-sg-chf-analysis-only role="status" aria-label="Kurs und Hebel aktuell für die Analyse; gemeinsamer Zeitbezug bestätigt; Ausführungskurs bei DEGIRO nicht bestätigt" style="display:inline-flex;gap:6px;flex-wrap:wrap"><strong style="color:#15803d">✓ Kurs/Hebel aktuell · Analyse</strong><span style="color:#15803d">✓ Gemeinsamer Zeitbezug bestätigt</span>'+venue+'<span data-execution-proof-open style="color:#92400e">Ausführungskurs bei DEGIRO: nicht bestätigt</span></span>';
  }
 
@@ -2394,10 +2404,63 @@ function renderDegiroVenueInference(p){
   '<a href="'+proof.policyUrl+'" target="_blank" rel="noopener noreferrer">DEGIRO: Ausführungsrichtlinie</a>'+
   '<div>Öffentliche Quellen geprüft am 16.10.2026; für diese Ableitung höchstens 30 Tage verwendet.</div></details></div>';
 }
+// DEGIRO's 'Übersicht' has a last-price clock and labelled bid/ask/close,
+// unlike the older 'Kursdaten' layout. Its clock must NOT be described as
+// separately published bid/ask time, and 'Schluss' has no source timestamp.
+// Read-only historical image evidence; no order/eligibility effect.
+function parseDegiroOverviewObservation(raw,expectedIsin,venueOnly=false){
+ if(!validIsin(expectedIsin)||typeof raw!=='string'||raw.length>15000)return null;
+ const header=raw.search(/(?:^|\n)\s*(?:Übersicht|Uebersicht|Ubersicht)\s*(?=\r?\n|$)/i);
+ const marker=raw.search(/Symbol\s*\|\s*ISIN/i);
+ if(header<0||marker<=header||marker-header>3000)return null;
+ const part=raw.slice(header,marker);
+ if(!/\bZuletzt\b/i.test(part)||!/\bSchluss\b/i.test(part)
+   ||!/\bGeld\b/i.test(part)||!/\bBrief\b/i.test(part)
+   ||/\bverzögert\b|\bdelayed\b/i.test(part))return null;
+ const tokens=[...new Set(raw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])];
+ const ids=[...new Set(tokens.map(token=>normalizeOcrIsin(token,raw).isin))];
+ if(ids.length!==1||ids[0]!==expectedIsin)return null;
+ const venueMatches=[...raw.slice(marker).matchAll(/(?:^|\n)\s*(?:Börse|Boerse|Borse)\s*[:=]?\s*(?:\r?\n\s*)?([^\r\n]+)/gi)];
+ if(venueMatches.length>1)return null;
+ const venue=venueMatches.length===1?venueMatches[0][1].trim():null;
+ if(venue!==null&&(!venue||venue.length>100||/^(?:-|—|unbekannt)$/i.test(venue)))return null;
+ // Without an exchange this is a display-only observation, not broker venue proof.
+ if(venueOnly&&!venue)return null;
+ // A preceding account balance (often CHF) is outside the product table.
+ // The overview's own EUR symbols identify the product quotation currency.
+ const price=label=>{
+  const pattern=new RegExp('(?:^|\\s)'+label+'\\s*[:=]?\\s*€\\s*([0-9]{1,5}(?:[.,][0-9]{1,4})?)(?![0-9.,])','gi');
+  const rows=[...part.matchAll(pattern)];
+  if(rows.length!==1)return null;
+  const value=Number(rows[0][1].replace(',','.'));
+  return Number.isFinite(value)&&value>0?value:null;
+ };
+ const bid=price('Geld'),ask=price('Brief'),last=price('Zuletzt'),close=price('Schluss');
+ if(!(last>0&&close>0&&bid>0&&ask>=bid))return null;
+ const lastStart=part.search(/\bZuletzt\b/i),bidStart=part.search(/\bGeld\b/i);
+ if(lastStart<0||bidStart<=lastStart)return null;
+ const lastSection=part.slice(lastStart,bidStart);
+ const dateMatches=[...lastSection.matchAll(/\b(\d{2}[/.]\d{2}[/.]\d{4}\s+\d{2}:\d{2}(?::\d{2})?)\b/g)];
+ if(dateMatches.length!==1||!selectionTimeWindow(dateMatches[0][1]))return null;
+ const sourceTime=dateMatches[0][1];
+ const displayedDayChangeAmount=last-close;
+ const displayedDayChangePct=(last/close-1)*100;
+ // The actual DEGIRO screen sometimes shows its rounded +/- and % as well.
+ // Neither string is allowed to override the arithmetically checked values.
+ return {isin:expectedIsin,source:'DEGIRO-Produktdetail',venue,currency:'EUR',
+   ...(venueOnly?{}:{bid,ask}),sourceTime,
+   timeBasis:'Zuletzt-Anzeige, Minutenauflösung; keine eigene Geld-/Brief-Quellenzeit',
+   lastPrice:last,previousClose:close,displayedDayChangeAmount,displayedDayChangePct,
+   overviewPriceEvidence:'last-vs-displayed-close',
+   displayOnly:true,venueMissing:!venue,brokerDisplayConfirmed:!!venue,
+   orderWindowVerified:false,orderSubmitted:false,
+   executionGuaranteed:false,isExecutableQuote:false};
+}
 function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
  raw=normalizeReviewedDegiroIdentity(raw);
+ const overview=parseDegiroOverviewObservation(raw,expectedIsin,venueOnly);
+ if(overview)return overview;
  if(!validIsin(expectedIsin)||!/\bKursdaten\b/i.test(raw)
-    ||!/\b(?:Börse|Boerse|Borse)\b/i.test(raw)
     ||!/Symbol\s*\|\s*ISIN/i.test(raw))return null;
  const tokens=[...new Set(raw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])];
  const ids=[...new Set(tokens.map(token=>normalizeOcrIsin(token,raw).isin))];
@@ -2420,12 +2483,18 @@ function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
    .map(m=>m[1]+' '+m[2]+(m[3]?':'+m[3]:'')))];
  if(dates.length!==1||!selectionTimeWindow(dates[0]))return null;
  const venues=[...raw.matchAll(/(?:^|\n)\s*(?:Börse|Boerse|Borse)\s*[:=]?\s*([^\n]+)/gi)];
- if(venues.length!==1)return null;
- const venue=venues[0][1].trim();
- if(!venue||venue.length>100||/^(?:-|—|unbekannt)$/i.test(venue))return null;
+ if(venues.length>1)return null;
+ const venue=venues.length===1?venues[0][1].trim():null;
+ if(venue!==null&&(!venue||venue.length>100||/^(?:-|—|unbekannt)$/i.test(venue)))return null;
+ // A hidden footer is not a source for the venue. Only an identifiable
+ // DEGIRO Übersicht screenshot takes this display-only branch; generic
+ // Kursdaten import text keeps the established field-parser semantics.
+ if(!venue&&!/(?:^|\n)\s*(?:Übersicht|Uebersicht|Ubersicht)\s*(?=\r?\n|$)/i.test(raw))return null;
+ if(venueOnly&&!venue)return null;
  return {isin:expectedIsin,source:'DEGIRO-Produktdetail',venue,currency,
    ...(venueOnly?{}:{bid,ask}),sourceTime:dates[0],timeBasis:'Kursdaten-Anzeige; keine eigene Geld-/Briefzeit',
-   brokerDisplayConfirmed:true,orderWindowVerified:false,orderSubmitted:false,
+   displayOnly:true,venueMissing:!venue,brokerDisplayConfirmed:!!venue,
+   orderWindowVerified:false,orderSubmitted:false,
    executionGuaranteed:false,isExecutableQuote:false};
 }
 // DEGIRO *display* evidence from a user-selected product screenshot.
@@ -2433,11 +2502,14 @@ function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
 function degiroScreenQuoteState(q,isin,now=Date.now()){
  const unavailable={state:'missing',displayOnly:true,brokerConnected:false,
   executionConfirmed:false,isExecutableQuote:false,tradeApproved:false};
+ const venueConfirmed=q?.brokerDisplayConfirmed===true&&q.venueMissing!==true
+   &&typeof q.venue==='string'&&q.venue.trim().length>=2;
+ const venueHidden=q?.venueMissing===true&&q.venue===null
+   &&q.brokerDisplayConfirmed===false&&q.displayOnly===true;
  if(!validIsin(isin)||!q||q.isin!==isin||q.source!=='DEGIRO-Produktdetail'
-   ||q.brokerDisplayConfirmed!==true||q.isExecutableQuote!==false
+   ||!(venueConfirmed||venueHidden)||q.isExecutableQuote!==false
    ||q.orderWindowVerified!==false||q.orderSubmitted!==false
    ||q.executionGuaranteed!==false||!['EUR','CHF'].includes(q.currency)
-   ||typeof q.venue!=='string'||q.venue.trim().length<2
    ||!(Number.isFinite(q.bid)&&q.bid>0&&Number.isFinite(q.ask)&&q.ask>=q.bid))
   return unavailable;
  const observed=selectionTimeWindow(q.sourceTime),at=observed?.start;
@@ -2445,7 +2517,8 @@ function degiroScreenQuoteState(q,isin,now=Date.now()){
  const ageSeconds=Math.max(0,Math.floor((now-at)/1000));
  return {state:ageSeconds<=90?'display-recent':'historical',displayOnly:true,
   brokerConnected:false,executionConfirmed:false,isExecutableQuote:false,
-  tradeApproved:false,isin,currency:q.currency,venue:q.venue,bid:q.bid,ask:q.ask,
+  tradeApproved:false,isin,currency:q.currency,venue:venueConfirmed?q.venue:null,
+  venueMissing:venueHidden,bid:q.bid,ask:q.ask,
   sourceTime:q.sourceTime,timeBasis:q.timeBasis,ageSeconds};
 }
 function degiroBrokerQuotePanelState(rows,now=Date.now()){
@@ -2485,7 +2558,7 @@ function refreshDegiroBrokerQuotePanel(now=Date.now()){
   const q=p.status;
   const quote=['display-recent','historical'].includes(q.state)
    ?'DEGIRO-Anzeigekurs '+q.bid.toFixed(2)+' / '+q.ask.toFixed(2)+' '+esc(q.currency)+
-    ' · '+esc(q.venue)+' · Quellenanzeige '+esc(q.sourceTime)+
+    ' · '+esc(q.venue||'Handelsplatz im Bild nicht sichtbar')+' · Quellenanzeige '+esc(q.sourceTime)+
     (q.state==='display-recent'?' · Zeit höchstens 90 s zurück':' · historisch')
    :q.state==='invalid-time'?'Bild-Kurszeit ungültig oder in der Zukunft':
     'Kein datierter DEGIRO-Anzeigekurs aus Produktdetailbild';
@@ -2502,13 +2575,13 @@ function refreshDegiroBrokerQuotePanel(now=Date.now()){
 }
 function renderDegiroDisplayedQuote(p,now=Date.now()){
  const q=p?.snapshot?.degiroDisplayedQuote;
- if(!q||q.isin!==p.isin||q.brokerDisplayConfirmed!==true||q.isExecutableQuote!==false
-   ||!['EUR','CHF'].includes(q.currency)||!(q.bid>0&&q.ask>=q.bid))return '';
+ const state=degiroScreenQuoteState(q,p?.isin,now);
+ if(!['display-recent','historical'].includes(state.state))return '';
  const window=selectionTimeWindow(q.sourceTime),age=window?now-window.start:null;
  const timing=age!==null&&age>=0&&age<=90000?'bis 90 s nach dem Kurszeitpunkt':'historischer Nachweis, kein aktueller Kurs';
  return '<div data-degiro-otc-observation class="small" style="margin-top:8px;padding:8px;border:1px solid #cbd5e1;border-radius:8px">'+
   '<b>DEGIRO zeigt Geld/Brief auf der Produktdetailseite</b>'+
-  '<div>ISIN '+esc(q.isin)+' · Handelsplatz '+esc(q.venue)+' · Geld '+q.bid.toFixed(2)+
+  '<div>ISIN '+esc(q.isin)+' · Handelsplatz '+esc(q.venue||'im Bild nicht sichtbar')+' · Geld '+q.bid.toFixed(2)+
   ' / Brief '+q.ask.toFixed(2)+' '+esc(q.currency)+' · Quellenanzeige '+esc(q.sourceTime)+
   ' (Zeitzone Europe/Zurich zur Einordnung angenommen; Sekunden unbekannt, wenn nicht angegeben).</div>'+
   '<div>'+esc(timing)+' · '+esc(q.timeBasis)+
@@ -2629,7 +2702,7 @@ function degiroManualQuoteSummary(p,now=Date.now()){
   :'Historische DEGIRO-Kursanzeige · nicht aktuell';
  return '<div class="small" data-degiro-manual-quote="'+esc(status.state)+'" style="padding:7px;border:1px solid #cbd5e1;border-radius:7px">'+
   '<b>'+esc(text)+'</b> · Geld '+esc(status.bid.toFixed(2))+' / Brief '+esc(status.ask.toFixed(2))+
-  ' '+esc(status.currency)+' · '+esc(status.venue)+' · Kursanzeige '+esc(status.sourceTime)+
+  ' '+esc(status.currency)+' · '+esc(status.venue||'Handelsplatz im Bild nicht sichtbar')+' · Kursanzeige '+esc(status.sourceTime)+
   '<div>Vom Nutzer bereitgestelltes DEGIRO-Bild, keine Live-Verbindung und keine ausführbare Preisgarantie.</div></div>';
 }
 function compactProductValues(p,now=Date.now()){
@@ -2661,6 +2734,94 @@ function compactProductValues(p,now=Date.now()){
  const missing=[['Geld',bid],['Brief',ask],['Hebel',lever]].filter(([,v])=>!(v>0)).map(([name])=>name);
  return {verified,fields,analysis,bid,ask,lever,leverageKind,leverageAt,calculated,missing,bidOnly};
 }
+function previousZurichTradingDay(now=Date.now()){
+ const date=new Date(zurichListDay(now).day+'T12:00:00Z');
+ do{date.setUTCDate(date.getUTCDate()-1);}while(date.getUTCDay()===0||date.getUTCDay()===6);
+ return date.toISOString().slice(0,10);
+}
+function productDailyChangeView(p,now=Date.now()){
+ const d=p.quote?.dailyChange;
+ const at=Date.parse(d?.at),ref=Date.parse(d?.referenceAt);
+ const estimatedClose=d?.basis==='bid-vs-last-observed-prior-day';
+ // Display-only fallback: a deliberately imported DEGIRO overview image
+ // may show 'Zuletzt' and 'Schluss' even if issuer feeds lack a prior close.
+ // Never mix a screenshot closing price with the latest SG bid.
+ const screen=p?.snapshot?.degiroDisplayedQuote;
+ const screenClock=selectionTimeWindow(screen?.sourceTime);
+ const screenState=degiroScreenQuoteState(screen,p?.isin,now);
+ const screenValid=screen?.overviewPriceEvidence==='last-vs-displayed-close'&&
+  ['display-recent','historical'].includes(screenState.state)&&
+  Number.isFinite(screen?.lastPrice)&&screen.lastPrice>0&&
+  Number.isFinite(screen?.previousClose)&&screen.previousClose>0&&
+  Number.isFinite(screen?.displayedDayChangePct)&&
+  Math.abs(screen.displayedDayChangePct-(screen.lastPrice/screen.previousClose-1)*100)<0.000001&&
+  screenClock&&screenClock.start<=now&&
+  zurichListDay(screenClock.start).day===zurichListDay(now).day;
+ const valid=d?.isin===p.isin&&(d.basis==='bid-vs-previous-close'||estimatedClose)&&
+  Number.isFinite(d.percent)&&Number.isFinite(d.previousClose)&&d.previousClose>0&&
+  Number.isFinite(d.bid)&&d.bid>0&&['EUR','CHF'].includes(d.currency)&&
+  Number.isFinite(at)&&Number.isFinite(ref)&&ref<at&&at<=now&&
+  zurichListDay(d.at).day===zurichListDay(now).day&&
+  zurichListDay(d.referenceAt).day===previousZurichTradingDay(now)&&
+  Math.abs(d.percent-(d.bid/d.previousClose-1)*100)<0.000001;
+ const percent=valid?d.percent:screenValid?screen.displayedDayChangePct:null;
+ const stale=valid&&now-at>90000;
+ const value=percent!==null?(percent>0?'+':'')+percent.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' %':'—';
+ const color=percent!==null?(percent>0?'#166534':percent<0?'#b91c1c':'#475569'):'#475569';
+ const basis=estimatedClose?'letztem belegtem Geldkurs des vorherigen Handelstags (kein offizieller Schlusskurs)':'Vortagesschluss';
+ const note=valid?(stale?'Veraltet · ':'')+'Aktueller Geldkurs gegenüber '+basis+' · '+d.currency+' · '+d.source+
+  ' · Vergleich '+new Date(ref).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+
+  ' · Kurszeit '+new Date(at).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'}):
+  screenValid?'DEGIRO-Bildstand · letzter angezeigter Kurs '+screen.lastPrice.toLocaleString('de-CH',{minimumFractionDigits:2})+
+  ' EUR gegenüber angezeigtem Schluss '+screen.previousClose.toLocaleString('de-CH',{minimumFractionDigits:2})+
+  ' EUR · Bildzeit '+screen.sourceTime+' · keine Live-Kurszeit, kein DEGIRO-Ausführungskurs':
+  'Tagesvergleich nicht verfügbar · datierter Vortages-Referenzkurs oder heutiger Kurs fehlt';
+ return '<div data-product-daily-change style="grid-column:1/-1;min-width:0;padding:6px;border-radius:7px;background:#f2f5f9">'+
+  '<div class="small">Heute · Tagesänderung</div><strong style="color:'+color+'">'+esc(value)+'</strong>'+
+  '<div class="small">'+esc(note)+'</div><div class="small">Anzeigeabruf alle 3 Sekunden · Quellentakt kann abweichen</div></div>';
+}
+function productEightClockView(p,now=Date.now()){
+ const d=p.quote?.changeSinceEight;
+ const at=Date.parse(d?.at),ref=Date.parse(d?.referenceAt);
+ const clock=Number.isFinite(ref)?new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(ref)):'';
+ const valid=!!d&&d.isin===p.isin&&d.basis==='bid-since-0800'&&
+  Number.isFinite(d.percent)&&d.referenceBid>0&&d.bid>0&&
+  Number.isFinite(at)&&Number.isFinite(ref)&&ref<=at&&at<=now&&clock==='08:00'&&
+  zurichListDay(at).day===zurichListDay(now).day&&zurichListDay(ref).day===zurichListDay(now).day&&
+  Math.abs(d.percent-(d.bid/d.referenceBid-1)*100)<0.000001;
+ const value=valid?(d.percent>0?'+':'')+d.percent.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' %':'—';
+ const color=valid?(d.percent>0?'#166534':d.percent<0?'#b91c1c':'#475569'):'#475569';
+ const time=t=>new Date(t).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'});
+ const note=valid?(now-at>90000?'Veraltet · ':'')+'Geldkurs seit '+time(ref)+' · '+d.currency+' · '+d.source+' · Kurszeit '+time(at):'Vergleich nicht verfügbar · belegter Kurs von heute 08:00 Uhr fehlt';
+ return '<div data-product-eight-clock style="grid-column:1/-1;min-width:0;padding:6px;border-radius:7px;background:#f2f5f9">'+
+  '<div class="small">Heute ab 08:00 Uhr</div><strong style="color:'+color+'">'+esc(value)+'</strong>'+
+  '<div class="small">'+esc(note)+'</div><div class="small">Schweizer Zeit · Anzeigeabruf alle 3 Sekunden</div></div>';
+}
+// Exact-ISIN historical portal figures are useful even when current bid/ask
+// and original leverage times are unavailable. Presentation only: never copy
+// to verified product fields, risk ranking or execution eligibility.
+function productPortalReferenceView(p,now=Date.now()){
+ const q=p?.quote,backup=q?.comdirectFieldsBackup;
+ if(!p?.isin||!q||q.isin!==p.isin||!backup||backup.isin!==p.isin||
+    !['active','conflict'].includes(backup.state)||backup.inactive===true||
+    q.metadata?.status===2||knockoutStatus(p))return '';
+ const url='https://www.comdirect.de/inf/zertifikate/'+p.isin;
+ if(backup.source!==url)return '';
+ const checked=Date.parse(backup.checkedAt);
+ if(!Number.isFinite(checked)||checked>now||now-checked>14*3600000)return '';
+ const obs=backup.observations||{};
+ const values=[['leverage','Hebel','×'],['ko','KO-Schwelle',' USD'],['strike','Basispreis',' USD']]
+  .flatMap(([key,label,unit])=>{
+   const item=obs[key];
+   if(!item||item.source!==url||!Number.isFinite(item.value)||item.value<=0)return [];
+   return [label+' '+Number(item.value).toLocaleString('de-CH',{maximumFractionDigits:4})+unit];
+  });
+ if(!values.length)return '';
+ return '<div class="small" data-unverified-portal-values style="padding:7px;border-radius:7px;background:#fff7ed;color:#7c2d12">'+
+  '<b>Zusätzliche Portal-Referenzwerte (unbestätigt)</b> · '+esc(values.join(' · '))+
+  '<div>comdirect-Abruf '+esc(new Date(checked).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}))+
+  ' · kein eigener Kurs-/Hebelzeitpunkt · nicht als aktueller Geld-/Briefkurs oder Handelsfreigabe verwenden.</div></div>';
+}
 function goldProductCompactView(p,now=Date.now()){
  const values=compactProductValues(p,now);
  const {verified,fields,bid,ask,lever,missing}=values,status=productDataStatus(p,now);
@@ -2688,8 +2849,9 @@ function goldProductCompactView(p,now=Date.now()){
   '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">'+
    [['Geld',number(bid)+' '+(bid!==null?currency:'')],['Brief',number(ask)+' '+(ask!==null?currency:'')],['Hebel',number(lever)+(lever!==null?'×':'')],['KO-Abstand',Number.isFinite(distance)&&distance>=0?distance.toFixed(2)+' %':'—']].map(([label,value])=>
     '<div style="min-width:0;padding:6px;border-radius:7px;background:#f2f5f9"><div class="small">'+esc(label)+'</div><strong>'+esc(value.trim())+'</strong></div>').join('')+
-  '</div><div class="small" data-analysis-status>'+esc(detail)+(timestamp?' · Kurszeit '+esc(timestamp):' · Kurszeit fehlt')+'</div>'+
+  productDailyChangeView(p,now)+productEightClockView(p,now)+'</div><div class="small" data-analysis-status>'+esc(detail)+(timestamp?' · Kurszeit '+esc(timestamp):' · Kurszeit fehlt')+'</div>'+
   (leverageNote?'<div class="small" data-compact-leverage-source>'+esc(leverageNote)+'</div>':'')+
+  (missing.length?productPortalReferenceView(p,now):'')+
   (missing.length?'<div class="small" data-product-auto-repair role="status">'+esc(pendingQuotes.has(p.index)?'Automatische Quellenprüfung läuft':p.quote?.sourceFailure?'Letzter Abruf fehlgeschlagen · automatische Wiederholung vorgesehen':['night','weekend'].includes(window.BobDegiroPhase?.())?'Automatische Quellenprüfung in Handelspause': 'Automatische Quellenprüfung im 30-Sekunden-Zyklus vorgesehen')+' · '+esc(missing.join(', '))+' bleibt bis zum gültigen Nachweis offen.</div>':'')+
   '<details><summary>Abgleich und Bearbeitung</summary><div class="small" data-gold-sync="'+esc(sync.state)+'">'+esc(sync.message)+'</div>'+
   '<div class="small" data-gold-repair>'+esc(goldProductRepairStatus(p,now))+'</div></details>'+
@@ -2774,7 +2936,7 @@ function compactProductCard(p,reasons=[],status='Nicht freigegeben',calculationH
  const next=serverEvidence?'Serveranalyse vorhanden: keine neuen Bilder nötig. Keine bestätigte DEGIRO-Ausführung; lokale Produktfreigabe und Risikoprüfung bleiben separat.':venueMissing?productHelpState(p).action:automaticQuoteIssue?'Automatischer Kurs- und Hebelabruf wird erneut geprüft. Vorhandene Werte bleiben mit ihrem ursprünglichen Datenstand nutzbar; derzeit keine neuen Bilder erforderlich.':complete&&neutral?'Marktsignal neutral – auf eine bestätigte Richtung warten. Dafür sind keine neuen Bilder nötig.':complete?'Produktdaten vollständig – Auswahlgrund unter „Warum derzeit nicht ausgewählt?“ prüfen.':temporal&&data.complete?'Werte vorhanden – den offenen Zeitbezug unter „Werte und Aktualitätsprüfung“ prüfen.':automaticRecoveryPending?'Bob prüft die zugelassenen Emittentenquellen automatisch erneut. Fehlende oder unklare Nachweise bleiben gesperrt und werden unter „Problem“ dokumentiert. Nur wenn diese Quellen keine ausreichenden Daten liefern, können zusätzliche Originalbelege notwendig sein.':'Offene Angaben unter „Werte und Aktualitätsprüfung“ ansehen und nur diese ergänzen.';
  return '<div data-product-isin="'+esc(p.isin||'row-'+p.index)+'" '+(selected?'data-selection-approved':'data-selection-blocked')+'="'+p.index+'" style="padding:12px;margin-top:10px;border:1px solid #d1d5db;border-radius:12px;overflow-wrap:anywhere">'+
  goldProductCompactView(p)+'<details data-product-technical style="margin-top:10px"><summary>Details · Produktangaben und Aktionen</summary>'+renderProductIdentity(p)+renderProductProblemSummary(p)+productCompletionBadge(p)+renderDegiroListEvidence(p)+(typeof renderServerAnalysisEvidence==='function'?renderServerAnalysisEvidence(p):'')+renderProductHelp(p)+renderScreenshotSources(p)+'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">'+esc(p.productDirection||'')+renderProductDirectionStatus(p)+'</div>'+
- renderServerVenueEvidence(p)+renderVenueHistory(p)+renderDegiroDisplayedQuote(p)+renderDegiroVenueInference(p)+renderDegiroTradingSession(p)+(swissSgVenue&&!degiroVenueObserved(p)&&!degiroVenueInferred(p)?'<div class="small" data-swiss-dots-warning><b>SG Swiss DOTS · CHF:</b> Offen ist die Zuordnung dieses CHF-Produkts zu einem DEGIRO-Handelsplatz. Die vorhandenen SG-Kurse werden für die Analyse verwendet.</div>':'')+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(!serverEvidence&&missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!serverEvidence&&!timeEvidence.confirmed)+' '+esc(serverEvidence?'Server-Nachweis aktuell · lokaler Bildzeitbezug separat geprüft':timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
+ renderServerVenueEvidence(p)+renderVenueHistory(p)+renderDegiroDisplayedQuote(p)+renderDegiroVenueInference(p)+renderDegiroTradingSession(p)+'<div class="small" data-product-status><div><b>Daten:</b> '+valuePresenceMark(!serverEvidence&&missingNumbers.length>0)+' '+esc(dataText)+'</div><div><b>Zeitbezug vorhandener Kurs-/Hebelwerte:</b> '+valuePresenceMark(!serverEvidence&&!timeEvidence.confirmed)+' '+esc(serverEvidence?'Server-Nachweis aktuell · lokaler Bildzeitbezug separat geprüft':timeEvidence.label)+'</div><div><b>Aktuelle Auswahl:</b> '+(selected?'freigegeben · ausgewählt':'nicht ausgewählt')+(neutral?' · Marktsignal neutral':'')+'</div></div>'+
  '<p data-product-next><b>Nächster Schritt:</b> '+esc(selected?'Tatsächlichen DEGIRO-Kurs vor einem Einstieg prüfen.':next)+'</p><details><summary>Automatische Suche · letzter Stand</summary>'+renderAutomaticProductCheck(p)+'</details>'+renderPrimaryProductValues(p)+
  (allReasons.length?'<div class="small">'+allReasons.slice(0,2).map(shortReason).map(esc).join('<br>')+'</div>':'')+
  (selected?'': '<details style="margin-top:8px"><summary>Warum derzeit nicht ausgewählt?</summary><div class="small">'+(allReasons.length?allReasons.map(esc).join('<br>'):neutral?'Keine bestätigte Long-/Short-Marktrichtung. Die vollständigen Produktdaten müssen dafür nicht erneut hochgeladen werden.':'Die aktuelle Markt- und Risikoprüfung hat das Produkt nicht ausgewählt; vollständige Daten allein erteilen keine Freigabe.')+'</div></details>')+
@@ -3768,8 +3930,8 @@ function analysisReleaseQuote(p,now=Date.now()){
 function finalProductStatus(p,now=Date.now(),reference){
  if(knockoutStatus(p))return {complete:false,terminal:true,reasons:["Ausgeknockt – keine weiteren Daten erforderlich"]};
  const status=productTermsStatus(p,now),reasons=status.reasons.slice();
- const venue=sharedVenueStatus(p,now);
- if(venue?.required&&!venue.current)reasons.push('DEGIRO-Handelsplatznachweis offen');
+ // A broker venue screenshot is not a prerequisite for product analysis,
+ // ranking, or paper simulations. Execution must still be checked separately.
  const q=p.quote?.isin===p.isin?p.quote:null;
  const r=q?.productVerified&&q.metadata?.contract===q.futureResearch?.contract?q.futureResearch:null;
  const pair=(x,source)=>!!source&&n(x?.bid)>0&&n(x?.ask)>=n(x.bid)&&!x.delayed&&freshTimes([x.bidAt,x.askAt],now,90);
@@ -3833,7 +3995,8 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
  const native=swissScreenshotQuote(raw);
  let draft=native?{ok:false,currency:'CHF',hasQuote:native.hasQuote,paired:native.paired,partialQuote:native.partialQuote,fields:{bid:native.bid,ask:native.ask}}:window.BobCombined.screenshotDraft(raw,expectedIsin);
  const degiroDisplayedQuote=parseDegiroDisplayedQuote(raw,expectedIsin);
- if(degiroDisplayedQuote&&!draft.paired){
+ const displayWithoutVenue=degiroDisplayedQuote?.venueMissing===true;
+ if(degiroDisplayedQuote&&!displayWithoutVenue&&!draft.paired){
   draft={...draft,...(degiroDisplayedQuote.currency==='CHF'?{ok:false,currency:'CHF'}:{}),hasQuote:true,paired:true,partialQuote:null,
     fields:{...draft.fields,source:'DEGIRO',venue:degiroDisplayedQuote.venue,
       bid:String(degiroDisplayedQuote.bid),ask:String(degiroDisplayedQuote.ask),
@@ -3844,9 +4007,20 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
   draft={...draft,paired:false,partialQuote:{bid:null,ask:null}};
   x.price='';x.spread='';
  }
- if(draft.hasQuote&&!draft.paired&&!draft.partialQuote)return{ok:false,reason:'Produkt erkannt'+(identity.basis==='WKN'?' über WKN '+identity.wkn:'')+', aber Geld-/Briefpaar nicht vollständig oder eindeutig. Bitte beide Kurse im selben Bild zeigen.'};
- const bid=draft.partialQuote?draft.partialQuote.bid:draft.paired?n(draft.fields.bid):amount("Geld|Bid"),ask=draft.partialQuote?draft.partialQuote.ask:draft.paired?n(draft.fields.ask):amount("Brief|Ask");
+ if(draft.hasQuote&&!draft.paired&&!draft.partialQuote&&!displayWithoutVenue)return{ok:false,reason:'Produkt erkannt'+(identity.basis==='WKN'?' über WKN '+identity.wkn:'')+', aber Geld-/Briefpaar nicht vollständig oder eindeutig. Bitte beide Kurse im selben Bild zeigen.'};
+ // A quote screen without a visible venue is recorded only as a historical
+ // display observation, not as a sourced product quote or ranking input.
+ const bid=displayWithoutVenue?null:draft.partialQuote?draft.partialQuote.bid:draft.paired?n(draft.fields.bid):amount("Geld|Bid"),
+   ask=displayWithoutVenue?null:draft.partialQuote?draft.partialQuote.ask:draft.paired?n(draft.fields.ask):amount("Brief|Ask");
  const importWarnings=[],importNotes=[];
+ if(displayWithoutVenue){
+  x.price='';x.spread='';
+  // The combined form must not expose this unverified venue as a quoted pair.
+  draft={...draft,hasQuote:false,paired:false,partialQuote:null,
+    fields:{...(draft.fields||{})}};
+  for(const key of ['bid','ask','quoteAt','venue'])delete draft.fields[key];
+  importWarnings.push('DEGIRO-Kursanzeige gespeichert, Handelsplatz im Bild nicht sichtbar; keine Produktquote oder Handelsfreigabe.');
+ }
  if(uncertainBrokerPair)importWarnings.push('Geld-/Briefpaar nicht eindeutig; Produktidentität und DEGIRO-Handelsplatz separat übernommen.');
  if(repairedIdentity)importNotes.push('ISIN-Zeichenverwechslung '+repairedIdentity.original+' anhand des eindeutig gelesenen Serienbilds '+productContext.anchor+' korrigiert; Prüfziffer bestätigt.');
  if(draft.partialQuote){x.price="";x.spread="";importWarnings.push(bid===null?"Geldkurs fehlt: Kursbereich mit Geld und Brief ergänzen.":"Briefkurs fehlt: Kursbereich mit Geld und Brief ergänzen.");}
@@ -4456,6 +4630,9 @@ function parseDegiroListRow(raw){
  const footer=raw.slice(ids[0].index+ids[0][0].length);
  const venues=[...footer.matchAll(/(Soci[eé]t[eé]\s+G[eé]n[eé]rale\s+OTC|BNP\s+(?:Paribas\s+)?OTC)\s+(EUR|CHF)\b/gi)];
  const get=label=>{
+  // A glyph inside a number must not be accepted as a truncated prefix
+  // (BP 21O6.05 is not BP 21). Identity-only repairs never repair terms.
+  if(new RegExp('(?<![A-Z])(?:'+label+')\\s*[0-9OIQ.,]*[OIQ](?=[0-9.,\\s|]|$)','i').test(title))return null;
   const m=[...title.matchAll(new RegExp('(?<![A-Z])(?:'+label+')\\s*([0-9]+(?:[.,][0-9]+)?)(?=\\s|$|[A-Z])','gi'))];
   return m.length===1?Number(m[0][1].replace(',','.')):null;
  };
@@ -5146,7 +5323,10 @@ async function inject(){
  const savedProducts=b.querySelector('#dgSavedProductsSummary').parentElement;
  const issuerPanel=b.querySelector('#dgIssuerCatalogPanel');
  b.append(issuerPanel);
- b.querySelector(':scope > div').after(listPanel,savedProducts);
+ const importDetails=document.createElement('details');importDetails.id='bobListImport';
+ const importTitle=document.createElement('summary');importTitle.textContent='DEGIRO-Liste aktualisieren';importDetails.append(importTitle,listPanel);
+ b.append(savedProducts,importDetails);
+ b.querySelector(':scope > div').after(b.querySelector('#dgTop3Out'));
  a.parentNode.insertBefore(b,a.nextSibling);
  mountListCorrection(b);
  const q=b.querySelector("#dgTop3Inputs");
@@ -5232,7 +5412,7 @@ async function inject(){
    const repairNeeded=Object.values(fields).some(f=>!(n(f.value)>0)||/fehlt|veraltet|unbestätigt|abweichend/.test(f.state));
    return {id,isin,repairNeeded,suppressed:factor||terminal,key:isin+':'+(rowVersions.get(id)||0)};
   }),
-  request:enrichProduct,visible:()=>!document.hidden,interval:30000,limit:4
+  request:enrichProduct,visible:()=>!document.hidden,interval:3000,limit:4
  });
  refreshImportedProducts(!['night','weekend'].includes(window.BobDegiroPhase?.()));
  const savedCount=restoredProducts.length;
@@ -5450,7 +5630,7 @@ const upload=b.querySelector('#dgListUpload'),uploadButton=b.querySelector('#dgL
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)retrySavedList();});
  // Navigation can move this button while restoreListArchive() is awaiting IndexedDB.
  document.getElementById("dgRankBtn").addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;rankUI();try{await refreshImportedProducts(true);}finally{button.disabled=false;rankUI();}});
- setInterval(()=>{if(!document.hidden){rankUI();refreshImportedProducts();}},10000);
+ setInterval(()=>{if(!document.hidden){rankUI();refreshImportedProducts();}},3000);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden){rankUI();refreshImportedProducts();updateScreenshotReturn(true);}});
  window.addEventListener('online',()=>refreshImportedProducts());
  setInterval(()=>{if(!document.hidden)rankUI();},1000);
@@ -5641,19 +5821,21 @@ function renderContinuingAnalysis(products,context){
    return name+': '+(n(value)!==null?esc(value):'unbekannt')+
     ' ('+(n(value)===null?'fehlt':estimated?'berechnet':'Quelle/Originalstatus prüfen')+')';
   }).join(' · ');
-  return '<div data-unified-ranking-isin="'+esc(p.isin)+'" style="margin:8px 0"><b>'+
+  const quoteTime=p.snapshot?.evidence?.Geld?.at||p.snapshot?.sourceTime||p.quote?.quoteAt;
+  const quoteLabel=quoteTime?'Quellenzeit: '+String(quoteTime):'Quellenzeit unbekannt';
+  return '<div class="bob-compact-product" data-unified-ranking-isin="'+esc(p.isin)+'"><b>'+
    rank+' · '+esc(p.isin)+'</b>'+renderIsinCopy(p.isin,true)+
    ' · '+esc(p.productDirection||'Richtung unbekannt')+
    (i===null?' · nicht zuverlässig bewertbar':' · Vergleichswert '+e.score+'/100')+
-   '<br><strong>'+esc(freshness)+'</strong><br>'+fields+(row.sourceNote?'<div data-ranking-price-source>'+esc(row.sourceNote)+'</div>':'')+'<br><strong>'+(i!==null&&e.ok===true&&e.fit===true&&!marketWarnings.length&&row.calculation?.status==='calculated-approved'?'RECHNERISCH FREIGEGEBEN · DEGIRO-Handelbarkeit nicht bestätigt':proof.complete?'Produktnachweise vollständig; DEGIRO-Ausführung nicht bestätigt':'NICHT FREIGEGEBEN · Nachweise offen')+
+   '<p>'+esc(p.name||p.isin)+'</p><p>Kurs: '+esc(p.price??'unbekannt')+' · '+(p.priceCalculated||p.calculated||p.estimated?'berechnet':'Referenzkurs')+'<br>'+esc(quoteLabel)+'</p><p>'+(!proof.complete?'Nachweise offen · Vorbereitung kann unvollständig bleiben':'Produktnachweise vorhanden · Brokerkurs prüfen')+'</p><p>Hebel '+esc(p.leverage??'—')+' · KO-Abstand '+(Number.isFinite(e.koDistancePct)?e.koDistancePct.toFixed(2)+' %':'unbekannt')+'</p><button type="button" data-simple-prepare="'+esc(p.isin)+'">Trade vorbereiten</button><details><summary>Kurs, Nachweise und Risiko</summary><strong>'+esc(freshness)+'</strong><br>'+fields+(row.sourceNote?'<div data-ranking-price-source>'+esc(row.sourceNote)+'</div>':'')+'<br><strong>'+(i!==null&&e.ok===true&&e.fit===true&&!marketWarnings.length&&row.calculation?.status==='calculated-approved'?'RECHNERISCH FREIGEGEBEN · DEGIRO-Handelbarkeit nicht bestätigt':proof.complete?'Produktnachweise vollständig; DEGIRO-Ausführung nicht bestätigt':'NICHT FREIGEGEBEN · Nachweise offen')+
    '</strong><div class="small" style="white-space:pre-line">'+esc(productRiskPreviewText(p,marketPlan,now))+'</div>'+(row.warning?'<div class="small">'+esc(String(row.warning).slice(0,250))+'</div>':'')+
-   (!proof.complete?'<div class="small">Fehlt: '+esc((proof.reasons||[]).slice(0,3).join(' · ').slice(0,300))+'</div>':'')+'</div>';
+   (!proof.complete?'<div class="small">Fehlt: '+esc((proof.reasons||[]).slice(0,3).join(' · ').slice(0,300))+'</div>':'')+'</details></div>';
  };
  return '<section data-unified-product-ranking data-indicative-recommendations><b>Alle Goldprodukte · eine Rangliste · <span style="color:'+({LONG:'#15803d',SHORT:'#b91c1c'}[context?.direction]||'#ca8a04')+'">'+esc(['LONG','SHORT'].includes(context?.direction)?context.direction:'ABWARTEN')+'</span></b>'+
   '<p class="small" data-price-source-priority>Kursreihenfolge: aktueller Originalkurs → aktuelle Ersatzquelle → gekennzeichnete Berechnung. Fehlt auch diese, bleiben ältere Werte als veraltet oder zeitlich unbestätigt sichtbar. Rangliste passend zu LONG oder SHORT; keine Handelsfreigabe oder ausführbare DEGIRO-Order.</p>'+
   explanationHtml+leverageHint+
-  rankable.map((r,i)=>describe(r,i)).join('')+
-  unranked.map(r=>describe(r,null)).join('')+
+  rankable.slice(0,3).map((r,i)=>describe(r,i)).join('')+
+  (rankable.length>3||unranked.length?'<details><summary>Weitere Produkte und offene Nachweise</summary>'+rankable.slice(3).map((r,i)=>describe(r,i+3)).join('')+unranked.map(r=>describe(r,null)).join('')+'</details>':'')+
   (!rows.length?'<p>Keine Produkte erfasst.</p>':'')+'</section>';
 }
 function listVenueForSync(isin,archive=listArchive){
@@ -5692,7 +5874,20 @@ function buildPaperListEvidence(){
 }
 function rankUI(){if(!productRowsReady)return;const result=preserveReadingPosition(renderRankUI);refreshDegiroBrokerQuotePanel();return result;}
 // Read-only connection of the shared market plan, existing KO guard and product calculator.
-function productRiskPreview(p,market,now=Date.now()){
+function productRiskPreview(p,market,now=Date.now(),preferredQuote=null){
+ return productRiskPlan(p,market,now,preferredQuote,false);
+}
+// Historical handset comparisons may quantify a valid stop even when the
+// target offers insufficient reward for a NEW entry. Keep the strict public
+// preview used by ranking/entry preparation unchanged; never mutate the plan.
+function productRiskComparison(p,market,now=Date.now(),preferredQuote=null){
+ const result=productRiskPlan(p,market,now,preferredQuote,true);
+ return {...result,researchOnly:true,entryApproved:false,copyAllowed:false,
+  entrySuitable:typeof market?.entrySuitable==='boolean'?market.entrySuitable:null,
+  entryWarning:market?.entrySuitable===false?'Kein Einstieg: Hindernis vor ausreichendem Chance-Risiko-Verhältnis. Nur Vergleichsrechnung.':
+   'Nur Vergleichsrechnung; keine Einstiegsfreigabe.'};
+}
+function productRiskPlan(p,market,now,preferredQuote,comparisonOnly){
  const out={available:false,tradeable:false,automaticOrder:false,reason:'Aktueller gemeinsamer Gold-Stopp-/Zielplan fehlt'};
  if(!market?.available||p.productDirection!==market.direction)return out;
  const guard=koProtection({...p,spot:market.entry,atr:market.atr});
@@ -5700,7 +5895,7 @@ function productRiskPreview(p,market,now=Date.now()){
  if(guard.level!=='safe'&&guard.level!=='warning')return {...out,reason:guard.reason};
  // Do not squeeze the market stop inward to make a tight KO product appear suitable.
  if(!(sign*(market.stop-guard.protectiveStopGold)>0))return {...out,reason:'Ungeeignet: Markt-Stopp liegt im bestehenden KO-Schutzbereich. Anderes Produkt wählen.'};
- if(market.entrySuitable===false)return {...out,reason:'Marktplan: Hindernis vor ausreichendem Chance-Risiko-Verhältnis'};
+ if(market.entrySuitable===false&&!comparisonOnly)return {...out,reason:'Marktplan: Hindernis vor ausreichendem Chance-Risiko-Verhältnis'};
  const q=p.quote,m=q?.productModel,currency=q?.metadata?.currency||q?.currency;
  if(p.isinConfirmed!==true||q?.isin!==p.isin||q?.productVerified!==true||m?.isin!==p.isin||
     m.verifiedSimpleTurbo!==true||m.underlying!=='XAU/USD'||m.direction!==p.productDirection||
@@ -5709,7 +5904,28 @@ function productRiskPreview(p,market,now=Date.now()){
  if(q.fieldRecovery?.state==='conflict'||(q.fieldRecovery?.conflicts||[]).length||
     ['ko','strike','ratio'].some(k=>q.conditions?.[k]?.value!==undefined&&Number(q.conditions[k].value)!==Number(m[k])))
   return {...out,reason:'Widersprüchliche Produktbedingungen – Stopp-/Zielumrechnung offen'};
- const quote=window.BobStopAssistant?.selectQuote(q,p.isin,now,currency);
+ // A display-only chooser may ask us to price the stop against its
+ // selected original, secondary or rigorously validated calculated entry.
+ // Recheck that choice against the same authenticated source candidates;
+ // caller-provided prices alone can never authorize a model stop.
+ let quote=window.BobStopAssistant?.selectQuote(q,p.isin,now,currency);
+ if(preferredQuote){
+  const originals=window.BobStopAssistant?.compareQuoteSources(q,p.isin,now,currency)?.quotes||[];
+  const known=originals.find(row=>
+   row.kind===preferredQuote.kind&&row.origin===preferredQuote.origin&&
+   row.source===preferredQuote.source&&row.currency===preferredQuote.currency&&
+   row.at===preferredQuote.at&&row.askAt===preferredQuote.askAt&&
+   row.bid===preferredQuote.bid&&row.ask===preferredQuote.ask);
+  const calculated=calculatedProductDisplay(p,now);
+  const model=preferredQuote.kind==='calculated'&&preferredQuote.modelVerified===true&&
+   calculated?.isin===p.isin&&calculated.priceKind==='calculated'&&
+   calculated.validationReady===true&&calculated.validationSamples>=20&&
+   calculated.currency===preferredQuote.currency&&
+   calculated.at===preferredQuote.at&&calculated.source===preferredQuote.source&&
+   calculated.bid===preferredQuote.bid&&calculated.ask===preferredQuote.ask;
+  if(!known&&!model)return {...out,reason:'Ausgewählter Produktkurs nicht original oder rechnerisch bestätigt.'};
+  quote=known||(model?preferredQuote:null);
+ }
  const fx=market.spots?.[currency==='CHF'?'usd_chf_meta':'usd_eur_meta'];
  const clocks=[market.at,quote?.at,quote?.askAt,fx?.fetchedAt].map(x=>typeof x==='string'&&/(Z|[+-]\d{2}:\d{2})$/.test(x)?Date.parse(x):NaN);
  if(!quote||!clocks.every(x=>Number.isFinite(x)&&now>=x&&now-x<=90000)||Math.max(...clocks)-Math.min(...clocks)>90000||!(fx?.rate>0)||fx.error)
@@ -5723,7 +5939,7 @@ function productRiskPreview(p,market,now=Date.now()){
   if(!stop.available||!target.available||!(stop.price<quote.ask&&quote.ask<target.price))return {...out,reason:'Kein passender Produkt-Stopp-/Zielkorridor'};
   return {...out,available:true,reason:'',currency,stop:stop.price,target:target.price,
    lossPerUnit:quote.ask-stop.price,stopGold:market.stop,targetGold:market.target,ko:m.ko,
-   referenceAt:quote.at,source:quote.source,guard};
+   referenceAt:quote.at,source:quote.source,priceKind:quote.kind,guard};
  }catch(_){return {...out,reason:'Produktwerte für individuelle Umrechnung unvollständig'};}
 }
 function productRiskPreviewText(p,market,now=Date.now()){
@@ -5863,6 +6079,8 @@ function renderRankUI(){
  window.BobPaperSimulation?.sync({...buildPaperListEvidence(),products:paperProductsForSync(ps),references});
  window.BobPush?.updateSelection?.({products:ps,context:selectionContext,bundle:{spots:bundle?.spots,fetched_at:bundle?.fetched_at,history:{data_state:bundle?.history?.data_state}},references,fixedBarriers:window.BobCombined.fixedBarriers()},flow);
  const flowHtml=renderContinuingAnalysis(ps,selectionContext);if(updateProductHtml(o,flowHtml))bindCompactCards(o);
+ // Optional local-only manual comparison: no broker writes or order entry.
+ window.BobManualTop3?.render(flow,ps,bundle);
  const approvalOut=document.getElementById('dgApprovalOut');
  const approvalHtml='<details data-product-details="selection-check"><summary>Freigabeprüfung · '+(flow.approved?flow.approvedCount+' geeignete Produkte':'ABWARTEN')+'</summary>'+renderSelectionWorkflow(flow,ps)+'</details>';if(approvalOut&&updateProductHtml(approvalOut,approvalHtml))bindCompactCards(approvalOut);return flow;
 
@@ -5894,7 +6112,7 @@ function exitReference(isin){
  }
  return null;
 }
-window.BobDegiro={readServerProductList,selectedPriceSnapshot,researchPriceProduct,earlyWarningRanking,renderEarlyProductPanel,productRiskPreview,productRiskPreviewText,earlyProductRankingText,agreedExcludedDegiroFactorRow,degiroManualQuoteSummary,degiroScreenQuoteState,degiroBrokerQuotePanelState,refreshDegiroBrokerQuotePanel,goldProductBrokerListStatus,savePendingDegiroList,loadPendingDegiroList,clearPendingDegiroList,degiroFileDiagnostic,reviewedDegiroListReference,recognizeReviewedDegiroOriginal,segmentedDegiroListReadings,listAppendSourceFiles,paperProductsForSync,listVenueForSync,refreshVenueAssessment:()=>rankUI(),sharedVenueStatus,renderVenueHistory,observedDegiroListRow,degiroListBlocks,parseDegiroListRow,agreedDegiroListRow,degiroListRects,clippedDegiroListReference,recognizeDegiroList,serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,calculatedAnalysisStatus,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,saveReplacementListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,unapprovedComparisonRanking,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
+window.BobDegiro={productEightClockView,productDailyChangeView,productPortalReferenceView,readServerProductList,selectedPriceSnapshot,researchPriceProduct,earlyWarningRanking,renderEarlyProductPanel,productRiskComparison,productRiskPreview,productRiskPreviewText,earlyProductRankingText,agreedExcludedDegiroFactorRow,degiroManualQuoteSummary,degiroScreenQuoteState,degiroBrokerQuotePanelState,refreshDegiroBrokerQuotePanel,goldProductBrokerListStatus,savePendingDegiroList,loadPendingDegiroList,clearPendingDegiroList,degiroFileDiagnostic,reviewedDegiroListReference,recognizeReviewedDegiroOriginal,segmentedDegiroListReadings,listAppendSourceFiles,paperProductsForSync,listVenueForSync,refreshVenueAssessment:()=>rankUI(),sharedVenueStatus,renderVenueHistory,observedDegiroListRow,degiroListBlocks,parseDegiroListRow,agreedDegiroListRow,degiroListRects,clippedDegiroListReference,recognizeDegiroList,serverVenueEvidence,degiroVenueObserved,screenshotSeriesContext,applyLearnedRanking,productHelpState,renderProductHelp,calculatedLeverageEvidence,calculatedAnalysisStatus,recoverArchivedList,productObservedTimeStatus,sharedProductFieldTime,detailScreenshotData,parseDegiroDisplayedQuote,renderDegiroDisplayedQuote,degiroListObservation,renderDegiroListEvidence,koProtection,renderProductCalculation,refreshTradeTestQuotes:()=>refreshImportedProducts(true),tradeTestProducts,koEvidenceStatus,KO_MAX_AGE_MS,currentConvertedChfEvidence,termSeriesReference,currentProductTerm,renderTermSeriesValidity,productDataStatus,productCompletionBadge,renderSecondaryValidity,analysisReleaseQuote,recognizePlainOcr,reprocessOriginals,scalarCellRect,readScalarCell,originalRetention,saveProductOriginal,loadProductOriginals,markOriginalProcessed,deleteProductOriginals,removeUnconfirmedFields,screenshotBatchSummary,renderUploadMissing,readTermDate,screenshotProductLink,knockoutStatus,explicitKnockout,knockoutCard,invalidateProductQuote,retainProductResearch,missingValueLocation,restorePdfReference,parseProductPdf,readProductPdf,sgIdentityRect,readSgIdentity,linkScreenshotSeries,ocrGlyphPair,strictOcrNumber,ocrNumericFields,unconfirmedOcrFields,preferOriginalTableRead,bnpBadgeRect,normalizeBnpQuoteColumns,imageIdentityDiagnostic,reviewedImageText,detailStateKey,updateProductHtml,preserveReadingPosition,zurichListDay,listExpired,clearDailyList,archiveTransaction,saveListArchive,saveReplacementListArchive,restoreListArchive,automaticIdentity,automaticCondition,recoverTermRows,screenshotReturnRow,renderProductDecision,readListBatch,collectiveSignal,productFieldStates,renderProductFieldStates,indicativeRecommendations,unapprovedComparisonRanking,calculationAge,continuingAnalysis,renderContinuingAnalysis,compactProductCard,screenshotSummary,retainSelectedImages,renderImageImportStatus,renderIssuerHelp,renderProductSources,applyResearchedTerms,durableCondition,maturityDeadline,writeStoredProducts,cleanStoredProduct,recoverReviewedLists,restoreProductRows,selectionUiSignals,selectionMarketGate,costRiskAssessment,finalProductStatus,parseProductTerms,productTermsStatus,selectionTimeWindow,selectionDetailStatus,selectionWorkflow,renderSelectionWorkflow,recognizeOcr,exitReference,createQuoteRefresh,screenshotCurrentState,renderScreenshotCurrentState,conditionalCandidate,rankConditional,renderConditional,qualityText,isFutureProduct,futureResearchText,productEstimateText,calculatedProductDisplay,renderPrimaryProductValues,rankManualSnapshots,productUploadCards,sourceTimestamp,screenshotTimes,evidenceTiming,manualSnapshotStatus,needsDirectionalData,loadIdentities,saveIdentities,riskModel,koDistancePct,evaluateProduct,quoteTiming,currentQuote,rankProducts,technicalQuality,ocrExtract,parseScreenshotCandidates,validIsin,normalizeOcrIsin,populateCandidateRows,recoverOcrIsins,detailScreenshotData,missingProductData,supplementaryHint,screenshotTimeLabel,mergeScreenshotEvidence,manualProductMissing,escapeHtml:esc};
 })();
 
 
@@ -6344,7 +6562,7 @@ function init(){
  const exit=document.getElementById('bobExitEstimate');if(!exit||document.getElementById('bobTradeUpload'))return;
  const p=document.createElement('div');p.id='bobTradeUpload';p.className='card';p.innerHTML='<h3>Mein Trade · Screenshots</h3><p class="small">Kaufbestätigung einmal, Kursbilder bei Aktualisierung. Produktkopf/Details gemeinsam ergänzen. Jedes Bild braucht die ISIN. Originalzeiten bleiben erhalten. Speicherung auf diesem Gerät.</p><label for="trade-images">Trade erfassen / Kurs aktualisieren</label><input id="trade-images" type="file" accept="image/*" multiple><div id="trade-ocr-status" class="small"></div><label for="trade-select">Gespeichertes Produkt</label><select id="trade-select"></select><div id="trade-review"></div><div id="trade-result" class="small"></div>';exit.before(p);
  const research=document.createElement('button');research.dataset.tradeReferenceRetry='';research.textContent='Gold-/FX-Referenz zur Kurszeit suchen';research.addEventListener('click',()=>window.BobExitEstimate.researchReference());exit.querySelector('[data-exit-calculate]').before(research);
- const details=document.createElement('details');details.innerHTML='<summary>Produktbedingungen und Zeitbezug bestätigen</summary>';const grid=exit.querySelector('.grid');if(grid&&!grid.querySelector('#exit-entry'))details.append(grid);for(const el of [...exit.children])if(el.tagName==='LABEL'||el.tagName==='BR')details.append(el);exit.querySelector('h3').after(details);p.append(exit);exit.className='';
+ const details=document.createElement('details');details.innerHTML='<summary>Produktbedingungen und Zeitbezug bestätigen</summary>';const grid=exit.querySelector(':scope > .grid');if(grid&&!grid.querySelector('#exit-entry'))details.append(grid);for(const el of [...exit.children])if(el.tagName==='LABEL'||el.tagName==='BR')details.append(el);exit.querySelector('h3').after(details);p.append(exit);exit.className='';
  let all={};try{all=JSON.parse(localStorage.getItem(KEY)||'{}');}catch(_){}let drafts=[];
  const select=p.querySelector('select'),review=p.querySelector('#trade-review'),result=p.querySelector('#trade-result');
  const fill=(lookup=false)=>{const t=all[select.value];if(!t)return;const set=(k,v)=>{const e=exit.querySelector('[data-exit="'+k+'"]');if(e)e.value=v??'';};

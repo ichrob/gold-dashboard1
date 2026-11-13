@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from datetime import datetime, timedelta
 import improvement_tracker as m
 
@@ -73,6 +73,27 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual(r['drawdownCHF'],2)
         before['at']=start+1
         self.assertEqual(m.real_results([snap],{'x':before},at(20,8))['pairedCount'],0)
+
+    def test_unavailable_archived_observation_is_explicitly_excluded(self):
+        import cold_observations
+        start=at(20,10);end=start+3600000
+        snapshot=dict(tradeId='x',dir='LONG',active=False,product={'currency':'EUR'},
+            purchase={'at':datetime.fromtimestamp(start/1000,m.ZONE).isoformat(),'totalCHF':101},
+            exitReceipt={'executedAt':datetime.fromtimestamp(end/1000,m.ZONE).isoformat(),'saleNetCHF':99})
+        def cursor(*,one=None,all=None):
+            value=Mock();value.fetchone.return_value=one;value.fetchall.return_value=all
+            return value
+        conn=Mock();conn.execute.side_effect=[
+            cursor(one=(m.PROTOCOL,)), cursor(one=(0,0,0,None)), cursor(all=[]),
+            cursor(all=[(snapshot,)]), cursor(one=(at(20,8),)),
+            cursor(one=({'_bobColdObservationV1':'0'*64},))]
+        unavailable=cold_observations.codec.ColdArchiveUnavailable('temporary test outage')
+        with patch.object(cold_observations,'resolve',side_effect=unavailable), \
+             patch('improvement_operations.attach'):
+            report=m.report(conn,at(20,12),include_history=False)
+        self.assertEqual(report['real']['pairedEvidenceUnavailable'],1)
+        self.assertFalse(report['real']['pairedEvidenceComplete'])
+        self.assertEqual(report['real']['pairedCount'],0)
 
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')

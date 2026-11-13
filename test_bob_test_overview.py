@@ -3,6 +3,54 @@ import unittest
 import bob_test_overview as overview
 
 
+class EntryExitOverviewTests(unittest.TestCase):
+    def rows(self, comparison, phase='trading', now=1793955600):
+        source={'areas':{'simulationAndPush':{'paper':{'sessionMode':phase},
+            'shadowStudies':{'entryExitComparison':comparison}}}}
+        before=copy.deepcopy(source)
+        rows=[r for r in overview.snapshot(source,now)['items']
+              if r['id'].startswith('entry-exit-')]
+        self.assertEqual(source,before)
+        self.assertEqual(len(rows),6)
+        self.assertTrue(all(r['completed'] is False for r in rows))
+        return rows
+
+    def test_current_neutral_worker_with_old_episode_is_waiting_not_unavailable(self):
+        comparison={'status':'collecting','checkedAt':1793903127892,
+            'episodesSampled':1,'inputObservation':{'checkedAt':1793955590000,
+            'reason':'waiting-for-direction','inputQuality':{'verified':True}}}
+        for row in self.rows(comparison):
+            self.assertEqual(row['state'],'waiting-for-signal')
+            self.assertEqual(row['lastObservedAt'],1793955590000)
+            self.assertEqual(row['lastCaseObservedAt'],1793903127892)
+            self.assertEqual(row['sampledRecords'],1)
+            self.assertIsNone(row['comparableCases'])
+
+    def test_first_episode_wait_and_invalid_input_are_distinct(self):
+        comparison={'status':'waiting-for-first-episode','episodesSampled':0,
+            'inputObservation':{'checkedAt':1793955590000,
+                'reason':'waiting-for-direction','inputQuality':{'verified':True}}}
+        self.assertTrue(all(r['state']=='waiting-for-signal' for r in self.rows(comparison)))
+        comparison['inputObservation'].update(reason='original-input-unverified',inputQuality={'verified':False})
+        self.assertTrue(all(r['state']=='input-blocked' for r in self.rows(comparison)))
+
+    def test_stale_future_missing_or_failed_worker_is_not_reported_current(self):
+        for at in (1793955400000,1793955700000,None):
+            comparison={'status':'collecting','checkedAt':1793903127892,
+                'inputObservation':{'checkedAt':at,'reason':'waiting-for-direction',
+                    'inputQuality':{'verified':True}}}
+            self.assertTrue(all(r['state']=='unavailable' for r in self.rows(comparison)))
+        comparison['status']='unavailable'
+        comparison['inputObservation']['checkedAt']=1793955590000
+        self.assertTrue(all(r['state']=='unavailable' for r in self.rows(comparison)))
+
+    def test_legacy_case_observation_and_night_pause_remain_separate(self):
+        comparison={'status':'collecting','checkedAt':1793955590000}
+        self.assertTrue(all(r['state']=='checked' for r in self.rows(comparison)))
+        comparison['checkedAt']=1793903127892
+        self.assertTrue(all(r['state']=='night-paused' for r in self.rows(comparison,phase='night')))
+
+
 class RiskPaperOverviewTests(unittest.TestCase):
     def report(self, status='observed'):
         return {'areas':{'riskPaper':{
@@ -29,6 +77,16 @@ class RiskPaperOverviewTests(unittest.TestCase):
         self.assertNotIn('hidden',str(result))
         self.assertEqual(report,before)
 
+    def test_retired_risk_variants_keep_their_stored_counts_without_running_claim(self):
+        report=self.report(status='retired')
+        report['areas']['riskPaper']['retiredAt']=1000
+        rows={row['id']:row for row in overview.snapshot(report,200000)['items']
+              if row['id'].startswith('risk-paper-')}
+        self.assertTrue(all(row['state']=='retired' for row in rows.values()))
+        self.assertEqual([rows['risk-paper-'+str(d)]['sampledRecords'] for d in (0,30,60)],
+                         [2,0,1])
+        self.assertTrue(all(row['completed'] is False for row in rows.values()))
+
     def test_new_full_journal_studies_are_in_test_overview(self):
         source=self.report()
         source['areas']['simulationAndPush']={
@@ -54,6 +112,18 @@ class RiskPaperOverviewTests(unittest.TestCase):
         self.assertTrue(all(not r['completed'] and not r['truncated']
                             for r in rows.values()))
         self.assertEqual(source,before)
+        for study in source['areas']['simulationAndPush']['shadowStudies']['studies']:
+            study['status']='retired'
+        rows={r['id']:r for r in overview.snapshot(source,200000)['items']
+              if r['id'].startswith('shadow-')}
+        self.assertTrue(all(r['state']=='retired' for r in rows.values()))
+        self.assertEqual(rows['shadow-regime-routing']['sampledRecords'],9)
+        self.assertEqual(rows['shadow-product-e2e']['comparableCases'],1)
+        self.assertTrue(all(r['completed'] is False for r in rows.values()))
+
+        source['areas']['simulationAndPush']['shadowStudies']['studies'][0]['status']='running'
+        source['areas']['simulationAndPush']['shadowStudies']['studies'][1]['status']='running'
+        source['areas']['simulationAndPush']['shadowStudies']['studies'][2]['status']='running'
         source['areas']['simulationAndPush']['paper']['sessionMode']='night'
         rows={r['id']:r for r in overview.snapshot(source,200000)['items']
               if r['id'].startswith('shadow-')}

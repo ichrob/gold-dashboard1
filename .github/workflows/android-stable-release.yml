@@ -221,6 +221,7 @@ jobs:
           gh release create "$tag" \
             "$staged" \
             --repo "$GITHUB_REPOSITORY" \
+            --target "$(git rev-parse HEAD)" \
             --title "Bob – Handy (Version $BOB_ANDROID_VERSION_CODE)" \
             --latest \
             --notes "Dauerhaft signierte Bob-Android-App; manuelle Installation. Sichere Anzeige- und Sprachfunktionen; keine Echtgeldorders. Die Signatur muss mit früheren stabilen Versionen übereinstimmen."

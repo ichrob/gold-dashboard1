@@ -11,11 +11,13 @@
  const STEPS={'5m':300000,'15m':900000};
  const finite=v=>typeof v==='number'&&Number.isFinite(v);
  const pos=v=>finite(v)&&v>0;
- const initial={version:'late-entry-v1',available:false,allowed:false,late:false,
-                reason:'Keine geprüfte Einstiegschance',mode:'ABWARTEN',maxDeviationAtr:1.5,
+ const initial={version:'late-entry-v3',available:false,allowed:false,late:false,
+                reason:'Keine geprüfte Einstiegschance',mode:'ABWARTEN',maxDeviationAtr:1.5,maxFreshContinuationDeviationAtr:2.0,
                 maxImpulseAtr:2.5,maxSignalMinutes:15};
- function gate(bundle,direction,now=Date.now(),confirmedAt=null){
-   const fail=reason=>({...initial,reason});
+ function gate(bundle,direction,now=Date.now(),confirmedAt=null,paperOnly=false,noEma=false,study=null){
+   const limits=study?{...initial,maxDeviationAtr:study.distance,maxSignalMinutes:study.age,paperOnly:true}:paperOnly?{...initial,maxDeviationAtr:2.5,paperOnly:true}:initial;
+   const fail=reason=>({...limits,reason});
+   if(study&&Number.isFinite(confirmedAt)&&confirmedAt>now)return fail('Signalzeit liegt in der Zukunft');
    if(!['LONG','SHORT'].includes(direction))return fail('Keine bestätigte Einstiegsrichtung');
    if(!finite(now)||now<=0)return fail('Prüfzeit unbekannt');
    const frames=bundle?.history?.bars_by_tf,spot=bundle?.spots||{},verified={};
@@ -27,7 +29,7 @@
        return fail(tf+': Kerzenzeit liegt in der Zukunft');
      const rows=all.filter(b=>b&&!b.isOpen&&finite(b.openTime)&&b.openTime+step<=now).slice(-100);
      if(rows.length<50)return fail(tf+': weniger als 50 geschlossene Kerzen');
-     if(rows.some((b,i)=>b.instrument!=='XAU/USD'||b.estimated===true||b.openTime%step!==0
+     if(rows.some((b,i)=>b.instrument!=='XAU/USD'||b.estimated===true||(study&&b.providerIsOpen===true)||b.openTime%step!==0
           ||!['open','high','low','close'].every(k=>pos(b[k]))
           ||b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)
           ||(i>0&&b.openTime<=rows[i-1].openTime)))
@@ -53,8 +55,13 @@
    }
    atr/=14;
    if(!pos(atr))return fail('ATR aus geprüften Kerzen nicht berechenbar');
-   if(Math.abs(spot.xaus-latest.close)>atr*0.80)
-     return fail('Aktueller Spot und letzter Kerzenschluss weichen über 0,8 ATR ab');
+   // Do not classify a new, corroborated minute breakout as a source mismatch.
+   // EMA distance, impulse, age and all trade approvals remain checked below.
+   // Only the two named paper campaigns test 1.0/1.2 ATR. Live stays at 0.8.
+   const spotDistance=study&&Number.isFinite(study.spotDistance)?study.spotDistance:0.80;
+   const minuteConfirmed=minuteConfirmation(bundle,direction,now,latest,spot.xaus,atr);
+   if(Math.abs(spot.xaus-latest.close)>atr*spotDistance && !minuteConfirmed)
+     return fail('Aktueller Spot und letzter Kerzenschluss weichen über '+String(spotDistance).replace('.',',')+' ATR ab');
    const deviation=sign*(spot.xaus-ema20)/atr;
    const impulse=sign*(latest.close-bars.at(-4).close)/atr;
    const age=finite(confirmedAt)&&confirmedAt>0
@@ -67,21 +74,73 @@
       sign*(latest.close-latest.open)>0 &&
       sign*(prev2.close-prev.close)>0 &&
       deviation>=-0.25&&deviation<=0.80&&impulse<1.20;
+   // A late 15m signal may be followed by an independently NEW, source-verified
+   // closed 5m breakout. Keep the opportunity until just before the NEXT 5m close;
+   // every check revalidates source freshness and price. Never redate the old signal.
+   const minutesSinceFiveClose=(now-latest.openTime-STEPS['5m'])/60000;
+   const continuationChecks={
+     recentClosedBar:minutesSinceFiveClose>=0&&minutesSinceFiveClose<5,
+     distanceWithinTwoAtr:deviation>0&&deviation<=2.0,
+     impulseWithinLimit:impulse<=2.5,
+     previousCandleAligned:sign*(prev.close-prev.open)>0,
+     latestCandleAligned:sign*(latest.close-latest.open)>0,
+     previousCloseProgress:sign*(prev.close-prev2.close)>0,
+     closedBreakout:sign*(latest.close-(sign>0?prev.high:prev.low))>0,
+     minimumFollowThrough:sign*(latest.close-prev.close)>=0.15*atr,
+     spotHoldsBreakout:sign*(spot.xaus-latest.close)>=-0.25*atr
+   };
+   const continuation=Object.values(continuationChecks).every(Boolean);
+   // A newly CLOSED corroborated 1m impulse is independent of an old 15m
+   // signal, but still requires original, current spot and 5m/15m candles.
+   const minuteContinuation=Boolean(study?.paperProfile)&&minuteConfirmed;
+   const recentMinutes=bundle.history.bars_by_tf['1m']||[];
+   const lastMinuteAt=minuteContinuation?recentMinutes.filter(b=>b?.isOpen===false&&b.openTime+60000<=now).at(-1)?.openTime+60000:null;
    const reasons=[];
-   if(deviation>1.5)reasons.push('Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt');
+   if(!noEma&&deviation>limits.maxDeviationAtr&&!continuation)reasons.push('Preis über '+String(limits.maxDeviationAtr).replace('.',',')+' ATR von EMA20 in Trendrichtung entfernt');
    if(impulse>2.5&&deviation>0.80)reasons.push('Bewegung der letzten 3×5m-Kerzen bereits über 2,5 ATR');
-   if((age===null||age>15)&&!reset)
+   if((age===null||age>limits.maxSignalMinutes)&&!reset&&!continuation&&!minuteContinuation)
      reasons.push(age===null?'Signalzeit unbekannt; kein neues bestätigtes Rücksetzer-Setup':
-                            'Bestätigtes Einstiegssignal älter als 15 Minuten ohne neuen Rücksetzer');
-   const metrics={...initial,available:true,late:reasons.length>0,allowed:reasons.length===0,
+                            'Bestätigtes Einstiegssignal älter als '+limits.maxSignalMinutes+' Minuten ohne neuen Rücksetzer');
+   const metrics={...limits,emaDistanceDisabled:noEma,available:true,late:reasons.length>0,allowed:reasons.length===0,
        mode:reasons.length?'ABWARTEN':'EINSTIEGSFENSTER',direction,
-       reason:reasons.join(' · ')||(reset?'Neuer Rücksetzer mit bestätigter Fortsetzung':
+       setup:reasons.length?'blocked':continuation?'fresh-5m-continuation':minuteContinuation?'fresh-1m-continuation':reset?'closed-5m-pullback':'confirmed-main',
+       reason:reasons.join(' · ')||(continuation?'Neuer, geschlossener 5m-Folgeimpuls; nicht dem alten 15m-Signal hinterherlaufen':
+                                  minuteContinuation?'Neuer, originaler 1m-Folgeimpuls im bestätigten Trend':
+                                  reset?'Neuer Rücksetzer mit bestätigter Fortsetzung':
                                   'Bestätigung aktuell, Bewegung nicht überdehnt'),
        deviationAtr:Math.round(deviation*100)/100,impulseAtr:Math.round(impulse*100)/100,
        signalAgeMinutes:age===null?null:Math.round(age*10)/10,
+       continuationChecks,minutesSinceFiveClose,
+       freshContinuation:(continuation||minuteContinuation)&&reasons.length===0,
+       freshContinuationAt:continuation?latest.openTime+STEPS['5m']:minuteContinuation?lastMinuteAt:null,
        pullbackReset:reset,atr5m:atr,barAt:latest.openTime,
        priceAt:closeTime,reference:spot.xaus};
    return metrics;
  }
- return {check:gate};
+ function minuteConfirmation(bundle,direction,now,five,price,atr){
+   const rows=(bundle.history?.bars_by_tf?.['1m']||[]).filter(b=>b?.isOpen===false && b.openTime+60000<=now).slice(-2);
+   const sign=direction==='LONG'?1:-1;
+   if(rows.length!==2||rows.some(b=>b.instrument!=='XAU/USD'||b.estimated===true||b.providerIsOpen===true||
+     !Number.isFinite(b.openTime)||b.openTime%60000!==0||!['open','high','low','close'].every(k=>pos(b[k]))||
+     b.low>Math.min(b.open,b.close)||b.high<Math.max(b.open,b.close)))return false;
+   const [a,b]=rows;
+   return a.openTime>=five.openTime+300000 && b.openTime-a.openTime===60000 &&
+     now-b.openTime-60000>=0 && now-b.openTime-60000<=60000 &&
+     sign*(a.close-a.open)>0 && sign*(b.close-b.open)>0 && sign*(b.close-a.close)>0 &&
+     sign*(a.close-(sign>0?five.high:five.low))>0 &&
+     sign*(price-b.close)>=-0.25*atr && Math.abs(price-b.close)<=0.25*atr;
+ }
+ return {checkPaperCampaign:(bundle,direction,now,confirmedAt,profile)=>{
+   const profiles={trend800nov:{distance:1.5,age:20,spotDistance:1.0},
+     normal1000nov:{distance:1.5,age:20,spotDistance:1.2}};
+   if(!Object.prototype.hasOwnProperty.call(profiles,profile))
+     throw Error('Unknown paper campaign profile');
+   return gate(bundle,direction,now,confirmedAt,false,false,
+     {...profiles[profile],paperProfile:profile});
+ },checkStudy:(bundle,direction,now,confirmedAt,options)=>{
+   if(!options||![1.5,2.5].includes(options.distance)||![15,20].includes(options.age))throw Error('Unknown study thresholds');
+   return gate(bundle,direction,now,confirmedAt,false,false,options);
+ },checkPaperNoEma:(bundle,direction,now,confirmedAt)=>gate(bundle,direction,now,confirmedAt,false,true),
+   check:(bundle,direction,now,confirmedAt)=>gate(bundle,direction,now,confirmedAt),
+   checkPaper25:(bundle,direction,now,confirmedAt)=>gate(bundle,direction,now,confirmedAt,true)};
 });

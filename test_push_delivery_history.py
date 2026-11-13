@@ -19,6 +19,16 @@ class PushHistoryTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 history.arguments(bad, now=now)
 
+    def test_late_persisted_receipt_is_not_browser_display_latency(self):
+        at = datetime(2026, 11, 12, 16, 21, 20, tzinfo=timezone.utc)
+        measured = history.latency({
+            'dataAt': int(at.timestamp()*1000) - 164900,
+            'browserShowAt': at.isoformat(),
+        })
+        self.assertEqual(measured['sourceToReceiptStoredMs'], 164900)
+        self.assertEqual(measured['sourceToBrowserReceiptMs'], 164900)
+        self.assertIn('not-browser-or-Android-display', measured['scope'])
+
     def test_test_not_mistaken_for_market_and_no_secrets(self):
         conn = Mock()
         at = datetime(2026, 10, 23, 19, tzinfo=timezone.utc)
@@ -35,6 +45,8 @@ class PushHistoryTests(unittest.TestCase):
         ]
         report = history.report(conn)
         first, second = report["records"]
+        self.assertEqual(first["eventKinds"], ["early-warning-test"])
+        self.assertEqual(second["eventKinds"], ["early-warning"])
         self.assertEqual(first["classification"], "synthetic-test")
         self.assertEqual(second["classification"], "not-marked-test")
         self.assertIs(second["marketEventVerified"], False)

@@ -479,8 +479,10 @@ def _store_horizon_outcomes(conn, horizon, ids):
       ON CONFLICT DO NOTHING""",(horizon,horizon,horizon,horizon,ids))
 
 
-def _harvest_recent(conn, horizon):
+def _harvest_recent(conn, horizon, *, batch_size=128):
     """A separate bounded lane prevents old missing quotes delaying new outcomes."""
+    if type(batch_size) is not int or not 1 <= batch_size <= 128:
+        raise ValueError('Invalid bounded recent outcome batch')
     rows=conn.execute("""SELECT a.id FROM bob_decision_audit a
       WHERE a.recorded_at>=now()-(%s+15)*interval '1 minute'
       AND a.payload->>'marketEvaluable'='true'
@@ -489,7 +491,7 @@ def _harvest_recent(conn, horizon):
           + %s*interval '1 minute'<=now()
       AND (%s IN (15,60,240) OR a.payload->'marketOptimization'->>'version'='market-review-v1')
       AND NOT EXISTS(SELECT 1 FROM bob_decision_outcomes o WHERE o.decision_id=a.id AND o.horizon=%s)
-      ORDER BY a.recorded_at DESC,a.id LIMIT 128""",(horizon,horizon,horizon,horizon)).fetchall()
+      ORDER BY a.recorded_at DESC,a.id LIMIT %s""",(horizon,horizon,horizon,horizon,batch_size)).fetchall()
     if rows:_store_horizon_outcomes(conn,horizon,[r[0] for r in rows])
     return len(rows)
 
@@ -546,10 +548,21 @@ def harvest(conn):
     horizon=_next_harvest_horizon(conn)
     if horizon is None:return
     import psycopg
+    # The worker runs about every two minutes; six rotating horizons otherwise
+    # leave a newly mature 60m result waiting around twelve minutes. Reserve a
+    # small part of the EXISTING 128-row recent budget for it on every pass.
+    # The 64-row archive lane and durable horizon rotation remain independent.
+    recent_budget=128
+    if horizon != 60:
+        recent_budget-=16
+        try:
+            with conn.transaction():_harvest_recent(conn,60,batch_size=16)
+        except psycopg.errors.QueryCanceled:
+            print('BOB_AUDIT_HARVEST deferred=priority-recent horizon=60',flush=True)
     for stage in ('recent','archive'):
         try:
             with conn.transaction():
-                if stage=='recent':_harvest_recent(conn,horizon)
+                if stage=='recent':_harvest_recent(conn,horizon,batch_size=recent_budget)
                 else:_harvest_horizon(conn,horizon)
         except psycopg.errors.QueryCanceled:
             # Preserve cursor and frozen evidence on timeout. Retry the archive
@@ -739,39 +752,41 @@ def _prospective_query(recent=False):
     """Return the bounded hourly research query and its safe parameters."""
     horizon = "24 hours" if recent is True else "30 days"
     eligible = PROSPECTIVE_INDEX_PREDICATE + " AND payload->>'ruleVersion'=%s"
-    sql = """WITH RECURSIVE sampled(id,recorded_at) AS (
-        (SELECT id,recorded_at FROM bob_decision_audit
-         WHERE recorded_at >= now()-interval '""" + horizon + """'
-           AND recorded_at <= now()
-           AND """ + eligible + """
-         ORDER BY recorded_at,id LIMIT 1)
-        UNION ALL
-        SELECT next_hour.id,next_hour.recorded_at
-        FROM sampled previous
+    sql = """WITH hours(hour_at) AS MATERIALIZED (
+        SELECT generate_series(
+            date_trunc('hour',now()-interval '""" + horizon + """'),
+            date_trunc('hour',now()),interval '1 hour')
+    ), sampled AS MATERIALIZED (
+        SELECT candidate.id,candidate.recorded_at
+        FROM hours
         CROSS JOIN LATERAL (
             SELECT id,recorded_at FROM bob_decision_audit
-            WHERE recorded_at >= date_trunc('hour',previous.recorded_at) + interval '1 hour'
+            WHERE recorded_at >= hours.hour_at
+              AND recorded_at >= now()-interval '""" + horizon + """'
+              AND recorded_at < hours.hour_at + interval '1 hour'
               AND recorded_at <= now()
               AND """ + eligible + """
             ORDER BY recorded_at,id LIMIT 1
-        ) next_hour
+        ) candidate
     ) SELECT a.id,a.payload,o.truth FROM sampled s
       JOIN bob_decision_audit a ON a.id=s.id
       LEFT JOIN bob_decision_outcomes o ON o.decision_id=s.id AND o.horizon=60
       ORDER BY s.recorded_at"""
-    return sql, (RULE_VERSION, RULE_VERSION)
+    return sql, (RULE_VERSION,)
 
 
 def _load_prospective_rows(conn, recent=False):
     """Earliest qualifying background decision per hour, independent of outcomes.
 
     The former DISTINCT ON grouped and sorted the entire JSONB-filtered archive.
-    Traverse qualifying hourly first records via the existing recorded_at index;
-    skip empty hours without scanning/sorting the full history. Full validation
+    Probe each fixed hour through a bounded recorded_at range and retain the
+    earliest qualifying record. This avoids a recursive step scanning across
+    arbitrarily many empty hours when the optional filtered cursor index is
+    absent. Full validation
     retains its documented 30-day window; recovery is strictly last 24 hours.
-    Explicitly cap both the seed and each recursive forward step at the
-    database's current time so that a bad future-dated archive record cannot
-    extend the historical review or trigger an unbounded forward walk.
+    Explicitly clip the first and current-hour ranges to the requested horizon
+    and database current time so that a bad future-dated archive record cannot
+    enter or widen the historical review.
     A separately provisioned filtered cursor index accelerates this query when
     present. It is deliberately not built by init(): creating an index in the
     request-serving startup transaction can block writers and make a second
@@ -781,7 +796,7 @@ def _load_prospective_rows(conn, recent=False):
     """
     sql, params = _prospective_query(recent)
     # Production timing shows that PostgreSQL can still choose a sequential
-    # scan for the recursive 30-day walk even though the narrow partial cursor
+    # scan for the hourly 30-day probes even though the narrow partial cursor
     # index is available. That plan scales with the complete JSONB archive and
     # repeatedly reaches the unchanged 10-second statement limit. Constrain
     # only this research statement to an index-capable plan; the setting is

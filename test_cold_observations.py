@@ -28,6 +28,22 @@ class ReferenceTests(unittest.TestCase):
         self.assertNotIn('payload',key_page)
         self.assertIn('ORDER BY campaign,slot',key_page)
 
+    def test_large_status_uses_catalog_gate_not_full_aggregate(self):
+        from contextlib import nullcontext
+        class Conn:
+            def __init__(self): self.queries=[]; self.value=(1000,)
+            def transaction(self): return nullcontext()
+            def execute(self,sql,params=None): self.queries.append(sql); return self
+            def fetchone(self): return self.value
+        conn=Conn()
+        result=cold.status(conn)
+        self.assertEqual(result['status'],'bounded-large-relation')
+        self.assertEqual(result['estimatedUniqueObjects'],1000)
+        self.assertFalse(result['totalsComplete'])
+        self.assertEqual(len(conn.queries),1)
+        self.assertIn('pg_class',conn.queries[0])
+        self.assertNotIn('sum(moved_rows)',conn.queries[0])
+
     def test_content_hash_verified(self):
         value={'number':9007199254740993,'nested':[False,None,3.25]}
         key=cold.codec.digest(cold.codec.encoded(value))
@@ -39,6 +55,9 @@ class ReferenceTests(unittest.TestCase):
 class DatabaseTests(unittest.TestCase):
     def setUp(self):
         import psycopg
+        secret=patch.dict(os.environ, {'PUSH_SERVICE_TOKEN':'offline-cold-test-only-'+('x'*48)})
+        secret.start()
+        self.addCleanup(secret.stop)
         self.c=psycopg.connect(os.environ['BOB_TEST_DATABASE_URL'],autocommit=True)
         self.schema='cold_observations_'+uuid.uuid4().hex
         self.c.execute('CREATE SCHEMA '+self.schema);self.c.execute('SET search_path TO '+self.schema)
@@ -63,6 +82,7 @@ class DatabaseTests(unittest.TestCase):
         before=self.sql_projection()
         first=cold.offload_batch(self.c,self.drive,now=200000000)
         self.assertEqual(first['movedRows'],2);self.assertEqual(first['newUniqueObjects'],1)
+        self.assertTrue(all(blob.startswith(b'BOBCOLD1') for blob in self.drive.files.values()))
         self.assertEqual(before,self.sql_projection())
         cold.codec._CACHE.clear()
         self.assertEqual(self.read(1000),self.payload);self.assertEqual(self.read(2000),self.payload)

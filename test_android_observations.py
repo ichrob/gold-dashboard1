@@ -23,6 +23,23 @@ class MemoryDb:
     def fetchone(self):return self.result
 
 class AndroidObservations(unittest.TestCase):
+    def test_explicit_source_absence_keeps_missing_fields_and_no_approval(self):
+        payload=run()
+        raw=DRAFT.replace('Geld (Anzeige ungeprüft): 13,06', 'Zuletzt (Anzeige ungeprüft): 4,98').replace(
+            'Brief (Anzeige ungeprüft): 13,07', 'Kursstatus (Anzeige ungeprüft): Geld/Brief nicht angezeigt')
+        payload['results'][0]['draft']=raw
+        result=a.prepare(payload,{},NOW)['results'][0]
+        self.assertEqual(result['code'],'QUOTES_UNAVAILABLE')
+        self.assertTrue({'Geld','Brief','Anzeigezeit','Hebel'} <= set(result['observation']['missingFields']))
+        self.assertFalse(result['observation']['tradeApproved'])
+        self.assertFalse(result['observation']['executable'])
+        self.assertIsNone(result['observation']['sourceTime'])
+        for extra in ('Geld (Anzeige ungeprüft): 4,97', 'Brief (Anzeige ungeprüft): 4,99'):
+            payload['results'][0]['draft']=raw+'\n'+extra
+            with self.assertRaises(ValueError):a.prepare(payload,{},NOW)
+        payload['results'][0].update(draft='',code='QUOTES_UNAVAILABLE')
+        with self.assertRaises(ValueError):a.prepare(payload,{},NOW)
+
     def test_gold_discovery_is_saved_as_unverified_candidates(self):
         payload=run();payload['listSource']='degiro-gold-search'
         saved=a.prepare(payload,{},NOW)
@@ -169,10 +186,31 @@ class AndroidObservations(unittest.TestCase):
         with self.assertRaises(ValueError):
             a.parse_draft(draft.replace('Hebel (','Geld ('),ISIN,NOW,['Hebel'])
 
+    def test_streamed_and_targeted_reads_merge_without_late_revision_rollback(self):
+        import copy
+        first=a.prepare({**run(),'listSource':'degiro-gold-search',
+                         'listUploadedAt':'2026-10-28T11:00:30Z'}, {}, NOW)
+        first['receivedAt']=NOW.isoformat()
+        other=copy.deepcopy(first)
+        other['isins']=['DE000FE2JJ20']
+        other['results'][0]['isin']='DE000FE2JJ20'
+        other['results'][0]['observation']['isin']='DE000FE2JJ20'
+        newer=copy.deepcopy(first)
+        newer['results'][0]['observation']['observedAt']='2026-10-28T11:59:30+00:00'
+        newer['results'][0]['observation']['fields']['Geld']='14,00'
+        class DB:
+            def execute(self,sql):return self
+            def fetchall(self):return [(first,),(other,),(newer,)]
+        result=a.research_summary(DB(),'2026-10-28T11:00:00Z',[ISIN,'DE000FE2JJ20'],NOW)
+        self.assertEqual(set(result),{ISIN,'DE000FE2JJ20'})
+        self.assertEqual(result[ISIN]['fields']['Geld'],'14,00')
+
     def test_research_summary_is_generation_matched_and_never_promotes_market_data(self):
         run_data=a.prepare({**run(),'listSource':'degiro-gold-search',
                             'listUploadedAt': '2026-10-28T11:00:30Z'}, {}, NOW)
         run_data['receivedAt']=NOW.isoformat()
+        run_data['results'][0]['observation']['fields']['Handelsplatz']='Test venue'
+        run_data['results'][0]['observation']['fields']['Anzeigezeit']='28/10/2026 12:59'
         class ReadDb:
             def execute(self,sql):
                 assert 'bob_android_read_runs' in sql
@@ -181,10 +219,15 @@ class AndroidObservations(unittest.TestCase):
         matches=a.research_summary(ReadDb(),'2026-10-28T11:00:00Z',[ISIN],NOW)
         self.assertEqual(matches[ISIN]['code'],'PARTIAL')
         self.assertEqual(matches[ISIN]['fields']['Geld'],'13,06')
+        self.assertEqual(matches[ISIN]['fields']['Handelsplatz'],'Test venue')
+        self.assertEqual(matches[ISIN]['fields']['Hinweis'],'Keine Aussage zur Handelbarkeit')
         self.assertTrue(matches[ISIN]['researchOnly'])
         self.assertFalse(matches[ISIN]['verified'])
         self.assertFalse(matches[ISIN]['tradeApproved'])
         self.assertIsNone(matches[ISIN]['sourceTime'])
+        self.assertIsNone(matches[ISIN]['displayTimezone'])
+        self.assertEqual(matches[ISIN]['displayTimePrecision'],'minute')
+        self.assertEqual(matches[ISIN]['receivedAt'],NOW.isoformat())
         self.assertEqual(a.research_summary(ReadDb(),'2026-10-28T10:00:00Z',[ISIN],NOW),{})
         self.assertEqual(a.research_summary(ReadDb(),'2026-10-28T11:00:00Z',
                                             ['DE000FE2JJ20'],NOW),{})

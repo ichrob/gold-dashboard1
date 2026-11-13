@@ -7,17 +7,47 @@ from android_telemetry import token_hash
 
 SCOPE='bob:phone:control'
 TOOLS=('bob_phone_status','bob_phone_command')
-ACTIONS=('inspect','search_gold','search_isin','read_page','stop')
+ACTIONS=('inspect','search_gold','search_isin','read_page','read_account_settings','termux_check','stop')
 # The handset runs in the background when DEGIRO is in the foreground. Android
 # may delay remote polls for longer than 20s. Keep the *undelivered* request
 # bounded but separate its deadline from the short device execution lease.
 QUEUE_TTL=90
 DELIVERY_LEASE=20
+# Only short-lived, minimised account enums survive a new handset session.
+# This is not account identity matching and never proves broker fees.
+ACCOUNT_EVIDENCE_MAX_AGE=7*86400
+ACCOUNT_EVIDENCE_SOURCES=('degiro-app-local-accessibility','degiro-app-owner-confirmed')
+
+def verified_settings(state,now):
+    result={}
+    if not isinstance(state,dict):return result
+    prior=state.get('verifiedSettings')
+    if isinstance(prior,dict):
+        for key,allowed in [('feeProfile',('BASIC','ACTIVE','TRADER')),
+                            ('autoFx',('ON','OFF'))]:
+            item=prior.get(key)
+            if (isinstance(item,dict) and set(item)=={'value','capturedAt','source'} and
+                    item['value'] in allowed and type(item['capturedAt']) is int and
+                    0<=now-item['capturedAt']<=ACCOUNT_EVIDENCE_MAX_AGE and
+                    item['source'] in ACCOUNT_EVIDENCE_SOURCES):
+                result[key]=dict(item)
+    # Compatible upgrade from the previously validated single-session
+    # receipt, without re-scanning any credential or raw screen content.
+    previous=state.get('accountSettings')
+    if isinstance(previous,dict) and previous.get('source') in ACCOUNT_EVIDENCE_SOURCES:
+        when=previous.get('capturedAt')
+        if type(when) is int and 0<=now-when<=ACCOUNT_EVIDENCE_MAX_AGE:
+            for key,allowed in [('feeProfile',('BASIC','ACTIVE','TRADER')),
+                                ('autoFx',('ON','OFF'))]:
+                if key not in result and previous.get(key) in allowed:
+                    result[key]=dict(value=previous[key],capturedAt=when,
+                                     source=previous['source'])
+    return result
 
 def definitions():
     common={'deviceId':{'type':'string','pattern':'^[a-f0-9]{12}$'}}
-    return [dict(name='bob_phone_status',description='Read the latest user-opened Bob Handy session, product-only observation and command acknowledgement. Cached timestamps are not a live screen; never an order or full-phone access.',inputSchema={'type':'object','properties':common,'additionalProperties':False},annotations={'readOnlyHint':True,'destructiveHint':False,'idempotentHint':True,'openWorldHint':False}),
-      dict(name='bob_phone_command',description='Request one bounded DEGIRO product-reading action in an explicitly opened handset session. search actions perform ONE semantic navigation step; inspect again before continuing. No coordinates, passwords or orders. Queued/delivered does not mean performed. Reuse requestId on retry.',inputSchema={'type':'object','properties':{**common,'sessionId':{'type':'string'},'requestId':{'type':'string'},'action':{'type':'string','enum':list(ACTIONS)},'isin':{'type':'string'}},'required':['deviceId','sessionId','requestId','action'],'additionalProperties':False},annotations={'readOnlyHint':False,'destructiveHint':False,'idempotentHint':True,'openWorldHint':True})]
+    return [dict(name='bob_phone_status',description='Read the latest user-opened Bob Handy session, product-only observation, bounded redacted settings evidence and command acknowledgement. Cached timestamps are not a live screen; never an order or full-phone access.',inputSchema={'type':'object','properties':common,'additionalProperties':False},annotations={'readOnlyHint':True,'destructiveHint':False,'idempotentHint':True,'openWorldHint':False}),
+      dict(name='bob_phone_command',description='Request one bounded DEGIRO product-reading action or read_account_settings on a user-opened settings page, in an explicitly opened handset session. search actions perform ONE semantic navigation step; inspect again before continuing. Account settings never confirm actual fees or executable quotes. termux_check may request only a fixed on-device help check during a user-opened session: no shell input, secrets, or orders. Queued/delivered does not mean performed. Reuse requestId on retry.',inputSchema={'type':'object','properties':{**common,'sessionId':{'type':'string'},'requestId':{'type':'string'},'action':{'type':'string','enum':list(ACTIONS)},'isin':{'type':'string'}},'required':['deviceId','sessionId','requestId','action'],'additionalProperties':False},annotations={'readOnlyHint':False,'destructiveHint':False,'idempotentHint':True,'openWorldHint':True})]
 
 def identifier(v,n):
     return isinstance(v,str) and re.fullmatch('[a-f0-9]{%d}'%n,v) is not None
@@ -41,23 +71,91 @@ def arguments(name,a):
     return dict(a)
 
 def exchange(state,value,now):
-    if not isinstance(value,dict) or set(value)!={'sessionId','expiresAt','active','observation','ack'}:raise ValueError('Invalid exchange')
+    required_exchange={'sessionId','expiresAt','active','observation','ack'}
+    if not isinstance(value,dict) or not required_exchange<=set(value) or set(value)-required_exchange-{'purpose'}:
+        raise ValueError('Invalid exchange')
+    purpose=value.get('purpose','product_read')
+    if purpose not in ('product_read','owner_account_settings'):
+        raise ValueError('Invalid handset session purpose')
+    if state.get('sessionId')==value['sessionId'] and state.get('purpose','product_read')!=purpose:
+        raise ValueError('Session purpose cannot change')
     if not identifier(value['sessionId'],32) or type(value['active']) is not bool or type(value['expiresAt']) is not int:raise ValueError('Invalid session')
     if value['active'] and not now<value['expiresAt']<=now+905:raise ValueError('Expired session')
     obs=value['observation']
-    if not isinstance(obs,dict) or set(obs)!={'at','code','nodeCount','isins','draft','diagnostics'}:raise ValueError('Invalid observation')
+    required={'at','code','nodeCount','isins','draft','diagnostics'}
+    if not isinstance(obs,dict) or not required<=set(obs) or set(obs)-required-{'accountSettings'}:raise ValueError('Invalid observation')
     if type(obs['at']) is not int or not now-60<=obs['at']<=now+60:raise ValueError('Stale observation')
     if not isinstance(obs['code'],str) or not re.fullmatch('[A-Z_]{1,64}',obs['code']):raise ValueError('Invalid code')
     if type(obs['nodeCount']) is not int or not 0<=obs['nodeCount']<=500:raise ValueError('Invalid count')
     if not isinstance(obs['isins'],list) or len(obs['isins'])>12 or not all(valid_isin(s) for s in obs['isins']):raise ValueError('Invalid identities')
     if not isinstance(obs['draft'],str) or len(obs['draft'])>8000:raise ValueError('Invalid product draft')
     if not isinstance(obs['diagnostics'],str) or len(obs['diagnostics'])>8000:raise ValueError('Invalid diagnostics')
+    if 'accountSettings' in obs:
+        if obs['draft'] or obs['isins']:
+            raise ValueError('Settings cannot accompany product or account text')
+        # Only a read request in THIS active, user-opened session can
+        # introduce a redacted setting observation; never accept raw UI text.
+        evidence=obs['accountSettings']
+        if not isinstance(evidence,dict) or set(evidence)!={'source','capturedAt','status','feeProfile','autoFx'}:
+            raise ValueError('Invalid account settings evidence')
+        if evidence['source'] not in ACCOUNT_EVIDENCE_SOURCES or type(evidence['capturedAt']) is not int or not now-60<=evidence['capturedAt']<=now+60:
+            raise ValueError('Invalid account evidence source/time')
+        if evidence['status'] not in ('COMPLETE','PARTIAL') or evidence['feeProfile'] not in (None,'BASIC','ACTIVE','TRADER') or evidence['autoFx'] not in (None,'ON','OFF'):
+            raise ValueError('Invalid account evidence values')
+        complete=evidence['feeProfile'] is not None and evidence['autoFx'] is not None
+        if (evidence['status']=='COMPLETE')!=complete or (evidence['feeProfile'] is None and evidence['autoFx'] is None):
+            raise ValueError('Unsubstantiated account evidence')
+        ack=value['ack']
+        remote_read=(isinstance(ack,dict) and ack.get('code')==obs['code']
+                     and identifier(ack.get('requestId'),32)
+                     and state.get('sessionId')==value['sessionId']
+                     and any(c.get('requestId')==ack['requestId']
+                             and c.get('action')=='read_account_settings'
+                             and c.get('status') in ('delivered','acknowledged')
+                             for c in state.get('commands',[])))
+        # The owner starts this exact mode with its separate local button.
+        # No server-side free navigation or remote command is necessary.
+        # Only a redacted enum can be submitted, exactly once per session.
+        owner_read=(purpose=='owner_account_settings' and value['active'] and
+                    ack is None and (state.get('sessionId')!=value['sessionId']
+                         or state.get('purpose')=='owner_account_settings'))
+        prior=state.get('accountSettings') if state.get('sessionId')==value['sessionId'] else None
+        if owner_read and prior is not None:
+            owner_read=all(prior.get(k)==evidence[k] for k in
+                           ('source','capturedAt','status','feeProfile','autoFx'))
+        if evidence['source']=='degiro-app-owner-confirmed':
+            # An explicit device-owner assertion can only concern the
+            # displayed profile, never automatically assert FX or fees.
+            if not owner_read or evidence['feeProfile'] is None or evidence['autoFx'] is not None:
+                raise ValueError('Owner assertion must be profile-only with physical consent')
+        if obs['code'] not in ('ACCOUNT_SETTINGS_COMPLETE','ACCOUNT_SETTINGS_PARTIAL') or not (remote_read or owner_read):
+            raise ValueError('Account evidence requires owner settings consent or delivered read request')
     if state.get('sessionId')!=value['sessionId']:
-        state={'sessionId':value['sessionId'],'expiresAt':value['expiresAt'],'commands':[]}
+        retained=verified_settings(state,now)
+        state={'sessionId':value['sessionId'],'expiresAt':value['expiresAt'],
+               'purpose':purpose,'commands':[],'verifiedSettings':retained}
     else:
-        # A heartbeat cannot silently extend a previously consented session.
+        # A heartbeat cannot silently extend a previously consented session
+        # or re-label a product session as account settings.
         value=dict(value,expiresAt=min(state['expiresAt'],value['expiresAt']))
     state.update({k:value[k] for k in ('active','expiresAt','observation')})
+    # Preserve the last small, already-validated enum receipt within this
+    # consented session. Normal 2-second product heartbeat must not erase it.
+    # Never promote it into fee configuration or executed-quote fields.
+    if 'accountSettings' in obs:
+        state['accountSettings']=dict(obs['accountSettings'],accountFeeConfirmed=False,
+                                      brokerExecutionConfirmed=False)
+        validated=verified_settings(state,now)
+        for name,allowed in [('feeProfile',('BASIC','ACTIVE','TRADER')),
+                             ('autoFx',('ON','OFF'))]:
+            if obs['accountSettings'].get(name) in allowed:
+                validated[name]=dict(value=obs['accountSettings'][name],
+                   capturedAt=obs['accountSettings']['capturedAt'],
+                   source=obs['accountSettings']['source'])
+        # Do not treat independent sessions as a verified account identity,
+        # a confirmed fee schedule or an executable order.
+        state['verifiedSettings']=validated
+        state['sameAccountAcrossSessionsConfirmed']=False
     state['seenAt']=now
     ack=value['ack']
     if ack is not None:
@@ -97,10 +195,12 @@ def enqueue(state,a,now):
 
 def init(conn):
     __import__("android_list").init(conn)
+    __import__("termux_maintenance").init(conn)
     conn.execute("CREATE TABLE IF NOT EXISTS bob_android_remote (token_hash TEXT PRIMARY KEY REFERENCES bob_android_diagnostic_devices(token_hash) ON DELETE CASCADE,state JSONB NOT NULL)")
 
 def handle(conn,payload):
     now=int(time.time());op=payload.get('action')
+    if op in ('termux-exchange','termux-mcp'):return __import__('termux_maintenance').handle(conn,payload)
     if op in ('list-upload','list-get','list-receipt','list-status','list-details'):return __import__('android_list').handle(conn,payload,now)
     if op=='exchange':
         digest=token_hash(payload.get('token'))

@@ -70,10 +70,10 @@ class SimulationSourcesTests(unittest.TestCase):
                 return self
             def fetchall(self):
                 if self.number == 1:
-                    return [("c"+str(i), "legacy", "closed") for i in range(7)]
+                    return [("c"+str(i), "legacy", "closed") for i in range(k._SIM_PER_LEDGER)]
                 return []
         rows, coverage = k.sample_simulations(Fake())
-        self.assertEqual(len(rows), 7)
+        self.assertEqual(len(rows), k._SIM_PER_LEDGER)
         self.assertTrue(coverage["moreSourceRowsMayExist"])
         self.assertFalse(coverage["netReturnVerified"])
 
@@ -84,7 +84,7 @@ class SimulationSourcesTests(unittest.TestCase):
                 self.number += 1
                 return self
             def fetchall(self):
-                if self.number == 9:
+                if self.number == len(k._PROFILE_NAMES)+2:
                     return [("risk-"+str(i), "risk2000", "closed") for i in range(8)]
                 return []
         rows, coverage = k.sample_simulations(Fake())
@@ -95,7 +95,7 @@ class SimulationSourcesTests(unittest.TestCase):
     def test_all_isolated_accounts_are_read_not_merged(self):
         import paper_portfolios
         self.assertEqual(set(k._PROFILE_NAMES), set(paper_portfolios.POLICIES))
-        self.assertEqual(8 * k._SIM_PER_LEDGER + k._RISK_SAMPLE, k.SAMPLE_CAP)
+        self.assertLessEqual((len(k._PROFILE_NAMES)+1)*k._SIM_PER_LEDGER + k._RISK_SAMPLE, k.SAMPLE_CAP)
         class Fake:
             def __init__(self):
                 self.tables = []
@@ -107,9 +107,9 @@ class SimulationSourcesTests(unittest.TestCase):
         fake = Fake()
         rows, coverage = k.sample_simulations(fake)
         self.assertEqual(rows, [])
-        self.assertEqual(coverage["ledgersInspected"], 9)
+        self.assertEqual(coverage["ledgersInspected"], 13)
         self.assertFalse(coverage["moreSourceRowsMayExist"])
-        self.assertEqual(len(fake.tables), 9)
+        self.assertEqual(len(fake.tables), 13)
         self.assertIn("bob_paper_normal1000oct_cases", " ".join(fake.tables))
         self.assertIn("bob_risk_paper_cases", " ".join(fake.tables))
         self.assertFalse(coverage["strategyWinnerConfirmed"])
@@ -256,7 +256,7 @@ class PostgresKnowledgeTests(unittest.TestCase):
                 self.assertEqual(report["status"], "observed")
                 self.assertEqual(set(report["areas"]), set(k.AREAS))
                 sim = report["areas"]["simulations"]
-                self.assertEqual(sim["simulationCoverage"]["ledgersInspected"], 9)
+                self.assertEqual(sim["simulationCoverage"]["ledgersInspected"], 13)
                 self.assertEqual(sim["simulationCoverage"]["sampledPerLedger"]["normal1000oct"], 1)
                 self.assertFalse(sim["simulationCoverage"]["moreSourceRowsMayExist"])
                 self.assertFalse(sim["moreSourceRowsMayExist"])

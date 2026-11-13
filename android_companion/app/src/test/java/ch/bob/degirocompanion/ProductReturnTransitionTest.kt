@@ -19,6 +19,43 @@ class ProductReturnTransitionTest {
         return t.poll(nodes,window,time)
     }
 
+    @Test fun rebuildingSearchWaitsWithoutContinuingOrSendingBack() {
+        val partial=listOf(MorningReadPolicy.Node("",id="product-search",editable=true))
+        val t=ProductReturnTransition();t.begin(isin,7,1000)
+        assertEquals(ProductReturnTransition.State.WAITING,t.poll(partial,7,1500))
+        assertFalse(t.safeBackRetry(partial,7,2400))
+        assertEquals(ProductReturnTransition.State.WAITING,t.poll(partial,7,5999))
+        assertEquals(ProductReturnTransition.State.FAILED,t.poll(partial,7,6000))
+        assertEquals(ProductReturnTransition.Failure.TIMEOUT,t.failure)
+        t.begin(isin,7,10000)
+        assertEquals(ProductReturnTransition.State.WAITING,t.poll(partial,7,10500))
+        assertEquals(ProductReturnTransition.State.READY,t.poll(search,7,11000))
+    }
+    @Test fun partialSearchNeverHidesProtectedInputOrWindowChange() {
+        val partial=listOf(MorningReadPolicy.Node("",id="product-search",editable=true))
+        for(extra in listOf(MorningReadPolicy.Node("Passwort",password=true),
+            MorningReadPolicy.Node("Limitpreis"),MorningReadPolicy.Node("",editable=true,id="quantity"),
+            MorningReadPolicy.Node("Produktdetails"))) {
+            assertEquals(ProductReturnTransition.State.FAILED,poll(partial+extra))
+        }
+        val t=ProductReturnTransition();t.begin(isin,7,1000)
+        assertEquals(ProductReturnTransition.State.FAILED,t.poll(partial,8,1100))
+        assertEquals(ProductReturnTransition.Failure.WINDOW,t.failure)
+    }
+
+    @Test fun alreadyReturnedSearchCanContinueWithoutAnotherBack() {
+        val recent=search + listOf("Zuletzt", "Alle löschen", "DE000SX7PE82", "DE000FG9NLJ8")
+            .map { MorningReadPolicy.Node(it) }
+        val t=ProductReturnTransition()
+        assertTrue(t.confirmSearch(recent,isin,7,1000))
+        assertEquals(ProductReturnTransition.State.IDLE,t.poll(oldPage,7,1001))
+        assertFalse(t.confirmSearch(oldPage,isin,7,1000))
+        for (bad in listOf(MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Passwort"),MorningReadPolicy.Node("",sensitive=true),
+            MorningReadPolicy.Node("",id="order-quantity",editable=true)))
+            assertFalse(t.confirmSearch(recent+bad,isin,7,1000))
+    }
+
     @Test fun boundedSecondBackRequiresSameVisibleProductAndSafeReadOnlyPage() {
         val t=ProductReturnTransition()
         t.begin(isin,7,1000)
@@ -61,8 +98,9 @@ class ProductReturnTransitionTest {
         assertEquals(ProductReturnTransition.State.IDLE,t.poll(oldPage,7,1300))
     }
     @Test fun genericSearchInputWithoutMarketsEvidenceNeverReleases() {
-        assertEquals(ProductReturnTransition.State.FAILED,poll(
-            listOf(MorningReadPolicy.Node("",id="product-search",editable=true))))
+        val partial=listOf(MorningReadPolicy.Node("",id="product-search",editable=true))
+        assertEquals(ProductReturnTransition.State.WAITING,poll(partial))
+        assertEquals(ProductReturnTransition.State.FAILED,poll(partial,6000))
         assertEquals(ProductReturnTransition.State.FAILED,poll(
             search+MorningReadPolicy.Node("",id="order-quantity",editable=true)))
     }

@@ -100,6 +100,11 @@ jobs:
             node "$test"
           done
 
+      - name: Cloudflare watchdog isolated tests and bundle dry-run
+        run: |
+          node --test ops/cloudflare-watchdog/worker.test.mjs
+          npx --yes wrangler@4.158.0 deploy --dry-run --config ops/cloudflare-watchdog/wrangler.jsonc
+
       - name: Browser binary cache
         uses: actions/cache@v4
         with:
@@ -138,6 +143,9 @@ jobs:
           echo "CI browser: browser_snaptrade.cjs"
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_snaptrade.cjs
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_risk_workspace.cjs
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_handset_planning.cjs
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_zentrale.cjs
+          NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_market_ui.cjs
           echo "CI browser: browser_simple_home.cjs"
           NODE_PATH=/tmp/bob-video-browser/node_modules timeout --signal=TERM --kill-after=10s 120s node browser_simple_home.cjs
           echo "CI browser: browser_unified_workspace.cjs"

@@ -108,7 +108,7 @@ function stableMail(item){
  if(r.status!=='pending-review'||!validIsin(isin)||!['BUY','SELL'].includes(kind)||
    !Number.isSafeInteger(quantity)||quantity<=0||
    typeof price!=='number'||!Number.isFinite(price)||price<=0||!source)return null;
- return {isin,side:kind,quantity,price,date:source.day,time:source.time,
+ return {isin,side:kind,quantity,price,currency:'EUR',date:source.day,time:source.time,
   digest:/^[a-f0-9]{64}$/.test(digest)?digest:null,
   orderTimeSource:source.clockKind,executedAt:Number.isFinite(isoMs(r.executedAt))?isoMs(r.executedAt):null};
 }

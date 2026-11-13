@@ -95,12 +95,62 @@ def degiro_poll_seconds(now_ms=None, active_trade=False):
     return min(300, degiro_seconds_to_transition(now_ms))
 
 
+
+def study_source_edge_delay(poll_seconds, elapsed_seconds, wall_seconds, *,
+                            session, active_trade=False):
+    """Bound the next scanner study fetch to the next observed 30s source edge.
+
+    The ordinary scanner poll may land just BEFORE the provider advances from
+    :00/:30, postponing a complete study bundle for almost another 30 seconds.
+    In the paper-study trading window, use the sooner of the original deadline
+    and the next :05/:35 UTC boundary. This is only a scheduling hint: do not
+    alter provider timestamps, source admission, snapshots, or risk checks.
+    Live-trade monitoring, errors, night/weekend schedules retain their old
+    cadence. Never exceed the original poll interval or create a tight loop.
+    """
+    try:
+        elapsed = float(elapsed_seconds)
+        interval = float(poll_seconds)
+        normal = max(1.0, interval - elapsed)
+        if (session != 'trading' or active_trade or interval != 30.0
+                or not all(math.isfinite(v) for v in (elapsed, interval, wall_seconds))):
+            return normal
+        # Original XAU spot updates observed on :00/:30; five seconds allow
+        # the existing provider cache and bounded bundle build to settle.
+        phase = (float(wall_seconds) - 5.0) % 30.0
+        next_edge = 30.0 - phase if phase else 30.0
+        return min(normal, max(1.0, next_edge))
+    except (TypeError, ValueError, OverflowError):
+        # Preserve the ordinary retry interval for malformed clocks.
+        return max(1.0, float(poll_seconds) - float(elapsed_seconds))
+
+
+
 def weekend_quote_at_close(now_ms, data_at):
     """Only a near-close quote can justify a normal weekend pause, never old failures."""
     close_at = gold_weekend_close(now_ms)
     return (close_at is not None and positive(data_at) and
             close_at - 20 * 60000 <= data_at <= close_at + 5 * 60000 and
             data_at <= now_ms)
+
+
+def daily_gold_rollover_pause(now_ms, analysis_bar_at, data_at):
+    """Narrow XAU/USD candle pause, not a generic overnight data outage.
+
+    Spot/MT5 gold commonly pauses at 17:00–18:00 America/New_York.
+    Require both a genuine recent pre-close analysis candle and a *fresh*
+    independent spot observation. Neither clock is rewritten. This must
+    not replace an analysis-error alarm or the active-trade risk monitor.
+    """
+    eastern = ZoneInfo('America/New_York')
+    local = datetime.fromtimestamp(now_ms / 1000, eastern)
+    if local.weekday() > 3 or local.hour != 17:
+        return False
+    close_at = int(datetime.combine(local.date(), clock_time(17), tzinfo=eastern).timestamp() * 1000)
+    return (positive(analysis_bar_at) and
+            close_at - 20 * 60000 <= analysis_bar_at <= close_at and
+            positive(data_at) and close_at - 60000 <= data_at <= now_ms and
+            0 <= now_ms - data_at <= 90000)
 
 
 def positive(value):
@@ -211,6 +261,7 @@ def analyze(bundle, settings, *, priority=None):
 
 def _analyze(bundle, settings, *, priority=None):
     started = time.monotonic()
+    started_at = time.time()*1000
     payload = json.dumps({**settings, 'bundle': bundle})
     # One fresh process after SIGABRT, within the original ten-second budget.
     # The evaluator rechecks source freshness; no previous result is reused.
@@ -233,6 +284,7 @@ def _analyze(bundle, settings, *, priority=None):
             print('BOB_ANALYSIS_ERROR exit='+str(p.returncode), flush=True)
         raise RuntimeError('Hintergrundanalyse fehlgeschlagen')
     result = json.loads(p.stdout)
+    result.update(analysisRequestedAt=started_at,analysisCompletedAt=time.time()*1000)
     # Diagnostics must never alter or block an existing analysis result.
     try:
         import bob_diagnostics
@@ -276,6 +328,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     now = int(time.time()*1000) if now is None else now
     state = copy.deepcopy(previous or {})
     if not general and not trade_enabled:
+        state.pop('signalPending',None)
+        state.pop('scenarioPending',None)
+        state.pop('signalRearmPending',None)
         state.pop('trade', None)
         return state, []
     events = []
@@ -311,7 +366,10 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
             reason=reason+' · '+product['isin']+' · Modellreferenz '+product['referenceAt']+'; verfügbarer Wechselkurs und gespeicherte Produktbedingungen. Kein bestätigter DEGIRO-Kurs.'
         events.append({'title': title, 'body': reason, 'tag': 'bob-background-'+channel,
                        'data': {'kind': channel, 'eventKind': kind, 'url': '/#trade' if channel=='trade' else '/', 'dataAt': market.get('dataAt'), 'generatedAt': now,
-                                'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId')}})
+                                'analysisRequestedAt':market.get('analysisRequestedAt'), 'analysisCompletedAt':market.get('analysisCompletedAt'),
+                                'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId'),
+                                'direction': market.get('direction') if kind in ('signal-change','market-scenario') else None,
+                                'signalBarAt': market.get('analysisBarAt') if kind in ('signal-change','market-scenario') else None}})
     # Market closure is a third status, not a source outage or a fresh quote.
     # Keep the last genuine timestamp and do not hide failures already seen while open.
     raw_healthy = market.get('ready') is True and market.get('priceFresh') is True
@@ -323,11 +381,21 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
                      (previous_state.get('dataStatus') == 'closed' or
                       previous_state.get('healthy', True) is not False))
     healthy = raw_healthy and not market_closed
+    # Suppress only the general, expected XAU/USD candle-gap notification
+    # during the daily 17:00 New York rollover. Require a fresh spot clock,
+    # a near-close analysis candle and no previously announced outage.
+    # Active-trade alerts and actual failures remain on the normal path.
+    routine_pause = (general and not (trade_enabled and settings.get('trade'))
+                     and not raw_healthy and market.get('priceFresh') is True
+                     and market.get('analysisError') is not True
+                     and daily_gold_rollover_pause(now, market.get('analysisBarAt'), last_data_at)
+                     and (previous_state.get('dataStatus') == 'rollover' or
+                          previous_state.get('announcedHealthy', True) is not False))
     # Keep computing with the last usable observations, without renewing their clocks.
     snapshot = state.get('lastAnalysis') or {}
     if positive(market.get('price')) and positive(market.get('dataAt')) and market['dataAt'] <= now:
         snapshot = {**snapshot, **{key: copy.deepcopy(market.get(key)) for key in
-                    ('price', 'dataAt', 'analysisBarAt', 'score', 'atr', 'macd', 'signal', 'analysisSnapshot', 'trendContext', 'continuedPlan') if market.get(key) is not None}}
+                    ('price', 'dataAt', 'analysisBarAt', 'score', 'atr', 'macd', 'signal', 'analysisSnapshot', 'trendContext', 'continuedPlan', 'entryPlanState', 'entryPreparation', 'analysisRequestedAt', 'analysisCompletedAt') if market.get(key) is not None}}
         state['lastAnalysis'] = snapshot
     calculation = {'available': bool(snapshot), 'stale': not healthy, 'marketClosed': market_closed, 'computedAt': now,
                    'dataAt': snapshot.get('dataAt'), 'price': snapshot.get('price'),
@@ -357,8 +425,15 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         state['announcedHealthy'] = True
         state.pop('healthPending', None)
         state['dataStatus'] = 'closed'
+    elif routine_pause:
+        if previous_state.get('dataStatus') != 'rollover':
+            audit('data-rollover', 'suppressed',
+                  'Reguläre XAU/USD-Kerzenpause; frischer Spot-Nachweis, keine Push-Aktion')
+        state['announcedHealthy'] = True
+        state.pop('healthPending', None)
+        state['dataStatus'] = 'rollover'
     else:
-        if previous_state.get('dataStatus') == 'closed' and healthy:
+        if previous_state.get('dataStatus') in ('closed', 'rollover') and healthy:
             state['announcedHealthy'] = True
             state.pop('healthPending', None)
         # Notification debounce never makes unhealthy data eligible for analysis.
@@ -380,7 +455,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
                           if market.get('analysisError') else 'Aktualität oder zeitliche Abstimmung der vorhandenen Markt-/Analysedaten nicht bestätigt. Berechnung mit vorhandenen Werten läuft weiter; Überwachung eingeschränkt.')
                 add('data-unavailable', 'DATENSTATUS · Berechnung mit veralteten Werten', reason, channel)
             else:
-                add('data-recovered', 'DATENSTATUS · Überwachung fortgesetzt', 'Aktuelle Daten wieder vorhanden. Keine Entwarnung für einen Trade.', channel)
+                # A recovered data feed is a state transition, not an actionable push.
+                # Preserve the durable health state and audit trail silently.
+                audit('data-recovered', 'suppressed', 'Aktuelle Daten wieder vorhanden; kein Wiederaufnahme-Push')
             state['announcedHealthy'] = healthy
             state.pop('healthPending', None)
         state['dataStatus'] = 'active' if healthy else 'unavailable'
@@ -456,13 +533,54 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     # Timeliness applies only to newly suggested entries, not risk alerts
     # or ongoing monitoring of a real position.
     timing = market.get('entryTimingGate')
-    timely = not isinstance(timing, dict) or timing.get('allowed') is True
+    timing_allowed = not isinstance(timing, dict) or timing.get('allowed') is True
+    plan_state = market.get('entryPlanState')
+    plan_ready = not isinstance(plan_state,dict) or plan_state.get('state') == 'ready'
+    timely = timing_allowed and plan_ready
+    entry_session = (market.get('session') or {}).get('entryAllowed', True)
+    # Rearm only after a genuine, stable neutral phase with a second source
+    # observation. Data outages, night mode and learned-filter vetoes are not
+    # new market regimes, and must not cause repeat messages on recovery.
+    neutral = (general and healthy and entry_session and direction == 'NEUTRAL'
+               and market.get('baseDirection','NEUTRAL') == 'NEUTRAL')
+    neutral_pending = state.get('signalRearmPending')
+    if neutral and positive(market.get('dataAt')) and 0<=now-market['dataAt']<=60000:
+        if not isinstance(neutral_pending,dict):
+            state['signalRearmPending']={'since':now,'dataAt':market['dataAt']}
+        elif now-neutral_pending['since']>=30000 and market['dataAt']>neutral_pending['dataAt']:
+            state['notifiedDirection']='NEUTRAL'
+            state['scenarioNotified']='NEUTRAL'
+    else:
+        state.pop('signalRearmPending',None)
+    # Confirmed direction and executable entry timing are different events.
+    # A scenario is informational; it never changes the plan, gates or orders.
+    scenario_source = (positive(market.get('dataAt')) and 0<=now-market['dataAt']<=60000
+                       and positive(market.get('analysisBarAt')) and 300000<=now-market['analysisBarAt']<=600000)
+    scenario_allowed = (general and healthy and entry_session and scenario_source
+                        and direction in ('LONG','SHORT') and not timely)
+    if scenario_allowed and direction != state.get('scenarioNotified'):
+        pending=state.get('scenarioPending')
+        if not isinstance(pending,dict) or pending.get('direction')!=direction:
+            state['scenarioPending']={'direction':direction,'since':now,'dataAt':market['dataAt']}
+        elif now-pending['since']>=30000 and market['dataAt']>pending['dataAt']:
+            reason=(timing.get('reason') if isinstance(timing,dict) and not timing_allowed else
+                    plan_state.get('reason') if isinstance(plan_state,dict) else None)
+            add('market-scenario','SZENARIO · '+direction,
+                'Gold: '+direction+'-Richtung bestätigt. Einstieg noch gesperrt: '+
+                str(reason or 'Kein gültiger Einstiegsplan')[:220]+
+                '. Marktinformation, keine Einstiegs- oder Produktfreigabe.','general')
+            events[-1]['data'].update(comparisonOnly=True,affectsApproval=False)
+            state['scenarioNotified']=direction
+            state.pop('scenarioPending',None)
+    else:
+        state.pop('scenarioPending',None)
     if general and healthy and (market.get('session') or {}).get('entryAllowed', True) and not timely:
         state.setdefault('notifiedDirection', 'NEUTRAL')
         state.pop('signalPending', None)
-        audit('late-entry', 'suppressed', 'ABWARTEN: '+str(timing.get('reason') or 'Einstiegszeit nicht geprüft')[:120])
+        entry_reason=((timing or {}).get('reason') if not timing_allowed else (plan_state or {}).get('reason'))
+        audit('late-entry', 'suppressed', 'ABWARTEN: '+str(entry_reason or 'Einstiegsplan nicht geprüft')[:120])
     if general and healthy and timely and (market.get('session') or {}).get('entryAllowed', True):
-        notified = state.setdefault('notifiedDirection', state.get('direction'))
+        notified = state.setdefault('notifiedDirection', 'NEUTRAL')
         pending = state.get('signalPending')
         if direction not in ('LONG', 'SHORT') or direction == notified:
             state.pop('signalPending', None)
@@ -479,6 +597,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
                     'Früh bestätigtes '+direction+' (zwei geschlossene 1m-Kerzen) · MTF '+mtf+
                     '. Einstiegsfenster aktuell; keine Produktfreigabe.', 'general')
                 state['notifiedDirection']=direction
+                state['scenarioNotified']=direction
                 state.pop('signalPending',None)
             else:
                 state['signalPending'] = {'direction': direction, 'since': now, 'dataAt': market.get('dataAt')}
@@ -486,6 +605,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         elif now-pending['since'] >= 30000 and positive(market.get('dataAt')) and market['dataAt'] != pending['dataAt']:
             add('signal-change', 'EINSTIEG · '+direction, 'Neuer Einstieg: '+direction+' bestätigt · MTF '+mtf+'. Keine Produktfreigabe.', 'general')
             state['notifiedDirection'] = direction
+            state['scenarioNotified'] = direction
             state.pop('signalPending', None)
         # MTF confirmation is included in the direction message, never a second alert.
     else:
@@ -662,11 +782,12 @@ def notification_batches(events):
 def compose_events(events):
     """Urgent action first; advisory plans never compete with an exit warning."""
     priority = {'ko-hit': 0, 'stop-hit': 1, 'personal-risk': 2, 'reversal': 3,
-                'risk-exit': 3, 'data-unavailable': 4, 'stop-near': 5, 'target-extension': 6, 'target': 7}
+                'risk-exit': 3, 'data-unavailable': 4, 'stop-near': 5, 'target-extension': 6, 'target': 7,
+                'signal-change': 7, 'market-scenario': 7}
     ordered = sorted(events, key=lambda e: priority.get(e['data']['eventKind'], 8))
     message = copy.deepcopy(ordered[0])
     urgent = ordered[0]['data']['eventKind'] in ('ko-hit', 'stop-hit', 'reversal', 'risk-exit')
-    advisory = {'target', 'target-extension', 'trailing-stop', 'profit-protection', 'profit-weak', 'signal-change', 'initial-stop', 'risk-warning', 'risk-confirmed'}
+    advisory = {'target', 'target-extension', 'trailing-stop', 'profit-protection', 'profit-weak', 'signal-change', 'market-scenario', 'initial-stop', 'risk-warning', 'risk-confirmed'}
     visible = [e for e in ordered if not urgent or e['data']['eventKind'] not in advisory]
     message['body'] = ' | '.join(e['body'] for e in visible)
     message['data']['events'] = [e['data']['eventKind'] for e in ordered]

@@ -1,10 +1,12 @@
 """Source-separated candle checkpoints and observed reliability, never trading rules."""
 import copy
+import hashlib
 import json
 import math
 import os
 import threading
 import time
+import source_availability
 from urllib.request import Request, build_opener
 from bob_auth import NoRedirect
 
@@ -83,6 +85,9 @@ def transition(old,state,now,source_at=None):
     row=copy.deepcopy(old) if old else dict(incidents=0,badSeconds=0,unknownSeconds=0,
         longestObservedSeconds=0,currentObservedSeconds=0,events=[],since=now)
     previous=row.get('state','unknown')
+    if old and now <= old.get('checkedAt', now):
+        return row
+    source_availability.record(row, previous, row.get('checkedAt', now), now)
     delta=max(0,now-row.get('checkedAt',now))
     if delta>90:
         row['unknownSeconds']+=delta
@@ -128,7 +133,7 @@ def handle(conn,action,payload):
     key=payload.get('key')
     if key=='statistics':
         data=payload.get('statistics')
-        if not isinstance(data,dict) or len(json.dumps(data))>60000:raise ValueError('Invalid statistics')
+        if not isinstance(data,dict) or len(json.dumps(data))>300000:raise ValueError('Invalid statistics')
         owner=payload.get('ownerStartedAt')
         if type(owner) not in (int,float) or not math.isfinite(owner) or not 0<owner<=time.time()+5:
             raise ValueError('Invalid monitor identity')
@@ -150,11 +155,38 @@ def handle(conn,action,payload):
         rows=validated(key,payload.get('rows'))
         if not rows:raise ValueError('Empty checkpoint')
         # Preserve all accepted candle revisions before replacing the rolling checkpoint.
-        conn.execute("""INSERT INTO bob_candle_evidence(source_key,open_time,fingerprint,payload)
-            SELECT %s,(value->>'openTime')::numeric::bigint,
-                encode(sha256(convert_to(value::text,'UTF8')),'hex'),value
-            FROM jsonb_array_elements(%s::jsonb)
-            ON CONFLICT DO NOTHING""",(key,json.dumps(rows,allow_nan=False)))
+        # Provider logs show 256-row statements can exceed the route's 1500ms
+        # timeout during concurrent maintenance/research load. Bound each hash/index
+        # probe to half that work; all
+        # batches and the checkpoint still share the caller's transaction:
+        # a failure rolls everything back, never acknowledging a partial save.
+        evidence_batch_size = 128
+        for start in range(0, len(rows), evidence_batch_size):
+            # An advancing checkpoint mostly repeats already archived candles.
+            # Filter by the complete revision key before INSERT so those rows
+            # do not re-enter the write/conflict path on every source update.
+            # ON CONFLICT remains necessary for concurrent first-time writers.
+            try:
+                conn.execute("""WITH incoming AS MATERIALIZED (
+                    SELECT %s::text AS source_key,
+                        (value->>'openTime')::numeric::bigint AS open_time,
+                        encode(sha256(convert_to(value::text,'UTF8')),'hex') AS fingerprint,
+                        value AS payload
+                    FROM jsonb_array_elements(%s::jsonb)
+                )
+                INSERT INTO bob_candle_evidence(source_key,open_time,fingerprint,payload)
+                SELECT i.source_key,i.open_time,i.fingerprint,i.payload FROM incoming i
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM bob_candle_evidence e
+                    WHERE e.source_key=i.source_key AND e.open_time=i.open_time
+                        AND e.fingerprint=i.fingerprint)
+                ON CONFLICT DO NOTHING""",(key,json.dumps(
+                    rows[start:start+evidence_batch_size],allow_nan=False)))
+            except Exception as exc:
+                print('BOB_CANDLE_WRITE stage=evidence batch='+
+                      str(start//evidence_batch_size)+
+                      ' error='+type(exc).__name__,flush=True)
+                raise
         conn.execute('''INSERT INTO bob_candle_checkpoints(key,latest,payload) VALUES(%s,%s,%s::jsonb)
             ON CONFLICT(key) DO UPDATE SET latest=excluded.latest,payload=excluded.payload,saved_at=now()
             WHERE (excluded.latest>bob_candle_checkpoints.latest OR
@@ -240,15 +272,32 @@ def cycle(server, now=None, paused=False):
         at=None
         state='unknown' if now-_STARTED<90 else 'unavailable'
     with _LOCK:_STATS['spot/Gold-API']=transition(_STATS.get('spot/Gold-API'),'paused' if paused else state,now,at*1000 if at else None)
+    failed = None
     for key,rows in snapshots.items():
-        digest=json.dumps(rows,separators=(',',':'))
+        digest = hashlib.sha256()
+        for token in json.JSONEncoder(separators=(',', ':')).iterencode(rows):
+            digest.update(token.encode('utf-8'))
+        digest = digest.digest()
         if _SAVED.get(key)==digest:continue
-        request('write',{'key':key,'rows':rows})
+        try:
+            result = request('write',{'key':key,'rows':rows})
+            if result.get('ok') is not True:
+                raise ValueError('Checkpoint write not acknowledged')
+        except (OSError, ValueError, TypeError) as exc:
+            # One source timeout must not starve all later series or the
+            # reliability heartbeat. Leave this digest unsaved for next cycle.
+            if failed is None:
+                failed = exc
+            continue
         _SAVED[key]=digest
     with _LOCK:stats=copy.deepcopy(_STATS)
     result=request('write',{'key':'statistics','statistics':stats,'ownerStartedAt':_STARTED})
+    if result.get('ok') is not True:
+        raise ValueError('Statistics write not acknowledged')
     with _LOCK:
         if isinstance(result.get('statistics'),dict):_STATS.update(result['statistics'])
+    if failed is not None:
+        raise failed
     with _LOCK:_STORAGE.update(state='ready',lastSavedAt=now)
 
 
@@ -256,7 +305,11 @@ def snapshot():
     with _LOCK:
         if _STORAGE.get('lastSavedAt') and time.time()-_STORAGE['lastSavedAt']>120:
             _STORAGE['state']='stale'
-        return {'status':'observed','storage':dict(_STORAGE),'sources':copy.deepcopy(_STATS),
+        resources=copy.deepcopy(_STATS)
+        for row in resources.values():
+            row['availabilityWindows']=source_availability.windows(row,time.time())
+            row.pop('availabilityHours',None)
+        return {'status':'observed','storage':dict(_STORAGE),'sources':resources,
         'note':'Beobachtete Ausfallzeiten seit Messbeginn; Überwachungslücken werden separat gezählt. Keine Handelsfreigabe.'}
 
 

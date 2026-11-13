@@ -177,24 +177,57 @@ class HistoryTests(unittest.TestCase):
                     return Result((True,))
                 if "interval '7 days'" in sql:
                     stage = 'age-delete'
-                elif 'SELECT count(*)' in sql:
-                    stage = 'cap-count'
                 else:
                     stage = 'cap-delete'
                 if stage == self.failing_stage:
                     raise TimeoutError('private database detail')
-                if stage == 'cap-count':
-                    return Result((60001,))
                 return Result()
 
         for stage in ('age-delete', 'cap-count', 'cap-delete'):
             with self.subTest(stage=stage):
-                with self.assertRaises(h._PruneStageError) as caught:
-                    h.prune(Conn(stage))
+                count = (TimeoutError('private database detail')
+                         if stage == 'cap-count' else 60001)
+                with patch.object(h, '_bounded_cap_count',
+                                  side_effect=count if isinstance(count, Exception)
+                                  else None,
+                                  return_value=None if isinstance(count, Exception)
+                                  else count):
+                    with self.assertRaises(h._PruneStageError) as caught:
+                        h.prune(Conn(stage))
                 self.assertEqual(caught.exception.stage, stage)
                 self.assertEqual(caught.exception.error_type, 'TimeoutError')
                 self.assertNotIn('private database detail',
                                  str(caught.exception))
+
+    def test_partial_age_batch_skips_cap_count_without_rolling_back_delete(self):
+        class Result:
+            def __init__(self, row=None, rowcount=0):
+                self.row = row
+                self.rowcount = rowcount
+
+            def fetchone(self):
+                return self.row
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+                if 'pg_try_advisory_xact_lock' in sql:
+                    return Result((True,))
+                if "interval '7 days'" in sql:
+                    return Result(rowcount=37)
+                if 'bounded_history_chunk' in sql:
+                    raise AssertionError('cap count must wait for next catch-up pass')
+                return Result()
+
+        conn = Conn()
+        self.assertEqual(h.prune(conn), 37)
+        self.assertFalse(any('bounded_history_chunk' in sql
+                             for sql, _ in conn.statements))
+        self.assertEqual(h._PRUNE_CAP_BATCH_SIZE, 500)
+        self.assertEqual(h._PRUNE_MAX_EVENTS, 60000)
 
     def test_cap_delete_avoids_offset_and_uses_exact_bounded_excess(self):
         class Result:
@@ -214,12 +247,11 @@ class HistoryTests(unittest.TestCase):
                 self.statements.append((sql, params))
                 if 'pg_try_advisory_xact_lock' in sql:
                     return Result((True,))
-                if 'SELECT count(*)' in sql:
-                    return Result((60550,))
                 return Result()
 
         conn = Conn()
-        h.prune(conn)
+        with patch.object(h, '_bounded_cap_count', return_value=60500):
+            h.prune(conn)
         cap_sql, cap_params = next(
             (sql, params) for sql, params in conn.statements
             if 'DELETE FROM bob_diagnostic_history' in sql
@@ -231,13 +263,47 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(h._PRUNE_CAP_BATCH_SIZE, 500)
         self.assertEqual(h._PRUNE_MAX_EVENTS, 60000)
 
-        count_sql, count_params = next(
-            (sql, params) for sql, params in conn.statements
-            if 'AS bounded_history' in sql)
-        self.assertIn('SELECT id FROM bob_diagnostic_history', count_sql)
-        self.assertIn('ORDER BY id LIMIT %s', count_sql)
-        self.assertNotIn('OFFSET', count_sql)
-        self.assertEqual(count_params, (60500,))
+    def test_cap_count_is_exact_below_reproduced_contended_statement_bound(self):
+        class Result:
+            def __init__(self, row):
+                self.row = row
+
+            def fetchone(self):
+                return self.row
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+                self.remaining = 60500
+
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+                limit = params[-1]
+                # Reproduce the live 11 Nov failure boundary: the former
+                # 15,000-key statement is canceled under contention.
+                if limit > 5000:
+                    raise TimeoutError('synthetic statement budget')
+                chunk = min(limit, self.remaining)
+                self.remaining -= chunk
+                cursor = format(len(self.statements), '032x') if chunk else None
+                return Result((chunk, cursor))
+
+        conn = Conn()
+        self.assertEqual(h._bounded_cap_count(conn), 60500)
+        self.assertEqual(len(conn.statements), 13)
+        self.assertEqual(conn.statements[0][1], (5000,))
+        self.assertEqual(conn.statements[-1][1][-1], 500)
+        for index, (sql, params) in enumerate(conn.statements):
+            self.assertIn('SELECT id FROM bob_diagnostic_history', sql)
+            self.assertIn('ORDER BY id ASC', sql)
+            self.assertIn('LIMIT %s', sql)
+            self.assertNotIn('OFFSET', sql)
+            self.assertLessEqual(params[-1], 5000)
+            self.assertLessEqual(params[-1], h._PRUNE_COUNT_CHUNK_SIZE)
+            if index:
+                self.assertIn('WHERE id > %s', sql)
+        self.assertEqual(h._PRUNE_CAP_BATCH_SIZE, 500)
+        self.assertEqual(h._PRUNE_MAX_EVENTS, 60000)
 
     def test_cap_delete_skips_at_exact_limit(self):
         class Result:
@@ -257,16 +323,77 @@ class HistoryTests(unittest.TestCase):
                 self.statements.append((sql, params))
                 if 'pg_try_advisory_xact_lock' in sql:
                     return Result((True,))
-                if 'SELECT count(*)' in sql:
-                    return Result((60000,))
                 return Result()
 
         conn = Conn()
-        h.prune(conn)
+        with patch.object(h, '_bounded_cap_count', return_value=60000):
+            h.prune(conn)
         cap_deletes = [sql for sql, _ in conn.statements
                        if 'DELETE FROM bob_diagnostic_history' in sql
                        and "interval '7 days'" not in sql]
         self.assertEqual(cap_deletes, [])
+
+    def test_full_retention_batch_adapts_cadence_without_changing_policy(self):
+        from contextlib import nullcontext
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+            def transaction(self):
+                return nullcontext()
+
+        conn = Conn()
+        with patch.object(h, '_LAST_PRUNE', 0), \
+             patch.object(h, '_PRUNE_NEXT_INTERVAL_SECONDS',
+                          h._PRUNE_INTERVAL_SECONDS), \
+             patch.object(h, 'prune', return_value=h._PRUNE_CAP_BATCH_SIZE) as prune, \
+             patch.object(h.time, 'monotonic', return_value=1801):
+            h.write(conn, self.event())
+            self.assertEqual(prune.call_count, 1)
+            self.assertEqual(h._PRUNE_NEXT_INTERVAL_SECONDS, 900)
+            self.assertEqual(h._PRUNE_CAP_BATCH_SIZE, 500)
+            self.assertEqual(h._PRUNE_MAX_EVENTS, 60000)
+            with patch.object(h.time, 'monotonic', return_value=2700):
+                h.write(conn, self.event())
+            self.assertEqual(prune.call_count, 1)
+            prune.return_value = 0
+            with patch.object(h.time, 'monotonic', return_value=2701):
+                h.write(conn, self.event())
+            self.assertEqual(prune.call_count, 2)
+            self.assertEqual(h._PRUNE_NEXT_INTERVAL_SECONDS, 1800)
+            with patch.object(h.time, 'monotonic', return_value=3600):
+                h.write(conn, self.event())
+            self.assertEqual(prune.call_count, 2)
+        self.assertTrue(conn.statements)
+        self.assertIn('INSERT INTO bob_diagnostic_history',
+                      conn.statements[0][0])
+
+    def test_prune_failure_resets_cadence_and_preserves_new_event(self):
+        from contextlib import nullcontext
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+            def execute(self, sql, params=()):
+                self.statements.append((sql, params))
+            def transaction(self):
+                return nullcontext()
+
+        conn = Conn()
+        with patch.object(h, '_LAST_PRUNE', 0), \
+             patch.object(h, '_PRUNE_NEXT_INTERVAL_SECONDS', 900), \
+             patch.object(h, 'prune', side_effect=TimeoutError('private')) as prune, \
+             patch.object(h.time, 'monotonic', return_value=901), \
+             patch('builtins.print') as printed:
+            h.write(conn, self.event())
+            self.assertEqual(prune.call_count, 1)
+            self.assertEqual(h._PRUNE_NEXT_INTERVAL_SECONDS, 1800)
+            self.assertTrue(any('status=deferred' in str(x) for x in
+                                printed.call_args_list))
+            self.assertNotIn('private', str(printed.call_args_list))
+        self.assertIn('INSERT INTO bob_diagnostic_history', conn.statements[0][0])
 
     def test_new_process_defers_retention_until_first_full_interval(self):
         class Conn:

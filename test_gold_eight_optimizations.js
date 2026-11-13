@@ -127,3 +127,28 @@ for(const change of [{isin:'wrong'},{ask:7.3},{currency:'CHF'},{isExecutableQuot
  assert(!b.goldProductCompactView(bad,now).includes('7.25 EUR'));
 }
 console.log('Bid-only display: original clock, expiry, identity and pair restrictions passed');
+const dailyNow=Date.parse('2026-11-05T12:00:00Z');
+const daily={isin,basis:'bid-vs-previous-close',bid:11,previousClose:10,percent:10,
+ at:'2026-11-05T11:59:59Z',referenceAt:'2026-11-04T20:00:00Z',currency:'CHF',source:'Test'};
+const dailyCard=d=>b.productDailyChangeView({isin,quote:{dailyChange:d}},dailyNow);
+assert.match(dailyCard(daily),/\+10.00 %/);
+assert.match(dailyCard(daily),/#166534/);
+assert.match(dailyCard({...daily,bid:9,percent:-10}),/#b91c1c/);
+assert.match(dailyCard({...daily,bid:10,percent:0}),/0.00 %/);
+for(const d of [undefined,{...daily,isin:'other'},{...daily,percent:20},{...daily,at:'2026-11-04T21:00:00Z'}])
+ assert.match(dailyCard(d),/Tagesvergleich nicht verfügbar/);
+assert.match(dailyCard({...daily,at:'2026-11-05T11:00:00Z'}),/Veraltet/);
+assert.match(card,/data-product-daily-change/);
+console.log('Daily change: signs, identity, missing reference, stale source and day rollover OK');
+const eight={isin,basis:'bid-since-0800',bid:11,referenceBid:10,percent:10,
+ at:'2026-11-05T11:59:59Z',referenceAt:'2026-11-05T07:00:03Z',currency:'EUR',source:'SG'};
+const eightCard=d=>b.productEightClockView({isin,quote:{changeSinceEight:d}},dailyNow);
+assert.match(eightCard(eight),/\+10.00 %/);
+assert.match(eightCard(eight),/#166534/);
+assert.match(eightCard({...eight,bid:9,percent:-10}),/#b91c1c/);
+assert.match(eightCard({...eight,bid:10,percent:0}),/0.00 %/);
+for(const d of [undefined,{...eight,isin:'wrong'},{...eight,referenceAt:'2026-11-05T08:00:00Z'},
+ {...eight,referenceAt:'2026-11-04T07:00:00Z'},{...eight,percent:50}])assert.match(eightCard(d),/Vergleich nicht verfügbar/);
+assert.match(eightCard({...eight,at:'2026-11-05T11:00:00Z'}),/Veraltet/);
+assert.match(card,/data-product-eight-clock/);
+console.log('08:00 card: source time, Zurich date, signs and missing baseline OK');

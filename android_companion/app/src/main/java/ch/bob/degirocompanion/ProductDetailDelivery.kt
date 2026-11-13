@@ -74,6 +74,40 @@ internal object ProductDetailDelivery {
         next(c.applicationContext,mutableSetOf(),Progress(),completed)
     }
 
+    private var streaming=false
+    private var streamAgain=false
+    /** Immutable per-product snapshots; never acknowledge/delete an active run. */
+    fun streamCurrent(c:Context) {
+        if(!MorningReadRun.running || !PhoneDiagnostics.paired(c)) return
+        if(streaming) { streamAgain=true;return }
+        val run=runCatching { JSONObject(MorningReadRun.currentSnapshot() ?: return) }.getOrNull() ?: return
+        val batch=run.optString("listBatchId")
+        if(!batch.matches(Regex("[a-f0-9]{32}")) || run.optJSONArray("results")?.length()==0) return
+        streaming=true;streamAgain=false
+        val app=c.applicationContext
+        network.execute {
+            val confirmed=runCatching {
+                val status=PhoneDiagnostics.listStatus(app,JSONObject().put("batchId",batch))
+                check(DetailBatchReceiptPolicy.decide(batch,status.optString("batchId"),
+                    status.optJSONObject("import")?.optString("stage"))==DetailBatchReceiptPolicy.Decision.UPLOAD)
+                val response=PhoneDiagnostics.uploadDetails(app,JSONObject().put("batchId",batch).put("run",run))
+                response.optBoolean("saved") && response.optString("batchId")==run.getString("batchId") &&
+                    response.optInt("revision")==run.getInt("revision")
+            }.getOrDefault(false)
+            handler.post {
+                streaming=false
+                if(confirmed) {
+                    pref(app).edit().putString("streamBatch",run.getString("batchId"))
+                        .putInt("streamRevision",run.getInt("revision")).apply()
+                    PhoneDiagnostics.queue(app)
+                }
+                // Coalesce newer results; do not loop/retry a failed revision.
+                val again=streamAgain;streamAgain=false
+                if(again && MorningReadRun.running) streamCurrent(app)
+            }
+        }
+    }
+
     private fun finish(c:Context,p:Progress,completed:(()->Unit)?,limited:Boolean=false) {
         busy=false
         if(p.deferred>0) {

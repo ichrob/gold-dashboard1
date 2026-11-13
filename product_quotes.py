@@ -24,8 +24,19 @@ SG_CH_PRODUCTS = {'DE000FG34XV8': 7039911, 'DE000FG14AV8': 6901337}
 # Exact FB0CVV issuer identity and EUR/Put terms confirmed on SG's own
 # public product page (26.10.2026). Product ID and quote must STILL come from
 # SG Products/<ISIN>; never substitute WKN, screen time, or a BNP price.
-SG_DISCOVERY_PRODUCTS = frozenset(('DE000FG7N6Z2', 'DE000FG8NHQ3', 'DE000FB0CVV9'))
+SG_DISCOVERY_PRODUCTS = frozenset((
+    'DE000FG7N6Z2', 'DE000FG8NHQ3', 'DE000FB0CVV9',
+    # Exact SG issuer product webpage shows FA9UFD as a Gold BEST Turbo Call.
+    # The official Products/<ISIN> JSON reply must STILL establish ID/terms.
+    'DE000FA9UFD4',
+))
 SG_CH_MARKET = frozenset((*SG_CH_PRODUCTS, 'DE000FG8NHQ3'))
+# Exact 03-Nov-2026 DEGIRO-listed EUR Gold products whose identity was
+# independently observed on comdirect. SG still MUST confirm its own exact
+# product ID, EUR/CBDE channel, knockout type and terms before any issuer
+# market data can be accepted. A missing SG record is not proof of delisting.
+SG_EUR_DEGIRO_CANDIDATES = frozenset(('DE000SX7PE82', 'DE000FA94U71',
+                                      'DE000FA9V5S0'))
 
 def sg_on_demand_candidate(isin):
     """Exact, checksum-valid SG issuer lookup for user-supplied SG-family ISINs.
@@ -35,8 +46,9 @@ def sg_on_demand_candidate(isin):
     SG product response before any prices or metadata can be consumed.
     No scanning/range enumeration or broker-account access is performed.
     """
-    return (isinstance(isin, str) and len(isin) == 12
-            and isin.startswith(('DE000FB', 'DE000FC', 'DE000FD', 'DE000FE', 'DE000FG', 'DE000SQ')) and valid_isin(isin))
+    return (isinstance(isin, str) and len(isin) == 12 and valid_isin(isin)
+            and (isin in SG_EUR_DEGIRO_CANDIDATES
+                or isin.startswith(('DE000FB', 'DE000FC', 'DE000FD', 'DE000FE', 'DE000FG', 'DE000SQ'))))
 
 
 def sg_market(isin):
@@ -222,6 +234,42 @@ def parse_sg_bid_only_research(product, points, isin, now=None, verified_id=None
                 sourceUrl=market[0]+'product-details/'+isin.lower(),
                 missingSide='ask', priceKind='issuer-bid-only',
                 isExecutableQuote=False, degiroExecutable=False)
+
+
+def sg_change_since_eight(product, points, isin, now=None, verified_id=None, market=None, reference=None):
+    """Native issuer bid comparison; first observed point in the 08:00 minute."""
+    now = now or datetime.now(timezone.utc)
+    market = market or sg_market(isin)
+    _validate_sg_chart_identity(product, isin, verified_id, market)
+    if not isinstance(points, list) or not points or len(points) > 10000:
+        return None
+    zone = ZoneInfo('Europe/Zurich')
+    opening = now.astimezone(zone).replace(hour=8, minute=0, second=0, microsecond=0)
+    if now < opening or opening.weekday() >= 5:
+        return None
+    if reference:
+        try:
+            saved_at = stamp(reference['referenceAt'])
+            saved_bid = number(reference['referenceBid'])
+            reference = (saved_at, saved_bid) if (reference.get('isin') == isin
+                and reference.get('currency') == market[2] and saved_bid > 0
+                and 0 <= (saved_at-opening).total_seconds() < 60) else None
+        except (KeyError, ValueError, TypeError):
+            reference = None
+    previous = None
+    for point in points:
+        at, bid = stamp(point['Date']), number(point['Bid'])
+        if bid <= 0 or at > now or (previous and at < previous):
+            raise ValueError('Invalid intraday bid history')
+        previous = at
+        if reference is None and 0 <= (at-opening).total_seconds() < 60:
+            reference = (at, bid)
+    if reference is None or at.astimezone(zone).date() != opening.date():
+        return None
+    return dict(isin=isin, percent=(bid/reference[1]-1)*100, bid=bid,
+        referenceBid=reference[1], at=at.isoformat(), referenceAt=reference[0].isoformat(),
+        currency=market[2], source='SG · Geldkurs', basis='bid-since-0800',
+        sourceUrl=market[0]+'product-details/'+isin.lower(), isExecutableQuote=False)
 
 
 def parse_sg_chart_research(product, points, isin, now=None, verified_id=None, market=None):
@@ -567,6 +615,11 @@ def get_issuer_quote(isin):
         # its undated quotes into the BNP (or any other) product result.
         result = dict(result, sgDiscovery=dict(
             attempted=True, verified=False,
+            # This is a separate SG provider attempt; a later BNP HTTP error
+            # must never be reported as the SG endpoint's response.
+            failureCode=(str(sg_attempt.get('quoteFailureCode')
+                             or sg_attempt.get('sourceFailureCode') or '')[:60]
+                         or None),
             reason=sg_attempt.get('reason', 'SG-Identität nicht bestätigt')))
     with _LOCK:
         if len(_CACHE) >= 256:
@@ -748,6 +801,8 @@ def _get_quote_bounded(isin):
     result = _get_quote_primary(isin)
     result = enrich('comdirect-terms', isin, apply_comdirect_fields, result, recovery)
     result = enrich('finanzen-terms', isin, apply_terms_backup, result, recovery)
+    from sg_chf_contract import apply as apply_sg_contract
+    result = enrich('sg-chf-contract', isin, apply_sg_contract, result, recovery)
     result = _restore_exact_sg_metadata(result, isin)
     if result.get('metadata', {}).get('currency') == 'CHF':
         from sg_chf import convert_analysis
