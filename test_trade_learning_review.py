@@ -62,6 +62,7 @@ class ReceiptEnrichmentTests(unittest.TestCase):
   fee=dict(autoFxChf=.03,transactionChf=.47,scope='single-execution',tariffConfirmed=False,sumChecked=True)
   new=dict(old,feeEvidence=fee)
   self.assertTrue(receipt_enrichment(old,new))
+  self.assertTrue(receipt_enrichment(dict(old,reason='Older description'),dict(new,reason='New parser description')))
   self.assertFalse(receipt_enrichment(new,new))
   for bad in (dict(new,feeEvidence=dict(fee,transactionChf=.9)),dict(new,quantity=2),dict(new,feeEvidence=dict(fee,tariffConfirmed=True))):
    self.assertFalse(receipt_enrichment(old,bad))

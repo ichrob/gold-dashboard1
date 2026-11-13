@@ -326,7 +326,9 @@ def receipt_enrichment(previous, incoming):
         costs = incoming.get('costsChf')
         if type(costs) not in (int, float) or not math.isfinite(costs) or abs(sum(values)-costs) > .015:
             return False
-        if any(v is not None and incoming.get(k) != v for k, v in previous.items()):
+        descriptive = {'reason', 'sourceKind', 'attachmentCount'}
+        if any(v is not None and incoming.get(k) != v
+               for k, v in previous.items() if k not in descriptive):
             return False
     identity = ('orderIdDigest', 'isin', 'side', 'quantity', 'priceEur')
     if any(previous.get(k) is None or previous.get(k) != incoming.get(k) for k in identity):

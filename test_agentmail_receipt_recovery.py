@@ -34,6 +34,48 @@ class MailRecoveryTests(unittest.TestCase):
         self.assertEqual(items[0]['record']['senderKind'],'original-degiro-unverified')
         self.assertNotIn('html',str(items))
 
+    def test_historical_window_is_explicit_bounded_and_keeps_default(self):
+        import datetime as dt
+        from urllib.parse import urlsplit, parse_qs
+        now=dt.datetime(2026,11,13,tzinfo=dt.timezone.utc)
+        urls=[]
+        def empty(url,*args):
+            urls.append(parse_qs(urlsplit(url).query))
+            return {'messages': []}
+        recovery.recover('test-token-secure','customer@example.test',empty,now)
+        self.assertEqual(urls[-1]['after'],['2026-11-06T00:00:00Z'])
+        recovery.recover('test-token-secure','customer@example.test',empty,now,lookback_days=45)
+        self.assertEqual(urls[-1]['after'],['2026-09-29T00:00:00Z'])
+        self.assertEqual(urls[-1]['limit'],['30'])
+        for days in [0,46,True,1.5]:
+            with self.assertRaises(ValueError):
+                recovery.recover('test-token-secure','customer@example.test',empty,now,lookback_days=days)
+        self.assertEqual(len(urls),2)
+
+    def test_archive_poll_schedule_success_and_failure_are_bounded(self):
+        import ast, os
+        from pathlib import Path
+        from types import SimpleNamespace
+        source=ast.parse(Path('server.py').read_text())
+        function=next(n for n in source.body if isinstance(n,ast.FunctionDef) and n.name=='_agentmail_recovery_loop')
+        for fails, expected in [(False,[45,7,7]),(True,[45,7,45])]:
+            clock=[0.0]; calls=[]; sleeps=[]
+            def read(*args, **kwargs):
+                calls.append(kwargs['lookback_days'])
+                if fails and len(calls)==1: raise ValueError('synthetic failure')
+                return []
+            def sleep(seconds):
+                sleeps.append(seconds)
+                if len(sleeps)==3: raise StopIteration()
+                clock[0]+=30 if len(sleeps)==1 else 300
+            env={'os':os,'time':SimpleNamespace(monotonic=lambda:clock[0],sleep=sleep),
+                 'PUSH_SERVICE_URL':'','PUSH_SERVICE_TOKEN':'','print':lambda *a,**k:None}
+            exec(compile(ast.Module(body=[function],type_ignores=[]),'server-loop-test','exec'),env)
+            with patch.object(recovery,'recover',side_effect=read),patch.object(recovery,'submit',return_value=0):
+                with self.assertRaises(StopIteration): env['_agentmail_recovery_loop']()
+            self.assertEqual(calls,expected)
+            self.assertEqual(sleeps,[30,30,30])
+
     def test_unconfigured_skip_network(self):
         def fail(*args):
             raise AssertionError('No unconfigured external traffic')

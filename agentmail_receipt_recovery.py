@@ -34,14 +34,16 @@ def api_json(url, api_key, byte_limit):
     return result
 
 
-def recover(api_key, allowed_sender, fetch=api_json, now=None):
+def recover(api_key, allowed_sender, fetch=api_json, now=None, lookback_days=7):
     """Return only sanitized, source-labelled receipts, not email bodies."""
     if not api_key or len(api_key)<12 or not allowed_sender:
         return []
     now=now or dt.datetime.now(dt.timezone.utc)
     if now.tzinfo is None:
         raise ValueError("UTC-Zeitbezug fehlt")
-    after=(now-dt.timedelta(days=7)).isoformat().replace("+00:00","Z")
+    if type(lookback_days) is not int or not 1 <= lookback_days <= 45:
+        raise ValueError("Beleg-Zeitfenster muss zwischen 1 und 45 Tagen liegen")
+    after=(now-dt.timedelta(days=lookback_days)).isoformat().replace("+00:00","Z")
     url=BASE+"?"+urlencode({"limit":MAX_LIST,"after":after})
     page=fetch(url,api_key,70000)
     messages=page.get("messages")
