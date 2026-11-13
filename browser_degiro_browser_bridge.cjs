@@ -60,11 +60,22 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
      const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'}));a.download='portfolio.csv';if(method==='dispatch')a.dispatchEvent(new MouseEvent('click'));else a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);
     };
    },{text,method});
+   // The workflow switches back to Bob after each accepted export. Bring the
+   // broker tab forward before the next synthetic user choice so trusted-click
+   // capture and its status timer are not dependent on background-tab scheduling.
+   await broker.bringToFront();
    await broker.locator('#export').click();
    if(before.armed){
     // Await this export's own terminal status, not an old note or a fixed sleep.
     await broker.waitForFunction(writes=>window.gmStatusWrites>writes&&
-     ['staged','error'].includes(GM_getValue('bob-export-status-v1',null)?.state),before.writes,{timeout:12000,polling:100});
+     ['staged','error'].includes(GM_getValue('bob-export-status-v1',null)?.state),before.writes,{timeout:12000,polling:100}).catch(async error=>{
+     const state=await broker.evaluate(()=>({
+      writes:window.gmStatusWrites,
+      status:GM_getValue('bob-export-status-v1',null)?.state||null,
+      armed:GM_getValue('bob-export-arm-v1',0)>Date.now()
+     }));
+     error.message+='; synthetic broker state '+JSON.stringify(state);throw error;
+    });
     const state=await broker.evaluate(()=>GM_getValue('bob-export-status-v1',null)?.state);
     if(state==='error')return false;
     // Follow the UI instruction to return to Bob after choosing the export.
