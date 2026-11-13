@@ -85,6 +85,32 @@ class AccountSettingsEvidenceTest {
             rows + listOf("AutoFX: OFF")).code)
     }
 
+    @Test fun longHelpAndAccountBalanceNeverEnterLocalSettingsEvidence() {
+        val help=("Wenn Sie Manual FX aktivieren, können Sie Währungsumrechnungen " +
+            "manuell durchführen. Weitere Hinweise zur Auswahl der Währungen. ").repeat(5)
+        assertTrue(help.length>250)
+        assertFalse(AccountSettingsEvidence.isRelevantLabel(help))
+        assertFalse(AccountSettingsEvidence.isRelevantLabel("CHF 504,30"))
+        assertFalse(AccountSettingsEvidence.isRelevantLabel("Konto: privat 987654"))
+        assertTrue(AccountSettingsEvidence.isRelevantLabel(
+            "trader.currencySettings.manualActionDisabled"))
+        val picture=listOf(help,"CHF 504,30","EUR","Auto FX",
+            "trader.currencySettings.manualActionDisabled","GBP","Auto FX",
+            "trader.currencySettings.manualActionDisabled","USD","Auto FX",
+            "trader.currencySettings.manualActionDisabled")
+        val allowed=picture.filter(AccountSettingsEvidence::isRelevantLabel)
+        val result=AccountSettingsEvidence.read(app,allowed)
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",result.code)
+        assertEquals("ON",result.autoFx)
+        assertNull(result.feeProfile)
+        assertFalse(allowed.any { it.contains("504") || it.contains("Wenn Sie") })
+        // A password/OTP/order warning embedded in a long paragraph must
+        // still stop the scan, not get silently filtered out.
+        assertTrue(AccountSettingsEvidence.hasProtectedLabel(help+" PIN eingeben"))
+        assertTrue(AccountSettingsEvidence.hasProtectedLabel("Order bestätigen"))
+        assertFalse(AccountSettingsEvidence.hasProtectedLabel("Passwort ändern"))
+    }
+
     @Test fun settingsOwnerTapIsRequiredAndCannotReadProtectedViews() {
         assertTrue(AccountSettingsEvidence.ownerReadAllowed(true,true,"SETTINGS_READY"))
         for (code in listOf("PROTECTED_VIEW","PROTECTED_LOGIN","SCREEN_LOCKED",
