@@ -42,6 +42,11 @@ class AccountSettingsEvidenceTest {
             listOf("Kontotyp: Basic", "Handelsprofil: Trader")).code)
         assertEquals("SETTINGS_UNCONFIRMED", AccountSettingsEvidence.read(app,
             listOf("Währungseinstellungen", "AutoFX", "Konto Guthaben CHF")).code)
+        // A static password-change navigation item is not a password input.
+        val nav=AccountSettingsEvidence.read(app,
+            listOf("Währungseinstellungen", "AutoFX: on", "Passwort ändern"))
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",nav.code)
+        assertEquals("ON",nav.autoFx)
     }
 
     @Test fun safetyBoundaryStopsCredentialAndOrderScreens() {
