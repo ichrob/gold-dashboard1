@@ -349,18 +349,87 @@ def fetch_research(db, symbol, interval, start_ms, end_ms, *, now_ms=None, opene
     # Do not log URLs or exceptions: request query contains the secret.
 
 
+
+def fetch_earliest_timestamp(db, symbol, interval, *, now_ms=None, opener=None):
+    """Manual, one-request historical-depth probe. Return status only, not data."""
+    if symbol not in SYMBOLS or interval not in INTERVAL_MS:
+        return {'code': 'UNSUPPORTED_SCOPE'}
+    if not scope_allowed(symbol, interval):
+        return {'code': 'SCOPE_NOT_AUTHORIZED'}
+    key = os.environ.get('TWELVEDATA_API_KEY', '').strip()
+    if not valid_key(key):
+        return {'code': 'KEY_NOT_CONFIGURED'}
+    if os.environ.get('BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED') != '1':
+        return {'code': 'WORKER_COORDINATION_UNCONFIRMED'}
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    if type(now_ms) is not int or now_ms <= 0:
+        return {'code': 'INVALID_RANGE'}
+    with db:
+        db.execute('BEGIN IMMEDIATE')
+        if not reserve_credit(db, now_ms):
+            return {'code': 'CREDIT_BUDGET_EXHAUSTED'}
+    params = urlencode({'symbol': symbol, 'interval': interval,
+                        'timezone': 'UTC', 'apikey': key})
+    try:
+        client = opener or build_opener(NoRedirect())
+        with client.open('https://api.twelvedata.com/earliest_timestamp?' + params,
+                         timeout=10) as response:
+            raw = response.read(MAX_RESPONSE_BYTES + 1)
+        if len(raw) > MAX_RESPONSE_BYTES:
+            return {'code': 'RESPONSE_TOO_LARGE'}
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or payload.get('status') == 'error':
+            return {'code': 'PROVIDER_REJECTED'}
+        unix_time, label = payload.get('unix_time'), payload.get('datetime')
+        if (type(unix_time) is not int or unix_time <= 0
+                or unix_time * 1000 > now_ms
+                or not isinstance(label, str) or not 10 <= len(label) <= 25):
+            return {'code': 'INVALID_RESPONSE'}
+        with db:
+            db.execute("""CREATE TABLE IF NOT EXISTS td_research_depth (
+              symbol TEXT NOT NULL, interval TEXT NOT NULL,
+              earliest_unix INTEGER NOT NULL, earliest_label TEXT NOT NULL,
+              checked_ms INTEGER NOT NULL,
+              PRIMARY KEY(symbol, interval))""")
+            db.execute("""INSERT INTO td_research_depth
+                (symbol,interval,earliest_unix,earliest_label,checked_ms)
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(symbol,interval) DO UPDATE SET
+                    earliest_unix=excluded.earliest_unix,
+                    earliest_label=excluded.earliest_label,
+                    checked_ms=excluded.checked_ms""",
+                       (symbol, interval, unix_time, label, now_ms))
+        return {'code': 'OBSERVED_EARLIEST', 'stored': True,
+                'researchOnly': True}
+    except HTTPError as exc:
+        return {'code': 'HTTP_ERROR', 'httpStatus': exc.code}
+    except (URLError, TimeoutError, OSError):
+        return {'code': 'NETWORK_ERROR'}
+    except (ValueError, TypeError, OverflowError, sqlite3.Error):
+        return {'code': 'INVALID_RESPONSE'}
+    # Never log HTTP URLs or exceptions: the query contains a secret.
+
+
 def main():
     parser = argparse.ArgumentParser(description='Isolated Twelve Data research, no live/GUI output')
     parser.add_argument('--symbol', required=True, choices=sorted(SYMBOLS))
     parser.add_argument('--interval', required=True, choices=sorted(INTERVAL_MS))
-    parser.add_argument('--start-utc', required=True, help='YYYY-MM-DD HH:MM:SS')
-    parser.add_argument('--end-utc', required=True, help='YYYY-MM-DD HH:MM:SS (exclusive)')
+    parser.add_argument('--earliest-only', action='store_true',
+                        help='one manual historical-depth query; no price output')
+    parser.add_argument('--start-utc', help='YYYY-MM-DD HH:MM:SS')
+    parser.add_argument('--end-utc', help='YYYY-MM-DD HH:MM:SS (exclusive)')
     parser.add_argument('--archive', required=True, help='persistent private SQLite, not Render ephemeral disk')
     args = parser.parse_args()
     parse = lambda v: int(datetime.strptime(v,'%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()*1000)
+    if not args.earliest_only and not (args.start_utc and args.end_utc):
+        parser.error('--start-utc and --end-utc are required unless --earliest-only')
     with sqlite3.connect(args.archive,timeout=10,isolation_level=None) as db:
-        result = fetch_research(db,args.symbol,args.interval,parse(args.start_utc),parse(args.end_utc))
-    print(json.dumps(result))  # statuses only, no proprietary prices
+        if args.earliest_only:
+            result = fetch_earliest_timestamp(db,args.symbol,args.interval)
+        else:
+            result = fetch_research(db,args.symbol,args.interval,
+                                    parse(args.start_utc),parse(args.end_utc))
+    print(json.dumps(result))  # statuses only, no licensed dates or prices
 
 
 if __name__ == '__main__':
