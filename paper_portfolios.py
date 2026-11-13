@@ -69,7 +69,8 @@ POLICIES['ema3000nov'] = dict(POLICIES['normal1000oct'],
 POLICIES['noema5000nov'] = dict(POLICIES['normal1000nov'],
     id='noema5000nov', title='5.000 € · EMA-Abstandssperre aus (Test)',
     initial_capital_eur=5000., relaunch=False,
-    campaign_id='no-ema-distance-20261111', disable_ema_distance=True)
+    campaign_id='no-ema-distance-20261111', disable_ema_distance=True,
+    paper_campaign_entry=False)
 
 _PAPER_CAMPAIGN_GATES = {
     'trend800nov': ('campaign-800-entry-v1', 1.0),
@@ -309,7 +310,7 @@ def run_all(conn, bundle, market, selection, quotes, now, settings, active=None,
                 if policy.get('early_warning'):
                     m = warning_paper_market(market,now)
                     chosen = warning_selection or {'choices':[], 'reasons':['Keine freigegebenen Frühwarnprodukte']}
-                if policy.get('paper_campaign_entry'):
+                if policy.get('paper_campaign_entry') and profile in _PAPER_CAMPAIGN_GATES:
                     m = campaign_paper_market(market, profile)
                 if policy.get('relaxed_ema'):
                     m = relaxed_paper_market(market)
