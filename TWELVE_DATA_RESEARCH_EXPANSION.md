@@ -53,6 +53,8 @@ and https://support.twelvedata.com/en/articles/5615854-credits .
    metadata, closed-bar, OHLC, interval, duplicate, gap and size checks.
    Date-bounded queries **omit outputsize** to avoid response truncation.
    Original revisions are stored independently, identified by hash.
+   Missing leading, trailing and entire-window bars are explicitly reported
+   as **unverified** missing ranges; a no-bar response is `NO_BARS`, not success.
 3. Manual one-shot `/earliest_timestamp` queries, stored privately per
    symbol/interval. Command output says only whether it succeeded; it never
    prints licensed timestamps or actual prices.
@@ -75,6 +77,8 @@ XAU/USD 1h probe was separate from this draft.
 
 Use an existing Basic account's key via a private process environment
 (`TWELVEDATA_API_KEY`); **never** paste it into issues, logs, chat or screenshots.
+All adapter requests send it using Twelve Data's documented HTTP
+`Authorization` header, **not** the URL query string.
 Use a private **persistent** encrypted storage location; an ephemeral Render
 filesystem is not safe for durable quota accounting or retention.
 
