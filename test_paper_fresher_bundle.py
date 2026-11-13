@@ -149,7 +149,9 @@ class FreshPaperBundleTests(unittest.TestCase):
             trace=paper.study_bundle_handoff_evidence(newer)['trace']
             self.assertIs(selected,newer)
             self.assertIn('BOB_STUDY_CANDIDATE_ENQUEUE outcome=selected',lines)
-            self.assertIn('BOB_STUDY_FINAL_SELECTION phase=quality-final outcome=reused',lines)
+            self.assertIn(
+                'BOB_STUDY_FINAL_SELECTION phase=quality-final '
+                'retry_required=1 outcome=reused',lines)
             self.assertGreaterEqual(lines.count('selected_trace='+trace),2)
             self.assertNotIn('4000.0',lines)
             self.assertNotIn("'spots'",lines)
@@ -259,6 +261,40 @@ class OriginalStudyCandleRetryTests(unittest.TestCase):
             paper.stamp(new['spots']['spot_price_as_of']))
         self.assertEqual(old['trace'],'old')
         self.assertEqual(new['trace'],'new')
+
+    def test_final_study_handoff_logs_retained_selection_without_retry(self):
+        old=bundle(self.NOW,20)
+        queued=bundle(self.NOW,5)
+        closed_bar=self.NOW-900000
+        for candidate in (old,queued):
+            candidate['spots']['xaus']=1.0
+            candidate['history']['bars_by_tf']['15m'][0]['openTime']=closed_bar
+        market=dict(ready=True,priceFresh=True,price=1.0,
+                    dataAt=paper.stamp(old['spots']['spot_price_as_of']),
+                    analysisBarAt=closed_bar,direction=None)
+        calls=[]
+        output=io.StringIO()
+        with redirect_stdout(output):
+            selected,unchanged=paper.refresh_original_study_input(
+                old,market,{},lambda:queued,
+                lambda candidate,settings,priority:calls.append(candidate),
+                lambda:self.NOW)
+
+        evidence=output.getvalue()
+        self.assertIs(selected,old)
+        self.assertIs(unchanged,market)
+        self.assertEqual(calls,[])
+        self.assertIn(
+            'BOB_STUDY_FINAL_SELECTION phase=analysis retry_required=0 '
+            'outcome=retained',evidence)
+        self.assertIn(
+            'candidate_trace='+paper.study_bundle_handoff_evidence(queued)['trace'],
+            evidence)
+        self.assertIn(
+            'selected_trace='+paper.study_bundle_handoff_evidence(old)['trace'],
+            evidence)
+        self.assertNotIn("'spots'",evidence)
+        self.assertNotIn("'history'",evidence)
 
     def test_final_study_handoff_retains_freshest_original_across_later_arrivals(self):
         # Background requests are ordered by collection time. A later request
