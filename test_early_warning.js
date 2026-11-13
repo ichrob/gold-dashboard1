@@ -37,3 +37,15 @@ const worker=require('./background_analysis.js').evaluate({bundle:{history:{bars
 assert.equal(worker.earlyWarning.state,worker.session.entryAllowed?'unavailable':'paused','closed sessions pause early warnings; live sessions lacking bars are unavailable');
 assert.equal(worker.earlyWarning.monitoring,worker.session.entryAllowed===true,'weekend pause does not imply a running warning monitor');
 assert.equal(worker.direction,'NEUTRAL');
+
+// A failed optional product panel must not strand the core warning at loading.
+const warningEl={textContent:'loading',style:{}};
+const renderEnv={$:()=>warningEl,liveBundleCache:null,signalState:{dir:'NEUTRAL'},Date,
+ console:{warn(){}},earlyWarningContext:()=>({state:'unavailable',direction:'NEUTRAL',reason:'Keine aktuellen Kerzen',checkedAt:now}),
+ earlyPreparationText:()=>'',window:{BobDegiro:{renderEarlyProductPanel(){throw Error('product panel failed');}}}};
+vm.createContext(renderEnv);
+vm.runInContext(html.slice(html.indexOf('function renderEarlyImpulseStatus()'),html.indexOf('// Recheck expiry')),renderEnv);
+renderEnv.renderEarlyImpulseStatus();
+assert(warningEl.textContent.includes('DATEN FEHLEN'));
+assert(warningEl.textContent.includes('Keine aktuellen Kerzen'));
+assert(!html.includes('Vergleichstest wird geladen'));
