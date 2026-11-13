@@ -55,6 +55,12 @@ class Protocol(unittest.TestCase):
         self.assertEqual(accepted['commands'][0]['status'],'acknowledged')
         self.assertEqual(accepted['observation']['accountSettings']['autoFx'],'ON')
         self.assertNotIn('feesCHF',accepted['observation']['accountSettings'])
+        self.assertEqual(accepted['accountSettings']['autoFx'],'ON')
+        self.assertFalse(accepted['accountSettings']['accountFeeConfirmed'])
+        self.assertFalse(accepted['accountSettings']['brokerExecutionConfirmed'])
+        # Later product heartbeats may not erase the consented settings receipt.
+        after,_=r.exchange(accepted,value(),NOW+1)
+        self.assertEqual(after['accountSettings']['capturedAt'],NOW)
         # Network retries remain idempotent after a lost response.
         r.exchange(accepted,v,NOW)
         for bad in (
