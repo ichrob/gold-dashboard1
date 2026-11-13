@@ -15,13 +15,22 @@ def init(conn):
 def validate(value):
     limits = dict(budgetCHF=(.01, 10000000), riskCHF=(.01, 10000000),
                   feesCHF=(0, 100000), trailAtr=(.1, 10), minRR=(.1, 20))
-    if not isinstance(value, dict) or set(value) != set(limits):
-        raise ValueError('Kapital, Risiko, Gebühren und Modellparameter fehlen')
+    optional = dict(feeProfile={'unknown', 'CH_STANDARD'},
+                    fxMode={'unknown', 'AUTO_CHF', 'NO_CONVERSION'})
+    if (not isinstance(value, dict) or not set(limits) <= set(value)
+            or set(value) - set(limits) - set(optional)):
+        raise ValueError('Kapital, Risiko und Modellparameter fehlen')
+    for key, choices in optional.items():
+        if key in value and (not isinstance(value[key], str) or value[key] not in choices):
+            raise ValueError('Ungültige Tarifvorgabe: '+key)
     for key, (low, high) in limits.items():
         v = value[key]
+        if key == 'feesCHF' and v is None:
+            continue  # Automatic fees unresolved is not zero; limits can be saved.
         if type(v) not in (int, float) or not math.isfinite(v) or not low <= v <= high:
             raise ValueError('Ungültige Planungsvorgabe: '+key)
-    if not value['feesCHF'] < value['riskCHF'] <= value['budgetCHF']:
+    if (value['riskCHF'] > value['budgetCHF'] or
+            (value['feesCHF'] is not None and value['feesCHF'] >= value['riskCHF'])):
         raise ValueError('Gebühren müssen unter Risiko und Risiko höchstens beim Kapital liegen')
     return dict(value)
 

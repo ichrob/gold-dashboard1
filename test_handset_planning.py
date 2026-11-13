@@ -14,11 +14,19 @@ class Planning(unittest.TestCase):
         self.assertEqual(p.validate(CONFIG),CONFIG)
         for key in CONFIG:
             for value in (None, True, float('nan'), float('inf'), -1, '100'):
+                if key == 'feesCHF' and value is None:
+                    continue
                 with self.subTest(key=key,value=value),self.assertRaises(ValueError):
                     p.validate(dict(CONFIG,**{key:value}))
         for extra in (dict(riskCHF=1001),dict(feesCHF=100),dict(unknown=1)):
             with self.assertRaises(ValueError):p.validate(dict(CONFIG,**extra))
         self.assertEqual(p.validate(dict(CONFIG,feesCHF=0))['feesCHF'],0)
+
+    def test_partial_settings_preserve_unknown_fees_and_validate_tariff_choices(self):
+        config=dict(CONFIG, feesCHF=None, feeProfile='unknown', fxMode='unknown')
+        self.assertEqual(p.validate(config),config)
+        for extra in (dict(riskCHF=1001),dict(feeProfile='custody'),dict(fxMode=True)):
+            with self.assertRaises(ValueError):p.validate(dict(config,**extra))
 
     def test_tick_reuses_sources_and_records_missing_configuration(self):
         state=dict(config=None,revision=3,result=None)
@@ -52,6 +60,9 @@ class Planning(unittest.TestCase):
             self.assertEqual(p.read(conn)['config'],CONFIG)
             with self.assertRaises(ValueError):p.handle(conn,dict(action='plan-save',expectedRevision=0,config=CONFIG))
             self.assertEqual(p.read(conn)['config'],CONFIG)
+            partial=dict(CONFIG,feesCHF=None,feeProfile='unknown',fxMode='unknown')
+            p.handle(conn,dict(action='plan-save',expectedRevision=1,config=partial))
+            self.assertEqual(p.read(conn)['config'],partial)
             conn.execute('DROP SCHEMA '+schema+' CASCADE')
 
     def test_new_config_cannot_be_used_with_old_model_parameters(self):

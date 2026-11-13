@@ -31,3 +31,33 @@ for(const change of [x=>x.config=null,x=>x.plans={},x=>x.spots={},
 const missing=fixture();missing.config=null;
 const row=evaluate(missing).items[0];assert(row.modelStop>0);assert.equal(row.available,false);
 console.log('Server handset scenarios: shared LONG/SHORT stops, EUR/CHF costs, missing config/FX, terminal/stale guards, no input mutation passed');
+
+// The automatic tariff is a per-product reserve, never a silent zero/default.
+const auto=fixture('LONG','EUR');
+auto.config={...auto.config,feesCHF:null,feeProfile:'CH_STANDARD',fxMode:'AUTO_CHF'};
+const automatic=evaluate(auto).items[0];
+assert.equal(automatic.feeAssessment.feesCHF,6); // EUR 1 roundtrip + CHF 5 FX capital reserve.
+assert.equal(automatic.feeAssessment.estimated,true);
+assert(automatic.available);
+assert(automatic.lossCHF<=auto.config.riskCHF&&automatic.totalCHF<=auto.config.budgetCHF);
+assert.equal(auto.config.feesCHF,null);
+for(const change of [x=>x.config.feeProfile='unknown',x=>x.config.fxMode='unknown',
+ x=>x.report.items[0].handsetObservation.fields.Handelsplatz='Swiss DOTS',
+ x=>x.report.items[0].handsetObservation.fields.Handelsplatz='Société Générale',
+ x=>x.report.items[0].handsetObservation.fields.Handelsplatz='SG OTC / Frankfurt',
+ x=>x.spots={},x=>x.now=Date.parse('2026-12-14T00:00:00Z')]){
+ const input=JSON.parse(JSON.stringify(auto));change(input);
+ const output=evaluate(input).items[0];
+ assert.equal(output.feeAssessment.available,false);assert.equal(output.feeAssessment.feesCHF,null);
+ assert.equal(output.available,false);assert.equal(output.rankingPenalty,false);
+}
+const frankfurt=JSON.parse(JSON.stringify(auto));
+frankfurt.report.items[0].handsetObservation.fields.Handelsplatz='Zertifikate-Börse Frankfurt';
+frankfurt.config.fxMode='NO_CONVERSION';
+assert.equal(evaluate(frankfurt).items[0].feeAssessment.feesCHF,6);
+const chf=JSON.parse(JSON.stringify(auto));
+chf.report.items[0].handsetObservation.fields['Währung']='CHF';
+assert.equal(evaluate(chf).items[0].feeAssessment.feesCHF,1);
+const manual=JSON.parse(JSON.stringify(auto));manual.config.feesCHF=0;manual.config.feeProfile='unknown';
+assert.equal(evaluate(manual).items[0].feeAssessment.feesCHF,0);
+console.log('Automatic CH tariff: venue-specific roundtrip, processing, FX reserve, unknown/stale rejection, manual override passed');
