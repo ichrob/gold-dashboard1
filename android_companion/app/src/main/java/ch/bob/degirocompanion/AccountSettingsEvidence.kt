@@ -13,6 +13,36 @@ internal object AccountSettingsEvidence {
     private fun normalize(s: String) = s.trim().lowercase(Locale.ROOT)
         .replace(Regex("\\s+"), " ")
 
+    // Inspect a static node locally for fixed security terms, then discard
+    // its text. Long explanatory paragraphs are neither collected nor
+    // treated as credentials simply because they exceed 250 characters.
+    private val protectedLabels=Regex(
+        "passwort(?!\\s*(?:ändern|aendern))|password(?!\\s*change)|" +
+        "pin eingeben|login|einloggen|bestätigungscode|verification code|" +
+        "order bestätigen|order platzieren|place order|confirm order|limitpreis|anzahl kaufen"
+    )
+    fun hasProtectedLabel(label:String):Boolean =
+        protectedLabels.containsMatchIn(normalize(label))
+
+    /** Allowlist for what may enter the short-lived local enum classifier.
+     * No balance, name, account number, ordinary paragraph or editable value.
+     */
+    fun isRelevantLabel(raw:String):Boolean {
+        val line=normalize(raw)
+        if(line.isBlank() || line.length>250)return false
+        if(line in setOf("eur","gbp","usd","auto fx","autofx",
+                "trader.currencysettings.manualactiondisabled",
+                "basic","active","trader","on","off","enabled","disabled",
+                "aktiv","aktiviert","eingeschaltet","ein",
+                "deaktiviert","ausgeschaltet","aus",
+                "währungseinstellungen","currency settings",
+                "währungsumrechnung","currency conversion",
+                "handelsprofil","trading profile","kontotyp","account type"))return true
+        return listOf("autofx:","autofx ","autofx-","auto fx:",
+            "handelsprofil:","trading profile:","kontotyp:","account type:",
+            "währungseinstellungen:","currency settings:").any { line.startsWith(it) }
+    }
+
     /** Exact currency table as rendered by DEGIRO even when its heading
      * scrolled out of the accessibility tree. No balance, account number or
      * action state is needed. An isolated "Auto FX" button is insufficient.
@@ -40,10 +70,7 @@ internal object AccountSettingsEvidence {
         if (sensitive || labels.size > 500 || labels.sumOf { it.length } > 20000)
             return Result("PROTECTED_VIEW")
         val text = labels.map(::normalize).filter { it.isNotBlank() }
-        if (text.any { it.length > 250 || Regex(
-                "passwort(?!\\s*(?:ändern|aendern))|password(?!\\s*change)|pin eingeben|login|einloggen|bestätigungscode|verification code|" +
-                "order bestätigen|order platzieren|place order|confirm order|limitpreis|anzahl kaufen"
-            ).containsMatchIn(it) }) return Result("PROTECTED_VIEW")
+        if (text.any { it.length > 250 || hasProtectedLabel(it) }) return Result("PROTECTED_VIEW")
 
         val accountContext = text.any {
             it == "handelsprofil" || it == "trading profile" ||
