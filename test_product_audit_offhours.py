@@ -38,7 +38,7 @@ class Database:
     def transaction(self):
         return nullcontext()
 
-    def execute(self, sql):
+    def execute(self, sql, params=None):
         self.queries.append(sql)
         if 'pg_try_advisory_xact_lock' in sql:
             return Rows((self.lock,))
@@ -46,6 +46,9 @@ class Database:
             return Rows((copy.deepcopy(self.feed),) if self.feed else None)
         if 'SELECT payload FROM bob_degiro_product_audit' in sql:
             return Rows((copy.deepcopy(self.checked),) if self.checked else None)
+        if 'UPDATE bob_degiro_product_audit' in sql:
+            self.checked['marketContext'] = params[0]
+            return Rows(None)
         raise AssertionError('Unexpected SQL')
 
     def commit(self):
@@ -81,30 +84,34 @@ class OffHoursAuditTests(unittest.TestCase):
         self.assertEqual(db.feed, FEED, 'Original timestamps and identity must not change')
         self.assertFalse(db.checked['tradeApproved'])
 
-    def test_sunday_migrates_previous_audit_once_without_network_or_quotes(self):
+    def test_sunday_migrates_only_context_without_erasing_previous_evidence(self):
         from datetime import datetime
         from zoneinfo import ZoneInfo
         sunday = int(datetime(2026, 11, 1, 9, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000)
-        old={'listUploadedAt': GEN, 'items': [{'isin': FEED['products'][0]['isin'],
-             'leverageObservation': {'value': 12.0, 'at': '2026-10-30T08:00:00Z',
-                                     'current': True, 'kind': 'calculated-gearing'}}]}
+        old={'listUploadedAt': GEN, 'lastCheckedAt': '2026-10-30T20:59:45Z',
+             'marketContext': 'Handelszeit und Quellzeit je Produkt getrennt prüfen',
+             'items': [{'isin': FEED['products'][0]['isin'],
+                        'state': 'issuer-evidence-complete', 'missing': [],
+                        'quoteSourceAt': '2026-10-30T20:59:20Z',
+                        'sourceStatusEvidence': {'issuerVerified': True},
+                        'issuerLeverageObservation': {
+                            'value': 12.0, 'at': '2026-10-30T20:59:20Z',
+                            'source': 'issuer'}}]}
         db=Database(FEED, checked=old)
-        events=[]
-        def save(_, feed, quotes, at):
-            events.append((copy.deepcopy(feed), quotes, at))
-            db.checked={'listUploadedAt': feed['listUploadedAt'],
-                        'marketContext': 'DEGIRO-Wochenende · letzter datierter Handelswert bleibt historisch',
-                        'items': old['items'], 'tradeApproved': False}
         with patch.object(sim.background_push,'degiro_session',return_value='weekend'), \
              patch.object(sim,'quote_cache',side_effect=AssertionError('weekend network call')), \
-             patch('degiro_product_audit.store',side_effect=save):
+             patch('degiro_product_audit.store',side_effect=AssertionError('audit rebuilt')), \
+             patch('product_repair_learning.install') as install:
             first=sim.audit_offhours_once(db,now_ms=sunday)
             second=sim.audit_offhours_once(db,now_ms=sunday+300000)
-        self.assertEqual(first['state'],'evidence-only')
+        self.assertEqual(first['state'],'context-only')
         self.assertEqual(second['state'],'already-checked')
-        self.assertEqual(len(events),1)
-        self.assertEqual(events[0],(FEED,{},sunday))
-        self.assertFalse(db.checked['tradeApproved'])
+        self.assertEqual(db.checked['marketContext'],
+                         'DEGIRO-Wochenende · letzter datierter Handelswert bleibt historisch')
+        self.assertEqual(db.checked['lastCheckedAt'], old['lastCheckedAt'])
+        self.assertEqual(db.checked['items'], old['items'])
+        install.assert_called_once_with(db.checked)
+        self.assertEqual(db.commits,1)
 
     def test_existing_worker_schedules_offhours_audit_without_trading(self):
         class StopLoop(Exception):
