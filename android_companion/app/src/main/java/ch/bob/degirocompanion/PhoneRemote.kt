@@ -21,6 +21,11 @@ internal object PhoneRemote {
     // One redacted account-settings receipt awaits the next authenticated exchange.
     // Never persisted on Android; a failed network attempt retries the same receipt.
     private var pendingSettings:JSONObject?=null
+    private var pendingSettingsCode=""
+    // Only the specifically labelled local settings button enables one
+    // local redacted read; normal product sessions never do this.
+    private var settingsOnly=false
+    private var localSettingsPending=false
     private var commands=PhoneCommandPolicy()
     var reader:((JSONObject?)->JSONObject)?=null
     var onStop:((String)->Unit)?=null
@@ -31,12 +36,14 @@ internal object PhoneRemote {
     fun empty(code:String)=JSONObject().put("at",System.currentTimeMillis()/1000).put("code",code)
         .put("nodeCount",0).put("isins",JSONArray()).put("draft","")
         .put("diagnostics",ProductReadDiagnostics.report(SystemClock.elapsedRealtime()))
-    fun start(c:Context) {
+    fun start(c:Context, accountSettingsOnly:Boolean=false) {
         check(PhoneDiagnostics.paired(c)) { "Zuerst automatische Diagnose verbinden und im Browser freigeben." }
         check(reader!=null && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
         check(!active() && !busy && !ProductReadRequest.active(SystemClock.elapsedRealtime()) && !MorningReadRun.running && !GoldSearchRun.running) { "Aktuelle Prüfung zuerst stoppen." }
         session=UUID.randomUUID().toString().replace("-","");deadline=SystemClock.elapsedRealtime()+900000
-        expires=System.currentTimeMillis()/1000+900;ack=null;pendingSettings=null;commands=PhoneCommandPolicy();ProductReadSession.clear()
+        expires=System.currentTimeMillis()/1000+900;ack=null;pendingSettings=null;pendingSettingsCode=""
+        settingsOnly=accountSettingsOnly;localSettingsPending=accountSettingsOnly
+        commands=PhoneCommandPolicy();ProductReadSession.clear()
         message="Handy-Sitzung aktiv · höchstens 15 Minuten · STOPP oder Sperrtaste beendet sie."
         val id=session
         handler.postDelayed({ if(session==id)stop(c.applicationContext,"SESSION_EXPIRED") },900000)
@@ -47,23 +54,43 @@ internal object PhoneRemote {
         val old=session;session="";deadline=0;pendingSettings=null;message="Handy-Sitzung beendet: $code"
         onStop?.invoke(code)
         val body=payload(old,false,empty(code))
+        settingsOnly=false;localSettingsPending=false;pendingSettingsCode=""
         network.execute { runCatching { PhoneDiagnostics.remoteExchange(c.applicationContext,body) } }
     }
     private fun payload(id:String,active:Boolean,observation:JSONObject)=JSONObject()
         .put("sessionId",id).put("expiresAt",expires).put("active",active)
         .put("observation",observation).put("ack",ack ?: JSONObject.NULL)
+        .put("purpose",if(settingsOnly)"owner_account_settings" else "product_read")
     private fun poll(c:Context,id:String) {
         if(session!=id)return
         if(!active() || !PhoneDiagnostics.paired(c)) { stop(c,"SESSION_EXPIRED");return }
         val observation=runCatching { reader?.invoke(null) ?: empty("SERVICE_MISSING") }.getOrElse { empty("READ_ERROR") }
         if(PhoneObservationPolicy.mustStop(observation.optString("code"))) { stop(c,observation.optString("code"));return }
-        // The normal heartbeat never gathers account settings. Only the one
-        // explicitly delivered read_account_settings command can produce these
-        // fixed enum values, and the server validates the matching request ID.
+        // A user explicitly selected the separate account-settings button.
+        // Only once, only after the foreground DEGIRO page has passed the
+        // ordinary privacy guards, do the device-side read locally. This does
+        // not use the remotely callable product-navigation actions.
+        if(settingsOnly && localSettingsPending && observation.optString("code")=="SETTINGS_READY") {
+            val receipt=runCatching {
+                reader?.invoke(JSONObject().put("action","read_account_settings"))
+            }.getOrNull()
+            val receiptCode=receipt?.optString("code").orEmpty()
+            if(receiptCode in setOf("ACCOUNT_SETTINGS_COMPLETE","ACCOUNT_SETTINGS_PARTIAL")) {
+                pendingSettings=receipt?.optJSONObject("accountSettings")
+                if(pendingSettings!=null) {
+                    pendingSettingsCode=receiptCode
+                    localSettingsPending=false
+                }
+            }
+        }
+        // Normal heartbeat never collects account data. A redacted enum
+        // receipt from either explicit local consent OR an acknowledged,
+        // separately delivered read command is retried until accepted.
         val sentSettings=pendingSettings
         if(sentSettings!=null) {
             observation.put("accountSettings",sentSettings)
-            observation.put("code",ack?.optString("code","ACCOUNT_SETTINGS_PARTIAL"))
+            observation.put("code",if(settingsOnly) pendingSettingsCode
+                 else ack?.optString("code","ACCOUNT_SETTINGS_PARTIAL"))
         }
         val body=payload(id,true,observation);busy=true
         network.execute {
@@ -87,6 +114,7 @@ internal object PhoneRemote {
                             if(action=="read_account_settings" && code in setOf(
                                     "ACCOUNT_SETTINGS_COMPLETE","ACCOUNT_SETTINGS_PARTIAL"))
                                 pendingSettings=reply?.optJSONObject("accountSettings")
+                            if(action=="read_account_settings")pendingSettingsCode=code
                             ack=JSONObject().put("requestId",request).put("code",code)
                             if(command.optString("action")=="stop")stop(c,"REMOTE_STOP")
                         }
