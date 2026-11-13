@@ -8,7 +8,8 @@ import java.util.Locale
  * Missing/conflicting labels are unknown, never inferred from defaults.
  */
 internal object AccountSettingsEvidence {
-    data class Result(val code: String, val feeProfile: String? = null, val autoFx: String? = null)
+    data class Result(val code: String, val feeProfile: String? = null, val autoFx: String? = null,
+                      val source: String = "degiro-app-local-accessibility")
 
     private fun normalize(s: String) = s.trim().lowercase(Locale.ROOT)
         .replace(Regex("\\s+"), " ")
@@ -100,6 +101,27 @@ internal object AccountSettingsEvidence {
             "währungsumrechnung", "currency conversion", "handelsprofil", "trading profile",
             "kontotyp", "account type").any { line == it || line.startsWith("$it:") } } ||
             currencyTable(text) || profilePicker(text)
+    }
+
+    /** Local owner attestation is a fallback when a coloured card border
+     * is not available through Android accessibility. It is NOT an
+     * automated broker fact and is accepted only on the exact DEGIRO
+     * settings page while the named card is visible.
+     */
+    fun ownerConfirmedProfile(app:String, labels:List<String>, profile:String,
+                              sensitive:Boolean=false):Result {
+        val existing=read(app,labels,sensitive)
+        if(existing.code in setOf("OTHER_APP","PROTECTED_VIEW","SETTINGS_CONFLICT"))
+            return existing
+        val text=labels.map(::normalize)
+        if(profile !in setOf("BASIC","ACTIVE","TRADER") ||
+           !("ihre handelseinstellungen" in text || "your trading settings" in text) ||
+           text.none { planCards[it]==profile })
+            return Result("SETTINGS_UNCONFIRMED")
+        if(existing.feeProfile!=null && existing.feeProfile!=profile)
+            return Result("SETTINGS_CONFLICT")
+        return Result("ACCOUNT_SETTINGS_PARTIAL",profile,null,
+            "degiro-app-owner-confirmed")
     }
 
     /** Only the explicit owner settings session can invoke a local read.
