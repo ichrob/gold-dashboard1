@@ -1391,14 +1391,16 @@ def audit_offhours_once(database, now_ms=None):
     """Record missing proof for one newly imported screenshot generation off-hours.
 
     The ordinary issuer refresh remains restricted to the existing preparation
-    and trading paths. This only creates the current list's fail-closed audit
-    using *no* quote observations, so a midnight image import need not look
-    indefinitely unexamined. It neither fetches providers nor performs orders.
-    One advisory-locked write per generation avoids periodic database growth.
+    and trading paths. For a new list generation this creates a fail-closed
+    audit using *no* quote observations. For an existing generation it may only
+    change the display context; stored product evidence and source clocks stay
+    untouched. It neither fetches providers nor performs orders. One advisory-
+    locked write per generation/context avoids periodic database growth.
     """
     now_ms = int(time.time()*1000) if now_ms is None else now_ms
     if background_push.degiro_session(now_ms) in ('trading', 'preparation'):
         return {'state': 'paused', 'auditUpdated': False, 'ordersEnabled': False}
+    result = None
     with database() as conn:
         with conn.transaction():
             locked = conn.execute('SELECT pg_try_advisory_xact_lock(72610408)').fetchone()
@@ -1422,12 +1424,29 @@ def audit_offhours_once(database, now_ms=None):
             expected_context = ('DEGIRO-Wochenende · letzter datierter Handelswert bleibt historisch'
                                 if local.weekday()>=5
                                 else 'Handelszeit und Quellzeit je Produkt getrennt prüfen')
-            if (latest and latest[0].get('listUploadedAt') == evidence['listUploadedAt']
-                    and latest[0].get('marketContext') == expected_context):
-                return {'state': 'already-checked', 'auditUpdated': False, 'ordersEnabled': False}
-            store_audit(conn, evidence, {}, now_ms)
+            if latest and latest[0].get('listUploadedAt') == evidence['listUploadedAt']:
+                if latest[0].get('marketContext') == expected_context:
+                    return {'state': 'already-checked', 'auditUpdated': False, 'ordersEnabled': False}
+                # The Zurich night/weekend boundary changes display context,
+                # not product evidence. Rebuilding with an empty quote map
+                # would erase issuer identity, terms and original quote clocks
+                # that were already stored for this exact list generation.
+                # Preserve the original audit/check timestamps and every item;
+                # only migrate the explicitly display-only context field.
+                report = copy.deepcopy(latest[0])
+                report['marketContext'] = expected_context
+                conn.execute("""UPDATE bob_degiro_product_audit
+                                SET payload=jsonb_set(payload, '{marketContext}',
+                                                     to_jsonb(%s::text), true)
+                                WHERE id=1""", (expected_context,))
+                import product_repair_learning
+                product_repair_learning.install(report)
+                result = {'state': 'context-only', 'auditUpdated': True, 'ordersEnabled': False}
+            else:
+                store_audit(conn, evidence, {}, now_ms)
+                result = {'state': 'evidence-only', 'auditUpdated': True, 'ordersEnabled': False}
         conn.commit()
-    return {'state': 'evidence-only', 'auditUpdated': True, 'ordersEnabled': False}
+    return result
 
 
 def _preflight_loop(database, wait=time.sleep):
