@@ -53,9 +53,33 @@ jobs:
           test "$ok" = "1" || { echo "::error::Bob manual comparison module is not served as verified JavaScript"; exit 1; }
           # Bob's full HTML shell is deliberately protected. Without Bob login,
           # a 303 redirect to /login is correct. Never bypass the guard in smoke.
-          code="$(curl --silent --show-error --max-time 25 -o /tmp/bob-shell-redirect -D /tmp/bob-shell.headers -w '%{http_code}' "$shell" || true)"
-          test "$code" = "303" || { echo "::error::Bob shell authentication redirect changed"; exit 1; }
-          grep -Eiq '^Location: /login' /tmp/bob-shell.headers
+          # A Render edge 502/503 during instance replacement is retryable.
+          # Never accept a login page, an unexpected 200/401, or a changed
+          # redirect target: only a real HTTP 303 to /login proves the guard.
+          shell_ok=0
+          for n in 1 2 3 4; do
+            code="$(curl --silent --show-error --max-time 25 -o /tmp/bob-shell-redirect -D /tmp/bob-shell.headers -w '%{http_code}' "$shell" || true)"
+            if [ "$code" = "303" ]; then
+              if grep -Eiq '^Location: /login' /tmp/bob-shell.headers; then
+                shell_ok=1
+                break
+              fi
+              echo "::error::Bob shell authentication redirect target changed"
+              exit 1
+            fi
+            case "$code" in
+              000|502|503|504)
+                if [ "$n" -lt 4 ]; then
+                  echo "Bob shell edge temporarily unavailable (HTTP $code; attempt $n)"
+                  sleep 5
+                  continue
+                fi
+                ;;
+            esac
+            echo "::error::Bob shell authentication redirect failed (HTTP $code)"
+            exit 1
+          done
+          test "$shell_ok" = "1" || { echo "::error::Bob shell authentication redirect not verified"; exit 1; }
           echo "Bob manual comparison JavaScript HTTP 200 and protected shell HTTP 303 verified; no broker activity"
 
       # Render/GitHub auto-deploy verification commit.
