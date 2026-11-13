@@ -84,10 +84,10 @@ def tick(conn, evidence, quotes, market, bundle, now):
             and 0 <= now-old.get('calculatedAt', 0) < 30000):
         return
     from datetime import datetime, timezone
-    from handset_contract_model import attach
+    from handset_contract_model import prepare
     clock=datetime.fromtimestamp(now/1000, timezone.utc)
     # Private copies only; never publish these comparison models to rankings.
-    comparison_quotes={row['isin']:attach(quotes.get(row['isin']),clock) for row in rows[:12]}
+    comparison_quotes={row['isin']:prepare(quotes.get(row['isin']),clock) for row in rows[:12]}
     request = dict(report=report, products=evidence.get('products', [])[:12], quotes=comparison_quotes,
                    plans=market.get('handsetPlans') or {}, spots=bundle.get('spots') or {},
                    config=state['config'], now=now)
