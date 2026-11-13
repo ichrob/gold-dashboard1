@@ -13,6 +13,10 @@ class AccountSettingsEvidenceTest {
         assertEquals("TRADER", x.feeProfile)
         assertEquals("ON", x.autoFx)
         assertFalse(x.toString().contains("Kontotyp:"))
+        val spaced=AccountSettingsEvidence.read(app,
+            listOf("Währungseinstellungen","Auto FX","Aktiviert"))
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",spaced.code)
+        assertEquals("ON",spaced.autoFx)
         val y = AccountSettingsEvidence.read(app, listOf("Currency settings", "AutoFX: OFF",
             "Trading profile", "Basic"))
         assertEquals("ACCOUNT_SETTINGS_COMPLETE", y.code)
