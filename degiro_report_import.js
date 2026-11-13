@@ -291,22 +291,32 @@ function mount(){
   clear.disabled=true;
   status.textContent='CSV-Bericht wird auf diesem Gerät geprüft …';
   const data=readReport(text);
-  let stored=false,warning='';
+  let stored=false,transactionsStored=false,warning='';
   if(data.kind==='portfolio'){
    try{
     root.BobDegiroPortfolio.save(root.localStorage,data);
     root.BobDegiroPortfolio.refresh();
     root.BobDegiroAllProducts?.rebuild?.();
     stored=true;
+    root.document?.dispatchEvent?.(new Event('bob-degiro-csv-changed'));
    }catch(err){warning=err.message||'Lokale Speicherung nicht verfügbar';}
+  }else if(data.kind==='transactions'){
+   try{
+    // Save only validated, minimal CSV execution fields on this device.
+    // Email proposals and broker positions are NOT updated by this import.
+    root.BobDegiroPositionReconcile.saveTransactions(root.localStorage,data);
+    transactionsStored=true;
+   }catch(err){warning=err.message||'Transaktionsdatei nicht speicherbar';}
   }
   renderResults(doc,out,data,copyISIN);
   status.textContent=stored?
    '✓ '+data.records.length+' DEGIRO-Depotprodukte und '+data.cashBalances.length+
    ' Bargeldpositionen dauerhaft in Bob auf diesem Gerät übernommen. Unter „Produkte“ sichtbar. '+
    data.invalidRows.length+' Zeilen ausgelassen · kein Live-Depotsync.':
+   transactionsStored?
+    '✓ '+data.records.length+' Transaktionszeilen lokal für die Positionsabstimmung gespeichert (ungültige Zeilen werden getrennt markiert). Kein Live-Depotsync; Portfolio-CSV bleibt unverändert.':
    data.kind==='transactions'?
-    'Transaktionen gelesen, aber Depotbestand nicht ersetzt. Bitte den Portfolio-CSV-Export verwenden.':
+    'Transaktions-CSV nicht gespeichert: '+warning+'. Portfolio-CSV bleibt unverändert.':
     'CSV gelesen, aber NICHT gespeichert ('+warning+'). Alte Depotliste bleibt bestehen.';
   clear.disabled=!stored&&!root.BobDegiroPortfolio.load(root.localStorage);
  }

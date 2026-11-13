@@ -1218,7 +1218,7 @@ class Handler(BaseHTTPRequestHandler):
                             "status","reason","isin","side","quantity","priceEur","executedAt",
                             "executedLocal","timezoneConfirmed","sourceKind",
                             "orderIdDigest","costsChf","grossChf","totalChf",
-                            "fxEurPerChf","senderKind","attachmentCount")
+                            "fxEurPerChf","feeEvidence","senderKind","attachmentCount")
                               if k in record}
                         if len(json.dumps(safe))>4096:
                             raise ValueError("Zu viele Importdaten")

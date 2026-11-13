@@ -19,7 +19,7 @@ const origin='https://bob.local.test';
 const html='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'+
  '<style>*{box-sizing:border-box}body{margin:0;padding:8px}main{max-width:100%}</style></head><body>'+
  '<main><section id="bob-view-products"></section><section id="bob-view-degiro"></section></main>'+
- '<script src="/degiro_portfolio_store.js"></script><script src="/degiro_report_import.js"></script></body></html>';
+ '<script src="/degiro_portfolio_store.js"></script><script src="/degiro_position_reconcile.js"></script><script src="/degiro_report_import.js"></script></body></html>';
 (async()=>{
  const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
  try{
@@ -28,7 +28,7 @@ const html='<!doctype html><html><head><meta name="viewport" content="width=devi
   await page.route(origin+'/**',route=>{
    const pathname=new URL(route.request().url()).pathname;
    if(pathname==='/')return route.fulfill({contentType:'text/html',body:html});
-   if(pathname==='/degiro_portfolio_store.js'||pathname==='/degiro_report_import.js'){
+   if(pathname==='/degiro_portfolio_store.js'||pathname==='/degiro_report_import.js'||pathname==='/degiro_position_reconcile.js'){
     return route.fulfill({contentType:'application/javascript',
      body:fs.readFileSync(path.join(__dirname,pathname.slice(1)),'utf8')});
    }
@@ -70,8 +70,9 @@ const html='<!doctype html><html><head><meta name="viewport" content="width=devi
     name:'transactions.csv',mimeType:'text/csv',
     buffer:Buffer.from('Datum,ISIN,Quantity,Type\n19-10-2026,'+ids[0]+',1,Buy')
   });
-  await page.waitForFunction(()=>document.querySelector('#dgExportStatus')?.textContent?.includes('Transaktionen gelesen'));
-  assert.equal(await page.locator('.dg-holding').count(),2,'Transactions cannot erase portfolio');
+  await page.waitForFunction(()=>document.querySelector('#dgExportStatus')?.textContent?.includes('Transaktions-CSV nicht gespeichert'));
+  assert.equal(await page.locator('.dg-holding').count(),2,'Incomplete transactions cannot erase portfolio');
+  assert.equal(await page.evaluate(()=>window.BobDegiroPositionReconcile.loadTransactions(localStorage)),null,'Missing price/currency must not become saved transactions');
   await page.locator('#dgExportClear').click();
   assert.equal(await page.locator('.dg-holding').count(),0);
   assert.equal(await page.locator('.dg-export-card').count(),0);

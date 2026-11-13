@@ -55,3 +55,13 @@ class ReceiptEnrichmentTests(unittest.TestCase):
   for changed in (dict(new,quantity=3),dict(new,costsChf=.6),dict(new,totalChf=20),dict(new,executedLocal='02.10.2026 10:00:00')):
    self.assertFalse(receipt_enrichment(old,changed))
   self.assertFalse(receipt_enrichment(new,new))
+
+ def test_existing_total_can_gain_consistent_fee_breakdown_without_fact_changes(self):
+  from trade_email_import import receipt_enrichment
+  old=dict(status='pending-review',orderIdDigest='c'*64,isin='test',side='BUY',quantity=1,priceEur=10,executedLocal='01.10.2026 11:00:00',grossChf=9,totalChf=9.5,costsChf=.5)
+  fee=dict(autoFxChf=.03,transactionChf=.47,scope='single-execution',tariffConfirmed=False,sumChecked=True)
+  new=dict(old,feeEvidence=fee)
+  self.assertTrue(receipt_enrichment(old,new))
+  self.assertFalse(receipt_enrichment(new,new))
+  for bad in (dict(new,feeEvidence=dict(fee,transactionChf=.9)),dict(new,quantity=2),dict(new,feeEvidence=dict(fee,tariffConfirmed=True))):
+   self.assertFalse(receipt_enrichment(old,bad))
