@@ -67,6 +67,13 @@ def observe(source, tf, rows=None, error=None):
             if clean:
                 old=_ROWS.get(key,[])
                 if not old or clean[-1]['openTime']>=old[-1]['openTime']:
+                    # Identical rolling source snapshots need no new history
+                    # allocation. Compare ALL canonical candle fields so a
+                    # same-clock issuer correction is still published.
+                    if len(old)>=len(clean) and old[-len(clean):]==clean:
+                        return
+                    # Copy-on-write: every published snapshot is immutable to
+                    # readers. Older rows are safe to share until replaced.
                     older=[b for b in old if b['openTime']<clean[0]['openTime']]
                     _ROWS[key]=(older+clean)[-2000:]
             else:_CHECKS[key]['error']='incomplete'
@@ -231,12 +238,16 @@ def restore(server):
                 saved=technical_candles._cache.get(tf)
                 current=saved[1] if saved else []
                 if not current or current[-1]['openTime']<rows[-1]['openTime']:
-                    technical_candles._cache[tf]=(0,rows[-1000:])
+                    # Do not let candle fetch/mark mutate archived rows:
+                    # cycle() can then snapshot immutable list references.
+                    technical_candles._cache[tf]=(0,[dict(row) for row in rows[-1000:]])
         if source=='xaus':
             with server._ema_backfill_lock:
                 current=server._ema_backfill_series.get(tf,[])
                 if not current or current[-1]['openTime']<rows[-1]['openTime']:
-                    server._ema_backfill_series[tf]=rows
+                    # Warmup mutates isOpen; archive snapshots must remain
+                    # independent of source analysis consumers.
+                    server._ema_backfill_series[tf]=[dict(row) for row in rows]
         restored+=1
     with _LOCK:_STORAGE.update(restoredSeries=restored,state='ready')
 
@@ -244,7 +255,11 @@ def restore(server):
 def cycle(server, now=None, paused=False):
     now=time.time() if now is None else now
     with _LOCK:
-        snapshots=copy.deepcopy(_ROWS)
+        # observe() and restore() publish new lists under _LOCK. Consumer
+        # caches receive detached dicts; no full 12x2000 candle deep copy
+        # is needed every 30 seconds. In-flight snapshots retain all original
+        # revisions even if a newer source update replaces a list.
+        snapshots=dict(_ROWS)
         for key in sorted(KEYS):
             rows=snapshots.get(key,[])
             check=_CHECKS.get(key,{})
