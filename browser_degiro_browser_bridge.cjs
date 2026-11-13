@@ -74,10 +74,14 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
       status:GM_getValue('bob-export-status-v1',null)?.state||null,
       armed:GM_getValue('bob-export-arm-v1',0)>Date.now()
      }));
-     error.message+='; synthetic broker state '+JSON.stringify(state);throw error;
+     throw Error(error.message+'; synthetic broker state '+JSON.stringify(state));
     });
     const state=await broker.evaluate(()=>GM_getValue('bob-export-status-v1',null)?.state);
     if(state==='error')return false;
+    // The synthetic userscript manager resolves each local write before its
+    // ordered cross-tab delivery. Wait for this export's QUEUE/STATUS relay and
+    // any result cleanup before asserting what Bob received.
+    await relay.flush();
     // Follow the UI instruction to return to Bob after choosing the export.
     await bob.bringToFront();
     // Bob was in the background while the broker button was clicked. Poll by
@@ -88,7 +92,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
       pending:!!GM_getValue('bob-export-pending-v1',null),
       active:!document.querySelector('#bobBridgeStop').disabled,
       holdings:document.querySelectorAll('.dg-holding').length}));
-     error.message+='; synthetic bridge state '+JSON.stringify(state);throw error;
+     throw Error(error.message+'; synthetic bridge state '+JSON.stringify(state));
     });
     return bob.evaluate(()=>window.exportResults.at(-1).ok);
    }
