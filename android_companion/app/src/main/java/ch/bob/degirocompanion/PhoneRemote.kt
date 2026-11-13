@@ -70,7 +70,8 @@ internal object PhoneRemote {
         // Only once, only after the foreground DEGIRO page has passed the
         // ordinary privacy guards, do the device-side read locally. This does
         // not use the remotely callable product-navigation actions.
-        if(settingsOnly && localSettingsPending && observation.optString("code")=="SETTINGS_READY") {
+        if(AccountSettingsEvidence.ownerReadAllowed(
+                settingsOnly,localSettingsPending,observation.optString("code"))) {
             val receipt=runCatching {
                 reader?.invoke(JSONObject().put("action","read_account_settings"))
             }.getOrNull()
