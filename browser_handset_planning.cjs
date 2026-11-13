@@ -48,14 +48,23 @@ const {chromium}=require('playwright'),fs=require('fs'),assert=require('node:ass
   await page.locator('[data-planning-load]').click();
   await page.waitForFunction(()=>document.querySelector('#bobManualBudget').value==='900');
   state.resultFresh=true;state.result={listUploadedAt:'today',available:0,conditionalAvailable:1,calculatedAt:Date.now(),items:[{
-   isin:'DE000FG14AV8',available:false,modelStop:null,reasons:['Tarifeinstellung fehlt'],automaticScenarios:[{
+   isin:'DE000FG14AV8',available:false,modelStop:17.4,modelTarget:23.7,reasons:['Tarifeinstellung fehlt'],automaticScenarios:[{
     assumptions:['Schweizer Standardtarif angenommen','CHF-Konto mit AutoFX angenommen'],
     feeAssessment:{available:true,feesCHF:1.5},available:true,quantity:4,totalCHF:81.5,lossCHF:13.5,
+    currency:'CHF',stop:17.4,riskUsagePct:45,
     entryWarning:'Kein Einstieg: Hindernis vor ausreichendem Chance-Risiko-Verhältnis. Nur Vergleichsrechnung.'}]}]};
   await page.locator('[data-planning-load]').click();
   await page.locator('[data-server-handset-plans]').filter({hasText:'Bedingte Rechnung'}).waitFor();
   assert.match(await page.locator('[data-server-handset-plans]').innerText(),/keine bestätigte Kontoeinstellung/);
-  assert.match(await page.locator('[data-server-handset-plans]').innerText(),/Kein Einstieg/);
+  const planText=await page.locator('[data-server-handset-plans]').innerText();
+  assert.match(planText,/Kein Einstieg/);
+  assert.match(planText,/4 Stück/);
+  assert.match(planText,/81\.50 CHF inkl\. Gebühren/);
+  assert.match(planText,/Modellstopp 17\.4000 CHF/);
+  assert.match(planText,/Modellziel 23\.7000 CHF/);
+  assert.match(planText,/Modellrisiko 13\.50 CHF \(45\.0 % des Risikobudgets\)/);
+  assert.match(planText,/keine bestätigte Kontoeinstellung/);
+  assert.equal(await page.locator('[data-server-handset-plans] button').count(),0);
   assert.equal(await page.locator('#bobFeeProfile').inputValue(),'unknown');
   assert.equal(writes,2);
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));

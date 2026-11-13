@@ -416,11 +416,14 @@ function showServerPlanning(panel,data){
   new Date(result.calculatedAt).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'})+' Zürich\n'+
   result.items.map(x=>x.isin+' · '+(x.feeAssessment?.available?'Gebühren '+fmt(x.feeAssessment.feesCHF)+' CHF ('+(x.feeAssessment.estimated?'Tarifreserve':'manuell')+') · ':'')+(x.available?
    x.quantity+' Stück · '+fmt(x.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(x.stop,4)+' '+x.currency+
+   (Number.isFinite(x.modelTarget)&&x.modelTarget>0?' · Modellziel '+fmt(x.modelTarget,4)+' '+x.currency:'')+
    ' · Modellrisiko '+fmt(x.lossCHF)+' CHF ('+fmt(x.riskUsagePct,1)+' %)':
    (x.modelStop!==null?'Modellstopp '+fmt(x.modelStop,4)+' · ':'')+(x.reasons||[]).join(' · '))+
    (x.automaticScenarios||[]).map(s=>'\n  Bedingte Rechnung · '+s.assumptions.join('; ')+' · '+
     (s.feeAssessment.available?'Gebührenreserve '+fmt(s.feeAssessment.feesCHF)+' CHF · ':'')+
-    (s.available?s.quantity+' Stück · '+fmt(s.totalCHF)+' CHF · Modellrisiko '+fmt(s.lossCHF)+' CHF':s.reason)+
+    (s.available?s.quantity+' Stück · '+fmt(s.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(s.stop,4)+' '+s.currency+
+     (Number.isFinite(x.modelTarget)&&x.modelTarget>0?' · Modellziel '+fmt(x.modelTarget,4)+' '+s.currency:'')+
+     ' · Modellrisiko '+fmt(s.lossCHF)+' CHF'+(Number.isFinite(s.riskUsagePct)?' ('+fmt(s.riskUsagePct,1)+' % des Risikobudgets)':''):s.reason)+
     ' · keine bestätigte Kontoeinstellung'+(s.entryWarning?' · '+s.entryWarning:'')).join('')+
    (x.entryWarning?'\n  '+x.entryWarning:'')).join('\n')+
   '\nGespeicherte DEGIRO-Anzeige mit aktuellem unabhängigen Modellplan; keine zeitgleiche Kurs- oder Ausführungsbestätigung.';
