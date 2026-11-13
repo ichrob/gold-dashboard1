@@ -77,6 +77,59 @@ class Protocol(unittest.TestCase):
         wrong['ack']={'requestId':'c'*32,'code':'ACCOUNT_SETTINGS_PARTIAL'}
         with self.assertRaises(ValueError):r.exchange(accepted,wrong,NOW)
 
+    def test_local_owner_settings_receipt_without_stale_connector_command(self):
+        # Current ChatGPT connector still exposes product actions only. The
+        # dedicated on-device settings button grants one scoped, local read.
+        s0=self.state()
+        owner=value();owner['purpose']='owner_account_settings'
+        s,response=r.exchange({},owner,NOW)
+        self.assertEqual(s['purpose'],'owner_account_settings')
+        self.assertIsNone(response['command'])
+        v=copy.deepcopy(owner)
+        v['observation'].update(code='ACCOUNT_SETTINGS_PARTIAL',
+                                accountSettings=dict(
+                                    source='degiro-app-local-accessibility',
+                                    capturedAt=NOW,status='PARTIAL',
+                                    feeProfile=None,autoFx='ON'))
+        saved,_=r.exchange(s,v,NOW)
+        self.assertEqual(saved['accountSettings']['autoFx'],'ON')
+        self.assertIsNone(saved['accountSettings']['feeProfile'])
+        self.assertFalse(saved['accountSettings']['accountFeeConfirmed'])
+        self.assertFalse(saved['accountSettings']['brokerExecutionConfirmed'])
+        self.assertEqual(saved['commands'],[])
+        # Safe duplicate after a network retry; a changed receipt is not.
+        r.exchange(saved,v,NOW)
+        altered=copy.deepcopy(v)
+        altered['observation']['accountSettings']['autoFx']='OFF'
+        with self.assertRaises(ValueError):r.exchange(saved,altered,NOW)
+        altered=copy.deepcopy(v)
+        altered['observation']['accountSettings']['accountNumber']='secret'
+        with self.assertRaises(ValueError):r.exchange(saved,altered,NOW)
+        altered=copy.deepcopy(v)
+        altered['observation']['isins']=['DE000FE2JJ20']
+        with self.assertRaises(ValueError):r.exchange(saved,altered,NOW)
+        # Session purpose can never be escalated after starting a product read.
+        with self.assertRaises(ValueError):r.exchange(s0,owner,NOW)
+        with self.assertRaises(ValueError):r.exchange(saved,value(),NOW)
+        # A product-only heartbeat cannot invent a valid owner receipt.
+        normal=copy.deepcopy(v)
+        normal['purpose']='product_read'
+        with self.assertRaises(ValueError):r.exchange(s0,normal,NOW)
+        # Inactive session is not permission to send further account data.
+        stopped=copy.deepcopy(v);stopped['active']=False
+        with self.assertRaises(ValueError):r.exchange(s,stopped,NOW)
+        # No unrecognized session purposes, extra keys or fake ack.
+        wrong=copy.deepcopy(owner);wrong['purpose']='broker_orders'
+        with self.assertRaises(ValueError):r.exchange({},wrong,NOW)
+        wrong=copy.deepcopy(owner);wrong['credentials']='secret'
+        with self.assertRaises(ValueError):r.exchange({},wrong,NOW)
+        wrong=copy.deepcopy(v);wrong['ack']={'requestId':'c'*32,
+                                          'code':'ACCOUNT_SETTINGS_PARTIAL'}
+        with self.assertRaises(ValueError):r.exchange(s,wrong,NOW)
+        # Receipt remains visible through subsequent safe heartbeat.
+        after,_=r.exchange(saved,owner,NOW+1)
+        self.assertEqual(after['accountSettings']['autoFx'],'ON')
+
     def test_queue_delivery_ack_and_no_replay(self):
         s=self.state();a=command();self.assertEqual(r.enqueue(s,a,NOW)['status'],'queued')
         s,out=r.exchange(s,value(),NOW+1);self.assertEqual(out['command']['requestId'],a['requestId'])
