@@ -30,6 +30,11 @@ internal object AccountSettingsEvidence {
             currencyTable(text)
     }
 
+    /** Only the explicit owner settings session can invoke a local read.
+     * No background product heartbeat or unconfirmed page can trigger it. */
+    fun ownerReadAllowed(ownerSettingsSession:Boolean,notYetRead:Boolean,code:String) =
+        ownerSettingsSession && notYetRead && code=="SETTINGS_READY"
+
     fun read(app: String, labels: List<String>, sensitive: Boolean = false): Result {
         if (app != ProductScreenEvidence.PACKAGE) return Result("OTHER_APP")
         if (sensitive || labels.size > 500 || labels.sumOf { it.length } > 20000)
