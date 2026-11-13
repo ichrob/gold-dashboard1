@@ -38,9 +38,12 @@ internal object AccountSettingsEvidence {
                 "währungseinstellungen","currency settings",
                 "währungsumrechnung","currency conversion",
                 "handelsprofil","trading profile","kontotyp","account type"))return true
-        return listOf("autofx:","autofx ","autofx-","auto fx:",
-            "handelsprofil:","trading profile:","kontotyp:","account type:",
-            "währungseinstellungen:","currency settings:").any { line.startsWith(it) }
+        return Regex(
+            "^(?:autofx|auto\\s*fx)\\s*[:=\\-]?\\s*(?:aktiviert|aktiv|eingeschaltet|ein|on|enabled|" +
+                "deaktiviert|ausgeschaltet|aus|off|disabled)$"
+        ).matches(line) || Regex(
+            "^(?:handelsprofil|trading profile|kontotyp|account type)\\s*[:=\\-]\\s*(?:basic|active|trader)$"
+        ).matches(line)
     }
 
     /** Exact currency table as rendered by DEGIRO even when its heading
@@ -97,7 +100,7 @@ internal object AccountSettingsEvidence {
 
         val fxStates = mutableSetOf<String>()
         if (currencyContext) text.forEachIndexed { index, line ->
-            val explicit = Regex("^autofx\\s*[:=\\-]?\\s*(aktiviert|aktiv|eingeschaltet|ein|on|enabled|deaktiviert|ausgeschaltet|aus|off|disabled)$")
+            val explicit = Regex("^(?:autofx|auto\\s*fx)\\s*[:=\\-]?\\s*(aktiviert|aktiv|eingeschaltet|ein|on|enabled|deaktiviert|ausgeschaltet|aus|off|disabled)$")
                 .matchEntire(line)?.groupValues?.get(1)
             val paired = if (line == "autofx")
                 text.getOrNull(index + 1)?.takeIf {
