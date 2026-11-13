@@ -110,6 +110,32 @@ class AccountSettingsEvidenceTest {
         assertEquals("PROTECTED_VIEW",
             AccountSettingsEvidence.read(app,headings+"Order bestätigen").code)
     }
+
+    @Test fun basicOwnerConfirmationIsScopedToExactVisibleProfilePage() {
+        val page=listOf("Ihre Handelseinstellungen","Basic-Benutzerkonto",
+            "Active-Benutzerkonto","Benutzerkonto auswählen")
+        val e=AccountSettingsEvidence.ownerConfirmedProfile(app,page,"BASIC")
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",e.code)
+        assertEquals("BASIC",e.feeProfile)
+        assertNull(e.autoFx)
+        assertEquals("degiro-app-owner-confirmed",e.source)
+        for (labels in listOf(
+            listOf("Produkt","Basic-Benutzerkonto"),
+            listOf("Ihre Handelseinstellungen","Active-Benutzerkonto"),
+            listOf("Benutzerkonto auswählen","Basic-Benutzerkonto"))) {
+            assertEquals("SETTINGS_UNCONFIRMED",
+                AccountSettingsEvidence.ownerConfirmedProfile(app,labels,"BASIC").code)
+        }
+        assertEquals("SETTINGS_UNCONFIRMED",
+            AccountSettingsEvidence.ownerConfirmedProfile(app,page,"UNKNOWN").code)
+        assertEquals("OTHER_APP",
+            AccountSettingsEvidence.ownerConfirmedProfile("com.other",page,"BASIC").code)
+        assertEquals("PROTECTED_VIEW",
+            AccountSettingsEvidence.ownerConfirmedProfile(app,
+                page+listOf("PIN eingeben"),"BASIC").code)
+        assertEquals("PROTECTED_VIEW",
+            AccountSettingsEvidence.ownerConfirmedProfile(app,page,"BASIC",true).code)
+    }
     @Test fun safetyBoundaryStopsCredentialAndOrderScreens() {
         assertEquals("OTHER_APP", AccountSettingsEvidence.read("com.other.app",
             listOf("Währungseinstellungen", "AutoFX: on")).code)
