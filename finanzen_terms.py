@@ -1,7 +1,9 @@
 """Missing SG gold terms from finanzen.ch; never import its quotes or clocks.
 
 The public page attributes terms to dp Derivative Partners. Its underlying
-quote can be years old, so quote/ratio/leverage fields are deliberately ignored.
+quote can be years old, so quotes and leverage are deliberately ignored.
+Explicit currency treatment and ratio are retained only as separate contract
+corroboration, never substituted for the issuer ratio or a market timestamp.
 """
 import copy
 import re
@@ -62,8 +64,18 @@ def parse_page(html, isin, now=None):
                   for key, value in values.items()}
     for key in ('ko', 'strike'):
         conditions[key] = observed_condition(values[key], url, isin, now.isoformat())
+    treatment = None
+    try:
+        hedge = field('Währungssicherheit', 'COSI Produkt?')
+        if hedge in ('Ja', 'Nein'):
+            treatment = dict(isin=isin, source=url, reviewedAt=now.isoformat(),
+                quanto=hedge == 'Ja', ratio=1/number('Ratio'),
+                direction='SHORT' if side == 'Bear' else 'LONG', **values)
+    except (ValueError, ZeroDivisionError):
+        pass  # Missing contract evidence is never inferred from prices.
     return dict(isin=isin, direction='SHORT' if side == 'Bear' else 'LONG',
                 currency=currency, conditions=conditions, sourceUrl=url,
+                currencyTreatment=treatment,
                 source='finanzen.ch · dp Derivative Partners', checkedAt=now.isoformat())
 
 
@@ -99,11 +111,13 @@ def apply(primary, isin):
     meta = primary.get('metadata') or {}
     conditions = primary.get('conditions') or {}
     missing = [key for key in FIELDS if not (conditions.get(key) or {}).get('value')]
+    needs_currency = (meta.get('currency') == 'CHF' and meta.get('simpleTurbo') is True
+        and meta.get('classificationId') == 43 and meta.get('quantoState') == 'unknown')
     if (not valid_isin(isin) or primary.get('isin') != isin
             or not primary.get('productVerified') or primary.get('sourceDisabled')
             or meta.get('status') != 1 or meta.get('underlyingType') != 'SPOT'
             or meta.get('issuerExchangeCode') not in ('CBSW', 'CBDE')
-            or primary.get('eligible') or not missing):
+            or primary.get('eligible') or not (missing or needs_currency)):
         return primary
     backup = fetch(isin)
     out = copy.deepcopy(primary)
@@ -120,4 +134,6 @@ def apply(primary, isin):
     for key in missing:
         out['conditions'][key] = backup['conditions'][key]
     out['termsBackup'].update(state='active', filledFields=missing)
+    if needs_currency:
+        out['termsBackup']['currencyTreatment'] = copy.deepcopy(backup.get('currencyTreatment'))
     return out
