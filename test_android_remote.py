@@ -36,6 +36,47 @@ class Protocol(unittest.TestCase):
         self.assertIn('termux_check',r.definitions()[1]['inputSchema']
                       ['properties']['action']['enum'])
 
+    def test_account_settings_require_a_delivered_read_and_redacted_enums(self):
+        args=r.arguments('bob_phone_command',command('read_account_settings'))
+        self.assertEqual(args['action'],'read_account_settings')
+        self.assertIn('read_account_settings',r.definitions()[1]['inputSchema']['properties']['action']['enum'])
+        s=self.state();a=command('read_account_settings')
+        r.enqueue(s,a,NOW)
+        v=value();v['observation']['accountSettings']={
+            'source':'degiro-app-local-accessibility','capturedAt':NOW,
+            'status':'PARTIAL','feeProfile':None,'autoFx':'ON'}
+        v['observation']['code']='ACCOUNT_SETTINGS_PARTIAL'
+        v['ack']={'requestId':a['requestId'],'code':'ACCOUNT_SETTINGS_PARTIAL'}
+        # Queued is not delivered: a device cannot create an unsolicited read.
+        with self.assertRaises(ValueError):r.exchange(s,v,NOW)
+        s,_=r.exchange(s,value(),NOW)
+        self.assertEqual(s['commands'][0]['status'],'delivered')
+        accepted,_=r.exchange(s,v,NOW)
+        self.assertEqual(accepted['commands'][0]['status'],'acknowledged')
+        self.assertEqual(accepted['observation']['accountSettings']['autoFx'],'ON')
+        self.assertNotIn('feesCHF',accepted['observation']['accountSettings'])
+        self.assertEqual(accepted['accountSettings']['autoFx'],'ON')
+        self.assertFalse(accepted['accountSettings']['accountFeeConfirmed'])
+        self.assertFalse(accepted['accountSettings']['brokerExecutionConfirmed'])
+        # Later product heartbeats may not erase the consented settings receipt.
+        after,_=r.exchange(accepted,value(),NOW+1)
+        self.assertEqual(after['accountSettings']['capturedAt'],NOW)
+        # Network retries remain idempotent after a lost response.
+        r.exchange(accepted,v,NOW)
+        for bad in (
+            {'feeProfile':'basic'}, {'autoFx':'AUTO_CHF'}, {'feesCHF':0},
+            {'source':'untrusted'}, {'status':'COMPLETE'}, {'capturedAt':NOW-61},
+            {'accountNumber':'secret'}):
+            wrong=value();wrong['observation']['code']='ACCOUNT_SETTINGS_PARTIAL'
+            wrong['observation']['accountSettings']={**v['observation']['accountSettings'],**bad}
+            wrong['ack']=v['ack']
+            with self.subTest(bad=bad),self.assertRaises(ValueError):
+                r.exchange(accepted,wrong,NOW)
+        wrong=value();wrong['observation']['accountSettings']=v['observation']['accountSettings']
+        wrong['observation']['code']='ACCOUNT_SETTINGS_PARTIAL'
+        wrong['ack']={'requestId':'c'*32,'code':'ACCOUNT_SETTINGS_PARTIAL'}
+        with self.assertRaises(ValueError):r.exchange(accepted,wrong,NOW)
+
     def test_queue_delivery_ack_and_no_replay(self):
         s=self.state();a=command();self.assertEqual(r.enqueue(s,a,NOW)['status'],'queued')
         s,out=r.exchange(s,value(),NOW+1);self.assertEqual(out['command']['requestId'],a['requestId'])
