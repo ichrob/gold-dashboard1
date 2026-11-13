@@ -266,7 +266,8 @@ def status(conn):
                 missingFields=(x.get('observation') or {}).get('missingFields',list(REQUIRED)),
                 matchedCurrentList=x['matchedCurrentList']) for x in r['results']],events=r['events'][-12:]))
     try:
-        planning=__import__('handset_planning').read(conn)
+        with conn.transaction():
+            planning=__import__('handset_planning').read(conn)
     except Exception:
         planning=dict(status='unavailable',resultFresh=False)
     return dict(status='observed' if runs else 'not-observed',readOnly=True,runs=runs,evidenceChain=chain,planning=planning,

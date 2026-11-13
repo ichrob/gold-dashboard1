@@ -43,6 +43,8 @@ class Planning(unittest.TestCase):
             schema='planning_'+uuid.uuid4().hex
             conn.execute('CREATE SCHEMA '+schema)
             conn.execute('SET LOCAL search_path TO '+schema)
+            self.assertIsNone(p.read(conn)['config'])
+            self.assertEqual(conn.execute('SELECT 1').fetchone()[0],1)
             p.init(conn)
             self.assertIsNone(p.read(conn)['config'])
             saved=p.handle(conn,dict(action='plan-save',expectedRevision=0,config=CONFIG))

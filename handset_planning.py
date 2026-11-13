@@ -27,9 +27,12 @@ def validate(value):
 
 
 def read(conn):
+    exists=conn.execute("SELECT to_regclass('bob_handset_planning')").fetchone()
+    if not exists or not exists[0]:
+        return dict(config=None, revision=0, result=None, resultFresh=False, realOrders=False)
     row = conn.execute('SELECT config,revision,result FROM bob_handset_planning WHERE id=1').fetchone()
     if not row or len(row) != 3:
-        return dict(config=None, revision=0, result=None, resultFresh=False)
+        return dict(config=None, revision=0, result=None, resultFresh=False, realOrders=False)
     result = row[2]
     age = time.time()*1000-(result or {}).get('calculatedAt', 0)
     return dict(config=row[0], revision=row[1], result=result,
