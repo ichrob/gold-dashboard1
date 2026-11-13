@@ -98,8 +98,9 @@ class ProductReturnTransitionTest {
         assertEquals(ProductReturnTransition.State.IDLE,t.poll(oldPage,7,1300))
     }
     @Test fun genericSearchInputWithoutMarketsEvidenceNeverReleases() {
-        assertEquals(ProductReturnTransition.State.FAILED,poll(
-            listOf(MorningReadPolicy.Node("",id="product-search",editable=true))))
+        val partial=listOf(MorningReadPolicy.Node("",id="product-search",editable=true))
+        assertEquals(ProductReturnTransition.State.WAITING,poll(partial))
+        assertEquals(ProductReturnTransition.State.FAILED,poll(partial,6000))
         assertEquals(ProductReturnTransition.State.FAILED,poll(
             search+MorningReadPolicy.Node("",id="order-quantity",editable=true)))
     }
