@@ -319,7 +319,18 @@ function technicalQuality(ctx={}){
  return {score,reasons:[conflict?'Kursindikatoren-Kollektiv widerspricht.':value*expected>0?'Kursindikatoren-Kollektiv bestätigt.':'Kursindikatoren-Kollektiv neutral oder widersprüchlich.','EMA, MACD und RSI zählen gemeinsam einmal; Momentum-Anzeige und MTF geben keine Zusatzpunkte. ADX beschreibt nur Trendstärke.'],collectives:1};
 }
 const futureIsins=new Set(["DE000FG309G0"]);
-function isFutureProduct(p){return /\bFUTURE\b/i.test(p.name||p.snapshot?.name||'')||/future/i.test(p.snapshot?.terms?.underlying?.value||'')||!!p.snapshot?.terms?.contract?.value||p.underlyingType==="FUTURE"||p.quote?.metadata?.underlyingType==="FUTURE"||futureIsins.has(String(p.isin||"").trim().toUpperCase());}
+function isFutureProduct(p){
+ const q=p.quote,m=q?.metadata;
+ const verifiedSpot=q?.isin===p.isin&&q?.productVerified===true&&!q.sourceDisabled&&!q.sourceFailure&&
+  m?.underlyingType==='SPOT'&&m?.underlying==='XAU/USD';
+ // Mini Future names describe leverage certificates, not the gold contract.
+ // Only exact verified spot identity can disambiguate that product label.
+ const name=String(p.name||p.snapshot?.name||'');
+ const underlyingName=verifiedSpot?name.replace(/\bmini[\s-]+futures?\b/ig,''):name;
+ return /\bFUTURE\b/i.test(underlyingName)||/future/i.test(p.snapshot?.terms?.underlying?.value||'')||
+  !!p.snapshot?.terms?.contract?.value||p.underlyingType==='FUTURE'||m?.underlyingType==='FUTURE'||
+  futureIsins.has(String(p.isin||'').trim().toUpperCase());
+}
 function futureResearchText(x,now=Date.now()){
  const r=x.futureResearch;if(!r)return "";
  const at=v=>typeof v==="string"&&!Number.isNaN(Date.parse(v))?new Date(v).toLocaleString():"unbekannt";
@@ -396,7 +407,7 @@ function screenshotCurrentState(p,bundle,now=Date.now()){
  const q=p.quote?.isin===p.isin?p.quote:null,shot=p.snapshot?.isin===p.isin?p.snapshot:null;
  const meta=q?.productVerified?q.metadata:null;
  const model=q?.productVerified&&q.productModel?.isin===p.isin?q.productModel:null;
- const future=isFutureProduct(p)||/\bFUTURE\b/i.test(p.name||shot?.name||'');
+ const future=isFutureProduct(p);
  const side=meta?.direction||shot?.direction||p.productDirection,ko=n(fixed?.value)??n(meta?.ko)??n(shot?.ko)??n(p.ko);
  let basis=null,basisLabel='',basisAt=null;
  if(future){

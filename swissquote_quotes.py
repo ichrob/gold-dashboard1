@@ -45,7 +45,7 @@ def parse_payload(payload, isin, now=None):
     if (not isinstance(isin, str) or not valid_isin(isin) or data.get('stockKey') != dict(isin=isin, exchangeId=672, currency='CHF')
             or data.get('issuerName') != 'Societe Generale'
             or data.get('stockExchangeName') != 'Swiss DOTS' or data.get('marketCode') != 'DOTS'
-            or data.get('productType') != 'WARRANT' or data.get('eusipaCode') != '2200'
+            or data.get('productType') != 'WARRANT' or data.get('eusipaCode') not in ('2200', '2210')
             or direction not in ('LONG', 'SHORT')
             or (isin in PRODUCTS and direction != PRODUCTS[isin]) or len(underlying) != 1
             or underlying[0].get('isin') != 'XC0009655157' or underlying[0].get('currency') != 'USD'):
@@ -55,7 +55,8 @@ def parse_payload(payload, isin, now=None):
     fields = {}
     values = {'direction': direction, 'currency': 'CHF', 'underlying': 'XAU/USD',
               'issuer': data['issuerName'], 'marketStatus': data.get('marketStatus')}
-    for key, api_key in [('ko', 'knockOut'), ('strike', 'strike')]:
+    ko_key = 'stopLoss' if data.get('eusipaCode') == '2210' else 'knockOut'
+    for key, api_key in [('ko', ko_key), ('strike', 'strike')]:
         item = underlying[0].get(api_key) or {}
         if item.get('currency') == 'USD' and positive(item.get('value')):
             values[key] = item['value']
@@ -129,7 +130,9 @@ def fetch(isin):
             raise ValueError('RESPONSE_TOO_LARGE')
         return parse_payload(json.loads(data), isin)
     except Exception as exc:
-        return dict(state='unavailable', reasonCode='HTTP_'+str(exc.code) if hasattr(exc, 'code') else 'SOURCE_UNAVAILABLE')
+        return dict(state='unavailable', reasonCode='HTTP_'+str(exc.code) if hasattr(exc, 'code')
+                    else str(exc) if isinstance(exc, ValueError) and str(exc) in
+                    ('IDENTITY_MISMATCH', 'UNEXPECTED_REDIRECT', 'RESPONSE_TOO_LARGE') else 'SOURCE_UNAVAILABLE')
 
 
 def _refresh(isin):
@@ -154,7 +157,7 @@ def eligible_primary(result, isin):
     return (isinstance(isin, str) and valid_isin(isin) and result.get('isin') == isin
         and result.get('productVerified') is True and not result.get('sourceDisabled')
         and meta.get('status') == 1 and meta.get('issuerExchangeCode') == 'CBSW'
-        and meta.get('currency') == 'CHF'
+        and meta.get('currency') == 'CHF' and meta.get('underlyingType') != 'FUTURE'
         and (meta.get('direction') or result.get('direction')) in ('LONG', 'SHORT'))
 
 

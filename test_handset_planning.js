@@ -105,3 +105,22 @@ for(const direction of ['LONG','SHORT']){
  assert.equal(evaluate(input).conditionalAvailable,0);
 }
 console.log('Non-entry research comparisons retain real stops while preserving KO protection and all approval gates');
+
+// Saved capital/risk must not be reported missing when only fee evidence is absent.
+const feeOnly=fixture();feeOnly.config.feesCHF=null;
+const feeOnlyBefore=JSON.stringify(feeOnly),feeOnlyRow=evaluate(feeOnly).items[0];
+assert.equal(feeOnlyRow.available,false);
+assert.equal(feeOnlyRow.reason,feeOnlyRow.feeAssessment.reason);
+assert(feeOnlyRow.automaticScenarios.every(s=>s.available));
+assert(!feeOnlyRow.reasons.some(r=>/Kapital|Verlustrisiko/.test(r)));
+assert.equal(JSON.stringify(feeOnly),feeOnlyBefore);
+const noBudget=fixture();noBudget.config.budgetCHF=null;
+assert.match(evaluate(noBudget).items[0].reason,/Maximalen Einsatz/);
+const noRisk=fixture();noRisk.config.riskCHF=null;
+assert.match(evaluate(noRisk).items[0].reason,/Maximalen Verlust/);
+const koBlocked=fixture();koBlocked.plans.LONG.stop=3901;
+const koRow=evaluate(koBlocked).items[0];
+assert.equal(koRow.available,false);assert.match(koRow.reason,/KO-Schutzbereich/);
+assert.equal(koRow.modelStop,null);assert.equal(koRow.copyAllowed,false);
+assert(koRow.automaticScenarios.every(s=>!s.available));
+console.log('Exact model/fee/config blockers: saved CHF inputs retained, KO guard intact, conditional scenarios unchanged');
