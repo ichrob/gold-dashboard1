@@ -94,6 +94,13 @@ assert.equal(p.stableMail(dubious).documentedCostsCHF,null);
 const noPdfScope=pdfCost(buy,0.48,0.03,0.45);
 noPdfScope.result.sourceKind='DEGIRO-execution-email-HTML';
 assert.equal(p.stableMail(noPdfScope).documentedCostsCHF,null);
+const htmlReceipt={...pdfBuy,result:{...pdfBuy.result,
+ sourceKind:'DEGIRO-execution-email-HTML'}};
+assert.equal(p.stableMail(htmlReceipt).documentedCostsCHF,0.48,
+ 'Valid costs carried through existing DEGIRO HTML mail should not be discarded');
+const htmlMatched=p.compare(csv,parsed,{configured:true,items:[htmlReceipt,pdfSell]});
+assert.equal(htmlMatched.items[0].documentFeeRows,2);
+assert.equal(htmlMatched.items[0].documentFeeMatchedCsv,2);
 const conflictingPdf=p.compare(csv,parsed,{configured:true,items:[pdfBuy,
  pdfCost(buy,0.58,0.03,0.55),pdfSell]});
 assert.equal(conflictingPdf.items[0].ambiguous,1);
