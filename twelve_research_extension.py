@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import HTTPRedirectHandler, build_opener
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 INTERVAL_MS = {'1min': 60000, '5min': 300000, '15min': 900000,
                '30min': 1800000, '1h': 3600000, '4h': 14400000,
@@ -327,10 +327,12 @@ def fetch_research(db, symbol, interval, start_ms, end_ms, *, now_ms=None, opene
     stamp = lambda ms: datetime.fromtimestamp(ms/1000, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     params = urlencode(dict(symbol=symbol,interval=interval,timezone='UTC',
                             start_date=stamp(start_ms),end_date=stamp(end_ms-step),
-                            apikey=key))  # date-bounded requests must omit outputsize
+                            ))  # bounded dates; omit outputsize and all secrets
     try:
         client = opener or build_opener(NoRedirect())
-        with client.open('https://api.twelvedata.com/time_series?' + params, timeout=10) as response:
+        request = Request('https://api.twelvedata.com/time_series?' + params,
+                          headers={'Authorization': 'apikey ' + key, 'Accept': 'application/json'})
+        with client.open(request, timeout=10) as response:
             raw = response.read(MAX_RESPONSE_BYTES+1)
         if len(raw) > MAX_RESPONSE_BYTES:
             return {'code':'RESPONSE_TOO_LARGE'}
@@ -348,7 +350,7 @@ def fetch_research(db, symbol, interval, start_ms, end_ms, *, now_ms=None, opene
         return {'code':'NETWORK_ERROR'}
     except (KeyError,TypeError,ValueError,OverflowError):
         return {'code':'INVALID_RESPONSE'}
-    # Do not log URLs or exceptions: request query contains the secret.
+    # Do not log request headers or exceptions: authorization is secret.
 
 
 
@@ -371,11 +373,12 @@ def fetch_earliest_timestamp(db, symbol, interval, *, now_ms=None, opener=None):
         if not reserve_credit(db, now_ms):
             return {'code': 'CREDIT_BUDGET_EXHAUSTED'}
     params = urlencode({'symbol': symbol, 'interval': interval,
-                        'timezone': 'UTC', 'apikey': key})
+                        'timezone': 'UTC'})
     try:
         client = opener or build_opener(NoRedirect())
-        with client.open('https://api.twelvedata.com/earliest_timestamp?' + params,
-                         timeout=10) as response:
+        request = Request('https://api.twelvedata.com/earliest_timestamp?' + params,
+                          headers={'Authorization': 'apikey ' + key, 'Accept': 'application/json'})
+        with client.open(request, timeout=10) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
         if len(raw) > MAX_RESPONSE_BYTES:
             return {'code': 'RESPONSE_TOO_LARGE'}
@@ -409,7 +412,7 @@ def fetch_earliest_timestamp(db, symbol, interval, *, now_ms=None, opener=None):
         return {'code': 'NETWORK_ERROR'}
     except (ValueError, TypeError, OverflowError, sqlite3.Error):
         return {'code': 'INVALID_RESPONSE'}
-    # Never log HTTP URLs or exceptions: the query contains a secret.
+    # Never log authorization headers, request objects or exceptions.
 
 
 def main():
