@@ -220,6 +220,8 @@ def init(conn):
 
 def handle(conn,payload):
     if not isinstance(payload,dict): raise ValueError('Ungültige Anfrage')
+    if payload.get('action') in ('plan-read','plan-save'):
+        return __import__('handset_planning').handle(conn,payload)
     if payload.get('action')=='read':
         rows=conn.execute('SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 20').fetchall()
         return dict(ok=True,runs=[r[0] for r in rows],verified=False,tradeApproved=False)
@@ -263,5 +265,10 @@ def status(conn):
                 requestedFields=x.get('requestedFields'),
                 missingFields=(x.get('observation') or {}).get('missingFields',list(REQUIRED)),
                 matchedCurrentList=x['matchedCurrentList']) for x in r['results']],events=r['events'][-12:]))
-    return dict(status='observed' if runs else 'not-observed',readOnly=True,runs=runs,evidenceChain=chain,
+    try:
+        with conn.transaction():
+            planning=__import__('handset_planning').read(conn)
+    except Exception:
+        planning=dict(status='unavailable',resultFresh=False)
+    return dict(status='observed' if runs else 'not-observed',readOnly=True,runs=runs,evidenceChain=chain,planning=planning,
                 scope='unverified-app-reader-results-not-trade-proof')
