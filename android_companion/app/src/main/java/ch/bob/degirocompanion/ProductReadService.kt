@@ -898,6 +898,7 @@ class ProductReadService : AccessibilityService() {
      */
     private fun accountSettingsScan(root:AccessibilityNodeInfo):AccountSettingsEvidence.Result? {
         val labels=mutableListOf<String>()
+        val selectedProfiles=mutableSetOf<String>()
         var visited=0
         var sensitive=false
         fun visit(node:AccessibilityNodeInfo,depth:Int) {
@@ -914,7 +915,11 @@ class ProductReadService : AccessibilityService() {
             val label=(node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
             if(label.isNotEmpty()) {
                 if(AccountSettingsEvidence.hasProtectedLabel(label)) { sensitive=true;return }
-                if(AccountSettingsEvidence.isRelevantLabel(label)) labels+=label
+                if(AccountSettingsEvidence.isRelevantLabel(label)) {
+                    labels+=label
+                    if(node.isSelected || node.isChecked)
+                        AccountSettingsEvidence.exactCardProfile(label)?.let { selectedProfiles+=it }
+                }
             }
             for(i in 0 until node.childCount.coerceAtMost(100)) {
                 val child=node.getChild(i) ?: continue
@@ -926,7 +931,8 @@ class ProductReadService : AccessibilityService() {
         // Never interpret an unrelated product, portfolio or order screen as
         // account settings; keep the normal product protections in charge.
         if(!AccountSettingsEvidence.recognizesSettings(labels))return null
-        return AccountSettingsEvidence.read(ProductScreenEvidence.PACKAGE,labels,sensitive)
+        return AccountSettingsEvidence.read(ProductScreenEvidence.PACKAGE,labels,
+            sensitive,selectedProfiles.toList())
     }
 
     private fun accountSettingsReceipt(e:AccountSettingsEvidence.Result):org.json.JSONObject {
