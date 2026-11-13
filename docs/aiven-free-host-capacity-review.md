@@ -27,14 +27,22 @@ memory-sample-unavailable and OOM cause unknown unless host evidence exists.
 
 Expected private normalized dictionary from original Aiven Console:
 source="aiven-console-host-metrics", observedAt=ISO-8601 timezone-aware,
-memoryUsedBytes, memoryTotalBytes, optionally diskUsedBytes/diskTotalBytes
+memoryUsedPct, optionally diskUsedPct (the percentages shown by the console).
+Alternatively supply memoryUsedBytes/memoryTotalBytes and diskUsedBytes/diskTotalBytes
+only if actually measured; never invent byte counts from nominal plan capacity
 and only when separately confirmed in host logs: oomLogEvidence="confirmed".
 Do NOT enter account tokens into the sample. This isn't an Aiven API schema,
 nor evidence until genuine console measurements are supplied.
 
-If a real, recent host sample reports >=80% memory or >=85% disk occupancy,
-review memory/disk pressure. >=90% memory is a critical warning, not an
-assertion of a real OOM. Never run parallel archives, enlarge work_mem,
+RAM findings follow the watchdog rule: >=95% on one sample, or >=85% on
+two consecutive samples. Pass the immediately preceding sample as
+previous_host_sample, including the same nonempty project/service/node on both.
+Duplicate, reversed, invalid or more-than-two-hour-separated samples cannot
+confirm sustained pressure. One sample from 85% to below 95% is pending only.
+The caller must preserve consecutive order and deduplicate already-open findings;
+this pure evaluator does not store notification state. >=85% disk occupancy is
+an internal review finding, not an additional watchdog notification trigger.
+None of these thresholds asserts a real OOM. Never run parallel archives, enlarge work_mem,
 issue VACUUM FULL, purge originals, upgrade to paid, or claim rescue from
 SQL observations. Existing locks, small COPY segments, 2 MiB work_mem and
 source/restoration independence remain unchanged.
