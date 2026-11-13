@@ -35,6 +35,27 @@ def pair(result,phase='exploration',trend='all',rule='r1'):
 
 
 class ReportTests(unittest.TestCase):
+    def test_stream_query_materializes_scalar_anchors_not_json_window(self):
+        class Cursor:
+            def __init__(self): self.query = None; self.itersize = None
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def execute(self, query): self.query = query
+            def __iter__(self): return iter(())
+        class Conn:
+            def __init__(self): self.cursor_value = Cursor()
+            def cursor(self, name=None):
+                self.name = name
+                return self.cursor_value
+        conn = Conn()
+        out = report.report(conn)
+        query = conn.cursor_value.query
+        self.assertEqual(conn.name, 'bob_comparison_evaluation')
+        self.assertIn('WITH anchors AS MATERIALIZED', query)
+        self.assertIn("GROUP BY payload->>'ruleVersion'", query)
+        self.assertNotIn(' OVER (PARTITION BY ', query)
+        self.assertEqual(out['episodes'], 0)
+
     def test_full_history_over_200_and_paired_exclusion(self):
         rows=[episode() for _ in range(205)]
         missing=episode();missing['arms']['confirmed:trailing:0'].update(status='inconclusive',modelNetEur=999)

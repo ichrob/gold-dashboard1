@@ -36,8 +36,8 @@ class AuditUnitTests(unittest.TestCase):
             def transaction(self):return self
             def __enter__(self):return self
             def __exit__(self,*a):return False
-            def execute(self,sql):
-                self.calls.append(sql)
+            def execute(self,sql,params=()):
+                self.calls.append((sql,params))
                 return self
             def fetchone(self):return (2,3,30,1,10)
         conn=Query()
@@ -47,12 +47,17 @@ class AuditUnitTests(unittest.TestCase):
             self.assertEqual(first,second)
             self.assertEqual(len(conn.calls),6)  # aggregate plus bounded exact pass, cached once
         self.assertEqual(first['status'],'sampled')
-        self.assertIn("LIMIT 8",audit._SQL)
+        self.assertIn("LIMIT %s",audit._SQL)
+        self.assertIn("WITH newest_keys AS MATERIALIZED",audit._SQL)
+        key_page=audit._SQL.split("), newest AS MATERIALIZED",1)[0]
+        self.assertNotIn("payload",key_page)
         self.assertIn("created_at >= now()-interval '24 hours'",audit._SQL)
         self.assertIn("md5(",audit._SQL)
-        self.assertIn("SET LOCAL statement_timeout='1500ms'",conn.calls)
+        self.assertIn(("SET LOCAL statement_timeout='1500ms'",()),conn.calls)
+        self.assertTrue(all(params in ((),(audit._SAMPLE_BATCHES,))
+                            for _,params in conn.calls))
         self.assertFalse(any('DELETE FROM' in s or 'UPDATE ' in s or
-                             'VACUUM ' in s or 'CREATE TABLE' in s for s in conn.calls))
+                             'VACUUM ' in s or 'CREATE TABLE' in s for s,_ in conn.calls))
 
     def test_exact_verification_refuses_modified_cohort_and_large_sample(self):
         summary=audit._counts((2,2,20,1,10),100)
@@ -60,7 +65,7 @@ class AuditUnitTests(unittest.TestCase):
             def transaction(self):return self
             def __enter__(self):return self
             def __exit__(self,*a):return False
-            def execute(self,_):return self
+            def execute(self,_,params=()):return self
             def fetchall(self):return [('missing',)]
         result=audit._verify_exact(Cohort(),summary)
         self.assertEqual(result['exactVerificationStatus'],'cohort-changed')

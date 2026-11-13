@@ -86,6 +86,10 @@ class AgeDecisionTests(unittest.TestCase):
         sql = review._SQL
         self.assertIn("Europe/Zurich", sql)
         self.assertIn("LIMIT %s", sql)
+        self.assertIn("WITH page AS MATERIALIZED", sql)
+        key_page = sql.split(")\nSELECT page.created_at", 1)[0]
+        self.assertNotIn("payload", key_page)
+        self.assertNotIn("jsonb_path_exists", key_page)
         self.assertNotIn("DELETE ", sql.upper())
         self.assertNotIn("UPDATE ", sql.upper())
         self.assertNotIn("SELECT *", sql.upper())
@@ -116,7 +120,7 @@ class ReadOnlyProbeTests(unittest.TestCase):
         self.assertEqual(len(f.statements), 3)
         self.assertEqual(f.statements[-1][1], (review._SAMPLE,))
         self.assertTrue(all(
-            sql.startswith("SET LOCAL") or sql.lstrip().startswith("SELECT")
+            sql.startswith("SET LOCAL") or sql.lstrip().startswith(("SELECT","WITH"))
             for sql, _ in f.statements))
         self.assertFalse(result["oldImageDeletionAuthorized"])
 
