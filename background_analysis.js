@@ -97,9 +97,10 @@ function evaluate(input, {render=false}={}){
    // prospective variants. Do not mutate main, push or other paper decisions.
    const paperCampaignEntries={};
    for(const profile of ['trend800nov','normal1000nov']){
+    const source=profile==='trend800nov'?'campaign-800-entry-v1':'campaign-1000-entry-v1';
+    try{
     const gate=LateEntry.checkPaperCampaign(bundle,direction,Date.now(),confirmationAt,profile);
     const computed=entryPlanFor(gate);
-    const source=profile==='trend800nov'?'campaign-800-entry-v1':'campaign-1000-entry-v1';
     const plan=!input.trade?.active&&computed.plan?
       {...computed.plan,experimental:true,source}:null;
     // Prepare an auditable stop/target before timing approval. It is never
@@ -119,6 +120,14 @@ function evaluate(input, {render=false}={}){
       profile,source,gate,plan,entryPlanState:computed.entryPlanState,
       preparation:{plan:preparedPlan,entryApproved:false,productApproved:false,
         reason:preparationReason}};
+    }catch(_){
+      // A paper-only hypothesis must NEVER take down Bob's live evaluator.
+      paperCampaignEntries[profile]={version:'campaign-entry-v1',paperOnly:true,
+        profile,source,gate:{paperOnly:true,paperProfile:profile,allowed:false},
+        plan:null,entryPlanState:{state:'blocked',reason:'Papier-Einstiegsauswertung nicht verfügbar'},
+        preparation:{plan:null,entryApproved:false,productApproved:false,
+          reason:'Papier-Einstiegsauswertung nicht verfügbar'}};
+    }
    }
   // Separate prospective paper plan: only EMA distance changes, never live approval.
   const relaxedGate=LateEntry.checkPaper25(bundle,direction,Date.now(),confirmationAt);
