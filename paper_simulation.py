@@ -1114,13 +1114,28 @@ def refresh_original_study_input(bundle, market, settings, latest, analyze, cloc
     retry=(market.get('ready') is False or market.get('priceFresh') is False
            or not finite(stamp) or not 0<=observed_now-stamp<=45000
            or study_closed_bar_retry_needed(bundle,market,observed_now))
-    if retry:
+    latest_error=None
+    try:
         queued=latest()
-        candidate=newer_queued_paper_bundle(bundle,queued,observed_now)
-        print_study_handoff_evidence(
-            'BOB_STUDY_FINAL_SELECTION phase='+evidence_phase,
-            'reused' if candidate is not bundle else 'retained',
-            bundle,queued,candidate,observed_now)
+    except Exception as exc:
+        # Evidence must never make an otherwise valid handoff fail. Preserve
+        # the pre-existing retry-path failure while keeping the no-retry path
+        # observational only.
+        if retry:
+            raise
+        queued=None
+        latest_error=type(exc).__name__
+    candidate=(newer_queued_paper_bundle(bundle,queued,observed_now)
+               if retry else bundle)
+    evidence_prefix=('BOB_STUDY_FINAL_SELECTION phase='+evidence_phase+
+                     ' retry_required='+str(int(retry)))
+    if latest_error:
+        evidence_prefix+=' latest_error='+latest_error
+    print_study_handoff_evidence(
+        evidence_prefix,
+        'reused' if candidate is not bundle else 'retained',
+        bundle,queued,candidate,observed_now)
+    if retry:
         if candidate is not bundle:
             return candidate,analyze(candidate,settings,priority=2)
     return bundle,market
