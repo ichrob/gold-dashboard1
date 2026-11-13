@@ -2596,18 +2596,25 @@ _AGENTMAIL_RECOVERY_LOCK = threading.Lock()
 def _agentmail_recovery_loop():
     """Read-only fallback for missed webhook events and original-DEGIRO receipts."""
     import agentmail_receipt_recovery
+    next_archive_check = 0.0
     while True:
         phase="agentmail-read"
+        archive_due = time.monotonic() >= next_archive_check
         try:
             records = agentmail_receipt_recovery.recover(
                 os.environ.get("BOB_AGENTMAIL_API_KEY", ""),
-                os.environ.get("BOB_EMAIL_ALLOWED_FROM", ""))
+                os.environ.get("BOB_EMAIL_ALLOWED_FROM", ""),
+                lookback_days=45 if archive_due else 7)
             phase="private-import"
             count = agentmail_receipt_recovery.submit(
                 records, PUSH_SERVICE_URL, PUSH_SERVICE_TOKEN)
+            if archive_due:
+                next_archive_check = time.monotonic() + 86400
             print("BOB_EMAIL_RECOVERY status=ok checked="+str(len(records))+
                   " transmitted="+str(count),flush=True)
         except Exception as exc:
+            if archive_due:
+                next_archive_check = time.monotonic() + 300
             # Never log URL, mailbox content, API key or bearer credentials.
             from urllib.error import HTTPError
             http_status=exc.code if isinstance(exc,HTTPError) else "n/a"
