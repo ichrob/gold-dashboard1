@@ -76,5 +76,14 @@ class Planning(unittest.TestCase):
         for key in ('direction','ready','plan','entryPlanState','price','suggestedStop'):
             self.assertEqual(baseline.get(key),model.get(key),key)
 
+    def test_missing_market_data_still_identifies_config_for_missing_input_results(self):
+        import subprocess
+        script="const r=require('./background_analysis').evaluate({bundle:{},handsetPlanSettings:{},handsetPlanRevision:3});process.stdout.write(JSON.stringify(r));"
+        result=json.loads(subprocess.run(['node','-e',script],capture_output=True,
+            text=True,check=True,timeout=30).stdout)
+        self.assertFalse(result['ready'])
+        self.assertEqual(result['handsetPlans'],{})
+        self.assertEqual(result['handsetPlanRevision'],3)
+
 
 if __name__=='__main__':unittest.main()

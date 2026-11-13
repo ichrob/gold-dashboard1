@@ -24,7 +24,7 @@ function evaluate(input, {render=false}={}){
   const spot=bundle.spots||{},price=Number(spot.xaus),at=Date.parse(spot.spot_price_as_of);
   const priceFresh=spot.is_genuine_xauusd_spot===true&&Number.isFinite(price)&&price>0&&Number.isFinite(at)&&Date.now()>=at&&Date.now()-at<=60000&&!spot.spot_error;
   const earlyWarning=earlyWarningContext(bundle);
-  if(C.length<100)return {earlyWarning,earlyImpulse:earlyImpulseContext(bundle),session:intradaySession(),ready:false,decisionReason:'Zu wenige abgeschlossene '+tf+'-Goldkerzen: '+C.length+'/100',price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction:'NEUTRAL',mtf:'NEUTRAL'};
+  if(C.length<100)return {handsetPlans:{},handsetPlanRevision:input.handsetPlanRevision,earlyWarning,earlyImpulse:earlyImpulseContext(bundle),session:intradaySession(),ready:false,decisionReason:'Zu wenige abgeschlossene '+tf+'-Goldkerzen: '+C.length+'/100',price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction:'NEUTRAL',mtf:'NEUTRAL'};
   const byTf=Object.fromEntries(['5m','15m','1h','4h'].map(t=>[t,timeframeScore((bars[t]||[]).filter(b=>b.instrument==='XAU/USD'),t)]));
   const hierarchy=buildMtfHierarchy(byTf,['5m','15m'].every(tf=>byTf[tf].available&&byTf[tf].fresh));
   MTF={...hierarchy,byTf,dirs:Object.values(byTf).map(x=>x.dir)};lastPrice=price>0?price:C.at(-1).close;
