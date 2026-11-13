@@ -912,7 +912,10 @@ class ProductReadService : AccessibilityService() {
             }
             if(node.isEditable)return
             val label=(node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
-            if(label.isNotEmpty())labels+=label.take(251)
+            if(label.isNotEmpty()) {
+                if(AccountSettingsEvidence.hasProtectedLabel(label)) { sensitive=true;return }
+                if(AccountSettingsEvidence.isRelevantLabel(label)) labels+=label
+            }
             for(i in 0 until node.childCount.coerceAtMost(100)) {
                 val child=node.getChild(i) ?: continue
                 try { visit(child,depth+1) } finally { child.recycle() }
