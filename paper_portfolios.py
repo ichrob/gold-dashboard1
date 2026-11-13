@@ -279,7 +279,8 @@ def campaign_paper_market(market, profile):
         and plan.get('kind') == 'candidate' and plan.get('experimental') is True
         and plan.get('source') == source and plan.get('direction') == market.get('direction')
         and plan.get('entry') == market.get('price')
-        and plan.get('unit') == 'USD/oz')
+        and plan.get('unit') == 'USD/oz' and plan.get('entrySuitable') is not False
+        and abs(plan['target']-plan['entry']) >= 2*abs(plan['entry']-plan['stop'])-1e-7)
     state = trial.get('entryPlanState') or {}
     reason = (state.get('reason') if isinstance(state, dict) else None) or gate.get('reason')
     reason = reason or 'Separater Papier-Einstiegsplan noch nicht vollständig bestätigt'
