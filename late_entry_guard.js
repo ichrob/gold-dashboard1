@@ -55,7 +55,9 @@
    }
    atr/=14;
    if(!pos(atr))return fail('ATR aus geprüften Kerzen nicht berechenbar');
-   if(Math.abs(spot.xaus-latest.close)>atr*0.80 && !(study?.minute && minuteConfirmation(bundle,direction,now,latest,spot.xaus,atr)))
+   // Do not classify a new, corroborated minute breakout as a source mismatch.
+   // EMA distance, impulse, age and all trade approvals remain checked below.
+   if(Math.abs(spot.xaus-latest.close)>atr*0.80 && !minuteConfirmation(bundle,direction,now,latest,spot.xaus,atr))
      return fail('Aktueller Spot und letzter Kerzenschluss weichen über 0,8 ATR ab');
    const deviation=sign*(spot.xaus-ema20)/atr;
    const impulse=sign*(latest.close-bars.at(-4).close)/atr;
