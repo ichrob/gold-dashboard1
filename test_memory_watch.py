@@ -35,10 +35,10 @@ class MemoryWatchTests(unittest.TestCase):
     def test_snapshot_records_only_process_allocation_counts(self):
         import gc
         import sys
-        with patch.object(m, "_number", return_value=None), \\
-             patch.object(m, "_rss", return_value=None), \\
-             patch.object(m, "_child_pids", return_value=set()), \\
-             patch.object(sys, "getallocatedblocks", return_value=12345), \\
+        with patch.object(m, "_number", return_value=None), \
+             patch.object(m, "_rss", return_value=None), \
+             patch.object(m, "_child_pids", return_value=set()), \
+             patch.object(sys, "getallocatedblocks", return_value=12345), \
              patch.object(gc, "get_count", return_value=(2, 3, 4)):
             sample = m.snapshot()
         self.assertEqual(sample["pythonAllocatedBlocks"], 12345)
