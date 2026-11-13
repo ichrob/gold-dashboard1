@@ -165,14 +165,10 @@ def gaps(rows, interval):
 
 def research_ema(rows, period=20):
     """Local internal-only derived research; never serve in a dashboard/API."""
-    if period < 2 or len(rows) < period:
+    if period < 2:
         return None
-    ordered = sorted(rows, key=lambda x: x['openTime'])
-    step = INTERVAL_MS[ordered[0]['interval']]
-    if any(a['symbol'] != ordered[0]['symbol'] or a['interval'] != ordered[0]['interval']
-           or b['openTime'] - a['openTime'] != step for a,b in zip(ordered, ordered[1:])):
-        return None
-    if any(r.get('researchOnly') is not True for r in ordered):
+    ordered = _contiguous_closes(rows, period)
+    if ordered is None:
         return None
     closes = [r['close'] for r in ordered]
     current = sum(closes[:period]) / period
@@ -187,8 +183,14 @@ def _contiguous_closes(rows, minimum):
     if len(rows) < minimum:
         return None
     ordered = sorted(rows, key=lambda x: x['openTime'])
-    if not ordered or any(r.get('researchOnly') is not True or
-                          r.get('isExecutableQuote') is not False for r in ordered):
+    if not ordered or any(
+            r.get('source') != 'twelvedata'
+            or r.get('researchOnly') is not True
+            or r.get('isExecutableQuote') is not False
+            or not isinstance(r.get('close'), (int, float))
+            or isinstance(r.get('close'), bool)
+            or not math.isfinite(r['close'])
+            or r['close'] <= 0 for r in ordered):
         return None
     step = INTERVAL_MS.get(ordered[0]['interval'])
     if not step or any(r['symbol'] != ordered[0]['symbol'] or
