@@ -39,7 +39,7 @@ assert.equal(worker.earlyWarning.monitoring,worker.session.entryAllowed===true,'
 assert.equal(worker.direction,'NEUTRAL');
 
 // A failed optional product panel must not strand the core warning at loading.
-const warningEl={textContent:'loading',style:{}};
+const warningEl={textContent:'loading',style:{},dataset:{}};
 const renderEnv={$:()=>warningEl,liveBundleCache:null,signalState:{dir:'NEUTRAL'},Date,
  console:{warn(){}},earlyWarningContext:()=>({state:'unavailable',direction:'NEUTRAL',reason:'Keine aktuellen Kerzen',checkedAt:now}),
  earlyPreparationText:()=>'',window:{BobDegiro:{renderEarlyProductPanel(){throw Error('product panel failed');}}}};

@@ -2085,6 +2085,11 @@ def triage_snapshot(areas):
                              'evidenceAt':evidence_at,
                              'finding':explanation,'nextCheck':next_check,
                              'repairVerified':False,'tradeApproval':False})
+    ui = (areas.get('runtime') or {}).get('marketUi') or {}
+    if ui.get('codes'):
+        add('MARKET_UI_RENDER_FAILURE','high',ui.get('lastObservedAt'),
+            'Geöffnete Bob-Seite meldet Anzeigefehler: '+', '.join(ui['codes']),
+            'DOM-Anzeige und vorhandene Kursdaten prüfen; Erholungsnachweis abwarten.')
     background = areas.get('background') or {}
     if background.get('status') not in ('ok','observed'):
         add('BACKGROUND_NOT_CONFIRMED','high',

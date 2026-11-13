@@ -421,6 +421,38 @@ try{
   try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();if(data.spot?.kind==='spot'&&data.spot?.symbol==='XAU/USD')accept('spot',data.spot);accept('future',data.future);accept('estimate',data.estimate);accept('cfd',data.cfd);const notice=document.getElementById('gold-special-session');if(notice)notice.textContent=data.sessionAdvisory?' · Börsenkalender: '+data.sessionAdvisory.name+' · '+data.sessionAdvisory.note:'';}catch(_){}
   finally{clearTimeout(timer);busy=false;render('spot');render('future');render('estimate');render('cfd');}
  }
+ // Runs independently of the analysis script. No new market request or trading action.
+ const uiTab=typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():null;
+ const uiStarted=Date.now();let uiLastCode='',uiReportedAt=0,uiReporting=false;
+ async function reportUi(code){
+  if(!uiTab||uiReporting||(code===uiLastCode&&Date.now()-uiReportedAt<120000))return;
+  uiReporting=true;
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),5000);
+  try{
+   const r=await fetch('/api/diag',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({event:'market-ui:observation',details:{tab:uiTab,code}}),signal:ctl.signal});
+   if(r.ok){uiLastCode=code;uiReportedAt=Date.now();}
+  }catch(_){}finally{clearTimeout(timer);uiReporting=false;}
+ }
+ async function checkUi(){
+  const price=el('spot','price');
+  const overview=document.getElementById('bob-view-overview');
+  if(document.visibilityState!=='visible'||window.BobSession?.expired()||(overview&&overview.hidden))return;
+  const q=quotes.spot,at=Date.parse(q?.at),fresh=positive(q?.price)&&Number.isFinite(at)&&Date.now()>=at&&Date.now()-at<=120000;
+  if(!fresh){await reportUi('data-unavailable');return;}
+  if(!price){await reportUi('spot-hidden');return;}
+  const expected=number(q.price),warning=document.getElementById('earlyImpulseStatus');
+  const hidden=!price.getClientRects().length||(typeof getComputedStyle==='function'&&getComputedStyle(price).visibility==='hidden');
+  const mismatch=price.textContent!==expected;
+  const stuck=Date.now()-uiStarted>45000&&warning&&!warning.dataset.marketRendered;
+  const code=hidden?'spot-hidden':mismatch?'spot-mismatch':stuck?'warning-unrendered':'ok';
+  await reportUi(code);
+  if(mismatch)render('spot'); // Only redraw the same original quote and timestamp.
+  if(stuck){try{window.renderEarlyImpulseStatus?.();}catch(_){} }
+  if(code!=='ok'&&!hidden&&price.textContent===expected&&(!warning||warning.dataset.marketRendered))await reportUi('ok');
+ }
+ setInterval(()=>{void checkUi();},10000);
+ document.addEventListener('visibilitychange',()=>{void checkUi();});
  function renderSessionMode(){
   const el=document.getElementById('gold-session-mode');if(!el)return;
   const phase=window.BobDegiroPhase?.();
@@ -3257,6 +3289,7 @@ function renderEarlyImpulseStatus(){
   window.BobDegiro?.renderEarlyProductPanel?.(q);
   el.textContent+=window.BobDegiro?.earlyProductRankingText?.(q)||'';
  }catch(error){console.warn('[BOB] Early product panel unavailable',error);}
+ el.dataset.marketRendered='true';
 }
 
 // Recheck expiry even when a fetch or the main analysis fails; no extra network request.
