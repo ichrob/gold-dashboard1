@@ -48,7 +48,9 @@ for(const sign of [1,-1]){
    return {openTime:now+i*M,open,close,high:Math.max(open,close)+.01,
      low:Math.min(open,close)-.01,isOpen:false,instrument:'XAU/USD'};
  });
- assert.equal(late.check(b,side,clock,clock).allowed,false);
+ assert.equal(late.check(b,side,clock,clock).allowed,true); // corroborated 1m breakout now passes the live timing gate
+ const withoutMinute=structuredClone(b);delete withoutMinute.history.bars_by_tf['1m'];
+ assert.equal(late.check(withoutMinute,side,clock,clock).allowed,false);
  assert.equal(late.checkStudy(b,side,clock,clock,{distance:1.5,age:15,minute:true}).allowed,true);
  const bad=structuredClone(b);bad.history.bars_by_tf['1m'][1].estimated=true;
  assert.equal(late.checkStudy(bad,side,clock,clock,{distance:1.5,age:15,minute:true}).allowed,false);

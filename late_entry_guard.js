@@ -11,7 +11,7 @@
  const STEPS={'5m':300000,'15m':900000};
  const finite=v=>typeof v==='number'&&Number.isFinite(v);
  const pos=v=>finite(v)&&v>0;
- const initial={version:'late-entry-v2',available:false,allowed:false,late:false,
+ const initial={version:'late-entry-v3',available:false,allowed:false,late:false,
                 reason:'Keine geprüfte Einstiegschance',mode:'ABWARTEN',maxDeviationAtr:1.5,maxFreshContinuationDeviationAtr:2.0,
                 maxImpulseAtr:2.5,maxSignalMinutes:15};
  function gate(bundle,direction,now=Date.now(),confirmedAt=null,paperOnly=false,noEma=false,study=null){
@@ -55,7 +55,9 @@
    }
    atr/=14;
    if(!pos(atr))return fail('ATR aus geprüften Kerzen nicht berechenbar');
-   if(Math.abs(spot.xaus-latest.close)>atr*0.80 && !(study?.minute && minuteConfirmation(bundle,direction,now,latest,spot.xaus,atr)))
+   // Do not classify a new, corroborated minute breakout as a source mismatch.
+   // EMA distance, impulse, age and all trade approvals remain checked below.
+   if(Math.abs(spot.xaus-latest.close)>atr*0.80 && !minuteConfirmation(bundle,direction,now,latest,spot.xaus,atr))
      return fail('Aktueller Spot und letzter Kerzenschluss weichen über 0,8 ATR ab');
    const deviation=sign*(spot.xaus-ema20)/atr;
    const impulse=sign*(latest.close-bars.at(-4).close)/atr;
@@ -70,10 +72,11 @@
       sign*(prev2.close-prev.close)>0 &&
       deviation>=-0.25&&deviation<=0.80&&impulse<1.20;
    // A late 15m signal may be followed by an independently NEW, source-verified
-   // closed 5m breakout. Never reuse the old confirmation time, an open bar or a wick.
+   // closed 5m breakout. Keep the opportunity until just before the NEXT 5m close;
+   // every check revalidates source freshness and price. Never redate the old signal.
    const minutesSinceFiveClose=(now-latest.openTime-STEPS['5m'])/60000;
    const continuationChecks={
-     recentClosedBar:minutesSinceFiveClose>=0&&minutesSinceFiveClose<=1.5,
+     recentClosedBar:minutesSinceFiveClose>=0&&minutesSinceFiveClose<5,
      distanceWithinTwoAtr:deviation>0&&deviation<=2.0,
      impulseWithinLimit:impulse<=2.5,
      previousCandleAligned:sign*(prev.close-prev.open)>0,
