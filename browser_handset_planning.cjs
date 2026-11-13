@@ -47,6 +47,15 @@ const {chromium}=require('playwright'),fs=require('fs'),assert=require('node:ass
   assert.equal(await page.locator('#bobManualBudget').inputValue(),'800');
   await page.locator('[data-planning-load]').click();
   await page.waitForFunction(()=>document.querySelector('#bobManualBudget').value==='900');
+  state.resultFresh=true;state.result={listUploadedAt:'today',available:0,conditionalAvailable:1,calculatedAt:Date.now(),items:[{
+   isin:'DE000FG14AV8',available:false,modelStop:null,reasons:['Tarifeinstellung fehlt'],automaticScenarios:[{
+    assumptions:['Schweizer Standardtarif angenommen','CHF-Konto mit AutoFX angenommen'],
+    feeAssessment:{available:true,feesCHF:1.5},available:true,quantity:4,totalCHF:81.5,lossCHF:13.5}]}]};
+  await page.locator('[data-planning-load]').click();
+  await page.locator('[data-server-handset-plans]').filter({hasText:'Bedingte Rechnung'}).waitFor();
+  assert.match(await page.locator('[data-server-handset-plans]').innerText(),/keine bestätigte Kontoeinstellung/);
+  assert.equal(await page.locator('#bobFeeProfile').inputValue(),'unknown');
+  assert.equal(writes,2);
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert.deepEqual(errors,[]);
   console.log('360px handset planning: explicit zero fees, save/reload, concurrent edit rejection, no silent writes, no overflow passed');

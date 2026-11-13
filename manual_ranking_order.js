@@ -61,6 +61,24 @@ function resolveFees({config={},report,isin,spots,now=Date.now()}={}){
    'inkl. Bearbeitung'+(fxReserveCHF?' und AutoFX-Reserve':'')+
    '. Keine Abrechnung; mögliche Steuern und jährliche Börsenanbindung separat. Spread nicht als Gebühr doppelt gezählt.'};
 }
+// Unknown account settings may produce transparent what-if scenarios, never
+// a confirmed setting, an execution template or an update to the user's config.
+function automaticFeeScenarios(input={}){
+ const config=input.config||{};
+ if(config.feesCHF!==null&&config.feesCHF!==undefined)return [];
+ const unknown=x=>x===undefined||x==='unknown';
+ if(!unknown(config.feeProfile)&&config.feeProfile!=='CH_STANDARD')return [];
+ if(!unknown(config.fxMode)&&!['AUTO_CHF','NO_CONVERSION'].includes(config.fxMode))return [];
+ if(!unknown(config.feeProfile)&&!unknown(config.fxMode))return [];
+ const modes=unknown(config.fxMode)?['NO_CONVERSION','AUTO_CHF']:[config.fxMode];
+ return modes.map(fxMode=>{
+  const assumptions=[unknown(config.feeProfile)&&'Schweizer Standardtarif angenommen',
+   unknown(config.fxMode)&&(fxMode==='AUTO_CHF'?'CHF-Konto mit AutoFX angenommen':'Vorhandenes Währungsguthaben ohne Wechsel angenommen')].filter(Boolean);
+  const fee=resolveFees({...input,config:{...config,feeProfile:'CH_STANDARD',fxMode}});
+  return {...fee,fxMode,assumptions,conditional:true,settingsConfirmed:false,copyAllowed:false,
+   note:'Bedingte Vergleichsrechnung; keine Aussage zur tatsächlichen Kontoeinstellung. Manueller Währungswechsel und andere Tarife sind nicht abgedeckt.'};
+ });
+}
 // Immutable priority: verified current native issuer -> current dated backup
 // observation -> strictly validated product model. Never prefer newer backup
 // over a still-valid original. No retrieval time can renew an old quote.
@@ -389,11 +407,16 @@ function showServerPlanning(panel,data){
  const sameList=result.listUploadedAt===root.BobProductAuditReport?.listUploadedAt;
  if(!data.resultFresh||!sameList){box.textContent='Serververgleich veraltet oder für eine andere Produktliste. Neue Berechnung wird im Hintergrund geprüft.';return;}
  box.textContent='Serververgleich · '+result.available+' von '+result.items.length+' berechenbar · '+
+  (result.conditionalAvailable||0)+' mit bedingter Vergleichsrechnung · '+
   new Date(result.calculatedAt).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'})+' Zürich\n'+
   result.items.map(x=>x.isin+' · '+(x.feeAssessment?.available?'Gebühren '+fmt(x.feeAssessment.feesCHF)+' CHF ('+(x.feeAssessment.estimated?'Tarifreserve':'manuell')+') · ':'')+(x.available?
    x.quantity+' Stück · '+fmt(x.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(x.stop,4)+' '+x.currency+
    ' · Modellrisiko '+fmt(x.lossCHF)+' CHF ('+fmt(x.riskUsagePct,1)+' %)':
-   (x.modelStop!==null?'Modellstopp '+fmt(x.modelStop,4)+' · ':'')+(x.reasons||[]).join(' · '))).join('\n')+
+   (x.modelStop!==null?'Modellstopp '+fmt(x.modelStop,4)+' · ':'')+(x.reasons||[]).join(' · '))+
+   (x.automaticScenarios||[]).map(s=>'\n  Bedingte Rechnung · '+s.assumptions.join('; ')+' · '+
+    (s.feeAssessment.available?'Gebührenreserve '+fmt(s.feeAssessment.feesCHF)+' CHF · ':'')+
+    (s.available?s.quantity+' Stück · '+fmt(s.totalCHF)+' CHF · Modellrisiko '+fmt(s.lossCHF)+' CHF':s.reason)+
+    ' · keine bestätigte Kontoeinstellung').join('')).join('\n')+
   '\nGespeicherte DEGIRO-Anzeige mit aktuellem unabhängigen Modellplan; keine zeitgleiche Kurs- oder Ausführungsbestätigung.';
 }
 async function loadPlanning(panel,replace=false){
@@ -458,7 +481,7 @@ function ensurePanel(){
    '<div><label for="bobFeeProfile">Dein DEGIRO-Preisverzeichnis</label><select id="bobFeeProfile"><option value="unknown">Noch nicht bestätigt</option><option value="CH_STANDARD">Schweiz · Basic / Active / Trader</option></select></div>'+
    '<div><label for="bobFeeFx">Währungswechsel für diese Planung</label><select id="bobFeeFx"><option value="unknown">Noch nicht bestätigt</option><option value="AUTO_CHF">CHF-Konto mit AutoFX</option><option value="NO_CONVERSION">Kein Wechsel: vorhandenes Währungsguthaben</option></select></div>'+
   '</div>'+
-  '<p class="small">Einsatz und Verlustgrenze sind auch ohne Gebühren speicherbar. Bob übernimmt die Tarifreserve automatisch je Produkt in die Rechnung, sobald Tarif, Handelsplatz und Währungswechsel zugeordnet sind. Custody/andere Tarife und manuelle Wechsel: tatsächliche Gesamtkosten eintragen. Keine pauschale Gebühr für alle Produkte.</p>'+
+  '<p class="small">Bob übernimmt belegte Produkt- und Marktdaten automatisch. Ohne bestätigte Tarif-/Wechseleinstellung zeigt der Hintergrundvergleich bedingte Rechnungen mit und ohne AutoFX; keine Einstellung wird dabei als bestätigt gespeichert. Andere Tarife, manuelle Wechsel und fehlende Kurs-/Stoppnachweise werden nicht erfunden. Einsatz und Verlustgrenze bleiben gespeichert.</p>'+
   '<p class="small"><a href="https://www.degiro.ch/data/pdf/ch-de/DE-CH_Preis_und_Leistungsverzeichnis.pdf" target="_blank" rel="noopener">Offizieller CH-Tarif</a> · geprüft 13.11.2026. Reserve für Kauf und Stopp-Verkauf; mögliche Steuern und jährliche Börsenanbindung separat. Keine bestätigte Broker-Abrechnung.</p>'+
   '<button type="button" data-planning-save>CHF-Vorgaben für Hintergrundvergleich speichern</button> '+
   '<button type="button" data-planning-load>Gespeicherte Vorgaben laden</button>'+
@@ -696,7 +719,7 @@ function render(flow,products,bundle){
  session.last={flow,products,bundle};
  renderFrom(session.last);
 }
-const api={resolveFees,handsetRunSummary,compareHandsetModel,evaluate,reconcileBrokerDisplay,importAndroidScreenDraft,importHandsetReport,refreshHandset,readChfFx,selectQuoteByPriority,render};
+const api={automaticFeeScenarios,resolveFees,handsetRunSummary,compareHandsetModel,evaluate,reconcileBrokerDisplay,importAndroidScreenDraft,importHandsetReport,refreshHandset,readChfFx,selectQuoteByPriority,render};
 root.BobManualTop3=api;
 if(typeof module!=='undefined')module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
