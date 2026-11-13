@@ -426,6 +426,7 @@ function showServerPlanning(panel,data){
      ' · Modellrisiko '+fmt(s.lossCHF)+' CHF'+(Number.isFinite(s.riskUsagePct)?' ('+fmt(s.riskUsagePct,1)+' % des Risikobudgets)':''):s.reason)+
     ' · keine bestätigte Kontoeinstellung'+(s.entryWarning?' · '+s.entryWarning:'')).join('')+
    (x.entryWarning?'\n  '+x.entryWarning:'')).join('\n')+
+  (result.accountEvidenceConditional?'\nDEGIRO-Basic/AutoFX nur als datierte Simulationsannahme; kein Beleg derselben Brokeridentität, konkreter Ordergebühren oder ausführbarer Kurse.':'')+
   '\nGespeicherte DEGIRO-Anzeige mit aktuellem unabhängigen Modellplan; keine zeitgleiche Kurs- oder Ausführungsbestätigung.';
 }
 async function loadPlanning(panel,replace=false){
@@ -444,7 +445,8 @@ async function loadPlanning(panel,replace=false){
    if(replace)planningState.dirty=false;
   }
   planningState.loaded=true;
-  status.textContent=data.config?'CHF-Vorgaben serverseitig gespeichert. Änderungen erst mit „Speichern“ übernehmen.':'Noch keine CHF-Vorgaben gespeichert. Keine Beträge vorbelegt.';
+  status.textContent=(data.config?'CHF-Vorgaben serverseitig gespeichert. Änderungen erst mit „Speichern“ übernehmen.':'Noch keine CHF-Vorgaben gespeichert. Keine Beträge vorbelegt.')+
+   (data.accountEvidenceConditional?' Basic/AutoFX nur für bedingte Modellrechnungen verwendet. Eine reale Ordergebühr ist damit nicht bestätigt.':'');
   showServerPlanning(panel,data);
  }catch(e){status.textContent=e.message;}
  finally{planningState.busy=false;}
