@@ -1,3 +1,33 @@
+## Eigene passive Sitzung für Kontoeinstellungen (Nachbesserung zum Produktleser)
+
+Der vorhandene Knopf **„ChatGPT-Handy-Sitzung starten · 15 Minuten“**
+startet absichtlich den vollständigen Gold-Produktleser. Er eignet sich
+nicht zur Bestätigung des Handelsprofils oder AutoFX.
+
+Ab dieser App-Version gibt es unter **„DEGIRO-Leser · Einrichtung und
+Einzelprüfungen“** den getrennten Knopf
+**„DEGIRO-Kontoeinstellungen lesen · 15 Minuten“**. Vorbereitung:
+
+1. DEGIRO **selbst anmelden** und die Seite „Währungseinstellungen“ oder
+   „Handelsprofil“ **vorher selbst öffnen**.
+2. Zu Bob Handy zurückwechseln und den neuen Knopf einmal bestätigen.
+   Bob startet dabei nur die bewusst begrenzte Lesesitzung, keine Goldsuche,
+   keine PIN-Eingabe, kein Scrollen oder sonstige Navigation. Danach versucht
+   er die bereits geöffnete DEGIRO-App wieder nach vorn zu bringen.
+3. Das Samsung entsperrt lassen, **nicht auf dem Bildschirm tippen**.
+   Mit `bob_phone_status` die neue Sitzung prüfen, erst danach
+   `bob_phone_command(action=read_account_settings)` einzeln anfordern.
+   Ein zweiter Bildschirm erfordert ein neues, vom Eigentümer geöffnetes
+   Lesefenster – kein automatisches Wechseln der Kontoseiten.
+
+Jede eigene Berührung, Sperre, geschützte Ansicht und das Sitzungsende bleiben
+wirksam. Ein Produkt-Suchbefehl darf auf einer erkannten Konto-Einstellungsseite
+**keine Aktion** auslösen. Wenn die DEGIRO-App beim Öffnen zur Startseite
+zurückkehrt, liefert Bob nur `SETTINGS_NOT_VISIBLE`, niemals eine vermutete
+Kontoeinstellung. Die begrenzte Beobachtung bleibt ausdrücklich
+**kein** Nachweis tatsächlicher Gebühren oder Broker-Ausführung.
+
+---
 ## DEGIRO-Kontoeinstellungen lesen – keine Order und kein Rohbildschirm
 
 Bob Handy unterstützt nach Installation der neuen **signierten** Version den
