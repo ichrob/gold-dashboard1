@@ -416,7 +416,8 @@ function showServerPlanning(panel,data){
    (x.automaticScenarios||[]).map(s=>'\n  Bedingte Rechnung · '+s.assumptions.join('; ')+' · '+
     (s.feeAssessment.available?'Gebührenreserve '+fmt(s.feeAssessment.feesCHF)+' CHF · ':'')+
     (s.available?s.quantity+' Stück · '+fmt(s.totalCHF)+' CHF · Modellrisiko '+fmt(s.lossCHF)+' CHF':s.reason)+
-    ' · keine bestätigte Kontoeinstellung').join('')).join('\n')+
+    ' · keine bestätigte Kontoeinstellung'+(s.entryWarning?' · '+s.entryWarning:'')).join('')+
+   (x.entryWarning?'\n  '+x.entryWarning:'')).join('\n')+
   '\nGespeicherte DEGIRO-Anzeige mit aktuellem unabhängigen Modellplan; keine zeitgleiche Kurs- oder Ausführungsbestätigung.';
 }
 async function loadPlanning(panel,replace=false){

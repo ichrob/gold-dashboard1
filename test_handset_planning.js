@@ -89,3 +89,19 @@ for(const change of [x=>x.plans={},x=>x.report.items[0].state='terminated',
 assert.equal(evaluate(manual).items[0].automaticScenarios.length,0);
 assert.equal(evaluate(missing).items[0].automaticScenarios.length,0);
 console.log('Automatic conditional scenarios: both FX modes, no config mutation, original stop/KO/quote guards and no approval promotion passed');
+
+for(const direction of ['LONG','SHORT']){
+ const input=fixture(direction,'EUR');input.config.feesCHF=null;input.config.feeProfile='unknown';input.config.fxMode='unknown';
+ input.plans[direction].entrySuitable=false;
+ const original=JSON.stringify(input),result=evaluate(input),row=result.items[0];
+ assert(row.modelStop>0);assert.equal(row.entryApproved,false);assert.equal(row.entrySuitable,false);
+ assert.match(row.entryWarning,/Kein Einstieg/);assert.equal(result.conditionalAvailable,1);
+ for(const scenario of row.automaticScenarios){
+  assert(scenario.available);assert.equal(scenario.entryApproved,false);assert.equal(scenario.copyAllowed,false);
+  assert.equal(scenario.entrySuitable,false);assert.match(scenario.entryWarning,/Kein Einstieg/);
+ }
+ assert.equal(JSON.stringify(input),original);
+ input.plans[direction].stop=direction==='LONG'?3901:4499;
+ assert.equal(evaluate(input).conditionalAvailable,0);
+}
+console.log('Non-entry research comparisons retain real stops while preserving KO protection and all approval gates');

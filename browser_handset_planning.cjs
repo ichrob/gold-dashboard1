@@ -50,10 +50,12 @@ const {chromium}=require('playwright'),fs=require('fs'),assert=require('node:ass
   state.resultFresh=true;state.result={listUploadedAt:'today',available:0,conditionalAvailable:1,calculatedAt:Date.now(),items:[{
    isin:'DE000FG14AV8',available:false,modelStop:null,reasons:['Tarifeinstellung fehlt'],automaticScenarios:[{
     assumptions:['Schweizer Standardtarif angenommen','CHF-Konto mit AutoFX angenommen'],
-    feeAssessment:{available:true,feesCHF:1.5},available:true,quantity:4,totalCHF:81.5,lossCHF:13.5}]}]};
+    feeAssessment:{available:true,feesCHF:1.5},available:true,quantity:4,totalCHF:81.5,lossCHF:13.5,
+    entryWarning:'Kein Einstieg: Hindernis vor ausreichendem Chance-Risiko-Verhältnis. Nur Vergleichsrechnung.'}]}]};
   await page.locator('[data-planning-load]').click();
   await page.locator('[data-server-handset-plans]').filter({hasText:'Bedingte Rechnung'}).waitFor();
   assert.match(await page.locator('[data-server-handset-plans]').innerText(),/keine bestätigte Kontoeinstellung/);
+  assert.match(await page.locator('[data-server-handset-plans]').innerText(),/Kein Einstieg/);
   assert.equal(await page.locator('#bobFeeProfile').inputValue(),'unknown');
   assert.equal(writes,2);
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
