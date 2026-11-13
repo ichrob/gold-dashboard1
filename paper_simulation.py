@@ -1203,6 +1203,24 @@ def quality_generation_pending(last_generation, current_generation):
             current_generation > last_generation)
 
 
+def expired_local_quality_generation(last_generation, current_generation,
+                                     bundle, now_ms):
+    """Identify one queued generation that expired before quality analysis.
+
+    During a zero-downtime rollout the draining process can retain the shared
+    advisory lock request after HTTP traffic moved to its replacement.  Its
+    process-local candidate then has no way to see the replacement's newer
+    enqueues.  Do not turn that delayed duplicate into a new original-invalid
+    study cycle.  Missing, future and malformed clocks are deliberately left
+    to the existing fail-closed input classifier.
+    """
+    if not quality_generation_pending(last_generation, current_generation):
+        return False
+    source_at=study_bundle_handoff_evidence(bundle)['sourceAt']
+    return (finite(now_ms) and finite(source_at)
+            and now_ms-source_at > 60000)
+
+
 def next_quality_generation(current, selected, generation):
     """Advance only when the admissible study candidate actually changed."""
     return generation + 1 if selected is not current else generation
@@ -1598,42 +1616,55 @@ def _worker(db):
                             quality_candidate=_study_latest
                         if quality_generation_pending(
                                 last_quality_generation, quality_generation):
-                            quality_bundle,quality_market=bundle,market
-                            quality_input_checked_at=analysis_checked_at
-                            try:
-                                quality_bundle,quality_market=refresh_original_study_input(
-                                    bundle,market,settings,lambda:quality_candidate,
-                                    background_push.analyze,lambda:time.time()*1000,
-                                    evidence_phase='quality-final')
-                                if quality_bundle is not bundle:
-                                    quality_input_checked_at=time.time()*1000
-                                    print('BOB_QUALITY_RESEARCH reused_newer_observed_bundle=1',flush=True)
-                            except Exception as refresh_exc:
-                                print('BOB_QUALITY_RESEARCH refresh_error='+type(refresh_exc).__name__,flush=True)
-                            try:
-                                with conn.transaction():
-                                    with _guard:
-                                        quality_worker_observations=tuple(
-                                            _study_enqueue_observations)
-                                    quality_checked_at=time.time()*1000
-                                    if quality_market.get('priceFresh') is not True:
-                                        quality_evidence=study_bundle_handoff_evidence(quality_bundle)
-                                        print('BOB_STUDY_QUALITY_INPUT '+
-                                              'trace='+quality_evidence['trace']+
-                                              ' source_at_ms='+str(quality_evidence['sourceAt'])+
-                                              ' closed_15m_at_ms='+str(quality_evidence['closed15mAt'])+
-                                              ' checked_at_ms='+str(int(quality_checked_at))+
-                                              ' ready='+str(quality_market.get('ready'))+
-                                              ' price_fresh='+str(quality_market.get('priceFresh')),
-                                              flush=True)
-                                    research_restart.tick(
-                                        conn,quality_bundle,quality_market,
-                                        quality_checked_at,outcomes,
-                                        quality_worker_observations,
-                                        input_checked_at=quality_input_checked_at)
+                            quality_started_at=time.time()*1000
+                            if expired_local_quality_generation(
+                                    last_quality_generation,quality_generation,
+                                    quality_candidate,quality_started_at):
+                                quality_evidence=study_bundle_handoff_evidence(
+                                    quality_candidate)
+                                print('BOB_QUALITY_RESEARCH '+
+                                      'skipped_expired_local_generation=1'+
+                                      ' source_at_ms='+str(quality_evidence['sourceAt'])+
+                                      ' checked_at_ms='+str(int(quality_started_at)),
+                                      flush=True)
                                 last_quality_generation=quality_generation
-                            except Exception as research_exc:
-                                print('BOB_QUALITY_RESEARCH error='+type(research_exc).__name__,flush=True)
+                            else:
+                                quality_bundle,quality_market=bundle,market
+                                quality_input_checked_at=analysis_checked_at
+                                try:
+                                    quality_bundle,quality_market=refresh_original_study_input(
+                                        bundle,market,settings,lambda:quality_candidate,
+                                        background_push.analyze,lambda:time.time()*1000,
+                                        evidence_phase='quality-final')
+                                    if quality_bundle is not bundle:
+                                        quality_input_checked_at=time.time()*1000
+                                        print('BOB_QUALITY_RESEARCH reused_newer_observed_bundle=1',flush=True)
+                                except Exception as refresh_exc:
+                                    print('BOB_QUALITY_RESEARCH refresh_error='+type(refresh_exc).__name__,flush=True)
+                                try:
+                                    with conn.transaction():
+                                        with _guard:
+                                            quality_worker_observations=tuple(
+                                                _study_enqueue_observations)
+                                        quality_checked_at=time.time()*1000
+                                        if quality_market.get('priceFresh') is not True:
+                                            quality_evidence=study_bundle_handoff_evidence(quality_bundle)
+                                            print('BOB_STUDY_QUALITY_INPUT '+
+                                                  'trace='+quality_evidence['trace']+
+                                                  ' source_at_ms='+str(quality_evidence['sourceAt'])+
+                                                  ' closed_15m_at_ms='+str(quality_evidence['closed15mAt'])+
+                                                  ' checked_at_ms='+str(int(quality_checked_at))+
+                                                  ' ready='+str(quality_market.get('ready'))+
+                                                  ' price_fresh='+str(quality_market.get('priceFresh')),
+                                                  flush=True)
+                                        research_restart.tick(
+                                            conn,quality_bundle,quality_market,
+                                            quality_checked_at,outcomes,
+                                            quality_worker_observations,
+                                            input_checked_at=quality_input_checked_at)
+                                    last_quality_generation=quality_generation
+                                except Exception as research_exc:
+                                    print('BOB_QUALITY_RESEARCH error='+type(research_exc).__name__,flush=True)
                         conn.commit()
                         # A post-commit observation of the exact input quality passed
                         # to each virtual account. Failure never changes paper ledgers.
