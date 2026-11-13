@@ -21,7 +21,7 @@ class CloudflareFreeOptInTests(unittest.TestCase):
         self.assertFalse(base.automatic_review_requested(MARKER+" "+MARKER))
         self.assertFalse(base.automatic_review_requested(MARKER+" BOB-25-unknown-code"))
         self.assertFalse(base.automatic_review_requested(None))
-        self.assertFalse(base.automatic_review_requested(MARKER+"x"*10001))
+        self.assertFalse(base.automatic_review_requested("x"*10001+MARKER))
 
     def test_owned_current_ci_ready_pr_can_opt_in(self):
         with patch.dict(os.environ, {"BOB_AI_AUTO_REVIEW_ENABLED":"1"}):
