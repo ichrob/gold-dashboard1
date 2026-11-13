@@ -92,6 +92,15 @@ class TwelveResearchTests(unittest.TestCase):
         self.assertEqual(len(gap),1)
         self.assertEqual(gap[0]['sessionStatus'],'unverified')
         self.assertFalse(gap[0]['automaticBackfillAllowed'])
+        edges=td.gaps([{'openTime':START+STEP}], '5min',
+                      start_ms=START,end_ms=START+4*STEP)
+        self.assertEqual(len(edges),2)
+        self.assertEqual((edges[0]['startMs'],edges[0]['endMs']),(START,START))
+        self.assertEqual((edges[1]['startMs'],edges[1]['endMs']),
+                         (START+2*STEP,START+3*STEP))
+        empty=td.gaps([], '5min',start_ms=START,end_ms=START+4*STEP)
+        self.assertEqual(len(empty),1)
+        self.assertFalse(empty[0]['automaticBackfillAllowed'])
 
     def test_ema_requires_contiguous_internal_bars(self):
         rows=[{'openTime':START+i*STEP,'interval':'5min','symbol':'XAU/USD',
@@ -189,7 +198,8 @@ class TwelveResearchTests(unittest.TestCase):
                 client=FakeOpener()
                 result=td.fetch_research(db,'XAU/USD','5min',
                               START,START+STEP,now_ms=NOW,opener=client)
-                self.assertEqual(result['code'],'OBSERVED')
+                self.assertEqual(result['code'],'NO_BARS')
+                self.assertEqual(result['missingRanges'],1)
                 self.assertNotIn('outputsize=',client.url)
                 self.assertIn('start_date=',client.url)
                 self.assertIn('end_date=',client.url)
