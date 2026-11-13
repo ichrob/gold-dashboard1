@@ -98,6 +98,9 @@ const htmlReceipt={...pdfBuy,result:{...pdfBuy.result,
  sourceKind:'DEGIRO-execution-email-HTML'}};
 assert.equal(p.stableMail(htmlReceipt).documentedCostsCHF,0.48,
  'Valid costs carried through existing DEGIRO HTML mail should not be discarded');
+const attachedPdf={...pdfBuy,result:{...pdfBuy.result,sourceKind:'AgentMail-DEGIRO-PDF'}};
+assert.equal(p.compare(null,null,{configured:true,items:[attachedPdf]}).items[0].documentFeeRows,1,
+ 'The production attachment parser source retains its strictly balanced historical costs');
 const htmlMatched=p.compare(csv,parsed,{configured:true,items:[htmlReceipt,pdfSell]});
 assert.equal(htmlMatched.items[0].documentFeeRows,2);
 assert.equal(htmlMatched.items[0].documentFeeMatchedCsv,2);
