@@ -20,15 +20,27 @@ class TwelveResearchTests(unittest.TestCase):
     def test_scopes_fail_closed(self):
         self.assertFalse(td.scope_allowed('XAU/USD','5min',{}))
         self.assertFalse(td.scope_allowed('XAU/USD','1h',{}))
-        self.assertTrue(td.scope_allowed('XAU/USD','1h',{'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED':'1'}))
-        self.assertFalse(td.scope_allowed('CHF/EUR','1h',{'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED':'1'}))
-        self.assertTrue(td.scope_allowed('CHF/EUR','1h',{'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED':'1',
-                      'BOB_TWELVEDATA_SCOPE_CHF_EUR_1H':'1'}))
+        basis={'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED':'1'}
+        for interval in ('1min','5min','15min','30min','1h','1day'):
+            self.assertTrue(td.scope_allowed('XAU/USD',interval,basis))
+        for interval in ('4h','8h'):
+            self.assertFalse(td.scope_allowed('XAU/USD',interval,{
+                **basis, 'BOB_TWELVEDATA_SCOPE_XAU_USD_'+interval.upper():'1'}))
+        self.assertFalse(td.scope_allowed('CHF/EUR','1h',{**basis,
+            'BOB_TWELVEDATA_SCOPE_CHF_EUR_1H':'1'}))
+        self.assertFalse(td.scope_allowed('EUR/CHF','1h',{**basis,
+            'BOB_TWELVEDATA_SCOPE_EUR_CHF_1H':'1'}))
+        self.assertFalse(td.scope_allowed('USD/CHF','1h',basis))
+        self.assertTrue(td.scope_allowed('USD/CHF','1h',{**basis,
+            'BOB_TWELVEDATA_SCOPE_USD_CHF_1H':'1'}))
+        self.assertTrue(td.scope_allowed('EUR/USD','1h',{**basis,
+            'BOB_TWELVEDATA_SCOPE_EUR_USD_1H':'1'}))
 
     def test_scope_rejection_does_not_call_network(self):
         with patch.dict(os.environ,{},clear=True),patch.object(td,'build_opener') as opener:
             with sqlite3.connect(':memory:') as db:
                 self.assertEqual(td.fetch_research(db,'XAU/USD','5min',START,START+STEP,now_ms=NOW)['code'],'SCOPE_NOT_AUTHORIZED')
+                self.assertEqual(td.fetch_earliest_timestamp(db,'EUR/CHF','1h',now_ms=NOW)['code'],'UNSUPPORTED_SCOPE')
             opener.assert_not_called()
 
     def test_metadata_timezone_strict(self):
@@ -103,5 +115,74 @@ class TwelveResearchTests(unittest.TestCase):
         rows[20]['openTime']+=1234
         self.assertIsNone(td.research_macd(rows))
         self.assertEqual(td.compare_entry_shadow(rows)['code'],'INSUFFICIENT_CONTIGUOUS_RESEARCH')
+
+
+    def test_manual_earliest_probe_keeps_date_private(self):
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *args): return None
+            def read(self, size):
+                return b'{"datetime":"2020-01-01","unix_time":1577836800}'
+        class FakeOpener:
+            def __init__(self): self.called=0
+            def open(self,url,timeout):
+                self.called+=1
+                self.url=url
+                self.timeout=timeout
+                return FakeResponse()
+        config={'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED':'1',
+                'BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED':'1',
+                'TWELVEDATA_API_KEY':'test_only_fake_key'}
+        with patch.dict(os.environ,config,clear=True):
+            with sqlite3.connect(':memory:',isolation_level=None) as db:
+                client=FakeOpener()
+                result=td.fetch_earliest_timestamp(db,'XAU/USD','1min',
+                     now_ms=NOW,opener=client)
+                self.assertEqual(result['code'],'OBSERVED_EARLIEST')
+                self.assertEqual(client.called,1)
+                self.assertIn('earliest_timestamp?',client.url)
+                self.assertNotIn('2020',str(result))
+                self.assertEqual(db.execute(
+                    'SELECT earliest_unix FROM td_research_depth').fetchone()[0],
+                    1577836800)
+
+    def test_cross_currency_is_synthetic_internal_only(self):
+        def series(symbol, close):
+            return [{'source':'twelvedata','symbol':symbol,'interval':'1h',
+                     'openTime':START+i*3600000,'close':close,
+                     'researchOnly':True,'isExecutableQuote':False}
+                    for i in range(3)]
+        a=series('EUR/USD',1.10)
+        b=series('USD/CHF',0.90)
+        result=td.research_chf_cross(a,b)
+        self.assertEqual(result['code'],'INTERNAL_FX_CROSS_RESEARCH_ONLY')
+        self.assertAlmostEqual(result['EUR_CHF'],0.99)
+        self.assertAlmostEqual(result['CHF_EUR'],1/0.99)
+        self.assertFalse(result['isExecutableQuote'])
+        b[1]['openTime']+=1000
+        self.assertEqual(td.research_chf_cross(a,b)['code'],
+                         'NO_MATCHING_FX_ORIGINALS')
+
+    def test_time_series_bounded_dates_never_truncated_by_outputsize(self):
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self,*args): return None
+            def read(self,size): return b'{"meta":{"symbol":"XAU/USD","interval":"5min","type":"Precious Metal","currency_base":"Gold Spot","currency_quote":"US Dollar"},"values":[]}'
+        class FakeOpener:
+            def open(self,url,timeout):
+                self.url=url
+                return FakeResponse()
+        config={'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED':'1',
+                'BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED':'1',
+                'TWELVEDATA_API_KEY':'test_only_fake_key'}
+        with patch.dict(os.environ,config,clear=True):
+            with sqlite3.connect(':memory:',isolation_level=None) as db:
+                client=FakeOpener()
+                result=td.fetch_research(db,'XAU/USD','5min',
+                              START,START+STEP,now_ms=NOW,opener=client)
+                self.assertEqual(result['code'],'OBSERVED')
+                self.assertNotIn('outputsize=',client.url)
+                self.assertIn('start_date=',client.url)
+                self.assertIn('end_date=',client.url)
 
 if __name__=='__main__':unittest.main()
