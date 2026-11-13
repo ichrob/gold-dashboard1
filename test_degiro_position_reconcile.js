@@ -15,6 +15,17 @@ const transactions={kind:'transactions',records:[
 const parsed=p.saveTransactions(storage,transactions,'2026-11-03T01:00:00Z');
 assert.equal(parsed.rows.length,2);
 assert.equal(parsed.rows[0].price,12.5);
+// End-to-end through the existing user CSV parser, not a made-up fee API.
+const importCsv=require('./degiro_report_import.js').readReport([
+ 'Datum;Uhrzeit;ISIN;Anzahl;Kauf/Verkauf;Kurs;Währung;Transaktionskosten;Gebührenwährung',
+ '02.11.2026;14:05:06;'+valid+';4;Kauf;12,50;EUR;-1,25;EUR',
+ '02.11.2026;14:07:08;'+valid+';2;Verkauf;13,00;EUR;-0,50;CHF'
+].join('\n'));
+const importedFees=p.normalTransactions(importCsv,'2026-11-03T01:00:00Z');
+assert.equal(importedFees.rows[0].fee,-1.25);
+assert.equal(importedFees.rows[0].feeCurrency,'EUR');
+assert.equal(importedFees.rows[1].fee,-0.5);
+assert.equal(importedFees.rows[1].feeCurrency,'CHF');
 assert.equal(parsed.rows[0].fee,-1.25);
 assert.equal(parsed.rows[0].feeCurrency,'EUR');
 assert.equal(parsed.rows[0].feeState,'reported');
