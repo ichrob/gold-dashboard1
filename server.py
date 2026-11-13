@@ -46,6 +46,7 @@ import auto_collection
 import background_push
 import ocr_assets
 import product_quotes
+import product_enrich_admission
 import future_chart
 import market_cards
 import candle_shadow
@@ -430,8 +431,14 @@ def fetch_json_post(url, payload, retries=1, user_agent="Bob/1.1"):
             time.sleep(0.4 * (attempt + 1))
     raise last_error or RuntimeError(f"Upstream nicht erreichbar ({url})")
 
-def enrich_degiro_product(isin):
-    return product_quotes.get_quote(isin)
+def enrich_degiro_product(isin, terms_only=False):
+    """Admit one bounded product read before provider work occupies this thread."""
+    def read():
+        if terms_only and isin in product_quotes.SG_DIRECT_PRODUCTS:
+            from sg_direct import get_quote
+            return get_quote(isin, terms_only=True)
+        return product_quotes.get_quote(isin)
+    return product_enrich_admission.run(read)
 
 def fetch_goldprice_bars(interval, days):
     """Best-effort genuine XAU/USD spot OHLC; empty means unavailable on current API tier."""
@@ -1585,15 +1592,23 @@ class Handler(BaseHTTPRequestHandler):
                 isin = (query.get("isin") or [""])[0].strip().upper()
                 if len(isin) != 12:
                     raise ValueError("ISIN fehlt oder ist ungültig")
-                if query.get("scope") == ["terms"] and isin in product_quotes.SG_DIRECT_PRODUCTS:
-                    from sg_direct import get_quote
-                    result = get_quote(isin, terms_only=True)
-                else:
-                    result = enrich_degiro_product(isin)
+                result = enrich_degiro_product(isin, query.get("scope") == ["terms"])
                 body = json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            except product_enrich_admission.ProductEnrichBusy:
+                # Do not queue another slow request thread behind identical
+                # provider work.  Browser evidence remains unchanged and its
+                # existing minute cadence will retry this read-only request.
+                body = b'{"error":"Produktpruefung voruebergehend belegt","retryable":true}'
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Retry-After", "15")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
                 self.wfile.write(body)
