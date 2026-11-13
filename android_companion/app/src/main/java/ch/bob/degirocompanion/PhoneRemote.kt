@@ -22,6 +22,7 @@ internal object PhoneRemote {
     // Never persisted on Android; a failed network attempt retries the same receipt.
     private var pendingSettings:JSONObject?=null
     private var pendingSettingsCode=""
+    private var lastReportedAutoFx:String?=null
     // Only the specifically labelled local settings button enables one
     // local redacted read; normal product sessions never do this.
     private var settingsOnly=false
@@ -42,6 +43,7 @@ internal object PhoneRemote {
         check(!active() && !busy && !ProductReadRequest.active(SystemClock.elapsedRealtime()) && !MorningReadRun.running && !GoldSearchRun.running) { "Aktuelle Prüfung zuerst stoppen." }
         session=UUID.randomUUID().toString().replace("-","");deadline=SystemClock.elapsedRealtime()+900000
         expires=System.currentTimeMillis()/1000+900;ack=null;pendingSettings=null;pendingSettingsCode=""
+        lastReportedAutoFx=null
         settingsOnly=accountSettingsOnly;localSettingsPending=accountSettingsOnly
         commands=PhoneCommandPolicy();ProductReadSession.clear()
         message="Handy-Sitzung aktiv · höchstens 15 Minuten · STOPP oder Sperrtaste beendet sie."
@@ -55,6 +57,7 @@ internal object PhoneRemote {
         onStop?.invoke(code)
         val body=payload(old,false,empty(code))
         settingsOnly=false;localSettingsPending=false;pendingSettingsCode=""
+        lastReportedAutoFx=null
         network.execute { runCatching { PhoneDiagnostics.remoteExchange(c.applicationContext,body) } }
     }
     private fun payload(id:String,active:Boolean,observation:JSONObject)=JSONObject()
@@ -103,9 +106,10 @@ internal object PhoneRemote {
                 result.onSuccess { response ->
                     if(response.optString("sessionId")!=id) { stop(c,"SESSION_MISMATCH");return@onSuccess }
                     if(sentSettings!=null && pendingSettings===sentSettings)pendingSettings=null
-                    message=if(sentSettings!=null) {
+                    if(sentSettings!=null)lastReportedAutoFx=sentSettings.optString("autoFx")
+                    message=if(lastReportedAutoFx!=null) {
                         "DEGIRO-Einstellungen übertragen · AutoFX: " +
-                            (when(sentSettings.optString("autoFx")) {
+                            (when(lastReportedAutoFx) {
                                 "ON" -> "EIN"
                                 "OFF" -> "AUS"
                                 else -> "NICHT BESTÄTIGT"
