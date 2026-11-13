@@ -15,20 +15,34 @@ _LOCK=threading.Lock()
 
 
 def init(conn):
-    conn.execute('''CREATE TABLE IF NOT EXISTS bob_storage_samples (
-        slot BIGINT PRIMARY KEY, sampled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        database_bytes BIGINT NOT NULL,
-        relation_bytes JSONB NOT NULL DEFAULT '{}'::jsonb,
-        writer_stats JSONB NOT NULL DEFAULT '{}'::jsonb)''')
-    # Existing installations predate fixed per-relation snapshots.  Keep all
-    # historical database-size samples and add only the missing observation
-    # column; no evidence table or retention rule is changed.
-    conn.execute("ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS relation_bytes JSONB NOT NULL DEFAULT '{}'::jsonb")
-    # Only ten fixed per-table counter tuples per half-hour slot, never raw data.
-    conn.execute("ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS writer_stats JSONB NOT NULL DEFAULT '{}'::jsonb")
-    # One fixed, redacted comparison measurement.  This permits a later exact
-    # 08:00/22:00 heap/index/TOAST and logical-byte pair without raw evidence.
-    conn.execute("ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS entry_exit_metrics JSONB NOT NULL DEFAULT '{}'::jsonb")
+    # PostgreSQL ALTER TABLE ... ADD COLUMN IF NOT EXISTS still requests an
+    # AccessExclusiveLock, even when the column already exists. This formerly
+    # ran during every server startup; a real 2026-11-13 rollout deadlocked
+    # against the optional storage-layout size reader on this table. Read the
+    # catalog first and issue DDL only for a genuinely missing installation.
+    # First-install IF NOT EXISTS keeps the existing concurrent-install guard.
+    table = conn.execute("SELECT to_regclass('bob_storage_samples')").fetchone()
+    if not table or table[0] is None:
+        conn.execute('''CREATE TABLE IF NOT EXISTS bob_storage_samples (
+            slot BIGINT PRIMARY KEY, sampled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            database_bytes BIGINT NOT NULL,
+            relation_bytes JSONB NOT NULL DEFAULT '{}'::jsonb,
+            writer_stats JSONB NOT NULL DEFAULT '{}'::jsonb)''')
+    columns = (
+        'relation_bytes', 'writer_stats', 'entry_exit_metrics',
+    )
+    present = {name for (name,) in conn.execute(
+        """SELECT attname FROM pg_attribute
+           WHERE attrelid=to_regclass('bob_storage_samples')
+             AND attnum>0 AND NOT attisdropped
+             AND attname=ANY(%s::text[])""", (list(columns),)
+    ).fetchall()}
+    for name in columns:
+        if name not in present:
+            # Names are the fixed local allowlist, never request values.
+            conn.execute(
+                "ALTER TABLE bob_storage_samples ADD COLUMN IF NOT EXISTS "
+                + name + " JSONB NOT NULL DEFAULT '{}'::jsonb")
     # Tiny derived daily snapshots for five areas; no evidence or source deletion.
     __import__('storage_knowledge').init(conn)
     __import__('storage_case_results').init(conn)
