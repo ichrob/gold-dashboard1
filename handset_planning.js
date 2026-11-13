@@ -31,17 +31,29 @@ function evaluate(input){
    const preliminary=calc.evaluate({candidate,product:p,quote,stopPlan:stop,fx,...rowConfig,now,direction});
    const result=calc.compareHandsetModel({report:input.report,candidate,product:p,
     preliminary,fx,...rowConfig,now,direction});
+   const automaticScenarios=input.config?calc.automaticFeeScenarios({config:cfg,
+    report:input.report,isin,spots:input.spots,now}).map(fee=>{
+     const scenarioConfig={...cfg,feesCHF:fee.available?fee.feesCHF:null};
+     const plan=calc.evaluate({candidate,product:p,quote,stopPlan:stop,fx,...scenarioConfig,now,direction});
+     const compared=calc.compareHandsetModel({report:input.report,candidate,product:p,
+      preliminary:plan,fx,...scenarioConfig,now,direction});
+     return {...compared,reason:!fee.available?fee.reason:!stop?.available?
+      (stop?.reason||'Unabhängiger Produkt-Modellplan fehlt'):compared.reason,
+      feeAssessment:fee,assumptions:fee.assumptions,conditional:true,settingsConfirmed:false,
+      copyAllowed:false,rankingPenalty:false,orderSubmitted:false};
+    }):[];
    const reasons=[!imported.available&&imported.reason,
     !stop?.available&&(stop?.reason||'Unabhängiger Produkt-Modellplan fehlt'),
     !input.config&&'CHF-Vorgaben noch nicht dauerhaft gespeichert',
     !feeAssessment.available&&feeAssessment.reason,
     !preliminary.available&&preliminary.reason,!result.available&&result.reason].filter(Boolean);
-   return {...result,isin,feeAssessment,modelStop:stop?.available?stop.stop:null,
+   return {...result,isin,feeAssessment,automaticScenarios,modelStop:stop?.available?stop.stop:null,
     modelTarget:stop?.available?stop.target:null,modelReferenceAt:stop?.referenceAt||null,
     fxBasis:fx.note||fx.reason,observedAt:imported.observedAt||null,
     reasons:[...new Set(reasons)],rankingPenalty:false};
   });
   return {calculatedAt:now,items,available:items.filter(x=>x.available).length,
+   conditionalAvailable:items.filter(x=>x.automaticScenarios.some(s=>s.available)).length,
    configMissing:!input.config,researchOnly:true,realOrders:false,rankingUpdated:false};
  })()`,env,{timeout:2000});
 }

@@ -65,3 +65,27 @@ assert.equal(evaluate(chf).items[0].feeAssessment.feesCHF,1);
 const manual=JSON.parse(JSON.stringify(auto));manual.config.feesCHF=0;manual.config.feeProfile='unknown';
 assert.equal(evaluate(manual).items[0].feeAssessment.feesCHF,0);
 console.log('Automatic CH tariff: venue-specific roundtrip, processing, FX reserve, unknown/stale rejection, manual override passed');
+
+const unresolved=JSON.parse(JSON.stringify(auto));
+unresolved.config.feeProfile='unknown';unresolved.config.fxMode='unknown';
+const saved=JSON.stringify(unresolved),conditional=evaluate(unresolved);
+assert.equal(conditional.available,0);assert.equal(conditional.conditionalAvailable,1);
+assert.equal(conditional.items[0].automaticScenarios.length,2);
+assert.deepEqual(Array.from(conditional.items[0].automaticScenarios,s=>s.feeAssessment.feesCHF),[1,6]);
+for(const scenario of conditional.items[0].automaticScenarios){
+ assert(scenario.available);assert.equal(scenario.copyAllowed,false);assert.equal(scenario.settingsConfirmed,false);
+ assert.equal(scenario.orderSubmitted,false);assert.equal(scenario.rankingPenalty,false);
+ assert(scenario.totalCHF<=unresolved.config.budgetCHF);assert(scenario.lossCHF<=unresolved.config.riskCHF);
+ assert.equal(scenario.assumptions.length,2);
+}
+assert.equal(JSON.stringify(unresolved),saved);
+for(const change of [x=>x.plans={},x=>x.report.items[0].state='terminated',
+ x=>x.report.items[0].handsetObservation.fields.Handelsplatz='Swiss DOTS',
+ x=>x.now=Date.parse('2026-12-14T00:00:00Z'),x=>x.spots={}]){
+ const input=JSON.parse(saved);change(input);
+ const result=evaluate(input);assert.equal(result.conditionalAvailable,0);
+ assert(result.items[0].automaticScenarios.every(s=>!s.available));
+}
+assert.equal(evaluate(manual).items[0].automaticScenarios.length,0);
+assert.equal(evaluate(missing).items[0].automaticScenarios.length,0);
+console.log('Automatic conditional scenarios: both FX modes, no config mutation, original stop/KO/quote guards and no approval promotion passed');
