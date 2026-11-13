@@ -72,16 +72,24 @@ def read(conn,campaign,now):
     if not stored or stored[0]!=PROTOCOL:raise ValueError('Entry path protocol mismatch')
     trials=conn.execute('''SELECT slot,phase,payload FROM bob_improvement_trials WHERE campaign=%s
         ORDER BY slot DESC LIMIT 30''',(campaign,)).fetchall()
-    # One indexed join, bounded to 30 windows; transfer only the necessary fields.
-    samples=conn.execute('''WITH trials AS (SELECT slot,payload FROM bob_improvement_trials
-        WHERE campaign=%s ORDER BY slot DESC LIMIT 30)
-        SELECT t.slot,jsonb_build_object('at',o.payload->'at','priceAt',o.payload->'priceAt',
-        'price',o.payload->'price','valid',o.payload->'valid','ready',o.payload->'ready',
-        'direction',o.payload->'direction','cohort',o.payload->'cohort')
-        FROM trials t JOIN bob_improvement_observations o ON o.campaign=%s
-        AND o.slot BETWEEN t.slot-900000 AND t.slot+3900000 ORDER BY t.slot,o.slot''',(campaign,campaign)).fetchall()
-    grouped={}
-    for slot,row in samples:grouped.setdefault(slot,[]).append(row)
+    # Each trial is an independent, indexed observation window.  The former
+    # 30-trial JOIN expanded the full JSONB payload projection in a single
+    # PostgreSQL statement and timed out under concurrent diagnostic load.
+    # Fetch the SAME complete windows separately through the existing
+    # (campaign, slot) primary key; no sampled caps or invented gaps.
+    # This is a read-only research projection, not a trading-data change.
+    grouped = {}
+    for slot, phase, base in trials:
+        sample_rows = conn.execute('''SELECT jsonb_build_object(
+            'at',o.payload->'at','priceAt',o.payload->'priceAt',
+            'price',o.payload->'price','valid',o.payload->'valid',
+            'ready',o.payload->'ready','direction',o.payload->'direction',
+            'cohort',o.payload->'cohort')
+            FROM bob_improvement_observations o
+            WHERE o.campaign=%s AND o.slot BETWEEN %s AND %s
+            ORDER BY o.slot''',
+            (campaign,slot-900000,slot+3900000)).fetchall()
+        grouped[slot] = [row[0] for row in sample_rows]
     items=[dict(evaluate(base,grouped.get(slot,[]),now),phase=phase,cohort=base.get('cohort')) for slot,phase,base in trials]
     groups=[]
     for phase in ('development','validation'):
