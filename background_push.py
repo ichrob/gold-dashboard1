@@ -134,6 +134,25 @@ def weekend_quote_at_close(now_ms, data_at):
             data_at <= now_ms)
 
 
+def daily_gold_rollover_pause(now_ms, analysis_bar_at, data_at):
+    """Narrow XAU/USD candle pause, not a generic overnight data outage.
+
+    Spot/MT5 gold commonly pauses at 17:00–18:00 America/New_York.
+    Require both a genuine recent pre-close analysis candle and a *fresh*
+    independent spot observation. Neither clock is rewritten. This must
+    not replace an analysis-error alarm or the active-trade risk monitor.
+    """
+    eastern = ZoneInfo('America/New_York')
+    local = datetime.fromtimestamp(now_ms / 1000, eastern)
+    if local.weekday() > 3 or local.hour != 17:
+        return False
+    close_at = int(datetime.combine(local.date(), clock_time(17), tzinfo=eastern).timestamp() * 1000)
+    return (positive(analysis_bar_at) and
+            close_at - 20 * 60000 <= analysis_bar_at <= close_at and
+            positive(data_at) and close_at - 60000 <= data_at <= now_ms and
+            0 <= now_ms - data_at <= 90000)
+
+
 def positive(value):
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value) and value > 0
 
@@ -362,6 +381,16 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
                      (previous_state.get('dataStatus') == 'closed' or
                       previous_state.get('healthy', True) is not False))
     healthy = raw_healthy and not market_closed
+    # Suppress only the general, expected XAU/USD candle-gap notification
+    # during the daily 17:00 New York rollover. Require a fresh spot clock,
+    # a near-close analysis candle and no previously announced outage.
+    # Active-trade alerts and actual failures remain on the normal path.
+    routine_pause = (general and not (trade_enabled and settings.get('trade'))
+                     and not raw_healthy and market.get('priceFresh') is True
+                     and market.get('analysisError') is not True
+                     and daily_gold_rollover_pause(now, market.get('analysisBarAt'), last_data_at)
+                     and (previous_state.get('dataStatus') == 'rollover' or
+                          previous_state.get('announcedHealthy', True) is not False))
     # Keep computing with the last usable observations, without renewing their clocks.
     snapshot = state.get('lastAnalysis') or {}
     if positive(market.get('price')) and positive(market.get('dataAt')) and market['dataAt'] <= now:
@@ -396,8 +425,15 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         state['announcedHealthy'] = True
         state.pop('healthPending', None)
         state['dataStatus'] = 'closed'
+    elif routine_pause:
+        if previous_state.get('dataStatus') != 'rollover':
+            audit('data-rollover', 'suppressed',
+                  'Reguläre XAU/USD-Kerzenpause; frischer Spot-Nachweis, keine Push-Aktion')
+        state['announcedHealthy'] = True
+        state.pop('healthPending', None)
+        state['dataStatus'] = 'rollover'
     else:
-        if previous_state.get('dataStatus') == 'closed' and healthy:
+        if previous_state.get('dataStatus') in ('closed', 'rollover') and healthy:
             state['announcedHealthy'] = True
             state.pop('healthPending', None)
         # Notification debounce never makes unhealthy data eligible for analysis.
