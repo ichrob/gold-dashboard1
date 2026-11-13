@@ -35,13 +35,13 @@ def pair(result,phase='exploration',trend='all',rule='r1'):
 
 
 class ReportTests(unittest.TestCase):
-    def test_stream_query_materializes_scalar_anchors_not_json_window(self):
+    def test_stream_query_derives_anchors_in_app_without_database_join(self):
         class Cursor:
             def __init__(self): self.query = None; self.itersize = None
             def __enter__(self): return self
             def __exit__(self, *_): return False
             def execute(self, query): self.query = query
-            def __iter__(self): return iter(())
+            def __iter__(self): return iter([(episode(),)])
         class Conn:
             def __init__(self): self.cursor_value = Cursor()
             def cursor(self, name=None):
@@ -51,10 +51,25 @@ class ReportTests(unittest.TestCase):
         out = report.report(conn)
         query = conn.cursor_value.query
         self.assertEqual(conn.name, 'bob_comparison_evaluation')
-        self.assertIn('WITH anchors AS MATERIALIZED', query)
-        self.assertIn("GROUP BY payload->>'ruleVersion'", query)
+        self.assertEqual(query, report.PROJECTION)
+        self.assertNotIn('WITH anchors AS MATERIALIZED', query)
+        self.assertNotIn("GROUP BY payload->>'ruleVersion'", query)
         self.assertNotIn(' OVER (PARTITION BY ', query)
-        self.assertEqual(out['episodes'], 0)
+        self.assertEqual(conn.cursor_value.itersize, 4)
+        self.assertEqual(out['episodes'], 1)
+
+    def test_stream_query_rejects_partial_history_over_cap(self):
+        class Cursor:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def execute(self, query): pass
+            def __iter__(self):
+                return iter([(episode(),)] * (report.MAX_EPISODES + 1))
+        class Conn:
+            def cursor(self, name=None): return Cursor()
+        with patch.object(report.time, 'monotonic', return_value=0):
+            with self.assertRaisesRegex(ValueError, 'comparison-episode-limit'):
+                report.report(Conn())
 
     def test_full_history_over_200_and_paired_exclusion(self):
         rows=[episode() for _ in range(205)]
