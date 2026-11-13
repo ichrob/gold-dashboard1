@@ -41,7 +41,14 @@ def arguments(name,a):
     return dict(a)
 
 def exchange(state,value,now):
-    if not isinstance(value,dict) or set(value)!={'sessionId','expiresAt','active','observation','ack'}:raise ValueError('Invalid exchange')
+    required_exchange={'sessionId','expiresAt','active','observation','ack'}
+    if not isinstance(value,dict) or not required_exchange<=set(value) or set(value)-required_exchange-{'purpose'}:
+        raise ValueError('Invalid exchange')
+    purpose=value.get('purpose','product_read')
+    if purpose not in ('product_read','owner_account_settings'):
+        raise ValueError('Invalid handset session purpose')
+    if state.get('sessionId')==value['sessionId'] and state.get('purpose','product_read')!=purpose:
+        raise ValueError('Session purpose cannot change')
     if not identifier(value['sessionId'],32) or type(value['active']) is not bool or type(value['expiresAt']) is not int:raise ValueError('Invalid session')
     if value['active'] and not now<value['expiresAt']<=now+905:raise ValueError('Expired session')
     obs=value['observation']
@@ -69,16 +76,31 @@ def exchange(state,value,now):
         if (evidence['status']=='COMPLETE')!=complete or (evidence['feeProfile'] is None and evidence['autoFx'] is None):
             raise ValueError('Unsubstantiated account evidence')
         ack=value['ack']
-        if (not isinstance(ack,dict) or obs['code'] not in ('ACCOUNT_SETTINGS_COMPLETE','ACCOUNT_SETTINGS_PARTIAL')
-                or ack.get('code')!=obs['code'] or not identifier(ack.get('requestId'),32)
-                or state.get('sessionId')!=value['sessionId']
-                or not any(c.get('requestId')==ack['requestId'] and c.get('action')=='read_account_settings'
-                           and c.get('status') in ('delivered','acknowledged') for c in state.get('commands',[]))):
-            raise ValueError('Account evidence without delivered read request')
+        remote_read=(isinstance(ack,dict) and ack.get('code')==obs['code']
+                     and identifier(ack.get('requestId'),32)
+                     and state.get('sessionId')==value['sessionId']
+                     and any(c.get('requestId')==ack['requestId']
+                             and c.get('action')=='read_account_settings'
+                             and c.get('status') in ('delivered','acknowledged')
+                             for c in state.get('commands',[])))
+        # The owner starts this exact mode with its separate local button.
+        # No server-side free navigation or remote command is necessary.
+        # Only a redacted enum can be submitted, exactly once per session.
+        owner_read=(purpose=='owner_account_settings' and value['active'] and
+                    ack is None and (state.get('sessionId')!=value['sessionId']
+                         or state.get('purpose')=='owner_account_settings'))
+        prior=state.get('accountSettings') if state.get('sessionId')==value['sessionId'] else None
+        if owner_read and prior is not None:
+            owner_read=all(prior.get(k)==evidence[k] for k in
+                           ('source','capturedAt','status','feeProfile','autoFx'))
+        if obs['code'] not in ('ACCOUNT_SETTINGS_COMPLETE','ACCOUNT_SETTINGS_PARTIAL') or not (remote_read or owner_read):
+            raise ValueError('Account evidence requires owner settings consent or delivered read request')
     if state.get('sessionId')!=value['sessionId']:
-        state={'sessionId':value['sessionId'],'expiresAt':value['expiresAt'],'commands':[]}
+        state={'sessionId':value['sessionId'],'expiresAt':value['expiresAt'],
+               'purpose':purpose,'commands':[]}
     else:
-        # A heartbeat cannot silently extend a previously consented session.
+        # A heartbeat cannot silently extend a previously consented session
+        # or re-label a product session as account settings.
         value=dict(value,expiresAt=min(state['expiresAt'],value['expiresAt']))
     state.update({k:value[k] for k in ('active','expiresAt','observation')})
     # Preserve the last small, already-validated enum receipt within this
