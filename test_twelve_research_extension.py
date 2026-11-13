@@ -95,8 +95,12 @@ class TwelveResearchTests(unittest.TestCase):
 
     def test_ema_requires_contiguous_internal_bars(self):
         rows=[{'openTime':START+i*STEP,'interval':'5min','symbol':'XAU/USD',
-               'close':100+i,'researchOnly':True} for i in range(25)]
+               'close':100+i,'source':'twelvedata','researchOnly':True,
+               'isExecutableQuote':False} for i in range(25)]
         self.assertIsNotNone(td.research_ema(rows,20))
+        invalid=copy.deepcopy(rows)
+        invalid[4]['source']='other-provider'
+        self.assertIsNone(td.research_ema(invalid,20))
         rows[7]['openTime']+=1000
         self.assertIsNone(td.research_ema(rows,20))
 
@@ -104,7 +108,8 @@ class TwelveResearchTests(unittest.TestCase):
     def test_internal_indicators_and_non_executable_shadow(self):
         rows=[{'openTime':START+i*STEP,'interval':'5min','symbol':'XAU/USD',
                'open':100+i,'high':102+i,'low':99+i,
-               'close':101+i,'researchOnly':True,'isExecutableQuote':False}
+               'close':101+i,'source':'twelvedata',
+               'researchOnly':True,'isExecutableQuote':False}
               for i in range(45)]
         self.assertIsNotNone(td.research_macd(rows))
         self.assertIsNotNone(td.research_rsi(rows))
