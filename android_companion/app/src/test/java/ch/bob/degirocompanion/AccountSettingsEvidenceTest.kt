@@ -119,9 +119,49 @@ class AccountSettingsEvidenceTest {
         assertEquals("BASIC",e.feeProfile)
         assertNull(e.autoFx)
         assertEquals("degiro-app-owner-confirmed",e.source)
+        // This was the real Samsung failure: green Basic was selected,
+        // but when DEGIRO reopened the page only Active/Trader remained
+        // within the scroll viewport. The *owner's* affirmative Basic
+        // statement remains valid on the exact account settings screen.
+        val scrolled=listOf("Ihre Handelseinstellungen",
+            "Active-Benutzerkonto","Benutzerkonto auswählen",
+            "Trader-Benutzerkonto","Benutzerkonto auswählen")
+        val scrolledResult=AccountSettingsEvidence.ownerConfirmedProfile(
+            app,scrolled,"BASIC")
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",scrolledResult.code)
+        assertEquals("BASIC",scrolledResult.feeProfile)
+        assertEquals("degiro-app-owner-confirmed",scrolledResult.source)
+        assertNull(scrolledResult.autoFx)
+        // Without the breadcrumb, two complete profile choices and their
+        // explicit account-selection buttons can still identify the screen.
+        val withoutTitle=listOf("Active-Benutzerkonto","Benutzerkonto auswählen",
+            "Trader-Benutzerkonto","Benutzerkonto auswählen")
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",
+            AccountSettingsEvidence.ownerConfirmedProfile(app,withoutTitle,"BASIC").code)
+        // Single option / generic button / currency page does not qualify.
+        assertEquals("SETTINGS_UNCONFIRMED",
+            AccountSettingsEvidence.ownerConfirmedProfile(app,
+                listOf("Active-Benutzerkonto","Benutzerkonto auswählen"),"BASIC").code)
+        assertEquals("SETTINGS_UNCONFIRMED",
+            AccountSettingsEvidence.ownerConfirmedProfile(app,
+                listOf("Währungseinstellungen","EUR","GBP","USD"),"BASIC").code)
+        val opposite=AccountSettingsEvidence.ownerConfirmedProfile(app,
+            listOf("Ihre Handelseinstellungen","Active-Benutzerkonto"),
+            "BASIC")
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",opposite.code)
+        assertEquals("BASIC",opposite.feeProfile)
+        assertEquals("degiro-app-owner-confirmed",opposite.source)
+        // A genuinely observed conflicting selected profile must block a
+        // competing owner statement, even if the heading is present.
+        val contradicting=AccountSettingsEvidence.read(app,
+            listOf("Ihre Handelseinstellungen","Kontotyp: Active"))
+        assertEquals("ACTIVE",contradicting.feeProfile)
+        assertEquals("SETTINGS_CONFLICT",
+            AccountSettingsEvidence.ownerConfirmedProfile(app,
+              listOf("Ihre Handelseinstellungen","Kontotyp: Active"),"BASIC").code)
         for (labels in listOf(
             listOf("Produkt","Basic-Benutzerkonto"),
-            listOf("Ihre Handelseinstellungen","Active-Benutzerkonto"),
+            listOf("Currency settings","EUR","Auto FX"),
             listOf("Benutzerkonto auswählen","Basic-Benutzerkonto"))) {
             assertEquals("SETTINGS_UNCONFIRMED",
                 AccountSettingsEvidence.ownerConfirmedProfile(app,labels,"BASIC").code)
