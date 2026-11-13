@@ -1,5 +1,6 @@
 import unittest
-from entry_path_study import evaluate,PROTOCOL
+from unittest.mock import Mock
+from entry_path_study import evaluate,read,PROTOCOL,MAX_SAMPLES_PER_TRIAL
 
 class PathTests(unittest.TestCase):
     def setUp(self):
@@ -40,3 +41,32 @@ class PathTests(unittest.TestCase):
         rows=[self.row(i/2,4000) for i in range(1,121)]
         r=evaluate(self.base,rows+rows,self.at+3600000)
         self.assertEqual(r['coveragePct'],100)
+
+    def test_read_uses_bounded_per_trial_primary_key_ranges(self):
+        conn=Mock()
+        conn.execute.side_effect=[
+            Mock(fetchone=lambda:(PROTOCOL,)),
+            Mock(fetchall=lambda:[]),
+            Mock(fetchall=lambda:[]),
+        ]
+        self.assertEqual(read(conn,'campaign',self.at)['items'],[])
+        sql,params=conn.execute.call_args_list[2].args
+        self.assertIn('CROSS JOIN LATERAL',sql)
+        self.assertIn('WITH trials AS MATERIALIZED',sql)
+        self.assertEqual(params,('campaign','campaign',MAX_SAMPLES_PER_TRIAL+1))
+
+    def test_over_cap_trial_is_unknown_not_partial_comparison(self):
+        base=self.base
+        rows=[(self.at, self.row(i/2,4000))
+              for i in range(MAX_SAMPLES_PER_TRIAL+1)]
+        conn=Mock()
+        conn.execute.side_effect=[
+            Mock(fetchone=lambda:(PROTOCOL,)),
+            Mock(fetchall=lambda:[(self.at,'development',base)]),
+            Mock(fetchall=lambda:rows),
+        ]
+        item=read(conn,'campaign',self.at+4_000_000)['items'][0]
+        self.assertEqual(item['sampleCoverageStatus'],'over-cap')
+        self.assertEqual(item['label'],'Stichprobenlimit überschritten; Ergebnis unbekannt')
+        self.assertFalse(item['comparison'])
+        self.assertTrue(all(h['status']=='unavailable' for h in item['horizons']))
