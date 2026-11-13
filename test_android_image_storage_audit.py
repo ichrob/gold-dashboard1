@@ -10,9 +10,9 @@ import android_image_storage_audit as audit
 
 class AuditUnitTests(unittest.TestCase):
     def test_aggregate_only_and_no_false_disk_savings(self):
-        result=audit._counts((3,5,150,2,60), 1793538000)
+        result=audit._counts((2,4,150,2,60), 1793538000)
         self.assertEqual(result['status'],'sampled')
-        self.assertEqual(result['sampledImages'],5)
+        self.assertEqual(result['sampledImages'],4)
         self.assertEqual(result['candidateRepeatedImages'],2)
         self.assertEqual(result['candidateRepeatedEncodedCharacters'],60)
         self.assertFalse(result['exactDuplicateProven'])
@@ -24,7 +24,7 @@ class AuditUnitTests(unittest.TestCase):
 
     def test_bad_results_rejected_and_empty_distinct(self):
         self.assertEqual(audit._counts((0,0,0,0,0),1)['status'],'empty')
-        for row in ((9,9,90,0,0),(1,5,50,0,0),(1,1,10,2,10),
+        for row in ((3,3,90,0,0),(1,5,50,0,0),(1,1,10,2,10),
                     (1,1,10,0,11),(1,1,True,0,0),('private',0,0,0,0),
                     (1,1,1,1),(None,0,0,0,0)):
             with self.subTest(row=row):
@@ -54,8 +54,11 @@ class AuditUnitTests(unittest.TestCase):
         self.assertIn("created_at >= now()-interval '24 hours'",audit._SQL)
         self.assertIn("md5(",audit._SQL)
         self.assertIn(("SET LOCAL statement_timeout='1500ms'",()),conn.calls)
-        self.assertTrue(all(params in ((),(audit._SAMPLE_BATCHES,))
+        self.assertIn("LIMIT %s", audit._EXACT_SQL)
+        self.assertTrue(all(params in ((),(audit._SAMPLE_BATCHES,audit._SAMPLE_IMAGES))
                             for _,params in conn.calls))
+        self.assertEqual(first['sampleCapImages'], 4)
+        self.assertLessEqual(first['sampledImages'], first['sampleCapImages'])
         self.assertFalse(any('DELETE FROM' in s or 'UPDATE ' in s or
                              'VACUUM ' in s or 'CREATE TABLE' in s for s,_ in conn.calls))
 
@@ -109,9 +112,9 @@ class PostgresAuditTests(unittest.TestCase):
                 b=base64.b64encode(raw_b).decode()
                 distinct=base64.b64encode(raw_c).decode()
                 data=[
-                    {'images':[{'png':a},{'png':b}]},
+                    {'images':[{'png':distinct}]},
                     {'images':[{'png':a}]},
-                    {'images':[{'png':distinct}]}
+                    {'images':[{'png':a},{'png':b}]}
                 ]
                 for idx,row in enumerate(data):
                     c.execute('INSERT INTO bob_android_list_images(batch_id,payload) VALUES(%s,%s)',
@@ -122,12 +125,12 @@ class PostgresAuditTests(unittest.TestCase):
                         c.execute('SET TRANSACTION READ ONLY')
                         report=audit.report(c)
                 self.assertEqual(report['status'],'sampled')
-                self.assertEqual(report['sampledBatches'],3)
-                self.assertEqual(report['sampledImages'],4)
+                self.assertEqual(report['sampledBatches'],2)
+                self.assertEqual(report['sampledImages'],3)
                 self.assertEqual(report['candidateRepeatedImages'],1)
                 self.assertEqual(report['candidateRepeatedEncodedCharacters'],len(a))
                 self.assertEqual(report['totalEncodedImageCharacters'],
-                                 len(a)*2+len(b)+len(distinct))
+                                 len(a)*2+len(b))
                 self.assertNotIn(a,json.dumps(report))
                 self.assertNotIn(b,json.dumps(report))
                 self.assertTrue(report['exactDuplicateProven'])

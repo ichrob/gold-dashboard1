@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 import threading
 import time
 
-_SAMPLE = 24
+_SAMPLE = 8
 _CACHE_SECONDS = 900
 _lock = threading.Lock()
 _cached = None
@@ -34,7 +34,7 @@ _SQL = """WITH page AS MATERIALIZED (
 )
 SELECT page.created_at, i.import_receipt->>'stage',
     (i.parsed_items IS NOT NULL), i.processing_at,
-    jsonb_path_exists(i.payload,'$.images[*]."_bobPrivateImageRefV1"')
+    NULL::boolean
 FROM page JOIN bob_android_list_images AS i ON i.ctid=page.ctid
 ORDER BY page.created_at DESC,page.ctid DESC"""
 
@@ -52,7 +52,7 @@ def classify(row, now):
     uploaded, stage, parsed, processing_at, pointer = row
     if (not isinstance(uploaded, datetime) or uploaded.tzinfo is None or
             not isinstance(now, datetime) or now.tzinfo is None or
-            type(parsed) is not bool or type(pointer) is not bool):
+            type(parsed) is not bool or pointer not in (True, False, None)):
         return "preserve-unknown"
     age = (now - uploaded).total_seconds()
     if age < 0:
@@ -104,6 +104,7 @@ def _collect(rows, now):
         "protectedProductOrExampleBatches":
             counts["preserve-product-proof-or-example"],
         "protectedReferenceBatches": counts["preserve-archived-reference"],
+        "referencePointerCoverage": False,
         "protectedActiveOcrBatches": counts["preserve-active-ocr"],
         "reviewOldFailedOriginalBatches":
             counts["review-old-failed-original-for-archive"],
@@ -112,7 +113,7 @@ def _collect(rows, now):
         "oldImageDeletionAuthorized": False,
         "originalRowsChanged": False,
         "physicalBytesFreed": None,
-        "scope": "bounded-old-batch-age-review-not-complete-backup-or-deletion",
+        "scope": "bounded-metadata-only-old-batch-age-review-not-complete-backup-or-deletion",
     }
 
 

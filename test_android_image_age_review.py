@@ -90,6 +90,9 @@ class AgeDecisionTests(unittest.TestCase):
         key_page = sql.split(")\nSELECT page.created_at", 1)[0]
         self.assertNotIn("payload", key_page)
         self.assertNotIn("jsonb_path_exists", key_page)
+        self.assertNotIn("jsonb_path_exists", sql)
+        self.assertNotIn("i.payload", sql)
+        self.assertIn("NULL::boolean", sql)
         self.assertNotIn("DELETE ", sql.upper())
         self.assertNotIn("UPDATE ", sql.upper())
         self.assertNotIn("SELECT *", sql.upper())
@@ -117,6 +120,7 @@ class ReadOnlyProbeTests(unittest.TestCase):
              patch.object(review, "_cached_at", 0):
             result = review.report(f, now)
         self.assertEqual(result["protectedProductOrExampleBatches"], 1)
+        self.assertFalse(result["referencePointerCoverage"])
         self.assertEqual(len(f.statements), 3)
         self.assertEqual(f.statements[-1][1], (review._SAMPLE,))
         self.assertTrue(all(
@@ -169,6 +173,7 @@ class PostgresAgeReviewTests(unittest.TestCase):
                 self.assertEqual(result["sampledOldBatches"], 2)
                 self.assertEqual(result["protectedProductOrExampleBatches"], 1)
                 self.assertEqual(result["reviewOldFailedOriginalBatches"], 1)
+                self.assertFalse(result["referencePointerCoverage"])
                 self.assertFalse(result["oldImageDeletionAuthorized"])
                 self.assertEqual(conn.execute(
                     "SELECT count(*) FROM bob_android_list_images"
