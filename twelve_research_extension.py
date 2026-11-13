@@ -16,8 +16,12 @@ from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, build_opener
 
 INTERVAL_MS = {'1min': 60000, '5min': 300000, '15min': 900000,
-               '30min': 1800000, '1h': 3600000, '1day': 86400000}
-SYMBOLS = frozenset(('XAU/USD', 'CHF/EUR', 'EUR/CHF', 'USD/CHF'))
+               '30min': 1800000, '1h': 3600000, '4h': 14400000,
+               '8h': 28800000, '1day': 86400000}
+# Direct CHF/EUR and EUR/CHF are NOT confirmed Basic trial symbols.
+SYMBOLS = frozenset(('XAU/USD', 'EUR/USD', 'USD/CHF'))
+CONFIRMED_GOLD_INTERVALS = frozenset(('1min', '5min', '15min', '30min', '1h', '1day'))
+POTENTIAL_FX_INTERVALS = CONFIRMED_GOLD_INTERVALS
 MAX_BARS = 500
 MAX_RESPONSE_BYTES = 512000
 MINUTE_BUDGET = 7  # reserve one credit below the published 8
@@ -34,11 +38,17 @@ def scope_allowed(symbol, interval, env=None):
     env = os.environ if env is None else env
     if env.get('BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED') != '1':
         return False
-    if symbol == 'XAU/USD' and interval == '1h':
+    # Twelve Data support, 12 Nov 2026: these XAU/USD intervals are permitted
+    # for occasional internal non-display Basic evaluation, NOT scheduling.
+    if symbol == 'XAU/USD' and interval in CONFIRMED_GOLD_INTERVALS:
         return True
-    # Tokens are uppercase alphanumerics, never interpolated into shell commands.
-    key = 'BOB_TWELVEDATA_SCOPE_' + symbol.replace('/', '_') + '_' + interval.upper()
-    return env.get(key) == '1'
+    # USD/CHF and EUR/USD are trial symbols; opt in to each interval separately
+    # after verifying actual availability. Direct CHF/EUR is never unlocked by
+    # arbitrary environment flags, nor are unconfirmed 4h/8h scopes.
+    if symbol in ('EUR/USD', 'USD/CHF') and interval in POTENTIAL_FX_INTERVALS:
+        key = 'BOB_TWELVEDATA_SCOPE_' + symbol.replace('/', '_') + '_' + interval.upper()
+        return env.get(key) == '1'
+    return False
 
 
 def valid_key(value):
@@ -248,6 +258,33 @@ def research_atr(rows, period=14):
     return atr
 
 
+def research_chf_cross(eur_usd_rows, usd_chf_rows):
+    """Same-timestamp, same-vendor EUR/CHF and CHF/EUR internal research only.
+
+    No executable broker FX, product valuation, or application/API display.
+    Missing/misaligned, unlicensed, or mixed-source observations fail closed.
+    """
+    left = _contiguous_closes(eur_usd_rows, 1)
+    right = _contiguous_closes(usd_chf_rows, 1)
+    if not left or not right:
+        return {'code': 'NO_MATCHING_FX_ORIGINALS'}
+    if (left[0]['symbol'] != 'EUR/USD' or right[0]['symbol'] != 'USD/CHF'
+            or left[0]['interval'] != right[0]['interval']
+            or [r['openTime'] for r in left] != [r['openTime'] for r in right]
+            or any(r.get('source') != 'twelvedata' for r in left + right)):
+        return {'code': 'NO_MATCHING_FX_ORIGINALS'}
+    eur_usd = left[-1]['close']
+    usd_chf = right[-1]['close']
+    if (not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                and math.isfinite(v) and v > 0 for v in (eur_usd, usd_chf))):
+        return {'code': 'INVALID_FX_ORIGINAL'}
+    eur_chf = eur_usd * usd_chf
+    return {'code': 'INTERNAL_FX_CROSS_RESEARCH_ONLY',
+            'EUR_CHF': eur_chf, 'CHF_EUR': 1 / eur_chf,
+            'atMs': left[-1]['openTime'], 'interval': left[-1]['interval'],
+            'researchOnly': True, 'isExecutableQuote': False}
+
+
 def compare_entry_shadow(rows, *, direction='LONG', hold_bars=3):
     """Gross spot-reference comparison only, not an executable product or realized P/L."""
     if direction not in ('LONG','SHORT') or hold_bars < 1:
@@ -288,7 +325,7 @@ def fetch_research(db, symbol, interval, start_ms, end_ms, *, now_ms=None, opene
     stamp = lambda ms: datetime.fromtimestamp(ms/1000, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     params = urlencode(dict(symbol=symbol,interval=interval,timezone='UTC',
                             start_date=stamp(start_ms),end_date=stamp(end_ms-step),
-                            outputsize=MAX_BARS,apikey=key))
+                            apikey=key))  # date-bounded requests must omit outputsize
     try:
         client = opener or build_opener(NoRedirect())
         with client.open('https://api.twelvedata.com/time_series?' + params, timeout=10) as response:
