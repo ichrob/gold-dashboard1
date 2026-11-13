@@ -337,6 +337,66 @@ const emptyBroker=isin=>({isin:isin||'',currency:'',bid:'',ask:'',quoteAt:'',ven
  buyingPowerCHF:'',fxRateCHF:'',fxAt:'',tickSize:'',lotSize:'',orderType:'',
  orderDuration:'',confirmedByUser:false,edited:false,handsetFingerprint:null});
 const session={budgetCHF:'',riskCHF:'',feesCHF:'',last:null,broker:emptyBroker('')};
+const planningState={loaded:false,revision:null,lastRead:0,busy:false,editVersion:0,dirty:false};
+async function planningRequest(body){
+ const response=await fetch('/api/degiro/android-observations',{method:'POST',credentials:'same-origin',
+  headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const data=await response.json();
+ if(!response.ok||!data.ok)throw Error(data.error||'Planungsvorgaben konnten nicht verarbeitet werden');
+ return data;
+}
+function showServerPlanning(panel,data){
+ const result=data.result,box=panel.querySelector('[data-server-handset-plans]');
+ if(!result){box.textContent='Serververgleich: wartet auf den nächsten Hintergrundlauf mit Produkt- und Marktdaten.';return;}
+ const sameList=result.listUploadedAt===root.BobProductAuditReport?.listUploadedAt;
+ if(!data.resultFresh||!sameList){box.textContent='Serververgleich veraltet oder für eine andere Produktliste. Neue Berechnung wird im Hintergrund geprüft.';return;}
+ box.textContent='Serververgleich · '+result.available+' von '+result.items.length+' berechenbar · '+
+  new Date(result.calculatedAt).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'})+' Zürich\n'+
+  result.items.map(x=>x.isin+' · '+(x.available?
+   x.quantity+' Stück · '+fmt(x.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(x.stop,4)+' '+x.currency+
+   ' · Modellrisiko '+fmt(x.lossCHF)+' CHF ('+fmt(x.riskUsagePct,1)+' %)':
+   (x.modelStop!==null?'Modellstopp '+fmt(x.modelStop,4)+' · ':'')+(x.reasons||[]).join(' · '))).join('\n')+
+  '\nGespeicherte DEGIRO-Anzeige mit aktuellem unabhängigen Modellplan; keine zeitgleiche Kurs- oder Ausführungsbestätigung.';
+}
+async function loadPlanning(panel,replace=false){
+ if(planningState.busy||(!replace&&Date.now()-planningState.lastRead<30000))return;
+ planningState.busy=true;planningState.lastRead=Date.now();
+ const version=planningState.editVersion,status=panel.querySelector('[data-planning-status]');
+ try{
+  const data=await planningRequest({action:'plan-read'});
+  if(planningState.revision===null)planningState.revision=data.revision;
+  if(version===planningState.editVersion&&(replace||!planningState.dirty)){
+   planningState.revision=data.revision;
+   if(data.config&&(!planningState.loaded||replace))for(const key of ['budgetCHF','riskCHF','feesCHF']){
+    session[key]=String(data.config[key]);
+    panel.querySelector('#'+({budgetCHF:'bobManualBudget',riskCHF:'bobManualRisk',feesCHF:'bobManualFees'})[key]).value=session[key];
+   }
+   if(replace)planningState.dirty=false;
+  }
+  planningState.loaded=true;
+  status.textContent=data.config?'CHF-Vorgaben serverseitig gespeichert. Änderungen erst mit „Speichern“ übernehmen.':'Noch keine CHF-Vorgaben gespeichert. Keine Beträge vorbelegt.';
+  showServerPlanning(panel,data);
+ }catch(e){status.textContent=e.message;}
+ finally{planningState.busy=false;}
+}
+async function savePlanning(panel){
+ const status=panel.querySelector('[data-planning-status]');
+ if(planningState.busy)return;
+ if(planningState.revision===null){status.textContent='Gespeicherten Stand zuerst laden; deine Eingaben bleiben erhalten.';return;}
+ const config=Object.fromEntries(['budgetCHF','riskCHF','feesCHF'].map(k=>[k,parseAmount(session[k])]));
+ config.trailAtr=Number(document.getElementById('trailAtr')?.value||1.5);
+ config.minRR=Number(document.getElementById('minRR')?.value||2);
+ if(!Object.values(config).every(Number.isFinite)){status.textContent='Kapital, Risiko und Gebühren vollständig eingeben (0 Gebühren nur ausdrücklich).';return;}
+ const version=planningState.editVersion;planningState.busy=true;
+ try{
+  const data=await planningRequest({action:'plan-save',expectedRevision:planningState.revision,config});
+  planningState.revision=data.revision;
+  if(version===planningState.editVersion)planningState.dirty=false;
+  status.textContent='CHF-Vorgaben und aktuelle Stopp-Parameter dauerhaft gespeichert. Hintergrundberechnung folgt; keine Order.';
+  showServerPlanning(panel,data);
+ }catch(e){status.textContent=e.message;}
+ finally{planningState.busy=false;planningState.lastRead=0;}
+}
 function ensurePanel(){
  if(typeof document==='undefined')return null;
  const anchor=document.getElementById('dgTop3Out');
@@ -354,6 +414,10 @@ function ensurePanel(){
    '<div><label for="bobManualRisk">Maximaler Verlust bis Stopp (CHF)</label><input id="bobManualRisk" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="selbst festlegen"></div>'+
    '<div><label for="bobManualFees">Kauf- und Verkaufsgebühren gesamt (CHF)</label><input id="bobManualFees" type="number" min="0" step="0.01" inputmode="decimal" placeholder="nachgewiesen; 0 ausdrücklich"></div>'+
   '</div>'+
+  '<button type="button" data-planning-save>CHF-Vorgaben für Hintergrundvergleich speichern</button> '+
+  '<button type="button" data-planning-load>Gespeicherte Vorgaben laden</button>'+
+  '<p data-planning-status class="small" role="status"></p>'+
+  '<div data-server-handset-plans class="small" style="white-space:pre-line"></div>'+
   '<div data-manual-top3-status class="small" role="status"></div>'+
   '<div data-handset-run-summary class="small" role="status"></div>'+
   '<div data-manual-top3-rows></div>'+
@@ -386,8 +450,10 @@ function ensurePanel(){
  for(const [id,key] of [['bobManualBudget','budgetCHF'],['bobManualRisk','riskCHF'],['bobManualFees','feesCHF']]){
   const input=panel.querySelector('#'+id);
   input.value=session[key];
-  input.addEventListener('input',()=>{session[key]=input.value;if(session.last)renderFrom(session.last);});
+  input.addEventListener('input',()=>{session[key]=input.value;planningState.editVersion++;planningState.dirty=true;if(session.last)renderFrom(session.last);});
  }
+ panel.querySelector('[data-planning-save]').addEventListener('click',()=>savePlanning(panel));
+ panel.querySelector('[data-planning-load]').addEventListener('click',()=>loadPlanning(panel,true));
  for(const [id,key] of [
   ['bobManualScreenIsin','isin'],['bobManualScreenCcy','currency'],
   ['bobManualScreenBid','bid'],['bobManualScreenAsk','ask'],['bobManualScreenAt','quoteAt'],
@@ -517,6 +583,7 @@ function renderBrokerComparison(panel,selected,plans,now){
 }
 function renderFrom(snapshot){
  const panel=ensurePanel();if(!panel)return;
+ void loadPlanning(panel);
  const now=Date.now(),{flow,products,bundle}=snapshot,side=flow?.direction;
  const rows=panel.querySelector('[data-manual-top3-rows]');
  const status=panel.querySelector('[data-manual-top3-status]');

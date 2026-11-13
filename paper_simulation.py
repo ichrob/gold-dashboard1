@@ -1426,6 +1426,14 @@ def _worker(db):
                         active_cases=paper_portfolios.active_cases(conn)
                         now=time.time()*1000
                         settings=dict(timeframe='15m',trailAtr=1.5,learningPolicy=rule_learning.policy(conn))
+                        import handset_planning
+                        try:
+                            with conn.transaction():
+                                planning_state=handset_planning.read(conn)
+                            settings['handsetPlanSettings']=planning_state.get('config') or {}
+                            settings['handsetPlanRevision']=planning_state['revision']
+                        except Exception as exc:
+                            print('BOB_HANDSET_CONFIG error='+type(exc).__name__,flush=True)
                         active_isins=[c['product']['isin'] for c in active_cases.values() if c.get('product',{}).get('isin')]
                         try:
                             with conn.transaction():active_isins+=ranking_lifecycle.active_isins(conn)
@@ -1484,6 +1492,11 @@ def _worker(db):
                             conn.execute('RELEASE SAVEPOINT bob_degiro_audit')
                             print('BOB_PRODUCT_AUDIT error='+type(audit_exc).__name__,flush=True)
                         precision_quotes=dict(quotes)
+                        try:
+                            with conn.transaction():
+                                handset_planning.tick(conn,evidence,quotes,market,bundle,time.time()*1000)
+                        except Exception as exc:
+                            print('BOB_HANDSET_PLAN error='+type(exc).__name__,flush=True)
                         quotes={isin:paper_quote(q,now,isin) for isin,q in quotes.items()}
                         # Original four paper policies consume unchanged confirmed direction.
                         selection=dict(choices=[],reasons=[])

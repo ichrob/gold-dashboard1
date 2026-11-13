@@ -254,6 +254,7 @@ def init_db():
 def _init_db_once():
     with db() as conn:
         __import__("android_observations").init(conn)
+        __import__("handset_planning").init(conn)
         __import__("android_telemetry").init(conn)
         __import__("android_remote").init(conn)
         bob_session_store.init(conn)
