@@ -2410,9 +2410,11 @@ function parseDegiroOverviewObservation(raw,expectedIsin,venueOnly=false){
  const ids=[...new Set(tokens.map(token=>normalizeOcrIsin(token,raw).isin))];
  if(ids.length!==1||ids[0]!==expectedIsin)return null;
  const venueMatches=[...raw.slice(marker).matchAll(/(?:^|\n)\s*(?:Börse|Boerse|Borse)\s*[:=]?\s*(?:\r?\n\s*)?([^\r\n]+)/gi)];
- if(venueMatches.length!==1)return null;
- const venue=venueMatches[0][1].trim();
- if(!venue||venue.length>100||/^(?:-|—|unbekannt)$/i.test(venue))return null;
+ if(venueMatches.length>1)return null;
+ const venue=venueMatches.length===1?venueMatches[0][1].trim():null;
+ if(venue!==null&&(!venue||venue.length>100||/^(?:-|—|unbekannt)$/i.test(venue)))return null;
+ // Without an exchange this is a display-only observation, not broker venue proof.
+ if(venueOnly&&!venue)return null;
  // A preceding account balance (often CHF) is outside the product table.
  // The overview's own EUR symbols identify the product quotation currency.
  const price=label=>{
@@ -2439,7 +2441,8 @@ function parseDegiroOverviewObservation(raw,expectedIsin,venueOnly=false){
    timeBasis:'Zuletzt-Anzeige, Minutenauflösung; keine eigene Geld-/Brief-Quellenzeit',
    lastPrice:last,previousClose:close,displayedDayChangeAmount,displayedDayChangePct,
    overviewPriceEvidence:'last-vs-displayed-close',
-   brokerDisplayConfirmed:true,orderWindowVerified:false,orderSubmitted:false,
+   displayOnly:true,venueMissing:!venue,brokerDisplayConfirmed:!!venue,
+   orderWindowVerified:false,orderSubmitted:false,
    executionGuaranteed:false,isExecutableQuote:false};
 }
 function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
@@ -2447,7 +2450,6 @@ function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
  const overview=parseDegiroOverviewObservation(raw,expectedIsin,venueOnly);
  if(overview)return overview;
  if(!validIsin(expectedIsin)||!/\bKursdaten\b/i.test(raw)
-    ||!/\b(?:Börse|Boerse|Borse)\b/i.test(raw)
     ||!/Symbol\s*\|\s*ISIN/i.test(raw))return null;
  const tokens=[...new Set(raw.toUpperCase().match(/\b[A-Z]{2}[A-Z0-9]{10}\b/g)||[])];
  const ids=[...new Set(tokens.map(token=>normalizeOcrIsin(token,raw).isin))];
@@ -2470,12 +2472,15 @@ function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
    .map(m=>m[1]+' '+m[2]+(m[3]?':'+m[3]:'')))];
  if(dates.length!==1||!selectionTimeWindow(dates[0]))return null;
  const venues=[...raw.matchAll(/(?:^|\n)\s*(?:Börse|Boerse|Borse)\s*[:=]?\s*([^\n]+)/gi)];
- if(venues.length!==1)return null;
- const venue=venues[0][1].trim();
- if(!venue||venue.length>100||/^(?:-|—|unbekannt)$/i.test(venue))return null;
+ if(venues.length>1)return null;
+ const venue=venues.length===1?venues[0][1].trim():null;
+ if(venue!==null&&(!venue||venue.length>100||/^(?:-|—|unbekannt)$/i.test(venue)))return null;
+ // A hidden footer is not a source for the venue. Keep the displayed pair separate.
+ if(venueOnly&&!venue)return null;
  return {isin:expectedIsin,source:'DEGIRO-Produktdetail',venue,currency,
    ...(venueOnly?{}:{bid,ask}),sourceTime:dates[0],timeBasis:'Kursdaten-Anzeige; keine eigene Geld-/Briefzeit',
-   brokerDisplayConfirmed:true,orderWindowVerified:false,orderSubmitted:false,
+   displayOnly:true,venueMissing:!venue,brokerDisplayConfirmed:!!venue,
+   orderWindowVerified:false,orderSubmitted:false,
    executionGuaranteed:false,isExecutableQuote:false};
 }
 // DEGIRO *display* evidence from a user-selected product screenshot.
@@ -2483,11 +2488,14 @@ function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
 function degiroScreenQuoteState(q,isin,now=Date.now()){
  const unavailable={state:'missing',displayOnly:true,brokerConnected:false,
   executionConfirmed:false,isExecutableQuote:false,tradeApproved:false};
+ const venueConfirmed=q?.brokerDisplayConfirmed===true&&q.venueMissing!==true
+   &&typeof q.venue==='string'&&q.venue.trim().length>=2;
+ const venueHidden=q?.venueMissing===true&&q.venue===null
+   &&q.brokerDisplayConfirmed===false&&q.displayOnly===true;
  if(!validIsin(isin)||!q||q.isin!==isin||q.source!=='DEGIRO-Produktdetail'
-   ||q.brokerDisplayConfirmed!==true||q.isExecutableQuote!==false
+   ||!(venueConfirmed||venueHidden)||q.isExecutableQuote!==false
    ||q.orderWindowVerified!==false||q.orderSubmitted!==false
    ||q.executionGuaranteed!==false||!['EUR','CHF'].includes(q.currency)
-   ||typeof q.venue!=='string'||q.venue.trim().length<2
    ||!(Number.isFinite(q.bid)&&q.bid>0&&Number.isFinite(q.ask)&&q.ask>=q.bid))
   return unavailable;
  const observed=selectionTimeWindow(q.sourceTime),at=observed?.start;
@@ -2495,7 +2503,8 @@ function degiroScreenQuoteState(q,isin,now=Date.now()){
  const ageSeconds=Math.max(0,Math.floor((now-at)/1000));
  return {state:ageSeconds<=90?'display-recent':'historical',displayOnly:true,
   brokerConnected:false,executionConfirmed:false,isExecutableQuote:false,
-  tradeApproved:false,isin,currency:q.currency,venue:q.venue,bid:q.bid,ask:q.ask,
+  tradeApproved:false,isin,currency:q.currency,venue:venueConfirmed?q.venue:null,
+  venueMissing:venueHidden,bid:q.bid,ask:q.ask,
   sourceTime:q.sourceTime,timeBasis:q.timeBasis,ageSeconds};
 }
 function degiroBrokerQuotePanelState(rows,now=Date.now()){
@@ -2535,7 +2544,7 @@ function refreshDegiroBrokerQuotePanel(now=Date.now()){
   const q=p.status;
   const quote=['display-recent','historical'].includes(q.state)
    ?'DEGIRO-Anzeigekurs '+q.bid.toFixed(2)+' / '+q.ask.toFixed(2)+' '+esc(q.currency)+
-    ' · '+esc(q.venue)+' · Quellenanzeige '+esc(q.sourceTime)+
+    ' · '+esc(q.venue||'Handelsplatz im Bild nicht sichtbar')+' · Quellenanzeige '+esc(q.sourceTime)+
     (q.state==='display-recent'?' · Zeit höchstens 90 s zurück':' · historisch')
    :q.state==='invalid-time'?'Bild-Kurszeit ungültig oder in der Zukunft':
     'Kein datierter DEGIRO-Anzeigekurs aus Produktdetailbild';
@@ -2552,13 +2561,13 @@ function refreshDegiroBrokerQuotePanel(now=Date.now()){
 }
 function renderDegiroDisplayedQuote(p,now=Date.now()){
  const q=p?.snapshot?.degiroDisplayedQuote;
- if(!q||q.isin!==p.isin||q.brokerDisplayConfirmed!==true||q.isExecutableQuote!==false
-   ||!['EUR','CHF'].includes(q.currency)||!(q.bid>0&&q.ask>=q.bid))return '';
+ const state=degiroScreenQuoteState(q,p?.isin,now);
+ if(!['display-recent','historical'].includes(state.state))return '';
  const window=selectionTimeWindow(q.sourceTime),age=window?now-window.start:null;
  const timing=age!==null&&age>=0&&age<=90000?'bis 90 s nach dem Kurszeitpunkt':'historischer Nachweis, kein aktueller Kurs';
  return '<div data-degiro-otc-observation class="small" style="margin-top:8px;padding:8px;border:1px solid #cbd5e1;border-radius:8px">'+
   '<b>DEGIRO zeigt Geld/Brief auf der Produktdetailseite</b>'+
-  '<div>ISIN '+esc(q.isin)+' · Handelsplatz '+esc(q.venue)+' · Geld '+q.bid.toFixed(2)+
+  '<div>ISIN '+esc(q.isin)+' · Handelsplatz '+esc(q.venue||'im Bild nicht sichtbar')+' · Geld '+q.bid.toFixed(2)+
   ' / Brief '+q.ask.toFixed(2)+' '+esc(q.currency)+' · Quellenanzeige '+esc(q.sourceTime)+
   ' (Zeitzone Europe/Zurich zur Einordnung angenommen; Sekunden unbekannt, wenn nicht angegeben).</div>'+
   '<div>'+esc(timing)+' · '+esc(q.timeBasis)+
@@ -2679,7 +2688,7 @@ function degiroManualQuoteSummary(p,now=Date.now()){
   :'Historische DEGIRO-Kursanzeige · nicht aktuell';
  return '<div class="small" data-degiro-manual-quote="'+esc(status.state)+'" style="padding:7px;border:1px solid #cbd5e1;border-radius:7px">'+
   '<b>'+esc(text)+'</b> · Geld '+esc(status.bid.toFixed(2))+' / Brief '+esc(status.ask.toFixed(2))+
-  ' '+esc(status.currency)+' · '+esc(status.venue)+' · Kursanzeige '+esc(status.sourceTime)+
+  ' '+esc(status.currency)+' · '+esc(status.venue||'Handelsplatz im Bild nicht sichtbar')+' · Kursanzeige '+esc(status.sourceTime)+
   '<div>Vom Nutzer bereitgestelltes DEGIRO-Bild, keine Live-Verbindung und keine ausführbare Preisgarantie.</div></div>';
 }
 function compactProductValues(p,now=Date.now()){
@@ -3972,7 +3981,8 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
  const native=swissScreenshotQuote(raw);
  let draft=native?{ok:false,currency:'CHF',hasQuote:native.hasQuote,paired:native.paired,partialQuote:native.partialQuote,fields:{bid:native.bid,ask:native.ask}}:window.BobCombined.screenshotDraft(raw,expectedIsin);
  const degiroDisplayedQuote=parseDegiroDisplayedQuote(raw,expectedIsin);
- if(degiroDisplayedQuote&&!draft.paired){
+ const displayWithoutVenue=degiroDisplayedQuote?.venueMissing===true;
+ if(degiroDisplayedQuote&&!displayWithoutVenue&&!draft.paired){
   draft={...draft,...(degiroDisplayedQuote.currency==='CHF'?{ok:false,currency:'CHF'}:{}),hasQuote:true,paired:true,partialQuote:null,
     fields:{...draft.fields,source:'DEGIRO',venue:degiroDisplayedQuote.venue,
       bid:String(degiroDisplayedQuote.bid),ask:String(degiroDisplayedQuote.ask),
@@ -3984,8 +3994,15 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
   x.price='';x.spread='';
  }
  if(draft.hasQuote&&!draft.paired&&!draft.partialQuote)return{ok:false,reason:'Produkt erkannt'+(identity.basis==='WKN'?' über WKN '+identity.wkn:'')+', aber Geld-/Briefpaar nicht vollständig oder eindeutig. Bitte beide Kurse im selben Bild zeigen.'};
- const bid=draft.partialQuote?draft.partialQuote.bid:draft.paired?n(draft.fields.bid):amount("Geld|Bid"),ask=draft.partialQuote?draft.partialQuote.ask:draft.paired?n(draft.fields.ask):amount("Brief|Ask");
+ // A quote screen without a visible venue is recorded only as a historical
+ // display observation, not as a sourced product quote or ranking input.
+ const bid=displayWithoutVenue?null:draft.partialQuote?draft.partialQuote.bid:draft.paired?n(draft.fields.bid):amount("Geld|Bid"),
+   ask=displayWithoutVenue?null:draft.partialQuote?draft.partialQuote.ask:draft.paired?n(draft.fields.ask):amount("Brief|Ask");
  const importWarnings=[],importNotes=[];
+ if(displayWithoutVenue){
+  x.price='';x.spread='';
+  importWarnings.push('DEGIRO-Kursanzeige gespeichert, Handelsplatz im Bild nicht sichtbar; keine Produktquote oder Handelsfreigabe.');
+ }
  if(uncertainBrokerPair)importWarnings.push('Geld-/Briefpaar nicht eindeutig; Produktidentität und DEGIRO-Handelsplatz separat übernommen.');
  if(repairedIdentity)importNotes.push('ISIN-Zeichenverwechslung '+repairedIdentity.original+' anhand des eindeutig gelesenen Serienbilds '+productContext.anchor+' korrigiert; Prüfziffer bestätigt.');
  if(draft.partialQuote){x.price="";x.spread="";importWarnings.push(bid===null?"Geldkurs fehlt: Kursbereich mit Geld und Brief ergänzen.":"Briefkurs fehlt: Kursbereich mit Geld und Brief ergänzen.");}
