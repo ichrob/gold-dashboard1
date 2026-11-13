@@ -23,7 +23,7 @@ function evaluate(input){
    const imported=calc.importHandsetReport(input.report,isin,now);
    const market={...(input.plans?.[direction]||{}),spots:input.spots};
    const quote=p&&calc.selectQuoteByPriority(p,now)?.quote;
-   const stop=imported.available&&p&&quote?api.productRiskPreview(p,market,now,quote):null;
+   const stop=imported.available&&p&&quote?api.productRiskComparison(p,market,now,quote):null;
    const fx=calc.readChfFx(input.spots,now,quote?.currency);
    const feeAssessment=calc.resolveFees({config:cfg,report:input.report,isin,spots:input.spots,now});
    const rowConfig={...cfg,feesCHF:feeAssessment.available?feeAssessment.feesCHF:null};
@@ -40,14 +40,17 @@ function evaluate(input){
      return {...compared,reason:!fee.available?fee.reason:!stop?.available?
       (stop?.reason||'Unabhängiger Produkt-Modellplan fehlt'):compared.reason,
       feeAssessment:fee,assumptions:fee.assumptions,conditional:true,settingsConfirmed:false,
-      copyAllowed:false,rankingPenalty:false,orderSubmitted:false};
+      entrySuitable:stop?.entrySuitable??null,entryWarning:stop?.entryWarning||null,
+      entryApproved:false,copyAllowed:false,rankingPenalty:false,orderSubmitted:false};
     }):[];
    const reasons=[!imported.available&&imported.reason,
     !stop?.available&&(stop?.reason||'Unabhängiger Produkt-Modellplan fehlt'),
     !input.config&&'CHF-Vorgaben noch nicht dauerhaft gespeichert',
     !feeAssessment.available&&feeAssessment.reason,
     !preliminary.available&&preliminary.reason,!result.available&&result.reason].filter(Boolean);
-   return {...result,isin,feeAssessment,automaticScenarios,modelStop:stop?.available?stop.stop:null,
+   return {...result,isin,feeAssessment,automaticScenarios,
+    entrySuitable:stop?.entrySuitable??null,entryWarning:stop?.entryWarning||null,entryApproved:false,
+    modelStop:stop?.available?stop.stop:null,
     modelTarget:stop?.available?stop.target:null,modelReferenceAt:stop?.referenceAt||null,
     fxBasis:fx.note||fx.reason,observedAt:imported.observedAt||null,
     reasons:[...new Set(reasons)],rankingPenalty:false};
