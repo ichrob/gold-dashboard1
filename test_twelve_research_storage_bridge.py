@@ -91,6 +91,32 @@ class TwelveResearchStorageBridgeTests(unittest.TestCase):
         self.assertEqual(r['drive']['code'], 'MANUAL_TEST_NOT_AUTHORIZED')
         self.assertEqual(drive.calls, [])
 
+    def test_runtime_uses_existing_encrypted_oauth_read_only(self):
+        from unittest.mock import MagicMock
+        pg=MagicMock()
+        pg.__enter__.return_value=pg
+        with patch('psycopg.connect',return_value=pg) as connect, \
+             patch('archive_runtime.credentials',return_value={'type':'authorized_user'}) as credentials, \
+             patch('drive_evidence_archive.GoogleDrive') as factory:
+            env={**ENV,'BOB_ARCHIVE_CREDENTIAL_SOURCE':'encrypted-store',
+                 'DATABASE_URL':'postgresql://fixture.invalid/db'}
+            bridge.runtime_drive(env)
+            self.assertEqual(credentials.call_count,1)
+            self.assertTrue(connect.call_args.kwargs['options'].startswith(
+                '-c default_transaction_read_only=on'))
+            self.assertEqual(factory.call_args.kwargs['folder_id'],
+                             ENV['BOB_TWELVE_RESEARCH_DRIVE_FOLDER_ID'])
+            self.assertEqual(factory.call_args.kwargs['parent_id'],
+                             ENV['BOB_TWELVE_RESEARCH_PRIVATE_PARENT_ID'])
+
+    def test_runtime_refuses_unencrypted_oauth_or_missing_db(self):
+        with patch('psycopg.connect') as connect:
+            with self.assertRaises(ValueError):
+                bridge.runtime_drive({**ENV,'BOB_ARCHIVE_CREDENTIAL_SOURCE':'none'})
+            with self.assertRaises(ValueError):
+                bridge.runtime_drive({**ENV,'BOB_ARCHIVE_CREDENTIAL_SOURCE':'encrypted-store'})
+            connect.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
