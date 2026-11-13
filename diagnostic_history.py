@@ -68,14 +68,32 @@ SCHEMAS = {
 
 def init(conn):
     __import__("storage_budget").init(conn)
-    conn.execute('''CREATE TABLE IF NOT EXISTS bob_diagnostic_history (
-        id TEXT PRIMARY KEY, trace_id TEXT NOT NULL, decision_id TEXT,
-        stage TEXT NOT NULL, observed_at DOUBLE PRECISION NOT NULL,
-        recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(), build TEXT, payload JSONB NOT NULL)''')
-    conn.execute('CREATE INDEX IF NOT EXISTS bob_diagnostic_history_time ON bob_diagnostic_history(recorded_at DESC)')
-    conn.execute('CREATE INDEX IF NOT EXISTS bob_diagnostic_history_stage ON bob_diagnostic_history(stage,recorded_at DESC)')
-    conn.execute('CREATE INDEX IF NOT EXISTS bob_diagnostic_history_source_window ON bob_diagnostic_history(stage,observed_at)')
-    conn.execute('CREATE INDEX IF NOT EXISTS bob_diagnostic_history_trace ON bob_diagnostic_history(trace_id,recorded_at)')
+    # CREATE INDEX IF NOT EXISTS takes a SHARE lock even when the index already
+    # exists.  During a rolling start the full init transaction stays open and
+    # can therefore block the old instance's diagnostic INSERT.  Established
+    # databases only need catalog reads; first-install races retain the
+    # original IF NOT EXISTS protection.
+    table = conn.execute(
+        "SELECT to_regclass('bob_diagnostic_history')").fetchone()
+    if not table or table[0] is None:
+        conn.execute('''CREATE TABLE IF NOT EXISTS bob_diagnostic_history (
+            id TEXT PRIMARY KEY, trace_id TEXT NOT NULL, decision_id TEXT,
+            stage TEXT NOT NULL, observed_at DOUBLE PRECISION NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(), build TEXT, payload JSONB NOT NULL)''')
+    indexes = (
+        ('bob_diagnostic_history_time',
+         'CREATE INDEX IF NOT EXISTS bob_diagnostic_history_time ON bob_diagnostic_history(recorded_at DESC)'),
+        ('bob_diagnostic_history_stage',
+         'CREATE INDEX IF NOT EXISTS bob_diagnostic_history_stage ON bob_diagnostic_history(stage,recorded_at DESC)'),
+        ('bob_diagnostic_history_source_window',
+         'CREATE INDEX IF NOT EXISTS bob_diagnostic_history_source_window ON bob_diagnostic_history(stage,observed_at)'),
+        ('bob_diagnostic_history_trace',
+         'CREATE INDEX IF NOT EXISTS bob_diagnostic_history_trace ON bob_diagnostic_history(trace_id,recorded_at)'),
+    )
+    for name, statement in indexes:
+        present = conn.execute('SELECT to_regclass(%s)', (name,)).fetchone()
+        if not present or present[0] is None:
+            conn.execute(statement)
 
 
 def configure(database):
