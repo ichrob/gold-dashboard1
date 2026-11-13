@@ -13,6 +13,7 @@ PAIRS = ([(f'{e}:fixed:{d}', f'{e}:trailing:{d}', 'exit') for e in ENTRIES for d
          [(f'{e}:{x}:0', f'{e}:{x}:{d}', 'delay') for e in ENTRIES for x in ('fixed', 'trailing') for d in (30, 60)])
 STATES = ('waiting', 'pending', 'open', 'exit-pending', 'closed', 'inconclusive', 'no-entry', 'invalid')
 ZURICH = ZoneInfo('Europe/Zurich')
+MAX_EPISODES = 5000
 
 
 def finite(v):
@@ -185,34 +186,26 @@ PROJECTION = """SELECT jsonb_build_object(
 
 def report(conn):
     deadline = time.monotonic() + 2
-    # Keep anchors and the full stream in one statement snapshot, but do not
-    # apply a window over the large projected JSON objects.  PostgreSQL had to
-    # materialize/sort that projection before the first named-cursor fetch,
-    # making FETCH FORWARD 32 exceed the diagnostic statement budget.  The
-    # small scalar anchor CTE can be materialized first and hash-joined while
-    # the privacy-preserving projection streams normally.
-    query = """WITH anchors AS MATERIALIZED (
-        SELECT payload->>'ruleVersion' AS rule,
-          min(CASE WHEN payload->>'version'='entry-exit-v1'
-                    AND jsonb_typeof(payload->'startedAt')='number'
-                   THEN (payload->>'startedAt')::numeric END) AS first_at
-        FROM bob_entry_exit_comparison
-        GROUP BY payload->>'ruleVersion')
-      SELECT data.item, anchors.first_at
-      FROM (""" + PROJECTION + """ ) AS data(item)
-      LEFT JOIN anchors ON anchors.rule=data.item->>'ruleVersion'"""
-    starts = {}
-    def stream(cursor):
-        for item, raw in cursor:
-            rule = item.get('ruleVersion')
-            try:
-                first = day(float(raw))
-            except (ValueError, TypeError):
-                first = None
-            if isinstance(rule,str) and first:
-                starts[rule] = first
-            yield item
+    # Keep one database statement snapshot, but never aggregate or join all
+    # projected JSON objects inside PostgreSQL.  The previous anchor CTE made
+    # the first FETCH materialize two full-table JSON passes.  Stream four
+    # redacted projections at a time, derive the tiny cohort map in the app,
+    # and fail closed instead of returning a partial history above the cap.
+    rows, starts = [], {}
     with conn.cursor(name='bob_comparison_evaluation') as cursor:
-        cursor.itersize = 32
-        cursor.execute(query)
-        return build(stream(cursor), starts, deadline)
+        cursor.itersize = 4
+        cursor.execute(PROJECTION)
+        for record in cursor:
+            if time.monotonic() > deadline:
+                raise TimeoutError('comparison-report-budget')
+            if (not isinstance(record, (tuple, list)) or len(record) != 1
+                    or not isinstance(record[0], dict)):
+                raise ValueError('comparison-projection-invalid')
+            item = record[0]
+            rows.append(item)
+            if len(rows) > MAX_EPISODES:
+                raise ValueError('comparison-episode-limit')
+            rule, first = item.get('ruleVersion'), day(item.get('startedAt'))
+            if isinstance(rule, str) and first:
+                starts[rule] = min(starts.get(rule, first), first)
+    return build(iter(rows), starts, deadline)
