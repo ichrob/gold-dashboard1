@@ -23,6 +23,8 @@ internal object PhoneRemote {
     private var pendingSettings:JSONObject?=null
     private var pendingSettingsCode=""
     private var lastReportedAutoFx:String?=null
+    private var lastReportedProfile:String?=null
+    private var locallyConfirmedProfile:String?=null
     // Only the specifically labelled local settings button enables one
     // local redacted read; normal product sessions never do this.
     private var settingsOnly=false
@@ -34,16 +36,24 @@ internal object PhoneRemote {
         private set
     fun sessionId()=session
     fun active()=session.isNotEmpty() && SystemClock.elapsedRealtime()<deadline
+    fun ownerConfirmationAllowed(profile:String)=active() && settingsOnly &&
+        locallyConfirmedProfile==profile
     fun empty(code:String)=JSONObject().put("at",System.currentTimeMillis()/1000).put("code",code)
         .put("nodeCount",0).put("isins",JSONArray()).put("draft","")
         .put("diagnostics",ProductReadDiagnostics.report(SystemClock.elapsedRealtime()))
-    fun start(c:Context, accountSettingsOnly:Boolean=false) {
+    fun start(c:Context, accountSettingsOnly:Boolean=false,
+              ownerConfirmedProfile:String?=null) {
+        require(ownerConfirmedProfile==null ||
+            (accountSettingsOnly && ownerConfirmedProfile in setOf("BASIC","ACTIVE","TRADER"))) {
+            "Ein bestätigtes Profil benötigt die ausdrückliche Nur-Lesen-Freigabe."
+        }
         check(PhoneDiagnostics.paired(c)) { "Zuerst automatische Diagnose verbinden und im Browser freigeben." }
         check(reader!=null && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
         check(!active() && !busy && !ProductReadRequest.active(SystemClock.elapsedRealtime()) && !MorningReadRun.running && !GoldSearchRun.running) { "Aktuelle Prüfung zuerst stoppen." }
         session=UUID.randomUUID().toString().replace("-","");deadline=SystemClock.elapsedRealtime()+900000
         expires=System.currentTimeMillis()/1000+900;ack=null;pendingSettings=null;pendingSettingsCode=""
-        lastReportedAutoFx=null
+        lastReportedAutoFx=null;lastReportedProfile=null
+        locallyConfirmedProfile=ownerConfirmedProfile
         settingsOnly=accountSettingsOnly;localSettingsPending=accountSettingsOnly
         commands=PhoneCommandPolicy();ProductReadSession.clear()
         message="Handy-Sitzung aktiv · höchstens 15 Minuten · STOPP oder Sperrtaste beendet sie."
@@ -57,7 +67,8 @@ internal object PhoneRemote {
         onStop?.invoke(code)
         val body=payload(old,false,empty(code))
         settingsOnly=false;localSettingsPending=false;pendingSettingsCode=""
-        lastReportedAutoFx=null
+        lastReportedAutoFx=null;lastReportedProfile=null
+        locallyConfirmedProfile=null
         network.execute { runCatching { PhoneDiagnostics.remoteExchange(c.applicationContext,body) } }
     }
     private fun payload(id:String,active:Boolean,observation:JSONObject)=JSONObject()
@@ -76,7 +87,11 @@ internal object PhoneRemote {
         if(AccountSettingsEvidence.ownerReadAllowed(
                 settingsOnly,localSettingsPending,observation.optString("code"))) {
             val receipt=runCatching {
-                reader?.invoke(JSONObject().put("action","read_account_settings"))
+                val localRequest=JSONObject().put("action","read_account_settings")
+                locallyConfirmedProfile?.let {
+                    localRequest.put("ownerConfirmedProfile",it)
+                }
+                reader?.invoke(localRequest)
             }.getOrNull()
             val receiptCode=receipt?.optString("code").orEmpty()
             if(receiptCode in setOf("ACCOUNT_SETTINGS_COMPLETE","ACCOUNT_SETTINGS_PARTIAL")) {
@@ -106,15 +121,23 @@ internal object PhoneRemote {
                 result.onSuccess { response ->
                     if(response.optString("sessionId")!=id) { stop(c,"SESSION_MISMATCH");return@onSuccess }
                     if(sentSettings!=null && pendingSettings===sentSettings)pendingSettings=null
-                    if(sentSettings!=null)lastReportedAutoFx=sentSettings.optString("autoFx")
-                    message=if(lastReportedAutoFx!=null) {
-                        "DEGIRO-Einstellungen übertragen · AutoFX: " +
-                            (when(lastReportedAutoFx) {
-                                "ON" -> "EIN"
-                                "OFF" -> "AUS"
-                                else -> "NICHT BESTÄTIGT"
-                            }) +
-                            " · Gebührentarif und Orderkosten weiterhin unbestätigt."
+                    if(sentSettings!=null) {
+                        if(sentSettings.has("autoFx") && !sentSettings.isNull("autoFx"))
+                            lastReportedAutoFx=sentSettings.optString("autoFx")
+                        if(sentSettings.has("feeProfile") && !sentSettings.isNull("feeProfile"))
+                            lastReportedProfile=sentSettings.optString("feeProfile")
+                    }
+                    message=if(lastReportedAutoFx!=null || lastReportedProfile!=null) {
+                        "DEGIRO-Einstellungen übertragen" +
+                            (lastReportedProfile?.let { " · Profil: $it" } ?: "") +
+                            (lastReportedAutoFx?.let {
+                                " · AutoFX: " + when(it) {
+                                    "ON" -> "EIN"
+                                    "OFF" -> "AUS"
+                                    else -> "UNBESTÄTIGT"
+                                }
+                            } ?: "") +
+                            " · tatsächliche Orderkosten weiterhin unbestätigt."
                     } else "Handy-Sitzung verbunden · Status wird übertragen."
                     response.optJSONObject("command")?.let { command ->
                         val request=command.optString("requestId")
