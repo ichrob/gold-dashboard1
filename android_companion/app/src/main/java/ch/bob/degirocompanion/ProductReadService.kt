@@ -966,13 +966,14 @@ class ProductReadService : AccessibilityService() {
                 return observation("CONNECTION_ERROR")
             }
             val actionName=command?.optString("action") ?: "inspect"
-            if(actionName=="read_account_settings" || command==null || actionName=="inspect") {
-                val settings=accountSettingsScan(root)
-                if(actionName=="read_account_settings")
-                    return accountSettingsReceipt(settings ?: AccountSettingsEvidence.Result("SETTINGS_NOT_VISIBLE"))
-                if(settings!=null)
-                    return observation(if(settings.code=="PROTECTED_VIEW") "PROTECTED_VIEW" else "SETTINGS_READY")
-            }
+            // A visible account settings screen is never a search or product
+            // navigation target, regardless of the previously queued command.
+            val settings=accountSettingsScan(root)
+            if(actionName=="read_account_settings")
+                return accountSettingsReceipt(settings ?: AccountSettingsEvidence.Result("SETTINGS_NOT_VISIBLE"))
+            if(settings!=null)
+                return observation(if(settings.code=="PROTECTED_VIEW") "PROTECTED_VIEW"
+                    else if(actionName=="inspect") "SETTINGS_READY" else "SETTINGS_ONLY")
             navigationTree(root,nodes,descriptions)
             // Inspect the previous product context while Android finishes BACK.
             // Return no draft or identifiers from this transitional screen.

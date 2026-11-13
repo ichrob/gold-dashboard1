@@ -94,7 +94,15 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
       holdings:document.querySelectorAll('.dg-holding').length}));
      throw Error(error.message+'; synthetic bridge state '+JSON.stringify(state));
     });
-    return bob.evaluate(()=>window.exportResults.at(-1).ok);
+    // The result listener runs before the helper's QUEUE cleanup listener.
+    // Never stage a subsequent synthetic export while the previous ID's
+    // delete can still race across tabs and erase that new QUEUE entry.
+    // This checks the exact acknowledged export, not a fixed sleep.
+    const outcome=await bob.evaluate(()=>window.exportResults.at(-1));
+    await bob.waitForFunction(id=>GM_getValue('bob-export-pending-v1',null)?.id!==id,
+     outcome.id,{timeout:12000,polling:100});
+    await relay.flush();
+    return outcome.ok;
    }
   }
   // A normal export is untouched without explicit activation in Bob.
