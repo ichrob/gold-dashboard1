@@ -34,11 +34,13 @@ _PRUNE_ADVISORY_LOCK = 'bob-diagnostic-history-prune-v1'
 # every delete.
 _PRUNE_CAP_BATCH_SIZE = 500
 _PRUNE_MAX_EVENTS = 60000
-# A 15,000-key statement still exceeded the unchanged five-second budget
-# under live contention on 11 Nov. Keep each exact primary-key keyset scan
-# below that reproduced bound; total target, retention and delete batch stay
-# unchanged and no new index or OFFSET scan is introduced.
-_PRUNE_COUNT_CHUNK_SIZE = 5000
+# The 5,000-key statement exceeded the unchanged five-second SQL budget
+# again on 13 Nov 2026 at 19:32:38 UTC under live contention. Keep the
+# unchanged exact 60,000-row ceiling and 500-row delete batch, but reduce
+# each independent indexed keyset read to 1,000 IDs. More small reads may
+# increase total runtime; this is a targeted mitigation, not an OOM/root-cause
+# finding. Never switch to approximate counts or unverified deletion.
+_PRUNE_COUNT_CHUNK_SIZE = 1000
 _STATS = {'stored':0,'dropped':0,'failures':0,'lastStoredAt':None}
 
 
