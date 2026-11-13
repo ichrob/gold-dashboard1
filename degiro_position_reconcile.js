@@ -64,7 +64,19 @@ function normalTransactions(data,importedAt){
      !direction||!date||!['EUR','CHF'].includes(currency)||!price||price<=0){
    incomplete++;continue;
   }
-  rows.push({isin,side:direction,quantity:qty,price,currency,date,time});
+  // Preserve the fee amount and the separately declared fee currency
+  // only when both are explicitly present in the DEGIRO user-export.
+  // Never infer 0 fees from missing cells or guess a fee currency.
+  const feePresent=original.fee!==null&&original.fee!==undefined&&
+   String(original.fee).trim()!=='';
+  const fee=feePresent?amount(original.fee):null;
+  const feeCurrency=text(original.feeCurrency,3).toUpperCase();
+  const feeState=!feePresent?'not-provided':
+   fee===null||Math.abs(fee)>1000000?'invalid':
+   !['CHF','EUR','USD'].includes(feeCurrency)?'currency-unconfirmed':'reported';
+  rows.push({isin,side:direction,quantity:qty,price,currency,date,time,
+   fee:feeState==='reported'?fee:null,
+   feeCurrency:feeState==='reported'?feeCurrency:null,feeState});
  }
  if(!rows.length)throw Error('Keine eindeutig lesbare Transaktion mit ISIN, Kauf/Verkauf, Anzahl, Kurs und Datum.');
  return {version:1,kind:'transactions',importedAt:new Date(importedAt).toISOString(),
@@ -172,7 +184,8 @@ function compare(csv,transactions,emailReport,now=Date.now(),screenshots=[]){
    matched:0,partialMatches:0,unmatched:0,ambiguous:0,duplicateMails:0,
    emailBuys:0,emailSells:0,emailNet:0,csvAfterEmailUnknown:true,
    screenshotBuys:0,screenshotSells:0,screenshotMailMatched:0,screenshotCsvMatched:0,
-   screenshotUnmatched:0,screenshotTimeUncertain:0});
+   screenshotUnmatched:0,screenshotTimeUncertain:0,
+   csvFeeRows:0,csvFeeUnknown:0,matchedFeeRows:0,matchedFeesByCurrency:{}});
   return rows.get(isin);
  };
  if(snapshot)for(const r of snapshot.records){
@@ -184,6 +197,7 @@ function compare(csv,transactions,emailReport,now=Date.now(),screenshots=[]){
  if(journal)for(const r of journal.rows){
   const isin=text(r?.isin,12).toUpperCase();if(!validIsin(isin))continue;
   const out=ensure(isin);out.tradeRows++;
+  if(r.feeState==='reported')out.csvFeeRows++;else out.csvFeeUnknown++;
   journalRows.push({...r,_used:false});
  }
  let invalidMail=0,anonymous=0;
@@ -218,6 +232,13 @@ function compare(csv,transactions,emailReport,now=Date.now(),screenshots=[]){
   const exact=candidates.filter(x=>x.time?.length===8&&x.time===mail.time);
   if(exact.length===1){
    exact[0]._used=true;out.matched++;
+   // Unique source-to-email match only. Preserve signed original amounts
+   // by currency; never claim this predicts another order's fees.
+   if(exact[0].feeState==='reported'){
+    out.matchedFeeRows++;
+    const ccy=exact[0].feeCurrency;
+    out.matchedFeesByCurrency[ccy]=(out.matchedFeesByCurrency[ccy]||0)+exact[0].fee;
+   }
   }else if(exact.length>1){out.ambiguous++;}
   else if(candidates.length===1){out.partialMatches++;}
   else if(candidates.length>1){out.ambiguous++;}
@@ -263,7 +284,7 @@ function compare(csv,transactions,emailReport,now=Date.now(),screenshots=[]){
   transactionImportAt:journal?.importedAt||null,
   mailWindowLimited:true,sourceComplete:false,brokerCurrent:false,activeTradesModified:false,
   invalidMail,anonymous,items:[...rows.values()].sort((a,b)=>a.isin.localeCompare(b.isin)),
-  note:'E-Mail-Ausschnitt (max. 30), CSV-Importzeit ist nicht der DEGIRO-Exportzeitpunkt. Keine vollständige Transaktionshistorie und kein Live-Depotnachweis.'};
+  note:'E-Mail-Ausschnitt (max. 30), CSV-Importzeit ist nicht der DEGIRO-Exportzeitpunkt. Gebühren aus Original-CSV sind nur historische, unter Umständen unvollständige Angaben. Fehlende Werte bedeuten nicht null Gebühren. Keine vollständige Transaktionshistorie, kein Live-Depot- oder Orderkostennachweis.'};
 }
 function mount(){
  if(!root.document||root.document.getElementById('bobPositionReconcile'))return;
@@ -310,6 +331,16 @@ function mount(){
     ' · passt zu Transaktions-CSV: '+r.screenshotCsvMatched+
     ' · unklarer Zeitbezug: '+r.screenshotTimeUncertain+
     ' · nicht zuordenbar: '+r.screenshotUnmatched);
+   if(r.tradeRows){
+    const matched=Object.entries(r.matchedFeesByCurrency).map(([ccy,v])=>
+     v.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:4})+' '+ccy
+    ).join(' / ');
+    row(card,'Historische DEGIRO-CSV-Gebührenangaben: '+r.csvFeeRows+
+     ' mit Betrag und Originalwährung, '+r.csvFeeUnknown+
+     ' ohne vollständigen Gebührenbeleg. Eindeutig zu Ausführungsmail zugeordnet: '+
+     r.matchedFeeRows+(matched?' · Originalwerte mit Vorzeichen: '+matched:'')+
+     '. Keine bestätigten künftigen Orderkosten und kein Nachweis gebührenfreier Orders.');
+   }
    row(card,'Eindeutige Zeilenpaare CSV ↔ Mail: '+r.matched+
     ' · nur ähnlich: '+r.partialMatches+
     ' · nicht zugeordnet: '+r.unmatched+
