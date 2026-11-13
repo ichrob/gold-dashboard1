@@ -185,7 +185,7 @@ def webpush(**kwargs):
     # Web Push defaults to normal urgency, which the provider may defer for
     # device power saving. Prioritize only real time-sensitive alerts; never
     # change their TTL, triggers, deduplication, target devices, or permissions.
-    time_sensitive = {'early-warning', 'ko-hit', 'stop-hit', 'reversal'}
+    time_sensitive = {'early-warning', 'signal-change', 'market-scenario', 'ko-hit', 'stop-hit', 'reversal'}
     if not is_test and any(kind in time_sensitive for kind in event_kinds):
         headers = dict(kwargs.get('headers') or {})
         if not any(str(key).lower() == 'urgency' for key in headers):

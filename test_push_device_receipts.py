@@ -69,6 +69,9 @@ class PushDeviceReceiptTests(unittest.TestCase):
     def test_time_sensitive_alerts_use_high_web_push_urgency(self):
         cases = (
             ('early-warning', False, 'high'),
+            ('signal-change', False, 'high'),
+            ('market-scenario', False, 'high'),
+            ('market-scenario', True, None),
             ('ko-hit', False, 'high'),
             ('stop-hit', False, 'high'),
             ('reversal', False, 'high'),
