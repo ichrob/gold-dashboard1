@@ -92,6 +92,16 @@ def inspect(environ=None, connect=None):
         return {**result, 'status': 'observation-failed'}
 
 
+def _observation_time(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        return stamp if stamp.tzinfo is not None else None
+    except ValueError:
+        return None
+
+
 def assess(current, previous=None):
     """Only compare counters within the same observed PostgreSQL statistics epoch."""
     findings = []
@@ -104,9 +114,27 @@ def assess(current, previous=None):
     if current['longActiveClients']:
         findings.append('long-query')
     if previous and previous.get('status') == 'observed':
-        if current['postgresStartedAt'] != previous['postgresStartedAt']:
+        current_at = _observation_time(current.get('observedAt'))
+        previous_at = _observation_time(previous.get('observedAt'))
+        current_start = _observation_time(current.get('postgresStartedAt'))
+        previous_start = _observation_time(previous.get('postgresStartedAt'))
+        if (None in (current_at, previous_at, current_start, previous_start)
+                or current_at <= previous_at or current_start > current_at
+                or previous_start > previous_at):
+            return findings
+        if current_start != previous_start:
             findings.append('postgres-restarted')
-        elif current['statsResetAt'] == previous['statsResetAt']:
+        else:
+            reset = _observation_time(current.get('statsResetAt'))
+            previous_reset = _observation_time(previous.get('statsResetAt'))
+            # Two unknown reset times do not establish a shared statistics epoch.
+            if reset is None or reset != previous_reset or reset > previous_at:
+                return findings
+            # A decreasing/malformed cumulative counter invalidates the comparison.
+            for key in ('deadlocks', 'tempBytes', 'tempFiles'):
+                before, after = previous.get(key), current.get(key)
+                if type(before) is not int or type(after) is not int or not 0 <= before <= after:
+                    return findings
             if current['deadlocks'] > previous['deadlocks']:
                 findings.append('new-deadlock')
             if current['tempBytes'] > previous['tempBytes']:

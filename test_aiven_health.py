@@ -85,16 +85,56 @@ class HealthTests(unittest.TestCase):
 
     def test_counter_growth_and_restart_are_not_an_oom_diagnosis(self):
         original, _, _ = self.inspect()
+        original.update(observedAt='2026-11-12T01:00:00Z',
+                        statsResetAt='2026-11-12T00:00:00Z')
         current = {**original, 'tempBytes': 50, 'deadlocks': 1,
+                   'observedAt': '2026-11-12T02:00:00Z',
                    'clientConnections': 15, 'longActiveClients': 1}
         self.assertEqual(health.assess(current, original),
                          ['connection-pressure', 'long-query', 'new-deadlock', 'temporary-disk-growth'])
-        current['postgresStartedAt'] = 'different'
+        current['postgresStartedAt'] = '2026-11-12T01:30:00Z'
         self.assertEqual(health.assess(current, original),
                          ['connection-pressure', 'long-query', 'postgres-restarted'])
         current['postgresStartedAt'] = original['postgresStartedAt']
         current['statsResetAt'] = 'new epoch'
         self.assertEqual(health.assess(current, original), ['connection-pressure', 'long-query'])
+
+    def test_unknown_or_changed_epochs_never_establish_counter_growth(self):
+        original, _, _ = self.inspect()
+        original['observedAt'] = '2026-11-12T01:00:00Z'
+        for reset in (None, '', 'invalid', '2026-11-12T00:00:00',
+                      '2026-11-12T01:30:00Z'):
+            with self.subTest(reset=reset):
+                before = {**original, 'statsResetAt': reset}
+                after = {**before, 'observedAt': '2026-11-12T02:00:00Z',
+                         'tempBytes': 50, 'deadlocks': 1}
+                self.assertEqual(health.assess(after, before), [])
+
+    def test_duplicate_reversed_and_invalid_observation_times_do_not_compare(self):
+        original, _, _ = self.inspect()
+        original.update(observedAt='2026-11-12T01:00:00Z',
+                        statsResetAt='2026-11-12T00:00:00Z')
+        for observed in (None, '', 'invalid', '2026-11-12T02:00:00',
+                         '2026-11-12T01:00:00Z', '2026-11-12T00:30:00Z'):
+            current = {**original, 'observedAt': observed, 'deadlocks': 1,
+                       'tempBytes': 50, 'clientConnections': 15}
+            self.assertEqual(health.assess(current, original), ['connection-pressure'])
+        for start in (None, 'invalid', '2026-11-12T03:00:00Z'):
+            current = {**original, 'observedAt': '2026-11-12T02:00:00Z',
+                       'postgresStartedAt': start}
+            self.assertEqual(health.assess(current, original), [])
+
+    def test_counter_regression_invalidates_epoch_and_timezone_offsets_match(self):
+        original, _, _ = self.inspect()
+        original.update(observedAt='2026-11-12T01:00:00Z',
+                        statsResetAt='2026-11-12T00:00:00Z', tempFiles=2)
+        current = {**original, 'observedAt': '2026-11-12T03:00:00+01:00',
+                   'statsResetAt': '2026-11-12T01:00:00+01:00',
+                   'postgresStartedAt': '2026-11-12T01:00:00+01:00',
+                   'deadlocks': 1, 'tempBytes': 50}
+        self.assertEqual(health.assess(current, original), ['new-deadlock', 'temporary-disk-growth'])
+        for bad in (1, -1, None, True):
+            self.assertEqual(health.assess({**current, 'tempFiles': bad}, original), [])
 
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'), 'requires isolated PostgreSQL')
