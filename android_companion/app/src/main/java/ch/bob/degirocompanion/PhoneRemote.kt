@@ -103,7 +103,15 @@ internal object PhoneRemote {
                 result.onSuccess { response ->
                     if(response.optString("sessionId")!=id) { stop(c,"SESSION_MISMATCH");return@onSuccess }
                     if(sentSettings!=null && pendingSettings===sentSettings)pendingSettings=null
-                    message="Handy-Sitzung verbunden · Status wird übertragen."
+                    message=if(sentSettings!=null) {
+                        "DEGIRO-Einstellungen übertragen · AutoFX: " +
+                            (when(sentSettings.optString("autoFx")) {
+                                "ON" -> "EIN"
+                                "OFF" -> "AUS"
+                                else -> "NICHT BESTÄTIGT"
+                            }) +
+                            " · Gebührentarif und Orderkosten weiterhin unbestätigt."
+                    } else "Handy-Sitzung verbunden · Status wird übertragen."
                     response.optJSONObject("command")?.let { command ->
                         val request=command.optString("requestId")
                         if(commands.accept(command.optString("sessionId"),id,request,command.optString("action"),command.optString("isin"),command.optLong("expiresAt"),System.currentTimeMillis()/1000)) {
