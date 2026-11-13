@@ -59,6 +59,34 @@ class PaperCampaignEntryTests(unittest.TestCase):
             old=copy.deepcopy(source);del old['paperCampaignEntries']
             self.assertEqual(portfolio.campaign_paper_market(old,profile),old)
 
+    def test_estimated_source_preview_is_bounded_and_never_entry_eligible(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        import paper_simulation as simulation
+        now = int(datetime(2026,11,13,15,0,tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000)
+        at = now-20000
+        source={'spots':{'xaus':3900.,'xaus_is_spot':True,
+            'is_genuine_xauusd_spot':True,
+            'spot_price_as_of':datetime.fromtimestamp(at/1000,ZoneInfo('UTC')).isoformat()}}
+        fresh={'ready':True,'priceFresh':True,'price':3900.,'dataAt':at}
+        control={}
+        self.assertIsNone(simulation.campaign_source_preview(control,source,fresh,now))
+        self.assertEqual(control['campaignLastOriginalSpot']['sourceAt'],at)
+        stale={**fresh,'priceFresh':False}
+        original=copy.deepcopy(stale)
+        preview=simulation.campaign_source_preview(control,source,stale,now+100000)
+        self.assertEqual(preview['mode'],'estimated-preview-not-observed')
+        self.assertFalse(preview['newEntryAllowed'])
+        self.assertFalse(preview['quoteApproved'])
+        self.assertFalse(preview['profitVerified'])
+        self.assertEqual(preview['originalSourceAt'],at)
+        self.assertEqual(stale,original,'Preview cannot mutate market inputs')
+        self.assertIsNone(simulation.campaign_source_preview(control,source,stale,now+200000))
+        fake=copy.deepcopy(source)
+        fake['spots']['is_genuine_xauusd_spot']=False
+        self.assertIsNone(simulation.campaign_source_preview({},fake,fresh,now))
+
+
     def test_wrong_profile_not_addressable(self):
         with self.assertRaises(KeyError):
             portfolio.campaign_paper_market({},'ema3000nov')
