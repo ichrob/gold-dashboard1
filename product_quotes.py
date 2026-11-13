@@ -613,6 +613,11 @@ def get_issuer_quote(isin):
         # its undated quotes into the BNP (or any other) product result.
         result = dict(result, sgDiscovery=dict(
             attempted=True, verified=False,
+            # This is a separate SG provider attempt; a later BNP HTTP error
+            # must never be reported as the SG endpoint's response.
+            failureCode=(str(sg_attempt.get('quoteFailureCode')
+                             or sg_attempt.get('sourceFailureCode') or '')[:60]
+                         or None),
             reason=sg_attempt.get('reason', 'SG-Identität nicht bestätigt')))
     with _LOCK:
         if len(_CACHE) >= 256:
