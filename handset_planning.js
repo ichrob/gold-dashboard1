@@ -48,7 +48,7 @@ function evaluate(input){
     !input.config&&'CHF-Vorgaben noch nicht dauerhaft gespeichert',
     !feeAssessment.available&&feeAssessment.reason,
     !preliminary.available&&preliminary.reason,!result.available&&result.reason].filter(Boolean);
-   return {...result,isin,feeAssessment,automaticScenarios,
+   return {...result,isin,feeAssessment,automaticScenarios,contractModelCheck:q?.handsetModelCheck||null,
     entrySuitable:stop?.entrySuitable??null,entryWarning:stop?.entryWarning||null,entryApproved:false,
     modelStop:stop?.available?stop.stop:null,
     modelTarget:stop?.available?stop.target:null,modelReferenceAt:stop?.referenceAt||null,

@@ -67,6 +67,16 @@ class ContractModel(unittest.TestCase):
         q=record();q['productModel']={'existing':True}
         self.assertIs(h.attach(q,NOW),q)
 
+    def test_private_diagnostic_preserves_input_and_failure(self):
+        q=record();q['termsBackup']={'state':'unavailable','code':'HTTP_503'}
+        before=copy.deepcopy(q)
+        out=h.prepare(q,NOW)
+        self.assertEqual(q,before)
+        self.assertNotIn('productModel',out)
+        self.assertEqual(out['handsetModelCheck']['backupCode'],'HTTP_503')
+        self.assertFalse(out['handsetModelCheck']['evidencePresent'])
+        self.assertTrue(h.prepare(record(),NOW)['handsetModelCheck']['modelAttached'])
+
     def test_parser_retains_only_explicit_currency_treatment(self):
         for label,value in [('Nein',False),('Ja',True)]:
             result=f.parse_page(PAGE.replace('Währungssicherheit Nein','Währungssicherheit '+label),ISIN,NOW)

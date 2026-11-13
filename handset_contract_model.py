@@ -68,3 +68,24 @@ def attach(quote, now):
         verifiedSimpleTurbo=True,tradingEndAt=end.astimezone(timezone.utc).isoformat(),
         currencyModelEvidence=copy.deepcopy(proof),researchOnly=True,scope='handset-comparison')
     return out
+
+
+def prepare(quote, now):
+    """Expose bounded private failure evidence without guessing missing terms."""
+    out=attach(quote,now)
+    if not isinstance(out,dict) or (out.get('metadata') or {}).get('currency') != 'CHF':
+        return out
+    out=copy.deepcopy(out)
+    meta=out.get('metadata') or {}
+    backup=out.get('termsBackup') or {}
+    proof=backup.get('currencyTreatment') or {}
+    out['handsetModelCheck']=dict(
+        modelAttached=bool(out.get('productModel')),
+        backupState=backup.get('state'),backupCode=backup.get('code'),
+        evidencePresent=bool(proof),reviewedAt=proof.get('reviewedAt'),
+        classification=meta.get('classificationId'),fixedTerms=meta.get('termsFixed'),
+        quantoState=meta.get('quantoState'),importActive=out.get('importActive'),
+        quoteFailureCode=out.get('quoteFailureCode'),
+        matchingFields=[k for k in ('direction','currency','underlying','ratio','ko','strike')
+                        if k in proof and proof[k]==meta.get(k)])
+    return out
