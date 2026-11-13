@@ -21,6 +21,31 @@ class MemoryWatchTests(unittest.TestCase):
                              ('parentMiB', None), ('parentMiB', 50)]:
             self.assertFalse(m.reclaim_due({**sample, field:value}, 500, 0))
 
+    def test_high_pressure_uses_thirty_second_emergency_cooldown(self):
+        # The 512-MiB scanner reached 500+ MiB before the next 120s trim;
+        # shorten only at >=85% RAM, without touching live objects.
+        hot = dict(containerMiB=460, limitMiB=512, parentMiB=440)
+        self.assertFalse(m.reclaim_due(hot, 149, 120))
+        self.assertTrue(m.reclaim_due(hot, 150, 120))
+        self.assertFalse(m.reclaim_due({**hot, "containerMiB":434}, 150, 120))
+        self.assertTrue(m.reclaim_due({**hot, "containerMiB":434}, 240, 120))
+        self.assertFalse(m.reclaim_due({**hot, "limitMiB":None}, 240, 120))
+        self.assertFalse(m.reclaim_due({**hot, "parentMiB":None}, 240, 120))
+
+    def test_snapshot_records_only_process_allocation_counts(self):
+        import gc
+        import sys
+        with patch.object(m, "_number", return_value=None), \\
+             patch.object(m, "_rss", return_value=None), \\
+             patch.object(m, "_child_pids", return_value=set()), \\
+             patch.object(sys, "getallocatedblocks", return_value=12345), \\
+             patch.object(gc, "get_count", return_value=(2, 3, 4)):
+            sample = m.snapshot()
+        self.assertEqual(sample["pythonAllocatedBlocks"], 12345)
+        self.assertEqual(sample["gcGenerationCounts"], [2, 3, 4])
+        self.assertNotIn("payload", json.dumps(sample).lower())
+        self.assertNotIn("token", json.dumps(sample).lower())
+
     def test_native_reclaim_preserves_live_buffers(self):
         # Exercise the actual allocator interface while live data stays owned.
         import hashlib
