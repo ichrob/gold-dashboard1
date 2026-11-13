@@ -236,6 +236,8 @@ def handle(conn,payload):
         return dict(ok=True,saved=True,batchId=batch,revision=revision,duplicate=True,verified=False,tradeApproved=False)
     row=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
     result=prepare(run,row[0] if row else {})
+    from handset_import_assessment import assess
+    result['importAssessment']=assess(result)
     result['transferHash']=digest
     conn.execute('''INSERT INTO bob_android_read_runs(batch_id,payload) VALUES(%s,%s::jsonb)
         ON CONFLICT(batch_id) DO NOTHING''',(key,json.dumps(result)))
@@ -252,7 +254,10 @@ def status(conn):
     runs=[]
     for row in rows[:5]:
         r=row[0]
+        from handset_import_assessment import assess
+        assessment=r.get('importAssessment') or assess(r)
         runs.append(dict(batchId=r['batchId'],revision=r['revision'],receivedAt=r['receivedAt'],
+            importAssessment=assessment, importAssessmentPersisted='importAssessment' in r,
             appVersionCode=r.get('appVersionCode'),listUploadedAt=r['listUploadedAt'],listSource=r.get('listSource','bob-saved-list'),requested=len(r['isins']),
             results=[dict(isin=x['isin'],code=x['code'],attempts=x['attempts'],
                 requestedFields=x.get('requestedFields'),
