@@ -64,6 +64,43 @@ assert.equal(result.items[0].matched,2);
 assert.equal(result.items[0].emailNet,2);
 assert.equal(result.items[0].csvQuantity,2);
 assert.equal(result.items[0].state,'partial-verified');
+
+const pdfCost=(original,cost,fx,transaction)=>({...original,result:{
+ ...original.result,sourceKind:'DEGIRO-execution-PDF',costsChf:cost,
+ feeEvidence:{scope:'single-execution',tariffConfirmed:false,sumChecked:true,
+  autoFxChf:fx,transactionChf:transaction}
+}});
+const pdfBuy=pdfCost(buy,0.48,0.03,0.45);
+const pdfSell=pdfCost(sell,0.72,0.04,0.68);
+const fromPdf=p.compare(csv,parsed,{configured:true,items:[pdfBuy,pdfSell]});
+assert.equal(fromPdf.items[0].documentFeeRows,2);
+assert.equal(fromPdf.items[0].documentFeeMatchedCsv,2);
+assert.equal(fromPdf.items[0].matchedFeeRows,2);
+assert(Math.abs(fromPdf.items[0].documentCostsCHF-1.2)<1e-8);
+assert(Math.abs(fromPdf.items[0].documentAutoFxCHF-.07)<1e-8);
+assert(Math.abs(fromPdf.items[0].documentTransactionCHF-1.13)<1e-8);
+assert.deepEqual(fromPdf.items[0].matchedFeesByCurrency,{EUR:-1.25,CHF:-0.5},
+ 'PDF breakdown and signed CSV fees remain separate; never add or FX-convert them');
+const duplicatedPdf=p.compare(csv,parsed,{configured:true,items:[pdfBuy,pdfBuy,pdfSell]});
+assert.equal(duplicatedPdf.items[0].documentFeeRows,2);
+assert.equal(duplicatedPdf.items[0].documentCostsCHF,fromPdf.items[0].documentCostsCHF);
+assert.equal(duplicatedPdf.items[0].documentFeeMatchedCsv,2);
+const pdfWithoutCsv=p.compare(null,null,{configured:true,items:[pdfBuy,pdfSell]});
+assert.equal(pdfWithoutCsv.items[0].documentFeeRows,2);
+assert.equal(pdfWithoutCsv.items[0].documentFeeMatchedCsv,0);
+assert.equal(pdfWithoutCsv.brokerCurrent,false);
+const dubious=pdfCost(buy,0.48,0.03,0.90);
+assert.equal(p.stableMail(dubious).documentedCostsCHF,null);
+const noPdfScope=pdfCost(buy,0.48,0.03,0.45);
+noPdfScope.result.sourceKind='DEGIRO-execution-email-HTML';
+assert.equal(p.stableMail(noPdfScope).documentedCostsCHF,null);
+const conflictingPdf=p.compare(csv,parsed,{configured:true,items:[pdfBuy,
+ pdfCost(buy,0.58,0.03,0.55),pdfSell]});
+assert.equal(conflictingPdf.items[0].ambiguous,1);
+assert.equal(conflictingPdf.items[0].documentFeeRows,1);
+assert.equal(conflictingPdf.items[0].matched,1,
+ 'Contradicting fee splits for one order never create a confirmed match');
+
 assert.equal(result.items[0].csvFeeRows,2);
 assert.equal(result.items[0].csvFeeUnknown,0);
 assert.equal(result.items[0].matchedFeeRows,2);
