@@ -122,7 +122,8 @@ class PushDeviceReceiptTests(unittest.TestCase):
             'synthetic': False, 'body': 'PRIVATE'})
         conn.execute.side_effect = [
             SimpleNamespace(fetchall=lambda: [provider_row]),
-            SimpleNamespace(fetchall=lambda: [(rid, 'show-resolved', at)])
+            SimpleNamespace(fetchall=lambda: [(
+                push_receipt.event_id(rid,'show-resolved'),rid,'show-resolved',at)])
         ]
         value = push_delivery_history.report(conn)
         record = value['records'][0]
@@ -136,7 +137,8 @@ class PushDeviceReceiptTests(unittest.TestCase):
         conn2 = Mock()
         conn2.execute.side_effect = [
             SimpleNamespace(fetchall=lambda: [provider_row]),
-            SimpleNamespace(fetchall=lambda: [(rid, 'clicked', at)])
+            SimpleNamespace(fetchall=lambda: [(
+                push_receipt.event_id(rid,'clicked'),rid,'clicked',at)])
         ]
         clicked = push_delivery_history.report(conn2)['records'][0]
         self.assertEqual(clicked['handsetReceipt'], 'notification-click-confirmed')

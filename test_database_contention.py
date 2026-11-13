@@ -13,6 +13,13 @@ import decision_audit
 
 
 class PoolFailureTests(unittest.TestCase):
+    def test_prospective_query_probes_fixed_hour_ranges(self):
+        sql,params=decision_audit._prospective_query()
+        self.assertIn('generate_series',sql)
+        self.assertIn('CROSS JOIN LATERAL',sql)
+        self.assertNotIn('WITH RECURSIVE',sql)
+        self.assertEqual(params,(decision_audit.RULE_VERSION,))
+
     def test_prospective_query_temporarily_prefers_cursor_indexes(self):
         """The expensive archive read must not leave planner settings changed."""
         from unittest.mock import MagicMock
