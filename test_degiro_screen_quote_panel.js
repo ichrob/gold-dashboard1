@@ -75,6 +75,21 @@ for(const [label,text,expected,currency,bid,ask] of [
  assert.equal(parsed.brokerDisplayConfirmed,false);
  assert.equal(parsed.displayOnly,true);
  assert.equal(parsed.isExecutableQuote,false);
+ // End-to-end screenshot parsing must preserve only the local display object.
+ // Do not promote an unverified venue to issuer/combined quote evidence.
+ const full=b.detailScreenshotData(text,expected);
+ assert.equal(full.ok,true,label+' must survive the actual product import');
+ assert.equal(full.degiroDisplayedQuote?.venueMissing,true);
+ assert.equal(full.degiroDisplayedQuote?.bid,bid);
+ assert.equal(full.degiroDisplayedQuote?.ask,ask);
+ assert.equal(full.bid,null);
+ assert.equal(full.ask,null);
+ assert.equal(full.price,'');
+ assert.equal(full.combinedDraft?.hasQuote,false);
+ assert.equal(full.combinedDraft?.paired,false);
+ assert.equal(full.combinedDraft?.fields?.bid,undefined);
+ assert.equal(full.combinedDraft?.fields?.ask,undefined);
+ assert.equal(full.combinedDraft?.fields?.quoteAt,undefined);
  assert.equal(b.parseDegiroDisplayedQuote(text,expected,true),null,'venue-only proof must fail closed');
  const state=b.degiroScreenQuoteState(parsed,expected,sampleTime);
  assert.equal(state.state,'display-recent',label);
