@@ -94,12 +94,25 @@ internal object PhoneRemote {
                 reader?.invoke(localRequest)
             }.getOrNull()
             val receiptCode=receipt?.optString("code").orEmpty()
+            if(PhoneObservationPolicy.mustStop(receiptCode)) {
+                stop(c,receiptCode)
+                return
+            }
             if(receiptCode in setOf("ACCOUNT_SETTINGS_COMPLETE","ACCOUNT_SETTINGS_PARTIAL")) {
                 pendingSettings=receipt?.optJSONObject("accountSettings")
                 if(pendingSettings!=null) {
                     pendingSettingsCode=receiptCode
                     localSettingsPending=false
                 }
+            } else if(locallyConfirmedProfile!=null) {
+                // Do not keep reporting a generic SETTINGS_READY when the
+                // explicit user-confirmed Basic read actually failed. Send
+                // only a fixed safe reason; no personal/screen content.
+                observation.put("code",when(receiptCode) {
+                    "SETTINGS_UNCONFIRMED","SETTINGS_NOT_VISIBLE","SETTINGS_CONFLICT" ->
+                        receiptCode
+                    else -> "OWNER_PROFILE_UNCONFIRMED"
+                })
             }
         }
         // Normal heartbeat never collects account data. A redacted enum
