@@ -114,9 +114,17 @@ internal object AccountSettingsEvidence {
         if(existing.code in setOf("OTHER_APP","PROTECTED_VIEW","SETTINGS_CONFLICT"))
             return existing
         val text=labels.map(::normalize)
-        if(profile !in setOf("BASIC","ACTIVE","TRADER") ||
-           !("ihre handelseinstellungen" in text || "your trading settings" in text) ||
-           text.none { planCards[it]==profile })
+        // The owner already confirmed the highlighted profile on this
+        // DEGIRO page. Its green CSS border may not be accessible to Android,
+        // and the owner's chosen card may be off-screen when the app relaunches.
+        // Do NOT require the asserted card to still be in the viewport: that
+        // makes a valid physical user confirmation impossible to deliver.
+        // Instead require an independently recognised DEGIRO profile selector.
+        val ownerOnProfilePage =
+            "ihre handelseinstellungen" in text || "your trading settings" in text ||
+            (text.count { it in planCards }>=2 &&
+             text.any { it=="benutzerkonto auswählen" || it=="select account" })
+        if(profile !in setOf("BASIC","ACTIVE","TRADER") || !ownerOnProfilePage)
             return Result("SETTINGS_UNCONFIRMED")
         if(existing.feeProfile!=null && existing.feeProfile!=profile)
             return Result("SETTINGS_CONFLICT")
