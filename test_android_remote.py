@@ -201,7 +201,7 @@ class Protocol(unittest.TestCase):
         # state after the user might have switched DEGIRO accounts.
         later=copy.deepcopy(next_value)
         later['sessionId']='d'*32
-        far=NOW+r.ACCOUNT_EVIDENCE_MAX_AGE+5
+        far=NOW+r.ACCOUNT_EVIDENCE_MAX_AGE+30  # later than both receipts
         later['expiresAt']=far+900
         later['observation']['at']=far
         state,_=r.exchange(state,later,far)
