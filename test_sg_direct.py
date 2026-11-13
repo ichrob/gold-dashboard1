@@ -167,7 +167,8 @@ class DirectTests(unittest.TestCase):
         # Listed EUR/SG product and independently confirmed WKN on issuer/
         # comdirect pages: only Products/<ISIN> may determine its ID and terms.
         isin = 'DE000FA9UFD4'
-        self.assertTrue(q.sg_on_demand_candidate(isin))
+        self.assertIn(isin, q.SG_DISCOVERY_PRODUCTS)
+        self.assertNotIn('DE000FA9UFD0', q.SG_DISCOVERY_PRODUCTS)
         self.assertFalse(q.sg_on_demand_candidate('DE000FA9UFD0'))
         product = dict(self.product, Isin=isin, Id=8765501,
                        ExchangeCode='CBDE', Currency='EUR',
@@ -202,15 +203,44 @@ class DirectTests(unittest.TestCase):
                                             eligible=False,
                                             productVerified=False)) as bnp:
             out = q.get_issuer_quote(isin)
-        bnp.assert_called_once_with(isin)
+        bnp.assert_not_called()
         self.assertEqual(fetch.call_count, 1)
-        self.assertIn('sgDiscovery', out)
-        self.assertFalse(out['sgDiscovery']['verified'])
-        self.assertEqual(out['sgDiscovery']['failureCode'], 'SG_SOURCE_UNAVAILABLE')
+        self.assertEqual(out['source'], 'Société Générale · Direktimport')
+        self.assertEqual(out['quoteFailureCode'], 'SG_SOURCE_UNAVAILABLE')
+        self.assertFalse(out['productVerified'])
         self.assertFalse(out['found'])
         self.assertFalse(out['eligible'])
         self.assertNotIn('bid', out)
         self.assertNotIn('leverage', out)
+
+    def test_fa9ufd_sg_failure_preserves_independent_comdirect_terms(self):
+        # A genuine issuer 404 is not a KO nor permission to fabricate quotes.
+        # Separately identified public terms remain useful for research.
+        isin='DE000FA9UFD4'
+        from urllib.error import HTTPError
+        error=HTTPError('https://www.sg-zertifikate.de/',404,'Not Found',{},None)
+        terms=dict(isin=isin,found=False,eligible=False,fresh=False,
+                   productVerified=True,
+                   source='comdirect Informer · öffentliche Produktdaten',
+                   metadata=dict(status=1,underlyingType='SPOT',
+                                 currency='EUR',direction='LONG'),
+                   conditions={'ratio':{'value':.1,'conditionVerified':True}},
+                   observedTerms={},
+                   reason='Nur überprüfte Stammdaten')
+        with patch.object(q,'issuer_json',side_effect=error), \
+             patch('public_product_terms.get_product',return_value=terms), \
+             patch.object(q,'get_bnp_quote') as bnp:
+            out=q._get_quote_primary(isin)
+        bnp.assert_not_called()
+        self.assertEqual(out['source'],terms['source'])
+        self.assertTrue(out['productVerified'])
+        self.assertEqual(out['conditions'],terms['conditions'])
+        self.assertEqual(out['quoteFailureCode'],'SG_SOURCE_UNAVAILABLE')
+        self.assertEqual(out['issuerResearch']['source'],
+                         'Société Générale · Direktimport')
+        self.assertFalse(out['eligible'])
+        self.assertNotIn('bid',out)
+        self.assertNotIn('leverage',out)
 
     def test_fb_wrong_identity_is_never_sg_verified(self):
         isin='DE000FB0CVV9'
