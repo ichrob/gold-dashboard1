@@ -80,7 +80,9 @@ internal object AccountSettingsEvidence {
             val until=cards.getOrNull(idx+1)?.first ?: text.size
             buttons.none { it>card.first && it<until }
         }
-        return selected.singleOrNull()?.second
+        // Last card may continue below the viewport. Its absent button is
+        // never evidence that the user selected it.
+        return selected.singleOrNull()?.takeUnless { it.second=="TRADER" }?.second
     }
 
     /** Exact currency table as rendered by DEGIRO even when its heading
