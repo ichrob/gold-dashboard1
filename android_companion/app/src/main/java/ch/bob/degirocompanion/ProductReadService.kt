@@ -903,12 +903,19 @@ class ProductReadService : AccessibilityService() {
         fun visit(node:AccessibilityNodeInfo,depth:Int) {
             if(sensitive || ++visited>500 || depth>30) { sensitive=true;return }
             if(!node.isVisibleToUser || node.packageName?.toString()!=ProductScreenEvidence.PACKAGE)return
-            if(node.isPassword || node.isEditable ||
+            // Never read an editable value. A harmless search or disabled
+            // settings control must not turn the whole screen into a login.
+            // Password and Android-sensitive elements still block everything.
+            if(node.isPassword ||
                     (android.os.Build.VERSION.SDK_INT>=34 && node.isAccessibilityDataSensitive)) {
                 sensitive=true;return
             }
+            if(node.isEditable)return
             val label=(node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
-            if(label.isNotEmpty())labels+=label.take(251)
+            if(label.isNotEmpty()) {
+                if(AccountSettingsEvidence.hasProtectedLabel(label)) { sensitive=true;return }
+                if(AccountSettingsEvidence.isRelevantLabel(label)) labels+=label
+            }
             for(i in 0 until node.childCount.coerceAtMost(100)) {
                 val child=node.getChild(i) ?: continue
                 try { visit(child,depth+1) } finally { child.recycle() }
@@ -918,14 +925,7 @@ class ProductReadService : AccessibilityService() {
         visit(root,0)
         // Never interpret an unrelated product, portfolio or order screen as
         // account settings; keep the normal product protections in charge.
-        val heading=labels.any { label ->
-            val t=label.trim().lowercase(java.util.Locale.ROOT)
-            listOf("währungseinstellungen","currency settings","handelsprofil",
-                "trading profile","kontotyp","account type").any {
-                t==it || t.startsWith("$it:")
-            }
-        }
-        if(!heading)return null
+        if(!AccountSettingsEvidence.recognizesSettings(labels))return null
         return AccountSettingsEvidence.read(ProductScreenEvidence.PACKAGE,labels,sensitive)
     }
 

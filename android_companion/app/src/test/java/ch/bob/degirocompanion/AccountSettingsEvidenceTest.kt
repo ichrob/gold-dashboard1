@@ -13,6 +13,10 @@ class AccountSettingsEvidenceTest {
         assertEquals("TRADER", x.feeProfile)
         assertEquals("ON", x.autoFx)
         assertFalse(x.toString().contains("Kontotyp:"))
+        val spaced=AccountSettingsEvidence.read(app,
+            listOf("Währungseinstellungen","Auto FX","Aktiviert"))
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",spaced.code)
+        assertEquals("ON",spaced.autoFx)
         val y = AccountSettingsEvidence.read(app, listOf("Currency settings", "AutoFX: OFF",
             "Trading profile", "Basic"))
         assertEquals("ACCOUNT_SETTINGS_COMPLETE", y.code)
@@ -61,5 +65,66 @@ class AccountSettingsEvidenceTest {
             listOf("Währungseinstellungen", "AutoFX: on"), sensitive = true).code)
         assertEquals("PROTECTED_VIEW", AccountSettingsEvidence.read(app,
             List(501) { "währungseinstellungen" }).code)
+    }
+
+    @Test fun currencyRowsInOwnerScreenshotConfirmOnlyAutoFxAndNotAccountFees() {
+        // Real DEGIRO UI variant: the title may be scrolled away, "Auto FX"
+        // is shown on all three rows and the manual button shows an i18n key.
+        val rows=listOf(
+            "EUR", "Auto FX", "trader.currencySettings.manualActionDisabled",
+            "GBP", "Auto FX", "trader.currencySettings.manualActionDisabled",
+            "USD", "Auto FX", "trader.currencySettings.manualActionDisabled")
+        assertTrue(AccountSettingsEvidence.recognizesSettings(rows))
+        val found=AccountSettingsEvidence.read(app,rows)
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",found.code)
+        assertEquals("ON",found.autoFx)
+        assertNull(found.feeProfile)
+        assertFalse(found.toString().contains("EUR"))
+        // One badge or a generic FX menu must never confirm an account status.
+        assertFalse(AccountSettingsEvidence.recognizesSettings(
+            listOf("EUR","Auto FX","trader.currencySettings.manualActionDisabled")))
+        assertEquals("SETTINGS_NOT_VISIBLE",AccountSettingsEvidence.read(app,
+            listOf("EUR","Auto FX","trader.currencySettings.manualActionDisabled")).code)
+        assertEquals("SETTINGS_CONFLICT",AccountSettingsEvidence.read(app,
+            rows + listOf("AutoFX: OFF")).code)
+    }
+
+    @Test fun longHelpAndAccountBalanceNeverEnterLocalSettingsEvidence() {
+        val help=("Wenn Sie Manual FX aktivieren, können Sie Währungsumrechnungen " +
+            "manuell durchführen. Weitere Hinweise zur Auswahl der Währungen. ").repeat(5)
+        assertTrue(help.length>250)
+        assertFalse(AccountSettingsEvidence.isRelevantLabel(help))
+        assertFalse(AccountSettingsEvidence.isRelevantLabel("CHF 504,30"))
+        assertFalse(AccountSettingsEvidence.isRelevantLabel("Konto: privat 987654"))
+        assertTrue(AccountSettingsEvidence.isRelevantLabel(
+            "trader.currencySettings.manualActionDisabled"))
+        val picture=listOf(help,"CHF 504,30","EUR","Auto FX",
+            "trader.currencySettings.manualActionDisabled","GBP","Auto FX",
+            "trader.currencySettings.manualActionDisabled","USD","Auto FX",
+            "trader.currencySettings.manualActionDisabled")
+        val allowed=picture.filter(AccountSettingsEvidence::isRelevantLabel)
+        val result=AccountSettingsEvidence.read(app,allowed)
+        assertEquals("ACCOUNT_SETTINGS_PARTIAL",result.code)
+        assertEquals("ON",result.autoFx)
+        assertNull(result.feeProfile)
+        assertFalse(allowed.any { it.contains("504") || it.contains("Wenn Sie") })
+        // A password/OTP/order warning embedded in a long paragraph must
+        // still stop the scan, not get silently filtered out.
+        assertTrue(AccountSettingsEvidence.hasProtectedLabel(help+" PIN eingeben"))
+        assertTrue(AccountSettingsEvidence.hasProtectedLabel("Order bestätigen"))
+        assertFalse(AccountSettingsEvidence.hasProtectedLabel("Passwort ändern"))
+    }
+
+    @Test fun settingsOwnerTapIsRequiredAndCannotReadProtectedViews() {
+        assertTrue(AccountSettingsEvidence.ownerReadAllowed(true,true,"SETTINGS_READY"))
+        for (code in listOf("PROTECTED_VIEW","PROTECTED_LOGIN","SCREEN_LOCKED",
+            "SETTINGS_UNCONFIRMED","OTHER_APP","PRODUCT_SEARCH")) {
+            assertFalse(code,AccountSettingsEvidence.ownerReadAllowed(true,true,code))
+        }
+        assertFalse(AccountSettingsEvidence.ownerReadAllowed(false,true,"SETTINGS_READY"))
+        assertFalse(AccountSettingsEvidence.ownerReadAllowed(true,false,"SETTINGS_READY"))
+        assertEquals("PROTECTED_VIEW",AccountSettingsEvidence.read(app,
+            listOf("EUR","GBP","USD","Auto FX","Auto FX","Auto FX",
+                "trader.currencySettings.manualActionDisabled","PIN eingeben")).code)
     }
 }

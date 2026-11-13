@@ -164,7 +164,7 @@ class ProductReadActivity : Activity() {
         }
         button("DEGIRO-Kontoeinstellungen lesen · 15 Minuten") {
             AlertDialog.Builder(this).setTitle("Kontoeinstellungen nur lesen")
-                .setMessage("Bitte ZUERST in DEGIRO selbst Währungseinstellungen oder Handelsprofil öffnen und dann zu Bob Handy zurückkehren. Dieser Knopf startet ausschließlich eine 15-Minuten-Lesesitzung und bringt die bereits angemeldete DEGIRO-App wieder nach vorn. Keine Goldsuche, kein automatischer Login und keine Bedienung von Konto- oder Orderfeldern. Danach nicht auf dem Bildschirm navigieren: Eigene Berührungen oder Sperren beenden die Sitzung. ChatGPT darf nur nach einem separaten einmaligen Leseauftrag eindeutige Profil- und AutoFX-Statuswerte prüfen. Keine Kontonummer, PIN, vollständige Bildschirmtexte, Broker-Order oder Gebührenfreigabe.")
+                .setMessage("Bitte ZUERST in DEGIRO selbst Währungseinstellungen oder Handelsprofil öffnen und dann zu Bob Handy zurückkehren. Dieser Knopf startet ausschließlich eine 15-Minuten-Lesesitzung und bringt die bereits angemeldete DEGIRO-App wieder nach vorn. Keine Goldsuche, kein automatischer Login und keine Bedienung von Konto- oder Orderfeldern. Danach nicht auf dem Bildschirm navigieren: Eigene Berührungen oder Sperren beenden die Sitzung. Mit deinem bestätigten Start liest Bob die zuvor geöffnete sichere DEGIRO-Einstellungsseite genau einmal lokal. Nur die eindeutigen Profil- und AutoFX-Statuswerte werden als minimierter Beleg übertragen, keine Kontonummer, PIN, Bildschirmtexte, Broker-Order oder Gebührenfreigabe.")
                 .setNegativeButton("Abbrechen",null)
                 .setPositiveButton("Nur-Lesen-Sitzung starten") { _,_ -> startAccountSettingsSession() }
                 .show()
@@ -317,7 +317,7 @@ class ProductReadActivity : Activity() {
             }
             val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
                 ?: error("DEGIRO-App fehlt.")
-            PhoneRemote.start(this)
+            PhoneRemote.start(this,accountSettingsOnly=true)
             sessionStarted=true
             check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
             result.text="Nur-Lesen-Sitzung aktiv. Bereits geöffnete DEGIRO-Einstellungsseite prüfen, nichts antippen. Kein Login, keine Goldsuche, keine Order."

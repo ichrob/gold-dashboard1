@@ -15,13 +15,24 @@ Einzelprüfungen“** den getrennten Knopf
    keine PIN-Eingabe, kein Scrollen oder sonstige Navigation. Danach versucht
    er die bereits geöffnete DEGIRO-App wieder nach vorn zu bringen.
 3. Das Samsung entsperrt lassen, **nicht auf dem Bildschirm tippen**.
-   Mit `bob_phone_status` die neue Sitzung prüfen, erst danach
-   `bob_phone_command(action=read_account_settings)` einzeln anfordern.
+   Bob Handy liest **einmalig lokal** die zuvor selbst geöffnete sichere
+   Einstellungsansicht. Mit `bob_phone_status` den minimierten, von der
+   Eigentümer-Sitzung gebundenen Ergebnisbeleg prüfen. Der zusätzliche
+   MCP-Befehl `read_account_settings` ist optional und wird von älteren
+   ChatGPT-Connector-Caches unter Umständen noch nicht angeboten.
    Ein zweiter Bildschirm erfordert ein neues, vom Eigentümer geöffnetes
    Lesefenster – kein automatisches Wechseln der Kontoseiten.
 
-Jede eigene Berührung, Sperre, geschützte Ansicht und das Sitzungsende bleiben
-wirksam. Ein Produkt-Suchbefehl darf auf einer erkannten Konto-Einstellungsseite
+Jede eigene Berührung, Sperre, Passwort- oder OTP-Eingabeansicht und das
+Sitzungsende bleiben wirksam. Bob überspringt rein editierbare Such- und
+Einstellungsfelder, ohne deren Inhalt zu lesen. Auf DEGIROs aktuellem
+Währungseinstellungsbildschirm erkennt Bob auch ohne sichtbaren Seitentitel
+die Kombination aus EUR/GBP/USD, drei Auto-FX-Kennzeichnungen und dem
+unübersetzten Hinweis `trader.currencySettings.manualActionDisabled`.
+Alle drei zusammen bedeuten AutoFX EIN, aber **kein** bewiesener Gebührentarif.
+Bei fehlender, widersprüchlicher oder sensibler Ansicht wird nichts geraten.
+
+Ein Produkt-Suchbefehl darf auf einer erkannten Konto-Einstellungsseite
 **keine Aktion** auslösen. Wenn die DEGIRO-App beim Öffnen zur Startseite
 zurückkehrt, liefert Bob nur `SETTINGS_NOT_VISIBLE`, niemals eine vermutete
 Kontoeinstellung. Die begrenzte Beobachtung bleibt ausdrücklich
@@ -47,7 +58,8 @@ die vorhandene Produktlesung; sie ersetzt oder entsperrt keine Anmeldung.
    Bei veränderten DEGIRO-Oberflächen bleibt der Befund `SETTINGS_UNCONFIRMED`.
 
 Der Server akzeptiert diese Angaben nur als **Enumwerte mit Geräte-Lesezeit
-und zugehöriger Befehlsquittung**, niemals als Rohtexte, Kontonummern,
+und entweder einmaligem, ausdrücklich vom Eigentümer gestarteten Settings-Modus
+oder zugehöriger ausgelieferter Befehlsquittung**, niemals als Rohtexte, Kontonummern,
 Passwörter, PINs, Screenshots oder Orders. Der Beleg ist bis zum Ende der
 bewusst geöffneten Handy-Sitzung sichtbar. Er schreibt **keine**
 `feeProfile`-/`fxMode`-Werte in den bestehenden 100-/30-CHF-Handelsplan.
