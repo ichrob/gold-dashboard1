@@ -309,6 +309,21 @@ def receipt_enrichment(previous, incoming):
     """Permit missing CHF evidence only for the identical recorded execution."""
     if not isinstance(previous, dict) or not isinstance(incoming, dict):
         return False
+    # Old redirect handling ignored an original broker receipt when its To
+    # header named the owner rather than the receiving AgentMail inbox. Only
+    # a newly parsed original in the authenticated inbox can repair that case.
+    if (previous.get('status') == 'ignored'
+            and previous.get('reason') == 'Andere Empfängeradresse'
+            and incoming.get('status') == 'pending-review'):
+        return (incoming.get('senderKind') == 'original-degiro-unverified'
+                and incoming.get('sourceKind') == 'DEGIRO-execution-email-HTML'
+                and isin_ok(incoming.get('isin'))
+                and incoming.get('side') in ('BUY', 'SELL')
+                and type(incoming.get('quantity')) is int and incoming['quantity'] > 0
+                and type(incoming.get('priceEur')) in (int, float)
+                and math.isfinite(incoming['priceEur']) and incoming['priceEur'] > 0
+                and bool(re.fullmatch(r'[a-f0-9]{64}', incoming.get('orderIdDigest') or ''))
+                and bool(incoming.get('executedLocal')))
     if previous.get('status') != 'pending-review' or incoming.get('status') != 'pending-review':
         return False
     if previous.get('totalChf') is not None:
