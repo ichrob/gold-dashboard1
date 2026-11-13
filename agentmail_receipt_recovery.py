@@ -19,6 +19,13 @@ MAX_MESSAGE_BYTES = 130000
 _message_cache = {}
 
 
+def _read_error(code, byte_limit, observed_bytes):
+    # Fixed diagnostic fields only: no URL, message ID, body or exception text.
+    print("BOB_EMAIL_RECOVERY_READ code="+code+" cap="+str(byte_limit)+
+          " observedBytes="+str(observed_bytes), flush=True)
+    return ValueError("AgentMail-Antwort nicht lesbar")
+
+
 def api_json(url, api_key, byte_limit):
     if not isinstance(url,str) or not url.startswith(BASE) or len(url)>1200:
         raise ValueError("AgentMail-Pfad nicht erlaubt")
@@ -27,10 +34,13 @@ def api_json(url, api_key, byte_limit):
     with urlopen(request, timeout=8) as response:
         content=response.read(byte_limit+1)
     if len(content)>byte_limit:
-        raise ValueError("AgentMail-Antwort zu groß")
-    result=json.loads(content)
+        raise _read_error("response-size-limit", byte_limit, len(content))
+    try:
+        result=json.loads(content)
+    except (ValueError, UnicodeDecodeError):
+        raise _read_error("invalid-json", byte_limit, len(content)) from None
     if not isinstance(result,dict):
-        raise ValueError("AgentMail-JSON ungültig")
+        raise _read_error("invalid-json-shape", byte_limit, len(content))
     return result
 
 
@@ -48,7 +58,8 @@ def recover(api_key, allowed_sender, fetch=api_json, now=None, lookback_days=7):
     page=fetch(url,api_key,70000)
     messages=page.get("messages")
     if not isinstance(messages,list) or len(messages)>MAX_LIST:
-        raise ValueError("AgentMail-Postfachliste fehlerhaft")
+        raise _read_error("invalid-message-list", MAX_LIST,
+                          len(messages) if isinstance(messages,list) else 0)
     outputs=[]
     seen=set()
     for item in messages:
