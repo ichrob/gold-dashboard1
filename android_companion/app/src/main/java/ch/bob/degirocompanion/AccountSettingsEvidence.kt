@@ -102,7 +102,7 @@ internal object AccountSettingsEvidence {
         if (currencyContext) text.forEachIndexed { index, line ->
             val explicit = Regex("^(?:autofx|auto\\s*fx)\\s*[:=\\-]?\\s*(aktiviert|aktiv|eingeschaltet|ein|on|enabled|deaktiviert|ausgeschaltet|aus|off|disabled)$")
                 .matchEntire(line)?.groupValues?.get(1)
-            val paired = if (line == "autofx")
+            val paired = if (line in setOf("autofx","auto fx"))
                 text.getOrNull(index + 1)?.takeIf {
                     it in setOf("aktiviert", "aktiv", "eingeschaltet", "ein", "on", "enabled",
                         "deaktiviert", "ausgeschaltet", "aus", "off", "disabled")
