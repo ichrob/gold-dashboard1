@@ -204,8 +204,12 @@ def terminal_evidence_reason(case, *, modeled=False):
     return 'terminal-original-exit-unobserved'
 
 
+QUALITY_INPUT_CHECK_MAX_LAG_MS = 30000
+
+
 def advance(old, bundle, market, now, worker_outcomes=None,
-            worker_observations=None, *, modeled=False):
+            worker_observations=None, *, modeled=False,
+            input_checked_at=None):
     """Pure state machine; all variants share a frozen event and common end.
 
     Gaps >90s exclude a case, even if an end quote later appears. Repeated source
@@ -219,14 +223,24 @@ def advance(old, bundle, market, now, worker_outcomes=None,
     if state['status'].startswith('completed'):
         return state, []
     timeframe = "5m" if market.get("entryTiming") in ("five-minute-confirmation", "two-minute-follow-through-v1") else "15m"
-    quality = original_input(bundle, market, now, timeframe)
+    # Product/audit persistence runs after the immutable market analysis.  A
+    # source that was still inside the strict 60-second gate when analysis
+    # completed must not become a false stale input merely because unrelated
+    # evidence writes took a few seconds.  Keep the actual study/persistence
+    # clock (`now`) for cases and gaps; only validate this exact analyzed input
+    # against its bounded, earlier completion clock.
+    quality_now = now
+    if (number(input_checked_at) and number(now)
+            and 0 <= now-input_checked_at <= QUALITY_INPUT_CHECK_MAX_LAG_MS):
+        quality_now = input_checked_at
+    quality = original_input(bundle, market, quality_now, timeframe)
     quality["signalTimeframe"] = timeframe
     quality["closedSignalBarMatched"] = quality.pop("closed15mMatched")
     if not quality["verified"]:
         quality["reason"] = "original-spot-or-"+timeframe+"-evidence-unverified"
     if modeled:
         from simulation_estimates import input_quality
-        quality = input_quality(quality,bundle,market,now,timeframe,state.get('lastOriginalInput'))
+        quality = input_quality(quality,bundle,market,quality_now,timeframe,state.get('lastOriginalInput'))
         state['simulationOnly'] = True
         state['dataPolicy'] = 'paper-gap-carry-v1'
         if quality['verified']:
@@ -467,7 +481,7 @@ def advance(old, bundle, market, now, worker_outcomes=None,
 
 
 def tick(conn, bundle, market, now, worker_outcomes=None,
-         worker_observations=None):
+         worker_observations=None, input_checked_at=None):
     row = conn.execute('SELECT payload FROM bob_quality_campaign WHERE id=%s FOR UPDATE', (VERSION,)).fetchone()
     if not row:
         raise RuntimeError('quality-campaign-not-initialized')
@@ -476,8 +490,9 @@ def tick(conn, bundle, market, now, worker_outcomes=None,
         return
     original = copy.deepcopy(row[0])
     model_state = original.pop('modeledSimulation',None)
-    state, closed = advance(original, bundle, market, now, worker_outcomes,
-                            worker_observations)
+    state, closed = advance(
+        original,bundle,market,now,worker_outcomes,worker_observations,
+        input_checked_at=input_checked_at)
     # A prospective companion starts once, without reclassifying old originals.
     # Same signals and costs; only its bounded data-gap policy differs.
     if model_state is None:
@@ -485,7 +500,7 @@ def tick(conn, bundle, market, now, worker_outcomes=None,
         model_state['deadlineAt'] = state['deadlineAt']
     model_state, model_closed = advance(
         model_state,bundle,market,now,worker_outcomes,worker_observations,
-        modeled=True)
+        modeled=True,input_checked_at=input_checked_at)
     state['modeledSimulation'] = model_state
     closed += model_closed
     for case in closed:
