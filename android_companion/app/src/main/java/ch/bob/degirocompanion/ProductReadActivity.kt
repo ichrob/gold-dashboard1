@@ -169,6 +169,14 @@ class ProductReadActivity : Activity() {
                 .setPositiveButton("Nur-Lesen-Sitzung starten") { _,_ -> startAccountSettingsSession() }
                 .show()
         }
+        button("Basic-Profil bestätigen · keine DEGIRO-Änderung") {
+            AlertDialog.Builder(this).setTitle("Aktuelles Basic-Profil nur dokumentieren")
+                .setMessage("Nur bestätigen, wenn du zuvor in DEGIRO unter Anlageprofil → Ihre Handelseinstellungen das grün umrandete Basic-Benutzerkonto gesehen hast. Bob öffnet die bereits angemeldete Seite und prüft, ob genau diese Profilkarte sichtbar ist. Er klickt NICHT auf 'Benutzerkonto auswählen' und verändert keine Broker-Einstellung. Ohne bestätigte Seite wird nichts gespeichert. Dies ist deine eigene Bestätigung, kein automatisch ermittelter DEGIRO-Kontotarif und keine Handelsfreigabe.")
+                .setNegativeButton("Abbrechen",null)
+                .setPositiveButton("Basic ist mein aktuelles Profil") { _,_ ->
+                    startAccountSettingsSession("BASIC")
+                }.show()
+        }
         button("Bisherige Morgenliste prüfen / übertragen") { primaryAction() }
         button("Leseprüfung einschalten / Android-Einstellungen") {
             AlertDialog.Builder(this).setTitle("Sichtbare Produktfelder lesen")
@@ -301,7 +309,7 @@ class ProductReadActivity : Activity() {
     /** Owner opens the settings screen before starting this passive session.
      * No search, screenshot, local login, PIN or product read starts here.
      */
-    private fun startAccountSettingsSession() {
+    private fun startAccountSettingsSession(ownerConfirmedProfile:String?=null) {
         var sessionStarted=false
         runCatching {
             check(preferences.getBoolean("enabled",false) && serviceEnabled() &&
@@ -317,7 +325,8 @@ class ProductReadActivity : Activity() {
             }
             val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
                 ?: error("DEGIRO-App fehlt.")
-            PhoneRemote.start(this,accountSettingsOnly=true)
+            PhoneRemote.start(this,accountSettingsOnly=true,
+                ownerConfirmedProfile=ownerConfirmedProfile)
             sessionStarted=true
             check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
             result.text="Nur-Lesen-Sitzung aktiv. Bereits geöffnete DEGIRO-Einstellungsseite prüfen, nichts antippen. Kein Login, keine Goldsuche, keine Order."
