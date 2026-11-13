@@ -15,6 +15,8 @@ import trade_email_import
 INBOX = "bob-degiro@agentmail.to"
 BASE = "https://api.agentmail.to/v0/inboxes/" + quote(INBOX, safe="") + "/messages"
 MAX_LIST = 30
+PAGE_SIZE = 5
+MAX_PAGES = 6
 MAX_MESSAGE_BYTES = 130000
 _message_cache = {}
 
@@ -54,12 +56,34 @@ def recover(api_key, allowed_sender, fetch=api_json, now=None, lookback_days=7):
     if type(lookback_days) is not int or not 1 <= lookback_days <= 45:
         raise ValueError("Beleg-Zeitfenster muss zwischen 1 und 45 Tagen liegen")
     after=(now-dt.timedelta(days=lookback_days)).isoformat().replace("+00:00","Z")
-    url=BASE+"?"+urlencode({"limit":MAX_LIST,"after":after})
-    page=fetch(url,api_key,70000)
-    messages=page.get("messages")
-    if not isinstance(messages,list) or len(messages)>MAX_LIST:
-        raise _read_error("invalid-message-list", MAX_LIST,
-                          len(messages) if isinstance(messages,list) else 0)
+    # A 30-message archive response exceeded the production 70 KB cap.
+    # Keep that cap, but read small pages using the provider's opaque cursor.
+    # Both total messages and request count remain bounded.
+    messages=[]
+    page_token=None
+    seen_tokens=set()
+    for _ in range(MAX_PAGES):
+        params={"limit": min(PAGE_SIZE, MAX_LIST-len(messages)), "after": after}
+        if page_token:
+            params["page_token"]=page_token
+        page=fetch(BASE+"?"+urlencode(params),api_key,70000)
+        batch=page.get("messages")
+        if not isinstance(batch,list) or len(batch)>params["limit"]:
+            raise _read_error("invalid-message-list", params["limit"],
+                              len(batch) if isinstance(batch,list) else 0)
+        messages.extend(batch)
+        page_token=page.get("next_page_token")
+        if not page_token:
+            break
+        if (not isinstance(page_token,str) or len(page_token)>500
+                or page_token in seen_tokens):
+            raise _read_error("invalid-page-token", MAX_PAGES, len(seen_tokens))
+        seen_tokens.add(page_token)
+        if len(messages)>=MAX_LIST:
+            break
+    if page_token:
+        # Do not imply that a bounded archive window covered the entire inbox.
+        print("BOB_EMAIL_RECOVERY_READ code=archive-window-limited", flush=True)
     outputs=[]
     seen=set()
     for item in messages:

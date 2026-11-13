@@ -63,7 +63,7 @@ class MailRecoveryTests(unittest.TestCase):
         self.assertEqual(urls[-1]['after'],['2026-11-06T00:00:00Z'])
         recovery.recover('test-token-secure','customer@example.test',empty,now,lookback_days=45)
         self.assertEqual(urls[-1]['after'],['2026-09-29T00:00:00Z'])
-        self.assertEqual(urls[-1]['limit'],['30'])
+        self.assertEqual(urls[-1]['limit'],['5'])
         for days in [0,46,True,1.5]:
             with self.assertRaises(ValueError):
                 recovery.recover('test-token-secure','customer@example.test',empty,now,lookback_days=days)
@@ -92,6 +92,46 @@ class MailRecoveryTests(unittest.TestCase):
                 with self.assertRaises(StopIteration): env['_agentmail_recovery_loop']()
             self.assertEqual(calls,expected)
             self.assertEqual(sleeps,[30,30,30])
+
+    def test_small_pages_recover_older_receipt_without_raising_byte_cap(self):
+        from urllib.parse import urlsplit, parse_qs
+        mid='<older@example.test>'
+        calls=[]
+        def get(url,key,cap):
+            calls.append(url)
+            if '?' in url:
+                self.assertEqual(cap,70000)
+                query=parse_qs(urlsplit(url).query)
+                self.assertEqual(query['limit'],['5'])
+                if 'page_token' not in query:
+                    return {'messages':[{'subject':'unrelated'}]*5,
+                            'next_page_token':'opaque+/=cursor'}
+                self.assertEqual(query['page_token'],['opaque+/=cursor'])
+                return {'messages':[{'inbox_id':recovery.INBOX,'message_id':mid,
+                    'labels':['received'],'subject':'DEGIRO - Transaktionsbestätigung: Kauf'}]}
+            return {'inbox_id':recovery.INBOX,'message_id':mid,
+                'from':'DEGIRO <notifications@degiro.com>',
+                'subject':'DEGIRO - Transaktionsbestätigung: Kauf',
+                'html':'<div>DEGIRO</div><div>'+TEXT.replace('\n','<br>')+'</div>'}
+        records=recovery.recover('test-token-secure','customer@example.test',get)
+        self.assertEqual(len(records),1)
+        self.assertEqual(records[0]['record']['totalChf'],6.04)
+        self.assertEqual(len(calls),3)
+
+    def test_pagination_is_bounded_and_repeated_cursor_rejected(self):
+        calls=[]
+        def many(url,*args):
+            calls.append(url)
+            return {'messages':[{}]*5,'next_page_token':str(len(calls))}
+        self.assertEqual(recovery.recover('test-token-secure','customer@example.test',many),[])
+        self.assertEqual(len(calls),6)
+        calls.clear()
+        def loop(url,*args):
+            calls.append(url)
+            return {'messages':[],'next_page_token':'same-private-cursor'}
+        with self.assertRaises(ValueError):
+            recovery.recover('test-token-secure','customer@example.test',loop)
+        self.assertEqual(len(calls),2)
 
     def test_unconfigured_skip_network(self):
         def fail(*args):
