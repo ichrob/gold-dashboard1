@@ -1204,7 +1204,8 @@ def quality_generation_pending(last_generation, current_generation):
 
 
 def expired_local_quality_generation(last_generation, current_generation,
-                                     bundle, now_ms):
+                                     analyzed_bundle, candidate_bundle,
+                                     analysis_checked_at, now_ms):
     """Identify one queued generation that expired before quality analysis.
 
     During a zero-downtime rollout the draining process can retain the shared
@@ -1216,9 +1217,12 @@ def expired_local_quality_generation(last_generation, current_generation,
     """
     if not quality_generation_pending(last_generation, current_generation):
         return False
-    source_at=study_bundle_handoff_evidence(bundle)['sourceAt']
-    return (finite(now_ms) and finite(source_at)
-            and now_ms-source_at > 60000)
+    analyzed_at=study_bundle_handoff_evidence(analyzed_bundle)['sourceAt']
+    candidate_at=study_bundle_handoff_evidence(candidate_bundle)['sourceAt']
+    return (finite(analysis_checked_at) and finite(now_ms)
+            and finite(analyzed_at) and finite(candidate_at)
+            and analysis_checked_at-analyzed_at > 60000
+            and now_ms-candidate_at > 60000)
 
 
 def next_quality_generation(current, selected, generation):
@@ -1619,7 +1623,8 @@ def _worker(db):
                             quality_started_at=time.time()*1000
                             if expired_local_quality_generation(
                                     last_quality_generation,quality_generation,
-                                    quality_candidate,quality_started_at):
+                                    bundle,quality_candidate,
+                                    analysis_checked_at,quality_started_at):
                                 quality_evidence=study_bundle_handoff_evidence(
                                     quality_candidate)
                                 print('BOB_QUALITY_RESEARCH '+
