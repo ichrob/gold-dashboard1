@@ -102,16 +102,45 @@ def report(conn, value=None):
     # A resolved showNotification() is NOT evidence of the Android tray.
     requested = list({rid for rid in delivery_ids if rid})
     acknowledgments = {}
+    receipt_lookup_status = 'complete'
     if requested:
-        found = conn.execute('''SELECT payload->>'receiptId', payload->>'receiptState', max(recorded_at)
-             FROM bob_diagnostic_history
-             WHERE stage='push-delivery' AND payload->>'outcome'='browser-receipt'
-               AND payload->>'receiptId'=ANY(%s)
-               AND recorded_at >= now()-interval '7 days'
-             GROUP BY 1, 2''', (requested,)).fetchall()
-        for rid, state, at in found:
-            if rid in requested and state in ('show-resolved', 'clicked') and isinstance(at, datetime):
-                acknowledgments.setdefault(rid, {})[state] = at.isoformat()
+        import psycopg
+        # Partition the unchanged seven-day receipt window into indexed,
+        # read-only one-day slices.  One seven-day JSONB GROUP BY was cancelled
+        # after PostgreSQL's statement budget during ordinary diagnostics.
+        # PostgreSQL now() is stable within the caller's transaction.
+        for day in range(7):
+            try:
+                with conn.transaction():
+                    found = conn.execute('''SELECT payload->>'receiptId',
+                             payload->>'receiptState',max(recorded_at)
+                         FROM bob_diagnostic_history
+                         WHERE stage='push-delivery'
+                           AND recorded_at >= now() - (%s * interval '1 day')
+                           AND recorded_at < now() - (%s * interval '1 day')
+                           AND payload->>'outcome'='browser-receipt'
+                           AND payload->>'receiptId'=ANY(%s)
+                         GROUP BY 1,2''',
+                         (day+1, day, requested)).fetchall()
+            except psycopg.errors.QueryCanceled:
+                # The savepoint rolls back only this optional receipt lookup.
+                # Keep actual push attempts, but never assert that unobserved
+                # acknowledgements are absent or that Android displayed them.
+                receipt_lookup_status = 'timeout-incomplete'
+                break
+            for rid, state, at in found:
+                if rid not in requested or state not in ('show-resolved', 'clicked') or not isinstance(at, datetime):
+                    continue
+                observed = acknowledgments.setdefault(rid, {})
+                if state not in observed or at > observed[state]:
+                    observed[state] = at
+            # Newest-first; when both kinds were observed for every ID, no
+            # older slice can improve their MAX timestamp.
+            if all({'show-resolved', 'clicked'} <= set(acknowledgments.get(rid, {}))
+                   for rid in requested):
+                break
+    for rid, states in acknowledgments.items():
+        acknowledgments[rid] = {key: at.isoformat() for key, at in states.items()}
     for record, rid in zip(records, delivery_ids):
         proof = acknowledgments.get(rid, {})
         if proof.get('show-resolved') or proof.get('clicked'):
@@ -129,6 +158,8 @@ def report(conn, value=None):
         "timezone": "Europe/Zurich",
         "window": args,
         "retentionDays": 7,
+        "receiptLookupStatus": receipt_lookup_status,
+        "receiptHistoryComplete": receipt_lookup_status == "complete",
         "records": records,
         "nextOffset": args["offset"] + PAGE_SIZE if has_more else None,
         "scope": "provider-attempts-plus-signed-browser-receipts",
