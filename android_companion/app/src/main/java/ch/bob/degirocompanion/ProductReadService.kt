@@ -720,6 +720,18 @@ class ProductReadService : AccessibilityService() {
         }
     }
 
+    private fun recordReturnFailure() {
+        val outcome=when(productReturnTransition.failure) {
+            ProductReturnTransition.Failure.TIMEOUT -> ProductReadDiagnostics.Outcome.RETURN_TIMEOUT
+            ProductReturnTransition.Failure.PROTECTED -> ProductReadDiagnostics.Outcome.RETURN_PROTECTED
+            ProductReturnTransition.Failure.WINDOW -> ProductReadDiagnostics.Outcome.RETURN_WINDOW
+            ProductReturnTransition.Failure.INPUT -> ProductReadDiagnostics.Outcome.RETURN_INPUT
+            ProductReturnTransition.Failure.IDENTITY -> ProductReadDiagnostics.Outcome.RETURN_IDENTITY
+            ProductReturnTransition.Failure.NONE -> return
+        }
+        ProductReadDiagnostics.record(outcome)
+    }
+
     private fun finishBatchProduct(code: String, draft: String = "") {
         if (!MorningReadRun.running) return
         runCatching {
@@ -756,6 +768,7 @@ class ProductReadService : AccessibilityService() {
                 // A failed/unsafe BACK must never open the following ISIN from
                 // the previous product's detail or an unverified order surface.
                 if(!returnAcknowledged) {
+                    ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.RETURN_BEGIN_REJECTED)
                     stopAbortedBatchToStatus("RETURN_NOT_CONFIRMED",
                         failedReturnPackage,failedReturnSafe)
                     return
@@ -921,6 +934,7 @@ class ProductReadService : AccessibilityService() {
                         return observation("BUSY")
                     }
                     ProductReturnTransition.State.FAILED -> {
+                        recordReturnFailure()
                         // Reached a non-search state after an accepted BACK.
                         // Stop the session, preserve partial results, and return
                         // to Bob only if this is a recognized safe broker view.
@@ -1444,6 +1458,7 @@ class ProductReadService : AccessibilityService() {
                 when(productReturnTransition.poll(descriptions,root.windowId,SystemClock.elapsedRealtime())) {
                     ProductReturnTransition.State.WAITING -> return true
                     ProductReturnTransition.State.FAILED -> {
+                        recordReturnFailure()
                         MorningReadRun.stop(this,"RETURN_NOT_CONFIRMED")
                         ProductReadRequest.cancel()
                         return true
