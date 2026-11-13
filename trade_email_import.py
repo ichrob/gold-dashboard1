@@ -312,7 +312,22 @@ def receipt_enrichment(previous, incoming):
     if previous.get('status') != 'pending-review' or incoming.get('status') != 'pending-review':
         return False
     if previous.get('totalChf') is not None:
-        return False
+        # Upgrade the same stored execution only with a newly parsed, complete
+        # fee breakdown. Preserve every existing fact; never overwrite a conflict.
+        fee = incoming.get('feeEvidence')
+        if previous.get('feeEvidence') is not None or not isinstance(fee, dict):
+            return False
+        if (fee.get('scope') != 'single-execution' or fee.get('tariffConfirmed') is not False
+                or fee.get('sumChecked') is not True):
+            return False
+        values = [fee.get(k) for k in ('autoFxChf', 'transactionChf')]
+        if any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 for v in values):
+            return False
+        costs = incoming.get('costsChf')
+        if type(costs) not in (int, float) or not math.isfinite(costs) or abs(sum(values)-costs) > .015:
+            return False
+        if any(v is not None and incoming.get(k) != v for k, v in previous.items()):
+            return False
     identity = ('orderIdDigest', 'isin', 'side', 'quantity', 'priceEur')
     if any(previous.get(k) is None or previous.get(k) != incoming.get(k) for k in identity):
         return False
