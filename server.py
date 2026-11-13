@@ -166,6 +166,7 @@ def read_diagnostics_for_mcp():
             'snaptradePersonal':snaptrade_bridge.diagnostics(),
             'issuerCatalog':degiro_catalog.diagnostics(),
             'diagnosticDelivery':__import__('diagnostic_history').status(),
+            'marketUi':__import__('market_ui_health').snapshot(),
             'fibonacci':bob_diagnostics.fields(FIB_MONITOR_HEALTH,('configured','status','lastCheckedAt','lastSuccessAt'))},
         'selfHealing':bob_self_healing.diagnostics_snapshot,
         'collection':collection,
@@ -2353,6 +2354,11 @@ class Handler(BaseHTTPRequestHandler):
                 if length <= 0 or length > 8192:
                     raise ValueError("invalid diagnostic payload size")
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                if payload.get('event') == 'market-ui:observation':
+                    if not self.authenticated():
+                        bob_auth.send(self, 401)
+                        return
+                    __import__('market_ui_health').record(payload.get('details'))
                 event, safe = sanitize_client_diagnostic(payload)
                 print(f"BOB_DIAG event={event} seq={payload.get('seq')} details={json.dumps(safe, ensure_ascii=False, separators=(',',':'))}", flush=True)
                 self.send_response(204)
