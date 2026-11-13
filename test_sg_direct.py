@@ -206,6 +206,7 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(fetch.call_count, 1)
         self.assertIn('sgDiscovery', out)
         self.assertFalse(out['sgDiscovery']['verified'])
+        self.assertEqual(out['sgDiscovery']['failureCode'], 'SG_SOURCE_UNAVAILABLE')
         self.assertFalse(out['found'])
         self.assertFalse(out['eligible'])
         self.assertNotIn('bid', out)
