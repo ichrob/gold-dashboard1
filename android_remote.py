@@ -13,6 +13,36 @@ ACTIONS=('inspect','search_gold','search_isin','read_page','read_account_setting
 # bounded but separate its deadline from the short device execution lease.
 QUEUE_TTL=90
 DELIVERY_LEASE=20
+# Only short-lived, minimised account enums survive a new handset session.
+# This is not account identity matching and never proves broker fees.
+ACCOUNT_EVIDENCE_MAX_AGE=7*86400
+ACCOUNT_EVIDENCE_SOURCES=('degiro-app-local-accessibility','degiro-app-owner-confirmed')
+
+def verified_settings(state,now):
+    result={}
+    if not isinstance(state,dict):return result
+    prior=state.get('verifiedSettings')
+    if isinstance(prior,dict):
+        for key,allowed in [('feeProfile',('BASIC','ACTIVE','TRADER')),
+                            ('autoFx',('ON','OFF'))]:
+            item=prior.get(key)
+            if (isinstance(item,dict) and set(item)=={'value','capturedAt','source'} and
+                    item['value'] in allowed and type(item['capturedAt']) is int and
+                    0<=now-item['capturedAt']<=ACCOUNT_EVIDENCE_MAX_AGE and
+                    item['source'] in ACCOUNT_EVIDENCE_SOURCES):
+                result[key]=dict(item)
+    # Compatible upgrade from the previously validated single-session
+    # receipt, without re-scanning any credential or raw screen content.
+    previous=state.get('accountSettings')
+    if isinstance(previous,dict) and previous.get('source') in ACCOUNT_EVIDENCE_SOURCES:
+        when=previous.get('capturedAt')
+        if type(when) is int and 0<=now-when<=ACCOUNT_EVIDENCE_MAX_AGE:
+            for key,allowed in [('feeProfile',('BASIC','ACTIVE','TRADER')),
+                                ('autoFx',('ON','OFF'))]:
+                if key not in result and previous.get(key) in allowed:
+                    result[key]=dict(value=previous[key],capturedAt=when,
+                                     source=previous['source'])
+    return result
 
 def definitions():
     common={'deviceId':{'type':'string','pattern':'^[a-f0-9]{12}$'}}
@@ -68,7 +98,7 @@ def exchange(state,value,now):
         evidence=obs['accountSettings']
         if not isinstance(evidence,dict) or set(evidence)!={'source','capturedAt','status','feeProfile','autoFx'}:
             raise ValueError('Invalid account settings evidence')
-        if evidence['source']!='degiro-app-local-accessibility' or type(evidence['capturedAt']) is not int or not now-60<=evidence['capturedAt']<=now+60:
+        if evidence['source'] not in ACCOUNT_EVIDENCE_SOURCES or type(evidence['capturedAt']) is not int or not now-60<=evidence['capturedAt']<=now+60:
             raise ValueError('Invalid account evidence source/time')
         if evidence['status'] not in ('COMPLETE','PARTIAL') or evidence['feeProfile'] not in (None,'BASIC','ACTIVE','TRADER') or evidence['autoFx'] not in (None,'ON','OFF'):
             raise ValueError('Invalid account evidence values')
@@ -93,11 +123,17 @@ def exchange(state,value,now):
         if owner_read and prior is not None:
             owner_read=all(prior.get(k)==evidence[k] for k in
                            ('source','capturedAt','status','feeProfile','autoFx'))
+        if evidence['source']=='degiro-app-owner-confirmed':
+            # An explicit device-owner assertion can only concern the
+            # displayed profile, never automatically assert FX or fees.
+            if not owner_read or evidence['feeProfile'] is None or evidence['autoFx'] is not None:
+                raise ValueError('Owner assertion must be profile-only with physical consent')
         if obs['code'] not in ('ACCOUNT_SETTINGS_COMPLETE','ACCOUNT_SETTINGS_PARTIAL') or not (remote_read or owner_read):
             raise ValueError('Account evidence requires owner settings consent or delivered read request')
     if state.get('sessionId')!=value['sessionId']:
+        retained=verified_settings(state,now)
         state={'sessionId':value['sessionId'],'expiresAt':value['expiresAt'],
-               'purpose':purpose,'commands':[]}
+               'purpose':purpose,'commands':[],'verifiedSettings':retained}
     else:
         # A heartbeat cannot silently extend a previously consented session
         # or re-label a product session as account settings.
@@ -109,6 +145,17 @@ def exchange(state,value,now):
     if 'accountSettings' in obs:
         state['accountSettings']=dict(obs['accountSettings'],accountFeeConfirmed=False,
                                       brokerExecutionConfirmed=False)
+        validated=verified_settings(state,now)
+        for name,allowed in [('feeProfile',('BASIC','ACTIVE','TRADER')),
+                             ('autoFx',('ON','OFF'))]:
+            if obs['accountSettings'].get(name) in allowed:
+                validated[name]=dict(value=obs['accountSettings'][name],
+                   capturedAt=obs['accountSettings']['capturedAt'],
+                   source=obs['accountSettings']['source'])
+        # Do not treat independent sessions as a verified account identity,
+        # a confirmed fee schedule or an executable order.
+        state['verifiedSettings']=validated
+        state['sameAccountAcrossSessionsConfirmed']=False
     state['seenAt']=now
     ack=value['ack']
     if ack is not None:
