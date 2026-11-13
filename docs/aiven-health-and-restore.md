@@ -13,6 +13,14 @@ The private storage view exposes the latest sample and findings. The process kee
 at most 48 samples (about 24 hours); this buffer resets on deploy. Render log
 retention applies to log records. This is not a permanent telemetry database.
 
+Counter deltas require strictly increasing, timezone-aware observation times,
+the same valid PostgreSQL start time and the same non-null, valid statistics
+reset time no later than the earlier observation. Unknown reset times (including
+two nulls), changed epochs and decreasing or malformed counters do not establish
+new deadlocks or temporary disk growth. Current connection/transaction findings
+remain independent of delta coverage. Missing comparison evidence is unknown,
+not proof of zero growth. Restart findings also require valid ordered samples.
+
 Host RAM, per-process RSS and kernel OOM records are unavailable through this SQL
 path and always remain unknown. A successful SQL sample does not authorize an
 automatic restore or prove that an OOM was fixed. Use the existing Aiven console
