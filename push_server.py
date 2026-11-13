@@ -432,6 +432,22 @@ def handle_auth_session(action, payload, attempts=3):
             time.sleep(0.25 * (attempt + 1))
 
 
+def handle_auth_passkey(action, payload, attempts=3):
+    """Run a passkey-store action with bounded auth-pool checkout retries."""
+    for attempt in range(attempts):
+        try:
+            with db(auth=True) as conn:
+                result = bob_passkey_store.handle(conn, action, payload)
+                conn.commit()
+            return result
+        except TooManyRequests:
+            if attempt + 1 >= attempts:
+                raise
+            print(f'BOB_PUSH database_retry route=auth-passkey attempt={attempt + 1}',
+                  flush=True)
+            time.sleep(0.25 * (attempt + 1))
+
+
 def write_market_spots(payload, attempts=3):
     """Persist a market observation, retrying bounded transient lock races."""
     for attempt in range(attempts):
@@ -1490,9 +1506,7 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self, 401, {'error':'Unauthorized'}); return
                 payload = json_body(self)
                 if not isinstance(payload, dict): raise ValueError('Invalid passkey payload')
-                with db(auth=True) as conn:
-                    result = bob_passkey_store.handle(conn, path.rsplit('/',1)[-1], payload)
-                    conn.commit()
+                result = handle_auth_passkey(path.rsplit('/',1)[-1], payload)
                 send_json(self, 200, result); return
             if path in ('/auth-recovery/state', '/auth-recovery/issue', '/auth-recovery/reset', '/auth-recovery/cancel'):
                 supplied = self.headers.get('X-Bob-Push-Token', '')
