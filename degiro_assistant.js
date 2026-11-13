@@ -2475,7 +2475,10 @@ function parseDegiroDisplayedQuote(raw,expectedIsin,venueOnly=false){
  if(venues.length>1)return null;
  const venue=venues.length===1?venues[0][1].trim():null;
  if(venue!==null&&(!venue||venue.length>100||/^(?:-|—|unbekannt)$/i.test(venue)))return null;
- // A hidden footer is not a source for the venue. Keep the displayed pair separate.
+ // A hidden footer is not a source for the venue. Only an identifiable
+ // DEGIRO Übersicht screenshot takes this display-only branch; generic
+ // Kursdaten import text keeps the established field-parser semantics.
+ if(!venue&&!/(?:^|\n)\s*(?:Übersicht|Uebersicht|Ubersicht)\s*(?=\r?\n|$)/i.test(raw))return null;
  if(venueOnly&&!venue)return null;
  return {isin:expectedIsin,source:'DEGIRO-Produktdetail',venue,currency,
    ...(venueOnly?{}:{bid,ask}),sourceTime:dates[0],timeBasis:'Kursdaten-Anzeige; keine eigene Geld-/Briefzeit',
