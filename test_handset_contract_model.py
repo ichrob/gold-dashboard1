@@ -48,9 +48,11 @@ class ContractModel(unittest.TestCase):
             lambda q:q['metadata'].update(underlyingType='FUTURE'),lambda q:q['metadata'].update(ratio=.2),
             lambda q:q['conditions']['ko'].update(fixed=False),lambda q:q['conditions']['ko'].update(conditionVerified=False),
             lambda q:q['conditions']['ko'].update(conflict=True),lambda q:q['conditions']['ko'].update(value=4401),
+            lambda q:q['conditions']['ko'].update(revoked=True),
             lambda q:q['conditions']['ko'].update(source='wrong'),lambda q:q['conditions']['ko'].update(validUntil='2026-11-12'),
             lambda q:q['termsBackup'].update(state='unavailable')]
         for key,value in [('quanto',True),('quanto',0),('quanto',None),('isin','wrong'),
+            ('revoked',True),('conflict',True),('ocrCorrection',True),
             ('source','wrong'),('direction','LONG'),('ratio',.2),('ko',4401),
             ('reviewedAt',(NOW-timedelta(hours=9)).isoformat()),
             ('reviewedAt',(NOW+timedelta(seconds=1)).isoformat()),('reviewedAt','undated')]:

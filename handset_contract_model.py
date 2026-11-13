@@ -28,6 +28,7 @@ def attach(quote, now):
             or m.get('underlyingType') != 'SPOT' or m.get('underlying') != 'XAU/USD'
             or m.get('direction') not in ('LONG','SHORT')
             or backup.get('state') != 'active' or proof.get('quanto') is not False
+            or any(proof.get(k) for k in ('conflict','revoked','ocrCorrection'))
             or proof.get('isin') != isin
             or proof.get('source') != 'https://www.finanzen.ch/derivate/'+isin.lower()
             or proof.get('type') != 'Knock-out Warrant'
