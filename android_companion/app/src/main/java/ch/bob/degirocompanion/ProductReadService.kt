@@ -891,7 +891,59 @@ class ProductReadService : AccessibilityService() {
                     text=n.text?.toString().orEmpty().take(2000))
             }
     }
-    /** Product-only remote observation and ONE guarded semantic action. No raw screen upload. */
+    /**
+     * A dedicated, passive DEGIRO settings classifier. The screen must be
+     * explicitly opened by the owner. No taps, editable nodes, account numbers,
+     * raw label transfer, or permission changes occur here.
+     */
+    private fun accountSettingsScan(root:AccessibilityNodeInfo):AccountSettingsEvidence.Result? {
+        val labels=mutableListOf<String>()
+        var visited=0
+        var sensitive=false
+        fun visit(node:AccessibilityNodeInfo,depth:Int) {
+            if(sensitive || ++visited>500 || depth>30) { sensitive=true;return }
+            if(!node.isVisibleToUser || node.packageName?.toString()!=ProductScreenEvidence.PACKAGE)return
+            if(node.isPassword || node.isEditable ||
+                    (android.os.Build.VERSION.SDK_INT>=34 && node.isAccessibilityDataSensitive)) {
+                sensitive=true;return
+            }
+            val label=(node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
+            if(label.isNotEmpty())labels+=label.take(251)
+            for(i in 0 until node.childCount.coerceAtMost(100)) {
+                val child=node.getChild(i) ?: continue
+                try { visit(child,depth+1) } finally { child.recycle() }
+                if(sensitive)break
+            }
+        }
+        visit(root,0)
+        // Never interpret an unrelated product, portfolio or order screen as
+        // account settings; keep the normal product protections in charge.
+        val heading=labels.any { label ->
+            val t=label.trim().lowercase(java.util.Locale.ROOT)
+            listOf("währungseinstellungen","currency settings","handelsprofil",
+                "trading profile","kontotyp","account type").any {
+                t==it || t.startsWith("$it:")
+            }
+        }
+        if(!heading)return null
+        return AccountSettingsEvidence.read(ProductScreenEvidence.PACKAGE,labels,sensitive)
+    }
+
+    private fun accountSettingsReceipt(e:AccountSettingsEvidence.Result):org.json.JSONObject {
+        val receipt=PhoneRemote.empty(e.code)
+        if(e.code in setOf("ACCOUNT_SETTINGS_COMPLETE","ACCOUNT_SETTINGS_PARTIAL")) {
+            val status=if(e.code=="ACCOUNT_SETTINGS_COMPLETE") "COMPLETE" else "PARTIAL"
+            receipt.put("accountSettings",org.json.JSONObject()
+                .put("source","degiro-app-local-accessibility")
+                .put("capturedAt",System.currentTimeMillis()/1000)
+                .put("status",status)
+                .put("feeProfile",e.feeProfile ?: org.json.JSONObject.NULL)
+                .put("autoFx",e.autoFx ?: org.json.JSONObject.NULL))
+        }
+        return receipt
+    }
+
+    /** Product-only remote observation plus explicitly requested redacted settings. */
     private fun remoteRead(command:org.json.JSONObject?):org.json.JSONObject {
         fun observation(code:String)=PhoneRemote.empty(code)
         if(!PhoneRemote.active())return observation("SESSION_EXPIRED")
@@ -912,6 +964,14 @@ class ProductReadService : AccessibilityService() {
             if(connectionErrorVisible(root)) {
                 stopForConnectionError()
                 return observation("CONNECTION_ERROR")
+            }
+            val actionName=command?.optString("action") ?: "inspect"
+            if(actionName=="read_account_settings" || command==null || actionName=="inspect") {
+                val settings=accountSettingsScan(root)
+                if(actionName=="read_account_settings")
+                    return accountSettingsReceipt(settings ?: AccountSettingsEvidence.Result("SETTINGS_NOT_VISIBLE"))
+                if(settings!=null)
+                    return observation(if(settings.code=="PROTECTED_VIEW") "PROTECTED_VIEW" else "SETTINGS_READY")
             }
             navigationTree(root,nodes,descriptions)
             // Inspect the previous product context while Android finishes BACK.
@@ -947,7 +1007,6 @@ class ProductReadService : AccessibilityService() {
                     else -> Unit
                 }
             }
-            val actionName=command?.optString("action") ?: "inspect"
             val target=command?.optString("isin").orEmpty()
             val observedTarget=if(MorningReadRun.running) MorningReadRun.target else
                 Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(descriptions.joinToString("\n") { it.text.uppercase() })
