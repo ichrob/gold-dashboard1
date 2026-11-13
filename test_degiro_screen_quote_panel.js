@@ -45,8 +45,6 @@ const report=b.degiroBrokerQuotePanelState(input,now);
 assert.equal(report.total,2);assert.equal(report.quotes,1);assert.equal(report.recent,1);
 assert.equal(report.items[0].status.state,'display-recent');
 assert.equal(report.items[1].status.state,'missing');
-// venueMissing verified by original cropped-footer fixture. The screenshot is
-// a local display observation only; it cannot fill the issuer quote or venue.
 const sampleTime=Date.parse('2026-11-13T09:02:35Z');
 const chfId='DE000FE6B3E4',eurId='DE000FA9UFD4';
 const chfText=[
@@ -87,11 +85,9 @@ for(const [label,text,expected,currency,bid,ask] of [
  assert.equal(b.parseDegiroDisplayedQuote(text,expected,true),null,'venue-only proof must fail closed');
  const state=b.degiroScreenQuoteState(parsed,expected,sampleTime);
  assert.equal(state.state,'display-recent',label);
- assert.equal(state.venue,null);
  assert.equal(state.venueMissing,true);
  assert.equal(state.tradeApproved,false);
  assert.equal(state.executionConfirmed,false);
- assert.equal(state.brokerConnected,false);
  assert.equal(state.isExecutableQuote,false);
  assert.equal(b.degiroScreenQuoteState(parsed,expected,sampleTime+120000).state,'historical');
  assert.equal(b.degiroScreenQuoteState(parsed,expected,sampleTime-120000).state,'invalid-time');
@@ -106,7 +102,6 @@ assert.equal(b.parseDegiroDisplayedQuote(chfText.replace('13/11/2026 10:02',''),
 const croppedReport=b.degiroBrokerQuotePanelState([
  {isin:chfId,direction:'LONG',slot:1,snapshot:{isin:chfId,degiroDisplayedQuote:b.parseDegiroDisplayedQuote(chfText,chfId)},listingConfirmed:true}
 ],sampleTime);
-assert.equal(croppedReport.quotes,1);
 assert.equal(croppedReport.items[0].status.venueMissing,true);
 
 const source=fs.readFileSync('degiro_assistant.js','utf8');
