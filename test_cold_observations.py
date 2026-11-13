@@ -28,6 +28,22 @@ class ReferenceTests(unittest.TestCase):
         self.assertNotIn('payload',key_page)
         self.assertIn('ORDER BY campaign,slot',key_page)
 
+    def test_large_status_uses_catalog_gate_not_full_aggregate(self):
+        from contextlib import nullcontext
+        class Conn:
+            def __init__(self): self.queries=[]; self.value=(1000,)
+            def transaction(self): return nullcontext()
+            def execute(self,sql,params=None): self.queries.append(sql); return self
+            def fetchone(self): return self.value
+        conn=Conn()
+        result=cold.status(conn)
+        self.assertEqual(result['status'],'bounded-large-relation')
+        self.assertEqual(result['estimatedUniqueObjects'],1000)
+        self.assertFalse(result['totalsComplete'])
+        self.assertEqual(len(conn.queries),1)
+        self.assertIn('pg_class',conn.queries[0])
+        self.assertNotIn('sum(moved_rows)',conn.queries[0])
+
     def test_content_hash_verified(self):
         value={'number':9007199254740993,'nested':[False,None,3.25]}
         key=cold.codec.digest(cold.codec.encoded(value))

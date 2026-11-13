@@ -185,9 +185,22 @@ PROJECTION = """SELECT jsonb_build_object(
 
 def report(conn):
     deadline = time.monotonic() + 2
-    # The cursor holds one statement snapshot for anchors and the full stream.
-    # Derive cohort anchors in that SAME statement using a window projection.
-    query = "SELECT item, min(CASE WHEN item->>'version'='entry-exit-v1' AND jsonb_typeof(item->'startedAt')='number' THEN (item->>'startedAt')::numeric END) OVER (PARTITION BY item->>'ruleVersion') FROM (" + PROJECTION + ") AS data(item)"
+    # Keep anchors and the full stream in one statement snapshot, but do not
+    # apply a window over the large projected JSON objects.  PostgreSQL had to
+    # materialize/sort that projection before the first named-cursor fetch,
+    # making FETCH FORWARD 32 exceed the diagnostic statement budget.  The
+    # small scalar anchor CTE can be materialized first and hash-joined while
+    # the privacy-preserving projection streams normally.
+    query = """WITH anchors AS MATERIALIZED (
+        SELECT payload->>'ruleVersion' AS rule,
+          min(CASE WHEN payload->>'version'='entry-exit-v1'
+                    AND jsonb_typeof(payload->'startedAt')='number'
+                   THEN (payload->>'startedAt')::numeric END) AS first_at
+        FROM bob_entry_exit_comparison
+        GROUP BY payload->>'ruleVersion')
+      SELECT data.item, anchors.first_at
+      FROM (""" + PROJECTION + """ ) AS data(item)
+      LEFT JOIN anchors ON anchors.rule=data.item->>'ruleVersion'"""
     starts = {}
     def stream(cursor):
         for item, raw in cursor:

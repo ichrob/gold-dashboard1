@@ -20,10 +20,14 @@ _cached_at = 0
 # MD5 grouping is an exploratory candidate, NOT an exact-identical-image
 # proof suitable for rewriting rows or changing retention. Collision-safe
 # deduplication would require cryptographic checks AND bytewise read-through.
-_SQL = """WITH newest AS MATERIALIZED (
-    SELECT payload FROM bob_android_list_images
+_SQL = """WITH newest_keys AS MATERIALIZED (
+    SELECT batch_id,created_at FROM bob_android_list_images
     WHERE created_at >= now()-interval '24 hours'
-    ORDER BY created_at DESC,batch_id DESC LIMIT 8
+    ORDER BY created_at DESC,batch_id DESC LIMIT %s
+), newest AS MATERIALIZED (
+    SELECT i.payload FROM newest_keys k
+    JOIN bob_android_list_images i USING(batch_id)
+    ORDER BY k.created_at DESC,k.batch_id DESC
 ), selected AS MATERIALIZED (
     SELECT octet_length(img.image->>'png')::bigint encoded_bytes,
            md5(img.image->>'png') fingerprint
@@ -53,10 +57,14 @@ SELECT
 # and only while the encoded sample is strictly bounded. It returns no images,
 # SHA-256 strings or even single-image lengths; all are discarded in-process.
 _MAX_EXACT_ENCODED = 12_000_000
-_EXACT_SQL = """WITH newest AS MATERIALIZED (
-    SELECT payload FROM bob_android_list_images
+_EXACT_SQL = """WITH newest_keys AS MATERIALIZED (
+    SELECT batch_id,created_at FROM bob_android_list_images
     WHERE created_at >= now()-interval '24 hours'
-    ORDER BY created_at DESC,batch_id DESC LIMIT 8
+    ORDER BY created_at DESC,batch_id DESC LIMIT %s
+), newest AS MATERIALIZED (
+    SELECT i.payload FROM newest_keys k
+    JOIN bob_android_list_images i USING(batch_id)
+    ORDER BY k.created_at DESC,k.batch_id DESC
 )
 SELECT img.image->>'png'
 FROM newest n CROSS JOIN LATERAL
@@ -82,7 +90,7 @@ def _verify_exact(conn, summary):
         with conn.transaction():
             conn.execute("SET LOCAL statement_timeout='2000ms'")
             conn.execute("SET LOCAL lock_timeout='500ms'")
-            rows=conn.execute(_EXACT_SQL).fetchall()
+            rows=conn.execute(_EXACT_SQL,(_SAMPLE_BATCHES,)).fetchall()
         if type(rows) is not list or len(rows)!=summary['sampledImages']:
             return {'exactVerificationStatus':'cohort-changed',
                     'exactDuplicateProven':False}
@@ -184,7 +192,7 @@ def report(conn, now=None):
             with conn.transaction():
                 conn.execute("SET LOCAL statement_timeout='1500ms'")
                 conn.execute("SET LOCAL lock_timeout='500ms'")
-                row=conn.execute(_SQL).fetchone()
+                row=conn.execute(_SQL,(_SAMPLE_BATCHES,)).fetchone()
             result=_counts(row, at)
             if result.get('status')=='sampled':
                 result.update(_verify_exact(conn,result))
