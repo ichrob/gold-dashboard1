@@ -7,6 +7,23 @@ from test_trade_document_import import TEXT
 
 
 class MailRecoveryTests(unittest.TestCase):
+    def test_read_errors_report_limits_without_private_message_content(self):
+        import io
+        from contextlib import redirect_stdout
+        from unittest.mock import MagicMock
+        for body, cap, code in [(b'private-receipt-data', 8, 'response-size-limit'),
+                                (b'private-receipt-data', 100, 'invalid-json'),
+                                (b'[]', 100, 'invalid-json-shape')]:
+            response=MagicMock()
+            response.__enter__.return_value.read.side_effect=lambda n: body[:n]
+            output=io.StringIO()
+            with patch.object(recovery,'urlopen',return_value=response), redirect_stdout(output):
+                with self.assertRaises(ValueError):
+                    recovery.api_json(recovery.BASE+'/private-message-id', 'private-key', cap)
+            self.assertIn('code='+code, output.getvalue())
+            for private in ('private-receipt', 'private-message-id', 'private-key'):
+                self.assertNotIn(private, output.getvalue())
+
     def test_authenticated_inbox_recovery_is_scoped_and_idempotent(self):
         mid="<test-confirmation@example.test>"
         def fake_get(url,key,cap):
