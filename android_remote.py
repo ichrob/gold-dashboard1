@@ -81,6 +81,12 @@ def exchange(state,value,now):
         # A heartbeat cannot silently extend a previously consented session.
         value=dict(value,expiresAt=min(state['expiresAt'],value['expiresAt']))
     state.update({k:value[k] for k in ('active','expiresAt','observation')})
+    # Preserve the last small, already-validated enum receipt within this
+    # consented session. Normal 2-second product heartbeat must not erase it.
+    # Never promote it into fee configuration or executed-quote fields.
+    if 'accountSettings' in obs:
+        state['accountSettings']=dict(obs['accountSettings'],accountFeeConfirmed=False,
+                                      brokerExecutionConfirmed=False)
     state['seenAt']=now
     ack=value['ack']
     if ack is not None:
