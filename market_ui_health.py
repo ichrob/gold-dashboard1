@@ -30,7 +30,7 @@ def snapshot(now=None):
     with _lock:
         recent = [dict(v) for v in _tabs.values() if 0 <= now-v['observedAt'] <= 180]
     faults = sorted({v['code'] for v in recent if v['code'] in {'spot-mismatch','spot-hidden','warning-unrendered'}})
-    return {'status':'observed' if recent else 'unavailable',
+    return {'status':'degraded' if faults else 'observed' if recent else 'not-observed',
             'state':'error' if faults else 'observed' if recent else 'not-observed',
             'activeReports':len(recent), 'codes':faults,
             'healthyReports':sum(v['code']=='ok' for v in recent),
