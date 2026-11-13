@@ -24,17 +24,19 @@ SG_CH_PRODUCTS = {'DE000FG34XV8': 7039911, 'DE000FG14AV8': 6901337}
 # Exact FB0CVV issuer identity and EUR/Put terms confirmed on SG's own
 # public product page (26.10.2026). Product ID and quote must STILL come from
 # SG Products/<ISIN>; never substitute WKN, screen time, or a BNP price.
-SG_DISCOVERY_PRODUCTS = frozenset(('DE000FG7N6Z2', 'DE000FG8NHQ3', 'DE000FB0CVV9'))
+SG_DISCOVERY_PRODUCTS = frozenset((
+    'DE000FG7N6Z2', 'DE000FG8NHQ3', 'DE000FB0CVV9',
+    # Exact SG issuer product webpage shows FA9UFD as a Gold BEST Turbo Call.
+    # The official Products/<ISIN> JSON reply must STILL establish ID/terms.
+    'DE000FA9UFD4',
+))
 SG_CH_MARKET = frozenset((*SG_CH_PRODUCTS, 'DE000FG8NHQ3'))
 # Exact 03-Nov-2026 DEGIRO-listed EUR Gold products whose identity was
 # independently observed on comdirect. SG still MUST confirm its own exact
 # product ID, EUR/CBDE channel, knockout type and terms before any issuer
 # market data can be accepted. A missing SG record is not proof of delisting.
 SG_EUR_DEGIRO_CANDIDATES = frozenset(('DE000SX7PE82', 'DE000FA94U71',
-                                      'DE000FA9V5S0',
-                                      # Exact SG FA9UFD / comdirect identity;
-                                      # issuer product ID still must be verified.
-                                      'DE000FA9UFD4'))
+                                      'DE000FA9V5S0'))
 
 def sg_on_demand_candidate(isin):
     """Exact, checksum-valid SG issuer lookup for user-supplied SG-family ISINs.
