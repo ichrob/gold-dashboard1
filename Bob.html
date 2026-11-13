@@ -438,9 +438,9 @@ try{
   const price=el('spot','price');
   const overview=document.getElementById('bob-view-overview');
   if(document.visibilityState!=='visible'||window.BobSession?.expired()||(overview&&overview.hidden))return;
-  if(!price)return;
   const q=quotes.spot,at=Date.parse(q?.at),fresh=positive(q?.price)&&Number.isFinite(at)&&Date.now()>=at&&Date.now()-at<=120000;
   if(!fresh){await reportUi('data-unavailable');return;}
+  if(!price){await reportUi('spot-hidden');return;}
   const expected=number(q.price),warning=document.getElementById('earlyImpulseStatus');
   const hidden=!price.getClientRects().length||(typeof getComputedStyle==='function'&&getComputedStyle(price).visibility==='hidden');
   const mismatch=price.textContent!==expected;
