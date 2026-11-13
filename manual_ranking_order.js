@@ -331,6 +331,8 @@ function compareHandsetModel({report,candidate,product,preliminary,fx,
     product.quote?.sourceDisabled===true||product.quote?.metadata?.tradingHalted===true||
     product.quote?.metadata?.status!==undefined&&product.quote.metadata.status!==1)
   return fail('Produktidentität, Richtung oder Produktstatus nicht gültig.');
+ if(preliminary?.available===false&&preliminary.isin===candidate.isin)
+  return fail(preliminary.reason||'Aktueller unabhängiger Modellplan fehlt.');
  if(!preliminary?.available||preliminary.isin!==candidate.isin||
     !fresh(preliminary.quoteAt,now,MAX_QUOTE_AGE)||
     !positive(preliminary.entry)||!positive(preliminary.stop))
