@@ -193,6 +193,31 @@ class FreshPaperBundleTests(unittest.TestCase):
         self.assertEqual(paper.next_quality_generation(current,selected,7),8)
         self.assertEqual(paper.next_quality_generation(current,current,7),7)
 
+    def test_rollout_delayed_local_generation_is_not_a_new_invalid_cycle(self):
+        selected=bundle(self.NOW,11)
+        self.assertFalse(paper.expired_local_quality_generation(
+            0,1,selected,selected,self.NOW,self.NOW))
+        # Preserve #1657: a source valid at analysis remains eligible for its
+        # bounded persistence handoff even if it crosses 60s afterward.
+        self.assertFalse(paper.expired_local_quality_generation(
+            0,1,selected,selected,self.NOW,self.NOW+50000))
+        self.assertTrue(paper.expired_local_quality_generation(
+            0,1,selected,selected,self.NOW+50000,self.NOW+50000))
+        fresher=bundle(self.NOW+50000,5)
+        self.assertFalse(paper.expired_local_quality_generation(
+            0,1,selected,fresher,self.NOW+50000,self.NOW+50000))
+        # Once consumed, quote-only wakeups cannot skip or persist it again.
+        self.assertFalse(paper.expired_local_quality_generation(
+            1,1,selected,selected,self.NOW+50000,self.NOW+50000))
+
+    def test_unknown_and_future_clocks_stay_fail_closed(self):
+        missing={'spots':{},'history':{}}
+        future=bundle(self.NOW,-5)
+        self.assertFalse(paper.expired_local_quality_generation(
+            0,1,missing,missing,self.NOW+50000,self.NOW+50000))
+        self.assertFalse(paper.expired_local_quality_generation(
+            0,1,future,future,self.NOW,self.NOW))
+
 
 class OriginalStudyCandleRetryTests(unittest.TestCase):
     """Original source-time recheck only, without estimates or market-gate bypass."""
