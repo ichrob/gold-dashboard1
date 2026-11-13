@@ -132,7 +132,8 @@ class TwelveResearchTests(unittest.TestCase):
             def __init__(self): self.called=0
             def open(self,url,timeout):
                 self.called+=1
-                self.url=url
+                self.url=url.full_url
+                self.auth=url.get_header('Authorization')
                 self.timeout=timeout
                 return FakeResponse()
         config={'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED':'1',
@@ -146,6 +147,8 @@ class TwelveResearchTests(unittest.TestCase):
                 self.assertEqual(result['code'],'OBSERVED_EARLIEST')
                 self.assertEqual(client.called,1)
                 self.assertIn('earliest_timestamp?',client.url)
+                self.assertNotIn('test_only_fake_key',client.url)
+                self.assertEqual(client.auth,'apikey test_only_fake_key')
                 self.assertNotIn('2020',str(result))
                 self.assertEqual(db.execute(
                     'SELECT earliest_unix FROM td_research_depth').fetchone()[0],
@@ -175,7 +178,8 @@ class TwelveResearchTests(unittest.TestCase):
             def read(self,size): return b'{"meta":{"symbol":"XAU/USD","interval":"5min","type":"Precious Metal","currency_base":"Gold Spot","currency_quote":"US Dollar"},"values":[]}'
         class FakeOpener:
             def open(self,url,timeout):
-                self.url=url
+                self.url=url.full_url
+                self.auth=url.get_header('Authorization')
                 return FakeResponse()
         config={'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED':'1',
                 'BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED':'1',
@@ -189,5 +193,7 @@ class TwelveResearchTests(unittest.TestCase):
                 self.assertNotIn('outputsize=',client.url)
                 self.assertIn('start_date=',client.url)
                 self.assertIn('end_date=',client.url)
+                self.assertNotIn('test_only_fake_key',client.url)
+                self.assertEqual(client.auth,'apikey test_only_fake_key')
 
 if __name__=='__main__':unittest.main()
