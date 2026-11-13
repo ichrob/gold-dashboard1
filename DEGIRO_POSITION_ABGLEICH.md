@@ -1,3 +1,14 @@
+## Historische Gebührennachweise (Ergänzung 13.11.2026)
+
+**Zwei bestehende Wege, keine neue Brokerberechtigung und keine neue Order:**
+
+- Der Nutzer kann weiterhin eine DEGIRO-**Transaktions-CSV** in **Mehr → DEGIRO** importieren. Der Parser las bereits `Transaktionskosten` und `Gebührenwährung`, aber die Positionsabstimmung hatte sie verworfen. Sie bleiben jetzt als **vorzeichenbehafteter Originalbetrag in ausdrücklich ausgewiesener Originalwährung** auf dem Gerät erhalten. Fehlt der Betrag oder eine unterstützte Gebührenwährung, wird `unbekannt` geführt – niemals automatisch `0`.
+- Die vorhandene **AgentMail-/PDF-/HTML-Bestätigungsstrecke** kann für historische DEGIRO-Ausführungen eine begrenzte Aufteilung `Kosten AutoFX` / `Transaktions- und Fremdkosten` liefern. Nur exakt geprüfte, numerische, nichtnegative Beträge in CHF, deren Summe zur ausgewiesenen `Gesamte Kosten` passt, werden im Abgleich übernommen. Die Ausführungsmail bleibt `pending-review` – eine Absenderadresse allein ist keine unabhängige Brokerbestätigung.
+
+Bei eindeutiger Übereinstimmung von ISIN, BUY/SELL, Stückzahl, Produktwährung, Preis, Handelsdatum und **Sekundenuhrzeit** erscheint im Panel `Mein Trade → Positionsabstimmung · DEGIRO CSV + Bestätigungsmails` die historische Gebührenangabe. Identische E-Mails mit demselben Orderkennungsdigest zählen nur einmal; abweichende Gebührenaufteilungen derselben Order bleiben mehrdeutig. **CSV und PDF/HTML werden separat gezeigt, niemals addiert oder ohne belegten FX-Kurs umgerechnet.**
+
+**Was diese Reparatur ausdrücklich nicht behauptet:** Ein historischer Gebührenbeleg belegt weder den zukünftigen DEGIRO-Orderpreis noch einen für die aktuelle ISIN ausführbaren Geld-/Briefkurs. Bobs bisheriges `degiro_quote_probe` liefert trotz echter Preisupdates keine ursprünglichen Seitenzeitstempel; es bleibt `isExecutableQuote=false`. Die vollständige aktuelle Trading-Venue- und Brokerquote-Identität muss für jede ISIN getrennt nachgewiesen werden. `Bid Only` (nur Geld, kein Brief) und `MARKT GESCHLOSSEN` können zulässige Broker-/Emittentenzustände sein, keine erfundenen Briefkurse. Beim fehlenden Produkt **DE000FA9UFD4** sind alte comdirect-Kurse keine gültigen aktuellen DEGIRO-Ausführungsangebote.
+
 # Bob – Positionsabstimmung aus DEGIRO-CSV und Ausführungsbestätigungen
 
 ## Nutzerziel (3. November 2026)

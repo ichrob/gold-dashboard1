@@ -7,12 +7,33 @@ const store=()=>{const map=new Map();return {
  setItem:(k,v)=>map.set(k,String(v)),removeItem:k=>map.delete(k)};};
 const storage=store();
 const transactions={kind:'transactions',records:[
- {isin:valid,side:'Buy',quantity:4,price:'12,50',currency:'EUR',date:'02.11.2026',time:'14:05:06'},
- {isin:valid,side:'Sell',quantity:2,price:'13,00',currency:'EUR',date:'02.11.2026',time:'14:07:08'}
+ {isin:valid,side:'Buy',quantity:4,price:'12,50',currency:'EUR',date:'02.11.2026',time:'14:05:06',
+  fee:'-1,25',feeCurrency:'EUR'},
+ {isin:valid,side:'Sell',quantity:2,price:'13,00',currency:'EUR',date:'02.11.2026',time:'14:07:08',
+  fee:'-0,50',feeCurrency:'CHF'}
  ],invalidRows:[]};
 const parsed=p.saveTransactions(storage,transactions,'2026-11-03T01:00:00Z');
 assert.equal(parsed.rows.length,2);
 assert.equal(parsed.rows[0].price,12.5);
+// End-to-end through the existing user CSV parser, not a made-up fee API.
+const importCsv=require('./degiro_report_import.js').readReport([
+ 'Datum;Uhrzeit;ISIN;Anzahl;Kauf/Verkauf;Kurs;Währung;Transaktionskosten;Gebührenwährung',
+ '02.11.2026;14:05:06;'+valid+';4;Kauf;12,50;EUR;-1,25;EUR',
+ '02.11.2026;14:07:08;'+valid+';2;Verkauf;13,00;EUR;-0,50;CHF'
+].join('\n'));
+const importedFees=p.normalTransactions(importCsv,'2026-11-03T01:00:00Z');
+assert.equal(importedFees.rows[0].fee,-1.25);
+assert.equal(importedFees.rows[0].feeCurrency,'EUR');
+assert.equal(importedFees.rows[1].fee,-0.5);
+assert.equal(importedFees.rows[1].feeCurrency,'CHF');
+assert.equal(parsed.rows[0].fee,-1.25);
+assert.equal(parsed.rows[0].feeCurrency,'EUR');
+assert.equal(parsed.rows[0].feeState,'reported');
+assert.equal(parsed.rows[1].fee,-0.5);
+assert.equal(parsed.rows[1].feeCurrency,'CHF');
+assert.equal(p.loadTransactions(storage).rows[0].fee,-1.25);
+assert.equal(p.loadTransactions(storage).rows[1].feeCurrency,'CHF');
+
 const signedSale=p.normalTransactions({kind:'transactions',records:[
  {...transactions.records[1],quantity:-2}]},'2026-11-03T01:00:00Z');
 assert.equal(signedSale.rows[0].quantity,2);
@@ -43,6 +64,86 @@ assert.equal(result.items[0].matched,2);
 assert.equal(result.items[0].emailNet,2);
 assert.equal(result.items[0].csvQuantity,2);
 assert.equal(result.items[0].state,'partial-verified');
+
+const pdfCost=(original,cost,fx,transaction)=>({...original,result:{
+ ...original.result,sourceKind:'DEGIRO-execution-PDF',costsChf:cost,
+ feeEvidence:{scope:'single-execution',tariffConfirmed:false,sumChecked:true,
+  autoFxChf:fx,transactionChf:transaction}
+}});
+const pdfBuy=pdfCost(buy,0.48,0.03,0.45);
+const pdfSell=pdfCost(sell,0.72,0.04,0.68);
+const fromPdf=p.compare(csv,parsed,{configured:true,items:[pdfBuy,pdfSell]});
+assert.equal(fromPdf.items[0].documentFeeRows,2);
+assert.equal(fromPdf.items[0].documentFeeMatchedCsv,2);
+assert.equal(fromPdf.items[0].matchedFeeRows,2);
+assert(Math.abs(fromPdf.items[0].documentCostsCHF-1.2)<1e-8);
+assert(Math.abs(fromPdf.items[0].documentAutoFxCHF-.07)<1e-8);
+assert(Math.abs(fromPdf.items[0].documentTransactionCHF-1.13)<1e-8);
+assert.deepEqual(fromPdf.items[0].matchedFeesByCurrency,{EUR:-1.25,CHF:-0.5},
+ 'PDF breakdown and signed CSV fees remain separate; never add or FX-convert them');
+const duplicatedPdf=p.compare(csv,parsed,{configured:true,items:[pdfBuy,pdfBuy,pdfSell]});
+assert.equal(duplicatedPdf.items[0].documentFeeRows,2);
+assert.equal(duplicatedPdf.items[0].documentCostsCHF,fromPdf.items[0].documentCostsCHF);
+assert.equal(duplicatedPdf.items[0].documentFeeMatchedCsv,2);
+const pdfWithoutCsv=p.compare(null,null,{configured:true,items:[pdfBuy,pdfSell]});
+assert.equal(pdfWithoutCsv.items[0].documentFeeRows,2);
+assert.equal(pdfWithoutCsv.items[0].documentFeeMatchedCsv,0);
+assert.equal(pdfWithoutCsv.brokerCurrent,false);
+const dubious=pdfCost(buy,0.48,0.03,0.90);
+assert.equal(p.stableMail(dubious).documentedCostsCHF,null);
+const noPdfScope=pdfCost(buy,0.48,0.03,0.45);
+noPdfScope.result.sourceKind='unrelated-email-HTML';
+assert.equal(p.stableMail(noPdfScope).documentedCostsCHF,null);
+const htmlReceipt={...pdfBuy,result:{...pdfBuy.result,
+ sourceKind:'DEGIRO-execution-email-HTML'}};
+assert.equal(p.stableMail(htmlReceipt).documentedCostsCHF,0.48,
+ 'Valid costs carried through existing DEGIRO HTML mail should not be discarded');
+const htmlMatched=p.compare(csv,parsed,{configured:true,items:[htmlReceipt,pdfSell]});
+assert.equal(htmlMatched.items[0].documentFeeRows,2);
+assert.equal(htmlMatched.items[0].documentFeeMatchedCsv,2);
+const conflictingPdf=p.compare(csv,parsed,{configured:true,items:[pdfBuy,
+ pdfCost(buy,0.58,0.03,0.55),pdfSell]});
+assert.equal(conflictingPdf.items[0].ambiguous,1);
+assert.equal(conflictingPdf.items[0].documentFeeRows,1);
+assert.equal(conflictingPdf.items[0].matched,1,
+ 'Contradicting fee splits for one order never create a confirmed match');
+
+assert.equal(result.items[0].csvFeeRows,2);
+assert.equal(result.items[0].csvFeeUnknown,0);
+assert.equal(result.items[0].matchedFeeRows,2);
+assert.deepEqual(result.items[0].matchedFeesByCurrency,{EUR:-1.25,CHF:-0.5},
+ 'Keep historical signed fees separate by original currency; do not convert or claim current fees');
+const duplicateCost=p.compare(csv,parsed,{configured:true,items:[buy,buy,sell]});
+assert.equal(duplicateCost.items[0].matchedFeeRows,2,'Repeated email is not another fee');
+assert.deepEqual(duplicateCost.items[0].matchedFeesByCurrency,{EUR:-1.25,CHF:-0.5});
+const weakFee=p.normalTransactions({kind:'transactions',records:[
+ {...transactions.records[0],fee:'0,00',feeCurrency:'EUR'},
+ {...transactions.records[1],fee:'1,25',feeCurrency:''},
+ {...transactions.records[1],time:'14:08:00',fee:'invalid',feeCurrency:'CHF'},
+ {...transactions.records[1],time:'14:09:00',fee:'',feeCurrency:'CHF'}
+]},'2026-11-03T01:00:00Z');
+assert.equal(weakFee.rows[0].fee,0);
+assert.equal(weakFee.rows[0].feeState,'reported');
+assert.equal(weakFee.rows[1].feeState,'currency-unconfirmed');
+assert.equal(weakFee.rows[1].fee,null);
+assert.equal(weakFee.rows[2].feeState,'invalid');
+assert.equal(weakFee.rows[3].feeState,'not-provided');
+const weakMatched=p.compare(csv,weakFee,{configured:true,items:[buy,sell]});
+assert.equal(weakMatched.items[0].csvFeeRows,1);
+assert.equal(weakMatched.items[0].csvFeeUnknown,3);
+assert.equal(weakMatched.items[0].matchedFeeRows,1);
+assert.deepEqual(weakMatched.items[0].matchedFeesByCurrency,{EUR:0},
+ 'An explicit CSV zero remains a reported CSV value, never global zero-fee proof');
+const noFee=p.normalTransactions({kind:'transactions',records:[
+ {...transactions.records[0],fee:undefined,feeCurrency:undefined}
+]},'2026-11-03T01:00:00Z');
+assert.equal(noFee.rows[0].feeState,'not-provided');
+assert.equal(noFee.rows[0].fee,null);
+const missingFeeMatch=p.compare(csv,noFee,{configured:true,items:[buy]});
+assert.equal(missingFeeMatch.items[0].matchedFeeRows,0);
+assert.deepEqual(missingFeeMatch.items[0].matchedFeesByCurrency,{});
+assert.equal(missingFeeMatch.items[0].csvFeeUnknown,1);
+
 const threeSource=p.compare(csv,parsed,{configured:true,items:[buy,sell]},Date.now(),screenshots);
 assert.equal(threeSource.items[0].screenshotBuys,1);
 assert.equal(threeSource.items[0].screenshotCsvMatched,1);
