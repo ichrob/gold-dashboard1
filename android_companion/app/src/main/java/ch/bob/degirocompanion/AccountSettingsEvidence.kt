@@ -37,13 +37,50 @@ internal object AccountSettingsEvidence {
                 "deaktiviert","ausgeschaltet","aus",
                 "währungseinstellungen","currency settings",
                 "währungsumrechnung","currency conversion",
-                "handelsprofil","trading profile","kontotyp","account type"))return true
+                "handelsprofil","trading profile","kontotyp","account type",
+                "ihre handelseinstellungen","your trading settings",
+                "benutzerkonto auswählen","select account"))return true
+        if(line in planCards)return true
         return Regex(
             "^(?:autofx|auto\\s*fx)\\s*[:=\\-]?\\s*(?:aktiviert|aktiv|eingeschaltet|ein|on|enabled|" +
                 "deaktiviert|ausgeschaltet|aus|off|disabled)$"
         ).matches(line) || Regex(
             "^(?:handelsprofil|trading profile|kontotyp|account type)\\s*[:=\\-]\\s*(?:basic|active|trader)$"
         ).matches(line)
+    }
+
+    // Do not equate the presence of all three available plans with the
+    // user's ACTIVE plan. The screenshot's green border is not text.
+    // Only an Android-selected node or a fully visible set of three cards
+    // with selection buttons on exactly the other two can identify a plan.
+    private val planCards=mapOf("basic-benutzerkonto" to "BASIC",
+        "active-benutzerkonto" to "ACTIVE", "trader-benutzerkonto" to "TRADER",
+        "basic account" to "BASIC", "active account" to "ACTIVE",
+        "trader account" to "TRADER")
+    fun exactCardProfile(label:String):String?=planCards[normalize(label)]
+
+    private fun profilePicker(text:List<String>):Boolean =
+        "ihre handelseinstellungen" in text || "your trading settings" in text ||
+        (text.any { it in planCards } &&
+          text.any { it=="benutzerkonto auswählen" || it=="select account" })
+
+    private fun uniquelySelectedProfile(text:List<String>):String? {
+        val cards=text.mapIndexedNotNull { index,label ->
+            planCards[label]?.let { index to it }
+        }
+        if(cards.map { it.second }.toSet()!=setOf("BASIC","ACTIVE","TRADER") ||
+            cards.size!=3)return null
+        // Need the whole three-card snapshot, never infer from a partly
+        // visible card. Two other cards must have an exact "choose" button.
+        val buttons=text.withIndex().filter {
+            it.value=="benutzerkonto auswählen" || it.value=="select account"
+        }.map { it.index }
+        if(buttons.size!=2)return null
+        val selected=cards.filterIndexed { idx,card ->
+            val until=cards.getOrNull(idx+1)?.first ?: text.size
+            buttons.none { it>card.first && it<until }
+        }
+        return selected.singleOrNull()?.second
     }
 
     /** Exact currency table as rendered by DEGIRO even when its heading
@@ -60,7 +97,7 @@ internal object AccountSettingsEvidence {
         return text.any { line -> setOf("währungseinstellungen", "currency settings",
             "währungsumrechnung", "currency conversion", "handelsprofil", "trading profile",
             "kontotyp", "account type").any { line == it || line.startsWith("$it:") } } ||
-            currencyTable(text)
+            currencyTable(text) || profilePicker(text)
     }
 
     /** Only the explicit owner settings session can invoke a local read.
@@ -68,14 +105,15 @@ internal object AccountSettingsEvidence {
     fun ownerReadAllowed(ownerSettingsSession:Boolean,notYetRead:Boolean,code:String) =
         ownerSettingsSession && notYetRead && code=="SETTINGS_READY"
 
-    fun read(app: String, labels: List<String>, sensitive: Boolean = false): Result {
+    fun read(app: String, labels: List<String>, sensitive: Boolean = false,
+             selectedProfiles:List<String> = emptyList()): Result {
         if (app != ProductScreenEvidence.PACKAGE) return Result("OTHER_APP")
         if (sensitive || labels.size > 500 || labels.sumOf { it.length } > 20000)
             return Result("PROTECTED_VIEW")
         val text = labels.map(::normalize).filter { it.isNotBlank() }
         if (text.any { it.length > 250 || hasProtectedLabel(it) }) return Result("PROTECTED_VIEW")
 
-        val accountContext = text.any {
+        val accountContext = profilePicker(text) || text.any {
             it == "handelsprofil" || it == "trading profile" ||
             it == "kontotyp" || it == "account type" ||
             it.startsWith("handelsprofil:") || it.startsWith("trading profile:") ||
@@ -90,6 +128,15 @@ internal object AccountSettingsEvidence {
         if (!accountContext && !currencyContext) return Result("SETTINGS_NOT_VISIBLE")
 
         val profiles = mutableSetOf<String>()
+        if(accountContext) {
+            // Selection is accepted only when the selected Android semantic
+            // node matches an exact displayed card heading; arbitrary
+            // "Basic" text in a choice list never becomes account evidence.
+            selectedProfiles.filter { it in setOf("BASIC","ACTIVE","TRADER") }
+                .filter { selected -> text.any { planCards[it]==selected } }
+                .forEach { profiles+=it }
+            uniquelySelectedProfile(text)?.let { profiles+=it }
+        }
         if (accountContext) text.forEachIndexed { index, line ->
             val embedded = Regex("^(?:handelsprofil|trading profile|kontotyp|account type)\\s*[:=\\-]\\s*(basic|active|trader)$")
                 .matchEntire(line)?.groupValues?.get(1)
