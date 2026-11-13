@@ -23,6 +23,44 @@ function readChfFx(spots,now=Date.now(),currency='EUR'){
  return {available:true,rate:Number(chf.rate)/Number(eur.rate),
    note:'EUR/CHF aus USD/CHF ÷ USD/EUR; FX-Quellenzeit '+seenAt(chf.fetchedAt)+' / '+seenAt(eur.fetchedAt)};
 }
+// Versioned official CH tariff, checked 2026-11-13. No account/profile inference
+// from residence, issuer, ISIN or quote provider. This is a planning reserve,
+// never an actual broker charge or execution permission.
+function resolveFees({config={},report,isin,spots,now=Date.now()}={}){
+ const source='https://www.degiro.ch/data/pdf/ch-de/DE-CH_Preis_und_Leistungsverzeichnis.pdf';
+ const base={source,tariffDate:'2026-01-01',checkedAt:'2026-11-13',estimated:true,
+  rankingPenalty:false,realOrders:false};
+ const fail=reason=>({...base,available:false,feesCHF:null,reason});
+ if(nonnegative(config.feesCHF))return {available:true,feesCHF:config.feesCHF,
+  estimated:false,source:'Nutzereingabe',reason:'Manuell angegebene Gesamtgebühren'};
+ if(config.feesCHF!==null&&config.feesCHF!==undefined)return fail('Ungültige manuelle Gebührenangabe');
+ if(config.feeProfile!=='CH_STANDARD')return fail('Gebühren: Schweizer Standardtarif (Basic/Active/Trader) noch nicht bestätigt.');
+ if(!Number.isFinite(now)||now<Date.parse('2026-11-13T00:00:00Z')||now>=Date.parse('2026-12-13T00:00:00Z'))
+  return fail('Gebührentarif muss anhand des offiziellen Preisverzeichnisses erneut geprüft werden.');
+ const imported=importHandsetReport(report,isin,now);
+ if(!imported.available)return fail('Gebühren: aktueller zugeordneter DEGIRO-Handelsplatzbeleg fehlt.');
+ const venue=String(imported.values?.venue||'').trim().toUpperCase().replace(/\s+/g,' ');
+ // Exact route names only; Société Générale as issuer alone proves no venue.
+ const routes={ 'SG OTC':.5,'OTC SOCIÉTÉ GÉNÉRALE':.5,'OTC SOCIETE GENERALE':.5,
+  'SOCIETE GENERALE OTC':.5,'SOCIÉTÉ GÉNÉRALE OTC':.5,
+  'OTC BNP PARIBAS':.5,'BNP PARIBAS OTC':.5,'BNP OTC':.5,'ZERTIFIKATE-BÖRSE FRANKFURT':3,
+  'EURONEXT ACCESS PARIS':3 };
+ if(!Object.prototype.hasOwnProperty.call(routes,venue))return fail('Gebühren: kein eindeutig unterstützter DEGIRO-Handelsplatz ('+(venue||'fehlt')+').');
+ const fx=readChfFx(spots,now,'EUR');
+ if(!fx.available)return fail('Gebühren in EUR: '+fx.reason);
+ const currency=imported.values.currency;
+ if(!['AUTO_CHF','NO_CONVERSION'].includes(config.fxMode))return fail('Gebühren: Währungswechsel-Einstellung noch nicht bestätigt.');
+ if(!positive(config.budgetCHF))return fail('Gebühren: Einsatzvorgabe fehlt.');
+ const commissionCHF=2*routes[venue]*fx.rate;
+ // Reserve both legs at the whole capital limit. Valid for the loss-stop
+// scenario, not a promise for arbitrary profitable exits or future FX rates.
+ const fxReserveCHF=config.fxMode==='AUTO_CHF'&&currency!=='CHF'?config.budgetCHF*.005:0;
+ const feesCHF=Math.ceil((commissionCHF+fxReserveCHF)*100-1e-9)/100;
+ return {...base,available:true,feesCHF,venue,commissionCHF,fxReserveCHF,fxBasis:fx.note,
+  reason:'Automatische Tarifreserve für Kauf und Stopp-Verkauf; '+
+   'inkl. Bearbeitung'+(fxReserveCHF?' und AutoFX-Reserve':'')+
+   '. Keine Abrechnung; mögliche Steuern und jährliche Börsenanbindung separat. Spread nicht als Gebühr doppelt gezählt.'};
+}
 // Immutable priority: verified current native issuer -> current dated backup
 // observation -> strictly validated product model. Never prefer newer backup
 // over a still-valid original. No retrieval time can renew an old quote.
@@ -336,7 +374,7 @@ function handsetModelText(result){
 const emptyBroker=isin=>({isin:isin||'',currency:'',bid:'',ask:'',quoteAt:'',venue:'',
  buyingPowerCHF:'',fxRateCHF:'',fxAt:'',tickSize:'',lotSize:'',orderType:'',
  orderDuration:'',confirmedByUser:false,edited:false,handsetFingerprint:null});
-const session={budgetCHF:'',riskCHF:'',feesCHF:'',last:null,broker:emptyBroker('')};
+const session={budgetCHF:'',riskCHF:'',feesCHF:'',feeProfile:'unknown',fxMode:'unknown',last:null,broker:emptyBroker('')};
 const planningState={loaded:false,revision:null,lastRead:0,busy:false,editVersion:0,dirty:false};
 async function planningRequest(body){
  const response=await fetch('/api/degiro/android-observations',{method:'POST',credentials:'same-origin',
@@ -352,7 +390,7 @@ function showServerPlanning(panel,data){
  if(!data.resultFresh||!sameList){box.textContent='Serververgleich veraltet oder für eine andere Produktliste. Neue Berechnung wird im Hintergrund geprüft.';return;}
  box.textContent='Serververgleich · '+result.available+' von '+result.items.length+' berechenbar · '+
   new Date(result.calculatedAt).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'})+' Zürich\n'+
-  result.items.map(x=>x.isin+' · '+(x.available?
+  result.items.map(x=>x.isin+' · '+(x.feeAssessment?.available?'Gebühren '+fmt(x.feeAssessment.feesCHF)+' CHF ('+(x.feeAssessment.estimated?'Tarifreserve':'manuell')+') · ':'')+(x.available?
    x.quantity+' Stück · '+fmt(x.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(x.stop,4)+' '+x.currency+
    ' · Modellrisiko '+fmt(x.lossCHF)+' CHF ('+fmt(x.riskUsagePct,1)+' %)':
    (x.modelStop!==null?'Modellstopp '+fmt(x.modelStop,4)+' · ':'')+(x.reasons||[]).join(' · '))).join('\n')+
@@ -367,9 +405,9 @@ async function loadPlanning(panel,replace=false){
   if(planningState.revision===null)planningState.revision=data.revision;
   if(version===planningState.editVersion&&(replace||!planningState.dirty)){
    planningState.revision=data.revision;
-   if(data.config&&(!planningState.loaded||replace))for(const key of ['budgetCHF','riskCHF','feesCHF']){
-    session[key]=String(data.config[key]);
-    panel.querySelector('#'+({budgetCHF:'bobManualBudget',riskCHF:'bobManualRisk',feesCHF:'bobManualFees'})[key]).value=session[key];
+   if(data.config&&(!planningState.loaded||replace))for(const key of ['budgetCHF','riskCHF','feesCHF','feeProfile','fxMode']){
+    session[key]=data.config[key]==null?(['feeProfile','fxMode'].includes(key)?'unknown':''):String(data.config[key]);
+    panel.querySelector('#'+({budgetCHF:'bobManualBudget',riskCHF:'bobManualRisk',feesCHF:'bobManualFees',feeProfile:'bobFeeProfile',fxMode:'bobFeeFx'})[key]).value=session[key];
    }
    if(replace)planningState.dirty=false;
   }
@@ -384,15 +422,19 @@ async function savePlanning(panel){
  if(planningState.busy)return;
  if(planningState.revision===null){status.textContent='Gespeicherten Stand zuerst laden; deine Eingaben bleiben erhalten.';return;}
  const config=Object.fromEntries(['budgetCHF','riskCHF','feesCHF'].map(k=>[k,parseAmount(session[k])]));
+ if(session.feesCHF.trim()==='')config.feesCHF=null;
+ config.feeProfile=session.feeProfile;config.fxMode=session.fxMode;
  config.trailAtr=Number(document.getElementById('trailAtr')?.value||1.5);
  config.minRR=Number(document.getElementById('minRR')?.value||2);
- if(!Object.values(config).every(Number.isFinite)){status.textContent='Kapital, Risiko und Gebühren vollständig eingeben (0 Gebühren nur ausdrücklich).';return;}
+ if(!['budgetCHF','riskCHF','trailAtr','minRR'].every(k=>Number.isFinite(config[k]))||
+    (config.feesCHF!==null&&!Number.isFinite(config.feesCHF))){status.textContent='Kapital und Risiko eingeben. Gebühren leer lassen für automatische Ermittlung.';return;}
  const version=planningState.editVersion;planningState.busy=true;
  try{
   const data=await planningRequest({action:'plan-save',expectedRevision:planningState.revision,config});
   planningState.revision=data.revision;
   if(version===planningState.editVersion)planningState.dirty=false;
-  status.textContent='CHF-Vorgaben und aktuelle Stopp-Parameter dauerhaft gespeichert. Hintergrundberechnung folgt; keine Order.';
+  status.textContent='CHF-Vorgaben und aktuelle Stopp-Parameter dauerhaft gespeichert. '+
+   (config.feesCHF===null?'Bob ermittelt Gebühren je Produkt; fehlende Tarifdaten werden angezeigt. ':'')+'Hintergrundberechnung folgt; keine Order.';
   showServerPlanning(panel,data);
  }catch(e){status.textContent=e.message;}
  finally{planningState.busy=false;planningState.lastRead=0;}
@@ -412,8 +454,12 @@ function ensurePanel(){
   '<div class="grid">'+
    '<div><label for="bobManualBudget">Maximaler Einsatz (CHF)</label><input id="bobManualBudget" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="selbst festlegen"></div>'+
    '<div><label for="bobManualRisk">Maximaler Verlust bis Stopp (CHF)</label><input id="bobManualRisk" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="selbst festlegen"></div>'+
-   '<div><label for="bobManualFees">Kauf- und Verkaufsgebühren gesamt (CHF)</label><input id="bobManualFees" type="number" min="0" step="0.01" inputmode="decimal" placeholder="nachgewiesen; 0 ausdrücklich"></div>'+
+   '<div><label for="bobManualFees">Gebühren (CHF) · nur manuelle Korrektur</label><input id="bobManualFees" type="number" min="0" step="0.01" inputmode="decimal" placeholder="leer = automatisch je Produkt"></div>'+
+   '<div><label for="bobFeeProfile">Dein DEGIRO-Preisverzeichnis</label><select id="bobFeeProfile"><option value="unknown">Noch nicht bestätigt</option><option value="CH_STANDARD">Schweiz · Basic / Active / Trader</option></select></div>'+
+   '<div><label for="bobFeeFx">Währungswechsel für diese Planung</label><select id="bobFeeFx"><option value="unknown">Noch nicht bestätigt</option><option value="AUTO_CHF">CHF-Konto mit AutoFX</option><option value="NO_CONVERSION">Kein Wechsel: vorhandenes Währungsguthaben</option></select></div>'+
   '</div>'+
+  '<p class="small">Einsatz und Verlustgrenze sind auch ohne Gebühren speicherbar. Bob übernimmt die Tarifreserve automatisch je Produkt in die Rechnung, sobald Tarif, Handelsplatz und Währungswechsel zugeordnet sind. Custody/andere Tarife und manuelle Wechsel: tatsächliche Gesamtkosten eintragen. Keine pauschale Gebühr für alle Produkte.</p>'+
+  '<p class="small"><a href="https://www.degiro.ch/data/pdf/ch-de/DE-CH_Preis_und_Leistungsverzeichnis.pdf" target="_blank" rel="noopener">Offizieller CH-Tarif</a> · geprüft 13.11.2026. Reserve für Kauf und Stopp-Verkauf; mögliche Steuern und jährliche Börsenanbindung separat. Keine bestätigte Broker-Abrechnung.</p>'+
   '<button type="button" data-planning-save>CHF-Vorgaben für Hintergrundvergleich speichern</button> '+
   '<button type="button" data-planning-load>Gespeicherte Vorgaben laden</button>'+
   '<p data-planning-status class="small" role="status"></p>'+
@@ -454,6 +500,10 @@ function ensurePanel(){
  }
  panel.querySelector('[data-planning-save]').addEventListener('click',()=>savePlanning(panel));
  panel.querySelector('[data-planning-load]').addEventListener('click',()=>loadPlanning(panel,true));
+ for(const [id,key] of [['bobFeeProfile','feeProfile'],['bobFeeFx','fxMode']]){
+  const field=panel.querySelector('#'+id);field.value=session[key];
+  field.addEventListener('change',()=>{session[key]=field.value;planningState.editVersion++;planningState.dirty=true;if(session.last)renderFrom(session.last);});
+ }
  for(const [id,key] of [
   ['bobManualScreenIsin','isin'],['bobManualScreenCcy','currency'],
   ['bobManualScreenBid','bid'],['bobManualScreenAsk','ask'],['bobManualScreenAt','quoteAt'],
@@ -566,7 +616,7 @@ function renderBrokerComparison(panel,selected,plans,now){
  const result=reconcileBrokerDisplay({
   ...row,preliminary:row?.preliminary,broker:session.broker,
   budgetCHF:parseAmount(session.budgetCHF),riskCHF:parseAmount(session.riskCHF),
-  feesCHF:parseAmount(session.feesCHF),now,direction:row?.candidate?.direction});
+  feesCHF:row?.feesCHF,now,direction:row?.candidate?.direction});
  if(!result.available){
   out.textContent='Noch kein gültiger erneuter Vergleich: '+result.reason;
   return;
@@ -589,7 +639,7 @@ function renderFrom(snapshot){
  const status=panel.querySelector('[data-manual-top3-status]');
  const selected=flow?.approved&&validSide(side)?
   (flow.groups||[]).flatMap(g=>g.candidates||[]).filter((c,i,all)=>all.findIndex(p=>p.isin===c.isin)===i).slice(0,3):[];
- const budgetCHF=parseAmount(session.budgetCHF),riskCHF=parseAmount(session.riskCHF),feesCHF=parseAmount(session.feesCHF);
+ const budgetCHF=parseAmount(session.budgetCHF),riskCHF=parseAmount(session.riskCHF);
  const market=root.productMarketPlan?.(side,now);
  const planByIsin=new Map();
  const handsetComparisons=[];
@@ -601,11 +651,15 @@ function renderFrom(snapshot){
   const stopPlan=product&&quote&&market?.available?
    root.BobDegiro?.productRiskPreview(product,market,now,quote):null;
   const fx=readChfFx(bundle?.spots,now,quote?.currency||currency);
+  const feeAssessment=resolveFees({config:{budgetCHF,feeProfile:session.feeProfile,fxMode:session.fxMode,
+   feesCHF:session.feesCHF.trim()===''?null:parseAmount(session.feesCHF)},
+   report:root.BobProductAuditReport,isin:candidate.isin,spots:bundle?.spots,now});
+  const feesCHF=feeAssessment.available?feeAssessment.feesCHF:null;
   const plan=evaluate({candidate,product,quote,stopPlan,fx,budgetCHF,riskCHF,feesCHF,now,direction:side});
   const handsetComparison=compareHandsetModel({report:root.BobProductAuditReport,
    candidate,product,preliminary:plan,fx,budgetCHF,riskCHF,feesCHF,now,direction:side});
   handsetComparisons.push(handsetComparison);
-  planByIsin.set(candidate.isin,{candidate,product,preliminary:plan,fx,stopPlan});
+  planByIsin.set(candidate.isin,{candidate,product,preliminary:plan,fx,stopPlan,feesCHF});
   const line=(label,value,copy)=>'<div style="margin:5px 0"><b>'+label+':</b> '+escape(value)+
    (copy!==null&&copy!==undefined?'<button type="button" data-manual-copy="'+escape(copy)+'" style="width:auto;margin-left:8px;padding:5px 9px;font-size:12px;background:#334155">Kopieren</button>':'')+'</div>';
   const entry=plan.entry!==null?fmt(plan.entry,4)+' '+plan.currency+'/Stück':'—';
@@ -623,6 +677,7 @@ function renderFrom(snapshot){
    line('STOP-LOSS · Modell für späteren VERKAUF',stop,orderCopy?String(Number(plan.stop.toFixed(4))):null)+
    line('Stückzahl',plan.available?String(plan.quantity):'—',orderCopy?String(plan.quantity):null)+
    line('Geschätzter Gesamtbetrag',plan.available?fmt(plan.totalCHF)+' CHF':'—',orderCopy?String(Number(plan.totalCHF.toFixed(2))):null)+
+   line('Kauf-/Verkaufsgebühren',feeAssessment.available?fmt(feesCHF)+' CHF · '+feeAssessment.reason:feeAssessment.reason,null)+
    calculationNote+
    '<div class="small" data-handset-model-result>'+escape(handsetModelText(handsetComparison))+'</div>'+
    (plan.available?'<div class="small">Modellverlust bei Stopp einschließlich eingegebener Gebühren: ≈ '+fmt(plan.lossCHF)+' CHF. Tatsächlicher Verlust kann durch Gaps, KO oder fehlende Ausführung größer sein.</div>':'')+
@@ -641,7 +696,7 @@ function render(flow,products,bundle){
  session.last={flow,products,bundle};
  renderFrom(session.last);
 }
-const api={handsetRunSummary,compareHandsetModel,evaluate,reconcileBrokerDisplay,importAndroidScreenDraft,importHandsetReport,refreshHandset,readChfFx,selectQuoteByPriority,render};
+const api={resolveFees,handsetRunSummary,compareHandsetModel,evaluate,reconcileBrokerDisplay,importAndroidScreenDraft,importHandsetReport,refreshHandset,readChfFx,selectQuoteByPriority,render};
 root.BobManualTop3=api;
 if(typeof module!=='undefined')module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
