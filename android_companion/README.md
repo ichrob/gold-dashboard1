@@ -1,3 +1,37 @@
+## DEGIRO-Kontoeinstellungen lesen – keine Order und kein Rohbildschirm
+
+Bob Handy unterstützt nach Installation der neuen **signierten** Version den
+zusätzlichen MCP-Befehl `read_account_settings` während einer vom Eigentümer
+gestarteten **ChatGPT-Handy-Sitzung (maximal 15 Minuten)**. Diese Funktion ergänzt
+die vorhandene Produktlesung; sie ersetzt oder entsperrt keine Anmeldung.
+
+1. Samsung entsperren, **Bob Handy → ChatGPT-Handy-Sitzung starten** öffnen.
+2. In der angemeldeten DEGIRO-App selbst die Seite **Währungseinstellungen**
+   oder **Handelsprofil/Kontotyp** öffnen.
+3. Über die gekoppelte ChatGPT-Bob-Verbindung einmalig
+   `bob_phone_command(action=read_account_settings)` für die **aktuelle**
+   Geräte-/Sitzungs-ID anfordern. Der Befehl klickt selbst nichts an.
+4. Mit `bob_phone_status` den gebundenen Lesebeleg prüfen. Separate Seiten
+   liefern separate Teilbelege. Erkannt werden nur exakt eindeutig angezeigte
+   Profile `BASIC`/`ACTIVE`/`TRADER` und `AutoFX ON/OFF`.
+   Bei veränderten DEGIRO-Oberflächen bleibt der Befund `SETTINGS_UNCONFIRMED`.
+
+Der Server akzeptiert diese Angaben nur als **Enumwerte mit Geräte-Lesezeit
+und zugehöriger Befehlsquittung**, niemals als Rohtexte, Kontonummern,
+Passwörter, PINs, Screenshots oder Orders. Der Beleg ist bis zum Ende der
+bewusst geöffneten Handy-Sitzung sichtbar. Er schreibt **keine**
+`feeProfile`-/`fxMode`-Werte in den bestehenden 100-/30-CHF-Handelsplan.
+Insbesondere beweist `AutoFX OFF` **kein** Guthaben in der Produktwährung
+und keine kostenfreie Umrechnung.
+
+Die Bestätigung tatsächlicher Ordergebühren braucht einen offiziellen Tarif
+**und** die jeweilige DEGIRO-Abrechnung/Orderkosten-Vorschau;
+eine tatsächlich ausführbare Kursausführung kann nur ein realer Fill belegen.
+Bob bleibt hier read-only und verändert keine Echtgeldorder. CI/Emulator
+ersetzen den erforderlichen Test mit DEGIRO auf dem echten Samsung nicht.
+
+---
+
 ## Nachweis und begrenzte Wiederholung beim Fern-Suchklick
 
 Ein vom Android-System angenommener Klick ist weiterhin kein Nachweis eines
