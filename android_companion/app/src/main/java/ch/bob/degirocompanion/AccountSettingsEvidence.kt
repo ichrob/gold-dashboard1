@@ -19,7 +19,7 @@ internal object AccountSettingsEvidence {
             return Result("PROTECTED_VIEW")
         val text = labels.map(::normalize).filter { it.isNotBlank() }
         if (text.any { it.length > 250 || Regex(
-                "passwort|password|pin eingeben|login|einloggen|bestätigungscode|verification code|" +
+                "passwort(?!\\\\s*(?:ändern|aendern))|password(?!\\\\s*change)|pin eingeben|login|einloggen|bestätigungscode|verification code|" +
                 "order bestätigen|order platzieren|place order|confirm order|limitpreis|anzahl kaufen"
             ).containsMatchIn(it) }) return Result("PROTECTED_VIEW")
 
