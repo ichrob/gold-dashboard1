@@ -167,7 +167,7 @@ class PushMonitorTests(unittest.TestCase):
                 self.assertEqual(status,200);self.assertEqual(result['sent'],0)
             send.assert_not_called();database.assert_not_called()
     def test_endpoints_require_server_token(self):
-        for path in ('/selection','/monitor','/preferences','/auth-session/create','/auth-session/check','/auth-session/revoke','/market-spots/read','/market-spots/write'):
+        for path in ('/selection','/monitor','/preferences','/auth-session/create','/auth-session/check','/auth-session/revoke','/auth-passkey/status','/market-spots/read','/market-spots/write'):
             status,_=self.request(path,{},'wrong');self.assertEqual(status,401)
     def test_session_route_is_authenticated_and_committed(self):
         db,conn=self.connection()
@@ -175,6 +175,13 @@ class PushMonitorTests(unittest.TestCase):
             status,result=self.request('/auth-session/revoke',{'tokenHash':'a'*64})
             self.assertEqual(status,200);self.assertTrue(result['ok'])
             handle.assert_called_once_with(conn,'revoke',{'tokenHash':'a'*64});conn.commit.assert_called_once()
+    def test_passkey_route_uses_bounded_pool_handler(self):
+        payload={'account':'fixture'}
+        with patch.object(push_server,'PUSH_SERVICE_TOKEN','test-token'), \
+             patch.object(push_server,'handle_auth_passkey',return_value={'enabled':True}) as handle:
+            status,result=self.request('/auth-passkey/status',payload)
+        self.assertEqual(status,200);self.assertTrue(result['enabled'])
+        handle.assert_called_once_with('status',payload)
     def test_preferences_preserve_checkpoint_and_stop(self):
         monitor,_=self.monitor();old={**monitor,'previousClose':4060,'processedAt':monitor['startedAt']+300000}
         db,conn=self.connection();conn.execute.return_value.fetchone.return_value=(old,)
