@@ -7,7 +7,7 @@ from android_telemetry import token_hash
 
 SCOPE='bob:phone:control'
 TOOLS=('bob_phone_status','bob_phone_command')
-ACTIONS=('inspect','search_gold','search_isin','read_page','termux_check','stop')
+ACTIONS=('inspect','search_gold','search_isin','read_page','read_account_settings','termux_check','stop')
 # The handset runs in the background when DEGIRO is in the foreground. Android
 # may delay remote polls for longer than 20s. Keep the *undelivered* request
 # bounded but separate its deadline from the short device execution lease.
@@ -16,8 +16,8 @@ DELIVERY_LEASE=20
 
 def definitions():
     common={'deviceId':{'type':'string','pattern':'^[a-f0-9]{12}$'}}
-    return [dict(name='bob_phone_status',description='Read the latest user-opened Bob Handy session, product-only observation and command acknowledgement. Cached timestamps are not a live screen; never an order or full-phone access.',inputSchema={'type':'object','properties':common,'additionalProperties':False},annotations={'readOnlyHint':True,'destructiveHint':False,'idempotentHint':True,'openWorldHint':False}),
-      dict(name='bob_phone_command',description='Request one bounded DEGIRO product-reading action in an explicitly opened handset session. search actions perform ONE semantic navigation step; inspect again before continuing. termux_check may request only a fixed on-device help check during a user-opened session: no shell input, secrets, or orders. Queued/delivered does not mean performed. Reuse requestId on retry.',inputSchema={'type':'object','properties':{**common,'sessionId':{'type':'string'},'requestId':{'type':'string'},'action':{'type':'string','enum':list(ACTIONS)},'isin':{'type':'string'}},'required':['deviceId','sessionId','requestId','action'],'additionalProperties':False},annotations={'readOnlyHint':False,'destructiveHint':False,'idempotentHint':True,'openWorldHint':True})]
+    return [dict(name='bob_phone_status',description='Read the latest user-opened Bob Handy session, product-only observation, bounded redacted settings evidence and command acknowledgement. Cached timestamps are not a live screen; never an order or full-phone access.',inputSchema={'type':'object','properties':common,'additionalProperties':False},annotations={'readOnlyHint':True,'destructiveHint':False,'idempotentHint':True,'openWorldHint':False}),
+      dict(name='bob_phone_command',description='Request one bounded DEGIRO product-reading action or read_account_settings on a user-opened settings page, in an explicitly opened handset session. search actions perform ONE semantic navigation step; inspect again before continuing. Account settings never confirm actual fees or executable quotes. termux_check may request only a fixed on-device help check during a user-opened session: no shell input, secrets, or orders. Queued/delivered does not mean performed. Reuse requestId on retry.',inputSchema={'type':'object','properties':{**common,'sessionId':{'type':'string'},'requestId':{'type':'string'},'action':{'type':'string','enum':list(ACTIONS)},'isin':{'type':'string'}},'required':['deviceId','sessionId','requestId','action'],'additionalProperties':False},annotations={'readOnlyHint':False,'destructiveHint':False,'idempotentHint':True,'openWorldHint':True})]
 
 def identifier(v,n):
     return isinstance(v,str) and re.fullmatch('[a-f0-9]{%d}'%n,v) is not None
@@ -45,13 +45,34 @@ def exchange(state,value,now):
     if not identifier(value['sessionId'],32) or type(value['active']) is not bool or type(value['expiresAt']) is not int:raise ValueError('Invalid session')
     if value['active'] and not now<value['expiresAt']<=now+905:raise ValueError('Expired session')
     obs=value['observation']
-    if not isinstance(obs,dict) or set(obs)!={'at','code','nodeCount','isins','draft','diagnostics'}:raise ValueError('Invalid observation')
+    required={'at','code','nodeCount','isins','draft','diagnostics'}
+    if not isinstance(obs,dict) or not required<=set(obs) or set(obs)-required-{'accountSettings'}:raise ValueError('Invalid observation')
     if type(obs['at']) is not int or not now-60<=obs['at']<=now+60:raise ValueError('Stale observation')
     if not isinstance(obs['code'],str) or not re.fullmatch('[A-Z_]{1,64}',obs['code']):raise ValueError('Invalid code')
     if type(obs['nodeCount']) is not int or not 0<=obs['nodeCount']<=500:raise ValueError('Invalid count')
     if not isinstance(obs['isins'],list) or len(obs['isins'])>12 or not all(valid_isin(s) for s in obs['isins']):raise ValueError('Invalid identities')
     if not isinstance(obs['draft'],str) or len(obs['draft'])>8000:raise ValueError('Invalid product draft')
     if not isinstance(obs['diagnostics'],str) or len(obs['diagnostics'])>8000:raise ValueError('Invalid diagnostics')
+    if 'accountSettings' in obs:
+        # Only a read request in THIS active, user-opened session can
+        # introduce a redacted setting observation; never accept raw UI text.
+        evidence=obs['accountSettings']
+        if not isinstance(evidence,dict) or set(evidence)!={'source','capturedAt','status','feeProfile','autoFx'}:
+            raise ValueError('Invalid account settings evidence')
+        if evidence['source']!='degiro-app-local-accessibility' or type(evidence['capturedAt']) is not int or not now-60<=evidence['capturedAt']<=now+60:
+            raise ValueError('Invalid account evidence source/time')
+        if evidence['status'] not in ('COMPLETE','PARTIAL') or evidence['feeProfile'] not in (None,'BASIC','ACTIVE','TRADER') or evidence['autoFx'] not in (None,'ON','OFF'):
+            raise ValueError('Invalid account evidence values')
+        complete=evidence['feeProfile'] is not None and evidence['autoFx'] is not None
+        if (evidence['status']=='COMPLETE')!=complete or (evidence['feeProfile'] is None and evidence['autoFx'] is None):
+            raise ValueError('Unsubstantiated account evidence')
+        ack=value['ack']
+        if (not isinstance(ack,dict) or obs['code'] not in ('ACCOUNT_SETTINGS_COMPLETE','ACCOUNT_SETTINGS_PARTIAL')
+                or ack.get('code')!=obs['code'] or not identifier(ack.get('requestId'),32)
+                or state.get('sessionId')!=value['sessionId']
+                or not any(c.get('requestId')==ack['requestId'] and c.get('action')=='read_account_settings'
+                           and c.get('status') in ('delivered','acknowledged') for c in state.get('commands',[]))):
+            raise ValueError('Account evidence without delivered read request')
     if state.get('sessionId')!=value['sessionId']:
         state={'sessionId':value['sessionId'],'expiresAt':value['expiresAt'],'commands':[]}
     else:
