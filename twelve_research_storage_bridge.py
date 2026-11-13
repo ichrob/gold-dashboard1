@@ -83,6 +83,27 @@ def synthetic_drive_roundtrip(drive, env=None):
             'licensedBarsStored': False, 'originalsDeleted': False}
 
 
+def runtime_drive(env):
+    """Read existing Bob Google OAuth credentials securely, without modifying DB.
+
+    Existing drive.file consent may not cover a folder created by ChatGPT's
+    separate Drive connector: the API preflight rejects inaccessible folders.
+    """
+    if env.get('BOB_ARCHIVE_CREDENTIAL_SOURCE') != 'encrypted-store':
+        raise ValueError('Encrypted Bob OAuth store is required')
+    if not env.get('DATABASE_URL'):
+        raise ValueError('Bob encrypted credentials database unavailable')
+    from archive_runtime import credentials
+    from drive_evidence_archive import GoogleDrive
+    import psycopg
+    with psycopg.connect(env['DATABASE_URL'], connect_timeout=5,
+            options='-c default_transaction_read_only=on -c statement_timeout=2000') as conn:
+        info = credentials(conn)
+    return GoogleDrive(info=info,
+            folder_id=env['BOB_TWELVE_RESEARCH_DRIVE_FOLDER_ID'],
+            parent_id=env['BOB_TWELVE_RESEARCH_PRIVATE_PARENT_ID'])
+
+
 def run_manual(env=None, drive=None, inspect=None):
     env = os.environ if env is None else env
     aiven = aiven_readiness(inspect)
@@ -90,10 +111,7 @@ def run_manual(env=None, drive=None, inspect=None):
     if scope['code'] != 'SYNTHETIC_TEST_ALLOWED':
         return {'aiven': aiven, 'drive': scope}
     if drive is None:
-        # Google's own narrow app authorization must be configured separately.
-        from drive_evidence_archive import GoogleDrive
-        drive = GoogleDrive(folder_id=env['BOB_TWELVE_RESEARCH_DRIVE_FOLDER_ID'],
-                            parent_id=env['BOB_TWELVE_RESEARCH_PRIVATE_PARENT_ID'])
+        drive = runtime_drive(env)
     return {'aiven': aiven, 'drive': synthetic_drive_roundtrip(drive, env)}
 
 
