@@ -130,6 +130,30 @@ class DatabaseContentionTests(unittest.TestCase):
             self.assertEqual(decision_audit._load_prospective_rows(conn), expected)
             self.assertGreater(len(expected), 1)
 
+    def test_fixed_hour_boundaries_and_empty_hours_preserve_sampling(self):
+        """A boundary belongs to the new UTC hour; empty hours stay empty."""
+        from psycopg.types.json import Jsonb
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('''CREATE TEMP TABLE bob_decision_audit (
+                id TEXT PRIMARY KEY, recorded_at TIMESTAMPTZ, payload JSONB)''')
+            conn.execute('CREATE INDEX ON bob_decision_audit(recorded_at)')
+            conn.execute('''CREATE TEMP TABLE bob_decision_outcomes (
+                decision_id TEXT, horizon INTEGER, truth JSONB)''')
+            def eligible(name):
+                return Jsonb(dict(id=name,
+                    reviewVariants=dict(version='signal-review-v1'),
+                    origin='background',ruleVersion=decision_audit.RULE_VERSION,
+                    direction='LONG'))
+            for name,offset in (
+                    ('first','10 minutes'),('same-hour-later','20 minutes'),
+                    ('exact-boundary','1 hour'),('after-empty-hour','3 hours')):
+                conn.execute('''INSERT INTO bob_decision_audit
+                    VALUES (%s,date_trunc('hour',now()-interval '4 hours')
+                    + %s::interval,%s)''',(name,offset,eligible(name)))
+            rows=decision_audit._load_prospective_rows(conn)
+            self.assertEqual([row[0]['id'] for row in rows],
+                             ['first','exact-boundary','after-empty-hour'])
+
     def test_sparse_hourly_sampling_preserves_oldest_eligible_and_retention(self):
         from psycopg.types.json import Jsonb
         with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
