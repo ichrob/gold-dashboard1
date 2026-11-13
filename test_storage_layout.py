@@ -3,6 +3,65 @@ import unittest
 import uuid
 import storage_layout
 
+
+class BoundedCatalogReadTests(unittest.TestCase):
+    def test_global_physical_size_sort_is_replaced_with_finite_catalog_candidates(self):
+        from contextlib import nullcontext
+        from unittest.mock import patch
+
+        class Cursor:
+            def __init__(self, rows): self.rows = rows
+            def fetchall(self): return self.rows
+
+        class Conn:
+            def __init__(self): self.queries = []
+            def transaction(self): return nullcontext()
+            def execute(self, sql):
+                self.queries.append(sql)
+                if 'WITH relation_candidates AS MATERIALIZED' in sql:
+                    return Cursor([('bob_fixture', 100, 40, 20, 30)])
+                if 'WITH index_candidates AS MATERIALIZED' in sql:
+                    return Cursor([('bob_fixture', 'bob_fixture_idx', 20, True)])
+                raise AssertionError('Unexpected optional SQL')
+
+        conn = Conn()
+        readers = ('diagnostic_sample', 'recent_diagnostic_stages',
+                   'diagnostic_payload_equality_sample',
+                   'diagnostic_payload_byte_sample',
+                   'decision_payload_sample', 'decision_products_cohorts')
+        with patch.multiple(storage_layout, **{name: unittest.mock.DEFAULT for name in readers}) as mocked:
+            for reader in mocked.values():
+                reader.return_value = {'status': 'not-observed'}
+            data = storage_layout.report(conn)
+
+        self.assertEqual(len(conn.queries), 2)
+        self.assertEqual(data['status'], 'observed')
+        self.assertEqual(data['tables'][0]['totalBytes'], 100)
+        self.assertEqual(data['tables'][0]['otherBytes'], 10)
+        self.assertEqual(data['relationCandidateCap'], 24)
+        self.assertEqual(data['indexCandidateCap'], 30)
+        self.assertFalse(data['globalTopNVerified'])
+        self.assertEqual(data['selectionScope'],
+                         'catalog-ranked-candidates-not-global-top-n')
+        rel, idx = conn.queries
+        self.assertIn('WITH relation_candidates AS MATERIALIZED', rel)
+        self.assertIn('LEFT JOIN pg_class t ON t.oid=c.reltoastrelid', rel)
+        self.assertIn('ORDER BY estimated_pages DESC,c.relname LIMIT 24', rel)
+        self.assertIn('WITH index_candidates AS MATERIALIZED', idx)
+        self.assertIn('ORDER BY c.relpages DESC,c.relname LIMIT 30', idx)
+        self.assertNotIn('ORDER BY pg_total_relation_size(c.oid)', rel)
+        self.assertNotIn('ORDER BY pg_relation_size(c.oid)', idx)
+
+    def test_decision_queries_have_distinct_log_markers_without_raw_payloads(self):
+        import inspect
+        a = inspect.getsource(storage_layout.decision_payload_sample)
+        b = inspect.getsource(storage_layout.decision_products_cohorts)
+        self.assertIn('bob_storage_layout:decision_payload_sample', a)
+        self.assertIn('bob_storage_layout:decision_products_cohorts', b)
+        self.assertNotIn('bob_storage_layout:decision_products_cohorts', a)
+        self.assertNotIn('bob_storage_layout:decision_payload_sample', b)
+
+
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class LayoutTests(unittest.TestCase):
     def test_readonly_layout_adds_up_without_touching_originals(self):
