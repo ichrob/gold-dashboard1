@@ -323,9 +323,9 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
                        or issuer_attempt.get("sourceFailureCode") or "")[:60] or None
     sg_discovery = issuer_attempt.get("sgDiscovery") or quote.get("sgDiscovery")
     sg_discovery = sg_discovery if isinstance(sg_discovery, dict) else {}
-    sg_failure_code = (failure_code if failure_provider == "SG"
-                       else str(sg_discovery.get("failureCode") or "")[:60] or None
-                       if sg_discovery.get("attempted") is True else None)
+    sg_failure_code = failure_code if failure_provider == "SG" else None
+    if sg_failure_code is None and sg_discovery.get("attempted") is True:
+        sg_failure_code = str(sg_discovery.get("failureCode") or "")[:60] or None
     missing = []
     verified = quote.get("isin") == isin and quote.get("productVerified") is True
     # SG's verified factor response intentionally has no live quote/term fields.
