@@ -54,6 +54,8 @@ def exchange(state,value,now):
     if not isinstance(obs['draft'],str) or len(obs['draft'])>8000:raise ValueError('Invalid product draft')
     if not isinstance(obs['diagnostics'],str) or len(obs['diagnostics'])>8000:raise ValueError('Invalid diagnostics')
     if 'accountSettings' in obs:
+        if obs['draft'] or obs['isins']:
+            raise ValueError('Settings cannot accompany product or account text')
         # Only a read request in THIS active, user-opened session can
         # introduce a redacted setting observation; never accept raw UI text.
         evidence=obs['accountSettings']
