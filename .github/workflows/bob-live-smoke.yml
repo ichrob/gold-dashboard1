@@ -19,8 +19,25 @@ jobs:
       - name: Check Bob health
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 30 https://bob-private-scanner.onrender.com/health | tee /tmp/health.json
-          grep -q '"status":"ok"' /tmp/health.json
+          # A single 502 during Render's rolling auto-deploy is not proof that
+          # the new revision is unhealthy. Require a real successful /health
+          # response, with a strictly bounded retry window; never accept 502.
+          ready=0
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            http_code="$(curl --silent --show-error --max-time 15 \
+              --output /tmp/health.json --write-out '%{http_code}' \
+              https://bob-private-scanner.onrender.com/health || true)"
+            if [ "$http_code" = "200" ] && grep -q '"status":"ok"' /tmp/health.json; then
+              ready=1
+              break
+            fi
+            echo "Bob health not ready: attempt $attempt/12, HTTP ${http_code:-unknown}"
+            if [ "$attempt" -lt 12 ]; then sleep 10; fi
+          done
+          if [ "$ready" != "1" ]; then
+            echo "::error::Bob /health did not report status ok after bounded retries"
+            exit 1
+          fi
 
       - name: Check protected Bob live API
         run: |
