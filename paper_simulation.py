@@ -685,6 +685,46 @@ def technical_demo(reference=None, product=None):
              note='Künstliche Folgekursfolge zur Funktionsprüfung. Kein historischer Marktfall, keine Renditewertung, keine echte Produktauswahl.')
     return c
 
+def campaign_source_preview(control, bundle, market, now):
+    """Observe an independently labeled, short-lived model preview only.
+
+    Never write a price into the real or paper entry, quote, stop, P/L or
+    risk path. Returns only a stored presentation annotation.
+    """
+    # Research-only fallback observation. Never inject an inferred price
+    # into market, quotes, entry, balance, stop or historical P/L.
+    import simulation_estimates
+    spot = (bundle or {}).get('spots') or {}
+    source_at = stamp(spot.get('spot_price_as_of'))
+    source_price = spot.get('xaus')
+    original = (spot.get('is_genuine_xauusd_spot') is True
+        and spot.get('xaus_is_spot') is True
+        and finite(source_price) and source_price > 0
+        and finite(source_at) and 0 <= now-source_at <= 60000
+        and market.get('ready') is True and market.get('priceFresh') is True
+        and finite(market.get('price')) and abs(market['price']-source_price) <= .001
+        and finite(market.get('dataAt')) and abs(market['dataAt']-source_at) <= 2000)
+    previous = control.get('campaignLastOriginalSpot') or {}
+    if original:
+        previous = {'sourceAt': source_at, 'price': source_price}
+        control['campaignLastOriginalSpot'] = previous
+    if not original and (finite(previous.get('sourceAt'))
+            and finite(previous.get('price')) and previous['price'] > 0
+            and 0 < now-previous['sourceAt'] <= simulation_estimates.MAX_PRICE_AGE
+            and simulation_estimates.same_session(previous['sourceAt'], now)):
+        control['campaignEstimatePreview'] = {
+            'mode': 'estimated-preview-not-observed',
+            'method': 'last-original-price-carry',
+            'originalSourceAt': previous['sourceAt'],
+            'calculatedAt': now, 'assumedGold': previous['price'],
+            'newEntryAllowed': False, 'quoteApproved': False,
+            'profitVerified': False, 'simulationOnly': True}
+    else:
+        control['campaignEstimatePreview'] = None
+
+    return control.get('campaignEstimatePreview')
+
+
 def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
     row=conn.execute('SELECT payload FROM bob_paper_control WHERE id=1 FOR UPDATE').fetchone()
     control=row[0]
@@ -694,36 +734,7 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         control.update(ledgerDay=day,dayOpeningEquity=control.get('equity'),dayOpeningRealized=control['realizedProfit'])
     control.update(checkedAt=now,ruleVersion=market.get('ruleVersion'),lastDirection=market.get('direction','NEUTRAL'),lastGold=market.get('price'),goldAt=market.get('dataAt'))
     if profile_policy and profile_policy.get('paper_campaign_entry'):
-        # Research-only fallback observation. Never inject an inferred price
-        # into market, quotes, entry, balance, stop or historical P/L.
-        import simulation_estimates
-        spot = (bundle or {}).get('spots') or {}
-        source_at = stamp(spot.get('spot_price_as_of'))
-        source_price = spot.get('xaus')
-        original = (spot.get('is_genuine_xauusd_spot') is True
-            and spot.get('xaus_is_spot') is True
-            and finite(source_price) and source_price > 0
-            and finite(source_at) and 0 <= now-source_at <= 60000
-            and market.get('ready') is True and market.get('priceFresh') is True
-            and finite(market.get('price')) and abs(market['price']-source_price) <= .001
-            and finite(market.get('dataAt')) and abs(market['dataAt']-source_at) <= 2000)
-        previous = control.get('campaignLastOriginalSpot') or {}
-        if original:
-            previous = {'sourceAt': source_at, 'price': source_price}
-            control['campaignLastOriginalSpot'] = previous
-        if not original and (finite(previous.get('sourceAt'))
-                and finite(previous.get('price')) and previous['price'] > 0
-                and 0 < now-previous['sourceAt'] <= simulation_estimates.MAX_PRICE_AGE
-                and simulation_estimates.same_session(previous['sourceAt'], now)):
-            control['campaignEstimatePreview'] = {
-                'mode': 'estimated-preview-not-observed',
-                'method': 'last-original-price-carry',
-                'originalSourceAt': previous['sourceAt'],
-                'calculatedAt': now, 'assumedGold': previous['price'],
-                'newEntryAllowed': False, 'quoteApproved': False,
-                'profitVerified': False, 'simulationOnly': True}
-        else:
-            control['campaignEstimatePreview'] = None
+        campaign_source_preview(control, bundle, market, now)
     phase = background_push.degiro_session(now)
     campaign_end=control.get('retiredAt') or (profile_policy or {}).get('campaign_end')
     if finite(campaign_end) and control.get('endAt') != campaign_end:
