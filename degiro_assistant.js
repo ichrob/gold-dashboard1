@@ -4001,6 +4001,10 @@ function detailScreenshotData(text,expectedIsin,productContext=null,excludedFiel
  const importWarnings=[],importNotes=[];
  if(displayWithoutVenue){
   x.price='';x.spread='';
+  // The combined form must not expose this unverified venue as a quoted pair.
+  draft={...draft,hasQuote:false,paired:false,partialQuote:null,
+    fields:{...(draft.fields||{})}};
+  for(const key of ['bid','ask','quoteAt','venue'])delete draft.fields[key];
   importWarnings.push('DEGIRO-Kursanzeige gespeichert, Handelsplatz im Bild nicht sichtbar; keine Produktquote oder Handelsfreigabe.');
  }
  if(uncertainBrokerPair)importWarnings.push('Geld-/Briefpaar nicht eindeutig; Produktidentität und DEGIRO-Handelsplatz separat übernommen.');
