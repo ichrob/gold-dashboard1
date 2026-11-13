@@ -309,6 +309,9 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     now = int(time.time()*1000) if now is None else now
     state = copy.deepcopy(previous or {})
     if not general and not trade_enabled:
+        state.pop('signalPending',None)
+        state.pop('scenarioPending',None)
+        state.pop('signalRearmPending',None)
         state.pop('trade', None)
         return state, []
     events = []
@@ -346,8 +349,8 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
                        'data': {'kind': channel, 'eventKind': kind, 'url': '/#trade' if channel=='trade' else '/', 'dataAt': market.get('dataAt'), 'generatedAt': now,
                                 'analysisRequestedAt':market.get('analysisRequestedAt'), 'analysisCompletedAt':market.get('analysisCompletedAt'),
                                 'expiresAt': now+180000, 'tradeId': (settings.get('trade') or {}).get('tradeId'),
-                                'direction': market.get('direction') if kind == 'signal-change' else None,
-                                'signalBarAt': market.get('analysisBarAt') if kind == 'signal-change' else None}})
+                                'direction': market.get('direction') if kind in ('signal-change','market-scenario') else None,
+                                'signalBarAt': market.get('analysisBarAt') if kind in ('signal-change','market-scenario') else None}})
     # Market closure is a third status, not a source outage or a fresh quote.
     # Keep the last genuine timestamp and do not hide failures already seen while open.
     raw_healthy = market.get('ready') is True and market.get('priceFresh') is True
@@ -494,13 +497,54 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
     # Timeliness applies only to newly suggested entries, not risk alerts
     # or ongoing monitoring of a real position.
     timing = market.get('entryTimingGate')
-    timely = not isinstance(timing, dict) or timing.get('allowed') is True
+    timing_allowed = not isinstance(timing, dict) or timing.get('allowed') is True
+    plan_state = market.get('entryPlanState')
+    plan_ready = not isinstance(plan_state,dict) or plan_state.get('state') == 'ready'
+    timely = timing_allowed and plan_ready
+    entry_session = (market.get('session') or {}).get('entryAllowed', True)
+    # Rearm only after a genuine, stable neutral phase with a second source
+    # observation. Data outages, night mode and learned-filter vetoes are not
+    # new market regimes, and must not cause repeat messages on recovery.
+    neutral = (general and healthy and entry_session and direction == 'NEUTRAL'
+               and market.get('baseDirection','NEUTRAL') == 'NEUTRAL')
+    neutral_pending = state.get('signalRearmPending')
+    if neutral and positive(market.get('dataAt')) and 0<=now-market['dataAt']<=60000:
+        if not isinstance(neutral_pending,dict):
+            state['signalRearmPending']={'since':now,'dataAt':market['dataAt']}
+        elif now-neutral_pending['since']>=30000 and market['dataAt']>neutral_pending['dataAt']:
+            state['notifiedDirection']='NEUTRAL'
+            state['scenarioNotified']='NEUTRAL'
+    else:
+        state.pop('signalRearmPending',None)
+    # Confirmed direction and executable entry timing are different events.
+    # A scenario is informational; it never changes the plan, gates or orders.
+    scenario_source = (positive(market.get('dataAt')) and 0<=now-market['dataAt']<=60000
+                       and positive(market.get('analysisBarAt')) and 300000<=now-market['analysisBarAt']<=600000)
+    scenario_allowed = (general and healthy and entry_session and scenario_source
+                        and direction in ('LONG','SHORT') and not timely)
+    if scenario_allowed and direction != state.get('scenarioNotified'):
+        pending=state.get('scenarioPending')
+        if not isinstance(pending,dict) or pending.get('direction')!=direction:
+            state['scenarioPending']={'direction':direction,'since':now,'dataAt':market['dataAt']}
+        elif now-pending['since']>=30000 and market['dataAt']>pending['dataAt']:
+            reason=(timing.get('reason') if isinstance(timing,dict) and not timing_allowed else
+                    plan_state.get('reason') if isinstance(plan_state,dict) else None)
+            add('market-scenario','SZENARIO · '+direction,
+                'Gold: '+direction+'-Richtung bestätigt. Einstieg noch gesperrt: '+
+                str(reason or 'Kein gültiger Einstiegsplan')[:220]+
+                '. Marktinformation, keine Einstiegs- oder Produktfreigabe.','general')
+            events[-1]['data'].update(comparisonOnly=True,affectsApproval=False)
+            state['scenarioNotified']=direction
+            state.pop('scenarioPending',None)
+    else:
+        state.pop('scenarioPending',None)
     if general and healthy and (market.get('session') or {}).get('entryAllowed', True) and not timely:
         state.setdefault('notifiedDirection', 'NEUTRAL')
         state.pop('signalPending', None)
-        audit('late-entry', 'suppressed', 'ABWARTEN: '+str(timing.get('reason') or 'Einstiegszeit nicht geprüft')[:120])
+        entry_reason=((timing or {}).get('reason') if not timing_allowed else (plan_state or {}).get('reason'))
+        audit('late-entry', 'suppressed', 'ABWARTEN: '+str(entry_reason or 'Einstiegsplan nicht geprüft')[:120])
     if general and healthy and timely and (market.get('session') or {}).get('entryAllowed', True):
-        notified = state.setdefault('notifiedDirection', state.get('direction'))
+        notified = state.setdefault('notifiedDirection', 'NEUTRAL')
         pending = state.get('signalPending')
         if direction not in ('LONG', 'SHORT') or direction == notified:
             state.pop('signalPending', None)
@@ -517,6 +561,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
                     'Früh bestätigtes '+direction+' (zwei geschlossene 1m-Kerzen) · MTF '+mtf+
                     '. Einstiegsfenster aktuell; keine Produktfreigabe.', 'general')
                 state['notifiedDirection']=direction
+                state['scenarioNotified']=direction
                 state.pop('signalPending',None)
             else:
                 state['signalPending'] = {'direction': direction, 'since': now, 'dataAt': market.get('dataAt')}
@@ -524,6 +569,7 @@ def advance(previous, settings, market, general, trade_enabled, now=None, log=Tr
         elif now-pending['since'] >= 30000 and positive(market.get('dataAt')) and market['dataAt'] != pending['dataAt']:
             add('signal-change', 'EINSTIEG · '+direction, 'Neuer Einstieg: '+direction+' bestätigt · MTF '+mtf+'. Keine Produktfreigabe.', 'general')
             state['notifiedDirection'] = direction
+            state['scenarioNotified'] = direction
             state.pop('signalPending', None)
         # MTF confirmation is included in the direction message, never a second alert.
     else:
@@ -700,11 +746,12 @@ def notification_batches(events):
 def compose_events(events):
     """Urgent action first; advisory plans never compete with an exit warning."""
     priority = {'ko-hit': 0, 'stop-hit': 1, 'personal-risk': 2, 'reversal': 3,
-                'risk-exit': 3, 'data-unavailable': 4, 'stop-near': 5, 'target-extension': 6, 'target': 7}
+                'risk-exit': 3, 'data-unavailable': 4, 'stop-near': 5, 'target-extension': 6, 'target': 7,
+                'signal-change': 7, 'market-scenario': 7}
     ordered = sorted(events, key=lambda e: priority.get(e['data']['eventKind'], 8))
     message = copy.deepcopy(ordered[0])
     urgent = ordered[0]['data']['eventKind'] in ('ko-hit', 'stop-hit', 'reversal', 'risk-exit')
-    advisory = {'target', 'target-extension', 'trailing-stop', 'profit-protection', 'profit-weak', 'signal-change', 'initial-stop', 'risk-warning', 'risk-confirmed'}
+    advisory = {'target', 'target-extension', 'trailing-stop', 'profit-protection', 'profit-weak', 'signal-change', 'market-scenario', 'initial-stop', 'risk-warning', 'risk-confirmed'}
     visible = [e for e in ordered if not urgent or e['data']['eventKind'] not in advisory]
     message['body'] = ' | '.join(e['body'] for e in visible)
     message['data']['events'] = [e['data']['eventKind'] for e in ordered]

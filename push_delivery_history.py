@@ -10,8 +10,8 @@ from bob_diagnostics import shape, project
 PAGE_SIZE = 100
 MAX_OFFSET = 9900
 FIELDS = shape("outcome", "httpStatus", "direction", "signalBarAt", "dataAt",
-               "test", "synthetic", "eventKinds", "generatedAt", "analysisRequestedAt",
-               "analysisCompletedAt", "providerStartedAt", "providerDurationMs")
+               "test", "synthetic", "generatedAt", "analysisRequestedAt",
+               "analysisCompletedAt", "providerStartedAt", "providerDurationMs", eventKinds=[None])
 
 
 def latency(record):

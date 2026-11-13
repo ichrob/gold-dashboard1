@@ -79,7 +79,7 @@ function safeJson(event) {
 // Receipt proofs, raw message bodies and trade identifiers never enter it.
 function pushSummary(details) {
   const summary = {};
-  if (['early-warning', 'early-warning-withdrawn', 'signal-change'].includes(details.eventKind)) summary.eventKind = details.eventKind;
+  if (['early-warning', 'early-warning-withdrawn', 'signal-change', 'market-scenario'].includes(details.eventKind)) summary.eventKind = details.eventKind;
   if (['LONG', 'SHORT'].includes(details.direction)) summary.direction = details.direction;
   for (const key of ['generatedAt', 'signalBarAt', 'dataAt', 'expiresAt']) {
     if (Number.isSafeInteger(details[key]) && details[key] > 0) summary[key] = details[key];

@@ -45,6 +45,8 @@ class PushHistoryTests(unittest.TestCase):
         ]
         report = history.report(conn)
         first, second = report["records"]
+        self.assertEqual(first["eventKinds"], ["early-warning-test"])
+        self.assertEqual(second["eventKinds"], ["early-warning"])
         self.assertEqual(first["classification"], "synthetic-test")
         self.assertEqual(second["classification"], "not-marked-test")
         self.assertIs(second["marketEventVerified"], False)

@@ -5132,14 +5132,14 @@ setInterval(()=>{
 (function(){
  let opened=null;
  function clean(value){
-  if(!value||!['early-warning','early-warning-withdrawn','signal-change'].includes(value.eventKind))return null;
+  if(!value||!['early-warning','early-warning-withdrawn','signal-change','market-scenario'].includes(value.eventKind))return null;
   const out={eventKind:value.eventKind,direction:['LONG','SHORT'].includes(value.direction)?value.direction:'unbekannt'};
   for(const key of ['generatedAt','signalBarAt','dataAt','expiresAt'])if(Number.isSafeInteger(value[key])&&value[key]>0)out[key]=value[key];
   return out;
  }
  function describe(event,current,now=Date.now()){
   const clock=t=>t?new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'nicht protokolliert';
-  const kind={'early-warning':'FRÜHWARNUNG','early-warning-withdrawn':'FRÜHWARNUNG ZURÜCKGENOMMEN','signal-change':'BESTÄTIGTES EINSTIEGSSIGNAL'}[event.eventKind];
+  const kind={'early-warning':'FRÜHWARNUNG','early-warning-withdrawn':'FRÜHWARNUNG ZURÜCKGENOMMEN','signal-change':'BESTÄTIGTES EINSTIEGSSIGNAL','market-scenario':'BESTÄTIGTES SZENARIO · EINSTIEG ABWARTEN'}[event.eventKind];
   return kind+' · '+event.direction+'\nGemeldet: '+clock(event.generatedAt)+' (Zürich)'+
    (event.expiresAt&&now>=event.expiresAt?'\nDie ursprüngliche Meldung ist abgelaufen.':'')+
    '\n\nAktueller Stand: '+clock(current.checkedAt)+
