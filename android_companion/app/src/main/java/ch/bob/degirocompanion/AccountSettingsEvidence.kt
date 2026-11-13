@@ -13,6 +13,23 @@ internal object AccountSettingsEvidence {
     private fun normalize(s: String) = s.trim().lowercase(Locale.ROOT)
         .replace(Regex("\\s+"), " ")
 
+    /** Exact currency table as rendered by DEGIRO even when its heading
+     * scrolled out of the accessibility tree. No balance, account number or
+     * action state is needed. An isolated "Auto FX" button is insufficient.
+     */
+    private fun currencyTable(text: List<String>): Boolean =
+        setOf("eur", "gbp", "usd").all { it in text } &&
+            text.count { it == "auto fx" || it == "autofx" } >= 3 &&
+            text.count { it == "trader.currencysettings.manualactiondisabled" } >= 1
+
+    fun recognizesSettings(labels: List<String>): Boolean {
+        val text = labels.map(::normalize)
+        return text.any { line -> setOf("währungseinstellungen", "currency settings",
+            "währungsumrechnung", "currency conversion", "handelsprofil", "trading profile",
+            "kontotyp", "account type").any { line == it || line.startsWith("$it:") } } ||
+            currencyTable(text)
+    }
+
     fun read(app: String, labels: List<String>, sensitive: Boolean = false): Result {
         if (app != ProductScreenEvidence.PACKAGE) return Result("OTHER_APP")
         if (sensitive || labels.size > 500 || labels.sumOf { it.length } > 20000)
@@ -29,7 +46,8 @@ internal object AccountSettingsEvidence {
             it.startsWith("handelsprofil:") || it.startsWith("trading profile:") ||
             it.startsWith("kontotyp:") || it.startsWith("account type:")
         }
-        val currencyContext = text.any {
+        val tableConfirmed = currencyTable(text)
+        val currencyContext = tableConfirmed || text.any {
             it == "währungseinstellungen" || it == "currency settings" ||
             it == "währungsumrechnung" || it == "currency conversion" ||
             it.startsWith("währungseinstellungen:") || it.startsWith("currency settings:")
@@ -59,6 +77,11 @@ internal object AccountSettingsEvidence {
                 "deaktiviert", "ausgeschaltet", "aus", "off", "disabled" -> fxStates += "OFF"
             }
         }
+        // On DEGIRO's actual EUR/GBP/USD table, an Auto FX badge on EVERY
+        // currency plus its literal disabled-manual-action key is sufficient
+        // to confirm the currently displayed Auto FX mode. Not a fee claim.
+        // An explicit OFF elsewhere creates a conflict instead of a guess.
+        if (tableConfirmed) fxStates += "ON"
         // Conflicting settings are an unsafe observation, not a best-effort guess.
         if (profiles.size > 1 || fxStates.size > 1) return Result("SETTINGS_CONFLICT")
         val profile = profiles.singleOrNull()
