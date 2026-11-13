@@ -93,46 +93,6 @@ class MailRecoveryTests(unittest.TestCase):
             self.assertEqual(calls,expected)
             self.assertEqual(sleeps,[30,30,30])
 
-    def test_small_pages_recover_older_receipt_without_raising_byte_cap(self):
-        from urllib.parse import urlsplit, parse_qs
-        mid='<older@example.test>'
-        calls=[]
-        def get(url,key,cap):
-            calls.append(url)
-            if '?' in url:
-                self.assertEqual(cap,70000)
-                query=parse_qs(urlsplit(url).query)
-                self.assertEqual(query['limit'],['5'])
-                if 'page_token' not in query:
-                    return {'messages':[{'subject':'unrelated'}]*5,
-                            'next_page_token':'opaque+/=cursor'}
-                self.assertEqual(query['page_token'],['opaque+/=cursor'])
-                return {'messages':[{'inbox_id':recovery.INBOX,'message_id':mid,
-                    'labels':['received'],'subject':'DEGIRO - Transaktionsbestätigung: Kauf'}]}
-            return {'inbox_id':recovery.INBOX,'message_id':mid,
-                'from':'DEGIRO <notifications@degiro.com>',
-                'subject':'DEGIRO - Transaktionsbestätigung: Kauf',
-                'html':'<div>DEGIRO</div><div>'+TEXT.replace('\n','<br>')+'</div>'}
-        records=recovery.recover('test-token-secure','customer@example.test',get)
-        self.assertEqual(len(records),1)
-        self.assertEqual(records[0]['record']['totalChf'],6.04)
-        self.assertEqual(len(calls),3)
-
-    def test_pagination_is_bounded_and_repeated_cursor_rejected(self):
-        calls=[]
-        def many(url,*args):
-            calls.append(url)
-            return {'messages':[{}]*5,'next_page_token':str(len(calls))}
-        self.assertEqual(recovery.recover('test-token-secure','customer@example.test',many),[])
-        self.assertEqual(len(calls),6)
-        calls.clear()
-        def loop(url,*args):
-            calls.append(url)
-            return {'messages':[],'next_page_token':'same-private-cursor'}
-        with self.assertRaises(ValueError):
-            recovery.recover('test-token-secure','customer@example.test',loop)
-        self.assertEqual(len(calls),2)
-
     def test_historical_pdf_uses_existing_sender_checked_attachment_import(self):
         mid='<pdf@example.test>'
         attachment={'attachment_id':'fixture','filename':'receipt.pdf',
@@ -157,6 +117,46 @@ class MailRecoveryTests(unittest.TestCase):
             raise AssertionError('No unconfigured external traffic')
         self.assertEqual(recovery.recover('', 'user@example.test',fail),[])
         self.assertEqual(recovery.recover('test-token-secure', '',fail),[])
+
+    def test_header_heavy_archive_pages_preserve_late_receipts_and_caps(self):
+        import json
+        from urllib.parse import urlsplit, parse_qs, unquote
+        messages=[dict(inbox_id=recovery.INBOX, message_id='mail-'+str(i),
+                       labels=['received'], subject='DEGIRO', headers={'transport':'x'*6000})
+                  for i in range(35)]
+        self.assertGreater(len(json.dumps({'messages':messages[:14]}).encode()),70000)
+        for count, expected in [(14,14),(35,30)]:
+            calls=[]
+            def fetch(url,key,cap):
+                if '?' in url:
+                    q=parse_qs(urlsplit(url).query)
+                    offset=int(q.get('page_token',['0'])[0]); limit=int(q['limit'][0])
+                    calls.append(offset)
+                    page={'messages':messages[offset:min(offset+limit,count)]}
+                    if offset+limit<count:page['next_page_token']=str(offset+limit)
+                    self.assertLessEqual(len(json.dumps(page).encode()),cap)
+                    return page
+                mid=unquote(url.rsplit('/',1)[-1])
+                return dict(inbox_id=recovery.INBOX, message_id=mid,
+                            **{'from':'DEGIRO <notifications@degiro.com>'},
+                            subject='DEGIRO - Transaktionsbestätigung: Kauf',text=TEXT)
+            with patch('builtins.print'):
+                records=recovery.recover('test-token-secure','customer@example.test',fetch)
+            self.assertEqual(len(records),expected)
+            self.assertEqual(records[-1]['messageId'],'mail-'+str(expected-1))
+            self.assertLessEqual(len(calls),6)
+            self.assertTrue(all('headers' not in str(record) for record in records))
+
+    def test_pagination_rejects_repeating_tokens_without_unbounded_requests(self):
+        calls=[]
+        def fetch(*args):
+            calls.append(1)
+            return {'messages':[], 'next_page_token':'same-private-token'}
+        with patch('builtins.print') as log:
+            with self.assertRaises(ValueError):
+                recovery.recover('test-token-secure','customer@example.test',fetch)
+        self.assertEqual(len(calls),2)
+        self.assertNotIn('same-private-token',str(log.call_args_list))
 
     def test_request_cannot_switch_to_another_inbox(self):
         with self.assertRaises(ValueError):
