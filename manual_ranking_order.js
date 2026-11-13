@@ -42,7 +42,8 @@ function resolveFees({config={},report,isin,spots,now=Date.now()}={}){
  const venue=String(imported.values?.venue||'').trim().toUpperCase().replace(/\s+/g,' ');
  // Exact route names only; Société Générale as issuer alone proves no venue.
  const routes={ 'SG OTC':.5,'OTC SOCIÉTÉ GÉNÉRALE':.5,'OTC SOCIETE GENERALE':.5,
-  'OTC BNP PARIBAS':.5,'BNP OTC':.5,'ZERTIFIKATE-BÖRSE FRANKFURT':3,
+  'SOCIETE GENERALE OTC':.5,'SOCIÉTÉ GÉNÉRALE OTC':.5,
+  'OTC BNP PARIBAS':.5,'BNP PARIBAS OTC':.5,'BNP OTC':.5,'ZERTIFIKATE-BÖRSE FRANKFURT':3,
   'EURONEXT ACCESS PARIS':3 };
  if(!Object.prototype.hasOwnProperty.call(routes,venue))return fail('Gebühren: kein eindeutig unterstützter DEGIRO-Handelsplatz ('+(venue||'fehlt')+').');
  const fx=readChfFx(spots,now,'EUR');

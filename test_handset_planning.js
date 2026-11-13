@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict'),{evaluate}=require('./handset_planning');
-const now=Date.now(),at=new Date(now-10000).toISOString(),isin='DE000FG14AV8';
+const now=Date.parse('2026-11-13T10:00:00Z'),at=new Date(now-10000).toISOString(),isin='DE000FG14AV8';
 function fixture(direction='LONG',currency='CHF'){
  const sign=direction==='LONG'?1:-1,ko=4200-sign*300;
  const q={isin,found:true,productVerified:true,currency,source:'fixture',bid:20,ask:20.1,bidAt:at,askAt:at,isExecutableQuote:true,
@@ -41,6 +41,10 @@ assert.equal(automatic.feeAssessment.estimated,true);
 assert(automatic.available);
 assert(automatic.lossCHF<=auto.config.riskCHF&&automatic.totalCHF<=auto.config.budgetCHF);
 assert.equal(auto.config.feesCHF,null);
+for(const venue of ['SOCIETE GENERALE OTC','BNP OTC']){
+ const input=JSON.parse(JSON.stringify(auto));input.report.items[0].handsetObservation.fields.Handelsplatz=venue;
+ assert.equal(evaluate(input).items[0].feeAssessment.feesCHF,6);
+}
 for(const change of [x=>x.config.feeProfile='unknown',x=>x.config.fxMode='unknown',
  x=>x.report.items[0].handsetObservation.fields.Handelsplatz='Swiss DOTS',
  x=>x.report.items[0].handsetObservation.fields.Handelsplatz='Société Générale',
