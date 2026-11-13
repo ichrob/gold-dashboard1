@@ -15,6 +15,7 @@ import trade_email_import
 INBOX = "bob-degiro@agentmail.to"
 BASE = "https://api.agentmail.to/v0/inboxes/" + quote(INBOX, safe="") + "/messages"
 MAX_LIST = 30
+PAGE_SIZE = 5
 MAX_MESSAGE_BYTES = 130000
 _message_cache = {}
 
@@ -44,6 +45,32 @@ def api_json(url, api_key, byte_limit):
     return result
 
 
+def _message_items(api_key, after, fetch):
+    """Read small metadata pages without raising the byte or total-item caps."""
+    token = None
+    tokens = set()
+    total = 0
+    for _ in range(MAX_LIST // PAGE_SIZE):
+        params = {"limit": PAGE_SIZE, "after": after}
+        if token is not None:
+            params["page_token"] = token
+        page = fetch(BASE+"?"+urlencode(params), api_key, 70000)
+        messages = page.get("messages")
+        if not isinstance(messages, list) or len(messages) > PAGE_SIZE:
+            raise _read_error("invalid-message-list", PAGE_SIZE,
+                              len(messages) if isinstance(messages, list) else 0)
+        for item in messages:
+            total += 1
+            yield item
+        token = page.get("next_page_token")
+        if token is None:
+            return
+        if not isinstance(token, str) or not 1 <= len(token) <= 512 or token in tokens:
+            raise _read_error("invalid-page-token", PAGE_SIZE, total)
+        tokens.add(token)
+    print("BOB_EMAIL_RECOVERY_LIST status=bounded messages="+str(total), flush=True)
+
+
 def recover(api_key, allowed_sender, fetch=api_json, now=None, lookback_days=7):
     """Return only sanitized, source-labelled receipts, not email bodies."""
     if not api_key or len(api_key)<12 or not allowed_sender:
@@ -54,15 +81,9 @@ def recover(api_key, allowed_sender, fetch=api_json, now=None, lookback_days=7):
     if type(lookback_days) is not int or not 1 <= lookback_days <= 45:
         raise ValueError("Beleg-Zeitfenster muss zwischen 1 und 45 Tagen liegen")
     after=(now-dt.timedelta(days=lookback_days)).isoformat().replace("+00:00","Z")
-    url=BASE+"?"+urlencode({"limit":MAX_LIST,"after":after})
-    page=fetch(url,api_key,70000)
-    messages=page.get("messages")
-    if not isinstance(messages,list) or len(messages)>MAX_LIST:
-        raise _read_error("invalid-message-list", MAX_LIST,
-                          len(messages) if isinstance(messages,list) else 0)
     outputs=[]
     seen=set()
-    for item in messages:
+    for item in _message_items(api_key, after, fetch):
         if not isinstance(item,dict) or item.get("inbox_id")!=INBOX:
             continue
         mid=item.get("message_id")
