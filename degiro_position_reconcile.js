@@ -123,7 +123,7 @@ function stableMail(item){
  // Explicitly balanced cost breakdown from ONE historical DEGIRO PDF.
  // Still pending review: it is not a fee tariff or authorization to trade.
  const f=r.feeEvidence,total=r.costsChf;
- const documented=r.sourceKind==='DEGIRO-execution-PDF' &&
+ const documented=['DEGIRO-execution-PDF','DEGIRO-execution-email-HTML'].includes(r.sourceKind) &&
    f?.scope==='single-execution' && f.tariffConfirmed===false &&
    f.sumChecked===true &&
    [f.autoFxChf,f.transactionChf,total].every(v=>
@@ -359,7 +359,7 @@ function mount(){
     ' · nicht zuordenbar: '+r.screenshotUnmatched);
    if(r.documentFeeRows){
     const fmtCHF=n=>n.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' CHF';
-    row(card,'Historische Einzel-Ausführungs-PDF-Kosten: '+r.documentFeeRows+' Beleg(e) · '+
+    row(card,'Historische Einzel-Ausführungsbelege (DEGIRO PDF/HTML): '+r.documentFeeRows+' Beleg(e) · '+
      fmtCHF(r.documentCostsCHF)+' Gesamt, '+fmtCHF(r.documentAutoFxCHF)+' AutoFX, '+
      fmtCHF(r.documentTransactionCHF)+' Transaktions-/Fremdkosten. '+
      'Davon '+r.documentFeeMatchedCsv+' eindeutig mit Transaktions-CSV abgeglichen. '+
