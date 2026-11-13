@@ -133,6 +133,25 @@ class MailRecoveryTests(unittest.TestCase):
             recovery.recover('test-token-secure','customer@example.test',loop)
         self.assertEqual(len(calls),2)
 
+    def test_historical_pdf_uses_existing_sender_checked_attachment_import(self):
+        mid='<pdf@example.test>'
+        attachment={'attachment_id':'fixture','filename':'receipt.pdf',
+                    'content_type':'application/pdf','size':123}
+        def get(url,*args):
+            if '?' in url:
+                return {'messages':[{'inbox_id':recovery.INBOX,'message_id':mid,
+                    'labels':['received'],'subject':'Historical receipt','attachments':[attachment]}]}
+            return {'inbox_id':recovery.INBOX,'message_id':mid,
+                'from':'customer@example.test','subject':'Historical receipt','attachments':[attachment]}
+        parsed={'status':'pending-review','sourceKind':'AgentMail-DEGIRO-PDF'}
+        with patch.object(recovery.trade_attachment_import,'fetch_pdf_confirmation',return_value=parsed) as pdf:
+            records=recovery.recover('test-token-secure','customer@example.test',get)
+            self.assertEqual(records,[{'messageId':mid,'record':parsed}])
+            self.assertEqual(pdf.call_count,1)
+        with patch.object(recovery.trade_attachment_import,'fetch_pdf_confirmation') as pdf:
+            self.assertEqual(recovery.recover('test-token-secure','other@example.test',get),[])
+            pdf.assert_not_called()
+
     def test_unconfigured_skip_network(self):
         def fail(*args):
             raise AssertionError('No unconfigured external traffic')

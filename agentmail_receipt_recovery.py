@@ -11,6 +11,7 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 import trade_email_import
+import trade_attachment_import
 
 INBOX = "bob-degiro@agentmail.to"
 BASE = "https://api.agentmail.to/v0/inboxes/" + quote(INBOX, safe="") + "/messages"
@@ -95,7 +96,11 @@ def recover(api_key, allowed_sender, fetch=api_json, now=None, lookback_days=7):
         seen.add(mid)
         if "received" not in (item.get("labels") or []):
             continue
-        if not str(item.get("subject") or "").lower().startswith(("degiro", "wg: degiro","wg: degiro")):
+        attachments=item.get("attachments") or []
+        has_pdf=isinstance(attachments,list) and any(
+            isinstance(a,dict) and (str(a.get("filename") or "").lower().endswith(".pdf")
+            or a.get("content_type")=="application/pdf") for a in attachments)
+        if not has_pdf and not str(item.get("subject") or "").lower().startswith(("degiro", "wg: degiro","wg: degiro")):
             continue
         cache_key=(mid,item.get('updated_at'),item.get('size'))
         cached=_message_cache.get(cache_key) if fetch is api_json else None
@@ -107,6 +112,9 @@ def recover(api_key, allowed_sender, fetch=api_json, now=None, lookback_days=7):
         event={"type":"event","event_type":"message.received",
                "message":{**detail,"inbox_id":INBOX}}
         record=trade_email_import.import_event(event,allowed_sender)
+        # Reuse the webhook's bounded, sender-checked PDF path, including
+        # historical attachments whose subject does not name the broker.
+        record=trade_attachment_import.enrich_event(event,record,allowed_sender,api_key)
         if record.get("status")=="pending-review":
             parsed={"messageId":mid,"record":record}
             outputs.append(parsed)

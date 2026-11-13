@@ -123,7 +123,7 @@ function stableMail(item){
  // Explicitly balanced cost breakdown from ONE historical DEGIRO PDF.
  // Still pending review: it is not a fee tariff or authorization to trade.
  const f=r.feeEvidence,total=r.costsChf;
- const documented=['DEGIRO-execution-PDF','DEGIRO-execution-email-HTML'].includes(r.sourceKind) &&
+ const documented=['DEGIRO-execution-PDF','DEGIRO-execution-email-HTML','AgentMail-DEGIRO-PDF'].includes(r.sourceKind) &&
    f?.scope==='single-execution' && f.tariffConfirmed===false &&
    f.sumChecked===true &&
    [f.autoFxChf,f.transactionChf,total].every(v=>
