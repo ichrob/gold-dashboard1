@@ -351,7 +351,7 @@ try{
 <div class="sub">XAU/USD · technische Analyse · DEGIRO bleibt manuell</div>
 </div>
 
-<section class="gold-market" aria-labelledby="goldMarketTitle" data-design="kompakte-liste-v2"><h2 id="goldMarketTitle">Goldmarkt</h2><div class="gold-quotes"><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-Spot</h3><div class="gold-symbol">XAU/USD</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-spot-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-spot-change">— %</span></div><div class="gold-change-label" id="gold-spot-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-spot-state">Lade Kurs …</div><div id="gold-spot-time">Kurszeit fehlt</div><div id="gold-spot-source"></div></div></article><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-CFD</h3><div class="gold-symbol">Investing.com</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-cfd-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-cfd-change">— %</span></div><div class="gold-change-label" id="gold-cfd-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-cfd-state">Lade Kurs …</div><div id="gold-cfd-time">Kurszeit fehlt</div><div id="gold-cfd-source"></div></div><div class="gold-estimate-inline"><div><span id="gold-estimate-price">—</span> USD · Bobs Futures-Schätzung</div><div class="gold-meta"><div id="gold-estimate-state">Lade Schätzung …</div><div id="gold-estimate-time">Stand: nicht verfügbar</div></div></div></article></div><p class="gold-market-note">USD je Feinunze · Veränderung zum Vortagesschluss der jeweiligen Quelle.<br>Gold-CFD: Normalbetrieb 30 Sekunden, Nachtmodus fünf Minuten – bei aktiven Trades bleibt die engmaschige Risikoüberwachung erhalten. Quellenzeiten bleiben erhalten.<span id="gold-session-mode" role="status"></span><span id="gold-special-session" role="status"></span></p></section>
+<section class="gold-market" aria-labelledby="goldMarketTitle" data-design="kompakte-liste-v2"><h2 id="goldMarketTitle">Goldmarkt</h2><div class="gold-quotes"><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-Spot</h3><div class="gold-symbol">XAU/USD</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-spot-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-spot-change">— %</span></div><div class="gold-change-label" id="gold-spot-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-spot-state">Lade Kurs …</div><div id="gold-spot-time">Kurszeit fehlt</div><div id="gold-spot-source"></div></div></article><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-CFD</h3><div class="gold-symbol">Investing.com</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-cfd-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-cfd-change">— %</span></div><div class="gold-change-label" id="gold-cfd-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-cfd-state">Lade Kurs …</div><div id="gold-cfd-time">Kurszeit fehlt</div><div id="gold-cfd-source"></div></div></article></div><p class="gold-market-note">USD je Feinunze · Veränderung zum Vortagesschluss der jeweiligen Quelle.<br>Gold-CFD: Normalbetrieb 30 Sekunden, Nachtmodus fünf Minuten – bei aktiven Trades bleibt die engmaschige Risikoüberwachung erhalten. Quellenzeiten bleiben erhalten.<span id="gold-session-mode" role="status"></span><span id="gold-special-session" role="status"></span></p></section>
 
 <script>
 (function(){
@@ -397,7 +397,8 @@ try{
   if(!q)return;
   if(!positive(q.price)){if(key==='estimate'){quotes[key]=q;render(key);}return;}
   const old=quotes[key],at=Date.parse(q.at),before=Date.parse(old?.at);
-  if(old&&Number.isFinite(before)&&(!Number.isFinite(at)||at<before))return;
+  if(old&&Number.isFinite(before)&&(!Number.isFinite(at)||at<before||(at===before&&q.price!==old.price)))return;
+  if(old&&at===before&&q.changePct==null&&old.changePct!=null)q={...q,changePct:old.changePct,changeLabel:old.changeLabel};
   quotes[key]=q;
   // Display-only historical cache; never fed to trade/technical eligibility.
   if(window.BobWeekendPause&&!window.BobWeekendPause()&&Number.isFinite(at)&&at<=Date.now()){
@@ -417,7 +418,7 @@ try{
   if(busy||window.BobSession?.expired()||window.BobWeekendPause?.())return;
   if(window.BobDegiroPhase?.()==='night' && Date.now()-lastRequestAt<300000)return;
   lastRequestAt=Date.now();busy=true;const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
-  try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();accept('future',data.future);accept('estimate',data.estimate);accept('cfd',data.cfd);const notice=document.getElementById('gold-special-session');if(notice)notice.textContent=data.sessionAdvisory?' · Börsenkalender: '+data.sessionAdvisory.name+' · '+data.sessionAdvisory.note:'';}catch(_){}
+  try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();if(data.spot?.kind==='spot'&&data.spot?.symbol==='XAU/USD')accept('spot',data.spot);accept('future',data.future);accept('estimate',data.estimate);accept('cfd',data.cfd);const notice=document.getElementById('gold-special-session');if(notice)notice.textContent=data.sessionAdvisory?' · Börsenkalender: '+data.sessionAdvisory.name+' · '+data.sessionAdvisory.note:'';}catch(_){}
   finally{clearTimeout(timer);busy=false;render('spot');render('future');render('estimate');render('cfd');}
  }
  function renderSessionMode(){
@@ -502,7 +503,7 @@ try{
 <div class="analysis-block neutral"><span>MTF-Bestätigung · Zeitebenen</span><b id="blockMtf">DATEN FEHLEN</b><small id="blockMtfNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Volatilität · Schwankungsstärke</span><b id="blockVolatility">DATEN FEHLEN</b><small id="blockVolatilityNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Marktstruktur · Hochs und Tiefs</span><b id="blockStructure">DATEN FEHLEN</b><small id="blockStructureNote">Daten fehlen</small></div>
-</div><div id="earlyImpulseStatus" class="small" style="margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:12px;white-space:pre-line">Frühimpuls LONG/SHORT · Vergleichstest wird geladen …</div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div><div id="marketInputQuality" class="small" style="margin-top:10px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;white-space:pre-line">Datenqualität wird geprüft …</div>
+</div><div id="earlyImpulseStatus" class="small" style="margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:12px;white-space:pre-line">FRÜHWARNSYSTEM · Daten noch nicht verfügbar. Keine aktuelle Vorwarnung bestätigt.</div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div><div id="marketInputQuality" class="small" style="margin-top:10px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;white-space:pre-line">Datenqualität wird geprüft …</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 <details id="bobMarketAnalysis" class="bob-disclosure" style="margin-top:12px"><summary>Marktanalyse von Bob</summary><div id="bobMarketNarrative" class="small" style="white-space:pre-line;margin-top:10px">Noch keine aktuelle Marktanalyse verfügbar.</div></details>
@@ -3237,7 +3238,7 @@ function earlyPreparationText(q,bundle=liveBundleCache,now=Date.now()){
 function renderEarlyImpulseStatus(){
  const el=$('earlyImpulseStatus');if(!el)return;
  const q=earlyWarningContext(liveBundleCache),active=signalState?.dir||'NEUTRAL';
- window.BobDegiro?.renderEarlyProductPanel(q);
+ // Optional product rendering must not prevent the market warning from updating.
  const clock=t=>new Date(t).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'});
  const hasDirection=['LONG','SHORT'].includes(q.direction);
  const labels={unavailable:'DATEN FEHLEN – kein aktuelles Frühwarnsignal',paused:'PAUSIERT',
@@ -3251,8 +3252,11 @@ function renderEarlyImpulseStatus(){
   (q.extensionRisk?'\n⚠ Bewegung bereits weit gelaufen – erhöhtes Rückschlagrisiko':'')+
   '\nGeprüft: '+clock(q.checkedAt)+' (Zürich) · Hauptsignal: '+active+
   '\nBeobachtung: keine Handelsfreigabe. Marktbeobachtung-Push nur bei frischer, geschlossener Signalkerze und nicht bereits bestätigter Hauptrichtung.'+
-  earlyPreparationText(q,liveBundleCache)+
-  (window.BobDegiro?.earlyProductRankingText(q)||'');
+  earlyPreparationText(q,liveBundleCache);
+ try{
+  window.BobDegiro?.renderEarlyProductPanel?.(q);
+  el.textContent+=window.BobDegiro?.earlyProductRankingText?.(q)||'';
+ }catch(error){console.warn('[BOB] Early product panel unavailable',error);}
 }
 
 // Recheck expiry even when a fetch or the main analysis fails; no extra network request.
@@ -3417,6 +3421,8 @@ async function fetchLiveBundle(force=false){
    const previous=liveBundleCache?.spots;
    if(previous&&(Date.parse(spot.spot_price_as_of)<Date.parse(previous.spot_price_as_of)||
       (Date.parse(spot.spot_price_as_of)===Date.parse(previous.spot_price_as_of)&&spot.xaus!==previous.xaus)))throw Error('Widersprüchlicher Spot-Datensatz');
+   // Publish the checked original before optional history work can delay display.
+   window.BobGoldCards?.spot(j);
    // Historical candles are a separate input. A fallback must never replace spot.
    const serverBars=j.history?.bars_by_tf||{};
    if(!technicalHistoryFresh(serverBars['5m'],'5m',now)||!technicalHistoryFresh(serverBars['1h'],'1h',now)){
