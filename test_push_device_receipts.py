@@ -3,7 +3,7 @@ import json
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, MagicMock, patch
 
 import push_receipt
 import push_server
@@ -110,19 +110,18 @@ class PushDeviceReceiptTests(unittest.TestCase):
             'endpoint': 'PRIVATE ENDPOINT'}, schema)
         self.assertEqual(projected['receiptState'], 'clicked')
         self.assertNotIn('receiptProof', projected)
-        self.assertNotIn('endpoint', projected)
-
-    def test_two_independent_browser_states_not_conflated(self):
+        self.assertNotIn('endpoint', p    def test_two_independent_browser_states_not_conflated(self):
         at = datetime(2026, 10, 26, 8, 50, tzinfo=timezone.utc)
         rid = 'a'*32
-        conn = Mock()
+        conn = MagicMock()
         provider_row = ('provider-id', at, {
             'outcome': 'provider-accepted', 'httpStatus': 201,
             'direction': 'LONG', 'receiptId': rid, 'test': False,
             'synthetic': False, 'body': 'PRIVATE'})
         conn.execute.side_effect = [
             SimpleNamespace(fetchall=lambda: [provider_row]),
-            SimpleNamespace(fetchall=lambda: [(rid, 'show-resolved', at)])
+            SimpleNamespace(fetchall=lambda: [(rid, 'show-resolved', at)]),
+            *[SimpleNamespace(fetchall=lambda: []) for _ in range(6)]
         ]
         value = push_delivery_history.report(conn)
         record = value['records'][0]
@@ -131,12 +130,13 @@ class PushDeviceReceiptTests(unittest.TestCase):
         self.assertIs(record['marketEventVerified'], False)
         self.assertNotIn(rid, str(value))
         self.assertNotIn('PRIVATE', str(value))
-        self.assertEqual(conn.execute.call_count, 2)
+        self.assertEqual(conn.execute.call_count, 8)
 
-        conn2 = Mock()
+        conn2 = MagicMock()
         conn2.execute.side_effect = [
             SimpleNamespace(fetchall=lambda: [provider_row]),
-            SimpleNamespace(fetchall=lambda: [(rid, 'clicked', at)])
+            SimpleNamespace(fetchall=lambda: [(rid, 'clicked', at)]),
+            *[SimpleNamespace(fetchall=lambda: []) for _ in range(6)]
         ]
         clicked = push_delivery_history.report(conn2)['records'][0]
         self.assertEqual(clicked['handsetReceipt'], 'notification-click-confirmed')
