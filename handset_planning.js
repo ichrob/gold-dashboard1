@@ -29,6 +29,8 @@ function evaluate(input){
    const rowConfig={...cfg,feesCHF:feeAssessment.available?feeAssessment.feesCHF:null};
    const candidate={isin,direction};
    const preliminary=calc.evaluate({candidate,product:p,quote,stopPlan:stop,fx,...rowConfig,now,direction});
+   if(preliminary.reasonCode==='CHF_FEES_MISSING'&&!feeAssessment.available&&feeAssessment.reason)
+    preliminary.reason=feeAssessment.reason;
    const result=calc.compareHandsetModel({report:input.report,candidate,product:p,
     preliminary,fx,...rowConfig,now,direction});
    const automaticScenarios=input.config?calc.automaticFeeScenarios({config:cfg,

@@ -111,7 +111,7 @@ function evaluate({candidate,product,quote,stopPlan,fx,budgetCHF,riskCHF,feesCHF
  const item={isin:String(candidate?.isin||''),direction,available:false,entry:null,bid:null,stop:null,
   quantity:null,currency:null,totalCHF:null,investedCHF:null,lossCHF:null,reason:'',
   source:null,quoteAt:null,fxNote:'',priceKind:null,sourceTier:null,sourceLabel:'',copyAllowed:false,warning:'Richtwerte, keine ausführbaren DEGIRO-Kurse'};
- const block=reason=>({...item,reason});
+ const block=(reason,reasonCode=null)=>({...item,reason,reasonCode});
  if(!candidate||!validSide(direction)||candidate.direction!==direction||
     product?.isin!==item.isin||product.productDirection!==direction||
     product.isinConfirmed!==true)return block('Richtung und ISIN müssen zum geprüften Ranking passen.');
@@ -130,6 +130,8 @@ function evaluate({candidate,product,quote,stopPlan,fx,budgetCHF,riskCHF,feesCHF
   item.sourceTier===2?'2 · Ersatzquelle / Beobachtung':'3 · Berechneter Modellwert';
  // No calculated or chart-derived number may be copied as a ready order field.
  item.copyAllowed=quote.kind!=='calculated'&&quote.chart!==true;
+ if(stopPlan?.available===false&&stopPlan.reason)
+  return block(stopPlan.reason,'MODEL_STOP_UNAVAILABLE');
  if(!stopPlan?.available||stopPlan.currency!==quote.currency||
     !positive(Number(stopPlan.stop))||!(Number(stopPlan.stop)<item.entry)||
     !fresh(stopPlan.referenceAt,now,MAX_QUOTE_AGE)||
@@ -138,8 +140,9 @@ function evaluate({candidate,product,quote,stopPlan,fx,budgetCHF,riskCHF,feesCHF
  item.stop=Number(stopPlan.stop);
  if(!fx?.available||!positive(fx.rate))return block(fx?.reason||'Aktuelle Währungsumrechnung fehlt.');
  item.fxNote=fx.note||'';
- if(!positive(budgetCHF)||!positive(riskCHF)||!nonnegative(feesCHF))
-  return block('Maximales Kapital, Verlustrisiko und Gebühren (auch 0 explizit) in CHF eintragen.');
+ if(!positive(budgetCHF))return block('Maximalen Einsatz in CHF eintragen.','CHF_BUDGET_MISSING');
+ if(!positive(riskCHF))return block('Maximalen Verlust bis Stopp in CHF eintragen.','CHF_RISK_MISSING');
+ if(!nonnegative(feesCHF))return block('Gebühren in CHF fehlen; automatische Tarifprüfung oder belegte Gebühren erforderlich.','CHF_FEES_MISSING');
  const costPerUnit=item.entry*fx.rate,lossPerUnit=(item.entry-item.stop)*fx.rate;
  if(!positive(costPerUnit)||!positive(lossPerUnit)||budgetCHF<=feesCHF||riskCHF<=feesCHF)
   return block('Kapital oder Risikobudget reicht nach Gebühren nicht aus.');
