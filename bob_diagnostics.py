@@ -2249,7 +2249,23 @@ def bounded_report(report, max_bytes):
                 compact.update(truncated=True,
                                omittedSections=removed + ['accounts.recentCases'])
     result['summary'] = summary(areas)
-    for name in sorted(areas, key=lambda key: size(areas[key]), reverse=True):
+    # Large optional comparisons must not displace the current virtual-account
+    # balances, costs and entry-block observations.  The old largest-first
+    # omission could drop simulationAndPush itself, even after its journal and
+    # individual cases were removed, leaving the simulation focus unusable.
+    # Preserve core evidence as long as it fits; a truly too-small response
+    # still reports an explicit omission rather than pretending it was read.
+    core = ('simulationAndPush', 'paperProfitEvidence',
+            'simulationRuntimeBrief', 'entryBlockEvidence',
+            # The stored research summary is a separate compact section
+            # projected from the original simulation source; never discard
+            # that small proof merely because the account body is oversized.
+            'strategyReport')
+    optional = sorted((name for name in areas if name not in core),
+                      key=lambda name: size(areas[name]), reverse=True)
+    essential = sorted((name for name in areas if name in core),
+                       key=lambda name: size(areas[name]), reverse=True)
+    for name in optional + essential:
         if size(result) <= max_bytes:
             break
         areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
