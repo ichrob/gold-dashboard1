@@ -104,15 +104,23 @@ def receipt_status(conn):
         return {**base, "status": "disabled"}
     try:
         with conn.transaction():
+            # The caller may be doing other work in the same transaction.
+            # Releasing a SAVEPOINT does NOT reset a successful SET LOCAL.
+            # Restore the exact previous timeout before leaving the savepoint;
+            # a SQL exception rolls back it automatically instead.
+            previous = conn.execute("SHOW statement_timeout").fetchone()
+            if not previous or type(previous[0]) is not str:
+                raise ValueError("Timeout state unavailable")
             conn.execute("SET LOCAL statement_timeout='750ms'")
             present = conn.execute(
                 "SELECT to_regclass('bob_storage_tail_reclaim_attempts')"
             ).fetchone()
-            if not present or present[0] is None:
-                return base
-            row = conn.execute("""SELECT target_table,status,relation_bytes_reduced,
+            row = (conn.execute("""SELECT target_table,status,relation_bytes_reduced,
                 updated_at FROM bob_storage_tail_reclaim_attempts
                 WHERE id=%s LIMIT 1""", (config["id"],)).fetchone()
+                if present and present[0] is not None else None)
+            conn.execute("SELECT set_config('statement_timeout',%s,true)",
+                         (previous[0],))
         if not row:
             return base
         table, state, decreased, stamp = row
