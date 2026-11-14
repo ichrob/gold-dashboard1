@@ -29,7 +29,8 @@ def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tai
              manual_decision_audit=False):
     """A dedicated autocommit connection, at most four time-limited vacuums.
 
-    bob_decision_audit requires target_table plus an explicit manual_decision_audit=True\n    flag, and is never scheduled.
+    bob_decision_audit requires target_table plus an explicit manual_decision_audit=True
+    flag, and is never scheduled.
 
     No FULL: never rewrite tables. After cold offload, cold-table tail truncation
     may briefly lock the table; the whole command is limited to ten seconds.
