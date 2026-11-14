@@ -45,7 +45,8 @@ if __name__=='__main__':unittest.main()
 
 class WeekendObservationBackfillTests(unittest.TestCase):
     def test_sparse_spot_observations_are_labeled_and_no_empty_buckets_added(self):
-        now=datetime.now(timezone.utc)
+        # Fixed open session: tests must also pass on a Saturday.
+        now=datetime.fromisoformat('2026-11-13T20:00:00+00:00')
         step=900
         base=(int(now.timestamp())//step-4)*step
         rows=[(datetime.fromtimestamp(base+10,timezone.utc),4100.),
