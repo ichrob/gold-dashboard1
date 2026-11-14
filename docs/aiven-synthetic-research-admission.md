@@ -107,3 +107,51 @@ The test suite uses invented local fixtures strictly to verify this
 fail-closed rule. They are not host telemetry and can never be used to
 authorize a real Aiven test. Real Console evidence has NOT been supplied
 through the available integrations.
+
+
+## Official Aiven REST service-metrics adapter (optional, no migration)
+
+Aiven documents POST /v1/project/{project}/service/{service_name}/metrics as
+a read-only host-telemetry operation requiring service:metrics:read. The CLI
+documents mem_usage and disk_usage as percentages. The new
+aiven_provider_host_metrics.py is NOT a server startup hook, and it does not
+add paid resources, automatic polling, migrations or any PostgreSQL writes.
+
+It is disabled unless BOB_AIVEN_METRICS_ONCE=1. The optional API connection
+also requires privately supplied:
+
+- BOB_AIVEN_METRICS_TOKEN: a short-lived Aiven API token limited to the service
+  metrics read privilege, never the PostgreSQL password.
+- BOB_AIVEN_METRICS_PROJECT: existing exact Aiven project identifier.
+- BOB_AIVEN_METRICS_SERVICE: existing exact Free PostgreSQL service identifier.
+
+The adapter pins the API address to https://api.aiven.io, uses TLS, makes
+one bounded POST request only to fetch an hour of metrics, rejects redirects,
+caps response size, and redacts credentials and account identifiers from CLI
+output. Unknown chart shape, missing series, timestamps older than 20 minutes,
+misaligned RAM/disk samples and units below 1% which could be ratios all fail
+closed instead of being guessed. The normalized source is explicitly
+aiven-service-metrics-api, never falsely identified as a Console screenshot.
+The service-wide reading does NOT show individual process RSS/OOM evidence.
+
+With BOB_AIVEN_METRICS_ONCE=1 in the manual synthetic probe, provider host
+measurements replace the operator-entered host data. If that API check fails,
+the probe blocks even when its manually entered values look safe. The SQL
+health and independent recovery metadata still require fresh, authentic
+evidence; an API token alone does not approve a test.
+
+No Aiven API token, project identifier, or service identifier is available to
+the linked ChatGPT tooling in this conversation. Thus **live provider-metrics
+read is NOT yet confirmed** and the host-capacity gate is presently BLOCKED.
+The credentials must be provided privately through an authenticated system,
+not in a public commit, chat, issue, or CI log. Do not assume a normal
+PostgreSQL user/password grants Aiven service-metrics API permissions.
+
+Offline tests:
+
+    python -m unittest -v test_aiven_provider_host_metrics test_aiven_research_admission test_aiven_synthetic_scratch_probe
+
+This optional adapter is designed to be validated against the **actual**
+service-metrics response schema after authorized credentials become available.
+An unfamiliar provider JSON schema keeps the pilot blocked, and must not be
+silently mapped to percentages.
