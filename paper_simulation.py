@@ -495,7 +495,13 @@ PAPER_ENTRY_WINDOW_PROFILES = frozenset(('trend800nov', 'normal1000nov', 'ema300
 
 
 def paper_entry_reason_code(reason):
-    """Collapse volatile/free-text reasons without persisting product identifiers."""
+    """Fixed, non-identifying forward-only classification of paper blockers.
+
+    Detailed reason text remains in its separately bounded original journal.
+    This counter summarises observed checks, not rejected executable orders.
+    New classifications apply only to future aggregation; no stored window is
+    rewritten and no live/paper entry or risk gate is changed.
+    """
     text = str(reason or '')
     if 'Preis über 1,5 ATR von EMA20' in text and 'älter als 15 Minuten' in text:
         return 'ema-stretch-and-signal-age'
@@ -507,6 +513,16 @@ def paper_entry_reason_code(reason):
         return 'gold-stale'
     if text.startswith('ABWARTEN: kein bestätigter gültiger Goldplan'):
         return 'gold-plan-missing'
+    # Prospectively separate the three dominant November-campaign blockers
+    # instead of hiding their frequency under "plan-or-timing". Exact ATR
+    # comparisons are still made by the existing isolated campaign gates.
+    if ('Aktueller Spot und letzter Kerzenschluss weichen über' in text
+            and 'ATR ab' in text):
+        return 'spot-close-distance'
+    if 'Trendstärke schwach' in text and 'zweite Schlusskerze' in text:
+        return 'weak-trend-confirmation'
+    if 'Mindest-CRV bis zur Hürde nicht erfüllt' in text:
+        return 'crv-obstacle'
     if 'Stopp-/Zielplan' in text or text.startswith('Einstieg wartet:'):
         return 'plan-or-timing'
     if text.startswith('KO-Schutz:'):
@@ -520,7 +536,6 @@ def paper_entry_reason_code(reason):
     if text.startswith('Diese Signal-Kerze wurde bereits'):
         return 'duplicate-bar'
     return 'other'
-
 
 def paper_entry_time_bucket(day_data, now, wait, entry):
     """Record ONLY future observation-time aggregate; never fabricate backfills.
