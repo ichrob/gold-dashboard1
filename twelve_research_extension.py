@@ -137,7 +137,7 @@ def validate_rows(payload, symbol, interval, start_ms, end_ms, now_ms):
         if interval == '1day':
             label = bar['datetime']
             if not isinstance(label, str) or not re.fullmatch(
-                    r'\\d{4}-\\d{2}-\\d{2}(?: 00:00:00)?', label):
+                    r'\d{4}-\d{2}-\d{2}(?: 00:00:00)?', label):
                 raise ValueError('daily-label')
             day = datetime.strptime(label[:10], '%Y-%m-%d').date()
             opened = _sydney_midnight_ms(day)
