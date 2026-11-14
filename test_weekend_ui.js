@@ -45,11 +45,13 @@ assert(html.includes("dayExtremes.historical?' beobachtet':' heute'"));
 console.log('Historical chart: sample-only Fibonacci blocked, dates labeled correctly');
 
 // Functional test of the exact display-only projection used by the chart.
-const viewStart=source.indexOf('function chartDisplayAllowed('),viewEnd=source.indexOf('let chartHitMap=null,chartSelected=null;',viewStart);
+const chartScript=scripts.map(x=>x[1]).find(x=>x.includes('function chartDisplayAllowed('));
+assert(chartScript,'Main chart script is present');
+const viewStart=chartScript.indexOf('function chartDisplayAllowed('),viewEnd=chartScript.indexOf('let chartHitMap=null,chartSelected=null;',viewStart);
 assert(viewStart>=0&&viewEnd>viewStart,'Display-only chart projection exists');
 const chartSandbox={Date,Intl,Object,Number,Map};
 vm.createContext(chartSandbox);
-vm.runInContext(source.slice(viewStart,viewEnd),chartSandbox);
+vm.runInContext(chartScript.slice(viewStart,viewEnd),chartSandbox);
 const fridayStart=Date.parse('2026-11-12T23:00:00Z'); // Friday 00:00 Zurich
 const fridayBars=Array.from({length:274},(_,i)=>({openTime:fridayStart+i*300000,close:4000+i}));
 const saturdayFake={openTime:Date.parse('2026-11-14T10:00:00Z'),close:9999};
