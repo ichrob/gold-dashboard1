@@ -25,10 +25,11 @@ def connect():
 
 
 def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tail=False,
-             reclaim_observation_tail=False, reclaim_image_tail=False, target_table=None):
+             reclaim_observation_tail=False, reclaim_image_tail=False, target_table=None,
+             manual_decision_audit=False):
     """A dedicated autocommit connection, at most four time-limited vacuums.
 
-    bob_decision_audit is manual-only via target_table and is never scheduled.
+    bob_decision_audit requires target_table plus an explicit manual_decision_audit=True\n    flag, and is never scheduled.
 
     No FULL: never rewrite tables. After cold offload, cold-table tail truncation
     may briefly lock the table; the whole command is limited to ten seconds.
@@ -38,6 +39,13 @@ def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tai
     # Only the fixed allowlist is ever used in SQL; never accept dynamic names.
     if target_table is not None and target_table not in _TABLES:
         raise ValueError('Unapproved maintenance target')
+    # A plain target_table argument must never silently expand the old allowlist.
+    # Preserve the pre-existing hard rejection before any connection or SQL.
+    if target_table in _MANUAL_ONLY_TABLES and manual_decision_audit is not True:
+        raise ValueError('Manual decision audit confirmation required')
+    if manual_decision_audit is not False and not (
+            manual_decision_audit is True and target_table in _MANUAL_ONLY_TABLES):
+        raise ValueError('Manual flag requires the exact approved target')
     results = []
     with factory() as conn:
         if not conn.autocommit:
