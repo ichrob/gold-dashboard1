@@ -72,6 +72,25 @@ A successfully built or unit-tested adapter **does not establish** that a
 licensed production data feed is working. The last authenticated historical
 XAU/USD 1h probe was separate from this draft.
 
+## Offline readiness check (14 Nov 2026)
+
+Without exposing an existing Twelve Data token or consuming a credit, an
+operator can run `python twelve_research_extension.py --symbol XAU/USD
+--interval 5min --preflight`. This only reports whether a key *appears*
+configured in that process and whether manual opt-in/coordination flags have
+been set. No archive is required, network requests are forbidden, and the
+output never contains the key itself. A token visible in the provider website
+is **not proof** that Bob's runtime can access it.
+
+**Do not mistake this for a successful vendor test or readiness approval.**
+The preflight always reports `providerRequestAuthorized=false` and the
+unverified permanent quota-ledger/retention gate. Existing Render scanner and
+push services are not suitable ad-hoc storage or runtime for this research
+before those controls are verified. No new secret should be committed,
+displayed, emailed or copied into chat. A human can later populate a
+protected operator runtime through a proper secret field; do not enable a
+scheduled worker or use the production Render restart path as a shortcut.
+
 ## Manual evaluation (not for scheduled background execution)
 
 Use an existing Basic account's key via a private process environment

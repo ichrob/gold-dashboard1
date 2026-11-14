@@ -496,16 +496,52 @@ def fetch_earliest_timestamp(db, symbol, interval, *, now_ms=None, opener=None):
     # Never log authorization headers, request objects or exceptions.
 
 
+def manual_preflight(symbol, interval, env=None):
+    """Offline checks only. Never disclose credentials, call APIs or write storage.
+
+    A passing configuration check is NOT a license, durable quota ledger or
+    approval for live queries. External release gates remain mandatory.
+    """
+    env = os.environ if env is None else env
+    supported = symbol in SYMBOLS and interval in INTERVAL_MS
+    key = env.get('TWELVEDATA_API_KEY', '')
+    key_configured = isinstance(key, str) and valid_key(key.strip())
+    scoped = supported and scope_allowed(symbol, interval, env)
+    worker_claimed = env.get('BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED') == '1'
+    blockers = []
+    if not supported:
+        blockers.append('UNSUPPORTED_SCOPE')
+    elif not scoped:
+        blockers.append('SCOPE_NOT_AUTHORIZED')
+    if not key_configured:
+        blockers.append('KEY_NOT_CONFIGURED')
+    if not worker_claimed:
+        blockers.append('WORKER_COORDINATION_UNCONFIRMED')
+    blockers.append('PERSISTENT_LEDGER_AND_RETENTION_UNVERIFIED')
+    return {'code': 'OFFLINE_PREFLIGHT_ONLY', 'manualOnly': True,
+            'keyConfigured': bool(key_configured), 'scopeOptIn': bool(scoped),
+            'workerCoordinationClaimed': worker_claimed,
+            'networkUsed': False, 'storageTouched': False,
+            'providerRequestAuthorized': False, 'blockers': blockers}
+
+
 def main():
     parser = argparse.ArgumentParser(description='Isolated Twelve Data research, no live/GUI output')
     parser.add_argument('--symbol', required=True, choices=sorted(SYMBOLS))
     parser.add_argument('--interval', required=True, choices=sorted(INTERVAL_MS))
+    parser.add_argument('--preflight', action='store_true',
+                        help='offline, no credentials revealed or provider requests')
     parser.add_argument('--earliest-only', action='store_true',
                         help='one manual historical-depth query; no price output')
     parser.add_argument('--start-utc', help='YYYY-MM-DD HH:MM:SS')
     parser.add_argument('--end-utc', help='YYYY-MM-DD HH:MM:SS (exclusive)')
-    parser.add_argument('--archive', required=True, help='persistent private SQLite, not Render ephemeral disk')
+    parser.add_argument('--archive', help='persistent private SQLite, not Render ephemeral disk')
     args = parser.parse_args()
+    if args.preflight:
+        print(json.dumps(manual_preflight(args.symbol, args.interval)))
+        return
+    if not args.archive:
+        parser.error('--archive is required for manual queries')
     parse = lambda v: int(datetime.strptime(v,'%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()*1000)
     if not args.earliest_only and not (args.start_utc and args.end_utc):
         parser.error('--start-utc and --end-utc are required unless --earliest-only')

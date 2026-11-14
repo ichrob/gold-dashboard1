@@ -1,3 +1,4 @@
+import json
 import copy
 import os
 import sqlite3
@@ -284,5 +285,43 @@ class TwelveResearchTests(unittest.TestCase):
                 self.assertIn('end_date=',client.url)
                 self.assertNotIn('test_only_fake_key',client.url)
                 self.assertEqual(client.auth,'apikey test_only_fake_key')
+
+    def test_manual_offline_preflight_never_exposes_key_or_authorizes_requests(self):
+        fake_key = 'test_only_fake_key_do_not_expose'
+        config = {'TWELVEDATA_API_KEY': fake_key,
+                  'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED': '1',
+                  'BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED': '1'}
+        with patch.object(td, 'build_opener') as net, patch.object(sqlite3, 'connect') as storage:
+            result = td.manual_preflight('XAU/USD', '5min', config)
+            self.assertEqual(result['code'], 'OFFLINE_PREFLIGHT_ONLY')
+            self.assertTrue(result['keyConfigured'])
+            self.assertTrue(result['scopeOptIn'])
+            self.assertFalse(result['providerRequestAuthorized'])
+            self.assertIn('PERSISTENT_LEDGER_AND_RETENTION_UNVERIFIED', result['blockers'])
+            self.assertNotIn(fake_key, json.dumps(result))
+            denied = td.manual_preflight('EUR/CHF', '1day', config)
+            self.assertFalse(denied['scopeOptIn'])
+            empty = td.manual_preflight('XAU/USD', '5min', {})
+            self.assertFalse(empty['keyConfigured'])
+            net.assert_not_called()
+            storage.assert_not_called()
+
+    def test_preflight_cli_needs_no_archive_and_uses_no_network(self):
+        from unittest.mock import patch as mock_patch
+        config = {'TWELVEDATA_API_KEY': 'test_only_fake_key_do_not_expose'}
+        with mock_patch.dict(os.environ, config, clear=True), \
+             mock_patch('sys.argv', ['twelve_research_extension.py', '--symbol',
+                                    'XAU/USD', '--interval', '5min', '--preflight']), \
+             mock_patch('builtins.print') as printed, \
+             mock_patch.object(td, 'build_opener') as network, \
+             mock_patch.object(sqlite3, 'connect') as storage:
+            td.main()
+            report = json.loads(printed.call_args.args[0])
+            self.assertEqual(report['code'], 'OFFLINE_PREFLIGHT_ONLY')
+            self.assertFalse(report['providerRequestAuthorized'])
+            self.assertNotIn('test_only_fake_key_do_not_expose',
+                             printed.call_args.args[0])
+            network.assert_not_called()
+            storage.assert_not_called()
 
 if __name__=='__main__':unittest.main()
