@@ -148,8 +148,10 @@ maintenance is performed by the diagnostic.
 
 The existing hourly `storage_maintenance.run_once()` continues to vacuum **only** its
 original four fixed tables. The large `bob_decision_audit` relation is now permitted
-**only** through an explicit `run_once(target_table='bob_decision_audit')` call
-from an already authorized operator environment. This is an operator capability,
+**only** through an explicit `run_once(target_table='bob_decision_audit', manual_decision_audit=True)` call
+from an already authorized operator environment. Any attempt to target this table
+without that additional literal boolean is rejected before opening a connection,
+including attempts made through existing weekend-tail maintenance paths. This is an operator capability,
 **not** an auto-start job, deploy, new service, cloud credential, or user endpoint.
 
 The manual attempt requires the existing exclusive advisory lock, dedicated
