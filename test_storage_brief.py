@@ -181,6 +181,34 @@ class StorageBriefTests(unittest.TestCase):
         self.assertNotIn('SECRET-CLAIM',json.dumps(view))
         self.assertLess(len(json.dumps(view)),7500)
 
+    def test_storage_warning_routes_once_through_existing_diagnostic_summary(self):
+        source = self.source()
+        source['observedAt'] = 1794672000.0
+        source['configuredAllocationBytes'] = 5_000_000_000
+        source['renderVolume'] = {
+            'status':'observed','unit':'bytes',
+            'observedAt':1794671980.0,'diskUsage':1_075_000_000}
+        source['fixedSlotDaily'] = {'retrospectiveDays':[
+            {'status':'observed','startSlot':1,'dbDelta':52_000_000},
+            {'status':'observed','startSlot':2,'dbDelta':45_000_000}]}
+        brief = storage_brief.project(source)
+        report = bob_diagnostics.summary({'storageBrief':brief})
+        matching = [x for x in report['attention']
+                    if x['area'] == 'storageBrief.earlyWarning']
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]['state'], 'rapid-logical-growth')
+        self.assertIn('not-physical', matching[0]['meaning'])
+        self.assertEqual(report['assessment'], 'needs-attention')
+        source['renderVolume']['diskUsage'] = 4_100_000_000
+        elevated = storage_brief.project(source)
+        summary = bob_diagnostics.summary({'storageBrief': elevated})
+        notices = [x for x in summary['attention']
+                   if x['area'] == 'storageBrief.earlyWarning']
+        self.assertEqual(len(notices), 1)
+        self.assertEqual(notices[0]['state'], 'physical-volume-high')
+        self.assertNotIn('PRIVATE',json.dumps(notices))
+        self.assertIsNone(elevated['earlyWarning']['diskBytesFreed'])
+
     def test_old_list_review_is_redacted_and_cannot_authorize_delete(self):
         source = self.source()
         source["androidImageAgeReview"] = {
