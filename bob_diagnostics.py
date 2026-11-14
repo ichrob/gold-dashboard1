@@ -2263,9 +2263,77 @@ def bounded_report(report, max_bytes):
             'strategyReport')
     optional = sorted((name for name in areas if name not in core),
                       key=lambda name: size(areas[name]), reverse=True)
+    for name in optional:
+        if size(result) <= max_bytes:
+            break
+        areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
+        result['omittedAreas'].append(name)
+
+    # A real 11-account simulation can exceed the response cap even *after*
+    # dropping every optional area. Preserve a bounded, truthful account
+    # projection before discarding simulationAndPush altogether. No new SQL:
+    # these are only allowlisted fields from the already loaded private data.
+    # Keep full account objects if they already fit, and retain the original
+    # observation clock and omissions rather than re-dating evidence.
+    sim = areas.get('simulationAndPush')
+    accounts = sim.get('accounts') if isinstance(sim, dict) else None
+    # This new reduction is exclusively for actual multi-account projections.
+    # A single small account's heartbeat and nested push evaluator must not
+    # lose their existing full representation just because *another* required
+    # area exceeds a tiny test/view budget. Malformed/non-dict account entries
+    # also cannot be truthfully projected and retain the original omission path.
+    can_project_accounts = (isinstance(accounts, list) and len(accounts) >= 5
+                            and all(isinstance(account, dict) for account in accounts)
+                            and size(sim) > min(10_000, max_bytes // 2))
+    if size(result) > max_bytes and can_project_accounts:
+        account_keys = (
+            'profile', 'enabled', 'status', 'checkedAt', 'startAt', 'endAt',
+            'currency', 'initialCapital', 'cash', 'equity', 'dayProfit',
+            'totalProfit', 'realizedProfit', 'costsDebitedEur',
+            'costPeriodProfit', 'costsStartedAt', 'costsNote',
+            'lastTradingEntryBlockCode', 'lastTradingEntryBlockAt', 'reason')
+        compact_accounts = []
+        for account in sim['accounts']:
+            if not isinstance(account, dict):
+                continue
+            item = {key: account[key] for key in account_keys if key in account}
+            for field, keys in (
+                    ('recentCases', ('status', 'sourceStatus', 'reason')),
+                    ('netEvidenceSample', ('status', 'brokerNetVerified')),
+                    ('forwardEvidence', ('status', 'actualNetVerified', 'winnerConfirmed'))):
+                source = account.get(field)
+                if isinstance(source, dict):
+                    item[field] = {key: source[key] for key in keys if key in source}
+            compact_accounts.append(item)
+        reduced = dict(sim, accounts=compact_accounts, truncated=True)
+        reduced['omittedSections'] = list(dict.fromkeys(
+            list(sim.get('omittedSections') or []) + ['accounts.nonessential-details']))
+        areas['simulationAndPush'] = reduced
+        sim = reduced
+    if size(result) > max_bytes and can_project_accounts:
+        # In particularly large snapshots, discard non-account subreports
+        # inside this same area, but retain the original recorded status and
+        # basic paper/push heartbeat. Never turn an unavailable source healthy.
+        essential_sim = {key: sim[key] for key in (
+            'status', 'readOnly', 'realOrders', 'accounts', 'truncated',
+            'omittedSections') if key in sim}
+        for key, fields_kept in (
+            ('paper', ('sessionMode', 'state', 'accountsTotal', 'accountsChecked',
+                       'maxCheckAgeSeconds')),
+            ('push', ('activeMonitors', 'registeredSubscriptions',
+                      'subscriptionState', 'deliveryStatus'))):
+            value = sim.get(key)
+            if isinstance(value, dict):
+                essential_sim[key] = {
+                    subkey: value[subkey] for subkey in fields_kept if subkey in value}
+        essential_sim['truncated'] = True
+        essential_sim['omittedSections'] = list(dict.fromkeys(
+            list(sim.get('omittedSections') or []) + ['non-account-subreports']))
+        areas['simulationAndPush'] = essential_sim
+
     essential = sorted((name for name in areas if name in core),
                        key=lambda name: size(areas[name]), reverse=True)
-    for name in optional + essential:
+    for name in essential:
         if size(result) <= max_bytes:
             break
         areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
