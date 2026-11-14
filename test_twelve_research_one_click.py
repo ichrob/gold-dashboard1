@@ -65,6 +65,21 @@ class OneClickSafetyTests(unittest.TestCase):
                 self.assertEqual(job.run(), "ALREADY_USED")
                 self.assertEqual(len(calls), 1)
 
+    def test_blocked_local_session_expires_without_request(self):
+        class FakeServer:
+            def __init__(self):
+                self.calls = 0
+                self.timeout = None
+            def handle_request(self):
+                self.calls += 1
+        server = FakeServer()
+        job = ui.OneClick(env={})
+        ticks = iter([0, 0, 1, 2])
+        ui.serve_until_used(server, job, max_idle_seconds=1,
+                            clock=lambda: next(ticks))
+        self.assertEqual(server.calls, 1)
+        self.assertFalse(job.used)
+
     def test_host_origin_nonce_and_get_do_not_execute(self):
         job = ui.OneClick(env={})
         server = HTTPServer(("127.0.0.1", 0), ui.handler_factory(job, "synthetic-nonce"))
