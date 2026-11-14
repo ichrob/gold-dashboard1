@@ -8,9 +8,11 @@ import hashlib
 import json
 import math
 import os
+import re
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, time as clock_time
+from zoneinfo import ZoneInfo
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -18,10 +20,14 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 INTERVAL_MS = {'1min': 60000, '5min': 300000, '15min': 900000,
                '30min': 1800000, '1h': 3600000, '4h': 14400000,
                '8h': 28800000, '1day': 86400000}
-# Direct CHF/EUR and EUR/CHF are NOT confirmed Basic trial symbols.
-SYMBOLS = frozenset(('XAU/USD', 'EUR/USD', 'USD/CHF'))
-CONFIRMED_GOLD_INTERVALS = frozenset(('1min', '5min', '15min', '30min', '1h', '1day'))
-POTENTIAL_FX_INTERVALS = CONFIRMED_GOLD_INTERVALS
+# 13 Nov 2026: provider confirmed direct cross FX and 4h/8h XAU/USD
+# for occasional, manual, private non-display Basic evaluation only.
+SYMBOLS = frozenset(('XAU/USD', 'EUR/USD', 'USD/CHF', 'EUR/CHF', 'CHF/EUR'))
+CONFIRMED_GOLD_INTERVALS = frozenset(INTERVAL_MS)
+# FX interval entitlements remain individually opt-in and source-time validated;
+# XAU/USD daily Sydney time must not be assumed for any FX instrument.
+POTENTIAL_FX_INTERVALS = frozenset(('1min', '5min', '15min', '30min', '1h', '4h', '8h'))
+SYDNEY = ZoneInfo('Australia/Sydney')
 MAX_BARS = 500
 MAX_RESPONSE_BYTES = 512000
 MINUTE_BUDGET = 7  # reserve one credit below the published 8
@@ -34,21 +40,57 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def scope_allowed(symbol, interval, env=None):
-    """Explicit authorization per symbol+interval; exact confirmed hour only by default."""
+    """One-shot internal research only; no scheduled, display or broker use."""
     env = os.environ if env is None else env
     if env.get('BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED') != '1':
         return False
-    # Twelve Data support, 12 Nov 2026: these XAU/USD intervals are permitted
-    # for occasional internal non-display Basic evaluation, NOT scheduling.
+    # Written Twelve Data support confirmations, 12–13 Nov 2026:
+    # all XAU/USD intervals below including 4h/8h and Sydney-calendar daily.
     if symbol == 'XAU/USD' and interval in CONFIRMED_GOLD_INTERVALS:
         return True
-    # USD/CHF and EUR/USD are trial symbols; opt in to each interval separately
-    # after verifying actual availability. Direct CHF/EUR is never unlocked by
-    # arbitrary environment flags, nor are unconfirmed 4h/8h scopes.
-    if symbol in ('EUR/USD', 'USD/CHF') and interval in POTENTIAL_FX_INTERVALS:
+    # Direct FX pairs confirmed on Basic 13 Nov. Keep per-pair/per-interval
+    # opt-in AND independently verified UTC source metadata. FX daily bars
+    # remain blocked until their own daily-calendar timezone is established.
+    if symbol in ('EUR/USD', 'USD/CHF', 'EUR/CHF', 'CHF/EUR') and interval in POTENTIAL_FX_INTERVALS:
         key = 'BOB_TWELVEDATA_SCOPE_' + symbol.replace('/', '_') + '_' + interval.upper()
         return env.get(key) == '1'
     return False
+
+
+def _sydney_midnight_ms(day):
+    """Actual UTC instant of a Sydney calendar day, including DST shifts."""
+    return int(datetime.combine(day, clock_time.min, tzinfo=SYDNEY).timestamp() * 1000)
+
+
+def _sydney_day(ms):
+    return datetime.fromtimestamp(ms / 1000, SYDNEY).date()
+
+
+def _daily_start_aligned(ms):
+    return type(ms) is int and ms == _sydney_midnight_ms(_sydney_day(ms))
+
+
+def _next_daily_start(ms):
+    return _sydney_midnight_ms(_sydney_day(ms) + timedelta(days=1))
+
+
+def _previous_daily_start(ms):
+    return _sydney_midnight_ms(_sydney_day(ms) - timedelta(days=1))
+
+
+def valid_window(symbol, interval, start_ms, end_ms, now_ms):
+    """UTC instants; 1day boundaries MUST be Sydney calendar midnights."""
+    if not all(type(v) is int for v in (start_ms, end_ms, now_ms)):
+        return False
+    if not (start_ms > 0 and start_ms < end_ms <= now_ms):
+        return False
+    if interval == '1day':
+        return (symbol == 'XAU/USD' and _daily_start_aligned(start_ms)
+                and _daily_start_aligned(end_ms)
+                and 1 <= (_sydney_day(end_ms) - _sydney_day(start_ms)).days <= MAX_BARS)
+    step = INTERVAL_MS.get(interval)
+    return bool(step and start_ms % step == 0 and end_ms % step == 0
+                and 1 <= (end_ms - start_ms) // step <= MAX_BARS)
 
 
 def valid_key(value):
@@ -63,9 +105,7 @@ def validate_rows(payload, symbol, interval, start_ms, end_ms, now_ms):
     step = INTERVAL_MS[interval]
     if not all(type(v) is int for v in (start_ms, end_ms, now_ms)):
         raise ValueError('clock')
-    if not (start_ms > 0 and start_ms % step == 0 and
-            start_ms < end_ms <= now_ms and end_ms % step == 0 and
-            0 < (end_ms - start_ms) // step <= MAX_BARS):
+    if not valid_window(symbol, interval, start_ms, end_ms, now_ms):
         raise ValueError('bounds')
     if not isinstance(payload, dict):
         raise ValueError('payload')
@@ -73,14 +113,19 @@ def validate_rows(payload, symbol, interval, start_ms, end_ms, now_ms):
     if not isinstance(meta, dict) or meta.get('symbol') != symbol or meta.get('interval') != interval:
         raise ValueError('identity')
     zone = meta.get('exchange_timezone')
-    if zone != 'UTC':
-        # The confirmed precious-metal response omits timezone. This exception
-        # requires exact precious-metal identity AND explicit UTC request context.
-        metal = (symbol == 'XAU/USD' and 'exchange_timezone' not in meta
-                 and meta.get('type') == 'Precious Metal'
-                 and meta.get('currency_base') == 'Gold Spot'
-                 and meta.get('currency_quote') == 'US Dollar')
-        if not metal:
+    metal = (symbol == 'XAU/USD'
+             and meta.get('type') == 'Precious Metal'
+             and meta.get('currency_base') == 'Gold Spot'
+             and meta.get('currency_quote') == 'US Dollar')
+    if interval == '1day':
+        # Support explicitly confirmed Sydney-labelled XAU/USD daily bars
+        # on 13 Nov. Timezone=UTC request is ignored for daily bars.
+        if not metal or (zone is not None and zone != 'Australia/Sydney'):
+            raise ValueError('daily-timezone')
+    elif zone != 'UTC':
+        # Confirmed precious-metal intraday payload may omit the timezone,
+        # but no FX payload receives that exception.
+        if not (metal and 'exchange_timezone' not in meta):
             raise ValueError('timezone')
     values = payload.get('values')
     if not isinstance(values, list) or len(values) > MAX_BARS:
@@ -89,14 +134,26 @@ def validate_rows(payload, symbol, interval, start_ms, end_ms, now_ms):
     for bar in values:
         if not isinstance(bar, dict):
             raise ValueError('bar')
-        dt = datetime.strptime(bar['datetime'], '%Y-%m-%d %H:%M:%S')
-        opened = int(dt.replace(tzinfo=timezone.utc).timestamp() * 1000)
-        if opened % step or opened in seen:
+        if interval == '1day':
+            label = bar['datetime']
+            if not isinstance(label, str) or not re.fullmatch(
+                    r'\\d{4}-\\d{2}-\\d{2}(?: 00:00:00)?', label):
+                raise ValueError('daily-label')
+            day = datetime.strptime(label[:10], '%Y-%m-%d').date()
+            opened = _sydney_midnight_ms(day)
+            next_open = _next_daily_start(opened)
+        else:
+            dt = datetime.strptime(bar['datetime'], '%Y-%m-%d %H:%M:%S')
+            opened = int(dt.replace(tzinfo=timezone.utc).timestamp() * 1000)
+            if opened % step:
+                raise ValueError('alignment')
+            next_open = opened + step
+        if opened in seen:
             raise ValueError('duplicate-or-alignment')
         seen.add(opened)
         if not start_ms <= opened < end_ms:
             raise ValueError('unexpected-time')
-        if opened + step > now_ms:
+        if next_open > now_ms:
             raise ValueError('unclosed')
         prices = {}
         for field in ('open', 'high', 'low', 'close'):
@@ -155,18 +212,21 @@ def gaps(rows, interval, *, start_ms=None, end_ms=None):
     """Detect missing intervals including requested start/end, not proven outages."""
     step = INTERVAL_MS[interval]
     ordered = sorted(rows, key=lambda r: r['openTime'])
+    successor = _next_daily_start if interval == '1day' else lambda t: t + step
+    predecessor = _previous_daily_start if interval == '1day' else lambda t: t - step
     ranges = []
     if not ordered:
         if start_ms is not None and end_ms is not None and end_ms > start_ms:
-            ranges.append((start_ms, end_ms - step))
+            ranges.append((start_ms, predecessor(end_ms)))
     else:
         if start_ms is not None and ordered[0]['openTime'] > start_ms:
-            ranges.append((start_ms, ordered[0]['openTime'] - step))
+            ranges.append((start_ms, predecessor(ordered[0]['openTime'])))
         for left, right in zip(ordered, ordered[1:]):
-            if right['openTime'] - left['openTime'] > step:
-                ranges.append((left['openTime'] + step, right['openTime'] - step))
-        if end_ms is not None and ordered[-1]['openTime'] + step < end_ms:
-            ranges.append((ordered[-1]['openTime'] + step, end_ms - step))
+            following = successor(left['openTime'])
+            if right['openTime'] > following:
+                ranges.append((following, predecessor(right['openTime'])))
+        if end_ms is not None and successor(ordered[-1]['openTime']) < end_ms:
+            ranges.append((successor(ordered[-1]['openTime']), predecessor(end_ms)))
     return [{'startMs': start, 'endMs': end, 'sessionStatus': 'unverified',
              'automaticBackfillAllowed': False} for start, end in ranges]
 
@@ -204,7 +264,8 @@ def _contiguous_closes(rows, minimum):
     if not step or any(r['symbol'] != ordered[0]['symbol'] or
                        r['interval'] != ordered[0]['interval'] for r in ordered):
         return None
-    if any(b['openTime']-a['openTime'] != step for a,b in zip(ordered,ordered[1:])):
+    successor = _next_daily_start if ordered[0]['interval'] == '1day' else lambda t: t + step
+    if any(b['openTime'] != successor(a['openTime']) for a,b in zip(ordered,ordered[1:])):
         return None
     return ordered
 
@@ -320,9 +381,7 @@ def fetch_research(db, symbol, interval, start_ms, end_ms, *, now_ms=None, opene
         return {'code':'KEY_NOT_CONFIGURED'}
     now_ms = int(time.time()*1000) if now_ms is None else now_ms
     step = INTERVAL_MS[interval]
-    if (not all(type(v) is int for v in (start_ms,end_ms,now_ms))
-            or start_ms <= 0 or start_ms % step or end_ms % step
-            or end_ms > now_ms or end_ms <= start_ms or (end_ms-start_ms)//step > MAX_BARS):
+    if not valid_window(symbol, interval, start_ms, end_ms, now_ms):
         return {'code':'INVALID_RANGE'}
     if os.environ.get('BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED') != '1':
         return {'code':'WORKER_COORDINATION_UNCONFIRMED'}
@@ -332,10 +391,18 @@ def fetch_research(db, symbol, interval, start_ms, end_ms, *, now_ms=None, opene
         db.execute('BEGIN IMMEDIATE')
         if not reserve_credit(db, now_ms):
             return {'code':'CREDIT_BUDGET_EXHAUSTED'}
-    stamp = lambda ms: datetime.fromtimestamp(ms/1000, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-    params = urlencode(dict(symbol=symbol,interval=interval,timezone='UTC',
-                            start_date=stamp(start_ms),end_date=stamp(end_ms-step),
-                            ))  # bounded dates; omit outputsize and all secrets
+    if interval == '1day':
+        # /time_series ignores timezone for daily XAU/USD. Use Sydney
+        # calendar labels; no 24h UTC arithmetic across DST.
+        dates = {'start_date': _sydney_day(start_ms).isoformat(),
+                 'end_date': _sydney_day(_previous_daily_start(end_ms)).isoformat()}
+        params = urlencode(dict(symbol=symbol, interval=interval, **dates))
+    else:
+        stamp = lambda ms: datetime.fromtimestamp(
+            ms/1000, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+        params = urlencode(dict(symbol=symbol, interval=interval, timezone='UTC',
+                                start_date=stamp(start_ms),
+                                end_date=stamp(end_ms-step)))
     try:
         client = opener or build_opener(NoRedirect())
         request = Request('https://api.twelvedata.com/time_series?' + params,
