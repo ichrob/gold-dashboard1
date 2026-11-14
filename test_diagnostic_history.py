@@ -7,6 +7,35 @@ from unittest.mock import patch
 import diagnostic_history as h
 import background_push
 
+class WeekendCatchupTests(unittest.TestCase):
+    def test_default_retention_cadence_is_unchanged(self):
+        with patch.dict(os.environ, {'BOB_DIAGNOSTIC_WEEKEND_CATCHUP':''}):
+            self.assertEqual(h.verified_weekend_catchup_seconds(object()),
+                             h._PRUNE_CATCHUP_INTERVAL_SECONDS)
+
+    def test_weekend_speedup_requires_opt_in_and_fresh_original_restore(self):
+        from datetime import datetime, timezone
+        sat=datetime(2026,11,14,12,tzinfo=timezone.utc).timestamp()
+        mon=datetime(2026,11,16,12,tzinfo=timezone.utc).timestamp()
+        with patch.dict(os.environ, {'BOB_DIAGNOSTIC_WEEKEND_CATCHUP':'1'}), \
+             patch('storage_budget.archive_status',return_value={}) as proof, \
+             patch('cold_decision_product_writer._proof_state',
+                   return_value='verified-fresh') as gate:
+            self.assertEqual(h.verified_weekend_catchup_seconds(object(),sat),300)
+            self.assertEqual(h.verified_weekend_catchup_seconds(object(),mon),900)
+            proof.assert_called_once()
+            gate.assert_called_once()
+        with patch.dict(os.environ, {'BOB_DIAGNOSTIC_WEEKEND_CATCHUP':'1'}), \
+             patch('storage_budget.archive_status',return_value={}), \
+             patch('cold_decision_product_writer._proof_state',
+                   return_value='backup-proof-not-fresh'):
+            self.assertEqual(h.verified_weekend_catchup_seconds(object(),sat),900)
+        with patch.dict(os.environ, {'BOB_DIAGNOSTIC_WEEKEND_CATCHUP':'1'}), \
+             patch('storage_budget.archive_status',
+                   side_effect=RuntimeError('private-secret')):
+            self.assertEqual(h.verified_weekend_catchup_seconds(object(),sat),900)
+
+
 class HistoryTests(unittest.TestCase):
     def event(self,**kw):
         return dict(id='a'*32,traceId='b'*32,decisionId='c'*32,stage='analysis',at=time.time(),
