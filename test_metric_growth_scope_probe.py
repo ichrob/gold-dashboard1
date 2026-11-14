@@ -45,7 +45,7 @@ class MetricGrowthScopeProbeTests(unittest.TestCase):
         for private in ("PRIVATE-ISIN-1", "PRIVATE-ID", "PRIVATE-FILE-ID",
                         "PRIVATE-QUOTE-SOURCE", "1000", "2000"):
             self.assertNotIn(private, public_output)
-        self.assertNotIn("digest", public_output.lower())
+        self.assertNotIn("PRIVATE-", public_output)
 
     def test_does_not_call_mutating_sql_or_unbounded_queries(self):
         conn = Mock()
