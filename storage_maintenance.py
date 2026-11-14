@@ -7,7 +7,12 @@ import time
 _THREAD = None
 _LOCK = threading.Lock()
 # Fixed SQL identifiers: never interpolate user input or catalog names.
-_TABLES = ('bob_diagnostic_history', 'bob_android_list_images', 'bob_metric_checks', 'bob_improvement_observations')
+# Keep the existing hourly worker unchanged. Large decision-audit TOAST/index
+# maintenance is an explicit one-table operator action only, not a fifth
+# recurring vacuum and never a table rewrite.
+_AUTO_TABLES = ('bob_diagnostic_history', 'bob_android_list_images', 'bob_metric_checks', 'bob_improvement_observations')
+_MANUAL_ONLY_TABLES = ('bob_decision_audit',)
+_TABLES = _AUTO_TABLES + _MANUAL_ONLY_TABLES
 
 
 def connect():
@@ -21,7 +26,7 @@ def connect():
 
 def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tail=False,
              reclaim_observation_tail=False, reclaim_image_tail=False, target_table=None):
-    """A dedicated autocommit connection, at most four time-limited vacuums.
+    """A dedicated autocommit connection, at most four time-limited vacuums.\n\n    bob_decision_audit is manual-only via target_table and is never scheduled.
 
     No FULL: never rewrite tables. After cold offload, cold-table tail truncation
     may briefly lock the table; the whole command is limited to ten seconds.
@@ -38,7 +43,7 @@ def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tai
         if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_storage_maintenance_v1'))").fetchone()[0]:
             return {'status': 'busy', 'tables': []}
         # Closing this dedicated connection releases the session advisory lock.
-        for table in ((target_table,) if target_table is not None else _TABLES):
+        for table in ((target_table,) if target_table is not None else _AUTO_TABLES):
             row = conn.execute('''SELECT n_dead_tup FROM pg_stat_user_tables
                 WHERE schemaname='public' AND relname=%s
                 AND n_dead_tup>0
