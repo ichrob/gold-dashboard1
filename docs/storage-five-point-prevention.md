@@ -89,3 +89,35 @@ parallel notification channel.
   automatic live rollout from these draft branches.
 - Prove actual reductions using separately observed Render volume, not
   source row counts, compressed bytes or `VACUUM` completion alone.
+
+## Additional RAM guard for optional PostgreSQL work (14 November)
+
+A real Render memory-metrics check shows the existing 256 MiB PostgreSQL
+instance temporarily reached about 98.6% of its reported RAM limit in the
+24-hour sample. This is NOT a confirmed OOM or evidence that paid RAM is
+required: normal work remains active and disk occupancy was only ~21.5%.
+
+Before either the already explicitly authorized single-table weekend tail
+reclaim or the new manually confirmed decision-audit VACUUM, a separate
+read-only `render_memory_guard` now checks the **existing** Render API's
+fixed `/v1/metrics/memory` and `/v1/metrics/memory-limit` endpoints
+using the already configured metrics key. It requires at least two aligned
+provider observations across at least ten minutes, the latest no older
+than five minutes. Every observed sample in the last 15 minutes must
+stay at or below 85% of the minimum applicable plan RAM limit and keep
+at least 32 MiB free. Any missing, delayed, malformed, mixed-resource,
+unverifiable, high-RAM or credential/HTTP error blocks the optional
+maintenance before any discretionary claim or table VACUUM.
+
+The original hourly four-table nontruncating maintenance is unchanged.
+No automated RAM upgrade, plan change, new API credential, separate
+service, alert channel, trading modification, backup retry, or SQL
+retention expansion is introduced. An acceptable RAM result is NOT
+authority for maintenance: the preexisting backup-age, independent
+restore, Render volume, weekend, one-shot claim, lock and operator
+authorization protections still apply. High-RAM deferrals are not
+represented as SQL failures or reclaimed disk bytes.
+
+After deployment, absence of green memory evidence must be surfaced as
+a deferral; it must not be worked around by disabling the RAM guard or
+silently enabling the currently off archive/compression/retention flags.
