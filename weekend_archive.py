@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 FRAMES = {'1m':60000,'5m':300000,'15m':900000,'30m':1800000,'1h':3600000,'4h':14400000}
 # Enough for an observed Friday trading day without unbounded DB or response growth.
 # Sparse observations remain explicitly labeled; limits are display-only.
-CHART_LIMITS = {'1m':1440,'5m':300,'15m':120,'30m':80,'1h':48,'4h':24}
+CHART_LIMITS = {'1m':1440,'5m':300,'15m':180,'30m':180,'1h':180,'4h':180}
 ZURICH = ZoneInfo('Europe/Zurich')
 CARD_KEYS = ('spot','cfd','future','estimate')
 CFD_CHART_KEYS = tuple('cfd-chart:'+tf for tf in FRAMES)
