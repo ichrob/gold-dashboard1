@@ -28,7 +28,7 @@ _cache = None
 _cached_at = 0
 
 
-def _points(payload, now):
+def _points(payload, now, *, smallest=False):
     """Return only this exact database's recent byte readings."""
     points = {}
     if type(payload) is not list:
@@ -64,8 +64,11 @@ def _points(payload, now):
                 converted = value*factor
                 if not math.isfinite(converted) or converted > 2**45:
                     continue
-                # Round used bytes up; a fraction must not increase headroom.
-                points[at] = max(points.get(at, 0), math.ceil(converted))
+                # Do not overstate available headroom when a provider sends
+                # duplicate readings: maximum usage, MINIMUM memory limit.
+                rounded = math.ceil(converted) if not smallest else math.floor(converted)
+                points[at] = (min(points[at], rounded) if smallest and at in points
+                              else max(points.get(at, 0), rounded))
             except (KeyError, ValueError, TypeError, OverflowError, AttributeError):
                 continue
     return points
@@ -78,7 +81,7 @@ def assess(usage, limits, now):
     if type(now) not in (int, float) or not math.isfinite(now):
         return denied
     used = _points(usage, now)
-    maximum = _points(limits, now)
+    maximum = _points(limits, now, smallest=True)
     at = sorted(set(used) & set(maximum))
     if len(at) < 2 or now-at[-1] > _FRESH or at[-1]-at[0] < _SPAN:
         return denied
