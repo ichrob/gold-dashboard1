@@ -93,6 +93,41 @@ class StorageBriefTests(unittest.TestCase):
         for secret in ("PRIVATE", "SENSITIVE-ISIN", "secret-drive-id", "dpg-private-ID"):
             self.assertNotIn(secret, compact)
 
+    def test_tail_receipt_shows_actual_state_without_claim_or_disk_savings(self):
+        source = self.source()
+        source["tailReclaimReceipt"] = {
+            "status": "observed", "attemptStatus": "completed",
+            "targetTable": "bob_metric_checks",
+            "updatedAt": "2026-11-14T01:49:00+00:00",
+            "observedRelationBytesDecrease": 24576,
+            "diskBytesFreed": 900000000,
+            "id": "PRIVATE-CLAIM", "error": "PRIVATE-SECRET"}
+        view = storage_brief.project(source)["tailReclaimReceipt"]
+        self.assertEqual(view["status"], "observed")
+        self.assertEqual(view["attemptStatus"], "completed")
+        self.assertEqual(view["targetTable"], "bob_metric_checks")
+        self.assertEqual(view["observedRelationBytesDecrease"], 24576)
+        self.assertIsNone(view["diskBytesFreed"])
+        self.assertTrue(view["readOnly"])
+        self.assertNotIn("PRIVATE", json.dumps(view))
+
+        source["tailReclaimReceipt"].update(
+            attemptStatus="deferred", targetTable="private_credentials",
+            observedRelationBytesDecrease=54321, updatedAt="PRIVATE-TIME")
+        deferred = storage_brief.project(source)["tailReclaimReceipt"]
+        self.assertEqual(deferred["attemptStatus"], "deferred")
+        self.assertIsNone(deferred["targetTable"])
+        self.assertIsNone(deferred["observedRelationBytesDecrease"])
+        self.assertIsNone(deferred["updatedAt"])
+        self.assertIsNone(deferred["diskBytesFreed"])
+
+        source["tailReclaimReceipt"] = {"status": "not-observed",
+                                         "attemptStatus": "completed",
+                                         "observedRelationBytesDecrease": 54321}
+        unseen = storage_brief.project(source)["tailReclaimReceipt"]
+        self.assertIsNone(unseen["attemptStatus"])
+        self.assertIsNone(unseen["observedRelationBytesDecrease"])
+
     def test_old_list_review_is_redacted_and_cannot_authorize_delete(self):
         source = self.source()
         source["androidImageAgeReview"] = {
