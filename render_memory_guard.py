@@ -21,7 +21,7 @@ _MIN_FREE = 32 * 1024 * 1024
 _MAX_RATIO = 0.85
 _WINDOW = 900
 _FRESH = 300
-_SPAN = 300
+_SPAN = 600
 _CACHE_SECONDS = 60
 _lock = threading.Lock()
 _cache = None
@@ -46,7 +46,10 @@ def _points(payload, now):
         factor = _UNIT_TO_BYTES.get(unit) if type(unit) is str else None
         if factor is None:
             continue
-        for item in series.get('values', [])[:120]:
+        values = series.get('values')
+        if type(values) is not list:
+            continue
+        for item in values[:120]:
             try:
                 stamp = datetime.datetime.fromisoformat(
                     item['timestamp'].replace('Z', '+00:00'))
@@ -79,8 +82,8 @@ def assess(usage, limits, now):
     at = sorted(set(used) & set(maximum))
     if len(at) < 2 or now-at[-1] > _FRESH or at[-1]-at[0] < _SPAN:
         return denied
-    # Two distinct samples do not establish a stable 15-minute history.
-    # Include all aligned values, not only the last or a mean.
+    # Require at least 10 minutes of coverage and include every aligned
+    # reading, not only the last value or an average.
     for tick in at:
         limit = maximum[tick]
         value = used[tick]
