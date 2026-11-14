@@ -359,7 +359,7 @@ assert.equal(memoCheck.expired.calls,2);assert.equal(memoCheck.changed.calls,3);
 assert.equal(memoCheck.boundary.calls,4);
 console.log('Signal replay memo: repaint reuse, result isolation, changed input, exact expiry and new close passed');
 const marketSwitch=vm.runInContext(`(()=>{
- const before=JSON.stringify(C),tf='15m',at=Date.now()-3600000;
+ const before=JSON.stringify(C),tf='15m',at=Date.parse('2026-11-13T19:00:00Z'); // Confirmed trading Friday; weekend UI must hide Saturday samples.
  chartHistory[tf]=[{instrument:'XAU/USD',openTime:at,open:4000,high:4001,low:3999,close:4000},{instrument:'XAU/USD',openTime:at+900000,open:4000,high:4002,low:3999,close:4001}];
  futureChartHistory[tf]=chartHistory[tf].map(b=>({...b,instrument:'GC=F',open:b.open+100,high:b.high+100,low:b.low+100,close:b.close+100}));
  futureChartAt[tf]=Date.now();$('chartTf').value=tf;
