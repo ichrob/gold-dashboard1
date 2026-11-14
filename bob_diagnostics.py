@@ -950,12 +950,13 @@ def entry_block_evidence(conn, portfolios, limit=5):
             # first persisted observation, never a recreated historical window.
             time_windows = []
             raw_windows = payload.get('entryTimeBuckets15mV1')
-            if (profile in ('trend800nov', 'normal1000nov', 'ema3000nov')
+            if (profile in ('trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov')
                     and isinstance(raw_windows, dict)):
                 allowed_codes = {
                     'ema-stretch-and-signal-age', 'ema-stretch', 'signal-age',
                     'gold-stale', 'gold-plan-missing', 'plan-or-timing',
-                    'ko-safety', 'product-or-quote', 'capital-risk',
+                    'spot-close-distance', 'weak-trend-confirmation',
+                    'crv-obstacle', 'ko-safety', 'product-or-quote', 'capital-risk',
                     'entry-checklist', 'duplicate-bar', 'other'}
                 for k, item in sorted(raw_windows.items(),
                                       key=lambda x: str(x[0]), reverse=True)[:16]:
