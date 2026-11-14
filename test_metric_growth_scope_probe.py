@@ -90,5 +90,54 @@ class MetricGrowthScopeProbeTests(unittest.TestCase):
         self.assertIn("not-day-totals", result["scope"])
 
 
+@unittest.skipUnless(os.environ.get("BOB_TEST_DATABASE_URL"),
+                     "Ephemeral CI PostgreSQL 18 required")
+class MetricGrowthPgIntegrationTests(unittest.TestCase):
+    def test_read_only_sql_yields_only_fixed_aggregates(self):
+        # This uses GitHub Actions' disposable PostgreSQL 18 service, NEVER
+        # Bob production or the separate archival restore server.
+        import psycopg
+        with psycopg.connect(os.environ["BOB_TEST_DATABASE_URL"],
+                             autocommit=True, connect_timeout=5) as conn:
+            self.assertEqual(
+                conn.execute("SELECT current_database()").fetchone()[0],
+                "bob_auth_test")
+            conn.execute("""CREATE TEMP TABLE bob_metric_checks (
+                scope text,checked_at bigint,payload jsonb)""")
+            conn.execute("CREATE INDEX ON bob_metric_checks(checked_at)")
+            rows = [
+                ("product:private-isin-1", 199_999_100,
+                 {"checkedAt": 199_999_100,
+                  "metrics": {"gearing": {"status": "unavailable"}}}),
+                ("product:private-isin-1", 199_999_200,
+                 {"checkedAt": 199_999_200,
+                  "metrics": {"gearing": {"status": "unavailable"}}}),
+                ("dmi:15m", 199_999_300,
+                 {"metrics": {"adx": {"status": "mismatch"}}}),
+                ("trade:private", 199_999_400,
+                 {"_bobColdMetricV1": {"private": "file-id"}}),
+            ]
+            for scope, stamp, payload in rows:
+                conn.execute("""INSERT INTO pg_temp.bob_metric_checks
+                    VALUES(%s,%s,%s::jsonb)""",
+                    (scope, stamp, json.dumps(payload)))
+            # No writes are made by the code under test.
+            conn.execute("SET default_transaction_read_only=on")
+            with patch.object(probe, "_SQL", probe._SQL.replace(
+                    "public.bob_metric_checks", "pg_temp.bob_metric_checks")):
+                result = probe.sample(conn, now_ms=200_000_000)
+            self.assertEqual(result["sampledRows"], 4)
+            self.assertEqual(result["groups"]["product"]["sampledRows"], 2)
+            self.assertEqual(result["groups"]["product"]["allUnavailableRows"], 2)
+            self.assertEqual(
+                result["groups"]["product"]["withoutCheckClockDigestCount"], 1)
+            self.assertEqual(
+                result["groups"]["product"]["fullPayloadDigestCount"], 2)
+            self.assertEqual(result["groups"]["dmi"]["anyMismatchRows"], 1)
+            self.assertEqual(result["groups"]["trade"]["archivePointerRows"], 1)
+            self.assertNotIn("private", json.dumps(result))
+            self.assertIsNone(result["physicalBytesFreed"])
+
+
 if __name__ == "__main__":
     unittest.main()
