@@ -114,6 +114,14 @@ def _sanitized_archive_attempt(row):
             'restoreVerified': proof.get('restoreVerified') is True,
             'remoteDownloadVerified': proof.get('remoteDownloadVerified') is True,
             'recoveryKeyVerified': proof.get('recoveryKeyVerified') is True,
+            # Only a numeric quota snapshot from the *verified* archive receipt.
+            # This is historical Google Drive availability, never current quota.
+            'driveQuotaAvailableAtArchive': (
+                proof.get('driveQuotaBefore', {}).get('availableBytes')
+                if isinstance(proof.get('driveQuotaBefore'), dict)
+                and type(proof['driveQuotaBefore'].get('availableBytes')) is int
+                and 0 <= proof['driveQuotaBefore']['availableBytes'] <= 10**13
+                else None),
             'restoreIsolation': (proof.get('restoreIsolation') if
                                  proof.get('restoreIsolation') ==
                                  'separate-database-instance' else None),
