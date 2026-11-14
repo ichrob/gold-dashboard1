@@ -2256,7 +2256,11 @@ def bounded_report(report, max_bytes):
     # Preserve core evidence as long as it fits; a truly too-small response
     # still reports an explicit omission rather than pretending it was read.
     core = ('simulationAndPush', 'paperProfitEvidence',
-            'simulationRuntimeBrief', 'entryBlockEvidence')
+            'simulationRuntimeBrief', 'entryBlockEvidence',
+            # The stored research summary is a separate compact section
+            # projected from the original simulation source; never discard
+            # that small proof merely because the account body is oversized.
+            'strategyReport')
     optional = sorted((name for name in areas if name not in core),
                       key=lambda name: size(areas[name]), reverse=True)
     essential = sorted((name for name in areas if name in core),
