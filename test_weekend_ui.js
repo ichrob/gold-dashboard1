@@ -43,3 +43,29 @@ assert(html.includes("Aufzeichnung vom '+dayExtremes.date"));
 assert(html.includes("Fibonacci/Kursziele nicht berechnet"));
 assert(html.includes("dayExtremes.historical?' beobachtet':' heute'"));
 console.log('Historical chart: sample-only Fibonacci blocked, dates labeled correctly');
+
+// Functional test of the exact display-only projection used by the chart.
+const chartScript=scripts.map(x=>x[1]).find(x=>x.includes('function chartDisplayAllowed('));
+assert(chartScript,'Main chart script is present');
+const viewStart=chartScript.indexOf('function chartDisplayAllowed('),viewEnd=chartScript.indexOf('let chartHitMap=null,chartSelected=null;',viewStart);
+assert(viewStart>=0&&viewEnd>viewStart,'Display-only chart projection exists');
+const chartSandbox={Date,Intl,Object,Number,Map};
+vm.createContext(chartSandbox);
+vm.runInContext(chartScript.slice(viewStart,viewEnd),chartSandbox);
+const fridayStart=Date.parse('2026-11-12T23:00:00Z'); // Friday 00:00 Zurich
+const fridayBars=Array.from({length:274},(_,i)=>({openTime:fridayStart+i*300000,close:4000+i}));
+const saturdayFake={openTime:Date.parse('2026-11-14T10:00:00Z'),close:9999};
+const syntheticFriday={openTime:fridayStart+274*300000,close:9999,synthetic:true};
+const allFriday=[...fridayBars,saturdayFake,syntheticFriday];
+const day=chartSandbox.chartVisibleBars(allFriday,'day');
+assert.equal(day.length,274,'Whole observed Friday remains available at 5m, not 120 bars');
+assert.equal(day[0].openTime,fridayStart);
+assert.equal(day.at(-1).close,fridayBars.at(-1).close);
+assert.equal(chartSandbox.chartVisibleBars(allFriday,'recent').length,120);
+assert.equal(chartSandbox.chartVisibleBars([saturdayFake],'day').length,0);
+const sundayReal={openTime:Date.parse('2026-11-15T22:10:00Z'),close:4001};
+assert.equal(chartSandbox.chartVisibleBars([...allFriday,sundayReal],'day').length,1,'Original Sunday reopening remains available');
+assert(html.includes('id="chartScope"')&&html.includes('Letzter Handelstag'));
+assert(html.includes('if(closedMarket&&v.length)'));
+assert(html.includes('Schlusskurs: '+"'"+'+priceLabel(Number(chosen.close))'));
+console.log('Weekend Friday chart: complete day, user interval scope, no synthetic Saturday, real Sunday OK');
