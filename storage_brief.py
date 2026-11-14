@@ -355,6 +355,9 @@ def project(storage):
         "sourceScopeVerified": verified.get("scope") ==
                                "reviewed-evidence-tables-not-full-database-backup",
         "deletionPermitted": False,
+        "driveQuotaAvailableAtArchive": _number(
+            verified.get("driveQuotaAvailableAtArchive"), integer=True),
+        "driveQuotaIsCurrent": False,
         "scope": "persisted-receipt-projection-not-offline-escrow-proof"
     }
     # This projected gate is explanatory only. It cannot mark operator
@@ -391,6 +394,28 @@ def project(storage):
         'hostMemoryCoverage': 'unavailable',
         'automaticRestoreAllowed': False,
     }
+    # Pure observation: never sets writer cadence, changes retention,
+    # starts backup/reclaim, or claims a physical provider disk saving.
+    diagnostic = next((item for item in
+        result.get("databaseDiagnostics", {}).get("tables", [])
+        if item.get("table") == "bob_diagnostic_history"), {})
+    observed_days = storage.get("fixedSlotDaily")
+    observed_days = observed_days.get("retrospectiveDays") if type(observed_days) is dict else None
+    from storage_prevention import assess as storage_warning
+    result["earlyWarning"] = storage_warning(
+        physical_bytes=int(size) if valid else None,
+        physical_observed_at=observed,
+        allocation_bytes=result.get("configuredAllocationBytes"),
+        database_bytes=result.get("databaseBytes"),
+        daily=observed_days,
+        diagnostic_live_estimate=(
+            int(diagnostic["estimatedLiveRows"]) if
+            type(diagnostic.get("estimatedLiveRows")) in (int, float)
+            and diagnostic["estimatedLiveRows"] >= 0 else None),
+        archive_verified_at=result["archive"]["verifiedAt"],
+        drive_quota_available=result["archive"]["driveQuotaAvailableAtArchive"],
+        now=storage.get("observedAt"),
+    )
     preview = storage.get("decisionProductsPreview")
     preview = preview if isinstance(preview, dict) else {}
     result["referencePreview"] = {
