@@ -43,11 +43,42 @@ class MaintenanceTests(unittest.TestCase):
         result = maintenance.run_once(lambda: conn)
         commands = [sql for sql, _ in conn.calls if sql.startswith('VACUUM')]
         self.assertEqual(len(commands), 4)
-        for sql, table in zip(commands, maintenance._TABLES):
+        for sql, table in zip(commands, maintenance._AUTO_TABLES):
             self.assertEqual(sql, 'VACUUM (SKIP_LOCKED, TRUNCATE FALSE, PARALLEL 0) ONLY public.' + table)
         self.assertIsNone(result['diskBytesFreed'])
         self.assertFalse(result['evidenceDeleted'])
         self.assertTrue(conn.closed)
+
+    def test_large_decision_audit_requires_explicit_opt_in(self):
+        # Existing hourly maintenance remains exactly four fixed relations.
+        default = Connection()
+        maintenance.run_once(lambda: default)
+        self.assertFalse(any('bob_decision_audit' in sql for sql, _ in default.calls))
+
+        # A deliberate one-table call uses ordinary non-truncating VACUUM.
+        conn = Connection()
+        result = maintenance.run_once(lambda: conn, target_table='bob_decision_audit')
+        commands = [sql for sql, _ in conn.calls if sql.startswith('VACUUM')]
+        self.assertEqual(commands, [
+            'VACUUM (SKIP_LOCKED, TRUNCATE FALSE, PARALLEL 0) ONLY public.bob_decision_audit'])
+        self.assertEqual(result['tables'][0]['table'], 'bob_decision_audit')
+        self.assertEqual(result['tables'][0]['status'], 'command-completed')
+        self.assertIsNone(result['diskBytesFreed'])
+        self.assertFalse(result['evidenceDeleted'])
+
+    def test_decision_audit_cannot_force_tail_truncation(self):
+        conn = Connection(candidates=False)
+        result = maintenance.run_once(lambda: conn, target_table='bob_decision_audit',
+                                      reclaim_analysis_tail=True,
+                                      reclaim_metric_tail=True)
+        self.assertEqual(result['tables'], [])
+        self.assertFalse(any(sql.startswith('VACUUM') for sql, _ in conn.calls))
+
+    def test_unknown_target_fails_before_connection(self):
+        with self.assertRaises(ValueError):
+            maintenance.run_once(lambda: (_ for _ in ()).throw(
+                AssertionError('Connection should not be established')),
+                target_table='private_credentials')
 
     def test_no_candidates_no_vacuum(self):
         conn = Connection(candidates=False)
