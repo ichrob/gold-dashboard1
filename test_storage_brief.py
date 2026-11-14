@@ -556,6 +556,34 @@ class StorageBriefTests(unittest.TestCase):
         self.assertEqual(storage_brief.project(source)["diagnosticByteSample"]["status"],
                          "not-observed")
 
+    def test_bounded_overview_keeps_storage_warning_and_tail_evidence(self):
+        source = self.source()
+        source['observedAt'] = 1794672000.0
+        source['configuredAllocationBytes'] = 5_000_000_000
+        source['renderVolume'] = {
+            'status':'observed', 'unit':'bytes',
+            'observedAt':1794671985.0, 'diskUsage':1_075_000_000}
+        source['fixedSlotDaily'] = {'retrospectiveDays':[
+            {'status':'observed','startSlot':1,'dbDelta':52_000_000},
+            {'status':'observed','startSlot':2,'dbDelta':46_000_000}]}
+        source['tailReclaimReceipt'] = {
+            'status':'observed','attemptStatus':'completed',
+            'targetTable':'bob_diagnostic_history',
+            'observedRelationBytesDecrease':0,
+            'updatedAt':'2026-11-14T01:30:00+00:00',
+            'claimId':'PRIVATE-CLAIM'}
+        report = bob_diagnostics.collect({'storage':lambda:source})
+        bounded = bob_diagnostics.bounded_report(report,max_bytes=8000)
+        core = bounded['areas']['storageBrief']
+        self.assertEqual(core['databaseBytes'],560838335)
+        self.assertEqual(core['earlyWarning']['logicalGrowthState'],
+                         'rapid-logical-growth')
+        self.assertEqual(core['tailReclaimReceipt']['attemptStatus'],'completed')
+        self.assertFalse(core['archive']['recoveryKeyVerified'])
+        self.assertIsNone(core['tailReclaimReceipt']['diskBytesFreed'])
+        self.assertNotIn('PRIVATE-CLAIM',json.dumps(bounded))
+        self.assertLessEqual(len(json.dumps(bounded).encode('utf-8')),8000)
+
     def test_oversized_storage_omission_still_keeps_small_brief(self):
         source = self.source()
         report = bob_diagnostics.collect({"storage": lambda: source})
