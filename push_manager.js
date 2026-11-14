@@ -33,22 +33,37 @@
       const {publicKey}=await keyRes.json();
       if(!publicKey)throw new Error("VAPID-Key fehlt.");
       if(!reg.pushManager)return false;
-      // Recreate the browser subscription with the current VAPID public key.
-      // This repairs subscriptions created with a previous VAPID key after a
-      // server-side key rotation or a recreated push database.
+      const wantedKey=b64ToBytes(publicKey);
       let sub=await reg.pushManager.getSubscription();
       if(sub){
+        // Reusing the current VAPID key must NOT rotate the browser endpoint.
+        // Previous code unsubscribed on every manual registration, generating
+        // a new server device row with disabled defaults and leaving previous
+        // provider-accepted TEST messages directed at the old endpoint.
+        // Only a proven key change (or an unreadable legacy key) justifies
+        // a replacement. An upsert below keeps the existing server settings.
+        let sameKey=false;
         try{
-          await fetch(PUSH_API+"/unsubscribe",{
-            method:"POST",
-            headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({endpoint:sub.endpoint})
-          });
+          const key=sub.options?.applicationServerKey;
+          const observed=key?new Uint8Array(key):null;
+          sameKey=Boolean(observed&&observed.length===wantedKey.length&&
+            wantedKey.every((value,index)=>observed[index]===value));
         }catch(_){}
-        try{await sub.unsubscribe();}catch(_){}
-        sub=null;
+        if(!sameKey){
+          try{
+            await fetch(PUSH_API+"/unsubscribe",{
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({endpoint:sub.endpoint})
+            });
+          }catch(_){}
+          try{await sub.unsubscribe();}catch(_){}
+          sub=null;
+        }
       }
-      sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToBytes(publicKey)});
+      if(!sub)sub=await reg.pushManager.subscribe({
+        userVisibleOnly:true,applicationServerKey:wantedKey
+      });
       const res=await fetch(PUSH_API+"/subscribe",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
