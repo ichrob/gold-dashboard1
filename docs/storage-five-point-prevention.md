@@ -136,9 +136,9 @@ through the existing push service (no new service, provider or plan).
 The attempt wrote a durable `running` claim at 19:39:57 UTC. Render then
 completed a second automatic deploy at 19:40:40 UTC. The replacement
 process had no running archive worker, while the claim was still
-`running`. No subsequent independently restored success receipt was
-observed. The morning 00:49 UTC verified archive is intact but stale
-for further database-affecting maintenance.
+`running`. At that earlier observation, no subsequent independently restored success
+receipt was available. The morning 00:49 UTC verified archive remained
+intact but stale for further database-affecting maintenance.
 
 **Treat this claim as interrupted / indeterminate, never successful.**
 Do not reset the claim, delete source rows, overwrite a remote object,
@@ -179,3 +179,30 @@ Release order:
 If any gate is unavailable, leave the draft unmerged and report the
 specific blocked step through the existing Bob Fehlerzentrale; do not
 create another recurring checker or external paid resource.
+
+
+### Later receipt and integrated code baseline (14 November 2026)
+
+The authenticated storage projection observed at 21:14 UTC reports a
+later persisted verified receipt at 19:59:25 UTC: independent restore,
+remote download, encryption, recovery key and isolation were confirmed.
+This supersedes the earlier lack-of-receipt observation above; it does
+not establish which old claim completed or permit rewriting that claim.
+Read the newest original receipt and its explicit Aiven target binding
+again at release time. Do not start another archive merely because an
+older progress report still says `running`.
+
+Provider RAM samples from 21:00 through 21:16 UTC still included values
+above the 85% discretionary-maintenance gate, including the final sample.
+The later receipt therefore does not by itself release optional SQL work.
+No physical space saving has been demonstrated.
+
+The integrated draft now includes main's Friday chart change and
+deterministic risk-test clock from commit
+`289d525f820ea0b04d3ae4ee0669f0ce49c4e6d1`. The merge was conflict-free;
+local targeted tests passed, with unavailable local PostgreSQL integration
+checks left to CI. All four checks must complete successfully on the new
+draft head, not on the older `d13ee83d` revision. Before any storage merge,
+verify the actually deployed main revision and record that revision as
+the rollback baseline. The existing one-time 15 November 03:30
+Europe/Zurich review remains the release window; no second job is added.
