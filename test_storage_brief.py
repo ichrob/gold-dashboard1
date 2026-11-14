@@ -93,6 +93,37 @@ class StorageBriefTests(unittest.TestCase):
         for secret in ("PRIVATE", "SENSITIVE-ISIN", "secret-drive-id", "dpg-private-ID"):
             self.assertNotIn(secret, compact)
 
+    def test_early_warning_uses_fresh_physical_but_not_logical_as_volume(self):
+        source = self.source()
+        source['observedAt'] = 1794672000.0
+        source['configuredAllocationBytes'] = 5_000_000_000
+        source['renderVolume'] = {'status':'observed','unit':'bytes',
+            'observedAt':1794671970.0,'diskUsage':1_100_000_000}
+        source['fixedSlotDaily'] = {'retrospectiveDays': [
+            {'status':'observed','startSlot':1,'dbDelta':52_000_000},
+            {'status':'observed','startSlot':2,'dbDelta':45_000_000},
+            {'status':'observed','startSlot':3,'dbDelta':25_000_000}]}
+        source['databaseDiagnostics'] = {'status':'observed',
+            'tables':[{'table':'bob_diagnostic_history',
+                       'estimatedLiveRows':86_000}]}
+        source['archiveWorker']['latestVerifiedAttempt']['driveQuotaAvailableAtArchive'] = 7_000_000_000
+        warning=storage_brief.project(source)['earlyWarning']
+        self.assertEqual(warning['severity'],'normal')
+        self.assertEqual(warning['physicalUsedPct'],22.0)
+        self.assertEqual(warning['logicalGrowthState'],'rapid-logical-growth')
+        self.assertEqual(warning['diagnosticJournalCapState'],
+                         'estimated-over-approved-cap')
+        self.assertEqual(warning['lastArchiveQuotaAvailableBytes'],7_000_000_000)
+        self.assertFalse(warning['archiveQuotaIsCurrent'])
+        self.assertIsNone(warning['diskBytesFreed'])
+        self.assertFalse(warning['automaticArchiveTriggered'])
+        self.assertFalse(warning['deletionAuthorized'])
+
+        source['renderVolume']['observedAt']=1794671600.0
+        unavailable=storage_brief.project(source)['earlyWarning']
+        self.assertEqual(unavailable['severity'],'unknown')
+        self.assertEqual(unavailable['logicalGrowthState'],'rapid-logical-growth')
+
     def test_old_list_review_is_redacted_and_cannot_authorize_delete(self):
         source = self.source()
         source["androidImageAgeReview"] = {
