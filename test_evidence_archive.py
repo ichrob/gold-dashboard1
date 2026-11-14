@@ -12,6 +12,34 @@ import zipfile
 import evidence_archive as archive
 
 
+class LosslessCompressionPolicyTests(unittest.TestCase):
+    def test_zip_compression_is_opt_in_and_default_unchanged(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('BOB_ARCHIVE_ZIP_LEVEL', None)
+            self.assertEqual(archive.compression_level(), 1)
+        with patch.dict(os.environ, {'BOB_ARCHIVE_ZIP_LEVEL':'3'}):
+            self.assertEqual(archive.compression_level(), 3)
+        for value in ('0','9','3;remove','-1',' 1','level3'):
+            with self.subTest(level=value), \
+                 patch.dict(os.environ, {'BOB_ARCHIVE_ZIP_LEVEL':value}):
+                with self.assertRaises(ValueError):
+                    archive.compression_level()
+
+    def test_zip_level_three_roundtrip_is_byte_exact_without_source_deletion(self):
+        content=(b'Bob original observations with identities and dates' * 2000)
+        with tempfile.TemporaryDirectory() as root:
+            files=[]
+            for level in (1,3):
+                output=Path(root)/('archive'+str(level)+'.zip')
+                with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED,
+                                     compresslevel=level) as writer:
+                    writer.writestr('segment.csv',content)
+                with zipfile.ZipFile(output) as reader:
+                    self.assertEqual(reader.read('segment.csv'),content)
+                files.append(output)
+            self.assertEqual(len(files),2)
+
+
 class ArchiveSafety(unittest.TestCase):
     def test_segments_preserve_every_record_and_do_not_split_rows(self):
         raw = b'bbb\na\ncc\ncc\n\n'
