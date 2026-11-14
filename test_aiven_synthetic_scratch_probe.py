@@ -1,5 +1,7 @@
 import os
+import json
 import unittest
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 from aiven_synthetic_scratch_probe import run
 
@@ -34,12 +36,31 @@ class FakeConnection:
         raise AssertionError("Unexpected SQL")
 
 
+def capacity_evidence():
+    now = datetime.now(timezone.utc) - timedelta(seconds=15)
+    stamp = now.isoformat()
+    return json.dumps({
+        "host": {"source": "aiven-console-host-metrics",
+                 "project": "isolated-test", "service": "restore-free", "node": "primary",
+                 "observedAt": stamp, "memoryUsedPct": 20, "diskUsedPct": 15},
+        "sql": {"status": "observed", "observedAt": stamp,
+                "databaseBytes": 9541311, "clientConnections": 1,
+                "maxConnections": 20, "idleTransactions": 0,
+                "longActiveClients": 0},
+        "archive": {"latestVerifiedState": "verified", "verifiedAt": stamp,
+                    "restoreVerified": True, "remoteDownloadVerified": True,
+                    "encryptionVerified": True, "recoveryKeyVerified": True,
+                    "restoreIsolationVerified": True},
+    })
+
+
 def configured(**kwargs):
     return dict({
         "BOB_AIVEN_SYNTHETIC_CHECK": "1",
         "BOB_AIVEN_TEST_DATABASE_URL": URI,
         "BOB_AIVEN_TEST_CA_PEM": PEM,
         "DATABASE_URL": PROD,
+        "BOB_AIVEN_CAPACITY_EVIDENCE_JSON": capacity_evidence(),
     }, **kwargs)
 
 
@@ -101,6 +122,22 @@ class SyntheticScratchTests(unittest.TestCase):
     def test_bad_certificate_blocked(self):
         self.assertEqual(run(configured(BOB_AIVEN_TEST_CA_PEM="not a certificate"))["status"],
                          "invalid-certificate")
+
+
+
+    def test_missing_host_capacity_evidence_blocks_all_connection_attempts(self):
+        calls = []
+        def connect(*_a, **_kw):
+            calls.append("connected")
+            return FakeConnection()
+        result = run(configured(BOB_AIVEN_CAPACITY_EVIDENCE_JSON="{}"), connect)
+        self.assertEqual(result["status"], "capacity-evidence-unverified")
+        self.assertEqual(calls, [])
+
+    def test_broken_evidence_does_not_expose_credential(self):
+        result = run(configured(BOB_AIVEN_CAPACITY_EVIDENCE_JSON="{SECRET"))
+        self.assertEqual(result["status"], "capacity-evidence-unverified")
+        self.assertNotIn("SECRET", str(result))
 
 
     def test_actual_postgres_temp_table_is_rolled_back_on_isolated_ci(self):
