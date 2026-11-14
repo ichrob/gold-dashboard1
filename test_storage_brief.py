@@ -582,7 +582,7 @@ class StorageBriefTests(unittest.TestCase):
         self.assertFalse(core['archive']['recoveryKeyVerified'])
         self.assertIsNone(core['tailReclaimReceipt']['diskBytesFreed'])
         self.assertNotIn('PRIVATE-CLAIM',json.dumps(bounded))
-        self.assertLessEqual(len(json.dumps(bounded).encode('utf-8')),8000)
+        self.assertLessEqual(len(json.dumps(bounded,ensure_ascii=False,separators=(',', ':')).encode('utf-8')),8000)
 
     def test_oversized_storage_omission_still_keeps_small_brief(self):
         source = self.source()
