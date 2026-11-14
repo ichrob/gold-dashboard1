@@ -54,3 +54,35 @@ startup hook. Fake-connector tests:
 
 A successful synthetic test is a preparation milestone only. Review separately
 before merging any persistent data-writing workload.
+
+
+## Read-only capacity admission (new)
+
+The separate pure evaluator aiven_research_admission.py does no SQL, makes no
+provider calls, and never triggers the synthetic test. It returns a candidate
+for **manual review only** when all these **real** source observations exist:
+
+- Fresh Aiven Console host sample with project/service/node identity and
+  measured RAM <=70% and disk <=55%. A missing Console metric blocks.
+- Time-aligned recent Bob Aiven SQL sample: <=5 minutes old, validated
+  20-connection ceiling with at most 3 current clients, no idle transaction
+  and no long active clients. SQL database bytes do not replace host disk.
+- Fresh (<=6 hours) original independent archive proof showing actual remote
+  download, restore isolation, encryption and recovery-key verification.
+- Requested nonproduction test budget strictly >0 and <=16 MiB.
+
+Missing, stale, future, invalid, or contradictory evidence fails closed.
+No percentages or server-memory bytes may be guessed from plan labels.
+The success status candidate-for-manual-synthetic-test-only is **not** approval
+for persistent research writes, a migration, or a new paid resource.
+The evaluator accepts operator-supplied metadata; it does not authenticate the
+provider source, so the owner must check original Console evidence independently.
+
+Offline tests:
+
+    python -m unittest -v test_aiven_research_admission
+
+At the time of authorship, verified Aiven SQL and recovery checks are
+available, but genuine Console host RAM/disk samples are **not** accessible via
+the connected Bob/Render tools. Consequently the real Aiven pilot gate stays
+blocked. Never synthesize these missing metrics just to pass the policy.
