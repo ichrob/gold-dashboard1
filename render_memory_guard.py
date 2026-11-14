@@ -82,7 +82,12 @@ def assess(usage, limits, now):
         return denied
     used = _points(usage, now)
     maximum = _points(limits, now, smallest=True)
-    at = sorted(set(used) & set(maximum))
+    # Never ignore an unmatched RAM spike merely because its matching
+    # plan-limit timestamp is missing from an otherwise good time series.
+    # Missing usage samples also cannot establish an all-clear trend.
+    if set(used) != set(maximum):
+        return denied
+    at = sorted(used)
     if len(at) < 2 or now-at[-1] > _FRESH or at[-1]-at[0] < _SPAN:
         return denied
     # Require at least 10 minutes of coverage and include every aligned
