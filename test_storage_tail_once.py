@@ -92,6 +92,7 @@ class TailSafetyTests(unittest.TestCase):
             def __init__(self, record, exists=True):
                 self.record, self.exists, self.calls = record, exists, []
                 self.last = ""
+                self.timeout = "3s"
             def transaction(self):
                 return self
             def __enter__(self):
@@ -103,6 +104,8 @@ class TailSafetyTests(unittest.TestCase):
                 self.last = sql
                 return self
             def fetchone(self):
+                if self.last == "SHOW statement_timeout":
+                    return (self.timeout,)
                 if "to_regclass(" in self.last:
                     return ("bob_storage_tail_reclaim_attempts",) if self.exists else (None,)
                 return self.record
@@ -114,8 +117,10 @@ class TailSafetyTests(unittest.TestCase):
             self.assertEqual(result["attemptStatus"], "completed")
             self.assertEqual(result["observedRelationBytesDecrease"], 0)
             self.assertIsNone(result["diskBytesFreed"])
-            self.assertEqual(len(reader.calls), 3)
-            self.assertEqual(reader.calls[-1][1], (CONFIG["id"],))
+            self.assertEqual(len(reader.calls), 5)
+            self.assertEqual(reader.calls[-2][1], (CONFIG["id"],))
+            self.assertEqual(reader.calls[-1][1], ("3s",))
+            self.assertIn("set_config('statement_timeout'", reader.calls[-1][0])
             self.assertNotIn(CONFIG["id"], json.dumps(result))
             self.assertFalse(any("VACUUM" in sql or "CREATE " in sql
                                  for sql, _ in reader.calls))
@@ -274,9 +279,11 @@ class DurableClaimTests(unittest.TestCase):
                 self.assertEqual(second["status"],"already-claimed")
                 self.assertEqual(vacuum.call_count,1)
                 with factory() as conn:
+                    conn.execute("SET statement_timeout='3s'")
                     with patch.dict(os.environ, {
                             "BOB_STORAGE_TAIL_RECLAIM_ONCE": json.dumps(CONFIG)}):
                         receipt = tail.receipt_status(conn)
+                    self.assertEqual(conn.execute("SHOW statement_timeout").fetchone()[0], '3s')
                     self.assertEqual(receipt["status"], "observed")
                     self.assertEqual(receipt["attemptStatus"], "completed")
                     self.assertEqual(receipt["observedRelationBytesDecrease"], 0)
