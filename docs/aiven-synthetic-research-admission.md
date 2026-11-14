@@ -86,3 +86,24 @@ At the time of authorship, verified Aiven SQL and recovery checks are
 available, but genuine Console host RAM/disk samples are **not** accessible via
 the connected Bob/Render tools. Consequently the real Aiven pilot gate stays
 blocked. Never synthesize these missing metrics just to pass the policy.
+
+
+### Enforced capacity gate at the write boundary
+
+The synthetic probe now also requires BOB_AIVEN_CAPACITY_EVIDENCE_JSON on the
+trusted local runner. The value must be an object with named sub-objects
+host, sql and archive, matching the input fields of
+aiven_research_admission.assess. Operator supplies the **genuine** host fields
+from Aiven Console and aligns them to Bob's recent SQL and restore receipt.
+No passwords, URLs, tokens or personal information belong in this JSON.
+
+A missing, stale, contradictory, high-memory, high-disk, high-connection or
+incomplete evidence document returns capacity-evidence-unverified **before
+the PostgreSQL connection is made**. The script remains disabled by default
+even with valid evidence; its successful run can only test a temporary
+synthetic table with explicit rollback.
+
+The test suite uses invented local fixtures strictly to verify this
+fail-closed rule. They are not host telemetry and can never be used to
+authorize a real Aiven test. Real Console evidence has NOT been supplied
+through the available integrations.
