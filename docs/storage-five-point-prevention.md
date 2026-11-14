@@ -101,9 +101,10 @@ Before either the already explicitly authorized single-table weekend tail
 reclaim or the new manually confirmed decision-audit VACUUM, a separate
 read-only `render_memory_guard` now checks the **existing** Render API's
 fixed `/v1/metrics/memory` and `/v1/metrics/memory-limit` endpoints
-using the already configured metrics key. It requires at least two aligned
-provider observations across at least ten minutes, the latest no older
-than five minutes. Every observed sample in the last 15 minutes must
+using the already configured metrics key. It requires at least eight aligned
+provider observations across at least ten minutes, with no gap greater
+than three minutes and the latest no older than five minutes. Two good
+readings with an unobserved interval can never authorize a maintenance run. Every observed sample in the last 15 minutes must
 stay at or below 85% of the minimum applicable plan RAM limit and keep
 at least 32 MiB free. Any missing, delayed, malformed, mixed-resource,
 unverifiable, high-RAM or credential/HTTP error blocks the optional
