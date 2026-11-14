@@ -74,3 +74,54 @@ isolated secured restore, and fresh scope/restore checks. Keep #1616 draft
 and coordinate this follow-up in #1329. No merge/deploy before complete
 CI, Risiko, CodeQL and safety evidence; production feature acceptance and
 physical savings cannot be claimed from these tests.
+
+
+## Follow-up 14 November 2026: prevent unproven metric pruning
+
+The newest independent Bob read-only storage sample around 07:22 UTC shows
+1,075,220,500 of 5,000,000,000 physical provider bytes (21.50%), while
+the logical database is 964,318,911 B. Largest allocated relations:
+`bob_diagnostic_history` 214,401,024 B,
+`bob_decision_audit` 199,147,520 B, and
+`bob_metric_checks` 109,518,848 B.
+These three allocations are not confirmed bloat. Four completed comparison
+rows were offloaded with verified readthrough (18,308 **logical JSON** bytes
+reduced), not a physical disk-release proof.
+
+There is a *candidate* for avoiding future needless metric payload repetition.
+`metric_quality.py` uses an immutable `(version,scope,bar_at)` key. In
+particular, product checks with no verified source clock use a minute-bucket
+identity, so their missing-evidence status may recur frequently. No live
+full-day per-scope write breakdown is yet established; never infer
+such a breakdown from old, truncated 128-row original samples or from
+synthetic PG18 shared-payload benchmarks. Missing-source checks and original
+event timestamps remain scientifically relevant. Do not suppress or combine
+them before verified lossless reconstruction and study-consumer acceptance.
+
+`metric_growth_scope_probe.py` is a **separately operator-enabled,
+read-only, non-scheduled** query against the existing internal database.
+It selects at most the latest 256 rows within 24 hours via the existing
+`checked_at` index, under short statement/lock timeouts and server-enforced
+read-only transactions. The SQL itself returns only one of five fixed scope
+categories, two MD5s, compressed JSONB column size and three booleans.
+**No** JSON body, real clock, full scope/ISIN, hash, source URL, credential or
+private trading data leaves the DB in the result. The script emits only
+counts and sizes; the digest without `checkedAt` indicates a possible
+repeatable *content* component, never event identity or deletion authority.
+A full 256-row sample is explicitly marked truncated. It is not a day total,
+relation/index allocation, WAL, verified bloat or provider disk savings.
+
+For a **single authorized internal read-only operator session only**:
+`BOB_METRIC_SCOPE_PROBE_ONCE=1 python metric_growth_scope_probe.py`
+using the existing runtime `DATABASE_URL` (never print it or transfer it to
+GitHub). This is a documentation example, **not a request to set a new
+persistent Render variable or restart a service**. Without the flag, the
+program refuses before opening SQL. The ordinary GitHub CI covers only pure
+mocked tests and never accesses Bob's production database.
+
+Apply an actual optimization only after independent current per-scope evidence
+demonstrates unused content, unchanged original event times, full per-reader
+reconstruction, proper secure archive/recovery binding, bounded writes and
+adequate WAL/scratch/rollback. Keep the two current storage PRs as Draft.
+No new archive claim, production migration, DELETE, VACUUM FULL, deployment,
+new service or real order is justified by this probe.
