@@ -47,6 +47,16 @@ def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tai
     if manual_decision_audit is not False and not (
             manual_decision_audit is True and target_table in _MANUAL_ONLY_TABLES):
         raise ValueError('Manual flag requires the exact approved target')
+    # No automatic extra checks for the original four hourly targets.
+    # The large manual-only decision audit must also have fresh Render
+    # PostgreSQL RAM headroom BEFORE opening a database connection.
+    if manual_decision_audit is True:
+        ram = __import__('render_memory_guard').report()
+        if ram.get('status') != 'memory-headroom-observed':
+            return {'status': ('deferred-memory-pressure' if
+                    ram.get('status') == 'memory-pressure' else
+                    'deferred-memory-proof-unavailable'), 'tables': [],
+                    'evidenceDeleted': False, 'diskBytesFreed': None}
     results = []
     with factory() as conn:
         if not conn.autocommit:
