@@ -623,6 +623,26 @@ def technical_history_fresh(bars, minutes, now=None):
     return bool(latest and 0 <= now*1000-latest <= minutes*120000)
 
 
+def retained_history_outpaces_bundle_frame(interval, cached_frame, now):
+    """Read published source history in place during a cache-freshness check.
+
+    retain_technical_history() must return detached mutable candles to analysis
+    callers, but the *read-only* 30-second cache check needs only the latest
+    closed timestamp. The retained list is published under this same lock and
+    never shared as a mutable output, so don't clone up to 2,000 rows on every
+    browser/monitor cache hit. Preserve exact freshness and spot-identity gates.
+    """
+    minutes = technical_candles.MINUTES[interval]
+    with _technical_history_lock:
+        retained = _technical_history.get(interval, ())
+        return bool(
+            technical_history_fresh(retained, minutes, now)
+            and all(b.get('instrument') == 'XAU/USD' and not b.get('estimated')
+                    for b in retained)
+            and technical_history_latest(retained, minutes, now) >
+                technical_history_latest(cached_frame, minutes, now)
+        )
+
 
 # EMA200 requires 200 *completed* observations of one XAU/USD timeframe.
 # The ordinary independent candle feed may publish fewer than 200 fresh 1h
@@ -825,14 +845,10 @@ def live_cache_reusable(now=None):
         if stamp.tzinfo is None or not 0 <= now - stamp.timestamp() < 30:
             return False
         frames=(_live_cache.get('history') or {}).get('bars_by_tf') or {}
-        for tf, minutes in technical_candles.MINUTES.items():
+        for tf in technical_candles.MINUTES:
             if not isinstance(frames.get(tf), list):
                 continue
-            retained = retain_technical_history(tf, [])
-            if (technical_history_fresh(retained, minutes, now)
-                    and all(b.get('instrument') == 'XAU/USD' and not b.get('estimated') for b in retained)
-                    and technical_history_latest(retained, minutes, now) >
-                        technical_history_latest(frames[tf], minutes, now)):
+            if retained_history_outpaces_bundle_frame(tf, frames[tf], now):
                 return False
         return True
     except (ValueError, TypeError, AttributeError):
