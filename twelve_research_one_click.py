@@ -173,6 +173,12 @@ def handler_factory(job, nonce):
     return Handler
 
 
+def serve_until_used(server, job):
+    """Serve locally until the only authorized attempt is consumed."""
+    while not job.used:
+        server.handle_request()
+
+
 def main():
     parser = argparse.ArgumentParser(description='Local manual-only research button')
     parser.add_argument('--serve', action='store_true', help='explicit localhost operator session')
@@ -187,8 +193,7 @@ def main():
         webbrowser.open(address)
         # A single consumed request ends the operator session. No idle server
         # or second submission remains after success OR provider failure.
-        while not job.used:
-            server.handle_request()
+        serve_until_used(server, job)
 
 
 if __name__ == '__main__':
