@@ -320,6 +320,34 @@ def project(storage):
         "scope": "physical-provider-volume-single-observation-not-savings"
     }
 
+    # Read-only receipt for the *configured* weekend one-shot attempt.
+    # A claimed ID is not evidence of a completed VACUUM, and even a
+    # completed VACUUM does not prove provider-level physical savings.
+    tail = storage.get("tailReclaimReceipt")
+    tail = tail if type(tail) is dict else {}
+    tail_status = _choice(tail.get("status"), frozenset((
+        "disabled", "not-observed", "observed", "unavailable",
+        "claim-mismatch", "unknown-claim-state")), "not-observed")
+    attempt_status = _choice(tail.get("attemptStatus"), frozenset((
+        "running", "completed", "deferred", "deferred-busy", "failed")), None)
+    table = tail.get("targetTable")
+    table = table if table in (
+        "bob_diagnostic_history", "bob_improvement_observations",
+        "bob_metric_checks", "bob_android_list_images") else None
+    decrease = _number(tail.get("observedRelationBytesDecrease"),
+                       integer=True, maximum=10**12)
+    result["tailReclaimReceipt"] = {
+        "status": tail_status,
+        "attemptStatus": attempt_status if tail_status == "observed" else None,
+        "targetTable": table if tail_status == "observed" else None,
+        "updatedAt": _clock(tail.get("updatedAt"))
+                     if tail_status == "observed" else None,
+        "observedRelationBytesDecrease": decrease if tail_status == "observed"
+            and attempt_status == "completed" else None,
+        "readOnly": True,
+        "diskBytesFreed": None,
+    }
+
     cold_tests = storage.get("coldTests")
     cold_tests = cold_tests if isinstance(cold_tests, dict) else {}
     cycle = cold_tests.get("lastCycle")
