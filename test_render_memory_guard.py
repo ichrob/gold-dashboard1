@@ -60,6 +60,27 @@ class RenderMemoryGuardTests(unittest.TestCase):
                 self.assertEqual(guard.assess(usage,limit,self.NOW)['status'],
                                  'memory-proof-unavailable')
 
+    def test_unmatched_memory_spike_or_missing_usage_is_not_hidden(self):
+        safe, limits = self.samples()
+        # The first and last samples look safe; an extra unpaired high
+        # usage reading between them must not disappear in an intersection.
+        safe[0]['values'].insert(1, {
+            'timestamp':datetime.datetime.fromtimestamp(
+                self.NOW-400, datetime.timezone.utc).isoformat(),
+            'value':265_000_000})
+        self.assertEqual(guard.assess(safe,limits,self.NOW)['status'],
+                         'memory-proof-unavailable')
+
+        # Likewise an unpaired provider limit sample cannot be interpreted
+        # as a complete 10-minute memory history.
+        safe, limits = self.samples()
+        limits[0]['values'].insert(1, {
+            'timestamp':datetime.datetime.fromtimestamp(
+                self.NOW-400, datetime.timezone.utc).isoformat(),
+            'value':150_000_000})
+        self.assertEqual(guard.assess(safe,limits,self.NOW)['status'],
+                         'memory-proof-unavailable')
+
     def test_duplicate_memory_limit_uses_lower_bound(self):
         usage,limits=self.samples(recent=198_000_000)
         limits += self.series([(self.NOW-40,205_000_000)])
