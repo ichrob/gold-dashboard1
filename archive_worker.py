@@ -150,6 +150,7 @@ def post_verified_weekend_reclaim(result, *, runner=None, now=None):
         approved = frozenset((
             'completed', 'deferred', 'deferred-busy', 'already-claimed',
             'backup-proof-not-fresh', 'fresh-volume-proof-unavailable',
+            'memory-pressure', 'memory-proof-unavailable',
             'proof-unavailable', 'archive-running', 'failed',
             'receipt-write-failed', 'disabled', 'market-hours-deferred',
             'non-autocommit-connection'))
