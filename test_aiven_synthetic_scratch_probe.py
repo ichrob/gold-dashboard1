@@ -1,4 +1,6 @@
+import os
 import unittest
+from urllib.parse import urlsplit
 from aiven_synthetic_scratch_probe import run
 
 URI = "postgresql://test:SECRET@sample.aivencloud.com:12345/defaultdb?sslmode=require"
@@ -99,6 +101,53 @@ class SyntheticScratchTests(unittest.TestCase):
     def test_bad_certificate_blocked(self):
         self.assertEqual(run(configured(BOB_AIVEN_TEST_CA_PEM="not a certificate"))["status"],
                          "invalid-certificate")
+
+
+    def test_actual_postgres_temp_table_is_rolled_back_on_isolated_ci(self):
+        """Run real SQL only against CI's exact local throwaway test database.
+
+        The injected connector never uses the fake Aiven hostname to connect.
+        Missing/ambiguous/local-production configurations skip this test.
+        """
+        local_url = os.environ.get("BOB_TEST_DATABASE_URL", "")
+        parts = urlsplit(local_url)
+        if not (parts.scheme in ("postgres", "postgresql")
+                and parts.hostname in ("127.0.0.1", "localhost")
+                and parts.port == 5432 and parts.path == "/bob_auth_test"):
+            self.skipTest("No exact isolated local CI PostgreSQL fixture")
+        try:
+            import psycopg
+        except ImportError:
+            self.skipTest("psycopg unavailable in local test runner")
+
+        def local_test_connection(aiven_uri, **kwargs):
+            self.assertEqual(aiven_uri, URI)
+            self.assertEqual(kwargs["sslmode"], "verify-full")
+            return psycopg.connect(
+                local_url,
+                connect_timeout=kwargs["connect_timeout"],
+                autocommit=True, options=kwargs["options"],
+                application_name="bob_aiven_synthetic_ci",
+            )
+
+        result = run(configured(), local_test_connection)
+        self.assertEqual(result["status"], "synthetic-scratch-rolled-back")
+        with psycopg.connect(local_url, connect_timeout=5) as verify:
+            # A TEMP table created and rolled back must not leave even a
+            # transient relation visible after the original session closes.
+            found = verify.execute(
+                "SELECT count(*) FROM pg_class WHERE relname = "
+                "'bob_aiven_synthetic_scratch'"
+            ).fetchone()[0]
+            self.assertEqual(found, 0)
+            acquired = verify.execute(
+                "SELECT pg_try_advisory_lock(hashtext('bob_restore_target_v1'))"
+            ).fetchone()[0]
+            self.assertTrue(acquired)
+            verify.execute(
+                "SELECT pg_advisory_unlock(hashtext('bob_restore_target_v1'))"
+            )
+
 
 
 if __name__ == "__main__":
