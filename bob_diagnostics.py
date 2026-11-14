@@ -1829,6 +1829,27 @@ def summary(areas):
             item['severity']='info'
             item['meaning']='backup-source-unavailable-selected-feed-assessed-separately'
         else:item['severity']='warning'
+    # One central read-only storage finding, derived solely from the existing
+    # bounded storageBrief snapshot. No separate sender, push or live SQL.
+    # Physical-volume thresholds and PostgreSQL logical-growth evidence must
+    # remain distinct; neither grants compaction, deletion or migration.
+    brief = areas.get('storageBrief') if isinstance(areas, dict) else None
+    early = brief.get('earlyWarning') if isinstance(brief, dict) else None
+    if isinstance(early, dict) and early.get('readOnly') is True:
+        level = early.get('severity')
+        growth = early.get('logicalGrowthState')
+        if level in ('caution', 'action', 'high', 'emergency'):
+            findings.insert(0, {
+                'area':'storageBrief.earlyWarning',
+                'state':'physical-volume-'+level,
+                'severity':'warning',
+                'meaning':'measured-render-volume-threshold-not-maintenance-authorization'})
+        elif growth == 'rapid-logical-growth':
+            findings.insert(0, {
+                'area':'storageBrief.earlyWarning',
+                'state':'rapid-logical-growth',
+                'severity':'warning',
+                'meaning':'postgres-logical-size-growth-not-physical-provider-volume'})
     return {'attention':findings[:40], 'assessment':'needs-attention' if any(x['severity']=='warning' for x in findings) else 'observed-only',
             'note':'A stale alternate quote source does not by itself prove the selected candle feed failed. Inconclusive paper results are not realised losses. Original timestamps remain authoritative.'}
 
