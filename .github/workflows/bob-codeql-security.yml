@@ -12,6 +12,9 @@ on:
       - 'test_ai_peer_review.py'
       # Archive replay and offline COPY validation require the same safety checks.
       - 'storage_archive_*.py'
+      # Explicitly review operator-only JSONB compression probe changes.
+      - 'storage_jsonb_compression_probe.py'
+      - 'test_storage_jsonb_compression*.py'
       - 'test_storage_archive_*.py'
       - "termux_maintenance.py"
       - "bob_termux_runner.py"
