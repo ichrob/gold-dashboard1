@@ -140,7 +140,7 @@ def read(environ=None, request_once=None, now=None):
 
 def main():
     result = read()
-    print(json.dumps(result, sort_keys=True))
+    print(json.dumps({"status": result["status"], "hostMetricObserved": result["status"] == "observed"}, sort_keys=True))
     return 0 if result["status"] == "observed" else 2
 
 
