@@ -22,11 +22,18 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    requiredTarget:page=>page===bob||page===broker
   });
   const gm=relay.values;
-  await ctx.exposeBinding('gmWrite',({page},key,value,remove)=>{
+  let releaseSyntheticBinding,signalSyntheticBindingEntered;
+  const syntheticGate=new Promise(resolve=>{releaseSyntheticBinding=resolve;});
+  const syntheticBindingEntered=new Promise(resolve=>{signalSyntheticBindingEntered=resolve;});
+  await ctx.exposeBinding('gmWrite',async ({page},key,value,remove)=>{
    // Userscript storage changes are asynchronous. Resolve the exposed binding
    // before notifying the other tab so a result handler can write/delete a
    // second key without re-entering a still-blocked Playwright binding. Keep
    // delivery ordered so QUEUE followed by STATUS cannot overtake itself.
+   if(key==='bob-synthetic-binding-fence-v1'){
+    signalSyntheticBindingEntered();
+    await syntheticGate;
+   }
    relay.write(page,key,value,remove);
   });
   await ctx.exposeBinding('gmRead',()=>gm);
@@ -80,6 +87,21 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   for(const p of[bob,broker])p.on('pageerror',e=>errors.push(e.message));
   await bob.goto(BOB);await broker.goto(BROKER);
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
+  // #1712 deterministic pre-queue race: a local manager value is already
+  // visible while its Playwright exposed binding has not yet reached relay.write.
+  // The normal relay.flush alone returns with no delivery. The new per-page
+  // binding fence must wait for that exact outstanding write before flush.
+  await broker.evaluate(()=>GM_setValue('bob-synthetic-binding-fence-v1',1));
+  await syntheticBindingEntered;
+  await relay.flush();
+  assert.equal(await bob.evaluate(()=>GM_getValue('bob-synthetic-binding-fence-v1',null)),null,
+   'An unenqueued GM binding must not be mistaken for delivered ACK');
+  const bindingWait=broker.evaluate(()=>window.__gmAwaitBindings());
+  releaseSyntheticBinding();
+  await bindingWait;
+  await relay.flush();
+  assert.equal(await bob.evaluate(()=>GM_getValue('bob-synthetic-binding-fence-v1',null)),1,
+   'Binding fence must deliver the original queued value');
   async function exportCSV(text,method='click'){
    const resultsBefore=await bob.evaluate(()=>window.exportResults.length);
    const before=await broker.evaluate(()=>({armed:GM_getValue('bob-export-arm-v1',0)>Date.now(),writes:window.gmStatusWrites}));
