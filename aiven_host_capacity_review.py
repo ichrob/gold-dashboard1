@@ -77,7 +77,7 @@ def review(host_sample=None, sql_sample=None, *, now=None, previous_host_sample=
         "oomCause":"unknown",
         "findings":[],
     }
-    if not isinstance(host_sample,dict) or host_sample.get("source")!="aiven-console-host-metrics":
+    if not isinstance(host_sample,dict) or host_sample.get("source") not in ("aiven-console-host-metrics", "aiven-service-metrics-api"):
         out["findings"].append("host-memory-source-unavailable")
         return out
     try:
