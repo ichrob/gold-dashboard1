@@ -140,6 +140,57 @@ class SyntheticScratchTests(unittest.TestCase):
         self.assertNotIn("SECRET", str(result))
 
 
+
+    def test_api_mode_no_authenticated_host_sample_blocks_before_connect(self):
+        calls = []
+        def connector(*_a, **_kw):
+            calls.append("called")
+            return FakeConnection()
+        result = run(
+            configured(BOB_AIVEN_METRICS_ONCE="1"),
+            connector,
+            metrics_reader=lambda **_kw: {"status": "not-configured"},
+        )
+        self.assertEqual(result["status"], "capacity-evidence-unverified")
+        self.assertEqual(calls, [])
+
+    def test_api_mode_can_use_recent_provider_sample(self):
+        host = {
+            "source": "aiven-service-metrics-api",
+            "project": "project-ci", "service": "pg-ci",
+            "node": "service-wide",
+            "observedAt": datetime.now(timezone.utc).isoformat(),
+            "memoryUsedPct": 30, "diskUsedPct": 20,
+        }
+        invoked = []
+        def connector(*_a, **_kw):
+            invoked.append(True)
+            return FakeConnection()
+        result = run(
+            configured(BOB_AIVEN_METRICS_ONCE="1"),
+            connector,
+            metrics_reader=lambda **_kw: {"status": "observed", "host": host},
+        )
+        self.assertEqual(result["status"], "synthetic-scratch-rolled-back")
+        self.assertEqual(len(invoked), 1)
+
+    def test_api_pressure_blocks_without_falling_back_to_manual_host(self):
+        host = {
+            "source": "aiven-service-metrics-api",
+            "project": "project-ci", "service": "pg-ci",
+            "node": "service-wide",
+            "observedAt": datetime.now(timezone.utc).isoformat(),
+            "memoryUsedPct": 99, "diskUsedPct": 95,
+        }
+        invoked = []
+        result = run(
+            configured(BOB_AIVEN_METRICS_ONCE="1"),
+            lambda *_a, **_kw: invoked.append(True),
+            metrics_reader=lambda **_kw: {"status": "observed", "host": host},
+        )
+        self.assertEqual(result["status"], "capacity-evidence-unverified")
+        self.assertEqual(invoked, [])
+
     def test_actual_postgres_temp_table_is_rolled_back_on_isolated_ci(self):
         """Run real SQL only against CI's exact local throwaway test database.
 
