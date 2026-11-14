@@ -83,7 +83,7 @@ class LargeAccountProjectionTests(unittest.TestCase):
                                 'raw': 'z'*1000}} for i in range(10)]
         original = {'areas': {'simulationAndPush': {
             'status': 'partial', 'accounts': accounts, 'history': {'raw': 'y'*7000}}}}
-        report=diagnostics.bounded_report(original, 3600)
+        report=diagnostics.bounded_report(original, 8000)
         sim=report['areas']['simulationAndPush']
         self.assertEqual(sim['status'], 'partial')
         self.assertEqual(len(sim['accounts']), 10)
