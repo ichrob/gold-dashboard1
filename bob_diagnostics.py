@@ -2276,7 +2276,16 @@ def bounded_report(report, max_bytes):
     # Keep full account objects if they already fit, and retain the original
     # observation clock and omissions rather than re-dating evidence.
     sim = areas.get('simulationAndPush')
-    if size(result) > max_bytes and isinstance(sim, dict) and isinstance(sim.get('accounts'), list):
+    accounts = sim.get('accounts') if isinstance(sim, dict) else None
+    # This new reduction is exclusively for actual multi-account projections.
+    # A single small account's heartbeat and nested push evaluator must not
+    # lose their existing full representation just because *another* required
+    # area exceeds a tiny test/view budget. Malformed/non-dict account entries
+    # also cannot be truthfully projected and retain the original omission path.
+    can_project_accounts = (isinstance(accounts, list) and len(accounts) >= 5
+                            and all(isinstance(account, dict) for account in accounts)
+                            and size(sim) > min(10_000, max_bytes // 2))
+    if size(result) > max_bytes and can_project_accounts:
         account_keys = (
             'profile', 'enabled', 'status', 'checkedAt', 'startAt', 'endAt',
             'currency', 'initialCapital', 'cash', 'equity', 'dayProfit',
@@ -2301,7 +2310,7 @@ def bounded_report(report, max_bytes):
             list(sim.get('omittedSections') or []) + ['accounts.nonessential-details']))
         areas['simulationAndPush'] = reduced
         sim = reduced
-    if size(result) > max_bytes and isinstance(sim, dict) and isinstance(sim.get('accounts'), list):
+    if size(result) > max_bytes and can_project_accounts:
         # In particularly large snapshots, discard non-account subreports
         # inside this same area, but retain the original recorded status and
         # basic paper/push heartbeat. Never turn an unavailable source healthy.
