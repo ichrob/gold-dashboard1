@@ -1025,7 +1025,7 @@ def entry_block_evidence(conn, portfolios, limit=5):
                 'latest':latest,
                 'timeWindows15m':time_windows,
                 'timeWindowsStored':(len(raw_windows) if isinstance(raw_windows,dict)
-                    and profile in ('trend800nov','normal1000nov','ema3000nov') else 0),
+                    and profile in ('trend800nov','normal1000nov','ema3000nov','noema5000nov') else 0),
                 'timeWindowsReadLimit':16,
                 'timeWindowsForwardOnly':True,
                 'timeWindowsFirstObservedAt':(payload.get('entryTimeBucketsFirstObservedAt')
