@@ -2,6 +2,8 @@ import copy
 import os
 import sqlite3
 import unittest
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from unittest.mock import patch
 import twelve_research_extension as td
 
@@ -21,15 +23,15 @@ class TwelveResearchTests(unittest.TestCase):
         self.assertFalse(td.scope_allowed('XAU/USD','5min',{}))
         self.assertFalse(td.scope_allowed('XAU/USD','1h',{}))
         basis={'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED':'1'}
-        for interval in ('1min','5min','15min','30min','1h','1day'):
+        for interval in ('1min','5min','15min','30min','1h','4h','8h','1day'):
             self.assertTrue(td.scope_allowed('XAU/USD',interval,basis))
-        for interval in ('4h','8h'):
-            self.assertFalse(td.scope_allowed('XAU/USD',interval,{
-                **basis, 'BOB_TWELVEDATA_SCOPE_XAU_USD_'+interval.upper():'1'}))
-        self.assertFalse(td.scope_allowed('CHF/EUR','1h',{**basis,
-            'BOB_TWELVEDATA_SCOPE_CHF_EUR_1H':'1'}))
-        self.assertFalse(td.scope_allowed('EUR/CHF','1h',{**basis,
-            'BOB_TWELVEDATA_SCOPE_EUR_CHF_1H':'1'}))
+        for pair in ('CHF/EUR','EUR/CHF','EUR/USD','USD/CHF'):
+            self.assertFalse(td.scope_allowed(pair,'1h',basis))
+            self.assertTrue(td.scope_allowed(pair,'1h',{**basis,
+                'BOB_TWELVEDATA_SCOPE_'+pair.replace('/','_')+'_1H':'1'}))
+            # Daily FX calendar timezone is not confirmed by XAU Sydney rights.
+            self.assertFalse(td.scope_allowed(pair,'1day',{**basis,
+                'BOB_TWELVEDATA_SCOPE_'+pair.replace('/','_')+'_1DAY':'1'}))
         self.assertFalse(td.scope_allowed('USD/CHF','1h',basis))
         self.assertTrue(td.scope_allowed('USD/CHF','1h',{**basis,
             'BOB_TWELVEDATA_SCOPE_USD_CHF_1H':'1'}))
@@ -40,7 +42,7 @@ class TwelveResearchTests(unittest.TestCase):
         with patch.dict(os.environ,{},clear=True),patch.object(td,'build_opener') as opener:
             with sqlite3.connect(':memory:') as db:
                 self.assertEqual(td.fetch_research(db,'XAU/USD','5min',START,START+STEP,now_ms=NOW)['code'],'SCOPE_NOT_AUTHORIZED')
-                self.assertEqual(td.fetch_earliest_timestamp(db,'EUR/CHF','1h',now_ms=NOW)['code'],'UNSUPPORTED_SCOPE')
+                self.assertEqual(td.fetch_earliest_timestamp(db,'EUR/CHF','1h',now_ms=NOW)['code'],'SCOPE_NOT_AUTHORIZED')
             opener.assert_not_called()
 
     def test_metadata_timezone_strict(self):
@@ -54,6 +56,86 @@ class TwelveResearchTests(unittest.TestCase):
         bad=example();bad['meta']['symbol']='EUR/CHF'
         with self.assertRaises(ValueError):
             td.validate_rows(bad,'XAU/USD','5min',START,START+STEP,NOW)
+
+    def test_sydney_daily_calendar_and_dst_do_not_fake_utc_midnight(self):
+        sydney=ZoneInfo('Australia/Sydney')
+        stamp=lambda y,m,d: int(datetime(y,m,d,tzinfo=sydney).timestamp()*1000)
+        start, mid, end=stamp(2026,10,3),stamp(2026,10,4),stamp(2026,10,5)
+        self.assertEqual(mid-start,24*3600000)
+        self.assertEqual(end-mid,23*3600000)  # Australia moves clocks forward.
+        meta={'symbol':'XAU/USD','interval':'1day',
+              'type':'Precious Metal','currency_base':'Gold Spot',
+              'currency_quote':'US Dollar'}
+        payload={'meta':meta,'values':[{'datetime':'2026-10-04',
+            'open':'4000','high':'4002','low':'3999','close':'4001'}]}
+        self.assertTrue(td.valid_window('XAU/USD','1day',start,end,end))
+        self.assertFalse(td.valid_window('XAU/USD','1day',start+3600000,end,end))
+        self.assertFalse(td.valid_window('EUR/CHF','1day',start,end,end))
+        rows=td.validate_rows(payload,'XAU/USD','1day',start,end,end)
+        self.assertEqual(rows[0]['openTime'],mid)
+        self.assertEqual(td.gaps(rows,'1day',start_ms=start,end_ms=end),
+                         [{'startMs':start,'endMs':start,
+                           'sessionStatus':'unverified',
+                           'automaticBackfillAllowed':False}])
+        self.assertFalse(rows[0]['isExecutableQuote'])
+        bad=copy.deepcopy(payload)
+        bad['meta']['exchange_timezone']='UTC'
+        with self.assertRaisesRegex(ValueError,'daily-timezone'):
+            td.validate_rows(bad,'XAU/USD','1day',start,end,end)
+        bad=copy.deepcopy(payload)
+        bad['values'][0]['datetime']='2026-10-04 13:00:00'
+        with self.assertRaisesRegex(ValueError,'daily-label'):
+            td.validate_rows(bad,'XAU/USD','1day',start,end,end)
+        with self.assertRaisesRegex(ValueError,'unclosed'):
+            td.validate_rows(payload,'XAU/USD','1day',start,end,mid+3600000)
+
+    def test_daily_request_uses_sydney_dates_without_utc_claim(self):
+        sydney=ZoneInfo('Australia/Sydney')
+        stamp=lambda d: int(datetime(2026,10,d,tzinfo=sydney).timestamp()*1000)
+        start,end=stamp(3),stamp(5)
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self,*args): return None
+            def read(self,size):
+                return (b'{"meta":{"symbol":"XAU/USD","interval":"1day",'
+                        b'"type":"Precious Metal","currency_base":"Gold Spot",'
+                        b'"currency_quote":"US Dollar"},"values":['
+                        b'{"datetime":"2026-10-04","open":"4000",'
+                        b'"high":"4002","low":"3999","close":"4001"}]}')
+        class FakeOpener:
+            def open(self,url,timeout):
+                self.url=url.full_url
+                return FakeResponse()
+        config={'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED':'1',
+                'BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED':'1',
+                'TWELVEDATA_API_KEY':'test_only_fake_key'}
+        with patch.dict(os.environ,config,clear=True):
+            with sqlite3.connect(':memory:',isolation_level=None) as db:
+                fake=FakeOpener()
+                result=td.fetch_research(db,'XAU/USD','1day',start,end,
+                                         now_ms=end+3600000,opener=fake)
+                self.assertEqual(result['code'],'OBSERVED')
+                self.assertEqual(result['stored'],1)
+                self.assertIn('start_date=2026-10-03',fake.url)
+                self.assertIn('end_date=2026-10-04',fake.url)
+                self.assertNotIn('timezone=',fake.url)
+
+    def test_confirmed_direct_fx_cross_is_separate_non_display_research(self):
+        basis={'BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED':'1',
+               'BOB_TWELVEDATA_SCOPE_EUR_CHF_1H':'1'}
+        self.assertTrue(td.scope_allowed('EUR/CHF','1h',basis))
+        payload={'meta':{'symbol':'EUR/CHF','interval':'1h',
+            'exchange_timezone':'UTC'},'values':[
+                {'datetime':'2026-11-11 22:00:00','open':'0.95',
+                 'high':'0.96','low':'0.94','close':'0.955'}]}
+        rows=td.validate_rows(payload,'EUR/CHF','1h',START,START+3600000,
+                              START+7200000)
+        self.assertEqual(rows[0]['symbol'],'EUR/CHF')
+        self.assertFalse(rows[0]['isExecutableQuote'])
+        payload['meta'].pop('exchange_timezone')
+        with self.assertRaises(ValueError):
+            td.validate_rows(payload,'EUR/CHF','1h',START,START+3600000,
+                             START+7200000)
 
     def test_invalid_quotes_and_clocks(self):
         for field,value in [('close','nan'),('open','-2'),('low','4003'),('high','3998')]:
