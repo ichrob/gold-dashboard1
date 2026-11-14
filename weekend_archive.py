@@ -232,8 +232,8 @@ def request(action, payload):
     req=Request(base+'/weekend-archive/'+action,data=data,method='POST',
                 headers={'Content-Type':'application/json','X-Bob-Push-Token':token})
     with urlopen(req,timeout=18) as response:
-        body=response.read(1000001)
-    if len(body)>1000000:
+        body=response.read(2000001)
+    if len(body)>2000000:
         raise ValueError('Archivantwort zu gross')
     result=json.loads(body)
     if not isinstance(result,dict):
