@@ -113,8 +113,8 @@ def report():
                 return {'status':'memory-proof-unavailable',
                         'maintenanceAuthorized':False}
             return result
-        opener = urllib.request.build_opener(_NoRedirect)
         try:
+            opener = urllib.request.build_opener(_NoRedirect)
             data = []
             for typ in _TYPES:
                 url = _ENDPOINT + typ + '?resource=' + RESOURCE + '&resolutionSeconds=60'
