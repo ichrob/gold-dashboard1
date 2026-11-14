@@ -16,7 +16,11 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
  try{
   const ctx=await browser.newContext({viewport:{width:360,height:760},acceptDownloads:true});
   const requests=[],errors=[];
-  const relay=createStorageRelay(()=>ctx.pages());
+  let bob,broker;
+  const relay=createStorageRelay(()=>ctx.pages(),{
+   roleOf:page=>page===bob?'bob':page===broker?'broker':'auxiliary',
+   requiredTarget:page=>page===bob||page===broker
+  });
   const gm=relay.values;
   await ctx.exposeBinding('gmWrite',({page},key,value,remove)=>{
    // Userscript storage changes are asynchronous. Resolve the exposed binding
@@ -31,9 +35,33 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    window.unsafeWindow=window;
    window.GM_getValue=(k,d)=>k in values?values[k]:d;
    window.gmStatusWrites=0;
+   // Track *locally started* exposed-binding promises. A local 'staged'
+   // update can precede the asynchronous binding's relay.write enqueue.
+   // Only wait for the binding to enter the relay, never for cross-tab ACK:
+   // waiting for ACK inside the binding would deadlock a reply write.
+   window.__gmBindingTasks=[];
+   window.__gmBindingFailures=[];
+   window.__gmTrackBinding=(key,value,remove)=>{
+    let task;
+    try{task=Promise.resolve(window.gmWrite(key,value,remove));}
+    catch(error){task=Promise.reject(error);}
+    window.__gmBindingTasks.push(task.catch(error=>{
+     window.__gmBindingFailures.push(typeof error?.name==='string'?error.name:'Error');
+    }));
+   };
+   window.__gmAwaitBindings=async()=>{
+    while(window.__gmBindingTasks.length){
+     const batch=window.__gmBindingTasks.splice(0);
+     await Promise.all(batch);
+    }
+    if(window.__gmBindingFailures.length){
+     const classes=window.__gmBindingFailures.splice(0);
+     throw Error('Synthetic storage binding failed: '+classes.join(','));
+    }
+   };
    window.exportResults=[];window.addEventListener("message",e=>{if(e.source===window&&e.data?.type==="BOB_EXPORT_RESULT")window.exportResults.push(e.data);});
-   window.GM_setValue=(k,v)=>{if(k==='bob-export-status-v1')window.gmStatusWrites++;const old=values[k];values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,false);window.gmWrite(k,v,false);};
-   window.GM_deleteValue=k=>{delete values[k];window.gmWrite(k,null,true);};
+   window.GM_setValue=(k,v)=>{if(k==='bob-export-status-v1')window.gmStatusWrites++;const old=values[k];values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,false);window.__gmTrackBinding(k,v,false);};
+   window.GM_deleteValue=k=>{delete values[k];window.__gmTrackBinding(k,null,true);};
    window.GM_addValueChangeListener=(k,fn)=>(listeners[k]??=[]).push(fn);
    window.gmRemote=(k,v,remove)=>{const old=values[k];if(remove)delete values[k];else values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,true);};
    // Real managers can provide a window wrapper distinct from event.source.
@@ -48,7 +76,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    if(u.origin===BROKER&&u.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!doctype html><h1>Synthetic broker export</h1><input type="password" value="do-not-transfer"><button id="export">CSV</button>'});
    return route.abort();
   });
-  const bob=await ctx.newPage(),broker=await ctx.newPage();
+  bob=await ctx.newPage();broker=await ctx.newPage();
   for(const p of[bob,broker])p.on('pageerror',e=>errors.push(e.message));
   await bob.goto(BOB);await broker.goto(BROKER);
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
@@ -81,6 +109,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
     // The synthetic userscript manager resolves each local write before its
     // ordered cross-tab delivery. Wait for this export's QUEUE/STATUS relay and
     // any result cleanup before asserting what Bob received.
+    await broker.evaluate(()=>window.__gmAwaitBindings());
     await relay.flush();
     // Follow the UI instruction to return to Bob after choosing the export.
     await bob.bringToFront();
@@ -101,6 +130,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
     const outcome=await bob.evaluate(()=>window.exportResults.at(-1));
     await bob.waitForFunction(id=>GM_getValue('bob-export-pending-v1',null)?.id!==id,
      outcome.id,{timeout:12000,polling:100});
+    await bob.evaluate(()=>window.__gmAwaitBindings());
     await relay.flush();
     return outcome.ok;
    }
