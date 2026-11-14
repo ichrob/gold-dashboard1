@@ -4,17 +4,15 @@
 Existing `gold_fallback.py`, Bob's primary quote feeds, original trading
 decisions, DEGIRO product evidence, and all mobile/web displays remain unchanged.
 
-## What Twelve Data explicitly confirmed in writing on 12 Nov 2026
+## What Twelve Data explicitly confirmed in writing on 12–13 Nov 2026
 
 The provider's 03:45 and 21:05 UTC emails to Bob's project mailbox say:
 
 - Free **Basic** supports occasional XAU/USD historical OHLC retrieval for
   internal **non-display evaluation** at 1min, 5min, 15min, 30min, 1h, 1day.
   Gold is a perpetual **trial symbol**, not an expiring upgrade.
-- Major FX trial pairs include **EUR/USD** and **USD/CHF**. The provider did
-  **not** confirm that the direct CHF/EUR or EUR/CHF instruments are Basic
-  trial symbols. They remain unqueryable through this adapter regardless of
-  environment flags.
+- The written 13 Nov follow-up confirms all four **EUR/USD, USD/CHF, EUR/CHF, CHF/EUR** pairs for occasional manual non-display evaluation. Each FX pair and interval still needs one-off opt-in and valid UTC source-time metadata. FX daily remains disabled until its own daily calendar is verified.
+- The same follow-up confirms XAU/USD **4h** and **8h**, plus `/earliest_timestamp` at **1 credit** per request. XAU/USD daily date labels use **Australia/Sydney**, even when timezone=UTC is requested. The adapter preserves real Sydney midnight UTC instants, including DST transitions.
 - Local EMA/MACD/RSI/ATR computation from permitted historical data for private
   **non-display** internal research is okay. The vendor's own indicator
   endpoints also exist on Basic, but credit weights require individual
@@ -44,13 +42,14 @@ and https://support.twelvedata.com/en/articles/5615854-credits .
 
 `twelve_research_extension.py` provides:
 
-1. Explicit authorization gating. Gold's six confirmed intervals require the
-   global `BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED=1` opt-in. EUR/USD and USD/CHF
-   require an **additional flag per symbol/interval** after checking their
-   actual historical availability. Direct CHF/EUR, EUR/CHF and the unconfirmed
-   4h/8h intervals are **always blocked**, even if named in env variables.
-2. Manual one-shot, no-retry `/time_series` queries with strict UTC/source
-   metadata, closed-bar, OHLC, interval, duplicate, gap and size checks.
+1. Explicit authorization gating. Gold's eight confirmed intervals
+   (1min, 5min, 15min, 30min, 1h, 4h, 8h, 1day) require the global
+   `BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED=1` manual opt-in. EUR/USD,
+   USD/CHF, EUR/CHF and CHF/EUR need a **separate flag per symbol/interval**.
+   FX daily is blocked until its own calendar timezone is established.
+2. Manual one-shot, no-retry `/time_series` queries with UTC source metadata
+   for intraday or Sydney calendar proof for XAU/USD daily; closed-bar,
+   OHLC, interval, duplicate, gap and size checks.
    Date-bounded queries **omit outputsize** to avoid response truncation.
    Original revisions are stored independently, identified by hash.
    Missing leading, trailing and entire-window bars are explicitly reported
@@ -105,10 +104,12 @@ python twelve_research_extension.py --symbol XAU/USD --interval 5min \
   --archive /verified-private-path/twelve-research.sqlite
 ```
 
-For EUR/USD and USD/CHF, **verify the requested interval first**, then set
-`BOB_TWELVEDATA_SCOPE_EUR_USD_1H=1` and/or
-`BOB_TWELVEDATA_SCOPE_USD_CHF_1H=1` for individual one-off evaluation.
-Do not enable direct cross symbols, 4h/8h or any scheduled work.
+For direct and major FX pairs, verify the requested interval first and set a
+one-off, independent flag, such as `BOB_TWELVEDATA_SCOPE_EUR_CHF_1H=1` or
+`BOB_TWELVEDATA_SCOPE_CHF_EUR_1H=1`. XAU/USD 4h/8h is confirmed; FX daily
+is still blocked. For XAU/USD daily requests supply UTC instants matching
+**Sydney midnight**, not UTC midnight (DST days may last 23 or 25 hours).
+No scheduled requests are permitted.
 
 The internal cross-rate function receives stored, validated rows; it never
 downloads CHF/EUR directly, publishes derived currency prices or injects
@@ -117,15 +118,17 @@ them into DEGIRO products.
 ## Remaining release blockers
 
 - Run unit tests, full relevant CI and a branch review. Keep the PR in DRAFT.
-- Verify timestamp conventions for daily and intraday FX/metals using
-  manual authorized observations. Daily `timezone=UTC` may be ignored by
-  the provider; validation must **fail closed** on ambiguous daily clocks.
+- Verify the actual daily and intraday provider responses with authorized
+  one-off requests. DST-aware Sydney daily parsing is covered by unit tests,
+  but no authenticated daily response has been accepted yet. Ambiguous
+  metadata must still **fail closed**.
 - Verify request credit weights and quotas against live response headers.
   This local ledger alone cannot coordinate with other account consumers.
 - Validate an **exclusive** operator process and private persistent quota
   archive. Implement documented erasure if Basic access is terminated.
-- Confirm actual EUR/USD and USD/CHF interval availability. No request to
-  direct CHF/EUR/EUR/CHF or 4h/8h until separately confirmed by the provider.
+- Confirm actual authenticated Basic access for each requested FX interval.
+  The written 13 Nov permission for XAU/USD 4h/8h and direct EUR/CHF and
+  CHF/EUR does not itself prove live availability.
 - Any future simulation comparison requires original provenance and license
   separation. No Twelve Data display, automated scheduled polling, live
   fallback, real-money trade, or billing is authorized.
