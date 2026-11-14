@@ -24,6 +24,7 @@ def connect():
                 '-c maintenance_work_mem=16384')
 
 
+@__import__("ocr_workload_priority").maintenance
 def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tail=False,
              reclaim_observation_tail=False, reclaim_image_tail=False, target_table=None,
              manual_decision_audit=False):
