@@ -13,13 +13,14 @@ from urllib.parse import urlsplit
 
 from aiven_readonly_probe import _temporary_ca_certificate, _valid_aiven_uri
 from aiven_research_admission import assess
+from aiven_provider_host_metrics import read as read_aiven_provider_metrics
 
 
 def _result(status):
     return {"status": status, "syntheticOnly": True, "persisted": False}
 
 
-def run(environ=None, connect=None):
+def run(environ=None, connect=None, metrics_reader=None):
     env = os.environ if environ is None else environ
     if env.get("BOB_AIVEN_SYNTHETIC_CHECK") != "1":
         return _result("disabled")
@@ -50,6 +51,15 @@ def run(environ=None, connect=None):
         evidence = json.loads(env.get("BOB_AIVEN_CAPACITY_EVIDENCE_JSON", ""))
         if not isinstance(evidence, dict):
             return _result("capacity-evidence-unverified")
+        # When the official provider-metrics mode is explicitly enabled,
+        # obtain original host evidence directly from Aiven's API. A failed
+        # or unknown response must NOT fall back to operator-supplied values.
+        if env.get("BOB_AIVEN_METRICS_ONCE") == "1":
+            reader = read_aiven_provider_metrics if metrics_reader is None else metrics_reader
+            metrics = reader(environ=env)
+            if metrics.get("status") != "observed" or not isinstance(metrics.get("host"), dict):
+                return _result("capacity-evidence-unverified")
+            evidence["host"] = metrics["host"]
         admission = assess(
             evidence.get("host"), evidence.get("sql"), evidence.get("archive"),
             requested_bytes=1024,
