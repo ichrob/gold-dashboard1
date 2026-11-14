@@ -170,3 +170,24 @@ allocation/index stats, with non-savings reported as unknown/zero rather
 than inventing freed bytes. Normal vacuum may allow **reuse** without reducing
 files visible in Render disk measurements. Keeping the PR unmerged leaves the
 production database entirely unchanged.
+
+## Persisted weekend one-shot outcome (read-only addition)
+
+The old `already-claimed` worker result only proves that a persistent claim
+exists. It cannot distinguish success, deferral, a failed command or a
+process interruption. The private storage health report now includes a
+bounded `tailReclaimReceipt` projection for **only the currently configured
+one-shot claim ID**. The underlying read uses catalog existence checking,
+a 750-ms local statement timeout and one fixed parameterized row lookup.
+It does not enumerate claim IDs, run a VACUUM, create tables, access
+original market/product evidence, or clear consumed claims. If the
+configuration is absent or the record is unavailable, it reports an
+explicit unknown/disabled state.
+
+The private projection exposes only an allowlisted table name, fixed
+terminal/running state, update time and an optional decline in PostgreSQL
+relation allocation **if** the command completed. It always reports
+`diskBytesFreed=null`: a recorded completed command or relation allocation
+change is not independent proof of Render provider-level disk savings.
+This new observability requires separate review and deployment of this
+draft PR; it does not retroactively prove the November 14 attempt.
