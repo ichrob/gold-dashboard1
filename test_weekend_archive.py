@@ -109,3 +109,41 @@ class WeekendRestartHistoryTests(unittest.TestCase):
             w.handle(conn,'write',{'items':{'cfd-chart:1m':b}})
             self.assertEqual(len(w.handle(conn,'read',{})['cfdHistory']['1m']),4)
             conn.execute("DELETE FROM bob_weekend_archive WHERE data_key='cfd-chart:1m'")
+
+
+class WeekendFullFridayViewTests(unittest.TestCase):
+    def test_full_friday_minutes_survive_and_saturday_does_not_create_bars(self):
+        from datetime import datetime, timezone, timedelta
+        friday_start=datetime.fromisoformat('2026-11-12T23:00:00+00:00')  # Fri 00:00 Zurich
+        saturday=datetime.fromisoformat('2026-11-14T12:00:00+00:00')
+        rows=[(friday_start+timedelta(minutes=i,seconds=10),4100.+i/100)
+              for i in range(1370) if i!=300]
+        rows.append((datetime.fromisoformat('2026-11-14T10:00:10+00:00'),9999.))
+        projected=w.observation_bars(rows,['1m','5m','15m'],now=saturday.timestamp())
+        self.assertEqual(len(projected['1m']),1369)
+        self.assertGreaterEqual(len(projected['5m']),270)
+        self.assertTrue(all(b['observedOnly'] and b['instrument']=='XAU/USD'
+                            for b in projected['1m']))
+        self.assertFalse(any(b['close']==9999. for b in projected['1m']))
+        self.assertEqual(projected['1m'][300]['openTime']-projected['1m'][299]['openTime'],120000)
+
+    def test_real_sunday_samples_are_not_blanket_deleted(self):
+        sunday=datetime.fromisoformat('2026-11-15T22:00:00+00:00')
+        rows=[(sunday+timedelta(minutes=i,seconds=10),4100.+i)
+              for i in range(3)]
+        projected=w.observation_bars(rows,['1m'],now=(sunday+timedelta(hours=1)).timestamp())
+        self.assertEqual(len(projected['1m']),3)
+
+    def test_extended_bounded_merge_preserves_earlier_friday(self):
+        base=int(datetime.fromisoformat('2026-11-13T21:00:00+00:00').timestamp()*1000)
+        def bar(i):
+            return dict(openTime=base+i*60000,open=4100.,high=4101.,low=4099.,
+                        close=4100.,isOpen=False,instrument='XAU/USD')
+        earlier=[bar(i-1300) for i in range(1000)]
+        later=[bar(i-300) for i in range(300)]
+        updated=w.merge_chart_history({'bars':earlier},
+            {'bars':later,'at':'2026-11-13T21:00:00+00:00'},w.CHART_LIMITS['1m'])
+        self.assertEqual(len(updated['bars']),1300)
+        self.assertEqual(updated['bars'][0]['openTime'],earlier[0]['openTime'])
+        self.assertEqual(updated['bars'][-1]['openTime'],later[-1]['openTime'])
+        self.assertLessEqual(len(updated['bars']),w.CHART_LIMITS['1m'])
