@@ -158,7 +158,7 @@ class PostgreSQLMaintenanceTests(unittest.TestCase):
                         # Exercise production SQL against an isolated test table.
                         mapped = tuple('public.' + name if p == 'public.bob_metric_checks' else p for p in params) if params else params
                         return self.conn.execute(statement.replace('public.bob_metric_checks', 'public.' + name), mapped)
-                with patch.object(maintenance, '_TABLES', ('bob_metric_checks',)):
+                with patch.object(maintenance, '_AUTO_TABLES', ('bob_metric_checks',)):
                     result = maintenance.run_once(TailConnection, reclaim_metric_tail=True)
                 self.assertEqual(result['tables'][0]['status'], 'command-completed')
                 self.assertGreater(result['tables'][0]['observedRelationBytesDecrease'], 0)
@@ -193,7 +193,7 @@ class PostgreSQLMaintenanceTests(unittest.TestCase):
                                     return (1,)
                             return Row()
                         return self.conn.execute(statement, params)
-                with patch.object(maintenance, '_TABLES', (name,)):
+                with patch.object(maintenance, '_AUTO_TABLES', (name,)):
                     result = maintenance.run_once(CandidateConnection)
                 self.assertEqual(result['tables'], [{'table': name, 'status': 'command-completed'}])
                 self.assertEqual(admin.execute('SELECT * FROM public.' + name).fetchall(), before)
