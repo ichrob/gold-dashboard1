@@ -87,6 +87,51 @@ def _init(conn):
     )""")
 
 
+
+def receipt_status(conn):
+    """Read the exact configured durable one-shot claim, never initiate work.
+
+    No SQL payloads, claim IDs, credentials, or arbitrary table names leave
+    this module. This receipt describes a past relation-level command only,
+    never independently proven physical provider disk savings.
+    """
+    base = {"status": "not-observed", "attemptStatus": None,
+            "targetTable": None, "updatedAt": None,
+            "observedRelationBytesDecrease": None,
+            "readOnly": True, "diskBytesFreed": None}
+    config = configuration()
+    if config is None:
+        return {**base, "status": "disabled"}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='750ms'")
+            present = conn.execute(
+                "SELECT to_regclass('bob_storage_tail_reclaim_attempts')"
+            ).fetchone()
+            if not present or present[0] is None:
+                return base
+            row = conn.execute("""SELECT target_table,status,relation_bytes_reduced,
+                updated_at FROM bob_storage_tail_reclaim_attempts
+                WHERE id=%s LIMIT 1""", (config["id"],)).fetchone()
+        if not row:
+            return base
+        table, state, decreased, stamp = row
+        if table != config["table"] or table not in _TARGETS:
+            return {**base, "status": "claim-mismatch"}
+        valid = ("running", "completed", "deferred", "deferred-busy", "failed")
+        if state not in valid:
+            return {**base, "status": "unknown-claim-state"}
+        # Relation-byte decline is not independently measured free disk space.
+        reduction = (decreased if state == "completed"
+                     and type(decreased) is int and 0 <= decreased <= 10**12
+                     else None)
+        return {**base, "status": "observed", "targetTable": table,
+                "attemptStatus": state, "updatedAt": str(stamp),
+                "observedRelationBytesDecrease": reduction}
+    except Exception:
+        return {**base, "status": "unavailable"}
+
+
 def run_once(*, factory=None, vacuum=None, now=None):
     """At most one weekend table-tail VACUUM per durable claim.
 
