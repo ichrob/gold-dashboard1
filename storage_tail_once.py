@@ -70,6 +70,13 @@ def _preflight(conn, seconds):
                 or type(volume.get("diskUsage")) is not int
                 or volume["diskUsage"] > MAX_VOLUME_BYTES):
             return "fresh-volume-proof-unavailable"
+        # Optional tail-truncation is not justified by disk headroom alone:
+        # refuse when the 256 MiB PostgreSQL instance lacks recent RAM reserve.
+        # This is an additional read-only, fail-closed provider measurement.
+        ram = __import__('render_memory_guard').report()
+        if ram.get('status') != 'memory-headroom-observed':
+            return ('memory-pressure' if ram.get('status') == 'memory-pressure'
+                    else 'memory-proof-unavailable')
     except Exception:
         return "proof-unavailable"
     return "approved-for-one-table-vacuum"
