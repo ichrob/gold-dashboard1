@@ -20,17 +20,34 @@ class RenderMemoryGuardTests(unittest.TestCase):
 
     def samples(self, earlier=155_000_000, recent=165_000_000,
                 limit=268_435_456):
-        at = (self.NOW-720, self.NOW-40)
-        return (self.series([(at[0],earlier),(at[1],recent)]),
-                self.series([(at[0],limit),(at[1],limit)]))
+        ages = (720,660,600,540,480,420,360,300,240,180,120,40)
+        at = [self.NOW-age for age in ages]
+        values = [(tick, earlier if i == 0 else recent)
+                  for i,tick in enumerate(at)]
+        return (self.series(values),
+                self.series([(tick,limit) for tick in at]))
 
     def test_safe_never_grants_maintenance_without_other_proofs(self):
         usage,limits=self.samples()
         result=guard.assess(usage,limits,self.NOW)
         self.assertEqual(result['status'],'memory-headroom-observed')
-        self.assertEqual(result['sampleCount'],2)
+        self.assertEqual(result['sampleCount'],12)
         self.assertFalse(result['maintenanceAuthorized'])
         self.assertIsNone(result['physicalBytesFreed'])
+
+    def test_sparse_timeline_cannot_hide_an_intervening_spike(self):
+        usage,limits=self.samples()
+        # Two good measurements 11 minutes apart are never sufficient.
+        usage[0]['values'] = [usage[0]['values'][0],usage[0]['values'][-1]]
+        limits[0]['values'] = [limits[0]['values'][0],limits[0]['values'][-1]]
+        self.assertEqual(guard.assess(usage,limits,self.NOW)['status'],
+                         'memory-proof-unavailable')
+        # A long gap fails even if there are eight or more good samples.
+        usage,limits=self.samples()
+        for series in (usage,limits):
+            series[0]['values'] = series[0]['values'][:5] + series[0]['values'][9:]
+        self.assertEqual(guard.assess(usage,limits,self.NOW)['status'],
+                         'memory-proof-unavailable')
 
     def test_one_ram_spike_blocks_even_when_latest_is_low(self):
         usage,limits=self.samples(earlier=260_000_000,recent=100_000_000)
