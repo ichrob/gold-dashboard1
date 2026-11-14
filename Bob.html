@@ -545,8 +545,8 @@ try{
 <div class="card">
 <h3>🔔 Push-Benachrichtigungen</h3>
 <div class="grid">
-<div class="metric"><label>1. Marktsignale</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button></div>
-<div class="metric"><label>2. Aktiver Trade</label><button id="tradePushBtn" onclick="togglePush('trade')">🔕 Aus</button></div>
+<div class="metric"><label>1. Marktsignale</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button><p id="generalPushInlineStatus" class="small" role="status" aria-live="polite" hidden></p></div>
+<div class="metric"><label>2. Aktiver Trade</label><button id="tradePushBtn" onclick="togglePush('trade')">🔕 Aus</button><p id="tradePushInlineStatus" class="small" role="status" aria-live="polite" hidden></p></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="registerNotifications()">📱 Gerät für Push registrieren</button><button onclick="testPush()">🧪 Test-Push</button></div>
 <div class="grid" style="margin-top:10px">
@@ -2659,9 +2659,13 @@ async function registerNotifications(){
    if(status)status.textContent="⏳ Push wird registriert …";
    pushState=await BobPush.enable();
    renderPush();
-   await syncPushPreferences();
-   if(status)status.textContent="granted"===Notification.permission?"✅ Browser-Benachrichtigungen freigegeben. Service Worker ist registriert.":"⚠️ Registrierung gespeichert, aber Browser-Berechtigung ist noch nicht freigegeben.";
-   return pushState.registered===true;
+   // Browser permission is not proof of a usable server subscription.
+   const synced=pushState.serverRegistered===true && await syncPushPreferences();
+   if(status)status.textContent=!pushState.serverRegistered?
+    "⚠️ Browser-Berechtigung vorhanden, aber Server-Push-Abonnement fehlt. Registrierung in Chrome prüfen.":
+    synced?"✅ Browser-Benachrichtigungen und Server-Push bestätigt.":
+    "⚠️ Server-Push-Abgleich nicht bestätigt. Verbindung und Registrierung prüfen.";
+   return pushState.registered===true && pushState.serverRegistered===true && synced;
  }catch(e){
    if(status)status.textContent="❌ "+(e?.message||"Benachrichtigungen konnten nicht aktiviert werden.");
    return false;
@@ -2773,15 +2777,55 @@ async function testBackgroundPush(scenario='delivery'){
   }
  }
 }
+function pushToggleHint(kind,message,success=false){
+ const hint=$(kind==='general'?'generalPushInlineStatus':'tradePushInlineStatus');
+ if(hint){
+  hint.hidden=false;
+  hint.textContent=message;
+  hint.className='small '+(success?'ok':'bad');
+ }
+ const note=$("bobTradePushSyncStatus");
+ if(note)note.textContent=message;
+}
 async function togglePush(kind){
+ if(!['general','trade'].includes(kind))return;
+ const button=$(kind==='general'?'generalPushBtn':'tradePushBtn');
+ if(button?.disabled)return;
+ if(button){button.disabled=true;button.setAttribute('aria-busy','true');}
  try{
-   if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
-   pushState=BobPush.set(kind,!pushState[kind]);renderPush();
+   const enabling=pushState[kind]!==true;
+   if(enabling){
+    // No fake activation during weekend, denied notifications or absent
+    // subscription. The previous error only appeared far below the button.
+    if(!('Notification' in window)||typeof Notification==='undefined'){
+     pushToggleHint(kind,'❌ Dieser Browser erlaubt keine Web-Benachrichtigungen. Bob in Chrome öffnen.',false);
+     return;
+    }
+    if(Notification.permission==='denied'){
+     pushToggleHint(kind,'❌ Benachrichtigungen für Bob sind blockiert. In Chrome die Website-Benachrichtigungen für Bob erlauben.',false);
+     return;
+    }
+    if(!pushState.registered||!pushState.serverRegistered||Notification.permission!=='granted'){
+     const ok=await registerNotifications();
+     if(!ok){
+      const reason=$("pushStatus")?.textContent;
+      pushToggleHint(kind,reason?.startsWith('❌')||reason?.startsWith('⚠️')?
+       reason:'⚠️ Push-Registrierung nicht vollständig. Browser-Berechtigung prüfen.',false);
+      return;
+     }
+    }
+   }
+   pushState=BobPush.set(kind,enabling);renderPush();
    const synced=await syncPushPreferences();
-   const note=$("bobTradePushSyncStatus");
-   if(note)note.textContent=synced?'✅ Push-Einstellung am Server aktualisiert.':'⚠️ Einstellung lokal geändert; Server-Push nicht bestätigt. Bitte „Push aktualisieren“ antippen.';
+   const label=kind==='general'?'Marktbeobachtung':'Trade-Warnungen';
+   pushToggleHint(kind,synced?
+    '✅ '+label+': '+(enabling?'Ein':'Aus')+' – am Server bestätigt.':
+    '⚠️ '+label+' '+(enabling?'lokal eingeschaltet':'lokal ausgeschaltet')+
+    ', aber der Server hat dies nicht bestätigt. „Push aktualisieren“ verwenden.',synced);
  }catch(e){
-   $("pushStatus").textContent="❌ "+(e?.message||"Push-Einstellung konnte nicht geändert werden.");
+   pushToggleHint(kind,'❌ '+(e?.message||'Push-Einstellung konnte nicht geändert werden.'),false);
+ }finally{
+   if(button){button.disabled=false;button.removeAttribute('aria-busy');}
  }
 }
 async function closeTrade(){
