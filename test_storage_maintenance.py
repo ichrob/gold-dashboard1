@@ -57,7 +57,8 @@ class MaintenanceTests(unittest.TestCase):
 
         # A deliberate one-table call uses ordinary non-truncating VACUUM.
         conn = Connection()
-        result = maintenance.run_once(lambda: conn, target_table='bob_decision_audit')
+        result = maintenance.run_once(lambda: conn, target_table='bob_decision_audit',
+                                      manual_decision_audit=True)
         commands = [sql for sql, _ in conn.calls if sql.startswith('VACUUM')]
         self.assertEqual(commands, [
             'VACUUM (SKIP_LOCKED, TRUNCATE FALSE, PARALLEL 0) ONLY public.bob_decision_audit'])
@@ -69,10 +70,28 @@ class MaintenanceTests(unittest.TestCase):
     def test_decision_audit_cannot_force_tail_truncation(self):
         conn = Connection(candidates=False)
         result = maintenance.run_once(lambda: conn, target_table='bob_decision_audit',
+                                      manual_decision_audit=True,
                                       reclaim_analysis_tail=True,
                                       reclaim_metric_tail=True)
         self.assertEqual(result['tables'], [])
         self.assertFalse(any(sql.startswith('VACUUM') for sql, _ in conn.calls))
+
+    def test_manual_decision_gate_rejects_missing_or_inexact_confirmation(self):
+        for flags in ({}, {'manual_decision_audit': False},
+                      {'manual_decision_audit': 1},
+                      {'manual_decision_audit': 'yes'}):
+            with self.subTest(flags=flags), self.assertRaises(ValueError):
+                maintenance.run_once(lambda: (_ for _ in ()).throw(
+                    AssertionError('must fail before connection')),
+                    target_table='bob_decision_audit', **flags)
+        with self.assertRaises(ValueError):
+            maintenance.run_once(lambda: (_ for _ in ()).throw(
+                AssertionError('must fail before connection')),
+                manual_decision_audit=True)
+        with self.assertRaises(ValueError):
+            maintenance.run_once(lambda: (_ for _ in ()).throw(
+                AssertionError('must fail before connection')),
+                target_table='bob_metric_checks', manual_decision_audit=True)
 
     def test_unknown_target_fails_before_connection(self):
         with self.assertRaises(ValueError):
