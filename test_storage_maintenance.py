@@ -57,8 +57,12 @@ class MaintenanceTests(unittest.TestCase):
 
         # A deliberate one-table call uses ordinary non-truncating VACUUM.
         conn = Connection()
-        result = maintenance.run_once(lambda: conn, target_table='bob_decision_audit',
-                                      manual_decision_audit=True)
+        with patch('render_memory_guard.report', return_value={
+                'status':'memory-headroom-observed'}) as measured:
+            result = maintenance.run_once(
+                lambda: conn, target_table='bob_decision_audit',
+                manual_decision_audit=True)
+        measured.assert_called_once()
         commands = [sql for sql, _ in conn.calls if sql.startswith('VACUUM')]
         self.assertEqual(commands, [
             'VACUUM (SKIP_LOCKED, TRUNCATE FALSE, PARALLEL 0) ONLY public.bob_decision_audit'])
@@ -69,12 +73,31 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_decision_audit_cannot_force_tail_truncation(self):
         conn = Connection(candidates=False)
-        result = maintenance.run_once(lambda: conn, target_table='bob_decision_audit',
-                                      manual_decision_audit=True,
-                                      reclaim_analysis_tail=True,
-                                      reclaim_metric_tail=True)
+        with patch('render_memory_guard.report', return_value={
+                'status':'memory-headroom-observed'}):
+            result = maintenance.run_once(
+                lambda: conn, target_table='bob_decision_audit',
+                manual_decision_audit=True,
+                reclaim_analysis_tail=True,
+                reclaim_metric_tail=True)
         self.assertEqual(result['tables'], [])
         self.assertFalse(any(sql.startswith('VACUUM') for sql, _ in conn.calls))
+
+    def test_manual_decision_audit_does_not_connect_without_ram_headroom(self):
+        for state, expected in (
+                ('memory-pressure', 'deferred-memory-pressure'),
+                ('memory-proof-unavailable', 'deferred-memory-proof-unavailable')):
+            with self.subTest(state=state), \
+                 patch('render_memory_guard.report',return_value={'status':state}):
+                def forbidden():
+                    raise AssertionError('Cannot connect without fresh RAM proof')
+                result=maintenance.run_once(
+                    forbidden, target_table='bob_decision_audit',
+                    manual_decision_audit=True)
+                self.assertEqual(result['status'],expected)
+                self.assertEqual(result['tables'],[])
+                self.assertFalse(result['evidenceDeleted'])
+                self.assertIsNone(result['diskBytesFreed'])
 
     def test_manual_decision_gate_rejects_missing_or_inexact_confirmation(self):
         for flags in ({}, {'manual_decision_audit': False},
