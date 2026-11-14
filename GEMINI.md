@@ -43,6 +43,12 @@
 - Das erzeugt **nur einen unverbindlichen öffentlichen Issue-Kommentar** mit Diff-/Testideen: führt keinen Code aus, ändert keine Dateien, erstellt keine PRs, merged/deployed nicht und vergibt keine privaten Bob-, DEGIRO-, Termux- oder MCP-Zugänge.
 - Ausschließlich im bestätigten **unbilled Free**-Google-Projekt ohne Paid-Billing verwenden; Kostenstatus regelmäßig kontrollieren. Niemals Secrets, Depotdaten oder private Logs veröffentlichen. Cloudflare-Zweit-KI bleibt unabhängig.
 
+### Abnahmecheckliste für Gemini-Vorschläge
+1. **Unverbindlich:** Ein Modellkommentar oder ein inertes Patch-Draft ist noch keine Code-Reparatur.
+2. **Getrennt umsetzen:** Nur unabhängig geprüfte Patches auf einem eigenen Branch übernehmen und vollständige grüne Regressionstests und CI dokumentieren.
+3. **Live-Abnahme:** Originaldaten, Auswirkungen und separate Produktionsfreigabe prüfen; ein grüner PR allein genügt nicht.
+4. **Ehrlicher Status:** Ohne diese Nachweise ausdrücklich **„nicht nachgewiesen“** melden; Free-only-, Handels- und Sicherheitsgrenzen unverändert lassen.
+
 ## Für jeden Abschlussbericht
 **Issue/PR · Commit-SHA · geänderte Dateien · Tests (mit Link und Ergebnis) · Live-Beweis oder „nicht geprüft“ · neue Risiken · Rollback · nächste konkrete Handlung.**
 

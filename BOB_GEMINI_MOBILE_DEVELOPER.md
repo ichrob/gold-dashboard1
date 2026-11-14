@@ -16,7 +16,7 @@
 
 ## Auf dem Android-Handy benutzen
 1. GitHub → `ichrob/gold-dashboard1` → **Issues** → **New issue**; nur einen konkreten, öffentlichen Codefehler beschreiben. Keine persönlichen Daten, Logins, Broker-Bilder, Depotwerte oder Schlüssel.
-2. Die Issue-Nummer notieren, zum Beispiel `1497`. Eine **existierende kurze Codedatei** auswählen, z. B. `gemini_peer_review_free.py` oder `GEMINI.md`. Der Quelltext muss klein (maximal 6.500 Zeichen) und öffentlich/unverdächtig sein.
+2. Die Issue-Nummer notieren, zum Beispiel `1497`. Eine **existierende kurze Codedatei** auswählen, z. B. `gemini_peer_review_free.py` oder `GEMINI.md`. Der Quelltext muss klein (maximal 8.000 Zeichen) und öffentlich/unverdächtig sein.
 3. GitHub → **Actions** → **Bob Gemini - Handy-Entwickler (kostenlos, Vorschlag)** → **Run workflow**. `main`, Issue-Nummer und Dateipfad eintragen → Run workflow.
 4. Nach dem Lauf beim **gleichen Issue** den Kommentar `Gemini · Handy-Entwicklerentwurf` lesen. Er enthält einen Code-Vorschlag und Testideen. Kein Kopieren zwischen KI-Chats erforderlich.
 5. Die unabhängige Reparaturkontrolle lässt daraus nötigenfalls einen geprüften Branch/PR mit CI und Live-Abnahme entstehen. Ein Kommentar ist noch **keine** tatsächliche Programmänderung.
