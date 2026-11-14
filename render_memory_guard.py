@@ -22,6 +22,8 @@ _MAX_RATIO = 0.85
 _WINDOW = 900
 _FRESH = 300
 _SPAN = 600
+_MIN_SAMPLES = 8
+_MAX_GAP = 180
 _CACHE_SECONDS = 60
 _lock = threading.Lock()
 _cache = None
@@ -88,10 +90,14 @@ def assess(usage, limits, now):
     if set(used) != set(maximum):
         return denied
     at = sorted(used)
-    if len(at) < 2 or now-at[-1] > _FRESH or at[-1]-at[0] < _SPAN:
+    if (len(at) < _MIN_SAMPLES or now-at[-1] > _FRESH or
+            at[-1]-at[0] < _SPAN or
+            any(later-earlier > _MAX_GAP
+                for earlier,later in zip(at,at[1:]))):
+        # Two widely separated "good" snapshots are not evidence about
+        # intervening spikes. Never fill gaps or interpolate missing readings.
         return denied
-    # Require at least 10 minutes of coverage and include every aligned
-    # reading, not only the last value or an average.
+    # Require ten minutes of dense, aligned readings, not a last value/mean.
     for tick in at:
         limit = maximum[tick]
         value = used[tick]
