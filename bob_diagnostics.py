@@ -2271,13 +2271,32 @@ def bounded_report(report, max_bytes):
                 compact.update(truncated=True,
                                omittedSections=removed + ['accounts.recentCases'])
     result['summary'] = summary(areas)
+    # Preserve a bounded storage core when optional full storage diagnostics
+    # would otherwise displace the actual volume, warning, and one-shot result.
+    # This is presentation-only: no extra SQL, archive run, push or deletion.
+    brief = areas.get('storageBrief')
+    if size(result) > max_bytes and isinstance(brief, dict):
+        compact_brief = {key: brief[key] for key in (
+            'status', 'readOnly', 'databaseBytes', 'configuredAllocationBytes',
+            'budgetState', 'lastSampleAt', 'renderVolume', 'earlyWarning',
+            'tailReclaimReceipt', 'largestTables')
+            if key in brief}
+        archive = brief.get('archive')
+        if isinstance(archive, dict):
+            compact_brief['archive'] = {key: archive[key] for key in (
+                'latestVerifiedState', 'verifiedAt', 'recoveryKeyVerified',
+                'recoveryAcceptanceState', 'deletionPermitted')
+                if key in archive}
+        compact_brief.update(truncated=True,
+                             omittedSections=['nonessential-storage-details'])
+        areas['storageBrief'] = compact_brief
     # Large optional comparisons must not displace the current virtual-account
     # balances, costs and entry-block observations.  The old largest-first
     # omission could drop simulationAndPush itself, even after its journal and
     # individual cases were removed, leaving the simulation focus unusable.
     # Preserve core evidence as long as it fits; a truly too-small response
     # still reports an explicit omission rather than pretending it was read.
-    core = ('simulationAndPush', 'paperProfitEvidence',
+    core = ('storageBrief', 'simulationAndPush', 'paperProfitEvidence',
             'simulationRuntimeBrief', 'entryBlockEvidence',
             # The stored research summary is a separate compact section
             # projected from the original simulation source; never discard
