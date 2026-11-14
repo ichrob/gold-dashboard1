@@ -45,6 +45,16 @@ class WorkerTests(unittest.TestCase):
             self.assertIsNone(done['diskBytesFreed'])
             self.assertNotIn('SHOULD_NOT_LEAK',str(done))
             tail.assert_called_once()
+        with patch('storage_tail_once.configuration',
+                   return_value={'id':'test','table':'bob_metric_checks',
+                                 'confirmed':True}), \
+             patch('storage_tail_once._weekend',return_value=True), \
+             patch('storage_tail_once.run_once',
+                   return_value={'status':'memory-pressure'}) as tail:
+            pressured=worker.post_verified_weekend_reclaim(valid)
+            self.assertEqual(pressured['status'],'memory-pressure')
+            self.assertIsNone(pressured['diskBytesFreed'])
+            tail.assert_called_once()
         for bad in ({'status':'failed'}, {'status':'verified'},
                     {'status':'verified','receipt':{'restoreVerified':True}}):
             with patch('storage_tail_once.run_once') as tail:
