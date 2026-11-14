@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from aiven_readonly_probe import _temporary_ca_certificate, _valid_aiven_uri
+from aiven_research_admission import assess
 
 
 def _result(status):
@@ -41,6 +42,22 @@ def run(environ=None, connect=None):
                 not pem.startswith("-----BEGIN CERTIFICATE-----") or
                 not pem.endswith("-----END CERTIFICATE-----")):
         return _result("invalid-certificate")
+
+    # The host RAM/disk sample MUST be original recent Aiven Console evidence.
+    # SQL health or the free-plan label cannot substitute for a host sample.
+    # This manual-only JSON stays outside the repository and is never printed.
+    try:
+        evidence = json.loads(env.get("BOB_AIVEN_CAPACITY_EVIDENCE_JSON", ""))
+        if not isinstance(evidence, dict):
+            return _result("capacity-evidence-unverified")
+        admission = assess(
+            evidence.get("host"), evidence.get("sql"), evidence.get("archive"),
+            requested_bytes=1024,
+        )
+        if admission["status"] != "candidate-for-manual-synthetic-test-only":
+            return _result("capacity-evidence-unverified")
+    except (ValueError, TypeError, KeyError):
+        return _result("capacity-evidence-unverified")
 
     try:
         if connect is None:
