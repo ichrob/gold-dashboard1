@@ -18,6 +18,14 @@ def readiness():
         return dict(status='disabled', evidenceDeleted=False)
     required = ('DATABASE_URL', 'BOB_ARCHIVE_PARENT_FOLDER_ID', 'BOB_ARCHIVE_RESTORE_DATABASE_URL') if os.environ.get('BOB_ARCHIVE_CREDENTIAL_SOURCE') == 'encrypted-store' else _REQUIRED
     missing = [key for key in required if not os.environ.get(key)]
+    # New independent archive proofs must target the existing isolated Aiven
+    # host. The expiring free Render restore test may not be used as fallback.
+    if not missing:
+        from aiven_health import configured as aiven_restore_configured
+        if not aiven_restore_configured(os.environ):
+            return dict(status='blocked', missingConfiguration=[],
+                        reason='restore-target-not-aiven', evidenceDeleted=False,
+                        additionalPaidServices=False)
     return dict(status='blocked' if missing else 'ready', missingConfiguration=missing,
                 evidenceDeleted=False, restoreIsolation='separate-database-instance',
                 additionalPaidServices=False)
