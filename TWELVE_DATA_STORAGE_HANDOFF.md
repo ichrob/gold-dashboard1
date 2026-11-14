@@ -70,8 +70,11 @@ OAuth connection alone will not make the Twelve Data API authenticated.
 
 - **Basic permits occasional internal non-display evaluation**, not
   unattended scheduled polling or any displayed vendor bars/derived outputs
-  in Bob Handy. XAU/USD 1m/5m/15m/30m/1h/1day permission has written support
-  evidence; direct EUR/CHF/CHF/EUR and 4h/8h remain unconfirmed/blocked.
+  in Bob Handy. Provider emails on 12–13 Nov 2026 confirm occasional
+  internal Basic use of XAU/USD 1m/5m/15m/30m/1h/4h/8h/1day and
+  EUR/USD, USD/CHF, EUR/CHF and CHF/EUR. Daily XAU/USD follows
+  Australia/Sydney calendar dates. Only one-off authenticated verification
+  can establish live availability; no app display, recurring use or paid plan.
 - **Raw vendor data requires an erasure path:** when access ends, all original
   bars and archived copies must be deleted within 30 days. Do not enable
   real-data Drive uploads until an audited, bounded file inventory and
