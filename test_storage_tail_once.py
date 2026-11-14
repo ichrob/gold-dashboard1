@@ -235,9 +235,22 @@ class TailSafetyTests(unittest.TestCase):
                 "observedAt":SUNDAY-60, "diskUsage":660_000_000,"unit":"bytes"}
         with patch("archive_worker.status",return_value={"status":"ready"}), \
              patch("storage_budget.archive_status",return_value=verified), \
-             patch("render_disk_metrics.report",return_value=volume):
+             patch("render_disk_metrics.report",return_value=volume), \
+             patch("render_memory_guard.report",return_value={
+                 "status":"memory-headroom-observed"}) as ram:
             self.assertEqual(tail._preflight(conn,SUNDAY),
                              "approved-for-one-table-vacuum")
+            ram.assert_called_once()
+        for proof_state, expected in (
+                ('memory-pressure', 'memory-pressure'),
+                ('memory-proof-unavailable', 'memory-proof-unavailable')):
+            with self.subTest(memory=proof_state), \
+                 patch("archive_worker.status",return_value={"status":"ready"}), \
+                 patch("storage_budget.archive_status",return_value=verified), \
+                 patch("render_disk_metrics.report",return_value=volume), \
+                 patch("render_memory_guard.report",return_value={
+                     "status":proof_state}):
+                self.assertEqual(tail._preflight(conn,SUNDAY),expected)
         for bad in ({**volume,"diskUsage":4_500_000_000},
                     {**volume,"observedAt":SUNDAY-400},
                     {**volume,"resource":"another-volume"}):
