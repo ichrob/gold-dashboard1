@@ -159,6 +159,28 @@ class StorageBriefTests(unittest.TestCase):
         self.assertIsNone(unseen["attemptStatus"])
         self.assertIsNone(unseen["observedRelationBytesDecrease"])
 
+    def test_combined_prevention_and_tail_receipt_are_simultaneously_visible(self):
+        source = self.source()
+        source['observedAt'] = 1794672000.0
+        source['configuredAllocationBytes'] = 5_000_000_000
+        source['renderVolume'] = {
+            'status':'observed', 'unit':'bytes',
+            'observedAt':1794671990.0, 'diskUsage':1_100_000_000}
+        source['tailReclaimReceipt'] = {
+            'status':'observed', 'attemptStatus':'deferred',
+            'targetTable':'bob_diagnostic_history',
+            'updatedAt':'2026-11-14T00:45:00+00:00',
+            'privateClaim':'SECRET-CLAIM',
+            'observedRelationBytesDecrease':999999999}
+        view = storage_brief.project(source)
+        self.assertEqual(view['earlyWarning']['severity'],'normal')
+        self.assertEqual(view['tailReclaimReceipt']['attemptStatus'],'deferred')
+        self.assertIsNone(view['tailReclaimReceipt']['observedRelationBytesDecrease'])
+        self.assertIsNone(view['tailReclaimReceipt']['diskBytesFreed'])
+        self.assertIsNone(view['earlyWarning']['diskBytesFreed'])
+        self.assertNotIn('SECRET-CLAIM',json.dumps(view))
+        self.assertLess(len(json.dumps(view)),7500)
+
     def test_old_list_review_is_redacted_and_cannot_authorize_delete(self):
         source = self.source()
         source["androidImageAgeReview"] = {
