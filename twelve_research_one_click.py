@@ -185,7 +185,10 @@ def main():
         address = 'http://127.0.0.1:' + str(server.server_port) + '/'
         print('Lokaler Forschungsstart: ' + address)
         webbrowser.open(address)
-        server.serve_forever()
+        # A single consumed request ends the operator session. No idle server
+        # or second submission remains after success OR provider failure.
+        while not job.used:
+            server.handle_request()
 
 
 if __name__ == '__main__':
