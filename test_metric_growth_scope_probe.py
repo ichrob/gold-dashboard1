@@ -1,5 +1,4 @@
-"""No production SQL, credentials, market prices or external connectors."""
-import copy
+"""Offline assertions for operator-only redacted metric scope diagnostic."""
 import json
 import os
 import unittest
@@ -8,90 +7,84 @@ from unittest.mock import Mock, patch
 import metric_growth_scope_probe as probe
 
 
-def row(scope, n, payload):
-    return (scope, n, json.dumps(payload, ensure_ascii=False), 300)
+def row(kind, full, without_clock, stored=300, unavailable=False,
+        mismatch=False, pointer=False):
+    return (kind, full, without_clock, stored, unavailable, mismatch, pointer)
 
 
 class MetricGrowthScopeProbeTests(unittest.TestCase):
-    def test_only_aggregates_and_preserves_distinct_check_times(self):
-        original = [
-            row("product:PRIVATE-ISIN-1", 1000, {
-                "checkedAt": 1000, "metrics": {"gearing": {"status": "unavailable"}},
-                "source": "PRIVATE-QUOTE-SOURCE"}),
-            row("product:PRIVATE-ISIN-1", 2000, {
-                "checkedAt": 2000, "metrics": {"gearing": {"status": "unavailable"}},
-                "source": "PRIVATE-QUOTE-SOURCE"}),
-            row("dmi:15m", 3000, {"checkedAt": 3000,
-                "metrics": {"adx": {"status": "mismatch"}}}),
-            row("display:1m", 4000, {"checkedAt": 4000,
-                "metrics": {"R": {"status": "matched"}}}),
-            row("trade:PRIVATE-ID", 5000, {"checkedAt": 5000,
-                "_bobColdMetricV1": {"secret": "PRIVATE-FILE-ID"}}),
+    def test_only_counters_and_no_original_identity_or_hash_export(self):
+        rows = [
+            row("product", "a"*32, "c"*32, unavailable=True),
+            row("product", "b"*32, "c"*32, unavailable=True),
+            row("dmi", "d"*32, "d"*32, mismatch=True),
+            row("display", "e"*32, "e"*32),
+            row("trade", "f"*32, "f"*32, pointer=True),
         ]
-        before = copy.deepcopy(original)
-        result = probe.summarize(original)
-        self.assertEqual(original, before)
+        before = tuple(rows)
+        result = probe.summarize(rows)
+        self.assertEqual(tuple(rows), before)
         self.assertEqual(result["sampledRows"], 5)
         self.assertTrue(result["readOnly"])
         self.assertIsNone(result["physicalBytesFreed"])
-        product = result["groups"]["product"]
-        self.assertEqual(product["sampledRows"], 2)
-        self.assertEqual(product["fullPayloadDigestsDistinct"], 2)
-        self.assertEqual(product["withoutCheckClockDigestsDistinct"], 1)
-        self.assertEqual(product["allUnavailableRows"], 2)
+        p = result["groups"]["product"]
+        self.assertEqual(p["sampledRows"], 2)
+        self.assertEqual(p["fullPayloadDigestCount"], 2)
+        self.assertEqual(p["withoutCheckClockDigestCount"], 1)
+        self.assertEqual(p["allUnavailableRows"], 2)
         self.assertEqual(result["groups"]["dmi"]["anyMismatchRows"], 1)
         self.assertEqual(result["groups"]["trade"]["archivePointerRows"], 1)
-        public_output = json.dumps(result)
-        for private in ("PRIVATE-ISIN-1", "PRIVATE-ID", "PRIVATE-FILE-ID",
-                        "PRIVATE-QUOTE-SOURCE", "1000", "2000"):
-            self.assertNotIn(private, public_output)
-        self.assertNotIn("PRIVATE-", public_output)
+        public = json.dumps(result)
+        for digest in ("a"*32, "b"*32, "c"*32, "d"*32, "e"*32, "f"*32):
+            self.assertNotIn(digest, public)
+        self.assertNotIn("PRIVATE-", public)
 
-    def test_does_not_call_mutating_sql_or_unbounded_queries(self):
+    def test_single_query_has_fixed_page_and_no_sql_mutation(self):
         conn = Mock()
         conn.execute.return_value.fetchall.return_value = [
-            row("product:secret", 1000, {"checkedAt": 1000, "metrics": {}})
-        ]
+            row("product", "a"*32, "b"*32)]
         result = probe.sample(conn, now_ms=200_000_000)
         self.assertEqual(result["sampledRows"], 1)
-        query, parameters = conn.execute.call_args.args
-        self.assertIn("FROM public.bob_metric_checks", query)
-        self.assertIn("ORDER BY checked_at DESC", query)
-        self.assertIn("LIMIT 256", query)
-        self.assertNotIn("DELETE", query.upper())
-        self.assertNotIn("UPDATE", query.upper())
-        self.assertNotIn("ALTER", query.upper())
-        self.assertNotIn("VACUUM", query.upper())
-        self.assertEqual(parameters, (200_000_000 - 86_400_000,))
+        sql, params = conn.execute.call_args.args
+        self.assertIn("FROM public.bob_metric_checks", sql)
+        self.assertIn("ORDER BY checked_at DESC LIMIT 256", sql)
+        self.assertIn("WITH limited AS MATERIALIZED", sql)
+        self.assertNotIn("DELETE FROM", sql.upper())
+        self.assertNotIn("UPDATE ", sql.upper())
+        self.assertNotIn("ALTER TABLE", sql.upper())
+        self.assertNotIn("VACUUM", sql.upper())
+        self.assertNotIn("payload::text AS", sql)
+        self.assertEqual(params, (200_000_000 - 86_400_000,))
 
-    def test_bad_sizes_types_and_oversized_samples_rejected(self):
+    def test_invalid_data_is_rejected(self):
         with self.assertRaises(ValueError):
-            probe.summarize([row("product:abc", 1, {})] * 257)
-        for candidate in [
-            (42, 3, "{}", 3),
-            ("product:x", 3, "{}", -1),
-            ("product:x", 3, "{}", 16385),
-            ("product:x", 3, '{"nan":NaN}', 3),
-            ("product:x", 3, '"' + "x" * 16000 + '"', 3),
-            ("product:x", 3, '{"large":"' + "x" * 16384 + '"}', 3),
-            ("product:x", 3, "[]", 3),
-        ]:
-            with self.subTest(candidate=str(candidate)[:45]), self.assertRaises(ValueError):
-                probe.summarize([candidate])
+            probe.summarize([row("product", "a"*32, "a"*32)]*257)
+        bad = [
+            row("private:ISIN", "a"*32, "a"*32),
+            row("product", "invalid hash", "a"*32),
+            row("product", "a"*32, "a"*32, stored=-1),
+            row("product", "a"*32, "a"*32, stored=True),
+            row("product", "a"*32, "a"*32, stored=2_000_001),
+            row("product", "a"*32, "a"*32, mismatch=1),
+            ("product", "a"*32),
+        ]
+        for value in bad:
+            with self.subTest(bad=value), self.assertRaises(ValueError):
+                probe.summarize([value])
         with self.assertRaises(ValueError):
             probe.sample(Mock(), now_ms=0)
 
-    def test_no_opt_in_prevents_any_db_connection(self):
-        # A missing or false flag must stop before importing or opening psycopg.
+    def test_no_explicit_flag_never_opens_a_connection(self):
         with patch.dict(os.environ, {"BOB_METRIC_SCOPE_PROBE_ONCE": "0"}):
             with self.assertRaises(PermissionError):
                 probe.run()
         self.assertEqual(probe.summarize([])["sampledRows"], 0)
         self.assertFalse(probe.summarize([])["truncated"])
 
-    def test_limit_is_finite_and_does_not_claim_full_coverage(self):
-        sample = [row("other:fixture", i, {"checkedAt": i}) for i in range(256)]
-        result = probe.summarize(sample)
+    def test_max_page_is_truncated_not_full_history(self):
+        rows = [row("other", "%032x"%i, "%032x"%i)
+                for i in range(256)]
+        result = probe.summarize(rows)
         self.assertTrue(result["truncated"])
         self.assertEqual(result["groups"]["other"]["sampledRows"], 256)
         self.assertIn("not-day-totals", result["scope"])
