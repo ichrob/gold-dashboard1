@@ -122,3 +122,60 @@ represented as SQL failures or reclaimed disk bytes.
 After deployment, absence of green memory evidence must be surfaced as
 a deferral; it must not be worked around by disabling the RAM guard or
 silently enabling the currently off archive/compression/retention flags.
+
+
+## Release preflight: interrupted same-day archive attempt (14 November 2026)
+
+The owner explicitly authorized all four release tasks together: fresh
+independently restored backup, adequate RAM/WAL/scratch capacity, controlled
+deployment and post-release comparison. This is **not** unconditional
+permission to bypass per-action recovery or availability gates.
+
+On 14 November, a deliberate new `BOB_ARCHIVE_ATTEMPT` was configured
+through the existing push service (no new service, provider or plan).
+The attempt wrote a durable `running` claim at 19:39:57 UTC. Render then
+completed a second automatic deploy at 19:40:40 UTC. The replacement
+process had no running archive worker, while the claim was still
+`running`. No subsequent independently restored success receipt was
+observed. The morning 00:49 UTC verified archive is intact but stale
+for further database-affecting maintenance.
+
+**Treat this claim as interrupted / indeterminate, never successful.**
+Do not reset the claim, delete source rows, overwrite a remote object,
+or silently consume a new attempt ID. Review pending Render deploys,
+current archive worker, uploaded remote objects, current Drive quota,
+fresh provider RAM telemetry, independent Aiven restore-target identity,
+and WAL/scratch headroom before any explicit new attempt. A resumed
+archive must get a NEW audit ID only after ruling out simultaneous work
+and orphaned or ambiguous remote receipts. Returning
+`BOB_ARCHIVE_ATTEMPT` to its ordinary `scheduled` setting also triggers
+a Render deploy; do this only at a controlled idle boundary, never
+during an uncompleted archive or concurrent code rollout. Do not leave
+the one-off attempt name as a permanent normal schedule label.
+
+GitHub `main` advanced during this work to include the Aiven-only
+runtime restore policy and provider-bound receipt proof. The integrated
+storage branch now contains those additions, and a new merge commit
+with `main` as its second parent, preserving the latest production
+files. All four CI categories must pass on that **exact latest head**
+again before a production release.
+
+Release order:
+1. Prove a new completed remote-download / encrypted authenticated
+   independent Aiven restore, recovery key and persisted receipt;
+   do not equate a `running` claim with success.
+2. Prove a sustained conservative RAM window for PostgreSQL plus
+   adequate WAL, lock and temporary-space headroom. Never interpret a
+   low database file size as available RAM.
+3. Verify `main` has not advanced, all GitHub checks pass, no archive
+   job is active, the rollback target is recorded, and the owner
+   accepted the short restart window. Release one code revision only.
+4. Confirm Render push/scanner deploys both finish on the exact commit.
+   Recheck original-price freshness, signal/push and simulation health;
+   compare two independent physical Render volume observations and
+   report actual bytes freed only if independently measured. Retain
+   all originals, encrypted archives and claims.
+
+If any gate is unavailable, leave the draft unmerged and report the
+specific blocked step through the existing Bob Fehlerzentrale; do not
+create another recurring checker or external paid resource.
