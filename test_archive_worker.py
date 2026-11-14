@@ -2,6 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 import archive_worker as worker
+from test_aiven_readonly_probe import URI as AIVEN_TEST_URI
 
 class DB:
     def __init__(self): self.claimed=False; self.calls=[]; self.lock_ok=True
@@ -23,7 +24,7 @@ class DB:
 class WorkerTests(unittest.TestCase):
     def env(self):
         return patch.dict(os.environ, {'BOB_ARCHIVE_ENABLED':'1',
-            'DATABASE_URL':'test-only', 'BOB_ARCHIVE_RESTORE_DATABASE_URL':'restore-only', 'BOB_ARCHIVE_DRIVE_FOLDER_ID':'test-only',
+            'DATABASE_URL':'test-only', 'BOB_ARCHIVE_RESTORE_DATABASE_URL':AIVEN_TEST_URI, 'BOB_ARCHIVE_DRIVE_FOLDER_ID':'test-only',
             'BOB_ARCHIVE_GOOGLE_AUTHORIZED_USER_JSON':'test-only'})
 
     def test_disabled_does_not_access_database(self):
@@ -35,6 +36,16 @@ class WorkerTests(unittest.TestCase):
         with self.env(), patch.dict(os.environ, {'BOB_ARCHIVE_RESTORE_DATABASE_URL':''}):
             db=DB()
             self.assertEqual(worker.cycle(db)['status'],'blocked')
+            self.assertFalse(db.calls)
+
+    def test_expiring_render_restore_target_is_blocked_before_claim(self):
+        with self.env(), patch.dict(os.environ, {
+            'BOB_ARCHIVE_RESTORE_DATABASE_URL':
+                'postgresql://fixture:fixture@restore.render.com:5432/test?sslmode=require'}):
+            db = DB()
+            result = worker.cycle(db)
+            self.assertEqual(result['status'], 'blocked')
+            self.assertEqual(result['reason'], 'restore-target-not-aiven')
             self.assertFalse(db.calls)
 
     def test_failure_is_redacted_and_not_repeated(self):

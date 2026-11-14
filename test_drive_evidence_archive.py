@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 import drive_evidence_archive as runner
+from test_aiven_readonly_probe import URI as AIVEN_TEST_URI
 
 
 class FakeDrive:
@@ -43,6 +44,23 @@ class DriveSafety(unittest.TestCase):
                     self.assertEqual(len(drive.files),2)
                     self.assertFalse(json.loads(drive.files['1'])['deletionPermitted'])
                 self.assertEqual(check.call_count,2)
+
+    def test_receipt_binds_restore_provider_policy_without_endpoint(self):
+        drive = FakeDrive()
+        def export(dsn, path, **kwargs):
+            Path(path).write_bytes(b'test-archive')
+            return {'sha256': runner.archive.digest(path), 'databaseBytes': 10}
+        def verify(path, checksum, dsn, **kwargs):
+            return {'restoreVerified': True, 'deletionPermitted': False}
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(runner, 'verify_restore_isolation', return_value='separate-database-instance'), \
+             patch.object(runner.archive, 'export', side_effect=export), \
+             patch.object(runner.archive, 'restore_check', side_effect=verify):
+            receipt = runner.run('source', AIVEN_TEST_URI, directory, drive)
+        self.assertEqual(receipt['restoreTargetPolicy'], 'aiven-uri-validated')
+        self.assertEqual(json.loads(drive.files['1'])['restoreTargetPolicy'], 'aiven-uri-validated')
+        self.assertNotIn('aivencloud.com', str(receipt))
+        self.assertNotIn('SECRET', str(receipt))
 
     def test_encrypted_remote_upload_is_ciphertext_and_replays_after_decrypt(self):
         drive=FakeDrive()
