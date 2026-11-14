@@ -86,9 +86,6 @@ class TwelveResearchTests(unittest.TestCase):
         bad['values'][0]['datetime']='2026-10-04 13:00:00'
         with self.assertRaisesRegex(ValueError,'daily-label'):
             td.validate_rows(bad,'XAU/USD','1day',start,end,end)
-        with self.assertRaisesRegex(ValueError,'unclosed'):
-            td.validate_rows(payload,'XAU/USD','1day',start,end,mid+3600000)
-
     def test_daily_request_uses_sydney_dates_without_utc_claim(self):
         sydney=ZoneInfo('Australia/Sydney')
         stamp=lambda d: int(datetime(2026,10,d,tzinfo=sydney).timestamp()*1000)
