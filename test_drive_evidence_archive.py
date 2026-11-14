@@ -18,9 +18,10 @@ class QuotaOutlookTests(unittest.TestCase):
     def test_quota_planning_cannot_delete_or_enable_incremental(self):
         from drive_evidence_archive import quota_outlook
         self.assertEqual(quota_outlook(1_000_000_000, 100_000_000)['status'], 'room')
-        self.assertEqual(quota_outlook(450_000_000, 100_000_000)['status'], 'caution')
-        self.assertEqual(quota_outlook(360_000_000, 100_000_000)['status'], 'critical')
-        self.assertEqual(quota_outlook(300_000_000, 100_000_000)['status'], 'insufficient')
+        # Keep the full 256-MiB safety reserve out of the usable runway.
+        self.assertEqual(quota_outlook(600_000_000, 100_000_000)['status'], 'caution')
+        self.assertEqual(quota_outlook(450_000_000, 100_000_000)['status'], 'critical')
+        self.assertEqual(quota_outlook(360_000_000, 100_000_000)['status'], 'insufficient')
         for amount in (None, True, -1, 10**14):
             self.assertEqual(quota_outlook(amount, 100_000_000)['status'],
                              'unavailable')
