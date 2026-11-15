@@ -174,8 +174,10 @@ def model_proposal(issue_text, path, source, key):
     ).strip()
     if not reply or len(reply) > 5400 or PRIVATE_CONTENT.search(reply):
         raise ValueError("model-invalid-or-sensitive")
-    reply = verified_diff_or_explanation(reply, path)
-    return re.sub(r"https?://\S+", "[externer Link entfernt]", reply)[:5000]
+    reply = re.sub(r"https?://\S+", "[externer Link entfernt]", reply)
+    if len(reply) > 5000:
+        raise ValueError("model-response-too-large")
+    return verified_diff_or_explanation(reply, path)
 
 
 def run():

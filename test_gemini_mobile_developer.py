@@ -117,6 +117,16 @@ class GeminiMobileDeveloperTests(unittest.TestCase):
         refusal = "nicht sicher änderbar: " + "Die öffentliche Beweislage ist unzureichend. " * 3
         self.assertEqual(g.verified_diff_or_explanation(refusal, "GEMINI.md"), refusal)
 
+    def test_oversized_reply_is_rejected_not_silently_cut_after_validation(self):
+        text = ("--- a/GEMINI.md\n+++ b/GEMINI.md\n@@ -1 +1 @@\n-old\n+"
+                + "x" * 5100)
+        fake = MagicMock()
+        fake.open.return_value.__enter__.return_value.read.return_value = json.dumps(
+            {"candidates": [{"content": {"parts": [{"text": text}]}}]}).encode()
+        with patch.object(g.urllib.request, 'build_opener', return_value=fake):
+            with self.assertRaisesRegex(ValueError, 'model-response-too-large'):
+                g.model_proposal('Public issue', 'GEMINI.md', '# public source', 'a' * 40)
+
     def test_rejects_wrong_hunk_count_from_real_failure_shape(self):
         bad = ("```diff\n--- a/GEMINI.md\n+++ b/GEMINI.md\n"
                "@@ -1,1 +1,3 @@\n Original\n+Checklist\n```\n"
