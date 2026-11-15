@@ -51,17 +51,23 @@ console.log('DEGIRO source inference: provenance, conflicts, expiry, UI and exec
 
 // New server assessment overrides local inference consistently; stale reports cannot grant evidence.
 const tested=sample();tested.currency='CHF';
+const identityWithoutVenueReport=bob.renderProductIdentity(tested,now);
 window.BobProductAuditReport={status:'ok',lastCheckedAt:at,listUploadedAt:archive.storedAt,
  items:[{isin,brokerVenueStatus:{version:1,required:true,state:'historical',current:false,
  executionConfirmed:false,historicalEvidence:{isin,currency:'CHF',venue:'Societe Generale OTC',observedMinute:'2026-10-15T12:00'}}}]};
 assert.equal(bob.sharedVenueStatus(tested,now).state,'historical');
+assert.equal(bob.sharedVenueStatus(tested,now).required,false);
+assert.equal(bob.sharedVenueStatus(tested,now).researchGate,false);
 assert.equal(bob.degiroVenueObserved(tested),false);
 assert.equal(bob.degiroVenueInferred(tested,archive,now),null);
 assert(!bob.finalProductStatus(tested,now).reasons.includes('DEGIRO-Handelsplatznachweis offen'));
 assert(!bob.productProblemLabels(tested).includes('DEGIRO-Handelsplatznachweis'));
 assert.equal(bob.currentQuote(tested,now),false,'missing executable proof stays unapproved');
-assert(bob.renderProductIdentity(tested,now).includes('✗'));
+assert.equal(bob.renderProductIdentity(tested,now),identityWithoutVenueReport,
+ 'optional venue status must not downgrade otherwise identical analysis evidence');
 assert(bob.renderVenueHistory(tested).includes('2026-10-15 12:00'));
+assert(bob.renderVenueHistory(tested).includes('kein Pflichtnachweis'));
+assert(!bob.renderVenueHistory(tested).includes('Detailbild ergänzen'));
 window.BobProductAuditReport.status='stale';
 assert.equal(bob.sharedVenueStatus(tested,now),null);
 console.log('Shared venue status: badges, labels, selection, history and freshness passed');
