@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bob DEGIRO Export-Brücke
 // @namespace    https://bob-private-scanner.onrender.com/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Übergibt ausgewählte DEGIRO-Portfolioexporte an Bob. Keine Anmeldung oder Orders.
 // @match        https://trader.degiro.nl/*
 // @match        https://bob-private-scanner.onrender.com/*
@@ -128,7 +128,7 @@ function parseNumber(raw){
 (function(){
 'use strict';
 const BROKER='https://trader.degiro.nl',BOB='https://bob-private-scanner.onrender.com';
-const ARM='bob-export-arm-v1',QUEUE='bob-export-pending-v1',STATUS='bob-export-status-v1',VERSION='1.2.0';
+const ARM='bob-export-arm-v1',QUEUE='bob-export-pending-v1',STATUS='bob-export-status-v1',VERSION='1.2.1';
 const TTL=10*60*1000,MAX=2_000_000;
 const isBob=location.origin===BOB,isBroker=location.origin===BROKER;
 if(!isBob&&!isBroker)return;
@@ -197,8 +197,8 @@ async function captureUrl(url,readSelected=()=>readExport(url)){
  try{
   const report=await readSelected();
   if(!armed())throw Error('Übernahme abgelaufen. In Bob erneut aktivieren.');
-  const id=crypto.randomUUID();
-  GM_setValue(QUEUE,{id,createdAt:now(),expiresAt:now()+TTL,report});brokerStatus('staged');
+  const id=crypto.randomUUID(),createdAt=now();
+  GM_setValue(QUEUE,{id,createdAt,expiresAt:createdAt+TTL,report});brokerStatus('staged');
   note('Export für Bob bereit. Bob im selben Firefox öffnen; Übernahme dort aktivieren.');
  }catch(err){brokerStatus('error');note('Bob: '+(err.message||'Export konnte nicht übernommen werden.'));}
  finally{busy=false;}
