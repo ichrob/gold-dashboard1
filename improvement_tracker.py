@@ -237,28 +237,59 @@ def archived_observation(conn,payload):
         return None,False
 
 
+_REPORT_READ_PHASES = frozenset((
+    'protocol', 'observation-stats', 'trials', 'real-trades',
+    'validation-state', 'paired-observation', 'paired-archive',
+    'operations', 'decision-journal', 'entry-path', 'exit-quality',
+    'history'))
+
+
+def _report_read_phase(phase, read, *args):
+    """Attribute a canceled improvement read without leaking SQL or rows.
+
+    Preserve the original exception and all existing transaction/admission
+    behavior. QueryCanceled can mean cancellation as well as a statement
+    timeout, so the log deliberately names only the fixed read phase.
+    """
+    import psycopg
+    try:
+        return read(*args)
+    except psycopg.errors.QueryCanceled:
+        safe_phase = phase if phase in _REPORT_READ_PHASES else 'unknown'
+        print('BOB_IMPROVEMENT report_read_canceled phase=' + safe_phase
+              + ' error=QueryCanceled', flush=True)
+        raise
+
+
 def report(conn,now=None,include_history=True):
     now=int(time.time()*1000) if now is None else now
-    protocol=conn.execute('SELECT payload FROM bob_improvement_protocol WHERE id=%s',(VERSION,)).fetchone()
+    protocol=_report_read_phase('protocol', lambda: conn.execute(
+        'SELECT payload FROM bob_improvement_protocol WHERE id=%s',
+        (VERSION,)).fetchone())
     if not protocol or protocol[0]!=PROTOCOL:raise ValueError('Improvement protocol mismatch')
-    stats=conn.execute('''SELECT count(*),count(*) FILTER (WHERE valid),
+    stats=_report_read_phase('observation-stats', lambda: conn.execute('''SELECT count(*),count(*) FILTER (WHERE valid),
         count(DISTINCT day) FILTER (WHERE valid),max(slot) FROM bob_improvement_observations
-        WHERE campaign=%s AND slot<%s''',(VERSION,now//30000*30000)).fetchone()
-    rows=conn.execute('SELECT day,phase,payload,outcome FROM bob_improvement_trials WHERE campaign=%s ORDER BY slot',(VERSION,)).fetchall()
-    snapshots=conn.execute('''SELECT snapshot FROM bob_real_trades WHERE active=FALSE
-        AND updated_at>=to_timestamp(%s/1000.0) ORDER BY updated_at''',(START,)).fetchall()
-    state=conn.execute('SELECT validation_at FROM bob_improvement_state WHERE campaign=%s',(VERSION,)).fetchone()
+        WHERE campaign=%s AND slot<%s''',(VERSION,now//30000*30000)).fetchone())
+    rows=_report_read_phase('trials', lambda: conn.execute(
+        'SELECT day,phase,payload,outcome FROM bob_improvement_trials WHERE campaign=%s ORDER BY slot',
+        (VERSION,)).fetchall())
+    snapshots=_report_read_phase('real-trades', lambda: conn.execute('''SELECT snapshot FROM bob_real_trades WHERE active=FALSE
+        AND updated_at>=to_timestamp(%s/1000.0) ORDER BY updated_at''',(START,)).fetchall())
+    state=_report_read_phase('validation-state', lambda: conn.execute(
+        'SELECT validation_at FROM bob_improvement_state WHERE campaign=%s',
+        (VERSION,)).fetchone())
     validation_at=state[0] if state else None
     evidence={};archive_evidence_unavailable=0
     for (snapshot,) in snapshots:
         bounds=trade_learning_review.window(snapshot)
         if not bounds or bounds[2] or bounds[0].timestamp()*1000<START:continue
         bought=int(bounds[0].timestamp()*1000)
-        before=conn.execute('''SELECT payload FROM bob_improvement_observations WHERE campaign=%s
+        before=_report_read_phase('paired-observation', lambda: conn.execute('''SELECT payload FROM bob_improvement_observations WHERE campaign=%s
           AND slot BETWEEN %s AND %s AND (payload->>'at')::bigint<=%s ORDER BY slot DESC LIMIT 1''',
-          (VERSION,bought-90000,bought,bought)).fetchone()
+          (VERSION,bought-90000,bought,bought)).fetchone())
         if before:
-            archived,available=archived_observation(conn,before[0])
+            archived,available=_report_read_phase(
+                'paired-archive', archived_observation, conn, before[0])
             if available:evidence[snapshot.get('tradeId')]=archived
             else:archive_evidence_unavailable+=1
     real=real_results([s[0] for s in snapshots],evidence,validation_at)
@@ -266,15 +297,21 @@ def report(conn,now=None,include_history=True):
     real['pairedEvidenceComplete']=archive_evidence_unavailable==0
     result=summarize(*stats,rows,real,now,validation_at)
     import improvement_operations
-    improvement_operations.attach(conn,result,rows,[s[0] for s in snapshots],now,START)
+    _report_read_phase('operations', improvement_operations.attach,
+                       conn,result,rows,[s[0] for s in snapshots],now,START)
     if include_history:
         import decision_journal
-        result['decisionJournal']=decision_journal.read(conn,VERSION,now)
+        result['decisionJournal']=_report_read_phase(
+            'decision-journal', decision_journal.read, conn, VERSION, now)
         import entry_path_study
-        result['entryPath']=entry_path_study.read(conn,VERSION,now)
+        result['entryPath']=_report_read_phase(
+            'entry-path', entry_path_study.read, conn, VERSION, now)
         import exit_quality
-        result['exitQuality']=exit_quality.read(conn,now)
-        history=conn.execute('SELECT at,payload FROM bob_improvement_reviews WHERE campaign=%s ORDER BY at DESC,id LIMIT 50',(VERSION,)).fetchall()
+        result['exitQuality']=_report_read_phase(
+            'exit-quality', exit_quality.read, conn, now)
+        history=_report_read_phase('history', lambda: conn.execute(
+            'SELECT at,payload FROM bob_improvement_reviews WHERE campaign=%s ORDER BY at DESC,id LIMIT 50',
+            (VERSION,)).fetchall())
         result['history']=[dict(at=at,**payload) for at,payload in history]
     return result
 
