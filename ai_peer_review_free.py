@@ -13,7 +13,7 @@ from urllib.parse import urlparse, urlencode
 
 from ai_peer_review import (
     REPO, REVIEW_MARKER, safe_files, review_allowed, check_review_budget,
-    request_json, NoRedirect,
+    request_json, NoRedirect, automatic_review_requested,
 )
 
 AUDIENCE = "urn:bob:free-ai-code-review:v1"
@@ -105,13 +105,11 @@ def main():
     base = "https://api.github.com/repos/" + REPO + "/pulls/" + pr
     STAGE = "read-pr"
     info = request_json(base, github)
-    # A successful ordinary PR CI is not an AI repair request. Skip silently
-    # rather than failing a watchdog job for a missing Bob incident marker.
+    # Automatic review is still an explicit opt-in: a known Bob repair case,
+    # or the owner's one exact marker on a PR whose own CI passed.
     if os.getenv("BOB_AI_MODE", "manual") == "automatic" and isinstance(info, dict):
-        from bob_ai_quality_gate import CASE
-        body = info.get("body")
-        if (body is None or isinstance(body, str)) and not CASE.findall((body or "")[:10000]):
-            print("No Bob repair-case marker; no external AI call.")
+        if not automatic_review_requested(info.get("body")):
+            print("No Bob repair case or explicit review opt-in; no external AI call.")
             return
     STAGE = "validate-pr"
     sha = review_allowed(info, mode=os.getenv("BOB_AI_MODE", "manual"),
