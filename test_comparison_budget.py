@@ -52,6 +52,33 @@ class ComparisonBudgetTests(unittest.TestCase):
         self.assertLessEqual(len(json.dumps(result, ensure_ascii=False,
             separators=(',', ':')).encode()), 4000)
 
+    def test_duplicate_entry_history_is_referenced_not_repeated(self):
+        source = self.source()
+        blocks = {'status': 'partial', 'observedAt': 123,
+                  'accounts': [{'reason': 'missing-price', 'history': 'x' * 6000}]}
+        source['areas']['entryBlockEvidence'] = blocks
+        source['areas']['comparisonEvidence']['entryBlockEvidence'] = copy.deepcopy(blocks)
+        source['areas']['comparisonHealth'] = copy.deepcopy(
+            source['areas']['comparisonEvidence']['comparisonHealth'])
+        original = copy.deepcopy(source)
+        result = d.bounded_report(source, 10000)
+        view = result['areas']['comparisonEvidence']
+        self.assertNotIn('comparisonEvidence', result['omittedAreas'])
+        self.assertEqual(result['areas']['entryBlockEvidence'], blocks)
+        self.assertEqual(view['entryBlockEvidence']['sourceArea'], 'entryBlockEvidence')
+        self.assertEqual(view['entryBlockEvidence']['sourceStatus'], 'partial')
+        self.assertEqual(view['comparisonHealth']['status'], 'omitted-duplicate')
+        self.assertEqual(source, original)
+        self.assertLessEqual(len(json.dumps(result, ensure_ascii=False,
+            separators=(',', ':')).encode()), 10000)
+
+    def test_distinct_observations_are_never_replaced_by_references(self):
+        source = self.source()
+        source['areas']['comparisonHealth'] = {'status': 'observed', 'observedAt': 456}
+        result = d.bounded_report(source, 4000)
+        self.assertEqual(result['areas']['comparisonEvidence']['comparisonHealth']['status'],
+                         'partial')
+
     def test_fitting_payload_remains_complete(self):
         source = self.source()
         self.assertEqual(d.bounded_report(source, 100000), source)

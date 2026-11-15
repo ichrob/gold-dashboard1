@@ -2393,6 +2393,21 @@ def bounded_report(report, max_bytes):
 
     if size(result) > max_bytes and isinstance(areas.get('comparisonEvidence'), dict):
         areas['comparisonEvidence'] = compact_comparison_evidence(areas['comparisonEvidence'])
+        comparison = areas['comparisonEvidence']
+        # These exact source observations are already top-level areas in the
+        # simulation focus. Do not spend the response cap on identical copies.
+        for name in ('comparisonHealth', 'entryBlockEvidence'):
+            original = comparison.get(name)
+            if isinstance(original, dict) and original == areas.get(name):
+                comparison[name] = {
+                    'status': 'omitted-duplicate',
+                    'sourceStatus': original.get('status', 'unknown'),
+                    'sourceArea': name,
+                    'reason': 'same-observation-in-separate-area'}
+                comparison['truncated'] = True
+                comparison['omittedSections'] = list(dict.fromkeys(
+                    list(comparison.get('omittedSections') or []) + [name]))
+
 
     optional = sorted((name for name in areas if name not in core),
                       key=lambda name: size(areas[name]), reverse=True)
