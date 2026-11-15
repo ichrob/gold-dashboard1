@@ -276,10 +276,14 @@ def status(conn):
     runs=[]
     for row in rows[:5]:
         r=row[0]
-        from handset_import_assessment import assess
-        assessment=r.get('importAssessment') or assess(r)
+        from handset_import_assessment import assess, VERSION
+        stored_assessment=r.get('importAssessment')
+        persisted=isinstance(stored_assessment,dict) and stored_assessment.get('version')==VERSION
+        # Reproject older views from their original fields without changing the
+        # historical receipt, assessment or stored product observations.
+        assessment=stored_assessment if persisted else assess(r)
         runs.append(dict(batchId=r['batchId'],revision=r['revision'],receivedAt=r['receivedAt'],
-            importAssessment=assessment, importAssessmentPersisted='importAssessment' in r,
+            importAssessment=assessment, importAssessmentPersisted=persisted,
             appVersionCode=r.get('appVersionCode'),listUploadedAt=r['listUploadedAt'],listSource=r.get('listSource','bob-saved-list'),requested=len(r['isins']),
             results=[dict(isin=x['isin'],code=x['code'],attempts=x['attempts'],
                 requestedFields=x.get('requestedFields'),
