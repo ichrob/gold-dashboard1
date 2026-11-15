@@ -386,14 +386,16 @@ function handsetRunSummary(report,comparisons,now=Date.now()){
   return 'Handy-Abschluss: aktueller Prüfbericht fehlt.';
  const items=Array.isArray(report.items)?report.items:[];
  const active=items.filter(x=>!['terminated','excluded-factor'].includes(x.state));
- const complete=active.filter(x=>x.handsetObservation?.code==='COMPLETE').length;
- const partial=active.filter(x=>x.handsetObservation?.code==='PARTIAL').length;
+ const readCode=x=>x.handsetObservation?.latestReadReceipt?.code||x.handsetObservation?.code;
+ const complete=active.filter(x=>readCode(x)==='COMPLETE').length;
+ const partial=active.filter(x=>readCode(x)==='PARTIAL').length;
+ const unfinished=active.filter(x=>x.handsetObservation&&!['COMPLETE','PARTIAL'].includes(readCode(x))).length;
  const ended=items.filter(x=>x.state==='terminated').length;
  const excluded=items.filter(x=>x.state==='excluded-factor').length;
  const results=Array.isArray(comparisons)?comparisons:[];
  const ready=results.filter(x=>x.available).length;
  const reasons=[...new Set(results.filter(x=>!x.available).map(x=>x.reason))];
- return 'Handy-Abschluss: '+complete+' vollständig · '+partial+' teilweise · '+ended+' beendet · '+excluded+
+ return 'Handy-Abschluss: '+complete+' vollständig · '+partial+' teilweise · '+unfinished+' nicht abgeschlossen · '+ended+' beendet · '+excluded+
   ' Faktor ausgeschlossen. '+ready+' von '+results.length+' ausgewählten Modellvergleichen berechenbar.'+
   (reasons.length?' Offen: '+reasons.join(' '):'')+
   ' Gespeicherte Serverbelege; keine Ausführungsbestätigung.';

@@ -216,9 +216,11 @@ PANEL = r'''<section id="bobProductAudit" class="card">
    handset.append(intro);
    for(const item of observed){
     const read=item.handsetObservation;
+    const receipt=read.latestReadReceipt;
+    const latestCode=receipt?.code||read.code;
     const row=document.createElement('details');row.dataset.isin=item.isin;row.open=oldOpen.get(item.isin)===true;
     const summary=document.createElement('summary');
-    summary.textContent=item.isin+' · '+(item.state==='terminated'?'Beendet · historische Handy-Beobachtung':read.code==='COMPLETE'?'Angeforderte Felder gelesen':read.code==='PARTIAL'?'Teilweise gelesen':'Lesung nicht abgeschlossen');
+    summary.textContent=item.isin+' · '+(item.state==='terminated'?'Beendet · historische Handy-Beobachtung':latestCode==='COMPLETE'?'Angeforderte Felder gelesen':latestCode==='PARTIAL'?'Teilweise gelesen':'Lesung nicht abgeschlossen');
     row.append(summary);
     const display=document.createElement('p');display.className='small';display.style.whiteSpace='pre-line';
     const vals=read.fields||{};
@@ -227,6 +229,8 @@ PANEL = r'''<section id="bobProductAudit" class="card">
      .map(([k,label])=>label+': '+safe(vals[k]));
     display.textContent=(item.state==='terminated'?'⚠ Produkt vom Emittenten als beendet gemeldet. Nachfolgende alte App-Kurse sind nicht aktuell oder handelbar.\n':'')+
      'Quelle: DEGIRO-Handy · als ungeprüft erfasst: '+(read.observedAt?fmt(read.observedAt):'nicht bestätigt')+
+     (receipt?'\nZuletzt empfangenes Leseergebnis: '+safe(receipt.code)+' · '+fmt(receipt.receivedAt)+
+      (!receipt.hasObservation&&Object.keys(vals).length?'\nAktualisierung ohne neue Werte. Die folgenden Werte stammen aus einer früheren Lesung.':''):'')+
      '\n'+(fieldLines.length?fieldLines.join('\n'):'Keine verifizierbaren App-Felder gespeichert')+
      '\nFehlende angeforderte Werte: '+(Array.isArray(read.missingFields)&&read.missingFields.length?read.missingFields.join(', '):'keine')+
      (Array.isArray(read.missingFields)&&read.missingFields.length===1&&read.missingFields[0]==='Hebel'?
