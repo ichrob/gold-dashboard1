@@ -89,11 +89,14 @@ class TimelyTests(unittest.TestCase):
         validation.start(control,market,NOW)
         def case(start):
             c=settled();c.update(startedAt=start,closedAt=start+60000,
-                entryQuote={'isin':'test','ask':10,'source':'observed','askAt':start},
+                entryQuote={'isin':'test','ask':10,'source':'observed','askAt':start,'currency':'EUR'},
                 product={'isin':'test'},analysis={**market,'dataAt':start-1000},
                 entryChecklist={'decision':'entry','ruleVersion':'fixed-v1'},
                 selectionEvidence={'capturedAt':start,'selectedIsin':'test','rankedShortlist':[{'isin':'test'}]},
                 entryTiming={'version':1,'sourceAt':start-1000,'decisionAt':start})
+            c['events'][0].update(recordedAt=start+60000,quote={
+                'isin':'test','currency':'EUR','source':'observed',
+                'bid':10.1,'bidAt':start+60000})
             return c
         old=case(NOW-1);validation.record(control,old,NOW+60000)
         self.assertEqual(control['forwardValidation']['excluded'],1)
@@ -109,7 +112,9 @@ class TimelyTests(unittest.TestCase):
         validation.record(control,changed,NOW+60002)
         gap=case(NOW+3);gap['events'].append({'kind':'data-gap'})
         validation.record(control,gap,NOW+60003)
-        self.assertEqual(control['forwardValidation']['excluded'],3)
+        missing_clock=case(NOW+4);missing_clock['events'][0]['quote'].pop('bidAt')
+        validation.record(control,missing_clock,NOW+60004)
+        self.assertEqual(control['forwardValidation']['excluded'],4)
         self.assertEqual(control['forwardValidation']['calibration']['cases'],1)
 
     def test_provider_attempt_has_clock_metadata_without_notification_contents(self):
