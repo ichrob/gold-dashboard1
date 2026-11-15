@@ -27,11 +27,34 @@ VARIANTS = {
     'nomacd5': dict(minutes=5, omit='macd', label='5m · ohne zusätzliche MACD-Bedingung'),
     'pullback5': dict(minutes=5, pullback=True, label='5m · Rücksetzer nach Ausbruch'),
     'timestop5': dict(minutes=5, time_stop=True, label='5m · Zeitstopp bei fehlendem Fortschritt'),
+    # Added prospectively, without resetting the ongoing 48 original study arms.
+    # A NEW closed 5m push is evaluated on its own clock, not by refreshing an old 15m signal.
+    'relaxedfollow5': dict(minutes=5, continuation=True, relaxed=True,
+                           label='5m · gelockerter Folgeimpuls bis nächste Kerze'),
+    'follow5': dict(minutes=5, continuation=True,
+                    label='5m · frischer Folgeimpuls LONG/SHORT (30–300 Minuten)'),
+    # New forward-only arms. Old cases remain immutable and keep their original rule.
+    'fast3neutral': dict(minutes=3, neutral=True,
+                         label='3m · schneller Einstieg bei neutralem 1h-Kontext'),
+    'follow5neutral': dict(minutes=5, continuation=True, neutral=True,
+                           label='5m · frischer Folgeimpuls bei neutralem 1h-Kontext'),
+    'score65': dict(minutes=5, score_long=65, score_short=35,
+                    label='5m · Kollektivrichtungswert 65/35'),
+    'score70': dict(minutes=5, score_long=70, score_short=30,
+                    label='5m · Kollektivrichtungswert 70/30'),
+    'rr20': dict(minutes=5, min_remaining_rr=2.0,
+                 label='5m · Mindestzielabstand 2,0R (Vergleich zu 1,5R)'),
+    'breakeven5': dict(minutes=5, protective_exit='break-even',
+                       label='5m · Einstandsstopp erst nach beobachtetem +1R'),
+    'trailatr5': dict(minutes=5, protective_exit='atr-trailing',
+                      label='5m · ATR-Gewinnschutz nach beobachtetem +1,5R'),
 }
 NOTE = ('Vorwärts-Test auf Gold-Spot, keine KO-Produktrendite. 0,16 % Gesamtkosten sind eine Annahme. '
         'Original- und Schätzfälle getrennt; Verluste und Stops nur an beobachteten Kursen. '
         'Keine automatische Übernahme oder bestätigte Überlegenheit. Unterschiedliche Einstiegszeiten, '
-        'keine Behauptung gepaarter Trades. 5m ist die Studienreferenz, nicht die vollständige Bob-Hauptlogik.')
+        'keine Behauptung gepaarter Trades. 5m ist die Studienreferenz, nicht die vollständige Bob-Hauptlogik. '
+        'Folgeimpuls5 läuft erst ab Aktivierung als separate Beobachtungsvariante; kein Live-Einstieg, '
+        'keine KO-Produktfreigabe, keine rückwirkend erfundenen Gewinne.')
 
 
 def session(at):
@@ -137,6 +160,80 @@ def frame_signal(rows, minutes, now, pullback=False):
                 macd='LONG' if hist>0 else 'SHORT' if hist<0 else 'NEUTRAL', atr=atr,
                 estimated=any(r.get('estimated') for r in past),
                 level=hi if side=='LONG' else lo, reason=None if side else 'no-breakout')
+
+
+def fresh_continuation_signal(rows, now, *, relaxed=False):
+    """Independent *prospective* LONG/SHORT re-entry hypothesis, not an approval.
+
+    A genuinely NEW, fully closed five-minute candle can confirm a continuation
+    even when the original 15-minute breakout is older. Do not recycle/reset the
+    older signal's timestamp. Require two prior closed 5m bars, correct 1m source,
+    fresh close and an extension cap; the shared hour/EMA/MACD, reference-price,
+    cost and stop gates remain in place in gate()/advance().
+    """
+    base = frame_signal(rows, 5, now)
+    if base.get('available') is not True or not positive(base.get('atr')):
+        return base
+    bars = aggregate(rows, 5, now)
+    if len(bars) < 3:
+        return {**base, 'direction':None, 'reason':'continuation-closed-bars-missing'}
+    last, previous, older = bars[-1], bars[-2], bars[-3]
+    if (last['closeTime'] != base.get('closedAt')
+            or not (0 <= now-last['closeTime'] < 5*MINUTE if relaxed
+                    else 0 <= now-last['closeTime'] <= 90000)):
+        return {**base, 'direction':None, 'reason':'continuation-signal-not-fresh'}
+    past = [r for r in rows if last['closeTime']-105*MINUTE <= r['openTime'] < last['closeTime']]
+    if len(past) != 105:
+        return {**base, 'direction':None, 'reason':'continuation-original-lookback-missing'}
+    e20 = ema([r['close'] for r in past],20)[-1]
+    stretch = abs(last['close']-e20)/base['atr']
+    # Still restrict chasing overextended trends even in the experimental arm.
+    if stretch > 2.0 and not relaxed:
+        return {**base, 'direction':None, 'reason':'continuation-overextended-2atr',
+                'extensionAtr':round(stretch,4)}
+    side = base.get('direction')
+    if side in ('LONG','SHORT'):
+        setup = 'fresh-breakout'
+        level = base.get('level')
+    else:
+        minimum_body = .2*base['atr']
+        growing = (previous['close'] > older['close'] and last['close'] > previous['high']
+                   and last['close'] > last['open'] and last['close']-last['open'] >= minimum_body
+                   and last['close'] > e20)
+        falling = (previous['close'] < older['close'] and last['close'] < previous['low']
+                   and last['close'] < last['open'] and last['open']-last['close'] >= minimum_body
+                   and last['close'] < e20)
+        side = 'LONG' if growing else 'SHORT' if falling else None
+        setup = 'closed-5m-follow-through'
+        level = previous['high'] if growing else previous['low'] if falling else None
+    return {**base, 'direction':side, 'barAt':last['openTime'],
+            'closedAt':last['closeTime'], 'level':level,
+            'setup':setup if side else None, 'extensionAtr':round(stretch,4),
+            'referenceClose':last['close'],
+            'entryPolicy':'relaxed-follow5-v1' if relaxed else 'strict-follow5',
+            'riskWarnings':['ema-extension-over-2atr'] if stretch>2.0 else [],
+            'reason':None if side else 'no-fresh-continuation'}
+
+
+def score_gate(signal, market, config):
+    """Apply only optional study score arms; never change the main Bob score gate."""
+    if 'score_long' not in config:
+        return True, None
+    score=market.get('score')
+    if not number(score):
+        return False, 'collective-score-unavailable'
+    side=signal.get('direction')
+    if (side=='LONG' and score<config['score_long'] or
+        side=='SHORT' and score>config['score_short']):
+        return False, 'collective-score-too-weak'
+    return True, None
+
+
+def target_room(target, price, risk, side, config):
+    """A future risk-adjusted target, never a presumed product fill."""
+    if not positive(target) or not positive(price) or not positive(risk):
+        return False
+    return (1 if side=='LONG' else -1)*(target-price)/risk >= config.get('min_remaining_rr',1.5)
 
 
 def gate(signal, trend, config):
@@ -260,6 +357,35 @@ def summarize_arm(a):
     return {k:copy.deepcopy(v) for k,v in a.items() if k not in ('position','lastSignal')}
 
 
+def prospective_protective_stop(position, observed_price, config):
+    """Paper-only stop proposal from a fresh, actually observed price.
+
+    Never moves the existing stop away from the entry, assumes a historical
+    intrabar fill, or changes the main Bob stop manager. No proposal before
+    1R favorable movement. At 1.5R the ATR arm can protect more than entry.
+    """
+    mode = config.get('protective_exit')
+    if mode not in ('break-even', 'atr-trailing'):
+        return None
+    side = position.get('direction')
+    entry, risk, current = (position.get('entryPrice'),
+                            position.get('risk'), position.get('stop'))
+    if side not in ('LONG', 'SHORT') or not all(
+            positive(v) for v in (entry, risk, current, observed_price)):
+        return None
+    sign = 1 if side == 'LONG' else -1
+    progress = sign * (observed_price - entry)
+    if progress < risk:
+        return None
+    proposal = entry
+    if mode == 'atr-trailing' and progress >= 1.5 * risk:
+        atr = position.get('atr')
+        if not positive(atr):
+            return None  # Never invent an ATR from incomplete evidence.
+        proposal = observed_price - sign * atr
+    return proposal if positive(proposal) and sign * (proposal-current) > 0 else None
+
+
 def advance(old, bundle, market, selection, quotes, now):
     state = copy.deepcopy(old)
     if number(state.get('checkedAt')) and now <= state['checkedAt']:
@@ -281,10 +407,16 @@ def advance(old, bundle, market, selection, quotes, now):
         modeled = mode=='modeled'
         rows, error = minute_history(bundle,now,modeled)
         signals = {(m,p):frame_signal(rows,m,now,p) for m,p in ((3,False),(5,False),(7,False),(5,True))} if rows else {}
+        if rows:
+            signals[(5,'continuation')] = fresh_continuation_signal(rows,now)
+            signals[(5,'relaxed')] = fresh_continuation_signal(rows,now,relaxed=True)
         price = source(bundle,now,modeled)
         for name,cfg in VARIANTS.items():
-            sig = signals.get((cfg['minutes'],bool(cfg.get('pullback'))),dict(available=False,reason=error))
+            key_signal=(cfg['minutes'], 'relaxed' if cfg.get('relaxed') else 'continuation' if cfg.get('continuation') else bool(cfg.get('pullback')))
+            sig = signals.get(key_signal,dict(available=False,reason=error))
             allowed, reason = gate(sig,trend,cfg)
+            if allowed:
+                allowed,reason=score_gate(sig,market,cfg)
             if (allowed and price['available'] and market.get('ready') is True
                     and market.get('priceFresh') is True and number(market.get('dataAt'))
                     and abs(market['dataAt']-price['at'])<=2000
@@ -297,7 +429,8 @@ def advance(old, bundle, market, selection, quotes, now):
                     label=cfg['label'],started=0,closed=0,inconclusive=0,estimatedClosed=0,
                     originalClosed=0,originalSumNetPct=0.,estimatedSumNetPct=0.,
                     sumNetPct=0.,worstNetPct=None,maxAdversePct=0.,falseStarts=0,
-                    lastSignal=None,position=None,blockCounts={},reversalExits=0,reversalEntries=0))
+                    lastSignal=None,position=None,blockCounts={},reversalExits=0,reversalEntries=0,
+                    firstObservedAt=now,followThroughEntries=0,baselineOverlapEntries=0))
                 a['reason'] = reason if not allowed else None if price['available'] else 'spot-source-unavailable'
                 p = a['position']
                 if p:
@@ -323,6 +456,12 @@ def advance(old, bundle, market, selection, quotes, now):
                                'horizon' if held>=horizon*MINUTE else
                                'no-progress' if cfg.get('time_stop') and held>=horizon*MINUTE/3
                                and sign*(price['price']-p['entryPrice'])<.25*p['risk'] else None)
+                        if not why:
+                            proposed_stop = prospective_protective_stop(p,price['price'],cfg)
+                            if proposed_stop is not None:
+                                p['stop'] = proposed_stop
+                                p['stopAdjustments'] = p.get('stopAdjustments',0)+1
+                                p['lastStopObservedAt'] = price['at']
                         if why:
                             if why=='trend-reversal':
                                 p['reversalEvidence']=reversal
@@ -360,17 +499,28 @@ def advance(old, bundle, market, selection, quotes, now):
                 if price['at'] < sig['closedAt'] or price['at']<=max(a.get('lastExitSourceAt',0),state.get('entryAfterSourceAt',0)):
                     continue
                 sign = 1 if sig['direction']=='LONG' else -1
+                if cfg.get('relaxed') and abs(price['price']-sig['referenceClose']) > .8*sig['atr']:
+                    a['reason']='entry-price-drift-over-0.8atr'
+                    continue
                 risk = sig['atr']*1.5
                 # Frozen objective, reject already extended entry with insufficient room.
                 target = sig['level']+sign*3*risk
-                if sign*(target-price['price'])/risk < 1.5:
+                if not target_room(target,price['price'],risk,sig['direction'],cfg):
                     a['reason']='entry-too-late'; a['lastSignal']=signal_key
                     continue
                 a['started'] += 1; a['lastSignal']=signal_key
+                if cfg.get('continuation'):
+                    if sig.get('setup')=='closed-5m-follow-through':
+                        a['followThroughEntries'] += 1
+                    else:
+                        a['baselineOverlapEntries'] += 1
                 a['position'] = dict(id=f'{VERSION}:{key}:{int(now)}',arm=key,version=VERSION,
                     ruleVersion=market.get('ruleVersion'),entryObservedAt=now,entrySourceAt=price['at'],
-                    signalEvidence=copy.deepcopy(sig), signalClosedAt=sig['closedAt'],entryPrice=price['price'],direction=sig['direction'],
+                    signalEvidence=copy.deepcopy(sig), signalClosedAt=sig['closedAt'],
+                    setupType=sig.get('setup') if cfg.get('continuation') else None,
+                    entryPrice=price['price'],direction=sig['direction'],
                     hourDirection=trend.get('direction'),stop=price['price']-sign*risk,target=target,risk=risk,
+                    atr=sig['atr'],stopAdjustments=0,
                     horizonMinutes=horizon,costAssumptionPct=COST_PCT,estimatedUsed=bool(sig.get('estimated')),
                     lastSourceAt=price['at'],lastObservedAt=now,maxAdversePct=0.,maxFavorablePct=0.,
                     status='open',exitPolicy=EXIT_POLICY,realOrders=False,productReturnVerified=False)
@@ -482,4 +632,5 @@ def report(conn):
     return dict(version=VERSION,status=s['status'],startedAt=s['startedAt'],checkedAt=s['checkedAt'],
                 deadlineAt=s['deadlineAt'],variants=arms,latency=audit,recentLatency=s['recentLatency'],
                 horizonsMinutes=list(HORIZONS),timeframesMinutes=[3,5,7],lookbackMinutes=105,
+                continuationVariant='follow5',
                 exitPolicy=EXIT_POLICY,strategyWinnerConfirmed=False,liveRulesChanged=False,realOrders=False,note=NOTE)

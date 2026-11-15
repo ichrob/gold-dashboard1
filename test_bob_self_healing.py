@@ -257,9 +257,11 @@ class WatchdogTests(unittest.TestCase):
         opts = {"token": "test", "repo": "ichrob/gold-dashboard1", "requester": requester}
         self.assertEqual(watchdog.sync_issue([watchdog.PRODUCT_AUDIT_UNKNOWN], **opts),
                          "audit-unavailable")
+        # Query forms changed to smaller complete pages; the safety outcome
+        # remains unchanged when the private audit itself is unavailable.
         self.assertEqual(calls, [
-            ("GET", "/issues?state=open&per_page=100"),
-            ("GET", "/search/issues?q=repo%3Aichrob%2Fgold-dashboard1+is%3Aissue+is%3Aopen+in%3Atitle+%22%5BBob+KI-Hilfe%5D%22&per_page=30"),
+            ("GET", "/issues?state=open&per_page=10&page=1"),
+            ("GET", "/search/issues?q=repo%3Aichrob%2Fgold-dashboard1+is%3Aissue+is%3Aopen+in%3Atitle+%22%5BBob+KI-Hilfe%5D%22&per_page=10&page=1"),
         ])
 
     def test_never_publish_private_product_content_on_issues(self):

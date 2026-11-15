@@ -79,6 +79,71 @@
    steps:[!!chosen,!!(chosen?.snapshot.product?.referenceConfirmed||validPlan),validPlan,
     !!active,!!(active&&active.pushDevices>0),!!(!active&&!pending&&closed),!!(!active&&!pending&&closed&&(Number.isFinite(closed.evaluation?.realizedNetCHF)||Number.isFinite(closed.evaluation?.realizedNetProduct)||Number.isFinite(closed.snapshot.settlement?.netCHF)))]};
  }
+ function manualDegiroHandoff(state,plan){
+  const section=document.createElement('section');section.id='bobManualDegiroHandoff';section.className='card';
+  const heading=document.createElement('h4');heading.textContent='DEGIRO · manuelle Handelsübergabe';section.append(heading);
+  function line(text){const p=document.createElement('p');p.textContent=text;section.append(p);}
+  function copyButton(label,value,parent=section){
+   const b=document.createElement('button');b.type='button';b.textContent=label;parent.append(b);
+   b.onclick=async()=>{try{
+     if(!navigator.clipboard?.writeText)throw Error('not available');
+     await navigator.clipboard.writeText(String(value));b.textContent='✓ Kopiert';
+   }catch(_){b.textContent='Kopieren nicht möglich · Wert oben markieren';}};
+  }
+  const link=document.createElement('a');link.href='https://www.degiro.ch/';link.rel='noopener noreferrer';
+  link.target='_blank';link.textContent='DEGIRO-Webseite manuell öffnen';
+  const trade=state.active;
+  if(!trade){
+   line('Vor einem Kauf: Bob berechnet das Produkt und den Einsatz. Du prüfst ISIN, tatsächlichen Briefkurs, Orderart, Menge und Gebühren in DEGIRO und bestätigst selbst.');
+   const d=document.createElement('details'),summary=document.createElement('summary'),result=document.createElement('p'),b=document.createElement('button');
+   summary.textContent='Kaufentwurf aus dem Formular · ungeprüft';b.type='button';b.textContent='Entwurfswerte anzeigen';
+   b.onclick=()=>{
+    const field=k=>document.querySelector('[data-exit="'+k+'"]')?.value?.trim()||'';
+    const isin=field('isin').toUpperCase(),qty=Number(field('quantity')),price=Number(field('entry')),dir=field('direction');
+    if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin)||!Number.isSafeInteger(qty)||qty<=0||
+       !Number.isFinite(price)||price<=0||!['LONG','SHORT'].includes(dir)){
+     result.textContent='ISIN, Richtung, ganze Stückzahl und Produktpreis im Formular vervollständigen. Keine Handelsfreigabe.';return;
+    }
+    result.replaceChildren();
+    const text=document.createElement('p');
+    text.textContent='Entwurf: '+isin+' · '+dir+' · '+qty+' Stück · '+price+
+     ' EUR (unbestätigt, kein aktueller Brief-/Ausführungskurs). Selbst bei DEGIRO überprüfen.';
+    result.append(text);
+    copyButton('ISIN kopieren',isin,result);
+    copyButton('Stückzahl kopieren',qty,result);
+    copyButton('Produktpreis kopieren · unbestätigt',price,result);
+   };
+   d.append(summary,b,result);section.append(d,link);return section;
+  }
+  const p=trade.snapshot?.product||{},qty=Number(p.quantity),receipt=trade.snapshot?.purchase||{};
+  const hasReceipt=typeof receipt.transactionId==='string'&&receipt.transactionId.length>0&&
+    (typeof receipt.at==='string'&&receipt.at.length>0||typeof receipt.executedLocal==='string'&&receipt.executedLocal.length>0);
+  if(!hasReceipt){
+   line('Bobs aktive Überwachung ist noch kein belegter DEGIRO-Kauf. Ohne eindeutige Ausführungsquittung keine Verkaufsvorbereitung. Kaufbeleg ergänzen.');
+   return section;
+  }
+  line('Kaufbeleg im Tradejournal vorhanden. Bob überwacht die Position; Stop-Änderung und Verkauf sind bei DEGIRO manuell auszuführen.');
+  if(!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(p.isin||'')||!Number.isSafeInteger(qty)||qty<=0){
+   line('Bestätigte Produkt-ISIN oder Stückzahl fehlt. Kein Verkaufsentwurf.');return section;
+  }
+  line('Bestand: '+p.isin+' · '+qty+' Stück · '+(trade.snapshot.dir||'')+'.');
+  copyButton('ISIN kopieren',p.isin);copyButton('Stückzahl kopieren',qty);
+  const stop=document.createElement('details'),sh=document.createElement('summary'),sp=document.createElement('p');
+  sh.textContent='Stopp-Loss nachziehen · manuell';
+  sp.textContent=state.validPlan&&Number.isFinite(plan?.stop)
+   ?'Bobs errechneter Produkt-Stopp ≈ '+plan.stop.toFixed(4)+' '+(plan.currency||'EUR')+
+     '. Erst bisherigen Broker-Stopp prüfen; niemals lockern. Keine bestätigte DEGIRO-Order.'
+   :'Produkt-Stopp nicht vollständig belegt. Keine Broker-Stoppänderung aus einem Modellkurs.';
+  stop.append(sh,sp);
+  const sale=document.createElement('details'),sellHead=document.createElement('summary'),info=document.createElement('p');
+  sellHead.textContent='Ausstieg bei Stop, Ziel oder Trendumkehr · manuell';
+  info.textContent='In DEGIRO die ISIN '+p.isin+' prüfen. Für einen vollständigen Ausstieg '+qty+
+   ' bestätigte Stück verkaufen. Offene Stop-/Verkaufsorders, Handelsplatz, Geldkurs und Gebühren selbst prüfen. '+
+   'Teilverkäufe können im derzeitigen Bob-Journal noch nicht als verbleibende Position automatisch abgeglichen werden. '+
+   'Nach tatsächlicher Ausführung den Verkaufsbeleg in Bob dokumentieren.';
+  sale.append(sellHead,info);section.append(stop,sale,link);
+  return section;
+ }
  function renderWorkflow(){
   const root=el('tradeWorkflow');if(!root)return;
   const current=window.BobTradeSync?.current(),plan=window.BobTradeSync?.plan?.();
@@ -97,6 +162,7 @@
    }
    const note=document.createElement('p');note.textContent='Stop bei DEGIRO selbst eintragen. Bob kann die Übernahme beim Broker nicht bestätigen.';root.append(note);
   }
+  if(!state.closed)root.append(manualDegiroHandoff(state,plan));
   if(!state.closed){const b=document.createElement('button');b.type='button';b.textContent=!state.chosen?'Ausführungsbeleg hinzufügen':state.active?'Trade und Push-Status ansehen':'Fehlenden Nachweis ansehen';b.onclick=()=>{const target=!state.chosen?el('bobTradeUpload'):state.active?el('stopPanel'):el('bobExitEstimate');for(let n=target;n;n=n.parentElement)if(n.tagName==='DETAILS')n.open=true;target?.scrollIntoView({behavior:'smooth',block:'start'});};root.append(b);}
  }
  async function importMailPurchase(){

@@ -8,6 +8,7 @@ URL = 'https://api.gold-api.com/price/XAU'
 POLL_SECONDS = 30
 NEAR_EXPIRY_SECONDS = 30  # Original quote age, not time since the HTTP request.
 NEAR_EXPIRY_RETRY_SECONDS = 5
+FINAL_BUNDLE_RETRY_MAX_WAIT_SECONDS = 3
 _lock = threading.Lock()
 _quote = None
 _attempted = float('-inf')
@@ -41,6 +42,25 @@ def _cached_observation():
     return dict(quote,refreshWarning='Letzter Abruf fehlgeschlagen; gespeicherter Kurs innerhalb 60 Sekunden' if error else None)
 
 
+def final_bundle_retry_wait(source_at, max_wait=FINAL_BUNDLE_RETRY_MAX_WAIT_SECONDS):
+    """Return a tiny wait until the next already-permitted provider attempt.
+
+    Bundle assembly can finish a couple of seconds before the shared 30-second
+    provider cadence opens again. Waiting is allowed only for the exact cached
+    original, with no active request or provider cooldown, and never extends a
+    source timestamp or changes the ordinary polling interval.
+    """
+    if (not isinstance(source_at, str) or type(max_wait) not in (int, float)
+            or not 0 < max_wait <= FINAL_BUNDLE_RETRY_MAX_WAIT_SECONDS
+            or _lock.locked() or (_quote or {}).get('at') != source_at):
+        return None
+    now = time.monotonic()
+    if now < _retry_at:
+        return None
+    remaining = _poll_interval() - (now - _attempted)
+    return remaining if 0 < remaining <= max_wait else None
+
+
 def primary(blocking=True):
     global _quote, _attempted, _error, _route, _retry_at, _near_expiry_retried_at
     # Serialize provider access, including concurrent browser, monitor and model requests.
@@ -65,6 +85,15 @@ def primary(blocking=True):
                     after = datetime.fromisoformat(q['at'])
                     if after < before or (after == before and q['price'] != _quote['price']):
                         raise ValueError('Spot-Kurszeit rückläufig oder widersprüchlicher Kurs')
+                # Prospective source-clock evidence only: no price, product or
+                # account data. This distinguishes a provider-repeated original
+                # timestamp from a Bob handoff delay without changing polling.
+                print(
+                    "BOB_SPOT_FETCH_EVIDENCE source_at=%s age_ms=%d repeated=%s early_retry=%s route=%d"
+                    % (q['at'], int(round(age * 1000)), q['at'] == previous_at,
+                       poll_interval == NEAR_EXPIRY_RETRY_SECONDS, _route),
+                    flush=True,
+                )
                 if _error:
                     logging.info("BOB_MARKET_RECOVERY source=spot state=recovered")
                 # A provider observation first received close to expiry gets one
@@ -76,6 +105,14 @@ def primary(blocking=True):
                 _error = type(exc).__name__
                 if previous_at and poll_interval == NEAR_EXPIRY_RETRY_SECONDS:
                     _near_expiry_retried_at = previous_at
+                # Failed requests have no verified new provider clock. Emit
+                # fixed, price-free attempt context to compare retry timing
+                # with separate original-study witnesses (never the raw error).
+                print(
+                    "BOB_SPOT_FETCH_FAILURE reason=%s early_retry=%s attempted_route=%d"
+                    % (_error, poll_interval == NEAR_EXPIRY_RETRY_SECONDS, _route),
+                    flush=True,
+                )
                 # Equivalent documented USD route; one attempt per 30 seconds,
                 # not a new provider or an invented source timestamp.
                 code = getattr(exc, 'code', None)

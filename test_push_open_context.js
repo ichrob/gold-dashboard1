@@ -16,6 +16,8 @@ for(const term of ['FRÜHWARNUNG · SHORT','abgelaufen','Haupttrend: LONG','Eins
 assert(!text.includes('NEVER DISPLAY'));
 listener({data:{type:'BOB_PUSH_CLICK',data:{kind:'general',eventKind:'signal-change',direction:'LONG',generatedAt:Date.now()}}});
 assert(nodes.pushOpenedText.textContent.includes('BESTÄTIGTES EINSTIEGSSIGNAL · LONG'));
+listener({data:{type:'BOB_PUSH_CLICK',data:{kind:'general',eventKind:'market-scenario',direction:'SHORT',generatedAt:Date.now()}}});
+assert(nodes.pushOpenedText.textContent.includes('BESTÄTIGTES SZENARIO · EINSTIEG ABWARTEN · SHORT'));
 fresh=false;env.signalState.dir='LONG';interval();
 assert(nodes.pushOpenedText.textContent.includes('Einstieg: ABWARTEN'));
 assert(nodes.pushOpenedText.textContent.includes('Datenaktualität nicht bestätigt'));

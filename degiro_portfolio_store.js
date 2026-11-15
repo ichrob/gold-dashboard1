@@ -70,12 +70,16 @@ function save(storage,data,importedAt=new Date().toISOString()){
  const verified=load(store);
  if(!verified||verified.importedAt!==snapshot.importedAt||
     verified.records.length!==snapshot.records.length)throw Error('Speichern konnte nicht bestätigt werden.');
+ if(root.document&&typeof root.Event==='function')
+  root.document.dispatchEvent(new root.Event('bob-degiro-csv-changed'));
  return verified;
 }
 function clear(storage){
  const store=safeStorage(storage);
  store.removeItem(KEY);
  if(store.getItem(KEY)!==null)throw Error('Löschen konnte nicht bestätigt werden.');
+ if(root.document&&typeof root.Event==='function')
+  root.document.dispatchEvent(new root.Event('bob-degiro-csv-changed'));
 }
 function el(doc,tag,cls,text){
  const x=doc.createElement(tag);if(cls)x.className=cls;

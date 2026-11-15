@@ -10,14 +10,37 @@ def init(conn):
     import training_handoff, model_gap_review
     model_gap_review.init(conn)
     training_handoff.init(conn)
-    conn.execute('CREATE TABLE IF NOT EXISTS bob_test_repair_control (id INTEGER PRIMARY KEY,last_at BIGINT)')
-    conn.execute('INSERT INTO bob_test_repair_control(id,last_at) VALUES(1,NULL) ON CONFLICT DO NOTHING')
-    conn.execute('ALTER TABLE bob_test_repair_control ADD COLUMN IF NOT EXISTS signal_cursor TEXT')
-    conn.execute('''CREATE TABLE IF NOT EXISTS bob_test_repairs (
-      id TEXT PRIMARY KEY,kind TEXT NOT NULL,ref JSONB NOT NULL,
-      status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,
-      next_at BIGINT NOT NULL,payload JSONB NOT NULL)''')
-    conn.execute('CREATE INDEX IF NOT EXISTS bob_test_repairs_due ON bob_test_repairs(next_at) WHERE status=\'trying\'')
+    # Existing workers update the singleton while a rolling replacement starts.
+    # INSERT .. ON CONFLICT still waits for that row transaction, and even a
+    # no-op ALTER/CREATE INDEX takes relation locks until the complete startup
+    # transaction commits.  Read the catalogs first so established databases
+    # do not enter those locking statements.  IF NOT EXISTS remains the race
+    # guard for a genuine first installation.
+    control = conn.execute(
+        "SELECT to_regclass('bob_test_repair_control')").fetchone()
+    if not control or control[0] is None:
+        conn.execute('CREATE TABLE IF NOT EXISTS bob_test_repair_control (id INTEGER PRIMARY KEY,last_at BIGINT)')
+    singleton = conn.execute(
+        'SELECT 1 FROM bob_test_repair_control WHERE id=1').fetchone()
+    if not singleton:
+        conn.execute('INSERT INTO bob_test_repair_control(id,last_at) VALUES(1,NULL) ON CONFLICT DO NOTHING')
+    columns = {row[0] for row in conn.execute('''
+        SELECT attname FROM pg_attribute
+        WHERE attrelid='bob_test_repair_control'::regclass
+          AND attnum>0 AND NOT attisdropped''').fetchall()}
+    if 'signal_cursor' not in columns:
+        conn.execute('ALTER TABLE bob_test_repair_control ADD COLUMN IF NOT EXISTS signal_cursor TEXT')
+    repairs = conn.execute(
+        "SELECT to_regclass('bob_test_repairs')").fetchone()
+    if not repairs or repairs[0] is None:
+        conn.execute('''CREATE TABLE IF NOT EXISTS bob_test_repairs (
+          id TEXT PRIMARY KEY,kind TEXT NOT NULL,ref JSONB NOT NULL,
+          status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,
+          next_at BIGINT NOT NULL,payload JSONB NOT NULL)''')
+    due_index = conn.execute(
+        "SELECT to_regclass('bob_test_repairs_due')").fetchone()
+    if not due_index or due_index[0] is None:
+        conn.execute('CREATE INDEX IF NOT EXISTS bob_test_repairs_due ON bob_test_repairs(next_at) WHERE status=\'trying\'')
 
 
 def enqueue(conn,key,kind,ref,payload,now):

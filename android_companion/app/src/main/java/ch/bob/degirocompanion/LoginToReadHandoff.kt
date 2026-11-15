@@ -8,9 +8,23 @@ package ch.bob.degirocompanion
 internal object LoginToReadHandoff {
     private const val MAX_MILLIS = 65_000L
     private var armedAt = -1L
-    fun arm(now: Long) {
+    var searchQuery: String? = null; private set
+    var sessionOnly = false; private set
+    data class DetailRefresh(val batch: String, val listAt: String, val entries: List<SelectiveDetailPlan.Entry>)
+    var detailRefresh: DetailRefresh? = null; private set
+    var freshGold = false; private set
+    var generation = 0; private set
+    fun arm(now: Long, query: String? = null, sessionOnly: Boolean = false, freshGold: Boolean = false, detailRefresh: DetailRefresh? = null) {
+        require(detailRefresh==null || (!freshGold && !sessionOnly && query==null))
+        if(detailRefresh!=null) require(detailRefresh.entries.size in 1..3 && detailRefresh.batch.matches(Regex("[a-f0-9]{32}")) &&
+            SelectiveDetailPlan.validate(detailRefresh.entries,detailRefresh.entries.map { it.isin })!=null)
+        require(!freshGold || (!sessionOnly && query == null))
+        require(!sessionOnly || query == null)
+        require(query == null || DegiroGoal.acceptsQuery(query))
         check(armedAt < 0L) { "Anmeldung läuft bereits." }
-        armedAt = now
+        this.detailRefresh = detailRefresh
+        this.freshGold = freshGold
+        generation++; searchQuery = query; this.sessionOnly = sessionOnly; armedAt = now
     }
     fun pending(now: Long): Boolean = armedAt >= 0L && now >= armedAt && now - armedAt < MAX_MILLIS
     /** Success means a trusted, stable DEGIRO Markets screen was observed. */
@@ -19,5 +33,5 @@ internal object LoginToReadHandoff {
         clear()
         return allowed
     }
-    fun clear() { armedAt = -1L }
+    fun clear() { detailRefresh=null;generation++; searchQuery = null; sessionOnly = false; freshGold = false; armedAt = -1L }
 }

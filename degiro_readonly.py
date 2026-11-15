@@ -13,6 +13,7 @@ SDK_VERSION = '3.0.36'
 _LOCK = threading.Lock()
 _LAST_ATTEMPT = 0.0
 _LAST_RESULT = None
+_LAST_QUOTE_RESULT = None
 AUTH_REASONS = frozenset({'RATE_LIMITED', 'ACCESS_DENIED', 'SERVICE_UNAVAILABLE',
                          'INVALID_LOGIN_RESPONSE', 'CAPTCHA_REQUIRED',
                          'TOTP_REQUIRED', 'APP_APPROVAL_REQUIRED', 'LOGIN_REJECTED', 'LOGIN_REDIRECT'})
@@ -48,25 +49,34 @@ def status():
             'ready': version == SDK_VERSION and configured,
             'brokerConnectionTested': _LAST_RESULT is not None,
             'lastTest': dict(_LAST_RESULT) if _LAST_RESULT else None,
+            'lastQuoteTest': dict(_LAST_QUOTE_RESULT) if _LAST_QUOTE_RESULT else None,
             'liveOrdersEnabled': False}
 
 
-def probe(otp=''):
-    global _LAST_RESULT
-    result = _probe(otp)
+def probe(otp='', quote_request=None):
+    global _LAST_RESULT, _LAST_QUOTE_RESULT
+    result = _probe(otp, quote_request)
     if result.get('code') not in {'BUSY', 'COOLDOWN', 'SETUP_REQUIRED'}:
         from datetime import datetime, timezone
-        _LAST_RESULT = {'code': result['code'],
+        receipt = {'code': result['code'],
                         'checkedAt': datetime.now(timezone.utc).isoformat(),
                         'authReason': result.get('authReason')}
-        _LAST_RESULT['loginResponse'] = safe_login_response(result.get('loginResponse'))
+        receipt['loginResponse'] = safe_login_response(result.get('loginResponse'))
+        if quote_request is None:
+            _LAST_RESULT = receipt
+        else:
+            _LAST_QUOTE_RESULT = {**receipt, 'twoSidedObserved': result.get('twoSidedObserved') is True,
+                                 'sourceTimesVerified': False, 'isExecutableQuote': False}
     return result
 
 
-def _probe(otp=''):
+def _probe(otp='', quote_request=None):
     global _LAST_ATTEMPT
     if not isinstance(otp, str) or (otp and not re.fullmatch(r'[0-9]{6}', otp)):
         raise ValueError('Bitte einen sechsstelligen Einmalcode eingeben oder das Feld leer lassen.')
+    if quote_request is not None:
+        from degiro_quote_probe import validate_request
+        quote_request = validate_request(quote_request)
     report = status()
     if not report['ready']:
         return {**report, 'ok': False, 'code': 'SETUP_REQUIRED'}
@@ -80,13 +90,22 @@ def _probe(otp=''):
         env = {key: os.environ[key] for key in ('PATH', 'LANG', 'SYSTEMROOT', 'PYTHONPATH',
                'BOB_DEGIRO_USERNAME', 'BOB_DEGIRO_PASSWORD') if key in os.environ}
         result = subprocess.run([sys.executable, str(Path(__file__).with_name('degiro_readonly_worker.py'))],
-                                input=json.dumps({'otp': otp}), capture_output=True,
+                                input=json.dumps({'otp': otp, **({'quoteRequest': quote_request} if quote_request is not None else {})}), capture_output=True,
                                 text=True, timeout=45, env=env)
         # Never return SDK output or stderr verbatim: these may contain secrets.
         data = json.loads(result.stdout)
-        codes = {'READ_OK', 'AUTH_REQUIRED', 'SDK_ERROR', 'INVALID_RESPONSE'}
+        from degiro_quote_probe import QUOTE_CODES
+        codes = {'READ_OK', 'AUTH_REQUIRED', 'SDK_ERROR', 'INVALID_RESPONSE'} | (QUOTE_CODES if quote_request is not None else set())
         if result.returncode or not isinstance(data, dict) or data.get('code') not in codes:
             raise ValueError('invalid worker result')
+        if quote_request is not None:
+            # Only fixed status evidence crosses the process boundary. Never SDK
+            # tokens, raw payloads, holdings or user-controlled error messages.
+            from degiro_quote_probe import safe_report
+            return {**safe_report(data),
+                    'authReason': data.get('authReason') if data.get('authReason') in AUTH_REASONS else None,
+                    'loginResponse': safe_login_response(data.get('loginResponse')),
+                    'logoutConfirmed': data.get('logoutConfirmed') is True}
         return {'ok': data['code'] == 'READ_OK', 'code': data['code'],
                 'authReason': data.get('authReason') if data.get('authReason') in AUTH_REASONS else None,
                 'loginResponse': safe_login_response(data.get('loginResponse')),

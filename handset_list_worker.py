@@ -337,7 +337,47 @@ def _process(payload,at,*,progress=None,save_progress=None):
             'localSources':[p is not None and 'localOcr' in image for p,image in zip(prepared,payload['images'])]}),text=True,capture_output=True,timeout=20,check=True)
     except subprocess.CalledProcessError as exc:
         raise ListVerificationError('Ten-row list verification failed') from exc
-    return json.loads(result.stdout)
+    parsed=json.loads(result.stdout)
+    # A private routing count, not a new issuer or trade approval. The original
+    # ten-row parser and retained source screenshot remain authoritative.
+    parsed['recognitionRoute']=recognition_route(payload['images'],prepared)
+    return parsed
+
+
+# No content, identity, screenshots, or proprietary OCR strings in this
+# operational receipt: only bounded counts identifying the actual route.
+_RECOGNITION_COUNTS = frozenset((
+    'appTextImages', 'phoneMlKitImages', 'serverOcrFallbackImages',
+    'missingPhoneReadingImages', 'rejectedPhoneReadingImages',
+))
+
+def recognition_route(source, prepared):
+    if len(source)!=len(prepared) or not 1<=len(source)<=4:
+        raise ValueError('Recognition routing bounds')
+    counts=dict.fromkeys(_RECOGNITION_COUNTS,0)
+    for image, accepted in zip(source,prepared):
+        if accepted is not None:
+            if 'appText' in image: counts['appTextImages']+=1
+            elif 'localOcr' in image: counts['phoneMlKitImages']+=1
+            else: raise ValueError('Unexpected phone recognition source')
+        else:
+            counts['serverOcrFallbackImages']+=1
+            if 'appText' in image or 'localOcr' in image:
+                counts['rejectedPhoneReadingImages']+=1
+            else: counts['missingPhoneReadingImages']+=1
+    return counts
+
+def bounded_recognition_route(value):
+    if value is None: return None  # Previously saved batches remain valid.
+    if not isinstance(value,dict) or set(value)!=_RECOGNITION_COUNTS or any(
+        type(v) is not int or not 0<=v<=4 for v in value.values()
+    ): raise ValueError('Invalid OCR route counts')
+    if (value['appTextImages']+value['phoneMlKitImages']+value['serverOcrFallbackImages']
+            not in range(1,5)
+            or value['missingPhoneReadingImages']+value['rejectedPhoneReadingImages']
+            !=value['serverOcrFallbackImages']):
+        raise ValueError('Inconsistent OCR route counts')
+    return value
 
 
 def persist_progress(connect,batch,progress):
@@ -365,6 +405,8 @@ def persist_parsed(connect,batch,parsed,sleep=time.sleep):
                 if not result.get('ok') or (not result.get('preserved') and result.get('products')!=10):raise ValueError('Persistence not confirmed')
                 stage='superseded' if result.get('preserved') else 'synced'
                 receipt={'batchId':batch,'stage':stage,'count':10,'at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}
+                route=bounded_recognition_route(parsed.get('recognitionRoute'))
+                if route is not None: receipt['recognitionRoute']=route
                 conn.execute('UPDATE bob_android_list_images SET parsed_items=%s::jsonb,import_receipt=%s::jsonb,ocr_progress=NULL WHERE batch_id=%s',(json.dumps(parsed['items']),json.dumps(receipt),batch))
                 conn.commit()
             return stage
@@ -388,20 +430,26 @@ def tick(connect,runner=process):
             JOIN bob_android_diagnostic_devices d USING(token_hash)
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
+            AND NOT (COALESCE(i.import_receipt->>'error','')='ListVerificationError'
+                AND COALESCE(i.import_receipt->>'enhancedVerification','false')='true')
             AND (i.import_receipt->>'stage'='waiting-memory' OR i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error' IN ('MemoryError','ListVerificationError')))
                 OR (i.processing_attempts=4 AND i.import_receipt->>'error' IN ('InterruptedWorker','MemoryError'))
                 OR (i.processing_attempts=5 AND i.import_receipt->>'error' IN ('CalledProcessError','LockNotAvailable','DeadlockDetected','SerializationFailure')))
-            AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
+            AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes'
+                OR (i.import_receipt->>'stage'='read-failed'
+                    AND i.import_receipt->>'error'='ListVerificationError'
+                    AND i.processing_at<now()-interval '30 seconds'))
             ORDER BY i.created_at DESC LIMIT 1 FOR UPDATE OF i SKIP LOCKED""").fetchone()
         if not row:
             observe("idle")
             return False
         batch,payload,created,attempts,previous,*extra=row
         progress=extra[0] if extra else None
-        # One enhanced pass after three failed list-verification attempts.
-        # It is never repeated for a second verification failure.
-        # The original evidence and strict 10-ISIN gate remain unchanged.
-        alternate=(attempts==3 and (previous or {}).get('stage')=='read-failed'
+        # Switch immediately after the first completed verification failure.
+        # Do not repeat identical optical work three times with four-minute
+        # leases between attempts. Existing legacy failures at 2/3 also recover.
+        # A failed enhanced verification is terminal, even below three attempts.
+        alternate=(1<=attempts<=3 and (previous or {}).get('stage')=='read-failed'
             and (previous or {}).get('error')=='ListVerificationError')
         reading={'batchId':batch,'stage':'reading','count':0,
                  'memoryDeferrals':memory_deferrals(previous)}
@@ -430,6 +478,10 @@ def tick(connect,runner=process):
             raise ValueError('Mismatched evidence')
         stage=persist_parsed(connect,batch,parsed)
         observe(stage)
+        if stage in ('synced','superseded'):
+            route=bounded_recognition_route(parsed.get('recognitionRoute'))
+            if route is not None:
+                with _state_lock: _state['lastRecognitionRoute']=route
     except OcrMemoryDeferred:
         receipt=deferred_memory_receipt(batch,previous)
         exhausted=not receipt['retryAllowed']
@@ -447,7 +499,8 @@ def tick(connect,runner=process):
             # A failed global reconciliation must permit fresh optical reads;
             # an individually agreed subset is not proof of a complete image.
             clear_progress=',ocr_progress=NULL' if isinstance(exc,ListVerificationError) else ''
-            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb"+clear_progress+" WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,'memoryDeferrals':memory_deferrals(previous)}),batch))
+            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb"+clear_progress+" WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,'memoryDeferrals':memory_deferrals(previous),
+                'enhancedVerification':bool(alternate and isinstance(exc,ListVerificationError))}),batch))
             conn.commit()
     return True
 

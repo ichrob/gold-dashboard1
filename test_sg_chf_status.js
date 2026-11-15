@@ -22,7 +22,8 @@ assert(card.includes('✓ Kurs/Hebel aktuell · Analyse'),card);
 assert(card.includes('✓ Gemeinsamer Zeitbezug bestätigt'),card);
 assert(card.includes('Ausführungskurs bei DEGIRO: nicht bestätigt'),card);
 assert(!card.includes('(✓) Kurs/Hebel'),card);
-assert(card.includes('DEGIRO-Handelsplatznachweis offen'),card);
+assert(!card.includes('DEGIRO-Handelsplatznachweis offen'),card);
+assert(!card.includes('data-swiss-dots-warning'),card);
 assert(card.includes('18.46')&&card.includes('18.48'),card);
 assert(card.includes('data-selection-blocked'),card);
 assert(!card.includes('data-selection-approved'),card);
@@ -53,9 +54,10 @@ console.log('SG Swiss DOTS CHF display-only timestamp and broker gate regression
 
 // Broker proof cannot be recovered by a quote retry alone.
 const venueCard=bob.compactProductCard(sample(),['BNP-Kursabruf: Quellenantwort veraltet']);
-assert(venueCard.includes('Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung?'));
-assert(!venueCard.includes('derzeit keine neuen Bilder erforderlich'));
-assert(!venueCard.includes('Du musst jetzt nichts tun.'));
+assert(!venueCard.includes('Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung?'));
+assert(venueCard.includes('Ausführungskurs bei DEGIRO: nicht bestätigt'));
+assert(!venueCard.includes('data-swiss-dots-warning'));
+assert(!venueCard.includes('DEGIRO-Handelsplatznachweis offen'));
 const observed=sample();
 observed.snapshot={isin,degiroDisplayedQuote:{isin,brokerDisplayConfirmed:true,isExecutableQuote:false,
  currency:'CHF',venue:'Societe Generale OTC',sourceTime:'16/10/2026 18:51',bid:16.95,ask:16.97}};
@@ -68,7 +70,8 @@ assert(!observedCard.includes('DEGIRO-Handelsplatznachweis offen'));
 assert(!observedCard.includes('data-swiss-dots-warning'));
 assert.equal(bob.currentQuote(observed,now),false);
 observed.snapshot.degiroDisplayedQuote.isin='DE000FG34XV8';
-assert(bob.compactProductCard(observed).includes('DEGIRO-Handelsplatznachweis offen'));
+assert(!bob.compactProductCard(observed).includes('DEGIRO-Handelsplatznachweis offen'));
+assert.equal(bob.currentQuote(observed,now),false);
 
 // Old primary leverage must not contradict the fresh shared SG chart/reference.
 const retained=sample();

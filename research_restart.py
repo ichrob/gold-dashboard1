@@ -6,6 +6,7 @@ All returns are fixed-horizon spot benchmarks, NOT executable KO returns.
 import copy
 import hashlib
 import json
+import math
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -38,9 +39,12 @@ def seed(now):
                 lessons=copy.deepcopy(LESSONS), checkedAt=None, lastSourceAt=None,
                 quality=dict(cycles=0, original=0, invalid=0, missingIntervals=0,
                              duplicateSource=0, waits=0, signals=0,
-                             workerErrors=0, stopObserved=0, targetObserved=0),
+                             workerErrors=0, stopObserved=0, targetObserved=0,
+                             recentOriginalChecks=[], recentOriginalOutcomes=[],
+                             recentOriginalFailureEvidence=[]),
                 studies={s: dict(started=0, complete=0, inconclusive=0,
-                                 lastKey=None, open=[], sums={}, observedWorst={}) for s in STUDIES})
+                                 lastKey=None, open=[], sums={}, observedWorst={},
+                                 inconclusiveEvidenceReasons={}) for s in STUDIES})
 
 
 def init(conn):
@@ -66,7 +70,7 @@ def start(conn, now):
     for profile, policy in paper_portfolios.POLICIES.items():
         # The older one-time quality restart must never retire or snapshot the
         # independent future-dated November user-requested paper comparison.
-        if policy.get('relaunch'):
+        if policy.get('relaunch') or policy.get('relaxed_ema') or policy.get('disable_ema_distance'):
             continue
         ledger = paper_portfolios.Ledger(conn, profile)
         row = ledger.execute('SELECT payload FROM bob_paper_control WHERE id=1 FOR UPDATE').fetchone()
@@ -111,7 +115,101 @@ def leg(direction=None, entry=None, wait=False):
                 adversePct=0., stopObserved=False, targetObserved=False)
 
 
-def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
+# Fixed, bounded evidence categories; none of these can make an input valid.
+TERMINAL_EVIDENCE_REASONS = frozenset((
+    'original-source-gap-over-90s',
+    'worker-observation-gap-over-90s',
+    'delayed-entry-original-unobserved',
+    'original-path-unverified',
+    'terminal-original-exit-unobserved',
+    'estimated-path-unverified',
+))
+
+
+def worker_observation_gap(previous_check, now, observations=None):
+    """Return whether actual enqueue observations contain a gap over 90s.
+
+    A quality tick only runs for a strictly newer admissible study bundle.
+    Retained enqueue candidates still prove that the worker observed the
+    collector handoff, but must never count as a fresh source or fill a study
+    path.  Use their bounded process-local timestamps solely for the worker
+    cadence classification.  Missing or malformed evidence fails back to the
+    original checkedAt clock; the strict 90-second threshold is unchanged.
+    """
+    if type(previous_check) not in (int, float) or not math.isfinite(previous_check):
+        return False
+    if type(now) not in (int, float) or not math.isfinite(now) or now < previous_check:
+        return True
+    if observations is None:
+        return now - previous_check > 90000
+    if not isinstance(observations, (list, tuple)):
+        return now - previous_check > 90000
+    points = [previous_check]
+    last_observed = None
+    for value in observations:
+        if type(value) not in (int, float) or not math.isfinite(value):
+            return now - previous_check > 90000
+        if last_observed is not None and value < last_observed:
+            return True
+        last_observed = value
+        if previous_check < value < now and value > points[-1]:
+            points.append(value)
+    points.append(now)
+    return any(end - start > 90000 for start, end in zip(points, points[1:]))
+
+
+def original_failure_evidence(quality, bundle, market, now, timeframe):
+    """Preserve a tiny, causal-clock witness without prices, broker data or IDs.
+
+    Read-only explanation of a rejection. Never changes verified, freshness or
+    the source/analysis admission policy, and never infers a historical cause.
+    """
+    from paper_shadow_studies import ORIGINAL_INPUT_REASONS, number
+    source = quality.get('sourceAt')
+    analysis = quality.get('analysisBarAt')
+    data_at = market.get('dataAt')
+    spots = (bundle or {}).get('spots') or {}
+    code = quality.get('reasonCode')
+    if code not in ORIGINAL_INPUT_REASONS:
+        code = 'original-evidence-unverified'
+    age = round(now - source) if number(source) and number(now) else None
+    drift = round(data_at - source) if number(data_at) and number(source) else None
+    return dict(
+        checkedAt=int(now), sourceAt=int(source) if number(source) else None,
+        analysisBarAt=int(analysis) if number(analysis) else None,
+        reasonCode=code, timeframe=timeframe,
+        sourceAgeMs=age if age is not None and -86400000 <= age <= 86400000 else None,
+        dataSourceDeltaMs=drift if drift is not None and abs(drift) <= 86400000 else None,
+        identityVerified=(spots.get('is_genuine_xauusd_spot') is True
+                          and spots.get('xaus_is_spot') is True),
+        closedSignalBarMatched=quality.get('closedSignalBarMatched') is True,
+        clockRelation=('missing' if age is None else 'future' if age < 0
+                       else 'stale-over-60s' if age > 60000 else 'within-60s'))
+
+
+def terminal_evidence_reason(case, *, modeled=False):
+    """Why a closed *inconclusive* reference case cannot be valued."""
+    flags = case.get('evidenceFlags') or {}
+    # Modeled paths never masquerade as observed original gaps.
+    if modeled:
+        return 'estimated-path-unverified'
+    if flags.get('sourceGapOver90s'):
+        return 'original-source-gap-over-90s'
+    if flags.get('workerGapOver90s'):
+        return 'worker-observation-gap-over-90s'
+    if flags.get('delayedEntryWindowMissed'):
+        return 'delayed-entry-original-unobserved'
+    if case.get('dataGap'):
+        return 'original-path-unverified'
+    return 'terminal-original-exit-unobserved'
+
+
+QUALITY_INPUT_CHECK_MAX_LAG_MS = 30000
+
+
+def advance(old, bundle, market, now, worker_outcomes=None,
+            worker_observations=None, *, modeled=False,
+            input_checked_at=None):
     """Pure state machine; all variants share a frozen event and common end.
 
     Gaps >90s exclude a case, even if an end quote later appears. Repeated source
@@ -125,14 +223,24 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
     if state['status'].startswith('completed'):
         return state, []
     timeframe = "5m" if market.get("entryTiming") in ("five-minute-confirmation", "two-minute-follow-through-v1") else "15m"
-    quality = original_input(bundle, market, now, timeframe)
+    # Product/audit persistence runs after the immutable market analysis.  A
+    # source that was still inside the strict 60-second gate when analysis
+    # completed must not become a false stale input merely because unrelated
+    # evidence writes took a few seconds.  Keep the actual study/persistence
+    # clock (`now`) for cases and gaps; only validate this exact analyzed input
+    # against its bounded, earlier completion clock.
+    quality_now = now
+    if (number(input_checked_at) and number(now)
+            and 0 <= now-input_checked_at <= QUALITY_INPUT_CHECK_MAX_LAG_MS):
+        quality_now = input_checked_at
+    quality = original_input(bundle, market, quality_now, timeframe)
     quality["signalTimeframe"] = timeframe
     quality["closedSignalBarMatched"] = quality.pop("closed15mMatched")
     if not quality["verified"]:
         quality["reason"] = "original-spot-or-"+timeframe+"-evidence-unverified"
     if modeled:
         from simulation_estimates import input_quality
-        quality = input_quality(quality,bundle,market,now,timeframe,state.get('lastOriginalInput'))
+        quality = input_quality(quality,bundle,market,quality_now,timeframe,state.get('lastOriginalInput'))
         state['simulationOnly'] = True
         state['dataPolicy'] = 'paper-gap-carry-v1'
         if quality['verified']:
@@ -145,16 +253,67 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
     q['cycles'] += 1
     q['workerErrors'] += sum(str(v).startswith('error') for v in (worker_outcomes or {}).values())
     valid = quality.get('simulationUsable',False) if modeled else quality['verified']
+    if not modeled:
+        # Only prospective, bounded study-health evidence. Cumulative
+        # historical invalid counts never trigger a new watchdog incident.
+        checks = q.get('recentOriginalChecks')
+        checks = checks if isinstance(checks,list) else []
+        q['recentOriginalChecks'] = [
+            row for row in checks[-63:]
+            if isinstance(row,dict) and type(row.get('at')) is int
+            and 0 <= now-row['at'] <= 20*60000
+            and type(row.get('valid')) is bool
+        ] + [dict(at=int(now),valid=bool(quality['verified']))]
+        outcomes = q.get('recentOriginalOutcomes')
+        outcomes = outcomes if isinstance(outcomes,list) else []
+        q['recentOriginalOutcomes'] = [
+            row for row in outcomes[-63:]
+            if isinstance(row,dict) and type(row.get('at')) is int
+            and 0 <= now-row['at'] <= 4*3600000
+            and row.get('study') in STUDIES
+            and type(row.get('complete')) is bool
+        ]
+        # "Recent" witnesses must age out even when every following input is
+        # valid. Pruning only while appending another failure left stale causes
+        # visible indefinitely during successful study cycles.
+        witnesses = q.get('recentOriginalFailureEvidence')
+        witnesses = witnesses if isinstance(witnesses, list) else []
+        q['recentOriginalFailureEvidence'] = [
+            row for row in witnesses[-16:]
+            if isinstance(row, dict)
+            and type(row.get('checkedAt')) is int
+            and 0 <= now - row['checkedAt'] <= 20 * 60000
+        ]
     if quality['verified']:
         q['original'] += 1
-    elif not valid:
-        q['invalid'] += 1
+    else:
+        # Cumulative compact counters are not reconstructed for historic
+        # observations. They start at this code revision without rewriting
+        # existing original cases or model-only outcomes.
+        code = quality.get('reasonCode')
+        from paper_shadow_studies import ORIGINAL_INPUT_REASONS
+        if code not in ORIGINAL_INPUT_REASONS:
+            code = "original-evidence-unverified"
+        reasons = q.setdefault('originalBlockReasons', {})
+        reasons[code] = reasons.get(code, 0) + 1
+        q['lastOriginalBlockAt'] = now
+        q['lastOriginalBlockCode'] = code
+        if not valid:
+            q['invalid'] += 1
+        if not modeled:
+            # Prospective evidence only. Older invalid results retain their
+            # original counts and cannot be retrospectively reconstructed.
+            # The per-cycle maintenance above already removed expired rows.
+            q['recentOriginalFailureEvidence'] = (
+                q['recentOriginalFailureEvidence'][-15:]
+                + [original_failure_evidence(quality, bundle, market, now, timeframe)]
+            )[-16:]
     fresh = valid and (state['lastSourceAt'] is None or at > state['lastSourceAt'])
     if valid and not fresh:
         q['duplicateSource'] += 1
     # Session breaks are not outages. An open hour-long case crossing them is
     # still excluded, and new cases stop at 20:55 Zurich.
-    gap = bool(previous_check and now-previous_check > 90000)
+    gap = worker_observation_gap(previous_check, now, worker_observations)
     if gap:
         a = datetime.fromtimestamp(previous_check/1000, ZoneInfo('Europe/Zurich'))
         b = datetime.fromtimestamp(now/1000, ZoneInfo('Europe/Zurich'))
@@ -186,8 +345,20 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                 case['lastEstimate'] = copy.deepcopy(quality) if quality.get('estimated') else dict(
                     method='unobserved-path-between-originals',fromAt=previous_check,toAt=now,
                     calculatedAt=now,simulationOnly=True,extremesKnown=False)
-            if not valid or (gap and not bounded_gap):
+            # A single rejected ORIGINAL tick is not necessarily a >90s
+            # observation gap. Never fill it or infer a stop/exit: only allow
+            # a later authentic source clock within the already accepted window.
+            # Modeled cases deliberately retain their separate gap policy.
+            if modeled:
+                if not valid or (gap and not bounded_gap):
+                    case['dataGap'] = True
+            elif not valid:
+                case['invalidOriginalChecks'] = case.get('invalidOriginalChecks', 0) + 1
+                if number(case.get('lastAt')) and now-case['lastAt'] > 90000:
+                    case['dataGap'] = True
+            if not modeled and gap:
                 case['dataGap'] = True
+                case.setdefault('evidenceFlags', {})['workerGapOver90s'] = True
             if fresh:
                 if at-case['lastAt'] > 90000:
                     if modeled and at-case['lastAt'] <= MAX_WORKER_GAP and same_session(case['lastAt'],at):
@@ -195,6 +366,7 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                         case['unobservedPath'] = True
                     else:
                         case['dataGap'] = True
+                        case.setdefault('evidenceFlags', {})['sourceGapOver90s'] = True
                 case['lastAt'] = at
                 # Frozen direction; opposite signals do not fill the old intent.
                 for name, l in case['legs'].items():
@@ -212,6 +384,7 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                                     l['wait'] = True
                                 elif at > due+GRACE:
                                     case['dataGap'] = True
+                                    case.setdefault('evidenceFlags', {})['delayedEntryWindowMissed'] = True
                     if l['entry']:
                         sign = 1 if l['direction'] == 'LONG' else -1
                         move = sign*(quality['price']/l['entry']['price']-1)*100
@@ -234,6 +407,9 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                 pending.append(case)
                 continue
             case['closedAt'] = now
+            case['outcomeEvidenceCode'] = (
+                'observed-common-horizon' if case['status'] == 'complete'
+                else terminal_evidence_reason(case, modeled=modeled))
             case['returnsPct'] = {}
             if case['status'] == 'complete':
                 for name, l in case['legs'].items():
@@ -247,6 +423,17 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
                     ctl['estimatedComplete'] = ctl.get('estimatedComplete',0)+1
             else:
                 ctl['inconclusive'] += 1
+                counts = ctl.setdefault('inconclusiveEvidenceReasons', {})
+                reason = case['outcomeEvidenceCode']
+                if reason not in TERMINAL_EVIDENCE_REASONS:
+                    reason = 'original-path-unverified'
+                counts[reason] = counts.get(reason, 0) + 1
+            if not modeled and case.get('inputGapPolicy') == 'original-observed-over-90s-v2':
+                # Never reclassify historical original cases or model runs.
+                rows = q['recentOriginalOutcomes']
+                rows.append(dict(at=int(now),study=study,
+                                 complete=case['status']=='complete'))
+                q['recentOriginalOutcomes'] = rows[-64:]
             closed.append(case)
         ctl['open'] = pending
     if fresh:
@@ -277,6 +464,8 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
             case = dict(id=VERSION+':'+study+':'+str(int(at)), study=study, at=at,
                         endAt=at+HORIZON, lastAt=at, direction=d, legs=legs,
                         dataGap=False, regime=regime, originalInput=quality,
+                        inputGapPolicy=('estimated-paper-gap-carry-v1' if modeled
+                                        else 'original-observed-over-90s-v2'),
                         plan=copy.deepcopy(market.get('plan')), status='pending',
                         scope='spot-reference-not-product-return', costAssumptionPct=.16)
             if modeled:
@@ -291,7 +480,8 @@ def advance(old, bundle, market, now, worker_outcomes=None, *, modeled=False):
     return state, closed
 
 
-def tick(conn, bundle, market, now, worker_outcomes=None):
+def tick(conn, bundle, market, now, worker_outcomes=None,
+         worker_observations=None, input_checked_at=None):
     row = conn.execute('SELECT payload FROM bob_quality_campaign WHERE id=%s FOR UPDATE', (VERSION,)).fetchone()
     if not row:
         raise RuntimeError('quality-campaign-not-initialized')
@@ -300,14 +490,17 @@ def tick(conn, bundle, market, now, worker_outcomes=None):
         return
     original = copy.deepcopy(row[0])
     model_state = original.pop('modeledSimulation',None)
-    state, closed = advance(original, bundle, market, now, worker_outcomes)
+    state, closed = advance(
+        original,bundle,market,now,worker_outcomes,worker_observations,
+        input_checked_at=input_checked_at)
     # A prospective companion starts once, without reclassifying old originals.
     # Same signals and costs; only its bounded data-gap policy differs.
     if model_state is None:
         model_state = seed(now)
         model_state['deadlineAt'] = state['deadlineAt']
-    model_state, model_closed = advance(model_state,bundle,market,now,
-                                       worker_outcomes,modeled=True)
+    model_state, model_closed = advance(
+        model_state,bundle,market,now,worker_outcomes,worker_observations,
+        modeled=True,input_checked_at=input_checked_at)
     state['modeledSimulation'] = model_state
     closed += model_closed
     for case in closed:
@@ -330,17 +523,36 @@ def report(conn):
     return dict(version=VERSION, status=state['status'], startedAt=state['startedAt'],
                 checkedAt=state['checkedAt'], deadlineAt=state['deadlineAt'], studies=studies,
                 modeledSimulation=modeled,
+                historicalReview=__import__('study_case_review').report(conn, VERSION),
                 lessons=state['lessons'], lastDecision=state.get('lastDecision'), legacySnapshots=state.get('legacySnapshots'),
                 realOrders=False, liveRulesChanged=False, winnerVerified=False,
                 note='60-Minuten-Spotvergleich mit 0,16 % Modellkosten; keine KO-Produktrendite. Originalauswertung und Simulation mit Schätzungen separat. Maximal 20 Kalendertage/200 Fälle je Vergleich, danach gesonderte Prüfung an neuen Daten. Stop/Ziel nur beobachtet, keine Ausführung behauptet.')
 
 
 def study_rows(state):
-    studies = [dict(id='reaction', label=LABELS['reaction'], **state['quality'])]
+    quality = state['quality']
+    cause_counts = quality.get('originalBlockReasons')
+    categorized = (sum(v for k, v in cause_counts.items()
+                       if k in __import__('paper_shadow_studies').ORIGINAL_INPUT_REASONS
+                       and type(v) is int and v >= 0)
+                   if isinstance(cause_counts, dict) else 0)
+    reaction = dict(id='reaction', label=LABELS['reaction'], **quality)
+    # Historical checks predate reason counters; the remainder is not a
+    # newly determined or independently verified cause.
+    reaction['originalLegacyUnclassified'] = max(0, quality['invalid'] - categorized)
+    studies = [reaction]
     for name, c in state['studies'].items():
         total = c['complete']+c['inconclusive']
+        reasons = c.get('inconclusiveEvidenceReasons')
+        reasons = ({key: value for key, value in reasons.items()
+                    if key in TERMINAL_EVIDENCE_REASONS
+                    and type(value) is int and 0 <= value <= c['inconclusive']}
+                   if isinstance(reasons, dict) else {})
+        categorized = sum(reasons.values())
         studies.append(dict(id=name, label=LABELS[name], started=c['started'], complete=c['complete'],
                             inconclusive=c['inconclusive'], open=len(c['open']),
+                            inconclusiveEvidenceReasons=reasons,
+                            historicalInconclusiveUnclassified=max(0, c['inconclusive'] - categorized),
                             qualityPct=round(100*c['complete']/total, 1) if total else None,
                             meanNetReferencePct={k:v/c['complete'] for k,v in c['sums'].items()} if c['complete'] else {},
                             estimatedComplete=c.get('estimatedComplete',0),

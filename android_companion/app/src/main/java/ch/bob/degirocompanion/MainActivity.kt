@@ -124,6 +124,12 @@ class MainActivity : Activity() {
             startActivity(Intent(this, ProductReadActivity::class.java)
                 .putExtra(ProductReadActivity.EXTRA_START_COMPLETE_FLOW, true))
         }
+        button("Mit Gemini an Bob arbeiten") {
+            startActivity(Intent(this, GeminiChatActivity::class.java))
+        }
+        button("Meine Aufträge · Screenshots, Sprache und Abläufe") {
+            startActivity(Intent(this, WorkflowActivity::class.java))
+        }
         button("DEGIRO-Leser · Einrichtung und Einzelprüfungen") {
             startActivity(Intent(this, ProductReadActivity::class.java))
         }
@@ -133,9 +139,9 @@ class MainActivity : Activity() {
         val termuxStatus = label(TermuxBridge.displayStatus(this))
         termuxCheckLabel = termuxStatus
         val maintenanceStatus=label(TermuxMaintenance.message)
-        button("Termux-Wartung für ChatGPT · 30 Minuten") {
+        button("Termux-Wartung für ChatGPT · 2 Stunden") {
             AlertDialog.Builder(this).setTitle("Termux-Wartung freigeben?")
-                .setMessage("Während 30 Minuten darf die separat berechtigte ChatGPT-Verbindung Linux-Befehle mit den Rechten von Termux ausführen. Diese können Termux-Dateien lesen und ändern. Bis zu 8 KiB Befehlsausgabe werden an deinen Bob-Server und ChatGPT übertragen. Das ist keine Sandbox. Keine Passwörter in Aufträge eingeben. Pro Befehl höchstens 20 Sekunden, keine dauerhaften Hintergrundprogramme. STOPP sperrt neue Aufträge; ein bereits laufender Befehl endet spätestens mit seinem Zeitlimit. Android kann Hintergrundarbeit unterbrechen. Die bisherige Produktfreigabe reicht hierfür nicht.")
+                .setMessage("Während 2 Stunden darf die separat berechtigte ChatGPT-Verbindung Linux-Befehle mit den Rechten von Termux ausführen. Diese können Termux-Dateien lesen und ändern. Bis zu 8 KiB Befehlsausgabe werden an deinen Bob-Server und ChatGPT übertragen. Das ist keine Sandbox. Keine Passwörter in Aufträge eingeben. Pro Befehl höchstens 20 Sekunden, keine dauerhaften Hintergrundprogramme. STOPP sperrt neue Aufträge; ein bereits laufender Befehl endet spätestens mit seinem Zeitlimit. Android kann Hintergrundarbeit unterbrechen. Die bisherige Produktfreigabe reicht hierfür nicht.")
                 .setNegativeButton("Abbrechen",null)
                 .setPositiveButton("Wartung starten") { _,_ ->
                     runCatching {TermuxMaintenance.start(this)}
@@ -740,6 +746,8 @@ class MainActivity : Activity() {
     }
 
     private fun emergencyStop() {
+        GeminiLocalSession.stop()
+        WorkflowService.stop()
         TermuxMaintenance.stop(this)
         getSharedPreferences("product_reader", MODE_PRIVATE).edit().putBoolean("enabled", false).apply()
         ProductReadRequest.cancel(); ProductReadSession.clear(); ProductReadDiagnostics.clear()

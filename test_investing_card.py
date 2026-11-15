@@ -87,6 +87,41 @@ class InvestingCardTests(unittest.TestCase):
             with self.assertRaises(ValueError):self.parse(state)
         with self.assertRaises(ValueError):self.parse(self.fixture(), -10)
 
+
+    def test_missing_json_unit_requires_explicit_visible_one_troy_ounce(self):
+        state=self.fixture()
+        del state['instrument']['commodityData']['unit']
+        nextdata='<script id="__NEXT_DATA__">'+json.dumps(
+            dict(props=dict(pageProps=dict(state=dict(commodityStore=state)))))+'</script>'
+        from unittest.mock import patch
+        import html
+        with self.assertRaises(ValueError):
+            c.parse(nextdata, 1791153281)
+        # This is the public unit displayed on the same German gold page;
+        # the strict CFD ID, USD currency and timestamp requirements still run.
+        visible='<div>Einheit</div><div>1 Feinunze</div>'
+        parsed=c.parse(nextdata+visible,1791153281)
+        self.assertEqual(parsed['unitEvidence'],'provider-visible-1-feinunze')
+        self.assertTrue(parsed['realtimeCfd'])
+        for invalid_visible in ('<div>Einheit</div><div>1 Kilogramm</div>',
+                                '<script>Einheit: 1 Feinunze</script>',
+                                '<div>Einheit</div><div>100 Feinunzen</div>',
+                                '<div>Unrelated</div><div>1 Feinunze</div>'):
+            with self.subTest(visible=invalid_visible):
+                with self.assertRaises(ValueError):
+                    c.parse(nextdata+invalid_visible,1791153281)
+        state['instrument']['commodityData']['unit']='_instr_unit_kg'
+        conflicting='<script id="__NEXT_DATA__">'+json.dumps(
+            dict(props=dict(pageProps=dict(state=dict(commodityStore=state)))))+'</script>'
+        with self.assertRaises(ValueError):
+            c.parse(conflicting+visible,1791153281)
+        state['instrument']['commodityData']['unit']=None
+        state['instrument']['base']['id']='wrong'
+        mismatched='<script id="__NEXT_DATA__">'+json.dumps(
+            dict(props=dict(pageProps=dict(state=dict(commodityStore=state)))))+'</script>'
+        with self.assertRaises(ValueError):
+            c.parse(mismatched+visible,1791153281)
+
     def test_absent_percentage_not_invented(self):
         state=self.fixture();del state['instrument']['price']['changePcr']
         self.assertIsNone(self.parse(state)['changePct'])

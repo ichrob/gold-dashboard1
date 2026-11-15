@@ -18,6 +18,15 @@ def readiness():
         return dict(status='disabled', evidenceDeleted=False)
     required = ('DATABASE_URL', 'BOB_ARCHIVE_PARENT_FOLDER_ID', 'BOB_ARCHIVE_RESTORE_DATABASE_URL') if os.environ.get('BOB_ARCHIVE_CREDENTIAL_SOURCE') == 'encrypted-store' else _REQUIRED
     missing = [key for key in required if not os.environ.get(key)]
+    # The old free Render restore instance expires on 2026-11-29. No automatic
+    # fallback or provider rotation: only the already configured, separate
+    # Aiven target may be used for NEW independent archive proofs.
+    if not missing:
+        from aiven_health import configured as aiven_restore_configured
+        if not aiven_restore_configured(os.environ):
+            return dict(status='blocked', missingConfiguration=[],
+                        reason='restore-target-not-aiven', evidenceDeleted=False,
+                        additionalPaidServices=False)
     return dict(status='blocked' if missing else 'ready', missingConfiguration=missing,
                 evidenceDeleted=False, restoreIsolation='separate-database-instance',
                 additionalPaidServices=False)
@@ -62,50 +71,63 @@ def cycle(db, runner=None):
     if _STATE['status'] != 'ready' or not _LOCK.acquire(blocking=False):
         return _STATE
     try:
-        day = datetime.now(timezone.utc).date()
         attempt = os.environ.get('BOB_ARCHIVE_ATTEMPT', 'scheduled')
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', attempt):
             _STATE = dict(status='blocked', errorType='InvalidAttemptId', evidenceDeleted=False)
             return _STATE
-        with db() as conn:
-            claimed = conn.execute('''INSERT INTO bob_archive_attempts(day,attempt,status)
-                VALUES(%s,%s,'running') ON CONFLICT DO NOTHING RETURNING day''', (day,attempt)).fetchone()
-        if not claimed:
-            _STATE = dict(status='already-attempted-today', evidenceDeleted=False)
-            return _STATE
-        try:
-            if runner is None:
-                from drive_evidence_archive import run, GoogleDrive
-                def runner():
-                    # Source is read-only; restoration requires a different server.
-                    dsn = os.environ['DATABASE_URL']
-                    if os.environ.get('BOB_ARCHIVE_CREDENTIAL_SOURCE') == 'encrypted-store':
-                        from archive_runtime import drive_client
-                        drive = drive_client(db)
-                    else:
-                        drive = GoogleDrive()
-                    return run(dsn, os.environ['BOB_ARCHIVE_RESTORE_DATABASE_URL'], os.environ.get('BOB_ARCHIVE_WORK_DIRECTORY', '/tmp/bob-archive'),
-                               drive, progress=lambda phase: _STATE.update(status='running', phase=phase))
-            result = runner()
-            if not (result.get('restoreVerified') is True and
-                    result.get('remoteDownloadVerified') is True and
-                    result.get('deletionPermitted') is False and result.get('receiptFileId') and
-                    (os.environ.get('BOB_ARCHIVE_ENCRYPT_BEFORE_UPLOAD') != '1' or
-                     (result.get('encryptionVerified') is True and
-                      result.get('encryptionVersion')=='aes-256-gcm-stream-v1'))):
-                raise ValueError('Verified remote receipt required')
-            _STATE = dict(status='verified', receipt=result, evidenceDeleted=False)
-        except Exception as error:
-            # Never persist/print OAuth responses, DSNs or signed upload URLs.
-            _STATE = dict(status='failed', errorType=type(error).__name__, phase=_STATE.get('phase'), evidenceDeleted=False)
-        try:
+        # Shared PostgreSQL session lock: cold writers, ordinary VACUUM and
+        # this full export cannot run simultaneously. Acquire before the daily
+        # claim; a busy slot must never consume an irrevocable attempt ID.
+        with db() as coordination:
+            acquired = coordination.execute(
+                "SELECT pg_try_advisory_lock(hashtext('bob_storage_maintenance_v1'))").fetchone()
+            if acquired != (True,):
+                _STATE = dict(status='busy', evidenceDeleted=False)
+                return _STATE
+            # End the implicit SELECT transaction while retaining the
+            # session lock until this dedicated connection closes.
+            if hasattr(coordination, 'commit'):
+                coordination.commit()
+            day = datetime.now(timezone.utc).date()
             with db() as conn:
-                conn.execute('''UPDATE bob_archive_attempts SET status=%s,updated_at=now(),receipt=%s::jsonb
-                    WHERE day=%s AND attempt=%s''', (_STATE['status'], json.dumps(_STATE), day, attempt))
-        except Exception as error:
-            # Preserve the primary export/restore error or remote success proof.
-            _STATE['receiptPersistenceErrorType'] = type(error).__name__
-        return _STATE
+                claimed = conn.execute('''INSERT INTO bob_archive_attempts(day,attempt,status)
+                    VALUES(%s,%s,'running') ON CONFLICT DO NOTHING RETURNING day''', (day,attempt)).fetchone()
+            if not claimed:
+                _STATE = dict(status='already-attempted-today', evidenceDeleted=False)
+                return _STATE
+            try:
+                if runner is None:
+                    from drive_evidence_archive import run, GoogleDrive
+                    def runner():
+                        # Source is read-only; restoration requires a different server.
+                        dsn = os.environ['DATABASE_URL']
+                        if os.environ.get('BOB_ARCHIVE_CREDENTIAL_SOURCE') == 'encrypted-store':
+                            from archive_runtime import drive_client
+                            drive = drive_client(db)
+                        else:
+                            drive = GoogleDrive()
+                        return run(dsn, os.environ['BOB_ARCHIVE_RESTORE_DATABASE_URL'], os.environ.get('BOB_ARCHIVE_WORK_DIRECTORY', '/tmp/bob-archive'),
+                                   drive, progress=lambda phase: _STATE.update(status='running', phase=phase))
+                result = runner()
+                if not (result.get('restoreVerified') is True and
+                        result.get('remoteDownloadVerified') is True and
+                        result.get('deletionPermitted') is False and result.get('receiptFileId') and
+                        (os.environ.get('BOB_ARCHIVE_ENCRYPT_BEFORE_UPLOAD') != '1' or
+                         (result.get('encryptionVerified') is True and
+                          result.get('encryptionVersion')=='aes-256-gcm-stream-v1'))):
+                    raise ValueError('Verified remote receipt required')
+                _STATE = dict(status='verified', receipt=result, evidenceDeleted=False)
+            except Exception as error:
+                # Never persist/print OAuth responses, DSNs or signed upload URLs.
+                _STATE = dict(status='failed', errorType=type(error).__name__, phase=_STATE.get('phase'), evidenceDeleted=False)
+            try:
+                with db() as conn:
+                    conn.execute('''UPDATE bob_archive_attempts SET status=%s,updated_at=now(),receipt=%s::jsonb
+                        WHERE day=%s AND attempt=%s''', (_STATE['status'], json.dumps(_STATE), day, attempt))
+            except Exception as error:
+                # Preserve the primary export/restore error or remote success proof.
+                _STATE['receiptPersistenceErrorType'] = type(error).__name__
+            return _STATE
     finally:
         _LOCK.release()
 

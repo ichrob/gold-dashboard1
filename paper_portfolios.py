@@ -51,11 +51,31 @@ RELAUNCH_ID = 'trend-vs-main-20261109'
 POLICIES['trend800nov'] = dict(POLICIES['trend800'],
     id='trend800nov', title='Neu: 800 € · Trend/Stopp/Wiedereinstieg · 09.11.–04.12.',
     campaign=True, relaunch=True, campaign_id=RELAUNCH_ID,
-    start_at=RELAUNCH_START, campaign_end=RELAUNCH_END)
+    start_at=RELAUNCH_START, campaign_end=RELAUNCH_END,
+    max_holding_minutes=300, paper_campaign_entry=True)
 POLICIES['normal1000nov'] = dict(POLICIES['normal1000oct'],
     id='normal1000nov', title='Neu: 1.000 € · bestätigtes Hauptsignal · 09.11.–04.12.',
     campaign=True, relaunch=True, campaign_id=RELAUNCH_ID,
-    start_at=RELAUNCH_START, campaign_end=RELAUNCH_END)
+    start_at=RELAUNCH_START, campaign_end=RELAUNCH_END,
+    max_holding_minutes=300, paper_campaign_entry=True)
+
+# Owner-requested isolated 3,000 EUR account, starting at first initialization.
+POLICIES['ema3000nov'] = dict(POLICIES['normal1000oct'],
+    id='ema3000nov', title='3.000 € · EMA-Abstand bis 2,5 ATR · Test',
+    initial_capital_eur=3000., campaign=True, campaign_id='ema25-3000-20261111',
+    campaign_end=RELAUNCH_END, relaxed_ema=True, max_holding_minutes=300)
+
+# Forward-only user-requested EMA-distance experiment; no inherited start date.
+POLICIES['noema5000nov'] = dict(POLICIES['normal1000nov'],
+    id='noema5000nov', title='5.000 € · EMA-Abstandssperre aus (Test)',
+    initial_capital_eur=5000., relaunch=False,
+    campaign_id='no-ema-distance-20261111', disable_ema_distance=True,
+    paper_campaign_entry=False)
+
+_PAPER_CAMPAIGN_GATES = {
+    'trend800nov': ('campaign-800-entry-v1', 1.0),
+    'normal1000nov': ('campaign-1000-entry-v1', 1.2),
+}
 
 _TABLES = ('bob_paper_control', 'bob_paper_cases', 'bob_paper_days')
 
@@ -106,7 +126,7 @@ def init(conn):
                         capitalPolicy='separate-whole-units-gross-v1')
         if policy.get('campaign'):
             starting.update(endAt=policy['campaign_end'], campaign=policy.get('campaign_id', 'signal-comparison-20261027'),
-                            signalSource='early-warning-v2' if policy.get('early_warning') else 'confirmed-main')
+                            signalSource='ema25-paper-v1' if policy.get('relaxed_ema') else 'early-warning-v2' if policy.get('early_warning') else 'confirmed-main')
         conn.execute(f"""INSERT INTO {n['bob_paper_control']} (id,payload)
             VALUES(1,%s::jsonb) ON CONFLICT DO NOTHING""", (json.dumps(starting),))
         conn.execute(f"""CREATE TABLE IF NOT EXISTS {n['bob_paper_cases']} (
@@ -221,6 +241,58 @@ def warning_paper_market(market, now):
     return result
 
 
+def relaxed_paper_market(market):
+    """Consume only the separately computed paper plan; never rewrite live input."""
+    trial = market.get('relaxedPaper') or {}
+    gate = trial.get('gate') or {}
+    plan = trial.get('plan')
+    valid = (trial.get('version') == 'ema25-paper-v1' and trial.get('paperOnly') is True
+        and gate.get('paperOnly') is True and gate.get('maxDeviationAtr') == 2.5
+        and gate.get('allowed') is True and stop_target_audit.valid_plan(plan)
+        and plan.get('source') == 'ema25-paper-v1' and plan.get('experimental') is True
+        and plan.get('direction') == market.get('direction')
+        and plan.get('entry') == market.get('price'))
+    return {**market, 'plan':copy.deepcopy(plan) if valid else None,
+        'entryTimingGate':copy.deepcopy(gate), 'paperEntrySource':'ema25-paper-v1',
+        'entryPlanState':{'state':'ready' if valid else 'waiting',
+            'reason':trial.get('reason') or 'Getrennter EMA-Testplan noch nicht verfügbar'}}
+
+
+def campaign_paper_market(market, profile):
+    """Strict, scoped use of paper-only entry gates; never fabricate a fill.
+
+    Older deployments without a campaign plan continue using their original
+    market decision, rather than failing all simulations on a rollout.
+    """
+    source, distance = _PAPER_CAMPAIGN_GATES[profile]
+    trial = (market.get('paperCampaignEntries') or {}).get(profile)
+    if not isinstance(trial, dict) or trial.get('version') != 'campaign-entry-v1':
+        return market
+    gate = trial.get('gate') or {}
+    plan = trial.get('plan')
+    valid = (trial.get('paperOnly') is True
+        and trial.get('profile') == profile and trial.get('source') == source
+        and gate.get('paperOnly') is True and gate.get('paperProfile') == profile
+        and gate.get('spotDistance') == distance and gate.get('maxSignalMinutes') == 20
+        and gate.get('maxDeviationAtr') == 1.5 and gate.get('allowed') is True
+        and market.get('ready') is True and market.get('priceFresh') is True
+        and stop_target_audit.valid_plan(plan)
+        and plan.get('kind') == 'candidate' and plan.get('experimental') is True
+        and plan.get('source') == source and plan.get('direction') == market.get('direction')
+        and plan.get('entry') == market.get('price')
+        and plan.get('unit') == 'USD/oz' and plan.get('entrySuitable') is not False
+        and abs(plan['target']-plan['entry']) >= 2*abs(plan['entry']-plan['stop'])-1e-7)
+    state = trial.get('entryPlanState') or {}
+    reason = (state.get('reason') if isinstance(state, dict) else None) or gate.get('reason')
+    reason = reason or 'Separater Papier-Einstiegsplan noch nicht vollständig bestätigt'
+    return {**market, 'plan': copy.deepcopy(plan) if valid else None,
+        'entryTimingGate': copy.deepcopy(gate), 'paperEntrySource': source,
+        'paperCampaignPreparation': copy.deepcopy(trial.get('preparation')),
+        'entryPlanState': {'state': 'ready' if valid else 'waiting',
+            'code': 'PAPER_PLAN_READY' if valid else 'PAPER_PLAN_NOT_READY',
+            'reason': 'Separater Papierplan geprüft; Produktschutz bleibt Pflicht' if valid else reason}}
+
+
 def run_all(conn, bundle, market, selection, quotes, now, settings, active=None, early_market=None, early_selection=None, input_observations=None, warning_market=None, warning_selection=None):
     """One savepoint per account: a failure does not consume another account's run.
 
@@ -238,6 +310,16 @@ def run_all(conn, bundle, market, selection, quotes, now, settings, active=None,
                 if policy.get('early_warning'):
                     m = warning_paper_market(market,now)
                     chosen = warning_selection or {'choices':[], 'reasons':['Keine freigegebenen Frühwarnprodukte']}
+                if policy.get('paper_campaign_entry') and profile in _PAPER_CAMPAIGN_GATES:
+                    m = campaign_paper_market(market, profile)
+                if policy.get('relaxed_ema'):
+                    m = relaxed_paper_market(market)
+                if policy.get('disable_ema_distance'):
+                    variant = market.get('paperNoEmaEntry') or {}
+                    m = {**market, 'plan': variant.get('plan'),
+                         'entryPlanState': variant.get('entryPlanState') or {'reason': 'EMA-Testanalyse nicht verfügbar'},
+                         'entryTimingGate': variant.get('entryTimingGate') or {},
+                         'paperEntrySource': 'no-ema-distance-paper-v1'}
                 c = active.get(profile)
                 if c and c.get('status') == 'open':
                     scoped = {**settings, 'trade': c['engine']['trade']}
@@ -364,9 +446,9 @@ def report(conn, day=None):
         # Six synthetic demos are already available under the separate demo tab.
         data.pop('demonstrations', None)
         data.pop('demonstration', None)
-        if profile=='balanced':
-            import paper_stop_study
-            data['stopStudy']=paper_stop_study.report(conn,data['day'])
+        import paper_stop_study
+        if profile in paper_stop_study.PROFILES:
+            data['stopStudy']=paper_stop_study.report(conn,data['day'],profile)
         if policy.get('early_impulse'):
             data['note']=('Viertes 100-EUR-Testkonto: früher LONG/SHORT-Impuls 5m/15m als eigenständiger virtueller '
                           'Einstiegsversuch, ohne Freigabe des Haupttrends. Dieselben echten Produktnachweise, '
@@ -396,6 +478,14 @@ def report(conn, day=None):
                 'vollständig bepreiste Abschlüsse zuerst, unklare Ausstiege separat.')
         elif policy.get('campaign'):
             data['note']='1.000 EUR virtuell; '+('angezeigte Frühwarnung LONG/SHORT' if policy.get('early_warning') else 'bestätigtes Hauptsignal LONG/SHORT')+'; gleiche Rangliste, Kosten und Schutzregeln. Verlängert bis 06.11.2026 16:00 Europe/Zurich mit bestehendem Kapital und Historie. Fehlende Ausstiegskurse bleiben offen, keine rückdatierten Verkäufe.'
+        if policy.get('relaxed_ema'):
+            data['note']=('3.000 EUR virtuell ab erster Aktivierung bis 04.12.2026 16:00 Zürich. '
+                'Nur EMA-Abstand auf 2,5 ATR gelockert; Signalalter, Impuls-, Quellen-, '
+                'Produkt-, KO- und Stop/Ziel-Prüfungen bleiben erhalten. Maximal 65 % Exposure, '
+                '3 % Tagesverlustgrenze und fünf Stunden Haltedauer. Beispielkosten; keine Broker-Fills, '
+                'keine rückdatierten Einstiege. Eigenes Konto, keine Änderung der Hauptsignale.')
+        if policy.get('disable_ema_distance'):
+            data['note']='5.000 EUR virtuell ab Aktivierung bis 04.12.2026 16:00 Zürich. Nur die direkte EMA20-Abstandssperre ist aus. Signalalter, Impulsgrenze, Goldplan, Produkt-/KO-Schutz, Kosten und Tagesrisiko bleiben aktiv. Keine rückwirkenden Trades.'
         accounts.append(dict(profile=profile, title=policy['title'],
                              riskPolicy={k: policy[k] for k in ('exposure_fraction',
                                   'daily_loss_fraction','score_long','score_short',
@@ -404,7 +494,7 @@ def report(conn, day=None):
                              performance=performance_snapshot(data),**data))
     return dict(ok=True, mode='independent-prospective-paper-accounts',
                 simulatedCapitalEur=sum(p.get('initial_capital_eur',100.) for p in POLICIES.values()), realOrders=False, startAt=START,
-                note='4 × 100 EUR, 2 × 800 EUR und 3 × 1.000 EUR virtuell. Alte Konten bleiben getrennt und unverändert. Neue 800/1.000 EUR Kohorte: gleicher 20-Handelstage-Zeitraum ab 09.11.2026. Kein Echtgeld und keine rückdatierten Einstiege. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital unbekannt. Tatsächliche Brokergebühren nicht bestätigt.',
+                note='4 × 100 EUR, 2 × 800 EUR, 3 × 1.000 EUR, 1 × 3.000 EUR und 1 × 5.000 EUR virtuell. Alte Konten bleiben getrennt und unverändert. Neue 800/1.000 EUR Kohorte: gleicher 20-Handelstage-Zeitraum ab 09.11.2026. Kein Echtgeld und keine rückdatierten Einstiege. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital unbekannt. Tatsächliche Brokergebühren nicht bestätigt.',
                 accounts=accounts,campaignComparison=campaign_comparison(accounts),
                 relaunchComparison=relaunch_comparison(accounts))
 

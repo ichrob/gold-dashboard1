@@ -31,6 +31,11 @@ def product_reference(quote, receipt, lookup):
         raise ValueError('Produktidentität oder einfaches Turbo-Modell noch offen')
     if m.get('status')==2 or m.get('tradingHalted') is True or (m.get('underlyingType')!='SPOT' and model.get('underlying')!='XAU/USD'):
         raise ValueError('Kein aktives bestätigtes Gold-Spot-Produkt')
+    # A fallback may fill missing evidence, but must never override a contradiction.
+    if m.get('underlyingType') not in (None, '', 'SPOT') or model.get('underlying') not in (None, '', 'XAU/USD'):
+        raise ValueError('Widersprüchlicher Gold-Spot-Basiswert')
+    if m.get('direction') and model.get('direction') and m['direction']!=model['direction']:
+        raise ValueError('Widersprüchliche Produktrichtung')
     currency=m.get('currency') or quote.get('currency')
     if currency!='EUR':raise ValueError('EUR-Mailbeleg passt nicht zu nativer Produktwährung')
     q=quote.get('analysisQuote') or quote

@@ -2,23 +2,29 @@ import os
 import unittest
 from unittest.mock import patch
 import archive_worker as worker
+from test_aiven_readonly_probe import URI as AIVEN_TEST_URI
 
 class DB:
-    def __init__(self): self.claimed=False; self.calls=[]
+    def __init__(self): self.claimed=False; self.calls=[]; self.lock_ok=True
     def __call__(self): return self
     def __enter__(self): return self
     def __exit__(self,*args): pass
     def execute(self,sql,args=()):
         self.calls.append((sql,args))
-        self.new=not self.claimed
-        if 'INSERT' in sql:self.claimed=True
+        if 'pg_try_advisory_lock' in sql:
+            self.new='lock'
+        else:
+            self.new=not self.claimed
+            if 'INSERT' in sql:self.claimed=True
         return self
-    def fetchone(self): return ('day',) if self.new else None
+    def fetchone(self):
+        if self.new=='lock': return (self.lock_ok,)
+        return ('day',) if self.new else None
 
 class WorkerTests(unittest.TestCase):
     def env(self):
         return patch.dict(os.environ, {'BOB_ARCHIVE_ENABLED':'1',
-            'DATABASE_URL':'test-only', 'BOB_ARCHIVE_RESTORE_DATABASE_URL':'restore-only', 'BOB_ARCHIVE_DRIVE_FOLDER_ID':'test-only',
+            'DATABASE_URL':'test-only', 'BOB_ARCHIVE_RESTORE_DATABASE_URL':AIVEN_TEST_URI, 'BOB_ARCHIVE_DRIVE_FOLDER_ID':'test-only',
             'BOB_ARCHIVE_GOOGLE_AUTHORIZED_USER_JSON':'test-only'})
 
     def test_disabled_does_not_access_database(self):
@@ -30,6 +36,16 @@ class WorkerTests(unittest.TestCase):
         with self.env(), patch.dict(os.environ, {'BOB_ARCHIVE_RESTORE_DATABASE_URL':''}):
             db=DB()
             self.assertEqual(worker.cycle(db)['status'],'blocked')
+            self.assertFalse(db.calls)
+
+    def test_expiring_render_restore_target_is_blocked_before_claim(self):
+        with self.env(), patch.dict(os.environ, {
+            'BOB_ARCHIVE_RESTORE_DATABASE_URL':
+                'postgresql://fixture:fixture@restore.render.com:5432/test?sslmode=require'}):
+            db = DB()
+            result = worker.cycle(db)
+            self.assertEqual(result['status'], 'blocked')
+            self.assertEqual(result['reason'], 'restore-target-not-aiven')
             self.assertFalse(db.calls)
 
     def test_failure_is_redacted_and_not_repeated(self):
@@ -53,6 +69,13 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(result['errorType'], 'ValueError')
             self.assertEqual(result['receiptPersistenceErrorType'], 'TimeoutError')
             self.assertNotIn('private-', str(result))
+
+    def test_busy_storage_lock_does_not_consume_daily_claim(self):
+        with self.env():
+            db=DB(); db.lock_ok=False
+            result=worker.cycle(db, lambda: {'restoreVerified':True})
+            self.assertEqual(result['status'],'busy')
+            self.assertFalse(any('INSERT' in sql for sql,_ in db.calls))
 
     def test_invalid_attempt_never_claims(self):
         with self.env(), patch.dict(os.environ, {'BOB_ARCHIVE_ATTEMPT':'bad value'}):

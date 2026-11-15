@@ -7,6 +7,23 @@ class MorningListResumePolicyTest {
     private val policy=MorningListResumePolicy
     private val minute=60_000L
 
+    @Test fun rejectedListDoesNotMonopolizeAnotherExplicitStart() {
+        assertTrue(policy.verificationFailed("read-failed","ListVerificationError"))
+        for(age in listOf(0L, 3*minute, 60*minute))
+            for(resumes in 0..3)
+                assertEquals(MorningListResumePolicy.Mode.NEW_LIST,
+                    policy.mode(age,resumes,verificationFailed=true))
+    }
+
+    @Test fun unknownTransportAndMemoryStatesAreNotRejectedLists() {
+        for(stage in listOf(null,"reading","waiting-memory","synced","superseded"))
+            assertFalse(policy.verificationFailed(stage,"ListVerificationError"))
+        for(error in listOf(null,"MemoryError","InterruptedWorker","ConnectionError"))
+            assertFalse(policy.verificationFailed("read-failed",error))
+        assertEquals(MorningListResumePolicy.Mode.RETRY_TRANSFER,
+            policy.mode(0,0,verificationFailed=false))
+    }
+
     @Test fun recentUnfinishedBatchCanRetryOriginalUploadOnlyWithinBoundedAttempts() {
         assertEquals(MorningListResumePolicy.Mode.RETRY_TRANSFER,policy.mode(0,0))
         assertEquals(MorningListResumePolicy.Mode.RETRY_TRANSFER,policy.mode(14*minute,1))

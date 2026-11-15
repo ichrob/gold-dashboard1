@@ -35,13 +35,18 @@ class LoginViewTests(unittest.TestCase):
         self.assertEqual(bob_auth.safe_return_view("archive-connect"),"archive-connect")
         self.assertEqual(bob_auth.login_redirect("view=archive-connect"),"/login?view=archive-connect")
         self.assertEqual(bob_auth.login_destination({}, "archive-connect"),"/archive/connect")
+        self.assertEqual(bob_auth.safe_return_view("oauth-connections"),"oauth-connections")
+        self.assertEqual(bob_auth.login_redirect("view=oauth-connections"),"/login?view=oauth-connections")
+        self.assertEqual(bob_auth.login_destination({}, "oauth-connections"),"/oauth/connections")
         self.assertEqual(bob_auth.login_redirect("view=zentrale"),"/login?view=zentrale")
         self.assertEqual(bob_auth.login_destination({}, "zentrale"),"/zentrale/")
         for value in ("", "https://example.com", "//other.example",
                       "products&redirect=evil", "products#wrong",
                       "products-long/orders", "products-long?buy=true",
                       "../login", "products/order", "products?buy=true",
-                      "settings", "degiro", "PRODUCTS", "archive-connect/../", "archive-connect?bad=1", "<script>alert(1)</script>", None):
+                      "settings", "degiro", "PRODUCTS", "archive-connect/../", "archive-connect?bad=1",
+                      "oauth-connections/../", "oauth-connections?next=https://evil.test",
+                      "/oauth/connections", "<script>alert(1)</script>", None):
             self.assertEqual(bob_auth.safe_return_view(value), "")
             self.assertEqual(bob_auth.login_destination({}, value), "/")
 
@@ -61,6 +66,9 @@ class LoginViewTests(unittest.TestCase):
         archive = FakeHandler()
         bob_auth.login_page(archive, view="archive-connect")
         self.assertIn('name="return_view" value="archive-connect"', archive.wfile.getvalue().decode())
+        connections = FakeHandler()
+        bob_auth.login_page(connections, view="oauth-connections")
+        self.assertIn('name="return_view" value="oauth-connections"', connections.wfile.getvalue().decode())
         other = FakeHandler()
         bob_auth.login_page(other, view='"><script>alert(1)</script>')
         page = other.wfile.getvalue().decode("utf8")

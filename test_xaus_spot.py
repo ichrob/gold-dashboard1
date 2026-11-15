@@ -37,4 +37,52 @@ class XausSpotTests(unittest.TestCase):
                 request.assert_called_once()
                 self.assertEqual(x._retry_at,731)
 
+    def test_warm_original_remains_readable_during_provider_refresh(self):
+        # Before the fix, the nonblocking lock probe returned None merely
+        # because a source fetch was running, even though the prior original
+        # was still within the strict 60-second acceptance window.
+        observation=x.parse(payload(),NOW)
+        with patch.object(x,'_quote',observation),patch.object(x.time,'time',return_value=NOW):
+            self.assertTrue(x._lock.acquire(blocking=False))
+            try:
+                seen=x.peek()
+                self.assertIsNotNone(seen)
+                self.assertEqual(seen['at'],STAMP)
+                self.assertEqual(seen['price'],4000.)
+                self.assertIsNot(seen,observation)
+                seen['price']=-1
+                self.assertEqual(observation['price'],4000.)
+            finally:
+                x._lock.release()
+
+    def test_nonblocking_backup_is_still_rejected_when_stale_or_future(self):
+        observation=x.parse(payload(),NOW)
+        with patch.object(x,'_quote',observation):
+            with patch.object(x.time,'time',return_value=NOW+60):
+                self.assertIsNone(x.peek())
+            with patch.object(x.time,'time',return_value=NOW-7):
+                self.assertIsNone(x.peek())
+            with patch.object(x.time,'time',return_value=NOW):
+                self.assertEqual(x.peek()['at'],STAMP)
+        with patch.object(x,'_quote',None):
+            self.assertIsNone(x.peek())
+
+    def test_shared_spot_fallback_uses_original_during_backup_refresh(self):
+        import spot_data
+        original=x.parse(payload(),NOW)
+        with patch.object(x,'_quote',original),patch.object(x.time,'time',return_value=NOW), \
+             patch.object(spot_data,'primary',side_effect=ValueError('primary unavailable')) as primary:
+            self.assertTrue(x._lock.acquire(blocking=False))
+            try:
+                observed=spot_data.current()
+            finally:
+                x._lock.release()
+            self.assertEqual(primary.call_count,1,'Existing backup means no extra primary wait')
+            self.assertEqual(observed['at'],STAMP)
+            self.assertTrue(observed['backupActive'])
+            self.assertTrue(observed['observed'])
+            self.assertEqual(observed['instrument'],'XAU/USD')
+            self.assertNotIn('degiroExecutable',observed)
+            self.assertNotIn('tradeApproved',observed)
+
 if __name__=='__main__':unittest.main()

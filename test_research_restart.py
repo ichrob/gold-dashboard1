@@ -79,6 +79,26 @@ class Tests(unittest.TestCase):
             result,_=r.advance(r.seed(now),b,m,now)
             self.assertTrue(all(c['started']==0 for c in result['studies'].values()),kind)
 
+    def test_persistence_delay_uses_bounded_analysis_completion_clock(self):
+        b,m=sample()
+        persisted_at=NOW+64000
+        analyzed_at=NOW+59000
+
+        delayed,_=r.advance(
+            r.seed(NOW),b,m,persisted_at,input_checked_at=analyzed_at)
+        self.assertEqual(delayed['checkedAt'],persisted_at)
+        self.assertEqual(delayed['quality']['original'],1)
+        self.assertEqual(delayed['quality']['invalid'],0)
+
+        unpinned,_=r.advance(r.seed(NOW),b,m,persisted_at)
+        self.assertEqual(unpinned['quality']['invalid'],1)
+        self.assertEqual(unpinned['quality']['lastOriginalBlockCode'],
+                         'spot-source-not-fresh')
+
+        too_late,_=r.advance(
+            r.seed(NOW),b,m,NOW+95000,input_checked_at=analyzed_at)
+        self.assertEqual(too_late['quality']['invalid'],1)
+
     def test_signal_disappears_before_delayed_entry(self):
         b,m=sample();state,_=r.advance(r.seed(NOW),b,m,NOW)
         b,m=sample(NOW+30000,direction='NEUTRAL',warning=False)
@@ -137,6 +157,7 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
                 p.init(conn);risk_paper.init(conn);shadow.init(conn);r.init(conn)
                 before=conn.execute('SELECT payload FROM bob_paper_balanced_control').fetchone()[0]
+                ema_start=conn.execute('SELECT payload FROM bob_paper_ema3000nov_control').fetchone()[0]['startAt']
                 conn.commit()
                 r.start(conn,NOW)
                 # A transaction rollback must undo snapshots AND retire flags.
@@ -152,9 +173,12 @@ class DatabaseTests(unittest.TestCase):
                 self.assertEqual(archived['cash'],before['cash'])
                 ctl=conn.execute('SELECT payload FROM bob_paper_balanced_control').fetchone()[0]
                 self.assertEqual(ctl['retiredAt'],NOW)
-                for profile in ('trend800nov', 'normal1000nov'):
+                for profile in ('trend800nov', 'normal1000nov', 'ema3000nov'):
                     relaunch=conn.execute('SELECT payload FROM '+p.names(profile)['bob_paper_control']).fetchone()[0]
-                    self.assertEqual(relaunch['startAt'],p.RELAUNCH_START)
+                    if profile == 'ema3000nov':
+                        self.assertEqual(relaunch['startAt'],ema_start)
+                    else:
+                        self.assertEqual(relaunch['startAt'],p.RELAUNCH_START)
                     self.assertEqual(relaunch['endAt'],p.RELAUNCH_END)
                     self.assertNotIn('retiredAt',relaunch)
                     self.assertEqual(relaunch['cash'],p.POLICIES[profile]['initial_capital_eur'])

@@ -83,7 +83,7 @@ function displayedPairStatus(draft){
    throw Error('Nur ungeprüfte, lokale DEGIRO-Bildschirmbeobachtungen.');
  const f=draft.fields||{};
  const parse=(s)=>{
-  if(typeof s!=='string'||!/^(?:[1-9][0-9]{0,6}|0)(?:,[0-9]{1,4})?$/.test(s))return null;
+  if(typeof s!=='string'||!/^(?:[1-9][0-9]{0,8}|0)(?:[,.][0-9]{1,4})?$/.test(s))return null;
   const n=Number(s.replace(',','.'));return Number.isFinite(n)&&n>0?n:null;
  };
  const bid=parse(f.bid),ask=parse(f.ask);

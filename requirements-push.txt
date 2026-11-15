@@ -20,3 +20,6 @@ certifi>=2026.10.19
 
 # Encrypt owner-provided archive OAuth configuration at rest.
 cryptography>=46.0.3
+
+# Free issuer KID contract parsing; no OCR or external service.
+pypdf==6.21.4

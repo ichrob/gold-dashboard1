@@ -27,6 +27,14 @@ class AutoMonitorTests(unittest.TestCase):
   self.assertTrue(w.eligible_purchase(r,[r,copy],now))
   self.assertFalse(w.eligible_purchase(r,[r,{**copy,'orderIdDigest':'b'*64}],now))
   self.assertFalse(w.eligible_purchase(r,[r,{**copy,'side':'SELL'}],now))
+ def test_model_cannot_override_conflicting_product_evidence(self):
+  for metadata, model in (
+    ({'underlyingType':'FUTURE'}, {'underlying':'XAU/USD'}),
+    ({'underlyingType':'SPOT'}, {'underlying':'XAG/USD'}),
+    ({'direction':'LONG'}, {'direction':'SHORT'})):
+   with self.subTest(metadata=metadata,model=model):
+    q=self.quote();q['metadata'].update(metadata);q['productModel'].update(model)
+    with self.assertRaises(ValueError):a.product_reference(q,self.receipt(),self.lookup)
  def test_active_trade_skips_network(self):
   c=Mock();c.execute.return_value.fetchone.return_value=(1,)
   db=Mock();db.return_value.__enter__=Mock(return_value=c);db.return_value.__exit__=Mock(return_value=False)

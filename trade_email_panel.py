@@ -62,6 +62,16 @@ PANEL = r"""
               e.priceEur&&e.priceEur+' EUR/Stück',e.executedLocal||e.executedAt,e.reason]
               .filter(Boolean).join(' · ');
           row.append(title,detail);
+          if(e.feeEvidence?.scope==='single-execution'){
+            const fee=document.createElement('p');
+            fee.className='small';
+            const parts=[];
+            const money=v=>Number.isFinite(v)?v.toFixed(2)+' CHF':null;
+            if(money(e.feeEvidence.autoFxChf)!==null)parts.push('AutoFX '+money(e.feeEvidence.autoFxChf));
+            if(money(e.feeEvidence.transactionChf)!==null)parts.push('Transaktions-/Fremdkosten '+money(e.feeEvidence.transactionChf));
+            fee.textContent=parts.join(' · ')+' · Belegkosten dieser einzelnen Ausführung; kein bestätigter Tarif für weitere Käufe oder Verkäufe.';
+            row.append(fee);
+          }
           if(!latestShown&&e.status==='pending-review'){records.append(row);latestShown=true;}
           else archive.append(row);
         }

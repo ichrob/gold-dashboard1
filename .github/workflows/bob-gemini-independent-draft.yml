@@ -1,0 +1,54 @@
+name: Bob Gemini - eigenstaendige Draft-Patch-Vorschlaege
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Offenes oeffentliches Owner-Issue (keine privaten Daten)"
+        required: true
+        type: string
+      target_file:
+        description: "Bereits vorhandene kurze oeffentliche Code-/Dokumentdatei"
+        required: true
+        type: string
+
+# Manual-only. Model output is stored as inert .patch TEXT in a DRAFT PR.
+# It is never applied or executed by this workflow.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+concurrency:
+  group: bob-gemini-draft-${{ github.event.inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    if: >-
+      github.repository == 'ichrob/gold-dashboard1' &&
+      github.actor == 'ichrob' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Checkout trusted main with temporary workflow credentials
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Fail-closed offline tests before external model use
+        run: python -m unittest -v test_gemini_independent_draft.py test_gemini_mobile_developer.py
+      - name: One free-only public Gemini patch as inert draft PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          BOB_GEMINI_FREE_ONLY: ${{ vars.BOB_GEMINI_FREE_ONLY }}
+          BOB_GEMINI_DRAFT_PR_ENABLED: ${{ vars.BOB_GEMINI_DRAFT_PR_ENABLED }}
+          BOB_GEMINI_DEV_ISSUE: ${{ inputs.issue_number }}
+          BOB_GEMINI_DEV_FILE: ${{ inputs.target_file }}
+        run: python gemini_independent_draft.py

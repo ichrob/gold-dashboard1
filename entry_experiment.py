@@ -1,12 +1,12 @@
 """Frozen, prospective threshold comparisons. Never changes signal approval."""
 import market_optimization as market
 
-VERSION = 'entry-experiment-v1'
+VERSION = 'entry-experiment-v2'
 LABELS = {'baseline': 'Aktuell / schnell', 'cautious': 'Vorsichtige Bestätigung',
           'reference': 'Einstieg 1,5 ATR / 15 Min.',
-          'atr1': 'Einstieg 1 ATR / 15 Min.', 'atr2': 'Einstieg 2 ATR / 15 Min.',
+          'atr1': 'Einstieg 1 ATR / 15 Min.', 'atr2': 'Einstieg 2 ATR / 15 Min.', 'atr25': 'Einstieg 2,5 ATR / 15 Min.',
           'age10': 'Einstieg 1,5 ATR / 10 Min.', 'age20': 'Einstieg 1,5 ATR / 20 Min.'}
-THRESHOLDS = {'reference': (1.5,15), 'atr1': (1.,15), 'atr2': (2.,15),
+THRESHOLDS = {'reference': (1.5,15), 'atr1': (1.,15), 'atr2': (2.,15), 'atr25': (2.5,15),
               'age10': (1.5,10), 'age20': (1.5,20)}
 
 
@@ -45,8 +45,10 @@ def report(rows, score, now=None):
         note='Punkte 2 und 4: vorab gespeicherte Varianten, gleiche Fälle je Zeitraum und Marktphase. '
         'Pro Variante wird nur eine Einstiegsschwelle verändert; Platz bleibt mindestens 2R. '
         'Primärer Zeitraum 15 Minuten; 1/5/30 Minuten sind Zusatzdiagnosen. '
-        'Ab 26.10.2026 getrennte Prüfung; kein automatischer Sieger oder Regelwechsel. '
+        'Version 2 ab 11.11.2026: 1,5/2,0/2,5 ATR auf denselben neuen Fällen; kein Rückfüllen alter Fälle. '
         'Abwarten zählt als null, fehlende Daten schließen den gemeinsamen Fall aus. '
         '0,04 % Beispielkosten auf Gold, keine Produktgewinne. Produktkosten separat im Papierkonto. '
+        'worstNetEndpointPct ist der schlechteste beobachtete Netto-Endpunkt eines Signals, '
+        'kein maximaler Rückschlag während des Trades; fehlende Kurswege bleiben unbekannt. '
         'Rollierendes Berichtsfenster; kein vollständiger Langzeitnachweis.')
     return result

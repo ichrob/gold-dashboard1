@@ -1,6 +1,7 @@
 """Read-only SnapTrade DEGIRO instrument-catalogue probe safety checks."""
 import copy
 import unittest
+import threading
 from unittest.mock import patch
 
 import snaptrade_bridge as bridge
@@ -8,6 +9,11 @@ import snaptrade_bridge as bridge
 
 class BrokerCatalogueProbeTests(unittest.TestCase):
     def setUp(self):
+        # A prior server fixture may still own the process-wide probe lock.
+        # Each unit test controls its own synchronization and provider mock.
+        lock_patch = patch.object(bridge, '_CATALOG_LOCK', threading.Lock())
+        lock_patch.start()
+        self.addCleanup(lock_patch.stop)
         self.config = bridge._CONFIG
         self.checked = bridge._CATALOG_LAST_ATTEMPT
         self.probe = copy.deepcopy(bridge._CATALOG_STATE)

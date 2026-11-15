@@ -17,6 +17,8 @@ class SignalHistoryTests(unittest.TestCase):
   at=datetime(2026,10,20,14,tzinfo=timezone.utc)
   return [(str(i),at+timedelta(seconds=i),dict(direction='NEUTRAL' if i<50 else 'SHORT',
       origin='background',ruleVersion='v7',priceAt=123,barAt=100,price=4100,
+      plan={'kind':'candidate','direction':'SHORT','entry':4100,'stop':4110,
+            'target':4080,'unit':'USD/oz','private':'excluded'},
       earlyImpulse={'direction':'SHORT','available':True,'secret':'excluded'},
       products=[{'private':'excluded'}],token='excluded')) for i in range(n)]
  def test_original_evidence_pagination_and_projection(self):
@@ -26,6 +28,9 @@ class SignalHistoryTests(unittest.TestCase):
   self.assertEqual(len(q['records']),5);self.assertIsNone(q['nextOffset'])
   self.assertEqual([x['id'] for x in r['transitions']],['0','50'])
   self.assertEqual(r['records'][0]['priceAt'],123)
+  self.assertEqual(r['records'][0]['plan'],{
+      'kind':'candidate','direction':'SHORT','entry':4100,'stop':4110,
+      'target':4080,'unit':'USD/oz','at':None})
   self.assertNotIn('excluded',json.dumps(r))
   self.assertIn('LIMIT 5001',conn.execute.call_args.args[0])
   self.assertTrue(conn.execute.call_args.args[0].startswith('SELECT'))

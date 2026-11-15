@@ -100,13 +100,15 @@ def read(*,opener=urlopen,now=None):
         state=p.get('kiStatus','new')
         if state not in bob_problems.KI_STATUS_LABELS:raise ValueError('Status marker invalid')
         review=p.get('review')
+        import repair_flow
+        flow_marker=repair_flow.marker(p.get('repairFlow'),created_at=p.get('createdAt'),now=now.timestamp())
         review_marker=''
         if isinstance(review,dict):
             pr=review.get('pr');commit=review.get('commit');phase=review.get('phase')
             if type(pr) is int and 1<=pr<=99999999 and isinstance(commit,str) and len(commit)==40 and all(c in '0123456789abcdef' for c in commit) and phase in ('proposed','ci-tested','deployed-unverified'):
                 review_marker='\n<!-- BOB_KI_REVIEW:pr='+str(pr)+';sha='+commit+';phase='+phase+' -->'
         rows.append(dict(number=number,title=title,user={'login':'ichrob'},
-            body='<!-- BOB_KI_STATUS:'+state+' -->'+review_marker,created_at=p.get('createdAt'),updated_at=p.get('updatedAt')))
+            body='<!-- BOB_KI_STATUS:'+state+' -->'+review_marker+flow_marker,created_at=p.get('createdAt'),updated_at=p.get('updatedAt')))
     report=bob_problems.from_issues(rows,now=at)
     report['resolved']=sanitized_recoveries(data.get('resolved',[]),now=now,
                                             active_codes={p['code'] for p in report['problems']})

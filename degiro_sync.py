@@ -30,7 +30,9 @@ def status():
     out.update(fresh=out['running'] and out['code'] == 'READ_OK' and age is not None and 0 <= age <= 90,
                ageSeconds=round(age, 1) if age is not None else None,
                intervalSeconds=30, liveOrdersEnabled=False, liveQuotes=False)
-    out['lastConnectionTest'] = degiro_readonly.status().get('lastTest')
+    reader_status = degiro_readonly.status()
+    out['lastConnectionTest'] = reader_status.get('lastTest')
+    out['lastQuoteTest'] = reader_status.get('lastQuoteTest')
     return out
 
 

@@ -1,4 +1,6 @@
 import unittest
+import io
+from contextlib import redirect_stdout
 import time
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
@@ -45,6 +47,40 @@ class SharedSpotTests(unittest.TestCase):
         self.assertAlmostEqual(row[1],2,delta=.1)
         self.assertTrue(row[4])
 
+    def test_bundle_bridges_only_imminent_normal_retry_before_expiry(self):
+        old=(self.now-timedelta(seconds=58)).isoformat()
+        newer=(self.now-timedelta(seconds=1)).isoformat()
+        source='Gold-API.com · XAU/USD Spot'
+        original=(4100.,58.,None,source,True,old)
+        refreshed={'price':4141.8,'at':newer,'source':source}
+        with patch.object(s,'current',return_value=refreshed) as current, \
+             patch.object(s,'final_bundle_retry_wait',return_value=2.0), \
+             patch.object(server.time,'sleep') as sleep:
+            row=server.recheck_spot_before_bundle(
+                original,now=self.now.timestamp())
+        sleep.assert_called_once_with(2.0)
+        current.assert_called_once_with()
+        self.assertEqual(row[0],4141.8)
+        self.assertEqual(row[5],newer)
+        self.assertAlmostEqual(row[1],3,delta=.1)
+
+    def test_final_bundle_retry_wait_never_changes_provider_cadence(self):
+        source_at=(self.now-timedelta(seconds=58)).isoformat()
+        s._quote={'price':4100.,'at':source_at,
+                  'source':'Gold-API.com · XAU/USD Spot'}
+        with patch.object(s.time,'monotonic',return_value=100.0), \
+             patch.object(s,'_attempted',72.0), \
+             patch.object(s,'_near_expiry_retried_at',source_at), \
+             patch.object(s,'_retry_at',0):
+            self.assertEqual(s.final_bundle_retry_wait(source_at),2.0)
+            self.assertIsNone(s.final_bundle_retry_wait(source_at,max_wait=1.0))
+            self.assertIsNone(s.final_bundle_retry_wait('other'))
+        with patch.object(s.time,'monotonic',return_value=100.0), \
+             patch.object(s,'_attempted',72.0), \
+             patch.object(s,'_near_expiry_retried_at',source_at), \
+             patch.object(s,'_retry_at',101.0):
+            self.assertIsNone(s.final_bundle_retry_wait(source_at))
+
     def test_late_bundle_recheck_never_promotes_stale_or_conflicting_quote(self):
         old=(self.now-timedelta(seconds=61)).isoformat()
         source='Gold-API.com · XAU/USD Spot'
@@ -79,16 +115,29 @@ class SharedSpotTests(unittest.TestCase):
 
     def test_near_expiry_observation_gets_one_bounded_early_retry(self):
         payload={**self.payload,'updatedAt':(self.now-timedelta(seconds=35)).isoformat()}
-        with patch.object(product_quotes,'issuer_json',return_value=payload) as request:
-            self.assertEqual(s.current()['at'],payload['updatedAt'])
-            self.assertEqual(request.call_count,1)
-            with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
+        # Verify actual output even when INFO logging is filtered in production.
+        with redirect_stdout(io.StringIO()) as output, patch.object(s.logging.getLogger(), 'level', s.logging.WARNING):
+            with patch.object(product_quotes,'issuer_json',return_value=payload) as request:
                 self.assertEqual(s.current()['at'],payload['updatedAt'])
-            self.assertEqual(request.call_count,2)
-            # Repeating the same original source time cannot create a fast loop.
-            with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
-                self.assertEqual(s.current()['at'],payload['updatedAt'])
-            self.assertEqual(request.call_count,2)
+                self.assertEqual(request.call_count,1)
+                with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
+                    self.assertEqual(s.current()['at'],payload['updatedAt'])
+                self.assertEqual(request.call_count,2)
+                # Repeating the same original source time cannot create a fast loop.
+                with patch.object(s,'_attempted',time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
+                    self.assertEqual(s.current()['at'],payload['updatedAt'])
+                self.assertEqual(request.call_count,2)
+        evidence=[line for line in output.getvalue().splitlines()
+                  if line.startswith('BOB_SPOT_FETCH_EVIDENCE')]
+        self.assertEqual(len(evidence),2)
+        first,second=evidence
+        for line in evidence:
+            self.assertIn('source_at='+payload['updatedAt'],line)
+            self.assertRegex(line,r'age_ms=\d+')
+            self.assertIn('route=0',line)
+        self.assertIn('repeated=False early_retry=False',first)
+        self.assertIn('repeated=True early_retry=True',second)
+        self.assertNotIn(str(payload['price']),str(evidence))
 
     def test_ageing_cached_quote_refreshes_before_minute_signal_expires(self):
         # Provider observation is already 35s old, but our HTTP cache is only 6s old.
@@ -118,6 +167,30 @@ class SharedSpotTests(unittest.TestCase):
                 with self.assertRaises(ValueError):s.current()
         with patch.object(s,'_quote',{**s._quote,'at':(self.now-timedelta(seconds=90)).isoformat()}),patch.object(s,'_error',None):
             with self.assertRaises(ValueError):s.current()
+
+    def test_failed_early_retry_records_only_bounded_attempt_context(self):
+        old=(self.now-timedelta(seconds=35)).isoformat()
+        s._quote={'price':4100.,'at':old,'source':'Gold-API.com · XAU/USD Spot'}
+        s._attempted=time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1
+        with redirect_stdout(io.StringIO()) as output, \
+             patch.object(product_quotes,'issuer_json',
+                          side_effect=OSError('private-secret-details')) as request:
+            retained=s.primary()
+            self.assertEqual(retained['at'],old)
+            self.assertEqual(request.call_count,1)
+            # A failed early retry must not become a rapid retry loop.
+            with patch.object(s,'_attempted',
+                              time.monotonic()-s.NEAR_EXPIRY_RETRY_SECONDS-1):
+                self.assertEqual(s.primary()['at'],old)
+            self.assertEqual(request.call_count,1)
+        evidence=[line for line in output.getvalue().splitlines()
+                  if line.startswith('BOB_SPOT_FETCH_FAILURE')]
+        self.assertEqual(evidence,[
+            'BOB_SPOT_FETCH_FAILURE reason=OSError early_retry=True attempted_route=0'])
+        self.assertNotIn('private-secret-details',str(evidence))
+        self.assertNotIn('4100',str(evidence))
+        self.assertEqual(s._route,1)
+        self.assertEqual(s._near_expiry_retried_at,old)
 
     def test_failed_clock_rotates_route_then_recovers_without_redating(self):
         stale={**self.payload, 'updatedAt':(self.now-timedelta(seconds=90)).isoformat()}

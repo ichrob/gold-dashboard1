@@ -2,6 +2,7 @@
 import math
 
 VERSION='entry-path-v1-20261019'
+MAX_SAMPLES_PER_TRIAL=256
 PROTOCOL=dict(version=VERSION,horizons=[5,15,30,60],priorMinutes=15,extensionPct=.30,
               earlierMinutes=5,costPct=[.04,.12],automaticRuleChange=False,
               scope='Last 30 fixed two-hour MBO trials; descriptive comparison, no adoption gate')
@@ -72,17 +73,41 @@ def read(conn,campaign,now):
     if not stored or stored[0]!=PROTOCOL:raise ValueError('Entry path protocol mismatch')
     trials=conn.execute('''SELECT slot,phase,payload FROM bob_improvement_trials WHERE campaign=%s
         ORDER BY slot DESC LIMIT 30''',(campaign,)).fetchall()
-    # One indexed join, bounded to 30 windows; transfer only the necessary fields.
-    samples=conn.execute('''WITH trials AS (SELECT slot,payload FROM bob_improvement_trials
+    # Force one primary-key range read per materialized trial instead of
+    # allowing PostgreSQL to turn the JSON projection into a global archive
+    # join.  A normal 30-second capture has at most 160 rows in this 80-minute
+    # window.  Read one overflow sentinel and fail that trial closed rather
+    # than returning a partial comparison under abnormal archive density.
+    samples=conn.execute('''WITH trials AS MATERIALIZED (
+        SELECT slot,payload FROM bob_improvement_trials
         WHERE campaign=%s ORDER BY slot DESC LIMIT 30)
-        SELECT t.slot,jsonb_build_object('at',o.payload->'at','priceAt',o.payload->'priceAt',
-        'price',o.payload->'price','valid',o.payload->'valid','ready',o.payload->'ready',
-        'direction',o.payload->'direction','cohort',o.payload->'cohort')
-        FROM trials t JOIN bob_improvement_observations o ON o.campaign=%s
-        AND o.slot BETWEEN t.slot-900000 AND t.slot+3900000 ORDER BY t.slot,o.slot''',(campaign,campaign)).fetchall()
+        SELECT t.slot,sample.payload
+        FROM trials t CROSS JOIN LATERAL (
+          SELECT o.slot,jsonb_build_object('at',o.payload->'at','priceAt',o.payload->'priceAt',
+          'price',o.payload->'price','valid',o.payload->'valid','ready',o.payload->'ready',
+          'direction',o.payload->'direction','cohort',o.payload->'cohort') AS payload
+          FROM bob_improvement_observations o WHERE o.campaign=%s
+          AND o.slot BETWEEN t.slot-900000 AND t.slot+3900000
+          ORDER BY o.slot LIMIT %s
+        ) sample ORDER BY t.slot,sample.slot''',
+        (campaign,campaign,MAX_SAMPLES_PER_TRIAL+1)).fetchall()
     grouped={}
     for slot,row in samples:grouped.setdefault(slot,[]).append(row)
-    items=[dict(evaluate(base,grouped.get(slot,[]),now),phase=phase,cohort=base.get('cohort')) for slot,phase,base in trials]
+    items=[]
+    for slot,phase,base in trials:
+        observed=grouped.get(slot,[])
+        item=evaluate(base,observed[:MAX_SAMPLES_PER_TRIAL],now)
+        if len(observed)>MAX_SAMPLES_PER_TRIAL:
+            item.update(label='Stichprobenlimit überschritten; Ergebnis unbekannt',
+                        priorMovePct=None,candidateKeep=None,coveragePct=None,
+                        observedAdversePct=None,observedFavorablePct=None,
+                        comparison=[],earlierComparison=[],sampleCoverageStatus='over-cap')
+            for horizon in item['horizons']:
+                horizon.update(status='unavailable',sourceAt=None,movePct=None,
+                               directionalPct=None)
+        else:
+            item['sampleCoverageStatus']='complete-within-cap'
+        items.append(dict(item,phase=phase,cohort=base.get('cohort')))
     groups=[]
     for phase in ('development','validation'):
         for cohort in sorted({r['cohort'] for r in items if r.get('cohort')}):

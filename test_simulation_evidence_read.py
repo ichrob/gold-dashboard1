@@ -23,6 +23,22 @@ class SimulationEvidenceTests(unittest.TestCase):
         self.assertEqual(item["casesWithRecordedDeferredSale"], 1)
         self.assertFalse(out["realOrders"])
         self.assertFalse(item["netProductReturnsVerified"])
+        self.assertEqual(out["gapReview"]["status"], "unavailable")
+        self.assertFalse(out["gapReview"]["noRecentGapEventsObserved"])
+
+    def test_incomplete_or_unclocked_sample_never_becomes_empty_success(self):
+        readable = {"recentCases": {"status": "observed", "items": []}}
+        for accounts in (
+            [readable, None],
+            [{"recentCases": {"status": "observed", "items": [None]}}],
+            [{"recentCases": {"status": "observed", "items": [
+                {"status": "open", "events": [{"kind": "data-gap"}]}]}}],
+        ):
+            with self.subTest(accounts=accounts):
+                out = diagnostics.simulation_evidence_snapshot(
+                    {"status": "observed", "accounts": accounts})
+                self.assertEqual(out["gapReview"]["status"], "unavailable")
+                self.assertFalse(out["gapReview"]["noRecentGapEventsObserved"])
 
     def test_empty_but_readable_weekend_recent_cases_do_not_raise_gap_warning(self):
         sample = {"status": "observed", "accounts": [

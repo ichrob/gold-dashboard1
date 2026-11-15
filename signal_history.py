@@ -7,7 +7,8 @@ SCHEMA = shape('direction','baseDirection','shadowDirection','ruleVersion','buil
     gateReasons=[None],earlyWarning=EARLY_WARNING,
     earlyImpulse=shape('available','direction','barAt','reason','extensionRisk','comparisonOnly','affectsApproval'),
     minuteEntry=shape('available','direction','barAt','reason'),
-    trendContext=shape('available','direction','intact','reason'))
+    trendContext=shape('available','direction','intact','reason'),
+    plan=shape('kind','direction','entry','stop','target','unit','at'))
 MAX_ROWS = 5000
 PAGE_SIZE = 100
 

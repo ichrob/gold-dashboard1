@@ -6,6 +6,7 @@ import math
 import os
 import threading
 import time
+import source_availability
 from urllib.request import Request, build_opener
 from bob_auth import NoRedirect
 
@@ -66,6 +67,13 @@ def observe(source, tf, rows=None, error=None):
             if clean:
                 old=_ROWS.get(key,[])
                 if not old or clean[-1]['openTime']>=old[-1]['openTime']:
+                    # Identical rolling source snapshots need no new history
+                    # allocation. Compare ALL canonical candle fields so a
+                    # same-clock issuer correction is still published.
+                    if len(old)>=len(clean) and old[-len(clean):]==clean:
+                        return
+                    # Copy-on-write: every published snapshot is immutable to
+                    # readers. Older rows are safe to share until replaced.
                     older=[b for b in old if b['openTime']<clean[0]['openTime']]
                     _ROWS[key]=(older+clean)[-2000:]
             else:_CHECKS[key]['error']='incomplete'
@@ -84,6 +92,9 @@ def transition(old,state,now,source_at=None):
     row=copy.deepcopy(old) if old else dict(incidents=0,badSeconds=0,unknownSeconds=0,
         longestObservedSeconds=0,currentObservedSeconds=0,events=[],since=now)
     previous=row.get('state','unknown')
+    if old and now <= old.get('checkedAt', now):
+        return row
+    source_availability.record(row, previous, row.get('checkedAt', now), now)
     delta=max(0,now-row.get('checkedAt',now))
     if delta>90:
         row['unknownSeconds']+=delta
@@ -129,7 +140,7 @@ def handle(conn,action,payload):
     key=payload.get('key')
     if key=='statistics':
         data=payload.get('statistics')
-        if not isinstance(data,dict) or len(json.dumps(data))>60000:raise ValueError('Invalid statistics')
+        if not isinstance(data,dict) or len(json.dumps(data))>300000:raise ValueError('Invalid statistics')
         owner=payload.get('ownerStartedAt')
         if type(owner) not in (int,float) or not math.isfinite(owner) or not 0<owner<=time.time()+5:
             raise ValueError('Invalid monitor identity')
@@ -151,10 +162,13 @@ def handle(conn,action,payload):
         rows=validated(key,payload.get('rows'))
         if not rows:raise ValueError('Empty checkpoint')
         # Preserve all accepted candle revisions before replacing the rolling checkpoint.
-        # Keep each statement bounded under the route's 1500ms timeout. All
+        # Provider logs show 256-row statements can exceed the route's 1500ms
+        # timeout during concurrent maintenance/research load. Bound each hash/index
+        # probe to half that work; all
         # batches and the checkpoint still share the caller's transaction:
         # a failure rolls everything back, never acknowledging a partial save.
-        for start in range(0, len(rows), 256):
+        evidence_batch_size = 128
+        for start in range(0, len(rows), evidence_batch_size):
             # An advancing checkpoint mostly repeats already archived candles.
             # Filter by the complete revision key before INSERT so those rows
             # do not re-enter the write/conflict path on every source update.
@@ -173,9 +187,11 @@ def handle(conn,action,payload):
                     SELECT 1 FROM bob_candle_evidence e
                     WHERE e.source_key=i.source_key AND e.open_time=i.open_time
                         AND e.fingerprint=i.fingerprint)
-                ON CONFLICT DO NOTHING""",(key,json.dumps(rows[start:start+256],allow_nan=False)))
+                ON CONFLICT DO NOTHING""",(key,json.dumps(
+                    rows[start:start+evidence_batch_size],allow_nan=False)))
             except Exception as exc:
-                print('BOB_CANDLE_WRITE stage=evidence batch='+str(start//256)+
+                print('BOB_CANDLE_WRITE stage=evidence batch='+
+                      str(start//evidence_batch_size)+
                       ' error='+type(exc).__name__,flush=True)
                 raise
         conn.execute('''INSERT INTO bob_candle_checkpoints(key,latest,payload) VALUES(%s,%s,%s::jsonb)
@@ -222,12 +238,16 @@ def restore(server):
                 saved=technical_candles._cache.get(tf)
                 current=saved[1] if saved else []
                 if not current or current[-1]['openTime']<rows[-1]['openTime']:
-                    technical_candles._cache[tf]=(0,rows[-1000:])
+                    # Do not let candle fetch/mark mutate archived rows:
+                    # cycle() can then snapshot immutable list references.
+                    technical_candles._cache[tf]=(0,[dict(row) for row in rows[-1000:]])
         if source=='xaus':
             with server._ema_backfill_lock:
                 current=server._ema_backfill_series.get(tf,[])
                 if not current or current[-1]['openTime']<rows[-1]['openTime']:
-                    server._ema_backfill_series[tf]=rows
+                    # Warmup mutates isOpen; archive snapshots must remain
+                    # independent of source analysis consumers.
+                    server._ema_backfill_series[tf]=[dict(row) for row in rows]
         restored+=1
     with _LOCK:_STORAGE.update(restoredSeries=restored,state='ready')
 
@@ -235,7 +255,11 @@ def restore(server):
 def cycle(server, now=None, paused=False):
     now=time.time() if now is None else now
     with _LOCK:
-        snapshots=copy.deepcopy(_ROWS)
+        # observe() and restore() publish new lists under _LOCK. Consumer
+        # caches receive detached dicts; no full 12x2000 candle deep copy
+        # is needed every 30 seconds. In-flight snapshots retain all original
+        # revisions even if a newer source update replaces a list.
+        snapshots=dict(_ROWS)
         for key in sorted(KEYS):
             rows=snapshots.get(key,[])
             check=_CHECKS.get(key,{})
@@ -296,7 +320,11 @@ def snapshot():
     with _LOCK:
         if _STORAGE.get('lastSavedAt') and time.time()-_STORAGE['lastSavedAt']>120:
             _STORAGE['state']='stale'
-        return {'status':'observed','storage':dict(_STORAGE),'sources':copy.deepcopy(_STATS),
+        resources=copy.deepcopy(_STATS)
+        for row in resources.values():
+            row['availabilityWindows']=source_availability.windows(row,time.time())
+            row.pop('availabilityHours',None)
+        return {'status':'observed','storage':dict(_STORAGE),'sources':resources,
         'note':'Beobachtete Ausfallzeiten seit Messbeginn; Überwachungslücken werden separat gezählt. Keine Handelsfreigabe.'}
 
 

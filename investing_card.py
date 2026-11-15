@@ -2,11 +2,13 @@
 import json
 import math
 import re
+import html
 import time
 import threading
 import background_push
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 URL = 'https://de.investing.com/commodities/gold'
 _fetch_lock = threading.Lock()
@@ -17,13 +19,52 @@ _next_fetch = 0
 _thread = None
 _state_lock = threading.Lock()
 _health = {"state": "starting", "lastCheckedAt": None, "sourceAt": None,
-           "providerMarketOpen": None}
+           "providerMarketOpen": None, "failureCode": None, "failureAt": None}
 POLL_SECONDS = 30
 PROVIDER_CLOSE_ERROR_GRACE_SECONDS = 65 * 60
+
+class FetchCooldownError(OSError):
+    """Shared 30s poll was already attempted; keep that original error code."""
+
+
+def failure_code(exc):
+    """Bounded public failure reason; never expose provider HTML or secrets."""
+    if isinstance(exc, FetchCooldownError):
+        return None
+    if isinstance(exc, HTTPError):
+        return ('http-' + str(exc.code) if exc.code in (401, 403, 404, 429, 500, 502, 503, 504)
+                else 'http-other')
+    if isinstance(exc, TimeoutError):
+        return 'provider-timeout'
+    if isinstance(exc, URLError):
+        return 'provider-timeout' if isinstance(exc.reason, TimeoutError) else 'provider-network'
+    if isinstance(exc, UnicodeError):
+        return 'provider-decode'
+    if isinstance(exc, ValueError):
+        return 'provider-content-invalid'
+    if isinstance(exc, OSError):
+        return 'provider-network'
+    return 'provider-exception'
+
+
 
 
 def numeric(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+
+def _public_page_explicit_troy_ounce(body):
+    """Strictly verify the visible German unit on the same identified page.
+
+    Investing.com has stopped populating commodityData.unit in some pages.
+    Never trust strings embedded only in scripts or an arbitrary unit label.
+    """
+    visible = re.sub(r'(?is)<(?:script|style)\b[^>]*>.*?</(?:script|style)\s*>',
+                     ' ', body)
+    visible = re.sub(r'\s+', ' ', html.unescape(re.sub(r'<[^>]*>', ' ', visible)))
+    return bool(re.search(r'\bEinheit\s*:?\s*.{0,110}?\b1\s+Feinunze\b',
+                          visible, re.I))
 
 
 def parse(body, now=None):
@@ -37,8 +78,18 @@ def parse(body, now=None):
     if (str(store['instrumentId']) != '8830' or str(base['id']) != '8830'
             or base['path'] != '/commodities/gold' or base['isCfd'] is not True
             or base['isActive'] is not True or quote['currency'] != 'USD'
-            or instrument['commodityData']['unit'] != '_instr_unit_troy_ounce'):
+            ):
         raise ValueError('Gold-CFD Identität nicht bestätigt')
+    commodity_data = instrument.get('commodityData') or {}
+    unit = commodity_data.get('unit') if isinstance(commodity_data, dict) else None
+    if unit == '_instr_unit_troy_ounce':
+        unit_evidence = 'provider-json'
+    elif unit is None and _public_page_explicit_troy_ounce(body):
+        # Preserve instrument 8830, active CFD, gold path, USD and provider
+        # timestamp checks above. An explicitly different unit is never OK.
+        unit_evidence = 'provider-visible-1-feinunze'
+    else:
+        raise ValueError('Gold-CFD Feinunzen-Einheit nicht bestätigt')
     raw = str(quote['lastUpdateTime'])
     if not re.fullmatch(r'\d{13}', raw):
         raise ValueError('CFD Quellenzeit fehlt')
@@ -62,6 +113,7 @@ def parse(body, now=None):
                 changePct=quote.get('changePcr') if numeric(quote.get('changePcr')) else None,
                 change=quote.get('change') if numeric(quote.get('change')) else None,
                 symbol='Gold CFD', source='Investing.com', sourceUrl=URL, kind='cfd',
+                unitEvidence=unit_evidence,
                 note=note, realtimeCfd=realtime,
                 providerMarketOpen=base.get('isOpen') if type(base.get('isOpen')) is bool else None,
                 isExchangeRealtime=False,
@@ -85,7 +137,7 @@ def fetch():
     global _cached, _next_fetch, _last_observed
     with _fetch_lock:
         if time.monotonic() < _next_fetch:
-            if _cached is None:raise OSError('CFD-Abruf pausiert nach Quellenfehler')
+            if _cached is None:raise FetchCooldownError('CFD-Abruf pausiert nach Quellenfehler')
             return aged(_cached)
         _cached = None
         # Count from request start, so a six-second fetch does not accidentally
@@ -131,10 +183,12 @@ def collect_once():
                  else 'current' if q.get('realtimeCfd') else 'stale')
         with _state_lock:
             _health.update(state=state, lastCheckedAt=time.time(), successfulAt=time.time(), sourceAt=q['at'],
-                           providerMarketOpen=q.get('providerMarketOpen'))
+                           providerMarketOpen=q.get('providerMarketOpen'),
+                           failureCode=None, failureAt=None)
         print('BOB_CFD checked state='+state+' source_at='+q['at'], flush=True)
     except Exception as exc:
         now = time.time()
+        code = failure_code(exc)
         with _state_lock:
             successful = _health.get('successfulAt')
             recently_closed = (
@@ -148,7 +202,10 @@ def collect_once():
             # outside it, fail closed as unavailable.
             _health.update(state='closed' if recently_closed else 'unavailable',
                            lastCheckedAt=now)
-        print('BOB_CFD error='+type(exc).__name__, flush=True)
+            if code is not None:
+                _health.update(failureCode=code, failureAt=now)
+            current_code = _health.get('failureCode') or 'unknown'
+        print('BOB_CFD error='+type(exc).__name__+' code='+current_code, flush=True)
 
 
 def _collect(stop=None):

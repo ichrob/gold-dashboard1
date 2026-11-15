@@ -35,6 +35,31 @@ class BackgroundHealthTests(unittest.TestCase):
                 self.assertEqual(server.FIB_MONITOR_HEALTH['lastSuccessAt'], 900 if failed else 1000)
                 self.assertEqual(server.FIB_MONITOR_HEALTH['status'], 'unavailable' if failed else 'active')
 
+    def test_study_alignment_is_disabled_for_unknown_or_active_trade_state(self):
+        for monitors, guarded in (
+            ({'activeMonitors': 1}, True),
+            ({'activeMonitors': 1, 'activeTrades': 1}, True),
+            ({'activeMonitors': 1, 'activeTrades': 0}, False),
+        ):
+            with self.subTest(monitors=monitors):
+                responses=[
+                    nullcontext(Mock(read=Mock(return_value=json.dumps(monitors).encode()))),
+                    nullcontext(Mock(read=Mock(return_value=b'{"sent":0}'))),
+                    nullcontext(Mock(read=Mock(return_value=b'{"sent":0}'))),
+                ]
+                with patch.object(server, 'PUSH_SERVICE_URL', 'https://push.example'), \
+                     patch.object(server, 'PUSH_SERVICE_TOKEN', 'test'), \
+                     patch.object(server, 'urlopen', side_effect=responses), \
+                     patch.object(server, 'build_live_bundle', return_value={}), \
+                     patch.object(server.time, 'time', return_value=1000), \
+                     patch.object(server.time, 'sleep', side_effect=StopIteration), \
+                     patch.object(server.background_push, 'study_source_edge_delay',
+                                  return_value=30) as aligned:
+                    with self.assertRaises(StopIteration):
+                        server.fibonacci_monitor_loop()
+                self.assertEqual(aligned.call_count, 1)
+                self.assertEqual(aligned.call_args.kwargs['active_trade'], guarded)
+
     def test_idle_cycle_is_healthy(self):
         with patch.dict(server.FIB_MONITOR_HEALTH, configured=True, status='starting', lastSuccessAt=None):
             self.cycle(active=0)

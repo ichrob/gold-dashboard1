@@ -21,6 +21,23 @@ class SwissquoteTests(unittest.TestCase):
         with patch.object(q, 'get_observation', return_value=evidence):
             return q.apply(primary or self.primary, self.isin, now or self.now)
 
+    def test_mini_future_spot_quotes_keep_native_fields_and_real_contract_guard(self):
+        payload=copy.deepcopy(self.payload)
+        d=payload['fullQuoteData'];d['eusipaCode']='2210'
+        u=d['underlyings'][0];u['stopLoss']=u.pop('knockOut')
+        d['isOpenEnd']=True
+        evidence=q.parse_payload(payload,self.isin,self.now)
+        self.assertEqual(evidence['fields']['ko']['value'],u['stopLoss']['value'])
+        self.assertEqual(evidence['fields']['maturity']['value'],'Open End')
+        self.assertEqual(evidence['quote']['bidAt'],q.stamp(d['quote']['bidPrice']['timestamp']).isoformat())
+        self.assertFalse(evidence['quote']['degiroExecutable'])
+        future=copy.deepcopy(self.primary);future['metadata']['underlyingType']='FUTURE'
+        with patch.object(q,'get_observation',side_effect=AssertionError('must not use spot for futures')):
+            self.assertIs(q.apply(future,self.isin,self.now),future)
+        for key,value in [('eusipaCode','2300'),('optionType','OTHER')]:
+            bad=copy.deepcopy(payload);bad['fullQuoteData'][key]=value
+            with self.assertRaises(ValueError):q.parse_payload(bad,self.isin,self.now)
+
     def test_daily_bid_change_uses_dated_previous_close(self):
         out = self.apply()
         d = out['dailyChange']

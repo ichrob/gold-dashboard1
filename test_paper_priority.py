@@ -126,7 +126,10 @@ class PersistenceTests(unittest.TestCase):
             conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
             conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
             study.init(conn)
-            conn.execute('CREATE TABLE bob_paper_balanced_cases(id TEXT,payload JSONB,started_at TIMESTAMPTZ)')
+            from paper_portfolios import names
+            for profile in study.PROFILES:
+                table=names(profile)['bob_paper_cases']
+                conn.execute(sql.SQL('CREATE TABLE {} (id TEXT,payload JSONB,started_at TIMESTAMPTZ)').format(sql.Identifier(table)))
             conn.execute('INSERT INTO bob_paper_balanced_cases VALUES(%s,%s::jsonb,now())',(c['id'],json.dumps(c)))
             t=NOW+30000;m={**f.market(),'dataAt':t,'price':89}
             study.tick(conn,m,{f.ISIN:f.quote(t,bid=9,ask=9.1)},t)

@@ -48,6 +48,9 @@ internal class ProductPageReader {
                 seekLeverage: Boolean = false, expectedIsin: String? = null): Step {
         fun scopedParameters(values: List<QuoteLayout.Line>) = QuoteLayout.extract(values)
             .filterKeys { it in setOf("Hebel", "KO-Schwelle", "Basispreis", "Bv") }
+        if (VerificationChallenge.detected(lines.joinToString("\n") { it.text }))
+            return stop("Sicherheitsabfrage erkannt; bitte selbst in DEGIRO prüfen.",
+                Cause.UNSAFE_VIEW, ProductScreenEvidence.Reason.PROTECTED)
         val direct = ProductScreenEvidence.read(ProductScreenEvidence.PACKAGE, lines, at, sensitive,
             allowTermsOnly = requestedTermsOnly.isNotEmpty())
         // Launch/login transitions must not consume an unanchored request. Read nothing

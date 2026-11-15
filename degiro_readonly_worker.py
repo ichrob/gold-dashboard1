@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import sys
-from urllib.parse import urlsplit, urljoin
+from urllib.parse import urlsplit, urljoin, parse_qs
 
 
 def login_diagnostic(response):
@@ -79,11 +79,16 @@ def login_response_metadata(response):
     return result
 
 
-def permitted(method, url):
+def permitted(method, url, quote_request=None):
     parsed = urlsplit(url)
     if parsed.scheme != 'https' or parsed.netloc != 'trader.degiro.nl':
         return False
     path = parsed.path
+    if method == 'GET' and path == '/product_search/secure/v5/products/lookup':
+        query = parse_qs(parsed.query)
+        return (quote_request is not None and not parsed.fragment
+                and query.get('searchText') == [quote_request['isin']]
+                and query.get('limit') == ['20'] and query.get('offset') == ['0'])
     return ((method == 'POST' and path in ('/login/secure/login', '/login/secure/login/totp'))
             or (method == 'GET' and path == '/pa/secure/client')
             or (method == 'POST' and path == '/product_search/secure/v5/products/info')
@@ -91,7 +96,10 @@ def permitted(method, url):
             or (method == 'PUT' and path.startswith('/trading/secure/logout;jsessionid=')))
 
 
-def run(otp, emit=None, stop=None):
+def run(otp, emit=None, stop=None, quote_request=None):
+    if quote_request is not None:
+        from degiro_quote_probe import validate_request
+        quote_request = validate_request(quote_request)
     # All SDK logs are suppressed in this dedicated process, including errors.
     logging.disable(logging.CRITICAL)
     from requests import Session
@@ -107,7 +115,7 @@ def run(otp, emit=None, stop=None):
     class ReadSession(Session):
         def send(self, request, **kwargs):
             nonlocal login_reason, login_metadata
-            if not permitted(request.method, request.url):
+            if not permitted(request.method, request.url, quote_request):
                 raise ValueError('Request outside read-only allowlist')
             kwargs.update(timeout=(5, 8), allow_redirects=False)
             response = super().send(request, **kwargs)
@@ -134,12 +142,19 @@ def run(otp, emit=None, stop=None):
     result = {'code': 'SDK_ERROR', 'logoutConfirmed': False}
     try:
         api.connect()
+        if login_reason:
+            result.update(code='AUTH_REQUIRED', authReason=login_reason, loginResponse=login_metadata)
+            return result
         details = api.get_client_details()
         account = details.get('data', {}).get('intAccount') if isinstance(details, dict) else None
         if type(account) is not int or account <= 0:
             result['code'] = 'INVALID_RESPONSE'
         else:
             credentials.int_account = account
+            if quote_request is not None:
+                from degiro_quote_probe import sample
+                result.update(sample(api, details, quote_request))
+                return result
             portfolio = api.get_update(request_list=[UpdateRequest(option=UpdateOption.PORTFOLIO, last_updated=0)], raw=True)
             result['code'] = 'READ_OK' if isinstance(portfolio, dict) and isinstance(portfolio.get('portfolio'), dict) and isinstance(portfolio['portfolio'].get('value'), list) else 'INVALID_RESPONSE'
             if emit and result['code'] == 'READ_OK':
@@ -170,13 +185,13 @@ def run(otp, emit=None, stop=None):
             except Exception:
                 pass
         session.close()
-    result['checkedAt'] = datetime.now(timezone.utc).isoformat()
+        result['checkedAt'] = datetime.now(timezone.utc).isoformat()
     return result
 
 
 if __name__ == '__main__':
     try:
-        payload = json.loads(sys.stdin.read(128))
+        payload = json.loads(sys.stdin.read(2048))
         otp = payload.get('otp', '')
         if not isinstance(otp, str) or (otp and not re.fullmatch(r'[0-9]{6}', otp)):
             raise ValueError('invalid OTP')
@@ -187,7 +202,7 @@ if __name__ == '__main__':
             signal.signal(signal.SIGTERM, lambda *_: stop.set())
             result = run(otp, lambda row: print(json.dumps(row), flush=True), stop)
         else:
-            result = run(otp)
+            result = run(otp, quote_request=payload.get('quoteRequest'))
     except Exception:
         result = {'code': 'SDK_ERROR', 'logoutConfirmed': False}
     print(json.dumps(result))

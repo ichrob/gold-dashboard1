@@ -55,3 +55,12 @@ console.log('Zukunft lab: 4 paper accounts, 9 synthetic safety cases, 11 readine
 
 const seven={...five,mode:"seven-independent-paper-accounts",accounts:[...five.accounts,{profile:"early1000oct",control:{initialCapital:1000}},{profile:"normal1000oct",control:{initialCapital:1000}}]};
 assert.equal(snapshot(seven).length,7);
+
+const current={...seven,mode:'independent-prospective-paper-accounts',accounts:[...seven.accounts,
+ {profile:'trend800nov',control:{initialCapital:800}},
+ {profile:'normal1000nov',control:{initialCapital:1000}},
+ {profile:'ema3000nov',control:{initialCapital:3000,equity:3000,status:'running'}}]};
+assert.equal(snapshot(current).length,10);
+assert.equal(snapshot(current).find(a=>a.id==='ema3000nov').initial,3000);
+assert.equal(snapshot({...current,accounts:current.accounts.slice(0,9)}).length,9);
+assert.throws(()=>snapshot({...current,accounts:[...current.accounts.slice(0,9),{profile:'unknown'}]}),/unbekannte/);

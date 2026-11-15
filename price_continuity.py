@@ -21,6 +21,48 @@ def current_pair(row, isin, now):
         return False
 
 
+def research_model(result, now):
+    """Quote outages do not invalidate separately corroborated current terms.
+
+    Only the display/simulation valuation uses this local copy. Quote evidence,
+    issuer availability and all approval flags remain unchanged on the result.
+    """
+    model = h.model_for(result, now)
+    if model:
+        return model
+    if result.get('quoteFailureCode') != 'SG_SOURCE_UNAVAILABLE':
+        return None
+    m = result.get('metadata') or {}
+    fields = result.get('comdirectFieldsBackup') or {}
+    obs = fields.get('observations') or {}
+    isin = result.get('isin')
+    if (m.get('simpleNonQuantoTurbo') is not True
+            or fields.get('isin') != isin or fields.get('state') != 'active'
+            or fields.get('inactive') or fields.get('conflicts') or fields.get('unresolvedConflicts')
+            or fields.get('source') != 'https://www.comdirect.de/inf/zertifikate/'+str(isin)
+            or obs.get('quanto', {}).get('value') is not False
+            or obs.get('quanto', {}).get('conditionVerified') is not True
+            or obs.get('issuer', {}).get('value') != 'Société Générale'
+            or any(obs.get(k, {}).get('value') != m.get(k)
+                   for k in ('ratio', 'direction', 'currency', 'underlying'))):
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        today = now.astimezone(ZoneInfo('Europe/Zurich')).strftime('%d.%m.%Y')
+        if not 0 <= (now-h.utc(fields['checkedAt'])).total_seconds() <= 300:
+            return None
+        for key in ('ko', 'strike'):
+            term = result['conditions'][key]
+            if (term.get('conditionVerified') is not True or term.get('conflict')
+                    or term.get('dateText') != today or term.get('value') != m.get(key)):
+                return None
+    except (KeyError, TypeError, ValueError):
+        return None
+    candidate = dict(result, sourceFailure=False, quoteFailureCode=None,
+                     metadata=dict(m))
+    return h.model_for(candidate, now)
+
+
 def apply(result, now=None, fetch_spot=None, fetch_fx=None):
     now = now or datetime.now(timezone.utc)
     out = dict(result)
@@ -43,7 +85,7 @@ def apply(result, now=None, fetch_spot=None, fetch_fx=None):
                      bid=original['bid'], ask=original['ask'],
                      at=min(h.utc(original['bidAt']), h.utc(original['askAt'])).isoformat(),
                      reason=None)
-    model = h.model_for(result, now)
+    model = research_model(result, now)
     if not model:
         return out
     key = product_estimate.identity(model)

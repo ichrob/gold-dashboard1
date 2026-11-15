@@ -176,11 +176,66 @@ def validate_detail_transfer(value, now):
         raise ValueError('Stale detail transfer status')
     return dict(value)
 
+def validate_workflow(value, now):
+    if not isinstance(value, dict) or set(value) not in ({'state', 'source', 'confirmed', 'total', 'at'}, {'state', 'source', 'confirmed', 'total', 'at', 'reason'}):
+        raise ValueError('Invalid workflow fields')
+    if not isinstance(value.get('reason', 'NONE'), str) or value.get('reason', 'NONE') not in {'NONE','USER_STOP','SCREEN_LOCKED','USER_INTERRUPTED','APP_CHANGED','PROTECTED_VIEW','CONNECTION_ERROR','TIMEOUT','AMBIGUOUS_TARGET','ACTION_REJECTED','SERVICE_INTERRUPTED','NO_LOCAL_PLAN','AI_UNCONFIRMED','SCREEN_UNSTABLE','OTHER'}:
+        raise ValueError('Invalid workflow reason')
+    if value['state'] not in ('STARTED', 'SUCCEEDED', 'STOPPED') or value['source'] not in ('NONE', 'LOCAL', 'CACHE', 'AI'):
+        raise ValueError('Invalid workflow state')
+    if type(value['confirmed']) is not int or type(value['total']) is not int or not 0 <= value['confirmed'] <= value['total'] <= 12:
+        raise ValueError('Invalid workflow counts')
+    if value['state'] == 'SUCCEEDED' and (value['total'] == 0 or value['confirmed'] != value['total']):
+        raise ValueError('Unconfirmed workflow success')
+    at = timestamp(value['at'])
+    if at.year < 2020 or (now-at).total_seconds() < -60:
+        raise ValueError('Invalid workflow time')
+    return dict(value)
+
+
+
+RAM_FIELDS = {'phase','startedAt','finishedAt','durationSec','endReason','sampleIntervalSec',
+              'sampleCount','startPssMiB','sampledPeakPssMiB','endPssMiB',
+              'sampledPeakJavaHeapMiB'}
+RAM_PHASES = {'GOLD_LIST','PRODUCT_DETAILS','SINGLE_PAGE'}
+RAM_REASONS = {'STOPPED','TIMEOUT','ATTEMPT_LIMIT','CLOCK_CHANGED','REPLACED'}
+
+def validate_degiro_ram(value, now):
+    """Fixed, bounded process-memory counters only; reject arbitrary phone data."""
+    if not isinstance(value, dict) or set(value) != RAM_FIELDS:
+        raise ValueError('Invalid RAM telemetry fields')
+    if (type(value['phase']) is not str or type(value['endReason']) is not str or
+            value['phase'] not in RAM_PHASES or value['endReason'] not in RAM_REASONS):
+        raise ValueError('Invalid RAM telemetry enums')
+    start = timestamp(value['startedAt'])
+    end = timestamp(value['finishedAt'])
+    if start > end or not -60 <= (now-end).total_seconds() <= 86400:
+        raise ValueError('RAM telemetry time out of bounds')
+    if type(value['durationSec']) is not int or not 0 <= value['durationSec'] <= 3600:
+        raise ValueError('Invalid RAM duration')
+    if type(value['sampleIntervalSec']) is not int or value['sampleIntervalSec'] != 3:
+        raise ValueError('Invalid RAM sample interval')
+    count = value['sampleCount']
+    if type(count) is not int or not 0 <= count <= 1300:
+        raise ValueError('Invalid RAM sample count')
+    for field in ('startPssMiB','sampledPeakPssMiB','endPssMiB','sampledPeakJavaHeapMiB'):
+        v = value[field]
+        if v is not None and (type(v) not in (int,float) or not 0 <= v <= 32768 or v != v):
+            raise ValueError('Invalid RAM counter')
+    first, peak, last = (value[k] for k in ('startPssMiB','sampledPeakPssMiB','endPssMiB'))
+    if count == 0:
+        if any(value[k] is not None for k in ('startPssMiB','sampledPeakPssMiB',
+                                               'endPssMiB','sampledPeakJavaHeapMiB')):
+            raise ValueError('Unmeasured RAM cannot have values')
+    elif None in (first, peak, last) or first > peak or last > peak:
+        raise ValueError('Inconsistent sampled RAM')
+    return dict(value)
+
 def validate_report(value, now=None):
     now=now or datetime.now(timezone.utc)
     expected={'reportId','observedAt','appVersionCode','lastCode','lastEventAt',*BOOLS}
-    optional=(set(),{'pinProbe'},{'detailTransfer'},{'pinProbe','detailTransfer'})
-    if not isinstance(value,dict) or not any(set(value)==(expected|extra) for extra in optional):
+    optional={'pinProbe','detailTransfer','workflow','degiroRam','runDelivery'}
+    if not isinstance(value,dict) or not expected <= set(value) or not set(value) <= expected | optional:
         raise ValueError('Invalid diagnostic fields')
     if not isinstance(value['reportId'],str) or not re.fullmatch('[a-f0-9]{32}',value['reportId']):raise ValueError('Invalid report ID')
     version=value['appVersionCode']
@@ -192,10 +247,26 @@ def validate_report(value, now=None):
     if value['lastEventAt'] is not None:
         event=timestamp(value['lastEventAt'])
         if event.year<2020 or (now-event).total_seconds() < -60:raise ValueError('Invalid event time')
+    if 'runDelivery' in value:
+        delivery=value['runDelivery']
+        if (not isinstance(delivery,dict) or
+                set(delivery)!={'currentPending','currentConfirmed','archivedPending'} or
+                type(delivery['currentPending']) is not bool or
+                type(delivery['currentConfirmed']) is not bool or
+                (delivery['currentPending'] and delivery['currentConfirmed']) or
+                type(delivery['archivedPending']) is not int or
+                not 0<=delivery['archivedPending']<=100000):
+            raise ValueError('Invalid run delivery summary')
+        if value['pendingRun'] != (delivery['currentPending'] or delivery['archivedPending']>0):
+            raise ValueError('Inconsistent run delivery summary')
+    if 'workflow' in value:
+        validate_workflow(value['workflow'],now)
     if 'pinProbe' in value:
         validate_pin_probe(value['pinProbe'], now)
     if 'detailTransfer' in value:
         validate_detail_transfer(value['detailTransfer'],now)
+    if 'degiroRam' in value:
+        validate_degiro_ram(value['degiroRam'],now)
     return dict(value)
 
 def token_hash(token):

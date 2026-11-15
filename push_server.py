@@ -182,6 +182,15 @@ def webpush(**kwargs):
                or any(kind.endswith('-test') for kind in event_kinds))
     is_synthetic = data.get('synthetic') is True or any(
         kind.endswith('-test') for kind in event_kinds)
+    # Web Push defaults to normal urgency, which the provider may defer for
+    # device power saving. Prioritize only real time-sensitive alerts; never
+    # change their TTL, triggers, deduplication, target devices, or permissions.
+    time_sensitive = {'early-warning', 'signal-change', 'market-scenario', 'ko-hit', 'stop-hit', 'reversal'}
+    if not is_test and any(kind in time_sensitive for kind in event_kinds):
+        headers = dict(kwargs.get('headers') or {})
+        if not any(str(key).lower() == 'urgency' for key in headers):
+            headers['Urgency'] = 'high'
+        kwargs['headers'] = headers
 
     def safe_clock(field):
         stamp = data.get(field)
@@ -245,6 +254,7 @@ def init_db():
 def _init_db_once():
     with db() as conn:
         __import__("android_observations").init(conn)
+        __import__("handset_planning").init(conn)
         __import__("android_telemetry").init(conn)
         __import__("android_remote").init(conn)
         bob_session_store.init(conn)
@@ -366,7 +376,7 @@ def cors(handler):
 
 def json_body(handler):
     length = int(handler.headers.get("Content-Length", "0") or 0)
-    if length <= 0 or length > (8101000 if urlparse(handler.path).path=="/android-remote" else 1048576 if urlparse(handler.path).path in ("/market-candles/write", "/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write", "/snaptrade-settings/state-save") else 65536):
+    if length <= 0 or length > (8101000 if urlparse(handler.path).path=="/android-remote" else 2097152 if urlparse(handler.path).path=="/weekend-archive/write" else 1048576 if urlparse(handler.path).path in ("/market-candles/write", "/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write", "/snaptrade-settings/state-save") else 65536):
         raise ValueError("Ungültige Payload-Größe")
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
@@ -418,6 +428,22 @@ def handle_auth_session(action, payload, attempts=3):
             if attempt + 1 >= attempts:
                 raise
             print(f'BOB_PUSH database_retry route=auth-session attempt={attempt + 1}',
+                  flush=True)
+            time.sleep(0.25 * (attempt + 1))
+
+
+def handle_auth_passkey(action, payload, attempts=3):
+    """Run a passkey-store action with bounded auth-pool checkout retries."""
+    for attempt in range(attempts):
+        try:
+            with db(auth=True) as conn:
+                result = bob_passkey_store.handle(conn, action, payload)
+                conn.commit()
+            return result
+        except TooManyRequests:
+            if attempt + 1 >= attempts:
+                raise
+            print(f'BOB_PUSH database_retry route=auth-passkey attempt={attempt + 1}',
                   flush=True)
             time.sleep(0.25 * (attempt + 1))
 
@@ -630,27 +656,54 @@ def run_improvement_review_once(database):
     return status
 
 
-def audit_outcome_loop():
-    while True:
+AUDIT_OUTCOME_LOCK = 'bob_audit_outcome_loop_v1'
+
+
+def run_audit_outcome_cycle(database):
+    """Run one DB-wide repair cycle; overlapping deploy instances skip safely."""
+    # Render keeps the prior revision alive briefly during a zero-downtime
+    # rollout. A process-local thread guard therefore cannot prevent two
+    # instances from starting the same repair/harvest work. Hold a
+    # transaction-scoped advisory lock on a dedicated pooled connection while
+    # the existing bounded workers use their own transactions. The lock is
+    # released automatically on commit, rollback, disconnect or process exit.
+    with database() as guard:
+        acquired = guard.execute(
+            'SELECT pg_try_advisory_xact_lock(hashtext(%s))',
+            (AUDIT_OUTCOME_LOCK,)).fetchone()[0]
+        if not acquired:
+            print('BOB_AUDIT_CYCLE state=overlap-skipped', flush=True)
+            return False
         try:
             import improvement_resilience
-            improvement_resilience.run_drills(db)
+            improvement_resilience.run_drills(database)
         except Exception as exc:
             print("BOB_RESILIENCE error="+type(exc).__name__,flush=True)
         try:
-            run_audit_harvest_once(db)
+            run_audit_harvest_once(database)
         except Exception as exc:
             # Bulk backfill timeouts must not block targeted repair attempts.
             print('BOB_AUDIT_HARVEST error='+type(exc).__name__, flush=True)
         try:
-            run_test_repair_once(db)
+            run_test_repair_once(database)
         except Exception as exc:
             print('BOB_TEST_REPAIR error='+type(exc).__name__,flush=True)
         try:
             if int(time.time()*1000)>=improvement_tracker.START:
-                run_improvement_review_once(db)
+                run_improvement_review_once(database)
         except Exception as exc:
             print('BOB_IMPROVEMENT review_error='+type(exc).__name__,flush=True)
+        return True
+
+
+def audit_outcome_loop():
+    while True:
+        try:
+            run_audit_outcome_cycle(db)
+        except Exception as exc:
+            # Lock admission/connectivity failure is visible but cannot stop the
+            # daemon thread or trigger an unsafe immediate retry loop.
+            print('BOB_AUDIT_CYCLE error='+type(exc).__name__, flush=True)
         time.sleep(120)
 
 
@@ -866,6 +919,24 @@ class Handler(BaseHTTPRequestHandler):
                         paper_heartbeat = {"state":"unavailable", "accountsTotal":len(__import__("paper_portfolios").POLICIES),
                                            "accountsChecked":0,"realOrders":False,
                                            "scope":"paper-account-heartbeat-not-quote-quality"}
+                    # One bounded indexed row. Public /health contains ONLY
+                    # allowlisted codes; unavailable never means "recovered".
+                    try:
+                        import bob_study_health
+                        import research_restart
+                        control_row = conn.execute(
+                            'SELECT payload FROM bob_quality_campaign WHERE id=%s',
+                            (research_restart.VERSION,)).fetchone()
+                        study_health = bob_study_health.snapshot(
+                            control_row[0] if control_row else None,
+                            int(time.time()*1000),
+                            trading=(paper_heartbeat.get('sessionMode')=='trading'
+                                     and paper_heartbeat.get('state')=='ok'))
+                    except Exception as study_exc:
+                        print('BOB_STUDY_HEALTH health_error='+type(study_exc).__name__, flush=True)
+                        study_health = {
+                            'status':'unavailable','codes':[], 'readOnly':True,
+                            'realOrders':False,'scope':'bob-original-study-watchdog-v1'}
                     improvement_protocol=conn.execute('SELECT payload FROM bob_improvement_protocol WHERE id=%s',(improvement_tracker.VERSION,)).fetchone()
                     improvement_schedule={'configured':bool(improvement_protocol and improvement_protocol[0]==improvement_tracker.PROTOCOL),'startAt':improvement_tracker.START,'mode':'research-only'}
                     # The public endpoint reveals ONLY allowlisted diagnostic
@@ -877,7 +948,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception as audit_exc:
                         print("BOB_PRODUCT_AUDIT health_error="+type(audit_exc).__name__, flush=True)
                         product_codes = None  # Unknown is NOT a confirmed repair.
-                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "backgroundProcessing": background_handoff.worker.status(), "paperObservation":paper_heartbeat, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule,"runtimeWatchdog":__import__('runtime_watchdog').snapshot(),"handsetListWorker":__import__('handset_list_worker').status()})
+                send_json(self, 200, {"ok": True, "productSelectionVerifier": "shared-js-v1", "build": os.environ.get("RENDER_GIT_COMMIT", "unknown"), "pushPresentation": "action-first-v2", "evaluator": evaluator_runtime.status(), "backgroundProcessing": background_handoff.worker.status(), "paperObservation":paper_heartbeat, "studyHealth":study_health, "productAuditCodes":product_codes,"improvementSchedule":improvement_schedule,"runtimeWatchdog":__import__('runtime_watchdog').snapshot(),"handsetListWorker":__import__('handset_list_worker').status()})
                 return
             if path == "/push-delivery-history":
                 supplied = self.headers.get("X-Bob-Push-Token", "")
@@ -1163,7 +1234,7 @@ class Handler(BaseHTTPRequestHandler):
                             "status","reason","isin","side","quantity","priceEur","executedAt",
                             "executedLocal","timezoneConfirmed","sourceKind",
                             "orderIdDigest","costsChf","grossChf","totalChf",
-                            "fxEurPerChf","senderKind","attachmentCount")
+                            "fxEurPerChf","feeEvidence","senderKind","attachmentCount")
                               if k in record}
                         if len(json.dumps(safe))>4096:
                             raise ValueError("Zu viele Importdaten")
@@ -1184,6 +1255,15 @@ class Handler(BaseHTTPRequestHandler):
                         real_trade_journal.reconcile_sales(conn)
                         conn.commit()
                 send_json(self,200,result);return
+            if path == '/android-workflow-plan':
+                supplied=self.headers.get('X-Bob-Push-Token','')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
+                    send_json(self,401,{'error':'Unauthorized'});return
+                try:
+                    send_json(self,200,__import__('workflow_ai').handle(db,json_body(self)))
+                except PermissionError:send_json(self,401,{'error':'Device not paired or revoked'})
+                except ValueError:send_json(self,400,{'error':'Workflow request rejected'})
+                return
             if path in ('/android-diagnostics','/android-remote'):
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
@@ -1426,9 +1506,7 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self, 401, {'error':'Unauthorized'}); return
                 payload = json_body(self)
                 if not isinstance(payload, dict): raise ValueError('Invalid passkey payload')
-                with db(auth=True) as conn:
-                    result = bob_passkey_store.handle(conn, path.rsplit('/',1)[-1], payload)
-                    conn.commit()
+                result = handle_auth_passkey(path.rsplit('/',1)[-1], payload)
                 send_json(self, 200, result); return
             if path in ('/auth-recovery/state', '/auth-recovery/issue', '/auth-recovery/reset', '/auth-recovery/cancel'):
                 supplied = self.headers.get('X-Bob-Push-Token', '')
@@ -1762,6 +1840,18 @@ class Handler(BaseHTTPRequestHandler):
         except (psycopg.OperationalError, TooManyRequests) as exc:
             print(f"BOB_PUSH database_busy path={path} error={type(exc).__name__}", flush=True)
             send_json(self, 503, {"error": "Push-Service kurzzeitig belegt", "retryable": True})
+        except TimeoutError:
+            # Admission timeouts are already handled inside the audit reader.
+            # A timeout before that point (for example a slow request body)
+            # is retryable only for the read-only endpoint, never a write.
+            if path == '/decision-audit/read':
+                print('BOB_AUDIT read_deferred reason=read-timeout', flush=True)
+                send_json(self, 503, {
+                    'error': 'Historische Auswertung vorübergehend belegt',
+                    'retryable': True, 'dataComplete': False})
+            else:
+                print('push-service error: TimeoutError', flush=True)
+                send_json(self, 500, {"error": "Interner Push-Service-Fehler"})
         except Exception as exc:
             print("push-service error:", type(exc).__name__, flush=True)
             send_json(self, 500, {"error": "Interner Push-Service-Fehler"})
@@ -1779,6 +1869,8 @@ if __name__ == "__main__":
     # Optional single short read of the archival attempt receipt (redacted).
     # No external DB port or HTTP endpoint; opt-in diagnosis only.
     __import__("archive_receipt_status_probe").start_if_enabled()
+    # Small read-only samples of the existing isolated Aiven restore target.
+    __import__("aiven_health").start()
     # Optional bounded catch-up of the *existing* diagnostic retention, only
     # after a fresh separate-server Google Drive backup restore receipt.
     __import__("diagnostic_archived_catchup").start()

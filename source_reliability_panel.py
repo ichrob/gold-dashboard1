@@ -29,11 +29,20 @@ PANEL = r'''<details id="bobSourceReliability" class="card" style="margin:12px 0
    for(const [key,row] of entries){
     const item=document.createElement('details');item.dataset.key=key;item.open=opened.has(key);
     const title=document.createElement('summary');
-    title.textContent=key.replace('analysis/','Analyse · ').replace('/',' · ')+' — '+(names[row.state]||'Unbekannt');
+    title.textContent=(key==='spot/Gold-API'?'Gold Spot · ausgewählte Quelle':key.replace('analysis/','Analyse · ').replace('/',' · '))+' — '+(names[row.state]||'Unbekannt');
     const p=document.createElement('p');p.className='small';
     p.textContent=(row.incidents||0)+' beobachtete Störungen · '+Math.round((row.badSeconds||0)/60)+' Minuten eingeschränkt · '+
      Math.round((row.unknownSeconds||0)/60)+' Minuten unbeobachtet · Messbeginn: '+fmt(row.since)+' · geprüft: '+fmt(row.checkedAt);
     item.append(title,p);
+    for(const [period,win] of Object.entries(row.availabilityWindows||{})){
+     const line=document.createElement('p');line.className='small';
+     const pct=n=>Number.isFinite(n)?n.toFixed(2)+' %':'noch nicht messbar';
+     line.textContent=period+' · Aktualität während beobachteter Betriebszeit: '+pct(win.availabilityPct)+
+      ' · Messabdeckung: '+pct(win.coveragePct)+' · unbekannt: '+Math.round(win.unknownSeconds/60)+
+      ' Min. · geplante Pause: '+Math.round(win.pausedSeconds/60)+' Min. · '+fmt(win.startAt)+' bis '+fmt(win.endAt)+
+      ' (abgeschlossene Stunden; keine garantierte Anbieter-Verfügbarkeit)';
+     item.append(line);
+    }
     for(const event of [...(row.events||[])].reverse()){
      const e=document.createElement('p');e.className='small';e.textContent=fmt(event.at)+' · '+(names[event.state]||'Unbekannt');item.append(e);
     }

@@ -74,7 +74,7 @@ def report(rows, score, now=None, labels=None):
                 continue
             results[h]=result
             change=result['changePct']
-            group=groups.setdefault((phase,f['regime'],h),dict(cases=0,variants={k:dict(signals=0,wait=0,sumPct=0.,wins=0,losses=0,avoidedLosses=0,missedWins=0) for k in labels}))
+            group=groups.setdefault((phase,f['regime'],h),dict(cases=0,variants={k:dict(signals=0,wait=0,sumPct=0.,wins=0,losses=0,avoidedLosses=0,missedWins=0,worstNetEndpointPct=None) for k in labels}))
             group['cases']+=1
             for k,d in values.items():
                 m=group['variants'][k]
@@ -83,6 +83,8 @@ def report(rows, score, now=None, labels=None):
                 base_value = (change if base=='LONG' else -change)-.04 if base!='NEUTRAL' else 0.
                 m['avoidedLosses'] += d=='NEUTRAL' and base_value<0
                 m['missedWins'] += d=='NEUTRAL' and base_value>0
+                if d!='NEUTRAL':
+                    m['worstNetEndpointPct']=value if m['worstNetEndpointPct'] is None else min(m['worstNetEndpointPct'],value)
                 m['sumPct']+=value;m['signals']+=d!='NEUTRAL';m['wait']+=d=='NEUTRAL'
                 m['wins']+=d!='NEUTRAL' and value>0;m['losses']+=d!='NEUTRAL' and value<0
             # ATR is a fixed, prior 5m reference, not a forecast or a

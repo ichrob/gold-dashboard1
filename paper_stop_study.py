@@ -1,13 +1,14 @@
-"""Three frozen paper stop variants; independent forward quotes, no ledger writes."""
+"""Forward-only paper stop comparison; independent forward quotes, no ledger writes."""
 import copy
 import json
 import math
 import paper_costs
 
-VERSION='paper-three-stops-v1'
-LABELS={'fixed':'Fester Bob-Anfangsstopp','atr':'1,5 × ATR bei Einstieg','structure':'20 geschlossene 5m-Kerzen · Strukturstopp'}
-NOTE=('Prospektiver Vergleich im ausgewogenen 100-EUR-Konto: gleicher Einstieg, gleiche Stückzahl, gleiches Ziel und Zeitende; vollständiger Modellverkauf je Variante. '
-      'ATR und Struktur werden beim Einstieg eingefroren. Beispielkosten einschließlich Spread über Brief/Geld, keine bestätigten Brokergebühren. '
+VERSION='paper-five-stops-v2'
+PROFILES=('balanced','trend800nov','normal1000nov','ema3000nov','noema5000nov')
+LABELS={'trailing2':'2 % unter höchstem Produkt-Geldkurs','bob':'Bob-Stopp dynamisch (Goldplan)', 'fixed':'Fester Bob-Anfangsstopp','atr':'1,5 × ATR bei Einstieg','structure':'20 geschlossene 5m-Kerzen · Strukturstopp'}
+NOTE=('Prospektiver Vergleich getrennt je Testkonto: gleicher Einstieg, gleiche Stückzahl, gleiches Ziel und Zeitende; vollständiger Modellverkauf je Variante. '
+      'ATR und Struktur werden beim Einstieg eingefroren. Bob-Stopp und 2-%-Produkt-Trailing laufen dynamisch, ohne Stopplockerung. Beispielkosten einschließlich Spread über Brief/Geld, keine bestätigten Brokergebühren. '
       'Kurslücken bleiben nicht auswertbar. Keine Änderung des Kontostands, des echten Bob-Stopps oder der Handelsfreigabe. '
       'Varianten haben unterschiedliche Anfangsrisiken; keine automatische Übernahme einer Gewinnerregel.')
 
@@ -33,12 +34,13 @@ def setup(market,bundle,now):
 
 def create(case):
     frozen=case.get('stopStudySetup') or {};plan=case.get('plan') or {}
-    if case.get('demonstration') or frozen.get('version')!=VERSION or case.get('profile')!='balanced' or not positive(case.get('quantity')):return None
-    return dict(version=VERSION,id=case['id'],day=case['day'],isin=case['product']['isin'],
+    if case.get('demonstration') or frozen.get('version')!=VERSION or case.get('profile') not in PROFILES or not positive(case.get('quantity')):return None
+    stops={**frozen['stops'],'bob':plan['stop'],'trailing2':case['entryQuote']['bid']*.98}
+    return dict(version=VERSION,id=case['profile']+':'+case['id'],profile=case['profile'],day=case['day'],isin=case['product']['isin'],
         startedAt=case['startedAt'],endsAt=case['endsAt'],unit=plan.get('unit'),entry=plan['entry'],direction=plan['direction'],target=plan['target'],
         product=copy.deepcopy(case['product']),koGuardRequired=case.get('koGuardRequired') is True,quantity=case['quantity'],entryAsk=case['entryAsk'],costModel=copy.deepcopy(case.get('ledgerCostModel') or paper_costs.SCENARIOS[0]),
-        setup=copy.deepcopy(frozen),lastGoldAt=case['analysis']['dataAt'],lastQuoteAt=case['entryQuote']['bidAt'],
-        gap=False,complete=False,variants={k:dict(label=label,stop=frozen['stops'].get(k),status='open' if frozen['stops'].get(k) else 'unavailable',modelNetEur=None)
+        engine={'trade':dict(tradeId=case['id'],dir=plan['direction'],entry=plan['entry'],stop=plan['stop'],target=plan['target'],initialRisk=abs(plan['entry']-plan['stop']),instrument='XAU/USD',active=True,product=None)},setup=copy.deepcopy(frozen),lastGoldAt=case['analysis']['dataAt'],lastQuoteAt=case['entryQuote']['bidAt'],
+        gap=False,complete=False,variants={k:dict(label=label,stop=stops.get(k),peakBid=case['entryQuote']['bid'],status='open' if stops.get(k) else 'unavailable',modelNetEur=None)
                                          for k,label in LABELS.items()})
 
 def advance(original,market,quote,now):
@@ -66,10 +68,22 @@ def advance(original,market,quote,now):
     if at-s['lastGoldAt']>90000 or not qa or not previous_q or qa<previous_q or qa<s['startedAt'] or qa-previous_q>90000 or abs(qa-at)>60000:s['gap']=True
     s.update(lastGoldAt=at,lastQuoteAt=q['bidAt'])
     sign=1 if s['direction']=='LONG' else -1
-    for v in s['variants'].values():
+    for key,v in s['variants'].items():
         if v['status']!='open':continue
-        reason=('product-ended' if terminal_state else 'ko-safety' if guard and guard['danger'] else 'stop' if sign*(gold-v['stop'])<=0 else 'target' if sign*(gold-s['target'])>=0 else 'time' if now>=s['endsAt'] else None)
-        if not reason:continue
+        reason=('product-ended' if terminal_state else 'ko-safety' if guard and guard['danger'] else 'stop' if (q['bid']<=v['stop'] if key=='trailing2' else sign*(gold-v['stop'])<=0) else 'target' if sign*(gold-s['target'])>=0 else 'time' if now>=s['endsAt'] else None)
+        if not reason:
+            # Check the existing stop first; never use a later peak retroactively.
+            if key=='trailing2':
+                v['peakBid']=max(v['peakBid'],q['bid'])
+                v['stop']=max(v['stop'],v['peakBid']*.98)
+            elif key=='bob':
+                import background_push
+                t=s['engine']['trade']
+                settings=dict(timeframe='15m',trailAtr=1.5,trade={**t,'stop':s['setup']['stops']['fixed'],'target':s['target']})
+                engine,_=background_push.advance(s['engine'],settings,market,False,True,now=now,log=False)
+                s['engine']=engine
+                v['stop']=(max if sign==1 else min)(v['stop'],engine['trade']['stop'])
+            continue
         v.update(status='inconclusive' if s['gap'] or terminal_state or (guard and guard['crossed']) else 'observed-'+reason,exitAt=qa,exitGoldAt=at,bid=q['bid'])
         if v['status']!='inconclusive':
             c=dict(status='closed',productReturnKnown=True,pendingUnits=0,remainingUnits=0,quantity=s['quantity'],
@@ -88,10 +102,14 @@ def active_isins(conn):
 
 def tick(conn,market,quotes,now):
     # Registration uses the setup frozen at actual entry, even if read a cycle later.
-    rows=conn.execute('''SELECT c.payload FROM bob_paper_balanced_cases c
-        WHERE c.payload->'stopStudySetup'->>'version'=%s
-        AND NOT EXISTS(SELECT 1 FROM bob_paper_stop_studies s WHERE s.id=c.id)
-        ORDER BY c.started_at DESC LIMIT 8''',(VERSION,)).fetchall()
+    from paper_portfolios import names
+    rows=[]
+    for profile in PROFILES:
+        table=names(profile)['bob_paper_cases']
+        rows+=conn.execute(f"""SELECT c.payload FROM {table} c
+            WHERE c.payload->'stopStudySetup'->>'version'=%s
+            AND NOT EXISTS(SELECT 1 FROM bob_paper_stop_studies s WHERE s.id=%s || ':' || c.id)
+            ORDER BY c.started_at DESC LIMIT 8""",(VERSION,profile)).fetchall()
     for (c,) in rows:
         s=create(c)
         if s:conn.execute('INSERT INTO bob_paper_stop_studies VALUES(%s,%s,FALSE,%s::jsonb) ON CONFLICT DO NOTHING',(s['id'],s['day'],json.dumps(s)))
@@ -100,8 +118,8 @@ def tick(conn,market,quotes,now):
         conn.execute('UPDATE bob_paper_stop_studies SET complete=%s,payload=%s::jsonb WHERE id=%s',(s['complete'],json.dumps(s),key))
     # Preserve study cases and outcomes for reproducible historical evaluation.
 
-def report(conn,day):
-    rows=[r[0] for r in conn.execute('SELECT payload FROM bob_paper_stop_studies WHERE day=%s ORDER BY id LIMIT 100',(day,)).fetchall()]
+def report(conn,day,profile='balanced'):
+    rows=[r[0] for r in conn.execute("SELECT payload FROM bob_paper_stop_studies WHERE day=%s AND payload->>'version'=%s AND payload->>'profile'=%s ORDER BY id LIMIT 100",(day,VERSION,profile)).fetchall()]
     paired=[s for s in rows if all(v['status'].startswith('observed-') and type(v.get('modelNetEur')) in (int,float) for v in s['variants'].values())]
     return dict(version=VERSION,total=len(rows),paired=len(paired),open=sum(not s['complete'] for s in rows),
         unavailable=sum(s['complete'] and s not in paired for s in rows),limit=100,

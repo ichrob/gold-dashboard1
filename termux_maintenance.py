@@ -8,6 +8,8 @@ from android_telemetry import token_hash
 
 SCOPE = 'bob:termux:execute'
 TOOLS = ('bob_termux_status', 'bob_termux_execute')
+# User-started session cap; 5s exchange tolerance for handset/server clock drift.
+MAX_SESSION_SECONDS = 2 * 60 * 60
 
 
 def definitions():
@@ -50,7 +52,7 @@ def public_job(job):
 def exchange(old, value, now):
     if not isinstance(value,dict) or set(value)!={'sessionId','expiresAt','active','result'}: raise ValueError('Invalid exchange')
     if not identifier(value['sessionId'],32) or type(value['active']) is not bool or type(value['expiresAt']) is not int: raise ValueError('Invalid session')
-    if value['active'] and not now<value['expiresAt']<=now+1805: raise ValueError('Invalid expiry')
+    if value['active'] and not now<value['expiresAt']<=now+MAX_SESSION_SECONDS+5: raise ValueError('Invalid expiry')
     state=copy.deepcopy(old)
     if state.get('sessionId')!=value['sessionId']:
         state=dict(sessionId=value['sessionId'],expiresAt=value['expiresAt'],active=True,jobs=[])

@@ -4,6 +4,12 @@ package ch.bob.degirocompanion
 internal object RunOutbox {
     const val CURRENT = "outbox"
     const val PREFIX = "saved_run_"
+    // One local checkpoint, never a delivery candidate. Upload acknowledgement
+    // must not remove the last read position or select an older archive to resume.
+    const val RESUME = "resume_checkpoint"
+    fun resumable(entries: Map<String, String>): String? = entries[CURRENT] ?: entries[RESUME]
+    fun checkpoint(entries: Map<String, String>, raw: String): Map<String, String> =
+        entries + (RESUME to raw)
     /** Local-only generation for detecting new evidence in the durable queue.
      * The digest is never sent to Bob or exposed in logs. */
     fun generation(entries: Map<String,String>): String {
@@ -21,6 +27,11 @@ internal object RunOutbox {
     fun candidateKeys(entries: Map<String, String>): List<String> =
         (if (CURRENT in entries) listOf(CURRENT) else emptyList()) +
             entries.keys.filter { it.startsWith(PREFIX) }.sorted()
+    // CURRENT is removed only by an exact server ACK; RESUME survives it.
+    // An older archive is never evidence that the latest run is unconfirmed.
+    fun currentPending(entries: Map<String, String>) = CURRENT in entries
+    fun currentConfirmed(entries: Map<String, String>) = CURRENT !in entries && RESUME in entries
+    fun archivedPending(entries: Map<String, String>) = entries.keys.count { it.startsWith(PREFIX) }
     fun pendingKey(entries: Map<String, String>): String? = candidateKeys(entries).firstOrNull()
     fun start(entries: Map<String, String>, raw: String, archiveKey: String): Map<String, String> {
         require(archiveKey.startsWith(PREFIX) && archiveKey !in entries)
@@ -30,7 +41,8 @@ internal object RunOutbox {
         }
     }
     fun acknowledge(entries: Map<String, String>, key: String, expected: String, running: Boolean): Map<String, String>? {
-        if (entries[key] != expected || (key == CURRENT && running)) return null
-        return entries - key
+        if (key !in candidateKeys(entries) || entries[key] != expected || (key == CURRENT && running)) return null
+        // Also retain a pre-update current report which has no checkpoint yet.
+        return if (key == CURRENT) checkpoint(entries - key, expected) else entries - key
     }
 }

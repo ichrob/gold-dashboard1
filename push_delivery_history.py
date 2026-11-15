@@ -6,12 +6,13 @@ a Web Push request never proves it appeared on an Android device.
 """
 from datetime import datetime, timedelta, timezone
 from bob_diagnostics import shape, project
+import push_receipt
 
 PAGE_SIZE = 100
 MAX_OFFSET = 9900
 FIELDS = shape("outcome", "httpStatus", "direction", "signalBarAt", "dataAt",
-               "test", "synthetic", "eventKinds", "generatedAt", "analysisRequestedAt",
-               "analysisCompletedAt", "providerStartedAt", "providerDurationMs")
+               "test", "synthetic", "generatedAt", "analysisRequestedAt",
+               "analysisCompletedAt", "providerStartedAt", "providerDurationMs", eventKinds=[None])
 
 
 def latency(record):
@@ -25,11 +26,15 @@ def latency(record):
     receipt=record.get('browserShowAt')
     try:receipt=datetime.fromisoformat(receipt).timestamp()*1000 if isinstance(receipt,str) else None
     except (ValueError,OverflowError):receipt=None
+    receipt_lag = diff(receipt,record.get('dataAt'))
     return dict(sourceToGeneratedMs=diff(record.get('generatedAt'),record.get('dataAt')),
         analysisPipelineMs=diff(record.get('analysisCompletedAt'),record.get('analysisRequestedAt')),
         generatedToProviderMs=diff(provider,record.get('generatedAt')),
-        sourceToBrowserReceiptMs=diff(receipt,record.get('dataAt')),
-        scope='server-clocks-and-browser-receipt-not-Android-display')
+        # Compatible old field; both values measure the server-side receipt
+        # persistence time, NOT when the browser first showed a notification.
+        sourceToBrowserReceiptMs=receipt_lag,
+        sourceToReceiptStoredMs=receipt_lag,
+        scope='server-clocks-and-receipt-storage-not-browser-or-Android-display')
 
 
 def arguments(value=None, now=None):
@@ -99,14 +104,22 @@ def report(conn, value=None):
     requested = list({rid for rid in delivery_ids if rid})
     acknowledgments = {}
     if requested:
-        found = conn.execute('''SELECT payload->>'receiptId', payload->>'receiptState', max(recorded_at)
+        # Receipt rows have deterministic primary keys derived from the signed
+        # delivery id and state.  Resolve at most two keys per page item rather
+        # than grouping the complete seven-day JSON journal.
+        receipt_keys = {
+            push_receipt.event_id(rid, state): (rid, state)
+            for rid in requested for state in push_receipt.STATES
+        }
+        found = conn.execute('''SELECT id,payload->>'receiptId',payload->>'receiptState',recorded_at
              FROM bob_diagnostic_history
-             WHERE stage='push-delivery' AND payload->>'outcome'='browser-receipt'
-               AND payload->>'receiptId'=ANY(%s)
+             WHERE id=ANY(%s) AND stage='push-delivery'
+               AND payload->>'outcome'='browser-receipt'
                AND recorded_at >= now()-interval '7 days'
-             GROUP BY 1, 2''', (requested,)).fetchall()
-        for rid, state, at in found:
-            if rid in requested and state in ('show-resolved', 'clicked') and isinstance(at, datetime):
+             ORDER BY id''', (list(receipt_keys),)).fetchall()
+        for row_id, rid, state, at in found:
+            if (receipt_keys.get(row_id)==(rid,state)
+                    and isinstance(at,datetime)):
                 acknowledgments.setdefault(rid, {})[state] = at.isoformat()
     for record, rid in zip(records, delivery_ids):
         proof = acknowledgments.get(rid, {})

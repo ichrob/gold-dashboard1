@@ -1,0 +1,14 @@
+{
+  "name": "bob-watchdog-clock",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-08",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": { "ENABLED": "false" },
+  "triggers": { "crons": ["4,14,24,34,44,54 * * * *"] },
+  "durable_objects": {
+    "bindings": [{ "name": "CLOCK", "class_name": "WatchdogClock" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WatchdogClock"] }],
+  "observability": { "enabled": true }
+}

@@ -1,3 +1,120 @@
+## DEGIRO-Profilseite: Basic sicher erkennen und übernehmen
+
+Die deutsche DEGIRO-Ansicht **„Anlageprofil → Ihre Handelseinstellungen“**
+ist eine **Profil-Auswahlseite**, **keine Kauf-/Orderbestätigung**.
+Basic/Active/Trader werden als mögliche Karten angezeigt; das Wort
+„Basic“ alleine beweist **nicht**, dass dieses Profil aktuell aktiv ist.
+Bob lässt „Benutzerkonto auswählen“ vollständig unangetastet.
+
+1. Eigentümer öffnet diese Seite in einer bereits angemeldeten DEGIRO-App.
+2. In Bob Handy „DEGIRO-Kontoeinstellungen lesen · 15 Minuten“ einmal
+   bestätigen. Bob erkennt die Seite rein passiv. Das aktuelle Profil wird
+   nur aus einem ausdrücklich von Android als **ausgewählt** markierten
+   Kartenknoten oder einer vollständigen, eindeutigen 3-Karten-Struktur
+   mit genau zwei anderen Auswahlbuttons übernommen.
+3. Falls die DEGIRO-Webansicht lediglich einen **grünen Rahmen** zeigt,
+   Android aber keinen eindeutigen Auswahlnachweis bereitstellt, bleibt
+   der automatische Befund **unbestätigt**. Als transparent markierter
+   Eigentümerbeleg steht der separate Bob-Handy-Knopf
+   **„Basic-Profil bestätigen · keine DEGIRO-Änderung“** bereit. Nur
+   verwenden, wenn man die grün umrandete Basic-Karte selbst gesehen hat;
+   das Bestätigungsfenster erläutert den Unterschied. Der Knopf startet
+   eine lokale Lesesitzung, prüft die Basic-Karte **auf der DEGIRO-Seite**,
+   klickt jedoch nichts an und ändert keine Kontoeinstellung.
+4. Bob speichert das Ergebnis als zeitlich begrenztes, minimiertes
+   `feeProfile=BASIC` mit `source=degiro-app-owner-confirmed` oder dem
+   strengeren `source=degiro-app-local-accessibility`, und erhält
+   `autoFx=ON` als **separaten** datierten Originalbefund. Höchstens
+   sieben Tage alte Statusbelege bleiben im privaten, widerrufbaren
+   Geräteeintrag erhalten, getrennt nach Quelle und Erfassungszeit.
+   Es gibt **keinen** Nachweis derselben Brokeridentität über zwei
+   Lesesitzungen, und **keine** automatische Umstellung von Bobs
+   Echtgeld-/Order-Kostenfreigaben.
+
+Das offizielle Schweizer DEGIRO-Standardpreisverzeichnis (Basic/Active/
+Trader) ist für die **Modellreserve** nutzbar, aber die Auswahl Basic
+beweist weder individuelle abgerechnete Gebühren noch den aktuellen
+ausführbaren Geld-/Briefkurs einer bestimmten ISIN. Für reale Kosten
+sind DEGIRO-Handelsplatz, Orderkosten-Vorschau und Ausführungsbeleg
+separat zu bestätigen. Keine automatischen Brokerorders.
+
+---
+## Eigene passive Sitzung für Kontoeinstellungen (Nachbesserung zum Produktleser)
+
+Der vorhandene Knopf **„ChatGPT-Handy-Sitzung starten · 15 Minuten“**
+startet absichtlich den vollständigen Gold-Produktleser. Er eignet sich
+nicht zur Bestätigung des Handelsprofils oder AutoFX.
+
+Ab dieser App-Version gibt es unter **„DEGIRO-Leser · Einrichtung und
+Einzelprüfungen“** den getrennten Knopf
+**„DEGIRO-Kontoeinstellungen lesen · 15 Minuten“**. Vorbereitung:
+
+1. DEGIRO **selbst anmelden** und die Seite „Währungseinstellungen“ oder
+   „Handelsprofil“ **vorher selbst öffnen**.
+2. Zu Bob Handy zurückwechseln und den neuen Knopf einmal bestätigen.
+   Bob startet dabei nur die bewusst begrenzte Lesesitzung, keine Goldsuche,
+   keine PIN-Eingabe, kein Scrollen oder sonstige Navigation. Danach versucht
+   er die bereits geöffnete DEGIRO-App wieder nach vorn zu bringen.
+3. Das Samsung entsperrt lassen, **nicht auf dem Bildschirm tippen**.
+   Bob Handy liest **einmalig lokal** die zuvor selbst geöffnete sichere
+   Einstellungsansicht. Mit `bob_phone_status` den minimierten, von der
+   Eigentümer-Sitzung gebundenen Ergebnisbeleg prüfen. Der zusätzliche
+   MCP-Befehl `read_account_settings` ist optional und wird von älteren
+   ChatGPT-Connector-Caches unter Umständen noch nicht angeboten.
+   Ein zweiter Bildschirm erfordert ein neues, vom Eigentümer geöffnetes
+   Lesefenster – kein automatisches Wechseln der Kontoseiten.
+
+Jede eigene Berührung, Sperre, Passwort- oder OTP-Eingabeansicht und das
+Sitzungsende bleiben wirksam. Bob überspringt rein editierbare Such- und
+Einstellungsfelder, ohne deren Inhalt zu lesen. Auf DEGIROs aktuellem
+Währungseinstellungsbildschirm erkennt Bob auch ohne sichtbaren Seitentitel
+die Kombination aus EUR/GBP/USD, drei Auto-FX-Kennzeichnungen und dem
+unübersetzten Hinweis `trader.currencySettings.manualActionDisabled`.
+Alle drei zusammen bedeuten AutoFX EIN, aber **kein** bewiesener Gebührentarif.
+Bei fehlender, widersprüchlicher oder sensibler Ansicht wird nichts geraten.
+
+Ein Produkt-Suchbefehl darf auf einer erkannten Konto-Einstellungsseite
+**keine Aktion** auslösen. Wenn die DEGIRO-App beim Öffnen zur Startseite
+zurückkehrt, liefert Bob nur `SETTINGS_NOT_VISIBLE`, niemals eine vermutete
+Kontoeinstellung. Die begrenzte Beobachtung bleibt ausdrücklich
+**kein** Nachweis tatsächlicher Gebühren oder Broker-Ausführung.
+
+---
+## DEGIRO-Kontoeinstellungen lesen – keine Order und kein Rohbildschirm
+
+Bob Handy unterstützt nach Installation der neuen **signierten** Version den
+zusätzlichen MCP-Befehl `read_account_settings` während einer vom Eigentümer
+gestarteten **ChatGPT-Handy-Sitzung (maximal 15 Minuten)**. Diese Funktion ergänzt
+die vorhandene Produktlesung; sie ersetzt oder entsperrt keine Anmeldung.
+
+1. Samsung entsperren, **Bob Handy → ChatGPT-Handy-Sitzung starten** öffnen.
+2. In der angemeldeten DEGIRO-App selbst die Seite **Währungseinstellungen**
+   oder **Handelsprofil/Kontotyp** öffnen.
+3. Über die gekoppelte ChatGPT-Bob-Verbindung einmalig
+   `bob_phone_command(action=read_account_settings)` für die **aktuelle**
+   Geräte-/Sitzungs-ID anfordern. Der Befehl klickt selbst nichts an.
+4. Mit `bob_phone_status` den gebundenen Lesebeleg prüfen. Separate Seiten
+   liefern separate Teilbelege. Erkannt werden nur exakt eindeutig angezeigte
+   Profile `BASIC`/`ACTIVE`/`TRADER` und `AutoFX ON/OFF`.
+   Bei veränderten DEGIRO-Oberflächen bleibt der Befund `SETTINGS_UNCONFIRMED`.
+
+Der Server akzeptiert diese Angaben nur als **Enumwerte mit Geräte-Lesezeit
+und entweder einmaligem, ausdrücklich vom Eigentümer gestarteten Settings-Modus
+oder zugehöriger ausgelieferter Befehlsquittung**, niemals als Rohtexte, Kontonummern,
+Passwörter, PINs, Screenshots oder Orders. Der Beleg ist bis zum Ende der
+bewusst geöffneten Handy-Sitzung sichtbar. Er schreibt **keine**
+`feeProfile`-/`fxMode`-Werte in den bestehenden 100-/30-CHF-Handelsplan.
+Insbesondere beweist `AutoFX OFF` **kein** Guthaben in der Produktwährung
+und keine kostenfreie Umrechnung.
+
+Die Bestätigung tatsächlicher Ordergebühren braucht einen offiziellen Tarif
+**und** die jeweilige DEGIRO-Abrechnung/Orderkosten-Vorschau;
+eine tatsächlich ausführbare Kursausführung kann nur ein realer Fill belegen.
+Bob bleibt hier read-only und verändert keine Echtgeldorder. CI/Emulator
+ersetzen den erforderlichen Test mit DEGIRO auf dem echten Samsung nicht.
+
+---
+
 ## Nachweis und begrenzte Wiederholung beim Fern-Suchklick
 
 Ein vom Android-System angenommener Klick ist weiterhin kein Nachweis eines

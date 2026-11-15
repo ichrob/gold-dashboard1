@@ -8,6 +8,16 @@ from test_paper_ko_guard import NOW, ISIN, quote, choice
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_existing_pending_index_avoids_noop_startup_ddl(self):
+        from unittest.mock import MagicMock
+        conn=MagicMock()
+        conn.execute.return_value.fetchone.return_value=('bob_entry_exit_pending',)
+        study.init(conn)
+        statements=[call.args[0] for call in conn.execute.call_args_list]
+        self.assertEqual(sum('CREATE INDEX' in sql for sql in statements),0)
+        self.assertEqual(sum("to_regclass('bob_entry_exit_pending')" in sql
+                             for sql in statements),1)
+
     def setup_case(self,direction='LONG'):
         b,m=observed(direction=direction)
         q=shared.original_input(b,m,NOW)
@@ -150,6 +160,33 @@ import os
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
+    def test_repeat_init_does_not_block_live_study_tick(self):
+        """A rolling startup must not lock out the still-serving worker."""
+        import uuid
+        import psycopg
+        from psycopg import sql
+        schema='entry_exit_rollout_'+uuid.uuid4().hex
+        dsn=os.environ['BOB_TEST_DATABASE_URL']
+        with psycopg.connect(dsn) as setup:
+            setup.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            setup.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+            study.init(setup)
+            setup.commit()
+        try:
+            with psycopg.connect(dsn) as initializer, psycopg.connect(dsn) as worker:
+                for conn in (initializer,worker):
+                    conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                # Keep the complete startup transaction open, matching init_db.
+                study.init(initializer)
+                worker.execute("SET LOCAL lock_timeout='100ms'")
+                b,m=observed(direction='NEUTRAL')
+                study.tick(worker,b,m,{},m,{}, {},NOW)
+                worker.commit()
+        finally:
+            with psycopg.connect(dsn) as cleanup:
+                cleanup.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+                cleanup.commit()
+
     def test_persistence_restart_and_duplicate_tick(self):
         import uuid
         import psycopg

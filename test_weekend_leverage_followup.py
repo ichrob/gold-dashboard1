@@ -57,6 +57,22 @@ class DB:
 
 
 class WeekendTests(unittest.TestCase):
+    def test_delayed_legacy_read_requests_issuer_research_without_rebinding_phone(self):
+        feed, reader, audit = sample()
+        reader['listUploadedAt'] = reader['receivedAt'] = datetime.fromtimestamp(
+            (SUNDAY-1000)/1000, ZoneInfo('Europe/Zurich')).isoformat()
+        reader['results'][0]['observation']['missingFields'] = ['Brief', 'Hebel']
+        original = copy.deepcopy(reader)
+        self.assertEqual(wk.plan(feed, reader, audit, SUNDAY), ISINS)
+        self.assertEqual(reader, original)
+        reader['originalList'] = dict(batchId='a'*32, uploadedAt=GEN)
+        self.assertEqual(wk.targets(feed, reader, SUNDAY), ISINS)
+        reader['originalList']['uploadedAt'] = RUN_AT
+        self.assertEqual(wk.targets(feed, reader, SUNDAY), [])
+        reader['originalList']['uploadedAt'] = GEN
+        reader['originalList']['batchId'] = 'invalid'
+        self.assertEqual(wk.targets(feed, reader, SUNDAY), [])
+
     def test_only_the_three_incomplete_leverage_fields_are_selected(self):
         feed,reader,audit=sample()
         self.assertEqual(wk.targets(feed,reader,SUNDAY),ISINS)

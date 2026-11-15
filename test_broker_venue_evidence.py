@@ -21,9 +21,11 @@ class BrokerVenueTests(unittest.TestCase):
         self.assertNotIn('venue',r['missing'])
         self.assertIn('quote',r['missing'])
         self.assertFalse(r['degiroVerified']);self.assertFalse(r['tradeApproved'])
+        self.assertTrue(r['brokerVenueStatus']['brokerDisplayObserved'])
+        self.assertFalse(r['brokerVenueStatus']['executionVerified'])
         self.assertEqual(r['brokerVenueEvidence']['timePrecision'],'minute')
         p.pop('brokerVenueEvidence')
-        self.assertIn('venue',audit.examine(p,q,self.now.timestamp()*1000)['missing'])
+        self.assertNotIn('venue',audit.examine(p,q,self.now.timestamp()*1000)['missing'])
     def test_wrong_identity_currency_expired_future_and_missing_review(self):
         e=b.validate(self.payload,self.feed,self.now)
         for changes in [dict(isin='DE000FG8NHQ3'),dict(currency='EUR'),dict(venue='other'),dict(executionConfirmed=True)]:
@@ -76,7 +78,7 @@ class BrokerVenueTests(unittest.TestCase):
         self.assertNotIn('bid',e)
         q=provider();q.update(isin=p['isin'],found=False)
         q['metadata'].update(currency='CHF',issuerExchangeCode='CBSW')
-        self.assertIn('venue',audit.examine(p,q,self.now.timestamp()*1000)['missing'])
+        self.assertNotIn('venue',audit.examine(p,q,self.now.timestamp()*1000)['missing'])
         report=audit.examine(got,q,self.now.timestamp()*1000)
         self.assertNotIn('venue',report['missing'])
         self.assertIn('quote',report['missing'])

@@ -6,6 +6,7 @@ Replacing this adapter requires a separately reviewed broker integration.
 from copy import deepcopy
 from math import isfinite
 import vollautomatisch_engine
+import degiro_screen_replay
 
 
 class PaperAdapter:
@@ -73,5 +74,6 @@ def run(scenario='target'):
     return {'mode': 'OFFLINE_SIMULATION', 'brokerConnected': False,
             'liveOrdersEnabled': False, 'connectorCompatibility': 'NOT_TESTED',
             'scenario': scenario, 'duplicateRetriesChecked': duplicates,
+            'screenReplay': degiro_screen_replay.demonstration(),
             'journal': adapter.journal, 'simulation': replay,
             'notice': 'Künstliche Kurse. Interner Schnittstellentest; keine DEGIRO-Verbindung.'}

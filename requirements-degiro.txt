@@ -10,3 +10,6 @@ certifi>=2026.10.19
 
 # Historical metric reports can resolve verified private Drive payloads.
 -r requirements-archive.txt
+
+# Free issuer KID contract parsing; no OCR or external service.
+pypdf==6.21.4

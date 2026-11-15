@@ -8,6 +8,26 @@ import paper_simulation as sim
 import paper_entry_review
 
 class OverviewTests(unittest.TestCase):
+    def test_handset_model_reaches_overview_without_becoming_strategy_performance(self):
+        from test_handset_evidence_chain import sample
+        from handset_evidence_chain import project
+        data = {'areas': {'androidReader': {'evidenceChain': project([sample(),sample(3600)])}}}
+        before = copy.deepcopy(data)
+        view = overview.snapshot(data, NOW/1000)['handsetComparisons']
+        self.assertEqual(view['accepted'], 1)
+        self.assertEqual(view['missingFx'], 0)
+        self.assertFalse(view['items'][0]['strategyPerformance'])
+        self.assertAlmostEqual(view['items'][0]['modelNetEur'], -.01-2-(13.07+13.06)*.0005)
+        self.assertNotIn('originalHash', json.dumps(view))
+        self.assertEqual(data, before)
+        cost = data['areas']['androidReader']['evidenceChain']['products'][0]['illustrativeReplay']['costModelReplay']
+        cost['fxConversion'] = {'acceptedForModel': True, 'date':'2026-11-06', 'source':'ECB'}
+        self.assertEqual(overview.snapshot(data,NOW/1000)['handsetComparisons']['dailyFxAccepted'],1)
+        cost.update(status='missing-dated-fx',modelNetEur=None)
+        view = overview.snapshot(data,NOW/1000)['handsetComparisons']
+        self.assertEqual((view['accepted'],view['missingFx']),(0,1))
+        self.assertEqual(overview.snapshot({},NOW/1000)['handsetComparisons']['status'],'unavailable')
+
     def test_absence_and_terminal_cases_are_not_success(self):
         r=overview.snapshot({'areas':{'comparisonHealth':{'items':{'three-stop-study':{'status':'observed','sampledRecords':4,'counts':{'terminal-not-necessarily-comparable':4}}}}}},NOW/1000)
         row=next(x for x in r['items'] if x['id']=='three-stop-study')

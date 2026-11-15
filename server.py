@@ -46,6 +46,7 @@ import auto_collection
 import background_push
 import ocr_assets
 import product_quotes
+import product_enrich_admission
 import future_chart
 import market_cards
 import candle_shadow
@@ -114,9 +115,10 @@ def android_diagnostic_rpc(payload, remote=False):
     if not PUSH_SERVICE_URL or not PUSH_SERVICE_TOKEN:raise RuntimeError('Diagnostics unavailable')
     base=PUSH_SERVICE_URL.rstrip('/')
     if not base.startswith(('https://','http://')):base='https://'+base
-    request=Request(base+('/android-remote' if remote else '/android-diagnostics'),data=json.dumps(payload).encode(),method='POST',
+    workflow=remote and payload.get('action')=='workflow-plan'
+    request=Request(base+('/android-workflow-plan' if workflow else '/android-remote' if remote else '/android-diagnostics'),data=json.dumps(payload).encode(),method='POST',
         headers={'X-Bob-Push-Token':PUSH_SERVICE_TOKEN,'Content-Type':'application/json'})
-    with urlopen(request,timeout=8) as response:return json.loads(response.read(8200000))
+    with urlopen(request,timeout=35 if workflow else 8) as response:return json.loads(response.read(32768 if workflow else 8200000))
 
 
 def read_private_product_audit_for_mcp():
@@ -151,7 +153,8 @@ def read_diagnostics_for_mcp():
     def problems():
         value = bob_problems.snapshot()
         return {**bob_diagnostics.fields(value, ('status','count','checkedAt')),
-                'items':[bob_diagnostics.fields(item, ('code','number','state','updatedAt','title','reason','message','kiStatus','kiStatusLabel'))
+                'repairFlowSummary':__import__('repair_flow').summary(value),
+                'items':[__import__('repair_flow').diagnostic_item(item)
                          for item in value.get('problems', [])[:100]]}
     report = bob_diagnostics.collect({
         'market':lambda:bob_diagnostics.market_snapshot(_live_cache, _live_cache_at),
@@ -164,6 +167,7 @@ def read_diagnostics_for_mcp():
             'snaptradePersonal':snaptrade_bridge.diagnostics(),
             'issuerCatalog':degiro_catalog.diagnostics(),
             'diagnosticDelivery':__import__('diagnostic_history').status(),
+            'marketUi':__import__('market_ui_health').snapshot(),
             'fibonacci':bob_diagnostics.fields(FIB_MONITOR_HEALTH,('configured','status','lastCheckedAt','lastSuccessAt'))},
         'selfHealing':bob_self_healing.diagnostics_snapshot,
         'collection':collection,
@@ -345,7 +349,7 @@ ICON_PATH = BASE_DIR / "icon.svg"
 HTML = HTML_PATH.read_bytes() if HTML_PATH.exists() else b""
 HTML = HTML.replace(b"</body>", auto_collection.PANEL.encode('utf-8')+b"</body>")
 HTML = HTML.replace(b"</body>", candle_shadow.PANEL.encode('utf-8')+b"</body>")
-HTML = HTML.replace(b"</body>", b'<script src="/product_evidence_contract.js"></script><script src="/bob_audit_read_pool.js"></script><script src="/degiro_handoff.js"></script><script src="/degiro_portfolio_store.js"></script><script src="/degiro_report_import.js"></script><script src="/degiro_all_products.js"></script><script src="/broker_candidate_pools.js"></script><script src="/degiro_browser_bridge.js"></script><script src="/degiro_android_bridge.js"></script><script src="/degiro_morning_reader.js"></script></body>')
+HTML = HTML.replace(b"</body>", b'<script src="/product_evidence_contract.js"></script><script src="/bob_audit_read_pool.js"></script><script src="/degiro_handoff.js"></script><script src="/degiro_portfolio_store.js"></script><script src="/degiro_position_reconcile.js"></script><script src="/degiro_report_import.js"></script><script src="/degiro_all_products.js"></script><script src="/broker_candidate_pools.js"></script><script src="/degiro_browser_bridge.js"></script><script src="/degiro_android_bridge.js"></script><script src="/degiro_morning_reader.js"></script></body>')
 HTML = HTML.replace(b"</body>", degiro_sandbox_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", snaptrade_panel.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", vollautomatisch_panel.PANEL.encode("utf-8")+b"</body>")
@@ -368,6 +372,7 @@ PRODUCT_EVIDENCE_CONTRACT_JS = (BASE_DIR / "product_evidence_contract.js").read_
 BOB_AUDIT_READ_POOL_JS = (BASE_DIR / "bob_audit_read_pool.js").read_text(encoding="utf-8")
 BOB_UNIFIED_WORKSPACE_JS = (BASE_DIR / "bob_unified_workspace.js").read_text(encoding="utf-8")
 DEGIRO_PORTFOLIO_STORE_JS = (BASE_DIR / "degiro_portfolio_store.js").read_text(encoding="utf-8")
+DEGIRO_POSITION_RECONCILE_JS = (BASE_DIR / "degiro_position_reconcile.js").read_text(encoding="utf-8")
 DEGIRO_BROWSER_BRIDGE_JS = (BASE_DIR / "degiro_browser_bridge.js").read_text(encoding="utf-8")
 DEGIRO_MORNING_READER_JS = (BASE_DIR / "degiro_morning_reader.js").read_text(encoding="utf-8")
 DEGIRO_ANDROID_BRIDGE_JS = (BASE_DIR / "degiro_android_bridge.js").read_text(encoding="utf-8")
@@ -427,8 +432,14 @@ def fetch_json_post(url, payload, retries=1, user_agent="Bob/1.1"):
             time.sleep(0.4 * (attempt + 1))
     raise last_error or RuntimeError(f"Upstream nicht erreichbar ({url})")
 
-def enrich_degiro_product(isin):
-    return product_quotes.get_quote(isin)
+def enrich_degiro_product(isin, terms_only=False):
+    """Admit one bounded product read before provider work occupies this thread."""
+    def read():
+        if terms_only and isin in product_quotes.SG_DIRECT_PRODUCTS:
+            from sg_direct import get_quote
+            return get_quote(isin, terms_only=True)
+        return product_quotes.get_quote(isin)
+    return product_enrich_admission.run(read)
 
 def fetch_goldprice_bars(interval, days):
     """Best-effort genuine XAU/USD spot OHLC; empty means unavailable on current API tier."""
@@ -611,6 +622,26 @@ def technical_history_fresh(bars, minutes, now=None):
     latest = technical_history_latest(bars, minutes, now)
     return bool(latest and 0 <= now*1000-latest <= minutes*120000)
 
+
+def retained_history_outpaces_bundle_frame(interval, cached_frame, now):
+    """Read published source history in place during a cache-freshness check.
+
+    retain_technical_history() must return detached mutable candles to analysis
+    callers, but the *read-only* 30-second cache check needs only the latest
+    closed timestamp. The retained list is published under this same lock and
+    never shared as a mutable output, so don't clone up to 2,000 rows on every
+    browser/monitor cache hit. Preserve exact freshness and spot-identity gates.
+    """
+    minutes = technical_candles.MINUTES[interval]
+    with _technical_history_lock:
+        retained = _technical_history.get(interval, ())
+        return bool(
+            technical_history_fresh(retained, minutes, now)
+            and all(b.get('instrument') == 'XAU/USD' and not b.get('estimated')
+                    for b in retained)
+            and technical_history_latest(retained, minutes, now) >
+                technical_history_latest(cached_frame, minutes, now)
+        )
 
 
 # EMA200 requires 200 *completed* observations of one XAU/USD timeframe.
@@ -814,14 +845,10 @@ def live_cache_reusable(now=None):
         if stamp.tzinfo is None or not 0 <= now - stamp.timestamp() < 30:
             return False
         frames=(_live_cache.get('history') or {}).get('bars_by_tf') or {}
-        for tf, minutes in technical_candles.MINUTES.items():
+        for tf in technical_candles.MINUTES:
             if not isinstance(frames.get(tf), list):
                 continue
-            retained = retain_technical_history(tf, [])
-            if (technical_history_fresh(retained, minutes, now)
-                    and all(b.get('instrument') == 'XAU/USD' and not b.get('estimated') for b in retained)
-                    and technical_history_latest(retained, minutes, now) >
-                        technical_history_latest(frames[tf], minutes, now)):
+            if retained_history_outpaces_bundle_frame(tf, frames[tf], now):
                 return False
         return True
     except (ValueError, TypeError, AttributeError):
@@ -854,7 +881,17 @@ def recheck_spot_before_bundle(spot_result, now=None):
     # the newest closed minute even when the HTTP cache is only seconds old.
     if age >= 30:
         try:
-            from spot_data import current
+            from spot_data import current, final_bundle_retry_wait
+            # If bundle completion lands immediately before the next normal
+            # 30-second source attempt, bridge only that remaining interval.
+            # This is not an extra retry and never keeps an old provider clock
+            # alive: current() and the unchanged <=60s admission gate remain
+            # authoritative after the bounded wait.
+            if age >= 55:
+                wait_seconds = final_bundle_retry_wait(original_at)
+                if wait_seconds is not None:
+                    time.sleep(wait_seconds)
+                    clock = time.time() if now is None else clock + wait_seconds
             refreshed = current()
             candidate_at = datetime.fromisoformat(refreshed['at'].replace('Z', '+00:00'))
             newest_age = time.time() - candidate_at.timestamp() if now is None else clock-candidate_at.timestamp()
@@ -937,51 +974,45 @@ def build_live_bundle():
         # The spot price is the primary heartbeat. Do NOT wait for every secondary
         # source: ThreadPoolExecutor's context manager would otherwise wait for slow
         # Yahoo/FX requests at shutdown and keep /api/live hanging.
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-        pool = ThreadPoolExecutor(max_workers=9, thread_name_prefix="bob-live")
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+        import live_bundle_workers
+        # A previous slow provider task may still be running after the bounded
+        # response deadline. Reuse that same-source task; never spawn another
+        # nine-thread executor on each 30-second source refresh.
         futures = {
-            pool.submit(fetch_spot): "spot",
-            pool.submit(__import__("xaus_spot").current, fetch_json): "risk_spot_backup",
-            pool.submit(fetch_technical_history, "5m", "5d"): "5m",
-            pool.submit(fetch_technical_history, "1h", "3mo"): "1h",
-            pool.submit(fetch_technical_history, "15m", "5d"): "15m",
-            pool.submit(fetch_technical_history, "4h", "3mo"): "4h",
-            pool.submit(fetch_technical_history, "30m", "1mo"): "30m",
-            pool.submit(fetch_fx): "fx",
-            pool.submit(fetch_technical_history, "1m", "1d"): "1m",
+            live_bundle_workers.submit("spot", fetch_spot): "spot",
+            live_bundle_workers.submit("risk_spot_backup", __import__("xaus_spot").current, fetch_json): "risk_spot_backup",
+            live_bundle_workers.submit("5m", fetch_technical_history, "5m", "5d"): "5m",
+            live_bundle_workers.submit("1h", fetch_technical_history, "1h", "3mo"): "1h",
+            live_bundle_workers.submit("15m", fetch_technical_history, "15m", "5d"): "15m",
+            live_bundle_workers.submit("4h", fetch_technical_history, "4h", "3mo"): "4h",
+            live_bundle_workers.submit("30m", fetch_technical_history, "30m", "1mo"): "30m",
+            live_bundle_workers.submit("fx", fetch_fx): "fx",
+            live_bundle_workers.submit("1m", fetch_technical_history, "1m", "1d"): "1m",
         }
         results = {}
+        # The heartbeat gets a generous but bounded window.
+        spot_future = next(f for f, name in futures.items() if name == "spot")
         try:
-            # The heartbeat gets a generous but bounded window.
-            spot_future = next(f for f, name in futures.items() if name == "spot")
+            results["spot"] = spot_future.result(timeout=12)
+        except Exception as exc:
+            results["spot"] = exc
+
+        # Secondary data is best-effort. Never let it block the live price.
+        secondary_deadline = time.monotonic() + 2.0
+        for future, name in futures.items():
+            if name == "spot":
+                continue
+            remaining = max(0.0, secondary_deadline - time.monotonic())
+            if remaining <= 0 and not future.done():
+                results[name] = TimeoutError("Sekundärquelle zu langsam")
+                continue
             try:
-                results["spot"] = spot_future.result(timeout=12)
+                results[name] = future.result(timeout=remaining)
+            except FuturesTimeoutError:
+                results[name] = TimeoutError("Sekundärquelle zu langsam")
             except Exception as exc:
-                results["spot"] = exc
-
-            # Secondary data is best-effort. Never let it block the live price.
-            secondary_deadline = time.monotonic() + 2.0
-            for future, name in futures.items():
-                if name == "spot":
-                    continue
-                remaining = max(0.0, secondary_deadline - time.monotonic())
-                if remaining <= 0 and not future.done():
-                    results[name] = TimeoutError("Sekundärquelle zu langsam")
-                    continue
-                try:
-                    results[name] = future.result(timeout=remaining)
-                except FuturesTimeoutError:
-                    results[name] = TimeoutError("Sekundärquelle zu langsam")
-                except Exception as exc:
-                    results[name] = exc
-        finally:
-            # Cancel unfinished secondary work and return the HTTP response without
-            # waiting for those worker threads to finish.
-            for future, name in futures.items():
-                if name != "spot" and not future.done():
-                    future.cancel()
-            pool.shutdown(wait=False, cancel_futures=True)
-
+                results[name] = exc
         spot_result = results.get("spot")
         if isinstance(spot_result, tuple):
             goldprice_price, goldprice_age, spot_error, spot_source, is_spot, spot_price_as_of = spot_result
@@ -1572,15 +1603,23 @@ class Handler(BaseHTTPRequestHandler):
                 isin = (query.get("isin") or [""])[0].strip().upper()
                 if len(isin) != 12:
                     raise ValueError("ISIN fehlt oder ist ungültig")
-                if query.get("scope") == ["terms"] and isin in product_quotes.SG_DIRECT_PRODUCTS:
-                    from sg_direct import get_quote
-                    result = get_quote(isin, terms_only=True)
-                else:
-                    result = enrich_degiro_product(isin)
+                result = enrich_degiro_product(isin, query.get("scope") == ["terms"])
                 body = json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+            except product_enrich_admission.ProductEnrichBusy:
+                # Do not queue another slow request thread behind identical
+                # provider work.  Browser evidence remains unchanged and its
+                # existing minute cadence will retry this read-only request.
+                body = b'{"error":"Produktpruefung voruebergehend belegt","retryable":true}'
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Retry-After", "15")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
                 self.wfile.write(body)
@@ -1661,7 +1700,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/risk_workspace.js", "/comparison_diagrams.js", "/mco_comparison.js", "/video_ocr.js", "/video_evidence.js", "/video_brief.js"):
+        if path in ("/risk_workspace.js", "/manual_ranking_order.js", "/comparison_diagrams.js", "/mco_comparison.js", "/video_ocr.js", "/video_evidence.js", "/video_brief.js"):
             try:
                 body = (BASE_DIR / path.lstrip("/")).read_bytes()
                 self.send_response(200)
@@ -1754,9 +1793,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/product_evidence_contract.js", "/bob_audit_read_pool.js", "/bob_unified_workspace.js", "/degiro_assistant.js", "/degiro_handoff.js", "/degiro_portfolio_store.js", "/degiro_report_import.js", "/degiro_all_products.js", "/broker_candidate_pools.js", "/degiro_browser_bridge.js", "/degiro_android_bridge.js", "/degiro_morning_reader.js", "/bob_degiro_export.user.js"):
+        if path in ("/product_evidence_contract.js", "/bob_audit_read_pool.js", "/bob_unified_workspace.js", "/degiro_assistant.js", "/degiro_handoff.js", "/degiro_portfolio_store.js", "/degiro_position_reconcile.js", "/degiro_report_import.js", "/degiro_all_products.js", "/broker_candidate_pools.js", "/degiro_browser_bridge.js", "/degiro_android_bridge.js", "/degiro_morning_reader.js", "/bob_degiro_export.user.js"):
             try:
-                body = (DEGIRO_MORNING_READER_JS if path == "/degiro_morning_reader.js" else PRODUCT_EVIDENCE_CONTRACT_JS if path == "/product_evidence_contract.js" else BOB_AUDIT_READ_POOL_JS if path == "/bob_audit_read_pool.js" else BOB_UNIFIED_WORKSPACE_JS if path == "/bob_unified_workspace.js" else DEGIRO_BROWSER_BRIDGE_JS if path == "/degiro_browser_bridge.js" else DEGIRO_BROWSER_USERSCRIPT if path == "/bob_degiro_export.user.js" else DEGIRO_HANDOFF_JS if path == "/degiro_handoff.js" else DEGIRO_PORTFOLIO_STORE_JS if path == "/degiro_portfolio_store.js" else DEGIRO_REPORT_IMPORT_JS if path == "/degiro_report_import.js" else DEGIRO_ALL_PRODUCTS_JS if path == "/degiro_all_products.js" else BROKER_CANDIDATE_POOLS_JS if path == "/broker_candidate_pools.js" else DEGIRO_ANDROID_BRIDGE_JS if path == "/degiro_android_bridge.js" else DEGIRO_ASSISTANT_JS).encode("utf-8")
+                body = (DEGIRO_MORNING_READER_JS if path == "/degiro_morning_reader.js" else PRODUCT_EVIDENCE_CONTRACT_JS if path == "/product_evidence_contract.js" else BOB_AUDIT_READ_POOL_JS if path == "/bob_audit_read_pool.js" else BOB_UNIFIED_WORKSPACE_JS if path == "/bob_unified_workspace.js" else DEGIRO_BROWSER_BRIDGE_JS if path == "/degiro_browser_bridge.js" else DEGIRO_BROWSER_USERSCRIPT if path == "/bob_degiro_export.user.js" else DEGIRO_HANDOFF_JS if path == "/degiro_handoff.js" else DEGIRO_PORTFOLIO_STORE_JS if path == "/degiro_portfolio_store.js" else DEGIRO_POSITION_RECONCILE_JS if path == "/degiro_position_reconcile.js" else DEGIRO_REPORT_IMPORT_JS if path == "/degiro_report_import.js" else DEGIRO_ALL_PRODUCTS_JS if path == "/degiro_all_products.js" else BROKER_CANDIDATE_POOLS_JS if path == "/broker_candidate_pools.js" else DEGIRO_ANDROID_BRIDGE_JS if path == "/degiro_android_bridge.js" else DEGIRO_ASSISTANT_JS).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/javascript; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
@@ -2086,8 +2125,13 @@ class Handler(BaseHTTPRequestHandler):
             phone_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.PHONE_SCOPE)
             termux_allowed = bob_oauth.bearer_authenticated(self.headers, USER, bob_oauth.TERMUX_SCOPE)
             if not products_allowed and not diagnostics_allowed and not push_test_allowed and not phone_allowed and not termux_allowed:
+                # A dedicated, non-secret client hint opts into requesting BOTH
+                # read scopes during a new OAuth login. Authentication and PKCE
+                # owner consent remain mandatory; legacy clients are unchanged.
+                owner_diagnostics = (self.headers.get("X-Bob-Owner-Read-Scopes", "")
+                                     == "products-and-diagnostics")
                 self.send_response(401)
-                self.send_header("WWW-Authenticate", bob_oauth.challenge_header())
+                self.send_header("WWW-Authenticate", bob_oauth.challenge_header(owner_diagnostics))
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
@@ -2112,11 +2156,32 @@ class Handler(BaseHTTPRequestHandler):
                 status, output = 400, bob_mcp.error(None, -32700, "Invalid JSON request")
             except (HTTPError, URLError, OSError, TimeoutError, RuntimeError):
                 status, output = 503, bob_mcp.error(None, -32001, "Private audit temporarily unavailable")
+            # OAuth step-up: a valid product-only token must receive the
+            # standards-compliant HTTP 403 scope challenge when it requests
+            # diagnostics, rather than only a JSON-RPC isError inside HTTP 200.
+            # The challenge is created by bob_mcp.authorization_required,
+            # never from client-supplied text or report content. User consent
+            # through the existing PKCE / browser / passkey flow remains mandatory.
+            step_up_challenge = None
+            if status == 200 and isinstance(output, dict):
+                result = output.get("result")
+                if isinstance(result, dict) and result.get("isError") is True:
+                    meta = result.get("_meta", {})
+                    challenges = meta.get("mcp/www_authenticate") if isinstance(meta, dict) else None
+                    if (isinstance(challenges, list) and len(challenges) == 1
+                            and isinstance(challenges[0], str)
+                            and challenges[0].startswith('Bearer resource_metadata="'
+                                + bob_oauth.ORIGIN + '/.well-known/oauth-protected-resource"')
+                            and 'error="insufficient_scope"' in challenges[0]):
+                        step_up_challenge = challenges[0]
+                        status = 403
             if output is None:
                 body = b""
             else:
                 body = json.dumps(output, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
             self.send_response(status)
+            if step_up_challenge is not None:
+                self.send_header("WWW-Authenticate", step_up_challenge)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -2242,7 +2307,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if path in ("/api/degiro/connection-test", "/api/degiro/sync/start", "/api/degiro/sync/stop", "/api/degiro/preflight"):
+        if path in ("/api/degiro/connection-test", "/api/degiro/sync/start", "/api/degiro/sync/stop", "/api/degiro/preflight", "/api/degiro/quote-test"):
             if not self.authenticated():
                 bob_auth.send(self, 401)
                 return
@@ -2251,15 +2316,21 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= (2048 if path.endswith("/preflight") else 128):
+                if not 0 < length <= (2048 if path.endswith(("/preflight", "/quote-test")) else 128):
                     raise ValueError("Ungültige Anfragegröße")
                 payload = json.loads(self.rfile.read(length))
-                if not isinstance(payload, dict) or (not path.endswith("/preflight") and set(payload) - {"otp"}):
+                if not isinstance(payload, dict) or (not path.endswith(("/preflight", "/quote-test")) and set(payload) - {"otp"}):
                     raise ValueError("Ungültige Anfrage")
+                if path.endswith("/quote-test"):
+                    from degiro_quote_probe import validate_request
+                    if set(payload) - {"otp", "quoteRequest"}:
+                        raise ValueError("Invalid quote test")
+                    validate_request(payload.get("quoteRequest"))
                 result = (degiro_preflight.probe(payload) if path.endswith("/preflight") else
                           degiro_sync.start(payload.get("otp", "")) if path.endswith("/start") else
                           degiro_sync.stop() if path.endswith("/stop") else
                           {"ok": False, "code": "BUSY"} if degiro_sync.status()["running"] else
+                          degiro_readonly.probe(payload.get("otp", ""), payload["quoteRequest"]) if path.endswith("/quote-test") else
                           degiro_readonly.probe(payload.get("otp", "")))
                 code = 200
             except (ValueError, TypeError):
@@ -2309,6 +2380,11 @@ class Handler(BaseHTTPRequestHandler):
                 if length <= 0 or length > 8192:
                     raise ValueError("invalid diagnostic payload size")
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                if payload.get('event') == 'market-ui:observation':
+                    if not self.authenticated():
+                        bob_auth.send(self, 401)
+                        return
+                    __import__('market_ui_health').record(payload.get('details'))
                 event, safe = sanitize_client_diagnostic(payload)
                 print(f"BOB_DIAG event={event} seq={payload.get('seq')} details={json.dumps(safe, ensure_ascii=False, separators=(',',':'))}", flush=True)
                 self.send_response(204)
@@ -2461,12 +2537,15 @@ def fibonacci_monitor_loop():
             continue
         cycle_started = time.monotonic()
         poll_seconds = 30  # Connection failure: retry promptly to protect an unknown active trade.
+        active_trades = True  # Unknown monitor state: never change live-risk polling.
+        trade_state_known = False
         try:
             request = Request(base+"/monitor-status", headers={"X-Bob-Push-Token":PUSH_SERVICE_TOKEN})
             with urlopen(request, timeout=10) as response:
                 monitors = json.loads(response.read(4096))
                 active = monitors.get("activeMonitors", 0)
                 active_trades = monitors.get("activeTrades", 0)
+                trade_state_known = "activeTrades" in monitors
             poll_seconds = background_push.degiro_poll_seconds(active_trade=bool(active_trades))
             FIB_MONITOR_HEALTH.update(status="checking", lastCheckedAt=int(time.time()),
                                       expectedCycleSeconds=poll_seconds, session=background_push.degiro_session())
@@ -2490,8 +2569,15 @@ def fibonacci_monitor_loop():
                 try:
                     with urlopen(request,timeout=45) as response:
                         background_result=json.loads(response.read(4096))
-                    diagnostic_history.emit('transport', source_trace, {'outcome':'background-accepted'})
-                    print("BOB_BACKGROUND checked sent="+str(background_result.get('sent',0)),flush=True)
+                    accepted=background_result.get('accepted') is True
+                    diagnostic_history.emit(
+                        'transport',source_trace,
+                        {'outcome':'background-accepted' if accepted else 'background-rejected'})
+                    print("BOB_BACKGROUND checked accepted="+
+                          str(accepted)+
+                          " trace="+source_trace+
+                          " source_at="+str((background_bundle.get('spots') or {}).get('spot_price_as_of'))+
+                          " sent="+str(background_result.get('sent',0)),flush=True)
                 except Exception as exc:
                     background_ok = False
                     diagnostic_history.emit('transport', source_trace, {'outcome':'background-failed','errorType':type(exc).__name__})
@@ -2509,7 +2595,10 @@ def fibonacci_monitor_loop():
         except Exception as exc:
             FIB_MONITOR_HEALTH.update(status="unavailable", lastCheckedAt=int(time.time()))
             print("BOB_FIB monitor_error="+type(exc).__name__, flush=True)
-        time.sleep(max(1, poll_seconds - (time.monotonic() - cycle_started)))
+        time.sleep(background_push.study_source_edge_delay(
+            poll_seconds, time.monotonic() - cycle_started, time.time(),
+            session=background_push.degiro_session(),
+            active_trade=bool(active_trades) or not trade_state_known))
 
 _AGENTMAIL_RECOVERY_THREAD = None
 _AGENTMAIL_RECOVERY_LOCK = threading.Lock()
@@ -2517,18 +2606,25 @@ _AGENTMAIL_RECOVERY_LOCK = threading.Lock()
 def _agentmail_recovery_loop():
     """Read-only fallback for missed webhook events and original-DEGIRO receipts."""
     import agentmail_receipt_recovery
+    next_archive_check = 0.0
     while True:
         phase="agentmail-read"
+        archive_due = time.monotonic() >= next_archive_check
         try:
             records = agentmail_receipt_recovery.recover(
                 os.environ.get("BOB_AGENTMAIL_API_KEY", ""),
-                os.environ.get("BOB_EMAIL_ALLOWED_FROM", ""))
+                os.environ.get("BOB_EMAIL_ALLOWED_FROM", ""),
+                lookback_days=45 if archive_due else 7)
             phase="private-import"
             count = agentmail_receipt_recovery.submit(
                 records, PUSH_SERVICE_URL, PUSH_SERVICE_TOKEN)
+            if archive_due:
+                next_archive_check = time.monotonic() + 86400
             print("BOB_EMAIL_RECOVERY status=ok checked="+str(len(records))+
                   " transmitted="+str(count),flush=True)
         except Exception as exc:
+            if archive_due:
+                next_archive_check = time.monotonic() + 300
             # Never log URL, mailbox content, API key or bearer credentials.
             from urllib.error import HTTPError
             http_status=exc.code if isinstance(exc,HTTPError) else "n/a"
@@ -2551,6 +2647,21 @@ def start_agentmail_recovery():
             _AGENTMAIL_RECOVERY_THREAD.start()
 
 
+def _aiven_canary_once():
+    """One opt-in Aiven read-only probe; never blocks or changes Bob's database."""
+    try:
+        from aiven_readonly_probe import probe
+        status = probe().get("status", "internal-error")
+        if status not in ("connected-read-only", "connection-not-confirmed",
+                          "read-only-not-confirmed", "query-not-confirmed",
+                          "invalid-configuration", "not-configured"):
+            status = "internal-error"
+    except Exception:
+        status = "internal-error"
+    # Never log URI, host, certificate, raw database exception, or credential.
+    print("BOB_AIVEN_CANARY status=" + status, flush=True)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
     print(f"BOB_START port={port} host=0.0.0.0 version=runtime-http-trace-v2 process={PROCESS_ID}", flush=True)
@@ -2568,6 +2679,9 @@ if __name__ == "__main__":
     start_agentmail_recovery()
     import weekend_archive
     weekend_archive.start(build_live_bundle,market_cards.snapshot)
+    if os.environ.get("BOB_AIVEN_TEST_DATABASE_URL"):
+        threading.Thread(target=_aiven_canary_once,
+                         name="bob-aiven-canary", daemon=True).start()
     BobHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 # Bob maintenance marker: 4h MTF upgrade in progress

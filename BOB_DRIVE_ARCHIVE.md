@@ -56,9 +56,40 @@ after 30 days. It is not a permanent free restore service. An unavailable test
 server fails closed; never silently fall back to production or upgrade the plan.
 Google OAuth in Testing also requires review before claiming durable authorization.
 
-The existing 30-minute database samples and 500/700 MB caution/action thresholds
-continue. Logical database size does not mean physical free disk space. Preserving
-originals means this phase provides external backup, not database reclamation.
+The existing 30-minute database samples continue. Following the owner's
+08.11.2026 5-GB capacity decision, the former 500/700-MB *logical database*
+thresholds must not accelerate cold offload. With fresh, verified Render provider
+measurements below 50% of the physical 5-GB capacity, cold payload writers
+skip original replacement; independently verified backups and measurements
+continue. At higher occupancy, the cadence may increase only on trusted volume
+measurements; age alone must not be equated with a completed, unused business
+window. Retention and in-use evidence must be checked before future expansion
+of eligible families. No implicit purge is permitted. Logical JSON shrinkage
+is not physical disk space recovered.
+
+### Proactive finalized comparisons (11.11.2026)
+
+Physical 5-GB occupancy controls urgency, but a final, self-contained
+comparison case may be archived at comfortable occupancy. The exception
+applies ONLY to complete entry/exit comparisons at least 24 hours old with
+every arm terminal, all full original fields present where a trade closed,
+and an unchanged local evaluation projection. Each small batch still needs
+fresh independent AES-GCM/remote-download/isolated restore/recovery-key
+evidence, recent provider WAL/scratch headroom, exact per-row reader
+equality, compare-and-swap and rollback. Source clocks and the local
+evaluation remain unchanged. No plaintext deletion is authorized.
+
+Age-only Gold analysis, market metrics, learning observations, active
+simulations, products, trades, signals, push and operational evidence remain
+blocked from automatic replacement at any occupancy until separately
+verified as no longer needed; age never establishes that
+they are unused. An unavailable proof leaves all originals in PostgreSQL.
+A common nonblocking PostgreSQL advisory lock now serializes scheduled
+full exports, cold-payload writers and standard storage maintenance; a busy
+export does not consume its daily attempt. Existing bounded batches, backoff,
+weekend limits and safety checks remain. This does not prove physical bytes
+freed, nor does it authorize a general purge.
+
 
 ## Tests
 

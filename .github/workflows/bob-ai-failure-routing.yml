@@ -1,0 +1,48 @@
+name: Bob KI - GitHub Fehleruebergabe
+
+on:
+  workflow_run:
+    workflows:
+      - Bob CI
+      - Bob live smoke test
+      - Bob collection health
+      - Bob independent self-healing escalation
+    types: [completed]
+    branches: [main]
+
+# Trusted default-branch code only. The completed workflow is untrusted
+# metadata until validated by the routing script. No PR code is checked out.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: bob-ai-workflow-failure-routing
+  cancel-in-progress: false
+
+jobs:
+  route:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == 'ichrob/gold-dashboard1' &&
+      github.repository == 'ichrob/gold-dashboard1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted main (never failed workflow source)
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Validate routing, closing rules and public privacy offline
+        run: python -m unittest -v test_bob_ai_ci_failures.py
+      - name: File only verified, deduplicated fixed-code incident
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python bob_ai_ci_failures.py

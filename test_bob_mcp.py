@@ -44,13 +44,50 @@ class BobMcpTests(unittest.TestCase):
             if method == "tools/list":
                 tools = response["result"]["tools"]
                 self.assertEqual({x["name"] for x in tools},
-                                 {"bob_product_audit","bob_product_gaps","bob_diagnostics","bob_signal_history","bob_push_history"})
+                                 {"bob_product_audit","bob_product_gaps","bob_diagnostics",
+                                  "bob_diagnostics_view","bob_simulation_audit",
+                                  "bob_signal_history","bob_push_history"})
                 self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
                 self.assertTrue(all(not x["annotations"]["destructiveHint"] for x in tools))
         status, response = bob_mcp.handle(
             {"jsonrpc":"2.0","method":"notifications/initialized"},reader)
         self.assertEqual((status,response),(202,None))
         self.assertEqual(calls,[])
+
+    def test_antigravity_parameter_cache_alias_only_for_two_read_only_tools(self):
+        # Google CLI 1.5.3 cache bug #368 expects mcpTool.parameters,
+        # although MCP requires inputSchema. Keep both identical.
+        tools = bob_mcp.tool_definitions(diagnostics=True, products=True,
+                                          remote_phone=True, remote_termux=True,
+                                          remote_push=True)
+        by_name = {t['name']:t for t in tools}
+        self.assertEqual(set(by_name), {t['name'] for t in tools})
+        for name in ('bob_product_gaps', 'bob_diagnostics',
+                     'bob_diagnostics_view', 'bob_simulation_audit'):
+            t = by_name[name]
+            self.assertEqual(t['parameters'], t['inputSchema'])
+            self.assertIsNot(t['parameters'], t['inputSchema'])
+            self.assertEqual(t['inputSchema']['type'], 'object')
+            self.assertTrue(t['annotations']['readOnlyHint'])
+            self.assertFalse(t['annotations']['destructiveHint'])
+            self.assertEqual(t['securitySchemes'][0]['scopes'],
+                             [bob_mcp.DIAGNOSTICS_SCOPE if name in (
+                                  'bob_diagnostics', 'bob_diagnostics_view',
+                                  'bob_simulation_audit') else bob_mcp.SCOPE])
+        for t in tools:
+            if t['name'] not in ('bob_product_gaps', 'bob_diagnostics',
+                                  'bob_diagnostics_view', 'bob_simulation_audit'):
+                self.assertNotIn('parameters', t)
+        # A published argument-schema alias must not bypass strict runtime
+        # validation, even when an agent submits a schema-like payload.
+        status, reply = bob_mcp.handle(
+            {'jsonrpc':'2.0','id':3,'method':'tools/call',
+             'params':{'name':'bob_diagnostics',
+                       'arguments':{'focus':'overview','execute':True}}},
+            lambda: self.fail('product report must not be fetched'),
+            lambda: self.fail('diagnostics must not be fetched'))
+        self.assertEqual(status, 200)
+        self.assertEqual(reply['error']['code'],-32602)
 
     def test_full_report_and_missing_fields_preserve_source_status(self):
         report={"status":"stale","listUploadedAt":"2026-10-15T08:00:00Z",
@@ -165,6 +202,54 @@ class BobMcpTests(unittest.TestCase):
         self.assertEqual(highest, 1)
         self.assertEqual(len(results), 2)
         self.assertTrue(all(status == 200 for status, _ in results))
+
+    def test_diagnostics_memory_phase_is_payload_free_and_preserves_result(self):
+        import io
+        import json
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        report = {"status":"observed", "readOnly":True,
+                  "private":"secret-do-not-log", "areas":{}}
+        samples = [
+            {"parentMiB":200.0, "containerMiB":220.0,
+             "pythonAllocatedBlocks":500000},
+            {"parentMiB":212.5, "containerMiB":233.0,
+             "pythonAllocatedBlocks":501250},
+        ]
+        output = io.StringIO()
+        with patch("memory_watch.snapshot", side_effect=samples), redirect_stdout(output):
+            _, response = bob_mcp.handle(
+                {"jsonrpc":"2.0","id":9,"method":"tools/call",
+                 "params":{"name":"bob_diagnostics",
+                           "arguments":{"focus":"overview"}}},
+                lambda: self.fail("product access"), lambda: report)
+        self.assertFalse(response["result"]["isError"])
+        line = output.getvalue().strip()
+        self.assertTrue(line.startswith("BOB_DIAGNOSTICS_MEMORY "))
+        event = json.loads(line.split(" ", 1)[1])
+        self.assertEqual(event["focus"], "overview")
+        self.assertEqual(event["status"], "ok")
+        self.assertEqual(event["deltaParentMiB"], 12.5)
+        self.assertEqual(event["deltaContainerMiB"], 13.0)
+        self.assertEqual(event["deltaPythonAllocatedBlocks"], 1250)
+        self.assertNotIn("secret-do-not-log", line)
+
+    def test_diagnostics_memory_instrumentation_failure_is_non_blocking(self):
+        import io
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        output = io.StringIO()
+        with patch("memory_watch.snapshot", side_effect=RuntimeError("unavailable")), redirect_stdout(output):
+            _, response = bob_mcp.handle(
+                {"jsonrpc":"2.0","id":10,"method":"tools/call",
+                 "params":{"name":"bob_diagnostics",
+                           "arguments":{"focus":"overview"}}},
+                lambda: self.fail("product access"),
+                lambda: {"status":"observed","readOnly":True,"areas":{}})
+        self.assertFalse(response["result"]["isError"])
+        self.assertIn('"beforeParentMiB":null', output.getvalue())
 
 
 if __name__ == "__main__":
