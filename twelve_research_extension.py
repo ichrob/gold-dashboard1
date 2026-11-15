@@ -4,6 +4,7 @@ The existing gold_fallback.py remains the verified single-hour probe.
 Additional scopes are disabled until individually licensed and confirmed.
 """
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import math
@@ -545,7 +546,7 @@ def main():
     parse = lambda v: int(datetime.strptime(v,'%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()*1000)
     if not args.earliest_only and not (args.start_utc and args.end_utc):
         parser.error('--start-utc and --end-utc are required unless --earliest-only')
-    with sqlite3.connect(args.archive,timeout=10,isolation_level=None) as db:
+    with closing(sqlite3.connect(args.archive,timeout=10,isolation_level=None)) as db:
         if args.earliest_only:
             result = fetch_earliest_timestamp(db,args.symbol,args.interval)
         else:

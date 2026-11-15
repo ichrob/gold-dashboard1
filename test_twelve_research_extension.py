@@ -1,6 +1,7 @@
 import json
 import copy
 import os
+from contextlib import closing
 import sqlite3
 import unittest
 from datetime import datetime, timedelta
@@ -41,7 +42,7 @@ class TwelveResearchTests(unittest.TestCase):
 
     def test_scope_rejection_does_not_call_network(self):
         with patch.dict(os.environ,{},clear=True),patch.object(td,'build_opener') as opener:
-            with sqlite3.connect(':memory:') as db:
+            with closing(sqlite3.connect(':memory:')) as db, db:
                 self.assertEqual(td.fetch_research(db,'XAU/USD','5min',START,START+STEP,now_ms=NOW)['code'],'SCOPE_NOT_AUTHORIZED')
                 self.assertEqual(td.fetch_earliest_timestamp(db,'EUR/CHF','1h',now_ms=NOW)['code'],'SCOPE_NOT_AUTHORIZED')
             opener.assert_not_called()
@@ -108,7 +109,7 @@ class TwelveResearchTests(unittest.TestCase):
                 'BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED':'1',
                 'TWELVEDATA_API_KEY':'test_only_fake_key'}
         with patch.dict(os.environ,config,clear=True):
-            with sqlite3.connect(':memory:',isolation_level=None) as db:
+            with closing(sqlite3.connect(':memory:',isolation_level=None)) as db, db:
                 fake=FakeOpener()
                 result=td.fetch_research(db,'XAU/USD','1day',start,end,
                                          now_ms=end+3600000,opener=fake)
@@ -148,7 +149,7 @@ class TwelveResearchTests(unittest.TestCase):
 
     def test_revisions_and_research_provenance(self):
         rows=td.validate_rows(example(),'XAU/USD','5min',START,START+STEP,NOW)
-        with sqlite3.connect(':memory:') as db:
+        with closing(sqlite3.connect(':memory:')) as db, db:
             td.store_rows(db,rows);td.store_rows(db,rows)
             newer=copy.deepcopy(rows[0]);newer['close']=4000.5
             td.store_rows(db,[newer])
@@ -158,7 +159,7 @@ class TwelveResearchTests(unittest.TestCase):
                 td.store_rows(db,[{**rows[0],'researchOnly':False}])
 
     def test_quota_budget(self):
-        with sqlite3.connect(':memory:') as db:
+        with closing(sqlite3.connect(':memory:')) as db, db:
             with db:
                 for _ in range(td.MINUTE_BUDGET):
                     self.assertTrue(td.reserve_credit(db,NOW))
@@ -229,7 +230,7 @@ class TwelveResearchTests(unittest.TestCase):
                 'BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED':'1',
                 'TWELVEDATA_API_KEY':'test_only_fake_key'}
         with patch.dict(os.environ,config,clear=True):
-            with sqlite3.connect(':memory:',isolation_level=None) as db:
+            with closing(sqlite3.connect(':memory:',isolation_level=None)) as db, db:
                 client=FakeOpener()
                 result=td.fetch_earliest_timestamp(db,'XAU/USD','1min',
                      now_ms=NOW,opener=client)
@@ -274,7 +275,7 @@ class TwelveResearchTests(unittest.TestCase):
                 'BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED':'1',
                 'TWELVEDATA_API_KEY':'test_only_fake_key'}
         with patch.dict(os.environ,config,clear=True):
-            with sqlite3.connect(':memory:',isolation_level=None) as db:
+            with closing(sqlite3.connect(':memory:',isolation_level=None)) as db, db:
                 client=FakeOpener()
                 result=td.fetch_research(db,'XAU/USD','5min',
                               START,START+STEP,now_ms=NOW,opener=client)
