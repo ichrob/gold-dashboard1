@@ -44,10 +44,18 @@ internal object MorningListDelivery {
             return false
         }
         val age=runCatching { System.currentTimeMillis()-Instant.parse(images.getJSONObject(0).getString("at")).toEpochMilli() }.getOrDefault(Long.MAX_VALUE)
-        val mode=MorningListResumePolicy.mode(age,body.optInt("resumeCount"))
+        val mode=MorningListResumePolicy.mode(age,body.optInt("resumeCount"),
+            body.optBoolean("verificationFailed",false))
         if(mode==MorningListResumePolicy.Mode.NEW_LIST) {
-            val archive=File(c.filesDir,"morning-list-previous.json")
-            archive.writeText(body.toString());file(c).delete()
+            val batch=body.optString("batchId")
+            if(!batch.matches(Regex("[a-f0-9]{32}"))) return false
+            // Preserve each original separately; a later failed run must not
+            // overwrite a previous capture. Delete only after atomic archival.
+            val archive=AtomicFile(File(c.filesDir,"morning-list-previous-"+batch+".json"))
+            val stream=archive.startWrite()
+            try { stream.write(body.toString().toByteArray(Charsets.UTF_8));archive.finishWrite(stream) }
+            catch(e:Exception) { archive.failWrite(stream);throw e }
+            cancel();file(c).delete()
             status(c,"Frühere Aufnahme gesichert; neuer Listenlauf startet.")
             return false
         }
@@ -69,7 +77,7 @@ internal object MorningListDelivery {
             if(id!=generation)return
             network.execute {
                 val result=runCatching {
-                    if(!uploaded) { check(PhoneRemote.active() && PhoneRemote.sessionId()==session);PhoneDiagnostics.uploadList(c,JSONObject(body.toString()).apply { remove("resumeCount");remove("localRecognitionRevision") }) }
+                    if(!uploaded) { check(PhoneRemote.active() && PhoneRemote.sessionId()==session);PhoneDiagnostics.uploadList(c,JSONObject(body.toString()).apply { remove("resumeCount");remove("localRecognitionRevision");remove("verificationFailed") }) }
                     PhoneDiagnostics.listStatus(c,JSONObject().put("batchId",batch))
                 }
                 handler.post {
@@ -95,6 +103,19 @@ internal object MorningListDelivery {
                             })
                             PhoneRemote.stop(c,"COMPLETE")
                         }
+                    } else if(response?.optString("batchId")==batch &&
+                        MorningListResumePolicy.verificationFailed(
+                            receipt?.optString("stage"),receipt?.optString("error"))) {
+                        // A rejected list is not an upload failure or a running
+                        // detail read. Retain the original, but let the next
+                        // explicit user start take a fresh list. Server retries
+                        // remain bounded and never authorize handset actions.
+                        waiting=false
+                        val saved=runCatching { save(c,JSONObject(body.toString()).put("verificationFailed",true)) }.isSuccess
+                        status(c,if(saved)
+                            "Listenbilder angekommen, aber nicht als vollständige Goldliste erkannt. Aufnahme bleibt gespeichert. Bob starten nimmt eine neue Liste auf."
+                            else "Listenprüfung fehlgeschlagen. Neuer Start konnte nicht vorbereitet werden; Aufnahme bleibt gespeichert.")
+                        PhoneRemote.stop(c,if(saved) "LIST_UPLOAD_FAILED" else "STORAGE_ERROR")
                     } else if(MorningListFallbackPolicy.memoryDeferred(
                             receipt?.optString("stage"),receipt?.optString("error")) &&
                         (attempt>=18 || resumeSavedCapture) &&
