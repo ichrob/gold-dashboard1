@@ -3099,7 +3099,7 @@ function draw(a){
  const dayPicker=$('chartDay'),storedDays=chartStoredDays(visibleHistory),previousDay=dayPicker.value;
  const chosenDay=previousDay||storedDays[0]||'';
  const availableDays=storedDays.includes(chosenDay)?storedDays:[chosenDay,...storedDays].filter(Boolean);
- if(JSON.stringify([...dayPicker.options].map(o=>[o.value,o.textContent]))!==JSON.stringify(availableDays.map(day=>[day,day+(storedDays.includes(day)?'':' · keine Daten für diese Zeitebene')]))){
+ if(dayPicker.options&&JSON.stringify([...dayPicker.options].map(o=>[o.value,o.textContent]))!==JSON.stringify(availableDays.map(day=>[day,day+(storedDays.includes(day)?'':' · keine Daten für diese Zeitebene')]))){
   dayPicker.replaceChildren(...availableDays.map(day=>{const option=document.createElement('option');option.value=day;option.textContent=day+(storedDays.includes(day)?'':' · keine Daten für diese Zeitebene');return option;}));
  }
  dayPicker.value=chosenDay;dayPicker.disabled=!availableDays.length;
