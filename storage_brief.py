@@ -344,6 +344,8 @@ def project(storage):
         "latestVerifiedState": ("verified" if verified.get("status") == "verified"
                                 else "not-observed"),
         "verifiedAt": _clock(verified.get("updatedAt")),
+        "restoreTargetPolicy": _choice(verified.get("restoreTargetPolicy"),
+            frozenset(("aiven-uri-validated", "other-or-unverified")), None),
         "restoreVerified": verified.get("restoreVerified") is True,
         "remoteDownloadVerified": verified.get("remoteDownloadVerified") is True,
         "encryptionVerified": verified.get("encryptionVerified") is True,
