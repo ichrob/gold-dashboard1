@@ -75,6 +75,25 @@ class LargeAccountProjectionTests(unittest.TestCase):
         self.assertLessEqual(len(json.dumps(report, ensure_ascii=False,
             separators=(',', ':')).encode('utf-8')), 9500)
 
+    def test_small_independent_reports_survive_verbose_account_projection(self):
+        source = {'areas': {
+            'simulationAndPush': {'status': 'partial', 'accounts': [
+                {'profile': str(i), 'cash': 1000, 'checkedAt': 123,
+                 'extraDetails': 'x' * 4000} for i in range(11)]},
+            'comparisonHealth': {'status': 'unavailable', 'reason': 'source-failed'},
+            'newStudiesBrief': {'status': 'observed', 'quality': 'collecting'},
+            'operationsSummary': {'status': 'partial', 'checkedAt': 122}}}
+        snapshot = copy.deepcopy(source)
+        result = diagnostics.bounded_report(source, 5000)
+        for name in ('comparisonHealth', 'newStudiesBrief', 'operationsSummary'):
+            self.assertEqual(result['areas'][name], source['areas'][name])
+            self.assertNotIn(name, result['omittedAreas'])
+        self.assertEqual(result['areas']['simulationAndPush']['status'], 'partial')
+        self.assertEqual(len(result['areas']['simulationAndPush']['accounts']), 11)
+        self.assertEqual(source, snapshot)
+        self.assertLessEqual(len(json.dumps(result, ensure_ascii=False,
+            separators=(',', ':')).encode('utf-8')), 5000)
+
     def test_keep_unavailable_sources_unavailable_not_promote_to_observed(self):
         accounts = [{'profile': 'p%d' % i, 'status': 'running',
             'recentCases': {'status': 'unavailable', 'reason': 'source-failed',

@@ -2262,14 +2262,6 @@ def bounded_report(report, max_bytes):
             # projected from the original simulation source; never discard
             # that small proof merely because the account body is oversized.
             'strategyReport')
-    optional = sorted((name for name in areas if name not in core),
-                      key=lambda name: size(areas[name]), reverse=True)
-    for name in optional:
-        if size(result) <= max_bytes:
-            break
-        areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
-        result['omittedAreas'].append(name)
-
     # A real 11-account simulation can exceed the response cap even *after*
     # dropping every optional area. Preserve a bounded, truthful account
     # projection before discarding simulationAndPush altogether. No new SQL:
@@ -2331,6 +2323,16 @@ def bounded_report(report, max_bytes):
         essential_sim['omittedSections'] = list(dict.fromkeys(
             list(sim.get('omittedSections') or []) + ['non-account-subreports']))
         areas['simulationAndPush'] = essential_sim
+
+    # Reduce verbose multi-account detail before dropping entire independent
+    # reports. Otherwise even tiny health/coverage proofs are lost needlessly.
+    optional = sorted((name for name in areas if name not in core),
+                      key=lambda name: size(areas[name]), reverse=True)
+    for name in optional:
+        if size(result) <= max_bytes:
+            break
+        areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
+        result['omittedAreas'].append(name)
 
     essential = sorted((name for name in areas if name in core),
                        key=lambda name: size(areas[name]), reverse=True)
