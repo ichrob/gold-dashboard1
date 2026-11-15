@@ -24,6 +24,50 @@ class ImportAssessment(unittest.TestCase):
         self.assertFalse(x['tradeApproved'])
         self.assertEqual(r, before)
 
+    def test_one_sided_and_crossed_display_values_remain_visible_without_a_valid_pair(self):
+        for missing,remaining,expected in [('Brief','displayedBid',13.06),
+                                           ('Geld','displayedAsk',13.07)]:
+            r=self.prepared()
+            r['results'][0]['observation']['fields'].pop(missing)
+            original=copy.deepcopy(r)
+            x=assess(r)['items'][0]
+            self.assertEqual(x[remaining],expected)
+            self.assertIsNone(x['displayedAsk' if missing=='Brief' else 'displayedBid'])
+            self.assertFalse(x['displayPairValid'])
+            for key in ('bid','ask','spread','unitPurchaseCHF','quantity','sourceTime'):
+                self.assertIsNone(x[key])
+            self.assertIn('DISPLAY_PAIR_INVALID_OR_MISSING',x['reasons'])
+            self.assertFalse(x['tradeApproved'])
+            self.assertEqual(r,original)
+        r=self.prepared()
+        r['results'][0]['observation']['fields'].update(Geld='14',Brief='13')
+        x=assess(r)['items'][0]
+        self.assertEqual((x['displayedBid'],x['displayedAsk']),(14,13))
+        self.assertFalse(x['displayPairValid'])
+        self.assertIsNone(x['spread'])
+
+    def test_legacy_assessment_is_reprojected_without_rewriting_originals_or_clocks(self):
+        r=self.prepared()
+        r['results'][0]['observation']['fields'].pop('Brief')
+        r['importAssessment']=dict(version=1,items=[dict(bid=None,ask=None)])
+        original=copy.deepcopy(r)
+        class Db:
+            def execute(self,sql):
+                self.sql=sql
+                return self
+            def fetchall(self):return [(r,)]
+        db=Db()
+        out=observations.status(db)['runs'][0]
+        self.assertEqual(out['importAssessment']['version'],2)
+        self.assertFalse(out['importAssessmentPersisted'])
+        item=out['importAssessment']['items'][0]
+        self.assertEqual(item['displayedBid'],13.06)
+        self.assertIsNone(item['displayedAsk'])
+        self.assertEqual(item['observedAt'],r['results'][0]['observation']['observedAt'])
+        self.assertEqual(out['importAssessment']['assessedAt'],r['receivedAt'])
+        self.assertEqual(r,original)
+        self.assertTrue(db.sql.startswith('SELECT'))
+
     def test_missing_leverage_does_not_block_valid_pair_or_penalize(self):
         x=assess(self.prepared())['items'][0]
         self.assertEqual(x['ask'], 13.07)

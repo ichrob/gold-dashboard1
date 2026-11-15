@@ -163,7 +163,15 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStop').disabled);
   await broker.waitForFunction(()=>GM_getValue('bob-export-arm-v1',0)>Date.now());
   await bob.waitForFunction(()=>document.querySelector('#bobBridgeBrokerStatus').textContent.includes('erreichbar'));
-  await exportCSV(csv);
+  // Force a clock tick between any two Date.now calls in the producer.
+  // Previously createdAt and expiresAt used separate reads, exceeding TTL by
+  // one millisecond and causing offer() to delete the valid staged export.
+  await broker.evaluate(()=>{
+   window.__realExportNow=Date.now;let tick=0;
+   Date.now=()=>window.__realExportNow()+tick++;
+  });
+  try{await exportCSV(csv);}
+  finally{await broker.evaluate(()=>{Date.now=window.__realExportNow;});}
   await bob.waitForSelector('.dg-holding');
   assert.equal(await bob.locator('.dg-holding').count(),1);
   assert.equal(await bob.locator('.dg-export-card').count(),1,'Report panel refreshed');
@@ -214,7 +222,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   let blankQuantity=10;
   for(const mime of ['text/csv;charset=utf-8','application/octet-stream','']){
    blankQuantity++;await broker.evaluate(text=>window.__blankCSV=text,csv.replace(',2,0.12,',','+blankQuantity+',0.12,'));
-   await broker.evaluate(mime=>{window.__blankMime=mime;GM_setValue('bob-export-status-v1',{state:'ready',at:Date.now(),version:'1.2.0'});},mime);
+   await broker.evaluate(mime=>{window.__blankMime=mime;GM_setValue('bob-export-status-v1',{state:'ready',at:Date.now(),version:'1.2.1'});},mime);
    await broker.locator('#export').click();
    // Headless browser startup can be delayed under the full Python+JS CI load.
    // Keep the exact quantity and issuer-source assertions; only allow the
@@ -324,7 +332,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.waitForFunction(()=>document.querySelector('#bobBridgeStart').disabled);
   assert.match(await bob.locator('#bobBridgeStatus').innerText(),/veraltet/);
   assert(await bob.locator('#bobBridgeUpdate').isVisible());
-  await bob.evaluate(()=>postMessage({type:'BOB_EXPORT_HELPER_READY',version:'1.2.0'},location.origin));
+  await bob.evaluate(()=>postMessage({type:'BOB_EXPORT_HELPER_READY',version:'1.2.1'},location.origin));
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
   assert.deepEqual(errors,[]);
   console.log('Browser bridge: 2 tabs, detached dispatch, /csv URLs, window.open, version/heartbeat diagnostics, opt-in, rejection, persistence, mobile widths, deletion, no credential transfer: passed');

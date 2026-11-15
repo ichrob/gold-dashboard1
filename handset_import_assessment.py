@@ -6,6 +6,8 @@ Only validated observations from android_observations.prepare enter this module.
 """
 from decimal import Decimal, InvalidOperation
 
+VERSION = 2
+
 
 def positive(value):
     if not isinstance(value, str):
@@ -48,6 +50,9 @@ def assess(run):
             observedAt=observation.get('observedAt'), displayedTime=fields.get('Anzeigezeit'),
             sourceTime=None, currency=currency, bid=float(bid) if pair else None,
             ask=float(ask) if pair else None, spread=float(ask-bid) if pair else None,
+            displayedBid=float(bid) if bid is not None else None,
+            displayedAsk=float(ask) if ask is not None else None,
+            displayPairValid=pair,
             displayedLeverage=float(positive(fields.get('Hebel'))) if positive(fields.get('Hebel')) else None,
             displayedKo=float(positive(fields.get('KO-Schwelle'))) if positive(fields.get('KO-Schwelle')) else None,
             unitPurchaseCHF=float(ask) if pair and currency == 'CHF' else None,
@@ -55,7 +60,7 @@ def assess(run):
             totalCHF=None, lossCHF=None, riskUsagePct=None,
             calculationStatus='inputs-missing', reasons=reasons,
             rankingPenalty=False, tradeApproved=False))
-    return dict(version=1, assessedAt=run['receivedAt'], batchId=run['batchId'],
+    return dict(version=VERSION, assessedAt=run['receivedAt'], batchId=run['batchId'],
                 revision=run['revision'], items=items, researchOnly=True,
                 realOrders=False, rankingUpdated=False,
                 note='Import-Auswertung: gespeicherte Anzeigewerte, kein aktueller Handelsplan. '

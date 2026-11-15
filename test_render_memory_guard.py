@@ -122,6 +122,19 @@ class RenderMemoryGuardTests(unittest.TestCase):
         self.assertEqual(result['status'],'memory-proof-unavailable')
         network.assert_not_called()
 
+    def test_clock_rollback_cannot_reuse_cached_headroom(self):
+        cached = {'status':'memory-headroom-observed',
+                  'newestSampleAt':self.NOW-40, 'maintenanceAuthorized':False}
+        with patch.dict(os.environ,{'BOB_RENDER_METRICS_API_KEY':'synthetic'}), \
+             patch.object(guard,'_cache',cached), \
+             patch.object(guard,'_cached_at',self.NOW), \
+             patch.object(guard.time,'time',return_value=self.NOW-600), \
+             patch('urllib.request.build_opener',side_effect=OSError) as network:
+            result = guard.report()
+        self.assertEqual(result['status'],'memory-proof-unavailable')
+        self.assertFalse(result['maintenanceAuthorized'])
+        network.assert_called_once()
+
     def test_provider_errors_are_redacted_and_fail_closed(self):
         guard._cache=None
         with patch.dict(os.environ,{'BOB_RENDER_METRICS_API_KEY':'private-token'}), \

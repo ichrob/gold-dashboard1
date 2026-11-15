@@ -1386,6 +1386,9 @@ def comparison_status(conn, portfolios):
         samples.append({'profile':profile, 'recentCases':recent,'forwardValidationStatus':forward_status,
             'forwardValidation':project(forward,shape('version','startedAt','validationAt','excluded',
                 'actualNetKnown','strategyWinnerConfirmed','automaticPolicyChanges',calibration=phase,validation=phase)) if recent.get('status')=='observed' and forward else None})
+    gap_evidence = comparison_gap_evidence(conn,samples)
+    gap_evidence['historicalReview'] = __import__('paper_gap_triage').assess_archived(
+        gap_evidence)
     partial = (comparison.get('status') == 'partial'
                or blocks.get('status') == 'unavailable'
                or any(row['recentCases']['status'] == 'unavailable'
@@ -1396,7 +1399,7 @@ def comparison_status(conn, portfolios):
             'comparisonHealth':comparison,
             'entryBlockEvidence':blocks,
             'accountSamples':samples,
-            'gapEvidence':comparison_gap_evidence(conn,samples),
+            'gapEvidence':gap_evidence,
             'scope':'bounded-stored-comparisons-and-latest-case-evidence',
             'note':'Stored evidence is not a completed study, executable trade or profit proof.'}
 
@@ -1642,7 +1645,14 @@ def simulation_evidence_snapshot(simulation, comparison=None):
                     items=[shape('eventAt','state','capturedAt','timeRelation','deltaSeconds',
                         profiles=[shape('profile','outcome','ready','priceFresh','dataAt','barAt')])])),
             'gapReview':__import__('paper_gap_triage').assess(
-                {'recentRecordedGapInstants':clusters[-10:]},
+                {'recentRecordedGapInstants':clusters[-10:],
+                 'sampleCoverage': ('observed' if evidence and
+                                    len(evidence)==len(accounts[:10]) and
+                                    all(item['sampleStatus']=='observed' and
+                                        item['counts']['other']==0 and
+                                        item['casesWithRecordedDataGap']==0
+                                        for item in evidence)
+                                    else 'incomplete')},
                 simulation.get('spotGapArchive'),simulation.get('analysisGapArchive'),
                 simulation.get('paperInputArchive')),
             'scope':'bounded-paper-case-evidence-not-fills-or-profit',
@@ -2220,6 +2230,63 @@ def triage_snapshot(areas):
             'note':'Prioritäten sind technische Sichtungsreihenfolge; keine Fehlerbehebung, Handelsfreigabe oder Renditeprognose.'}
 
 
+def compact_comparison_evidence(source):
+    """Retain comparison observations when detailed archives exceed the cap."""
+    if not isinstance(source, dict):
+        return source
+    result = dict(source)
+    omitted = []
+    archives = source.get('gapEvidence')
+    if isinstance(archives, dict):
+        result['gapEvidence'] = dict(archives)
+        for name in ('spotGapArchive', 'analysisGapArchive',
+                     'paperInputArchive', 'paperInputLatest'):
+            original = archives.get(name)
+            if not isinstance(original, dict):
+                continue
+            entry = dict(original)
+            removed = [key for key in ('items', 'profiles') if key in entry]
+            for key in removed:
+                entry.pop(key)
+                omitted.append('gapEvidence.' + name + '.' + key)
+            if removed:
+                entry.update(truncated=True,
+                    omittedSections=list(dict.fromkeys(
+                        list(original.get('omittedSections') or []) + removed)))
+            result['gapEvidence'][name] = entry
+    accounts = source.get('accountSamples')
+    if isinstance(accounts, list):
+        result['accountSamples'] = []
+        for account in accounts:
+            if not isinstance(account, dict):
+                result['accountSamples'].append(account)
+                continue
+            entry = dict(account)
+            recent = account.get('recentCases')
+            if isinstance(recent, dict) and isinstance(recent.get('items'), list):
+                cases, removed = [], False
+                for case in recent['items']:
+                    if isinstance(case, dict) and 'events' in case:
+                        case = dict(case)
+                        case.pop('events')
+                        case.update(truncated=True,
+                            omittedSections=list(dict.fromkeys(
+                                list(case.get('omittedSections') or []) + ['events'])))
+                        removed = True
+                    cases.append(case)
+                if removed:
+                    entry['recentCases'] = dict(recent, items=cases, truncated=True,
+                        omittedSections=list(dict.fromkeys(
+                            list(recent.get('omittedSections') or []) + ['items.events'])))
+                    omitted.append('accountSamples.recentCases.items.events')
+            result['accountSamples'].append(entry)
+    if omitted:
+        result.update(truncated=True, omissionReason='response-size-limit',
+            omittedSections=list(dict.fromkeys(
+                list(source.get('omittedSections') or []) + omitted)))
+    return result
+
+
 def bounded_report(report, max_bytes):
     """Omit oversized diagnostic areas explicitly, retaining small status areas."""
     import json
@@ -2302,14 +2369,6 @@ def bounded_report(report, max_bytes):
             # projected from the original simulation source; never discard
             # that small proof merely because the account body is oversized.
             'strategyReport')
-    optional = sorted((name for name in areas if name not in core),
-                      key=lambda name: size(areas[name]), reverse=True)
-    for name in optional:
-        if size(result) <= max_bytes:
-            break
-        areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
-        result['omittedAreas'].append(name)
-
     # A real 11-account simulation can exceed the response cap even *after*
     # dropping every optional area. Preserve a bounded, truthful account
     # projection before discarding simulationAndPush altogether. No new SQL:
@@ -2371,6 +2430,42 @@ def bounded_report(report, max_bytes):
         essential_sim['omittedSections'] = list(dict.fromkeys(
             list(sim.get('omittedSections') or []) + ['non-account-subreports']))
         areas['simulationAndPush'] = essential_sim
+
+    # Reduce verbose multi-account detail before dropping entire independent
+    # reports. Otherwise even tiny health/coverage proofs are lost needlessly.
+    operations = areas.get('operationsSummary')
+    if size(result) > max_bytes and isinstance(operations, dict):
+        # The operational inventory embeds study payloads already available in
+        # other focuses. Keep cases, actions, connection states and source clocks
+        # before falling back to an explicit whole-area omission.
+        from bob_operations import compact_snapshot
+        areas['operationsSummary'] = compact_snapshot(operations)
+
+    if size(result) > max_bytes and isinstance(areas.get('comparisonEvidence'), dict):
+        areas['comparisonEvidence'] = compact_comparison_evidence(areas['comparisonEvidence'])
+        comparison = areas['comparisonEvidence']
+        # These exact source observations are already top-level areas in the
+        # simulation focus. Do not spend the response cap on identical copies.
+        for name in ('comparisonHealth', 'entryBlockEvidence'):
+            original = comparison.get(name)
+            if isinstance(original, dict) and original == areas.get(name):
+                comparison[name] = {
+                    'status': 'omitted-duplicate',
+                    'sourceStatus': original.get('status', 'unknown'),
+                    'sourceArea': name,
+                    'reason': 'same-observation-in-separate-area'}
+                comparison['truncated'] = True
+                comparison['omittedSections'] = list(dict.fromkeys(
+                    list(comparison.get('omittedSections') or []) + [name]))
+
+
+    optional = sorted((name for name in areas if name not in core),
+                      key=lambda name: size(areas[name]), reverse=True)
+    for name in optional:
+        if size(result) <= max_bytes:
+            break
+        areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
+        result['omittedAreas'].append(name)
 
     essential = sorted((name for name in areas if name in core),
                        key=lambda name: size(areas[name]), reverse=True)

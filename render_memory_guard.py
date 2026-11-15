@@ -77,7 +77,7 @@ def _points(payload, now, *, smallest=False):
 
 
 def assess(usage, limits, now):
-    """Two aligned recent provider samples with no high-RAM excursions."""
+    """Dense aligned provider history with no high-RAM excursions."""
     denied = {'status':'memory-proof-unavailable', 'readOnly':True,
               'maintenanceAuthorized':False, 'physicalBytesFreed':None}
     if type(now) not in (int, float) or not math.isfinite(now):
@@ -117,10 +117,10 @@ def report():
         return {'status':'memory-proof-unavailable', 'maintenanceAuthorized':False}
     now = time.time()
     with _lock:
-        if _cache is not None and now - _cached_at < _CACHE_SECONDS:
+        if _cache is not None and 0 <= now - _cached_at < _CACHE_SECONDS:
             result = dict(_cache)
             if (result.get('status') == 'memory-headroom-observed'
-                    and now-result.get('newestSampleAt', 0) > _FRESH):
+                    and not 0 <= now-result.get('newestSampleAt', 0) <= _FRESH):
                 return {'status':'memory-proof-unavailable',
                         'maintenanceAuthorized':False}
             return result

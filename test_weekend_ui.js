@@ -69,3 +69,16 @@ assert(html.includes('id="chartScope"')&&html.includes('Letzter Handelstag'));
 assert(html.includes('if(closedMarket&&v.length)'));
 assert(html.includes('Schlusskurs: '+"'"+'+priceLabel(Number(chosen.close))'));
 console.log('Weekend Friday chart: complete day, user interval scope, no synthetic Saturday, real Sunday OK');
+
+// Historical navigation uses only existing source bars; interval gaps stay gaps.
+const thursday={openTime:Date.parse('2026-11-12T12:00:00Z'),close:3980};
+const original=JSON.stringify([thursday,...allFriday]);
+assert.deepEqual(Array.from(chartSandbox.chartStoredDays([thursday,...allFriday])),['2026-11-13','2026-11-12']);
+const older=chartSandbox.chartVisibleBars([thursday,...allFriday],'history','2026-11-12');
+assert.equal(older.length,1);assert.equal(older[0],thursday);
+assert.equal(chartSandbox.chartVisibleBars(allFriday,'history','2026-11-12').length,0,'Do not silently substitute Friday when selected Thursday has no interval data');
+assert.equal(chartSandbox.chartVisibleBars(allFriday,'history','2026-11-14').length,0);
+assert.equal(JSON.stringify([thursday,...allFriday]),original,'Never mutate input history');
+assert.equal(chartSandbox.chartLocalDay(Date.parse('2026-10-25T23:30:00Z')),'2026-10-26','Zurich date follows DST');
+assert(html.includes('id="chartDay"'));
+console.log('Stored-day navigation: original bars, missing interval, DST and immutable inputs OK');

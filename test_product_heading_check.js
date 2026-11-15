@@ -31,5 +31,7 @@ assert(c.renderProductIdentity({...missing,reasons:['Basispreis fehlt']}).includ
 assert(c.renderProductIdentity({ko:true}).includes('Ausgeknockt'));
 console.log('ISIN badges share heading states and explain qualified, missing, paused and excluded data');
 
-assert.equal(heading([good,{...good,venueStatus:{required:true,current:false}}]),'Gold-Hebelprodukte');
+assert(heading([good,{...good,venueStatus:{required:true,current:false}}]).includes('confirmed'));
+assert.equal(c.productDirectionCheck({...missing,venueStatus:{required:false,current:false}}).kind,'none');
+assert.equal(c.productDirectionCheck({...qualified,venueStatus:{required:true,current:false}}).kind,'qualified');
 assert(heading([good,{...good,venueStatus:{required:true,current:true}}]).includes('confirmed'));

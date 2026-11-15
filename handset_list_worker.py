@@ -430,20 +430,26 @@ def tick(connect,runner=process):
             JOIN bob_android_diagnostic_devices d USING(token_hash)
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
+            AND NOT (COALESCE(i.import_receipt->>'error','')='ListVerificationError'
+                AND COALESCE(i.import_receipt->>'enhancedVerification','false')='true')
             AND (i.import_receipt->>'stage'='waiting-memory' OR i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error' IN ('MemoryError','ListVerificationError')))
                 OR (i.processing_attempts=4 AND i.import_receipt->>'error' IN ('InterruptedWorker','MemoryError'))
                 OR (i.processing_attempts=5 AND i.import_receipt->>'error' IN ('CalledProcessError','LockNotAvailable','DeadlockDetected','SerializationFailure')))
-            AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes')
+            AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes'
+                OR (i.import_receipt->>'stage'='read-failed'
+                    AND i.import_receipt->>'error'='ListVerificationError'
+                    AND i.processing_at<now()-interval '30 seconds'))
             ORDER BY i.created_at DESC LIMIT 1 FOR UPDATE OF i SKIP LOCKED""").fetchone()
         if not row:
             observe("idle")
             return False
         batch,payload,created,attempts,previous,*extra=row
         progress=extra[0] if extra else None
-        # One enhanced pass after three failed list-verification attempts.
-        # It is never repeated for a second verification failure.
-        # The original evidence and strict 10-ISIN gate remain unchanged.
-        alternate=(attempts==3 and (previous or {}).get('stage')=='read-failed'
+        # Switch immediately after the first completed verification failure.
+        # Do not repeat identical optical work three times with four-minute
+        # leases between attempts. Existing legacy failures at 2/3 also recover.
+        # A failed enhanced verification is terminal, even below three attempts.
+        alternate=(1<=attempts<=3 and (previous or {}).get('stage')=='read-failed'
             and (previous or {}).get('error')=='ListVerificationError')
         reading={'batchId':batch,'stage':'reading','count':0,
                  'memoryDeferrals':memory_deferrals(previous)}
@@ -493,7 +499,8 @@ def tick(connect,runner=process):
             # A failed global reconciliation must permit fresh optical reads;
             # an individually agreed subset is not proof of a complete image.
             clear_progress=',ocr_progress=NULL' if isinstance(exc,ListVerificationError) else ''
-            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb"+clear_progress+" WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,'memoryDeferrals':memory_deferrals(previous)}),batch))
+            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb"+clear_progress+" WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,'memoryDeferrals':memory_deferrals(previous),
+                'enhancedVerification':bool(alternate and isinstance(exc,ListVerificationError))}),batch))
             conn.commit()
     return True
 
