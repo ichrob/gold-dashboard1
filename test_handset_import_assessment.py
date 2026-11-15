@@ -8,6 +8,36 @@ from test_android_observations import MemoryDb, run, NOW, ISIN
 
 
 class ImportAssessment(unittest.TestCase):
+    def test_saved_budget_is_not_misreported_as_missing_or_used_as_historical_input(self):
+        from contextlib import nullcontext
+        r=self.prepared()
+        r['importAssessment']=dict(version=2, items=[dict(reasons=['CHF_CAPITAL_MISSING'])])
+        original=copy.deepcopy(r)
+        planning=dict(config=dict(budgetCHF=100, riskCHF=30), revision=3,
+                      resultFresh=False, realOrders=False)
+        class Db:
+            def execute(self, sql):
+                assert sql.startswith('SELECT')
+                return self
+            def fetchall(self):return [(r,)]
+            def transaction(self):return nullcontext()
+        with patch('handset_planning.read', return_value=planning):
+            result=observations.status(Db())
+        assessment=result['runs'][0]['importAssessment']
+        item=assessment['items'][0]
+        self.assertEqual(result['planning']['config']['budgetCHF'],100)
+        self.assertEqual(result['planning']['config']['riskCHF'],30)
+        self.assertFalse(assessment['planningSettingsChecked'])
+        self.assertNotIn('CHF_CAPITAL_MISSING',item['reasons'])
+        self.assertNotIn('CHF_RISK_BUDGET_MISSING',item['reasons'])
+        self.assertIn('CHF_CAPITAL_NOT_IN_IMPORT',item['reasons'])
+        self.assertIn('SOURCE_CLOCK_UNCONFIRMED',item['reasons'])
+        self.assertIsNone(item['quantity'])
+        self.assertIsNone(item['sourceTime'])
+        self.assertFalse(item['tradeApproved'])
+        self.assertFalse(result['runs'][0]['importAssessmentPersisted'])
+        self.assertEqual(r,original)
+
     def prepared(self):
         return observations.prepare(run(), {'products': [{'isin': ISIN}]}, NOW)
 
@@ -58,7 +88,7 @@ class ImportAssessment(unittest.TestCase):
             def fetchall(self):return [(r,)]
         db=Db()
         out=observations.status(db)['runs'][0]
-        self.assertEqual(out['importAssessment']['version'],2)
+        self.assertEqual(out['importAssessment']['version'],3)
         self.assertFalse(out['importAssessmentPersisted'])
         item=out['importAssessment']['items'][0]
         self.assertEqual(item['displayedBid'],13.06)
@@ -73,7 +103,7 @@ class ImportAssessment(unittest.TestCase):
         self.assertEqual(x['ask'], 13.07)
         self.assertIsNone(x['displayedLeverage'])
         self.assertIsNone(x['unitPurchaseCHF'])
-        self.assertIn('DATED_EUR_CHF_REFERENCE_MISSING', x['reasons'])
+        self.assertIn('DATED_EUR_CHF_REFERENCE_NOT_IN_IMPORT', x['reasons'])
         self.assertNotIn('LEVERAGE_MISSING', x['reasons'])
 
     def test_each_requested_isin_gets_pending_or_failed_result(self):
