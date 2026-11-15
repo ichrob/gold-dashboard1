@@ -2199,6 +2199,63 @@ def triage_snapshot(areas):
             'note':'Prioritäten sind technische Sichtungsreihenfolge; keine Fehlerbehebung, Handelsfreigabe oder Renditeprognose.'}
 
 
+def compact_comparison_evidence(source):
+    """Retain comparison observations when detailed archives exceed the cap."""
+    if not isinstance(source, dict):
+        return source
+    result = dict(source)
+    omitted = []
+    archives = source.get('gapEvidence')
+    if isinstance(archives, dict):
+        result['gapEvidence'] = dict(archives)
+        for name in ('spotGapArchive', 'analysisGapArchive',
+                     'paperInputArchive', 'paperInputLatest'):
+            original = archives.get(name)
+            if not isinstance(original, dict):
+                continue
+            entry = dict(original)
+            removed = [key for key in ('items', 'profiles') if key in entry]
+            for key in removed:
+                entry.pop(key)
+                omitted.append('gapEvidence.' + name + '.' + key)
+            if removed:
+                entry.update(truncated=True,
+                    omittedSections=list(dict.fromkeys(
+                        list(original.get('omittedSections') or []) + removed)))
+            result['gapEvidence'][name] = entry
+    accounts = source.get('accountSamples')
+    if isinstance(accounts, list):
+        result['accountSamples'] = []
+        for account in accounts:
+            if not isinstance(account, dict):
+                result['accountSamples'].append(account)
+                continue
+            entry = dict(account)
+            recent = account.get('recentCases')
+            if isinstance(recent, dict) and isinstance(recent.get('items'), list):
+                cases, removed = [], False
+                for case in recent['items']:
+                    if isinstance(case, dict) and 'events' in case:
+                        case = dict(case)
+                        case.pop('events')
+                        case.update(truncated=True,
+                            omittedSections=list(dict.fromkeys(
+                                list(case.get('omittedSections') or []) + ['events'])))
+                        removed = True
+                    cases.append(case)
+                if removed:
+                    entry['recentCases'] = dict(recent, items=cases, truncated=True,
+                        omittedSections=list(dict.fromkeys(
+                            list(recent.get('omittedSections') or []) + ['items.events'])))
+                    omitted.append('accountSamples.recentCases.items.events')
+            result['accountSamples'].append(entry)
+    if omitted:
+        result.update(truncated=True, omissionReason='response-size-limit',
+            omittedSections=list(dict.fromkeys(
+                list(source.get('omittedSections') or []) + omitted)))
+    return result
+
+
 def bounded_report(report, max_bytes):
     """Omit oversized diagnostic areas explicitly, retaining small status areas."""
     import json
@@ -2333,6 +2390,9 @@ def bounded_report(report, max_bytes):
         # before falling back to an explicit whole-area omission.
         from bob_operations import compact_snapshot
         areas['operationsSummary'] = compact_snapshot(operations)
+
+    if size(result) > max_bytes and isinstance(areas.get('comparisonEvidence'), dict):
+        areas['comparisonEvidence'] = compact_comparison_evidence(areas['comparisonEvidence'])
 
     optional = sorted((name for name in areas if name not in core),
                       key=lambda name: size(areas[name]), reverse=True)
