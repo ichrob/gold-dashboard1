@@ -1,6 +1,8 @@
 package ch.bob.degirocompanion
 
 import android.content.Context
+import android.app.KeyguardManager
+import android.os.PowerManager
 import android.os.Handler
 import android.os.Looper
 import android.util.AtomicFile
@@ -14,7 +16,32 @@ internal object MorningListDelivery {
     private val handler=Handler(Looper.getMainLooper())
     private val network=Executors.newSingleThreadExecutor()
     private var generation=0
-    var waiting=false; private set
+    private var screenLease:PowerManager.WakeLock?=null
+    var waiting=false
+        private set(value) {
+            field=value
+            if(!value) {
+                screenLease?.let { if(it.isHeld) it.release() }
+                screenLease=null
+            }
+        }
+    @Suppress("DEPRECATION")
+    private fun keepScreenWhileWaiting(c:Context) {
+        val power=c.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val keyguard=c.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        val duration=ListWaitScreenPolicy.duration(PhoneRemote.active(),power.isInteractive,keyguard.isKeyguardLocked)
+        if(duration==0L)return
+        // No wake-up/unlock flags. Separate from the cancelled capture request;
+        // every completed/cancelled wait releases this lease via waiting=false.
+        runCatching {
+            power.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK,"Bob:ListReceipt").also {
+                screenLease=it;it.setReferenceCounted(false);it.acquire(duration)
+            }
+        }.onFailure {
+            screenLease?.let { if(it.isHeld) it.release() };screenLease=null
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SCREEN_HOLD_FAILED)
+        }
+    }
     var onConfirmed:((List<SelectiveDetailPlan.Entry>,String)->Unit)?=null
     private fun file(c:Context)=AtomicFile(File(c.filesDir,"morning-list-pending.json"))
     private fun prefs(c:Context)=c.getSharedPreferences("morning_list_delivery",Context.MODE_PRIVATE)
@@ -70,6 +97,7 @@ internal object MorningListDelivery {
     fun start(c:Context,body:JSONObject,receiptOnly:Boolean=false,
               resumeSavedCapture:Boolean=false) {
         save(c,body);cancel();waiting=true
+        keepScreenWhileWaiting(c)
         val id=++generation;val session=PhoneRemote.sessionId();val batch=body.getString("batchId")
         status(c,if(receiptOnly) "Gespeicherte Goldliste · nur Serverbestätigung prüfen."
             else "Listenbilder gespeichert · Übertragung und Serverprüfung laufen.")
