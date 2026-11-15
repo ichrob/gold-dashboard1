@@ -103,19 +103,6 @@ internal object MorningListDelivery {
                             })
                             PhoneRemote.stop(c,"COMPLETE")
                         }
-                    } else if(response?.optString("batchId")==batch &&
-                        MorningListResumePolicy.verificationFailed(
-                            receipt?.optString("stage"),receipt?.optString("error"))) {
-                        // A rejected list is not an upload failure or a running
-                        // detail read. Retain the original, but let the next
-                        // explicit user start take a fresh list. Server retries
-                        // remain bounded and never authorize handset actions.
-                        waiting=false
-                        val saved=runCatching { save(c,JSONObject(body.toString()).put("verificationFailed",true)) }.isSuccess
-                        status(c,if(saved)
-                            "Listenbilder angekommen, aber nicht als vollständige Goldliste erkannt. Aufnahme bleibt gespeichert. Bob starten nimmt eine neue Liste auf."
-                            else "Listenprüfung fehlgeschlagen. Neuer Start konnte nicht vorbereitet werden; Aufnahme bleibt gespeichert.")
-                        PhoneRemote.stop(c,if(saved) "LIST_UPLOAD_FAILED" else "STORAGE_ERROR")
                     } else if(MorningListFallbackPolicy.memoryDeferred(
                             receipt?.optString("stage"),receipt?.optString("error")) &&
                         (attempt>=18 || resumeSavedCapture) &&
@@ -153,13 +140,27 @@ internal object MorningListDelivery {
                     } else if(MorningListFallbackPolicy.pollingFinished(attempt,
                             receipt?.optString("stage"),receipt?.optString("reason")) ||
                             !PhoneRemote.active() || PhoneRemote.sessionId()!=session) {
-                        waiting=false;status(c,if(receipt?.optString("reason")=="OCR_MEMORY_WAIT_EXHAUSTED")
+                        // Only after the bounded handset wait/session ends,
+                        // remember the last authenticated rejection. During
+                        // polling the server's enhanced retry may still succeed.
+                        val rejected=response?.optString("batchId")==batch &&
+                            MorningListResumePolicy.verificationFailed(
+                                receipt?.optString("stage"),receipt?.optString("error"))
+                        val restartReady=rejected && runCatching {
+                            save(c,JSONObject(body.toString()).put("verificationFailed",true))
+                        }.isSuccess
+                        waiting=false;status(c,if(restartReady)
+                            "Listenbilder angekommen, aber Goldliste noch nicht bestätigt. Aufnahme bleibt gespeichert. Bob starten nimmt eine neue Liste auf."
+                            else if(receipt?.optString("reason")=="OCR_MEMORY_WAIT_EXHAUSTED")
                             "Bilder gespeichert · Speicherwartezeit beendet. Neue Liste nicht bestätigt; frische lokale Erkennung erforderlich."
                             else "Aufnahme gespeichert. Serverbestätigung noch offen; Start setzt die Übertragung fort.")
                         PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
                     } else {
                         status(c,if(response==null) "Verbindung unterbrochen · gespeicherte Bilder werden erneut übertragen." else if(MorningListFallbackPolicy.memoryDeferred(
-                            receipt?.optString("stage"),receipt?.optString("error"))) "Texterfassung unvollständig · Bilderkennung wartet auf freien Serverspeicher." else "Liste bei Bob · Prüfung läuft; noch keine Abschlussbestätigung.")
+                            receipt?.optString("stage"),receipt?.optString("error"))) "Texterfassung unvollständig · Bilderkennung wartet auf freien Serverspeicher." else if(MorningListResumePolicy.verificationFailed(
+                            receipt?.optString("stage"),receipt?.optString("error")))
+                            "Listenprüfung fehlgeschlagen · Bob wartet auf den begrenzten erneuten Erkennungsversuch. Noch keine vollständige Goldliste bestätigt."
+                            else "Liste bei Bob · Prüfung läuft; noch keine Abschlussbestätigung.")
                         handler.postDelayed({poll(attempt+1,uploaded||response!=null)},5000)
                     }
                 }
