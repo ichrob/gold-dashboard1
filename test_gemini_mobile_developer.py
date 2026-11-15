@@ -117,6 +117,24 @@ class GeminiMobileDeveloperTests(unittest.TestCase):
         refusal = "nicht sicher änderbar: " + "Die öffentliche Beweislage ist unzureichend. " * 3
         self.assertEqual(g.verified_diff_or_explanation(refusal, "GEMINI.md"), refusal)
 
+    def test_rejects_wrong_hunk_count_from_real_failure_shape(self):
+        bad = ("```diff\n--- a/GEMINI.md\n+++ b/GEMINI.md\n"
+               "@@ -1,1 +1,3 @@\n Original\n+Checklist\n```\n"
+               "Two independent test ideas follow.")
+        with self.assertRaisesRegex(ValueError, "model-no-valid-diff"):
+            g.verified_diff_or_explanation(bad, "GEMINI.md")
+        good = bad.replace("+1,3", "+1,2")
+        self.assertEqual(g.verified_diff_or_explanation(good, "GEMINI.md"), good)
+
+    def test_rejects_second_file_and_unavailable_parser(self):
+        good = "--- a/GEMINI.md\n+++ b/GEMINI.md\n@@ -1 +1 @@\n-old\n+new\n"
+        second = "--- a/OTHER.md\n+++ b/OTHER.md\n@@ -1 +1 @@\n-old\n+new\n"
+        with self.assertRaisesRegex(ValueError, "model-no-valid-diff"):
+            g.verified_diff_or_explanation(good + second, "GEMINI.md")
+        with patch.object(g.subprocess, 'run', side_effect=OSError('private detail')):
+            with self.assertRaisesRegex(ValueError, '^model-no-valid-diff$'):
+                g.verified_diff_or_explanation(good, "GEMINI.md")
+
     def test_no_external_call_without_free_project_or_key(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(g, "request_json") as api:
             g.run()

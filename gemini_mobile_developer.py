@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sys
+import subprocess
 import urllib.request
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
@@ -109,6 +110,23 @@ def verified_diff_or_explanation(reply, path):
             or not any(re.match(r"^@@ -[0-9]+(?:,[0-9]+)? \+[0-9]+(?:,[0-9]+)? @@", line) for line in lines)
             or not any(len(line) > 1 and line[0] in "+-" and not line.startswith(("+++", "---"))
                        for line in lines)):
+        raise ValueError("model-no-valid-diff")
+    # Git's parser checks real hunk counts without applying the patch or
+    # executing model code. A header-shaped string is not a valid unified diff.
+    fenced = re.findall(r"```diff\n(.*?)\n```", reply, re.DOTALL)
+    if len(fenced) > 1:
+        raise ValueError("model-no-valid-diff")
+    candidate = fenced[0] if fenced else reply
+    try:
+        parsed = subprocess.run(
+            ["git", "apply", "--numstat", "--"],
+            input=candidate.rstrip() + "\n", text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ValueError("model-no-valid-diff") from None
+    stats = parsed.stdout.strip().splitlines()
+    if (parsed.returncode != 0 or len(stats) != 1
+            or not re.fullmatch(r"[0-9]+\t[0-9]+\t" + re.escape(path), stats[0])):
         raise ValueError("model-no-valid-diff")
     return reply
 
