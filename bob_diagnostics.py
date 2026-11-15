@@ -2326,6 +2326,14 @@ def bounded_report(report, max_bytes):
 
     # Reduce verbose multi-account detail before dropping entire independent
     # reports. Otherwise even tiny health/coverage proofs are lost needlessly.
+    operations = areas.get('operationsSummary')
+    if size(result) > max_bytes and isinstance(operations, dict):
+        # The operational inventory embeds study payloads already available in
+        # other focuses. Keep cases, actions, connection states and source clocks
+        # before falling back to an explicit whole-area omission.
+        from bob_operations import compact_snapshot
+        areas['operationsSummary'] = compact_snapshot(operations)
+
     optional = sorted((name for name in areas if name not in core),
                       key=lambda name: size(areas[name]), reverse=True)
     for name in optional:
