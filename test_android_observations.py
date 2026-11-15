@@ -234,6 +234,25 @@ class AndroidObservations(unittest.TestCase):
         self.assertEqual(a.research_summary(ReadDb(),'2026-10-28T11:00:00Z',
                                             [ISIN],NOW.replace(day=30)),{})
 
+    def test_server_binding_allows_later_read_but_not_other_generation(self):
+        data=a.prepare({**run(),'listSource':'degiro-gold-search'}, {}, NOW)
+        class Db:
+            def execute(self,sql):return self
+            def fetchall(self):return [(data,)]
+        generation='2026-10-28T10:00:00Z'
+        self.assertEqual(a.research_summary(Db(),generation,[ISIN],NOW),{})
+        data['originalList']={'batchId':'b'*32,'uploadedAt':generation}
+        shown=a.research_summary(Db(),generation,[ISIN],NOW)[ISIN]
+        self.assertEqual(shown['fields']['Geld'],'13,06')
+        self.assertFalse(shown['tradeApproved'])
+        self.assertIsNone(shown['sourceTime'])
+        self.assertEqual(a.research_summary(Db(),'2026-10-28T11:00:00Z',[ISIN],NOW),{})
+        data['originalList']['uploadedAt']='invalid'
+        self.assertEqual(a.research_summary(Db(),generation,[ISIN],NOW),{})
+        # A handset cannot forge the trusted field via the ordinary endpoint.
+        forged=run();forged['originalList']={'batchId':'b'*32,'uploadedAt':generation}
+        self.assertNotIn('originalList',a.prepare(forged,{},NOW))
+
     def test_partial_is_recomputed_and_cannot_be_promoted(self):
         r=a.prepare(run(),{'products':[{'isin':ISIN}]},NOW)
         self.assertEqual(r['results'][0]['code'],'PARTIAL')
