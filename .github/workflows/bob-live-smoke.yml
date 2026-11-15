@@ -52,10 +52,20 @@ jobs:
           done
           test "$ok" = "1" || { echo "::error::Bob manual comparison module is not served as verified JavaScript"; exit 1; }
           # Bob's full HTML shell is deliberately protected. Without Bob login,
-          # a 303 redirect to /login is correct. Never bypass the guard in smoke.
-          code="$(curl --silent --show-error --max-time 25 -o /tmp/bob-shell-redirect -D /tmp/bob-shell.headers -w '%{http_code}' "$shell" || true)"
-          test "$code" = "303" || { echo "::error::Bob shell authentication redirect changed"; exit 1; }
-          grep -Eiq '^Location: /login' /tmp/bob-shell.headers
+          # a 303 redirect to /login is correct. Retry the exact protected
+          # response during bounded rollout/recovery overlap, but never accept
+          # a different status or location.
+          shell_ok=0
+          for n in 1 2 3 4; do
+            code="$(curl --silent --show-error --max-time 25 -o /tmp/bob-shell-redirect -D /tmp/bob-shell.headers -w '%{http_code}' "$shell" || true)"
+            if [ "$code" = "303" ] && grep -Eiq '^Location: /login' /tmp/bob-shell.headers; then
+              shell_ok=1
+              break
+            fi
+            echo "::notice::Bob shell attempt=$n returned status=${code:-curl-error}; expected 303 /login"
+            sleep 10
+          done
+          test "$shell_ok" = "1" || { echo "::error::Bob shell authentication redirect changed after bounded retries"; exit 1; }
           echo "Bob manual comparison JavaScript HTTP 200 and protected shell HTTP 303 verified; no broker activity"
 
       # Render/GitHub auto-deploy verification commit.

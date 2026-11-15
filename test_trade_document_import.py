@@ -84,6 +84,29 @@ class PdfReceiptTests(unittest.TestCase):
         tampered=sale.replace("CHF 5.07","CHF 8.99")
         self.assertEqual(m.parse_document_text(tampered)['status'],'incomplete')
 
+    def test_fee_breakdown_preserves_single_execution_scope(self):
+        text = TEXT + "\nKosten AutoFX\nCHF -0.03\nTransaktionsgebühren und/oder\nFremdkosten\nCHF -0.45\n"
+        result = m.parse_document_text(text)
+        self.assertEqual(result['status'], 'pending-review')
+        self.assertEqual(result['feeEvidence'], {
+            'autoFxChf': .03, 'transactionChf': .45,
+            'scope': 'single-execution', 'tariffConfirmed': False, 'sumChecked': True})
+        self.assertFalse(result['activeTrade'])
+        self.assertEqual(result['orderIdDigest'], m.parse_document_text(TEXT)['orderIdDigest'])
+        for bad in (text.replace('CHF -0.45', 'CHF -0.90'),
+                    text.replace('CHF -0.03', 'EUR -0.03'),
+                    text.replace('CHF -0.03', 'CHF 0.03'),
+                    text + 'Kosten AutoFX\nCHF -0.03\n'):
+            with self.subTest(bad=bad):
+                self.assertEqual(m.parse_document_text(bad)['status'], 'incomplete')
+
+    def test_optional_components_do_not_invent_missing_fee_or_tariff(self):
+        self.assertIsNone(m.parse_document_text(TEXT)['feeEvidence'])
+        p = m.parse_document_text(TEXT + '\nKosten AutoFX CHF 0.00\n')
+        self.assertEqual(p['feeEvidence']['autoFxChf'], 0)
+        self.assertNotIn('transactionChf', p['feeEvidence'])
+        self.assertFalse(p['feeEvidence']['sumChecked'])
+
     def test_sell(self):
         sold=(TEXT.replace("Auftrag\nKauf","Auftrag\nVerkauf")
               .replace("EUR -5.95","EUR 5.95")

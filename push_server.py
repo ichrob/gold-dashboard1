@@ -254,6 +254,7 @@ def init_db():
 def _init_db_once():
     with db() as conn:
         __import__("android_observations").init(conn)
+        __import__("handset_planning").init(conn)
         __import__("android_telemetry").init(conn)
         __import__("android_remote").init(conn)
         bob_session_store.init(conn)
@@ -375,7 +376,7 @@ def cors(handler):
 
 def json_body(handler):
     length = int(handler.headers.get("Content-Length", "0") or 0)
-    if length <= 0 or length > (8101000 if urlparse(handler.path).path=="/android-remote" else 1048576 if urlparse(handler.path).path in ("/market-candles/write", "/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write", "/snaptrade-settings/state-save") else 65536):
+    if length <= 0 or length > (8101000 if urlparse(handler.path).path=="/android-remote" else 2097152 if urlparse(handler.path).path=="/weekend-archive/write" else 1048576 if urlparse(handler.path).path in ("/market-candles/write", "/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write", "/snaptrade-settings/state-save") else 65536):
         raise ValueError("Ungültige Payload-Größe")
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
@@ -427,6 +428,22 @@ def handle_auth_session(action, payload, attempts=3):
             if attempt + 1 >= attempts:
                 raise
             print(f'BOB_PUSH database_retry route=auth-session attempt={attempt + 1}',
+                  flush=True)
+            time.sleep(0.25 * (attempt + 1))
+
+
+def handle_auth_passkey(action, payload, attempts=3):
+    """Run a passkey-store action with bounded auth-pool checkout retries."""
+    for attempt in range(attempts):
+        try:
+            with db(auth=True) as conn:
+                result = bob_passkey_store.handle(conn, action, payload)
+                conn.commit()
+            return result
+        except TooManyRequests:
+            if attempt + 1 >= attempts:
+                raise
+            print(f'BOB_PUSH database_retry route=auth-passkey attempt={attempt + 1}',
                   flush=True)
             time.sleep(0.25 * (attempt + 1))
 
@@ -1217,7 +1234,7 @@ class Handler(BaseHTTPRequestHandler):
                             "status","reason","isin","side","quantity","priceEur","executedAt",
                             "executedLocal","timezoneConfirmed","sourceKind",
                             "orderIdDigest","costsChf","grossChf","totalChf",
-                            "fxEurPerChf","senderKind","attachmentCount")
+                            "fxEurPerChf","feeEvidence","senderKind","attachmentCount")
                               if k in record}
                         if len(json.dumps(safe))>4096:
                             raise ValueError("Zu viele Importdaten")
@@ -1489,9 +1506,7 @@ class Handler(BaseHTTPRequestHandler):
                     send_json(self, 401, {'error':'Unauthorized'}); return
                 payload = json_body(self)
                 if not isinstance(payload, dict): raise ValueError('Invalid passkey payload')
-                with db(auth=True) as conn:
-                    result = bob_passkey_store.handle(conn, path.rsplit('/',1)[-1], payload)
-                    conn.commit()
+                result = handle_auth_passkey(path.rsplit('/',1)[-1], payload)
                 send_json(self, 200, result); return
             if path in ('/auth-recovery/state', '/auth-recovery/issue', '/auth-recovery/reset', '/auth-recovery/cancel'):
                 supplied = self.headers.get('X-Bob-Push-Token', '')

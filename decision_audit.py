@@ -752,39 +752,41 @@ def _prospective_query(recent=False):
     """Return the bounded hourly research query and its safe parameters."""
     horizon = "24 hours" if recent is True else "30 days"
     eligible = PROSPECTIVE_INDEX_PREDICATE + " AND payload->>'ruleVersion'=%s"
-    sql = """WITH RECURSIVE sampled(id,recorded_at) AS (
-        (SELECT id,recorded_at FROM bob_decision_audit
-         WHERE recorded_at >= now()-interval '""" + horizon + """'
-           AND recorded_at <= now()
-           AND """ + eligible + """
-         ORDER BY recorded_at,id LIMIT 1)
-        UNION ALL
-        SELECT next_hour.id,next_hour.recorded_at
-        FROM sampled previous
+    sql = """WITH hours(hour_at) AS MATERIALIZED (
+        SELECT generate_series(
+            date_trunc('hour',now()-interval '""" + horizon + """'),
+            date_trunc('hour',now()),interval '1 hour')
+    ), sampled AS MATERIALIZED (
+        SELECT candidate.id,candidate.recorded_at
+        FROM hours
         CROSS JOIN LATERAL (
             SELECT id,recorded_at FROM bob_decision_audit
-            WHERE recorded_at >= date_trunc('hour',previous.recorded_at) + interval '1 hour'
+            WHERE recorded_at >= hours.hour_at
+              AND recorded_at >= now()-interval '""" + horizon + """'
+              AND recorded_at < hours.hour_at + interval '1 hour'
               AND recorded_at <= now()
               AND """ + eligible + """
             ORDER BY recorded_at,id LIMIT 1
-        ) next_hour
+        ) candidate
     ) SELECT a.id,a.payload,o.truth FROM sampled s
       JOIN bob_decision_audit a ON a.id=s.id
       LEFT JOIN bob_decision_outcomes o ON o.decision_id=s.id AND o.horizon=60
       ORDER BY s.recorded_at"""
-    return sql, (RULE_VERSION, RULE_VERSION)
+    return sql, (RULE_VERSION,)
 
 
 def _load_prospective_rows(conn, recent=False):
     """Earliest qualifying background decision per hour, independent of outcomes.
 
     The former DISTINCT ON grouped and sorted the entire JSONB-filtered archive.
-    Traverse qualifying hourly first records via the existing recorded_at index;
-    skip empty hours without scanning/sorting the full history. Full validation
+    Probe each fixed hour through a bounded recorded_at range and retain the
+    earliest qualifying record. This avoids a recursive step scanning across
+    arbitrarily many empty hours when the optional filtered cursor index is
+    absent. Full validation
     retains its documented 30-day window; recovery is strictly last 24 hours.
-    Explicitly cap both the seed and each recursive forward step at the
-    database's current time so that a bad future-dated archive record cannot
-    extend the historical review or trigger an unbounded forward walk.
+    Explicitly clip the first and current-hour ranges to the requested horizon
+    and database current time so that a bad future-dated archive record cannot
+    enter or widen the historical review.
     A separately provisioned filtered cursor index accelerates this query when
     present. It is deliberately not built by init(): creating an index in the
     request-serving startup transaction can block writers and make a second
@@ -794,7 +796,7 @@ def _load_prospective_rows(conn, recent=False):
     """
     sql, params = _prospective_query(recent)
     # Production timing shows that PostgreSQL can still choose a sequential
-    # scan for the recursive 30-day walk even though the narrow partial cursor
+    # scan for the hourly 30-day probes even though the narrow partial cursor
     # index is available. That plan scales with the complete JSONB archive and
     # repeatedly reaches the unchanged 10-second statement limit. Constrain
     # only this research statement to an index-capable plan; the setting is

@@ -33,6 +33,6 @@ assert.equal(panel.hidden,false);assert.match(panel.textContent,/1\. DE000FG14AV
 b.renderEarlyProductPanel({available:true,state:'expired',direction:'NEUTRAL'});assert.equal(panel.hidden,true);assert.equal(panel.textContent,'');
 b.setEarlySnapshot({at:now,products:[{...p,ko:4130}],context:ctx});
 assert.match(b.earlyProductRankingText({available:true,state:'active',direction:'LONG'},now),/KO-Gefahr/);
-const html=fs.readFileSync('Bob.html','utf8');assert(html.includes('renderEarlyProductPanel(q)'));
+const html=fs.readFileSync('Bob.html','utf8');assert(html.includes('renderEarlyProductPanel?.(q)'));
 assert(src.includes('id="dgEarlyProductRanking"'));assert(src.indexOf('id="dgEarlyProductRanking"')<src.indexOf('id="dgTop3Out"'));
 console.log('Early warning with neutral/opposite main context: Products panel visible, main gates unchanged, KO exclusions explained, expiry clears panel');

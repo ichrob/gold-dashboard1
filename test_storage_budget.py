@@ -82,6 +82,81 @@ class BudgetTests(unittest.TestCase):
 
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
+class StorageInitLockTests(unittest.TestCase):
+    @staticmethod
+    def isolated_init(conn):
+        # The other independent storage modules own different startup tables.
+        # Only the bob_storage_samples startup lock is under test.
+        import importlib
+        from contextlib import ExitStack
+        modules = ('storage_knowledge', 'storage_case_results',
+                   'storage_history_evaluations', 'storage_paper_evaluation',
+                   'storage_quality_evaluation', 'storage_improvement_evaluation')
+        with ExitStack() as stack:
+            for name in modules:
+                stack.enter_context(patch.object(importlib.import_module(name), 'init'))
+            budget.init(conn)
+
+    def test_preexisting_columns_do_not_request_access_exclusive_lock(self):
+        import psycopg
+        from psycopg import sql
+        schema = 'storage_init_lock_' + uuid.uuid4().hex
+        url = os.environ['BOB_TEST_DATABASE_URL']
+        with psycopg.connect(url) as setup:
+            setup.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            setup.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+            setup.execute('''CREATE TABLE bob_storage_samples (
+                slot BIGINT PRIMARY KEY,
+                sampled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                database_bytes BIGINT NOT NULL,
+                relation_bytes JSONB NOT NULL DEFAULT '{}'::jsonb,
+                writer_stats JSONB NOT NULL DEFAULT '{}'::jsonb,
+                entry_exit_metrics JSONB NOT NULL DEFAULT '{}'::jsonb)''')
+            setup.execute('INSERT INTO bob_storage_samples(slot,database_bytes) VALUES (1,123)')
+            setup.commit()
+        try:
+            with psycopg.connect(url) as reader, psycopg.connect(url) as owner:
+                reader.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                owner.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                reader.execute('LOCK TABLE bob_storage_samples IN ACCESS SHARE MODE')
+                # A no-op ALTER TABLE ... ADD COLUMN IF NOT EXISTS would request
+                # AccessExclusiveLock and would time out here. Catalog-only
+                # initialization must complete while the reader remains open.
+                owner.execute("SET LOCAL lock_timeout='300ms'")
+                self.isolated_init(owner)
+                self.assertEqual(owner.execute('SELECT database_bytes FROM bob_storage_samples').fetchone()[0],123)
+                owner.commit()
+                reader.commit()
+        finally:
+            with psycopg.connect(url, autocommit=True) as cleanup:
+                cleanup.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+
+    def test_old_schema_migrates_only_missing_fields_without_losing_rows(self):
+        import psycopg
+        from psycopg import sql
+        schema = 'storage_init_upgrade_' + uuid.uuid4().hex
+        url = os.environ['BOB_TEST_DATABASE_URL']
+        with psycopg.connect(url, autocommit=True) as conn:
+            conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            try:
+                conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                conn.execute('''CREATE TABLE bob_storage_samples (
+                    slot BIGINT PRIMARY KEY,
+                    sampled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    database_bytes BIGINT NOT NULL)''')
+                conn.execute('INSERT INTO bob_storage_samples(slot,database_bytes) VALUES (22,789)')
+                self.isolated_init(conn)
+                row = conn.execute('''SELECT database_bytes,relation_bytes,writer_stats,
+                                      entry_exit_metrics FROM bob_storage_samples
+                                      WHERE slot=22''').fetchone()
+                self.assertEqual(row,(789,{},{},{}))
+                self.isolated_init(conn)
+                self.assertEqual(conn.execute('SELECT count(*) FROM bob_storage_samples').fetchone()[0],1)
+            finally:
+                conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+
+
+@unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class StorageTests(unittest.TestCase):
     def test_evidence_preservation_deduplication_and_readonly_size_report(self):
         import psycopg

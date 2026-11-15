@@ -43,6 +43,14 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(counts, {'trial-not-evaluable': 1, 'pending-horizon': 1,
                                   'outcome-not-recorded': 1})
 
+    def test_list_price_pair_probe_uses_bounded_current_list_index_lookups(self):
+        query = h.QUERIES['list-price-pairs']
+        self.assertIn('FROM bob_list_price_anchors ORDER BY isin LIMIT 12', query)
+        self.assertIn('CROSS JOIN LATERAL', query)
+        self.assertIn('WHERE isin=anchors.isin ORDER BY quote_at DESC LIMIT 101', query)
+        self.assertIn('ORDER BY p.quote_at DESC LIMIT 101', query)
+        self.assertNotIn('FROM bob_list_price_pairs ORDER BY quote_at DESC', query)
+
     def test_bounded_sample_rejects_future_clock(self):
         r=h.summarize([(4000,'pending')]*101,3000)
         self.assertTrue(r['truncated'])
@@ -59,6 +67,8 @@ class HealthTests(unittest.TestCase):
         r=h.report(conn,1793080800000)
         self.assertEqual(r['items']['signals']['status'],'unavailable')
         self.assertEqual(r['items']['list-price-pairs']['status'],'no-records')
+        self.assertEqual(r['items']['list-price-pairs']['sampleScope'],'current-list-anchors-only')
+        self.assertFalse(r['items']['list-price-pairs']['historicalCoverageVerified'])
         self.assertTrue(r['items']['legacy-fast-cautious']['collectionWindowEnded'])
         self.assertFalse(r['items']['legacy-fast-cautious']['newCasesExpected'])
         self.assertNotIn('private database detail',json.dumps(r))
@@ -74,6 +84,48 @@ class HealthTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'CI PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
+    def test_list_price_pairs_bounded_current_anchor_sample(self):
+        import psycopg
+        import uuid
+        import time
+        from psycopg import sql
+        schema = 'pair_health_' + uuid.uuid4().hex
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            try:
+                conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                conn.execute('CREATE TABLE bob_list_price_anchors (isin TEXT PRIMARY KEY, payload JSONB NOT NULL)')
+                conn.execute('''CREATE TABLE bob_list_price_pairs (
+                    identity TEXT NOT NULL, isin TEXT NOT NULL,
+                    quote_at TIMESTAMPTZ NOT NULL, evidence JSONB NOT NULL,
+                    PRIMARY KEY(identity,quote_at))''')
+                conn.execute('CREATE INDEX bob_list_price_time ON bob_list_price_pairs(isin,quote_at DESC)')
+                conn.execute("INSERT INTO bob_list_price_anchors VALUES ('DE000FG14AV8','{}'::jsonb)")
+                conn.execute("""INSERT INTO bob_list_price_pairs
+                    SELECT 'active-'||n, 'DE000FG14AV8',
+                           now()-interval '1 day'+n*interval '1 second', '{}'::jsonb
+                    FROM generate_series(1,120) AS n""")
+                # Recent unanchored history must not be silently reclassified
+                # as current-list data; it remains in the underlying table.
+                conn.execute("""INSERT INTO bob_list_price_pairs
+                    SELECT 'historical-'||n, 'DE000FG4JXV7',
+                           now()-interval '1 hour'+n*interval '1 second', '{}'::jsonb
+                    FROM generate_series(1,120) AS n""")
+                conn.commit()
+                with conn.transaction():
+                    conn.execute('SET TRANSACTION READ ONLY')
+                    rows = conn.execute(h.QUERIES['list-price-pairs']).fetchall()
+                    archived = conn.execute("SELECT count(*) FROM bob_list_price_pairs WHERE isin='DE000FG4JXV7'").fetchone()[0]
+                self.assertEqual(len(rows), 101)
+                self.assertEqual(archived, 120)
+                self.assertTrue(all(label == 'paired-observation' for _,label in rows))
+                self.assertLess(max(float(at) for at,_ in rows),
+                                (time.time()-23*3600)*1000)
+            finally:
+                conn.rollback()
+                conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+                conn.commit()
+
     def test_readonly_queries_and_savepoint_recovery(self):
         import uuid
         import psycopg

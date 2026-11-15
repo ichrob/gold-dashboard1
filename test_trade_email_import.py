@@ -182,3 +182,22 @@ class HtmlForwardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RedirectRecoveryTests(unittest.TestCase):
+    def test_only_newly_parsed_original_repairs_old_recipient_rejection(self):
+        from test_trade_document_import import TEXT
+        event={'event_type':'message.received','message':{
+            'inbox_id':'bob-degiro@agentmail.to',
+            'from':'notifications@degiro.com','to':['owner@example.test'],
+            'subject':'DEGIRO - Transaktionsbestätigung: Kauf',
+            'html':'<div>DEGIRO</div><div>'+TEXT.replace('\n','<br>')+'</div>'}}
+        incoming=m.import_event(event,'owner@example.test')
+        old={'status':'ignored','reason':'Andere Empfängeradresse'}
+        self.assertTrue(m.receipt_enrichment(old,incoming))
+        for change in [{'status':'incomplete'},{'senderKind':'configured-forwarder'},
+                       {'sourceKind':'unrelated'},{'orderIdDigest':None},
+                       {'isin':'INVALID'},{'priceEur':0}]:
+            self.assertFalse(m.receipt_enrichment(old,{**incoming,**change}))
+        self.assertFalse(m.receipt_enrichment({**old,'reason':'Anderes AgentMail-Postfach'},incoming))
+        self.assertFalse(m.receipt_enrichment({**old,'reason':'Keine DEGIRO-Bestätigung'},incoming))

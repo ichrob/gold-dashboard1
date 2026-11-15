@@ -43,23 +43,61 @@ def _log_decision_sample_once(sample):
 def report(conn):
     try:
         with conn.transaction():
-            rows = conn.execute('''SELECT c.relname,pg_total_relation_size(c.oid),
-                pg_relation_size(c.oid),pg_indexes_size(c.oid),
-                CASE WHEN c.reltoastrelid=0 THEN 0 ELSE pg_total_relation_size(c.reltoastrelid) END
-                FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-                WHERE n.nspname=current_schema() AND c.relkind='r' AND c.relname LIKE 'bob_%'
-                ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 12''').fetchall()
-            indexes = conn.execute('''SELECT t.relname,c.relname,pg_relation_size(c.oid),i.indisvalid
-                FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
-                JOIN pg_class t ON t.oid=i.indrelid JOIN pg_namespace n ON n.oid=t.relnamespace
-                WHERE n.nspname=current_schema() AND t.relname LIKE 'bob_%'
-                ORDER BY pg_relation_size(c.oid) DESC LIMIT 15''').fetchall()
+            # Avoid evaluating pg_total_relation_size() across *every*
+            # user relation just to display twelve rows. Under a rolling
+            # release that broad catalogue scan acquired many relation locks
+            # and coincided with a real AccessShareLock deadlock. Restrict the
+            # objects that require physical-size locks using pg_class metadata
+            # first; the selected 24 candidates are measured exactly.
+            # relpages is only an approximate selection hint (incl. TOAST).
+            rows = conn.execute('''WITH relation_candidates AS MATERIALIZED (
+                    SELECT c.oid,c.relname,c.reltoastrelid,
+                      GREATEST(c.relpages,0)+GREATEST(coalesce(t.relpages,0),0)
+                        AS estimated_pages
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid=c.relnamespace
+                    LEFT JOIN pg_class t ON t.oid=c.reltoastrelid
+                    WHERE n.nspname=current_schema() AND c.relkind='r'
+                      AND c.relname LIKE 'bob_%'
+                    ORDER BY estimated_pages DESC,c.relname LIMIT 24
+                ), physical AS MATERIALIZED (
+                    SELECT r.relname,pg_total_relation_size(r.oid) AS total,
+                      pg_relation_size(r.oid) AS heap,
+                      pg_indexes_size(r.oid) AS indexes,
+                      CASE WHEN r.reltoastrelid=0 THEN 0
+                        ELSE pg_total_relation_size(r.reltoastrelid) END AS toast
+                    FROM relation_candidates r
+                )
+                SELECT relname,total,heap,indexes,toast
+                FROM physical ORDER BY total DESC,relname LIMIT 12''').fetchall()
+            # Likewise preselect a finite number of index OIDs before
+            # computing physical size. The index catalog lookup itself needs
+            # no full Bob index-by-index physical-size scan.
+            indexes = conn.execute('''WITH index_candidates AS MATERIALIZED (
+                    SELECT t.relname AS table_name,c.relname AS index_name,
+                      c.oid,c.relpages,i.indisvalid
+                    FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+                    JOIN pg_class t ON t.oid=i.indrelid
+                    JOIN pg_namespace n ON n.oid=t.relnamespace
+                    WHERE n.nspname=current_schema() AND t.relname LIKE 'bob_%'
+                    ORDER BY c.relpages DESC,c.relname LIMIT 30
+                ), physical AS MATERIALIZED (
+                    SELECT table_name,index_name,pg_relation_size(oid) AS size,
+                      indisvalid FROM index_candidates
+                )
+                SELECT table_name,index_name,size,indisvalid
+                FROM physical ORDER BY size DESC,index_name LIMIT 15''').fetchall()
         return {'status':'observed','readOnly':True,
                 'tables':[{'table':name,'totalBytes':total,'heapBytes':heap,'indexBytes':idx,
                            'toastBytes':toast,'otherBytes':max(0,total-heap-idx-toast)}
                           for name,total,heap,idx,toast in rows],
                 'indexes':[{'table':table,'index':name,'bytes':size,'valid':valid}
                            for table,name,size,valid in indexes],
+                # Physical byte figures for returned rows are measured, but a
+                # catalog-hint candidate shortlist is not a global top-N proof.
+                'selectionScope':'catalog-ranked-candidates-not-global-top-n',
+                'relationCandidateCap':24,'indexCandidateCap':30,
+                'globalTopNVerified':False,
                 'diagnosticPayloadSample':diagnostic_sample(conn),
                 'diagnosticRecentStageSample':recent_diagnostic_stages(conn),
                 'diagnosticPayloadEqualitySample':diagnostic_payload_equality_sample(conn),
@@ -67,7 +105,9 @@ def report(conn):
                 'decisionPayloadSample':decision_payload_sample(conn),
                 'decisionProductsCohorts':decision_products_cohorts(conn),
                 'reclaimableBytes':None,
-                'note':'Allocated relation sizes include live and reusable space; not a bloat measurement.'}
+                'note':'Returned physical sizes are measured, not a bloat measurement. '
+                       'Candidate ranking uses approximate pg_class page hints; '
+                       'not a proven global top-N or a deletion budget.'}
     except Exception:
         return {'status':'not-observed','readOnly':True,'reclaimableBytes':None}
 
@@ -271,7 +311,8 @@ def decision_payload_sample(conn):
     """
     try:
         with conn.transaction():
-            rows = conn.execute("""WITH picked AS MATERIALIZED (
+            rows = conn.execute("""/* bob_storage_layout:decision_payload_sample */
+                WITH picked AS MATERIALIZED (
                   SELECT id FROM (
                     SELECT id FROM bob_decision_audit
                     ORDER BY recorded_at ASC,id ASC LIMIT 4
@@ -320,7 +361,8 @@ def decision_products_cohorts(conn):
     """
     try:
         with conn.transaction():
-            rows = conn.execute("""WITH picked AS MATERIALIZED (
+            rows = conn.execute("""/* bob_storage_layout:decision_products_cohorts */
+                WITH picked AS MATERIALIZED (
                   SELECT 'oldest'::text cohort,id FROM (
                     SELECT id FROM bob_decision_audit
                     ORDER BY recorded_at,id LIMIT 8

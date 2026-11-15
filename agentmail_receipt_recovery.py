@@ -11,12 +11,21 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 import trade_email_import
+import trade_attachment_import
 
 INBOX = "bob-degiro@agentmail.to"
 BASE = "https://api.agentmail.to/v0/inboxes/" + quote(INBOX, safe="") + "/messages"
 MAX_LIST = 30
+PAGE_SIZE = 5
 MAX_MESSAGE_BYTES = 130000
 _message_cache = {}
+
+
+def _read_error(code, byte_limit, observed_bytes):
+    # Fixed diagnostic fields only: no URL, message ID, body or exception text.
+    print("BOB_EMAIL_RECOVERY_READ code="+code+" cap="+str(byte_limit)+
+          " observedBytes="+str(observed_bytes), flush=True)
+    return ValueError("AgentMail-Antwort nicht lesbar")
 
 
 def api_json(url, api_key, byte_limit):
@@ -27,29 +36,55 @@ def api_json(url, api_key, byte_limit):
     with urlopen(request, timeout=8) as response:
         content=response.read(byte_limit+1)
     if len(content)>byte_limit:
-        raise ValueError("AgentMail-Antwort zu groß")
-    result=json.loads(content)
+        raise _read_error("response-size-limit", byte_limit, len(content))
+    try:
+        result=json.loads(content)
+    except (ValueError, UnicodeDecodeError):
+        raise _read_error("invalid-json", byte_limit, len(content)) from None
     if not isinstance(result,dict):
-        raise ValueError("AgentMail-JSON ungültig")
+        raise _read_error("invalid-json-shape", byte_limit, len(content))
     return result
 
 
-def recover(api_key, allowed_sender, fetch=api_json, now=None):
+def _message_items(api_key, after, fetch):
+    """Read small metadata pages without raising the byte or total-item caps."""
+    token = None
+    tokens = set()
+    total = 0
+    for _ in range(MAX_LIST // PAGE_SIZE):
+        params = {"limit": PAGE_SIZE, "after": after}
+        if token is not None:
+            params["page_token"] = token
+        page = fetch(BASE+"?"+urlencode(params), api_key, 70000)
+        messages = page.get("messages")
+        if not isinstance(messages, list) or len(messages) > PAGE_SIZE:
+            raise _read_error("invalid-message-list", PAGE_SIZE,
+                              len(messages) if isinstance(messages, list) else 0)
+        for item in messages:
+            total += 1
+            yield item
+        token = page.get("next_page_token")
+        if token is None:
+            return
+        if not isinstance(token, str) or not 1 <= len(token) <= 512 or token in tokens:
+            raise _read_error("invalid-page-token", PAGE_SIZE, total)
+        tokens.add(token)
+    print("BOB_EMAIL_RECOVERY_LIST status=bounded messages="+str(total), flush=True)
+
+
+def recover(api_key, allowed_sender, fetch=api_json, now=None, lookback_days=7):
     """Return only sanitized, source-labelled receipts, not email bodies."""
     if not api_key or len(api_key)<12 or not allowed_sender:
         return []
     now=now or dt.datetime.now(dt.timezone.utc)
     if now.tzinfo is None:
         raise ValueError("UTC-Zeitbezug fehlt")
-    after=(now-dt.timedelta(days=7)).isoformat().replace("+00:00","Z")
-    url=BASE+"?"+urlencode({"limit":MAX_LIST,"after":after})
-    page=fetch(url,api_key,70000)
-    messages=page.get("messages")
-    if not isinstance(messages,list) or len(messages)>MAX_LIST:
-        raise ValueError("AgentMail-Postfachliste fehlerhaft")
+    if type(lookback_days) is not int or not 1 <= lookback_days <= 45:
+        raise ValueError("Beleg-Zeitfenster muss zwischen 1 und 45 Tagen liegen")
+    after=(now-dt.timedelta(days=lookback_days)).isoformat().replace("+00:00","Z")
     outputs=[]
     seen=set()
-    for item in messages:
+    for item in _message_items(api_key, after, fetch):
         if not isinstance(item,dict) or item.get("inbox_id")!=INBOX:
             continue
         mid=item.get("message_id")
@@ -58,7 +93,11 @@ def recover(api_key, allowed_sender, fetch=api_json, now=None):
         seen.add(mid)
         if "received" not in (item.get("labels") or []):
             continue
-        if not str(item.get("subject") or "").lower().startswith(("degiro", "wg: degiro","wg: degiro")):
+        attachments=item.get("attachments") or []
+        has_pdf=isinstance(attachments,list) and any(
+            isinstance(a,dict) and (str(a.get("filename") or "").lower().endswith(".pdf")
+            or a.get("content_type")=="application/pdf") for a in attachments)
+        if not has_pdf and not str(item.get("subject") or "").lower().startswith(("degiro", "wg: degiro","wg: degiro")):
             continue
         cache_key=(mid,item.get('updated_at'),item.get('size'))
         cached=_message_cache.get(cache_key) if fetch is api_json else None
@@ -70,6 +109,9 @@ def recover(api_key, allowed_sender, fetch=api_json, now=None):
         event={"type":"event","event_type":"message.received",
                "message":{**detail,"inbox_id":INBOX}}
         record=trade_email_import.import_event(event,allowed_sender)
+        # Reuse the webhook's bounded, sender-checked PDF path, including
+        # historical attachments whose subject does not name the broker.
+        record=trade_attachment_import.enrich_event(event,record,allowed_sender,api_key)
         if record.get("status")=="pending-review":
             parsed={"messageId":mid,"record":record}
             outputs.append(parsed)

@@ -290,15 +290,17 @@ class HistoryTests(unittest.TestCase):
 
         conn = Conn()
         self.assertEqual(h._bounded_cap_count(conn), 60500)
-        self.assertEqual(len(conn.statements), 13)
-        self.assertEqual(conn.statements[0][1], (5000,))
+        # All 60,500 rows are counted exactly, through 61 bounded
+        # primary-key reads, without changing the retention limit.
+        self.assertEqual(len(conn.statements), 61)
+        self.assertEqual(conn.statements[0][1], (1000,))
         self.assertEqual(conn.statements[-1][1][-1], 500)
         for index, (sql, params) in enumerate(conn.statements):
             self.assertIn('SELECT id FROM bob_diagnostic_history', sql)
             self.assertIn('ORDER BY id ASC', sql)
             self.assertIn('LIMIT %s', sql)
             self.assertNotIn('OFFSET', sql)
-            self.assertLessEqual(params[-1], 5000)
+            self.assertLessEqual(params[-1], 1000)
             self.assertLessEqual(params[-1], h._PRUNE_COUNT_CHUNK_SIZE)
             if index:
                 self.assertIn('WHERE id > %s', sql)

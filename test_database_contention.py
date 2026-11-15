@@ -13,6 +13,13 @@ import decision_audit
 
 
 class PoolFailureTests(unittest.TestCase):
+    def test_prospective_query_probes_fixed_hour_ranges(self):
+        sql,params=decision_audit._prospective_query()
+        self.assertIn('generate_series',sql)
+        self.assertIn('CROSS JOIN LATERAL',sql)
+        self.assertNotIn('WITH RECURSIVE',sql)
+        self.assertEqual(params,(decision_audit.RULE_VERSION,))
+
     def test_prospective_query_temporarily_prefers_cursor_indexes(self):
         """The expensive archive read must not leave planner settings changed."""
         from unittest.mock import MagicMock
@@ -54,6 +61,23 @@ class PoolFailureTests(unittest.TestCase):
         self.assertEqual(db.call_count, 2)
         handle.assert_called_once_with(connection.__enter__.return_value, 'check',
                                        {'sessionId': 'fixture'})
+        sleep.assert_called_once_with(0.25)
+
+    def test_auth_passkey_retries_temporary_pool_exhaustion(self):
+        from unittest.mock import MagicMock
+        connection = MagicMock()
+        connection.__enter__.return_value = MagicMock()
+        expected = {'enabled': True, 'verified': False}
+        with patch.object(push_server, 'db',
+                          side_effect=[push_server.TooManyRequests(), connection]) as db, \
+                patch.object(push_server.bob_passkey_store, 'handle',
+                             return_value=expected) as handle, \
+                patch.object(push_server.time, 'sleep') as sleep:
+            result = push_server.handle_auth_passkey('status', {'account': 'fixture'})
+        self.assertEqual(result, expected)
+        self.assertEqual(db.call_count, 2)
+        handle.assert_called_once_with(connection.__enter__.return_value, 'status',
+                                       {'account': 'fixture'})
         sleep.assert_called_once_with(0.25)
 
     def test_market_spot_write_retries_transient_lock(self):
@@ -122,6 +146,30 @@ class DatabaseContentionTests(unittest.TestCase):
                 ORDER BY a.recorded_at""", (decision_audit.RULE_VERSION,)).fetchall()
             self.assertEqual(decision_audit._load_prospective_rows(conn), expected)
             self.assertGreater(len(expected), 1)
+
+    def test_fixed_hour_boundaries_and_empty_hours_preserve_sampling(self):
+        """A boundary belongs to the new UTC hour; empty hours stay empty."""
+        from psycopg.types.json import Jsonb
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute('''CREATE TEMP TABLE bob_decision_audit (
+                id TEXT PRIMARY KEY, recorded_at TIMESTAMPTZ, payload JSONB)''')
+            conn.execute('CREATE INDEX ON bob_decision_audit(recorded_at)')
+            conn.execute('''CREATE TEMP TABLE bob_decision_outcomes (
+                decision_id TEXT, horizon INTEGER, truth JSONB)''')
+            def eligible(name):
+                return Jsonb(dict(id=name,
+                    reviewVariants=dict(version='signal-review-v1'),
+                    origin='background',ruleVersion=decision_audit.RULE_VERSION,
+                    direction='LONG'))
+            for name,offset in (
+                    ('first','10 minutes'),('same-hour-later','20 minutes'),
+                    ('exact-boundary','1 hour'),('after-empty-hour','3 hours')):
+                conn.execute('''INSERT INTO bob_decision_audit
+                    VALUES (%s,date_trunc('hour',now()-interval '4 hours')
+                    + %s::interval,%s)''',(name,offset,eligible(name)))
+            rows=decision_audit._load_prospective_rows(conn)
+            self.assertEqual([row[0]['id'] for row in rows],
+                             ['first','exact-boundary','after-empty-hour'])
 
     def test_sparse_hourly_sampling_preserves_oldest_eligible_and_retention(self):
         from psycopg.types.json import Jsonb

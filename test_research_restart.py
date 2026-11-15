@@ -79,6 +79,26 @@ class Tests(unittest.TestCase):
             result,_=r.advance(r.seed(now),b,m,now)
             self.assertTrue(all(c['started']==0 for c in result['studies'].values()),kind)
 
+    def test_persistence_delay_uses_bounded_analysis_completion_clock(self):
+        b,m=sample()
+        persisted_at=NOW+64000
+        analyzed_at=NOW+59000
+
+        delayed,_=r.advance(
+            r.seed(NOW),b,m,persisted_at,input_checked_at=analyzed_at)
+        self.assertEqual(delayed['checkedAt'],persisted_at)
+        self.assertEqual(delayed['quality']['original'],1)
+        self.assertEqual(delayed['quality']['invalid'],0)
+
+        unpinned,_=r.advance(r.seed(NOW),b,m,persisted_at)
+        self.assertEqual(unpinned['quality']['invalid'],1)
+        self.assertEqual(unpinned['quality']['lastOriginalBlockCode'],
+                         'spot-source-not-fresh')
+
+        too_late,_=r.advance(
+            r.seed(NOW),b,m,NOW+95000,input_checked_at=analyzed_at)
+        self.assertEqual(too_late['quality']['invalid'],1)
+
     def test_signal_disappears_before_delayed_entry(self):
         b,m=sample();state,_=r.advance(r.seed(NOW),b,m,NOW)
         b,m=sample(NOW+30000,direction='NEUTRAL',warning=False)

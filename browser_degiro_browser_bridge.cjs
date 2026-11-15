@@ -16,13 +16,24 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
  try{
   const ctx=await browser.newContext({viewport:{width:360,height:760},acceptDownloads:true});
   const requests=[],errors=[];
-  const relay=createStorageRelay(()=>ctx.pages());
+  let bob,broker;
+  const relay=createStorageRelay(()=>ctx.pages(),{
+   roleOf:page=>page===bob?'bob':page===broker?'broker':'auxiliary',
+   requiredTarget:page=>page===bob||page===broker
+  });
   const gm=relay.values;
-  await ctx.exposeBinding('gmWrite',({page},key,value,remove)=>{
+  let releaseSyntheticBinding,signalSyntheticBindingEntered;
+  const syntheticGate=new Promise(resolve=>{releaseSyntheticBinding=resolve;});
+  const syntheticBindingEntered=new Promise(resolve=>{signalSyntheticBindingEntered=resolve;});
+  await ctx.exposeBinding('gmWrite',async ({page},key,value,remove)=>{
    // Userscript storage changes are asynchronous. Resolve the exposed binding
    // before notifying the other tab so a result handler can write/delete a
    // second key without re-entering a still-blocked Playwright binding. Keep
    // delivery ordered so QUEUE followed by STATUS cannot overtake itself.
+   if(key==='bob-synthetic-binding-fence-v1'){
+    signalSyntheticBindingEntered();
+    await syntheticGate;
+   }
    relay.write(page,key,value,remove);
   });
   await ctx.exposeBinding('gmRead',()=>gm);
@@ -31,9 +42,33 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    window.unsafeWindow=window;
    window.GM_getValue=(k,d)=>k in values?values[k]:d;
    window.gmStatusWrites=0;
+   // Track *locally started* exposed-binding promises. A local 'staged'
+   // update can precede the asynchronous binding's relay.write enqueue.
+   // Only wait for the binding to enter the relay, never for cross-tab ACK:
+   // waiting for ACK inside the binding would deadlock a reply write.
+   window.__gmBindingTasks=[];
+   window.__gmBindingFailures=[];
+   window.__gmTrackBinding=(key,value,remove)=>{
+    let task;
+    try{task=Promise.resolve(window.gmWrite(key,value,remove));}
+    catch(error){task=Promise.reject(error);}
+    window.__gmBindingTasks.push(task.catch(error=>{
+     window.__gmBindingFailures.push(typeof error?.name==='string'?error.name:'Error');
+    }));
+   };
+   window.__gmAwaitBindings=async()=>{
+    while(window.__gmBindingTasks.length){
+     const batch=window.__gmBindingTasks.splice(0);
+     await Promise.all(batch);
+    }
+    if(window.__gmBindingFailures.length){
+     const classes=window.__gmBindingFailures.splice(0);
+     throw Error('Synthetic storage binding failed: '+classes.join(','));
+    }
+   };
    window.exportResults=[];window.addEventListener("message",e=>{if(e.source===window&&e.data?.type==="BOB_EXPORT_RESULT")window.exportResults.push(e.data);});
-   window.GM_setValue=(k,v)=>{if(k==='bob-export-status-v1')window.gmStatusWrites++;const old=values[k];values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,false);window.gmWrite(k,v,false);};
-   window.GM_deleteValue=k=>{delete values[k];window.gmWrite(k,null,true);};
+   window.GM_setValue=(k,v)=>{if(k==='bob-export-status-v1')window.gmStatusWrites++;const old=values[k];values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,false);window.__gmTrackBinding(k,v,false);};
+   window.GM_deleteValue=k=>{delete values[k];window.__gmTrackBinding(k,null,true);};
    window.GM_addValueChangeListener=(k,fn)=>(listeners[k]??=[]).push(fn);
    window.gmRemote=(k,v,remove)=>{const old=values[k];if(remove)delete values[k];else values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,true);};
    // Real managers can provide a window wrapper distinct from event.source.
@@ -48,10 +83,25 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    if(u.origin===BROKER&&u.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!doctype html><h1>Synthetic broker export</h1><input type="password" value="do-not-transfer"><button id="export">CSV</button>'});
    return route.abort();
   });
-  const bob=await ctx.newPage(),broker=await ctx.newPage();
+  bob=await ctx.newPage();broker=await ctx.newPage();
   for(const p of[bob,broker])p.on('pageerror',e=>errors.push(e.message));
   await bob.goto(BOB);await broker.goto(BROKER);
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
+  // #1712 deterministic pre-queue race: a local manager value is already
+  // visible while its Playwright exposed binding has not yet reached relay.write.
+  // The normal relay.flush alone returns with no delivery. The new per-page
+  // binding fence must wait for that exact outstanding write before flush.
+  await broker.evaluate(()=>GM_setValue('bob-synthetic-binding-fence-v1',1));
+  await syntheticBindingEntered;
+  await relay.flush();
+  assert.equal(await bob.evaluate(()=>GM_getValue('bob-synthetic-binding-fence-v1',null)),null,
+   'An unenqueued GM binding must not be mistaken for delivered ACK');
+  const bindingWait=broker.evaluate(()=>window.__gmAwaitBindings());
+  releaseSyntheticBinding();
+  await bindingWait;
+  await relay.flush();
+  assert.equal(await bob.evaluate(()=>GM_getValue('bob-synthetic-binding-fence-v1',null)),1,
+   'Binding fence must deliver the original queued value');
   async function exportCSV(text,method='click'){
    const resultsBefore=await bob.evaluate(()=>window.exportResults.length);
    const before=await broker.evaluate(()=>({armed:GM_getValue('bob-export-arm-v1',0)>Date.now(),writes:window.gmStatusWrites}));
@@ -60,13 +110,29 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
      const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'}));a.download='portfolio.csv';if(method==='dispatch')a.dispatchEvent(new MouseEvent('click'));else a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);
     };
    },{text,method});
+   // The workflow switches back to Bob after each accepted export. Bring the
+   // broker tab forward before the next synthetic user choice so trusted-click
+   // capture and its status timer are not dependent on background-tab scheduling.
+   await broker.bringToFront();
    await broker.locator('#export').click();
    if(before.armed){
     // Await this export's own terminal status, not an old note or a fixed sleep.
     await broker.waitForFunction(writes=>window.gmStatusWrites>writes&&
-     ['staged','error'].includes(GM_getValue('bob-export-status-v1',null)?.state),before.writes,{timeout:12000,polling:100});
+     ['staged','error'].includes(GM_getValue('bob-export-status-v1',null)?.state),before.writes,{timeout:12000,polling:100}).catch(async error=>{
+     const state=await broker.evaluate(()=>({
+      writes:window.gmStatusWrites,
+      status:GM_getValue('bob-export-status-v1',null)?.state||null,
+      armed:GM_getValue('bob-export-arm-v1',0)>Date.now()
+     }));
+     throw Error(error.message+'; synthetic broker state '+JSON.stringify(state));
+    });
     const state=await broker.evaluate(()=>GM_getValue('bob-export-status-v1',null)?.state);
     if(state==='error')return false;
+    // The synthetic userscript manager resolves each local write before its
+    // ordered cross-tab delivery. Wait for this export's QUEUE/STATUS relay and
+    // any result cleanup before asserting what Bob received.
+    await broker.evaluate(()=>window.__gmAwaitBindings());
+    await relay.flush();
     // Follow the UI instruction to return to Bob after choosing the export.
     await bob.bringToFront();
     // Bob was in the background while the broker button was clicked. Poll by
@@ -77,9 +143,18 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
       pending:!!GM_getValue('bob-export-pending-v1',null),
       active:!document.querySelector('#bobBridgeStop').disabled,
       holdings:document.querySelectorAll('.dg-holding').length}));
-     error.message+='; synthetic bridge state '+JSON.stringify(state);throw error;
+     throw Error(error.message+'; synthetic bridge state '+JSON.stringify(state));
     });
-    return bob.evaluate(()=>window.exportResults.at(-1).ok);
+    // The result listener runs before the helper's QUEUE cleanup listener.
+    // Never stage a subsequent synthetic export while the previous ID's
+    // delete can still race across tabs and erase that new QUEUE entry.
+    // This checks the exact acknowledged export, not a fixed sleep.
+    const outcome=await bob.evaluate(()=>window.exportResults.at(-1));
+    await bob.waitForFunction(id=>GM_getValue('bob-export-pending-v1',null)?.id!==id,
+     outcome.id,{timeout:12000,polling:100});
+    await bob.evaluate(()=>window.__gmAwaitBindings());
+    await relay.flush();
+    return outcome.ok;
    }
   }
   // A normal export is untouched without explicit activation in Bob.
@@ -88,7 +163,15 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStop').disabled);
   await broker.waitForFunction(()=>GM_getValue('bob-export-arm-v1',0)>Date.now());
   await bob.waitForFunction(()=>document.querySelector('#bobBridgeBrokerStatus').textContent.includes('erreichbar'));
-  await exportCSV(csv);
+  // Force a clock tick between any two Date.now calls in the producer.
+  // Previously createdAt and expiresAt used separate reads, exceeding TTL by
+  // one millisecond and causing offer() to delete the valid staged export.
+  await broker.evaluate(()=>{
+   window.__realExportNow=Date.now;let tick=0;
+   Date.now=()=>window.__realExportNow()+tick++;
+  });
+  try{await exportCSV(csv);}
+  finally{await broker.evaluate(()=>{Date.now=window.__realExportNow;});}
   await bob.waitForSelector('.dg-holding');
   assert.equal(await bob.locator('.dg-holding').count(),1);
   assert.equal(await bob.locator('.dg-export-card').count(),1,'Report panel refreshed');
@@ -139,7 +222,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   let blankQuantity=10;
   for(const mime of ['text/csv;charset=utf-8','application/octet-stream','']){
    blankQuantity++;await broker.evaluate(text=>window.__blankCSV=text,csv.replace(',2,0.12,',','+blankQuantity+',0.12,'));
-   await broker.evaluate(mime=>{window.__blankMime=mime;GM_setValue('bob-export-status-v1',{state:'ready',at:Date.now(),version:'1.2.0'});},mime);
+   await broker.evaluate(mime=>{window.__blankMime=mime;GM_setValue('bob-export-status-v1',{state:'ready',at:Date.now(),version:'1.2.1'});},mime);
    await broker.locator('#export').click();
    // Headless browser startup can be delayed under the full Python+JS CI load.
    // Keep the exact quantity and issuer-source assertions; only allow the
@@ -249,7 +332,7 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
   await bob.waitForFunction(()=>document.querySelector('#bobBridgeStart').disabled);
   assert.match(await bob.locator('#bobBridgeStatus').innerText(),/veraltet/);
   assert(await bob.locator('#bobBridgeUpdate').isVisible());
-  await bob.evaluate(()=>postMessage({type:'BOB_EXPORT_HELPER_READY',version:'1.2.0'},location.origin));
+  await bob.evaluate(()=>postMessage({type:'BOB_EXPORT_HELPER_READY',version:'1.2.1'},location.origin));
   await bob.waitForFunction(()=>!document.querySelector('#bobBridgeStart').disabled);
   assert.deepEqual(errors,[]);
   console.log('Browser bridge: 2 tabs, detached dispatch, /csv URLs, window.open, version/heartbeat diagnostics, opt-in, rejection, persistence, mobile widths, deletion, no credential transfer: passed');

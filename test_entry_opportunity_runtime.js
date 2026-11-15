@@ -24,4 +24,25 @@ const isolated=evaluate(input);
 assert.equal(isolated.entryOpportunityStudy.status,'unavailable');
 delete normal.entryOpportunityStudy;delete isolated.entryOpportunityStudy;
 assert.deepEqual(JSON.parse(JSON.stringify(normal)),JSON.parse(JSON.stringify(isolated)));
-console.log('Entry opportunity runtime: six independent arms, unchanged live calculation and isolated faults OK');
+assert.deepEqual(Object.keys(normal.paperCampaignEntries),['trend800nov','normal1000nov']);
+for(const [name,trial] of Object.entries(normal.paperCampaignEntries)){
+  assert.equal(trial.version,'campaign-entry-v1',name);
+  assert.equal(trial.paperOnly,true,name);
+  assert.equal(trial.profile,name);
+  assert.equal(trial.preparation.entryApproved,false);
+  assert.equal(trial.preparation.productApproved,false);
+}
+const late=require('./late_entry_guard.js'),originalCampaign=late.checkPaperCampaign;
+late.checkPaperCampaign=()=>{throw Error('simulated isolated paper-only failure');};
+let isolatedCampaign;
+try{isolatedCampaign=evaluate(input);}finally{late.checkPaperCampaign=originalCampaign;}
+delete isolatedCampaign.entryOpportunityStudy;
+for(const trial of Object.values(isolatedCampaign.paperCampaignEntries)){
+  assert.equal(trial.plan,null);
+  assert.equal(trial.entryPlanState.state,'blocked');
+}
+delete isolatedCampaign.paperCampaignEntries;
+delete normal.paperCampaignEntries;
+assert.deepEqual(JSON.parse(JSON.stringify(normal)),JSON.parse(JSON.stringify(isolatedCampaign)),
+  'An unavailable paper-only hypothesis must not alter Bob live output');
+console.log('Entry opportunity runtime: six independent arms and two fault-isolated campaign plans, unchanged live calculation OK');

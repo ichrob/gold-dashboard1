@@ -52,12 +52,12 @@ POLICIES['trend800nov'] = dict(POLICIES['trend800'],
     id='trend800nov', title='Neu: 800 € · Trend/Stopp/Wiedereinstieg · 09.11.–04.12.',
     campaign=True, relaunch=True, campaign_id=RELAUNCH_ID,
     start_at=RELAUNCH_START, campaign_end=RELAUNCH_END,
-    max_holding_minutes=300)
+    max_holding_minutes=300, paper_campaign_entry=True)
 POLICIES['normal1000nov'] = dict(POLICIES['normal1000oct'],
     id='normal1000nov', title='Neu: 1.000 € · bestätigtes Hauptsignal · 09.11.–04.12.',
     campaign=True, relaunch=True, campaign_id=RELAUNCH_ID,
     start_at=RELAUNCH_START, campaign_end=RELAUNCH_END,
-    max_holding_minutes=300)
+    max_holding_minutes=300, paper_campaign_entry=True)
 
 # Owner-requested isolated 3,000 EUR account, starting at first initialization.
 POLICIES['ema3000nov'] = dict(POLICIES['normal1000oct'],
@@ -69,7 +69,13 @@ POLICIES['ema3000nov'] = dict(POLICIES['normal1000oct'],
 POLICIES['noema5000nov'] = dict(POLICIES['normal1000nov'],
     id='noema5000nov', title='5.000 € · EMA-Abstandssperre aus (Test)',
     initial_capital_eur=5000., relaunch=False,
-    campaign_id='no-ema-distance-20261111', disable_ema_distance=True)
+    campaign_id='no-ema-distance-20261111', disable_ema_distance=True,
+    paper_campaign_entry=False)
+
+_PAPER_CAMPAIGN_GATES = {
+    'trend800nov': ('campaign-800-entry-v1', 1.0),
+    'normal1000nov': ('campaign-1000-entry-v1', 1.2),
+}
 
 _TABLES = ('bob_paper_control', 'bob_paper_cases', 'bob_paper_days')
 
@@ -252,6 +258,41 @@ def relaxed_paper_market(market):
             'reason':trial.get('reason') or 'Getrennter EMA-Testplan noch nicht verfügbar'}}
 
 
+def campaign_paper_market(market, profile):
+    """Strict, scoped use of paper-only entry gates; never fabricate a fill.
+
+    Older deployments without a campaign plan continue using their original
+    market decision, rather than failing all simulations on a rollout.
+    """
+    source, distance = _PAPER_CAMPAIGN_GATES[profile]
+    trial = (market.get('paperCampaignEntries') or {}).get(profile)
+    if not isinstance(trial, dict) or trial.get('version') != 'campaign-entry-v1':
+        return market
+    gate = trial.get('gate') or {}
+    plan = trial.get('plan')
+    valid = (trial.get('paperOnly') is True
+        and trial.get('profile') == profile and trial.get('source') == source
+        and gate.get('paperOnly') is True and gate.get('paperProfile') == profile
+        and gate.get('spotDistance') == distance and gate.get('maxSignalMinutes') == 20
+        and gate.get('maxDeviationAtr') == 1.5 and gate.get('allowed') is True
+        and market.get('ready') is True and market.get('priceFresh') is True
+        and stop_target_audit.valid_plan(plan)
+        and plan.get('kind') == 'candidate' and plan.get('experimental') is True
+        and plan.get('source') == source and plan.get('direction') == market.get('direction')
+        and plan.get('entry') == market.get('price')
+        and plan.get('unit') == 'USD/oz' and plan.get('entrySuitable') is not False
+        and abs(plan['target']-plan['entry']) >= 2*abs(plan['entry']-plan['stop'])-1e-7)
+    state = trial.get('entryPlanState') or {}
+    reason = (state.get('reason') if isinstance(state, dict) else None) or gate.get('reason')
+    reason = reason or 'Separater Papier-Einstiegsplan noch nicht vollständig bestätigt'
+    return {**market, 'plan': copy.deepcopy(plan) if valid else None,
+        'entryTimingGate': copy.deepcopy(gate), 'paperEntrySource': source,
+        'paperCampaignPreparation': copy.deepcopy(trial.get('preparation')),
+        'entryPlanState': {'state': 'ready' if valid else 'waiting',
+            'code': 'PAPER_PLAN_READY' if valid else 'PAPER_PLAN_NOT_READY',
+            'reason': 'Separater Papierplan geprüft; Produktschutz bleibt Pflicht' if valid else reason}}
+
+
 def run_all(conn, bundle, market, selection, quotes, now, settings, active=None, early_market=None, early_selection=None, input_observations=None, warning_market=None, warning_selection=None):
     """One savepoint per account: a failure does not consume another account's run.
 
@@ -269,6 +310,8 @@ def run_all(conn, bundle, market, selection, quotes, now, settings, active=None,
                 if policy.get('early_warning'):
                     m = warning_paper_market(market,now)
                     chosen = warning_selection or {'choices':[], 'reasons':['Keine freigegebenen Frühwarnprodukte']}
+                if policy.get('paper_campaign_entry') and profile in _PAPER_CAMPAIGN_GATES:
+                    m = campaign_paper_market(market, profile)
                 if policy.get('relaxed_ema'):
                     m = relaxed_paper_market(market)
                 if policy.get('disable_ema_distance'):

@@ -88,6 +88,28 @@ def parse_document_text(raw):
             or fx_rate is not None and gross_chf is not None
                 and abs(eur*amount/fx_rate-abs(gross_chf))>0.08):
         return incomplete("Beträge, Gebühren, Währung oder Wechselkurs widersprüchlich")
+    # Preserve actual per-execution charges separately. A receipt is not a
+    # future fee tariff, and one BUY never proves the cost of a round trip.
+    components = {}
+    labels = (("autoFxChf", r"Kosten AutoFX"),
+              ("transactionChf", r"Transaktionsgebühren und/oder[ \t]*(?:\n[ \t]*)?Fremdkosten"))
+    for key, label in labels:
+        present = re.search(rf"(?im)^[ \t]*{label}\b", text)
+        value = _unique_label(text, label, r"CHF[ \t]+-?[0-9]+(?:[.,][0-9]{1,2})?")
+        if present and value is None:
+            return incomplete("Gebührenaufteilung fehlt, ist ungültig oder uneindeutig")
+        if value is not None:
+            signed = float(value.split()[1].replace(",", "."))
+            if not math.isfinite(signed) or signed > 0:
+                return incomplete("Gebührengutschrift erfordert gesonderte Prüfung")
+            components[key] = abs(signed)
+    if len(components) == 2 and costs_chf is not None:
+        if abs(sum(components.values()) - costs_chf) > 0.015:
+            return incomplete("Gebührenaufteilung widerspricht den Gesamtkosten")
+    fee_evidence = ({**components, "scope": "single-execution",
+                     "tariffConfirmed": False,
+                     "sumChecked": len(components) == 2 and costs_chf is not None}
+                    if components else None)
     # Only a complete, arithmetically consistent CHF triplet is net evidence.
     complete_chf = all(x is not None for x in (gross_chf, total_chf, costs_chf))
     # No explicit timezone is printed. Preserve the source clock verbatim;
@@ -101,7 +123,7 @@ def parse_document_text(raw):
         "executedLocal": dt.strftime("%d.%m.%Y %H:%M:%S"),
         "timezoneConfirmed": False, "executedAt": None,
         "orderIdDigest": hashlib.sha256(order_id.lower().encode("ascii")).hexdigest(),
-        "costsChf": costs_chf,
+        "costsChf": costs_chf, "feeEvidence": fee_evidence,
         "grossChf": round(abs(gross_chf),2) if complete_chf else None,
         "totalChf": round(abs(total_chf),2) if complete_chf else None,
         "fxEurPerChf": fx_rate, "activeTrade": False,

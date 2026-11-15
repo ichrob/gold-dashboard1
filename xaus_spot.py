@@ -63,12 +63,20 @@ def current(fetch_json=None):
 
 
 def peek():
-    """Read a warm, fresh original observation without I/O or waiting for a fetch."""
-    if not _lock.acquire(blocking=False):
+    """Read the last validated source quote without waiting for network I/O.
+
+    Writers only *replace* _quote with a newly parsed immutable-by-convention
+    dict (or None) while holding _lock. Snapshot that reference atomically:
+    the previous nonblocking lock probe returned None whenever a source
+    refresh was running, even if an independent warm observation was still
+    within its unchanged 60-second clock. Do not extend the original source
+    clock, queue another fetch or trust an unvalidated provider response.
+    """
+    quote = _quote
+    if not quote:
         return None
     try:
-        if _quote and 0 <= time.time()-datetime.fromisoformat(_quote['at']).timestamp() <= 60:
-            return dict(_quote)
+        age = time.time() - datetime.fromisoformat(quote['at']).timestamp()
+    except (KeyError, TypeError, ValueError, OverflowError):
         return None
-    finally:
-        _lock.release()
+    return dict(quote) if 0 <= age <= 60 else None

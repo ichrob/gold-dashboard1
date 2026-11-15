@@ -31,7 +31,8 @@ assert.equal((html.match(/id=\"generalPushBtn\"/g)||[]).length,1,"No cloned butt
 assert.equal((html.match(/id=\"tradePushBtn\"/g)||[]).length,1,"No cloned buttons");
 assert(html.includes("gb.setAttribute('aria-pressed',String(!!pushState.general))"));
 assert(html.includes("tb.setAttribute('aria-pressed',String(!!pushState.trade))"));
-assert(html.includes("if(note)note.textContent=synced?"),"Toggling should report server-sync success/failure");
+assert(html.includes("pushToggleHint(kind,synced?"),"Toggling must show server-sync success/failure beside switch");
+assert(html.includes('id="generalPushInlineStatus"')&&html.includes('id="tradePushInlineStatus"'),"Each push toggle needs direct visible feedback");
 for(const [side,label] of [['early-long','LONG'],['early-short','SHORT']]){
   assert(html.includes('onclick="testBackgroundPush(\''+side+'\')"'),label+' test button missing');
   assert(html.includes(label+'-Frühwarnung testen'),label+' button text missing');
