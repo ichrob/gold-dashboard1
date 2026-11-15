@@ -1386,6 +1386,9 @@ def comparison_status(conn, portfolios):
         samples.append({'profile':profile, 'recentCases':recent,'forwardValidationStatus':forward_status,
             'forwardValidation':project(forward,shape('version','startedAt','validationAt','excluded',
                 'actualNetKnown','strategyWinnerConfirmed','automaticPolicyChanges',calibration=phase,validation=phase)) if recent.get('status')=='observed' and forward else None})
+    gap_evidence = comparison_gap_evidence(conn,samples)
+    gap_evidence['historicalReview'] = __import__('paper_gap_triage').assess_archived(
+        gap_evidence)
     partial = (comparison.get('status') == 'partial'
                or blocks.get('status') == 'unavailable'
                or any(row['recentCases']['status'] == 'unavailable'
@@ -1396,7 +1399,7 @@ def comparison_status(conn, portfolios):
             'comparisonHealth':comparison,
             'entryBlockEvidence':blocks,
             'accountSamples':samples,
-            'gapEvidence':comparison_gap_evidence(conn,samples),
+            'gapEvidence':gap_evidence,
             'scope':'bounded-stored-comparisons-and-latest-case-evidence',
             'note':'Stored evidence is not a completed study, executable trade or profit proof.'}
 
@@ -1642,7 +1645,14 @@ def simulation_evidence_snapshot(simulation, comparison=None):
                     items=[shape('eventAt','state','capturedAt','timeRelation','deltaSeconds',
                         profiles=[shape('profile','outcome','ready','priceFresh','dataAt','barAt')])])),
             'gapReview':__import__('paper_gap_triage').assess(
-                {'recentRecordedGapInstants':clusters[-10:]},
+                {'recentRecordedGapInstants':clusters[-10:],
+                 'sampleCoverage': ('observed' if evidence and
+                                    len(evidence)==len(accounts[:10]) and
+                                    all(item['sampleStatus']=='observed' and
+                                        item['counts']['other']==0 and
+                                        item['casesWithRecordedDataGap']==0
+                                        for item in evidence)
+                                    else 'incomplete')},
                 simulation.get('spotGapArchive'),simulation.get('analysisGapArchive'),
                 simulation.get('paperInputArchive')),
             'scope':'bounded-paper-case-evidence-not-fills-or-profit',
