@@ -82,6 +82,7 @@ function calculate({quote,plan,spots,now=Date.now()}={}){
  return {available:true,mode,modelOnly:true,simulationPlanningUsable:true,
    simulationFillAllowed:false,entryApproved:false,productApproved:false,
    copyAllowed:false,executable:false,productIsin:quote.isin,currency,
+   direction,ratio:m.ratio,strike:m.strike,ko:m.ko,fxRate:rate,
    direction,modelEntry:Math.round(modelEntry*10000)/10000,
    modelStop:Math.round(modelStop*10000)/10000,
    modelTarget:Math.round(modelTarget*10000)/10000,
