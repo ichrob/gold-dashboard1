@@ -67,8 +67,8 @@ const {chromium}=require('playwright'),fs=require('fs'),assert=require('node:ass
   assert.match(planText,/Modellstopp 17\.4000 CHF/);
   assert.match(planText,/Modellziel 23\.7000 CHF/);
   assert.match(planText,/GOLD-Referenz \(USD\/oz, kein Produktkurs\)/);
-  assert.match(planText,/Stopp 4170\.00/);
-  assert.match(planText,/Ziel 4260\.00/);
+  assert.match(planText,/Stopp 4[’']170\.00/);
+  assert.match(planText,/Ziel 4[’']260\.00/);
   assert.match(planText,/Zielhindernis – Einstieg gesperrt/);
   assert.match(planText,/keine Kauf- oder Produktpreisfreigabe/);
   assert.match(planText,/Modellrisiko 13\.50 CHF \(45\.0 % des Risikobudgets\)/);
