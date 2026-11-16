@@ -4,6 +4,7 @@ This does not delete Drive backups or prove contractual erasure on its own.
 No automatic job, no provider network, no trading data access.
 """
 import os
+from contextlib import closing
 import sqlite3
 import stat
 from pathlib import Path
@@ -47,7 +48,7 @@ def erase_local_research(archive_path, *, confirmed=False):
                 or st.st_mode & 0o077 or parent.st_mode & 0o077
                 or st.st_uid != os.geteuid() or parent.st_uid != os.geteuid()):
             return {"code": "INVALID_PRIVATE_ARCHIVE"}
-        with sqlite3.connect(str(path), timeout=10, isolation_level=None) as db:
+        with closing(sqlite3.connect(str(path), timeout=10, isolation_level=None)) as db:
             # WAL, PERSIST, TRUNCATE and MEMORY modes need a different,
             # independently verified retention procedure. In particular WAL
             # can recreate sidecars as soon as the database is opened.
