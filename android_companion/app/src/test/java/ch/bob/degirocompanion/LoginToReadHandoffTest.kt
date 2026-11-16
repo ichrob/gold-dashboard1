@@ -46,6 +46,61 @@ class LoginToReadHandoffTest {
         assertFalse(LoginToReadHandoff.sessionOnly)
     }
 
+    @Test fun ownerEntryReadModeIsolatedUntilVerifiedLocalPinLogin() {
+        LoginToReadHandoff.clear()
+        LoginToReadHandoff.arm(1000L, sessionOnly=true,
+            entryReadOnly=true, resumeAfterOwnerUnlock=true)
+        assertTrue(LoginToReadHandoff.pending(1500L))
+        assertTrue(LoginToReadHandoff.sessionOnly)
+        assertTrue(LoginToReadHandoff.entryReadOnly)
+        assertTrue(LoginToReadHandoff.resumeAfterOwnerUnlock)
+        assertNull(LoginToReadHandoff.searchQuery)
+        assertNull(LoginToReadHandoff.detailRefresh)
+        assertFalse(LoginToReadHandoff.freshGold)
+        // PIN sent is NOT a verified logged-in broker market screen.
+        assertFalse(LoginToReadHandoff.consume("LOCAL_PIN_ENTRY_SENT",2000L))
+        assertFalse(LoginToReadHandoff.entryReadOnly)
+        assertFalse(LoginToReadHandoff.resumeAfterOwnerUnlock)
+        LoginToReadHandoff.arm(3000L,sessionOnly=true,
+            entryReadOnly=true,resumeAfterOwnerUnlock=true)
+        assertTrue(LoginToReadHandoff.consume("LOCAL_PIN_HOME_VISIBLE",4000L))
+        assertFalse(LoginToReadHandoff.sessionOnly)
+        assertFalse(LoginToReadHandoff.entryReadOnly)
+        assertFalse(LoginToReadHandoff.resumeAfterOwnerUnlock)
+        LoginToReadHandoff.clear()
+    }
+
+    @Test fun unverifiedOrExpiredEntryReadNeverCarriesConsent() {
+        for (failure in listOf("LOCAL_PIN_TIMEOUT","SCREEN_LOCKED",
+                "LOCAL_PIN_DIALOG_BLOCKED","LOCAL_PIN_LAYOUT_CHANGED","USER_STOP")) {
+            LoginToReadHandoff.clear()
+            LoginToReadHandoff.arm(1000L,sessionOnly=true,
+                entryReadOnly=true,resumeAfterOwnerUnlock=true)
+            assertFalse(LoginToReadHandoff.consume(failure,2000L))
+            assertFalse(LoginToReadHandoff.entryReadOnly)
+            assertFalse(LoginToReadHandoff.resumeAfterOwnerUnlock)
+        }
+        LoginToReadHandoff.arm(1000L,sessionOnly=true,
+            entryReadOnly=true,resumeAfterOwnerUnlock=true)
+        assertFalse(LoginToReadHandoff.consume("LOCAL_PIN_HOME_VISIBLE",66000L))
+        assertFalse(LoginToReadHandoff.entryReadOnly)
+        assertFalse(LoginToReadHandoff.resumeAfterOwnerUnlock)
+    }
+
+    @Test fun entryReadCannotEscalateFullReaderOrOtherSession() {
+        LoginToReadHandoff.clear()
+        for (invalid in listOf<(()->Unit)>(
+                { LoginToReadHandoff.arm(1000L,entryReadOnly=true) },
+                { LoginToReadHandoff.arm(1000L,resumeAfterOwnerUnlock=true) },
+                { LoginToReadHandoff.arm(1000L,sessionOnly=true,
+                    entryReadOnly=true,query="Gold") },
+                { LoginToReadHandoff.arm(1000L,sessionOnly=true,
+                    entryReadOnly=true,freshGold=true) })) {
+            assertThrows(IllegalArgumentException::class.java) { invalid() }
+            LoginToReadHandoff.clear()
+        }
+    }
+
     @Test fun onlyVerifiedMarketScreenCanStartProductReading() {
         LoginToReadHandoff.clear()
         LoginToReadHandoff.arm(1_000L)
