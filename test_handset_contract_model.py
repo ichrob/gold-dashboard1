@@ -84,3 +84,22 @@ class ContractModel(unittest.TestCase):
         result=f.parse_page(PAGE.replace('Währungssicherheit Nein','Währungssicherheit --'),ISIN,NOW)
         self.assertIsNone(result['currencyTreatment'])
         self.assertNotIn('ratio',f.parse_page(PAGE,ISIN,NOW)['conditions'])
+
+
+class MissingModelDiagnostics(unittest.TestCase):
+    def test_chf_mini_diagnosis_does_not_attach_or_modify_model(self):
+        q=record();q['metadata'].update(classificationId=45,quantoState='non-quanto')
+        before=copy.deepcopy(q);out=h.prepare(q,NOW)
+        self.assertEqual(out['handsetModelCheck']['code'],'CHF_MINI_MODEL_UNSUPPORTED')
+        self.assertNotIn('productModel',out);self.assertEqual(q,before)
+
+    def test_bnp_undated_terms_keep_policy_distinct_from_confirmation(self):
+        q={'source':'BNP Paribas · Emittent OTC','metadata':{'currency':'EUR'},
+           'conditions':{'ko':{'value':4000,'conditionVerified':False,'policyAccepted':True},
+                         'strike':{'value':4000,'conditionVerified':False,'policyAccepted':True}}}
+        before=copy.deepcopy(q);out=h.prepare(q,NOW)
+        self.assertEqual(out['handsetModelCheck']['code'],'BNP_DATED_TERMS_MISSING')
+        self.assertEqual(out['handsetModelCheck']['unconfirmedTerms'],['ko','strike'])
+        self.assertNotIn('productModel',out);self.assertEqual(q,before)
+        q['productModel']={'existing':True}
+        self.assertIsNone(h.prepare(q,NOW)['handsetModelCheck']['code'])

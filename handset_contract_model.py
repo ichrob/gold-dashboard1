@@ -76,13 +76,27 @@ def attach(quote, now):
 def prepare(quote, now):
     """Expose bounded private failure evidence without guessing missing terms."""
     out=attach(quote,now)
-    if not isinstance(out,dict) or (out.get('metadata') or {}).get('currency') != 'CHF':
+    if not isinstance(out,dict):
         return out
     out=copy.deepcopy(out)
     meta=out.get('metadata') or {}
     backup=out.get('termsBackup') or {}
     proof=backup.get('currencyTreatment') or {}
+    missing_dates = [k for k in ('ko','strike')
+        if (out.get('conditions') or {}).get(k,{}).get('conditionVerified') is not True]
+    origin = out.get('issuerModelSource') or {}
+    source = origin.get('source') or out.get('source') or ''
+    reason = None
+    code = None
+    if not out.get('productModel'):
+        if str(source).startswith('BNP Paribas') and missing_dates:
+            code = 'BNP_DATED_TERMS_MISSING'
+            reason = 'BNP-Modell: datierter Emittentennachweis für KO/Basispreis fehlt; vorhandene Kurse bleiben erhalten.'
+        elif meta.get('currency') == 'CHF' and meta.get('classificationId') == 45:
+            code = 'CHF_MINI_MODEL_UNSUPPORTED'
+            reason = 'CHF-Mini-Future: eigener bestätigter Stop-/Zielmodellpfad fehlt; erneutes Einlesen der Kurse löst das nicht.'
     out['handsetModelCheck']=dict(
+        reason=reason,code=code,unconfirmedTerms=missing_dates,
         modelAttached=bool(out.get('productModel')),
         issuerContract=out.get('issuerContractCheck'),evidenceKind=proof.get('evidenceKind'),
         backupState=backup.get('state'),backupCode=backup.get('code'),
