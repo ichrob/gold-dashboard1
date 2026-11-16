@@ -5,6 +5,7 @@ The browser sees *status only*, never vendor prices, dates or indicators.
 This proof-of-control remains draft until independent runtime gates are signed off.
 """
 import argparse
+from contextlib import closing
 from html import escape
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -87,7 +88,7 @@ class OneClick:
         try:
             archive = self.env['BOB_TWELVE_RESEARCH_ARCHIVE']
             # No new ledger: use the existing adapter's atomic quota reservation.
-            with self.connect(archive, timeout=10, isolation_level=None) as db:
+            with closing(self.connect(archive, timeout=10, isolation_level=None)) as db:
                 result = self.fetch(db, SYMBOL, INTERVAL, start_ms, end_ms,
                                     now_ms=now_ms)
             code = result.get('code', 'REQUEST_FAILED')
@@ -173,9 +174,16 @@ def handler_factory(job, nonce):
     return Handler
 
 
-def serve_until_used(server, job):
-    """Serve locally until the only authorized attempt is consumed."""
-    while not job.used:
+def serve_until_used(server, job, *, max_idle_seconds=300, clock=None):
+    """Expire a local operator session even when the button remains blocked.
+
+    A blocked session must not leave a permanent localhost listener behind.
+    No timer ever triggers a provider request; only an authorized POST can.
+    """
+    clock = time.monotonic if clock is None else clock
+    deadline = clock() + max_idle_seconds
+    while not job.used and clock() < deadline:
+        server.timeout = min(1.0, max(0.01, deadline - clock()))
         server.handle_request()
 
 
