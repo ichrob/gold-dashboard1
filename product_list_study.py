@@ -6,6 +6,9 @@ from statistics import median
 import product_comparison_worker as worker
 import product_trade_history as history
 
+SUMMARY_ROW_LIMIT = 1000
+SUMMARY_COUNT_PROBE_LIMIT = SUMMARY_ROW_LIMIT + 1
+
 
 def init(conn):
     import precision_learning
@@ -100,12 +103,20 @@ def metrics(rows):
 def summaries(conn,isins):
     out={}
     for isin in sorted(isins):
-        total=conn.execute("SELECT count(*) FROM bob_list_price_pairs WHERE isin=%s AND quote_at>=now()-interval '30 days'",(isin,)).fetchone()[0]
+        total=conn.execute('''SELECT count(*) FROM (
+            SELECT 1 FROM bob_list_price_pairs
+            WHERE isin=%s AND quote_at>=now()-interval '30 days'
+            LIMIT %s
+        ) recent''',(isin,SUMMARY_COUNT_PROBE_LIMIT)).fetchone()[0]
         rows=conn.execute('''SELECT evidence FROM bob_list_price_pairs
             WHERE isin=%s AND quote_at>=now()-interval '30 days'
             AND identity=(SELECT identity FROM bob_list_price_pairs WHERE isin=%s ORDER BY quote_at DESC LIMIT 1)
             ORDER BY quote_at DESC LIMIT 1000''',(isin,isin)).fetchall()
-        out[isin]=dict(metrics([r[0] for r in rows]),count=total)
+        out[isin]=dict(
+            metrics([r[0] for r in rows]),
+            count=min(total,SUMMARY_ROW_LIMIT),
+            countCapped=total>SUMMARY_ROW_LIMIT,
+        )
         import precision_learning
         saved=conn.execute('SELECT payload FROM bob_list_price_anchors WHERE isin=%s',(isin,)).fetchone()
         if saved:
