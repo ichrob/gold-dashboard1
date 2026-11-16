@@ -20,6 +20,19 @@ CODES.update("RESULT_TAP_SENT RESULT_TAP_REJECTED LIST_RESTORE_NO_TARGET LIST_RE
 # Fixed preflight/handoff codes only: no exception or authentication contents.
 CODES.update("ENTRY_START_BUSY ENTRY_START_SERVICE_UNAVAILABLE ENTRY_START_DIAGNOSTICS_UNPAIRED ENTRY_START_APP_UNAVAILABLE ENTRY_START_KEYPAD_UNVERIFIED ENTRY_START_DEVICE_LOCKED ENTRY_START_PIN_UNAVAILABLE ENTRY_START_LOGIN_FAILED ENTRY_START_SESSION_FAILED ENTRY_START_LAUNCH_FAILED LOGIN_HANDOFF_NO_ROOT LOGIN_HANDOFF_OTHER_APP LOGIN_HANDOFF_START_FAILED LOGIN_HANDOFF_DISABLED".split())
 
+def _latest_runs_sql(limit):
+    if limit not in (20,50): raise ValueError('Ungültiges Leselimit')
+    return '''WITH latest_run_keys AS MATERIALIZED (
+    SELECT batch_id,received_at FROM bob_android_read_runs
+    ORDER BY received_at DESC,batch_id DESC LIMIT %d
+)
+SELECT runs.payload FROM latest_run_keys AS keys
+JOIN bob_android_read_runs AS runs USING(batch_id)
+ORDER BY keys.received_at DESC,keys.batch_id DESC''' % limit
+
+_LATEST_RUNS_20_SQL = _latest_runs_sql(20)
+_LATEST_RUNS_50_SQL = _latest_runs_sql(50)
+
 
 def timestamp(value):
     if not isinstance(value,str) or len(value)>40: raise ValueError('Zeitangabe fehlt')
@@ -158,9 +171,7 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
         list_time = timestamp(list_uploaded_at)
         universe = {v for v in isins if isinstance(v, str) and valid_isin(v)}
         if not universe: return {}
-        rows = conn.execute(
-            "SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 50"
-        ).fetchall()
+        rows = conn.execute(_LATEST_RUNS_50_SQL).fetchall()
     except (ValueError, TypeError, AttributeError):
         return {}
     result = {}
@@ -249,7 +260,7 @@ def handle(conn,payload, *, original_list=None):
     if payload.get('action') in ('plan-read','plan-save'):
         return __import__('handset_planning').handle(conn,payload)
     if payload.get('action')=='read':
-        rows=conn.execute('SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 20').fetchall()
+        rows=conn.execute(_LATEST_RUNS_20_SQL).fetchall()
         return dict(ok=True,runs=[r[0] for r in rows],verified=False,tradeApproved=False)
     if payload.get('action')!='save': raise ValueError('Unbekannte Aktion')
     run=payload.get('run')
@@ -285,7 +296,7 @@ def handle(conn,payload, *, original_list=None):
 
 def status(conn):
     """Bounded read-only AI/guardian diagnosis; no broker account data or raw text."""
-    rows=conn.execute('SELECT payload FROM bob_android_read_runs ORDER BY received_at DESC LIMIT 50').fetchall()
+    rows=conn.execute(_LATEST_RUNS_50_SQL).fetchall()
     from handset_evidence_chain import project
     chain=project([row[0] for row in rows])
     runs=[]
