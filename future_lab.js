@@ -244,11 +244,14 @@ function mount(parent){
    const gold=info.goldDailyContext||{status:'unavailable'};
    const goldLabels={disabled:'nicht aktiviert','collector-unconfirmed':'Sammler nicht bestätigt',
     'key-not-configured':'Server-Schlüssel fehlt','handoff-unconfirmed':'Übergabe noch offen',
+    'handoff-cooldown':'geplante Übergabewartezeit',
     'awaiting-first-collection':'erste Sammlung steht aus',stored:'gespeichert',
     stale:'älterer Stand',incomplete:'unvollständig',unavailable:'nicht verfügbar'};
    const goldBox=el('section');goldBox.append(el('h4','Historischer Gold-Tageskontext'));
    goldBox.append(el('p', 'Gold-API · '+(goldLabels[gold.status]||'nicht bestätigt')+
     (gold.day?' · UTC-Tag '+gold.day:'')+'. Tageswerte zur Einordnung, keine Intraday-Kerzen oder ausführbaren Produktkurse.'));
+   if(gold.status==='handoff-cooldown'&&Number.isFinite(gold.notBefore))
+    goldBox.append(el('p','Abrufe frühestens ab '+new Date(gold.notBefore*1000).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Schweizer Zeit).'));
    if(gold.researchOnly===true&&gold.affectsLiveSignals===false&&gold.usableAsExecutableQuote===false){
     const daily=gold.items?.['history-day'],range=gold.items?.['ohlc-range'];
     if(daily?.status==='stored'&&Number.isFinite(daily.averageUsd))

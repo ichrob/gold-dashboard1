@@ -113,12 +113,17 @@ def run_once(factory, *, env=None, now=None, requester=request_json):
 
 
 def summary(conn, *, env=None, now=None):
+    env = os.environ if env is None else env
+    now = int(time.time()) if now is None else now
     state = configuration(env)
     base = {'researchOnly': True, 'affectsLiveSignals': False,
             'usableAsExecutableQuote': False, 'source': 'Gold-API XAU/USD',
             'kind': 'daily-context-not-intraday-bars', 'status': state}
     if state != 'configured':
         return base
+    not_before = int(env['BOB_GOLD_API_SERVER_NOT_BEFORE'])
+    if now < not_before:
+        return dict(base, status='handoff-cooldown', notBefore=not_before)
     try:
         # Savepoint prevents a missing table during rolling deployment from
         # invalidating the existing research report transaction.
@@ -151,6 +156,17 @@ def summary(conn, *, env=None, now=None):
         return dict(base, status='unavailable')
 
 
+def next_delay(*, env=None, now=None):
+    """Wake at the handoff boundary, never before it or in a retry spin."""
+    env = os.environ if env is None else env
+    now = int(time.time()) if now is None else now
+    if configuration(env) == 'configured':
+        remaining = int(env['BOB_GOLD_API_SERVER_NOT_BEFORE']) - now
+        if remaining > 0:
+            return min(3600, max(1, remaining))
+    return 3600
+
+
 def start(factory):
     global _thread
     if configuration() != 'configured':
@@ -169,7 +185,7 @@ def start(factory):
                 except Exception:
                     # Fixed, redacted operational evidence; no standalone push.
                     print('BOB_GOLD_DAILY status=unavailable', flush=True)
-                time.sleep(3600)
+                time.sleep(next_delay())
         _thread = threading.Thread(target=loop, name='bob-gold-daily', daemon=True)
         _thread.start()
     return True

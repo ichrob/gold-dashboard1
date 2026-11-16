@@ -38,6 +38,24 @@ class GoldServiceTests(unittest.TestCase):
         self.assertEqual(g.target_day(int(datetime(2026,11,17,1,tzinfo=timezone.utc).timestamp())),date(2026,11,13))
         self.assertEqual(g.target_day(int(datetime(2026,11,17,3,tzinfo=timezone.utc).timestamp())),date(2026,11,16))
 
+    def test_handoff_summary_does_not_read_missing_initial_table(self):
+        conn=Mock()
+        env={**ENV,'BOB_GOLD_API_SERVER_NOT_BEFORE':str(NOW+120)}
+        result=g.summary(conn,env=env,now=NOW)
+        self.assertEqual(result['status'],'handoff-cooldown')
+        self.assertEqual(result['notBefore'],NOW+120)
+        self.assertFalse(result['affectsLiveSignals'])
+        conn.execute.assert_not_called()
+        conn.transaction.assert_not_called()
+
+    def test_scheduler_wakes_at_boundary_and_then_resumes_hourly(self):
+        env={**ENV,'BOB_GOLD_API_SERVER_NOT_BEFORE':str(NOW+120)}
+        self.assertEqual(g.next_delay(env=env,now=NOW),120)
+        self.assertEqual(g.next_delay(env=env,now=NOW+119),1)
+        self.assertEqual(g.next_delay(env=env,now=NOW+120),3600)
+        self.assertEqual(g.next_delay(env=env,now=NOW-7200),3600)
+        self.assertEqual(g.next_delay(env={},now=NOW),3600)
+
     def test_disabled_summary_is_read_free_and_never_contains_key(self):
         conn=Mock()
         result=g.summary(conn,env={})
