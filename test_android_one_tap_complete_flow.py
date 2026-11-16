@@ -57,7 +57,10 @@ class OneTapCompleteFlowTest(unittest.TestCase):
         self.assertIn('!PinReadinessProbe.running', method)
         service = source("ProductReadService.kt")
         self.assertIn('freshGold || !MorningReadRun.resumeRecent(this)', service)
-        self.assertIn('attempt+1,searchQuery,ticket,sessionOnly,freshGold', service)
+        self.assertRegex(service,
+            r'attempt\+1,searchQuery,ticket,\s*sessionOnly,freshGold,detailRefresh,entryReadOnly')
+        self.assertIn('if (!sessionOnly) {', service)
+        self.assertIn('else if(freshGold || !MorningReadRun.resumeRecent(this)) GoldSearchRun.start()', service)
 
     def test_list_receipt_is_not_detail_success(self):
         delivery = source("MorningListDelivery.kt")
