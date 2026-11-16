@@ -5954,7 +5954,21 @@ function productRiskPreviewText(p,market,now=Date.now()){
  const r=strict.available?strict:productRiskComparison(p,reference,now);
  const gold=reference?.available&&Number.isFinite(reference.stop)&&Number.isFinite(reference.target)?
   ' · Gold-Referenz: Stopp '+reference.stop.toFixed(2)+' / Ziel '+reference.target.toFixed(2)+' USD/oz (keine Produktfreigabe)':'';
- if(!r.available)return 'Produkt-Stopp/Ziel nicht berechenbar · '+r.reason+gold;
+ if(!r.available){
+  const modeled=window.BobModelReference?.calculate?.({
+   quote:p?.quote,plan:reference,spots:reference?.spots,now});
+  if(modeled?.available){
+   const f=n=>n.toFixed(4);
+   return (modeled.mode==='anchored-estimate'?'Berechnete Produktreferenz (datiert kalibriert)':
+     'Nur rechnerischer Vertragswert ohne Anbieter-Spread')+
+    ' · Modell-Einstand '+f(modeled.modelEntry)+' EUR · Stopp '+f(modeled.modelStop)+
+    ' EUR · Ziel '+f(modeled.modelTarget)+' EUR'+
+    '\\nGold-Stopp '+modeled.goldStop.toFixed(2)+' USD · Gold-Ziel '+modeled.goldTarget.toFixed(2)+' USD'+
+    '\\n'+modeled.reason+' · Referenz '+modeled.referenceAt+
+    '\\nKEIN aktueller DEGIRO-Geld-/Briefkurs und KEINE Freigabe für einen Einstieg. '+r.reason;
+  }
+  return 'Produkt-Stopp/Ziel nicht berechenbar · '+(modeled?.reason||r.reason)+gold;
+ }
  const money=v=>'≈ '+v.toFixed(4)+' '+r.currency;
  const label=strict.available&&!opposite?'Vorläufiger Produktplan':
   'Unverbindliche Risikoreferenz – '+(opposite?'Gegenrichtung zum Hauptsignal; ':'')+'kein Einstieg freigegeben';
