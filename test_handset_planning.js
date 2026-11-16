@@ -28,6 +28,14 @@ for(const change of [x=>x.config=null,x=>x.plans={},x=>x.spots={},
  x=>x.report.items[0].handsetObservation.observedAt=new Date(now-15*3600000).toISOString()]){
  const input=fixture('LONG','EUR');change(input);assert.equal(evaluate(input).items[0].available,false);
 }
+const noScreen=fixture();delete noScreen.report.items[0].handsetObservation;
+const unconfirmed=evaluate(noScreen).items[0];
+assert.equal(unconfirmed.available,false);
+assert.equal(unconfirmed.entryApproved,false);
+assert.equal(unconfirmed.copyAllowed,false);
+assert.equal(unconfirmed.planState,'reference-calculated');
+assert(unconfirmed.modelStop>0&&unconfirmed.modelTarget>0);
+assert(unconfirmed.reasons.some(r=>/Lesebeleg/.test(r)));
 const missing=fixture();missing.config=null;
 const row=evaluate(missing).items[0];assert(row.modelStop>0);assert.equal(row.available,false);
 console.log('Server handset scenarios: shared LONG/SHORT stops, EUR/CHF costs, missing config/FX, terminal/stale guards, no input mutation passed');
