@@ -75,6 +75,11 @@ def market_input(kind):
             return cached[1]
         failure = _INPUT_ERRORS.get(kind)
         if failure and time.monotonic()-failure[0] < 30:
+            if kind == 'fx':
+                from fx_data import peek_backup
+                ready = peek_backup(datetime.now(timezone.utc))
+                if ready is not None:
+                    return copy.deepcopy(ready)
             raise ValueError(failure[1])
         url, origin = ((FX_ORIGIN+'v1/latest/USD?symbols=EUR,CHF', FX_ORIGIN) if kind == 'fx'
                        else (SPOT_ORIGIN+'api/v1/spot?compact=1', SPOT_ORIGIN))
