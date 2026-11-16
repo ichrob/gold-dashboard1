@@ -18,6 +18,17 @@ function evaluate(input){
     ko:q.conditions?.ko?.value??q.ko??q.metadata?.ko??original.ko,
     productDirection:q.metadata?.direction||q.direction||original.productDirection}:original?{...original}:null;
    const direction=p?.productDirection;
+   // The issuer/audit terminal state takes precedence over missing screen data.
+   // A last bid is retained in the original report, never treated as an entry.
+   if(row.state==='terminated'){
+    const reason='Produkt vom Emittenten als beendet gemeldet';
+    return {isin,available:false,reason,reasons:[reason],researchOnly:true,
+     quantity:null,totalCHF:null,lossCHF:null,modelStop:null,modelTarget:null,
+     modelReferenceAt:null,sourceAt:null,observedAt:row.handsetObservation?.observedAt||null,
+     feeAssessment:{available:false,feesCHF:null,reason:'Bei beendetem Produkt keine Einstiegsberechnung'},
+     automaticScenarios:[],entrySuitable:false,entryApproved:false,copyAllowed:false,
+     rankingPenalty:false,brokerExecutionVerified:false,orderSubmitted:false};
+   }
    // The normal identity validator still decides; saved client flags cannot
    // establish a new identity or turn a terminal product into a valid plan.
    if(p)p.isinConfirmed=api.automaticIdentity(p);
