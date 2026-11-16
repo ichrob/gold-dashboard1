@@ -189,3 +189,49 @@ gesperrten Samsung kein DEGIRO-Klick, keine erneute Anmeldung und kein
 Aufheben der Android-Gerätesperre. Die erfolgreiche tatsächliche DEGIRO-
 Anmeldung und Nachlesung sind auf einem echten Samsung mit der
 signierten aktuellen Version separat zu prüfen.
+
+
+## Sofortiger Navigationstest der Einstiegskurs-Nachlesung (16.11.2026)
+
+Die normale **„Einstiegskurs automatisch nachlesen · 15 Minuten“**
+bleibt eine echte Wartesitzung: Bis zu einem geeigneten, mit der aktuellen
+Original-Goldliste abgeglichenen Signal werden dort absichtlich **keine**
+DEGIRO-Suchfelder oder Produktseiten angetippt. Die sichtbare, bereits
+angemeldete Marktseite ohne Klicks ist während `WAITING_FOR_SIGNAL`
+deshalb kein Beweis für eine defekte Navigationsfunktion.
+
+Der neue Knopf **„Einstiegskurs-Navigation sofort testen · ohne Signal“**
+ermöglicht einen sofortigen echten Samsung-Praxistest mit genau **einer
+vom Besitzer gewählten ISIN**. Er verwendet denselben begrenzten,
+erprobten `MorningReadRun`-, `ProductReadRequest`-,
+`MorningReadPolicy.detailDecision`- und
+`ProductPageReader`-Ablauf wie die signalgetriggerte Ein-ISIN-Lesung:
+
+- Die ISIN muss in der datierten, höchstens 14 Stunden alten,
+  lokal gespeicherten Goldliste enthalten sein. Der authentifizierte
+  Server-`listStatus`-Plan bestätigt den ursprünglichen Handy-Eigentümer,
+  den synchronisierten Listennachweis und einen nicht beendeten Eintrag.
+- Der vorhandene lokale, einmalige DEGIRO-PIN-/Marktseiten-Handoff
+  wird nach ausdrücklicher Auswahl weiterbenutzt. Eine noch wartende
+  Einstiegskurs-Sitzung wird **beendet**, bevor eine getrennte
+  Produktlesesitzung beginnt; unterschiedliche Sitzungsrechte werden
+  nicht kombiniert.
+- Innerhalb des bereits vorhandenen zugelassenen DEGIRO-Fensters
+  darf Bob nach wiederholter, stabiler Erkennung das Suchfeld antippen,
+  genau die ausgewählte ISIN eingeben, das passende Produkt anklicken,
+  dessen sichtbare Informationen scrollend lesen und kontrolliert
+  zurückkehren. Unbekannte Ansichten, falsche ISIN, andere Apps,
+  Order-/Passwortseiten, Sperrbildschirm oder Eigentümereingriffe
+  beenden die Prüfung unverändert.
+- Das Ergebnis kommt als **echte, als Research-Only behandelte
+  Android-Beobachtung** über den normalen, authentifizierten
+  Detailtransfer zurück. Die Funktion erzeugt **kein** künstliches
+  Handelssignal, keine historische Signalentscheidung, keinen virtuellen
+  Einstieg, keine Echtgeldorder und keine behauptete Broker-Freigabe.
+
+Das gleichzeitig vorhandene separate Python-Szenario
+`test_handset_entry_synthetic_signal.py` prüft bereits die reine
+Server-Signalkette ohne Produktivwrites. Ein grüner Emulator oder
+synthetischer Server-Test **ersetzt nicht** die echte Samsung-Abnahme
+des Suchfelds, ISIN-Eingabe, Seitenlesens und Rückwegs. Während
+des physischen Tests das Samsung **entsperrt** lassen.
