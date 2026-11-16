@@ -48,7 +48,11 @@ const {chromium}=require('playwright'),fs=require('fs'),assert=require('node:ass
   await page.locator('[data-planning-load]').click();
   await page.waitForFunction(()=>document.querySelector('#bobManualBudget').value==='900');
   state.resultFresh=true;state.result={listUploadedAt:'today',available:0,conditionalAvailable:1,calculatedAt:Date.now(),items:[{
-   isin:'DE000FG14AV8',available:false,modelStop:17.4,modelTarget:23.7,reasons:['Tarifeinstellung fehlt'],automaticScenarios:[{
+   isin:'DE000FG14AV8',available:false,modelStop:17.4,modelTarget:23.7,reasons:['Tarifeinstellung fehlt'],
+   goldReference:{state:'available',unit:'USD/oz',entry:4200,stop:4170,target:4260,
+    sourceAt:'2026-11-16T19:00:00+01:00',entrySuitable:false,
+    productPriceApproved:false,modelTradeApproved:false},
+   automaticScenarios:[{
     assumptions:['Schweizer Standardtarif angenommen','CHF-Konto mit AutoFX angenommen'],
     feeAssessment:{available:true,feesCHF:1.5},available:true,quantity:4,totalCHF:81.5,lossCHF:13.5,
     currency:'CHF',stop:17.4,riskUsagePct:45,
@@ -62,6 +66,11 @@ const {chromium}=require('playwright'),fs=require('fs'),assert=require('node:ass
   assert.match(planText,/81\.50 CHF inkl\. Gebühren/);
   assert.match(planText,/Modellstopp 17\.4000 CHF/);
   assert.match(planText,/Modellziel 23\.7000 CHF/);
+  assert.match(planText,/GOLD-Referenz \(USD\/oz, kein Produktkurs\)/);
+  assert.match(planText,/Stopp 4170\.00/);
+  assert.match(planText,/Ziel 4260\.00/);
+  assert.match(planText,/Zielhindernis – Einstieg gesperrt/);
+  assert.match(planText,/keine Kauf- oder Produktpreisfreigabe/);
   assert.match(planText,/Modellrisiko 13\.50 CHF \(45\.0 % des Risikobudgets\)/);
   assert.match(planText,/keine bestätigte Kontoeinstellung/);
   assert.equal(await page.locator('[data-server-handset-plans] button').count(),0);
