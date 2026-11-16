@@ -494,6 +494,39 @@ def new_studies_brief(paper, now_ms=None):
                     and type(raw.get('historicalInconclusiveUnclassified')) is int
                     and raw['historicalInconclusiveUnclassified'] >= 0):
                 displayed['historicalInconclusiveUnclassified'] = raw['historicalInconclusiveUnclassified']
+    # Read the same prospective original-input evidence as the existing
+    # internal watchdog. Historical invalid totals stay in the study counters
+    # but must never become a *new* current repair warning by themselves.
+    # A missing/old recent window remains unknown, never "healthy".
+    now_ms = time.time()*1000 if now_ms is None else now_ms
+    paper_health = paper.get('paper') if isinstance(paper.get('paper'),dict) else {}
+    raw_reaction = next((s for s in (quality.get('studies') or [])
+                         if isinstance(s,dict) and s.get('id')=='reaction'),{})
+    from bob_study_health import snapshot as original_study_health, INPUT_CODE
+    recent_health = original_study_health({
+        'status': quality.get('status'),
+        'checkedAt': quality.get('checkedAt'),
+        'quality': {
+            'recentOriginalChecks': raw_reaction.get('recentOriginalChecks'),
+            'recentOriginalOutcomes': raw_reaction.get('recentOriginalOutcomes')
+        }
+    }, now_ms=now_ms, trading=paper_health.get('sessionMode')=='trading')
+    raw_checks = raw_reaction.get('recentOriginalChecks')
+    valid_recent = ([s for s in raw_checks if isinstance(s,dict)
+                     and type(s.get('at')) is int
+                     and type(s.get('valid')) is bool
+                     and 0 <= now_ms-s['at'] <= 20*60000]
+                    if isinstance(raw_checks,list) and len(raw_checks)<=64 else [])
+    recent_input_summary = {
+        'status': ('observed' if len(valid_recent)>=12
+                   and recent_health.get('status')=='observed'
+                   else 'insufficient-recent-evidence'),
+        'windowMinutes': 20,
+        'sampledChecks': len(valid_recent),
+        'invalidChecks': sum(s['valid'] is False for s in valid_recent),
+        'currentInputAlert': INPUT_CODE in recent_health.get('codes',[]),
+        'readOnly': True, 'originalResultsVerified': False
+    }
     # A compact, deterministic quality alert, not an assertion about cause
     # or a proposal to count estimated model outcomes as product fills.
     notices = []
@@ -503,11 +536,11 @@ def new_studies_brief(paper, now_ms=None):
                             'detail':detail})
     reaction = next((x for x in originals if x.get('id')=='reaction'),{})
     cycles, invalid = reaction.get('cycles'),reaction.get('invalid')
-    if (type(cycles) is int and type(invalid) is int
-            and cycles >= 100 and 0 <= invalid <= cycles
-            and invalid >= 20 and invalid * 100 >= cycles * 2):
+    if INPUT_CODE in recent_health.get('codes', []):
         warn('STUDY_ORIGINAL_INPUT_GAPS','reaction',
-             str(invalid)+'/'+str(cycles)+' kumulierte Eingangsprüfungen ungültig; Quellenzeiten nachprüfen')
+             str(recent_input_summary['invalidChecks'])+'/'+
+             str(recent_input_summary['sampledChecks'])+
+             ' jüngste Original-Eingangsprüfungen ungültig; Quellenzeiten prüfen')
     for study in ('warning-confirmed','entry-delay','sideways-filter'):
         row = next((x for x in originals if x.get('id')==study),{})
         complete, inconclusive = row.get('complete'),row.get('inconclusive')
@@ -532,8 +565,7 @@ def new_studies_brief(paper, now_ms=None):
              'Berechnete Studienvariante nicht aktiv')
     # Only trading-window staleness is a worker incident. "Waiting for
     # direction" and intentionally retired shadow studies are never errors.
-    health = paper.get('paper') if isinstance(paper.get('paper'),dict) else {}
-    now_ms = time.time()*1000 if now_ms is None else now_ms
+    health = paper_health
     if health.get('sessionMode') == 'trading' and type(now_ms) in (int,float):
         for name, at in (('quality',quality.get('checkedAt')),
                          ('intraday',timing.get('checkedAt')),
@@ -559,6 +591,7 @@ def new_studies_brief(paper, now_ms=None):
         'readOnly':True, 'realOrders':False,
         'scope':'new-studies-sanitized-control-sample-not-execution-proof',
         'quality':{**core(quality), 'studies':originals,
+                   'recentOriginalInput':recent_input_summary,
                    'modeled':{**core(modeled), 'studies':modeled_rows},
                    **({'historicalReview': historical_brief} if historical_brief else {})},
         'attention':notices,
@@ -1065,7 +1098,7 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         # The paper ledger already persists the latest trading-window blocker.
         # Keep only enum-validated codes and finite timestamps in this private
         # diagnostic projection; night-session reasons must not overwrite it.
-        if profile in ('trend800nov', 'normal1000nov', 'ema3000nov'):
+        if profile in ('trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov'):
             from paper_profit_summary import ENTRY_BLOCK_CODES, number
             block_code = source_control.get('lastTradingEntryBlockCode')
             if isinstance(block_code, str) and block_code in ENTRY_BLOCK_CODES:
