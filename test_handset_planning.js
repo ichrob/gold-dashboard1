@@ -104,6 +104,13 @@ assert.equal(evaluate(oldGold).items[0].goldReference.state,'unavailable');
 const wrongGold=JSON.parse(goldOriginal);
 wrongGold.spots.xaus=4100;
 assert.equal(evaluate(wrongGold).items[0].goldReference.state,'unavailable');
+const uncertainIssuer=JSON.parse(goldOriginal);
+uncertainIssuer.report.items[0].state='incomplete';
+assert.equal(evaluate(uncertainIssuer).items[0].goldReference.state,'unavailable',
+ 'transient issuer status must not obtain even a display reference');
+const issuerStopped=JSON.parse(goldOriginal);
+issuerStopped.report.items[0].state='terminated';
+assert.equal(evaluate(issuerStopped).items[0].goldReference?.state,'unavailable');
 const missing=fixture();missing.config=null;
 const row=evaluate(missing).items[0];assert(row.modelStop>0);assert.equal(row.available,false);
 console.log('Server handset scenarios: shared LONG/SHORT stops, EUR/CHF costs, missing config/FX, terminal/stale guards, no input mutation passed');
