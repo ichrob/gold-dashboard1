@@ -255,6 +255,9 @@ def _init_db_once():
     with db() as conn:
         __import__("android_observations").init(conn)
         __import__("handset_planning").init(conn)
+        # Prospective shadow controls use their own new table, never the old
+        # 800/1000 observational paper cases; initialize before worker startup.
+        __import__("model_paper_trial").init(conn)
         __import__("android_telemetry").init(conn)
         __import__("android_remote").init(conn)
         bob_session_store.init(conn)

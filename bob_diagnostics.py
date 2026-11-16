@@ -1304,6 +1304,22 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
     result['recentPaperOutcomes'] = recent_paper_outcomes(result['accounts'])
     try:
         with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='500ms'")
+            result['modelPaperTrials'] = __import__('model_paper_trial').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        result['modelPaperTrials'] = {'status':'unavailable','readOnly':True,
+            'realOrders':False,'reason':'model-paper-trial-report-unavailable'}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='600ms'")
+            result['modelPlanAudit'] = __import__('handset_planning').model_plan_audit(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        result['modelPlanAudit'] = {'status':'unavailable','readOnly':True,
+            'realOrders':False,'reason':'model-plan-audit-read-unavailable'}
+    try:
+        with conn.transaction():
             result['qualityCampaign'] = __import__('research_restart').report(conn)
     except Exception:
         result['qualityCampaign'] = {'status':'unavailable','realOrders':False}
@@ -1913,13 +1929,13 @@ DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
                     'storage')
 _FOCUS_AREAS = {
     'storage': ('storageBrief',),
-    'simulation': ('newStudiesBrief', 'paperProfitEvidence', 'simulationRuntimeBrief', 'simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
+    'simulation': ('modelPaperTrials', 'modelPlanAudit', 'newStudiesBrief', 'paperProfitEvidence', 'simulationRuntimeBrief', 'simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
                    'comparisonHealth', 'entryBlockEvidence', 'background', 'collection',
                    'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'sources': ('signalFreshness', 'market', 'sourceReliability', 'collection', 'background', 'analysis'),
     'research': ('research', 'strategyResearch', 'strategyReport', 'newFeatures'),
     'mobile': ('androidTelemetry', 'androidReader', 'newFeatures', 'runtime', 'degiroSync', 'products'),
-    'products': ('products', 'degiroSync', 'gapEvidence'),
+    'products': ('products', 'modelPlanAudit', 'degiroSync', 'gapEvidence'),
     'repairs': ('signalFreshness', 'selfHealing', 'problems', 'background', 'diagnosticTriage', 'operationsSummary',
                 'healthCadence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'trades': ('background', 'diagnosticTriage'),
