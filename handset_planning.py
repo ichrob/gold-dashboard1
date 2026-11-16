@@ -209,17 +209,32 @@ def model_plan_audit(conn, now=None):
             math.isfinite(source['modelTarget']) and source['modelTarget'] > 0)
         mode = (source.get('modelMode') if source.get('modelMode') in
             ('anchored-estimate', 'intrinsic-only') else None)
+        def clock_within(value, limit):
+            if not isinstance(value,str):
+                return False
+            try:
+                stamp = datetime.fromisoformat(value.replace('Z','+00:00'))
+                elapsed = now-stamp.timestamp()*1000 if stamp.tzinfo else None
+                return elapsed is not None and 0<=elapsed<=limit
+            except (ValueError,OverflowError):
+                return False
+        source_recent=(clock_within(source.get('modelOriginalGoldAt'),100000)
+            and clock_within(source.get('modelFxAt'),100000)
+            and clock_within(source.get('modelReferenceAt'),330000))
+        observed_recent=clock_within(source.get('modelReferenceAt'),120000)
         status = ('terminated' if terminated else 'excluded-factor' if excluded else
                   'not-current' if not current else
-                  'modeled-reference' if suitable and mode else
-                  'observed-input-reference' if suitable and
+                  'modeled-reference' if suitable and mode and source_recent else
+                  'observed-input-reference' if suitable and not mode and observed_recent and
                      source.get('planState') in ('reference-calculated','reference-target-obstacle') else
                   'unavailable')
         reason = ('Produkt beendet' if terminated else
                   'Faktorprodukt ausgeschlossen' if excluded else
                   'Kurs-/Planaufnahme noch nicht aktuell bestätigt' if not current else
-                  source.get('modelEstimateReason') or
-                  ((source.get('reasons') or ['Planparameter fehlen'])[0]))
+                  ('Modell-/Quellenzeit nicht mehr aktuell' if suitable and mode and not source_recent else
+                   'Produkt-Referenzkurs nicht mehr aktuell' if suitable and not mode and not observed_recent else
+                   source.get('modelEstimateReason') or
+                   ((source.get('reasons') or ['Planparameter fehlen'])[0])))
         rows.append(dict(isin=isin, direction=item.get('direction'),
             status=status,mode=mode if status=='modeled-reference' else None,
             currency=source.get('modelCurrency') if suitable else None,
