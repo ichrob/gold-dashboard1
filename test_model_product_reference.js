@@ -51,7 +51,14 @@ for(const direction of ['LONG','SHORT']){
  const expired=structuredClone(x);expired.quote.productModel.tradingEndAt=new Date(now-1000).toISOString();
  assert.equal(calculate(expired).available,false);
  const foreign=structuredClone(x);foreign.quote.currency='CHF';foreign.quote.metadata.currency='CHF';
- assert.equal(calculate(foreign).available,false);
+ assert.equal(calculate(foreign).available,false,'CHF requires independently fresh USD/CHF');
+ foreign.spots.usd_chf_meta={rate:.9,fetchedAt:at};
+ const swiss=calculate(foreign);
+ assert.equal(swiss.available,true);
+ assert.equal(swiss.mode,'intrinsic-only','EUR quote anchor cannot masquerade as CHF');
+ assert.equal(swiss.currency,'CHF');
+ assert.equal(swiss.simulationFillAllowed,false);
+ assert.equal(swiss.modelStop,24.3);
  const terminated=structuredClone(x);terminated.quote.state='terminated';
  assert.equal(calculate(terminated).available,false);
  const oldProjection=structuredClone(x);
