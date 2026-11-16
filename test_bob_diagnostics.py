@@ -940,8 +940,14 @@ class FastSimulationStatusTests(unittest.TestCase):
         # One exact campaign lookup, bounded comparison read, and singleton input status.
         # One additional PK-indexed LIMIT 100 read for the early-warning
         # spot-only study; still no unbounded historical reads.
-        self.assertEqual(len(selects), 10)
+        # Two bounded model-ledger and current-list audit scopes add five
+        # small indexed/PK reads; no history/case scans or broker permissions.
+        self.assertEqual(len(selects), 15)
         sql = [call.args[0] for call in selects]
+        self.assertEqual(sum('bob_model_paper_trial WHERE profile=ANY(%s::text[])' in q
+                             for q in sql),1)
+        self.assertFalse(any('bob_model_paper_trial' in q and
+                             'WHERE profile=ANY(%s::text[])' not in q for q in sql))
         # Entry opportunities add exactly one bounded campaign-state lookup.
         self.assertEqual(sum('bob_entry_opportunity_state WHERE id=%s' in q for q in sql),1)
         # Fourth independent research report: one single-row PK lookup only.
