@@ -68,7 +68,9 @@ def bounded_read(conn):
         with conn.transaction():
             conn.execute('SET TRANSACTION READ ONLY')
             conn.execute("SET LOCAL statement_timeout='1500ms'")
-            return read(conn)
+            result = read(conn)
+            result['goldDailyContext'] = __import__('gold_api_research_service').summary(conn)
+            return result
     except Exception:
         return dict(status='unavailable',readOnly=True,
             reason='bounded-stored-research-read-failed',

@@ -1916,6 +1916,7 @@ if __name__ == "__main__":
     import runtime_watchdog
     runtime_watchdog.start()
     paper_simulation.start_preflight(db)
+    __import__('gold_api_research_service').start(db)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     threading.Thread(target=audit_outcome_loop, name="bob-audit-outcomes", daemon=True).start()
     import browserless_profile

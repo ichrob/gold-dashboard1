@@ -130,5 +130,6 @@ def handle(conn, action, payload):
                                  lastBarAt=r[2]) for r in rows],
             },
             "latestReport": latest[5] if latest else None,
+            "goldDailyContext": __import__('gold_api_research_service').summary(conn),
         }
     raise ValueError("Unbekannte Forschungs-Speicheraktion")
