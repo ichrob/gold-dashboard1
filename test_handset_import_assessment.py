@@ -17,7 +17,7 @@ class ImportAssessment(unittest.TestCase):
                       resultFresh=False, realOrders=False)
         class Db:
             def execute(self, sql):
-                assert sql.startswith('SELECT')
+                assert sql.startswith(('SELECT','WITH'))
                 return self
             def fetchall(self):return [(r,)]
             def transaction(self):return nullcontext()
@@ -96,7 +96,7 @@ class ImportAssessment(unittest.TestCase):
         self.assertEqual(item['observedAt'],r['results'][0]['observation']['observedAt'])
         self.assertEqual(out['importAssessment']['assessedAt'],r['receivedAt'])
         self.assertEqual(r,original)
-        self.assertTrue(db.sql.startswith('SELECT'))
+        self.assertTrue(db.sql.startswith(('SELECT','WITH')))
 
     def test_missing_leverage_does_not_block_valid_pair_or_penalize(self):
         x=assess(self.prepared())['items'][0]
@@ -149,7 +149,7 @@ class ImportAssessment(unittest.TestCase):
         self.assertFalse(x['importAssessmentPersisted'])
         self.assertEqual(x['importAssessment']['items'][0]['ask'], 13.07)
         self.assertNotIn('importAssessment', r)
-        self.assertTrue(db.sql.startswith('SELECT'))
+        self.assertTrue(db.sql.startswith(('SELECT','WITH')))
 
 
 if __name__ == '__main__':

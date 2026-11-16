@@ -24,6 +24,17 @@ class MemoryDb:
     def fetchone(self):return self.result
 
 class AndroidObservations(unittest.TestCase):
+    def test_latest_run_reader_materializes_keys_before_payload(self):
+        sql=a._LATEST_RUNS_50_SQL
+        self.assertIn('WITH latest_run_keys AS MATERIALIZED',sql)
+        key_page=sql.split(')\nSELECT runs.payload',1)[0]
+        self.assertNotIn('payload',key_page)
+        self.assertIn('LIMIT 50',key_page)
+        self.assertIn('JOIN bob_android_read_runs AS runs USING(batch_id)',sql)
+        self.assertNotIn('SELECT *',sql.upper())
+        self.assertIn('LIMIT 20',a._LATEST_RUNS_20_SQL)
+        with self.assertRaises(ValueError):a._latest_runs_sql(500)
+
     def test_explicit_source_absence_keeps_missing_fields_and_no_approval(self):
         payload=run()
         raw=DRAFT.replace('Geld (Anzeige ungeprüft): 13,06', 'Zuletzt (Anzeige ungeprüft): 4,98').replace(
@@ -244,7 +255,7 @@ class AndroidObservations(unittest.TestCase):
         originals=copy.deepcopy([old,failed])
         class Db:
             def execute(self,sql):
-                assert sql.startswith('SELECT')
+                assert sql.startswith(('SELECT','WITH'))
                 return self
             def fetchall(self):return [(x,) for x in ordered]
         for ordered in ([failed,old],[old,failed]):
