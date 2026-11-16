@@ -22,8 +22,14 @@ class SessionLoginTests(unittest.TestCase):
             self.assertIn(guard, automatic)
     def test_handoff_preserves_session_only_across_retry_and_consume(self):
         s = (ROOT/'ProductReadService.kt').read_text()
-        self.assertIn('beginReadAfterVerifiedPin(attempt+1,searchQuery,ticket,sessionOnly,freshGold,detailRefresh)',s)
-        self.assertIn('beginReadAfterVerifiedPin(0,searchQuery,ticket,sessionOnly,freshGold,detailRefresh)',s)
+        # Preserve all scoped handoff flags, including entry-only readiness,
+        # across root/window settling and consume. Whitespace may be wrapped.
+        self.assertRegex(s, r'beginReadAfterVerifiedPin\(attempt\+1,searchQuery,ticket,\s*sessionOnly,freshGold,detailRefresh,entryReadOnly,\s*resumeAfterOwnerUnlock\)')
+        self.assertRegex(s, r'beginReadAfterVerifiedPin\(0,searchQuery,ticket,sessionOnly,freshGold,\s*detailRefresh,entryReadOnly,resumeAfterOwnerUnlock\)')
+        self.assertLess(s.index('val entryReadOnly = LoginToReadHandoff.entryReadOnly'),
+                        s.index('LoginToReadHandoff.consume('))
+        self.assertLess(s.index('val resumeAfterOwnerUnlock = LoginToReadHandoff.resumeAfterOwnerUnlock'),
+                        s.index('LoginToReadHandoff.consume('))
         self.assertLess(s.index('val sessionOnly = LoginToReadHandoff.sessionOnly'), s.index('LoginToReadHandoff.consume('))
         body = s.split('private fun beginReadAfterVerifiedPin',1)[1].split('override fun onServiceConnected',1)[0]
         self.assertIn('if (!sessionOnly) {',body)
