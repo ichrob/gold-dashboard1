@@ -76,7 +76,42 @@ class PersistenceTests(unittest.TestCase):
                 for _ in range(2):
                     conn.execute('INSERT INTO bob_list_price_pairs VALUES(%s,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING',('fixture',PRODUCT['isin'],now,json.dumps(row)))
                 conn.commit()
-                self.assertEqual(study.summaries(conn,{PRODUCT['isin']})[PRODUCT['isin']]['count'],1)
+                result=study.summaries(conn,{PRODUCT['isin']})[PRODUCT['isin']]
+                self.assertEqual(result['count'],1)
+                self.assertFalse(result['countCapped'])
                 conn.commit()
+            finally:
+                conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+
+    def test_summary_count_is_bounded_and_explicitly_capped(self):
+        import json
+        import psycopg
+        from psycopg import sql
+        from datetime import datetime,timezone
+        schema='list_study_'+uuid.uuid4().hex
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            try:
+                conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                study.init(conn)
+                now=datetime.now(timezone.utc)
+                fixtures=[]
+                for i in range(study.SUMMARY_COUNT_PROBE_LIMIT+4):
+                    quote_at=now-timedelta(seconds=i)
+                    evidence=dict(
+                        identity='fixture',isin=PRODUCT['isin'],
+                        at=int(quote_at.timestamp()*1000),quoted=10.2,
+                        estimated=10,currency='EUR',
+                    )
+                    fixtures.append(('fixture',PRODUCT['isin'],quote_at,json.dumps(evidence)))
+                with conn.cursor() as cursor:
+                    cursor.executemany(
+                        'INSERT INTO bob_list_price_pairs VALUES(%s,%s,%s,%s::jsonb)',
+                        fixtures,
+                    )
+                result=study.summaries(conn,{PRODUCT['isin']})[PRODUCT['isin']]
+                self.assertEqual(result['count'],study.SUMMARY_ROW_LIMIT)
+                self.assertTrue(result['countCapped'])
+                self.assertEqual(result['evaluationCount'],study.SUMMARY_ROW_LIMIT)
             finally:
                 conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
