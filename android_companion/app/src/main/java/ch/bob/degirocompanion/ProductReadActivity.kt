@@ -242,6 +242,13 @@ class ProductReadActivity : Activity() {
                     }.also { secret?.fill(0) }
                 }.show()
         }
+        // Immediate, owner-triggered read-only navigation rehearsal. This uses
+        // the existing one-ISIN verified refresh path and does not manufacture
+        // or persist a market-entry signal, create a trade, or grant a remote
+        // broker-control session beyond the ordinary product-reading gates.
+        button("Einstiegskurs-Navigation sofort testen · ohne Signal") {
+            chooseEntryNavigationTest()
+        }
         button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {
             AlertDialog.Builder(this).setTitle("Vorhandenen Produkteinleser starten")
                 .setMessage("Bob startet den vorhandenen vollständigen Gold-Produkteinleser: DEGIRO öffnen, bei Bedarf lokal anmelden, suchen, Produktseiten lesen und zurückkehren. Ergebnisse und Fehler werden über die verbundene Diagnose an Bob gemeldet. Einzelne ChatGPT-Klickaufträge sind dafür nicht erforderlich. Bob verwendet eine eingerichtete PIN einmal lokal und beginnt nach bestätigter Marktseite. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein. Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
@@ -508,6 +515,43 @@ class ProductReadActivity : Activity() {
                 else "Lokale PIN-Eingabe konnte nicht gestartet werden. Einrichtung, Gerätesperre und Lesedienst prüfen."
         } finally { secret?.fill(0) }
     }
+    /** Run the same already audited single-product navigation/scroll/return
+     * engine as a signal-triggered entry read, without waiting for a signal.
+     * The owner chooses one ISIN from the actual saved imported list; server
+     * independently checks the list belongs to this handset and is current.
+     * Original DEGIRO observations remain research-only, never paper trades.
+     */
+    private fun chooseEntryNavigationTest() {
+        runCatching {
+            check(!refreshPreparing && !MorningReadRun.running &&
+                !GoldSearchRun.running && !PinReadinessProbe.running &&
+                !ProductReadRequest.active(SystemClock.elapsedRealtime()) &&
+                !LoginToReadHandoff.pending(SystemClock.elapsedRealtime())) {
+                "Laufende Lesung oder Anmeldung zuerst beenden."
+            }
+            val saved=org.json.JSONObject(MorningReadRun.refreshSourceSnapshot(this)
+                ?: error("Zuerst die Goldliste mit Bob Handy einlesen."))
+            check(System.currentTimeMillis()-
+                java.time.Instant.parse(saved.getString("listUploadedAt")).toEpochMilli()
+                    in 0..14*60*60*1000L) {
+                "Gespeicherte Goldliste ist älter als 14 Stunden."
+            }
+            check(saved.getString("listBatchId").matches(Regex("[a-f0-9]{32}"))) {
+                "Aktuelle bestätigte Goldliste erforderlich."
+            }
+            val arr=saved.getJSONArray("isins")
+            val names=(0 until arr.length()).map { arr.getString(it) }
+                .filter { SeriesEvidence.validIsin(it) }.distinct()
+            check(names.size in 1..12) { "Keine eindeutig lesbaren ISINs aus der Goldliste." }
+            AlertDialog.Builder(this).setTitle("DEGIRO-Navigation sofort prüfen")
+                .setMessage("Eine ISIN auswählen. Bob nutzt den vorhandenen sicheren Produktleser: DEGIRO öffnen, einmal lokal anmelden, ISIN suchen, Produktseite lesen und zurückkehren. Originalwerte werden als nicht ausführbare Lesebelege übertragen. Kein echtes oder künstlich gemeldetes Handelssignal, keine Orders oder Simulationstrades. Samsung entsperrt lassen.")
+                .setItems(names.toTypedArray()) { _, which ->
+                    requestQuoteRefresh(saved,listOf(names[which]),testOnly=true)
+                }
+                .setNegativeButton("Abbrechen",null).show()
+        }.onFailure { result.text=it.message ?: "Navigationstest nicht verfügbar." }
+    }
+
     private fun chooseQuoteRefresh() {
         runCatching {
             check(!refreshPreparing && !MorningReadRun.running && !GoldSearchRun.running && !PinReadinessProbe.running) { "Lauf zuerst abschließen oder stoppen." }
@@ -529,9 +573,13 @@ class ProductReadActivity : Activity() {
                 }.show()
         }.onFailure { result.text=it.message ?: "Kursauffrischung nicht verfügbar." }
     }
-    private fun requestQuoteRefresh(saved:org.json.JSONObject, selected:List<String>) {
+    private fun requestQuoteRefresh(saved:org.json.JSONObject, selected:List<String>,
+                                    testOnly:Boolean=false) {
         runCatching {
-            check(selected.size in 1..3) { "Ein bis drei Produkte auswählen." }
+            check(if(testOnly) selected.size==1 else selected.size in 1..3) {
+                if(testOnly) "Navigationstest: genau eine ISIN erforderlich."
+                else "Ein bis drei Produkte auswählen."
+            }
             check(PhoneDiagnostics.paired(this) && preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Diagnose verbinden und Lesedienst einschalten." }
             check(!refreshPreparing) { "Kursauffrischung wird bereits vorbereitet." }
             refreshPreparing=true
@@ -560,10 +608,14 @@ class ProductReadActivity : Activity() {
                         val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
                         MorningReadRun.rememberRefreshSource(this,saved.toString())
                         val intent=LoginToReadHandoff.DetailRefresh(saved.getString("listBatchId"),saved.getString("listUploadedAt"),plan)
+                        // A previous idle entry-read or settings session must
+                        // not be re-used as an unrelated product-read session.
+                        // Owner explicitly chose this refresh/test now; any
+                        // already running detail, login or search was blocked.
+                        if(PhoneRemote.active()) PhoneRemote.stop(this,"STOPPED")
                         if(LocalPinVault.exists(this)) {
                             check(PhoneDiagnostics.keypadTestVerified(this) && LocalPinVault.available(this)) { "Lokale PIN-Einrichtung prüfen und Handy entsperren." }
                             secret=LocalPinVault.load(this)
-                            if(PhoneRemote.active()) PhoneRemote.stop(this,"STOPPED")
                             LoginToReadHandoff.arm(SystemClock.elapsedRealtime(),detailRefresh=intent)
                             started=true;PinReadinessProbe.startLocalLogin(secret!!)
                         } else {
@@ -572,7 +624,8 @@ class ProductReadActivity : Activity() {
                             MorningReadRun.beginDiscovered(this,ordered,intent.batch,plan.associate { it.isin to it.missingFields },intent.listAt)
                             ProductReadRequest.start(SystemClock.elapsedRealtime())
                         }
-                        result.text="${plan.size} ausgewählte Produkte werden gelesen; ${selected.size-plan.size} bestätigte beendete Produkte ausgelassen. Ohne gespeicherte PIN muss DEGIRO angemeldet sein."
+                        result.text=(if(testOnly) "NAVIGATIONSTEST · " else "") +
+                            "${plan.size} ausgewählte Produkte werden gelesen; ${selected.size-plan.size} bestätigte beendete Produkte ausgelassen. Ohne gespeicherte PIN muss DEGIRO angemeldet sein."
                         startActivity(launch)
                     }.onFailure {
                         if(started) {
