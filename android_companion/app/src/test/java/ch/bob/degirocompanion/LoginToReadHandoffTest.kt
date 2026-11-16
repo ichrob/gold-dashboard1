@@ -89,7 +89,7 @@ class LoginToReadHandoffTest {
 
     @Test fun entryReadCannotEscalateFullReaderOrOtherSession() {
         LoginToReadHandoff.clear()
-        for (invalid in listOf<(()->Unit)>(
+        for (invalid in listOf<() -> Unit>(
                 { LoginToReadHandoff.arm(1000L,entryReadOnly=true) },
                 { LoginToReadHandoff.arm(1000L,resumeAfterOwnerUnlock=true) },
                 { LoginToReadHandoff.arm(1000L,sessionOnly=true,
