@@ -82,21 +82,57 @@ class ProductReadService : AccessibilityService() {
             if (PinReadinessProbe.running) handler.postDelayed(this, 1000)
         }
     }
+    /** Restart only the *locally* selected idle entry-read readiness, in its
+     * original 15-minute lease. Never dismiss a secure keyguard, re-enter the
+     * Samsung PIN, launch an order UI, or extend expired owner consent.
+     * Android may reject activity starts from the background; fail closed.
+     */
+    private fun resumeEntryAfterOwnerUnlock(attempt:Int=0) {
+        if(!PhoneRemote.waitingForOwnerUnlock())return
+        val power=getSystemService(POWER_SERVICE) as PowerManager
+        val keyguard=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        if(!power.isInteractive || keyguard.isKeyguardLocked || keyguard.isDeviceLocked)return
+        val root=rootInActiveWindow
+        val brokerForeground=try { root?.packageName?.toString()==ProductScreenEvidence.PACKAGE }
+            finally { root?.recycle() }
+        if(brokerForeground) {
+            PhoneRemote.resumeAfterOwnerUnlock(this, true)
+            return
+        }
+        if(attempt==0) {
+            val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: return
+            if(runCatching { startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isFailure)return
+        }
+        if(attempt<4) handler.postDelayed({resumeEntryAfterOwnerUnlock(attempt+1)},500)
+    }
     private var screenReceiverRegistered = false
     private val screenOff = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if(intent?.action == Intent.ACTION_USER_PRESENT) {
-                handler.postDelayed({ runCatching { MorningReadTransfer.automaticResults(this@ProductReadService) } },1000)
+            if(intent?.action==Intent.ACTION_USER_PRESENT ||
+                intent?.action==Intent.ACTION_SCREEN_ON) {
+                if(intent.action==Intent.ACTION_USER_PRESENT)
+                    handler.postDelayed({ runCatching { MorningReadTransfer.automaticResults(this@ProductReadService) } },1000)
+                // SCREEN_ON can precede the keyguard: the explicit checks above
+                // will not resume a locked Android device.
+                if(PhoneRemote.waitingForOwnerUnlock())
+                    handler.postDelayed({ resumeEntryAfterOwnerUnlock() },350)
                 return
             }
-            if(intent?.action==Intent.ACTION_SCREEN_OFF && PinReadinessProbe.running) PinReadinessProbe.stop("Bildschirm ausgeschaltet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SCREEN_LOCKED)
-            if(intent?.action==Intent.ACTION_SCREEN_OFF)PhoneRemote.stop(this@ProductReadService,"SCREEN_LOCKED")
+            if(intent?.action==Intent.ACTION_SCREEN_OFF && PinReadinessProbe.running)
+                PinReadinessProbe.stop("Bildschirm ausgeschaltet. PIN-Test beendet.",
+                    PinKeypadExerciseTrace.Reason.SCREEN_LOCKED)
+            if(intent?.action==Intent.ACTION_SCREEN_OFF) {
+                val inProgress=ProductReadRequest.active(SystemClock.elapsedRealtime()) ||
+                    MorningReadRun.running || GoldSearchRun.running || PinReadinessProbe.running
+                if(!PhoneRemote.pauseForScreenLock(inProgress))
+                    PhoneRemote.stop(this@ProductReadService,"SCREEN_LOCKED")
+            }
             if (intent?.action != Intent.ACTION_SCREEN_OFF || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return
             MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
             GoldSearchRun.stop("SCREEN_LOCKED",Instant.now().toString())
             ProductReadRequest.cancel()
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED)
-            ProductReadSession.put(ProductScreenEvidence.Result(message = "Bildschirm ausgeschaltet. Leseprüfung beendet; zum Fortsetzen entsperren und erneut starten."), SystemClock.elapsedRealtime())
+            ProductReadSession.put(ProductScreenEvidence.Result(message = "Bildschirm ausgeschaltet. Aktive Lesung beendet; zum Fortsetzen entsperren."), SystemClock.elapsedRealtime())
         }
     }
     private var screenLease: PowerManager.WakeLock? = null
@@ -278,7 +314,10 @@ class ProductReadService : AccessibilityService() {
         ProductReadDiagnostics.windowAccess = (serviceInfo.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) != 0
         accessibilityButtonController.registerAccessibilityButtonCallback(callback)
         if (!screenReceiverRegistered) {
-            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF).apply { addAction(Intent.ACTION_USER_PRESENT) }
+            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF).apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
+            }
             if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, filter, Context.RECEIVER_NOT_EXPORTED)
             else registerReceiver(screenOff, filter)
             screenReceiverRegistered = true
