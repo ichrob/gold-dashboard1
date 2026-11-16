@@ -5963,9 +5963,9 @@ function productRiskPreviewText(p,market,now=Date.now()){
      'Nur rechnerischer Vertragswert ohne Anbieter-Spread')+
     ' · Modell-Einstand '+f(modeled.modelEntry)+' EUR · Stopp '+f(modeled.modelStop)+
     ' EUR · Ziel '+f(modeled.modelTarget)+' EUR'+
-    '\\nGold-Stopp '+modeled.goldStop.toFixed(2)+' USD · Gold-Ziel '+modeled.goldTarget.toFixed(2)+' USD'+
-    '\\n'+modeled.reason+' · Referenz '+modeled.referenceAt+
-    '\\nKEIN aktueller DEGIRO-Geld-/Briefkurs und KEINE Freigabe für einen Einstieg. '+r.reason;
+    '\nGold-Stopp '+modeled.goldStop.toFixed(2)+' USD · Gold-Ziel '+modeled.goldTarget.toFixed(2)+' USD'+
+    '\n'+modeled.reason+' · Referenz '+modeled.referenceAt+
+    '\nKEIN aktueller DEGIRO-Geld-/Briefkurs und KEINE Freigabe für einen Einstieg. '+r.reason;
   }
   return 'Produkt-Stopp/Ziel nicht berechenbar · '+(modeled?.reason||r.reason)+gold;
  }
