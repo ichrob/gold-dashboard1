@@ -71,7 +71,9 @@ def entry_block_code(value):
     if any(word in reason for word in (
             'haupttrend geschwächt', '5m-kursindikatoren neutral oder widersprüchlich',
             'zeitebenen bestätigen die richtung nicht',
-            'trendstärke schwach: zweite schlusskerze')):
+            'trendstärke schwach: zweite schlusskerze',
+            'erst 1 von 2 geschlossenen 5m-kerzen bestätigt',
+            'kleine ema-/macd-distanz: zweite schlusskerze')):
         return 'no-direction'
     if 'kurzfristiger rücksetzer; einstieg abwarten' in reason:
         return 'plan-not-ready'
