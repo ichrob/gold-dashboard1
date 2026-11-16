@@ -1,0 +1,49 @@
+"""Private bounded per-ISIN original/model reference audit, not fills."""
+import unittest
+from unittest.mock import patch
+import handset_planning
+
+
+class ModelPlanAuditTests(unittest.TestCase):
+    def test_all_screen_rows_including_exclusions_and_stale_are_explicit(self):
+        products=[
+            {'isin':'DE000SQ02JQ6','direction':'LONG','state':'analysis-evidence-complete'},
+            {'isin':'DE000FB0A490','direction':'SHORT','state':'analysis-evidence-complete'},
+            {'isin':'DE000FA9UFD4','direction':'LONG','state':'terminated'},
+            {'isin':'DE000PU0D101','direction':'LONG','state':'excluded-factor'}]
+        source=dict(items=products,listUploadedAt='2026-11-16T13:38:00Z')
+        plan=dict(resultFresh=True,result={
+            'listUploadedAt':source['listUploadedAt'],'calculatedAt':100000,
+            'items':[
+                dict(isin=products[0]['isin'],planState='model-only-reference',
+                    modelMode='anchored-estimate',modelStop=17.3,modelTarget=25.4,
+                    modelCurrency='EUR',modelReferenceAt='2026-11-16T18:00:00Z'),
+                dict(isin=products[1]['isin'],planState='reference-unavailable',
+                    modelMode=None,modelStop=None,modelTarget=None,
+                    reasons=['Produktkurs und Vertragsquelle fehlen'])]})
+        with patch('degiro_product_audit.read',return_value=source),patch.object(
+                handset_planning,'read',return_value=plan):
+            result=handset_planning.model_plan_audit(object(),now=100000)
+        self.assertEqual(result['listed'],4)
+        self.assertEqual(result['modeled'],1)
+        self.assertEqual(result['blocked'],1)
+        self.assertEqual(result['excluded'],2)
+        self.assertTrue(result['readOnly'])
+        self.assertFalse(result['realOrders'])
+        self.assertFalse(result['items'][0]['tradeApproved'])
+        self.assertEqual(result['items'][0]['modelStop'],17.3)
+        self.assertEqual(result['items'][1]['status'],'unavailable')
+        self.assertEqual(result['items'][2]['status'],'terminated')
+        self.assertEqual(result['items'][3]['status'],'excluded-factor')
+        plan['resultFresh']=False
+        with patch('degiro_product_audit.read',return_value=source),patch.object(
+                handset_planning,'read',return_value=plan):
+            stale=handset_planning.model_plan_audit(object(),now=200000)
+        self.assertEqual(stale['status'],'not-current')
+        self.assertEqual(stale['modeled'],0)
+        self.assertEqual(stale['blocked'],2)
+        self.assertTrue(all(x['modelStop'] is None for x in stale['items']))
+
+
+if __name__=='__main__':
+    unittest.main()
