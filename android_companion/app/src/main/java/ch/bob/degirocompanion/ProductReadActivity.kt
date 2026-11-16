@@ -165,56 +165,77 @@ class ProductReadActivity : Activity() {
                     var secret:ByteArray?=null
                     var loginStarted=false
                     var sessionStarted=false
+                    var failureCode=EntryReadStartPolicy.Code.ENTRY_START_BUSY
                     runCatching {
-                        check(!LoginToReadHandoff.pending(SystemClock.elapsedRealtime()) &&
-                            !PinReadinessProbe.running && !PhoneRemote.active() &&
-                            !MorningReadRun.running && !GoldSearchRun.running &&
-                            !ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+                        check(EntryReadStartPolicy.mayReplaceIdleSession(
+                            LoginToReadHandoff.pending(SystemClock.elapsedRealtime()),
+                            PinReadinessProbe.running, MorningReadRun.running,
+                            GoldSearchRun.running,
+                            ProductReadRequest.active(SystemClock.elapsedRealtime()))) {
                             "Lauf zuerst abschließen."
                         }
+                        failureCode=EntryReadStartPolicy.Code.ENTRY_START_SERVICE_UNAVAILABLE
                         check(preferences.getBoolean("enabled",false) && serviceEnabled() &&
                             ProductReadDiagnostics.connected) { "Lesedienst einschalten." }
+                        failureCode=EntryReadStartPolicy.Code.ENTRY_START_DIAGNOSTICS_UNPAIRED
                         check(PhoneDiagnostics.paired(this)) {
                             "Automatische Diagnose zunächst verbinden und freigeben."
                         }
+                        failureCode=EntryReadStartPolicy.Code.ENTRY_START_APP_UNAVAILABLE
                         val launch=packageManager.getLaunchIntentForPackage(
                             ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+                        failureCode=EntryReadStartPolicy.Code.ENTRY_START_PIN_UNAVAILABLE
                         if(LocalPinVault.exists(this)) {
                             // Reuse the same single-attempt, local-only verified
                             // Markets handoff as the complete Gold list reader.
                             // A remote entry session is created ONLY after
                             // LOCAL_PIN_HOME_VISIBLE, never on a login screen.
+                            failureCode=EntryReadStartPolicy.Code.ENTRY_START_KEYPAD_UNVERIFIED
                             check(PhoneDiagnostics.keypadTestVerified(this)) {
                                 "Lokale PIN eingerichtet, aber Tastaturtest nicht bestätigt."
                             }
+                            failureCode=EntryReadStartPolicy.Code.ENTRY_START_DEVICE_LOCKED
                             check(LocalPinVault.available(this)) {
                                 "Samsung zuerst entsperren, damit die lokale PIN verfügbar ist."
                             }
+                            failureCode=EntryReadStartPolicy.Code.ENTRY_START_PIN_UNAVAILABLE
                             secret=LocalPinVault.load(this)
+                            // Match the complete reader: replace only an idle
+                            // session, before arming the local PIN handoff.
+                            if(PhoneRemote.active()) PhoneRemote.stop(this,"STOPPED")
+                            ProductReadRequest.cancel();ProductReadSession.clear()
+                            LoginToReadHandoff.clear()
+                            failureCode=EntryReadStartPolicy.Code.ENTRY_START_LOGIN_FAILED
                             LoginToReadHandoff.arm(SystemClock.elapsedRealtime(),
                                 sessionOnly=true,entryReadOnly=true,
                                 resumeAfterOwnerUnlock=resumeChoice[0])
                             loginStarted=true
                             PinReadinessProbe.startLocalLogin(secret!!)
+                            failureCode=EntryReadStartPolicy.Code.ENTRY_START_LAUNCH_FAILED
                             startActivity(launch)
                             result.text="DEGIRO-Anmeldung wird mit vorhandener lokaler PIN einmal geprüft. " +
                                 "Erst nach bestätigter Marktseite beginnt die 15-Minuten-Bereitschaft."
                         } else {
                             // Without a local PIN, DEGIRO must already be
                             // logged in. Never infer approval from a login page.
+                            if(PhoneRemote.active()) PhoneRemote.stop(this,"STOPPED")
+                            ProductReadRequest.cancel();ProductReadSession.clear()
+                            failureCode=EntryReadStartPolicy.Code.ENTRY_START_SESSION_FAILED
                             PhoneRemote.start(this,entryReadOnly=true,
                                 resumeAfterOwnerUnlock=resumeChoice[0])
                             sessionStarted=true
+                            failureCode=EntryReadStartPolicy.Code.ENTRY_START_LAUNCH_FAILED
                             startActivity(launch)
                             result.text=if(resumeChoice[0])
                                 "Sperr-Fortsetzung aktiv · max. 15 Minuten · keine Orders."
                                 else "Bereitschaft aktiv · höchstens ein Produkt · 15 Minuten · keine Orders."
                         }
                     }.onFailure {
-                        LoginToReadHandoff.clear()
+                        if(loginStarted) LoginToReadHandoff.clear()
                         if(loginStarted && PinReadinessProbe.localLoginActive)
                             PinReadinessProbe.stop("Einstiegsnachlesung: PIN-Anmeldung nicht gestartet.")
                         if(sessionStarted)PhoneRemote.stop(this,"START_FAILED")
+                        PhoneDiagnostics.recordEntryStartFailure(this,failureCode)
                         result.text=if(secret!=null)
                             "Lokale Anmeldung konnte nicht vorbereitet werden; bitte Lesedienst prüfen."
                             else it.message ?: "Bereitschaft nicht gestartet."
