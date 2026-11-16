@@ -101,7 +101,7 @@ class ChainTests(unittest.TestCase):
                 self.sql=sql;return self
             def fetchall(self):return [(sample(),),(sample(3600),)]
         db=Db();out=status(db)
-        self.assertTrue(db.sql.startswith('SELECT'))
+        self.assertTrue(db.sql.startswith(('SELECT','WITH')))
         self.assertIsNotNone(out['evidenceChain']['products'][0]['illustrativeReplay'])
         self.assertEqual(len(out['runs']),2)
 
