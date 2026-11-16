@@ -155,6 +155,25 @@ class ProductReadActivity : Activity() {
         button("Automatische Diagnose ausschalten") { PhoneDiagnostics.disable(this);refresh() }
         button("Gold-Produkte suchen und auslesen") { startGoldRead() }
         button("Einzelne Produktkurse aktualisieren · höchstens 3") { chooseQuoteRefresh() }
+        button("Einstiegskurs automatisch nachlesen · 15 Minuten") {
+            AlertDialog.Builder(this).setTitle("Einmalige Kursnachlesung bei Einstiegssignal")
+                .setMessage("DEGIRO vorher anmelden. Bob wartet höchstens 15 Minuten auf ein passendes Signal und liest dann genau ein Produkt der zuletzt übertragenen Goldliste erneut. Danach endet die Sitzung. Handy entsperrt und DEGIRO geöffnet lassen. STOPP oder Sperrtaste beendet sie. Keine Order und keine bestätigte Ausführbarkeit allein durch Bildschirmwerte.")
+                .setNegativeButton("Abbrechen",null).setPositiveButton("Bereitschaft starten") { _,_ ->
+                    var started=false
+                    runCatching {
+                        check(!LoginToReadHandoff.pending(SystemClock.elapsedRealtime()) && !PinReadinessProbe.running) { "Lauf zuerst abschließen." }
+                        check(preferences.getBoolean("enabled",false) && serviceEnabled()) { "Lesedienst einschalten." }
+                        val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+                        PhoneRemote.start(this,entryReadOnly=true)
+                        started=true
+                        startActivity(launch)
+                        result.text="Bereitschaft aktiv · höchstens ein Produkt · 15 Minuten · keine Orders."
+                    }.onFailure {
+                        if(started)PhoneRemote.stop(this,"START_FAILED")
+                        result.text=it.message ?: "Bereitschaft nicht gestartet."
+                    }
+                }.show()
+        }
         button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {
             AlertDialog.Builder(this).setTitle("Vorhandenen Produkteinleser starten")
                 .setMessage("Bob startet den vorhandenen vollständigen Gold-Produkteinleser: DEGIRO öffnen, bei Bedarf lokal anmelden, suchen, Produktseiten lesen und zurückkehren. Ergebnisse und Fehler werden über die verbundene Diagnose an Bob gemeldet. Einzelne ChatGPT-Klickaufträge sind dafür nicht erforderlich. Bob verwendet eine eingerichtete PIN einmal lokal und beginnt nach bestätigter Marktseite. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein. Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")

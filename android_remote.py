@@ -75,7 +75,7 @@ def exchange(state,value,now):
     if not isinstance(value,dict) or not required_exchange<=set(value) or set(value)-required_exchange-{'purpose'}:
         raise ValueError('Invalid exchange')
     purpose=value.get('purpose','product_read')
-    if purpose not in ('product_read','owner_account_settings'):
+    if purpose not in ('product_read','owner_account_settings','entry_read'):
         raise ValueError('Invalid handset session purpose')
     if state.get('sessionId')==value['sessionId'] and state.get('purpose','product_read')!=purpose:
         raise ValueError('Session purpose cannot change')
@@ -208,6 +208,7 @@ def handle(conn,payload):
         if not device:raise PermissionError('Device not paired')
         row=conn.execute('SELECT state FROM bob_android_remote WHERE token_hash=%s FOR UPDATE',(digest,)).fetchone()
         state,answer=exchange(row[0] if row else {},payload.get('value'),now)
+        __import__('handset_entry_request').prepare(conn,digest,state,now)
         conn.execute('INSERT INTO bob_android_remote VALUES(%s,%s::jsonb) ON CONFLICT(token_hash) DO UPDATE SET state=EXCLUDED.state',(digest,json.dumps(state)))
         return answer
     if op!='mcp':raise ValueError('Invalid operation')

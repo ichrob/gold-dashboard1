@@ -112,15 +112,18 @@ internal object MorningReadRun {
         PhoneDiagnostics.queue(c)
     }
     fun beginDiscovered(c: Context, values: List<String>, listBatchId: String? = null,
-                        requested: Map<String, List<String>>? = null, originalListAt: String? = null) {
+                        requested: Map<String, List<String>>? = null, originalListAt: String? = null,
+                        requestBatchId: String? = null) {
         check(!running) { "Listenlauf läuft bereits." }
         check(values.size in 1..12 && values.distinct()==values && values.all { SeriesEvidence.validIsin(it) })
         check(listBatchId==null || listBatchId.matches(Regex("[a-f0-9]{32}")))
+        check(requestBatchId==null || (PhoneRemote.entryReadSession() &&
+            requestBatchId.matches(Regex("[a-f0-9]{32}")) && values.size==1 && listBatchId!=null))
         if(requested!=null) check(requested.keys==values.toSet() &&
             requested.values.all { v -> v.isNotEmpty() && v.size<=SelectiveDetailPlan.fields.size &&
                 v.distinct()==v && v.all { it in SelectiveDetailPlan.fields } })
         if(originalListAt!=null) check(System.currentTimeMillis()-Instant.parse(originalListAt).toEpochMilli() in 0..14*60*60*1000L)
-        data=JSONObject().put("batchId",UUID.randomUUID().toString().replace("-",""))
+        data=JSONObject().put("batchId",requestBatchId ?: UUID.randomUUID().toString().replace("-",""))
             .put("listUploadedAt",originalListAt ?: Instant.now().toString()).put("listSource","degiro-gold-search")
             .put("appVersionCode",c.packageManager.getPackageInfo(c.packageName,0).versionCode)
             .put("revision",0).put("isins",JSONArray(values)).put("results",JSONArray()).put("events",JSONArray())

@@ -1048,6 +1048,18 @@ class ProductReadService : AccessibilityService() {
                 if(decision.code=="PROTECTED_ORDER_CONFIRM") ProductReadDiagnostics.launcher(MorningReadPolicy.launcherSearchIssue(descriptions),descriptions)
                 return observation(decision.code.ifBlank { "PROTECTED_VIEW" })
             }
+            if(actionName=="entry_read") {
+                if(!PhoneRemote.entryReadSession())return observation("INVALID_ACTION")
+                if(MorningReadRun.running || GoldSearchRun.running || PinReadinessProbe.running ||
+                    ProductReadRequest.active(SystemClock.elapsedRealtime()))return observation("BUSY")
+                val request=EntryReadRequest.parse(command ?: return observation("INVALID_ACTION"),
+                    System.currentTimeMillis()) ?: return observation("INVALID_ACTION")
+                MorningReadRun.beginDiscovered(this,listOf(request.isin),request.listBatchId,
+                    mapOf(request.isin to listOf("Geld","Brief","Anzeigezeit","Hebel")),
+                    request.listUploadedAt,request.requestId)
+                ProductReadRequest.start(SystemClock.elapsedRealtime())
+                return observation("ENTRY_READ_STARTED")
+            }
             val ids=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(descriptions.filterNot { it.editable }.joinToString("\n") { it.text.uppercase() })
                 .map { it.value }.filter { SeriesEvidence.validIsin(it) }.distinct().take(12).toList()
             val result=observation(decision.code.ifBlank { decision.kind.name }).put("nodeCount",nodes.size).put("isins",org.json.JSONArray(ids))
