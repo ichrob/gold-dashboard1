@@ -1643,7 +1643,7 @@ def simulation_evidence_snapshot(simulation, comparison=None):
                     'sampledDistinctClocks','totalDistinctClocks','truncated',
                     'note','reason',
                     counts=shape('nearbyOriginal','notObservedNearEvent',
-                                 'outsideRetention','queryUnavailable'),
+                                 'outsideRetention','futureEvent','queryUnavailable'),
                     items=[shape('eventAt','state','nearestSourceAt',
                                  'deltaSeconds','timeRelation')])),
             'analysisGapArchive':project(simulation.get('analysisGapArchive'),
