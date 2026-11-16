@@ -487,7 +487,7 @@ def parse_bnp_dated_terms(page, isin, metadata, now=None):
     if identities != [isin]:
         raise ValueError('BNP-Seitenidentität nicht eindeutig')
     tables = re.findall(r'<table\b[^>]*>(.*?)</table>', page, re.S | re.I)
-    tables = [t for t in tables if re.search(r'<caption>\s*Stammdaten\s*</caption>', t, re.I)]
+    tables = [t for t in tables if re.search(r'<caption\b[^>]*>\s*Stammdaten\s*</caption>', t, re.I)]
     if len(tables) != 1:
         raise ValueError('BNP-Stammdatentabelle nicht eindeutig')
     conditions = {}

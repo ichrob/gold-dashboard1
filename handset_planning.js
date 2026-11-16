@@ -36,6 +36,8 @@ function evaluate(input){
    const market={...(input.plans?.[direction]||{}),spots:input.spots};
    const quote=p&&calc.selectQuoteByPriority(p,now)?.quote;
    const stop=imported.available&&p&&quote?api.productRiskComparison(p,market,now,quote):null;
+   if(stop?.reason==='Bestätigtes passendes EUR-/CHF-Spot-Turbo-Modell fehlt'&&q?.handsetModelCheck?.reason)
+    stop.reason=q.handsetModelCheck.reason;
    const fx=calc.readChfFx(input.spots,now,quote?.currency);
    const feeAssessment=calc.resolveFees({config:cfg,report:input.report,isin,spots:input.spots,now});
    const rowConfig={...cfg,feesCHF:feeAssessment.available?feeAssessment.feesCHF:null};

@@ -178,3 +178,12 @@ console.log('Exact model/fee/config blockers: saved CHF inputs retained, KO guar
  assert.equal(row.automaticScenarios.length,0);assert.equal(JSON.stringify(input),before);
 }
 console.log('Terminated issuer state remains explicit without misleading missing-plan retries');
+
+{
+ const input=fixture();delete input.quotes[isin].productModel;
+ input.quotes[isin].handsetModelCheck={reason:'CHF-Mini-Future: Modellpfad fehlt',code:'CHF_MINI_MODEL_UNSUPPORTED'};
+ const row=evaluate(input).items[0];
+ assert.equal(row.available,false);
+ assert(row.reasons.includes('CHF-Mini-Future: Modellpfad fehlt'));
+ assert.equal(row.entryApproved,false);
+}

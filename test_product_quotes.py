@@ -477,6 +477,15 @@ class BnpDatedTermsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             q.parse_bnp_dated_terms(self.page, ISIN, self.meta, self.now+timedelta(days=1))
 
+    def test_dated_terms_caption_attributes_keep_identity_and_uniqueness_guards(self):
+        page = self.page.replace('<caption>', '<caption class="" data-view="terms">')
+        self.assertEqual(q.parse_bnp_dated_terms(page, ISIN, self.meta, self.now),
+                         q.parse_bnp_dated_terms(self.page, ISIN, self.meta, self.now))
+        with self.assertRaises(ValueError):
+            q.parse_bnp_dated_terms(page + page[page.index('<table>'):], ISIN, self.meta, self.now)
+        with self.assertRaises(ValueError):
+            q.parse_bnp_dated_terms(page.replace('Stammdaten','Kennzahlen'), ISIN, self.meta, self.now)
+
     def test_dated_issuer_terms_survive_secondary_undated_terms(self):
         direct = dict(isin=ISIN,productVerified=True,found=False,eligible=False,metadata=dict(self.meta,termsDated=True,status=1),conditions=q.parse_bnp_dated_terms(self.page,ISIN,self.meta,self.now))
         secondary = dict(productVerified=True,metadata={'status':1,'termsDated':False})
