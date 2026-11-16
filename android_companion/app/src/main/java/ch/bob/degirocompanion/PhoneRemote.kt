@@ -28,6 +28,8 @@ internal object PhoneRemote {
     // Only the specifically labelled local settings button enables one
     // local redacted read; normal product sessions never do this.
     private var settingsOnly=false
+    private var entryOnly=false
+    fun entryReadSession()=active() && entryOnly
     private var localSettingsPending=false
     private var commands=PhoneCommandPolicy()
     var reader:((JSONObject?)->JSONObject)?=null
@@ -42,7 +44,8 @@ internal object PhoneRemote {
         .put("nodeCount",0).put("isins",JSONArray()).put("draft","")
         .put("diagnostics",ProductReadDiagnostics.report(SystemClock.elapsedRealtime()))
     fun start(c:Context, accountSettingsOnly:Boolean=false,
-              ownerConfirmedProfile:String?=null) {
+              ownerConfirmedProfile:String?=null, entryReadOnly:Boolean=false) {
+        require(!entryReadOnly || (!accountSettingsOnly && ownerConfirmedProfile==null))
         require(ownerConfirmedProfile==null ||
             (accountSettingsOnly && ownerConfirmedProfile in setOf("BASIC","ACTIVE","TRADER"))) {
             "Ein bestätigtes Profil benötigt die ausdrückliche Nur-Lesen-Freigabe."
@@ -55,6 +58,7 @@ internal object PhoneRemote {
         lastReportedAutoFx=null;lastReportedProfile=null
         locallyConfirmedProfile=ownerConfirmedProfile
         settingsOnly=accountSettingsOnly;localSettingsPending=accountSettingsOnly
+        entryOnly=entryReadOnly
         commands=PhoneCommandPolicy();ProductReadSession.clear()
         message="Handy-Sitzung aktiv · höchstens 15 Minuten · STOPP oder Sperrtaste beendet sie."
         val id=session
@@ -74,7 +78,7 @@ internal object PhoneRemote {
     private fun payload(id:String,active:Boolean,observation:JSONObject)=JSONObject()
         .put("sessionId",id).put("expiresAt",expires).put("active",active)
         .put("observation",observation).put("ack",ack ?: JSONObject.NULL)
-        .put("purpose",if(settingsOnly)"owner_account_settings" else "product_read")
+        .put("purpose",if(settingsOnly)"owner_account_settings" else if(entryOnly)"entry_read" else "product_read")
     private fun poll(c:Context,id:String) {
         if(session!=id)return
         if(!active() || !PhoneDiagnostics.paired(c)) { stop(c,"SESSION_EXPIRED");return }

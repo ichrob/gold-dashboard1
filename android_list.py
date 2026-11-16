@@ -318,8 +318,10 @@ def handle(conn,payload,now):
         candidates={x['isin'] for x in (row[1] or []) if not x.get('listRow',{}).get('excluded')}
         if not isinstance(run,dict) or not isinstance(run.get('isins'),list) or not run['isins'] or any(not isinstance(i,str) or i not in candidates for i in run['isins']):raise ValueError('Details outside imported list')
         # Store original observations, never turn receipt time into quote time.
-        return __import__('android_observations').handle(conn,{'action':'save','run':run},
+        answer=__import__('android_observations').handle(conn,{'action':'save','run':run},
             original_list={'batchId':value['batchId'],'uploadedAt':row[2]} if len(row)>2 and row[2] else None)
+        __import__('handset_entry_request').receipt(conn,digest,value['batchId'],run,now)
+        return answer
     if payload['action']=='list-status':
         batch=payload.get('value',{}).get('batchId')
         if not isinstance(batch,str) or not re.fullmatch('[a-f0-9]{32}',batch):raise ValueError('Invalid batch')

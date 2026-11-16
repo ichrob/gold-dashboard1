@@ -17,6 +17,7 @@ class MemoryDb:
         self.sql.append(sql)
         if 'SELECT payload FROM bob_android_read_runs WHERE' in sql:self.result=(self.rows[params[0]],) if params[0] in self.rows else None
         elif 'SELECT payload FROM bob_paper_products' in sql:self.result=({'products':[{'isin':ISIN}]},)
+        elif sql.startswith('SELECT state FROM bob_android_remote'):self.result=None
         elif 'INSERT INTO bob_android_read_runs' in sql:self.rows.setdefault(params[0],json.loads(params[1]))
         else: raise AssertionError(sql)
         return self
