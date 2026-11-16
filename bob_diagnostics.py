@@ -384,6 +384,9 @@ def new_studies_brief(paper, now_ms=None):
     """
     if not isinstance(paper, dict):
         return None
+    # One consistent read-time clock for witness expiry, study health and
+    # worker staleness. Omitted now_ms must not bypass stale-evidence filtering.
+    now_ms = time.time()*1000 if now_ms is None else now_ms
     keys = ('qualityCampaign', 'shadowStudies', 'intradayTimingStudy', 'rapidLeverageStudy')
     if not any(isinstance(paper.get(k), dict) for k in keys):
         return None
@@ -498,7 +501,6 @@ def new_studies_brief(paper, now_ms=None):
     # internal watchdog. Historical invalid totals stay in the study counters
     # but must never become a *new* current repair warning by themselves.
     # A missing/old recent window remains unknown, never "healthy".
-    now_ms = time.time()*1000 if now_ms is None else now_ms
     paper_health = paper.get('paper') if isinstance(paper.get('paper'),dict) else {}
     raw_reaction = next((s for s in (quality.get('studies') or [])
                          if isinstance(s,dict) and s.get('id')=='reaction'),{})
