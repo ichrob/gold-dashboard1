@@ -164,3 +164,17 @@ assert.equal(koRow.available,false);assert.match(koRow.reason,/KO-Schutzbereich/
 assert.equal(koRow.modelStop,null);assert.equal(koRow.copyAllowed,false);
 assert(koRow.automaticScenarios.every(s=>!s.available));
 console.log('Exact model/fee/config blockers: saved CHF inputs retained, KO guard intact, conditional scenarios unchanged');
+
+// A terminated product is not an instruction to keep retrying missing prices/FX.
+{
+ const input=fixture();input.report.items[0].state='terminated';
+ input.report.items[0].handsetObservation={code:'NO_QUOTES',fields:{Geld:'0,001'}};
+ input.config=null;input.spots={};input.plans={};
+ const before=JSON.stringify(input),out=evaluate(input),row=out.items[0];
+ assert.equal(row.available,false);assert.equal(out.available,0);
+ assert.deepEqual(Array.from(row.reasons),['Produkt vom Emittenten als beendet gemeldet']);
+ assert.equal(row.quantity,null);assert.equal(row.modelStop,null);
+ assert.equal(row.entryApproved,false);assert.equal(row.copyAllowed,false);
+ assert.equal(row.automaticScenarios.length,0);assert.equal(JSON.stringify(input),before);
+}
+console.log('Terminated issuer state remains explicit without misleading missing-plan retries');
