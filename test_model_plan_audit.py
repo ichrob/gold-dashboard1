@@ -23,6 +23,12 @@ class ModelPlanAuditTests(unittest.TestCase):
                     modelOriginalGoldAt='2026-11-16T17:59:50Z',modelFxAt='2026-11-16T17:59:50Z'),
                 dict(isin=products[1]['isin'],planState='reference-unavailable',
                     modelMode=None,modelStop=None,modelTarget=None,
+                    modelEvidenceCode='DATED_TERMS_MISSING',
+                    modelEvidenceMissing=['ko','strike'],
+                    modelEstimateReason='Datierten KO-/Basispreisnachweis prüfen',
+                    goldReference={'state':'available','direction':'SHORT',
+                        'unit':'USD/oz','entry':4200,'stop':4230,'target':4140,
+                        'sourceAt':'2026-11-16T17:59:50Z','entrySuitable':True},
                     reasons=['Produktkurs und Vertragsquelle fehlen'])]})
         with patch('degiro_product_audit.read',return_value=source),patch.object(
                 handset_planning,'read',return_value=plan):
@@ -36,6 +42,13 @@ class ModelPlanAuditTests(unittest.TestCase):
         self.assertFalse(result['items'][0]['tradeApproved'])
         self.assertEqual(result['items'][0]['modelStop'],17.3)
         self.assertEqual(result['items'][1]['status'],'unavailable')
+        self.assertEqual(result['goldReferences'],1)
+        self.assertEqual(result['goldOnly'],1)
+        self.assertEqual(result['items'][1]['goldReference']['stop'],4230)
+        self.assertEqual(result['items'][1]['goldReference']['target'],4140)
+        self.assertFalse(result['items'][1]['goldReference']['modelTradeApproved'])
+        self.assertEqual(result['items'][1]['modelEvidenceCode'],'DATED_TERMS_MISSING')
+        self.assertEqual(result['items'][1]['modelEvidenceMissing'],['ko','strike'])
         self.assertEqual(result['items'][2]['status'],'terminated')
         self.assertEqual(result['items'][3]['status'],'excluded-factor')
         plan['resultFresh']=False
@@ -46,6 +59,9 @@ class ModelPlanAuditTests(unittest.TestCase):
         self.assertEqual(stale['modeled'],0)
         self.assertEqual(stale['blocked'],2)
         self.assertTrue(all(x['modelStop'] is None for x in stale['items']))
+        self.assertEqual(stale['goldReferences'],0)
+        self.assertEqual(stale['goldOnly'],0)
+        self.assertTrue(all(x['goldReference']['state']=='unavailable' for x in stale['items']))
 
 
 if __name__=='__main__':

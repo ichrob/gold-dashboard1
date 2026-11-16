@@ -35,6 +35,26 @@ function evaluate(input){
    if(p)p.isinConfirmed=api.automaticIdentity(p);
    const imported=calc.importHandsetReport(input.report,isin,now);
    const market={...(input.plans?.[direction]||{}),spots:input.spots};
+   // Independent original-gold stop/target risk reference per displayed ISIN.
+   // An unpriced product still shows its GOLD risk boundaries; never display
+   // these USD/oz levels as a EUR/CHF issuer bid/ask or approved product stop.
+   const goldSpot=input.spots||{},gp=input.plans?.[direction]||{},
+    goldStamp=Date.parse(goldSpot.spot_price_as_of||''),
+    goldGeometry=direction==='LONG'?gp.stop<gp.entry&&gp.entry<gp.target:
+     direction==='SHORT'?gp.target<gp.entry&&gp.entry<gp.stop:false;
+   const goldVerified=goldSpot.is_genuine_xauusd_spot===true&&!goldSpot.spot_error&&
+    Number.isFinite(goldSpot.xaus)&&goldSpot.xaus>0&&
+    Number.isFinite(goldStamp)&&0<=now-goldStamp&&now-goldStamp<=60000&&
+    gp.available===true&&gp.direction===direction&&goldGeometry&&
+    [gp.entry,gp.stop,gp.target].every(x=>Number.isFinite(x)&&x>0)&&
+    Math.abs(gp.entry-goldSpot.xaus)<=.10;
+   const goldReference=goldVerified?{state:'available',direction,unit:'USD/oz',
+    entry:gp.entry,stop:gp.stop,target:gp.target,sourceAt:goldSpot.spot_price_as_of,
+    entrySuitable:gp.entrySuitable!==false,
+    reason:gp.entrySuitable===false?'Zielhindernis: keine Handelsfreigabe':null,
+    productPriceApproved:false,modelTradeApproved:false}:
+    {state:'unavailable',reason:'Keine aktuell bestätigte Gold-Stop-/Zielreferenz',
+     productPriceApproved:false,modelTradeApproved:false};
    const quote=p&&calc.selectQuoteByPriority(p,now)?.quote;
    // A technical reference requires original product/quote proof, not a
    // handset screenshot. Missing handset evidence still blocks comparison
@@ -75,12 +95,15 @@ function evaluate(input){
     !feeAssessment.available&&feeAssessment.reason,
     !preliminary.available&&preliminary.reason,!result.available&&result.reason].filter(Boolean);
    return {...result,isin,feeAssessment,automaticScenarios,contractModelCheck:q?.handsetModelCheck||null,
+    goldReference,modelEvidenceCode:q?.handsetModelCheck?.code||null,
+    modelEvidenceMissing:q?.handsetModelCheck?.unconfirmedTerms||[],
     planState:stop?.available?(stop.entrySuitable===false?'reference-target-obstacle':'reference-calculated'):
      estimate?.available?'model-only-reference':'reference-unavailable',
     modelMode:estimate?.available?estimate.mode:null,
     modelEntry:estimate?.available?estimate.modelEntry:null,
     modelWarning:estimate?.available?estimate.warning:null,
-    modelEstimateReason:estimate?.reason||null,
+    modelEstimateReason:estimate?.available?null:
+      q?.handsetModelCheck?.reason||estimate?.reason||stop?.reason||null,
     modelGoldEntry:estimate?.available?estimate.goldEntry:null,
     modelGoldStop:estimate?.available?estimate.goldStop:null,
     modelGoldTarget:estimate?.available?estimate.goldTarget:null,

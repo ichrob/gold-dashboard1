@@ -76,6 +76,34 @@ assert.equal(evaluate(tooOld).items[0].simulationPlanningUsable,false);
 const terminatedModel=JSON.parse(prior);
 terminatedModel.report.items[0].state='terminated';
 assert.equal(evaluate(terminatedModel).items[0].modelStop,null);
+// Gold-denominated stop/target remains informative when product terms cannot
+// yield a verified EUR/CHF stop. It never becomes a product entry price.
+const goldOnly=fixture('LONG','EUR');
+goldOnly.spots.xaus=4200;
+goldOnly.spots.is_genuine_xauusd_spot=true;
+goldOnly.spots.spot_price_as_of=at;
+delete goldOnly.quotes[isin].productModel;
+goldOnly.quotes[isin].handsetModelCheck={
+ code:'DATED_TERMS_MISSING',reason:'Originale datierte Vertragsbedingungen fehlen',
+ unconfirmedTerms:['ko','strike']};
+const goldOriginal=JSON.stringify(goldOnly),goldRow=evaluate(goldOnly).items[0];
+assert.equal(JSON.stringify(goldOnly),goldOriginal);
+assert.equal(goldRow.planState,'reference-unavailable');
+assert.equal(goldRow.modelStop,null);
+assert.equal(goldRow.goldReference.state,'available');
+assert.equal(goldRow.goldReference.unit,'USD/oz');
+assert.equal(goldRow.goldReference.stop,4170);
+assert.equal(goldRow.goldReference.target,4260);
+assert.equal(goldRow.modelEvidenceCode,'DATED_TERMS_MISSING');
+assert.equal(goldRow.modelEstimateReason,'Originale datierte Vertragsbedingungen fehlen');
+assert.equal(goldRow.entryApproved,false);
+assert.equal(goldRow.simulationFillAllowed,false);
+const oldGold=JSON.parse(goldOriginal);
+oldGold.spots.spot_price_as_of=new Date(now-70000).toISOString();
+assert.equal(evaluate(oldGold).items[0].goldReference.state,'unavailable');
+const wrongGold=JSON.parse(goldOriginal);
+wrongGold.spots.xaus=4100;
+assert.equal(evaluate(wrongGold).items[0].goldReference.state,'unavailable');
 const missing=fixture();missing.config=null;
 const row=evaluate(missing).items[0];assert(row.modelStop>0);assert.equal(row.available,false);
 console.log('Server handset scenarios: shared LONG/SHORT stops, EUR/CHF costs, missing config/FX, terminal/stale guards, no input mutation passed');

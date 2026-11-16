@@ -441,6 +441,13 @@ function showServerPlanning(panel,data){
      'Referenzstopp '+fmt(x.modelStop,4)+(Number.isFinite(x.modelTarget)?' · Referenzziel '+fmt(x.modelTarget,4):'')+
      ' '+(x.modelCurrency||x.currency||'Währung offen')+' · ': 'Referenzstopp/-ziel nicht berechenbar · ')+
      (x.modelWarning||'')+' · '+(x.reasons||[]).join(' · '))+
+   (x.goldReference?.state==='available'?
+     '\n  GOLD-Referenz (USD/oz, kein Produktkurs) · Einstieg '+
+     fmt(x.goldReference.entry,2)+' · Stopp '+fmt(x.goldReference.stop,2)+
+     ' · Ziel '+fmt(x.goldReference.target,2)+
+     (x.goldReference.entrySuitable?'':' · Zielhindernis – Einstieg gesperrt')+
+     ' · Originalzeit '+(x.goldReference.sourceAt||'unbekannt')+
+     ' · keine Kauf- oder Produktpreisfreigabe':'')+
    (x.automaticScenarios||[]).map(s=>'\n  Bedingte Rechnung · '+s.assumptions.join('; ')+' · '+
     (s.feeAssessment.available?'Gebührenreserve '+fmt(s.feeAssessment.feesCHF)+' CHF · ':'')+
     (s.available?s.quantity+' Stück · '+fmt(s.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(s.stop,4)+' '+s.currency+
