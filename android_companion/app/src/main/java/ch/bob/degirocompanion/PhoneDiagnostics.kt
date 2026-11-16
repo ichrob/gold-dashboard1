@@ -155,6 +155,15 @@ internal object PhoneDiagnostics {
         prefs(c).edit().putString("pinProbe", summary.toString()).commit()
         queue(c)
     }
+    /** Persist before queueing, so a rejected start survives process/network loss.
+     * Existing opt-in and pairing gates still govern all transmission.
+     */
+    fun recordEntryStartFailure(c:Context, code:EntryReadStartPolicy.Code) {
+        if(!enabled(c))return
+        prefs(c).edit().putString("lastCode",code.name)
+            .putString("lastEventAt",Instant.now().toString()).commit()
+        queue(c)
+    }
     fun snapshot(c:Context):String {
         val p=prefs(c)
         val event=runCatching { JSONObject(MorningReadRun.pending(c) ?: "{}").optJSONArray("events")?.let { it.optJSONObject(it.length()-1) } }.getOrNull()
