@@ -1304,6 +1304,14 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
     result['recentPaperOutcomes'] = recent_paper_outcomes(result['accounts'])
     try:
         with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='500ms'")
+            result['modelPaperTrials'] = __import__('model_paper_trial').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        result['modelPaperTrials'] = {'status':'unavailable','readOnly':True,
+            'realOrders':False,'reason':'model-paper-trial-report-unavailable'}
+    try:
+        with conn.transaction():
             conn.execute("SET LOCAL statement_timeout='600ms'")
             result['modelPlanAudit'] = __import__('handset_planning').model_plan_audit(conn)
             conn.execute("SET LOCAL statement_timeout='3s'")
@@ -1921,7 +1929,7 @@ DIAGNOSTIC_FOCUS = ('overview', 'simulation', 'trades', 'signals',
                     'storage')
 _FOCUS_AREAS = {
     'storage': ('storageBrief',),
-    'simulation': ('modelPlanAudit', 'newStudiesBrief', 'paperProfitEvidence', 'simulationRuntimeBrief', 'simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
+    'simulation': ('modelPaperTrials', 'modelPlanAudit', 'newStudiesBrief', 'paperProfitEvidence', 'simulationRuntimeBrief', 'simulationEvidence', 'simulationAndPush', 'riskPaper', 'comparisonEvidence',
                    'comparisonHealth', 'entryBlockEvidence', 'background', 'collection',
                    'gapEvidence', 'diagnosticStageCoverage', 'diagnosticCaptureHandoff'),
     'sources': ('signalFreshness', 'market', 'sourceReliability', 'collection', 'background', 'analysis'),
