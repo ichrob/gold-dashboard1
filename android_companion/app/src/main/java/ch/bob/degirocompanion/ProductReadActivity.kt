@@ -543,8 +543,11 @@ class ProductReadActivity : Activity() {
             val names=(0 until arr.length()).map { arr.getString(it) }
                 .filter { SeriesEvidence.validIsin(it) }.distinct()
             check(names.size in 1..12) { "Keine eindeutig lesbaren ISINs aus der Goldliste." }
-            AlertDialog.Builder(this).setTitle("DEGIRO-Navigation sofort prüfen")
-                .setMessage("Eine ISIN auswählen. Bob nutzt den vorhandenen sicheren Produktleser: DEGIRO öffnen, einmal lokal anmelden, ISIN suchen, Produktseite lesen und zurückkehren. Originalwerte werden als nicht ausführbare Lesebelege übertragen. Kein echtes oder künstlich gemeldetes Handelssignal, keine Orders oder Simulationstrades. Samsung entsperrt lassen.")
+            // Android's standard AlertDialog message view takes precedence over
+            // its list view. setMessage + setItems therefore hides the ISINs
+            // and leaves only the Cancel button visible on the handset.
+            // Make the verified ISIN list the dialog's actual content.
+            AlertDialog.Builder(this).setTitle("ISIN wählen · nur Lesetest")
                 .setItems(names.toTypedArray()) { _, which ->
                     requestQuoteRefresh(saved,listOf(names[which]),testOnly=true)
                 }
