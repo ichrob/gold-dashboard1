@@ -51,6 +51,16 @@ class ModelPlanAuditTests(unittest.TestCase):
         self.assertEqual(result['items'][1]['modelEvidenceMissing'],['ko','strike'])
         self.assertEqual(result['items'][2]['status'],'terminated')
         self.assertEqual(result['items'][3]['status'],'excluded-factor')
+        # Intermittent issuer reads must never promote a previously terminal
+        # or unconfirmed row to a plan just because Gold itself is fresh.
+        source['items'][1]['state']='incomplete'
+        with patch('degiro_product_audit.read',return_value=source),patch.object(
+                handset_planning,'read',return_value=plan):
+            uncertain=handset_planning.model_plan_audit(object(),now=now)
+        self.assertEqual(uncertain['goldReferences'],0)
+        self.assertEqual(uncertain['goldOnly'],0)
+        self.assertEqual(uncertain['items'][1]['goldReference']['state'],'unavailable')
+        source['items'][1]['state']='analysis-evidence-complete'
         plan['resultFresh']=False
         with patch('degiro_product_audit.read',return_value=source),patch.object(
                 handset_planning,'read',return_value=plan):
