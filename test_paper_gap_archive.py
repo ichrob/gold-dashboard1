@@ -122,6 +122,27 @@ class PaperArchiveEvidenceTests(unittest.TestCase):
         self.assertEqual(conn.execute.call_count,data['sampledDistinctClocks'])
         self.assertTrue(data['totalDistinctClocks']<=40)
 
+    def test_eleventh_paper_profile_is_included_in_gap_read_and_report(self):
+        at=1000000
+        accounts=[{'profile':'control-'+str(i),
+                   'recentCases':{'status':'observed','items':[]}}
+                  for i in range(10)]
+        last=_account(at)
+        last['profile']='noema5000nov'
+        accounts.append(last)
+        conn=Mock()
+        conn.transaction.return_value=_Tx()
+        conn.execute.return_value.fetchone.return_value=(at-10000,)
+        check=archive.report(conn,accounts,now_ms=at+100000)
+        self.assertEqual(check['totalDistinctClocks'],1)
+        self.assertEqual(check['counts']['nearbyOriginal'],1)
+        report=bob_diagnostics.simulation_evidence_snapshot(
+            {'status':'observed','accounts':accounts,'spotGapArchive':check})
+        self.assertEqual(len(report['accountSamples']),11)
+        self.assertEqual(report['accountSamples'][-1]['profile'],'noema5000nov')
+        self.assertEqual(report['gapCorrelation']['distinctRecordedGapInstants'],1)
+        self.assertFalse(report['gapReview']['realOrders'])
+
     def test_projection_inside_simulation_report_preserves_only_allowlist(self):
         sample={'status':'observed','accounts':[_account(1000000)],
             'spotGapArchive':{'status':'observed','readOnly':True,
