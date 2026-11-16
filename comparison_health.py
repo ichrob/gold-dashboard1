@@ -17,6 +17,12 @@ QUERIES = {
     WHEN a.recorded_at > now() - interval '60 minutes' THEN 'pending-horizon'
     ELSE 'outcome-not-recorded' END
     FROM bob_decision_audit a ORDER BY a.recorded_at DESC LIMIT 101""",
+ 'matured-60m-outcomes': """SELECT extract(epoch FROM a.recorded_at)*1000,
+    CASE WHEN EXISTS (SELECT 1 FROM bob_decision_outcomes o WHERE o.decision_id=a.id AND o.horizon=60)
+    THEN 'outcome-recorded' ELSE 'outcome-not-recorded' END
+    FROM bob_decision_audit a
+    WHERE a.recorded_at <= now() - interval '60 minutes'
+    ORDER BY a.recorded_at DESC LIMIT 101""",
  'improvement-trials': """SELECT slot, CASE
     WHEN outcome IS NOT NULL THEN 'outcome-recorded'
     WHEN payload->>'valid' IS DISTINCT FROM 'true'
@@ -107,6 +113,8 @@ def report(conn, now=None):
     # sample explicitly; historical rows remain stored and are NOT called absent.
     items['list-price-pairs']['sampleScope'] = 'current-list-anchors-only'
     items['list-price-pairs']['historicalCoverageVerified'] = False
+    items['matured-60m-outcomes']['sampleScope'] = 'latest-matured-decisions-only'
+    items['matured-60m-outcomes']['horizonMinutes'] = 60
     items['legacy-fast-cautious']['collectionWindowEnded'] = now >= intraday_comparison.END
     items['legacy-fast-cautious']['newCasesExpected'] = intraday_comparison.active(now)
     import adaptive_learning
@@ -147,6 +155,7 @@ def report(conn, now=None):
         scope='bounded-stored-evidence-not-full-study-completion-or-worker-heartbeat',
         note='Stored outcomes and terminal cases are not verified profitable or completed research studies. '
              'No-records is not success. Pending 60-minute horizons and ineligible trials are not missing results. '
+             'The matured 60-minute sample is separately bounded to already-due decisions. '
              'Latest clocks refer only to the disclosed bounded sample; '
              'three-stop and correction samples are in ID order, not recency order. '
              'List-price pairs sample only the currently anchored saved-list ISINs; '
