@@ -209,7 +209,9 @@ internal object PhoneRemote {
                         if(sentSettings.has("feeProfile") && !sentSettings.isNull("feeProfile"))
                             lastReportedProfile=sentSettings.optString("feeProfile")
                     }
-                    message=if(lastReportedAutoFx!=null || lastReportedProfile!=null) {
+                    message=if(waitingOnUnlock)
+                        "Bereitschaft wartet auf deine Entsperrung · keine Bedienung hinter dem Sperrbildschirm."
+                    else if(lastReportedAutoFx!=null || lastReportedProfile!=null) {
                         "DEGIRO-Einstellungen übertragen" +
                             (lastReportedProfile?.let { " · Profil: $it" } ?: "") +
                             (lastReportedAutoFx?.let {
