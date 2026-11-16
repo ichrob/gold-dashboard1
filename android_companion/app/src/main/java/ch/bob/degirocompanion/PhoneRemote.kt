@@ -1,6 +1,8 @@
 package ch.bob.degirocompanion
 
 import android.content.Context
+import android.app.KeyguardManager
+import android.os.PowerManager
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -29,7 +31,54 @@ internal object PhoneRemote {
     // local redacted read; normal product sessions never do this.
     private var settingsOnly=false
     private var entryOnly=false
-    fun entryReadSession()=active() && entryOnly
+    // Only a distinct, locally chosen entry-read mode may survive screen-off.
+    // Other owner sessions and active page reads retain their fail-closed STOP.
+    private var resumeOnUnlock=false
+    private var waitingOnUnlock=false
+    private var entryScreenLease: PowerManager.WakeLock?=null
+    fun entryReadSession()=active() && entryOnly && !waitingOnUnlock
+    fun waitingForOwnerUnlock()=active() && waitingOnUnlock
+
+    private fun releaseEntryScreenLease() {
+        entryScreenLease?.let { if(it.isHeld)it.release() }
+        entryScreenLease=null
+    }
+    @Suppress("DEPRECATION")
+    private fun holdEntryScreen(c:Context) {
+        releaseEntryScreenLease()
+        if(!resumeOnUnlock || !active())return
+        val power=c.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val keyguard=c.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        // Keep an already-unlocked, owner-opened session dimly lit. Never
+        // wake a locked handset or attempt to dismiss Android's keyguard.
+        if(!power.isInteractive || keyguard.isKeyguardLocked || keyguard.isDeviceLocked)return
+        runCatching {
+            power.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK,"Bob:OwnerEntryRead").also {
+                entryScreenLease=it
+                it.setReferenceCounted(false)
+                it.acquire((deadline-SystemClock.elapsedRealtime()).coerceAtLeast(1))
+            }
+        }.onFailure { releaseEntryScreenLease() }
+    }
+    fun pauseForScreenLock(readingInProgress:Boolean):Boolean {
+        if(!EntryLockResumePolicy.mayWaitForOwnerUnlock(
+                resumeOnUnlock,entryOnly,active(),readingInProgress))return false
+        waitingOnUnlock=true
+        releaseEntryScreenLease()
+        message="Bereitschaft wartet auf deine Entsperrung · keine DEGIRO-Bedienung im Sperrbildschirm."
+        return true
+    }
+    fun resumeAfterOwnerUnlock(c:Context,brokerForeground:Boolean):Boolean {
+        if(!EntryLockResumePolicy.mayResume(waitingOnUnlock,active(),
+                (c.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive,
+                (c.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked,
+                (c.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isDeviceLocked,
+                brokerForeground))return false
+        waitingOnUnlock=false
+        holdEntryScreen(c)
+        message="Entsperrt · DEGIRO wieder sichtbar · Bereitschaft läuft weiter."
+        return true
+    }
     private var localSettingsPending=false
     private var commands=PhoneCommandPolicy()
     var reader:((JSONObject?)->JSONObject)?=null
@@ -44,7 +93,11 @@ internal object PhoneRemote {
         .put("nodeCount",0).put("isins",JSONArray()).put("draft","")
         .put("diagnostics",ProductReadDiagnostics.report(SystemClock.elapsedRealtime()))
     fun start(c:Context, accountSettingsOnly:Boolean=false,
-              ownerConfirmedProfile:String?=null, entryReadOnly:Boolean=false) {
+              ownerConfirmedProfile:String?=null, entryReadOnly:Boolean=false,
+              resumeAfterOwnerUnlock:Boolean=false) {
+        require(!resumeAfterOwnerUnlock || entryReadOnly) {
+            "Sperr-Fortsetzung nur für lokale Einstiegskurs-Bereitschaft."
+        }
         require(!entryReadOnly || (!accountSettingsOnly && ownerConfirmedProfile==null))
         require(ownerConfirmedProfile==null ||
             (accountSettingsOnly && ownerConfirmedProfile in setOf("BASIC","ACTIVE","TRADER"))) {
@@ -59,8 +112,13 @@ internal object PhoneRemote {
         locallyConfirmedProfile=ownerConfirmedProfile
         settingsOnly=accountSettingsOnly;localSettingsPending=accountSettingsOnly
         entryOnly=entryReadOnly
+        resumeOnUnlock=resumeAfterOwnerUnlock
+        waitingOnUnlock=false
         commands=PhoneCommandPolicy();ProductReadSession.clear()
-        message="Handy-Sitzung aktiv · höchstens 15 Minuten · STOPP oder Sperrtaste beendet sie."
+        message=if(resumeOnUnlock)
+            "Einstiegskurs-Bereitschaft · höchstens 15 Minuten · Sperre wartet auf Entsperrung."
+            else "Handy-Sitzung aktiv · höchstens 15 Minuten · STOPP oder Sperrtaste beendet sie."
+        holdEntryScreen(c)
         val id=session
         handler.postDelayed({ if(session==id)stop(c.applicationContext,"SESSION_EXPIRED") },900000)
         poll(c.applicationContext,session)
@@ -68,6 +126,9 @@ internal object PhoneRemote {
     fun stop(c:Context,code:String="STOPPED") {
         if(session.isEmpty())return
         val old=session;session="";deadline=0;pendingSettings=null;message="Handy-Sitzung beendet: $code"
+        releaseEntryScreenLease()
+        resumeOnUnlock=false
+        waitingOnUnlock=false
         onStop?.invoke(code)
         val body=payload(old,false,empty(code))
         settingsOnly=false;localSettingsPending=false;pendingSettingsCode=""
@@ -82,7 +143,11 @@ internal object PhoneRemote {
     private fun poll(c:Context,id:String) {
         if(session!=id)return
         if(!active() || !PhoneDiagnostics.paired(c)) { stop(c,"SESSION_EXPIRED");return }
-        val observation=runCatching { reader?.invoke(null) ?: empty("SERVICE_MISSING") }.getOrElse { empty("READ_ERROR") }
+        // Never touch DEGIRO's window tree while Android is locked. This
+        // status does not complete, ACK or authorize any remote read request.
+        val observation=if(waitingOnUnlock) empty("WAITING_FOR_UNLOCK")
+            else runCatching { reader?.invoke(null) ?: empty("SERVICE_MISSING") }
+                .getOrElse { empty("READ_ERROR") }
         if(PhoneObservationPolicy.mustStop(observation.optString("code"))) { stop(c,observation.optString("code"));return }
         // A user explicitly selected the separate account-settings button.
         // Only once, only after the foreground DEGIRO page has passed the
@@ -161,8 +226,15 @@ internal object PhoneRemote {
                         if(commands.accept(command.optString("sessionId"),id,request,command.optString("action"),command.optString("isin"),command.optLong("expiresAt"),System.currentTimeMillis()/1000)) {
                             val valid=command.optString("sessionId")==id && command.optLong("expiresAt")>System.currentTimeMillis()/1000
                             val action=command.optString("action")
-                            val reply=if(valid && action!="stop") runCatching { reader?.invoke(command) }.getOrNull() else null
-                            val code=if(!valid) "COMMAND_EXPIRED" else if(action=="stop") "STOPPED"
+                            // A network request can finish AFTER SCREEN_OFF
+                            // even if it was sent before the lock was observed.
+                            // Fail this particular already-delivered request
+                            // closed; never replay it after an unlock.
+                            val locked=waitingOnUnlock
+                            val reply=if(valid && !locked && action!="stop")
+                                runCatching { reader?.invoke(command) }.getOrNull() else null
+                            val code=if(locked && action!="stop") "SCREEN_LOCKED"
+                                else if(!valid) "COMMAND_EXPIRED" else if(action=="stop") "STOPPED"
                                 else reply?.optString("code") ?: "ACTION_ERROR"
                             if(action=="read_account_settings" && code in setOf(
                                     "ACCOUNT_SETTINGS_COMPLETE","ACCOUNT_SETTINGS_PARTIAL"))
