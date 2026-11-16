@@ -4,7 +4,7 @@ Status: **BLOCKED**. This document does not grant permission, set an environment
 
 ## Gate 1: full tests
 - Exact PR-head SHA: run the complete Bob CI, risk, security and repair checks; store URLs, SHA, conclusions.
-- Run `python -m unittest -v test_twelve_research_one_click test_twelve_research_extension test_twelve_research_storage_bridge` in an isolated, keyless test environment.
+- Run `python -m unittest -v test_twelve_research_one_click test_twelve_research_extension test_twelve_research_storage_bridge test_twelve_research_erasure` in an isolated, keyless test environment.
 - Verify localhost Host/Origin/CSRF denial, GET no side effect, single use after failure, five-minute idle expiry, disabled button and no price/secret output.
 - **No release** if any check is absent, skipped unexpectedly, or fails.
 
@@ -24,6 +24,9 @@ Status: **BLOCKED**. This document does not grant permission, set an environment
 - Name an accountable owner for account termination/access revocation.
 - Implement and test raw-data deletion within 30 days of lost access, including copies, backups and Drive artifacts, with auditable deletion receipts. Fail closed if deletion cannot be guaranteed.
 - Do not delete original trading evidence or unrelated Bob archives.
+- **SQLite journal guard (16 Nov):** `twelve_research_erasure.py` now refuses to report local research erasure when `-wal`, `-shm` or `-journal` sidecars exist, or when the archive is not in SQLite DELETE journal mode. No blind deletion, forced checkpoint or journal-mode conversion is performed by the erasure routine. The return code `ERASURE_REQUIRES_OFFLINE_JOURNAL_REVIEW` means the source data may still exist; the cleanup is **not complete**.
+- On such a refusal, stop all clients, review journal/checkpoint state in an authorized offline copy, follow the independently audited retention procedure and rerun verification. Never remove sidecars of a live SQLite database, nor present a local-only row-count check as proof that backups, Google Drive copies or SSD remnants were erased.
+- The positive `LOCAL_RESEARCH_ERASED` result covers only **logical deletion in the local research database**. It is **not** contractual 30-day retention sign-off; remote copies and backups remain unverified until separately inventoried and erased.
 
 ## Gate 5: one real evaluation
 - Only after Gates 1–4: confirm user-authorized, documented free Basic scope, operator-only environment and verified credential without exposing the key.
