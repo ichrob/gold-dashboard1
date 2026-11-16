@@ -164,6 +164,9 @@ def tick(conn, evidence, quotes, market, bundle, now):
         input=json.dumps(request, allow_nan=False), text=True, capture_output=True,
         timeout=6, check=True, priority=2)
     result = json.loads(proc.stdout)
+    from handset_entry_check import assess
+    for item in result.get('items', []):
+        item['preEntryCheck'] = assess(item, now)
     result.update(fingerprint=fingerprint, configRevision=state['revision'],
                   contextFingerprint=state.get('contextFingerprint'),
                   listUploadedAt=report.get('listUploadedAt'))
