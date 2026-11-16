@@ -57,3 +57,18 @@ Offline no-network tests:
 Release gate: test + GitHub CI; verify a single authenticated no-cost call
 and provider's actual response format/timezone. Until that succeeds, this
 module is a prepared integration, not a working live historical feed.
+# Provider acceptance check — 2026-11-16
+
+The owner confirmed that this account is used only for Bob. A bounded handset
+request authenticated successfully (HTTP 200). The actual daily response uses
+`YYYY-MM-DD 00:00:00` and a decimal string for `avg_price`; both are now accepted
+without changing the archived original JSON. Non-midnight periods, invalid
+decimals, out-of-window rows and duplicates remain rejected. Historical daily
+averages remain research data, never live bars or executable product quotes.
+
+All attempts, including rejected responses, consume the shared persistent local
+eight-per-hour allowance. This confirmation applies to the single handset
+operator, not an independently started Render job. No scheduled collector or
+production integration is enabled by this change. The CLI also closes its
+SQLite connection on both successful and failed runs.
+

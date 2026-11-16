@@ -10,8 +10,10 @@ import hashlib
 import json
 import math
 import os
+import re
 import sqlite3
 import stat
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
@@ -71,6 +73,15 @@ def _positive(value):
         raise ValueError("Invalid historical OHLC/price")
     return float(value)
 
+def _daily_price(value):
+    # The provider serializes historical averages as decimal strings. Keep the
+    # original payload unchanged; accept only bounded plain decimal notation.
+    if isinstance(value, str):
+        if len(value) > 64 or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", value):
+            raise ValueError("Invalid historical decimal")
+        value = float(value)
+    return _positive(value)
+
 def validate(mode, data, start, end):
     """No claim of closed 1m/5m bars or source-clock precision beyond provider."""
     if mode == "history-day":
@@ -84,13 +95,15 @@ def validate(mode, data, start, end):
             if not isinstance(day, str):
                 raise ValueError("Missing UTC day")
             try:
-                parsed = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}(?: 00:00:00)?", day):
+                    raise ValueError("Not a UTC daily boundary")
+                parsed = datetime.strptime(day[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
             except ValueError as exc:
                 raise ValueError("Invalid UTC day") from exc
             at = int(parsed.timestamp())
             if not start <= at < end or (dates and at <= dates[-1]):
                 raise ValueError("Outside window or non-monotonic/duplicate date")
-            _positive(row["avg_price"])
+            _daily_price(row["avg_price"])
             dates.append(at)
         return len(dates)
     if mode == "ohlc-range":
@@ -206,7 +219,7 @@ def main():
     p.add_argument("--archive",required=True,help="Private persistent SQLite file")
     args=p.parse_args()
     try:
-        with private_archive(args.archive) as db:
+        with closing(private_archive(args.archive)) as db:
             result=run(db,args.mode,args.start,args.end)
         print(json.dumps(result,sort_keys=True))
     except (ValueError,sqlite3.Error,OSError):

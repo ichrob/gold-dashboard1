@@ -79,11 +79,38 @@ class GoldApiHistoryTests(unittest.TestCase):
         good={"day":"2026-11-12","avg_price":3980.5}
         self.assertEqual(h.validate("history-day",[good],START,END),1)
         for rows in ([],[good,good],[{"day":"2026-11-11","avg_price":3980.5}],
-                     [{"day":"2026-11-12","avg_price":"3980.5"}],
+                     [{"day":"2026-11-12","avg_price":"not-a-price"}],
                      [{"day":"2026-11-12","avg_price":float("nan")}],
                      [{"day":"2026-11-12","avg_price":-1}]):
             with self.subTest(rows=rows),self.assertRaises(ValueError):
                 h.validate("history-day",rows,START,END)
+
+    def test_provider_midnight_and_decimal_strings_preserve_original(self):
+        payload=[{"day":"2026-11-12 00:00:00","avg_price":"3980.500000"}]
+        result=h.run(self.db,"history-day",START,END,environ=AUTH,
+                     requester=Mock(return_value=payload),now=NOW)
+        self.assertEqual(result["status"],"stored-research-only")
+        import json
+        saved=json.loads(self.db.execute("select raw_json from historical_originals").fetchone()[0])
+        self.assertEqual(saved,payload)
+        self.assertFalse(result["usableAsLiveBar"])
+        for value in ("nan","inf","1e3"," 3980.5","-1","0","1,000",True,"9"*65):
+            with self.subTest(value=value),self.assertRaises(ValueError):
+                h.validate("history-day",[{"day":payload[0]["day"],"avg_price":value}],START,END)
+        for day in ("2026-11-12 00:00:01","2026-11-12 12:00:00","2026-11-12junk","2026-11-11 00:00:00"):
+            with self.subTest(day=day),self.assertRaises(ValueError):
+                h.validate("history-day",[{"day":day,"avg_price":"3980.5"}],START,END)
+
+    def test_cli_closes_archive_connection(self):
+        for result in ({"status":"disabled"},ValueError("invalid input")):
+            db=Mock()
+            with patch.object(h,"private_archive",return_value=db),patch.object(h,"run") as run,patch("sys.argv",["research","--mode","history-day","--start",str(START),"--end",str(END),"--archive","/private/archive.sqlite"]),patch("builtins.print"):
+                if isinstance(result,Exception):
+                    run.side_effect=result
+                else:
+                    run.return_value=result
+                h.main()
+            db.close.assert_called_once()
 
     def test_endpoint_never_forwards_url_or_key_to_different_host(self):
         with patch.object(h,"build_opener") as opener:
