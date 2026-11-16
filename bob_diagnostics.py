@@ -1575,7 +1575,8 @@ def simulation_evidence_snapshot(simulation, comparison=None):
     reason_counts={'missing-current-market':0,'bar-gap-over-90s':0,'unclassified':0}
     missing_recorded_time=0
     sampled_inconclusive=0
-    for account in accounts[:10]:
+    from paper_gap_archive import MAX_ACCOUNT_SAMPLES
+    for account in accounts[:MAX_ACCOUNT_SAMPLES]:
         if not isinstance(account,dict):
             continue
         record=account.get('recentCases')
@@ -1643,7 +1644,7 @@ def simulation_evidence_snapshot(simulation, comparison=None):
                     'sampledDistinctClocks','totalDistinctClocks','truncated',
                     'note','reason',
                     counts=shape('nearbyOriginal','notObservedNearEvent',
-                                 'outsideRetention','queryUnavailable'),
+                                 'outsideRetention','futureEvent','queryUnavailable'),
                     items=[shape('eventAt','state','nearestSourceAt',
                                  'deltaSeconds','timeRelation')])),
             'analysisGapArchive':project(simulation.get('analysisGapArchive'),
@@ -1683,7 +1684,7 @@ def simulation_evidence_snapshot(simulation, comparison=None):
             'gapReview':__import__('paper_gap_triage').assess(
                 {'recentRecordedGapInstants':clusters[-10:],
                  'sampleCoverage': ('observed' if evidence and
-                                    len(evidence)==len(accounts[:10]) and
+                                    len(evidence)==len(accounts[:MAX_ACCOUNT_SAMPLES]) and
                                     all(item['sampleStatus']=='observed' and
                                         item['counts']['other']==0 and
                                         item['casesWithRecordedDataGap']==0
