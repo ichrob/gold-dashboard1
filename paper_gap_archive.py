@@ -15,6 +15,7 @@ WINDOW_MS = 90000
 # age-based expiry; do not reuse this journal limit for its indexed lookup.
 RETENTION_MS = 7 * 86400000
 MAX_EVENTS = 12
+MAX_ACCOUNT_SAMPLES = 16  # includes all eleven current paper profiles
 
 _SQL = """SELECT (extract(epoch FROM quote_at)*1000)::double precision
 FROM bob_spot_observations
@@ -27,7 +28,7 @@ LIMIT 1"""
 def _times(accounts):
     """Exact recorded event clocks only, from bounded sanitized cases."""
     seen=set()
-    for account in accounts[:10]:
+    for account in accounts[:MAX_ACCOUNT_SAMPLES]:
         if not isinstance(account,dict):
             continue
         journal=account.get('recentCases')
