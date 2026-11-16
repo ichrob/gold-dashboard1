@@ -5,6 +5,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
 const {randomUUID}=require('node:crypto');
 const engines=require('playwright'),path=require('node:path');
 const {createStorageRelay}=require('./browser_test_storage_relay.cjs');
+const {terminalStatusAfter}=require('./browser_test_status_sequence.cjs');
 const fixtureSource=name=>fs.readFileSync(path.join(process.env.BOB_BRIDGE_TEST_SOURCE||__dirname,name),'utf8');
 const engine=process.env.BOB_BRIDGE_BROWSER||'chromium';
 const BOB='https://bob-private-scanner.onrender.com',BROKER='https://trader.degiro.nl';
@@ -37,11 +38,12 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    relay.write(page,key,value,remove);
   });
   await ctx.exposeBinding('gmRead',()=>gm);
-  await ctx.addInitScript(async script=>{
+  await ctx.addInitScript(async ({script,terminalStatusSource})=>{
    const values=await window.gmRead(),listeners={};
    window.unsafeWindow=window;
    window.GM_getValue=(k,d)=>k in values?values[k]:d;
-   window.gmStatusWrites=0;
+   window.gmStatusWrites=0;window.gmStatusEvents=[];
+   window.__gmTerminalStatusAfter=(0,eval)('('+terminalStatusSource+')');
    // Track *locally started* exposed-binding promises. A local 'staged'
    // update can precede the asynchronous binding's relay.write enqueue.
    // Only wait for the binding to enter the relay, never for cross-tab ACK:
@@ -67,14 +69,17 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
     }
    };
    window.exportResults=[];window.addEventListener("message",e=>{if(e.source===window&&e.data?.type==="BOB_EXPORT_RESULT")window.exportResults.push(e.data);});
-   window.GM_setValue=(k,v)=>{if(k==='bob-export-status-v1')window.gmStatusWrites++;const old=values[k];values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,false);window.__gmTrackBinding(k,v,false);};
+   window.GM_setValue=(k,v)=>{if(k==='bob-export-status-v1'){
+    window.gmStatusWrites++;window.gmStatusEvents.push({write:window.gmStatusWrites,state:v?.state||null});
+    if(window.gmStatusEvents.length>64)window.gmStatusEvents.splice(0,window.gmStatusEvents.length-64);
+   }const old=values[k];values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,false);window.__gmTrackBinding(k,v,false);};
    window.GM_deleteValue=k=>{delete values[k];window.__gmTrackBinding(k,null,true);};
    window.GM_addValueChangeListener=(k,fn)=>(listeners[k]??=[]).push(fn);
    window.gmRemote=(k,v,remove)=>{const old=values[k];if(remove)delete values[k];else values[k]=v;for(const fn of listeners[k]||[])fn(k,old,v,true);};
    // Real managers can provide a window wrapper distinct from event.source.
    const wrapped={postMessage:window.postMessage.bind(window),addEventListener:window.addEventListener.bind(window)};
    new Function('window','unsafeWindow',script)(wrapped,window);
-  },fixtureSource('bob_degiro_export.user.js'));
+  },{script:fixtureSource('bob_degiro_export.user.js'),terminalStatusSource:terminalStatusAfter.toString()});
   await ctx.route('https://**/*',route=>{
    const req=route.request(),u=new URL(req.url());requests.push({origin:u.origin,path:u.pathname,method:req.method()});
    if(u.origin===BOB){if(u.pathname==='/')return route.fulfill({contentType:'text/html',body:html});
@@ -117,16 +122,18 @@ const html='<!doctype html><meta charset="utf-8"><meta name="viewport" content="
    await broker.locator('#export').click();
    if(before.armed){
     // Await this export's own terminal status, not an old note or a fixed sleep.
-    await broker.waitForFunction(writes=>window.gmStatusWrites>writes&&
-     ['staged','error'].includes(GM_getValue('bob-export-status-v1',null)?.state),before.writes,{timeout:12000,polling:100}).catch(async error=>{
+    await broker.waitForFunction(writes=>Boolean(window.__gmTerminalStatusAfter(window.gmStatusEvents,writes)),
+     before.writes,{timeout:12000,polling:100}).catch(async error=>{
      const state=await broker.evaluate(()=>({
       writes:window.gmStatusWrites,
       status:GM_getValue('bob-export-status-v1',null)?.state||null,
-      armed:GM_getValue('bob-export-arm-v1',0)>Date.now()
+      armed:GM_getValue('bob-export-arm-v1',0)>Date.now(),
+      statusEvents:window.gmStatusEvents.slice(-8).map(event=>event.state)
      }));
      throw Error(error.message+'; synthetic broker state '+JSON.stringify(state));
     });
-    const state=await broker.evaluate(()=>GM_getValue('bob-export-status-v1',null)?.state);
+    const state=await broker.evaluate(writes=>window.__gmTerminalStatusAfter(window.gmStatusEvents,writes)?.state,
+     before.writes);
     if(state==='error')return false;
     // The synthetic userscript manager resolves each local write before its
     // ordered cross-tab delivery. Wait for this export's QUEUE/STATUS relay and
