@@ -10,6 +10,28 @@ CONFIG=dict(budgetCHF=1000,riskCHF=100,feesCHF=8,trailAtr=1.5,minRR=2)
 
 
 class Planning(unittest.TestCase):
+    def test_worker_persists_entry_read_readiness_without_dispatch(self):
+        from types import SimpleNamespace
+        now=1794834000000
+        report=dict(listUploadedAt='generation',items=[dict(isin='DE000FG14AV8',
+            state='incomplete',handsetObservation=dict(observedAt='capture'))])
+        item=dict(available=True,entrySuitable=True,reasons=[],
+                  modelReferenceAt='2026-11-16T12:59:00Z',
+                  observedAt='2026-11-16T12:00:00Z')
+        class Db:
+            def execute(self,sql,args):self.args=args
+        db=Db()
+        with patch.object(p,'read',return_value=dict(config=CONFIG,revision=3,result=None)),\
+             patch('degiro_product_audit.read',return_value=report),\
+             patch('evaluator_runtime.run',return_value=SimpleNamespace(
+                 stdout=json.dumps(dict(calculatedAt=now,items=[item])))):
+            p.tick(db,dict(listUploadedAt='generation',products=[]),{},
+                   dict(handsetPlanRevision=3),dict(spots={}),now)
+        saved=json.loads(db.args[0])['items'][0]
+        self.assertEqual(saved['preEntryCheck']['code'],'NEW_DEGIRO_READ_REQUIRED')
+        self.assertFalse(saved['preEntryCheck']['readDispatched'])
+        self.assertEqual(saved['observedAt'],item['observedAt'])
+
     def test_cached_result_requires_current_revision_and_dated_account_context(self):
         config=dict(CONFIG,feeProfile='unknown',fxMode='unknown')
         effective=dict(config,feeProfile='CH_STANDARD',fxMode='AUTO_CHF')
