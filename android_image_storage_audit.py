@@ -9,7 +9,8 @@ import hashlib
 import threading
 import time
 
-_SAMPLE_BATCHES = 8
+_SAMPLE_BATCHES = 2
+_SAMPLE_IMAGES = 4
 _CACHE_SECONDS = 900
 _lock = threading.Lock()
 _cache = None
@@ -20,21 +21,30 @@ _cached_at = 0
 # MD5 grouping is an exploratory candidate, NOT an exact-identical-image
 # proof suitable for rewriting rows or changing retention. Collision-safe
 # deduplication would require cryptographic checks AND bytewise read-through.
-_SQL = """WITH newest AS MATERIALIZED (
-    SELECT payload FROM bob_android_list_images
+_SQL = """WITH newest_keys AS MATERIALIZED (
+    SELECT batch_id,created_at FROM bob_android_list_images
     WHERE created_at >= now()-interval '24 hours'
-    ORDER BY created_at DESC,batch_id DESC LIMIT 8
-), selected AS MATERIALIZED (
-    SELECT octet_length(img.image->>'png')::bigint encoded_bytes,
-           md5(img.image->>'png') fingerprint
+    ORDER BY created_at DESC,batch_id DESC LIMIT %s
+), newest AS MATERIALIZED (
+    SELECT i.payload,k.created_at,k.batch_id FROM newest_keys k
+    JOIN bob_android_list_images i USING(batch_id)
+    ORDER BY k.created_at DESC,k.batch_id DESC
+), selected_images AS MATERIALIZED (
+    SELECT img.image
     FROM newest n CROSS JOIN LATERAL
       jsonb_array_elements(
         CASE WHEN jsonb_typeof(n.payload->'images')='array'
              THEN n.payload->'images' ELSE '[]'::jsonb END
-      ) AS img(image)
+      ) WITH ORDINALITY AS img(image,ordinality)
     WHERE jsonb_typeof(img.image)='object'
       AND jsonb_typeof(img.image->'png')='string'
       AND octet_length(img.image->>'png') BETWEEN 1 AND 2000000
+    ORDER BY n.created_at DESC,n.batch_id DESC,img.ordinality
+    LIMIT %s
+), selected AS MATERIALIZED (
+    SELECT octet_length(img.image->>'png')::bigint encoded_bytes,
+           md5(img.image->>'png') fingerprint
+    FROM selected_images img
 ), groups AS MATERIALIZED (
     SELECT fingerprint,encoded_bytes,count(*)::bigint copies
     FROM selected GROUP BY fingerprint,encoded_bytes
@@ -52,21 +62,27 @@ SELECT
 # The second, more expensive pass runs only after a positive candidate result
 # and only while the encoded sample is strictly bounded. It returns no images,
 # SHA-256 strings or even single-image lengths; all are discarded in-process.
-_MAX_EXACT_ENCODED = 12_000_000
-_EXACT_SQL = """WITH newest AS MATERIALIZED (
-    SELECT payload FROM bob_android_list_images
+_MAX_EXACT_ENCODED = 8_000_000
+_EXACT_SQL = """WITH newest_keys AS MATERIALIZED (
+    SELECT batch_id,created_at FROM bob_android_list_images
     WHERE created_at >= now()-interval '24 hours'
-    ORDER BY created_at DESC,batch_id DESC LIMIT 8
+    ORDER BY created_at DESC,batch_id DESC LIMIT %s
+), newest AS MATERIALIZED (
+    SELECT i.payload,k.created_at,k.batch_id FROM newest_keys k
+    JOIN bob_android_list_images i USING(batch_id)
+    ORDER BY k.created_at DESC,k.batch_id DESC
 )
 SELECT img.image->>'png'
 FROM newest n CROSS JOIN LATERAL
   jsonb_array_elements(
     CASE WHEN jsonb_typeof(n.payload->'images')='array'
          THEN n.payload->'images' ELSE '[]'::jsonb END
-  ) AS img(image)
+  ) WITH ORDINALITY AS img(image,ordinality)
 WHERE jsonb_typeof(img.image)='object'
   AND jsonb_typeof(img.image->'png')='string'
   AND octet_length(img.image->>'png') BETWEEN 1 AND 2000000
+ORDER BY n.created_at DESC,n.batch_id DESC,img.ordinality
+LIMIT %s
 """
 
 
@@ -82,7 +98,7 @@ def _verify_exact(conn, summary):
         with conn.transaction():
             conn.execute("SET LOCAL statement_timeout='2000ms'")
             conn.execute("SET LOCAL lock_timeout='500ms'")
-            rows=conn.execute(_EXACT_SQL).fetchall()
+            rows=conn.execute(_EXACT_SQL,(_SAMPLE_BATCHES,_SAMPLE_IMAGES)).fetchall()
         if type(rows) is not list or len(rows)!=summary['sampledImages']:
             return {'exactVerificationStatus':'cohort-changed',
                     'exactDuplicateProven':False}
@@ -144,17 +160,19 @@ def _counts(result, observed_at):
     if any(type(v) is not int or v < 0 for v in result):
         return {'status':'not-observed','readOnly':True}
     batches, images, chars, repeated, repeated_chars = result
-    if (batches > _SAMPLE_BATCHES or images > batches*4
+    if (batches > _SAMPLE_BATCHES or images > _SAMPLE_IMAGES
             or repeated > images or repeated_chars > chars):
         return {'status':'not-observed','readOnly':True}
     return {
         'status':'sampled' if batches else 'empty',
         'readOnly':True,
         'observedAt':observed_at,
-        'method':'latest-eight-batches-md5-candidate-groups-no-raw-images',
+        'method':'latest-two-batches-first-four-images-md5-candidate-groups-no-raw-images',
         'sampledBatches':batches, 'sampleCapBatches':_SAMPLE_BATCHES,
         'additionalBatchesMayExist':batches == _SAMPLE_BATCHES,
         'sampledImages':images,
+        'sampleCapImages':_SAMPLE_IMAGES,
+        'additionalImagesMayExist':images == _SAMPLE_IMAGES,
         'totalEncodedImageCharacters':chars,
         'candidateRepeatedImages':repeated,
         'candidateRepeatedEncodedCharacters':repeated_chars,
@@ -184,7 +202,7 @@ def report(conn, now=None):
             with conn.transaction():
                 conn.execute("SET LOCAL statement_timeout='1500ms'")
                 conn.execute("SET LOCAL lock_timeout='500ms'")
-                row=conn.execute(_SQL).fetchone()
+                row=conn.execute(_SQL,(_SAMPLE_BATCHES,_SAMPLE_IMAGES)).fetchone()
             result=_counts(row, at)
             if result.get('status')=='sampled':
                 result.update(_verify_exact(conn,result))

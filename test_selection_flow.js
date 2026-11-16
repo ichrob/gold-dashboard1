@@ -770,3 +770,12 @@ const expiredCard=b.goldProductCompactView(displayProduct,now+301000);
 assert(!expiredCard.includes('✓ Analyse-Nachweise vorhanden'));
 assert(expiredCard.includes('data-product-auto-repair'));
 console.log('Automatic compact display reconciliation: calculated leverage visible, invalid inputs remain open');
+
+const mini={isin:'DE000FG14AV8',name:'Gold Mini Future Long',quote:{isin:'DE000FG14AV8',productVerified:true,metadata:{underlyingType:'SPOT',underlying:'XAU/USD'}}};
+assert.equal(b.isFutureProduct(mini),false);
+assert.equal(b.isFutureProduct({...mini,quote:null}),true);
+assert.equal(b.isFutureProduct({...mini,name:'Gold Future Turbo Long'}),true);
+assert.equal(b.isFutureProduct({...mini,underlyingType:'FUTURE'}),true);
+assert.equal(b.isFutureProduct({...mini,snapshot:{terms:{contract:{value:'GCZ26'}}}}),true);
+assert.equal(b.isFutureProduct({...mini,quote:{...mini.quote,isin:'wrong'}}),true);
+console.log('Verified spot Mini Future label disambiguation preserves explicit futures and uncertain identity guards');

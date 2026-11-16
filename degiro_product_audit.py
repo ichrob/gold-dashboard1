@@ -310,6 +310,22 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
     direction = product.get("productDirection") or product.get("direction")
     quote = quote if isinstance(quote, dict) else {}
     metadata = quote.get("metadata") if isinstance(quote.get("metadata"), dict) else {}
+    # Preserve the provider of a failed issuer lookup. A comdirect terms page
+    # can be paired with a failed BNP quote request, or with SG discovery and
+    # a subsequent BNP failure. Neither is automatically an SG HTTP error.
+    issuer_research = quote.get("issuerResearch")
+    issuer_research = issuer_research if isinstance(issuer_research, dict) else {}
+    issuer_attempt = (issuer_research if issuer_research.get("source") else quote)
+    issuer_name = str(issuer_attempt.get("source") or "")
+    failure_provider = ("SG" if issuer_name.startswith(("SG", "Société Générale"))
+                        else "BNP" if issuer_name.startswith("BNP Paribas") else None)
+    failure_code = str(issuer_attempt.get("quoteFailureCode")
+                       or issuer_attempt.get("sourceFailureCode") or "")[:60] or None
+    sg_discovery = issuer_attempt.get("sgDiscovery") or quote.get("sgDiscovery")
+    sg_discovery = sg_discovery if isinstance(sg_discovery, dict) else {}
+    sg_failure_code = failure_code if failure_provider == "SG" else None
+    if sg_failure_code is None and sg_discovery.get("attempted") is True:
+        sg_failure_code = str(sg_discovery.get("failureCode") or "")[:60] or None
     missing = []
     verified = quote.get("isin") == isin and quote.get("productVerified") is True
     # SG's verified factor response intentionally has no live quote/term fields.
@@ -533,7 +549,9 @@ def examine(product, quote, now_ms, list_uploaded_at=None):
             "secondaryInactive": secondary_inactive,
             "secondarySource": fallback_fields.get("source") if secondary_inactive else None,
             "secondaryCheckedAt": fallback_fields.get("checkedAt") if secondary_inactive else None,
-            "sgFailureCode": str(quote.get("quoteFailureCode") or "")[:60] or None,
+            "sgFailureCode": sg_failure_code,
+            "issuerQuoteFailureProvider": failure_provider,
+            "issuerQuoteFailureCode": failure_code,
             "sgLastFailureStage": str(quote.get("lastSourceFailureStage") or "")[:32] or None,
             "swissquoteState": (quote.get("swissquoteBackup") or {}).get("state"),
             "swissquoteReasonCode": str((quote.get("swissquoteBackup") or {}).get("reasonCode") or "")[:60] or None,

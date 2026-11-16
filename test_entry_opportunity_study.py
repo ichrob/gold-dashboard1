@@ -63,6 +63,20 @@ class OpportunityTests(unittest.TestCase):
         self.assertEqual(state['arms']['reference']['pairedNetR'],0)
         self.assertIsNone(state['recent'][0]['arms']['combined']['netR'])
 
+    def test_malformed_naive_or_future_source_time_fails_closed(self):
+        for label in (None, 1794500000000, [], {}, '2026-11-12 12:00:00',
+                      'bad-clock', '2026-11-12T13:00:00+00:00'):
+            with self.subTest(clock=label):
+                bundle, market = fixture()
+                bundle['spots']['spot_price_as_of'] = label
+                self.assertIsNone(s.source(bundle, NOW))
+                self.assertEqual(s.advance(s.seed(NOW),bundle,market,NOW)['episodes'],0)
+        self.assertIsNone(s.source(None,NOW))
+        self.assertIsNone(s.source({'spots':[]},NOW))
+        self.assertIsNone(s.source({'spots':{}},float('nan')))
+        bundle, _ = fixture()
+        self.assertEqual(s.source(bundle,NOW),(100.,float(NOW)))
+
     def test_invalid_clocks_and_plans_cannot_enter(self):
         for edit in ('future','stale','mismatched','bad-stop','partial','session','no-direction'):
             b,m=fixture()

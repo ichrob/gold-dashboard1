@@ -15,6 +15,7 @@ TAG = '_bobColdObservationV1'
 _THREAD = None
 PAGE_ROWS = 20
 MAX_PAYLOAD_TEXT_BYTES = 262144
+STATUS_EXACT_MAX_ESTIMATED_ROWS = 256
 
 
 def init(conn):
@@ -152,10 +153,29 @@ def offload_batch(conn,drive,now=None):
 def status(conn):
     try:
         with conn.transaction():
+            estimate=conn.execute("""SELECT CASE WHEN c.reltuples<0 THEN NULL
+                ELSE c.reltuples::bigint END
+                FROM pg_class c
+                WHERE c.oid=to_regclass('bob_cold_observation_objects')""").fetchone()
+            estimated=(estimate[0] if estimate and type(estimate[0]) is int
+                       and estimate[0]>=0 else None)
+            # Exact SUM/MAX requires a heap visit for every object row.  Under
+            # the small Render DB budget that optional diagnostic caused a
+            # statement timeout.  Keep exact totals for small/unanalysed test
+            # relations, but fail honestly and cheaply for an analysed large
+            # relation instead of adding full-table pressure to live work.
+            if (estimated is not None and
+                    estimated>STATUS_EXACT_MAX_ESTIMATED_ROWS):
+                return dict(status='bounded-large-relation',
+                    estimatedUniqueObjects=estimated,totalsComplete=False,
+                    uniqueObjects=None,offloadedRows=None,
+                    originalJsonBytes=None,referenceJsonBytes=None,
+                    lastVerifiedAt=None,diskBytesFreed=None)
             r=conn.execute('''SELECT count(*),coalesce(sum(moved_rows),0),coalesce(sum(original_json_bytes),0),
                 coalesce(sum(reference_json_bytes),0),max(verified_at) FROM bob_cold_observation_objects''').fetchone()
         return dict(status='observed',uniqueObjects=int(r[0]),offloadedRows=int(r[1]),originalJsonBytes=int(r[2]),
-                    referenceJsonBytes=int(r[3]),lastVerifiedAt=str(r[4]) if r[4] else None,diskBytesFreed=None)
+                    referenceJsonBytes=int(r[3]),lastVerifiedAt=str(r[4]) if r[4] else None,
+                    totalsComplete=True,diskBytesFreed=None)
     except Exception:return {'status':'not-observed','diskBytesFreed':None}
 
 

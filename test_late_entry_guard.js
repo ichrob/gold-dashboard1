@@ -64,9 +64,24 @@ for(const direction of ['LONG','SHORT']){
  else prev.low=latest.close-.5;
  assert.equal(guard.check(noBreak,direction,now,now-31*M).allowed,false,'no real close breakout');
  assert.equal(guard.check(noBreak,direction,now,now-31*M).continuationChecks.closedBreakout,false);
- const old=JSON.parse(JSON.stringify(b)),later=now+2*M;
- old.spots.spot_price_as_of=new Date(later-10000).toISOString();
- assert.equal(guard.check(old,direction,later,later-31*M).allowed,false,'2-minute-old continuation cannot be reused');
+ for(const elapsed of [2*M, 5*M-1]){
+  const current=JSON.parse(JSON.stringify(b)),later=now+elapsed;
+  current.spots.spot_price_as_of=new Date(later-10000).toISOString();
+  const admitted=guard.check(current,direction,later,now-31*M);
+  assert.equal(admitted.allowed,true,'verified continuation remains valid before next close');
+  assert.equal(admitted.freshContinuationAt,now,'original opportunity clock preserved');
+  assert(admitted.signalAgeMinutes>=31,'old main signal never redated');
+  const invalid=JSON.parse(JSON.stringify(current));
+  invalid.spots.xaus=latest.close-(direction==='LONG'?1:-1)*r.atr5m*.3;
+  assert.equal(guard.check(invalid,direction,later,now-31*M).allowed,false,'retracement invalidates extended window');
+  current.spots.spot_price_as_of=new Date(later-60001).toISOString();
+  assert.equal(guard.check(current,direction,later,now-31*M).allowed,false,'fresh source still mandatory');
+ }
+ for(const elapsed of [5*M,6*M]){
+  const expired=JSON.parse(JSON.stringify(b)),later=now+elapsed;
+  expired.spots.spot_price_as_of=new Date(later-10000).toISOString();
+  assert.equal(guard.check(expired,direction,later,now-31*M).allowed,false,'next close expires previous setup even if new bar missing');
+ }
 }
 const base=bundle('LONG');
 const tamper=[
@@ -115,4 +130,38 @@ for(const side of ['LONG','SHORT']){
  assert.match(guard.checkPaperNoEma(bundle(side,6),side,now,now-3*M).reason,/2,5 ATR/);
  b.spots.spot_price_as_of=new Date(now-90000).toISOString();
  assert.equal(guard.checkPaperNoEma(b,side,now,now-3*M).available,false);
+}
+
+
+ // Regression: a real 1m breakout can explain a >0.8 ATR spot/5m-close gap.
+ // Missing, open, estimated, stale, misidentified or countertrend 1m bars cannot.
+function corroboratedMinuteBreakout(side){
+ const b=bundle(side),s=side==='LONG'?1:-1,five=b.history.bars_by_tf['5m'].at(-1),later=now+2*M;
+ const firstOpen=five.close+s*1.25,firstClose=five.close+s*1.6,secondClose=five.close+s*2.5;
+ const bar=(time,open,close)=>({openTime:time,open,close,
+     high:Math.max(open,close)+.05,low:Math.min(open,close)-.05,
+     isOpen:false,instrument:'XAU/USD'});
+ b.history.bars_by_tf['1m']=[bar(now,firstOpen,firstClose),bar(now+M,firstClose,secondClose)];
+ b.spots.xaus=secondClose+s*.02;
+ b.spots.spot_price_as_of=new Date(later-9000).toISOString();
+ return {b,later};
+}
+for(const side of ['LONG','SHORT']){
+ const {b,later}=corroboratedMinuteBreakout(side),approved=guard.check(b,side,later,now-3*M);
+ assert.equal(approved.allowed,true,side+' corroborated minute continuation: '+approved.reason);
+ assert.equal(approved.available,true);
+ assert(approved.deviationAtr<=1.5,'other EMA limit remains effective');
+ const failures=[
+   x=>{x.history.bars_by_tf['1m'].at(-1).isOpen=true;},
+   x=>{x.history.bars_by_tf['1m'].at(-1).estimated=true;},
+   x=>{x.history.bars_by_tf['1m'].at(-1).instrument='GC=F';},
+   x=>{x.history.bars_by_tf['1m'].at(-1).openTime-=2*M;},
+   x=>{x.history.bars_by_tf['1m'].at(-1).close=x.history.bars_by_tf['1m'][0].close-(side==='LONG'?1:-1)*.3;},
+   x=>{x.spots.spot_price_as_of=new Date(later-70000).toISOString();},
+   x=>{delete x.history.bars_by_tf['1m'];}
+ ];
+ failures.forEach((mutate,index)=>{
+   const x=JSON.parse(JSON.stringify(b));mutate(x);
+   assert.equal(guard.check(x,side,later,now-3*M).allowed,false,side+' invalid minute input '+index);
+ });
 }

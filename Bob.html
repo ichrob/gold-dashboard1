@@ -351,7 +351,7 @@ try{
 <div class="sub">XAU/USD · technische Analyse · DEGIRO bleibt manuell</div>
 </div>
 
-<section class="gold-market" aria-labelledby="goldMarketTitle" data-design="kompakte-liste-v2"><h2 id="goldMarketTitle">Goldmarkt</h2><div class="gold-quotes"><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-Spot</h3><div class="gold-symbol">XAU/USD</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-spot-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-spot-change">— %</span></div><div class="gold-change-label" id="gold-spot-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-spot-state">Lade Kurs …</div><div id="gold-spot-time">Kurszeit fehlt</div><div id="gold-spot-source"></div></div></article><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-CFD</h3><div class="gold-symbol">Investing.com</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-cfd-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-cfd-change">— %</span></div><div class="gold-change-label" id="gold-cfd-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-cfd-state">Lade Kurs …</div><div id="gold-cfd-time">Kurszeit fehlt</div><div id="gold-cfd-source"></div></div><div class="gold-estimate-inline"><div><span id="gold-estimate-price">—</span> USD · Bobs Futures-Schätzung</div><div class="gold-meta"><div id="gold-estimate-state">Lade Schätzung …</div><div id="gold-estimate-time">Stand: nicht verfügbar</div></div></div></article></div><p class="gold-market-note">USD je Feinunze · Veränderung zum Vortagesschluss der jeweiligen Quelle.<br>Gold-CFD: Normalbetrieb 30 Sekunden, Nachtmodus fünf Minuten – bei aktiven Trades bleibt die engmaschige Risikoüberwachung erhalten. Quellenzeiten bleiben erhalten.<span id="gold-session-mode" role="status"></span><span id="gold-special-session" role="status"></span></p></section>
+<section class="gold-market" aria-labelledby="goldMarketTitle" data-design="kompakte-liste-v2"><h2 id="goldMarketTitle">Goldmarkt</h2><div class="gold-quotes"><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-Spot</h3><div class="gold-symbol">XAU/USD</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-spot-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-spot-change">— %</span></div><div class="gold-change-label" id="gold-spot-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-spot-state">Lade Kurs …</div><div id="gold-spot-time">Kurszeit fehlt</div><div id="gold-spot-source"></div></div></article><article class="gold-quote"><header><svg class="gold-icon" viewBox="0 0 40 32" aria-hidden="true"><path d="M15 2h10l5 12H10zM6 17h10l5 12H1zM24 17h10l5 12H19z" fill="currentColor"/><path d="M15 3l-4 10h18M6 18L2 28h17M24 18l-4 10h18" fill="none" stroke="#efd397" stroke-width="2"/></svg><div><h3>Gold-CFD</h3><div class="gold-symbol">Investing.com</div></div></header><div class="gold-price-row"><span class="gold-price" id="gold-cfd-price">—</span><span class="gold-currency">USD</span><span class="gold-change" id="gold-cfd-change">— %</span></div><div class="gold-change-label" id="gold-cfd-basis">Tagesänderung fehlt</div><div class="gold-meta"><div class="gold-state" id="gold-cfd-state">Lade Kurs …</div><div id="gold-cfd-time">Kurszeit fehlt</div><div id="gold-cfd-source"></div></div></article></div><p class="gold-market-note">USD je Feinunze · Veränderung zum Vortagesschluss der jeweiligen Quelle.<br>Gold-CFD: Normalbetrieb 30 Sekunden, Nachtmodus fünf Minuten – bei aktiven Trades bleibt die engmaschige Risikoüberwachung erhalten. Quellenzeiten bleiben erhalten.<span id="gold-session-mode" role="status"></span><span id="gold-special-session" role="status"></span></p></section>
 
 <script>
 (function(){
@@ -397,7 +397,8 @@ try{
   if(!q)return;
   if(!positive(q.price)){if(key==='estimate'){quotes[key]=q;render(key);}return;}
   const old=quotes[key],at=Date.parse(q.at),before=Date.parse(old?.at);
-  if(old&&Number.isFinite(before)&&(!Number.isFinite(at)||at<before))return;
+  if(old&&Number.isFinite(before)&&(!Number.isFinite(at)||at<before||(at===before&&q.price!==old.price)))return;
+  if(old&&at===before&&q.changePct==null&&old.changePct!=null)q={...q,changePct:old.changePct,changeLabel:old.changeLabel};
   quotes[key]=q;
   // Display-only historical cache; never fed to trade/technical eligibility.
   if(window.BobWeekendPause&&!window.BobWeekendPause()&&Number.isFinite(at)&&at<=Date.now()){
@@ -417,9 +418,41 @@ try{
   if(busy||window.BobSession?.expired()||window.BobWeekendPause?.())return;
   if(window.BobDegiroPhase?.()==='night' && Date.now()-lastRequestAt<300000)return;
   lastRequestAt=Date.now();busy=true;const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);
-  try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();accept('future',data.future);accept('estimate',data.estimate);accept('cfd',data.cfd);const notice=document.getElementById('gold-special-session');if(notice)notice.textContent=data.sessionAdvisory?' · Börsenkalender: '+data.sessionAdvisory.name+' · '+data.sessionAdvisory.note:'';}catch(_){}
+  try{const r=await fetch('/api/market-cards',{cache:'no-store',signal:ctl.signal});if(!r.ok)throw Error('quote unavailable');const data=await r.json();if(data.spot?.kind==='spot'&&data.spot?.symbol==='XAU/USD')accept('spot',data.spot);accept('future',data.future);accept('estimate',data.estimate);accept('cfd',data.cfd);const notice=document.getElementById('gold-special-session');if(notice)notice.textContent=data.sessionAdvisory?' · Börsenkalender: '+data.sessionAdvisory.name+' · '+data.sessionAdvisory.note:'';}catch(_){}
   finally{clearTimeout(timer);busy=false;render('spot');render('future');render('estimate');render('cfd');}
  }
+ // Runs independently of the analysis script. No new market request or trading action.
+ const uiTab=typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():null;
+ const uiStarted=Date.now();let uiLastCode='',uiReportedAt=0,uiReporting=false;
+ async function reportUi(code){
+  if(!uiTab||uiReporting||(code===uiLastCode&&Date.now()-uiReportedAt<120000))return;
+  uiReporting=true;
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),5000);
+  try{
+   const r=await fetch('/api/diag',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({event:'market-ui:observation',details:{tab:uiTab,code}}),signal:ctl.signal});
+   if(r.ok){uiLastCode=code;uiReportedAt=Date.now();}
+  }catch(_){}finally{clearTimeout(timer);uiReporting=false;}
+ }
+ async function checkUi(){
+  const price=el('spot','price');
+  const overview=document.getElementById('bob-view-overview');
+  if(document.visibilityState!=='visible'||window.BobSession?.expired()||(overview&&overview.hidden))return;
+  const q=quotes.spot,at=Date.parse(q?.at),fresh=positive(q?.price)&&Number.isFinite(at)&&Date.now()>=at&&Date.now()-at<=120000;
+  if(!fresh){await reportUi('data-unavailable');return;}
+  if(!price){await reportUi('spot-hidden');return;}
+  const expected=number(q.price),warning=document.getElementById('earlyImpulseStatus');
+  const hidden=!price.getClientRects().length||(typeof getComputedStyle==='function'&&getComputedStyle(price).visibility==='hidden');
+  const mismatch=price.textContent!==expected;
+  const stuck=Date.now()-uiStarted>45000&&warning&&!warning.dataset.marketRendered;
+  const code=hidden?'spot-hidden':mismatch?'spot-mismatch':stuck?'warning-unrendered':'ok';
+  await reportUi(code);
+  if(mismatch)render('spot'); // Only redraw the same original quote and timestamp.
+  if(stuck){try{window.renderEarlyImpulseStatus?.();}catch(_){} }
+  if(code!=='ok'&&!hidden&&price.textContent===expected&&(!warning||warning.dataset.marketRendered))await reportUi('ok');
+ }
+ setInterval(()=>{void checkUi();},10000);
+ document.addEventListener('visibilitychange',()=>{void checkUi();});
  function renderSessionMode(){
   const el=document.getElementById('gold-session-mode');if(!el)return;
   const phase=window.BobDegiroPhase?.();
@@ -502,7 +535,7 @@ try{
 <div class="analysis-block neutral"><span>MTF-Bestätigung · Zeitebenen</span><b id="blockMtf">DATEN FEHLEN</b><small id="blockMtfNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Volatilität · Schwankungsstärke</span><b id="blockVolatility">DATEN FEHLEN</b><small id="blockVolatilityNote">Daten fehlen</small></div>
 <div class="analysis-block neutral"><span>Marktstruktur · Hochs und Tiefs</span><b id="blockStructure">DATEN FEHLEN</b><small id="blockStructureNote">Daten fehlen</small></div>
-</div><div id="earlyImpulseStatus" class="small" style="margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:12px;white-space:pre-line">Frühimpuls LONG/SHORT · Vergleichstest wird geladen …</div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div><div id="marketInputQuality" class="small" style="margin-top:10px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;white-space:pre-line">Datenqualität wird geprüft …</div>
+</div><div id="earlyImpulseStatus" class="small" style="margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:12px;white-space:pre-line">FRÜHWARNSYSTEM · Daten noch nicht verfügbar. Keine aktuelle Vorwarnung bestätigt.</div><details id="intradayComparisonDetails" style="margin-top:12px"><summary><b>Analyse-Regeln und Intraday-Vergleichstest</b></summary><div id="intradayStatus" class="small" style="white-space:pre-line">Test wird geladen …</div><div id="intradayProducts" class="small" style="white-space:pre-line"></div><p class="small">Aktiv v6: 15m Setup und 5m Einstieg. Erste Schlusskerze: Einstieg vorbereitet; ein klar bestätigter Schluss oder zwei unterstützende Schlüsse bestätigen die Richtung. 1h, 4h und EMA200 dienen als Kontext. EMA20/50, RSI14 und MACD bilden ein gemeinsames Kurskollektiv. DX unter 20 und nicht zunehmend ab 15 verlangt eine zweite Kerze statt einer pauschalen Sperre. Analyse Mo–Fr rund um die Uhr (Zürich). Produkt-Handelszeiten zusätzlich prüfen. Darunter bleibt die bisherige 15m/5m-Testvariante getrennt erhalten. Keine Orders. Ergebnisse unter Lernen; Produktgewinne nach Kosten noch nicht nachgewiesen.</p></details><div id="analysisQuality" class="small" style="margin-top:10px">Signalqualität: noch nicht bewertet</div><div id="marketInputQuality" class="small" style="margin-top:10px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;white-space:pre-line">Datenqualität wird geprüft …</div>
 <details style="margin-top:10px"><summary>Warum entscheidet Bob so?</summary><div id="decisionExplanation" class="small" style="white-space:pre-line">Noch keine bestätigte Analyse.</div></details>
 <div id="quickReason" class="small" style="margin-top:10px">Lade Daten, um das Setup zu bewerten.</div>
 <details id="bobMarketAnalysis" class="bob-disclosure" style="margin-top:12px"><summary>Marktanalyse von Bob</summary><div id="bobMarketNarrative" class="small" style="white-space:pre-line;margin-top:10px">Noch keine aktuelle Marktanalyse verfügbar.</div></details>
@@ -512,8 +545,8 @@ try{
 <div class="card">
 <h3>🔔 Push-Benachrichtigungen</h3>
 <div class="grid">
-<div class="metric"><label>1. Marktsignale</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button></div>
-<div class="metric"><label>2. Aktiver Trade</label><button id="tradePushBtn" onclick="togglePush('trade')">🔕 Aus</button></div>
+<div class="metric"><label>1. Marktsignale</label><button id="generalPushBtn" onclick="togglePush('general')">🔕 Aus</button><p id="generalPushInlineStatus" class="small" role="status" aria-live="polite" hidden></p></div>
+<div class="metric"><label>2. Aktiver Trade</label><button id="tradePushBtn" onclick="togglePush('trade')">🔕 Aus</button><p id="tradePushInlineStatus" class="small" role="status" aria-live="polite" hidden></p></div>
 </div>
 <div class="row" style="margin-top:10px"><button onclick="registerNotifications()">📱 Gerät für Push registrieren</button><button onclick="testPush()">🧪 Test-Push</button></div>
 <div class="grid" style="margin-top:10px">
@@ -564,6 +597,8 @@ try{
 
 <div class="card chart-card" data-design="readable-chart-v1"><div class="chart-segment" role="group" aria-label="Gold-Kursreihe"><button type="button" data-chart-market="spot" onclick="setChartMarket('spot')">Gold-Spot</button><button type="button" data-chart-market="future" onclick="setChartMarket('future')">Gold-CFD</button></div><h3 id="chartInstrument">Gold · Basiswert wird geladen</h3><p class="small">Preisverlauf in USD je Feinunze</p><p id="chartProvenance" class="small" aria-live="polite">Quelle und Kerzenzeit werden geladen.</p>
 <div class="chart-controls"><div class="chart-segment" role="group" aria-label="Darstellung"><button type="button" data-chart-type="line" onclick="setChartOption('type','line')">Linie</button><button type="button" data-chart-type="candles" onclick="setChartOption('type','candles')">Kerzen</button></div><div class="chart-segment" role="group" aria-label="Zeitraum pro Kerze"><button type="button" data-chart-tf="1m" onclick="setChartOption('tf','1m')">1m</button><button type="button" data-chart-tf="5m" onclick="setChartOption('tf','5m')">5m</button><button type="button" data-chart-tf="15m" onclick="setChartOption('tf','15m')">15m</button><button type="button" data-chart-tf="1h" onclick="setChartOption('tf','1h')">1h</button><button type="button" data-chart-tf="4h" onclick="setChartOption('tf','4h')">4h</button></div><select id="chartType" hidden aria-label="Ansicht"><option value="candles" selected>Kerzen</option><option value="line">Linie</option></select><select id="chartTf" hidden aria-label="Zeitraum pro Kerze"><option value="1m">1 Minute</option><option value="5m">5 Minuten</option><option value="15m" selected>15 Minuten</option><option value="1h">1 Stunde</option><option value="4h">4 Stunden</option></select></div>
+<label class="small" for="chartScope" style="display:flex;align-items:center;gap:8px;margin:4px 0 10px">Angezeigter Zeitraum <select id="chartScope" aria-label="Angezeigter Chart-Zeitraum" onchange="saveChartView();draw()" style="width:auto;min-width:160px"><option value="auto" selected>Automatisch</option><option value="day">Letzter Handelstag</option><option value="recent">Letzte 120 Kerzen</option><option value="history">Gespeicherten Tag auswählen</option></select></label>
+<label id="chartDayPicker" class="small" hidden for="chartDay">Gespeicherter Tag (Schweizer Zeit) <select id="chartDay" aria-label="Gespeicherter Chart-Tag" onchange="draw()"></select></label>
 <p id="minuteEntryStatus" class="small" aria-live="polite">1m-Einstiegshilfe · Vergleichstest: Daten werden geladen.</p>
 <p id="chartScenarioStatus" class="small" aria-live="polite"></p>
 <p id="chartEntryStatus" class="small" aria-live="polite"></p>
@@ -2626,9 +2661,13 @@ async function registerNotifications(){
    if(status)status.textContent="⏳ Push wird registriert …";
    pushState=await BobPush.enable();
    renderPush();
-   await syncPushPreferences();
-   if(status)status.textContent="granted"===Notification.permission?"✅ Browser-Benachrichtigungen freigegeben. Service Worker ist registriert.":"⚠️ Registrierung gespeichert, aber Browser-Berechtigung ist noch nicht freigegeben.";
-   return pushState.registered===true;
+   // Browser permission is not proof of a usable server subscription.
+   const synced=pushState.serverRegistered===true && await syncPushPreferences();
+   if(status)status.textContent=!pushState.serverRegistered?
+    "⚠️ Browser-Berechtigung vorhanden, aber Server-Push-Abonnement fehlt. Registrierung in Chrome prüfen.":
+    synced?"✅ Browser-Benachrichtigungen und Server-Push bestätigt.":
+    "⚠️ Server-Push-Abgleich nicht bestätigt. Verbindung und Registrierung prüfen.";
+   return pushState.registered===true && pushState.serverRegistered===true && synced;
  }catch(e){
    if(status)status.textContent="❌ "+(e?.message||"Benachrichtigungen konnten nicht aktiviert werden.");
    return false;
@@ -2740,15 +2779,55 @@ async function testBackgroundPush(scenario='delivery'){
   }
  }
 }
+function pushToggleHint(kind,message,success=false){
+ const hint=$(kind==='general'?'generalPushInlineStatus':'tradePushInlineStatus');
+ if(hint){
+  hint.hidden=false;
+  hint.textContent=message;
+  hint.className='small '+(success?'ok':'bad');
+ }
+ const note=$("bobTradePushSyncStatus");
+ if(note)note.textContent=message;
+}
 async function togglePush(kind){
+ if(!['general','trade'].includes(kind))return;
+ const button=$(kind==='general'?'generalPushBtn':'tradePushBtn');
+ if(button?.disabled)return;
+ if(button){button.disabled=true;button.setAttribute('aria-busy','true');}
  try{
-   if(!pushState.registered){const ok=await registerNotifications();if(!ok)return;}
-   pushState=BobPush.set(kind,!pushState[kind]);renderPush();
+   const enabling=pushState[kind]!==true;
+   if(enabling){
+    // No fake activation during weekend, denied notifications or absent
+    // subscription. The previous error only appeared far below the button.
+    if(!('Notification' in window)||typeof Notification==='undefined'){
+     pushToggleHint(kind,'❌ Dieser Browser erlaubt keine Web-Benachrichtigungen. Bob in Chrome öffnen.',false);
+     return;
+    }
+    if(Notification.permission==='denied'){
+     pushToggleHint(kind,'❌ Benachrichtigungen für Bob sind blockiert. In Chrome die Website-Benachrichtigungen für Bob erlauben.',false);
+     return;
+    }
+    if(!pushState.registered||!pushState.serverRegistered||Notification.permission!=='granted'){
+     const ok=await registerNotifications();
+     if(!ok){
+      const reason=$("pushStatus")?.textContent;
+      pushToggleHint(kind,reason?.startsWith('❌')||reason?.startsWith('⚠️')?
+       reason:'⚠️ Push-Registrierung nicht vollständig. Browser-Berechtigung prüfen.',false);
+      return;
+     }
+    }
+   }
+   pushState=BobPush.set(kind,enabling);renderPush();
    const synced=await syncPushPreferences();
-   const note=$("bobTradePushSyncStatus");
-   if(note)note.textContent=synced?'✅ Push-Einstellung am Server aktualisiert.':'⚠️ Einstellung lokal geändert; Server-Push nicht bestätigt. Bitte „Push aktualisieren“ antippen.';
+   const label=kind==='general'?'Marktbeobachtung':'Trade-Warnungen';
+   pushToggleHint(kind,synced?
+    '✅ '+label+': '+(enabling?'Ein':'Aus')+' – am Server bestätigt.':
+    '⚠️ '+label+' '+(enabling?'lokal eingeschaltet':'lokal ausgeschaltet')+
+    ', aber der Server hat dies nicht bestätigt. „Push aktualisieren“ verwenden.',synced);
  }catch(e){
-   $("pushStatus").textContent="❌ "+(e?.message||"Push-Einstellung konnte nicht geändert werden.");
+   pushToggleHint(kind,'❌ '+(e?.message||'Push-Einstellung konnte nicht geändert werden.'),false);
+ }finally{
+   if(button){button.disabled=false;button.removeAttribute('aria-busy');}
  }
 }
 async function closeTrade(){
@@ -2954,8 +3033,8 @@ async function loadFutureChart(tf){
  finally{futureChartBusy=false;if(chartMarket==='future')draw();}
 }
 function setChartOption(kind,value){$(kind==='type'?'chartType':'chartTf').value=value;saveChartView();draw();}
-function saveChartView(){try{localStorage.setItem('bobChartView',JSON.stringify({type:$('chartType').value,tf:$('chartTf').value,fib:$('chartShowFib').checked,targets:$('chartShowTargets').checked}));}catch(_){}}
-(function(){try{const v=JSON.parse(localStorage.getItem('bobChartView')||'{}');if(['candles','line'].includes(v.type))$('chartType').value=v.type;if(['1m','5m','15m','1h','4h'].includes(v.tf))$('chartTf').value=v.tf;if(typeof v.fib==='boolean')$('chartShowFib').checked=v.fib;if(typeof v.targets==='boolean')$('chartShowTargets').checked=v.targets;}catch(_){}})();
+function saveChartView(){try{localStorage.setItem('bobChartView',JSON.stringify({type:$('chartType').value,tf:$('chartTf').value,fib:$('chartShowFib').checked,targets:$('chartShowTargets').checked,scope:$('chartScope').value}));}catch(_){}}
+(function(){try{const v=JSON.parse(localStorage.getItem('bobChartView')||'{}');if(['candles','line'].includes(v.type))$('chartType').value=v.type;if(['1m','5m','15m','1h','4h'].includes(v.tf))$('chartTf').value=v.tf;if(typeof v.fib==='boolean')$('chartShowFib').checked=v.fib;if(typeof v.targets==='boolean')$('chartShowTargets').checked=v.targets;if(['auto','day','recent','history'].includes(v.scope))$('chartScope').value=v.scope;}catch(_){}})();
 function chartDayExtremes(bars,step,now=Date.now(),historical=false){
  const day=t=>new Date(t).toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'});
  const candidates=bars.filter(b=>Number.isFinite(Number(b.openTime))&&Number(b.openTime)+step<=now&&!b.isOpen&&Number.isFinite(Number(b.high))&&Number.isFinite(Number(b.low)));
@@ -2965,6 +3044,28 @@ function chartDayExtremes(bars,step,now=Date.now(),historical=false){
  if(!rows.length)return null;
  const high=rows.reduce((a,b)=>Number(b.high)>Number(a.high)?b:a),low=rows.reduce((a,b)=>Number(b.low)<Number(a.low)?b:a);
  return {high:Number(high.high),low:Number(low.low),highAt:Number(high.openTime),lowAt:Number(low.openTime),start:Number(rows[0].openTime),end:Number(rows.at(-1).openTime)+step,date:selectedDay,historical,observedOnly:rows.some(b=>b.observedOnly)};
+}
+// Display-only chart projection. Never used as a market or trading input.
+// Friday's source-backed observations remain visible on Saturday; real Sunday
+// samples remain eligible after the source reopens. No missing bars are filled.
+function chartDisplayAllowed(b){
+ if(!b||b.isOpen||b.estimated===true||b.synthetic===true||b.isSynthetic===true)return false;
+ const stamp=Number(b.openTime);
+ if(!Number.isFinite(stamp)||stamp<=0)return false;
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',weekday:'short',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(stamp)).map(p=>[p.type,p.value]));
+ return parts.weekday!=='Sat' && !(parts.weekday==='Fri'&&Number(parts.hour)>=23);
+}
+function chartLocalDay(t){return new Date(Number(t)).toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'});}
+function chartStoredDays(bars){return [...new Set((bars||[]).filter(chartDisplayAllowed).map(b=>chartLocalDay(b.openTime)))].sort().reverse();}
+function chartVisibleBars(bars,scope='day',selectedDay=''){
+ const distinct=new Map();
+ for(const b of bars||[]){if(chartDisplayAllowed(b))distinct.set(Number(b.openTime),b);}
+ const eligible=[...distinct.values()].sort((a,b)=>Number(a.openTime)-Number(b.openTime));
+ if(scope==='recent')return eligible.slice(-120);
+ if(!eligible.length)return [];
+ const day=t=>new Date(Number(t)).toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'});
+ const latestDay=scope==='history'?selectedDay:day(eligible.at(-1).openTime);
+ return eligible.filter(b=>day(b.openTime)===latestDay).slice(-1440);
 }
 let chartHitMap=null,chartSelected=null;
 function selectChartPoint(event){
@@ -2992,9 +3093,19 @@ function draw(a){
  document.querySelectorAll('[data-chart-market]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.chartMarket===chartMarket)));
  if(isFuture&&!window.BobWeekendPause?.())loadFutureChart(tf);
  const raw=isFuture?(futureChartHistory[tf]||[]):(chartHistory[tf]||((tf===$('tf').value)?C:[])).filter(b=>b.instrument==='XAU/USD');
- const all=raw.filter(b=>!b.isOpen&&Number(b.openTime)+({'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000}[tf]||900000)<=Date.now()&&['open','high','low','close','openTime'].every(k=>b[k]!=null&&b[k]!==''&&Number.isFinite(Number(b[k])))&&Number(b.openTime)>0&&Number(b.low)<=Math.min(Number(b.open),Number(b.close))&&Number(b.high)>=Math.max(Number(b.open),Number(b.close))).sort((a,b)=>Number(a.openTime)-Number(b.openTime));
- const v=all.slice(-120), assessment=timeframeScore(all,tf);
- const ranges=all.slice(-14).map((b,i,bs)=>Math.max(Number(b.high)-Number(b.low),i?Math.abs(Number(b.high)-Number(bs[i-1].close)):0,i?Math.abs(Number(b.low)-Number(bs[i-1].close)):0));
+ const all=raw.filter(b=>!b.isOpen&&!b.providerIsOpen&&!b.synthetic&&!b.estimated&&Number(b.openTime)+({'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000}[tf]||900000)<=Date.now()&&['open','high','low','close','openTime'].every(k=>b[k]!=null&&b[k]!==''&&Number.isFinite(Number(b[k])))&&Number(b.openTime)>0&&Number(b.low)<=Math.min(Number(b.open),Number(b.close))&&Number(b.high)>=Math.max(Number(b.open),Number(b.close))).sort((a,b)=>Number(a.openTime)-Number(b.openTime));
+ const visibleHistory=all.filter(chartDisplayAllowed),closedMarket=Boolean(window.BobWeekendPause?.());
+ const scope=$('chartScope').value==='auto'?(closedMarket?'day':'recent'):$('chartScope').value;
+ const dayPicker=$('chartDay'),storedDays=chartStoredDays(visibleHistory),previousDay=dayPicker.value;
+ const chosenDay=previousDay||storedDays[0]||'';
+ const availableDays=storedDays.includes(chosenDay)?storedDays:[chosenDay,...storedDays].filter(Boolean);
+ if(dayPicker.options&&JSON.stringify([...dayPicker.options].map(o=>[o.value,o.textContent]))!==JSON.stringify(availableDays.map(day=>[day,day+(storedDays.includes(day)?'':' · keine Daten für diese Zeitebene')]))){
+  dayPicker.replaceChildren(...availableDays.map(day=>{const option=document.createElement('option');option.value=day;option.textContent=day+(storedDays.includes(day)?'':' · keine Daten für diese Zeitebene');return option;}));
+ }
+ dayPicker.value=chosenDay;dayPicker.disabled=!availableDays.length;
+ $('chartDayPicker').hidden=scope!=='history';
+ const v=chartVisibleBars(visibleHistory,scope,chosenDay), assessment=timeframeScore(scope==='history'?v:visibleHistory,tf);
+ const ranges=(scope==='history'?v:visibleHistory).slice(-14).map((b,i,bs)=>Math.max(Number(b.high)-Number(b.low),i?Math.abs(Number(b.high)-Number(bs[i-1].close)):0,i?Math.abs(Number(b.low)-Number(bs[i-1].close)):0));
  const chartAtr=ranges.length?ranges.reduce((a,b)=>a+b,0)/ranges.length:0;
  const sampledSpot=!isFuture&&v.some(b=>b.observedOnly);
  // Real archived Spot samples lack confirmed OHLC wick and swing evidence.
@@ -3004,14 +3115,19 @@ function draw(a){
  $('chartScenarioStatus').textContent=isFuture?'CFD-Beobachtungsverlauf · kein bestätigtes Spot-Szenario':chartScenarioStatus(assessment,tf,fib,sampledSpot);
  $('chartScenarioStatus').className='small '+(assessment.available&&assessment.fresh&&assessment.dir==='SHORT'?'bad':assessment.available&&assessment.fresh&&assessment.dir==='LONG'?'ok':'neutral');
  if(isFuture)$('chartViewStatus').textContent=v.length<2?(window.BobWeekendPause?.()?'Kein gespeicherter CFD-Verlauf verfügbar':'CFD-Kursverlauf wird gesammelt – für eine erste Kurve 1m wählen'):'CFD-Verlauf aus beobachteten Kursen · Lücken möglich';
- $('chartViewStatus').dataset.stale=String(assessment.fresh===false);
+ if(window.BobWeekendPause?.()&&v.length){
+  const lastBar=v.at(-1);
+  const lastStamp=new Date(Number(lastBar.openTime)+({'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000}[tf]||900000));
+  $('chartViewStatus').textContent='Markt geschlossen · Letzter bestätigter Verlauf bis '+lastStamp.toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Zürich) · Historische Kurse, nicht live';
+ }
+ $('chartViewStatus').dataset.stale=String(assessment.fresh===false||Boolean(window.BobWeekendPause?.()));
  const frameLabel={"1m":"1 Minute","5m":"5 Minuten","15m":"15 Minuten","1h":"1 Stunde","4h":"4 Stunden"}[tf]||tf;
  const rangeDate=t=>new Date(t).toLocaleString("de-CH",{timeZone:"Europe/Zurich",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
- $('chartRangeInfo').textContent=frameLabel+' pro '+(candles?'Kerze':'Kurvenpunkt')+' · '+v.length+' Werte'+(v.length?' · '+rangeDate(Number(v[0].openTime))+' bis '+rangeDate(Number(v.at(-1).openTime)):' · Daten für diese Zeitebene fehlen');
+ $('chartRangeInfo').textContent=frameLabel+' pro '+(candles?'Kerze':'Kurvenpunkt')+' · '+(scope==='history'?'Gespeicherter Tag '+chosenDay:scope==='day'?'Letzter aufgezeichneter Handelstag':'Letzte 120 Kerzen')+' · '+v.length+' Werte'+(v.length?' · '+rangeDate(Number(v[0].openTime))+' bis '+rangeDate(Number(v.at(-1).openTime)):' · Daten für diese Zeitebene fehlen');
+ if(closedMarket&&v.length)$('chartViewStatus').textContent='MARKT GESCHLOSSEN · Letzter aufgezeichneter Verlauf vom '+new Date(Number(v.at(-1).openTime)).toLocaleDateString('de-CH',{timeZone:'Europe/Zurich'})+' · Schlusszeit '+rangeDate(Number(v.at(-1).openTime)+({'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000}[tf]||900000))+' Zürich · kein Livekurs';
 
  const chartStep=({'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000})[tf];
- const closedMarket=Boolean(window.BobWeekendPause?.());
- const dayExtremes=chartDayExtremes(all,chartStep,Date.now(),closedMarket||sampledSpot);
+ const dayExtremes=chartDayExtremes(scope==='history'?v:visibleHistory,chartStep,Date.now(),scope==='history'||closedMarket||sampledSpot);
  const period=t=>rangeDate(t)+' – '+rangeDate(t+chartStep);
  const extremaDay=dayExtremes?.historical?'Aufzeichnung vom '+dayExtremes.date:'Heute';
  $('chartDayExtremes').textContent=dayExtremes?extremaDay+' · Hoch '+dayExtremes.high.toFixed(2)+' USD ('+period(dayExtremes.highAt)+') · Tief '+dayExtremes.low.toFixed(2)+' USD ('+period(dayExtremes.lowAt)+'). Schweizer Zeit · '+(dayExtremes.observedOnly?'Nur beobachtete Messpunkte, keine bestätigten Tageshochs/-tiefs.':'Hoch/Tief im aufgezeichneten Zeitraum '+rangeDate(dayExtremes.start)+' – '+rangeDate(dayExtremes.end)+'. Vollständiger Tagesverlauf nicht bestätigt.'):(closedMarket||sampledSpot?'Kein aufgezeichneter Tagesverlauf für diese Zeitebene verfügbar.':'Heute: noch keine abgeschlossenen Kerzen für Hoch/Tief vorhanden.');
@@ -3025,13 +3141,13 @@ function draw(a){
 
  if(isFuture)$('chartProvenance').textContent+=' · Aus beobachteten CFD-Kursen; keine vollständigen historischen Kerzen'+(!window.BobWeekendPause?.()&&futureChartError?' · '+futureChartError:'');
  if(!isFuture&&v.some(b=>b.observedOnly))$('chartProvenance').textContent+=' · Nur gespeicherte Spot-Messpunkte, keine vollständigen OHLC-Kerzen';
- const irregular=all.some(b=>Number(b.openTime)%chartStep!==0);
+ const irregular=visibleHistory.some(b=>Number(b.openTime)%chartStep!==0);
  if(irregular)$('chartViewStatus').textContent='Quellenzeitpunkte passen nicht zum gewählten Kerzenraster – Intraday-Test gesperrt';
  $('chartHistoryInfo').textContent=v.length+' Quellenwerte · '+$('chartTf').selectedOptions[0].textContent+(irregular?' · Zeitraster unbestätigt':'')+' · Handelspausen ausgeblendet';
  cv.setAttribute('aria-label',(candles?'Kerzenchart':'Linienchart')+' '+tf+'; waagerecht Schweizer Zeit, senkrecht Preis');
  $('chartFibExplanation').textContent=sampledSpot?'Fibonacci und Kursziele pausiert: Diese historischen Messpunkte enthalten keine vollständigen OHLC-Kerzen oder bestätigten Swing-Punkte.':fibonacciExplanation(fib)+(fib?' Grundlage: bestätigte Swing-Punkte dieser Zeitebene; keine Handelsfreigabe.':'');
  const bundle=typeof liveBundleCache!=="undefined"?liveBundleCache:null;
- $('chartHistoryInfo').textContent+=' · Quelle: '+(all.at(-1)?.source||bundle?.history?.data_state?.source||'nicht ausgewiesen')+' · Preismarke: letzter Kerzenschluss';
+ $('chartHistoryInfo').textContent+=' · Quelle: '+(visibleHistory.at(-1)?.source||bundle?.history?.data_state?.source||'nicht ausgewiesen')+' · Preismarke: letzter Kerzenschluss';
  const sourceTime=bundle?.spots?.spot_price_as_of;
  const quoteAt=typeof sourceTime==='string'&&/(?:Z|[+-]\d{2}:\d{2})$/.test(sourceTime)?Date.parse(sourceTime):NaN;
  const axisMultiDay=v.length>1&&new Date(Number(v[0].openTime)).toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'})!==new Date(Number(v.at(-1).openTime)).toLocaleDateString('en-CA',{timeZone:'Europe/Zurich'});
@@ -3079,7 +3195,7 @@ function draw(a){
  }else{
  ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.beginPath();v.forEach((b,i)=>{!axis.startsSegment(i)?ctx.lineTo(x(Number(b.openTime)),y(Number(b.close))):ctx.moveTo(x(Number(b.openTime)),y(Number(b.close)))});ctx.stroke();
  }
- const selectionKey=chartMarket+':'+tf;
+ const selectionKey=chartMarket+':'+tf+':'+scope;
  chartHitMap={key:selectionKey,width:w,height:h,left,right,top,bottom,points:v.map(b=>({at:Number(b.openTime),x:x(Number(b.openTime))}))};
  const chosen=chartSelected?.key===selectionKey?v.find(b=>Number(b.openTime)===chartSelected.at):null;
  if(chosen){
@@ -3237,7 +3353,7 @@ function earlyPreparationText(q,bundle=liveBundleCache,now=Date.now()){
 function renderEarlyImpulseStatus(){
  const el=$('earlyImpulseStatus');if(!el)return;
  const q=earlyWarningContext(liveBundleCache),active=signalState?.dir||'NEUTRAL';
- window.BobDegiro?.renderEarlyProductPanel(q);
+ // Optional product rendering must not prevent the market warning from updating.
  const clock=t=>new Date(t).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'});
  const hasDirection=['LONG','SHORT'].includes(q.direction);
  const labels={unavailable:'DATEN FEHLEN – kein aktuelles Frühwarnsignal',paused:'PAUSIERT',
@@ -3251,8 +3367,12 @@ function renderEarlyImpulseStatus(){
   (q.extensionRisk?'\n⚠ Bewegung bereits weit gelaufen – erhöhtes Rückschlagrisiko':'')+
   '\nGeprüft: '+clock(q.checkedAt)+' (Zürich) · Hauptsignal: '+active+
   '\nBeobachtung: keine Handelsfreigabe. Marktbeobachtung-Push nur bei frischer, geschlossener Signalkerze und nicht bereits bestätigter Hauptrichtung.'+
-  earlyPreparationText(q,liveBundleCache)+
-  (window.BobDegiro?.earlyProductRankingText(q)||'');
+  earlyPreparationText(q,liveBundleCache);
+ try{
+  window.BobDegiro?.renderEarlyProductPanel?.(q);
+  el.textContent+=window.BobDegiro?.earlyProductRankingText?.(q)||'';
+ }catch(error){console.warn('[BOB] Early product panel unavailable',error);}
+ el.dataset.marketRendered='true';
 }
 
 // Recheck expiry even when a fetch or the main analysis fails; no extra network request.
@@ -3417,6 +3537,8 @@ async function fetchLiveBundle(force=false){
    const previous=liveBundleCache?.spots;
    if(previous&&(Date.parse(spot.spot_price_as_of)<Date.parse(previous.spot_price_as_of)||
       (Date.parse(spot.spot_price_as_of)===Date.parse(previous.spot_price_as_of)&&spot.xaus!==previous.xaus)))throw Error('Widersprüchlicher Spot-Datensatz');
+   // Publish the checked original before optional history work can delay display.
+   window.BobGoldCards?.spot(j);
    // Historical candles are a separate input. A fallback must never replace spot.
    const serverBars=j.history?.bars_by_tf||{};
    if(!technicalHistoryFresh(serverBars['5m'],'5m',now)||!technicalHistoryFresh(serverBars['1h'],'1h',now)){
@@ -5010,7 +5132,7 @@ async function loadData(force=false){
  }catch(e){
   reportBobDiag("live:failed",{error:e?.message||String(e)});
   console.error("[BOB] live:failed",e);
-  chartHistory={};C=[];draw();
+  if(!Object.keys(chartHistory).length)chartHistory={};C=[];draw();
   invalidateTechnicalSignal("Live-Daten nicht erreichbar");
   const msg="Live-Daten momentan nicht erreichbar: "+e.message;
   $("status").textContent=msg+" · Bitte erneut versuchen.";

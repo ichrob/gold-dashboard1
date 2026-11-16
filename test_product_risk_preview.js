@@ -17,6 +17,20 @@ for(const direction of ['LONG','SHORT'])for(const currency of ['EUR','CHF']){
  for(const bad of [{...p,isinConfirmed:false},{...p,ko:4200-sign*20},{...p,quote:{...q,isin:'OTHER'}},{...p,quote:{...q,productModel:{...q.productModel,underlying:'GC=F'}}},{...p,quote:{...q,productModel:{...q.productModel,verifiedSimpleTurbo:false}}}])assert(!b.productRiskPreview(bad,market,now).available);
  assert(!b.productRiskPreview(p,market,now+100000).available);
  assert(b.productRiskPreviewText(p,market,now).includes('Gesamtverlust erst mit tatsächlichem Kaufkurs'));
+ const wait={...market,entrySuitable:false},saved=JSON.stringify({p,wait});
+ const comparison=b.productRiskComparison(p,wait,now);
+ assert(comparison.available);assert.equal(comparison.stop,r.stop);assert.equal(comparison.target,r.target);
+ assert.equal(comparison.entrySuitable,false);assert.equal(comparison.entryApproved,false);
+ assert.equal(comparison.copyAllowed,false);assert.equal(comparison.tradeable,false);
+ assert.match(comparison.entryWarning,/Kein Einstieg/);
+ assert(!b.productRiskPreview(p,wait,now).available);
+ assert.equal(JSON.stringify({p,wait}),saved);
+ for(const bad of [{...wait,available:false},{...wait,stop:ko+sign*20},{...wait,direction:'NEUTRAL'},{...wait,spots:{}}])
+  assert(!b.productRiskComparison(p,bad,now).available);
+ for(const bad of [{...p,isinConfirmed:false},{...p,ko:4200-sign*20},
+  {...p,quote:{...q,productModel:{...q.productModel,underlying:'GC=F'}}}])
+  assert(!b.productRiskComparison(bad,wait,now).available);
+ assert(!b.productRiskComparison(p,wait,now+100000).available);
 }
 console.log('Product risk preview: shared plan, LONG/SHORT, EUR/CHF, KO buffer, identity, stale FX/quotes, immutability passed');
 

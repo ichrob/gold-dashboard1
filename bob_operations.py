@@ -132,3 +132,33 @@ def snapshot(report, now=None):
             metrics=['Signalverluste im Spotmodell','Signalverzögerung','Stopp-/Zielprüfung','Ergebnis nach belegten Produktkosten'],
             note='Variantenvergleich unter Besser werden. Spotmodellkosten sind keine tatsächlichen Produktkosten.'))
 
+
+
+def compact_snapshot(source):
+    """Remove duplicated study detail only; preserve operational decisions/clocks."""
+    if not isinstance(source, dict) or not isinstance(source.get('testOverview'), dict):
+        return source
+    result = dict(source)
+    overview = dict(source['testOverview'])
+    omitted = []
+    for key in ('qualityCampaign', 'intradayTimingStudy', 'recentFollowups',
+                'entryExitEvaluation', 'evidenceChains', 'handsetComparisons'):
+        if key not in overview:
+            continue
+        original = overview[key]
+        # A size limit is not a source failure. Keep original status, clocks and
+        # evidence restrictions where supplied; never generate a new timestamp.
+        marker = {field: original[field] for field in (
+            'status', 'state', 'reason', 'checkedAt', 'observedAt', 'startedAt',
+            'completedAt', 'version', 'readOnly', 'realOrders',
+            'strategyWinnerConfirmed', 'actualNetVerified', 'winnerConfirmed')
+            if isinstance(original, dict) and field in original}
+        marker.update(truncated=True, omissionReason='omitted-response-size-limit')
+        overview[key] = marker
+        omitted.append('testOverview.' + key)
+    if not omitted:
+        return source
+    result.update(testOverview=overview, truncated=True,
+                  omittedSections=list(dict.fromkeys(
+                      list(source.get('omittedSections') or []) + omitted)))
+    return result

@@ -720,6 +720,18 @@ class ProductReadService : AccessibilityService() {
         }
     }
 
+    private fun recordReturnFailure() {
+        val outcome=when(productReturnTransition.failure) {
+            ProductReturnTransition.Failure.TIMEOUT -> ProductReadDiagnostics.Outcome.RETURN_TIMEOUT
+            ProductReturnTransition.Failure.PROTECTED -> ProductReadDiagnostics.Outcome.RETURN_PROTECTED
+            ProductReturnTransition.Failure.WINDOW -> ProductReadDiagnostics.Outcome.RETURN_WINDOW
+            ProductReturnTransition.Failure.INPUT -> ProductReadDiagnostics.Outcome.RETURN_INPUT
+            ProductReturnTransition.Failure.IDENTITY -> ProductReadDiagnostics.Outcome.RETURN_IDENTITY
+            ProductReturnTransition.Failure.NONE -> return
+        }
+        ProductReadDiagnostics.record(outcome)
+    }
+
     private fun finishBatchProduct(code: String, draft: String = "") {
         if (!MorningReadRun.running) return
         runCatching {
@@ -756,6 +768,7 @@ class ProductReadService : AccessibilityService() {
                 // A failed/unsafe BACK must never open the following ISIN from
                 // the previous product's detail or an unverified order surface.
                 if(!returnAcknowledged) {
+                    ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.RETURN_BEGIN_REJECTED)
                     stopAbortedBatchToStatus("RETURN_NOT_CONFIRMED",
                         failedReturnPackage,failedReturnSafe)
                     return
@@ -878,7 +891,73 @@ class ProductReadService : AccessibilityService() {
                     text=n.text?.toString().orEmpty().take(2000))
             }
     }
-    /** Product-only remote observation and ONE guarded semantic action. No raw screen upload. */
+    /**
+     * A dedicated, passive DEGIRO settings classifier. The screen must be
+     * explicitly opened by the owner. No taps, editable nodes, account numbers,
+     * raw label transfer, or permission changes occur here.
+     */
+    private fun accountSettingsScan(root:AccessibilityNodeInfo,
+                                    ownerConfirmedProfile:String?=null):AccountSettingsEvidence.Result? {
+        val labels=mutableListOf<String>()
+        val selectedProfiles=mutableSetOf<String>()
+        var visited=0
+        var sensitive=false
+        fun visit(node:AccessibilityNodeInfo,depth:Int) {
+            if(sensitive || ++visited>500 || depth>30) { sensitive=true;return }
+            if(!node.isVisibleToUser || node.packageName?.toString()!=ProductScreenEvidence.PACKAGE)return
+            // Never read an editable value. A harmless search or disabled
+            // settings control must not turn the whole screen into a login.
+            // Password and Android-sensitive elements still block everything.
+            if(node.isPassword ||
+                    (android.os.Build.VERSION.SDK_INT>=34 && node.isAccessibilityDataSensitive)) {
+                sensitive=true;return
+            }
+            if(node.isEditable)return
+            val label=(node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
+            if(label.isNotEmpty()) {
+                if(AccountSettingsEvidence.hasProtectedLabel(label)) { sensitive=true;return }
+                if(AccountSettingsEvidence.isRelevantLabel(label)) {
+                    labels+=label
+                    if(node.isSelected || node.isChecked)
+                        AccountSettingsEvidence.exactCardProfile(label)?.let { selectedProfiles+=it }
+                }
+            }
+            for(i in 0 until node.childCount.coerceAtMost(100)) {
+                val child=node.getChild(i) ?: continue
+                try { visit(child,depth+1) } finally { child.recycle() }
+                if(sensitive)break
+            }
+        }
+        visit(root,0)
+        // Never interpret an unrelated product, portfolio or order screen as
+        // account settings; keep the normal product protections in charge.
+        if(!AccountSettingsEvidence.recognizesSettings(labels))return null
+        val parsed=AccountSettingsEvidence.read(ProductScreenEvidence.PACKAGE,labels,
+            sensitive,selectedProfiles.toList())
+        if(ownerConfirmedProfile==null)return parsed
+        // A manual declaration cannot override a contradictory result
+        // from real selected-state or complete-card evidence.
+        if(parsed.feeProfile!=null && parsed.feeProfile!=ownerConfirmedProfile)
+            return AccountSettingsEvidence.Result("SETTINGS_CONFLICT")
+        return AccountSettingsEvidence.ownerConfirmedProfile(
+            ProductScreenEvidence.PACKAGE,labels,ownerConfirmedProfile,sensitive)
+    }
+
+    private fun accountSettingsReceipt(e:AccountSettingsEvidence.Result):org.json.JSONObject {
+        val receipt=PhoneRemote.empty(e.code)
+        if(e.code in setOf("ACCOUNT_SETTINGS_COMPLETE","ACCOUNT_SETTINGS_PARTIAL")) {
+            val status=if(e.code=="ACCOUNT_SETTINGS_COMPLETE") "COMPLETE" else "PARTIAL"
+            receipt.put("accountSettings",org.json.JSONObject()
+                .put("source",e.source)
+                .put("capturedAt",System.currentTimeMillis()/1000)
+                .put("status",status)
+                .put("feeProfile",e.feeProfile ?: org.json.JSONObject.NULL)
+                .put("autoFx",e.autoFx ?: org.json.JSONObject.NULL))
+        }
+        return receipt
+    }
+
+    /** Product-only remote observation plus explicitly requested redacted settings. */
     private fun remoteRead(command:org.json.JSONObject?):org.json.JSONObject {
         fun observation(code:String)=PhoneRemote.empty(code)
         if(!PhoneRemote.active())return observation("SESSION_EXPIRED")
@@ -900,6 +979,17 @@ class ProductReadService : AccessibilityService() {
                 stopForConnectionError()
                 return observation("CONNECTION_ERROR")
             }
+            val actionName=command?.optString("action") ?: "inspect"
+            // A visible account settings screen is never a search or product
+            // navigation target, regardless of the previously queued command.
+            val ownerClaim=command?.optString("ownerConfirmedProfile")
+                ?.takeIf { PhoneRemote.ownerConfirmationAllowed(it) }
+            val settings=accountSettingsScan(root,ownerClaim)
+            if(actionName=="read_account_settings")
+                return accountSettingsReceipt(settings ?: AccountSettingsEvidence.Result("SETTINGS_NOT_VISIBLE"))
+            if(settings!=null)
+                return observation(if(settings.code=="PROTECTED_VIEW") "PROTECTED_VIEW"
+                    else if(actionName=="inspect") "SETTINGS_READY" else "SETTINGS_ONLY")
             navigationTree(root,nodes,descriptions)
             // Inspect the previous product context while Android finishes BACK.
             // Return no draft or identifiers from this transitional screen.
@@ -921,6 +1011,7 @@ class ProductReadService : AccessibilityService() {
                         return observation("BUSY")
                     }
                     ProductReturnTransition.State.FAILED -> {
+                        recordReturnFailure()
                         // Reached a non-search state after an accepted BACK.
                         // Stop the session, preserve partial results, and return
                         // to Bob only if this is a recognized safe broker view.
@@ -933,7 +1024,6 @@ class ProductReadService : AccessibilityService() {
                     else -> Unit
                 }
             }
-            val actionName=command?.optString("action") ?: "inspect"
             val target=command?.optString("isin").orEmpty()
             val observedTarget=if(MorningReadRun.running) MorningReadRun.target else
                 Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b").findAll(descriptions.joinToString("\n") { it.text.uppercase() })
@@ -1444,6 +1534,7 @@ class ProductReadService : AccessibilityService() {
                 when(productReturnTransition.poll(descriptions,root.windowId,SystemClock.elapsedRealtime())) {
                     ProductReturnTransition.State.WAITING -> return true
                     ProductReturnTransition.State.FAILED -> {
+                        recordReturnFailure()
                         MorningReadRun.stop(this,"RETURN_NOT_CONFIRMED")
                         ProductReadRequest.cancel()
                         return true

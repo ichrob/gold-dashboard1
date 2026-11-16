@@ -184,6 +184,23 @@ assert.equal(scenario({feesCHF:NaN}).available,false);
 assert.equal(scenario({fx:{available:false,rate:0.9}}).available,false);
 assert.equal(scenario({preliminary:{...test(),stop:20.3}}).available,false);
 assert.equal(scenario({budgetCHF:10}).available,false);
+// A rejected preliminary calculation must retain the actual blocker, rather
+// than disguising budget, fee or FX failures as a missing model. Never approve it.
+for(const overrides of [{budgetCHF:10},{riskCHF:8},{feesCHF:null},
+ {fx:{available:false,reason:'Aktuelle Währungsumrechnung fehlt.'}},
+ {stopPlan:{...stopPlan,available:false}}, {quote:{...quote,askAt:iso(now-91000)}}]){
+ const preliminary=test(overrides),blocked=scenario({preliminary});
+ assert.equal(preliminary.available,false);
+ assert.equal(blocked.reason,preliminary.reason);
+ assert.equal(blocked.available,false);
+ assert.equal(blocked.copyAllowed,false);
+ assert.equal(blocked.orderSubmitted,false);
+ assert.equal(blocked.sourceAt,null);
+}
+assert.equal(scenario({preliminary:{available:false,isin:candidate.isin}}).reason,
+ 'Aktueller unabhängiger Modellplan fehlt.');
+assert.equal(scenario({preliminary:{available:false,isin:'OTHER',reason:'Wrong product'}}).reason,
+ 'Aktueller unabhängiger Modellplan fehlt.');
 assert.equal(scenario({report:{...report,items:[{...report.items[0],state:'terminated'}]}}).available,false);
 for(const budgetCHF of [30,100,500,1000])for(const riskCHF of [9,20,50,100]){
  const r=scenario({budgetCHF,riskCHF});

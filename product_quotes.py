@@ -24,7 +24,12 @@ SG_CH_PRODUCTS = {'DE000FG34XV8': 7039911, 'DE000FG14AV8': 6901337}
 # Exact FB0CVV issuer identity and EUR/Put terms confirmed on SG's own
 # public product page (26.10.2026). Product ID and quote must STILL come from
 # SG Products/<ISIN>; never substitute WKN, screen time, or a BNP price.
-SG_DISCOVERY_PRODUCTS = frozenset(('DE000FG7N6Z2', 'DE000FG8NHQ3', 'DE000FB0CVV9'))
+SG_DISCOVERY_PRODUCTS = frozenset((
+    'DE000FG7N6Z2', 'DE000FG8NHQ3', 'DE000FB0CVV9',
+    # Exact SG issuer product webpage shows FA9UFD as a Gold BEST Turbo Call.
+    # The official Products/<ISIN> JSON reply must STILL establish ID/terms.
+    'DE000FA9UFD4',
+))
 SG_CH_MARKET = frozenset((*SG_CH_PRODUCTS, 'DE000FG8NHQ3'))
 # Exact 03-Nov-2026 DEGIRO-listed EUR Gold products whose identity was
 # independently observed on comdirect. SG still MUST confirm its own exact
@@ -610,6 +615,11 @@ def get_issuer_quote(isin):
         # its undated quotes into the BNP (or any other) product result.
         result = dict(result, sgDiscovery=dict(
             attempted=True, verified=False,
+            # This is a separate SG provider attempt; a later BNP HTTP error
+            # must never be reported as the SG endpoint's response.
+            failureCode=(str(sg_attempt.get('quoteFailureCode')
+                             or sg_attempt.get('sourceFailureCode') or '')[:60]
+                         or None),
             reason=sg_attempt.get('reason', 'SG-Identität nicht bestätigt')))
     with _LOCK:
         if len(_CACHE) >= 256:
@@ -635,6 +645,24 @@ def get_bnp_quote(isin):
             raise ValueError('Produktantwort zu groß')
         data = json.loads(body)
         terms = bnp_product_data(data, isin)
+        # A missing/one-sided quote must not discard an independently dated
+        # issuer metric. Identity/status have already passed bnp_product_data;
+        # retain only agreeing, finite leverage with its original explicit clock.
+        # This does not supply a quote, terms date, market state or approval.
+        if terms['metadata']['status'] == 1:
+            try:
+                r = data['result']
+                value = number(r['leverage'])
+                figures = r['keyFigures']
+                at = stamp(figures['lastUpdate'])
+                response_at = stamp(data['responseDate'])
+                checked = stamp(terms['checkedAt'])
+                if (value >= 1 and number(figures['leverage']) == value
+                        and at <= response_at and response_at <= checked
+                        and at <= checked):
+                    terms.update(leverage=value, leverageAt=at.isoformat())
+            except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
+                pass
         result = dict(terms, **parse_bnp(data, isin))
     except Exception as exc:
         code, reason = bnp_source_error(exc)
@@ -791,6 +819,8 @@ def _get_quote_bounded(isin):
     result = _get_quote_primary(isin)
     result = enrich('comdirect-terms', isin, apply_comdirect_fields, result, recovery)
     result = enrich('finanzen-terms', isin, apply_terms_backup, result, recovery)
+    from sg_chf_contract import apply as apply_sg_contract
+    result = enrich('sg-chf-contract', isin, apply_sg_contract, result, recovery)
     result = _restore_exact_sg_metadata(result, isin)
     if result.get('metadata', {}).get('currency') == 'CHF':
         from sg_chf import convert_analysis

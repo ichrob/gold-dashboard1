@@ -9,6 +9,7 @@ import json
 import os
 import hmac
 import threading
+import time
 from bob_oauth_store import ORIGIN, SCOPE, DIAGNOSTICS_SCOPE
 
 PROTOCOL = "2025-03-26"
@@ -17,6 +18,59 @@ _MAX_RESULT_BYTES = 200_000
 # server is threaded, so overlapping focused reads must share one bounded
 # snapshot build instead of multiplying the same transient allocations.
 _DIAGNOSTICS_LOCK = threading.Lock()
+
+
+def _diagnostics_memory_value(sample, key):
+    value = sample.get(key) if isinstance(sample, dict) else None
+    return value if type(value) in (int, float) else None
+
+
+def _read_diagnostics_with_memory(reader, focus):
+    """Measure only aggregate memory around one serialized full snapshot.
+
+    This deliberately records no request payloads, report fields, identifiers,
+    credentials, market data or object samples. Instrumentation is best effort
+    and must never alter the reader's result or exception.
+    """
+    started = time.monotonic()
+    try:
+        from memory_watch import snapshot
+        before = snapshot()
+    except Exception:
+        before = {}
+    ok = False
+    try:
+        result = reader()
+        ok = True
+        return result
+    finally:
+        try:
+            from memory_watch import snapshot
+            after = snapshot()
+        except Exception:
+            after = {}
+        try:
+            event = {
+                "focus": focus,
+                "status": "ok" if ok else "error",
+                "durationMs": round((time.monotonic() - started) * 1000),
+            }
+            for key, label in (("parentMiB", "ParentMiB"),
+                               ("containerMiB", "ContainerMiB"),
+                               ("pythonAllocatedBlocks", "PythonAllocatedBlocks")):
+                before_value = _diagnostics_memory_value(before, key)
+                after_value = _diagnostics_memory_value(after, key)
+                event["before" + label] = before_value
+                event["after" + label] = after_value
+                event["delta" + label] = (round(after_value - before_value, 1)
+                                               if before_value is not None and after_value is not None
+                                               else None)
+            print("BOB_DIAGNOSTICS_MEMORY " + json.dumps(
+                event, separators=(",", ":"), allow_nan=False), flush=True)
+        except Exception:
+            pass
+
+
 _TOOL_NAMES = ("bob_product_audit", "bob_product_gaps")
 
 
@@ -260,7 +314,9 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
         # Same bounded, serialized snapshot as the existing diagnostics tool.
         # No extra concurrent DB snapshots or independent repair activity.
         with _DIAGNOSTICS_LOCK:
-            full_report = diagnostics_reader()
+            full_report = _read_diagnostics_with_memory(
+                diagnostics_reader,
+                "diagnostics-view" if params["name"] == "bob_diagnostics_view" else "simulation-audit")
         data = (project_view(full_report, args) if params["name"] == "bob_diagnostics_view"
                 else simulation_audit(full_report))
     elif params["name"] == "bob_diagnostics":
@@ -271,7 +327,8 @@ def handle(request, report_reader, diagnostics_reader=None, products=True, signa
         # from exhausting the scanner's fixed memory budget.
         with _DIAGNOSTICS_LOCK:
             reader = research_reader if args.get('focus') == 'research' and research_reader is not None else diagnostics_reader
-            full_report = reader()
+            full_report = _read_diagnostics_with_memory(
+                reader, args.get("focus", "overview"))
         data = bounded_report(focused_report(
             full_report, args.get("focus","overview")), _MAX_RESULT_BYTES)
     else:

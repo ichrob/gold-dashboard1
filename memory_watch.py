@@ -4,8 +4,10 @@ Only process counts and memory sizes are logged. Never log subprocess arguments,
 environment variables, request payloads, credentials, or market/trade data.
 This module intentionally has no third-party dependencies.
 """
+import gc
 import json
 import os
+import sys
 import threading
 import time
 
@@ -13,8 +15,11 @@ _MIB = 1024 * 1024
 _CGROUP = "/sys/fs/cgroup"
 _WARN_FRACTION = 0.85
 # Earlier return of already-free heap pages lowers the sustained baseline.
-# Keep the 120-second cooldown and never collect/discard live application data.
+# At critical pressure allow faster allocator-only reclaim; never force a GC,
+# discard live application data, or change market/quote validation.
 _RECLAIM_FRACTION = 0.50
+_RECLAIM_COOLDOWN_SECONDS = 120
+_RECLAIM_CRITICAL_COOLDOWN_SECONDS = 30
 
 
 def _text(path):
@@ -109,6 +114,11 @@ def snapshot():
         "pythonChildrenMiB": _mib(python),
         "children": count,
         "threads": threading.active_count(),
+        # Cheap process-wide allocation indicators help distinguish rising
+        # Python-object pressure from retained native arenas. Counts only;
+        # no sampled objects, filenames, request data or secrets.
+        "pythonAllocatedBlocks": sys.getallocatedblocks() if hasattr(sys, "getallocatedblocks") else None,
+        "gcGenerationCounts": list(gc.get_count()),
     }
 
 
@@ -141,9 +151,14 @@ def release_free_pages():
 def reclaim_due(sample, now, last_attempt):
     used, limit = sample.get('containerMiB'), sample.get('limitMiB')
     parent = sample.get('parentMiB')
-    return (used is not None and limit is not None and limit > 0
-            and parent is not None and parent >= 128
-            and used >= _RECLAIM_FRACTION * limit and now - last_attempt >= 120)
+    if (used is None or limit is None or limit <= 0
+            or parent is None or parent < 128
+            or used < _RECLAIM_FRACTION * limit):
+        return False
+    cooldown = (_RECLAIM_CRITICAL_COOLDOWN_SECONDS
+                if used >= _WARN_FRACTION * limit
+                else _RECLAIM_COOLDOWN_SECONDS)
+    return now - last_attempt >= cooldown
 
 
 def watch(interval=0.5, stop=None, emit=print, reclaim=False):

@@ -77,6 +77,70 @@ class ReliabilityTests(unittest.TestCase):
             req.assert_not_called()
         self.assertTrue(c._ROWS)
 
+    def test_identical_observations_reuse_checkpoint_but_corrected_ohlc_does_not(self):
+        rows = self.rows()
+        c.observe('biquote', '1m', rows)
+        first = c._ROWS['biquote/1m']
+        c.observe('biquote', '1m', copy.deepcopy(rows))
+        self.assertIs(c._ROWS['biquote/1m'], first)
+        correction = copy.deepcopy(rows)
+        correction[-1]['high'] += 1
+        c.observe('biquote', '1m', correction)
+        self.assertIsNot(c._ROWS['biquote/1m'], first)
+        self.assertEqual(c._ROWS['biquote/1m'][-1]['high'], correction[-1]['high'])
+        self.assertEqual(first[-1]['high'], rows[-1]['high'])
+
+    def test_cycle_does_not_deepcopy_immutable_checkpoint_rows(self):
+        class ProtectedRows(list):
+            def __deepcopy__(self, memo):
+                raise AssertionError('unnecessary candle history deep copy')
+        c._ROWS['biquote/1m'] = ProtectedRows(self.rows())
+        with patch.object(c, 'request', return_value={'ok': True}) as req:
+            c.cycle(server)
+        self.assertEqual([call.args[1]['key'] for call in req.call_args_list],
+                         ['biquote/1m', 'statistics'])
+
+    def test_cycle_keeps_original_snapshot_during_concurrent_source_revision(self):
+        rows = self.rows()
+        c.observe('biquote', '1m', rows)
+        correction = copy.deepcopy(rows)
+        correction[-1]['high'] += 1
+        delivered = []
+        def request(action, payload):
+            if payload['key'] == 'biquote/1m':
+                delivered.append(payload['rows'][-1]['high'])
+                if len(delivered) == 1:
+                    c.observe('biquote', '1m', correction)
+            return {'ok': True}
+        with patch.object(c, 'request', side_effect=request):
+            c.cycle(server)
+            c.cycle(server)
+        self.assertEqual(delivered, [rows[-1]['high'], correction[-1]['high']])
+
+    def test_restored_rows_are_detached_from_mutable_analysis_caches(self):
+        import technical_candles
+        original = self.rows()
+        xaus_rows = copy.deepcopy(original)
+        for row in xaus_rows:
+            row['source'] = c.SOURCES['xaus']
+        def request(action, payload):
+            key = payload['key']
+            if key == 'statistics':
+                return {'statistics': {}}
+            return {'rows': original if key == 'biquote/1m' else
+                    xaus_rows if key == 'xaus/1m' else []}
+        with patch.object(c, 'request', side_effect=request), \
+             patch.dict(technical_candles._cache, {}, clear=True):
+            c.restore(server)
+            biquote_archive = c._ROWS['biquote/1m']
+            xaus_archive = c._ROWS['xaus/1m']
+            source_biquote_high = biquote_archive[-1]['high']
+            source_xaus_high = xaus_archive[-1]['high']
+            technical_candles._cache['1m'][1][-1]['high'] += 2
+            server._ema_backfill_series['1m'][-1]['high'] += 3
+            self.assertEqual(biquote_archive[-1]['high'], source_biquote_high)
+            self.assertEqual(xaus_archive[-1]['high'], source_xaus_high)
+
     def test_failed_series_does_not_starve_later_series_or_statistics(self):
         first = self.rows()
         second = copy.deepcopy(first)

@@ -203,6 +203,54 @@ class BobMcpTests(unittest.TestCase):
         self.assertEqual(len(results), 2)
         self.assertTrue(all(status == 200 for status, _ in results))
 
+    def test_diagnostics_memory_phase_is_payload_free_and_preserves_result(self):
+        import io
+        import json
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        report = {"status":"observed", "readOnly":True,
+                  "private":"secret-do-not-log", "areas":{}}
+        samples = [
+            {"parentMiB":200.0, "containerMiB":220.0,
+             "pythonAllocatedBlocks":500000},
+            {"parentMiB":212.5, "containerMiB":233.0,
+             "pythonAllocatedBlocks":501250},
+        ]
+        output = io.StringIO()
+        with patch("memory_watch.snapshot", side_effect=samples), redirect_stdout(output):
+            _, response = bob_mcp.handle(
+                {"jsonrpc":"2.0","id":9,"method":"tools/call",
+                 "params":{"name":"bob_diagnostics",
+                           "arguments":{"focus":"overview"}}},
+                lambda: self.fail("product access"), lambda: report)
+        self.assertFalse(response["result"]["isError"])
+        line = output.getvalue().strip()
+        self.assertTrue(line.startswith("BOB_DIAGNOSTICS_MEMORY "))
+        event = json.loads(line.split(" ", 1)[1])
+        self.assertEqual(event["focus"], "overview")
+        self.assertEqual(event["status"], "ok")
+        self.assertEqual(event["deltaParentMiB"], 12.5)
+        self.assertEqual(event["deltaContainerMiB"], 13.0)
+        self.assertEqual(event["deltaPythonAllocatedBlocks"], 1250)
+        self.assertNotIn("secret-do-not-log", line)
+
+    def test_diagnostics_memory_instrumentation_failure_is_non_blocking(self):
+        import io
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        output = io.StringIO()
+        with patch("memory_watch.snapshot", side_effect=RuntimeError("unavailable")), redirect_stdout(output):
+            _, response = bob_mcp.handle(
+                {"jsonrpc":"2.0","id":10,"method":"tools/call",
+                 "params":{"name":"bob_diagnostics",
+                           "arguments":{"focus":"overview"}}},
+                lambda: self.fail("product access"),
+                lambda: {"status":"observed","readOnly":True,"areas":{}})
+        self.assertFalse(response["result"]["isError"])
+        self.assertIn('"beforeParentMiB":null', output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

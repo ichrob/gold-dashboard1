@@ -8,11 +8,12 @@ class Date extends globalThis.Date {
 const html=fs.readFileSync('Bob.html','utf8');
 const script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].find(m=>m[1].includes('const quotes={spot:null,future:null,estimate:null}'))[1];
 const els=new Map(),el=id=>{if(!els.has(id))els.set(id,{textContent:'',className:'',style:{}});return els.get(id)};
-let payload={spot:{price:4140,at:new Date().toISOString(),changePct:1.2,source:'fixture'},future:{price:4172.1,at:'2026-01-01T00:00:00Z',changePct:-.72,source:'fixture'}};
+let payload={spot:{price:4140,at:new Date().toISOString(),changePct:1.2,source:'fixture',kind:'spot',symbol:'XAU/USD'},future:{price:4172.1,at:'2026-01-01T00:00:00Z',changePct:-.72,source:'fixture'}};
 const context={window:{},document:{getElementById:id=>html.includes('id="'+id+'"')?el(id):null,visibilityState:'visible',addEventListener(){}},fetch:async()=>({ok:true,json:async()=>payload}),setTimeout:()=>0,clearTimeout(){},setInterval(){},AbortController,Date,Number};
 vm.createContext(context);vm.runInContext(script,context);
 setImmediate(async()=>{
- assert.equal(el('gold-spot-price').textContent,'—'); // Independent cards cannot override the analysis spot.
+ assert.equal(el('gold-spot-price').textContent,'4.140,00'); // Shared spot card works even when the analysis request fails.
+ assert(!html.includes('id="gold-estimate-price"'),'Retired Futures estimate is absent from the market UI');
  context.window.BobGoldCards.spot({spots:{xaus:4140,spot_price_as_of:payload.spot.at,primary:'Gold-API'}});
  assert.equal(el('gold-spot-price').textContent,'4.140,00');
  context.window.BobGoldCards.spot({spots:{xaus:4141,spot_price_as_of:new Date(Date.now()+1000).toISOString(),primary:'Bob'}});
@@ -22,20 +23,12 @@ setImmediate(async()=>{
  payload.estimate={price:4180,at:new Date().toISOString(),kind:'calculated',changePct:-.5,changeLabel:'geschätzt zum Vortagesschluss'};
  await context.window.BobGoldCards.refresh();
  assert.equal(el('gold-spot-price').textContent,'4.141,00'); // New card refresh still cannot replace the analysis observation.
- assert.equal(el('gold-estimate-price').textContent,'≈ 4.180,00');
- assert.equal(el('gold-estimate-state').textContent,'Berechnet · keine Börsenquotierung');
  payload.estimate={price:null,note:'Schätzung pausiert'};
  await context.window.BobGoldCards.refresh();
- assert.equal(el('gold-estimate-price').textContent,'—');
- assert.equal(el('gold-estimate-state').textContent,'Schätzung nicht verfügbar');
  payload.estimate={price:4170,at:new Date(Date.now()-86400000).toISOString(),kind:'calculated',historical:true};
  await context.window.BobGoldCards.refresh();
- assert.equal(el('gold-estimate-price').textContent,'≈ 4.170,00');
- assert.equal(el('gold-estimate-state').textContent,'Letzte Schätzung · nicht aktuell');
  payload.estimate={price:4190,at:new Date().toISOString(),kind:'calculated'};
  await context.window.BobGoldCards.refresh();
- assert.equal(el('gold-estimate-price').textContent,'≈ 4.190,00');
- assert.equal(el('gold-estimate-state').textContent,'Berechnet · keine Börsenquotierung');
  payload.cfd={price:4170.45,at:new Date(Date.now()-180000).toISOString(),kind:'cfd',changePct:-.04,note:'Echtzeit CFD · laut Investing.com'};
  await context.window.BobGoldCards.refresh();
  assert.equal(el('gold-cfd-price').textContent,'4.170,45');
@@ -56,6 +49,5 @@ setImmediate(async()=>{
  clock=globalThis.Date.parse('2026-10-17T12:00:00Z');
  payload.estimate={price:4170,at:'2026-10-16T20:50:00Z',kind:'calculated',historical:true};
  await context.window.BobGoldCards.refresh();
- assert.equal(el('gold-estimate-state').textContent,'Markt geschlossen · letzte Schätzung');
  console.log('Gold cards: formatting, directions, stale data, missing change and older response protection OK');
 });
