@@ -102,6 +102,37 @@ class TestHybridProjection(unittest.TestCase):
             r=self.bnp();mutate(r)
             self.assertNotIn('productModel',handset.prepare(r,BASE))
 
+    def test_bnp_mini_distinct_dated_ko_strike_yields_only_theoretical_model(self):
+        import product_estimate
+        r=self.bnp()
+        r['metadata'].update(issuerProductType='MINI Long',issuerDerivativeTypeId=23,
+                             ko=3822.3992,strike=3747.4502,ratio=.1,
+                             simpleTurbo=True)
+        for key in ('ko','strike'):
+            r['conditions'][key]=dict(value=r['metadata'][key],
+                dateText='15.10.2026',conditionVerified=True)
+        contract=h.bnp_model(r,BASE)
+        self.assertEqual(contract['classification'],'BNP_MINI')
+        self.assertEqual(contract['ko'],3822.3992)
+        self.assertEqual(contract['strike'],3747.4502)
+        self.assertNotEqual(contract['ko'],contract['strike'])
+        self.assertEqual(product_estimate.validate_model(contract),
+                         product_estimate.identity(contract))
+        from handset_contract_model import prepare
+        prepared=prepare(r,BASE)
+        self.assertTrue(prepared['productModel']['verifiedSimpleTurbo'])
+        self.assertTrue(prepared['productModel']['researchOnly'])
+        self.assertEqual(prepared['productModel']['classification'],'BNP_MINI')
+        self.assertFalse(prepared.get('degiroExecutable',False))
+        for mutate in (
+            lambda x:x['metadata'].update(issuerDerivativeTypeId=99),
+            lambda x:x['metadata'].update(ko=3700),
+            lambda x:x['metadata'].update(direction='SHORT'),
+            lambda x:x['conditions']['ko'].update(dateText='14.10.2026'),
+            lambda x:x['comdirectFieldsBackup'].update(conflicts=['quanto'])):
+            bad=copy.deepcopy(r);mutate(bad)
+            self.assertIsNone(h.bnp_model(bad,BASE))
+
     def test_bnp_original_warms_anchor_then_stale_uses_model_and_recovers(self):
         r=self.bnp();s,fx=inputs()
         direct=h.apply(r,BASE,s,fx)

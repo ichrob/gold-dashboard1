@@ -477,6 +477,45 @@ class BnpDatedTermsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             q.parse_bnp_dated_terms(self.page, ISIN, self.meta, self.now+timedelta(days=1))
 
+    def test_bnp_mini_long_dated_stoploss_and_distinct_strike(self):
+        # BNP MINI product page explicitly calls the KO level "Stop-Loss
+        # Schwelle"; it is NOT the same as the financing Basispreis.
+        isin='DE000PJ8N8L0'
+        now=datetime(2026,11,16,18,30,tzinfo=timezone.utc)
+        meta=dict(status=1, simpleTurbo=True, issuerProductType='MINI Long',
+                  issuerDerivativeTypeId=23,ko=3822.3992,strike=3747.4502,
+                  ratio=0.1,direction='LONG')
+        page=('<script type="application/ld+json">'
+              '{"@type":"FinancialProduct","identifier":"'+isin+'"}'
+              '</script><table><caption>Stammdaten</caption>'
+              '<tr><th>Basispreis (16.11.2026)</th><td>3.747,4502 USD</td></tr>'
+              '<tr><th>Stop-Loss Schwelle (16.11.2026)</th><td>3.822,3992 USD</td></tr>'
+              '</table>')
+        terms=q.parse_bnp_dated_terms(page,isin,meta,now)
+        self.assertEqual(terms['ko']['value'],3822.3992)
+        self.assertEqual(terms['strike']['value'],3747.4502)
+        self.assertNotEqual(terms['ko']['value'],terms['strike']['value'])
+        self.assertEqual(terms['ko']['sourceField'],'dated-terms-row')
+        self.assertEqual(terms['ko']['dateText'],'16.11.2026')
+        self.assertIsNone(terms['ko']['at'])  # date is not a live quote clock
+        for invalid_meta in (
+            dict(meta,issuerProductType='Unlimited Long'),
+            dict(meta,issuerDerivativeTypeId=43),
+            dict(meta,simpleTurbo=False),
+            dict(meta,ko=3822.4)):
+            with self.subTest(meta=invalid_meta),self.assertRaises(ValueError):
+                q.parse_bnp_dated_terms(page,isin,invalid_meta,now)
+        for bad in (
+            page.replace('16.11.2026','15.11.2026'),
+            page.replace(isin,'DE000PJ8N8M8'),
+            page.replace('3.822,3992 USD','3.822,3992 EUR'),
+            page.replace('</table>','<tr><th>Knock-Out Schwelle (16.11.2026)</th>'
+                         '<td>3.822,3992 USD</td></tr></table>')):
+            with self.subTest(page=bad),self.assertRaises(ValueError):
+                q.parse_bnp_dated_terms(bad,isin,meta,now)
+        with self.assertRaises(ValueError):
+            q.parse_bnp_dated_terms(page,isin,meta,now+timedelta(days=1))
+
     def test_dated_terms_caption_attributes_keep_identity_and_uniqueness_guards(self):
         page = self.page.replace('<caption>', '<caption class="" data-view="terms">')
         self.assertEqual(q.parse_bnp_dated_terms(page, ISIN, self.meta, self.now),

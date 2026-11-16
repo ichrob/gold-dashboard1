@@ -34,7 +34,7 @@ def forward_key(model, side):
 
 def validate_model(model):
     if (model['verifiedSimpleTurbo'] is not True or model['underlying'] != 'XAU/USD'
-            or model['classification'] not in (43,45,47,'BNP_UNLIMITED')
+            or model['classification'] not in (43,45,47,'BNP_UNLIMITED','BNP_MINI')
             or model['direction'] not in ('LONG','SHORT')):
         raise ValueError('Kein bestätigtes einfaches Gold-Turbo-Modell')
     for key in ('ratio','strike','ko'):

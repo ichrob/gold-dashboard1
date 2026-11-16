@@ -71,13 +71,21 @@ def bnp_model(result, now):
                 return None
     except (KeyError, ValueError, TypeError):
         return None
+    # BNP MINI Long has a distinct Stop-Loss KO and a financing Basispreis.
+    # Preserve that product classification: the two verified dated amounts
+    # must never be silently equated to fit an Unlimited model.
+    mini = m.get('issuerProductType') == 'MINI Long'
+    if mini and (m.get('issuerDerivativeTypeId') != 23 or m['direction'] != 'LONG'
+                 or m['ko'] < m['strike']):
+        return None
     local = now.astimezone(ZoneInfo('Europe/Zurich'))
     if local.weekday() >= 5 or not 8 <= local.hour < 22:
         return None
     close = datetime.combine(local.date(), clock_time(22), tzinfo=local.tzinfo)
     return dict(isin=isin, underlying='XAU/USD', direction=m['direction'],
                 ratio=m['ratio'], strike=m['strike'], ko=m['ko'],
-                classification='BNP_UNLIMITED', provider='BNP', verifiedSimpleTurbo=True,
+                classification='BNP_MINI' if mini else 'BNP_UNLIMITED',
+                provider='BNP', verifiedSimpleTurbo=True,
                 tradingEndAt=close.astimezone(timezone.utc).isoformat())
 
 
