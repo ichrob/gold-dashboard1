@@ -1,9 +1,19 @@
 import sqlite3
+from contextlib import closing, contextmanager
 import tempfile
 import unittest
 from pathlib import Path
 
 from twelve_research_erasure import erase_local_research
+
+
+@contextmanager
+def managed_db(path):
+    # sqlite3.Connection.__exit__ commits/rolls back but does NOT close.
+    # Explicit closing avoids Python 3.14 ResourceWarnings and stale locks.
+    with closing(sqlite3.connect(path)) as db:
+        with db:
+            yield db
 
 
 class ResearchErasureTests(unittest.TestCase):
@@ -12,7 +22,7 @@ class ResearchErasureTests(unittest.TestCase):
             root = Path(folder)
             root.chmod(0o700)
             dbfile = root / "research.sqlite"
-            with sqlite3.connect(dbfile) as db:
+            with managed_db(dbfile) as db:
                 db.execute("CREATE TABLE td_research_bars (x TEXT)")
                 db.execute("INSERT INTO td_research_bars VALUES ('synthetic')")
                 db.execute("CREATE TABLE td_research_depth (x TEXT)")
@@ -21,12 +31,12 @@ class ResearchErasureTests(unittest.TestCase):
                 db.execute("INSERT INTO td_credit_ledger VALUES (1)")
             dbfile.chmod(0o600)
             self.assertEqual(erase_local_research(str(dbfile))["code"], "ERASURE_NOT_AUTHORIZED")
-            with sqlite3.connect(dbfile) as db:
+            with managed_db(dbfile) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM td_research_bars").fetchone()[0], 1)
             result = erase_local_research(str(dbfile), confirmed=True)
             self.assertEqual(result["code"], "LOCAL_RESEARCH_ERASED")
             self.assertFalse(result["remoteCopiesErased"])
-            with sqlite3.connect(dbfile) as db:
+            with managed_db(dbfile) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM td_research_bars").fetchone()[0], 0)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM td_research_depth").fetchone()[0], 0)
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM td_credit_ledger").fetchone()[0], 1)
@@ -50,7 +60,7 @@ class ResearchErasureTests(unittest.TestCase):
             result = erase_local_research(str(dbfile), confirmed=True)
             self.assertEqual(result["code"], "ERASURE_REQUIRES_OFFLINE_JOURNAL_REVIEW")
             self.assertFalse(result["backupCopiesErased"])
-            with sqlite3.connect(dbfile) as check:
+            with managed_db(dbfile) as check:
                 self.assertEqual(check.execute(
                     "SELECT COUNT(*) FROM td_research_bars").fetchone()[0], 1)
 
@@ -59,7 +69,7 @@ class ResearchErasureTests(unittest.TestCase):
             root = Path(folder)
             root.chmod(0o700)
             dbfile = root / "research.sqlite"
-            with sqlite3.connect(dbfile) as db:
+            with managed_db(dbfile) as db:
                 db.execute("CREATE TABLE td_research_bars (x TEXT)")
                 db.execute("INSERT INTO td_research_bars VALUES ('synthetic')")
             dbfile.chmod(0o600)
@@ -68,7 +78,7 @@ class ResearchErasureTests(unittest.TestCase):
             result = erase_local_research(str(dbfile), confirmed=True)
             self.assertEqual(result["code"], "ERASURE_REQUIRES_OFFLINE_JOURNAL_REVIEW")
             self.assertTrue(sidecar.exists())  # the routine never blindly unlinks
-            with sqlite3.connect(dbfile) as check:
+            with managed_db(dbfile) as check:
                 self.assertEqual(check.execute(
                     "SELECT COUNT(*) FROM td_research_bars").fetchone()[0], 1)
 
