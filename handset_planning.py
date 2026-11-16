@@ -238,7 +238,8 @@ def model_plan_audit(conn, now=None):
                    ((source.get('reasons') or ['Planparameter fehlen'])[0])))
         display_ready = status in ('modeled-reference','observed-input-reference')
         gold=source.get('goldReference') or {}
-        gold_ok=(not terminated and not excluded and current and
+        gold_ok=(not terminated and not excluded and
+            item.get('state') in ('analysis-evidence-complete','issuer-evidence-complete') and current and
             isinstance(gold,dict) and gold.get('state')=='available' and
             gold.get('direction')==item.get('direction') and
             gold.get('unit')=='USD/oz' and
