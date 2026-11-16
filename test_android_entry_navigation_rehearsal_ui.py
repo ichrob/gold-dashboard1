@@ -33,6 +33,20 @@ class ImmediateEntryNavigation(unittest.TestCase):
         ):
             self.assertNotIn(prohibited, method, prohibited)
 
+    def test_navigation_dialog_displays_isin_list_instead_of_message(self):
+        activity = source("ProductReadActivity.kt")
+        selection = activity.split("private fun chooseEntryNavigationTest()", 1)[1].split(
+            "private fun chooseQuoteRefresh()", 1
+        )[0]
+        dialog = selection.split("AlertDialog.Builder(this)", 1)[1].split(
+            '.setNegativeButton("Abbrechen"', 1
+        )[0]
+        self.assertIn('.setTitle("ISIN wählen · nur Lesetest")', dialog)
+        self.assertIn(".setItems(names.toTypedArray())", dialog)
+        # Android AlertController shows the message instead of the list when
+        # both Builder.setMessage and Builder.setItems are set.
+        self.assertNotIn(".setMessage(", dialog)
+
     def test_test_selection_always_one_and_reuses_real_owned_list_gate(self):
         activity = source("ProductReadActivity.kt")
         method = activity.split("private fun requestQuoteRefresh(", 1)[1].split(
