@@ -24,6 +24,12 @@ for(const side of ['LONG','SHORT']){
   const atr=initial.atr5m,last=b.history.bars_by_tf['5m'].at(-1);
   function atDistance(r){
     const copy=structuredClone(b);
+    // Isolate the spot/last-close threshold from an otherwise independent
+    // EMA-extension gate; all candles remain original-shaped OHLC fixtures.
+    for(const candle of copy.history.bars_by_tf['5m']){
+      candle.open=last.close;candle.close=last.close;
+      candle.low=last.close-.5;candle.high=last.close+.5;
+    }
     copy.spots.xaus=last.close+sign*r*atr;
     return copy;
   }
@@ -37,7 +43,7 @@ for(const side of ['LONG','SHORT']){
   assert.equal(guard.checkPaperCampaign(atDistance(1.5),side,now,now-5*M,'normal1000nov').allowed,false);
   for(const profile of ['trend800nov','normal1000nov']){
     const active=guard.checkPaperCampaign(b,side,now,now-29*M,profile);
-    assert.equal(active.allowed,true,profile+' 19m: '+active.reason);
+    assert.equal(active.allowed,true,profile+' 29m: '+active.reason);
     assert.equal(active.paperOnly,true);
     assert.equal(active.maxSignalMinutes,30);
     assert.equal(guard.checkPaperCampaign(b,side,now,now-31*M,profile).allowed,false);
