@@ -72,3 +72,8 @@ operator, not an independently started Render job. No scheduled collector or
 production integration is enabled by this change. The CLI also closes its
 SQLite connection on both successful and failed runs.
 
+Verified on the owner handset after the correction: daily-average and whole-day
+OHLC requests for 2026-11-13 both returned `stored-research-only`. Five total
+provider attempts were charged locally, including the three rejected-format
+responses during diagnosis. All 18 targeted tests passed on desktop and Android.
+No production integration or scheduled polling was enabled.
