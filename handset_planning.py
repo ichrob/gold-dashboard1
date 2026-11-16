@@ -235,12 +235,13 @@ def model_plan_audit(conn, now=None):
                    'Produkt-Referenzkurs nicht mehr aktuell' if suitable and not mode and not observed_recent else
                    source.get('modelEstimateReason') or
                    ((source.get('reasons') or ['Planparameter fehlen'])[0])))
+        display_ready = status in ('modeled-reference','observed-input-reference')
         rows.append(dict(isin=isin, direction=item.get('direction'),
             status=status,mode=mode if status=='modeled-reference' else None,
-            currency=source.get('modelCurrency') if suitable else None,
-            modelStop=source['modelStop'] if suitable else None,
-            modelTarget=source['modelTarget'] if suitable else None,
-            referenceAt=source.get('modelReferenceAt') if suitable else None,
+            currency=source.get('modelCurrency') if display_ready else None,
+            modelStop=source['modelStop'] if display_ready else None,
+            modelTarget=source['modelTarget'] if display_ready else None,
+            referenceAt=source.get('modelReferenceAt') if display_ready else None,
             reason=str(reason)[:240] if status not in ('modeled-reference','observed-input-reference') else None,
             planningOnly=True, tradeApproved=False, originalFillVerified=False))
     return dict(status='observed' if current else 'not-current',
