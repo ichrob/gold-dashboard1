@@ -161,6 +161,7 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
     except (ValueError, TypeError, AttributeError):
         return {}
     result = {}
+    latest_receipts = {}
     for row in rows:
         run = row[0] if row else {}
         if not isinstance(run, dict) or run.get('listSource') != 'degiro-gold-search':
@@ -198,6 +199,15 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
             # Safe display-only subset from previously validated app observations.
             shown = {k: str(fields[k])[:60] for k in allowed
                      if isinstance(fields.get(k), str) and len(fields[k]) <= 60}
+            # A failed refresh must remain visible even when we retain an older
+            # useful observation. Receipt order is not a quote/source clock.
+            receipt_key = (received, run.get('revision', 0))
+            if isin not in latest_receipts or receipt_key > latest_receipts[isin][0]:
+                latest_receipts[isin] = (receipt_key, {
+                    'code': entry.get('code') if entry.get('code') in CODES else 'UNAVAILABLE',
+                    'receivedAt': run.get('receivedAt'),
+                    'hasObservation': bool(shown),
+                })
             previous = result.get(isin)
             if previous:
                 try:
@@ -220,6 +230,8 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
                 'displayTimezone': None,
                 'clockNote': 'Anzeigezeit ohne bestätigte Zeitzone; Erfassung und Empfang sind getrennte Uhren.',
             }
+    for isin, observation in result.items():
+        observation['latestReadReceipt'] = latest_receipts[isin][1]
     return result
 
 

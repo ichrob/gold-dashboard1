@@ -219,6 +219,12 @@ assert.equal(scenario({report:missingLeverage}).quantity,sr.quantity);
 
 const summary=m.handsetRunSummary(report,[sr],now);
 assert(summary.includes('1 vollständig'));
+const failedRefresh=JSON.parse(JSON.stringify(report));
+failedRefresh.items[0].handsetObservation.latestReadReceipt={code:'READ_TIMEOUT',hasObservation:false,receivedAt:at};
+const failedSummary=m.handsetRunSummary(failedRefresh,[],now);
+assert(failedSummary.includes('0 vollständig'));
+assert(failedSummary.includes('1 nicht abgeschlossen'));
+assert.equal(failedRefresh.items[0].handsetObservation.fields.Geld,handset.fields.Geld);
 assert(summary.includes('1 von 1 ausgewählten Modellvergleichen berechenbar'));
 assert(m.handsetRunSummary(report,[{available:false,reason:'Kapital fehlt'}],now).includes('Kapital fehlt'));
 assert(m.handsetRunSummary({...report,status:'stale'},[sr],now).includes('Prüfbericht fehlt'));
