@@ -1,4 +1,9 @@
 'use strict';
+(function(root,factory){
+ const api=factory();
+ if(typeof module==='object'&&module.exports)module.exports=api;
+ if(root)root.BobModelReference=api;
+})(typeof window==='object'?window:null,function(){
 /**
  * Per-ISIN model-only stop/target reference using verified spot-turbo terms.
  * No broker quotes, executable prices, trading approval or historical fills.
@@ -91,4 +96,5 @@ function calculate({quote,plan,spots,now=Date.now()}={}){
    warning:'Nur Modell-Stopp/Ziel, kein ausführbarer Kurs, kein DEGIRO-Einstieg. '+
      'Originalangebot vor einer Kaufentscheidung separat bestätigen.'};
 }
-module.exports={calculate};
+return {calculate};
+});
