@@ -1,11 +1,12 @@
 // Same browser product/stop/CHF functions, isolated from orders and ranking.
 'use strict';
 const fs=require('fs'),vm=require('vm');
+const ModelReference=require('./model_product_reference.js');
 function evaluate(input){
  const now=input.now;
  if(!Number.isFinite(now)||!Array.isArray(input.products)||input.products.length>12)
   throw Error('Ungültiger Planungseingang');
- const env={window:{},localStorage:{getItem:()=>null},input,now};
+ const env={window:{},localStorage:{getItem:()=>null},input,now,ModelReference};
  vm.createContext(env);
  for(const file of ['degiro_assistant.js','bob_stop_assistant.js','degiro_android_bridge.js','manual_ranking_order.js'])
   vm.runInContext(fs.readFileSync(__dirname+'/'+file,'utf8'),env,{timeout:2000});
@@ -39,6 +40,10 @@ function evaluate(input){
    // handset screenshot. Missing handset evidence still blocks comparison
    // admission and never makes the reference an executable plan.
    const stop=p&&quote?api.productRiskComparison(p,market,now,quote):null;
+   // A recent calculated price can support a separate stop/target *display*,
+   // never the real quote, entry quantity or product authorization.
+   const estimate=stop?.available?null:ModelReference.calculate({
+    quote:q,plan:input.plans?.[direction],spots:input.spots,now});
    if(stop?.reason==='Bestätigtes passendes EUR-/CHF-Spot-Turbo-Modell fehlt'&&q?.handsetModelCheck?.reason)
     stop.reason=q.handsetModelCheck.reason;
    const fx=calc.readChfFx(input.spots,now,quote?.currency);
@@ -70,13 +75,23 @@ function evaluate(input){
     !feeAssessment.available&&feeAssessment.reason,
     !preliminary.available&&preliminary.reason,!result.available&&result.reason].filter(Boolean);
    return {...result,isin,feeAssessment,automaticScenarios,contractModelCheck:q?.handsetModelCheck||null,
-    planState:stop?.available?(stop.entrySuitable===false?'reference-target-obstacle':'reference-calculated'):'reference-unavailable',
+    planState:stop?.available?(stop.entrySuitable===false?'reference-target-obstacle':'reference-calculated'):
+     estimate?.available?'model-only-reference':'reference-unavailable',
+    modelMode:estimate?.available?estimate.mode:null,
+    modelEntry:estimate?.available?estimate.modelEntry:null,
+    modelWarning:estimate?.available?estimate.warning:null,
+    modelEstimateReason:estimate?.reason||null,
+    simulationPlanningUsable:estimate?.available===true,
+    simulationFillAllowed:false,
     entrySuitable:stop?.entrySuitable??null,entryWarning:stop?.entryWarning||null,entryApproved:false,
-    modelStop:stop?.available?stop.stop:null,
-    modelTarget:stop?.available?stop.target:null,modelCurrency:stop?.available?stop.currency:null,
-    modelReferenceAt:stop?.referenceAt||null,
+    modelStop:stop?.available?stop.stop:estimate?.available?estimate.modelStop:null,
+    modelTarget:stop?.available?stop.target:estimate?.available?estimate.modelTarget:null,
+    modelCurrency:stop?.available?stop.currency:estimate?.available?estimate.currency:null,
+    modelReferenceAt:stop?.referenceAt||estimate?.referenceAt||null,
     fxBasis:fx.note||fx.reason,observedAt:imported.observedAt||null,
-    reasons:[...new Set(reasons.length?reasons:['Referenzplan berechnet; Produkt- und Kontonachweise weiterhin getrennt prüfen'])],rankingPenalty:false};
+    reasons:[...new Set([...reasons,
+      ...(estimate?.available?[estimate.reason,'Berechneter Modellkurs: ausdrücklich keine Handels- oder Stückzahlfreigabe']:
+         !stop?.available&&estimate?.reason?[estimate.reason]:[])])],rankingPenalty:false};
   });
   return {calculatedAt:now,items,available:items.filter(x=>x.available).length,
    conditionalAvailable:items.filter(x=>x.automaticScenarios.some(s=>s.available)).length,
