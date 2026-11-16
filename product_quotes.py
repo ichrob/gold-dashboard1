@@ -496,10 +496,19 @@ def parse_bnp_dated_terms(page, isin, metadata, now=None):
         cells = [' '.join(html.unescape(re.sub(r'<[^>]+>', '', c)).split()) for c in cells]
         if len(cells) != 2:
             continue
-        label = re.fullmatch(r'(Knock-Out Schwelle|Basispreis) \((\d{2}\.\d{2}\.\d{4})\)', cells[0])
+        label = re.fullmatch(r'(Knock-Out Schwelle|Stop-Loss Schwelle|Basispreis) \((\d{2}\.\d{2}\.\d{4})\)', cells[0])
         if not label:
             continue
-        key = 'ko' if label[1] == 'Knock-Out Schwelle' else 'strike'
+        # BNP's MINI Long explicitly labels its issuer KO level
+        # "Stop-Loss Schwelle", whereas Unlimited products normally use
+        # "Knock-Out Schwelle". Accept the MINI spelling ONLY if independent
+        # original BNP product-type evidence confirms exactly MINI Long.
+        if label[1] == 'Stop-Loss Schwelle' and not (
+                metadata.get('issuerProductType') == 'MINI Long'
+                and metadata.get('issuerDerivativeTypeId') == 23
+                and metadata.get('simpleTurbo') is True):
+            raise ValueError('Stop-Loss-Zeile ohne bestätigten BNP-MINI-Typ')
+        key = 'ko' if label[1] in ('Knock-Out Schwelle','Stop-Loss Schwelle') else 'strike'
         value = re.fullmatch(r'(\d{1,3}(?:\.\d{3})*|\d+),(\d+) USD', cells[1])
         if not value or key in conditions:
             raise ValueError('BNP-Stammdatenwert nicht eindeutig')
