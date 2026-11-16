@@ -165,7 +165,11 @@ def exchange(state,value,now):
     for c in state['commands']:
         if c['status']=='queued' and (c['expiresAt']<=now or not state['active']):c['status']='expired'
     command=None
-    if state['active'] and state['expiresAt']>now:
+    # The owner may keep only an idle, locally opted-in entry-read session
+    # pending behind Android's keyguard. A locked device must never receive
+    # or acknowledge a new product navigation command.
+    if (state['active'] and state['expiresAt']>now and
+            obs['code'] != 'WAITING_FOR_UNLOCK'):
         for c in state['commands']:
             if c['status']=='queued':
                 c.update(status='delivered',deliveredAt=now)

@@ -74,6 +74,15 @@ class EntryRequest(unittest.TestCase):
         v=value();v['purpose']='entry_read'
         return remote.exchange({},v,NOW)[0]
 
+    def test_locked_owner_entry_read_wait_cannot_start_server_request(self):
+        state=self.state()
+        state['observation']['code']='WAITING_FOR_UNLOCK'
+        with patch('handset_planning.read',side_effect=AssertionError('No market query behind Android keyguard')):
+            entry.prepare(Db(state),'owner',state,NOW)
+        self.assertEqual(state['entryReadStatus'],'WAITING_FOR_UNLOCK')
+        self.assertFalse(state['commands'])
+        self.assertNotIn('entryRead',state)
+
     def test_normal_session_never_queues_and_purpose_cannot_change(self):
         s,_=remote.exchange({},value(),NOW)
         with patch('handset_planning.read',side_effect=AssertionError('No query')):
