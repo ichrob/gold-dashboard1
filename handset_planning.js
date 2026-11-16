@@ -42,7 +42,8 @@ function evaluate(input){
     goldStamp=Date.parse(goldSpot.spot_price_as_of||''),
     goldGeometry=direction==='LONG'?gp.stop<gp.entry&&gp.entry<gp.target:
      direction==='SHORT'?gp.target<gp.entry&&gp.entry<gp.stop:false;
-   const goldVerified=goldSpot.is_genuine_xauusd_spot===true&&!goldSpot.spot_error&&
+   const issuerActive=['analysis-evidence-complete','issuer-evidence-complete'].includes(row.state);
+   const goldVerified=issuerActive&&goldSpot.is_genuine_xauusd_spot===true&&!goldSpot.spot_error&&
     Number.isFinite(goldSpot.xaus)&&goldSpot.xaus>0&&
     Number.isFinite(goldStamp)&&0<=now-goldStamp&&now-goldStamp<=60000&&
     gp.available===true&&gp.direction===direction&&goldGeometry&&
