@@ -5961,8 +5961,8 @@ function productRiskPreviewText(p,market,now=Date.now()){
    const f=n=>n.toFixed(4);
    return (modeled.mode==='anchored-estimate'?'Berechnete Produktreferenz (datiert kalibriert)':
      'Nur rechnerischer Vertragswert ohne Anbieter-Spread')+
-    ' · Modell-Einstand '+f(modeled.modelEntry)+' EUR · Stopp '+f(modeled.modelStop)+
-    ' EUR · Ziel '+f(modeled.modelTarget)+' EUR'+
+    ' · Modell-Einstand '+f(modeled.modelEntry)+' '+modeled.currency+' · Stopp '+f(modeled.modelStop)+
+    ' '+modeled.currency+' · Ziel '+f(modeled.modelTarget)+' '+modeled.currency+
     '\nGold-Stopp '+modeled.goldStop.toFixed(2)+' USD · Gold-Ziel '+modeled.goldTarget.toFixed(2)+' USD'+
     '\n'+modeled.reason+' · Referenz '+modeled.referenceAt+
     '\nKEIN aktueller DEGIRO-Geld-/Briefkurs und KEINE Freigabe für einen Einstieg. '+r.reason;
