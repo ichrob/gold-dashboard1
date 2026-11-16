@@ -624,6 +624,28 @@ def _load_report_rows(conn, limit=None):
              *(by_id.get(key, {}).get(h) for h in (15,60,240)))
             for key in ids if key in payloads]
 
+_REPORT_READ_PHASES = frozenset((
+    'decision-window', 'reduced-decision-window', 'rule-learning',
+    'metric-quality', 'product-precision', 'precision-learning',
+    'ranking-learning', 'four-day-comparison', 'decision-count'))
+
+
+def _report_read_phase(phase, read, *args):
+    """Attribute a canceled report read without logging SQL or private content.
+
+    Preserve the original exception and existing savepoint/retry behavior.
+    QueryCanceled can mean cancellation as well as a statement timeout.
+    """
+    import psycopg
+    try:
+        return read(*args)
+    except psycopg.errors.QueryCanceled:
+        safe_phase = phase if phase in _REPORT_READ_PHASES else 'unknown'
+        print('BOB_AUDIT report_read_canceled phase=' + safe_phase
+              + ' error=QueryCanceled', flush=True)
+        raise
+
+
 def _build_report(conn):
     # Reading must not run the seven-day outcome backfill.
     import psycopg
@@ -632,13 +654,13 @@ def _build_report(conn):
         # Roll back a canceled statement before retrying; preserve an enclosing
         # transaction through psycopg's nested savepoint handling.
         with conn.transaction():
-            rows = _load_report_rows(conn)
+            rows = _report_read_phase('decision-window', _load_report_rows, conn)
     except psycopg.errors.QueryCanceled:
         print('BOB_AUDIT report_window_reduced reason=query-timeout limit='+str(REPORT_BUSY_LIMIT), flush=True)
         with conn.transaction():
-            rows = _load_report_rows(conn, REPORT_BUSY_LIMIT)
+            rows = _report_read_phase('reduced-decision-window', _load_report_rows, conn, REPORT_BUSY_LIMIT)
         reduced_window = True
-    learning=rule_learning.report(conn)
+    learning=_report_read_phase('rule-learning', rule_learning.report, conn)
     active=(learning.get('policy') or {}).get('variant','baseline')
     matches=lambda r:r.get('learningPolicy')==rule_learning.ID+':'+active or active=='baseline' and r.get('learningPolicy') is None
     scoped=[row for row in rows if matches(row[0])]
@@ -649,10 +671,10 @@ def _build_report(conn):
     result['signalChartEvidence']=diagram_evidence.signal_evidence(current,outcome)
     result['signalChartScope']=dict(firstAt=min(chart_times) if chart_times else None,lastAt=max(chart_times) if chart_times else None)
     result['ruleLearning']=learning
-    result['metricQuality']=metric_quality.report(conn)
-    result['productPrecision']=product_precision.report(conn)
-    result['precisionLearning']=precision_learning.report(conn,int(time.time()*1000))
-    result['rankingLearning']=ranking_learning.report(conn)
+    result['metricQuality']=_report_read_phase('metric-quality', metric_quality.report, conn)
+    result['productPrecision']=_report_read_phase('product-precision', product_precision.report, conn)
+    result['precisionLearning']=_report_read_phase('precision-learning', precision_learning.report, conn, int(time.time()*1000))
+    result['rankingLearning']=_report_read_phase('ranking-learning', ranking_learning.report, conn)
     result['otherPolicyRecords']=len(rows)-len(scoped)
     result['signalDiagnostics']=signal_review.diagnostics(current,outcome)
     result['optimizationReview']=optimization_review.report(current,outcome)
@@ -722,8 +744,8 @@ def _build_report(conn):
         'fullWindowQueryCompleted':full_state=='completed' and not prospective_partial,
     }
     _remember_prospective_query(full_state, full_ms, fallback_state, fallback_ms)
-    result['fourDayComparison']=intraday_comparison.report(conn)
-    result['total']=conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0]
+    result['fourDayComparison']=_report_read_phase('four-day-comparison', intraday_comparison.report, conn)
+    result['total']=_report_read_phase('decision-count', lambda: conn.execute('SELECT count(*) FROM bob_decision_audit').fetchone()[0])
     result['reportRecords']=len(rows)
     result['reportWindowReduced']=reduced_window
     result['scope']='Aktuelle Einstiegsregel '+active+' ('+str(len(scoped))+' passende, '+str(len(rows)-len(scoped))+' andere Regelstände getrennt); aktuelle Intraday-Regel; Auswertung der letzten '+str(len(rows))+' von '+str(result['total'])+' gespeicherten Entscheidungen; frühere Regeln getrennt ('+str(result['legacyCount'])+' ältere Protokolle). Einzelne Tage bleiben vollständig abrufbar. Bis 30 Tage; Gold-Richtung ohne Handelskosten, kein Gewinnnachweis'
