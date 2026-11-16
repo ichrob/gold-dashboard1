@@ -5,6 +5,7 @@ The browser sees *status only*, never vendor prices, dates or indicators.
 This proof-of-control remains draft until independent runtime gates are signed off.
 """
 import argparse
+from contextlib import closing
 from html import escape
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -87,7 +88,7 @@ class OneClick:
         try:
             archive = self.env['BOB_TWELVE_RESEARCH_ARCHIVE']
             # No new ledger: use the existing adapter's atomic quota reservation.
-            with self.connect(archive, timeout=10, isolation_level=None) as db:
+            with closing(self.connect(archive, timeout=10, isolation_level=None)) as db:
                 result = self.fetch(db, SYMBOL, INTERVAL, start_ms, end_ms,
                                     now_ms=now_ms)
             code = result.get('code', 'REQUEST_FAILED')
