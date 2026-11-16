@@ -40,7 +40,7 @@ function calculate({quote,plan,spots,now=Date.now()}={}){
  const fxTime=fx.fetchedAt||fx.dataAt||fx.at;
  if(!positive(fx.rate)||!age(fxTime,now,60000))
    return fail('Aktueller bestätigter USD/EUR-Kurs fehlt');
- if(m.tradingEndAt&&!age(m.tradingEndAt,now,24*3600000) && clock(m.tradingEndAt)<now)
+ if(m.tradingEndAt&&(!Number.isFinite(clock(m.tradingEndAt))||clock(m.tradingEndAt)<=now))
    return fail('Produktmodell außerhalb seiner zeitlichen Gültigkeit');
  const gold=spots.xaus,rate=fx.rate,sign=direction==='LONG'?1:-1;
  if(sign*(gold-m.ko)<=0||sign*(gold-m.strike)<=0)
