@@ -740,6 +740,49 @@ def campaign_source_preview(control, bundle, market, now):
     return control.get('campaignEstimatePreview')
 
 
+def ranked_entry_candidate(candidates, quotes, market, now, budget, cost_model=None,
+                           require_ko=False):
+    """Pick the first *usable* ranked paper candidate, not just the first KO-safe one.
+
+    This is an in-memory selection of already supplied quotes: no network calls,
+    new permissions, inferred prices or brokerage orders. Keep the original
+    ranking among usable candidates. If none qualifies, return the first
+    direction-compatible candidate solely for the existing detailed blocker.
+    """
+    direction = market.get('direction')
+    compatible = []
+    for choice in candidates:
+        if not isinstance(choice, dict) or not isinstance(choice.get('isin'), str) or not choice['isin']:
+            continue
+        declared = {choice.get(k) for k in ('direction', 'productDirection')
+                    if choice.get(k) in ('LONG', 'SHORT')}
+        if len(declared) > 1 or (declared and direction not in declared):
+            continue
+        compatible.append(choice)
+    if type(budget) not in (int, float) or not math.isfinite(budget) or budget <= 0:
+        return compatible[0] if compatible else None
+    for choice in compatible:
+        if (choice.get('indicative') or choice.get('estimated')
+                or (require_ko and choice.get('koGuardRequired') is not True)):
+            continue
+        q = fresh_quote(quotes.get(choice['isin']), now, choice['isin'])
+        if not q:
+            continue
+        if choice.get('koGuardRequired'):
+            try:
+                ko_reason, _ = paper_ko_guard.entry_reason(
+                    choice, quotes.get(choice['isin']), market, now)
+            except Exception:
+                continue  # An unverifiable guard is never permission to enter.
+            if ko_reason is not None:
+                continue
+        required = (q['ask'] * (1 + cost_model['slippageBpsPerSide'] / 10000)
+                    + 3 * cost_model['feeEurPerOrder']) if cost_model else q['ask']
+        if required <= budget:
+            return choice
+    return compatible[0] if compatible else None
+
+
 def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
     row=conn.execute('SELECT payload FROM bob_paper_control WHERE id=1 FOR UPDATE').fetchone()
     control=row[0]
@@ -834,13 +877,15 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             excluded=control.get('koExcluded') or {}
             blocked=set(excluded.get('isins') or []) if excluded.get('day')==day else set()
             candidates=[x for x in (selection.get('choices') or []) if x.get('isin') not in blocked]
-            # Keep ranking, but do not let the top ranked unsafe KO product
-            # hide the next genuinely eligible candidate.
-            safe_candidates=[x for x in candidates
-                 if not x.get('koGuardRequired') or (
-                     fresh_quote(quotes.get(x['isin']),now,x['isin'])
-                     and paper_ko_guard.entry_reason(x,quotes.get(x['isin']),market,now)[0] is None)]
-            choice=next(iter(safe_candidates or candidates),None)
+            # Preserve ranking among eligible candidates, skipping stale,
+            # unaffordable, direction-mismatched or unverified KO products.
+            # A blocked first choice must not hide a valid lower-ranked one.
+            budget = min(control['cash'], (control.get('equity') or control['cash']) *
+                         (profile_policy['exposure_fraction'] if profile_policy else 1.))
+            choice = ranked_entry_candidate(
+                candidates, quotes, market, now, budget, cost_model,
+                require_ko=bool(profile_policy and
+                    (profile_policy.get('early_impulse') or profile_policy.get('campaign'))))
             q=fresh_quote(quotes.get(choice['isin']),now,choice['isin']) if choice and not choice.get('indicative') and not choice.get('estimated') else None
             healthy=market.get('ready') is True and market.get('priceFresh') is True and finite(market.get('dataAt')) and 0<=now-market['dataAt']<=60000
             entry_key=str([market.get('ruleVersion'),market.get('analysisBarAt'),market.get('direction')])
