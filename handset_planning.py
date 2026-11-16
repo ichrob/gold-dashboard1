@@ -237,6 +237,27 @@ def model_plan_audit(conn, now=None):
                    source.get('modelEstimateReason') or
                    ((source.get('reasons') or ['Planparameter fehlen'])[0])))
         display_ready = status in ('modeled-reference','observed-input-reference')
+        gold=source.get('goldReference') or {}
+        gold_ok=(not terminated and not excluded and current and
+            isinstance(gold,dict) and gold.get('state')=='available' and
+            gold.get('direction')==item.get('direction') and
+            gold.get('unit')=='USD/oz' and
+            clock_within(gold.get('sourceAt'),60000) and
+            all(type(gold.get(k)) in (int,float) and
+                math.isfinite(gold[k]) and gold[k]>0
+                for k in ('entry','stop','target')) and
+            (gold['stop']<gold['entry']<gold['target']
+                if gold.get('direction')=='LONG' else
+                gold['target']<gold['entry']<gold['stop']
+                if gold.get('direction')=='SHORT' else False))
+        gold_projection=(dict(state='available',unit='USD/oz',
+            entry=gold['entry'],stop=gold['stop'],target=gold['target'],
+            sourceAt=gold.get('sourceAt'),
+            entrySuitable=gold.get('entrySuitable') is True,
+            productPriceApproved=False,modelTradeApproved=False)
+            if gold_ok else dict(state='unavailable',unit='USD/oz',
+                entry=None,stop=None,target=None,sourceAt=None,
+                productPriceApproved=False,modelTradeApproved=False))
         rows.append(dict(isin=isin, direction=item.get('direction'),
             status=status,mode=mode if status=='modeled-reference' else None,
             currency=source.get('modelCurrency') if display_ready else None,
@@ -244,6 +265,11 @@ def model_plan_audit(conn, now=None):
             modelTarget=source['modelTarget'] if display_ready else None,
             referenceAt=source.get('modelReferenceAt') if display_ready else None,
             reason=str(reason)[:240] if status not in ('modeled-reference','observed-input-reference') else None,
+            goldReference=gold_projection,modelEvidenceCode=(
+                source.get('modelEvidenceCode') if status=='unavailable'
+                and isinstance(source.get('modelEvidenceCode'),str) else None),
+            modelEvidenceMissing=(source.get('modelEvidenceMissing') or [])[:4]
+                if status=='unavailable' and isinstance(source.get('modelEvidenceMissing'),list) else [],
             planningOnly=True, tradeApproved=False, originalFillVerified=False))
     return dict(status='observed' if current else 'not-current',
         readOnly=True, realOrders=False, checkedAt=result.get('calculatedAt') if current else None,
@@ -252,4 +278,7 @@ def model_plan_audit(conn, now=None):
         observedInput=sum(x['status']=='observed-input-reference' for x in rows),
         blocked=sum(x['status'] in ('unavailable','not-current') for x in rows),
         excluded=sum(x['status'] in ('excluded-factor','terminated') for x in rows),
+        goldReferences=sum(x['goldReference']['state']=='available' for x in rows),
+        goldOnly=sum(x['goldReference']['state']=='available' and
+            x['status']=='unavailable' for x in rows),
         items=rows, scope='current-screen-list-source-bound-risk-references-not-product-approval')
