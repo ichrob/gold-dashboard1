@@ -65,6 +65,43 @@ class OneClickSafetyTests(unittest.TestCase):
                 self.assertEqual(job.run(), "ALREADY_USED")
                 self.assertEqual(len(calls), 1)
 
+    def test_sqlite_connection_closes_on_success_and_failure(self):
+        # sqlite3.Connection used as a context manager alone does not close.
+        # Both the successful and failed one-shot path must release the handle.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            root.chmod(0o700)
+            archive = root / "research.sqlite"
+            sqlite3.connect(str(archive)).close()
+            archive.chmod(0o600)
+            flags = {key: "1" for key in ui.RELEASE_GATES}
+            flags.update(BOB_TWELVEDATA_FREE_ACCESS_CONFIRMED="1",
+                         BOB_TWELVEDATA_SINGLE_WORKER_LOCK_CONFIRMED="1",
+                         TWELVEDATA_API_KEY="synthetic_test_only",
+                         BOB_TWELVE_RESEARCH_ARCHIVE=str(archive))
+            opened = []
+
+            def spy_connect(*args, **kwargs):
+                db = sqlite3.connect(*args, **kwargs)
+                opened.append(db)
+                return db
+
+            with patch.object(ui, "manual_preflight", return_value={"blockers": []}):
+                for fail in (False, True):
+                    def synthetic_fetch(*args, **kwargs):
+                        if fail:
+                            raise RuntimeError("synthetic failure")
+                        return {"code": "OBSERVED"}
+
+                    job = ui.OneClick(env=flags, connect=spy_connect,
+                                      fetch=synthetic_fetch)
+                    self.assertEqual(job.run(), "REQUEST_FAILED" if fail else "OBSERVED")
+                    self.assertTrue(job.used)
+            self.assertEqual(len(opened), 2)
+            for db in opened:
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    db.execute("SELECT 1")
+
     def test_blocked_local_session_expires_without_request(self):
         class FakeServer:
             def __init__(self):
