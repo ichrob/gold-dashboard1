@@ -1,6 +1,9 @@
 import copy
 import json
 import unittest
+import os
+import time
+import uuid
 from datetime import datetime, timezone
 from unittest.mock import patch
 import android_remote as remote
@@ -33,6 +36,40 @@ class Db:
 
 
 class EntryRequest(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'PostgreSQL integration')
+    def test_postgres_owned_list_queue_and_exact_revision_receipt(self):
+        import psycopg
+        now=int(time.time())
+        at=datetime.fromtimestamp(now-20,timezone.utc).isoformat()
+        p=planning();p['result']['listUploadedAt']=at
+        p['result']['items'][0]['modelReferenceAt']=at
+        s=dict(sessionId='a'*32,purpose='entry_read',active=True,
+               expiresAt=now+900,seenAt=now,commands=[])
+        with psycopg.connect(os.environ['BOB_TEST_DATABASE_URL']) as conn:
+            schema='entry_'+uuid.uuid4().hex
+            conn.execute('CREATE SCHEMA '+schema)
+            conn.execute('SET LOCAL search_path TO '+schema)
+            conn.execute('CREATE TABLE bob_android_remote(token_hash text primary key,state jsonb)')
+            conn.execute('CREATE TABLE bob_android_list_images(batch_id text,token_hash text,parsed_items jsonb,payload jsonb,import_receipt jsonb,created_at timestamptz default now())')
+            conn.execute('CREATE TABLE bob_android_read_runs(batch_id text,payload jsonb)')
+            conn.execute('INSERT INTO bob_android_list_images(batch_id,token_hash,parsed_items,payload,import_receipt) VALUES(%s,%s,%s::jsonb,%s::jsonb,%s::jsonb)',
+                (LIST,'owner',json.dumps([dict(isin=ISIN)]),json.dumps(dict(images=[dict(at=at)])),json.dumps(dict(stage='synced'))))
+            with patch('handset_planning.read',return_value=p):
+                entry.prepare(conn,'wrong-owner',s,now)
+                self.assertFalse(s['commands'])
+                s.pop('entryCheckAt')
+                entry.prepare(conn,'owner',s,now)
+                request=s['entryRead']['requestId']
+                conn.execute('INSERT INTO bob_android_remote VALUES(%s,%s::jsonb)',('owner',json.dumps(s)))
+                original=dict(results=[dict(code='COMPLETE',observation=dict(observedAt=datetime.fromtimestamp(now+1,timezone.utc).isoformat()))])
+                conn.execute('INSERT INTO bob_android_read_runs VALUES(%s,%s::jsonb)',(request+':2',json.dumps(original)))
+                run=dict(batchId=request,revision=2,isins=[ISIN],requestedFields={ISIN:entry.FIELDS})
+                entry.receipt(conn,'owner',LIST,run,now+2)
+                saved=conn.execute('SELECT state FROM bob_android_remote').fetchone()[0]
+                self.assertEqual(saved['entryRead']['status'],'read-received-source-time-unverified')
+                self.assertFalse(saved['entryRead']['entryApproved'])
+            conn.execute('DROP SCHEMA '+schema+' CASCADE')
+
     def state(self):
         v=value();v['purpose']='entry_read'
         return remote.exchange({},v,NOW)[0]
