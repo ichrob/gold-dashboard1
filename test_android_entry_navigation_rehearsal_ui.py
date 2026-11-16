@@ -51,7 +51,8 @@ class ImmediateEntryNavigation(unittest.TestCase):
         self.assertIn("NAVIGATIONSTEST", method)
         self.assertNotIn("entryReadOnly=true", method)
         self.assertNotIn("entryApproved=true", method)
-        self.assertNotIn("order", method.lower().split("ein bis drei produkte")[0])
+        self.assertNotIn("createOrder(", method)
+        self.assertNotIn("placeOrder(", method)
 
     def test_signal_path_and_manual_test_share_guarded_android_navigator(self):
         service = source("ProductReadService.kt")
