@@ -28,6 +28,15 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(counts, {'pending-horizon': 1, 'outcome-not-recorded': 1,
                                   'outcome-recorded': 1})
 
+    def test_matured_60m_sample_excludes_the_fresh_rolling_window(self):
+        query = h.QUERIES['matured-60m-outcomes']
+        self.assertIn("WHERE a.recorded_at <= now() - interval '60 minutes'", query)
+        self.assertIn('ORDER BY a.recorded_at DESC LIMIT 101', query)
+        self.assertNotIn("'pending-horizon'", query)
+        counts = h.summarize([(1000, 'outcome-recorded'),
+                              (1000, 'outcome-not-recorded')], 2000)['counts']
+        self.assertEqual(counts, {'outcome-recorded': 1, 'outcome-not-recorded': 1})
+
     def test_ineligible_improvement_trial_is_not_a_missing_outcome(self):
         query = h.QUERIES['improvement-trials']
         self.assertIn("'trial-not-evaluable'", query)
@@ -174,9 +183,14 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute("INSERT INTO bob_decision_audit VALUES ('overdue-id',now() - interval '75 minutes','{}')")
                 conn.commit()
                 conn.execute('SET TRANSACTION READ ONLY')
-                horizons = h.report(conn)['items']['signal-outcomes']['counts']
+                current = h.report(conn)
+                horizons = current['items']['signal-outcomes']['counts']
                 self.assertEqual(horizons, {
                     'outcome-recorded': 1, 'pending-horizon': 1, 'outcome-not-recorded': 1})
+                matured = current['items']['matured-60m-outcomes']
+                self.assertEqual(matured['counts'], {'outcome-not-recorded': 1})
+                self.assertEqual(matured['sampleScope'], 'latest-matured-decisions-only')
+                self.assertEqual(matured['horizonMinutes'], 60)
                 self.assertEqual(r['items']['ranking-EUR']['counts'],{'incomplete':1})
                 self.assertEqual(r['items']['ranking-CHF']['counts'],{'comparable':1})
                 for slot,payload in enumerate([
