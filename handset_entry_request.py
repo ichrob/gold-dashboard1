@@ -36,6 +36,12 @@ def prepare(conn, digest, state, now):
         elif existing.get('status') == 'awaiting-read-receipt' and now > existing['expiresAt']:
             existing['status'] = state['entryReadStatus'] = 'expired'
         return
+    # Signal monitoring continues server-side while Android is locked.
+    # Do not send a DEGIRO command that cannot be safely executed until the
+    # owner has unlocked the same, still-valid device session.
+    if (state.get('observation') or {}).get('code') == 'WAITING_FOR_UNLOCK':
+        state['entryReadStatus'] = 'WAITING_FOR_UNLOCK'
+        return
     # Ordinary reader/settings sessions cannot opt in remotely.
     if (state.get('purpose') != 'entry_read' or not state.get('active')
             or state.get('expiresAt', 0)-now < 60 or state.get('entryRead')
