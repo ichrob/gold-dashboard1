@@ -109,12 +109,13 @@ class ModelPaperTrials(unittest.TestCase):
         self.assertEqual(end['recent'][0]['modelExitEur'],0)
 
     def test_no_model_trades_when_any_required_proof_fails(self):
-        for which in ('intrinsic','expired','no-audit','stale-spot','future-fx',
+        for which in ('intrinsic','expired','old-reference','no-audit','stale-spot','future-fx',
                       'weak-gate','poor-target','wrong-direction','session-closed',
                       'bad-ko','no-plan','bad-origin','unconfirmed-source'):
             m,b,a=fixture()
             if which=='intrinsic':a['items'][0]['modelMode']='intrinsic-only'
             if which=='expired':a['items'][0]['modelAnchorAgeSeconds']=301
+            if which=='old-reference':a['items'][0]['modelReferenceAt']=stamp(NOW-301000)
             if which=='no-audit':a['current']=False
             if which=='stale-spot':b['spots']['spot_price_as_of']=stamp(NOW-61000)
             if which=='future-fx':b['spots']['usd_eur_meta']['fetchedAt']=stamp(NOW+1000)
