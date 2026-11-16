@@ -125,14 +125,21 @@ def mode_candidate(row, market, spots, profile, now):
         return None
     sign = 1 if direction=='LONG' else -1
     gold = row['modelGoldEntry']
-    if not (sign*(gold-row['modelKo'])>0 and
-            sign*(row['modelGoldStop']-row['modelKo'])>0 and
+    # Model-based entry still needs the full KO protection buffer.
+    # A stop infinitesimally above the barrier is not a safe market exit.
+    atr = market.get('atr') if positive(market.get('atr')) else 0.0
+    ko_distance = sign*(gold-row['modelKo'])
+    protective_gap = max(.02*gold,1.5*atr+.005*gold)
+    if not (ko_distance>protective_gap and
+            sign*(row['modelGoldStop']-row['modelKo'])>.005*gold and
             sign*(gold-row['modelStrike'])>0 and
             sign*(row['modelGoldStop']-row['modelStrike'])>0 and
             sign*(row['modelGoldTarget']-gold)>0 and sign*(gold-row['modelGoldStop'])>0 and
             sign*(row['modelGoldTarget']-gold)>=2*sign*(gold-row['modelGoldStop'])):
         return None
-    if (abs(gold-market['price'])>.10 or abs(gold-plan.get('entry',0))>.10 or
+    anchor_at = timestamp(row.get('modelReferenceAt'))
+    if (anchor_at is None or not 0<=now-anchor_at<=MAX_ANCHOR_AGE_MS or
+            abs(gold-market['price'])>.10 or abs(gold-plan.get('entry',0))>.10 or
             row.get('modelInputAgeSeconds') is None or
             not number(row['modelInputAgeSeconds']) or
             not 0<=row['modelInputAgeSeconds']<=60 or
