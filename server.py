@@ -195,6 +195,8 @@ def read_diagnostics_for_mcp():
     sim_status = report['areas'].get('simulationAndPush') or {}
     if isinstance(sim_status.get('modelPlanAudit'), dict):
         report['areas']['modelPlanAudit'] = sim_status['modelPlanAudit']
+    if isinstance(sim_status.get('modelPaperTrials'), dict):
+        report['areas']['modelPaperTrials'] = sim_status['modelPaperTrials']
     comparison = report['areas'].get('comparisonEvidence') or {}
     if isinstance(comparison.get('comparisonHealth'), dict):
         report['areas']['comparisonHealth'] = comparison['comparisonHealth']
