@@ -110,7 +110,7 @@ assert.equal(evaluate(uncertainIssuer).items[0].goldReference.state,'unavailable
  'transient issuer status must not obtain even a display reference');
 const issuerStopped=JSON.parse(goldOriginal);
 issuerStopped.report.items[0].state='terminated';
-assert.equal(evaluate(issuerStopped).items[0].goldReference?.state,'unavailable');
+assert.equal(evaluate(issuerStopped).items[0].goldReference,undefined);
 const missing=fixture();missing.config=null;
 const row=evaluate(missing).items[0];assert(row.modelStop>0);assert.equal(row.available,false);
 console.log('Server handset scenarios: shared LONG/SHORT stops, EUR/CHF costs, missing config/FX, terminal/stale guards, no input mutation passed');
