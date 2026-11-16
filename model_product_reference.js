@@ -22,14 +22,15 @@ const fail=reason=>({available:false,modelOnly:true,entryApproved:false,
 function calculate({quote,plan,spots,now=Date.now()}={}){
  if(!Number.isFinite(now)||!quote||!plan||!spots)return fail('Produkt-, Gold- oder Modellplan-Daten fehlen');
  const m=quote.productModel||{}, meta=quote.metadata||{}, direction=m.direction;
+ const currency=quote.currency;
  if(quote.isin!==m.isin||quote.productVerified!==true||quote.sourceDisabled||
     meta.status!==1||meta.tradingHalted===true||m.verifiedSimpleTurbo!==true||
     m.underlying!=='XAU/USD'||!['LONG','SHORT'].includes(direction)||
     meta.underlyingType&&meta.underlyingType!=='SPOT'||
     meta.direction&&meta.direction!==direction||
-    quote.currency!=='EUR'&&meta.currency!=='EUR'||
+    !['EUR','CHF'].includes(currency)||meta.currency!==currency||
     ![m.ratio,m.strike,m.ko].every(positive))
-   return fail('Verifiziertes aktives EUR-Spot-Turbo-Modell mit passender ISIN fehlt');
+   return fail('Verifiziertes aktives EUR-/CHF-Spot-Turbo-Modell mit passender ISIN fehlt');
  if(quote.state==='terminated'||quote.terminated===true||
     quote.quoteFailureCode==='TERMINATED')return fail('Produkt beendet; keine Modellplanung');
  if(plan.available!==true||plan.direction!==direction||
@@ -41,10 +42,10 @@ function calculate({quote,plan,spots,now=Date.now()}={}){
     !positive(spots.xaus)||!age(spots.spot_price_as_of,now,60000)||
     Math.abs(spots.xaus-plan.entry)>.10)
    return fail('Originaler Gold-Spot nicht frisch oder nicht an Planreferenz gebunden');
- const fx=spots.usd_eur_meta||{};
+ const fx=(currency==='EUR'?spots.usd_eur_meta:spots.usd_chf_meta)||{};
  const fxTime=fx.fetchedAt||fx.dataAt||fx.at;
  if(!positive(fx.rate)||!age(fxTime,now,60000))
-   return fail('Aktueller bestätigter USD/EUR-Kurs fehlt');
+   return fail('Aktueller bestätigter USD/'+currency+'-Kurs fehlt');
  if(m.tradingEndAt&&(!Number.isFinite(clock(m.tradingEndAt))||clock(m.tradingEndAt)<=now))
    return fail('Produktmodell außerhalb seiner zeitlichen Gültigkeit');
  const gold=spots.xaus,rate=fx.rate,sign=direction==='LONG'?1:-1;
@@ -64,7 +65,7 @@ function calculate({quote,plan,spots,now=Date.now()}={}){
    Math.min(...dates.map(k=>clock(projected[k])))<=60000;
  const anchorAge=now-clock(projected.referenceAt);
  const anchorBound=projected.validation?.ready===true?1800000:300000;
- const anchored=projected.available===true&&projected.kind==='calculated-turbo'&&
+ const anchored=currency==='EUR'&&projected.available===true&&projected.kind==='calculated-turbo'&&
    projected.currency==='EUR'&&projected.direction===direction&&
    positive(projected.bidEur)&&positive(projected.askEur)&&projected.askEur>=projected.bidEur&&
    positive(projected.goldUsd)&&positive(projected.usdEur)&&
@@ -75,12 +76,12 @@ function calculate({quote,plan,spots,now=Date.now()}={}){
  const modelTarget=anchored?projected.bidEur+sign*m.ratio*rate*(plan.target-gold):intrinsicTarget;
  const modelEntry=anchored?projected.askEur:intrinsic(gold);
  if(![modelStop,modelTarget,modelEntry].every(positive)||modelStop>=modelEntry||modelTarget<=modelEntry)
-   return fail('Berechneter EUR-Produktkorridor unplausibel; keine Stückzahl oder Freigabe');
+   return fail('Berechneter Produktkorridor unplausibel; keine Stückzahl oder Freigabe');
  const mode=anchored?'anchored-estimate':'intrinsic-only';
  const referenceAt=anchored?projected.referenceAt:spots.spot_price_as_of;
  return {available:true,mode,modelOnly:true,simulationPlanningUsable:true,
    simulationFillAllowed:false,entryApproved:false,productApproved:false,
-   copyAllowed:false,executable:false,productIsin:quote.isin,currency:'EUR',
+   copyAllowed:false,executable:false,productIsin:quote.isin,currency,
    direction,modelEntry:Math.round(modelEntry*10000)/10000,
    modelStop:Math.round(modelStop*10000)/10000,
    modelTarget:Math.round(modelTarget*10000)/10000,
