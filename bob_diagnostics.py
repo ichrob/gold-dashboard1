@@ -593,7 +593,8 @@ def new_studies_brief(paper, now_ms=None):
         'readOnly':True, 'realOrders':False,
         'scope':'new-studies-sanitized-control-sample-not-execution-proof',
         'quality':{**core(quality), 'studies':originals,
-                   'recentOriginalInput':recent_input_summary,
+                   **({'recentOriginalInput':recent_input_summary}
+                      if paper_health.get('sessionMode')=='trading' else {}),
                    'modeled':{**core(modeled), 'studies':modeled_rows},
                    **({'historicalReview': historical_brief} if historical_brief else {})},
         'attention':notices,
