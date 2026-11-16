@@ -73,7 +73,8 @@ function evaluate(input){
     planState:stop?.available?(stop.entrySuitable===false?'reference-target-obstacle':'reference-calculated'):'reference-unavailable',
     entrySuitable:stop?.entrySuitable??null,entryWarning:stop?.entryWarning||null,entryApproved:false,
     modelStop:stop?.available?stop.stop:null,
-    modelTarget:stop?.available?stop.target:null,modelReferenceAt:stop?.referenceAt||null,
+    modelTarget:stop?.available?stop.target:null,modelCurrency:stop?.available?stop.currency:null,
+    modelReferenceAt:stop?.referenceAt||null,
     fxBasis:fx.note||fx.reason,observedAt:imported.observedAt||null,
     reasons:[...new Set(reasons.length?reasons:['Referenzplan berechnet; Produkt- und Kontonachweise weiterhin getrennt prüfen'])],rankingPenalty:false};
   });
