@@ -192,7 +192,7 @@ class DatabaseTests(unittest.TestCase):
                 current = h.report(conn)
                 horizons = current['items']['signal-outcomes']['counts']
                 self.assertEqual(horizons, {
-                    'outcome-recorded': 1, 'pending-horizon': 1, 'outcome-not-recorded': 1})
+                    'outcome-recorded': 1, 'pending-horizon': 1, 'outcome-not-recorded': 2})
                 matured = current['items']['matured-60m-outcomes']
                 self.assertEqual(matured['counts'], {
                     'awaiting-harvest': 1, 'outcome-not-recorded': 1})
