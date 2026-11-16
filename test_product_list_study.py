@@ -104,10 +104,11 @@ class PersistenceTests(unittest.TestCase):
                         estimated=10,currency='EUR',
                     )
                     fixtures.append(('fixture',PRODUCT['isin'],quote_at,json.dumps(evidence)))
-                conn.executemany(
-                    'INSERT INTO bob_list_price_pairs VALUES(%s,%s,%s,%s::jsonb)',
-                    fixtures,
-                )
+                with conn.cursor() as cursor:
+                    cursor.executemany(
+                        'INSERT INTO bob_list_price_pairs VALUES(%s,%s,%s,%s::jsonb)',
+                        fixtures,
+                    )
                 result=study.summaries(conn,{PRODUCT['isin']})[PRODUCT['isin']]
                 self.assertEqual(result['count'],study.SUMMARY_ROW_LIMIT)
                 self.assertTrue(result['countCapped'])
