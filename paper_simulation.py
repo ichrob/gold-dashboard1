@@ -987,7 +987,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             # Persist the last trading-window gate separately: the night
             # session overwrites control.reason, but not this redacted code.
             # Never store an ISIN, quote, full blocker text or model profit.
-            if profile_policy and profile_policy.get('relaunch'):
+            if profile_policy and profile_policy.get('id') in (
+                    'trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov'):
                 from paper_profit_summary import entry_block_code
                 control['lastTradingEntryBlockCode'] = (
                     None if entered else entry_block_code(reason))
