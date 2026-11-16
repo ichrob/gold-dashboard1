@@ -5,6 +5,7 @@ from collections import Counter
 from decimal import Decimal
 
 LIMIT = 100
+HARVEST_GRACE_MINUTES = 12
 # Each query returns only (observation clock in ms, outcome label). No identities,
 # prices, private payloads, credentials, or mutable control calls are exported.
 QUERIES = {
@@ -19,7 +20,9 @@ QUERIES = {
     FROM bob_decision_audit a ORDER BY a.recorded_at DESC LIMIT 101""",
  'matured-60m-outcomes': """SELECT extract(epoch FROM a.recorded_at)*1000,
     CASE WHEN EXISTS (SELECT 1 FROM bob_decision_outcomes o WHERE o.decision_id=a.id AND o.horizon=60)
-    THEN 'outcome-recorded' ELSE 'outcome-not-recorded' END
+    THEN 'outcome-recorded'
+    WHEN a.recorded_at > now() - interval '72 minutes' THEN 'awaiting-harvest'
+    ELSE 'outcome-not-recorded' END
     FROM bob_decision_audit a
     WHERE a.recorded_at <= now() - interval '60 minutes'
     ORDER BY a.recorded_at DESC LIMIT 101""",
@@ -48,7 +51,7 @@ QUERIES = {
  'legacy-fast-cautious': """SELECT slot, CASE WHEN truth IS NOT NULL THEN 'outcome-recorded' ELSE 'outcome-not-recorded' END
     FROM bob_intraday_comparison WHERE campaign=%s ORDER BY slot DESC LIMIT 101""",
 }
-LABELS = frozenset(('eligible','not-evaluable','outcome-recorded','outcome-not-recorded',
+LABELS = frozenset(('eligible','not-evaluable','outcome-recorded','outcome-not-recorded','awaiting-harvest',
     'paired-observation','terminal-not-necessarily-comparable','pending','pending-horizon','trial-not-evaluable','comparable',
     'incomplete','collection','selection','validation','monitoring','cooldown','paused','training',
     'market-not-ready','no-comparable-products','insufficient-comparison-products',
@@ -115,6 +118,7 @@ def report(conn, now=None):
     items['list-price-pairs']['historicalCoverageVerified'] = False
     items['matured-60m-outcomes']['sampleScope'] = 'latest-matured-decisions-only'
     items['matured-60m-outcomes']['horizonMinutes'] = 60
+    items['matured-60m-outcomes']['harvestGraceMinutes'] = HARVEST_GRACE_MINUTES
     items['legacy-fast-cautious']['collectionWindowEnded'] = now >= intraday_comparison.END
     items['legacy-fast-cautious']['newCasesExpected'] = intraday_comparison.active(now)
     import adaptive_learning
