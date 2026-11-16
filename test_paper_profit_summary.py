@@ -71,6 +71,29 @@ class PaperProfitSummaryTests(unittest.TestCase):
             'Einstieg wartet: Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt'
             ' · Bestätigtes Einstiegssignal älter als 15 Minuten'),
             'ema-stretch-and-signal-age')
+        # A direction-shaped trend context is not an executable signal
+        # until two closed 5m bars confirm the side.  This is a known market
+        # wait, not a new system error or an approval to enter.
+        real_wait = (
+            'Einstieg wartet: Haupttrend SHORT intakt · Fortsetzung bestätigt'
+            ' · Einstieg vorbereitet · Wechsel zu SHORT: erst 1 von 2'
+            ' geschlossenen 5m-Kerzen bestätigt'
+            ' · Kleine EMA-/MACD-Distanz: zweite Schlusskerze erforderlich')
+        self.assertEqual(profit.entry_block_code(real_wait), 'no-direction')
+        self.assertEqual(profit.entry_block_code(
+            'Einstieg wartet: Wechsel zu LONG: erst 1 von 2 '
+            'geschlossenen 5m-Kerzen bestätigt'), 'no-direction')
+        self.assertEqual(profit.entry_block_code(
+            'Einstieg wartet: Kleine EMA-/MACD-Distanz: '
+            'zweite Schlusskerze erforderlich'), 'no-direction')
+        # Source/KO safety is still higher priority than signal confirmation.
+        self.assertEqual(profit.entry_block_code(
+            real_wait + ' · Goldkurs nicht aktuell bestätigt'), 'source-not-fresh')
+        self.assertEqual(profit.entry_block_code(
+            real_wait + ' · KO-Schutz: Barriere fehlt'), 'knockout-protection')
+        self.assertEqual(profit.entry_block_code(
+            'Einstieg wartet: Kein passendes belegtes Produkt, Nachweis offen'),
+            'product-not-approved')
         out = profit.snapshot([
             dict(profile='trend800nov',initialCapital=800,equity=800,
                  reason='Geld-/Briefkurs nicht freigegeben · ISIN PRIVATE-TOKEN'),
