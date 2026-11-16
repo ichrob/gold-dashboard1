@@ -203,7 +203,11 @@ class ProductReadService : AccessibilityService() {
      * Markets WebView settles. Retry that one state only, never another app,
      * a locked device, a login/order view, or a new unrequested session.
      */
-    private fun beginReadAfterVerifiedPin(attempt: Int, searchQuery: String? = null, ticket: Int = LoginToReadHandoff.generation, sessionOnly: Boolean = false, freshGold: Boolean = false, detailRefresh: LoginToReadHandoff.DetailRefresh? = null) {
+    private fun beginReadAfterVerifiedPin(attempt: Int, searchQuery: String? = null,
+            ticket: Int = LoginToReadHandoff.generation, sessionOnly: Boolean = false,
+            freshGold: Boolean = false,
+            detailRefresh: LoginToReadHandoff.DetailRefresh? = null,
+            entryReadOnly: Boolean = false, resumeAfterOwnerUnlock: Boolean = false) {
         if (ticket != LoginToReadHandoff.generation) return
         fun fail(code: String) {
             PhoneRemote.stop(this,code)
@@ -231,7 +235,9 @@ class ProductReadService : AccessibilityService() {
         val root=rootInActiveWindow
         if(root==null) {
             if(PostLoginRootRetryPolicy.canRetry(attempt)) {
-                handler.postDelayed({beginReadAfterVerifiedPin(attempt+1,searchQuery,ticket,sessionOnly,freshGold,detailRefresh)},350)
+                handler.postDelayed({beginReadAfterVerifiedPin(attempt+1,searchQuery,ticket,
+                    sessionOnly,freshGold,detailRefresh,entryReadOnly,
+                    resumeAfterOwnerUnlock)},350)
             } else fail("LOGIN_HANDOFF_NO_ROOT")
             return
         }
@@ -239,7 +245,11 @@ class ProductReadService : AccessibilityService() {
                           finally { root.recycle() }
         if(!brokerVisible) { fail("LOGIN_HANDOFF_OTHER_APP");return }
         runCatching {
-            PhoneRemote.start(this)
+            check(!entryReadOnly || sessionOnly) {
+                "Einstiegskurs-Anmeldung benötigt die getrennte Bereitschaft."
+            }
+            PhoneRemote.start(this,entryReadOnly=entryReadOnly,
+                resumeAfterOwnerUnlock=resumeAfterOwnerUnlock)
             check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
             if (!sessionOnly) {
                 if(detailRefresh!=null) MorningReadRun.beginDiscovered(this,detailRefresh.entries.map { it.isin },
@@ -268,13 +278,18 @@ class ProductReadService : AccessibilityService() {
             val detailRefresh = LoginToReadHandoff.detailRefresh
             val freshGold = LoginToReadHandoff.freshGold
             val sessionOnly = LoginToReadHandoff.sessionOnly
+            val entryReadOnly = LoginToReadHandoff.entryReadOnly
+            val resumeAfterOwnerUnlock = LoginToReadHandoff.resumeAfterOwnerUnlock
             val searchQuery = LoginToReadHandoff.searchQuery
             val proceed = LoginToReadHandoff.consume(PinReadinessProbe.resultCode, SystemClock.elapsedRealtime())
             runCatching { localLoginEventScope(false) }
             handler.removeCallbacks(pinProbeTick)
             PhoneDiagnostics.recordPinProbe(this)
             val ticket = LoginToReadHandoff.generation
-            if (proceed) handler.post { beginReadAfterVerifiedPin(0,searchQuery,ticket,sessionOnly,freshGold,detailRefresh) }
+            if (proceed) handler.post {
+                beginReadAfterVerifiedPin(0,searchQuery,ticket,sessionOnly,freshGold,
+                    detailRefresh,entryReadOnly,resumeAfterOwnerUnlock)
+            }
         }
         PinReadinessProbe.onTimeout = {
             // Return only from the app explicitly opened for this test, never another foreground app.

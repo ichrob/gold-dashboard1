@@ -163,3 +163,29 @@ Finanz-/Broker-App auf demselben Gerät nicht empfohlen. Die zuverlässige
 Wiederaufnahme muss auf dem konkreten Samsung mit der signierten App und
 One-UI-/Android-Version überprüft werden. Auch abgeschlossene DEGIRO-
 Ablesungen sind keine verifizierten ausführbaren Broker-Kurse.
+
+
+## Einstiegskurs-Bereitschaft: bestehende lokale DEGIRO-PIN benutzen (16.11.)
+
+Die getrennte Schaltfläche **„Einstiegskurs automatisch nachlesen ·
+15 Minuten“** verwendet bei einer bereits eingerichteten PIN nun denselben
+einmaligen `LocalPinVault`- und `PinReadinessProbe`-Anmeldeweg wie der
+vollständige Gold-Produkteinleser. Die PIN verlässt das Samsung nie und wird
+nur verwendet, nachdem der Besitzer diesen lokalen Readiness-Lauf gestartet,
+das Gerät regulär entsperrt und der lokale Tastaturtest bestätigt ist.
+
+Erst mit `LOCAL_PIN_HOME_VISIBLE` (stabile, bestätigte DEGIRO-Marktseite)
+wird eine **neue, ausschließlich lesende** `entry_read`-Session für maximal
+15 Minuten angelegt. Es startet weder die vollständige Goldsuche noch ein
+Konto-/Orderlauf. Bei `PROTECTED_LOGIN`, abgebrochener/ungültiger PIN,
+nicht bestätigter Marktseite oder mehr als 65 Sekunden seit Start bleibt
+der Anmeldeversuch ohne Fern-Lesesitzung. Es gibt keinen zweiten PIN-
+Versuch, keine Übernahme von Kontodaten und keine Geräte-PIN-Automatik.
+
+Bei Geräten **ohne** lokale PIN bleibt das bisherige Verhalten erhalten:
+DEGIRO muss vor Start bereits angemeldet sein. Die vorherige Sperr-
+Fortsetzung bleibt nur bei lokal aktivierter Option wirksam; beim
+gesperrten Samsung kein DEGIRO-Klick, keine erneute Anmeldung und kein
+Aufheben der Android-Gerätesperre. Die erfolgreiche tatsächliche DEGIRO-
+Anmeldung und Nachlesung sind auf einem echten Samsung mit der
+signierten aktuellen Version separat zu prüfen.

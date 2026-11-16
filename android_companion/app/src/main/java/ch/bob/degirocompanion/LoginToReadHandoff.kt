@@ -10,11 +10,20 @@ internal object LoginToReadHandoff {
     private var armedAt = -1L
     var searchQuery: String? = null; private set
     var sessionOnly = false; private set
+    // The owner can explicitly choose the entry-only readiness after one
+    // verified on-device DEGIRO PIN handoff; no general reader escalation.
+    var entryReadOnly = false; private set
+    var resumeAfterOwnerUnlock = false; private set
     data class DetailRefresh(val batch: String, val listAt: String, val entries: List<SelectiveDetailPlan.Entry>)
     var detailRefresh: DetailRefresh? = null; private set
     var freshGold = false; private set
     var generation = 0; private set
-    fun arm(now: Long, query: String? = null, sessionOnly: Boolean = false, freshGold: Boolean = false, detailRefresh: DetailRefresh? = null) {
+    fun arm(now: Long, query: String? = null, sessionOnly: Boolean = false,
+            freshGold: Boolean = false, detailRefresh: DetailRefresh? = null,
+            entryReadOnly: Boolean = false, resumeAfterOwnerUnlock: Boolean = false) {
+        require(!resumeAfterOwnerUnlock || entryReadOnly)
+        require(!entryReadOnly || (sessionOnly && query == null &&
+                !freshGold && detailRefresh == null))
         require(detailRefresh==null || (!freshGold && !sessionOnly && query==null))
         if(detailRefresh!=null) require(detailRefresh.entries.size in 1..3 && detailRefresh.batch.matches(Regex("[a-f0-9]{32}")) &&
             SelectiveDetailPlan.validate(detailRefresh.entries,detailRefresh.entries.map { it.isin })!=null)
@@ -24,7 +33,10 @@ internal object LoginToReadHandoff {
         check(armedAt < 0L) { "Anmeldung läuft bereits." }
         this.detailRefresh = detailRefresh
         this.freshGold = freshGold
-        generation++; searchQuery = query; this.sessionOnly = sessionOnly; armedAt = now
+        generation++; searchQuery = query; this.sessionOnly = sessionOnly
+        this.entryReadOnly = entryReadOnly
+        this.resumeAfterOwnerUnlock = resumeAfterOwnerUnlock
+        armedAt = now
     }
     fun pending(now: Long): Boolean = armedAt >= 0L && now >= armedAt && now - armedAt < MAX_MILLIS
     /** Success means a trusted, stable DEGIRO Markets screen was observed. */
@@ -33,5 +45,9 @@ internal object LoginToReadHandoff {
         clear()
         return allowed
     }
-    fun clear() { detailRefresh=null;generation++; searchQuery = null; sessionOnly = false; freshGold = false; armedAt = -1L }
+    fun clear() {
+        detailRefresh=null;generation++;searchQuery=null;sessionOnly=false
+        entryReadOnly=false;resumeAfterOwnerUnlock=false
+        freshGold=false;armedAt=-1L
+    }
 }

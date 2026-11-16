@@ -158,26 +158,67 @@ class ProductReadActivity : Activity() {
         button("Einstiegskurs automatisch nachlesen · 15 Minuten") {
             val resumeChoice=booleanArrayOf(false)
             AlertDialog.Builder(this).setTitle("Einmalige Kursnachlesung bei Einstiegssignal")
-                .setMessage("DEGIRO vorher anmelden. Bob wartet höchstens 15 Minuten auf ein passendes Signal und liest dann genau ein Produkt der aktuellen Goldliste erneut. Bei aktivierter Sperr-Fortsetzung hält Bob den bereits entsperrten Bildschirm während der Bereitschaft gedimmt an. Wenn du das Samsung selbst sperrst, wartet Bob ohne DEGIRO-Klicks auf deine echte Entsperrung und versucht anschließend, DEGIRO wieder zu öffnen. Android kann die automatische App-Rückkehr verhindern. PIN, Fingerabdruck und Gerätesperre bleiben wirksam. Kein unbegrenzter Hintergrundlauf, keine Orders.")
+                .setMessage("Ist die DEGIRO-PIN bereits sicher auf dem Handy hinterlegt, verwendet Bob den vorhandenen einmaligen lokalen Login nach bestätigtem Tastaturtest. Andernfalls muss DEGIRO bereits angemeldet sein. Danach wartet Bob höchstens 15 Minuten auf ein passendes Signal und liest dann genau ein Produkt der aktuellen Goldliste erneut. Bei aktivierter Sperr-Fortsetzung hält Bob den bereits entsperrten Bildschirm während der Bereitschaft gedimmt an. Wenn du das Samsung selbst sperrst, wartet Bob ohne DEGIRO-Klicks auf deine echte Entsperrung und versucht anschließend, DEGIRO wieder zu öffnen. Android kann die automatische App-Rückkehr verhindern. PIN, Fingerabdruck und Gerätesperre bleiben wirksam. Kein unbegrenzter Hintergrundlauf, keine Orders.")
                 .setMultiChoiceItems(arrayOf("Entsperr-Fortsetzung erlauben (nur diese 15 Minuten)"),
                     resumeChoice) { _, _, checked -> resumeChoice[0]=checked }
                 .setNegativeButton("Abbrechen",null).setPositiveButton("Bereitschaft starten") { _,_ ->
-                    var started=false
+                    var secret:ByteArray?=null
+                    var loginStarted=false
+                    var sessionStarted=false
                     runCatching {
-                        check(!LoginToReadHandoff.pending(SystemClock.elapsedRealtime()) && !PinReadinessProbe.running) { "Lauf zuerst abschließen." }
-                        check(preferences.getBoolean("enabled",false) && serviceEnabled()) { "Lesedienst einschalten." }
-                        val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
-                        PhoneRemote.start(this,entryReadOnly=true,
-                            resumeAfterOwnerUnlock=resumeChoice[0])
-                        started=true
-                        startActivity(launch)
-                        result.text=if(resumeChoice[0])
-                            "Sperr-Fortsetzung aktiv · max. 15 Minuten · Samsung entsperrt Gerät selbst · keine Orders."
-                            else "Bereitschaft aktiv · höchstens ein Produkt · 15 Minuten · keine Orders."
+                        check(!LoginToReadHandoff.pending(SystemClock.elapsedRealtime()) &&
+                            !PinReadinessProbe.running && !PhoneRemote.active() &&
+                            !MorningReadRun.running && !GoldSearchRun.running &&
+                            !ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+                            "Lauf zuerst abschließen."
+                        }
+                        check(preferences.getBoolean("enabled",false) && serviceEnabled() &&
+                            ProductReadDiagnostics.connected) { "Lesedienst einschalten." }
+                        check(PhoneDiagnostics.paired(this)) {
+                            "Automatische Diagnose zunächst verbinden und freigeben."
+                        }
+                        val launch=packageManager.getLaunchIntentForPackage(
+                            ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+                        if(LocalPinVault.exists(this)) {
+                            // Reuse the same single-attempt, local-only verified
+                            // Markets handoff as the complete Gold list reader.
+                            // A remote entry session is created ONLY after
+                            // LOCAL_PIN_HOME_VISIBLE, never on a login screen.
+                            check(PhoneDiagnostics.keypadTestVerified(this)) {
+                                "Lokale PIN eingerichtet, aber Tastaturtest nicht bestätigt."
+                            }
+                            check(LocalPinVault.available(this)) {
+                                "Samsung zuerst entsperren, damit die lokale PIN verfügbar ist."
+                            }
+                            secret=LocalPinVault.load(this)
+                            LoginToReadHandoff.arm(SystemClock.elapsedRealtime(),
+                                sessionOnly=true,entryReadOnly=true,
+                                resumeAfterOwnerUnlock=resumeChoice[0])
+                            loginStarted=true
+                            PinReadinessProbe.startLocalLogin(secret!!)
+                            startActivity(launch)
+                            result.text="DEGIRO-Anmeldung wird mit vorhandener lokaler PIN einmal geprüft. " +
+                                "Erst nach bestätigter Marktseite beginnt die 15-Minuten-Bereitschaft."
+                        } else {
+                            // Without a local PIN, DEGIRO must already be
+                            // logged in. Never infer approval from a login page.
+                            PhoneRemote.start(this,entryReadOnly=true,
+                                resumeAfterOwnerUnlock=resumeChoice[0])
+                            sessionStarted=true
+                            startActivity(launch)
+                            result.text=if(resumeChoice[0])
+                                "Sperr-Fortsetzung aktiv · max. 15 Minuten · keine Orders."
+                                else "Bereitschaft aktiv · höchstens ein Produkt · 15 Minuten · keine Orders."
+                        }
                     }.onFailure {
-                        if(started)PhoneRemote.stop(this,"START_FAILED")
-                        result.text=it.message ?: "Bereitschaft nicht gestartet."
-                    }
+                        LoginToReadHandoff.clear()
+                        if(loginStarted && PinReadinessProbe.localLoginActive)
+                            PinReadinessProbe.stop("Einstiegsnachlesung: PIN-Anmeldung nicht gestartet.")
+                        if(sessionStarted)PhoneRemote.stop(this,"START_FAILED")
+                        result.text=if(secret!=null)
+                            "Lokale Anmeldung konnte nicht vorbereitet werden; bitte Lesedienst prüfen."
+                            else it.message ?: "Bereitschaft nicht gestartet."
+                    }.also { secret?.fill(0) }
                 }.show()
         }
         button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {

@@ -25,4 +25,8 @@ class ReaderReliability(unittest.TestCase):
         self.assertIn('PhoneDiagnostics.keypadTestVerified(this)',activity)
         service=(BASE/'ProductReadService.kt').read_text()
         self.assertIn('detailRefresh.entries.associate { it.isin to it.missingFields },detailRefresh.listAt',service)
-        self.assertIn('freshGold,detailRefresh)',service)
+        self.assertRegex(service,
+            r'sessionOnly,freshGold,\s*detailRefresh,entryReadOnly,resumeAfterOwnerUnlock\)')
+        # Exact 1..3 targeted refresh still routes into the unchanged shared
+        # MorningReadRun reader; the new entry-only mode cannot widen it.
+        self.assertIn('if(detailRefresh!=null) MorningReadRun.beginDiscovered(',service)
