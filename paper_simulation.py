@@ -495,7 +495,13 @@ PAPER_ENTRY_WINDOW_PROFILES = frozenset(('trend800nov', 'normal1000nov', 'ema300
 
 
 def paper_entry_reason_code(reason):
-    """Collapse volatile/free-text reasons without persisting product identifiers."""
+    """Fixed, non-identifying forward-only classification of paper blockers.
+
+    Detailed reason text remains in its separately bounded original journal.
+    This counter summarises observed checks, not rejected executable orders.
+    New classifications apply only to future aggregation; no stored window is
+    rewritten and no live/paper entry or risk gate is changed.
+    """
     text = str(reason or '')
     if 'Preis über 1,5 ATR von EMA20' in text and 'älter als 15 Minuten' in text:
         return 'ema-stretch-and-signal-age'
@@ -507,6 +513,16 @@ def paper_entry_reason_code(reason):
         return 'gold-stale'
     if text.startswith('ABWARTEN: kein bestätigter gültiger Goldplan'):
         return 'gold-plan-missing'
+    # Prospectively separate the three dominant November-campaign blockers
+    # instead of hiding their frequency under "plan-or-timing". Exact ATR
+    # comparisons are still made by the existing isolated campaign gates.
+    if ('Aktueller Spot und letzter Kerzenschluss weichen über' in text
+            and 'ATR ab' in text):
+        return 'spot-close-distance'
+    if 'Trendstärke schwach' in text and 'zweite Schlusskerze' in text:
+        return 'weak-trend-confirmation'
+    if 'Mindest-CRV bis zur Hürde nicht erfüllt' in text:
+        return 'crv-obstacle'
     if 'Stopp-/Zielplan' in text or text.startswith('Einstieg wartet:'):
         return 'plan-or-timing'
     if text.startswith('KO-Schutz:'):
@@ -520,7 +536,6 @@ def paper_entry_reason_code(reason):
     if text.startswith('Diese Signal-Kerze wurde bereits'):
         return 'duplicate-bar'
     return 'other'
-
 
 def paper_entry_time_bucket(day_data, now, wait, entry):
     """Record ONLY future observation-time aggregate; never fabricate backfills.
@@ -725,6 +740,49 @@ def campaign_source_preview(control, bundle, market, now):
     return control.get('campaignEstimatePreview')
 
 
+def ranked_entry_candidate(candidates, quotes, market, now, budget, cost_model=None,
+                           require_ko=False):
+    """Pick the first *usable* ranked paper candidate, not just the first KO-safe one.
+
+    This is an in-memory selection of already supplied quotes: no network calls,
+    new permissions, inferred prices or brokerage orders. Keep the original
+    ranking among usable candidates. If none qualifies, return the first
+    direction-compatible candidate solely for the existing detailed blocker.
+    """
+    direction = market.get('direction')
+    compatible = []
+    for choice in candidates:
+        if not isinstance(choice, dict) or not isinstance(choice.get('isin'), str) or not choice['isin']:
+            continue
+        declared = {choice.get(k) for k in ('direction', 'productDirection')
+                    if choice.get(k) in ('LONG', 'SHORT')}
+        if len(declared) > 1 or (declared and direction not in declared):
+            continue
+        compatible.append(choice)
+    if type(budget) not in (int, float) or not math.isfinite(budget) or budget <= 0:
+        return compatible[0] if compatible else None
+    for choice in compatible:
+        if (choice.get('indicative') or choice.get('estimated')
+                or (require_ko and choice.get('koGuardRequired') is not True)):
+            continue
+        q = fresh_quote(quotes.get(choice['isin']), now, choice['isin'])
+        if not q:
+            continue
+        if choice.get('koGuardRequired'):
+            try:
+                ko_reason, _ = paper_ko_guard.entry_reason(
+                    choice, quotes.get(choice['isin']), market, now)
+            except Exception:
+                continue  # An unverifiable guard is never permission to enter.
+            if ko_reason is not None:
+                continue
+        required = (q['ask'] * (1 + cost_model['slippageBpsPerSide'] / 10000)
+                    + 3 * cost_model['feeEurPerOrder']) if cost_model else q['ask']
+        if required <= budget:
+            return choice
+    return compatible[0] if compatible else None
+
+
 def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
     row=conn.execute('SELECT payload FROM bob_paper_control WHERE id=1 FOR UPDATE').fetchone()
     control=row[0]
@@ -819,13 +877,15 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             excluded=control.get('koExcluded') or {}
             blocked=set(excluded.get('isins') or []) if excluded.get('day')==day else set()
             candidates=[x for x in (selection.get('choices') or []) if x.get('isin') not in blocked]
-            # Keep ranking, but do not let the top ranked unsafe KO product
-            # hide the next genuinely eligible candidate.
-            safe_candidates=[x for x in candidates
-                 if not x.get('koGuardRequired') or (
-                     fresh_quote(quotes.get(x['isin']),now,x['isin'])
-                     and paper_ko_guard.entry_reason(x,quotes.get(x['isin']),market,now)[0] is None)]
-            choice=next(iter(safe_candidates or candidates),None)
+            # Preserve ranking among eligible candidates, skipping stale,
+            # unaffordable, direction-mismatched or unverified KO products.
+            # A blocked first choice must not hide a valid lower-ranked one.
+            budget = min(control['cash'], (control.get('equity') or control['cash']) *
+                         (profile_policy['exposure_fraction'] if profile_policy else 1.))
+            choice = ranked_entry_candidate(
+                candidates, quotes, market, now, budget, cost_model,
+                require_ko=bool(profile_policy and
+                    (profile_policy.get('early_impulse') or profile_policy.get('campaign'))))
             q=fresh_quote(quotes.get(choice['isin']),now,choice['isin']) if choice and not choice.get('indicative') and not choice.get('estimated') else None
             healthy=market.get('ready') is True and market.get('priceFresh') is True and finite(market.get('dataAt')) and 0<=now-market['dataAt']<=60000
             entry_key=str([market.get('ruleVersion'),market.get('analysisBarAt'),market.get('direction')])
@@ -927,7 +987,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             # Persist the last trading-window gate separately: the night
             # session overwrites control.reason, but not this redacted code.
             # Never store an ISIN, quote, full blocker text or model profit.
-            if profile_policy and profile_policy.get('relaunch'):
+            if profile_policy and profile_policy.get('id') in (
+                    'trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov'):
                 from paper_profit_summary import entry_block_code
                 control['lastTradingEntryBlockCode'] = (
                     None if entered else entry_block_code(reason))

@@ -24,6 +24,12 @@ for(const direction of ['LONG','SHORT'])for(const currency of ['EUR','CHF']){
  assert.equal(comparison.copyAllowed,false);assert.equal(comparison.tradeable,false);
  assert.match(comparison.entryWarning,/Kein Einstieg/);
  assert(!b.productRiskPreview(p,wait,now).available);
+ assert.match(b.productRiskPreviewText(p,wait,now),/Unverbindliche Risikoreferenz/);
+ const opposite={...market,direction:direction==='LONG'?'SHORT':'LONG'};
+ window.productMarketPlan=(side)=>side===direction?market:null;
+ assert.match(b.productRiskPreviewText(p,opposite,now),/Gegenrichtung zum Hauptsignal/);
+ assert(!b.productRiskPreview(p,opposite,now).available);
+ delete window.productMarketPlan;
  assert.equal(JSON.stringify({p,wait}),saved);
  for(const bad of [{...wait,available:false},{...wait,stop:ko+sign*20},{...wait,direction:'NEUTRAL'},{...wait,spots:{}}])
   assert(!b.productRiskComparison(p,bad,now).available);

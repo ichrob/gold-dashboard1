@@ -149,7 +149,7 @@ class DetailsTest(unittest.TestCase):
                 if sql.startswith('DELETE FROM bob_android_list_images'):return self
                 if sql.startswith('SELECT token_hash FROM'):self.result=('device',);return self
                 if sql.startswith('SELECT import_receipt, parsed_items'):
-                    self.result=({'stage':'synced'},[{'isin':ISIN}])
+                    self.result=({'stage':'synced'},[{'isin':ISIN}],'2026-10-28T10:00:00Z')
                     return self
                 return super().execute(sql,params)
         payload=run()
@@ -166,6 +166,10 @@ class DetailsTest(unittest.TestCase):
         self.assertTrue(saved['saved'])
         self.assertFalse(saved['tradeApproved'])
         self.assertEqual(len(db.rows),1)
+        stored=next(iter(db.rows.values()))
+        self.assertEqual(stored['originalList'],{'batchId':'b'*32,
+            'uploadedAt':'2026-10-28T10:00:00+00:00'})
+        self.assertEqual(stored['listUploadedAt'],payload['listUploadedAt'])
         run_saved=next(iter(db.rows.values()))
         self.assertEqual(run_saved['events'][0]['code'],'RETURN_NOT_CONFIRMED')
         self.assertFalse(run_saved['verified'])
@@ -178,7 +182,7 @@ class DetailsTest(unittest.TestCase):
                 if sql.startswith('DELETE FROM bob_android_list_images'):return self
                 if sql.startswith('SELECT token_hash FROM'):self.result=('device',);return self
                 if sql.startswith('SELECT import_receipt, parsed_items'):
-                    self.result=({'stage':'synced'},[{'isin':ISIN}]) if self.owned else None
+                    self.result=({'stage':'synced'},[{'isin':ISIN}],'2026-10-28T10:00:00Z') if self.owned else None
                     return self
                 return super().execute(sql,params)
         db=Db();payload={'action':'list-details','token':'a'*64,'value':{'batchId':'b'*32,'run':run()}}

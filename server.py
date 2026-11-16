@@ -1475,6 +1475,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 report = dict(report)
                 report["automation"] = snapshot.get("automation") or {}
+                report["goldDailyContext"] = snapshot.get("goldDailyContext") or {"status": "unavailable"}
                 report["runtime"] = strategy_lab_background.status()
                 report["brokerReadiness"] = broker_bridge.status()
             except Exception as exc:

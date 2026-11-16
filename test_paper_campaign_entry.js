@@ -24,23 +24,29 @@ for(const side of ['LONG','SHORT']){
   const atr=initial.atr5m,last=b.history.bars_by_tf['5m'].at(-1);
   function atDistance(r){
     const copy=structuredClone(b);
+    // Isolate the spot/last-close threshold from an otherwise independent
+    // EMA-extension gate; all candles remain original-shaped OHLC fixtures.
+    for(const candle of copy.history.bars_by_tf['5m']){
+      candle.open=last.close;candle.close=last.close;
+      candle.low=last.close-.5;candle.high=last.close+.5;
+    }
     copy.spots.xaus=last.close+sign*r*atr;
     return copy;
   }
-  const d09=atDistance(.9);
+  const d09=atDistance(1.2);
   assert.equal(guard.check(d09,side,now,now-5*M).allowed,false);
   assert.equal(guard.checkPaperCampaign(d09,side,now,now-5*M,'trend800nov').allowed,true);
   assert.equal(guard.checkPaperCampaign(d09,side,now,now-5*M,'normal1000nov').allowed,true);
-  const d11=atDistance(1.1);
+  const d11=atDistance(1.3);
   assert.equal(guard.checkPaperCampaign(d11,side,now,now-5*M,'trend800nov').allowed,false);
   assert.equal(guard.checkPaperCampaign(d11,side,now,now-5*M,'normal1000nov').allowed,true);
-  assert.equal(guard.checkPaperCampaign(atDistance(1.3),side,now,now-5*M,'normal1000nov').allowed,false);
+  assert.equal(guard.checkPaperCampaign(atDistance(1.5),side,now,now-5*M,'normal1000nov').allowed,false);
   for(const profile of ['trend800nov','normal1000nov']){
-    const active=guard.checkPaperCampaign(b,side,now,now-19*M,profile);
-    assert.equal(active.allowed,true,profile+' 19m: '+active.reason);
+    const active=guard.checkPaperCampaign(b,side,now,now-29*M,profile);
+    assert.equal(active.allowed,true,profile+' 29m: '+active.reason);
     assert.equal(active.paperOnly,true);
-    assert.equal(active.maxSignalMinutes,20);
-    assert.equal(guard.checkPaperCampaign(b,side,now,now-21*M,profile).allowed,false);
+    assert.equal(active.maxSignalMinutes,30);
+    assert.equal(guard.checkPaperCampaign(b,side,now,now-31*M,profile).allowed,false);
     assert.equal(guard.check(b,side,now,now-19*M).allowed,false,'live still 15m');
     const stale=structuredClone(b);
     stale.spots.spot_price_as_of=new Date(now-61000).toISOString();
@@ -76,4 +82,4 @@ for(const side of ['LONG','SHORT']){
   assert.equal(guard.check(b1,side,later,now-31*M).allowed,false,'live age cannot be bypassed');
 }
 assert.throws(()=>guard.checkPaperCampaign(bundle('LONG'),'LONG',now,now-5*M,'ema3000nov'),/Unknown paper/);
-console.log('800/1000 EUR paper ATR, 20m, closed 1m re-entry, stale protection, baseline isolation OK');
+console.log('800/1000 EUR paper ATR, 30m, closed 1m re-entry, stale protection, baseline isolation OK');

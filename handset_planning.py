@@ -1,5 +1,6 @@
 """Private, bounded planning settings and latest handset scenarios; no orders."""
 import json
+import hashlib
 import math
 from pathlib import Path
 import time
@@ -84,6 +85,13 @@ def planning_context(conn,config,now=None):
     return effective,proof,conditional
 
 
+def context_fingerprint(config, evidence, conditional):
+    """Bind a cached scenario to the exact dated account assumptions used."""
+    payload = json.dumps([config, evidence, conditional], sort_keys=True,
+                         separators=(',', ':'), allow_nan=False)
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
 def read(conn):
     exists=conn.execute("SELECT to_regclass('bob_handset_planning')").fetchone()
     if not exists or not exists[0]:
@@ -94,11 +102,15 @@ def read(conn):
     result = row[2]
     age = time.time()*1000-(result or {}).get('calculatedAt', 0)
     effective,account,conditional=planning_context(conn,row[0])
+    context = context_fingerprint(effective, account, conditional)
     return dict(config=row[0], effectiveConfig=effective,
                 accountEvidence=account, accountEvidenceConditional=conditional,
                 accountIdentityConfirmedAcrossSessions=False,
+                contextFingerprint=context,
                 revision=row[1], result=result,
-                resultFresh=bool(result and 0 <= age <= 90000), realOrders=False)
+                resultFresh=bool(result and 0 <= age <= 90000
+                    and result.get('configRevision') == row[1]
+                    and result.get('contextFingerprint') == context), realOrders=False)
 
 
 def handle(conn, payload):
@@ -126,13 +138,18 @@ def tick(conn, evidence, quotes, market, bundle, now):
     report = degiro_product_audit.read(conn, now)
     if report.get('listUploadedAt') != evidence.get('listUploadedAt'):
         return
-    rows = [x for x in report.get('items', []) if x.get('handsetObservation')]
+    rows = [x for x in report.get('items', []) if x.get('isin') and x.get('state') != 'excluded-factor'][:12]
     if not rows:
         return
-    fingerprint = json.dumps([[x['isin'], x['handsetObservation'].get('observedAt'),
+    # Include displayed candidates without a phone observation: their independent
+    # risk reference is either calculated or explicitly marked unavailable.
+    # A missing handset proof never becomes a valid executable quotation.
+    fingerprint = json.dumps([[x['isin'], (x.get('handsetObservation') or {}).get('observedAt'),
                               x.get('state')] for x in rows], sort_keys=True)
     old = state.get('result') or {}
     if (old.get('fingerprint') == fingerprint and old.get('configRevision') == state['revision']
+            and state.get('contextFingerprint') is not None
+            and old.get('contextFingerprint') == state['contextFingerprint']
             and old.get('listUploadedAt') == report.get('listUploadedAt')
             and 0 <= now-old.get('calculatedAt', 0) < 30000):
         return
@@ -150,7 +167,11 @@ def tick(conn, evidence, quotes, market, bundle, now):
         input=json.dumps(request, allow_nan=False), text=True, capture_output=True,
         timeout=6, check=True, priority=2)
     result = json.loads(proc.stdout)
+    from handset_entry_check import assess
+    for item in result.get('items', []):
+        item['preEntryCheck'] = assess(item, now)
     result.update(fingerprint=fingerprint, configRevision=state['revision'],
+                  contextFingerprint=state.get('contextFingerprint'),
                   listUploadedAt=report.get('listUploadedAt'))
     # Do not overwrite a newer configuration saved during this calculation.
     conn.execute('''UPDATE bob_handset_planning SET result=%s::jsonb

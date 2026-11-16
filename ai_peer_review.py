@@ -102,6 +102,21 @@ def review_response(data):
 
 
 
+OPT_IN_MARKER = "<!-- BOB_AI_REVIEW_OPT_IN_V1 -->"
+
+
+def automatic_review_requested(body):
+    """True only for known repair cases or one explicit owner opt-in marker."""
+    if not isinstance(body, str):
+        return False
+    from bob_ai_quality_gate import CASE
+    cases = CASE.findall(body[:10000])
+    if cases:
+        # A malformed repair reference must never fall back to research opt-in.
+        return len(cases) == 1 and cases[0][1] in CODES
+    return body[:10000].count(OPT_IN_MARKER) == 1
+
+
 REVIEW_MARKER = "<!-- BOB_AI_REVIEW_V1:sha="
 
 
@@ -123,11 +138,10 @@ def review_allowed(pr_data, *, mode, head_sha=None):
     body = pr_data.get("body") or ""
     if not isinstance(body, str):
         raise ValueError("invalid-pr-body")
-    # Only independently actionable, code-linked Bob health incidents.
-    from bob_ai_quality_gate import CASE
-    cases = CASE.findall(body[:10000])
-    if len(cases) != 1 or cases[0][1] not in CODES:
-        raise ValueError("missing-repair-issue")
+    # Existing repair cases remain eligible; an ordinary PR requires the
+    # exact owner opt-in marker and successful CI on this same commit.
+    if not automatic_review_requested(body):
+        raise ValueError("missing-repair-issue-or-explicit-opt-in")
     return head_sha
 
 

@@ -1,6 +1,7 @@
 """Paper gap evaluation must not invent an exit, lost trade, or root-cause proof."""
 import json
 import unittest
+from unittest.mock import patch
 import paper_gap_triage as t
 import bob_diagnostics
 
@@ -127,6 +128,116 @@ class PaperGapTriageTests(unittest.TestCase):
         self.assertEqual(result["status"], "observed")
         self.assertNotIn("DO-NOT-EXPOSE", json.dumps(result))
         self.assertFalse(result["items"][0]["rootCauseVerified"])
+
+    def test_observed_empty_recent_case_sample_is_not_a_source_failure(self):
+        complete = t.assess({"recentRecordedGapInstants": [],
+                             "sampleCoverage": "observed"}, None, None)
+        self.assertEqual(complete["status"], "no-recorded-gaps-in-sample")
+        self.assertEqual(complete["sampledDistinctGapInstants"], 0)
+        self.assertTrue(complete["noRecentGapEventsObserved"])
+        self.assertFalse(complete["fullHistoricalGapCoverageVerified"])
+        self.assertFalse(complete["realOrders"])
+
+        # No case detail, partial account coverage or malformed source must
+        # remain unavailable: empty lists alone never prove full history.
+        self.assertEqual(t.assess({}, None, None)["status"], "unavailable")
+        partial = t.assess({"recentRecordedGapInstants": [],
+                            "sampleCoverage": "incomplete"}, None, None)
+        self.assertEqual(partial["status"], "unavailable")
+        missing_list = t.assess({"sampleCoverage": "observed"}, None, None)
+        self.assertEqual(missing_list["status"], "unavailable")
+
+    @staticmethod
+    def archive_fixture():
+        clocks = (1000000, 2000000, 3000000)
+        def source(items, **kwargs):
+            return {
+                "status": "observed", "readOnly": True, "realOrders": False,
+                "windowSeconds": 90, "sampledDistinctClocks": len(items),
+                "totalDistinctClocks": len(items), "truncated": False,
+                "items": items, **kwargs
+            }
+        return {
+            "spotGapArchive": source([
+                {"eventAt": clocks[0], "state": "nearby-original-observed",
+                 "nearestSourceAt": clocks[0] - 1000, "timeRelation": "before-or-at-event",
+                 "deltaSeconds": 1, "secret": "SHOULD-NOT-LEAK"},
+                {"eventAt": clocks[1], "state": "nearby-original-observed",
+                 "nearestSourceAt": clocks[1] + 2000, "timeRelation": "after-event",
+                 "deltaSeconds": 2},
+                {"eventAt": clocks[2], "state": "outside-retention-or-future"}
+            ], source="Gold-API-original-spot-archive"),
+            "analysisGapArchive": source([
+                {"eventAt": at, "state": "outside-retention-or-future"}
+                for at in clocks]),
+            "paperInputArchive": source([
+                {"eventAt": at, "state": "outside-retention-or-future"}
+                for at in clocks]),
+        }
+
+    def test_archived_gaps_are_not_hidden_by_empty_weekend_cases(self):
+        evidence = self.archive_fixture()
+        result = t.assess_archived(evidence)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["sampledDistinctGapInstants"], 3)
+        self.assertEqual(result["counts"]["sourceBeforeOrAt"], 1)
+        self.assertEqual(result["counts"]["sourceOnlyAfter"], 1)
+        self.assertEqual(result["counts"]["outsideRetentionOrFuture"], 1)
+        self.assertTrue(result["archiveClockSetsMatched"])
+        self.assertEqual(result["items"][2]["nextCheck"],
+                         "locate-matching-earlier-archive-manifest-and-isolated-original")
+        self.assertFalse(result["fullHistoricalGapCoverageVerified"])
+        self.assertFalse(result["originalTradeReplayVerified"])
+        self.assertFalse(result["profitOrLossVerified"])
+        self.assertNotIn("SHOULD-NOT-LEAK", json.dumps(result))
+        self.assertIn("after-event-only", result["items"][1]["archiveEvidence"])
+
+    def test_archived_gap_clock_mismatch_does_not_validate_original(self):
+        evidence = self.archive_fixture()
+        evidence["spotGapArchive"]["items"][0]["timeRelation"] = "after-event"
+        result = t.assess_archived(evidence)
+        self.assertEqual(result["counts"]["originalClockInconsistent"], 1)
+        self.assertEqual(result["counts"]["sourceBeforeOrAt"], 0)
+        self.assertFalse(result["productBidVerified"])
+
+    def test_archived_gap_missing_or_truncated_source_fails_closed(self):
+        evidence = self.archive_fixture()
+        evidence["paperInputArchive"]["status"] = "unavailable"
+        self.assertEqual(t.assess_archived(evidence)["status"], "unavailable")
+        evidence = self.archive_fixture()
+        evidence["spotGapArchive"]["truncated"] = True
+        self.assertEqual(t.assess_archived(evidence)["status"], "unavailable")
+        evidence = self.archive_fixture()
+        evidence["spotGapArchive"]["source"] = "UNTRUSTED-CURRENCY"
+        self.assertEqual(t.assess_archived(evidence)["reason"], "wrong-original-source")
+        self.assertNotIn("UNTRUSTED-CURRENCY", json.dumps(t.assess_archived(evidence)))
+
+    def test_archived_gap_clock_sets_mismatch_is_not_full_coverage(self):
+        evidence = self.archive_fixture()
+        evidence["analysisGapArchive"]["items"][0]["eventAt"] = 4000000
+        result = t.assess_archived(evidence)
+        self.assertFalse(result["archiveClockSetsMatched"])
+        self.assertEqual(result["status"], "partial")
+        self.assertFalse(result["fullHistoricalGapCoverageVerified"])
+        evidence = self.archive_fixture()
+        evidence["spotGapArchive"]["items"] *= 5
+        evidence["spotGapArchive"]["sampledDistinctClocks"] = 15
+        evidence["spotGapArchive"]["totalDistinctClocks"] = 15
+        self.assertEqual(t.assess_archived(evidence)["status"], "unavailable")
+
+    def test_historical_review_uses_existing_sanitized_comparison_data_only(self):
+        evidence = self.archive_fixture()
+        class NoAccounts:
+            POLICIES = ()
+        with patch("comparison_health.report", return_value={"status": "observed"}), \
+                patch.object(bob_diagnostics, "entry_block_evidence",
+                             return_value={"status": "observed"}), \
+                patch.object(bob_diagnostics, "comparison_gap_evidence",
+                             return_value=evidence):
+            result = bob_diagnostics.comparison_status(None, NoAccounts())
+        self.assertEqual(result["gapEvidence"]["historicalReview"]["status"], "partial")
+        self.assertEqual(result["gapEvidence"]["historicalReview"]["sampledDistinctGapInstants"], 3)
+        self.assertFalse(result["gapEvidence"]["historicalReview"]["profitOrLossVerified"])
 
     def test_integration_reports_triage_only_as_hypothesis(self):
         corr, spot, analysis = self.sample()

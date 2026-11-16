@@ -376,7 +376,7 @@ def cors(handler):
 
 def json_body(handler):
     length = int(handler.headers.get("Content-Length", "0") or 0)
-    if length <= 0 or length > (8101000 if urlparse(handler.path).path=="/android-remote" else 1048576 if urlparse(handler.path).path in ("/market-candles/write", "/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write", "/snaptrade-settings/state-save") else 65536):
+    if length <= 0 or length > (8101000 if urlparse(handler.path).path=="/android-remote" else 2097152 if urlparse(handler.path).path=="/weekend-archive/write" else 1048576 if urlparse(handler.path).path in ("/market-candles/write", "/selection", "/background", "/research-enhancement/read", "/research-video/evidence", "/decision-audit/write", "/weekend-archive/write", "/strategy-lab/write", "/snaptrade-settings/state-save") else 65536):
         raise ValueError("Ungültige Payload-Größe")
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
@@ -1916,6 +1916,7 @@ if __name__ == "__main__":
     import runtime_watchdog
     runtime_watchdog.start()
     paper_simulation.start_preflight(db)
+    __import__('gold_api_research_service').start(db)
     threading.Thread(target=product_expiry_loop, name="bob-product-expiry", daemon=True).start()
     threading.Thread(target=audit_outcome_loop, name="bob-audit-outcomes", daemon=True).start()
     import browserless_profile

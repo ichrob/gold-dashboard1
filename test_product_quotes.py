@@ -121,9 +121,50 @@ class ProductQuoteTests(unittest.TestCase):
             self.assertEqual(result['conditions'][key]['validitySeries']['isin'], ISIN)
         self.assertFalse(result['metadata']['termsDated'])
         self.assertIsNone(result['observedTerms']['effectiveAt'])
-        for key in ('bid', 'ask', 'quoteAt', 'bidAt', 'askAt', 'leverageAt'):
+        self.assertEqual(result['leverage'], 22.67)
+        self.assertEqual(result['leverageAt'], '2026-09-30T16:06:02+00:00')
+        for key in ('bid', 'ask', 'quoteAt', 'bidAt', 'askAt'):
             self.assertNotIn(key, result)
         self.assertFalse(q.freshness(result)['eligible'])
+
+    def test_bnp_bid_only_retains_original_leverage_without_quote_approval(self):
+        import degiro_product_audit as audit
+        data = snapshot()
+        data['result'].update(ask=0, askSize=0)
+        result = self.fetch_bnp(data)
+        self.assertEqual(result['leverage'], 22.67)
+        self.assertEqual(result['leverageAt'], '2026-09-30T16:06:02+00:00')
+        self.assertFalse(result['found'])
+        self.assertFalse(result['eligible'])
+        self.assertNotIn('ask', result)
+        self.assertNotIn('bid', result)
+        row = audit.examine(dict(isin=ISIN, productDirection='LONG', isinConfirmed=True),
+                            result, (NOW+timedelta(days=2)).timestamp()*1000)
+        self.assertIn('quote', row['missing'])
+        self.assertIn('leverage-time', row['missing'])
+        self.assertFalse(row['tradeApproved'])
+        self.assertEqual(row['leverageReference']['value'], 22.67)
+        self.assertTrue(row['leverageReference']['researchOnly'])
+
+    def test_bnp_independent_leverage_rejects_conflicts_bad_clocks_and_terminal(self):
+        import copy
+        base = snapshot(); base['result'].update(ask=0, askSize=0)
+        cases = []
+        for key, value in [('leverage', True), ('leverage', float('nan')),
+                           ('leverage', 0), ('leverage', 20),
+                           ('lastUpdate', None), ('lastUpdate', '2026-09-30T16:06:02'),
+                           ('lastUpdate', '2099-01-01T00:00:00Z')]:
+            data = copy.deepcopy(base); data['result']['keyFigures'][key] = value
+            cases.append(data)
+        data = copy.deepcopy(base); del data['responseDate']; cases.append(data)
+        data = copy.deepcopy(base); data['result']['config']['isKnockedOut'] = True; cases.append(data)
+        data = copy.deepcopy(base); data['result']['isin'] = 'DE000PJ9NB98'; cases.append(data)
+        for data in cases:
+            with self.subTest(data=data):
+                result = self.fetch_bnp(data)
+                self.assertNotIn('leverage', result)
+                self.assertNotIn('leverageAt', result)
+                self.assertFalse(result['eligible'])
 
     def test_bnp_wrong_identity_never_retains_conditions(self):
         data = snapshot(); data['result']['isin'] = 'DE000PJ9NB98'
@@ -435,6 +476,15 @@ class BnpDatedTermsTests(unittest.TestCase):
                 q.parse_bnp_dated_terms(page, ISIN, self.meta, self.now)
         with self.assertRaises(ValueError):
             q.parse_bnp_dated_terms(self.page, ISIN, self.meta, self.now+timedelta(days=1))
+
+    def test_dated_terms_caption_attributes_keep_identity_and_uniqueness_guards(self):
+        page = self.page.replace('<caption>', '<caption class="" data-view="terms">')
+        self.assertEqual(q.parse_bnp_dated_terms(page, ISIN, self.meta, self.now),
+                         q.parse_bnp_dated_terms(self.page, ISIN, self.meta, self.now))
+        with self.assertRaises(ValueError):
+            q.parse_bnp_dated_terms(page + page[page.index('<table>'):], ISIN, self.meta, self.now)
+        with self.assertRaises(ValueError):
+            q.parse_bnp_dated_terms(page.replace('Stammdaten','Kennzahlen'), ISIN, self.meta, self.now)
 
     def test_dated_issuer_terms_survive_secondary_undated_terms(self):
         direct = dict(isin=ISIN,productVerified=True,found=False,eligible=False,metadata=dict(self.meta,termsDated=True,status=1),conditions=q.parse_bnp_dated_terms(self.page,ISIN,self.meta,self.now))

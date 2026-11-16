@@ -32,7 +32,7 @@ def update(item, previous, now):
  memory=copy.deepcopy(old.get('sourceSuccesses') or {})
  memory={s:max(0,min(100,int(memory.get(s,0)))) for s in ('comdirect','swissquote')}
  # Penalize a newly failed source once per incident, not on every cached audit.
- failed={family(e.get('stage')) for e in item.get('sourceRecovery',[]) if isinstance(e,dict) and e.get('state') in ('failed','waiting')}
+ failed={family(e.get('stage')) for e in item.get('sourceRecovery',[]) if isinstance(e,dict) and e.get('state') in ('failed','waiting') and e.get('scope')!='inflight'}
  failed.discard(None)
  before_failed=set(old.get('failedSources') or [])
  for source in failed-before_failed:memory[source]=max(0,memory[source]-1)

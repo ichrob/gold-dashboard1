@@ -27,6 +27,11 @@ function readChfFx(spots,now=Date.now(),currency='EUR'){
 // from residence, issuer, ISIN or quote provider. This is a planning reserve,
 // never an actual broker charge or execution permission.
 function resolveFees({config={},report,isin,spots,now=Date.now()}={}){
+ return feeReserve({config,report,isin,spots,now});
+}
+// Only automaticFeeScenarios supplies a hypothetical tariff route. It is
+// never written into the observation or returned as a confirmed venue.
+function feeReserve({config={},report,isin,spots,now=Date.now()}={},assumedRoute=null){
  const source='https://www.degiro.ch/data/pdf/ch-de/DE-CH_Preis_und_Leistungsverzeichnis.pdf';
  const base={source,tariffDate:'2026-01-01',checkedAt:'2026-11-13',estimated:true,
   rankingPenalty:false,realOrders:false};
@@ -38,25 +43,29 @@ function resolveFees({config={},report,isin,spots,now=Date.now()}={}){
  if(!Number.isFinite(now)||now<Date.parse('2026-11-13T00:00:00Z')||now>=Date.parse('2026-12-13T00:00:00Z'))
   return fail('Gebührentarif muss anhand des offiziellen Preisverzeichnisses erneut geprüft werden.');
  const imported=importHandsetReport(report,isin,now);
- if(!imported.available)return fail('Gebühren: aktueller zugeordneter DEGIRO-Handelsplatzbeleg fehlt.');
+ if(!imported.available)return fail('Gebühren: zugeordneter Produkt-Lesebeleg fehlt oder ist ungültig.');
  const venue=String(imported.values?.venue||'').trim().toUpperCase().replace(/\s+/g,' ');
  // Exact route names only; Société Générale as issuer alone proves no venue.
  const routes={ 'SG OTC':.5,'OTC SOCIÉTÉ GÉNÉRALE':.5,'OTC SOCIETE GENERALE':.5,
   'SOCIETE GENERALE OTC':.5,'SOCIÉTÉ GÉNÉRALE OTC':.5,
   'OTC BNP PARIBAS':.5,'BNP PARIBAS OTC':.5,'BNP OTC':.5,'ZERTIFIKATE-BÖRSE FRANKFURT':3,
   'EURONEXT ACCESS PARIS':3 };
- if(!Object.prototype.hasOwnProperty.call(routes,venue))return fail('Gebühren: kein eindeutig unterstützter DEGIRO-Handelsplatz ('+(venue||'fehlt')+').');
+ const hypothetical=!venue&&['OTC','EXCHANGE'].includes(assumedRoute);
+ if(!hypothetical&&!Object.prototype.hasOwnProperty.call(routes,venue))return fail('Gebühren: kein eindeutig unterstützter DEGIRO-Handelsplatz ('+(venue||'fehlt')+').');
  const fx=readChfFx(spots,now,'EUR');
  if(!fx.available)return fail('Gebühren in EUR: '+fx.reason);
  const currency=imported.values.currency;
  if(!['AUTO_CHF','NO_CONVERSION'].includes(config.fxMode))return fail('Gebühren: Währungswechsel-Einstellung noch nicht bestätigt.');
  if(!positive(config.budgetCHF))return fail('Gebühren: Einsatzvorgabe fehlt.');
- const commissionCHF=2*routes[venue]*fx.rate;
+ const perSide=hypothetical?(assumedRoute==='OTC'?.5:3):routes[venue];
+ const commissionCHF=2*perSide*fx.rate;
  // Reserve both legs at the whole capital limit. Valid for the loss-stop
 // scenario, not a promise for arbitrary profitable exits or future FX rates.
  const fxReserveCHF=config.fxMode==='AUTO_CHF'&&currency!=='CHF'?config.budgetCHF*.005:0;
  const feesCHF=Math.ceil((commissionCHF+fxReserveCHF)*100-1e-9)/100;
- return {...base,available:true,feesCHF,venue,commissionCHF,fxReserveCHF,fxBasis:fx.note,
+ return {...base,available:true,feesCHF,venue:hypothetical?null:venue,
+  ...(hypothetical?{venueAssumption:assumedRoute,conditional:true,venueConfirmed:false,
+   researchOnly:true,copyAllowed:false}:{}),commissionCHF,fxReserveCHF,fxBasis:fx.note,
   reason:'Automatische Tarifreserve für Kauf und Stopp-Verkauf; '+
    'inkl. Bearbeitung'+(fxReserveCHF?' und AutoFX-Reserve':'')+
    '. Keine Abrechnung; mögliche Steuern und jährliche Börsenanbindung separat. Spread nicht als Gebühr doppelt gezählt.'};
@@ -69,15 +78,20 @@ function automaticFeeScenarios(input={}){
  const unknown=x=>x===undefined||x==='unknown';
  if(!unknown(config.feeProfile)&&config.feeProfile!=='CH_STANDARD')return [];
  if(!unknown(config.fxMode)&&!['AUTO_CHF','NO_CONVERSION'].includes(config.fxMode))return [];
- if(!unknown(config.feeProfile)&&!unknown(config.fxMode))return [];
+ const imported=importHandsetReport(input.report,input.isin,input.now);
+ const missingVenue=imported.available&&!String(imported.values?.venue||'').trim();
+ if(!unknown(config.feeProfile)&&!unknown(config.fxMode)&&!missingVenue)return [];
  const modes=unknown(config.fxMode)?['NO_CONVERSION','AUTO_CHF']:[config.fxMode];
- return modes.map(fxMode=>{
+ const routeScenarios=missingVenue?['OTC','EXCHANGE']:[null];
+ return modes.flatMap(fxMode=>routeScenarios.map(assumedRoute=>{
   const assumptions=[unknown(config.feeProfile)&&'Schweizer Standardtarif angenommen',
-   unknown(config.fxMode)&&(fxMode==='AUTO_CHF'?'CHF-Konto mit AutoFX angenommen':'Vorhandenes Währungsguthaben ohne Wechsel angenommen')].filter(Boolean);
-  const fee=resolveFees({...input,config:{...config,feeProfile:'CH_STANDARD',fxMode}});
+   unknown(config.fxMode)&&(fxMode==='AUTO_CHF'?'CHF-Konto mit AutoFX angenommen':'Vorhandenes Währungsguthaben ohne Wechsel angenommen'),
+   assumedRoute&&(assumedRoute==='OTC'?'SG-/BNP-OTC-Tarif angenommen; Handelsplatz unbestätigt':
+    'Tarif Frankfurt/Euronext Access Paris angenommen; Handelsplatz unbestätigt')].filter(Boolean);
+  const fee=feeReserve({...input,config:{...config,feeProfile:'CH_STANDARD',fxMode}},assumedRoute);
   return {...fee,fxMode,assumptions,conditional:true,settingsConfirmed:false,copyAllowed:false,
-   note:'Bedingte Vergleichsrechnung; keine Aussage zur tatsächlichen Kontoeinstellung. Manueller Währungswechsel und andere Tarife sind nicht abgedeckt.'};
- });
+   note:'Bedingte Vergleichsrechnung; keine Bestätigung von Kontoeinstellung oder Handelsplatz. Andere Handelsplätze, manueller Währungswechsel und andere Tarife sind nicht abgedeckt.'};
+ }));
 }
 // Immutable priority: verified current native issuer -> current dated backup
 // observation -> strictly validated product model. Never prefer newer backup
@@ -372,14 +386,16 @@ function handsetRunSummary(report,comparisons,now=Date.now()){
   return 'Handy-Abschluss: aktueller Prüfbericht fehlt.';
  const items=Array.isArray(report.items)?report.items:[];
  const active=items.filter(x=>!['terminated','excluded-factor'].includes(x.state));
- const complete=active.filter(x=>x.handsetObservation?.code==='COMPLETE').length;
- const partial=active.filter(x=>x.handsetObservation?.code==='PARTIAL').length;
+ const readCode=x=>x.handsetObservation?.latestReadReceipt?.code||x.handsetObservation?.code;
+ const complete=active.filter(x=>readCode(x)==='COMPLETE').length;
+ const partial=active.filter(x=>readCode(x)==='PARTIAL').length;
+ const unfinished=active.filter(x=>x.handsetObservation&&!['COMPLETE','PARTIAL'].includes(readCode(x))).length;
  const ended=items.filter(x=>x.state==='terminated').length;
  const excluded=items.filter(x=>x.state==='excluded-factor').length;
  const results=Array.isArray(comparisons)?comparisons:[];
  const ready=results.filter(x=>x.available).length;
  const reasons=[...new Set(results.filter(x=>!x.available).map(x=>x.reason))];
- return 'Handy-Abschluss: '+complete+' vollständig · '+partial+' teilweise · '+ended+' beendet · '+excluded+
+ return 'Handy-Abschluss: '+complete+' vollständig · '+partial+' teilweise · '+unfinished+' nicht abgeschlossen · '+ended+' beendet · '+excluded+
   ' Faktor ausgeschlossen. '+ready+' von '+results.length+' ausgewählten Modellvergleichen berechenbar.'+
   (reasons.length?' Offen: '+reasons.join(' '):'')+
   ' Gespeicherte Serverbelege; keine Ausführungsbestätigung.';
@@ -418,7 +434,7 @@ function showServerPlanning(panel,data){
    x.quantity+' Stück · '+fmt(x.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(x.stop,4)+' '+x.currency+
    (Number.isFinite(x.modelTarget)&&x.modelTarget>0?' · Modellziel '+fmt(x.modelTarget,4)+' '+x.currency:'')+
    ' · Modellrisiko '+fmt(x.lossCHF)+' CHF ('+fmt(x.riskUsagePct,1)+' %)':
-   (x.modelStop!==null?'Modellstopp '+fmt(x.modelStop,4)+' · ':'')+(x.reasons||[]).join(' · '))+
+   (Number.isFinite(x.modelStop)?'Referenzstopp '+fmt(x.modelStop,4)+(Number.isFinite(x.modelTarget)?' · Referenzziel '+fmt(x.modelTarget,4):'')+' '+(x.modelCurrency||x.currency||'Währung offen')+' · ': 'Referenzstopp/-ziel nicht berechenbar · ')+(x.reasons||[]).join(' · '))+
    (x.automaticScenarios||[]).map(s=>'\n  Bedingte Rechnung · '+s.assumptions.join('; ')+' · '+
     (s.feeAssessment.available?'Gebührenreserve '+fmt(s.feeAssessment.feesCHF)+' CHF · ':'')+
     (s.available?s.quantity+' Stück · '+fmt(s.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(s.stop,4)+' '+s.currency+

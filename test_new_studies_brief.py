@@ -61,7 +61,10 @@ class NewStudiesBriefTests(unittest.TestCase):
             'qualityCampaign':{
               'status':'collecting','checkedAt':900000,
               'studies':[{'id':'reaction','cycles':1000,'original':969,
-                          'invalid':31,'workerErrors':0},
+                          'invalid':31,'workerErrors':0,
+                          'recentOriginalChecks':[
+                              {'at':920000-(20-i)*30000,'valid':i%2==0}
+                              for i in range(20)]},
                          {'id':'warning-confirmed','started':20,'complete':4,
                           'inconclusive':15,'open':1},
                          {'id':'entry-delay','started':20,'complete':5,

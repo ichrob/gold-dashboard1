@@ -117,6 +117,34 @@ class GeminiMobileDeveloperTests(unittest.TestCase):
         refusal = "nicht sicher änderbar: " + "Die öffentliche Beweislage ist unzureichend. " * 3
         self.assertEqual(g.verified_diff_or_explanation(refusal, "GEMINI.md"), refusal)
 
+    def test_oversized_reply_is_rejected_not_silently_cut_after_validation(self):
+        text = ("--- a/GEMINI.md\n+++ b/GEMINI.md\n@@ -1 +1 @@\n-old\n+"
+                + "x" * 5100)
+        fake = MagicMock()
+        fake.open.return_value.__enter__.return_value.read.return_value = json.dumps(
+            {"candidates": [{"content": {"parts": [{"text": text}]}}]}).encode()
+        with patch.object(g.urllib.request, 'build_opener', return_value=fake):
+            with self.assertRaisesRegex(ValueError, 'model-response-too-large'):
+                g.model_proposal('Public issue', 'GEMINI.md', '# public source', 'a' * 40)
+
+    def test_rejects_wrong_hunk_count_from_real_failure_shape(self):
+        bad = ("```diff\n--- a/GEMINI.md\n+++ b/GEMINI.md\n"
+               "@@ -1,1 +1,3 @@\n Original\n+Checklist\n```\n"
+               "Two independent test ideas follow.")
+        with self.assertRaisesRegex(ValueError, "model-no-valid-diff"):
+            g.verified_diff_or_explanation(bad, "GEMINI.md")
+        good = bad.replace("+1,3", "+1,2")
+        self.assertEqual(g.verified_diff_or_explanation(good, "GEMINI.md"), good)
+
+    def test_rejects_second_file_and_unavailable_parser(self):
+        good = "--- a/GEMINI.md\n+++ b/GEMINI.md\n@@ -1 +1 @@\n-old\n+new\n"
+        second = "--- a/OTHER.md\n+++ b/OTHER.md\n@@ -1 +1 @@\n-old\n+new\n"
+        with self.assertRaisesRegex(ValueError, "model-no-valid-diff"):
+            g.verified_diff_or_explanation(good + second, "GEMINI.md")
+        with patch.object(g.subprocess, 'run', side_effect=OSError('private detail')):
+            with self.assertRaisesRegex(ValueError, '^model-no-valid-diff$'):
+                g.verified_diff_or_explanation(good, "GEMINI.md")
+
     def test_no_external_call_without_free_project_or_key(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(g, "request_json") as api:
             g.run()

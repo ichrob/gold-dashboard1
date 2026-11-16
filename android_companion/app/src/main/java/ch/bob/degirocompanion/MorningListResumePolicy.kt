@@ -8,7 +8,11 @@ internal object MorningListResumePolicy {
     private const val FRESH_MS = 15L*60*1000
     private const val RECEIPT_WINDOW_MS = 3L*60*60*1000
 
-    fun mode(ageMillis: Long, resumeCount: Int): Mode {
+    fun verificationFailed(stage: String?, error: String?): Boolean =
+        stage == "read-failed" && error == "ListVerificationError"
+
+    fun mode(ageMillis: Long, resumeCount: Int, verificationFailed: Boolean = false): Mode {
+        if (verificationFailed) return Mode.NEW_LIST
         if (ageMillis !in 0..DAY_MS || resumeCount !in 0..3)
             return Mode.NEW_LIST
         if (ageMillis<=FRESH_MS && resumeCount<2)

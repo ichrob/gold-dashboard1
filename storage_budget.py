@@ -111,6 +111,9 @@ def _sanitized_archive_attempt(row):
             'encryptionVersion': (proof.get('encryptionVersion') if
                                   proof.get('encryptionVersion') in
                                   ('none','aes-256-gcm-stream-v1') else None),
+            'restoreTargetPolicy': (proof.get('restoreTargetPolicy') if
+                                    proof.get('restoreTargetPolicy') in
+                                    ('aiven-uri-validated', 'other-or-unverified') else None),
             'restoreVerified': proof.get('restoreVerified') is True,
             'remoteDownloadVerified': proof.get('remoteDownloadVerified') is True,
             'recoveryKeyVerified': proof.get('recoveryKeyVerified') is True,

@@ -10,6 +10,12 @@ class PhoneObservationPolicyTest {
             "PROTECTED_SENSITIVE_CONTENT","PROTECTED_SENSITIVE_INPUT","UNRECOGNIZED_INPUT","INVALID_VIEW",
             "SCREEN_LOCKED","SERVICE_MISSING")) assertTrue(code,PhoneObservationPolicy.mustStop(code))
     }
+    @Test fun optInLockWaitIsNonTerminalButNormalLockStillStops() {
+        assertFalse(PhoneObservationPolicy.mustStop("WAITING_FOR_UNLOCK"))
+        assertTrue(PhoneObservationPolicy.mustStop("SCREEN_LOCKED"))
+        assertTrue(PhoneObservationPolicy.mustStop("PROTECTED_PASSWORD"))
+    }
+
     @Test fun productSearchAndOtherAppObservationsDoNotAcquireAStopMeaning() {
         for(code in listOf("SEARCH","QUERY","GOLD_IDENTITIES_MISSING","OTHER_APP","NO_ROOT"))
             assertFalse(code,PhoneObservationPolicy.mustStop(code))

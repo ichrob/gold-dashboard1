@@ -42,3 +42,21 @@ class CachedFxFailoverTests(unittest.TestCase):
                  patch.object(fx_data,'fetch_rates') as network:
                 self.assertEqual(sg_quotes.market_input('fx'),old)
                 network.assert_not_called()
+
+    def test_ready_backup_survives_primary_error_backoff_without_network(self):
+        at=datetime.now(timezone.utc).isoformat()
+        ready=dict(result='success',base='USD',rates={'EUR':.9,'CHF':.8},
+            data_updated_at=at,effective_at={'EUR':at,'CHF':at},
+            sources={'EUR':'live','CHF':'live'},market_session='open')
+        before=copy.deepcopy(ready)
+        with patch.object(sg_quotes,'_INPUT_CACHE',{}), \
+             patch.object(sg_quotes,'_INPUT_ERRORS',{'fx':(100,'offline')}) as errors, \
+             patch.object(sg_quotes.time,'monotonic',return_value=101), \
+             patch.object(fx_data,'peek_backup',return_value=ready), \
+             patch.object(fx_data,'fetch_rates') as network:
+            result=sg_quotes.market_input('fx')
+            self.assertEqual(result,before)
+            result['rates']['CHF']=999
+            self.assertEqual(ready,before)
+            self.assertEqual(errors['fx'],(100,'offline'))
+            network.assert_not_called()

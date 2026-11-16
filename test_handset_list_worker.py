@@ -394,8 +394,8 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(db.writes[-1]['error'],'ListVerificationError')
             return calls
         self.assertEqual(attempt(3,'ListVerificationError'),['enhanced'])
-        self.assertEqual(attempt(1,'ListVerificationError'),[None])
-        self.assertEqual(attempt(2,'ListVerificationError'),[None])
+        self.assertEqual(attempt(1,'ListVerificationError'),['enhanced'])
+        self.assertEqual(attempt(2,'ListVerificationError'),['enhanced'])
         self.assertEqual(attempt(3,'OcrChildError'),[None])
         self.assertEqual(attempt(4,'ListVerificationError'),[None])
 
@@ -534,6 +534,29 @@ class DatabaseTests(unittest.TestCase):
                 conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes',import_receipt=%s::jsonb WHERE batch_id=%s",
                     (json.dumps({'stage':'read-failed','error':'MemoryError'}),value['batchId']))
             self.assertFalse(worker.tick(connect,lambda *_:self.fail('Unbounded memory retry')))
+            # A completed first failure is eligible promptly, but a live
+            # processing lease and other failure types keep the old delay.
+            observed=[]
+            def enhanced_runner(payload,at):
+                observed.append(payload.get('_ocr_mode'))
+                raise worker.ListVerificationError('Private source text must not leak')
+            for stage,error,age,eligible in [
+                ('reading','ListVerificationError',45,False),
+                ('read-failed','OcrChildError',45,False),
+                ('read-failed','ListVerificationError',10,False),
+                ('read-failed','ListVerificationError',45,True)]:
+                with connect() as conn:
+                    conn.execute("UPDATE bob_android_list_images SET processing_attempts=1,processing_at=now()-(%s * interval '1 second'),import_receipt=%s::jsonb WHERE batch_id=%s",
+                        (age,json.dumps({'stage':stage,'error':error}),value['batchId']))
+                self.assertEqual(worker.tick(connect,enhanced_runner),eligible)
+            self.assertEqual(observed,['enhanced'])
+            with connect() as conn:
+                row=conn.execute("SELECT processing_attempts,import_receipt FROM bob_android_list_images WHERE batch_id=%s",(value['batchId'],)).fetchone()
+                self.assertEqual(row[0],2)
+                self.assertTrue(row[1]['enhancedVerification'])
+                self.assertNotIn('Private',json.dumps(row[1]))
+                conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes' WHERE batch_id=%s",(value['batchId'],))
+            self.assertFalse(worker.tick(connect,lambda *_:self.fail('No repeated enhanced verification')))
             # A previous run with exactly three failed ten-row validations
             # may use one enhanced pass; a fourth such failure terminates.
             with connect() as conn:

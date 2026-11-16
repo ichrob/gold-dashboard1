@@ -60,11 +60,45 @@ class PaperArchiveEvidenceTests(unittest.TestCase):
         self.assertEqual(data['items'][0]['state'],'no-original-observed-in-90s-window')
         self.assertIn('other market feeds',data['note'])
 
-    def test_old_record_outside_retention_never_queried(self):
+    def test_old_gap_uses_retained_original_spot_evidence_even_after_seven_days(self):
+        # Only the diagnostic journal expires after seven days. The original
+        # spot archive is immutable by source time and does not share that TTL.
+        at=1000000
         conn=Mock()
-        data=archive.report(conn,[_account(1000000)],now_ms=1000000+archive.RETENTION_MS+10)
-        self.assertEqual(data['counts']['outsideRetention'],1)
+        conn.transaction.return_value=_Tx()
+        conn.execute.return_value.fetchone.return_value=(at-20000,)
+        data=archive.report(conn,[_account(at)],
+                            now_ms=at+archive.RETENTION_MS+10)
+        self.assertEqual(data['counts']['outsideRetention'],0)
+        self.assertEqual(data['counts']['nearbyOriginal'],1)
+        self.assertEqual(data['items'][0]['timeRelation'],'before-or-at-event')
+        self.assertEqual(data['items'][0]['deltaSeconds'],20)
+        self.assertEqual(conn.execute.call_count,1)
+        self.assertFalse(data['realOrders'])
+
+    def test_future_gap_cannot_query_original_or_manufacture_prior_input(self):
+        at=1000000
+        conn=Mock()
+        data=archive.report(conn,[_account(at)],now_ms=at-1000)
+        self.assertEqual(data['counts']['futureEvent'],1)
+        self.assertEqual(data['counts']['nearbyOriginal'],0)
+        self.assertEqual(data['items'][0]['state'],'future-event-unavailable')
+        self.assertIsNone(data['items'][0]['nearestSourceAt'])
         conn.execute.assert_not_called()
+
+    def test_old_gap_without_stored_original_is_unknown_not_proof_of_outage(self):
+        at=1000000
+        conn=Mock()
+        conn.transaction.return_value=_Tx()
+        conn.execute.return_value.fetchone.return_value=None
+        data=archive.report(conn,[_account(at)],
+                            now_ms=at+archive.RETENTION_MS*4)
+        self.assertEqual(data['counts']['notObservedNearEvent'],1)
+        self.assertEqual(data['counts']['outsideRetention'],0)
+        self.assertEqual(data['items'][0]['state'],
+                         'no-original-observed-in-90s-window')
+        self.assertIn('does not prove',data['note'])
+        self.assertEqual(conn.execute.call_count,1)
 
     def test_db_query_failure_explicitly_unknown(self):
         at=1000000
@@ -87,6 +121,27 @@ class PaperArchiveEvidenceTests(unittest.TestCase):
         self.assertLessEqual(data['sampledDistinctClocks'],archive.MAX_EVENTS)
         self.assertEqual(conn.execute.call_count,data['sampledDistinctClocks'])
         self.assertTrue(data['totalDistinctClocks']<=40)
+
+    def test_eleventh_paper_profile_is_included_in_gap_read_and_report(self):
+        at=1000000
+        accounts=[{'profile':'control-'+str(i),
+                   'recentCases':{'status':'observed','items':[]}}
+                  for i in range(10)]
+        last=_account(at)
+        last['profile']='noema5000nov'
+        accounts.append(last)
+        conn=Mock()
+        conn.transaction.return_value=_Tx()
+        conn.execute.return_value.fetchone.return_value=(at-10000,)
+        check=archive.report(conn,accounts,now_ms=at+100000)
+        self.assertEqual(check['totalDistinctClocks'],1)
+        self.assertEqual(check['counts']['nearbyOriginal'],1)
+        report=bob_diagnostics.simulation_evidence_snapshot(
+            {'status':'observed','accounts':accounts,'spotGapArchive':check})
+        self.assertEqual(len(report['accountSamples']),11)
+        self.assertEqual(report['accountSamples'][-1]['profile'],'noema5000nov')
+        self.assertEqual(report['gapCorrelation']['distinctRecordedGapInstants'],1)
+        self.assertFalse(report['gapReview']['realOrders'])
 
     def test_projection_inside_simulation_report_preserves_only_allowlist(self):
         sample={'status':'observed','accounts':[_account(1000000)],

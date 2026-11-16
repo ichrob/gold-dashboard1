@@ -155,6 +155,31 @@ class ProductReadActivity : Activity() {
         button("Automatische Diagnose ausschalten") { PhoneDiagnostics.disable(this);refresh() }
         button("Gold-Produkte suchen und auslesen") { startGoldRead() }
         button("Einzelne Produktkurse aktualisieren · höchstens 3") { chooseQuoteRefresh() }
+        button("Einstiegskurs automatisch nachlesen · 15 Minuten") {
+            val resumeChoice=booleanArrayOf(false)
+            AlertDialog.Builder(this).setTitle("Einmalige Kursnachlesung bei Einstiegssignal")
+                .setMessage("DEGIRO vorher anmelden. Bob wartet höchstens 15 Minuten auf ein passendes Signal und liest dann genau ein Produkt der aktuellen Goldliste erneut. Bei aktivierter Sperr-Fortsetzung hält Bob den bereits entsperrten Bildschirm während der Bereitschaft gedimmt an. Wenn du das Samsung selbst sperrst, wartet Bob ohne DEGIRO-Klicks auf deine echte Entsperrung und versucht anschließend, DEGIRO wieder zu öffnen. Android kann die automatische App-Rückkehr verhindern. PIN, Fingerabdruck und Gerätesperre bleiben wirksam. Kein unbegrenzter Hintergrundlauf, keine Orders.")
+                .setMultiChoiceItems(arrayOf("Entsperr-Fortsetzung erlauben (nur diese 15 Minuten)"),
+                    resumeChoice) { _, _, checked -> resumeChoice[0]=checked }
+                .setNegativeButton("Abbrechen",null).setPositiveButton("Bereitschaft starten") { _,_ ->
+                    var started=false
+                    runCatching {
+                        check(!LoginToReadHandoff.pending(SystemClock.elapsedRealtime()) && !PinReadinessProbe.running) { "Lauf zuerst abschließen." }
+                        check(preferences.getBoolean("enabled",false) && serviceEnabled()) { "Lesedienst einschalten." }
+                        val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+                        PhoneRemote.start(this,entryReadOnly=true,
+                            resumeAfterOwnerUnlock=resumeChoice[0])
+                        started=true
+                        startActivity(launch)
+                        result.text=if(resumeChoice[0])
+                            "Sperr-Fortsetzung aktiv · max. 15 Minuten · Samsung entsperrt Gerät selbst · keine Orders."
+                            else "Bereitschaft aktiv · höchstens ein Produkt · 15 Minuten · keine Orders."
+                    }.onFailure {
+                        if(started)PhoneRemote.stop(this,"START_FAILED")
+                        result.text=it.message ?: "Bereitschaft nicht gestartet."
+                    }
+                }.show()
+        }
         button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {
             AlertDialog.Builder(this).setTitle("Vorhandenen Produkteinleser starten")
                 .setMessage("Bob startet den vorhandenen vollständigen Gold-Produkteinleser: DEGIRO öffnen, bei Bedarf lokal anmelden, suchen, Produktseiten lesen und zurückkehren. Ergebnisse und Fehler werden über die verbundene Diagnose an Bob gemeldet. Einzelne ChatGPT-Klickaufträge sind dafür nicht erforderlich. Bob verwendet eine eingerichtete PIN einmal lokal und beginnt nach bestätigter Marktseite. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein. Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")

@@ -5,9 +5,14 @@ import os
 import threading
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from urllib.request import Request, urlopen
 
 FRAMES = {'1m':60000,'5m':300000,'15m':900000,'30m':1800000,'1h':3600000,'4h':14400000}
+# Enough for an observed Friday trading day without unbounded DB or response growth.
+# Sparse observations remain explicitly labeled; limits are display-only.
+CHART_LIMITS = {'1m':1440,'5m':300,'15m':180,'30m':180,'1h':180,'4h':180}
+ZURICH = ZoneInfo('Europe/Zurich')
 CARD_KEYS = ('spot','cfd','future','estimate')
 CFD_CHART_KEYS = tuple('cfd-chart:'+tf for tf in FRAMES)
 MAX_AGE = 7 * 86400
@@ -48,7 +53,7 @@ def valid(key, item, now=None):
             is_cfd=key.startswith('cfd-chart:')
             tf=key[10:] if is_cfd else key[6:]
             bars=item.get('bars')
-            if not isinstance(bars,list) or not 2<=len(bars)<=180:
+            if not isinstance(bars,list) or not 2<=len(bars)<=CHART_LIMITS[tf]:
                 return None
             previous=-1
             for b in bars:
@@ -77,6 +82,11 @@ def observation_bars(rows, frames=None, now=None):
     for timestamp,price in rows:
         if timestamp.tzinfo is None or not positive(price):
             continue
+        # The Saturday/late-Friday closure cannot generate new display candles.
+        # Genuine Sunday observations remain eligible once their source exists.
+        local=timestamp.astimezone(ZURICH)
+        if local.weekday()==5 or (local.weekday()==4 and local.hour>=23):
+            continue
         epoch=timestamp.timestamp()*1000
         if not 0 <= now*1000-epoch <= MAX_AGE*1000:
             continue
@@ -97,12 +107,12 @@ def observation_bars(rows, frames=None, now=None):
                 bar['low']=min(bar['low'],price)
                 bar['close']=price
                 bar['samples']+=1
-    return {tf:list(sorted(bars.values(),key=lambda b:b['openTime']))[-180:]
+    return {tf:list(sorted(bars.values(),key=lambda b:b['openTime']))[-CHART_LIMITS[tf]:]
             for tf,bars in grouped.items() if len(bars)>=2}
 
 
 
-def merge_chart_history(old, new):
+def merge_chart_history(old, new, limit=180):
     """Keep earlier measured closed candles after a scanner restart.
 
     A later, partial in-memory collector must not erase Friday's stored history.
@@ -115,7 +125,7 @@ def merge_chart_history(old, new):
         earlier=combined.get(row['openTime'])
         if earlier is None or row.get('samples',0)>=earlier.get('samples',0):
             combined[row['openTime']]=dict(row)
-    return dict(new,bars=[combined[t] for t in sorted(combined)][-180:])
+    return dict(new,bars=[combined[t] for t in sorted(combined)][-limit:])
 
 
 def handle(conn, action, payload):
@@ -134,7 +144,8 @@ def handle(conn, action, payload):
                     prior=old[0] if isinstance(old[0],dict) else json.loads(old[0])
                     previous_at=valid(key,prior)
                     if previous_at is not None and stamp>previous_at:
-                        merged=merge_chart_history(prior,item)
+                        tf=key[10:] if key.startswith('cfd-chart:') else key[6:]
+                        merged=merge_chart_history(prior,item,CHART_LIMITS[tf])
                         if valid(key,merged) is not None:
                             item=merged
             conn.execute("""INSERT INTO bob_weekend_archive(data_key,quote_at,payload)
@@ -167,6 +178,12 @@ def handle(conn, action, payload):
         # original persisted XAU/USD Spot observations. These are SAMPLE-derived
         # bars, not complete exchange OHLC. They never enter signal generation.
         missing=[tf for tf in FRAMES if tf not in result['history']]
+        # Older Friday archives retained only 180 bars (3h at 1m, 15h at 5m).
+        # Recover the available earlier originals on read, even when a short
+        # chart snapshot exists. Never replace original OHLC by sample-derived OHLC.
+        for tf,threshold in (('1m',1200),('5m',240)):
+            if len(result['history'].get(tf,[]))<threshold and tf not in missing:
+                missing.append(tf)
         if missing:
             try:
                 import bob_market_store
@@ -177,7 +194,11 @@ def handle(conn, action, payload):
                 rebuilt=observation_bars(reversed(rows),missing)
                 for tf,bars in rebuilt.items():
                     if bars:
-                        result['history'][tf]=bars
+                        original=result['history'].get(tf,[])
+                        combined={b['openTime']:b for b in bars}
+                        # Prefer exact archived candles for overlapping intervals.
+                        combined.update({b['openTime']:b for b in original})
+                        result['history'][tf]=[combined[t] for t in sorted(combined)][-CHART_LIMITS[tf]:]
                 if rebuilt:
                     result['spotHistoryNote']='Nur beobachtete Gold-Spot-Messpunkte; keine vollständigen OHLC-Kerzen'
             except Exception:
@@ -211,8 +232,8 @@ def request(action, payload):
     req=Request(base+'/weekend-archive/'+action,data=data,method='POST',
                 headers={'Content-Type':'application/json','X-Bob-Push-Token':token})
     with urlopen(req,timeout=18) as response:
-        body=response.read(1000001)
-    if len(body)>1000000:
+        body=response.read(2000001)
+    if len(body)>2000000:
         raise ValueError('Archivantwort zu gross')
     result=json.loads(body)
     if not isinstance(result,dict):
@@ -239,7 +260,7 @@ def collect_items(bundle,cards,now=None):
         bars=frames.get(tf,[]) if isinstance(frames,dict) else []
         if not isinstance(bars,list):
             continue
-        closed=[dict(b) for b in bars if isinstance(b,dict) and b.get('instrument')=='XAU/USD' and b.get('isOpen') is False][-180:]
+        closed=[dict(b) for b in bars if isinstance(b,dict) and b.get('instrument')=='XAU/USD' and b.get('isOpen') is False][-CHART_LIMITS[tf]:]
         if len(closed)<2:
             continue
         at=datetime.fromtimestamp((closed[-1]['openTime']+step)/1000,timezone.utc).isoformat()
@@ -257,7 +278,7 @@ def collect_items(bundle,cards,now=None):
             bars=investing_card.chart_snapshot(tf).get('bars') or []
             closed=[dict(b) for b in bars if isinstance(b,dict)
                 and b.get('instrument')=='GOLD-CFD'
-                and b.get('isOpen') is False and b.get('openTime',0)+step<=now*1000][-180:]
+                and b.get('isOpen') is False and b.get('openTime',0)+step<=now*1000][-CHART_LIMITS[tf]:]
             if len(closed)<2:
                 continue
             q=dict(at=datetime.fromtimestamp((closed[-1]['openTime']+step)/1000,

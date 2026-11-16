@@ -57,7 +57,7 @@ internal object QuoteLayout {
         }
         // BNP uses different literal labels. Preserve SL/STR and explicit LV;
         // R is not silently converted to the SG Bv notation or an inferred leverage.
-        val bnpTitles = lines.filter { Regex("(?i)^BNP\\s+GOLD\\s+Mini\\s+(?:Long|Short)\\b").containsMatchIn(it.text.trim()) }
+        val bnpTitles = lines.filter { Regex("(?i)^BNP\\s+GOLD\\s+(?:Mini|Unlimited)\\s+(?:Long|Short)\\b").containsMatchIn(it.text.trim()) }
         val bnp = Regex("(?i)\\bSL\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+STR\\s+([0-9]{1,5}(?:[.,][0-9]{1,4})?)\\s+R\\s+[0-9]{1,5}(?:[.,][0-9]{1,4})?(?![0-9A-Za-z.,])")
         for (title in bnpTitles) {
             val text = lines.filter { it.top >= title.top && it.top <= title.bottom + max(90, title.height * 3) }
@@ -92,7 +92,7 @@ internal object QuoteLayout {
             val distinct = candidates.distinct()
             if (distinct.size == 1) results[field] = distinct.single()
         }
-        val fullRow = Regex("(?i)^(?:(?:Geld|Brief|Zuletzt)\\s*[:：]?\\s*(?:€|EUR|CHF)?\\s*[0-9]{1,5}[,.][0-9]{2,4}(?:\\s*(?:€|EUR|CHF))?\\s*)+(?:[0-9]{2}/[0-9]{2}/20[0-9]{2}\\s+[0-9]{2}:[0-9]{2})?$")
+        val fullRow = Regex("(?i)^(?:(?:Geld|Brief|Zuletzt)\\s*[:：]?\\s*(?:€|EUR|CHF)?\\s*(?:[0-9]{1,5}[,.][0-9]{2,4}|[—–-])(?:\\s*(?:€|EUR|CHF))?\\s*)+(?:[0-9]{2}/[0-9]{2}/20[0-9]{2}\\s+[0-9]{2}:[0-9]{2})?$")
         val rowField = Regex("(?i)(Geld|Brief|Zuletzt)\\s*[:：]?\\s*(?:€|EUR|CHF)?\\s*([0-9]{1,5}[,.][0-9]{2,4})(?:\\s*(?:€|EUR|CHF))?")
         val inlineTimes = mutableListOf<String>()
         val expanded = lines.flatMap { line ->

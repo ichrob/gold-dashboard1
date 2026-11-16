@@ -21,11 +21,19 @@ assert.equal(Risk.advance(x.state,{...t,tradeEnabled:false},signal,now).events.l
 assert.equal(Risk.advance(x.state,{...t,trade:{...trade,test:true}},signal,now).events.length,0);
 const copy=JSON.stringify(x.state);Risk.advance(x.state,t,signal,now);assert.equal(JSON.stringify(x.state),copy);
 // Full headless entrypoint evaluates risk even with insufficient slow main history.
-const clock=Date.now(),end=Math.floor(clock/60000)*60000;
+// Keep synthetic source and evaluator on one clock, even across a real minute boundary.
+const NativeDate=Date,clock=now+59999,end=Math.floor(clock/60000)*60000;
+global.Date=class extends NativeDate{
+ constructor(...args){super(...(args.length?args:[clock]));}
+ static now(){return clock;}
+};
+try{
 const bars=Array.from({length:21},(_,i)=>({openTime:end-(21-i)*60000,instrument:'XAU/USD',open:4000,high:4001,low:3999,close:4000}));
 for(const b of bars.slice(-2)){b.close=4003;b.high=4003;}
 const bundle={spots:{is_genuine_xauusd_spot:true,xaus:4003.2,spot_price_as_of:new Date(clock).toISOString()},history:{bars_by_tf:{'1m':bars}}};
 const result=require('./background_analysis').evaluate({bundle,riskEnabled:true,riskGeneral:true,riskEntryAllowed:true});
 assert.equal(result.ready,false);assert.equal(result.risk.state.signal.direction,'LONG');assert.equal(result.risk.events[0].data.eventKind,'risk-confirmed');
 assert(!require('./background_analysis').evaluate({bundle}).risk,'Default remains opt-out');
+assert.equal(Risk.analyze(bundle,end+60001).ready,false,'Original stale-minute guard remains enforced after the boundary');
+}finally{global.Date=NativeDate;}
 console.log('Risk background: shared headless rules, channel opt-outs, expiry, monotonic clocks, durable dedup/retry, confirmation/withdrawal, trade identity and latched exit passed.');

@@ -384,6 +384,9 @@ def new_studies_brief(paper, now_ms=None):
     """
     if not isinstance(paper, dict):
         return None
+    # One consistent read-time clock for witness expiry, study health and
+    # worker staleness. Omitted now_ms must not bypass stale-evidence filtering.
+    now_ms = time.time()*1000 if now_ms is None else now_ms
     keys = ('qualityCampaign', 'shadowStudies', 'intradayTimingStudy', 'rapidLeverageStudy')
     if not any(isinstance(paper.get(k), dict) for k in keys):
         return None
@@ -494,6 +497,38 @@ def new_studies_brief(paper, now_ms=None):
                     and type(raw.get('historicalInconclusiveUnclassified')) is int
                     and raw['historicalInconclusiveUnclassified'] >= 0):
                 displayed['historicalInconclusiveUnclassified'] = raw['historicalInconclusiveUnclassified']
+    # Read the same prospective original-input evidence as the existing
+    # internal watchdog. Historical invalid totals stay in the study counters
+    # but must never become a *new* current repair warning by themselves.
+    # A missing/old recent window remains unknown, never "healthy".
+    paper_health = paper.get('paper') if isinstance(paper.get('paper'),dict) else {}
+    raw_reaction = next((s for s in (quality.get('studies') or [])
+                         if isinstance(s,dict) and s.get('id')=='reaction'),{})
+    from bob_study_health import snapshot as original_study_health, INPUT_CODE
+    recent_health = original_study_health({
+        'status': quality.get('status'),
+        'checkedAt': quality.get('checkedAt'),
+        'quality': {
+            'recentOriginalChecks': raw_reaction.get('recentOriginalChecks'),
+            'recentOriginalOutcomes': raw_reaction.get('recentOriginalOutcomes')
+        }
+    }, now_ms=now_ms, trading=paper_health.get('sessionMode')=='trading')
+    raw_checks = raw_reaction.get('recentOriginalChecks')
+    valid_recent = ([s for s in raw_checks if isinstance(s,dict)
+                     and type(s.get('at')) is int
+                     and type(s.get('valid')) is bool
+                     and 0 <= now_ms-s['at'] <= 20*60000]
+                    if isinstance(raw_checks,list) and len(raw_checks)<=64 else [])
+    recent_input_summary = {
+        'status': ('observed' if len(valid_recent)>=12
+                   and recent_health.get('status')=='observed'
+                   else 'insufficient-recent-evidence'),
+        'windowMinutes': 20,
+        'sampledChecks': len(valid_recent),
+        'invalidChecks': sum(s['valid'] is False for s in valid_recent),
+        'currentInputAlert': INPUT_CODE in recent_health.get('codes',[]),
+        'readOnly': True, 'originalResultsVerified': False
+    }
     # A compact, deterministic quality alert, not an assertion about cause
     # or a proposal to count estimated model outcomes as product fills.
     notices = []
@@ -503,11 +538,11 @@ def new_studies_brief(paper, now_ms=None):
                             'detail':detail})
     reaction = next((x for x in originals if x.get('id')=='reaction'),{})
     cycles, invalid = reaction.get('cycles'),reaction.get('invalid')
-    if (type(cycles) is int and type(invalid) is int
-            and cycles >= 100 and 0 <= invalid <= cycles
-            and invalid >= 20 and invalid * 100 >= cycles * 2):
+    if INPUT_CODE in recent_health.get('codes', []):
         warn('STUDY_ORIGINAL_INPUT_GAPS','reaction',
-             str(invalid)+'/'+str(cycles)+' kumulierte Eingangsprüfungen ungültig; Quellenzeiten nachprüfen')
+             str(recent_input_summary['invalidChecks'])+'/'+
+             str(recent_input_summary['sampledChecks'])+
+             ' jüngste Original-Eingangsprüfungen ungültig; Quellenzeiten prüfen')
     for study in ('warning-confirmed','entry-delay','sideways-filter'):
         row = next((x for x in originals if x.get('id')==study),{})
         complete, inconclusive = row.get('complete'),row.get('inconclusive')
@@ -532,8 +567,7 @@ def new_studies_brief(paper, now_ms=None):
              'Berechnete Studienvariante nicht aktiv')
     # Only trading-window staleness is a worker incident. "Waiting for
     # direction" and intentionally retired shadow studies are never errors.
-    health = paper.get('paper') if isinstance(paper.get('paper'),dict) else {}
-    now_ms = time.time()*1000 if now_ms is None else now_ms
+    health = paper_health
     if health.get('sessionMode') == 'trading' and type(now_ms) in (int,float):
         for name, at in (('quality',quality.get('checkedAt')),
                          ('intraday',timing.get('checkedAt')),
@@ -559,6 +593,8 @@ def new_studies_brief(paper, now_ms=None):
         'readOnly':True, 'realOrders':False,
         'scope':'new-studies-sanitized-control-sample-not-execution-proof',
         'quality':{**core(quality), 'studies':originals,
+                   **({'recentOriginalInput':recent_input_summary}
+                      if paper_health.get('sessionMode')=='trading' else {}),
                    'modeled':{**core(modeled), 'studies':modeled_rows},
                    **({'historicalReview': historical_brief} if historical_brief else {})},
         'attention':notices,
@@ -950,12 +986,13 @@ def entry_block_evidence(conn, portfolios, limit=5):
             # first persisted observation, never a recreated historical window.
             time_windows = []
             raw_windows = payload.get('entryTimeBuckets15mV1')
-            if (profile in ('trend800nov', 'normal1000nov', 'ema3000nov')
+            if (profile in ('trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov')
                     and isinstance(raw_windows, dict)):
                 allowed_codes = {
                     'ema-stretch-and-signal-age', 'ema-stretch', 'signal-age',
                     'gold-stale', 'gold-plan-missing', 'plan-or-timing',
-                    'ko-safety', 'product-or-quote', 'capital-risk',
+                    'spot-close-distance', 'weak-trend-confirmation',
+                    'crv-obstacle', 'ko-safety', 'product-or-quote', 'capital-risk',
                     'entry-checklist', 'duplicate-bar', 'other'}
                 for k, item in sorted(raw_windows.items(),
                                       key=lambda x: str(x[0]), reverse=True)[:16]:
@@ -1024,7 +1061,7 @@ def entry_block_evidence(conn, portfolios, limit=5):
                 'latest':latest,
                 'timeWindows15m':time_windows,
                 'timeWindowsStored':(len(raw_windows) if isinstance(raw_windows,dict)
-                    and profile in ('trend800nov','normal1000nov','ema3000nov') else 0),
+                    and profile in ('trend800nov','normal1000nov','ema3000nov','noema5000nov') else 0),
                 'timeWindowsReadLimit':16,
                 'timeWindowsForwardOnly':True,
                 'timeWindowsFirstObservedAt':(payload.get('entryTimeBucketsFirstObservedAt')
@@ -1064,7 +1101,7 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         # The paper ledger already persists the latest trading-window blocker.
         # Keep only enum-validated codes and finite timestamps in this private
         # diagnostic projection; night-session reasons must not overwrite it.
-        if profile in ('trend800nov', 'normal1000nov', 'ema3000nov'):
+        if profile in ('trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov'):
             from paper_profit_summary import ENTRY_BLOCK_CODES, number
             block_code = source_control.get('lastTradingEntryBlockCode')
             if isinstance(block_code, str) and block_code in ENTRY_BLOCK_CODES:
@@ -1385,6 +1422,9 @@ def comparison_status(conn, portfolios):
         samples.append({'profile':profile, 'recentCases':recent,'forwardValidationStatus':forward_status,
             'forwardValidation':project(forward,shape('version','startedAt','validationAt','excluded',
                 'actualNetKnown','strategyWinnerConfirmed','automaticPolicyChanges',calibration=phase,validation=phase)) if recent.get('status')=='observed' and forward else None})
+    gap_evidence = comparison_gap_evidence(conn,samples)
+    gap_evidence['historicalReview'] = __import__('paper_gap_triage').assess_archived(
+        gap_evidence)
     partial = (comparison.get('status') == 'partial'
                or blocks.get('status') == 'unavailable'
                or any(row['recentCases']['status'] == 'unavailable'
@@ -1395,7 +1435,7 @@ def comparison_status(conn, portfolios):
             'comparisonHealth':comparison,
             'entryBlockEvidence':blocks,
             'accountSamples':samples,
-            'gapEvidence':comparison_gap_evidence(conn,samples),
+            'gapEvidence':gap_evidence,
             'scope':'bounded-stored-comparisons-and-latest-case-evidence',
             'note':'Stored evidence is not a completed study, executable trade or profit proof.'}
 
@@ -1535,7 +1575,8 @@ def simulation_evidence_snapshot(simulation, comparison=None):
     reason_counts={'missing-current-market':0,'bar-gap-over-90s':0,'unclassified':0}
     missing_recorded_time=0
     sampled_inconclusive=0
-    for account in accounts[:10]:
+    from paper_gap_archive import MAX_ACCOUNT_SAMPLES
+    for account in accounts[:MAX_ACCOUNT_SAMPLES]:
         if not isinstance(account,dict):
             continue
         record=account.get('recentCases')
@@ -1603,7 +1644,7 @@ def simulation_evidence_snapshot(simulation, comparison=None):
                     'sampledDistinctClocks','totalDistinctClocks','truncated',
                     'note','reason',
                     counts=shape('nearbyOriginal','notObservedNearEvent',
-                                 'outsideRetention','queryUnavailable'),
+                                 'outsideRetention','futureEvent','queryUnavailable'),
                     items=[shape('eventAt','state','nearestSourceAt',
                                  'deltaSeconds','timeRelation')])),
             'analysisGapArchive':project(simulation.get('analysisGapArchive'),
@@ -1641,7 +1682,14 @@ def simulation_evidence_snapshot(simulation, comparison=None):
                     items=[shape('eventAt','state','capturedAt','timeRelation','deltaSeconds',
                         profiles=[shape('profile','outcome','ready','priceFresh','dataAt','barAt')])])),
             'gapReview':__import__('paper_gap_triage').assess(
-                {'recentRecordedGapInstants':clusters[-10:]},
+                {'recentRecordedGapInstants':clusters[-10:],
+                 'sampleCoverage': ('observed' if evidence and
+                                    len(evidence)==len(accounts[:MAX_ACCOUNT_SAMPLES]) and
+                                    all(item['sampleStatus']=='observed' and
+                                        item['counts']['other']==0 and
+                                        item['casesWithRecordedDataGap']==0
+                                        for item in evidence)
+                                    else 'incomplete')},
                 simulation.get('spotGapArchive'),simulation.get('analysisGapArchive'),
                 simulation.get('paperInputArchive')),
             'scope':'bounded-paper-case-evidence-not-fills-or-profit',
@@ -2198,6 +2246,63 @@ def triage_snapshot(areas):
             'note':'Prioritäten sind technische Sichtungsreihenfolge; keine Fehlerbehebung, Handelsfreigabe oder Renditeprognose.'}
 
 
+def compact_comparison_evidence(source):
+    """Retain comparison observations when detailed archives exceed the cap."""
+    if not isinstance(source, dict):
+        return source
+    result = dict(source)
+    omitted = []
+    archives = source.get('gapEvidence')
+    if isinstance(archives, dict):
+        result['gapEvidence'] = dict(archives)
+        for name in ('spotGapArchive', 'analysisGapArchive',
+                     'paperInputArchive', 'paperInputLatest'):
+            original = archives.get(name)
+            if not isinstance(original, dict):
+                continue
+            entry = dict(original)
+            removed = [key for key in ('items', 'profiles') if key in entry]
+            for key in removed:
+                entry.pop(key)
+                omitted.append('gapEvidence.' + name + '.' + key)
+            if removed:
+                entry.update(truncated=True,
+                    omittedSections=list(dict.fromkeys(
+                        list(original.get('omittedSections') or []) + removed)))
+            result['gapEvidence'][name] = entry
+    accounts = source.get('accountSamples')
+    if isinstance(accounts, list):
+        result['accountSamples'] = []
+        for account in accounts:
+            if not isinstance(account, dict):
+                result['accountSamples'].append(account)
+                continue
+            entry = dict(account)
+            recent = account.get('recentCases')
+            if isinstance(recent, dict) and isinstance(recent.get('items'), list):
+                cases, removed = [], False
+                for case in recent['items']:
+                    if isinstance(case, dict) and 'events' in case:
+                        case = dict(case)
+                        case.pop('events')
+                        case.update(truncated=True,
+                            omittedSections=list(dict.fromkeys(
+                                list(case.get('omittedSections') or []) + ['events'])))
+                        removed = True
+                    cases.append(case)
+                if removed:
+                    entry['recentCases'] = dict(recent, items=cases, truncated=True,
+                        omittedSections=list(dict.fromkeys(
+                            list(recent.get('omittedSections') or []) + ['items.events'])))
+                    omitted.append('accountSamples.recentCases.items.events')
+            result['accountSamples'].append(entry)
+    if omitted:
+        result.update(truncated=True, omissionReason='response-size-limit',
+            omittedSections=list(dict.fromkeys(
+                list(source.get('omittedSections') or []) + omitted)))
+    return result
+
+
 def bounded_report(report, max_bytes):
     """Omit oversized diagnostic areas explicitly, retaining small status areas."""
     import json
@@ -2261,14 +2366,6 @@ def bounded_report(report, max_bytes):
             # projected from the original simulation source; never discard
             # that small proof merely because the account body is oversized.
             'strategyReport')
-    optional = sorted((name for name in areas if name not in core),
-                      key=lambda name: size(areas[name]), reverse=True)
-    for name in optional:
-        if size(result) <= max_bytes:
-            break
-        areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
-        result['omittedAreas'].append(name)
-
     # A real 11-account simulation can exceed the response cap even *after*
     # dropping every optional area. Preserve a bounded, truthful account
     # projection before discarding simulationAndPush altogether. No new SQL:
@@ -2330,6 +2427,42 @@ def bounded_report(report, max_bytes):
         essential_sim['omittedSections'] = list(dict.fromkeys(
             list(sim.get('omittedSections') or []) + ['non-account-subreports']))
         areas['simulationAndPush'] = essential_sim
+
+    # Reduce verbose multi-account detail before dropping entire independent
+    # reports. Otherwise even tiny health/coverage proofs are lost needlessly.
+    operations = areas.get('operationsSummary')
+    if size(result) > max_bytes and isinstance(operations, dict):
+        # The operational inventory embeds study payloads already available in
+        # other focuses. Keep cases, actions, connection states and source clocks
+        # before falling back to an explicit whole-area omission.
+        from bob_operations import compact_snapshot
+        areas['operationsSummary'] = compact_snapshot(operations)
+
+    if size(result) > max_bytes and isinstance(areas.get('comparisonEvidence'), dict):
+        areas['comparisonEvidence'] = compact_comparison_evidence(areas['comparisonEvidence'])
+        comparison = areas['comparisonEvidence']
+        # These exact source observations are already top-level areas in the
+        # simulation focus. Do not spend the response cap on identical copies.
+        for name in ('comparisonHealth', 'entryBlockEvidence'):
+            original = comparison.get(name)
+            if isinstance(original, dict) and original == areas.get(name):
+                comparison[name] = {
+                    'status': 'omitted-duplicate',
+                    'sourceStatus': original.get('status', 'unknown'),
+                    'sourceArea': name,
+                    'reason': 'same-observation-in-separate-area'}
+                comparison['truncated'] = True
+                comparison['omittedSections'] = list(dict.fromkeys(
+                    list(comparison.get('omittedSections') or []) + [name]))
+
+
+    optional = sorted((name for name in areas if name not in core),
+                      key=lambda name: size(areas[name]), reverse=True)
+    for name in optional:
+        if size(result) <= max_bytes:
+            break
+        areas[name] = {'status':'unavailable', 'reason':'omitted-response-size-limit'}
+        result['omittedAreas'].append(name)
 
     essential = sorted((name for name in areas if name in core),
                        key=lambda name: size(areas[name]), reverse=True)

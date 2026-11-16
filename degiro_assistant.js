@@ -1834,9 +1834,8 @@ function productHelpState(p){
  if(paused&&!labels.length)return {labels,checking:false,manual:false,status:'Reguläre Handelspause',action:'Keine neuen Kursbilder nötig. Bob prüft die Kurse beim nächsten regulären Handelsfenster erneut; gespeicherte Werte behalten ihren Datenstand.'};
  const q=attempt?.isin===p.isin?attempt:p.quote?.isin===p.isin?p.quote:null;
  const checking=pendingQuotes.has(p.index)||q?.secondaryValidity?.state==='checking'||q?.comdirectFieldsBackup?.state==='checking';
- const venueMissing=labels.includes('DEGIRO-Handelsplatznachweis');
  const fxIssue=typeof productFxIssue==='function'?productFxIssue(p):null;
- if(fxIssue&&labels.length&&!checking)return {labels,checking:false,manual:false,status:'Wechselkursprüfung offen',action:fxIssue.reason+(fxIssue.at?' Quellenstand: '+fxIssue.at+'.':'')+' Bob versucht den Abruf automatisch erneut. Neue Produktbilder beheben diese Wechselkurslücke nicht. Weitere Produkt- und Handelsplatznachweise bleiben separat erforderlich.'+(venueMissing?' Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung? Nur für diesen Nachweis ein DEGIRO-Detailbild mit ISIN, Börse, Währung und Datum ergänzen.':'')};
+ if(fxIssue&&labels.length&&!checking)return {labels,checking:false,manual:false,status:'Wechselkursprüfung offen',action:fxIssue.reason+(fxIssue.at?' Quellenstand: '+fxIssue.at+'.':'')+' Bob versucht den Abruf automatisch erneut. Neue Produktbilder beheben diese Wechselkurslücke nicht. Weitere Produktnachweise bleiben separat zu prüfen; ein Handelsplatznachweis ist für Analyse und Simulation optional.'};
  const failed=!!q?.sourceFailure;
  const fields=typeof productFieldStates==='function'?productFieldStates(p):null;
  const valuesPresent=q?.productVerified===true&&fields&&['bid','ask'].every(key=>n(fields[key]?.value)>0)&&n(fields.leverage?.value)>=1;
@@ -1855,8 +1854,8 @@ function productHelpState(p){
   status:continuity.label+' · Analyse',
   action:continuity.calculated?'Bob überbrückt die Kurslücke automatisch mit einem gekennzeichneten Modellwert. Frische Originalkurse erhalten wieder Vorrang. DEGIRO-Ausführung separat prüfen.':'Produktnachweise in dieser Ansicht vorhanden. Der Originalkurs ist ein Anbieterwert; DEGIRO-Ausführung separat prüfen.'};
  return {labels,checking,manual,
-  status:!labels.length?'Produktdaten vollständig':venueMissing?'DEGIRO-Handelsplatznachweis offen':checking?'Bob sucht gerade automatisch':manual?'Zusätzlicher Nachweis hilfreich':valuesPresent?'Kurs und Hebel vorhanden · Nachweisprüfung offen':'Automatische Prüfung noch offen',
-  action:!labels.length?'Keine neuen Bilder nötig.':venueMissing?'Konkret offen: Welcher DEGIRO-Handelsplatz gehört zu dieser ISIN und Handelswährung? Dafür vorhandene Produktdetails prüfen; nur wenn die Zuordnung fehlt, ein Detailbild mit ISIN, Börse, Währung und Datum ergänzen.':checking?'Du musst jetzt nichts tun.':manual?'Öffne DEGIRO und ergänze nur die genannten Angaben als Screenshot.':valuesPresent?'Beim nächsten automatischen Abruf prüft Bob Kursart und Originalzeiten erneut. Die gespeicherten Zahlen bleiben für die Analyse sichtbar; ein ausführbarer DEGIRO-Kurs ist damit nicht bestätigt.':'Du musst die Werte nicht erneut eingeben. Den letzten Abruf findest du unter Details.'};
+  status:!labels.length?'Produktdaten vollständig':checking?'Bob sucht gerade automatisch':manual?'Zusätzlicher Nachweis hilfreich':valuesPresent?'Kurs und Hebel vorhanden · Nachweisprüfung offen':'Automatische Prüfung noch offen',
+  action:!labels.length?'Keine neuen Bilder nötig.':checking?'Du musst jetzt nichts tun.':manual?'Öffne DEGIRO und ergänze nur die genannten Angaben als Screenshot.':valuesPresent?'Beim nächsten automatischen Abruf prüft Bob Kursart und Originalzeiten erneut. Die gespeicherten Zahlen bleiben für die Analyse sichtbar; ein ausführbarer DEGIRO-Kurs ist damit nicht bestätigt.':'Du musst die Werte nicht erneut eingeben. Den letzten Abruf findest du unter Details.'};
 }
 function renderProductHelp(p){
  const h=productHelpState(p);
@@ -1877,7 +1876,7 @@ function renderScreenshotSources(p){
  '<div>ISIN oben kopieren → in DEGIRO suchen → Produkt öffnen. Screenshot mit <b>'+esc(labels.join(', '))+'</b>, ISIN und angezeigtem Datenstand aufnehmen. Geld/Brief in der Produktwährung und die zugehörige Kurszeit zeigen.</div>'+
  '<div class="small">'+(android?'Falls sich nur die Webseite öffnet: DEGIRO-App über dein App-Symbol starten. ':'')+'Danach zu Bob zurückkehren und „Bilder / PDF zu diesem Produkt hinzufügen“ wählen.</div>'+
  '<div style="margin-top:8px"><b>Falls die Angaben bei DEGIRO fehlen:</b> '+(issuer||'Emittent in den DEGIRO-Produktdetails nachsehen und dessen Produktseite mit dieser ISIN öffnen.')+'</div>'+
- '<div class="small">Hebel: Kennzahlen mit Datenstand. KO, Basispreis und Bezugsverhältnis: Stammdaten; genauer Basiswert und Laufzeit: Produktdetails / Dokumente. '+(degiroVenueObserved(p)||degiroVenueInferred(p)?'':'Für den DEGIRO-Handelsplatz den DEGIRO-Kursbereich aufnehmen. ')+' Bei einer gemeinsamen Bildserie muss der Zeitbezug eindeutig erkennbar sein.</div></div></details>';
+ '<div class="small">Hebel: Kennzahlen mit Datenstand. KO, Basispreis und Bezugsverhältnis: Stammdaten; genauer Basiswert und Laufzeit: Produktdetails / Dokumente. '+'Ein Handelsplatznachweis ist für Analyse und Simulation optional. '+' Bei einer gemeinsamen Bildserie muss der Zeitbezug eindeutig erkennbar sein.</div></div></details>';
 }
 function renderTestScreenshotRequest(p){
  if(knockoutStatus(p))return '';
@@ -2124,8 +2123,8 @@ function currentSgChfAnalysisProof(p,now=Date.now()){
 // This describes displayed data, never trading approval.
 function productDirectionCheck(p,now=Date.now()){
  if(expectedQuotePause(p,now))return {kind:'none',paused:true};
- const venue=sharedVenueStatus(p,now);
- if(venue?.required&&!venue.current)return {kind:'none',state:{blocked:true,stale:false,missing:true}};
+ // Historical venue flags cannot block analysis completeness. Product,
+ // quote, KO and source-clock checks below remain independent.
  const analysis=currentSgChfAnalysisProof(p,now);
  if(analysis)return {kind:'qualified',analysis};
  const state=productDirectionDataState(p,now);
@@ -2281,12 +2280,12 @@ function sharedVenueStatus(p,now=Date.now()){
  if(evidence&&currency&&evidence.currency!==currency)return null;
  // Original expiry is checked on each render, even before the next report.
  const current=state.current===true&&!!serverVenueEvidence(p,report,generation,now);
- return {...state,current,state:current?'current':state.historicalEvidence?'historical':'missing'};
+ return {...state,required:false,researchGate:false,current,state:current?'current':state.historicalEvidence?'historical':'missing'};
 }
 function renderVenueHistory(p){
  const state=sharedVenueStatus(p),e=state?.historicalEvidence;
  if(!e||state.current)return '';
- return '<div class="small" data-venue-history><b>Früherer DEGIRO-Handelsplatz: '+esc(e.venue)+'</b> · '+esc(e.currency)+' · Nachweis vom '+esc(e.observedMinute.replace('T',' '))+'. Erneut mit der aktuellen Liste geprüft; aktueller Handelsplatznachweis noch offen. Nur ISIN, Börse, Währung und Datum im DEGIRO-Detailbild ergänzen. Kein aktueller Brokerkurs.</div>';
+ return '<div class="small" data-venue-history><b>Früherer DEGIRO-Handelsplatz: '+esc(e.venue)+'</b> · '+esc(e.currency)+' · Nachweis vom '+esc(e.observedMinute.replace('T',' '))+'. Historische Zusatzinformation; kein Pflichtnachweis für Analyse oder Simulation. Kein aktueller Brokerkurs.</div>';
 }
 function serverVenueEvidence(p,report=window.BobProductAuditReport,generation=listArchive?.storedAt,now=Date.now()){
  const e=Array.isArray(report?.items)?report.items.find(row=>row?.isin===p?.isin)?.brokerVenueEvidence:null;
@@ -2376,7 +2375,9 @@ function renderDegiroTradingSession(p){
   '<a href="'+session.sourceUrl+'" target="_blank" rel="noopener noreferrer">DEGIRO-Handelszeiten · geprüft am 16.10.2026</a></div>';
 }
 function degiroVenueInferred(p,archive=listArchive,now=Date.now()){
- const shared=sharedVenueStatus(p,now);if(shared?.required&&!shared.current)return null;
+ // An explicit server observation still outranks a route inference. This
+ // only controls the optional venue label, never analysis participation.
+ const shared=sharedVenueStatus(p,now);if(shared&&!shared.current)return null;
  const reviewedAt='2026-10-16T17:00:00Z',reviewed=Date.parse(reviewedAt);
  const q=p?.quote,broker=p?.snapshot?.degiroDisplayedQuote,issuer=verifiedOtcIssuer(p);
  if(!issuer||degiroVenueObserved(p)||!degiroListObservation(p?.isin,archive,now).currentDay
@@ -5943,10 +5944,21 @@ function productRiskPlan(p,market,now,preferredQuote,comparisonOnly){
  }catch(_){return {...out,reason:'Produktwerte für individuelle Umrechnung unvollständig'};}
 }
 function productRiskPreviewText(p,market,now=Date.now()){
- const r=productRiskPreview(p,market,now);
- if(!r.available)return 'Stopp/Ziel offen · '+r.reason;
+ // Display-only: every listed LONG/SHORT product receives its own scoped
+ // risk reference, even if the primary market direction is the opposite.
+ // Neither this path nor the comparison path grants an entry/quote approval.
+ const opposite=market?.direction!==p?.productDirection;
+ const reference=opposite&&typeof window.productMarketPlan==='function'?
+  window.productMarketPlan(p.productDirection,now):market;
+ const strict=productRiskPreview(p,reference,now);
+ const r=strict.available?strict:productRiskComparison(p,reference,now);
+ const gold=reference?.available&&Number.isFinite(reference.stop)&&Number.isFinite(reference.target)?
+  ' · Gold-Referenz: Stopp '+reference.stop.toFixed(2)+' / Ziel '+reference.target.toFixed(2)+' USD/oz (keine Produktfreigabe)':'';
+ if(!r.available)return 'Produkt-Stopp/Ziel nicht berechenbar · '+r.reason+gold;
  const money=v=>'≈ '+v.toFixed(4)+' '+r.currency;
- return 'Vorläufiger Produktplan · Stopp '+money(r.stop)+' · Ziel '+money(r.target)+
+ const label=strict.available&&!opposite?'Vorläufiger Produktplan':
+  'Unverbindliche Risikoreferenz – '+(opposite?'Gegenrichtung zum Hauptsignal; ':'')+'kein Einstieg freigegeben';
+ return label+' · Stopp '+money(r.stop)+' · Ziel '+money(r.target)+
   ' · Verlust am Stopp je Stück '+money(r.lossPerUnit)+' (ab beobachtetem Briefkurs)'+
   '\nGold-Stopp '+r.stopGold.toFixed(2)+' USD · Gold-Ziel '+r.targetGold.toFixed(2)+' USD · KO '+r.ko.toFixed(2)+' USD'+
   '\nReferenz: '+r.source+' · '+r.referenceAt+

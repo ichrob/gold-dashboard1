@@ -24,6 +24,43 @@ class Protocol(unittest.TestCase):
             with self.assertRaises(ValueError):r.arguments('bob_phone_command',a)
         self.assertTrue(r.valid_isin(ISIN))
         r.arguments('bob_phone_command',dict(command('search_isin'),isin=ISIN))
+    def test_owner_entry_session_lock_wait_never_delivers_or_approves_a_command(self):
+        first=value();first['purpose']='entry_read'
+        state,_=r.exchange({},first,NOW)
+        pending=command('search_isin');pending['isin']=ISIN
+        r.enqueue(state,pending,NOW)
+        locked=copy.deepcopy(first)
+        locked['observation'].update(code='WAITING_FOR_UNLOCK',
+                                      isins=[],draft='',nodeCount=0)
+        state,response=r.exchange(state,locked,NOW)
+        self.assertTrue(state['active'])
+        self.assertIsNone(response['command'])
+        self.assertEqual(state['commands'][0]['status'],'queued')
+        # The Android unlock alone is not a broker execution receipt.
+        unlocked=copy.deepcopy(first)
+        state,response=r.exchange(state,unlocked,NOW+1)
+        self.assertEqual(response['command']['action'],'search_isin')
+        self.assertEqual(state['commands'][0]['status'],'delivered')
+        self.assertNotIn('entryApproved',state)
+        self.assertNotIn('brokerExecutionVerified',state)
+
+    def test_entry_session_lock_wait_cannot_extend_owner_session(self):
+        first=value();first['purpose']='entry_read'
+        state,_=r.exchange({},first,NOW)
+        locked=copy.deepcopy(first)
+        locked['observation']['code']='WAITING_FOR_UNLOCK'
+        state,_=r.exchange(state,locked,NOW+10)
+        self.assertEqual(state['expiresAt'],NOW+900)
+        extended=copy.deepcopy(locked);extended['expiresAt']=NOW+905
+        state,_=r.exchange(state,extended,NOW+10)
+        self.assertEqual(state['expiresAt'],NOW+900)
+        command_queued=command()
+        r.enqueue(state,command_queued,NOW+11)
+        still_locked=copy.deepcopy(extended)
+        state,answer=r.exchange(state,still_locked,NOW+12)
+        self.assertIsNone(answer['command'])
+        self.assertEqual(state['commands'][0]['status'],'queued')
+
     def test_termux_check_is_bounded_and_not_a_shell(self):
         accepted=r.arguments('bob_phone_command',command('termux_check'))
         self.assertEqual(accepted['action'],'termux_check')

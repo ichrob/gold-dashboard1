@@ -10,6 +10,90 @@ CONFIG=dict(budgetCHF=1000,riskCHF=100,feesCHF=8,trailAtr=1.5,minRR=2)
 
 
 class Planning(unittest.TestCase):
+    def test_worker_persists_entry_read_readiness_without_dispatch(self):
+        from types import SimpleNamespace
+        now=1794834000000
+        report=dict(listUploadedAt='generation',items=[dict(isin='DE000FG14AV8',
+            state='incomplete',handsetObservation=dict(observedAt='capture'))])
+        item=dict(available=True,entrySuitable=True,reasons=[],
+                  modelReferenceAt='2026-11-16T12:59:00Z',
+                  observedAt='2026-11-16T12:00:00Z')
+        class Db:
+            def execute(self,sql,args):self.args=args
+        db=Db()
+        with patch.object(p,'read',return_value=dict(config=CONFIG,revision=3,result=None)),\
+             patch('degiro_product_audit.read',return_value=report),\
+             patch('evaluator_runtime.run',return_value=SimpleNamespace(
+                 stdout=json.dumps(dict(calculatedAt=now,items=[item])))):
+            p.tick(db,dict(listUploadedAt='generation',products=[]),{},
+                   dict(handsetPlanRevision=3),dict(spots={}),now)
+        saved=json.loads(db.args[0])['items'][0]
+        self.assertEqual(saved['preEntryCheck']['code'],'NEW_DEGIRO_READ_REQUIRED')
+        self.assertFalse(saved['preEntryCheck']['readDispatched'])
+        self.assertEqual(saved['observedAt'],item['observedAt'])
+
+    def test_cached_result_requires_current_revision_and_dated_account_context(self):
+        config=dict(CONFIG,feeProfile='unknown',fxMode='unknown')
+        effective=dict(config,feeProfile='CH_STANDARD',fxMode='AUTO_CHF')
+        evidence={'autoFx':dict(value='ON',capturedAt=1999999990,
+                    source='degiro-app-local-accessibility')}
+        result=dict(calculatedAt=2000000000000,configRevision=3,
+                    contextFingerprint=p.context_fingerprint(effective,evidence,True))
+        class Cursor:
+            def __init__(self,value):self.value=value
+            def fetchone(self):return self.value
+        class Db:
+            def execute(self,sql):
+                if 'to_regclass' in sql:return Cursor(('bob_handset_planning',))
+                return Cursor((config,3,result))
+        def read(context):
+            with patch.object(p.time,'time',return_value=2000000001),\
+                 patch.object(p,'planning_context',return_value=context):
+                return p.read(Db())
+        self.assertTrue(read((effective,evidence,True))['resultFresh'])
+        # AutoFX OFF, expired/revoked proof, ambiguous device selection and a
+        # new dated observation invalidate even a one-second-old scenario.
+        changed=copy.deepcopy(evidence)
+        changed['autoFx']['value']='OFF'
+        renewed=copy.deepcopy(evidence)
+        renewed['autoFx']['capturedAt']+=1
+        for context in ((config,changed,False),(config,None,False),
+                        (effective,renewed,True)):
+            state=read(context)
+            self.assertFalse(state['resultFresh'])
+            self.assertEqual(state['result'],result)  # historical result kept
+        result['configRevision']=2
+        self.assertFalse(read((effective,evidence,True))['resultFresh'])
+        result['configRevision']=3
+        result.pop('contextFingerprint')
+        self.assertFalse(read((effective,evidence,True))['resultFresh'])
+
+    def test_changed_account_context_bypasses_thirty_second_result_cache(self):
+        from types import SimpleNamespace
+        report=dict(listUploadedAt='generation',items=[dict(isin='DE000FG14AV8',
+            state='incomplete',handsetObservation=dict(observedAt='capture'))])
+        fingerprint=json.dumps([['DE000FG14AV8','capture','incomplete']],sort_keys=True)
+        old=dict(fingerprint=fingerprint,configRevision=3,listUploadedAt='generation',
+                 calculatedAt=1000,contextFingerprint='old-context')
+        state=dict(config=CONFIG,revision=3,result=old,contextFingerprint='new-context')
+        class Db:
+            def execute(self,sql,args):self.args=args
+        db=Db()
+        with patch.object(p,'read',return_value=state),\
+             patch('degiro_product_audit.read',return_value=report),\
+             patch('evaluator_runtime.run',return_value=SimpleNamespace(
+                 stdout=json.dumps(dict(calculatedAt=2000,items=[])))) as run:
+            p.tick(db,dict(listUploadedAt='generation',products=[]),{},
+                   dict(handsetPlanRevision=3),dict(spots={}),2000)
+            run.assert_called_once()
+            saved=json.loads(db.args[0])
+            self.assertEqual(saved['contextFingerprint'],'new-context')
+            state['result']=saved
+            run.reset_mock()
+            p.tick(db,dict(listUploadedAt='generation',products=[]),{},
+                   dict(handsetPlanRevision=3),dict(spots={}),2100)
+            run.assert_not_called()
+
     def test_config_rejects_missing_boolean_nonfinite_and_impossible_budgets(self):
         self.assertEqual(p.validate(CONFIG),CONFIG)
         for key in CONFIG:

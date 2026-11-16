@@ -10,6 +10,7 @@ PRIMARY = 'https://api.exchangerate.dev/'
 BACKUP = 'https://biquote.io/'
 MAX_AGE = 300
 _standby_lock = threading.Lock()
+_warm_lock = threading.Lock()
 _standby = None
 _standby_attempted = float('-inf')
 
@@ -17,19 +18,23 @@ _standby_attempted = float('-inf')
 def warm_backup():
     """Keep an independent dated FX candidate ready even while primary works."""
     global _standby, _standby_attempted
-    if not _standby_lock.acquire(blocking=False):
+    # Network refresh must not hide an already fresh standby from readers.
+    # Keep single-flight HTTP separate from the short cache publication lock.
+    if not _warm_lock.acquire(blocking=False):
         return None
     try:
         if time.monotonic()-_standby_attempted >= 30:
             _standby_attempted = time.monotonic()
             from product_quotes import issuer_json
             candidate = backup(issuer_json)
-            if (_standby is None or stamp(candidate['data_updated_at']) >=
-                    stamp(_standby['data_updated_at'])):
-                _standby = candidate
-        return copy.deepcopy(_standby)
+            with _standby_lock:
+                if (_standby is None or stamp(candidate['data_updated_at']) >=
+                        stamp(_standby['data_updated_at'])):
+                    _standby = candidate
+        with _standby_lock:
+            return copy.deepcopy(_standby)
     finally:
-        _standby_lock.release()
+        _warm_lock.release()
 
 
 def peek_backup(now=None):

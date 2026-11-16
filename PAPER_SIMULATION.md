@@ -134,3 +134,28 @@ maximaler Drawdown, Trefferquote, Verluste und Warte-Gründe.
 und Abdeckungsberichte**. `strategyWinnerConfirmed=false` bleibt unverändert,
 bis eine gesonderte, aussagekräftige externe Validierung vorliegt.
 Keine automatische Übernahme in Echtgeld-/Signalregeln.
+
+
+## Prüfung älterer Original-Spot-Beobachtungen (16.11.2026)
+
+Die Diagnose prüft weiterhin höchstens zwölf unterschiedliche, tatsächlich
+protokollierte Datenlücken-Zeitpunkte aus einer begrenzten Fallstichprobe.
+Anders als das technische Sieben-Tage-Journal besitzt die Originaltabelle
+`bob_spot_observations` **keine automatische Alterslöschung**. Der reine
+Gold-Spot-Quellenabgleich darf deshalb auch ältere Zeitpunkte anhand des
+bestehenden Primärschlüssels `(stream, quote_at)` in einem exakten ±90-Sekunden-
+Fenster nachschlagen. Zukünftige Ereigniszeiten bleiben ausgeschlossen.
+
+Der alte Sieben-Tage-Rahmen für Analyse- und tatsächliche Paper-Input-Logs
+bleibt bestehen. Ein vorhandener älterer Spotwert sagt **nicht**, ob der
+Paper-Worker ihn bei der damaligen Entscheidung empfangen hat oder ob ein
+Emittent einen ausführbaren Produkt-Geldkurs stellte. Fehlende alte
+Archivzeilen beweisen nicht, dass ein anderer Anbieter keinen Kurs hatte.
+Keine Daten werden interpoliert, rückdatiert, nachträglich als Original
+klassifiziert oder als verifizierter Ausstieg verbucht. Kosten und Kontostände
+werden durch die Abfrage nicht verändert.
+
+Die kompakte Fall-/Lückenprüfung berücksichtigt nun bis zu 16 Profile und
+schließt damit alle elf aktuell konfigurierten Konten ein. Weiterhin maximal
+fünf Fälle pro Konto und zwölf unterschiedliche protokollierte Lückenzeitpunkte;
+die Anzeige ist ausdrücklich keine lückenlose historische Gesamtauswertung.

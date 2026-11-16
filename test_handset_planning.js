@@ -28,6 +28,14 @@ for(const change of [x=>x.config=null,x=>x.plans={},x=>x.spots={},
  x=>x.report.items[0].handsetObservation.observedAt=new Date(now-15*3600000).toISOString()]){
  const input=fixture('LONG','EUR');change(input);assert.equal(evaluate(input).items[0].available,false);
 }
+const noScreen=fixture();delete noScreen.report.items[0].handsetObservation;
+const unconfirmed=evaluate(noScreen).items[0];
+assert.equal(unconfirmed.available,false);
+assert.equal(unconfirmed.entryApproved,false);
+assert.equal(unconfirmed.copyAllowed,false);
+assert.equal(unconfirmed.planState,'reference-calculated');
+assert(unconfirmed.modelStop>0&&unconfirmed.modelTarget>0);
+assert(unconfirmed.reasons.some(r=>/Lesebeleg/.test(r)));
 const missing=fixture();missing.config=null;
 const row=evaluate(missing).items[0];assert(row.modelStop>0);assert.equal(row.available,false);
 console.log('Server handset scenarios: shared LONG/SHORT stops, EUR/CHF costs, missing config/FX, terminal/stale guards, no input mutation passed');
@@ -90,6 +98,46 @@ assert.equal(evaluate(manual).items[0].automaticScenarios.length,0);
 assert.equal(evaluate(missing).items[0].automaticScenarios.length,0);
 console.log('Automatic conditional scenarios: both FX modes, no config mutation, original stop/KO/quote guards and no approval promotion passed');
 
+// Venue is optional for research. Unknown venue produces explicit tariff
+// alternatives, never a silently selected broker route or a zero fee.
+for(const direction of ['LONG','SHORT'])for(const currency of ['EUR','CHF']){
+ const input=fixture(direction,currency);
+ input.config={...input.config,feesCHF:null,feeProfile:'CH_STANDARD',fxMode:'AUTO_CHF'};
+ delete input.report.items[0].handsetObservation.fields.Handelsplatz;
+ const before=JSON.stringify(input),output=evaluate(input),row=output.items[0];
+ assert.equal(output.conditionalAvailable,1);
+ assert.equal(row.available,false);
+ assert.equal(row.feeAssessment.available,false);
+ assert.deepEqual(Array.from(row.automaticScenarios,s=>s.feeAssessment.feesCHF),currency==='CHF'?[1,6]:[6,11]);
+ for(const scenario of row.automaticScenarios){
+  assert(scenario.available);
+  assert(scenario.assumptions.some(s=>s.includes('Handelsplatz unbestätigt')));
+  assert.equal(scenario.feeAssessment.venue,null);
+  assert.equal(scenario.feeAssessment.venueConfirmed,false);
+  assert.equal(scenario.copyAllowed,false);
+  assert.equal(scenario.entryApproved,false);
+  assert.equal(scenario.orderSubmitted,false);
+  assert.equal(scenario.rankingPenalty,false);
+  assert(scenario.totalCHF<=input.config.budgetCHF);
+  assert(scenario.lossCHF<=input.config.riskCHF);
+ }
+ assert.equal(JSON.stringify(input),before);
+ for(const mutate of [x=>x.spots={},x=>x.plans={},
+  x=>x.report.items[0].state='terminated',
+  x=>x.report.items[0].handsetObservation.fields.Brief='',
+  x=>x.report.items[0].handsetObservation.fields.Handelsplatz='Swiss DOTS',
+  x=>x.report.items[0].handsetObservation.fields.Handelsplatz='SG OTC / Frankfurt',
+  x=>x.now+=31*86400000]){
+  const bad=JSON.parse(before);mutate(bad);
+  assert.equal(evaluate(bad).conditionalAvailable,0);
+ }
+ input.config.feeProfile='unknown';input.config.fxMode='unknown';
+ assert.equal(evaluate(input).items[0].automaticScenarios.length,4);
+ input.config.feesCHF=8;
+ assert.equal(evaluate(input).items[0].automaticScenarios.length,0);
+}
+console.log('Missing venue permits labelled research tariff alternatives; quote, FX, KO, status and manual-input guards remain intact');
+
 for(const direction of ['LONG','SHORT']){
  const input=fixture(direction,'EUR');input.config.feesCHF=null;input.config.feeProfile='unknown';input.config.fxMode='unknown';
  input.plans[direction].entrySuitable=false;
@@ -124,3 +172,26 @@ assert.equal(koRow.available,false);assert.match(koRow.reason,/KO-Schutzbereich/
 assert.equal(koRow.modelStop,null);assert.equal(koRow.copyAllowed,false);
 assert(koRow.automaticScenarios.every(s=>!s.available));
 console.log('Exact model/fee/config blockers: saved CHF inputs retained, KO guard intact, conditional scenarios unchanged');
+
+// A terminated product is not an instruction to keep retrying missing prices/FX.
+{
+ const input=fixture();input.report.items[0].state='terminated';
+ input.report.items[0].handsetObservation={code:'NO_QUOTES',fields:{Geld:'0,001'}};
+ input.config=null;input.spots={};input.plans={};
+ const before=JSON.stringify(input),out=evaluate(input),row=out.items[0];
+ assert.equal(row.available,false);assert.equal(out.available,0);
+ assert.deepEqual(Array.from(row.reasons),['Produkt vom Emittenten als beendet gemeldet']);
+ assert.equal(row.quantity,null);assert.equal(row.modelStop,null);
+ assert.equal(row.entryApproved,false);assert.equal(row.copyAllowed,false);
+ assert.equal(row.automaticScenarios.length,0);assert.equal(JSON.stringify(input),before);
+}
+console.log('Terminated issuer state remains explicit without misleading missing-plan retries');
+
+{
+ const input=fixture();delete input.quotes[isin].productModel;
+ input.quotes[isin].handsetModelCheck={reason:'CHF-Mini-Future: Modellpfad fehlt',code:'CHF_MINI_MODEL_UNSUPPORTED'};
+ const row=evaluate(input).items[0];
+ assert.equal(row.available,false);
+ assert(row.reasons.includes('CHF-Mini-Future: Modellpfad fehlt'));
+ assert.equal(row.entryApproved,false);
+}

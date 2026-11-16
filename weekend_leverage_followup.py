@@ -5,6 +5,7 @@ Uses already configured issuer/comdirect/SG/BNP fallback in paper_simulation.quo
 """
 import copy
 import json
+import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -15,8 +16,7 @@ RETRY_MS = 5 * 60_000
 LATER_RETRY_MS = 60 * 60_000
 MAX_LOOKUP = 3
 MAX_RUN_AGE_MS = 6 * 60 * 60_000
-MAX_LIST_SKEW_MS = 10 * 60_000
-SOURCE_POLICY_VERSION = 2  # one guarded recheck of new official issuer-end proofs
+SOURCE_POLICY_VERSION = 3  # independently dated issuer metrics and delayed reads
 
 
 def timestamp(value):
@@ -30,7 +30,12 @@ def timestamp(value):
 
 
 def targets(feed, run, now_ms):
-    """No blanket 10-product refresh. Trust only the exact current list/phone run."""
+    """Select issuer research, never bind legacy device values to a list.
+
+    A delayed legacy read may request fresh research of the same current ISIN.
+    This does not make its handset fields evidence for the current generation.
+    New server-bound runs must match their exact authenticated generation.
+    """
     if not isinstance(feed, dict) or not isinstance(run, dict):
         return []
     if feed.get('listOrigin') != 'degiro-screenshot' or run.get('listSource') != 'degiro-gold-search':
@@ -39,8 +44,15 @@ def targets(feed, run, now_ms):
                                   timestamp(run.get('listUploadedAt')),
                                   timestamp(run.get('receivedAt')))
     if (list_at is None or run_list_at is None or run_at is None
-            or abs(list_at-run_list_at) > MAX_LIST_SKEW_MS
+            or not list_at <= run_list_at <= run_at
+            or run_list_at-list_at > MAX_RUN_AGE_MS
             or not 0 <= now_ms - run_at <= MAX_RUN_AGE_MS):
+        return []
+    binding = run.get('originalList')
+    if binding is not None and (not isinstance(binding, dict)
+            or not isinstance(binding.get('batchId'), str)
+            or re.fullmatch('[a-f0-9]{32}', binding['batchId']) is None
+            or timestamp(binding.get('uploadedAt')) != list_at):
         return []
     current = {p.get('isin') for p in feed.get('products', [])
                if isinstance(p, dict) and isinstance(p.get('isin'), str) and valid_isin(p['isin'])}
@@ -54,7 +66,9 @@ def targets(feed, run, now_ms):
                 or row.get('requestedFields') != ['Geld', 'Brief', 'Anzeigezeit', 'Hebel']):
             continue
         obs = row.get('observation')
-        if not isinstance(obs, dict) or obs.get('missingFields') != ['Hebel']:
+        fields = obs.get('missingFields') if isinstance(obs, dict) else None
+        if (not isinstance(fields, list) or 'Hebel' not in fields
+                or any(x not in ('Geld', 'Brief', 'Anzeigezeit', 'Hebel') for x in fields)):
             continue
         missing.append(isin)
     return missing[:MAX_LOOKUP]

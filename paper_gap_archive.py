@@ -1,4 +1,4 @@
-"""Passive seven-day Gold-API archive proximity check for paper gap events.
+"""Passive durable Gold-API archive proximity check for paper gap events.
 
 It asks whether an ORIGINAL spot timestamp was stored near an observed gap.
 It cannot reconstruct the historical intragap path, quote product bids,
@@ -10,8 +10,12 @@ from decimal import Decimal
 
 STREAM = 'gold-api-xau-usd-v1'
 WINDOW_MS = 90000
+# The diagnostic analysis/paper-input journals are still retained for seven
+# days. Unlike those journals, bob_spot_observations has no automatic
+# age-based expiry; do not reuse this journal limit for its indexed lookup.
 RETENTION_MS = 7 * 86400000
 MAX_EVENTS = 12
+MAX_ACCOUNT_SAMPLES = 16  # includes all eleven current paper profiles
 
 _SQL = """SELECT (extract(epoch FROM quote_at)*1000)::double precision
 FROM bob_spot_observations
@@ -24,7 +28,7 @@ LIMIT 1"""
 def _times(accounts):
     """Exact recorded event clocks only, from bounded sanitized cases."""
     seen=set()
-    for account in accounts[:10]:
+    for account in accounts[:MAX_ACCOUNT_SAMPLES]:
         if not isinstance(account,dict):
             continue
         journal=account.get('recentCases')
@@ -54,13 +58,16 @@ def report(conn, accounts, now_ms=None):
         return {'status':'unavailable','reason':'no-recorded-gap-clocks','readOnly':True}
     observations=[]
     counts={'nearbyOriginal':0,'notObservedNearEvent':0,
-            'outsideRetention':0,'queryUnavailable':0}
+            'outsideRetention':0,'futureEvent':0,'queryUnavailable':0}
     for at in times:
         item={'eventAt':at,'state':None,'nearestSourceAt':None,
               'deltaSeconds':None,'timeRelation':None}
-        if at < now_ms-RETENTION_MS or at > now_ms:
-            item['state']='outside-retention-or-future'
-            counts['outsideRetention']+=1
+        if at > now_ms:
+            # Never look ahead. The durable spot archive is not the pruned
+            # seven-day diagnostic journal; old timestamps can be checked via
+            # its (stream, quote_at) primary key without a full historical scan.
+            item['state']='future-event-unavailable'
+            counts['futureEvent']+=1
         else:
             try:
                 # A savepoint isolates temporary read failures, without writing.
@@ -92,6 +99,8 @@ def report(conn, accounts, now_ms=None):
         'truncated':len(times)<len(all_times),
         'counts':counts,'items':observations,
         'note':'Proximity to a *recorded gap event*, not to the complete missing price interval. '
-               'Absence in this single seven-day Gold-API archive does not prove that other '
-               'market feeds had no data. A later timestamp is not an earlier fill.'
+               'Absence in this retained Gold-API original archive does not prove that other '
+               'market feeds had no data or that an observation was ever collected. '
+               'The seven-day diagnostic journal may already have expired. '
+               'A later timestamp is not an earlier fill.'
     }

@@ -241,6 +241,26 @@ function mount(parent){
    if(info.mode!=='RESEARCH_ONLY'||info.orderExecutionEnabled!==false||info.approved!==false)
     throw Error('Sperrstatus der Studie nicht bestätigt');
 
+   const gold=info.goldDailyContext||{status:'unavailable'};
+   const goldLabels={disabled:'nicht aktiviert','collector-unconfirmed':'Sammler nicht bestätigt',
+    'key-not-configured':'Server-Schlüssel fehlt','handoff-unconfirmed':'Übergabe noch offen',
+    'handoff-cooldown':'geplante Übergabewartezeit',
+    'awaiting-first-collection':'erste Sammlung steht aus',stored:'gespeichert',
+    stale:'älterer Stand',incomplete:'unvollständig',unavailable:'nicht verfügbar'};
+   const goldBox=el('section');goldBox.append(el('h4','Historischer Gold-Tageskontext'));
+   goldBox.append(el('p', 'Gold-API · '+(goldLabels[gold.status]||'nicht bestätigt')+
+    (gold.day?' · UTC-Tag '+gold.day:'')+'. Tageswerte zur Einordnung, keine Intraday-Kerzen oder ausführbaren Produktkurse.'));
+   if(gold.status==='handoff-cooldown'&&Number.isFinite(gold.notBefore))
+    goldBox.append(el('p','Abrufe frühestens ab '+new Date(gold.notBefore*1000).toLocaleString('de-CH',{timeZone:'Europe/Zurich'})+' (Schweizer Zeit).'));
+   if(gold.researchOnly===true&&gold.affectsLiveSignals===false&&gold.usableAsExecutableQuote===false){
+    const daily=gold.items?.['history-day'],range=gold.items?.['ohlc-range'];
+    if(daily?.status==='stored'&&Number.isFinite(daily.averageUsd))
+     goldBox.append(el('p','Tagesdurchschnitt: '+daily.averageUsd.toFixed(2)+' USD je Feinunze.'));
+    if(range?.status==='stored'&&['open','high','low','close','openCloseChangePct','rangePctOfOpen'].every(k=>Number.isFinite(range[k])))
+     goldBox.append(el('p','Eröffnung '+range.open.toFixed(2)+' · Hoch '+range.high.toFixed(2)+' · Tief '+range.low.toFixed(2)+' · Schluss '+range.close.toFixed(2)+' USD. Veränderung '+range.openCloseChangePct.toFixed(2)+' % · Spanne relativ zur Eröffnung '+range.rangePctOfOpen.toFixed(2)+' %.'));
+   }
+   reportBox.append(goldBox);
+
    const brokers=info.brokerReadiness||{};
    const auto=info.automation||{};
    const fmt=t=>t?new Date(t).toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'noch keine';

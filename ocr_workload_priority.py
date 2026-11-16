@@ -32,7 +32,12 @@ def maintenance_slot():
         yield
         return
     with _CONDITION:
-        _CONDITION.wait_for(lambda: not _OCR_ACTIVE and _OCR_WAITERS == 0)
+        # Only one optional job at a time: avoid simultaneous historical
+        # scans, archival and evaluation spikes on the shared database.
+        # Foreground OCR waiters take priority at every job boundary.
+        # An already-running job is never killed or rolled back.
+        _CONDITION.wait_for(lambda: not _OCR_ACTIVE and _OCR_WAITERS == 0
+                            and _BACKGROUND == 0)
         _BACKGROUND += 1
         _LOCAL.maintenance = True
     try:

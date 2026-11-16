@@ -122,3 +122,44 @@ muss steigen und die nächste bestätigte Übertragung zum selben Lauf gehören.
 Die Tests ändern keine Echtgeldorders oder Ordermaskenberechtigungen.
 Bereits vor diesem Update bestätigte und lokal entfernte Läufe werden dadurch
 nicht nachträglich wiederhergestellt. Dann ist ein neuer Leselauf erforderlich.
+
+
+## Samsung-Sperrfortsetzung bei einmaliger Einstiegskurs-Nachlesung (16.11.2026)
+
+Bob überwacht Gold und virtuelle Studien weiterhin **auf dem Server**; dazu wird
+keine aktiv entsperrte DEGIRO-App benötigt. **Direkte App-Bedienung** dagegen
+verlangt einen sichtbaren, vom Besitzer freigegebenen und unter Android
+entsperrten DEGIRO-Bildschirm. Es gibt keine dauerhafte Hintergrund-Ordersteuerung.
+
+Der bestehende Knopf **„Einstiegskurs automatisch nachlesen · 15 Minuten“**
+bietet jetzt eine **standardmässig ausgeschaltete** Zusatzwahl:
+„Entsperr-Fortsetzung erlauben“. Nach ausdrücklicher Auswahl versucht Bob,
+den bereits entsperrten Bildschirm während der Sitzung gedimmt eingeschaltet
+zu halten. Die bestehende 15-Minuten-Frist wird nicht verlängert.
+
+Wenn der Besitzer das Samsung trotzdem sperrt, gilt:
+- Eine gerade laufende Produktlesung wird beendet, damit keine halb gelesenen
+  Daten als fertig gelten. Sonstige normale Fernlese-/Einstellungs-Sitzungen
+  werden wie bisher sofort beendet.
+- **Nur** die noch wartende, ausdrücklich freigegebene Einstiegskurs-Bereitschaft
+  darf ohne Bildschirmzugriff mit Status `WAITING_FOR_UNLOCK` pausieren.
+  Bob liefert währenddessen keine DEGIRO-Klick- oder Lesebefehle aus.
+- Erst nachdem Android `isInteractive && !isKeyguardLocked &&
+  !isDeviceLocked` bestätigt und die DEGIRO-App tatsächlich im Vordergrund
+  sichtbar ist, darf die **gleiche** noch gültige Sitzung fortgesetzt werden.
+  Die App versucht DEGIRO einmal erneut zu öffnen. Android kann einen
+  Hintergrund-App-Start verhindern; dann bleibt die Sitzung wartend.
+- STOPP, Sicherheitsdialoge, aktive Sperre und Ablauf der maximalen
+  15 Minuten brechen ab. Keine Android-PIN- oder Biometrieautomatisierung,
+  keine Wiederverwendung eines bereits abgelaufenen Fernkommandos, keine
+  Brokerorders. Eine DEGIRO-Anmeldung muss weiterhin legitim möglich sein.
+
+Das ist **kein** Aufheben der Samsung-Gerätesperre und **kein** 24/7-Brokerzugang.
+Samsung „Extend Unlock“ kann ein Gerät nach einer manuellen Entsperrung unter
+bestimmten vertrauenswürdigen Bedingungen länger entsperrt halten; es ist
+keine App-Berechtigung zum Entfernen einer aktiven sicheren Sperre.
+Eine vollständig sperrfreie Bildschirmkonfiguration wird wegen der
+Finanz-/Broker-App auf demselben Gerät nicht empfohlen. Die zuverlässige
+Wiederaufnahme muss auf dem konkreten Samsung mit der signierten App und
+One-UI-/Android-Version überprüft werden. Auch abgeschlossene DEGIRO-
+Ablesungen sind keine verifizierten ausführbaren Broker-Kurse.

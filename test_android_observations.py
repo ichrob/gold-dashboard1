@@ -17,6 +17,7 @@ class MemoryDb:
         self.sql.append(sql)
         if 'SELECT payload FROM bob_android_read_runs WHERE' in sql:self.result=(self.rows[params[0]],) if params[0] in self.rows else None
         elif 'SELECT payload FROM bob_paper_products' in sql:self.result=({'products':[{'isin':ISIN}]},)
+        elif sql.startswith('SELECT state FROM bob_android_remote'):self.result=None
         elif 'INSERT INTO bob_android_read_runs' in sql:self.rows.setdefault(params[0],json.loads(params[1]))
         else: raise AssertionError(sql)
         return self
@@ -233,6 +234,48 @@ class AndroidObservations(unittest.TestCase):
                                             ['DE000FE2JJ20'],NOW),{})
         self.assertEqual(a.research_summary(ReadDb(),'2026-10-28T11:00:00Z',
                                             [ISIN],NOW.replace(day=30)),{})
+
+    def test_failed_refresh_keeps_old_values_but_exposes_latest_receipt(self):
+        old=a.prepare({**run(),'listSource':'degiro-gold-search'}, {}, NOW)
+        failed=copy.deepcopy(old)
+        failed['revision']+=1
+        failed['receivedAt']='2026-10-28T11:01:00+00:00'
+        failed['results'][0].update(code='READ_TIMEOUT',observation=None)
+        originals=copy.deepcopy([old,failed])
+        class Db:
+            def execute(self,sql):
+                assert sql.startswith('SELECT')
+                return self
+            def fetchall(self):return [(x,) for x in ordered]
+        for ordered in ([failed,old],[old,failed]):
+            shown=a.research_summary(Db(),old['listUploadedAt'],[ISIN],NOW.replace(minute=2))[ISIN]
+            self.assertEqual(shown['fields']['Geld'],'13,06')
+            self.assertEqual(shown['observedAt'],old['results'][0]['observation']['observedAt'])
+            self.assertEqual(shown['latestReadReceipt']['code'],'READ_TIMEOUT')
+            self.assertEqual(shown['latestReadReceipt']['receivedAt'],failed['receivedAt'])
+            self.assertFalse(shown['latestReadReceipt']['hasObservation'])
+            self.assertIsNone(shown['sourceTime'])
+            self.assertFalse(shown['tradeApproved'])
+        self.assertEqual([old,failed],originals)
+
+    def test_server_binding_allows_later_read_but_not_other_generation(self):
+        data=a.prepare({**run(),'listSource':'degiro-gold-search'}, {}, NOW)
+        class Db:
+            def execute(self,sql):return self
+            def fetchall(self):return [(data,)]
+        generation='2026-10-28T10:00:00Z'
+        self.assertEqual(a.research_summary(Db(),generation,[ISIN],NOW),{})
+        data['originalList']={'batchId':'b'*32,'uploadedAt':generation}
+        shown=a.research_summary(Db(),generation,[ISIN],NOW)[ISIN]
+        self.assertEqual(shown['fields']['Geld'],'13,06')
+        self.assertFalse(shown['tradeApproved'])
+        self.assertIsNone(shown['sourceTime'])
+        self.assertEqual(a.research_summary(Db(),'2026-10-28T11:00:00Z',[ISIN],NOW),{})
+        data['originalList']['uploadedAt']='invalid'
+        self.assertEqual(a.research_summary(Db(),generation,[ISIN],NOW),{})
+        # A handset cannot forge the trusted field via the ordinary endpoint.
+        forged=run();forged['originalList']={'batchId':'b'*32,'uploadedAt':generation}
+        self.assertNotIn('originalList',a.prepare(forged,{},NOW))
 
     def test_partial_is_recomputed_and_cannot_be_promoted(self):
         r=a.prepare(run(),{'products':[{'isin':ISIN}]},NOW)

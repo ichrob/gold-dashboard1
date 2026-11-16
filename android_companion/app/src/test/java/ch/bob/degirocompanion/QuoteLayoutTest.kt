@@ -7,6 +7,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QuoteLayoutTest {
+    @Test fun oneSidedCombinedQuoteKeepsOriginalBidWithoutInventingAsk() {
+        val fields = QuoteLayout.extract(listOf(
+            QuoteLayout.Line("Zuletzt € 0,001 16/11/2026 08:00", 0, 200, 650, 230),
+            QuoteLayout.Line("Geld € 0,001 Brief € —", 0, 250, 650, 280),
+            QuoteLayout.Line("Geld Vol. 10K Brief Vol. —", 0, 300, 650, 330)))
+        assertEquals("0,001", fields["Geld"])
+        assertEquals("16/11/2026 08:00", fields["Anzeigezeit"])
+        assertNull(fields["Brief"])
+        assertNull(QuoteLayout.extract(listOf(
+            QuoteLayout.Line("Kaufen Geld € 0,001 Brief € —", 0, 0, 650, 30)))["Geld"])
+    }
+
+    @Test fun unlimitedHeaderReadsLiteralTermsWithoutInventingLeverageOrRatio() {
+        val fields = QuoteLayout.productParameters(listOf(
+            QuoteLayout.Line("BNP GOLD Unlimited Long SL 3854.1119", 0, 200, 680, 230),
+            QuoteLayout.Line("STR 3854.1119 R 10", 0, 240, 680, 270)))
+        assertEquals("3854,1119", fields["KO-Schwelle"])
+        assertEquals("3854,1119", fields["Basispreis"])
+        assertNull(fields["Hebel"])
+        assertNull(fields["Bv"])
+    }
+
     private fun row(label: String, labelX: Int, value: String, valueX: Int, y: Int): List<QuoteLayout.Line> =
         listOf(
             QuoteLayout.Line(label, labelX, y, labelX + label.length * 8, y + 22),

@@ -174,6 +174,13 @@ class ProfileTests(unittest.TestCase):
                 {'choices':[{'isin':ISIN,'approval':'Bob-Pflichtprüfung bestanden'}]},
                 {ISIN:quote()},NOW,settings={})
             self.assertEqual(found,{name:'checked' for name in profiles.POLICIES})
+            # The new 3k/5k experimental controls must persist their precise
+            # last paper-market blocker instead of showing a generic unknown.
+            for name in ('ema3000nov', 'noema5000nov'):
+                ctl = conn.execute('SELECT payload FROM ' +
+                    profiles.names(name)['bob_paper_control'] + ' WHERE id=1').fetchone()[0]
+                self.assertIn('lastTradingEntryBlockCode', ctl)
+                self.assertIn('lastTradingEntryBlockAt', ctl)
             expected={'conservative':3,'balanced':6,'offensive':9,'trend800':51}
             for profile in ('conservative','balanced','offensive','trend800'):
                 ns=profiles.names(profile)

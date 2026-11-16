@@ -10,6 +10,7 @@ import tempfile
 from datetime import datetime, timezone
 
 import evidence_archive as archive
+from aiven_health import configured as aiven_restore_configured
 
 # Folder identity is private configuration, never committed to this public repo.
 FOLDER_ID = os.environ.get('BOB_ARCHIVE_DRIVE_FOLDER_ID', '')
@@ -121,6 +122,12 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
     quota = drive.preflight(archive.MAX_BYTES + 2*1024*1024)
     progress('restore-isolation-check')
     isolation = verify_restore_isolation(source_dsn, restore_dsn)
+    # Only a provider classification, never a hostname, address or credential.
+    # Combined with the live independent-server probe, this lets future
+    # receipts distinguish the active Aiven target from expiring Render tests.
+    target_policy = ('aiven-uri-validated' if aiven_restore_configured({
+        'DATABASE_URL': source_dsn,
+        'BOB_ARCHIVE_RESTORE_DATABASE_URL': restore_dsn}) else 'other-or-unverified')
     progress('export')
     result = archive.export(source_dsn, path, progress=progress)
     checksum = result['sha256']
@@ -164,7 +171,8 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
         drive.download(file_id, downloaded)
     progress('remote-restore')
     receipt = archive.restore_check(downloaded, checksum, restore_dsn, temporary_session=temporary_session)
-    receipt.update(restoreIsolation=isolation, driveFileId=file_id, driveFolderId=getattr(drive, 'folder_id', FOLDER_ID),
+    receipt.update(restoreIsolation=isolation, restoreTargetPolicy=target_policy,
+        driveFileId=file_id, driveFolderId=getattr(drive, 'folder_id', FOLDER_ID),
         remoteDownloadVerified=True, driveQuotaBefore=quota,
         encryptionVerified=encrypted,
         encryptionVersion=sealing.FORMAT if encrypted else 'none',

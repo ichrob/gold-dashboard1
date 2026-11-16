@@ -161,6 +161,7 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
     except (ValueError, TypeError, AttributeError):
         return {}
     result = {}
+    latest_receipts = {}
     for row in rows:
         run = row[0] if row else {}
         if not isinstance(run, dict) or run.get('listSource') != 'degiro-gold-search':
@@ -170,7 +171,18 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
             received = timestamp(run.get('receivedAt'))
         except (ValueError, TypeError):
             continue
-        if not (0 <= (when-list_time).total_seconds() <= 900 and
+        binding=run.get('originalList')
+        try:
+            # Exact server-confirmed generation permits a later explicit read.
+            # Legacy unbound runs retain the previous narrow time window.
+            matches=(isinstance(binding,dict) and
+                     isinstance(binding.get('batchId'),str) and
+                     re.fullmatch('[a-f0-9]{32}',binding['batchId']) is not None and
+                     timestamp(binding.get('uploadedAt'))==list_time) if binding is not None else (
+                     0 <= (when-list_time).total_seconds() <= 900)
+        except (ValueError,TypeError):
+            matches=False
+        if not (matches and
                 0 <= (now-received).total_seconds() <= 86400 and
                 set(run.get('isins', [])) <= universe and
                 isinstance(run.get('results'), list)):
@@ -187,6 +199,15 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
             # Safe display-only subset from previously validated app observations.
             shown = {k: str(fields[k])[:60] for k in allowed
                      if isinstance(fields.get(k), str) and len(fields[k]) <= 60}
+            # A failed refresh must remain visible even when we retain an older
+            # useful observation. Receipt order is not a quote/source clock.
+            receipt_key = (received, run.get('revision', 0))
+            if isin not in latest_receipts or receipt_key > latest_receipts[isin][0]:
+                latest_receipts[isin] = (receipt_key, {
+                    'code': entry.get('code') if entry.get('code') in CODES else 'UNAVAILABLE',
+                    'receivedAt': run.get('receivedAt'),
+                    'hasObservation': bool(shown),
+                })
             previous = result.get(isin)
             if previous:
                 try:
@@ -209,6 +230,8 @@ def research_summary(conn, list_uploaded_at, isins, now=None):
                 'displayTimezone': None,
                 'clockNote': 'Anzeigezeit ohne bestätigte Zeitzone; Erfassung und Empfang sind getrennte Uhren.',
             }
+    for isin, observation in result.items():
+        observation['latestReadReceipt'] = latest_receipts[isin][1]
     return result
 
 
@@ -218,7 +241,7 @@ def init(conn):
     conn.execute('CREATE INDEX IF NOT EXISTS bob_android_read_runs_time ON bob_android_read_runs(received_at DESC)')
 
 
-def handle(conn,payload):
+def handle(conn,payload, *, original_list=None):
     if not isinstance(payload,dict): raise ValueError('Ungültige Anfrage')
     if payload.get('action') in ('plan-read','plan-save'):
         return __import__('handset_planning').handle(conn,payload)
@@ -239,6 +262,15 @@ def handle(conn,payload):
     row=conn.execute('SELECT payload FROM bob_paper_products WHERE id=1').fetchone()
     result=prepare(run,row[0] if row else {})
     from handset_import_assessment import assess
+    if original_list is not None:
+        # Only the authenticated owned-list endpoint supplies this server-side
+        # argument. Never copy a similarly named field from the device payload.
+        if (not isinstance(original_list,dict) or set(original_list)!={'batchId','uploadedAt'}
+                or not isinstance(original_list['batchId'],str)
+                or not re.fullmatch('[a-f0-9]{32}',original_list['batchId'])):
+            raise ValueError('Invalid original list binding')
+        result['originalList']={'batchId':original_list['batchId'],
+                                'uploadedAt':timestamp(original_list['uploadedAt']).isoformat()}
     result['importAssessment']=assess(result)
     result['transferHash']=digest
     conn.execute('''INSERT INTO bob_android_read_runs(batch_id,payload) VALUES(%s,%s::jsonb)
@@ -256,10 +288,14 @@ def status(conn):
     runs=[]
     for row in rows[:5]:
         r=row[0]
-        from handset_import_assessment import assess
-        assessment=r.get('importAssessment') or assess(r)
+        from handset_import_assessment import assess, VERSION
+        stored_assessment=r.get('importAssessment')
+        persisted=isinstance(stored_assessment,dict) and stored_assessment.get('version')==VERSION
+        # Reproject older views from their original fields without changing the
+        # historical receipt, assessment or stored product observations.
+        assessment=stored_assessment if persisted else assess(r)
         runs.append(dict(batchId=r['batchId'],revision=r['revision'],receivedAt=r['receivedAt'],
-            importAssessment=assessment, importAssessmentPersisted='importAssessment' in r,
+            importAssessment=assessment, importAssessmentPersisted=persisted,
             appVersionCode=r.get('appVersionCode'),listUploadedAt=r['listUploadedAt'],listSource=r.get('listSource','bob-saved-list'),requested=len(r['isins']),
             results=[dict(isin=x['isin'],code=x['code'],attempts=x['attempts'],
                 requestedFields=x.get('requestedFields'),

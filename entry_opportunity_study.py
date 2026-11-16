@@ -21,14 +21,29 @@ def number(x):
 
 
 def source(bundle, now):
-    s = bundle.get('spots') or {}
+    """Require a genuine, timezone-aware, fresh source quote for shadow study.
+
+    A missing/malformed timestamp must not raise in the paper worker or be
+    interpreted in the host machine's local timezone. No clock is re-dated.
+    """
+    if not isinstance(bundle, dict) or not number(now) or now <= 0:
+        return None
+    s = bundle.get('spots')
+    if not isinstance(s, dict):
+        return None
+    clock = s.get('spot_price_as_of')
+    if not isinstance(clock, str):
+        return None
     try:
-        at = datetime.fromisoformat(s['spot_price_as_of'].replace('Z', '+00:00')).timestamp()*1000
-    except (ValueError, TypeError, KeyError):
+        parsed = datetime.fromisoformat(clock.replace('Z', '+00:00'))
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            return None
+        at = parsed.timestamp() * 1000
+    except (ValueError, TypeError, OverflowError, OSError):
         return None
     p = s.get('xaus')
     if (s.get('is_genuine_xauusd_spot') is True and not s.get('spot_error')
-            and number(p) and p > 0 and 0 <= now-at <= MINUTE):
+            and number(p) and p > 0 and number(at) and 0 <= now-at <= MINUTE):
         return p, at
     return None
 

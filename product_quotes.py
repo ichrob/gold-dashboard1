@@ -487,7 +487,7 @@ def parse_bnp_dated_terms(page, isin, metadata, now=None):
     if identities != [isin]:
         raise ValueError('BNP-Seitenidentität nicht eindeutig')
     tables = re.findall(r'<table\b[^>]*>(.*?)</table>', page, re.S | re.I)
-    tables = [t for t in tables if re.search(r'<caption>\s*Stammdaten\s*</caption>', t, re.I)]
+    tables = [t for t in tables if re.search(r'<caption\b[^>]*>\s*Stammdaten\s*</caption>', t, re.I)]
     if len(tables) != 1:
         raise ValueError('BNP-Stammdatentabelle nicht eindeutig')
     conditions = {}
@@ -645,6 +645,24 @@ def get_bnp_quote(isin):
             raise ValueError('Produktantwort zu groß')
         data = json.loads(body)
         terms = bnp_product_data(data, isin)
+        # A missing/one-sided quote must not discard an independently dated
+        # issuer metric. Identity/status have already passed bnp_product_data;
+        # retain only agreeing, finite leverage with its original explicit clock.
+        # This does not supply a quote, terms date, market state or approval.
+        if terms['metadata']['status'] == 1:
+            try:
+                r = data['result']
+                value = number(r['leverage'])
+                figures = r['keyFigures']
+                at = stamp(figures['lastUpdate'])
+                response_at = stamp(data['responseDate'])
+                checked = stamp(terms['checkedAt'])
+                if (value >= 1 and number(figures['leverage']) == value
+                        and at <= response_at and response_at <= checked
+                        and at <= checked):
+                    terms.update(leverage=value, leverageAt=at.isoformat())
+            except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
+                pass
         result = dict(terms, **parse_bnp(data, isin))
     except Exception as exc:
         code, reason = bnp_source_error(exc)

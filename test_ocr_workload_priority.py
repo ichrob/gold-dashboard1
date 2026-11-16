@@ -63,3 +63,84 @@ class PriorityTests(unittest.TestCase):
             with gate.maintenance_slot():
                 self.assertEqual(gate.status()['maintenanceRunning'],1)
         self.assertEqual(gate.status()['maintenanceRunning'],0)
+
+
+    def test_optional_jobs_are_serial_and_foreground_goes_first(self):
+        """Queued maintenance must not jump in front of a waiting handset."""
+        import time
+        first_entered=threading.Event()
+        release_first=threading.Event()
+        second_entered=threading.Event()
+        foreground_entered=threading.Event()
+        release_foreground=threading.Event()
+
+        @gate.maintenance
+        def first():
+            first_entered.set()
+            release_first.wait(3)
+
+        @gate.maintenance
+        def second():
+            second_entered.set()
+
+        def foreground():
+            with gate.ocr_slot(timeout=2):
+                foreground_entered.set()
+                release_foreground.wait(2)
+
+        a=threading.Thread(target=first)
+        b=threading.Thread(target=second)
+        c=threading.Thread(target=foreground)
+        try:
+            a.start()
+            self.assertTrue(first_entered.wait(1))
+            b.start()
+            self.assertFalse(second_entered.wait(.05))
+            self.assertEqual(gate.status()['maintenanceRunning'], 1)
+            c.start()
+            deadline=time.monotonic()+1
+            while gate.status()['ocrWaiting'] != 1 and time.monotonic()<deadline:
+                time.sleep(.005)
+            self.assertEqual(gate.status()['ocrWaiting'], 1)
+            release_first.set()
+            self.assertTrue(foreground_entered.wait(1))
+            self.assertFalse(second_entered.is_set())
+            release_foreground.set()
+            self.assertTrue(second_entered.wait(2))
+        finally:
+            release_first.set()
+            release_foreground.set()
+            for thread in (a,b,c):
+                if thread.ident is not None:
+                    thread.join(3)
+        self.assertEqual(gate.status()['maintenanceRunning'], 0)
+        self.assertFalse(gate.status()['ocrActive'])
+
+    def test_storage_maintenance_respects_existing_foreground_gate(self):
+        import storage_maintenance
+        class Connection:
+            autocommit=True
+            def __init__(self):
+                self.called=False
+            def __enter__(self):
+                self.called=True
+                return self
+            def __exit__(self, *args):
+                return None
+            def execute(self, sql, params=None):
+                return self
+            def fetchone(self):
+                return (False,)
+        conn=Connection()
+        finished=threading.Event()
+        def optional():
+            storage_maintenance.run_once(lambda:conn)
+            finished.set()
+        with gate.ocr_slot():
+            thread=threading.Thread(target=optional)
+            thread.start()
+            self.assertFalse(finished.wait(.05))
+            self.assertFalse(conn.called)
+        self.assertTrue(finished.wait(2))
+        thread.join(2)
+        self.assertTrue(conn.called)

@@ -65,6 +65,18 @@ def entry_block_code(value):
         return 'signal-score-weak'
     if any(word in reason for word in ('tagesrisiko','risikolimit','risikobudget','verlustgrenze','tagesverlustgrenze')):
         return 'risk-limit'
+    # The main signal may stay NEUTRAL while SHORT/LONG context is visible:
+    # weak trend, incompatible 5m/15m confirmation and a missing second
+    # close are observed market-wait reasons, not unknown system faults.
+    if any(word in reason for word in (
+            'haupttrend geschwächt', '5m-kursindikatoren neutral oder widersprüchlich',
+            'zeitebenen bestätigen die richtung nicht',
+            'trendstärke schwach: zweite schlusskerze',
+            'erst 1 von 2 geschlossenen 5m-kerzen bestätigt',
+            'kleine ema-/macd-distanz: zweite schlusskerze')):
+        return 'no-direction'
+    if 'kurzfristiger rücksetzer; einstieg abwarten' in reason:
+        return 'plan-not-ready'
     if any(word in reason for word in ('abwarten','keine bestätigte richtung',
                                       'keine einstiegsrichtung','signal neutral')):
         return 'no-direction'

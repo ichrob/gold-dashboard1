@@ -80,6 +80,28 @@ class TestHybridProjection(unittest.TestCase):
         changed=copy.deepcopy(stale);changed['metadata']['strike']+=1
         self.assertNotIn('calculatedProduct',h.apply(changed,later,live_spot,live_fx))
 
+    def test_handset_model_survives_original_quote_recovery_without_a_projection(self):
+        import handset_contract_model as handset
+        for eligible in (True,False):
+            r=self.bnp();r['eligible']=eligible
+            if not eligible:r['quoteFailureCode']='STALE_OR_INVALID_SOURCE_TIME'
+            before=copy.deepcopy(r)
+            with patch.object(h,'apply',side_effect=AssertionError('No price generation')):
+                out=handset.prepare(r,BASE)
+            self.assertTrue(out['productModel']['verifiedSimpleTurbo'])
+            self.assertTrue(out['productModel']['researchOnly'])
+            self.assertEqual(out['productModel']['scope'],'handset-comparison')
+            self.assertNotIn('calculatedProduct',out)
+            self.assertEqual(out['eligible'],eligible)
+            self.assertEqual(out['askAt'],r['askAt'])
+            self.assertEqual(r,before)
+        for mutate in (lambda r:r['conditions']['ko'].update(conditionVerified=False),
+                       lambda r:r['metadata'].update(status=2),
+                       lambda r:r['comdirectFieldsBackup'].update(conflicts=['ratio']),
+                       lambda r:r.update(sourceDisabled=True)):
+            r=self.bnp();mutate(r)
+            self.assertNotIn('productModel',handset.prepare(r,BASE))
+
     def test_bnp_original_warms_anchor_then_stale_uses_model_and_recovers(self):
         r=self.bnp();s,fx=inputs()
         direct=h.apply(r,BASE,s,fx)
