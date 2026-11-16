@@ -73,8 +73,8 @@ POLICIES['noema5000nov'] = dict(POLICIES['normal1000nov'],
     paper_campaign_entry=False)
 
 _PAPER_CAMPAIGN_GATES = {
-    'trend800nov': ('campaign-800-entry-v1', 1.0),
-    'normal1000nov': ('campaign-1000-entry-v1', 1.2),
+    'trend800nov': ('campaign-800-entry-v1', 1.25),
+    'normal1000nov': ('campaign-1000-entry-v1', 1.4),
 }
 
 _TABLES = ('bob_paper_control', 'bob_paper_cases', 'bob_paper_days')
@@ -273,7 +273,7 @@ def campaign_paper_market(market, profile):
     valid = (trial.get('paperOnly') is True
         and trial.get('profile') == profile and trial.get('source') == source
         and gate.get('paperOnly') is True and gate.get('paperProfile') == profile
-        and gate.get('spotDistance') == distance and gate.get('maxSignalMinutes') == 20
+        and gate.get('spotDistance') == distance and gate.get('maxSignalMinutes') == 30
         and gate.get('maxDeviationAtr') == 1.5 and gate.get('allowed') is True
         and market.get('ready') is True and market.get('priceFresh') is True
         and stop_target_audit.valid_plan(plan)
