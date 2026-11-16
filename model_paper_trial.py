@@ -311,7 +311,7 @@ def tick(conn, market, bundle, evidence, now=None):
 
 
 def report(conn):
-    rows=conn.execute('SELECT profile,payload FROM bob_model_paper_trial ORDER BY profile').fetchall()
+    rows=conn.execute('SELECT profile,payload FROM bob_model_paper_trial WHERE profile=ANY(%s::text[]) ORDER BY profile',(list(PROFILES),)).fetchall()
     accounts=[]
     for profile,control in rows[:2]:
         accounts.append(dict(profile=profile,initialCapitalEur=PROFILES.get(profile),
