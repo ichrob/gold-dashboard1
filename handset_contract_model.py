@@ -129,6 +129,15 @@ def attach(quote, now):
 def prepare(quote, now):
     """Expose bounded private failure evidence without guessing missing terms."""
     out=attach_chf_mini(attach(quote,now),now)
+    # Contract identity does not depend on whether a theoretical fallback price
+    # was needed this cycle. Revalidate the existing factory on every read;
+    # never carry a previous model over changed or expired issuer conditions.
+    if isinstance(out,dict) and not out.get('productModel') and (out.get('metadata') or {}).get('currency')=='EUR':
+        from hybrid_product_price import model_for
+        model=model_for(out,now)
+        if model:
+            out=copy.deepcopy(out)
+            out['productModel']=dict(model,researchOnly=True,scope='handset-comparison')
     if not isinstance(out,dict):
         return out
     out=copy.deepcopy(out)
