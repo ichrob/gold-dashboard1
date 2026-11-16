@@ -188,6 +188,7 @@ def init(conn):
         day TEXT PRIMARY KEY, payload JSONB NOT NULL)''')
     import paper_portfolios
     paper_portfolios.init(conn)
+    __import__('model_paper_trial').init(conn)
     paper_stop_study.init(conn)
     __import__('paper_shadow_studies').init(conn)
     __import__('paper_entry_exit_comparison').init(conn)
@@ -1712,6 +1713,17 @@ def _worker(db):
                                                           early_market=early_market,early_selection=early_selection,
                                                           input_observations=input_observations,
                                                           warning_market=warning_market,warning_selection=warning_selection)
+                        # Prospective separate MODEL trials cannot overwrite a
+                        # primary 800/1000 simulation or broker quote evidence.
+                        conn.execute('SAVEPOINT bob_model_paper')
+                        try:
+                            import model_paper_trial
+                            model_paper_trial.tick(conn,market,bundle,evidence,time.time()*1000)
+                            conn.execute('RELEASE SAVEPOINT bob_model_paper')
+                        except Exception as model_exc:
+                            conn.execute('ROLLBACK TO SAVEPOINT bob_model_paper')
+                            conn.execute('RELEASE SAVEPOINT bob_model_paper')
+                            print('BOB_MODEL_PAPER error='+type(model_exc).__name__,flush=True)
                         try:
                             with conn.transaction():paper_stop_study.tick(conn,market,quotes,time.time()*1000)
                         except Exception as exc:print('BOB_STOP_STUDY error='+type(exc).__name__,flush=True)
