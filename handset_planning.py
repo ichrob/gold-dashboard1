@@ -176,3 +176,63 @@ def tick(conn, evidence, quotes, market, bundle, now):
     # Do not overwrite a newer configuration saved during this calculation.
     conn.execute('''UPDATE bob_handset_planning SET result=%s::jsonb
         WHERE id=1 AND revision=%s''', (json.dumps(result, allow_nan=False), state['revision']))
+
+
+def model_plan_audit(conn, now=None):
+    """Bounded current-list audit: never equate a derived number with a fill.
+
+    Read only already stored product and calculation results. The live input
+    clocks are not rewritten; stale runs are not reported as successes.
+    """
+    import degiro_product_audit
+    now = time.time()*1000 if now is None else now
+    report = degiro_product_audit.read(conn, now)
+    state = read(conn)
+    result = state.get('result') or {}
+    uploaded = report.get('listUploadedAt')
+    current = bool(state.get('resultFresh') and
+        result.get('listUploadedAt') == uploaded and
+        isinstance(result.get('items'), list))
+    by_isin = {item.get('isin'):item for item in result.get('items', [])[:12]
+               if isinstance(item, dict) and isinstance(item.get('isin'), str)}
+    rows=[]
+    for item in (report.get('items') or [])[:12]:
+        isin = item.get('isin')
+        if not isinstance(isin,str) or not isin:
+            continue
+        source = by_isin.get(isin, {}) if current else {}
+        terminated = item.get('state') == 'terminated'
+        excluded = item.get('state') == 'excluded-factor'
+        suitable = (type(source.get('modelStop')) in (int,float) and
+            type(source.get('modelTarget')) in (int,float) and
+            math.isfinite(source['modelStop']) and source['modelStop'] > 0 and
+            math.isfinite(source['modelTarget']) and source['modelTarget'] > 0)
+        mode = (source.get('modelMode') if source.get('modelMode') in
+            ('anchored-estimate', 'intrinsic-only') else None)
+        status = ('terminated' if terminated else 'excluded-factor' if excluded else
+                  'not-current' if not current else
+                  'modeled-reference' if suitable and mode else
+                  'observed-input-reference' if suitable and
+                     source.get('planState') in ('reference-calculated','reference-target-obstacle') else
+                  'unavailable')
+        reason = ('Produkt beendet' if terminated else
+                  'Faktorprodukt ausgeschlossen' if excluded else
+                  'Kurs-/Planaufnahme noch nicht aktuell bestätigt' if not current else
+                  source.get('modelEstimateReason') or
+                  ((source.get('reasons') or ['Planparameter fehlen'])[0]))
+        rows.append(dict(isin=isin, direction=item.get('direction'),
+            status=status,mode=mode if status=='modeled-reference' else None,
+            currency=source.get('modelCurrency') if suitable else None,
+            modelStop=source['modelStop'] if suitable else None,
+            modelTarget=source['modelTarget'] if suitable else None,
+            referenceAt=source.get('modelReferenceAt') if suitable else None,
+            reason=str(reason)[:240] if status not in ('modeled-reference','observed-input-reference') else None,
+            planningOnly=True, tradeApproved=False, originalFillVerified=False))
+    return dict(status='observed' if current else 'not-current',
+        readOnly=True, realOrders=False, checkedAt=result.get('calculatedAt') if current else None,
+        listUploadedAt=uploaded, listed=len(rows),
+        modeled=sum(x['status']=='modeled-reference' for x in rows),
+        observedInput=sum(x['status']=='observed-input-reference' for x in rows),
+        blocked=sum(x['status'] in ('unavailable','not-current') for x in rows),
+        excluded=sum(x['status'] in ('excluded-factor','terminated') for x in rows),
+        items=rows, scope='current-screen-list-source-bound-risk-references-not-product-approval')
