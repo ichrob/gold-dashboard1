@@ -36,6 +36,46 @@ assert.equal(unconfirmed.copyAllowed,false);
 assert.equal(unconfirmed.planState,'reference-calculated');
 assert(unconfirmed.modelStop>0&&unconfirmed.modelTarget>0);
 assert(unconfirmed.reasons.some(r=>/Lesebeleg/.test(r)));
+// A current derived quote supports per-product paper planning without
+// pretending a missing original dealer bid/ask or handset proof exists.
+const synthetic=fixture('LONG','EUR');
+delete synthetic.report.items[0].handsetObservation;
+delete synthetic.quotes[isin].bid;
+delete synthetic.quotes[isin].ask;
+synthetic.quotes[isin].found=false;
+synthetic.spots.xaus=4200;
+synthetic.spots.is_genuine_xauusd_spot=true;
+synthetic.spots.spot_price_as_of=at;
+synthetic.quotes[isin].productModel.tradingEndAt=new Date(now+3600000).toISOString();
+synthetic.quotes[isin].calculatedProduct={
+ kind:'calculated-turbo',available:true,currency:'EUR',direction:'LONG',
+ bidEur:20,askEur:20.1,goldUsd:4200,usdEur:.9,ratio:.1,strikeUsd:3900,
+ priceAt:at,goldAt:at,fxDataAt:at,fxEffectiveAt:at,calculatedAt:at,
+ referenceAt:new Date(now-180000).toISOString(),validation:{ready:false}};
+const prior=JSON.stringify(synthetic),modeled=evaluate(synthetic).items[0];
+assert.equal(JSON.stringify(synthetic),prior);
+assert.equal(modeled.available,false);
+assert.equal(modeled.entryApproved,false);
+assert.equal(modeled.copyAllowed,false);
+assert.equal(modeled.simulationPlanningUsable,true);
+assert.equal(modeled.simulationFillAllowed,false);
+assert.equal(modeled.modelMode,'anchored-estimate');
+assert.equal(modeled.planState,'model-only-reference');
+assert.equal(modeled.modelEntry,20.1);
+assert.equal(modeled.modelStop,17.3);
+assert.equal(modeled.modelTarget,25.4);
+const intrinsic=JSON.parse(prior);
+delete intrinsic.quotes[isin].calculatedProduct;
+const planOnly=evaluate(intrinsic).items[0];
+assert.equal(planOnly.modelMode,'intrinsic-only');
+assert.equal(planOnly.modelStop,24.3);
+assert.equal(planOnly.simulationFillAllowed,false);
+const tooOld=JSON.parse(prior);
+tooOld.spots.spot_price_as_of=new Date(now-70000).toISOString();
+assert.equal(evaluate(tooOld).items[0].simulationPlanningUsable,false);
+const terminatedModel=JSON.parse(prior);
+terminatedModel.report.items[0].state='terminated';
+assert.equal(evaluate(terminatedModel).items[0].modelStop,null);
 const missing=fixture();missing.config=null;
 const row=evaluate(missing).items[0];assert(row.modelStop>0);assert.equal(row.available,false);
 console.log('Server handset scenarios: shared LONG/SHORT stops, EUR/CHF costs, missing config/FX, terminal/stale guards, no input mutation passed');

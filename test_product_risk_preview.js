@@ -1,6 +1,8 @@
 'use strict';
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const window={};const env={window};vm.createContext(env);
+vm.runInContext(fs.readFileSync('model_product_reference.js','utf8'),env);
+assert.equal(typeof window.BobModelReference.calculate,'function');
 vm.runInContext(fs.readFileSync('degiro_assistant.js','utf8'),env);
 vm.runInContext(fs.readFileSync('bob_stop_assistant.js','utf8'),env);
 const b=window.BobDegiro,now=Date.parse('2026-10-27T10:00:00Z'),at=new Date(now-10000).toISOString();
@@ -13,6 +15,22 @@ for(const direction of ['LONG','SHORT'])for(const currency of ['EUR','CHF']){
  const before=JSON.stringify({p,market}),r=b.productRiskPreview(p,market,now);
  assert(r.available);assert.equal(r.currency,currency);assert(Math.abs(r.stop-17.3)<1e-8);assert(Math.abs(r.target-25.4)<1e-8);assert(Math.abs(r.lossPerUnit-2.8)<1e-8);
  assert.equal(r.automaticOrder,false);assert.equal(r.tradeable,false);assert.equal(JSON.stringify({p,market}),before);
+ if(currency==='EUR'){
+  const withoutBid={...p,quote:{...q,bid:null,ask:null,calculatedProduct:{
+    available:true,kind:'calculated-turbo',currency:'EUR',direction,
+    bidEur:20,askEur:20.1,ratio:.1,strikeUsd:ko,goldUsd:4200,usdEur:.9,
+    referenceAt:new Date(now-180000).toISOString(),priceAt:at,goldAt:at,
+    fxDataAt:at,fxEffectiveAt:at,calculatedAt:at,validation:{ready:false}}}};
+  const spotMarket={...market,spots:{...market.spots,xaus:4200,
+    spot_price_as_of:at,is_genuine_xauusd_spot:true,
+    usd_eur_meta:{rate:.9,fetchedAt:at}}};
+  const rendered=b.productRiskPreviewText(withoutBid,spotMarket,now);
+  assert.match(rendered,/Berechnete Produktreferenz/);
+  assert.match(rendered,/Stopp 17.3000 EUR/);
+  assert.match(rendered,/Ziel 25.4000 EUR/);
+  assert.match(rendered,/KEIN aktueller DEGIRO/);
+  assert.equal(b.productRiskPreview(withoutBid,spotMarket,now).available,false);
+ }
  for(const bad of [{...market,available:false},{...market,entrySuitable:false},{...market,stop:ko+sign*20},{...market,direction:'NEUTRAL'},{...market,spots:{}}])assert(!b.productRiskPreview(p,bad,now).available);
  for(const bad of [{...p,isinConfirmed:false},{...p,ko:4200-sign*20},{...p,quote:{...q,isin:'OTHER'}},{...p,quote:{...q,productModel:{...q.productModel,underlying:'GC=F'}}},{...p,quote:{...q,productModel:{...q.productModel,verifiedSimpleTurbo:false}}}])assert(!b.productRiskPreview(bad,market,now).available);
  assert(!b.productRiskPreview(p,market,now+100000).available);

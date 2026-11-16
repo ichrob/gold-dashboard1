@@ -429,12 +429,18 @@ function showServerPlanning(panel,data){
  if(!data.resultFresh||!sameList){box.textContent='Serververgleich veraltet oder für eine andere Produktliste. Neue Berechnung wird im Hintergrund geprüft.';return;}
  box.textContent='Serververgleich · '+result.available+' von '+result.items.length+' berechenbar · '+
   (result.conditionalAvailable||0)+' mit bedingter Vergleichsrechnung · '+
+  result.items.filter(x=>x.planState==='model-only-reference').length+' zusätzliche Modell-Stopp-/Zielreferenzen · '+
   new Date(result.calculatedAt).toLocaleTimeString('de-CH',{timeZone:'Europe/Zurich'})+' Zürich\n'+
   result.items.map(x=>x.isin+' · '+(x.feeAssessment?.available?'Gebühren '+fmt(x.feeAssessment.feesCHF)+' CHF ('+(x.feeAssessment.estimated?'Tarifreserve':'manuell')+') · ':'')+(x.available?
    x.quantity+' Stück · '+fmt(x.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(x.stop,4)+' '+x.currency+
    (Number.isFinite(x.modelTarget)&&x.modelTarget>0?' · Modellziel '+fmt(x.modelTarget,4)+' '+x.currency:'')+
    ' · Modellrisiko '+fmt(x.lossCHF)+' CHF ('+fmt(x.riskUsagePct,1)+' %)':
-   (Number.isFinite(x.modelStop)?'Referenzstopp '+fmt(x.modelStop,4)+(Number.isFinite(x.modelTarget)?' · Referenzziel '+fmt(x.modelTarget,4):'')+' '+(x.modelCurrency||x.currency||'Währung offen')+' · ': 'Referenzstopp/-ziel nicht berechenbar · ')+(x.reasons||[]).join(' · '))+
+   (Number.isFinite(x.modelStop)?
+     (x.planState==='model-only-reference'?'Nur gerechnet – kein Handelskurs · ':'')+
+     (Number.isFinite(x.modelEntry)?'Modelleinstand '+fmt(x.modelEntry,4)+' · ':'')+
+     'Referenzstopp '+fmt(x.modelStop,4)+(Number.isFinite(x.modelTarget)?' · Referenzziel '+fmt(x.modelTarget,4):'')+
+     ' '+(x.modelCurrency||x.currency||'Währung offen')+' · ': 'Referenzstopp/-ziel nicht berechenbar · ')+
+     (x.modelWarning||'')+' · '+(x.reasons||[]).join(' · '))+
    (x.automaticScenarios||[]).map(s=>'\n  Bedingte Rechnung · '+s.assumptions.join('; ')+' · '+
     (s.feeAssessment.available?'Gebührenreserve '+fmt(s.feeAssessment.feesCHF)+' CHF · ':'')+
     (s.available?s.quantity+' Stück · '+fmt(s.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(s.stop,4)+' '+s.currency+
