@@ -12,7 +12,7 @@ function evaluate(input){
  return vm.runInContext(`(()=>{
   const api=window.BobDegiro,calc=window.BobManualTop3,cfg=input.config||{},
    accountEvidenceConditional=input.accountEvidenceConditional===true;
-  const items=(input.report?.items||[]).filter(x=>x.handsetObservation).slice(0,12).map(row=>{
+  const items=(input.report?.items||[]).filter(x=>x?.isin).slice(0,12).map(row=>{
    const isin=row.isin,original=input.products.find(p=>p.isin===isin),q=input.quotes?.[isin];
    const p=original&&q?.isin===isin?{...original,quote:q,
     ko:q.conditions?.ko?.value??q.ko??q.metadata?.ko??original.ko,
@@ -35,7 +35,10 @@ function evaluate(input){
    const imported=calc.importHandsetReport(input.report,isin,now);
    const market={...(input.plans?.[direction]||{}),spots:input.spots};
    const quote=p&&calc.selectQuoteByPriority(p,now)?.quote;
-   const stop=imported.available&&p&&quote?api.productRiskComparison(p,market,now,quote):null;
+   // A technical reference requires original product/quote proof, not a
+   // handset screenshot. Missing handset evidence still blocks comparison
+   // admission and never makes the reference an executable plan.
+   const stop=p&&quote?api.productRiskComparison(p,market,now,quote):null;
    if(stop?.reason==='Bestätigtes passendes EUR-/CHF-Spot-Turbo-Modell fehlt'&&q?.handsetModelCheck?.reason)
     stop.reason=q.handsetModelCheck.reason;
    const fx=calc.readChfFx(input.spots,now,quote?.currency);
@@ -67,11 +70,13 @@ function evaluate(input){
     !feeAssessment.available&&feeAssessment.reason,
     !preliminary.available&&preliminary.reason,!result.available&&result.reason].filter(Boolean);
    return {...result,isin,feeAssessment,automaticScenarios,contractModelCheck:q?.handsetModelCheck||null,
+    planState:stop?.available?(stop.entrySuitable===false?'reference-target-obstacle':'reference-calculated'):'reference-unavailable',
     entrySuitable:stop?.entrySuitable??null,entryWarning:stop?.entryWarning||null,entryApproved:false,
     modelStop:stop?.available?stop.stop:null,
-    modelTarget:stop?.available?stop.target:null,modelReferenceAt:stop?.referenceAt||null,
+    modelTarget:stop?.available?stop.target:null,modelCurrency:stop?.available?stop.currency:null,
+    modelReferenceAt:stop?.referenceAt||null,
     fxBasis:fx.note||fx.reason,observedAt:imported.observedAt||null,
-    reasons:[...new Set(reasons)],rankingPenalty:false};
+    reasons:[...new Set(reasons.length?reasons:['Referenzplan berechnet; Produkt- und Kontonachweise weiterhin getrennt prüfen'])],rankingPenalty:false};
   });
   return {calculatedAt:now,items,available:items.filter(x=>x.available).length,
    conditionalAvailable:items.filter(x=>x.automaticScenarios.some(s=>s.available)).length,

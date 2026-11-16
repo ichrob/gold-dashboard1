@@ -434,7 +434,7 @@ function showServerPlanning(panel,data){
    x.quantity+' Stück · '+fmt(x.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(x.stop,4)+' '+x.currency+
    (Number.isFinite(x.modelTarget)&&x.modelTarget>0?' · Modellziel '+fmt(x.modelTarget,4)+' '+x.currency:'')+
    ' · Modellrisiko '+fmt(x.lossCHF)+' CHF ('+fmt(x.riskUsagePct,1)+' %)':
-   (x.modelStop!==null?'Modellstopp '+fmt(x.modelStop,4)+' · ':'')+(x.reasons||[]).join(' · '))+
+   (Number.isFinite(x.modelStop)?'Referenzstopp '+fmt(x.modelStop,4)+(Number.isFinite(x.modelTarget)?' · Referenzziel '+fmt(x.modelTarget,4):'')+' '+(x.modelCurrency||x.currency||'Währung offen')+' · ': 'Referenzstopp/-ziel nicht berechenbar · ')+(x.reasons||[]).join(' · '))+
    (x.automaticScenarios||[]).map(s=>'\n  Bedingte Rechnung · '+s.assumptions.join('; ')+' · '+
     (s.feeAssessment.available?'Gebührenreserve '+fmt(s.feeAssessment.feesCHF)+' CHF · ':'')+
     (s.available?s.quantity+' Stück · '+fmt(s.totalCHF)+' CHF inkl. Gebühren · Modellstopp '+fmt(s.stop,4)+' '+s.currency+

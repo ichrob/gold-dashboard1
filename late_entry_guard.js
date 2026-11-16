@@ -57,7 +57,7 @@
    if(!pos(atr))return fail('ATR aus geprüften Kerzen nicht berechenbar');
    // Do not classify a new, corroborated minute breakout as a source mismatch.
    // EMA distance, impulse, age and all trade approvals remain checked below.
-   // Only the two named paper campaigns test 1.0/1.2 ATR. Live stays at 0.8.
+   // Only the two named paper campaigns test 1.25/1.4 ATR. Live stays at 0.8.
    const spotDistance=study&&Number.isFinite(study.spotDistance)?study.spotDistance:0.80;
    const minuteConfirmed=minuteConfirmation(bundle,direction,now,latest,spot.xaus,atr);
    if(Math.abs(spot.xaus-latest.close)>atr*spotDistance && !minuteConfirmed)
@@ -131,8 +131,8 @@
      sign*(price-b.close)>=-0.25*atr && Math.abs(price-b.close)<=0.25*atr;
  }
  return {checkPaperCampaign:(bundle,direction,now,confirmedAt,profile)=>{
-   const profiles={trend800nov:{distance:1.5,age:20,spotDistance:1.0},
-     normal1000nov:{distance:1.5,age:20,spotDistance:1.2}};
+   const profiles={trend800nov:{distance:1.5,age:30,spotDistance:1.25},
+     normal1000nov:{distance:1.5,age:30,spotDistance:1.4}};
    if(!Object.prototype.hasOwnProperty.call(profiles,profile))
      throw Error('Unknown paper campaign profile');
    return gate(bundle,direction,now,confirmedAt,false,false,

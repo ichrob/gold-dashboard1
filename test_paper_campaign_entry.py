@@ -12,7 +12,7 @@ def market(profile, direction='SHORT', rr=2.0):
           'target':entry-(20*rr) if direction=='SHORT' else entry+(20*rr),
           'unit':'USD/oz','experimental':True,'entrySuitable':True,'source':source}
     gate={'paperOnly':True,'paperProfile':profile,'spotDistance':distance,
-          'maxSignalMinutes':20,'maxDeviationAtr':1.5,'allowed':True}
+          'maxSignalMinutes':30,'maxDeviationAtr':1.5,'allowed':True}
     trial={'version':'campaign-entry-v1','paperOnly':True,'profile':profile,
            'source':source,'gate':gate,'plan':plan,
            'entryPlanState':{'state':'ready','reason':'paper candidate'},

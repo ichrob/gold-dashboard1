@@ -5944,10 +5944,21 @@ function productRiskPlan(p,market,now,preferredQuote,comparisonOnly){
  }catch(_){return {...out,reason:'Produktwerte für individuelle Umrechnung unvollständig'};}
 }
 function productRiskPreviewText(p,market,now=Date.now()){
- const r=productRiskPreview(p,market,now);
- if(!r.available)return 'Stopp/Ziel offen · '+r.reason;
+ // Display-only: every listed LONG/SHORT product receives its own scoped
+ // risk reference, even if the primary market direction is the opposite.
+ // Neither this path nor the comparison path grants an entry/quote approval.
+ const opposite=market?.direction!==p?.productDirection;
+ const reference=opposite&&typeof window.productMarketPlan==='function'?
+  window.productMarketPlan(p.productDirection,now):market;
+ const strict=productRiskPreview(p,reference,now);
+ const r=strict.available?strict:productRiskComparison(p,reference,now);
+ const gold=reference?.available&&Number.isFinite(reference.stop)&&Number.isFinite(reference.target)?
+  ' · Gold-Referenz: Stopp '+reference.stop.toFixed(2)+' / Ziel '+reference.target.toFixed(2)+' USD/oz (keine Produktfreigabe)':'';
+ if(!r.available)return 'Produkt-Stopp/Ziel nicht berechenbar · '+r.reason+gold;
  const money=v=>'≈ '+v.toFixed(4)+' '+r.currency;
- return 'Vorläufiger Produktplan · Stopp '+money(r.stop)+' · Ziel '+money(r.target)+
+ const label=strict.available&&!opposite?'Vorläufiger Produktplan':
+  'Unverbindliche Risikoreferenz – '+(opposite?'Gegenrichtung zum Hauptsignal; ':'')+'kein Einstieg freigegeben';
+ return label+' · Stopp '+money(r.stop)+' · Ziel '+money(r.target)+
   ' · Verlust am Stopp je Stück '+money(r.lossPerUnit)+' (ab beobachtetem Briefkurs)'+
   '\nGold-Stopp '+r.stopGold.toFixed(2)+' USD · Gold-Ziel '+r.targetGold.toFixed(2)+' USD · KO '+r.ko.toFixed(2)+' USD'+
   '\nReferenz: '+r.source+' · '+r.referenceAt+

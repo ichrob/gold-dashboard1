@@ -138,10 +138,13 @@ def tick(conn, evidence, quotes, market, bundle, now):
     report = degiro_product_audit.read(conn, now)
     if report.get('listUploadedAt') != evidence.get('listUploadedAt'):
         return
-    rows = [x for x in report.get('items', []) if x.get('handsetObservation')]
+    rows = [x for x in report.get('items', []) if x.get('isin') and x.get('state') != 'excluded-factor'][:12]
     if not rows:
         return
-    fingerprint = json.dumps([[x['isin'], x['handsetObservation'].get('observedAt'),
+    # Include displayed candidates without a phone observation: their independent
+    # risk reference is either calculated or explicitly marked unavailable.
+    # A missing handset proof never becomes a valid executable quotation.
+    fingerprint = json.dumps([[x['isin'], (x.get('handsetObservation') or {}).get('observedAt'),
                               x.get('state')] for x in rows], sort_keys=True)
     old = state.get('result') or {}
     if (old.get('fingerprint') == fingerprint and old.get('configRevision') == state['revision']
