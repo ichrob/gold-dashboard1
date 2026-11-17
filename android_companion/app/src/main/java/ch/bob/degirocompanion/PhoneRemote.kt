@@ -138,7 +138,7 @@ internal object PhoneRemote {
         // sessions. All other sessions retain their original limits.
         tradeLinked = !accountSettingsOnly && !entryReadOnly && !unlockRehearsalOnly &&
             BobTradeDimMode.mayContinueReading(c)
-        val lease=if(unlockRehearsalOnly) 180000L else TradeReadLeasePolicy.SEGMENT_MILLIS
+        val lease=if(unlockRehearsalOnly) 180000L else 900000L
         session=UUID.randomUUID().toString().replace("-","");deadline=SystemClock.elapsedRealtime()+lease
         expires=System.currentTimeMillis()/1000+lease/1000;ack=null;pendingSettings=null;pendingSettingsCode=""
         lastReportedAutoFx=null;lastReportedProfile=null
