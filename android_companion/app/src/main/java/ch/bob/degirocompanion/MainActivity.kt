@@ -140,7 +140,7 @@ class MainActivity : Activity() {
             "Entsperren und keine Änderung der Geräte-PIN. Nur dieser Bildschirmmodus " +
             "bleibt bis zum serverseitig erkannten Trade-Ende aktiv (maximal 8 Stunden " +
             "pro ausdrücklichem Start); einzelne Produktlesungen bleiben separat zeitlich begrenzt.")
-        button("▶ Trade-Lesemodus starten · extrem dunkel") {
+        button("▶ Trade-Lesemodus starten · Bildschirm wach halten") {
             AlertDialog.Builder(this).setTitle("Trade-Lesemodus aktivieren?")
                 .setMessage("Nur bei einem eindeutig aktiven Trade in Bobs realem Trade-Journal. " +
                     "Das Samsung muss entsperrt bleiben. Bob hält das Display gedimmt wach und " +
