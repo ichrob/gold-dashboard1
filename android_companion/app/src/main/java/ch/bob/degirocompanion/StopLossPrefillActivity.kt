@@ -37,6 +37,23 @@ class StopLossPrefillActivity : Activity() {
             inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         }
         content.addView(payload)
+        content.addView(Button(this).apply {
+            isAllCaps=false; text="Bob-Entwurf aus Zwischenablage übernehmen"
+            setOnClickListener {
+                // Only on an explicit local tap; never monitor the clipboard.
+                val clipboard=getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clip=clipboard.primaryClip
+                val raw=if(clip!=null && clip.itemCount==1 &&
+                    clip.getItemAt(0).uri==null && clip.getItemAt(0).intent==null)
+                    clip.getItemAt(0).text?.toString().orEmpty() else ""
+                if(StopLossDraftCodec.parse(raw,System.currentTimeMillis())==null) {
+                    status.text="Kein gültiger frischer Bob-Entwurf in der Zwischenablage."
+                } else {
+                    payload.setText(raw)
+                    status.text="Bob-Entwurf übernommen. Position und Werte unbedingt prüfen."
+                }
+            }
+        })
         label("2. Öffne bei DEGIRO selbst die Detailseite deiner bestehenden Position oder deren VERKAUF-Ordermaske. Bob darf nur die VERKAUF-Maske öffnen, keine Order senden.")
         confirmation=CheckBox(this).apply {
             text="Ich bestätige: Diese ISIN und Stückzahl gehören zu meiner tatsächlich gehaltenen Position. Die Produktdetailseite oder VERKAUF-Maske ist in DEGIRO geöffnet. Den Geldkurs und den Stopp prüfe ich selbst."
