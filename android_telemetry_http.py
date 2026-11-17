@@ -41,12 +41,13 @@ def route(h, method, path, forward):
         try:send(h,200,forward({'action':'list-get','batchId':batch},remote=True))
         except Exception:send(h,503,{'error':'List handoff unavailable'})
         return True
+    trade_status=path=='/api/android-trade/status'
     list_upload=path=='/api/android-list/upload'
     list_status=path=='/api/android-list/status'
     list_details=path=='/api/android-list/details'
     termux=path=='/api/android-termux/exchange'
     workflow=path=='/api/android-workflow/plan'
-    remote=workflow or termux or path=='/api/android-remote/exchange' or list_upload or list_status or list_details
+    remote=workflow or termux or trade_status or path=='/api/android-remote/exchange' or list_upload or list_status or list_details
     if path not in ('/api/android-diagnostics/pair','/api/android-diagnostics/report') and not remote:return False
     if method!='POST':send(h,405,{'error':'POST required'});return True
     pairing=path.endswith('/pair')
@@ -65,7 +66,7 @@ def route(h, method, path, forward):
             if not isinstance(value,dict) or value.get('action') not in ('register','revokeAll'):raise ValueError()
             request=value
         else:request={'action':'report','token':credential[7:],'report':value}
-        if remote:request={'action':'workflow-plan' if workflow else 'termux-exchange' if termux else 'list-upload' if list_upload else 'list-status' if list_status else 'list-details' if list_details else 'exchange','token':credential[7:],'value':value}
+        if remote:request={'action':'workflow-plan' if workflow else 'termux-exchange' if termux else 'trade-status' if trade_status else 'list-upload' if list_upload else 'list-status' if list_status else 'list-details' if list_details else 'exchange','token':credential[7:],'value':value}
         send(h,200,forward(request,remote=True) if remote else forward(request))
     except HTTPError as exc:
         send(h,exc.code if exc.code in (400,401,403,429) else 503,{'error':'Diagnostic request rejected'})
