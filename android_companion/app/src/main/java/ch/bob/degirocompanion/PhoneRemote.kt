@@ -38,6 +38,10 @@ internal object PhoneRemote {
     // Owner-started, RAM-only lock/unlock rehearsal. Never eligible for a
     // server entry signal or remote search/read command.
     private var unlockRehearsalOnly=false
+    private var rehearsalOwnerPresent=false
+    fun noteOwnerPresentForUnlockTest() {
+        if(unlockRehearsalOnly && waitingOnUnlock && active()) rehearsalOwnerPresent=true
+    }
     private var entryScreenLease: PowerManager.WakeLock?=null
     fun entryReadSession()=active() && entryOnly && !waitingOnUnlock && !unlockRehearsalOnly
     fun waitingForOwnerUnlock()=active() && waitingOnUnlock
@@ -75,6 +79,10 @@ internal object PhoneRemote {
         return true
     }
     fun resumeAfterOwnerUnlock(c:Context,brokerForeground:Boolean):Boolean {
+        // SCREEN_ON fires before the user authenticates. In the rehearsal,
+        // require the explicit Android USER_PRESENT event as well as the
+        // keyguard/device-unlocked checks, never treat waking as unlocking.
+        if(unlockRehearsalOnly && !rehearsalOwnerPresent)return false
         if(!EntryLockResumePolicy.mayResume(waitingOnUnlock,active(),
                 (c.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive,
                 (c.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked,
@@ -133,6 +141,7 @@ internal object PhoneRemote {
         entryOnly=entryReadOnly
         resumeOnUnlock=resumeAfterOwnerUnlock
         waitingOnUnlock=false
+        rehearsalOwnerPresent=false
         this.unlockRehearsalOnly=unlockRehearsalOnly
         commands=PhoneCommandPolicy();ProductReadSession.clear()
         message=if(unlockRehearsalOnly)
@@ -163,6 +172,7 @@ internal object PhoneRemote {
         lastReportedAutoFx=null;lastReportedProfile=null
         locallyConfirmedProfile=null
         unlockRehearsalOnly=false
+        rehearsalOwnerPresent=false
         network.execute { runCatching { PhoneDiagnostics.remoteExchange(c.applicationContext,body) } }
     }
     private fun payload(id:String,active:Boolean,observation:JSONObject)=JSONObject()
