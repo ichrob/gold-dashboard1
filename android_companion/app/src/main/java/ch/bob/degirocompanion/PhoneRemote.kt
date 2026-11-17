@@ -31,6 +31,8 @@ internal object PhoneRemote {
     // local redacted read; normal product sessions never do this.
     private var settingsOnly=false
     private var entryOnly=false
+    private var tradeLinked=false
+    fun tradeLinked():Boolean = tradeLinked && session.isNotEmpty()
     // Only a distinct, locally chosen entry-read mode may survive screen-off.
     // Other owner sessions and active page reads retain their fail-closed STOP.
     private var resumeOnUnlock=false
@@ -132,7 +134,11 @@ internal object PhoneRemote {
         check(PhoneDiagnostics.paired(c)) { "Zuerst automatische Diagnose verbinden und im Browser freigeben." }
         check(reader!=null && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
         check(!active() && !busy && !ProductReadRequest.active(SystemClock.elapsedRealtime()) && !MorningReadRun.running && !GoldSearchRun.running) { "Aktuelle Prüfung zuerst stoppen." }
-        val lease=if(unlockRehearsalOnly) 180000L else 900000L
+        // Only the owner-started trade companion can roll product-read
+        // sessions. All other sessions retain their original limits.
+        tradeLinked = !accountSettingsOnly && !entryReadOnly && !unlockRehearsalOnly &&
+            BobTradeDimMode.mayContinueReading(c)
+        val lease=if(unlockRehearsalOnly) 180000L else TradeReadLeasePolicy.SEGMENT_MILLIS
         session=UUID.randomUUID().toString().replace("-","");deadline=SystemClock.elapsedRealtime()+lease
         expires=System.currentTimeMillis()/1000+lease/1000;ack=null;pendingSettings=null;pendingSettingsCode=""
         lastReportedAutoFx=null;lastReportedProfile=null
@@ -146,6 +152,8 @@ internal object PhoneRemote {
         commands=PhoneCommandPolicy();ProductReadSession.clear()
         message=if(unlockRehearsalOnly)
             "Sperrtest aktiv · 3 Minuten · Samsung mit Seitentaste sperren und selbst entsperren."
+            else if(tradeLinked)
+            "Trade-Lesesitzung aktiv · kurze Sitzungsabschnitte werden nur bei bestätigtem Trade, entsperrtem Bildschirm und gültiger Freigabe verlängert."
             else if(resumeOnUnlock)
             "Einstiegskurs-Bereitschaft · höchstens 15 Minuten · Sperre wartet auf Entsperrung."
             else "Handy-Sitzung aktiv · höchstens 15 Minuten · STOPP oder Sperrtaste beendet sie."
@@ -157,7 +165,17 @@ internal object PhoneRemote {
     }
     fun stop(c:Context,code:String="STOPPED") {
         if(session.isEmpty())return
+        if(tradeLinked && TradeReadLeasePolicy.keepIdleAfterCompletedRead(
+                BobTradeDimMode.mayContinueReading(c),code)) {
+            // The Gold/detail batch is complete, but the *owner-approved*
+            // trade monitor continues read-only. Reset the batch UI state;
+            // never silently restart a PIN or a completed Gold search.
+            onStop?.invoke(code)
+            message="Produktlesung abgeschlossen · Trade läuft weiter. Gesicherte Lesebereitschaft bleibt bis zum bestätigten Trade-Ende aktiv."
+            return
+        }
         val old=session;session="";deadline=0;pendingSettings=null
+        tradeLinked=false
         // The old network request may still be in flight. It belongs to the
         // old session and must not keep the next owner-started test "busy".
         busy=false
@@ -186,8 +204,43 @@ internal object PhoneRemote {
         .put("observation",observation).put("ack",ack ?: JSONObject.NULL)
         .put("purpose",if(settingsOnly)"owner_account_settings"
             else if(entryOnly && !unlockRehearsalOnly)"entry_read" else "product_read")
+    /** Rotate the 15-minute server-visible session instead of extending its
+     * expiresAt. An old queued command is never copied to the new session.
+     * Each renewal requires a fresh SAME-trade receipt, an unlocked device,
+     * a functioning reader, and an idle broker read. STOPP ends both.
+     */
+    private fun renewTradeRead(c:Context) {
+        val old=session
+        val stopped=payload(old,false,empty("TRADE_LEASE_RENEWED"))
+        session=UUID.randomUUID().toString().replace("-","")
+        deadline=SystemClock.elapsedRealtime()+TradeReadLeasePolicy.SEGMENT_MILLIS
+        expires=System.currentTimeMillis()/1000+TradeReadLeasePolicy.SEGMENT_MILLIS/1000
+        ack=null;commands=PhoneCommandPolicy();busy=false
+        val newSession=session
+        message="Trade-Lesesitzung erneuert · weiterhin nur Lesen, Samsung entsperrt."
+        // Serialize the previous close before the next authenticated
+        // heartbeat. Stale replies cannot restore the old session.
+        network.execute { runCatching { PhoneDiagnostics.remoteExchange(c,stopped) } }
+        handler.postDelayed({
+            if(session==newSession)stop(c,"SESSION_EXPIRED")
+        },TradeReadLeasePolicy.SEGMENT_MILLIS)
+        poll(c,newSession)
+    }
+
     private fun poll(c:Context,id:String) {
         if(session!=id)return
+        if(tradeLinked && !BobTradeDimMode.mayContinueReading(c)) {
+            stop(c,"TRADE_MONITOR_UNVERIFIED");return
+        }
+        val now=SystemClock.elapsedRealtime()
+        if(tradeLinked && TradeReadLeasePolicy.renew(deadline-now,
+                BobTradeDimMode.mayContinueReading(c),
+                (c.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive,
+                (c.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isDeviceLocked,
+                ProductReadRequest.active(now) || GoldSearchRun.running ||
+                MorningReadRun.running || MorningListDelivery.waiting)) {
+            renewTradeRead(c);return
+        }
         if(!active() || !PhoneDiagnostics.paired(c)) { stop(c,"SESSION_EXPIRED");return }
         // Never touch DEGIRO's window tree while Android is locked. This
         // status does not complete, ACK or authorize any remote read request.
@@ -198,6 +251,12 @@ internal object PhoneRemote {
             // are necessary. Do not let a global market order launcher abort
             // the pending upload or treat it as a tradable order form.
             else if(MorningListDelivery.waiting) empty("LIST_IMPORT_WAITING")
+            // An idle trade-follow session never navigates or scans the
+            // broker. Only an explicit short read or authenticated bounded
+            // command can inspect its visible product page.
+            else if(tradeLinked && !GoldSearchRun.running &&
+                    !MorningReadRun.running && !ProductReadRequest.active(SystemClock.elapsedRealtime()))
+                empty("TRADE_READ_READY")
             else runCatching { reader?.invoke(null) ?: empty("SERVICE_MISSING") }
                 .getOrElse { empty("READ_ERROR") }
         if(PhoneObservationPolicy.mustStop(observation.optString("code"))) { stop(c,observation.optString("code"));return }
