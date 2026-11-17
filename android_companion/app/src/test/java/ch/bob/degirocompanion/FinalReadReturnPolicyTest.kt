@@ -63,6 +63,42 @@ class FinalReadReturnPolicyTest {
     ): Boolean = FinalReadReturnPolicy.safeLastProductBack(
         code,evidence,expected,previous,current,pkg,awake,locked,session,nodes)
 
+    private fun blocked(
+        code: String = "READ",
+        evidence: String = draft,
+        expected: String = isin,
+        previous: Int? = 12,
+        current: Int? = 12,
+        pkg: String? = ProductScreenEvidence.PACKAGE,
+        awake: Boolean = true,
+        locked: Boolean = false,
+        session: Boolean = true,
+        nodes: List<MorningReadPolicy.Node> = lastDetail
+    ) = FinalReadReturnPolicy.lastBackBlock(code,evidence,expected,
+        previous,current,pkg,awake,locked,session,nodes)
+
+    @Test fun lastBackFailureIsCategorizedWithoutAnyExtraPermission() {
+        val reason=FinalReadReturnPolicy.LastBackBlock
+        assertEquals(reason.NONE,blocked())
+        assertEquals(reason.READ,blocked(code="NO_QUOTES"))
+        assertEquals(reason.SESSION,blocked(session=false))
+        assertEquals(reason.DEVICE,blocked(locked=true))
+        assertEquals(reason.DEVICE,blocked(awake=false))
+        assertEquals(reason.FOREGROUND,blocked(pkg="com.android.systemui"))
+        assertEquals(reason.WINDOW,blocked(previous=null))
+        assertEquals(reason.WINDOW,blocked(current=13))
+        assertEquals(reason.IDENTITY,blocked(evidence=""))
+        assertEquals(reason.IDENTITY,blocked(expected="DE000FE2JJ20"))
+        assertEquals(reason.SURFACE,blocked(nodes=listOf(MorningReadPolicy.Node("Märkte"))))
+        assertEquals(reason.SURFACE,blocked(nodes=lastDetail+MorningReadPolicy.Node("Order bestätigen")))
+        assertEquals(reason.SURFACE,blocked(nodes=lastDetail+MorningReadPolicy.Node("",editable=true)))
+        // Every safeBack result must still equal the exact pre-existing boolean
+        // permission. The diagnostic is only a reason for refusing that action.
+        assertEquals(blocked()==reason.NONE,safeBack())
+        assertEquals(blocked(nodes=lastDetail+MorningReadPolicy.Node("Passwort"))==reason.NONE,
+                     safeBack(nodes=lastDetail+MorningReadPolicy.Node("Passwort")))
+    }
+
     @Test fun verifiedLastProductMaySendOneNativeBack() {
         assertTrue(safeBack())
     }
