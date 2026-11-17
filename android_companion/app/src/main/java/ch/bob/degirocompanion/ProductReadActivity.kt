@@ -249,6 +249,13 @@ class ProductReadActivity : Activity() {
         button("Einstiegskurs-Navigation sofort testen · ohne Signal") {
             chooseEntryNavigationTest()
         }
+        button("Samsung-Sperr-Fortsetzung sofort testen · ohne Signal") {
+            AlertDialog.Builder(this).setTitle("Sperr-Fortsetzung · 3-Minuten-Test")
+                .setMessage("Dieser Test prüft nur, ob Bob eine freiwillig gesperrte Samsung-Sitzung nach deiner echten Entsperrung wiedererkennt. DEGIRO wird geöffnet, aber kein Produkt gelesen, kein Signal erzeugt und kein Auftrag ausgeführt.\n\nNach dem Start: Samsung über die Seitentaste sperren, anschließend selbst per Fingerabdruck oder Geräte-PIN entsperren. Die sichere Gerätesperre bleibt aktiv. Bob versucht danach ausschließlich, die DEGIRO-App wiederzuerkennen. Falls Android die Rückkehr verhindert, DEGIRO selbst öffnen. Der Test endet nach erfolgreicher Erkennung oder spätestens nach drei Minuten. Anschließend den vorhandenen ISIN-Soforttest getrennt starten. Kein Echtgeldhandel.")
+                .setNegativeButton("Abbrechen",null)
+                .setPositiveButton("Sperrtest starten") { _,_ -> startOwnerUnlockRehearsal() }
+                .show()
+        }
         button("ChatGPT-Handy-Sitzung starten · 15 Minuten") {
             AlertDialog.Builder(this).setTitle("Vorhandenen Produkteinleser starten")
                 .setMessage("Bob startet den vorhandenen vollständigen Gold-Produkteinleser: DEGIRO öffnen, bei Bedarf lokal anmelden, suchen, Produktseiten lesen und zurückkehren. Ergebnisse und Fehler werden über die verbundene Diagnose an Bob gemeldet. Einzelne ChatGPT-Klickaufträge sind dafür nicht erforderlich. Bob verwendet eine eingerichtete PIN einmal lokal und beginnt nach bestätigter Marktseite. Ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein. Für 15 Minuten darf ChatGPT Produktdaten, sichtbare ISINs und technische Diagnose lesen sowie Gold-/ISIN-Suchschritte und Produktlesen auslösen. Keine Kontoansicht wird übertragen; keine Orders, Passwörter oder freie Bildschirmbedienung. Die automatische Diagnose muss verbunden sein. Handy entsperrt lassen; STOPP, Sperrtaste oder eigene Bedienung beendet die Sitzung.")
@@ -737,6 +744,46 @@ class ProductReadActivity : Activity() {
     }
     /** One explicit start: local, once-only PIN if enrolled; Gold only after
      * the actual DEGIRO Markets screen has been recognized. No PIN transport. */
+    /** Explicit, time-bounded owner lock/unlock rehearsal. Distinct from
+     * any market signal and from the separate live product-reading session.
+     * Samsung's keyguard and credentials are never touched.
+     */
+    private fun startOwnerUnlockRehearsal() {
+        var started=false
+        runCatching {
+            check(!PhoneRemote.active() && !PinReadinessProbe.running &&
+                !LoginToReadHandoff.pending(SystemClock.elapsedRealtime()) &&
+                !MorningReadRun.running && !GoldSearchRun.running &&
+                !ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+                "Erst den bisherigen Lese- oder Anmeldevorgang beenden."
+            }
+            check(preferences.getBoolean("enabled",false) && serviceEnabled() &&
+                ProductReadDiagnostics.connected) { "Zuerst den Android-Lesedienst einschalten." }
+            check(PhoneDiagnostics.paired(this)) {
+                "Zuerst die automatische Diagnose verbinden."
+            }
+            val power=getSystemService(POWER_SERVICE) as android.os.PowerManager
+            val keyguard=getSystemService(KEYGUARD_SERVICE) as android.app.KeyguardManager
+            check(power.isInteractive && !keyguard.isKeyguardLocked &&
+                !keyguard.isDeviceLocked) {
+                "Samsung zuerst selbst entsperren und anschließend den Sperrtest starten."
+            }
+            val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
+                ?: error("DEGIRO-App fehlt.")
+            ProductReadDiagnostics.reset(SystemClock.elapsedRealtime())
+            PhoneRemote.start(this,entryReadOnly=true,resumeAfterOwnerUnlock=true,
+                unlockRehearsalOnly=true)
+            started=true
+            result.text="Sperrtest aktiv: Samsung mit der Seitentaste sperren, danach selbst entsperren. Kein Signal und keine Produktlesung."
+            startActivity(launch)
+        }.onFailure {
+            if(started) PhoneRemote.stop(this,"UNLOCK_TEST_START_FAILED")
+            result.text=it.message ?: "Sperrtest nicht gestartet."
+            AlertDialog.Builder(this).setTitle("Sperrtest nicht gestartet")
+                .setMessage(result.text).setPositiveButton("Schließen",null).show()
+        }
+    }
+
     private fun startAutomaticTest() {
         if (PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running || PinReadinessProbe.running) {
             runCatching {
