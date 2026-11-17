@@ -9,6 +9,11 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
+import android.view.WindowManager
+import android.app.KeyguardManager
+import android.os.PowerManager
 import android.os.PowerManager
 import android.app.KeyguardManager
 import android.text.Editable
@@ -77,6 +82,40 @@ class MainActivity : Activity() {
     private var lastDiagnosticImageCount = 0
     private var workModeStatus: TextView? = null
     private var tradeDimStatus: TextView? = null
+    private val demoHandler = Handler(Looper.getMainLooper())
+    private var demoActive = false
+    private val demoExpiry = Runnable { stopTradeScreenDemo("20-Minuten-Test abgeschlossen.") }
+
+    /** Only tests the display wake behavior, not a DEGIRO trade or PIN.
+     * The app must remain foreground; never creates a fake active server trade.
+     */
+    private fun startTradeScreenDemo() {
+        val power = getSystemService(POWER_SERVICE) as PowerManager
+        val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        if(!power.isInteractive || keyguard.isKeyguardLocked || keyguard.isDeviceLocked) {
+            tradeDimStatus?.text = "Samsung zuerst selbst entsperren."
+            return
+        }
+        if(BobTradeDimMode.running) {
+            tradeDimStatus?.text = "Laufenden echten Trade-Lesemodus zuerst stoppen."
+            return
+        }
+        stopTradeScreenDemo("Neuer Test")
+        demoActive = true
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        tradeDimStatus?.text = "TEST OHNE ECHTGELD · 20 Minuten Wachhaltung nur in Bob Handy. " +
+            "Keine DEGIRO-Bedienung und keine simulierte Broker-Ausführung. " +
+            "Samsung-Extra-Dimmung bei Bedarf selbst einschalten."
+        demoHandler.postDelayed(demoExpiry,20L*60*1000)
+    }
+
+    private fun stopTradeScreenDemo(reason:String) {
+        if(!demoActive)return
+        demoActive=false
+        demoHandler.removeCallbacks(demoExpiry)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        tradeDimStatus?.text = "Bildschirmtest beendet · $reason"
+    }
 
     private fun clearVoicePlan() {
         voiceSteps = emptyList()
@@ -163,7 +202,11 @@ class MainActivity : Activity() {
                     }
                 }.show()
         }
+        button("▶ Bildschirmtest · 20 Minuten · ohne echten Trade") {
+            startTradeScreenDemo()
+        }
         button("■ Trade-Lesemodus STOPP") {
+            stopTradeScreenDemo("Vom Nutzer gestoppt.")
             BobTradeDimMode.stop("Vom Nutzer beendet.")
             LoginToReadHandoff.clear()
             if(PinReadinessProbe.running) PinReadinessProbe.stop("Trade-Lesemodus gestoppt.")
@@ -529,6 +572,7 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        stopTradeScreenDemo("Bob Handy ist nicht mehr im Vordergrund.")
         // No unfinished command survives a switch to another app or the background.
         taskApproval.clear()
         chatShareApproval.clear()
@@ -827,6 +871,7 @@ class MainActivity : Activity() {
     }
 
     private fun stopWorkMode() {
+        stopTradeScreenDemo("Arbeitsmodus gestoppt.")
         BobTradeDimMode.stop("Arbeitsmodus gestoppt.")
         tradeDimStatus?.text = BobTradeDimMode.status
         BobWorkMode.stop(this)
@@ -846,6 +891,7 @@ class MainActivity : Activity() {
     }
 
     private fun emergencyStop() {
+        stopTradeScreenDemo("NOT-STOPP")
         BobTradeDimMode.stop("NOT-STOPP")
         tradeDimStatus?.text = BobTradeDimMode.status
         BobWorkMode.stop(this)
