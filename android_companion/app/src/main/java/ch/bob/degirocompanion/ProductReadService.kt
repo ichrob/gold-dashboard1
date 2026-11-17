@@ -831,33 +831,67 @@ class ProductReadService : AccessibilityService() {
                 Toast.makeText(this,MorningReadRun.summary(),Toast.LENGTH_SHORT).show()
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
             } else {
-                // Final item: the report is already persisted by outcome().
-                // The old path closed the phone session but stranded the user
-                // on the last DEGIRO detail. Return to our non-exported status
-                // activity without clicking BACK, search, or any trade control.
+                // Final item: the original result is already durable. Previous
+                // versions merely requested a background launch of Bob Handy;
+                // Android can decline that request and strand the user on the
+                // last DEGIRO detail. Try exactly ONE native system BACK, only
+                // from the verified read-only product window. This is never a
+                // click on KAUF/VERKAUF, a new product read or an order action.
                 val authorized=PhoneRemote.active()
                 val foreground=productRoot(record=false)
-                val returnToBob=try {
-                    val power=(getSystemService(POWER_SERVICE) as PowerManager)
-                    val keyguard=(getSystemService(KEYGUARD_SERVICE) as KeyguardManager)
-                    FinalReadReturnPolicy.allowed(code,draft,priorTarget,priorWindow,
-                        foreground?.windowId,foreground?.packageName?.toString(),
+                val finalReturn=try {
+                    val power=getSystemService(POWER_SERVICE) as PowerManager
+                    val keyguard=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+                    val window=foreground?.windowId
+                    val pkg=foreground?.packageName?.toString()
+                    val statusAllowed=FinalReadReturnPolicy.allowed(
+                        code,draft,priorTarget,priorWindow,window,pkg,
                         power.isInteractive,keyguard.isKeyguardLocked,authorized)
+                    val safeBack=statusAllowed && foreground!=null && runCatching {
+                        val refs=mutableListOf<AccessibilityNodeInfo>()
+                        val view=mutableListOf<MorningReadPolicy.Node>()
+                        try {
+                            navigationTree(foreground,refs,view)
+                            FinalReadReturnPolicy.safeLastProductBack(
+                                code,draft,priorTarget,priorWindow,window,pkg,
+                                power.isInteractive,keyguard.isKeyguardLocked,
+                                authorized,view)
+                        } finally { refs.forEach { it.recycle() } }
+                    }.getOrDefault(false)
+                    statusAllowed to safeBack
                 } finally { foreground?.recycle() }
+                val returnToBob=finalReturn.first
+                val backAllowed=finalReturn.second
+                val backSent=backAllowed && performGlobalAction(GLOBAL_ACTION_BACK)
+                ProductReadDiagnostics.record(when {
+                    !backAllowed -> ProductReadDiagnostics.Outcome.FINAL_BACK_BLOCKED
+                    backSent -> ProductReadDiagnostics.Outcome.FINAL_BACK_SENT
+                    else -> ProductReadDiagnostics.Outcome.FINAL_BACK_REJECTED
+                })
                 productReturnTransition.clear()
                 PhoneRemote.stop(this,"COMPLETED")
-                // Start authenticated background transfer BEFORE presenting the
-                // status UI. Failed uploads retain the original local outbox.
+                // Background delivery starts before any UI handoff. A rejected
+                // activity start cannot alter a stored COMPLETE or discard a
+                // report; the guarded BACK is the broker-side fallback.
                 MorningReadTransfer.automaticResults(this)
-                if(returnToBob) runCatching {
-                    startActivity(Intent(this,ProductReadActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
-                }.onFailure {
+                if(returnToBob) {
+                    ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.FINAL_STATUS_REQUESTED)
+                    runCatching {
+                        startActivity(Intent(this,ProductReadActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                    }.onFailure {
+                        ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.FINAL_STATUS_FAILED)
+                        Toast.makeText(this,
+                            "Lesung gespeichert. Android konnte Bob Handy nicht öffnen; Bob Handy manuell wählen.",
+                            Toast.LENGTH_LONG).show()
+                    }
+                } else if(!backSent) {
                     Toast.makeText(this,
-                        "Lesung gespeichert; Bob-Handy-Status konnte nicht geöffnet werden.",
+                        "Lesung gespeichert; Rückkehr nicht sicher möglich. Bob Handy manuell öffnen.",
                         Toast.LENGTH_LONG).show()
                 }
+                PhoneDiagnostics.queue(this)
             }
         }.onFailure {
             MorningReadRun.stop(this,"STORAGE_ERROR");ProductReadRequest.cancel()
