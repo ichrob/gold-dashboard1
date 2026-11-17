@@ -196,8 +196,16 @@ def run():
         print("Gemini already reviewed or daily budget exhausted; skipped.")
         return
     STAGE = "read-public-diff"
-    diff = safe_files(request_json(base + "/pulls/" + number +
-                                   "/files?per_page=50", token))
+    # A Kotlin-only/oversized/sensitive PR can have no eligible public patch.
+    # This is a safe skip, not an infrastructure or provider failure.
+    try:
+        diff = safe_files(request_json(base + "/pulls/" + number +
+                                       "/files?per_page=50", token))
+    except ValueError as exc:
+        if str(exc) != "no-safe-reviewable-patches":
+            raise
+        print("Gemini review skipped: no bounded public-safe diff.")
+        return
     STAGE = "model-generate"
     reply = gemini_request(diff, key)
     comment = (MARKER + sha + ";utcday=" + day + " -->\n"

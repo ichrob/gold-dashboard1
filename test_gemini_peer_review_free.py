@@ -169,6 +169,43 @@ class GeminiReviewSafetyTests(unittest.TestCase):
             self.assertFalse(any(call.args[0].endswith("/comments")
                                  for call in api.call_args_list))
 
+    def test_kotlin_only_public_pr_has_bounded_safe_patch(self):
+        from ai_peer_review import safe_files
+
+        path = ("android_companion/app/src/main/java/ch/bob/"
+                "degirocompanion/TradeReadLeasePolicy.kt")
+        patch = "@@ -0,0 +1,2 @@\n+internal fun mayRead() = false\n+// local only"
+        safe = safe_files([{"filename": path, "patch": patch}])
+        self.assertIn("FILE: " + path, safe)
+        self.assertIn("mayRead()", safe)
+        # Never pass credential-looking or oversized Kotlin changes to a model.
+        with self.assertRaisesRegex(ValueError, "no-safe-reviewable-patches"):
+            safe_files([{"filename": path,
+                         "patch": "@@ -0,0 +1 @@\n+val API_KEY = 'synthetic'"}])
+        with self.assertRaisesRegex(ValueError, "no-safe-reviewable-patches"):
+            safe_files([{"filename": path, "patch": "x" * 4501}])
+
+    def test_non_reviewable_pr_skips_without_model_or_publication(self):
+        env = {"GITHUB_TOKEN": "github-token",
+               "GEMINI_API_KEY": "a" * 40,
+               "BOB_PR_NUMBER": "1798",
+               "BOB_GEMINI_MODE": "automatic",
+               "BOB_CI_HEAD_SHA": "a" * 40}
+        pr = self._owner_pr()
+        private_or_unsupported = [{"filename": "diagram.png",
+                                   "patch": "@@ -0,0 +1 @@\n+image"}]
+        with (patch.dict(os.environ, env, clear=True),
+              patch.object(g, "enabled", return_value=True),
+              patch.object(g, "request_json",
+                           side_effect=[pr, [], private_or_unsupported]) as api,
+              patch.object(g, "gemini_request") as provider,
+              patch("builtins.print") as output):
+            g.run()
+        self.assertEqual(api.call_count, 3)
+        provider.assert_not_called()
+        output.assert_called_once_with(
+            "Gemini review skipped: no bounded public-safe diff.")
+
     def test_model_sunset_fails_closed(self):
         with patch.dict(os.environ, {
             "BOB_GEMINI_FREE_ONLY": "confirmed-unbilled-free-project",
