@@ -76,6 +76,7 @@ POLICIES['noema5000nov'] = dict(POLICIES['normal1000nov'],
 # unverified virtual strategies. The first production initialization establishes
 # a COMMON actual start clock; never replay archived October cases.
 FRESH_VALIDATION_ID = 'positive-strategies-forward-20261117'
+FRESH_VALIDATION_NOT_BEFORE = int(datetime(2026, 11, 17, 8, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000)
 FRESH_VALIDATION_END = int(datetime(2026, 12, 15, 16, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000)
 FRESH_VALIDATION_PROFILES = ('trend1000dec', 'normal1000dec', 'early1000dec')
 for _name, _parent, _label in (
@@ -125,7 +126,7 @@ class Ledger:
 def init(conn):
     # All three new validation arms share the same true initialization instant.
     # Existing ledgers are INSERT-only; neither their starts nor balances reset.
-    fresh_start_at = int(time.time()*1000)
+    fresh_start_at = max(int(time.time()*1000), FRESH_VALIDATION_NOT_BEFORE)
     for profile in POLICIES:
         n = names(profile)
         conn.execute(f"""CREATE TABLE IF NOT EXISTS {n['bob_paper_control']} (
