@@ -92,8 +92,18 @@ internal object StopLossPrefillPolicy {
 
     fun decide(stage: Stage, f: Frame, draft: StopLossPrefillDraft): Decision {
         fun block(code: String) = Decision(Kind.BLOCK, code = code)
+        if(stage==Stage.CHOOSE_STOP) {
+            // Android dialogs can expose only the four options, not the
+            // original order background. Never mistake an unrelated popup:
+            // accept exactly the known DEGIRO order-type choice menu.
+            if(f.app!="nl.degiro.trader" || f.nodes.any { it.password || secret.containsMatchIn(it.label) } ||
+                listOf("Limit","Market","Stop Loss","Stop Limit").any { !has(f,it) })
+                return block("ORDERTYP_DIALOG_NICHT_ERKANNT")
+            return exact(f,"Stop Loss",clickable=true)?.let {
+                Decision(Kind.CLICK,it,next=Stage.WRITE_STOP)
+            } ?: block("STOP_LOSS_OPTION_FEHLT")
+        }
         if (!base(f,draft)) return block("ISIN_ODER_ANSICHT_NICHT_EINDEUTIG")
-        // The selected SELL tab must stay selected even while the type menu is open.
         if (!isSell(f)) return block("VERKAUF_NICHT_BESTAETIGT")
         if (!has(f,"Order platzieren")) return block("ORDERMASKE_NICHT_ERKANNT")
         return when(stage) {
