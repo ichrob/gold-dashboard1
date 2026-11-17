@@ -162,6 +162,39 @@ class ImmediateEntryNavigation(unittest.TestCase):
                        "FINAL_STATUS_REQUESTED", "FINAL_STATUS_FAILED"):
             self.assertIn(reason, diagnostics)
 
+    def test_owner_screen_lock_rehearsal_is_no_signal_and_never_remote_entry(self):
+        activity = source("ProductReadActivity.kt")
+        self.assertIn('button("Samsung-Sperr-Fortsetzung sofort testen · ohne Signal")', activity)
+        rehearsal = activity.split("private fun startOwnerUnlockRehearsal()", 1)[1].split(
+            "private fun startAutomaticTest()", 1
+        )[0]
+        self.assertIn("!keyguard.isKeyguardLocked", rehearsal)
+        self.assertIn("!keyguard.isDeviceLocked", rehearsal)
+        self.assertIn("unlockRehearsalOnly=true", rehearsal)
+        self.assertIn("resumeAfterOwnerUnlock=true", rehearsal)
+        self.assertNotIn("startGoldRead()", rehearsal)
+        self.assertNotIn("MorningReadRun.beginDiscovered", rehearsal)
+        self.assertNotIn("placeOrder(", rehearsal)
+        remote = source("PhoneRemote.kt")
+        self.assertIn("private var unlockRehearsalOnly=false", remote)
+        self.assertIn("entryOnly && !waitingOnUnlock && !unlockRehearsalOnly", remote)
+        self.assertIn('if(unlockRehearsalOnly) empty("UNLOCK_TEST_ARMED")', remote)
+        self.assertIn('if(unlockRehearsalOnly && !rehearsalOwnerPresent)return false', remote)
+        self.assertIn('fun noteOwnerPresentForUnlockTest()', remote)
+        self.assertIn('if(!unlockRehearsalOnly)response.optJSONObject("command")', remote)
+        self.assertIn('stop(c,"UNLOCK_TEST_CONFIRMED")', remote)
+        self.assertIn('if(unlockRehearsalOnly) 180000L else 900000L', remote)
+        self.assertIn('else if(entryOnly && !unlockRehearsalOnly)"entry_read" else "product_read"', remote)
+        service = source("ProductReadService.kt")
+        self.assertIn("PhoneRemote.pauseForScreenLock(inProgress)", service)
+        self.assertIn("PhoneRemote.noteOwnerPresentForUnlockTest()", service)
+        self.assertIn("resumeEntryAfterOwnerUnlock()", service)
+        self.assertIn("keyguard.isDeviceLocked", service)
+        diag = source("ProductReadDiagnostics.kt")
+        for flag in ("UNLOCK_TEST_ARMED", "UNLOCK_TEST_WAITING",
+                     "UNLOCK_TEST_CONFIRMED", "UNLOCK_TEST_EXPIRED"):
+            self.assertIn(flag, diag)
+
     def test_terminal_list_product_can_be_skipped_but_no_trade_is_approved(self):
         server = Path(__file__).parent.joinpath("android_list.py").read_text()
         self.assertIn("refresh_plan(row[1] or [],products,selected,terminal_isins)", server)

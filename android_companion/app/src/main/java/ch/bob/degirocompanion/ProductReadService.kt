@@ -111,8 +111,10 @@ class ProductReadService : AccessibilityService() {
             val action=intent?.action
             if(action==Intent.ACTION_USER_PRESENT ||
                 action==Intent.ACTION_SCREEN_ON) {
-                if(action==Intent.ACTION_USER_PRESENT)
+                if(action==Intent.ACTION_USER_PRESENT) {
+                    PhoneRemote.noteOwnerPresentForUnlockTest()
                     handler.postDelayed({ runCatching { MorningReadTransfer.automaticResults(this@ProductReadService) } },1000)
+                }
                 // SCREEN_ON can precede the keyguard: the explicit checks above
                 // will not resume a locked Android device.
                 if(PhoneRemote.waitingForOwnerUnlock())
