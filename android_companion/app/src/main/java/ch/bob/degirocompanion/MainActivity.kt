@@ -14,8 +14,6 @@ import android.os.Looper
 import android.view.WindowManager
 import android.app.KeyguardManager
 import android.os.PowerManager
-import android.os.PowerManager
-import android.app.KeyguardManager
 import android.text.Editable
 import android.text.TextWatcher
 import android.provider.Settings
