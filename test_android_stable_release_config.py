@@ -17,7 +17,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
     def test_one_permanent_identity_and_isolated_debug_app(self):
         gradle = GRADLE.read_text(encoding="utf-8")
         self.assertIn('applicationId = "ch.bob.degirocompanion.stable"', gradle)
-        self.assertIn('applicationIdSuffix = ".stoplossoneclicknov17"', gradle)
+        self.assertIn('applicationIdSuffix = ".stoplossreadnov17"', gradle)
         self.assertIn('versionCode = System.getenv("BOB_ANDROID_VERSION_CODE")', gradle)
         self.assertIn('signingConfigs.getByName("bobStable")', gradle)
         self.assertIn('if (bobHasSigning)', gradle)
@@ -87,7 +87,7 @@ class AndroidStableReleaseTests(unittest.TestCase):
 
     def test_debug_job_cannot_claim_to_be_stable_release(self):
         workflow = DEBUG.read_text(encoding="utf-8")
-        self.assertIn("ch.bob.degirocompanion.stable.stoplossoneclicknov17", workflow)
+        self.assertIn("ch.bob.degirocompanion.stable.stoplossreadnov17", workflow)
         self.assertIn("bob-android-dev-test-not-an-update", workflow)
         self.assertNotIn("BOB_ANDROID_KEYSTORE_BASE64", workflow)
         self.assertNotIn("gh release create", workflow)
