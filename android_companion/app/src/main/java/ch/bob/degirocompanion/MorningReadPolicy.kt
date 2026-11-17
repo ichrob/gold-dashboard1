@@ -238,6 +238,34 @@ internal object MorningReadPolicy {
         return markets || product
     }
 
+    /** Only after a persisted, owner-requested COMPLETE read, a last-item
+     * system BACK may leave a verified informational product screen. Normal
+     * DEGIRO detail pages expose an isolated global "Order platzieren" launcher;
+     * safeStatusReturn() deliberately rejects it for generic abort paths.
+     * Reuse the existing audited detailLauncherIndex() exception here WITHOUT
+     * authorizing any click on that launcher, any order input, or any new read.
+     *
+     * Unlike the normal anchored detail reader, this final handoff requires
+     * the exact ISIN STILL visibly present. A hidden/mismatched/unknown product
+     * must not be used to justify a back gesture.
+     */
+    fun safeCompletedLastProductBack(nodes: List<Node>, target: String,
+                                     window: Int, readWindow: Int?, code: String): Boolean {
+        if (code != "READ" || readWindow != window || !SeriesEvidence.validIsin(target)) return false
+        if (!returnAfterRead(nodes,target,window,readWindow,code)) return false
+        if (safeStatusReturn(nodes,target)) return true
+        // The ONLY additional valid screen is a DEGIRO informational detail
+        // with one separate, exact, unambiguous global order launcher. The
+        // launcher is never tapped: the service only uses GLOBAL_ACTION_BACK.
+        if (detailLauncherIndex(nodes,target,anchored=true,symbolProbe=true)==null) return false
+        val visible=ids.findAll(nodes.joinToString("\n") { it.text.uppercase() })
+            .map { it.value }.toSet()
+        return visible==setOf(target) && nodes.any {
+            normalized(it.text).lowercase() in setOf("übersicht","overview",
+                "kursdaten","produktdetails")
+        }
+    }
+
     /** One BACK from a previously observed product window, never from an order form. */
     fun returnAfterRead(nodes: List<Node>, target: String, window: Int, readWindow: Int?, code: String): Boolean {
         if (readWindow != window || code !in setOf("READ", "NO_QUOTES", "RETURN_FAILED", "SEEK_LIMIT", "SCROLL_LIMIT", "INVALID_QUOTES")) return false

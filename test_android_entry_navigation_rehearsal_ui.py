@@ -154,13 +154,32 @@ class ImmediateEntryNavigation(unittest.TestCase):
                           "ACTION_SET_TEXT", "ACTION_CLICK"):
             self.assertNotIn(forbidden, final)
         policy = source("FinalReadReturnPolicy.kt")
-        self.assertIn("MorningReadPolicy.safeStatusReturn(nodes,expectedIsin)", policy)
-        self.assertIn("MorningReadPolicy.returnAfterRead(nodes,expectedIsin", policy)
+        self.assertIn("MorningReadPolicy.safeCompletedLastProductBack(", policy)
+        safe = source("MorningReadPolicy.kt")
+        self.assertIn("safeStatusReturn(nodes,target)", safe)
+        self.assertIn("returnAfterRead(nodes,target,window,readWindow,code)", safe)
         self.assertIn("authorizedSession", policy)
         diagnostics = source("ProductReadDiagnostics.kt")
         for reason in ("FINAL_BACK_SENT", "FINAL_BACK_REJECTED", "FINAL_BACK_BLOCKED",
                        "FINAL_STATUS_REQUESTED", "FINAL_STATUS_FAILED"):
             self.assertIn(reason, diagnostics)
+
+    def test_final_return_reuses_strict_isolated_launcher_guard(self):
+        policy = source("FinalReadReturnPolicy.kt")
+        self.assertIn("MorningReadPolicy.safeCompletedLastProductBack(", policy)
+        morning = source("MorningReadPolicy.kt")
+        method = morning.split("fun safeCompletedLastProductBack(", 1)[1].split(
+            "/** One BACK from a previously observed product window", 1
+        )[0]
+        self.assertIn('code != "READ"', method)
+        self.assertIn("readWindow != window", method)
+        self.assertIn("returnAfterRead(nodes,target,window,readWindow,code)", method)
+        self.assertIn("safeStatusReturn(nodes,target)", method)
+        self.assertIn("detailLauncherIndex(nodes,target,anchored=true,symbolProbe=true)", method)
+        self.assertIn("visible==setOf(target)", method)
+        self.assertNotIn("performAction(", method)
+        self.assertNotIn("ACTION_CLICK", method)
+        self.assertNotIn("setText(", method)
 
     def test_owner_screen_lock_rehearsal_is_no_signal_and_never_remote_entry(self):
         activity = source("ProductReadActivity.kt")
