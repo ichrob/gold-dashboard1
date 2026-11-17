@@ -4,7 +4,7 @@ package ch.bob.degirocompanion
 internal object StopLossPrefillSession {
     private var draft: StopLossPrefillDraft? = null
     private var expiresAt = 0L
-    var stage = StopLossPrefillPolicy.Stage.ORDER_TYPE
+    var stage = StopLossPrefillPolicy.Stage.OPEN_FORM
         private set
     var status = "Kein Stop-Loss-Entwurf aktiv."
         private set
@@ -12,7 +12,7 @@ internal object StopLossPrefillSession {
     fun arm(value: StopLossPrefillDraft, nowElapsed: Long) {
         draft = value
         expiresAt = nowElapsed + 120_000L
-        stage = StopLossPrefillPolicy.Stage.ORDER_TYPE
+        stage = StopLossPrefillPolicy.Stage.OPEN_FORM
         status = "Entwurf aktiv: DEGIRO-Verkaufsmaske prüfen; niemals Order platzieren."
     }
     fun active(nowElapsed: Long): Boolean {
