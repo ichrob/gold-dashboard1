@@ -150,11 +150,27 @@ class MainActivity : Activity() {
                     "Keine automatischen Orders und keine verlängerte DEGIRO-Fernbedienungsfreigabe.")
                 .setNegativeButton("Abbrechen",null)
                 .setPositiveButton("Lesemodus starten") { _,_ ->
-                    BobTradeDimMode.start(this) { tradeDimStatus?.text = it }
+                    BobTradeDimMode.start(this) { message ->
+                        tradeDimStatus?.text = message
+                        if(BobTradeDimMode.running) {
+                            // The owner already confirmed THIS local read-only
+                            // start. Reuse the established verified-PIN Gold
+                            // reader once; never create an order or re-arm it
+                            // silently after its short permission expires.
+                            startActivity(Intent(this, ProductReadActivity::class.java)
+                                .putExtra(ProductReadActivity.EXTRA_START_COMPLETE_FLOW, true))
+                        }
+                    }
                 }.show()
         }
         button("■ Trade-Lesemodus STOPP") {
             BobTradeDimMode.stop("Vom Nutzer beendet.")
+            LoginToReadHandoff.clear()
+            if(PinReadinessProbe.running) PinReadinessProbe.stop("Trade-Lesemodus gestoppt.")
+            PhoneRemote.stop(this,"USER_STOP")
+            MorningReadRun.stop(this,"USER_STOP")
+            GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
+            ProductReadRequest.cancel()
             tradeDimStatus?.text = BobTradeDimMode.status
         }
         // One explicit local tap starts the entire bounded, read-only workflow:
