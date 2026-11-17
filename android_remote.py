@@ -1,5 +1,6 @@
 """Bounded user-opened handset sessions; no arbitrary taps, text or order commands."""
 import json
+import hashlib
 import re
 import time
 import uuid
@@ -202,10 +203,44 @@ def init(conn):
     __import__("termux_maintenance").init(conn)
     conn.execute("CREATE TABLE IF NOT EXISTS bob_android_remote (token_hash TEXT PRIMARY KEY REFERENCES bob_android_diagnostic_devices(token_hash) ON DELETE CASCADE,state JSONB NOT NULL)")
 
+def verified_trade_state(rows, now):
+    """Minimal owner-paired device state, never an order or broker fill proof.
+
+    An active Bob monitoring record is the ONLY trigger. A closed/unknown
+    journal never authorizes phone screen retention. No ISIN, account,
+    quantity, price, strategy or raw trade identifier leaves the server.
+    """
+    if not rows:
+        return {'ok':True,'state':'NO_ACTIVE','tradeTag':None,'checkedAt':now}
+    if len(rows)!=1:
+        return {'ok':True,'state':'UNKNOWN','tradeTag':None,'checkedAt':now}
+    trade_id,snapshot=rows[0]
+    if (not isinstance(trade_id,str) or not isinstance(snapshot,dict) or
+            snapshot.get('active') is not True or snapshot.get('recordOnly') is True):
+        return {'ok':True,'state':'UNKNOWN','tradeTag':None,'checkedAt':now}
+    return {'ok':True,'state':'ACTIVE',
+            'tradeTag':hashlib.sha256(trade_id.encode('utf-8')).hexdigest()[:24],
+            'checkedAt':now}
+
+
 def handle(conn,payload):
     now=int(time.time());op=payload.get('action')
     if op in ('termux-exchange','termux-mcp'):return __import__('termux_maintenance').handle(conn,payload)
     if op in ('list-upload','list-get','list-receipt','list-status','list-details'):return __import__('android_list').handle(conn,payload,now)
+    if op=='trade-status':
+        # Independent of the short remote-navigation lease. One paired,
+        # owner-enabled handset can query only a minimized trade-monitor state.
+        if payload.get('value') != {}:raise ValueError('Invalid status request')
+        digest=token_hash(payload.get('token'))
+        device=conn.execute(
+            'SELECT token_hash FROM bob_android_diagnostic_devices '
+            'WHERE token_hash=%s AND NOT revoked AND expires_at>now()',
+            (digest,)).fetchone()
+        if not device:raise PermissionError('Device not paired')
+        rows=conn.execute(
+            'SELECT id,snapshot FROM bob_real_trades WHERE active=TRUE LIMIT 2'
+        ).fetchall()
+        return verified_trade_state(rows,now)
     if op=='exchange':
         digest=token_hash(payload.get('token'))
         device=conn.execute('SELECT token_hash FROM bob_android_diagnostic_devices WHERE token_hash=%s AND NOT revoked AND expires_at>now() FOR UPDATE',(digest,)).fetchone()
