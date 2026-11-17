@@ -461,6 +461,48 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(self.request('POST', '/mcp', json.dumps(payload), headers)[0], 401)
             self.assertEqual(reader.call_count, 0)
 
+    def test_fresh_consent_after_old_cutoff_and_future_year_is_bounded(self):
+        import html
+        for now in (1794888000, 1924992000):
+            with self.subTest(now=now), patch.object(oauth.time, 'time', return_value=now):
+                bob_auth.SESSIONS['test-session'] = (now+600, 0)
+                self.begin()
+                cookies = self.cookie+'; '+self.session
+                status, _, page = self.request('GET', '/oauth/resume', headers={'Cookie':cookies})
+                self.assertEqual(status, 200)
+                self.assertIn('28 Tage ab deiner Zustimmung', page.decode())
+                status, _, page = self.form('/oauth/consent',
+                    {'request':self.nonce, 'decision':'approve'}, cookies)
+                self.assertEqual(status, 200)
+                destination = html.unescape(re.search(r'href="([^"]+)"', page.decode()).group(1))
+                result = parse_qs(urlparse(destination).query)
+                self.assertIn('code', result)
+                status, _, body = self.form('/oauth/token', dict(
+                    grant_type='authorization_code', client_id=self.cid,
+                    redirect_uri=store.REDIRECT, code=result['code'][0],
+                    code_verifier=self.verifier, resource=store.RESOURCE))
+                self.assertEqual(status, 200)
+                tokens = json.loads(body)
+                grant = next(g for g in self.state['grants'].values() if g['client_id']==self.cid)
+                self.assertEqual(grant['expires'], now+store.GRANT_TTL)
+                self.assertFalse(store.transition(self.state, 'check',
+                    {'token':tokens['access_token']}, now+store.GRANT_TTL)['valid'])
+                expired = store.transition(self.state, 'token', dict(
+                    grant_type='refresh_token', client_id=self.cid,
+                    refresh_token=tokens['refresh_token'], resource=store.RESOURCE),
+                    now+store.GRANT_TTL)
+                self.assertEqual(expired['error'], 'invalid_grant')
+
+    def test_denied_consent_does_not_claim_success(self):
+        self.begin()
+        status, _, page = self.form('/oauth/consent',
+            {'request':self.nonce, 'decision':'deny'}, self.cookie+'; '+self.session)
+        self.assertEqual(status, 200)
+        self.assertIn('Keine Freigabe erteilt', page.decode())
+        self.assertNotIn('Deine Freigabe wurde erteilt', page.decode())
+        self.assertNotIn('Minuten ab der Freigabe', page.decode())
+        self.assertEqual(self.state['grants'], {})
+
     def test_actual_consent_and_read_only_mcp_flow(self):
         self.begin()
         status,h,_ = self.request('GET','/oauth/resume',headers={'Cookie':self.cookie})

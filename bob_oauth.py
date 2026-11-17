@@ -9,15 +9,14 @@ import html
 import json
 import os
 import re
-from datetime import datetime
+import time
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, build_opener, HTTPSHandler
 import bob_auth
 import bob_passkey
-from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE, REDIRECT, GEMINI_REDIRECT, ANTIGRAVITY_REDIRECT, CODE_TTL
+from bob_oauth_store import ORIGIN, RESOURCE, SCOPE, DIAGNOSTICS_SCOPE, PUSH_TEST_SCOPE, PHONE_SCOPE, TERMUX_SCOPE, REDIRECT, GEMINI_REDIRECT, ANTIGRAVITY_REDIRECT, CODE_TTL, GRANT_TTL
 
 COOKIE = '__Host-bob_oauth'
-UNTIL = '2026-11-16T23:59:59+01:00'
 
 
 def configured():
@@ -168,7 +167,6 @@ def route(handler,user,password):
                 if not pending.get('ok'):
                     respond(handler,400,page('Verbindung erneut starten','<p>Die Anfrage ist abgelaufen. Starte die Verbindung erneut in deiner KI-Anwendung.</p>'),page=True)
                 elif browser_ready(handler,user,password):
-                    until = datetime.fromisoformat(UNTIL).strftime('%d.%m.%Y')
                     client_name = pending.get('client_name', 'ChatGPT')
                     if client_name not in ('ChatGPT', 'Gemini CLI', 'Antigravity CLI'):
                         raise ValueError('Unrecognized OAuth client')
@@ -180,7 +178,7 @@ def route(handler,user,password):
                         ('<p>Zusätzlicher Handy-Zugriff: In einer am Handy gestarteten Sitzung Produktstatus lesen, Gold-/ISIN-Suchschritte und Produktlesen auslösen sowie stoppen. Keine Orders oder freie Handy-Bedienung.</p>' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else '') +
                         ('<p>Zusätzliche Schreibberechtigung: klar gekennzeichnete TEST-Pushs für bereits registrierte Geräte auslösen (maximal einer je fünf Minuten und zehn pro Tag/Gerät). Keine freie Nachricht, Registrierung, Änderung der Push-Kanäle oder Android-Berechtigungen.</p>' if PUSH_TEST_SCOPE in pending.get('scope', SCOPE).split() else ('' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else '' if TERMUX_SCOPE in pending.get('scope',SCOPE).split() else '<p>Keine Änderungen an Bob.</p>')) +
                         ('<p>Keine Orders, Zugangsdaten oder Depotübertragung. Produktzugriff nur während der am Handy gestarteten Sitzung.</p>' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else '<p>Keine Orders und kein Zugriff auf dein DEGIRO-Konto.</p>') +
-                        '<p>Gültig höchstens 28 Tage, längstens bis '+until+'. In Bob jederzeit widerrufbar.</p>'
+                        '<p>Gültig höchstens 28 Tage ab deiner Zustimmung. Keine automatische Verlängerung. In Bob jederzeit widerrufbar.</p>'
                         '<form method="post" action="/oauth/consent"><input type="hidden" name="request" value="'+html.escape(nonce)+'">'
                         '<button name="decision" value="approve">'+('Termux-Wartung erlauben' if TERMUX_SCOPE in pending.get('scope',SCOPE).split() else 'Handy-Zugriff erlauben' if PHONE_SCOPE in pending.get('scope',SCOPE).split() else 'Push-Test-Berechtigung erlauben' if PUSH_TEST_SCOPE in pending.get('scope',SCOPE).split() else 'Lesezugriff erlauben')+'</button>'
                         '<button class="secondary" name="decision" value="deny">Abbrechen</button></form>'),page=True)
@@ -244,7 +242,9 @@ def route(handler,user,password):
                     nonce = bob_auth.cookie(handler.headers,COOKIE)
                     if not nonce or not hmac.compare_digest(nonce,fields.get('request','')) or fields.get('decision') not in ('approve','deny'):
                         respond(handler,403,{'error':'invalid_csrf'}); return True
-                    result = rpc(fields['decision'],user,request=nonce,until=datetime.fromisoformat(UNTIL).timestamp())
+                    # Only this fresh, authenticated consent may create a new
+                    # bounded grant. Existing expired/revoked grants stay invalid.
+                    result = rpc(fields['decision'],user,request=nonce,until=time.time()+GRANT_TTL)
                     if 'redirect_uri' not in result:
                         respond(handler,400,{'error':'invalid_request'})
                     else:
@@ -252,15 +252,17 @@ def route(handler,user,password):
                             raise ValueError('Unexpected OAuth callback')
                         client_name = ('Antigravity CLI' if result['redirect_uri'] == ANTIGRAVITY_REDIRECT else
                                        'Gemini CLI' if result['redirect_uri'] == GEMINI_REDIRECT else 'ChatGPT')
+                        approved = 'code' in result and 'error' not in result
                         destination = result.pop('redirect_uri')+'?'+urlencode(result)
                         # A form redirect remains subject to form-action across the
                         # client's redirect chain (including Android app links).
                         # A user-activated link completes the same PKCE flow without
                         # broadening CSP or resubmitting the consumed consent form.
                         respond(handler,200,page('Zurück zu '+client_name,
-                            '<p>Deine Entscheidung wurde gespeichert. Schließe die Verbindung jetzt in '+client_name+' ab.</p>'
-                            '<p><a rel="noreferrer" referrerpolicy="no-referrer" style="display:block;padding:14px;border-radius:10px;background:#2358b6;color:white;text-align:center;text-decoration:none" href="'+html.escape(destination,quote=True)+'">Zurück zu '+client_name+'</a></p>'
-                            '<p>Tippe jetzt auf den Button. Der Rückkehrlink gilt höchstens '+str(CODE_TTL//60)+' Minuten ab der Freigabe. Diese Seite nicht neu laden und das Freigabeformular nicht erneut absenden.</p>'),
+                            ('<p>Deine Freigabe wurde erteilt. Schließe die Verbindung jetzt in '+client_name+' ab.</p>' if approved else
+                             '<p>Keine Freigabe erteilt. Die Verbindung ist nicht hergestellt. Kehre zu '+client_name+' zurück.</p>') +
+                            '<p><a rel="noreferrer" referrerpolicy="no-referrer" style="display:block;padding:14px;border-radius:10px;background:#2358b6;color:white;text-align:center;text-decoration:none" href="'+html.escape(destination,quote=True)+'">Zurück zu '+client_name+'</a></p>' +
+                            ('<p>Tippe jetzt auf den Button. Der Rückkehrlink gilt höchstens '+str(CODE_TTL//60)+' Minuten ab der Freigabe. Diese Seite nicht neu laden und das Freigabeformular nicht erneut absenden.</p>' if approved else '')),
                             cookies=[cookie('',0)],page=True)
             else:respond(handler,404,{'error':'not_found'})
         else:respond(handler,405,{'error':'method_not_allowed'})
