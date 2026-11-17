@@ -48,6 +48,6 @@ class MorningListEndPolicyTest {
         assertFalse(MorningListEndPolicy.maySubmitAtCaptureLimit(4,
             ids.toSet()+"DE000INVALID"))
         assertFalse(MorningListEndPolicy.maySubmitAtCaptureLimit(4,
-            (ids + listOf("DE000SQ02JQ6","DE000FG8K0P8","DE000FG77MY4","DE000FB0A490")).toSet()))
+            (ids + listOf("DE000SQ02JQ6","DE000FG8K0P8","DE000FG77MY4","DE000FC1CHB7")).toSet()))
     }
 }
