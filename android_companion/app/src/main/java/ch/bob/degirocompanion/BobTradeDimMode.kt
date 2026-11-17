@@ -39,7 +39,7 @@ internal object BobTradeDimMode {
             BobTradeDimPolicy.eligible(active,ownerElapsed,
                 (c.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive,
                 !unlocked(c),PhoneDiagnostics.paired(c),true) &&
-            age in 0..(BobTradeDimPolicy.POLL_MILLIS + 35_000L)
+            age >= 0L && age <= BobTradeDimPolicy.POLL_MILLIS + 35_000L
     }
 
     private fun unlocked(c: Context): Boolean {
