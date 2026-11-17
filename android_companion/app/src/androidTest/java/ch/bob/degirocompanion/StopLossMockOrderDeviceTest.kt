@@ -25,7 +25,7 @@ class StopLossMockOrderDeviceTest {
             .putExtra("mock_stop_cents",1243L)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         context.startActivity(launch)
-        val start=device.wait(Until.findObject(By.text("Testoberfläche automatisch bedienen")),10_000)
+        val start=device.wait(Until.findObject(By.text("Alle Tests erneut starten")),10_000)
         assertNotNull("Synthetic form start missing",start)
         start.click()
         val result=device.wait(Until.findObject(By.textContains("TEST BESTANDEN")),15_000)
@@ -37,6 +37,22 @@ class StopLossMockOrderDeviceTest {
         assertTrue(result.text.contains("0 Brokerzugriffe"))
         assertTrue(result.text.contains("0 Orders"))
     }
+    @Test fun oneHomeTapRunsAllFiveChecksWithNoBroker() {
+        val launcher=context.packageManager.getLaunchIntentForPackage(context.packageName)
+        assertNotNull(launcher)
+        context.startActivity(launcher!!.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+            Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        val button=device.wait(Until.findObject(
+            By.textContains("ALLE 5 TESTS STARTEN")),10_000)
+        assertNotNull("One tap button missing",button)
+        button.click()
+        val result=device.wait(Until.findObject(
+            By.textContains("5/5 TESTS BESTANDEN")),20_000)
+        assertNotNull("Not all five offline tests succeeded",result)
+        assertTrue(result.text.contains("0 Brokerzugriffe"))
+        assertTrue(result.text.contains("0 Orders"))
+    }
+
     @Test fun writesAndVerifiesCalculatedModelValuesOnActualMockViews() {
         exercise("HAPPY_PATH","12,43")
     }
