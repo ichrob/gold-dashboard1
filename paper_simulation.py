@@ -815,7 +815,9 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
         conn.execute('UPDATE bob_paper_control SET payload=%s::jsonb WHERE id=1',(json.dumps(control),))
         return
     if now<control['startAt']:
-        if profile_policy and profile_policy.get('relaunch'):
+        if profile_policy and profile_policy.get('fresh_validation'):
+            control.update(status='scheduled', reason='Frischer Vergleich beginnt erst nach echter Live-Initialisierung; keine rückdatierten Einstiege')
+        elif profile_policy and profile_policy.get('relaunch'):
             control.update(status='scheduled', reason='Neuer Vergleich ab 09.11.2026 08:00 Zürich; kein Vorab-Einstieg')
         else:
             control.update(status='scheduled',reason='Start am 8.10.2026, danach fortlaufend')
@@ -989,7 +991,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             # session overwrites control.reason, but not this redacted code.
             # Never store an ISIN, quote, full blocker text or model profit.
             if profile_policy and profile_policy.get('id') in (
-                    'trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov'):
+                    'trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov',
+                    'trend1000dec', 'normal1000dec', 'early1000dec'):
                 from paper_profit_summary import entry_block_code
                 control['lastTradingEntryBlockCode'] = (
                     None if entered else entry_block_code(reason))
