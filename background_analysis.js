@@ -3,12 +3,13 @@ const fs=require('fs'),vm=require('vm');
 const LateEntry=require('./late_entry_guard.js');
 const Risk=require('./risk_workspace.js');
 const Opportunity=require('./entry_opportunity_study.js');
+const PaperRisk=require('./paper_risk_reference.js');
 function evaluate(input, {render=false}={}){
  const noop=()=>{},elements=new Map(),canvas=new Proxy({},{get:()=>noop,set:()=>true});
  const element=id=>{if(!elements.has(id))elements.set(id,{value:({tf:input.timeframe||'15m',n:'200',account:'500',risk:'1',trailAtr:String(input.trailAtr||1.5),minRR:'2',displayCcy:'USD'})[id]||'',textContent:'',innerHTML:'',className:'',parentElement:{className:''},style:{},dataset:{},classList:{add:noop,remove:noop,toggle:noop},addEventListener:noop,setAttribute:noop,appendChild:noop,append:noop,selectedOptions:[{textContent:"15 Minuten"}],getContext:()=>canvas,getBoundingClientRect:()=>({width:800,height:300}),width:800,height:220});return elements.get(id);};
  const push={registered:false,general:false,trade:false,activeTrade:false};
  const env={input,render,console:{log:noop,warn:noop,info:noop,error:noop},document:{getElementById:element,querySelectorAll:()=>[],querySelector:()=>null,visibilityState:'hidden',addEventListener:noop,createTextNode:text=>({textContent:text}),createElement:()=>element('temp')},window:{addEventListener:noop},localStorage:{getItem:()=>null,setItem:noop},navigator:{},Notification:{permission:'denied'},BobPush:{state:()=>push,set:()=>push,setActiveTrade:()=>push,emit:async()=>false},BobDegiro:{riskModel:()=>({ok:false})},fetch:async()=>{throw Error('Headless analysis has no network access')},setTimeout:()=>0,clearTimeout:noop,setInterval:()=>0,AbortController,Date,Math,Number,JSON,URL,Blob,Promise};
- env.LateEntry=LateEntry; env.Opportunity=Opportunity;
+ env.LateEntry=LateEntry; env.Opportunity=Opportunity; env.PaperRisk=PaperRisk;
  vm.createContext(env);
  const html=fs.readFileSync(__dirname+'/Bob.html','utf8');
  const script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].find(m=>m[1].includes('function confirmedSignalDirection()'))[1];
@@ -34,6 +35,9 @@ function evaluate(input, {render=false}={}){
   const confirmationAt=signalState.confirmationAt || (Number.isFinite(signalState.confirmedAt)?signalState.confirmedAt+300000:null);
   const entryTimingGate=LateEntry.check(bundle,direction,Date.now(),confirmationAt);
   const riskData=intradayRiskData(bundle);
+  // Only isolated virtual hypotheses may use a shorter ORIGINAL 5m risk basis.
+  // Main orders, trade monitoring, and user-facing live stop/target remain 15m.
+  const paperRisk=PaperRisk.forPaper(bundle,Date.now(),riskData,atr);
   const context={spotFresh:priceFresh,spot:price,confirmationAt,...intradayTechnicalContext(bundle,signalState)};
   let suggestedStop=null,suggestedTarget=null,suggestedTargetPlan=null;
   if(ready&&priceFresh&&input.trade?.active){const stop=stopModel(input.trade.dir,price,A.at,input.trailAtr||1.5).stop;if(Number.isFinite(stop)&&stop>0){suggestedStop=stop;suggestedTargetPlan=targetModel(input.trade.dir,price,stop,2);suggestedTarget=suggestedTargetPlan.target;}}
@@ -44,10 +48,10 @@ function evaluate(input, {render=false}={}){
   if(ready&&priceFresh&&earlyImpulse.available&&['LONG','SHORT'].includes(earlyImpulse.direction)
      &&!earlyImpulse.extensionRisk&&Number.isFinite(earlyImpulse.barAt)){
    const side=earlyImpulse.direction;
-   const stop=stopModel(side,price,A.at,input.trailAtr||1.5).stop;
-   const targetPlan=Number.isFinite(stop)&&stop>0?targetModel(side,price,stop,2):{};
+   const stop=stopModel(side,price,paperRisk.atr,input.trailAtr||1.5,paperRisk).stop;
+   const targetPlan=Number.isFinite(stop)&&stop>0?targetModel(side,price,stop,2,paperRisk):{};
    earlyPaperPlanReason=targetPlan.entrySuitable===false?targetPlan.warning:
-    !Number.isFinite(targetPlan.target)||targetPlan.target<=0?(targetPlan.reason||riskData.reason||'Kein gültiger Gold-Stop/Ziel-Plan berechenbar'):null;
+    !Number.isFinite(targetPlan.target)||targetPlan.target<=0?(targetPlan.reason||paperRisk.reason||'Kein gültiger Gold-Stop/Ziel-Plan berechenbar'):null;
    if(Number.isFinite(targetPlan.target)&&targetPlan.target>0&&targetPlan.entrySuitable!==false){
     earlyPaperPlan={kind:'candidate',direction:side,entry:price,stop,target:targetPlan.target,
       unit:'USD/oz',at:Date.now(),experimental:true,source:'early-impulse-paper-v1'};
@@ -57,10 +61,10 @@ function evaluate(input, {render=false}={}){
   if(ready&&priceFresh&&earlyWarning.available&&['LONG','SHORT'].includes(earlyWarning.direction)
      &&!earlyWarning.extensionRisk&&Number.isFinite(earlyWarning.signalBarAt)){
    const side=earlyWarning.direction;
-   const stop=stopModel(side,price,A.at,input.trailAtr||1.5).stop;
-   const targetPlan=Number.isFinite(stop)&&stop>0?targetModel(side,price,stop,2):{};
+   const stop=stopModel(side,price,paperRisk.atr,input.trailAtr||1.5,paperRisk).stop;
+   const targetPlan=Number.isFinite(stop)&&stop>0?targetModel(side,price,stop,2,paperRisk):{};
    warningPaperPlanReason=targetPlan.entrySuitable===false?targetPlan.warning:
-    !Number.isFinite(targetPlan.target)||targetPlan.target<=0?(targetPlan.reason||riskData.reason||'Kein gültiger Gold-Stop/Ziel-Plan berechenbar'):null;
+    !Number.isFinite(targetPlan.target)||targetPlan.target<=0?(targetPlan.reason||paperRisk.reason||'Kein gültiger Gold-Stop/Ziel-Plan berechenbar'):null;
    if(Number.isFinite(targetPlan.target)&&targetPlan.target>0&&targetPlan.entrySuitable!==false){
     warningPaperPlan={kind:'candidate',direction:side,entry:price,stop,target:targetPlan.target,
       unit:'USD/oz',at:Date.now(),experimental:true,source:'early-warning-paper-v2'};
@@ -72,14 +76,15 @@ function evaluate(input, {render=false}={}){
    const target=Number.isFinite(stop)&&stop>0?targetModel(side,price,stop,2).target:null;
    if(Number.isFinite(target)&&target>0)monitorPlan={direction:side,entry:price,stop,target,kind:'existing-purchase-monitor'};
   }
-  function entryPlanFor(entryTimingGate){
+  function entryPlanFor(entryTimingGate,paperOnly=false){
+  const fixed=paperOnly?paperRisk:riskData;
   // Stop and target are market-risk levels: calculate them independently of
   // the entry clock. A reference-only plan is NEVER a trade authorization.
   let plan=null,referencePlan=null,referenceFailure=null;
   let entryPlanState={state:'blocked',code:'ANALYSIS_NOT_READY',reason:analysisAgeWarnings().join(' · ')||'Analyse noch nicht bereit'};
   if(ready&&priceFresh&&['LONG','SHORT'].includes(direction)){
-   const stop=stopModel(direction,price,A.at,input.trailAtr||1.5).stop;
-   const targetCheck=Number.isFinite(stop)&&stop>0?targetModel(direction,price,stop,2):{};
+   const stop=stopModel(direction,price,fixed.atr,input.trailAtr||1.5,fixed).stop;
+   const targetCheck=Number.isFinite(stop)&&stop>0?targetModel(direction,price,stop,2,fixed):{};
    const target=targetCheck.target;
    const geometry=Number.isFinite(price)&&price>0&&Number.isFinite(stop)&&stop>0&&
     Number.isFinite(target)&&target>0&&(direction==='LONG'?stop<price&&target>price:stop>price&&target<price);
@@ -89,14 +94,14 @@ function evaluate(input, {render=false}={}){
       entrySuitable:targetCheck.entrySuitable!==false,
       warning:targetCheck.warning||null,entryApproved:false,productApproved:false,
       holdingWindowMinutes:[30,300]};
-   }else referenceFailure=targetCheck.warning||targetCheck.reason||riskData.reason||'Stopp oder Ziel nicht gültig berechenbar';
+   }else referenceFailure=targetCheck.warning||targetCheck.reason||fixed.reason||'Stopp oder Ziel nicht gültig berechenbar';
   }
   if(ready&&!priceFresh)entryPlanState={state:'blocked',code:'SPOT_NOT_FRESH',reason:'Gold-Spot nicht aktuell bestätigt'};
   else if(ready&&priceFresh&&direction==='NEUTRAL')entryPlanState={state:'waiting',code:'DIRECTION_NOT_CONFIRMED',reason:signalState.reason||'Keine bestätigte Einstiegsrichtung'};
   else if(ready&&priceFresh&&!entryTimingGate.allowed)entryPlanState={state:'waiting',code:'ENTRY_TIMING',reason:entryTimingGate.reason};
   else if(ready&&priceFresh&&direction!=='NEUTRAL'){
    if(referencePlan&&referencePlan.entrySuitable){
-    plan={...referencePlan,kind:'candidate',targetCheck:targetModel(direction,price,referencePlan.stop,2),
+    plan={...referencePlan,kind:'candidate',targetCheck:targetModel(direction,price,referencePlan.stop,2,fixed),
       entrySetup:entryTimingGate.setup||'confirmed-main'};
     entryPlanState={state:'ready',code:entryTimingGate.freshContinuation?'FRESH_5M_CONTINUATION':'PLAN_READY',
       reason:entryTimingGate.freshContinuation?'Neuer geschlossener Folgeimpuls bestätigt; Produkt- und KO-Nachweise separat erforderlich':'Aktueller technischer Einstiegsplan vorhanden'};
@@ -106,7 +111,7 @@ function evaluate(input, {render=false}={}){
   return {plan,referencePlan,referenceFailure,entryPlanState,entryTimingGate};
   }
   let {plan,referencePlan,entryPlanState}=entryPlanFor(entryTimingGate);
-  const paperNoEmaEntry=entryPlanFor(LateEntry.checkPaperNoEma(bundle,direction,Date.now(),confirmationAt));
+  const paperNoEmaEntry=entryPlanFor(LateEntry.checkPaperNoEma(bundle,direction,Date.now(),confirmationAt),true);
    // Only the named 800/1000 EUR November PAPER ledgers consume these
    // prospective variants. Do not mutate main, push or other paper decisions.
    const paperCampaignEntries={};
@@ -114,7 +119,7 @@ function evaluate(input, {render=false}={}){
     const source=profile==='trend800nov'?'campaign-800-entry-v1':'campaign-1000-entry-v1';
     try{
     const gate=LateEntry.checkPaperCampaign(bundle,direction,Date.now(),confirmationAt,profile);
-    const computed=entryPlanFor(gate);
+    const computed=entryPlanFor(gate,true);
     const plan=!input.trade?.active&&computed.plan?
       {...computed.plan,experimental:true,source}:null;
     // Prepare an auditable stop/target before timing approval. It is never
@@ -145,13 +150,13 @@ function evaluate(input, {render=false}={}){
   const relaxedGate=LateEntry.checkPaper25(bundle,direction,Date.now(),confirmationAt);
   let relaxedPlan=null,relaxedReason=relaxedGate.reason;
   if(ready&&priceFresh&&direction!=='NEUTRAL'&&relaxedGate.allowed&&!input.trade?.active){
-   const stop=stopModel(direction,price,A.at,input.trailAtr||1.5).stop;
-   const targetPlan=Number.isFinite(stop)&&stop>0?targetModel(direction,price,stop,2):{};
+   const stop=stopModel(direction,price,paperRisk.atr,input.trailAtr||1.5,paperRisk).stop;
+   const targetPlan=Number.isFinite(stop)&&stop>0?targetModel(direction,price,stop,2,paperRisk):{};
    if(Number.isFinite(stop)&&stop>0&&Number.isFinite(targetPlan.target)&&targetPlan.target>0&&targetPlan.entrySuitable!==false){
     relaxedPlan={targetCheck:targetPlan,entrySuitable:targetPlan.entrySuitable,kind:'candidate',direction,
      entry:price,stop,target:targetPlan.target,unit:'USD/oz',at:Date.now(),experimental:true,
      source:'ema25-paper-v1',entrySetup:relaxedGate.setup,holdingWindowMinutes:[30,300]};
-   }else relaxedReason=targetPlan.warning||targetPlan.reason||riskData.reason||'Stopp oder Ziel nicht gültig berechenbar';
+   }else relaxedReason=targetPlan.warning||targetPlan.reason||paperRisk.reason||'Stopp oder Ziel nicht gültig berechenbar';
   }
   let entryOpportunityStudy;
   try { entryOpportunityStudy=Opportunity.evaluate({bundle,direction,now:Date.now(),confirmationAt,
@@ -178,12 +183,32 @@ function evaluate(input, {render=false}={}){
     $('minRR').value=String(input.handsetPlanSettings.minRR||2);
     for(const side of ['LONG','SHORT']){
      const {spots,...plan}=productMarketPlan(side);
+     // Read-only product/KO comparison may use the separately verified 5m
+     // paper risk basis, but cannot create a live entry or executable quote.
+     if(!plan.available&&!riskData.available&&paperRisk.available&&priceFresh){
+      const previewStop=stopModel(side,price,paperRisk.atr,+($('trailAtr').value||1.5),paperRisk);
+      const previewTarget=previewStop.stop>0?
+       targetModel(side,price,previewStop.stop,+($('minRR').value||2),paperRisk):{};
+      if(previewStop.stop>0&&previewTarget.target>0&&
+         (side==='LONG'?previewStop.stop<price&&previewTarget.target>price:
+                        previewStop.stop>price&&previewTarget.target<price)){
+       handsetPlans[side]={available:true,direction:side,entry:price,
+        stop:previewStop.stop,target:previewTarget.target,atr:paperRisk.atr,
+        at:spot.spot_price_as_of,sourceAt:paperRisk.sourceAt,
+        entrySuitable:previewTarget.entrySuitable!==false,
+        paperOnly:true,modelReferenceOnly:true,entryApproved:false,
+        productApproved:false,copyAllowed:false,executable:false,
+        riskTimeframe:paperRisk.timeframe,riskBasis:paperRisk.basis,
+        reason:'Nur 5m-Originalkerzen-Modellreferenz; keine Handelsfreigabe'};
+       continue;
+      }
+     }
      handsetPlans[side]=plan;
     }
    }catch(_){handsetPlans.LONG={available:false};handsetPlans.SHORT={available:false};}
    finally{$('trailAtr').value=trail;$('minRR').value=rr;}
   }
-  return {handsetPlans,handsetPlanRevision:input.handsetPlanRevision,entryOpportunityStudy,paperNoEmaEntry,paperCampaignEntries,relaxedPaper,entryPlanState,referencePlan,entryPreparation,monitorPlan,entryTimingGate,entryTiming:signalState.entryTiming||'five-minute-confirmation',confirmationAt:signalState.confirmationAt||null,baseDirection:signalState.baseDirection||direction,learningPolicy:signalState.learningPolicy,dmi:dmiContext(bundle),continuedPlan:continuedTradePlan(input.trade,bundle),fx:bundle.spots?.usd_eur_meta||null,fxByCurrency:{EUR:bundle.spots?.usd_eur_meta||null,CHF:bundle.spots?.usd_chf_meta||null},marketReview:bundle.marketReview||null,plan,trendContext,earlyImpulse,earlyWarning,warningPaperPlan,warningPaperPlanReason,earlyPaperPlan,earlyPaperPlanReason,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),analysisWarnings:analysisAgeWarnings(),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,suggestedTargetPlan,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
+  return {handsetPlans,handsetPlanRevision:input.handsetPlanRevision,entryOpportunityStudy,paperNoEmaEntry,paperCampaignEntries,relaxedPaper,paperRiskReference:{available:paperRisk.available,paperOnly:true,basis:paperRisk.basis,timeframe:paperRisk.timeframe,confirmedBars:paperRisk.confirmedBars||null,sourceAt:paperRisk.sourceAt||null,reason:paperRisk.reason},entryPlanState,referencePlan,entryPreparation,monitorPlan,entryTimingGate,entryTiming:signalState.entryTiming||'five-minute-confirmation',confirmationAt:signalState.confirmationAt||null,baseDirection:signalState.baseDirection||direction,learningPolicy:signalState.learningPolicy,dmi:dmiContext(bundle),continuedPlan:continuedTradePlan(input.trade,bundle),fx:bundle.spots?.usd_eur_meta||null,fxByCurrency:{EUR:bundle.spots?.usd_eur_meta||null,CHF:bundle.spots?.usd_chf_meta||null},marketReview:bundle.marketReview||null,plan,trendContext,earlyImpulse,earlyWarning,warningPaperPlan,warningPaperPlanReason,earlyPaperPlan,earlyPaperPlanReason,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),analysisWarnings:analysisAgeWarnings(),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,suggestedTargetPlan,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
  })()`,env,{timeout:8000});
  if(input.riskEnabled===true||input.riskMarketEnabled===true){
   const clock=Date.now(),signal=Risk.analyze(input.bundle,clock);
