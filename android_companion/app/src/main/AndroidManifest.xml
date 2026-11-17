@@ -42,6 +42,8 @@
         <activity android:name=".StopLossPrefillActivity" android:exported="false" />
         <!-- Pure local mock; never opens a broker or runs an accessibility action. -->
         <activity android:name=".StopLossSimulationActivity" android:exported="false" />
+        <!-- Foreground-only local screen recognition, not exported, no order actions. -->
+        <activity android:name=".StopLossReadOnlyActivity" android:exported="false" />
         <!-- Actual local Android View hierarchy, synthetic DEGIRO-like labels;
              non-exported, no broker intent and no AccessibilityService. -->
         <activity android:name=".StopLossMockOrderActivity" android:exported="false" />
