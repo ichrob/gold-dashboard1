@@ -121,6 +121,8 @@ class ProductReadService : AccessibilityService() {
                     handler.postDelayed({ resumeEntryAfterOwnerUnlock() },350)
                 return
             }
+            if(intent?.action==Intent.ACTION_SCREEN_OFF)
+                StopLossPrefillSession.finish("SCREEN_LOCKED")
             if(intent?.action==Intent.ACTION_SCREEN_OFF && PinReadinessProbe.running)
                 PinReadinessProbe.stop("Bildschirm ausgeschaltet. PIN-Test beendet.",
                     PinKeypadExerciseTrace.Reason.SCREEN_LOCKED)
@@ -414,8 +416,108 @@ class ProductReadService : AccessibilityService() {
         queueRead(600)
         PhoneDiagnostics.queue(this)
     }
+    // Dedicated local-only Stop Loss order FORM preparer. No network, no
+    // order submission. The ordinary product reader remains read-only.
+    private var stopLossPrefillQueued = false
+    private val stopLossPrefillTick = object : Runnable {
+        override fun run() {
+            stopLossPrefillQueued=false
+            val now=SystemClock.elapsedRealtime()
+            val draft=StopLossPrefillSession.current(now) ?: return
+            if((getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked ||
+                (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isDeviceLocked ||
+                !(getSystemService(POWER_SERVICE) as PowerManager).isInteractive) {
+                StopLossPrefillSession.finish("SCREEN_LOCKED"); return
+            }
+            if(PhoneRemote.active() || PinReadinessProbe.running || MorningReadRun.running ||
+                GoldSearchRun.running || ProductReadRequest.active(now)) {
+                StopLossPrefillSession.finish("PARALLELER_AUFTRAG"); return
+            }
+            val root=rootInActiveWindow ?: run {
+                StopLossPrefillSession.finish("FENSTER_FEHLT"); return
+            }
+            try {
+                if(root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) {
+                    StopLossPrefillSession.finish("APP_WECHSEL"); return
+                }
+                val tree=WorkflowTree.read(root,{ it.childCount },{ node,index -> node.getChild(index) })
+                if(!tree.complete) { StopLossPrefillSession.finish("ANSICHT_UNVOLLSTAENDIG"); return }
+                val refs=tree.nodes.filter {
+                    it.isVisibleToUser && it.packageName?.toString()==ProductScreenEvidence.PACKAGE
+                }
+                if(refs.size !in 4..1200 || refs.any {
+                    it.isPassword || (android.os.Build.VERSION.SDK_INT>=34 && it.isAccessibilityDataSensitive)
+                }) { StopLossPrefillSession.finish("ANSICHT_GESCHUETZT"); return }
+                val frame=StopLossPrefillPolicy.Frame(ProductScreenEvidence.PACKAGE,refs.map { node ->
+                    val rect=android.graphics.Rect();node.getBoundsInScreen(rect)
+                    val label=node.text?.toString()?.takeIf { it.isNotBlank() }
+                        ?:node.contentDescription?.toString()?.takeIf { it.isNotBlank() }
+                        ?:node.hintText?.toString().orEmpty()
+                    // Broker tabs sometimes mark their clickable parent selected.
+                    val selected=node.isSelected || node.isChecked ||
+                        (node.parent?.let { it.isSelected || it.isChecked } == true)
+                    StopLossPrefillPolicy.Node(
+                        label=label.take(200),clickable=node.isClickable && node.isEnabled,
+                        editable=node.isEditable && node.isEnabled,selected=selected,
+                        password=node.isPassword,input=if(node.isEditable && !node.isShowingHintText)
+                            node.text?.toString().orEmpty() else "",
+                        left=rect.left,top=rect.top,right=rect.right,bottom=rect.bottom
+                    )
+                })
+                val decision=StopLossPrefillPolicy.decide(StopLossPrefillSession.stage,frame,draft)
+                when(decision.kind) {
+                    StopLossPrefillPolicy.Kind.BLOCK -> StopLossPrefillSession.finish(decision.code)
+                    StopLossPrefillPolicy.Kind.DONE -> StopLossPrefillSession.finish("VORBEREITET")
+                    StopLossPrefillPolicy.Kind.ADVANCE -> {
+                        StopLossPrefillSession.move(decision.next);queueStopLossPrefill(450)
+                    }
+                    StopLossPrefillPolicy.Kind.CLICK,StopLossPrefillPolicy.Kind.WRITE -> {
+                        val target=refs.getOrNull(decision.index)
+                        val currentRoot=rootInActiveWindow
+                        val sameWindow=currentRoot?.packageName?.toString()==ProductScreenEvidence.PACKAGE &&
+                            currentRoot.windowId==root.windowId
+                        currentRoot?.recycle()
+                        if(target==null || !sameWindow) {
+                            StopLossPrefillSession.finish("ANSICHT_GEWECHSELT");return
+                        }
+                        // Explicit allowlist: only open the type chooser or select
+                        // "Stop Loss". Never tap SELL/BUY, Order platzieren, etc.
+                        val success=if(decision.kind==StopLossPrefillPolicy.Kind.CLICK) {
+                            frame.nodes[decision.index].label in listOf("Limit","Stop Loss") &&
+                                target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        } else {
+                            target.isEditable && decision.text.matches(Regex("[0-9]{1,7}(?:,[0-9]{2})?")) &&
+                                target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,
+                                    android.os.Bundle().apply {
+                                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,decision.text)
+                                    })
+                        }
+                        if(!success) StopLossPrefillSession.finish("FELDAKTION_ABGELEHNT")
+                        else { StopLossPrefillSession.move(decision.next);queueStopLossPrefill(600) }
+                    }
+                }
+            } catch (_: Exception) {
+                StopLossPrefillSession.finish("ANSICHT_NICHT_LESBAR")
+            } finally { root.recycle() }
+        }
+    }
+    private fun queueStopLossPrefill(delay: Long) {
+        if(!stopLossPrefillQueued && StopLossPrefillSession.active(SystemClock.elapsedRealtime())) {
+            stopLossPrefillQueued=true
+            handler.postDelayed(stopLossPrefillTick,delay)
+        }
+    }
     // Only package/type metadata is used. Never read or retain event text.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if(StopLossPrefillSession.active(SystemClock.elapsedRealtime())) {
+            if(event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
+                StopLossPrefillSession.finish("USER_STOP");return
+            }
+            if(event?.eventType==AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
+                event?.eventType==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
+                queueStopLossPrefill(300)
+            return
+        }
         if (PinReadinessProbe.running) {
             if (PinReadinessProbe.loginArmed && event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
                 PinReadinessProbe.loginWindowChanged(); return
@@ -463,8 +565,8 @@ class ProductReadService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         queueRead(400)
     }
-    override fun onInterrupt() { LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
-    override fun onDestroy() { LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onLoginTouch=null;PinReadinessProbe.onDigitTouch=null;PinReadinessProbe.onDeleteTouch=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
+    override fun onInterrupt() { StopLossPrefillSession.finish("SERVICE_INTERRUPTED"); handler.removeCallbacks(stopLossPrefillTick); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
+    override fun onDestroy() { StopLossPrefillSession.finish("SERVICE_STOPPED"); handler.removeCallbacks(stopLossPrefillTick); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onLoginTouch=null;PinReadinessProbe.onDigitTouch=null;PinReadinessProbe.onDeleteTouch=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
