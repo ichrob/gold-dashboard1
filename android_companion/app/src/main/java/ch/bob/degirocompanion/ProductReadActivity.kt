@@ -515,6 +515,22 @@ class ProductReadActivity : Activity() {
                 else "Lokale PIN-Eingabe konnte nicht gestartet werden. Einrichtung, Gerätesperre und Lesedienst prüfen."
         } finally { secret?.fill(0) }
     }
+    /** A start failure must be visible even when the advanced controls are
+     * scrolled far below the status TextView. No automatic broker navigation
+     * starts merely because an old list was detected.
+     */
+    private fun showEntryNavigationStartProblem(reason: String, freshListNeeded: Boolean = false) {
+        val message = reason.ifBlank { "Navigationstest konnte nicht gestartet werden." }
+        result.text = message
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Navigationstest nicht gestartet")
+            .setMessage(message)
+            .setNegativeButton("Schließen", null)
+        if (freshListNeeded) {
+            dialog.setPositiveButton("Goldliste jetzt einlesen") { _, _ -> startGoldRead() }
+        }
+        dialog.show()
+    }
     /** Run the same already audited single-product navigation/scroll/return
      * engine as a signal-triggered entry read, without waiting for a signal.
      * The owner chooses one ISIN from the actual saved imported list; server
@@ -522,6 +538,7 @@ class ProductReadActivity : Activity() {
      * Original DEGIRO observations remain research-only, never paper trades.
      */
     private fun chooseEntryNavigationTest() {
+        var freshListNeeded = false
         runCatching {
             check(!refreshPreparing && !MorningReadRun.running &&
                 !GoldSearchRun.running && !PinReadinessProbe.running &&
@@ -529,20 +546,35 @@ class ProductReadActivity : Activity() {
                 !LoginToReadHandoff.pending(SystemClock.elapsedRealtime())) {
                 "Laufende Lesung oder Anmeldung zuerst beenden."
             }
-            val saved=org.json.JSONObject(MorningReadRun.refreshSourceSnapshot(this)
-                ?: error("Zuerst die Goldliste mit Bob Handy einlesen."))
-            check(System.currentTimeMillis()-
-                java.time.Instant.parse(saved.getString("listUploadedAt")).toEpochMilli()
-                    in 0..14*60*60*1000L) {
-                "Gespeicherte Goldliste ist älter als 14 Stunden."
+            val raw = MorningReadRun.refreshSourceSnapshot(this)
+            if (raw == null) {
+                freshListNeeded = true
+                error("Keine bestätigte Goldliste auf dem Handy. Bitte zuerst Gold neu einlesen.")
             }
-            check(saved.getString("listBatchId").matches(Regex("[a-f0-9]{32}"))) {
-                "Aktuelle bestätigte Goldliste erforderlich."
+            val saved = org.json.JSONObject(raw)
+            val listAgeMs = runCatching {
+                System.currentTimeMillis() -
+                    java.time.Instant.parse(saved.getString("listUploadedAt")).toEpochMilli()
+            }.getOrNull()
+            if (listAgeMs == null || listAgeMs !in 0L..14*60*60*1000L) {
+                freshListNeeded = true
+                error("Goldliste ist älter als 14 Stunden oder hat keine gültige Zeit. Für den Lesetest bitte Gold neu einlesen.")
             }
-            val arr=saved.getJSONArray("isins")
+            if (!saved.optString("listBatchId").matches(Regex("[a-f0-9]{32}"))) {
+                freshListNeeded = true
+                error("Aktuelle bestätigte Goldliste fehlt. Bitte Gold neu einlesen.")
+            }
+            val arr = saved.optJSONArray("isins")
+            if (arr == null) {
+                freshListNeeded = true
+                error("Goldliste enthält keine gültigen ISINs. Bitte Gold neu einlesen.")
+            }
             val names=(0 until arr.length()).map { arr.getString(it) }
                 .filter { SeriesEvidence.validIsin(it) }.distinct()
-            check(names.size in 1..12) { "Keine eindeutig lesbaren ISINs aus der Goldliste." }
+            if (names.size !in 1..12) {
+                freshListNeeded = true
+                error("Goldliste enthält keine eindeutig lesbaren ISINs. Bitte Gold neu einlesen.")
+            }
             // Android's standard AlertDialog message view takes precedence over
             // its list view. setMessage + setItems therefore hides the ISINs
             // and leaves only the Cancel button visible on the handset.
@@ -552,7 +584,10 @@ class ProductReadActivity : Activity() {
                     requestQuoteRefresh(saved,listOf(names[which]),testOnly=true)
                 }
                 .setNegativeButton("Abbrechen",null).show()
-        }.onFailure { result.text=it.message ?: "Navigationstest nicht verfügbar." }
+        }.onFailure {
+            showEntryNavigationStartProblem(
+                it.message ?: "Navigationstest nicht verfügbar.", freshListNeeded)
+        }
     }
 
     private fun chooseQuoteRefresh() {
@@ -636,11 +671,18 @@ class ProductReadActivity : Activity() {
                             if(PinReadinessProbe.localLoginActive) PinReadinessProbe.stop("Kursauffrischung gestoppt.")
                             MorningReadRun.stop(this,"TRANSFER_ERROR");ProductReadRequest.cancel();PhoneRemote.stop(this,"START_FAILED")
                         }
-                        result.text=it.message ?: "Kursauffrischung nicht gestartet."
+                        val reason=it.message ?: "Kursauffrischung nicht gestartet."
+                        if(testOnly) showEntryNavigationStartProblem(reason)
+                        else result.text=reason
                     }.also { secret?.fill(0) }
                 }
             }.start()
-        }.onFailure { refreshPreparing=false;result.text=it.message ?: "Kursauffrischung nicht gestartet." }
+        }.onFailure {
+            refreshPreparing=false
+            val reason=it.message ?: "Kursauffrischung nicht gestartet."
+            if(testOnly) showEntryNavigationStartProblem(reason)
+            else result.text=reason
+        }
     }
     private fun startGoldRead() {
             var startedHere=false
