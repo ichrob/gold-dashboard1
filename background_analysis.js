@@ -183,6 +183,26 @@ function evaluate(input, {render=false}={}){
     $('minRR').value=String(input.handsetPlanSettings.minRR||2);
     for(const side of ['LONG','SHORT']){
      const {spots,...plan}=productMarketPlan(side);
+     // Read-only product/KO comparison may use the separately verified 5m
+     // paper risk basis, but cannot create a live entry or executable quote.
+     if(!plan.available&&!riskData.available&&paperRisk.available&&priceFresh){
+      const previewStop=stopModel(side,price,paperRisk.atr,+($('trailAtr').value||1.5),paperRisk);
+      const previewTarget=previewStop.stop>0?
+       targetModel(side,price,previewStop.stop,+($('minRR').value||2),paperRisk):{};
+      if(previewStop.stop>0&&previewTarget.target>0&&
+         (side==='LONG'?previewStop.stop<price&&previewTarget.target>price:
+                        previewStop.stop>price&&previewTarget.target<price)){
+       handsetPlans[side]={available:true,direction:side,entry:price,
+        stop:previewStop.stop,target:previewTarget.target,atr:paperRisk.atr,
+        at:spot.spot_price_as_of,sourceAt:paperRisk.sourceAt,
+        entrySuitable:previewTarget.entrySuitable!==false,
+        paperOnly:true,modelReferenceOnly:true,entryApproved:false,
+        productApproved:false,copyAllowed:false,executable:false,
+        riskTimeframe:paperRisk.timeframe,riskBasis:paperRisk.basis,
+        reason:'Nur 5m-Originalkerzen-Modellreferenz; keine Handelsfreigabe'};
+       continue;
+      }
+     }
      handsetPlans[side]=plan;
     }
    }catch(_){handsetPlans.LONG={available:false};handsetPlans.SHORT={available:false};}
