@@ -140,6 +140,12 @@ class MainActivity : Activity() {
                 .putExtra("mock_stop_cents",d.stopCents)
                 .putExtra("mock_scenario","HAPPY_PATH"))
         }
+        button("🔎 DEGIRO-MASKE NUR LESEN · 45 Sekunden · KEINE ORDER") {
+            // A local owner tap opens the read-only activity once. No position
+            // approval and no trade-form action is granted by this shortcut.
+            startActivity(Intent(this,StopLossReadOnlyActivity::class.java)
+                .putExtra(StopLossReadOnlyActivity.EXTRA_START_ON_OPEN,true))
+        }
         button("▶ Bob starten · DEGIRO, Gold und fehlende Werte") {
             startActivity(Intent(this, ProductReadActivity::class.java)
                 .putExtra(ProductReadActivity.EXTRA_START_COMPLETE_FLOW, true))
