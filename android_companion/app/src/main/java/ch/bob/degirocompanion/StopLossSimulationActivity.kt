@@ -20,6 +20,18 @@ class StopLossSimulationActivity : Activity() {
     private lateinit var draftStatus: TextView
     private var importedModelDraft: StopLossPrefillDraft? = null
 
+    private fun currentModel(): StopLossPrefillDraft? {
+        val candidate=importedModelDraft ?: return null
+        val now=System.currentTimeMillis()
+        if(candidate.preparedAtMs > now || now-candidate.preparedAtMs >= 300_000L) {
+            importedModelDraft=null
+            if(::draftStatus.isInitialized)
+                draftStatus.text="Modellvorschlag abgelaufen. Neu aus Bob kopieren oder fiktiv simulieren."
+            return null
+        }
+        return candidate
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val column=LinearLayout(this).apply {
@@ -32,7 +44,7 @@ class StopLossSimulationActivity : Activity() {
         }
         label("BOB · STOP-LOSS-SIMULATION",23f)
         label("Nur Übung: Keine DEGIRO-Verbindung, kein echtes Depot, kein PIN und keine Order. Diese Übung testet Bobs Entscheidungsschritte anhand einer nachgebauten Oberfläche. Sie beweist NICHT die Bedienung der echten DEGIRO-App.")
-        label("Fiktive Werte: Beispiel-ISIN DE000FB0A490 · 3 Stück · Stop-Loss 25,90 EUR. Das sind KEINE Livekurse oder Handlungsempfehlungen.")
+        label("Standardübung ohne Modellimport: fiktive ISIN DE000FB0A490 · 3 Stück · Stop-Loss 25,90 EUR. Kein Livekurs und keine Handlungsempfehlung.")
         draftStatus=label("Modellwerte: Noch nicht übernommen; Standardübung nutzt rein fiktive Zahlen.")
         column.addView(Button(this).apply {
             isAllCaps=false
@@ -69,7 +81,7 @@ class StopLossSimulationActivity : Activity() {
                 AlertDialog.Builder(this@StopLossSimulationActivity)
                     .setTitle("Nur lokale Testoberfläche, keine DEGIRO-App")
                     .setItems(cases) { _,which ->
-                        val d=importedModelDraft ?: StopLossPrefillDraft("DE000FB0A490",3,2590,0L)
+                        val d=currentModel() ?: StopLossPrefillDraft("DE000FB0A490",3,2590,0L)
                         val scenario=StopLossOfflineSimulation.Scenario.entries[which]
                         startActivity(Intent(this@StopLossSimulationActivity,StopLossMockOrderActivity::class.java)
                             .putExtra("mock_isin",d.isin)
@@ -94,7 +106,7 @@ class StopLossSimulationActivity : Activity() {
     }
 
     private fun runSimulation() {
-        val scenarios=importedModelDraft?.let { StopLossOfflineSimulation.suite(it) }
+        val scenarios=currentModel()?.let { StopLossOfflineSimulation.suite(it) }
             ?: StopLossOfflineSimulation.suite()
         val allOk=scenarios.all { it.second.passed &&
             !it.second.brokerOpened && !it.second.orderSubmitted }
