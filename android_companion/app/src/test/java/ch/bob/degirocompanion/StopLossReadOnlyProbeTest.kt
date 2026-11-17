@@ -18,18 +18,18 @@ class StopLossReadOnlyProbeTest {
         n(isin),n("Übersicht"),n("KAUF"),n("VERKAUF"))
 
     @Test fun rejectsOtherAppAndLoginAndIncompleteTree() {
-        assertEquals(p.Code.NOT_DEGIRO,
+        assertEquals(StopLossReadOnlyProbe.Code.NOT_DEGIRO,
             p.inspect(detail().copy(app="com.example.other")).code)
-        assertEquals(p.Code.SCREEN_PROTECTED,
+        assertEquals(StopLossReadOnlyProbe.Code.SCREEN_PROTECTED,
             p.inspect(detail().copy(nodes=detail().nodes+n("PIN eingeben"))).code)
-        assertEquals(p.Code.SCREEN_PROTECTED,
+        assertEquals(StopLossReadOnlyProbe.Code.SCREEN_PROTECTED,
             p.inspect(detail().copy(nodes=detail().nodes+n(password=true))).code)
-        assertEquals(p.Code.VIEW_INCOMPLETE,
+        assertEquals(StopLossReadOnlyProbe.Code.VIEW_INCOMPLETE,
             p.inspect(frame(n(isin))).code)
     }
     @Test fun recognizesProductDetailWithoutClickOrOrder() {
         val r=p.inspect(detail())
-        assertEquals(p.Code.PRODUCT_DETAIL_VISIBLE,r.code)
+        assertEquals(StopLossReadOnlyProbe.Code.PRODUCT_DETAIL_VISIBLE,r.code)
         assertFalse(r.stopCaptionVisible)
         assertFalse(r.quantityCaptionVisible)
         assertFalse(r.stopLossVisible)
@@ -43,7 +43,7 @@ class StopLossReadOnlyProbeTest {
             n("untrusted broker value 99,99",editable=true),
             n("untrusted account field",editable=true)
         ))
-        assertEquals(p.Code.SELL_FORM_VISIBLE,r.code)
+        assertEquals(StopLossReadOnlyProbe.Code.SELL_FORM_VISIBLE,r.code)
         assertTrue(r.stopCaptionVisible)
         assertTrue(r.quantityCaptionVisible)
         assertTrue(r.stopLossVisible)
@@ -60,12 +60,12 @@ class StopLossReadOnlyProbeTest {
             if(it.label=="Kauf")it.copy(selected=true)
             else if(it.label=="Verkauf")it.copy(selected=false) else it
         })
-        assertEquals(p.Code.BUY_OR_UNCONFIRMED_FORM,p.inspect(buy).code)
-        assertEquals(p.Code.AMBIGUOUS_ISIN,p.inspect(
+        assertEquals(StopLossReadOnlyProbe.Code.BUY_OR_UNCONFIRMED_FORM,p.inspect(buy).code)
+        assertEquals(StopLossReadOnlyProbe.Code.AMBIGUOUS_ISIN,p.inspect(
             sell.copy(nodes=sell.nodes+n("DE000FB0A491"))).code)
-        assertEquals(p.Code.SELL_FORM_LABELS_UNCLEAR,p.inspect(
+        assertEquals(StopLossReadOnlyProbe.Code.SELL_FORM_LABELS_UNCLEAR,p.inspect(
             sell.copy(nodes=sell.nodes.filterNot { it.label=="Anzahl" })).code)
-        assertEquals(p.Code.SELL_FORM_LABELS_UNCLEAR,p.inspect(
+        assertEquals(StopLossReadOnlyProbe.Code.SELL_FORM_LABELS_UNCLEAR,p.inspect(
             sell.copy(nodes=sell.nodes+n("Stop (€)"))).code)
     }
     @Test fun timeBoundedRAMOnlySessionNeverReturnsBrokerData() {
@@ -76,7 +76,7 @@ class StopLossReadOnlyProbeTest {
         assertTrue(s.active(44_999L))
         s.observe(p.inspect(detail()))
         assertFalse(s.active(45_300L))
-        assertEquals(p.Code.PRODUCT_DETAIL_VISIBLE,s.result?.code)
+        assertEquals(StopLossReadOnlyProbe.Code.PRODUCT_DETAIL_VISIBLE,s.result?.code)
         assertFalse(s.status.contains(isin))
         assertTrue(s.start(100_000L))
         assertTrue(s.active(144_999L))
