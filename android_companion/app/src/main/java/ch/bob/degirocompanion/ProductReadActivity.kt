@@ -70,14 +70,7 @@ class ProductReadActivity : Activity() {
         capabilityActions["Bob starten"] = { startAutomaticTest() }
         capabilityActions["Silber-Hebelprodukte suchen"] = { startPreparedGoal("Silber") }
         capabilityActions["Gold-Hebelprodukte suchen"] = { startPreparedGoal("Gold") }
-        button("Prüfung stoppen") {
-            refreshTickets.cancel();refreshPreparing=false
-            if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
-            PhoneRemote.stop(this,"USER_STOP")
-            GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
-            MorningReadRun.stop(this,"USER_STOP")
-            ProductReadRequest.cancel(); ProductReadSession.clear(); ProductReadDiagnostics.clear(); refresh()
-        }
+        button("Prüfung stoppen") { stopAndResetCurrentTest() }
         result=TextView(this).apply { textSize=18f;setTextIsSelectable(true) }
         container.addView(result)
         container.addView(TextView(this).apply { tag = "pin_probe_status"; text = PinReadinessProbe.message; textSize = 18f })
@@ -744,6 +737,26 @@ class ProductReadActivity : Activity() {
     }
     /** One explicit start: local, once-only PIN if enrolled; Gold only after
      * the actual DEGIRO Markets screen has been recognized. No PIN transport. */
+    /** Owner abort is a complete reset of volatile read/login/test state.
+     * Clear the PIN handoff FIRST so its asynchronous verified-login callback
+     * cannot start a reader after the user pressed STOP. Never delete the
+     * persistent MorningReadRun outbox or confirmed product observations.
+     */
+    private fun stopAndResetCurrentTest() {
+        refreshTickets.cancel()
+        refreshPreparing=false
+        LoginToReadHandoff.clear()
+        if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
+        PhoneRemote.stop(this,"USER_STOP")
+        MorningListDelivery.cancel()
+        GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
+        MorningReadRun.stop(this,"USER_STOP")
+        ProductReadRequest.cancel()
+        ProductReadSession.clear()
+        ProductReadDiagnostics.clear()
+        refresh()
+        result.text="Test abgebrochen und zurückgesetzt. Du kannst einen neuen Test starten.\\n\\n"+result.text
+    }
     /** Explicit, time-bounded owner lock/unlock rehearsal. Distinct from
      * any market signal and from the separate live product-reading session.
      * Samsung's keyguard and credentials are never touched.
@@ -779,8 +792,14 @@ class ProductReadActivity : Activity() {
         }.onFailure {
             if(started) PhoneRemote.stop(this,"UNLOCK_TEST_START_FAILED")
             result.text=it.message ?: "Sperrtest nicht gestartet."
-            AlertDialog.Builder(this).setTitle("Sperrtest nicht gestartet")
-                .setMessage(result.text).setPositiveButton("Schließen",null).show()
+            val dialog=AlertDialog.Builder(this).setTitle("Sperrtest nicht gestartet")
+                .setMessage(result.text).setPositiveButton("Schließen",null)
+            if(it.message=="Erst den bisherigen Lese- oder Anmeldevorgang beenden.") {
+                dialog.setNeutralButton("Vorherigen Test abbrechen") { _,_ ->
+                    stopAndResetCurrentTest()
+                }
+            }
+            dialog.show()
         }
     }
 
