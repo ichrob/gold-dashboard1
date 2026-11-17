@@ -52,9 +52,8 @@ internal object FinalReadReturnPolicy {
             previousWindow != currentWindow) return LastBackBlock.WINDOW
         if(!SeriesEvidence.validIsin(expectedIsin) ||
             draft.lineSequence().none { it == "ISIN: $expectedIsin" }) return LastBackBlock.IDENTITY
-        if(!MorningReadPolicy.safeStatusReturn(nodes,expectedIsin) ||
-            !MorningReadPolicy.returnAfterRead(nodes,expectedIsin,currentWindow,
-                previousWindow,code)) return LastBackBlock.SURFACE
+        if(!MorningReadPolicy.safeCompletedLastProductBack(nodes,expectedIsin,
+                currentWindow,previousWindow,code)) return LastBackBlock.SURFACE
         return LastBackBlock.NONE
     }
 
