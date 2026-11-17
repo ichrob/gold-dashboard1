@@ -120,6 +120,10 @@ class MainActivity : Activity() {
         // Gold leveraged-product list -> authenticated missing-field detail plan.
         // ProductReadActivity is not exported; no deep link or remote command
         // can set this private start instruction.
+        // Installable standalone simulation: no broker, position, or reader permission required.
+        button("🧪 Stop-Loss-Simulation starten · OHNE DEGIRO") {
+            startActivity(Intent(this, StopLossSimulationActivity::class.java))
+        }
         button("▶ Bob starten · DEGIRO, Gold und fehlende Werte") {
             startActivity(Intent(this, ProductReadActivity::class.java)
                 .putExtra(ProductReadActivity.EXTRA_START_COMPLETE_FLOW, true))
