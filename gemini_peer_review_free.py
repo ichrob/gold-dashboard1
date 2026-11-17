@@ -174,6 +174,13 @@ def run():
     if pr_data.get("draft") is True:
         print("Gemini review skipped: pull request is a draft.")
         return
+    # CI may finish immediately before the PR is merged. The workflow_run
+    # payload still names that PR, but reviewing a closed PR is no longer
+    # useful. Treat this automatic race as a clean skip before diff/model
+    # access; manual closed-PR requests remain fail-closed below.
+    if mode == "automatic" and pr_data.get("state") == "closed":
+        print("Gemini review skipped: pull request closed after CI.")
+        return
     sha = reviewed_pr_sha(pr_data, mode=mode,
                           head_sha=os.getenv("BOB_CI_HEAD_SHA"))
     if not isinstance(sha, str) or not SHA.fullmatch(sha):

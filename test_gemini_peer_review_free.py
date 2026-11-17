@@ -79,6 +79,33 @@ class GeminiReviewSafetyTests(unittest.TestCase):
         request.assert_called_once_with("https://api.github.com/repos/ichrob/gold-dashboard1/pulls/1618", "test-token")
         provider.assert_not_called()
 
+    def test_automatic_run_skips_closed_pr_before_diff_or_provider(self):
+        pr = {**self._owner_pr(), "state": "closed"}
+        env = {"GITHUB_TOKEN": "github-token",
+               "GEMINI_API_KEY": "a" * 40,
+               "BOB_PR_NUMBER": "1780",
+               "BOB_GEMINI_MODE": "automatic",
+               "BOB_CI_HEAD_SHA": "a" * 40}
+        with patch.dict(os.environ, env, clear=True), \
+             patch.object(g, "enabled", return_value=True), \
+             patch.object(g, "request_json", return_value=pr) as request, \
+             patch.object(g, "safe_files") as safe, \
+             patch.object(g, "gemini_request") as provider, \
+             patch("builtins.print") as output:
+            g.run()
+        request.assert_called_once_with(
+            "https://api.github.com/repos/ichrob/gold-dashboard1/pulls/1780",
+            "github-token")
+        safe.assert_not_called()
+        provider.assert_not_called()
+        output.assert_called_once_with(
+            "Gemini review skipped: pull request closed after CI.")
+
+    def test_manual_closed_pr_remains_denied(self):
+        pr = {**self._owner_pr(), "state": "closed"}
+        with self.assertRaisesRegex(ValueError, "review-not-authorized"):
+            g.reviewed_pr_sha(pr, mode="manual")
+
     def test_owner_default_allow_and_explicit_revocation(self):
         self.assertTrue(g.owner_allows_review([]))
         comments = [
