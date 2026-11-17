@@ -121,21 +121,32 @@ class ProductReadService : AccessibilityService() {
                     handler.postDelayed({ resumeEntryAfterOwnerUnlock() },350)
                 return
             }
-            if(intent?.action==Intent.ACTION_SCREEN_OFF && PinReadinessProbe.running)
-                PinReadinessProbe.stop("Bildschirm ausgeschaltet. PIN-Test beendet.",
-                    PinKeypadExerciseTrace.Reason.SCREEN_LOCKED)
-            if(intent?.action==Intent.ACTION_SCREEN_OFF) {
-                val inProgress=ProductReadRequest.active(SystemClock.elapsedRealtime()) ||
-                    MorningReadRun.running || GoldSearchRun.running || PinReadinessProbe.running
-                if(!PhoneRemote.pauseForScreenLock(inProgress))
-                    PhoneRemote.stop(this@ProductReadService,"SCREEN_LOCKED")
+            if(intent?.action!=Intent.ACTION_SCREEN_OFF) return
+            // Snapshot active work BEFORE stopping the PIN probe. Otherwise its
+            // onStop callback can change the flags, and a product test might be
+            // mistaken for an idle, resumable entry-read session.
+            val reading=ProductReadRequest.active(SystemClock.elapsedRealtime()) ||
+                MorningReadRun.running || GoldSearchRun.running
+            val pinRunning=PinReadinessProbe.running
+            val handoffPending=LoginToReadHandoff.pending(SystemClock.elapsedRealtime())
+            val inProgress=reading || pinRunning || handoffPending
+            if(PhoneRemote.pauseForScreenLock(inProgress)) return
+            // Lock aborts a running test. Invalidate the verified-PIN handoff
+            // before callbacks can schedule any further DEGIRO navigation.
+            LoginToReadHandoff.clear()
+            if(pinRunning) PinReadinessProbe.stop(
+                "Bildschirm ausgeschaltet. PIN-Test beendet.",
+                PinKeypadExerciseTrace.Reason.SCREEN_LOCKED)
+            PhoneRemote.stop(this@ProductReadService,"SCREEN_LOCKED")
+            if(reading) {
+                MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
+                GoldSearchRun.stop("SCREEN_LOCKED",Instant.now().toString())
+                ProductReadRequest.cancel()
+                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED)
+                ProductReadSession.put(ProductScreenEvidence.Result(
+                    message="Bildschirm ausgeschaltet. Aktive Lesung beendet; neuer Test nach Entsperrung möglich."),
+                    SystemClock.elapsedRealtime())
             }
-            if (intent?.action != Intent.ACTION_SCREEN_OFF || !ProductReadRequest.active(SystemClock.elapsedRealtime())) return
-            MorningReadRun.stop(this@ProductReadService,"SCREEN_LOCKED")
-            GoldSearchRun.stop("SCREEN_LOCKED",Instant.now().toString())
-            ProductReadRequest.cancel()
-            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCKED)
-            ProductReadSession.put(ProductScreenEvidence.Result(message = "Bildschirm ausgeschaltet. Aktive Lesung beendet; zum Fortsetzen entsperren."), SystemClock.elapsedRealtime())
         }
     }
     private var screenLease: PowerManager.WakeLock? = null
@@ -320,6 +331,13 @@ class ProductReadService : AccessibilityService() {
             } else PhoneRemote.stop(this,"COMPLETED")
         }
         PhoneRemote.onStop={ code ->
+            // User STOP, screen-lock abort and session expiry must never leave
+            // an old login handoff armed. Verified-login callbacks carry a
+            // generation ticket, so clearing here also invalidates late posts.
+            if(code in setOf("USER_STOP","SCREEN_LOCKED","SESSION_EXPIRED",
+                    "SERVICE_INTERRUPTED","SERVICE_STOPPED","START_FAILED","REMOTE_STOP")) {
+                LoginToReadHandoff.clear()
+            }
             if(PinReadinessProbe.running) PinReadinessProbe.stop("PIN-Test gestoppt.")
             MorningListDelivery.cancel()
             remoteSearchProgress.clear(); remoteGestureBudget.clear(); automaticSearchProgress.clear(); clearWrittenSearch()
