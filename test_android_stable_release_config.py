@@ -185,6 +185,23 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD', service)
         self.assertIn('root.packageName?.toString() != ProductScreenEvidence.PACKAGE', service)
 
+    def test_stop_loss_mock_uses_only_local_views_and_same_decision_policy(self):
+        root = ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion"
+        mock = (root / "StopLossMockOrderActivity.kt").read_text()
+        simulation = (root / "StopLossSimulationActivity.kt").read_text()
+        decision = (root / "StopLossOfflineSimulation.kt").read_text()
+        self.assertIn("StopLossPrefillPolicy.decide", mock)
+        self.assertIn("target.performClick()", mock)
+        self.assertIn("target.setText(decision.text)", mock)
+        self.assertIn("StopLossPrefillPolicy.decide", decision)
+        self.assertIn("StopLossOfflineSimulation.modelDraft", simulation)
+        for forbidden in ["startActivity(", "ACTION_SET_TEXT", "ACTION_CLICK",
+                          "performGlobalAction", "StopLossPrefillExecutor.execute",
+                          "stopLossPrefillSession.arm", "getLaunchIntentForPackage("]:
+            self.assertNotIn(forbidden, mock)
+        self.assertIn('android:name=".StopLossMockOrderActivity" android:exported="false"',
+                      MANIFEST.read_text())
+
     def test_no_private_key_material_is_tracked_in_android_setup(self):
         ignore = (ROOT / "android_companion/.gitignore").read_text(encoding="utf-8")
         self.assertIn("**/*.p12", ignore)
