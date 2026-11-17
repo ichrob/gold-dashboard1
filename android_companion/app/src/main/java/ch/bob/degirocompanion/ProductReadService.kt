@@ -483,7 +483,9 @@ class ProductReadService : AccessibilityService() {
                         // Explicit allowlist: only open the type chooser or select
                         // "Stop Loss". Never tap SELL/BUY, Order platzieren, etc.
                         val success=if(decision.kind==StopLossPrefillPolicy.Kind.CLICK) {
-                            frame.nodes[decision.index].label in listOf("Limit","Stop Loss") &&
+                            (frame.nodes[decision.index].label in listOf("Limit","Stop Loss") ||
+                                (StopLossPrefillSession.stage==StopLossPrefillPolicy.Stage.OPEN_FORM &&
+                                 frame.nodes[decision.index].label.equals("VERKAUF",ignoreCase=true))) &&
                                 target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                         } else {
                             target.isEditable && decision.text.matches(Regex("[0-9]{1,7}(?:,[0-9]{2})?")) &&
