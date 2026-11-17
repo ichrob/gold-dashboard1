@@ -23,7 +23,7 @@ class ImmediateEntryNavigation(unittest.TestCase):
             "private fun chooseQuoteRefresh()", 1
         )[0]
         self.assertIn("MorningReadRun.refreshSourceSnapshot(this)", method)
-        self.assertIn('saved.getString("listBatchId")', method)
+        self.assertIn('saved.optString("listBatchId")', method)
         self.assertIn("SeriesEvidence.validIsin(it)", method)
         self.assertIn('requestQuoteRefresh(saved,listOf(names[which]),testOnly=true)', method)
         for prohibited in (
