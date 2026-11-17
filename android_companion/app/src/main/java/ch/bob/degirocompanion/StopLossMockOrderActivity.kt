@@ -200,7 +200,7 @@ class StopLossMockOrderActivity : Activity() {
     }
     private fun stop(reason:String,passed:Boolean=false) {
         running=false;handler.removeCallbacksAndMessages(null)
-        status.text=if(passed) "TEST BESTANDEN · 0 Brokerzugriffe · 0 Orders"
+        status.text=if(passed) "TEST BESTANDEN: $reason · 0 Brokerzugriffe · 0 Orders"
             else "TEST ANGEHALTEN: $reason · 0 Brokerzugriffe · 0 Orders"
         record(reason)
     }
