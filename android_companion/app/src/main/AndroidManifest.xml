@@ -42,6 +42,9 @@
         <activity android:name=".StopLossPrefillActivity" android:exported="false" />
         <!-- Pure local mock; never opens a broker or runs an accessibility action. -->
         <activity android:name=".StopLossSimulationActivity" android:exported="false" />
+        <!-- Actual local Android View hierarchy, synthetic DEGIRO-like labels;
+             non-exported, no broker intent and no AccessibilityService. -->
+        <activity android:name=".StopLossMockOrderActivity" android:exported="false" />
         <activity android:name=".MorningReadTransfer" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
