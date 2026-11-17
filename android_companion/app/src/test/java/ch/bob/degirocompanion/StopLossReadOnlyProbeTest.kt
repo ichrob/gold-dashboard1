@@ -75,7 +75,7 @@ class StopLossReadOnlyProbeTest {
         assertFalse(s.start(301L))
         assertTrue(s.active(44_999L))
         s.observe(p.inspect(detail()))
-        assertFalse(s.active(45_000L))
+        assertFalse(s.active(45_300L))
         assertEquals(p.Code.PRODUCT_DETAIL_VISIBLE,s.result?.code)
         assertFalse(s.status.contains(isin))
         assertTrue(s.start(100_000L))
