@@ -803,7 +803,9 @@ class MainActivity : Activity() {
     private fun emergencyStop() {
         BobWorkMode.stop(this)
         LoginToReadHandoff.clear()
+        if (PinReadinessProbe.running) PinReadinessProbe.stop("NOT-STOPP")
         PhoneRemote.stop(this, "USER_STOP")
+        MorningListDelivery.cancel()
         MorningReadRun.stop(this, "USER_STOP")
         GoldSearchRun.stop("USER_STOP", java.time.Instant.now().toString())
         workModeStatus?.text = BobWorkMode.status(this)
