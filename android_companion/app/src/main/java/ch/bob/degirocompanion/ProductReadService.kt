@@ -313,6 +313,7 @@ class ProductReadService : AccessibilityService() {
                 handler.postDelayed(pinProbeTick, 700)
             else PinReadinessProbe.stop("Dialogfreigabe nicht verfügbar. Lokale Anmeldung beendet.")
         }
+        StopLossPrefillSession.onArmed = { handler.post { queueStopLossPrefill(550) } }
         PhoneRemote.reader={command -> remoteRead(command)}
         MorningListDelivery.onConfirmed={ plan, batch ->
             if(plan.isNotEmpty() && PhoneRemote.active()) {
@@ -434,11 +435,15 @@ class ProductReadService : AccessibilityService() {
                 StopLossPrefillSession.finish("PARALLELER_AUFTRAG"); return
             }
             val root=rootInActiveWindow ?: run {
-                StopLossPrefillSession.finish("FENSTER_FEHLT"); return
+                if(StopLossPrefillSession.waitingForBrokerLaunch(now)) queueStopLossPrefill(450)
+                else StopLossPrefillSession.finish("FENSTER_FEHLT")
+                return
             }
             try {
                 if(root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) {
-                    StopLossPrefillSession.finish("APP_WECHSEL"); return
+                    if(StopLossPrefillSession.waitingForBrokerLaunch(now)) queueStopLossPrefill(450)
+                    else StopLossPrefillSession.finish("APP_WECHSEL")
+                    return
                 }
                 val tree=WorkflowTree.read(root,{ it.childCount },{ node,index -> node.getChild(index) })
                 if(!tree.complete) { StopLossPrefillSession.finish("ANSICHT_UNVOLLSTAENDIG"); return }
@@ -559,8 +564,8 @@ class ProductReadService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         queueRead(400)
     }
-    override fun onInterrupt() { StopLossPrefillSession.finish("SERVICE_INTERRUPTED"); handler.removeCallbacks(stopLossPrefillTick); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
-    override fun onDestroy() { StopLossPrefillSession.finish("SERVICE_STOPPED"); handler.removeCallbacks(stopLossPrefillTick); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onLoginTouch=null;PinReadinessProbe.onDigitTouch=null;PinReadinessProbe.onDeleteTouch=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
+    override fun onInterrupt() { StopLossPrefillSession.onArmed=null; StopLossPrefillSession.finish("SERVICE_INTERRUPTED"); handler.removeCallbacks(stopLossPrefillTick); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
+    override fun onDestroy() { StopLossPrefillSession.onArmed=null; StopLossPrefillSession.finish("SERVICE_STOPPED"); handler.removeCallbacks(stopLossPrefillTick); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onLoginTouch=null;PinReadinessProbe.onDigitTouch=null;PinReadinessProbe.onDeleteTouch=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
