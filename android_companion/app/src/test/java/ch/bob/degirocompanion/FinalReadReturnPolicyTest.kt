@@ -102,6 +102,47 @@ class FinalReadReturnPolicyTest {
         assertTrue(safeBack())
     }
 
+    @Test fun verifiedGlobalLauncherOnRealDetailNoLongerBlocksFinalBack() {
+        val readOnly=lastDetail + MorningReadPolicy.Node("Brief EUR 6,75")
+        val global=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        val page=readOnly+global
+        // Generic abort still treats the visible launcher as sensitive:
+        // only an authenticated, completed, anchored READ can leave it.
+        assertFalse(MorningReadPolicy.safeStatusReturn(page,isin))
+        assertNotNull(MorningReadPolicy.detailLauncherIndex(page,isin,
+            anchored=true,symbolProbe=true))
+        assertTrue(MorningReadPolicy.safeCompletedLastProductBack(page,isin,12,12,"READ"))
+        assertTrue(safeBack(nodes=page))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.NONE,blocked(nodes=page))
+        assertFalse(safeBack(code="NO_QUOTES",nodes=page))
+        assertFalse(safeBack(session=false,nodes=page))
+        assertFalse(safeBack(locked=true,nodes=page))
+        assertFalse(safeBack(previous=13,nodes=page))
+    }
+
+    @Test fun launcherNeverAuthorizesBackFromOrderFormOrUnidentifiedProduct() {
+        val readOnly=lastDetail + MorningReadPolicy.Node("Brief EUR 6,75")
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true)
+        val page=readOnly+launcher
+        for(extra in listOf(
+                MorningReadPolicy.Node("Order bestätigen"),
+                MorningReadPolicy.Node("Orderart"),
+                MorningReadPolicy.Node("Limitpreis"),
+                MorningReadPolicy.Node("Stückzahl"),
+                MorningReadPolicy.Node("Passwort"),
+                MorningReadPolicy.Node("",editable=true,id="order_quantity"),
+                MorningReadPolicy.Node("",password=true),
+                MorningReadPolicy.Node("",sensitive=true),
+                MorningReadPolicy.Node("DE000FE2JJ20"),
+                launcher)) {
+            assertFalse(safeBack(nodes=page+extra))
+        }
+        assertFalse(safeBack(nodes=page.filterNot { it.text==isin }))
+        assertFalse(safeBack(nodes=page.filterNot { it.text=="Kursdaten" }))
+        assertFalse(safeBack(nodes=readOnly+MorningReadPolicy.Node("Order platzieren (Kaufen)",clickable=true)))
+        assertFalse(safeBack(nodes=page+MorningReadPolicy.Node("Kontodetails",parent=page.lastIndex)))
+    }
+
     @Test fun finalBackFailsClosedForOrderLoginDifferentIdentityAndInputs() {
         assertFalse(safeBack(nodes=lastDetail+MorningReadPolicy.Node("Order bestätigen")))
         assertFalse(safeBack(nodes=lastDetail+MorningReadPolicy.Node("Limitpreis")))
