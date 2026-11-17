@@ -75,7 +75,8 @@ class FreshValidationCohortTests(unittest.TestCase):
             self.assertTrue(all(x['status']=='scheduled' and
                 x['endAt']==profiles.FRESH_VALIDATION_END for x in saved))
             for p in self.PARENTS:
-                self.assertNotEqual(capture.seeded[p]['startAt'],actual)
+                self.assertNotEqual(capture.seeded[p].get('campaign'),
+                                    profiles.FRESH_VALIDATION_ID)
             self.assertTrue(all('ON CONFLICT DO NOTHING' in x
                 for x in capture.writes if x.startswith('INSERT INTO bob_paper_')))
 
