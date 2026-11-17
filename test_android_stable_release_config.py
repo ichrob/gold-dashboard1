@@ -112,6 +112,17 @@ class AndroidStableReleaseTests(unittest.TestCase):
         # back to its search header while private OCR is pending. Count changes
         # must be accompanied by explicit source/safety-contract verification.
         self.assertEqual(service.count('performAction('), 11)
+        # The owner-reviewed Stop Loss helper is isolated from this reader:
+        # no generic permission to submit/execute an order can leak into it.
+        helper = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/StopLossPrefillExecutor.kt").read_text()
+        self.assertEqual(helper.count('performAction('), 2)
+        for allowed in ["Stage.OPEN_FORM", "Stage.ORDER_TYPE", "Stage.CHOOSE_STOP",
+                        "Stage.WRITE_STOP", "Stage.WRITE_QUANTITY",
+                        "observedLabel == \"Stop Loss\"", "valuePattern.matches(decision.text)"]:
+            self.assertIn(allowed, helper)
+        for forbidden in ["performGlobalAction", "dispatchGesture(", "Order platzieren\"",
+                          "BUY\")", "SELL\")", "createOrder", "placeOrder"]:
+            self.assertNotIn(forbidden, helper)
         return_scroll = service.split('private fun returnToSearchWhileImporting(', 1)[1].split(
             'private fun deliverMorningList(', 1)[0]
         for guard in [
