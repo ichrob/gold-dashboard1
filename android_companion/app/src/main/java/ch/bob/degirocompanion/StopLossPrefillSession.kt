@@ -4,6 +4,7 @@ package ch.bob.degirocompanion
 internal object StopLossPrefillSession {
     private var draft: StopLossPrefillDraft? = null
     private var expiresAt = 0L
+    private var armedAt = 0L
     // Optional in-process callback, never persisted or reachable by remote intents.
     var onArmed: (() -> Unit)? = null
     var stage = StopLossPrefillPolicy.Stage.OPEN_FORM
@@ -14,6 +15,7 @@ internal object StopLossPrefillSession {
     fun arm(value: StopLossPrefillDraft, nowElapsed: Long) {
         draft = value
         expiresAt = nowElapsed + 120_000L
+        armedAt = nowElapsed
         stage = StopLossPrefillPolicy.Stage.OPEN_FORM
         status = "Entwurf aktiv: DEGIRO-Verkaufsmaske prüfen; niemals Order platzieren."
         onArmed?.invoke()
@@ -24,10 +26,14 @@ internal object StopLossPrefillSession {
         return true
     }
     fun current(nowElapsed: Long) = if (active(nowElapsed)) draft else null
+    fun waitingForBrokerLaunch(nowElapsed: Long): Boolean =
+        active(nowElapsed) && stage==StopLossPrefillPolicy.Stage.OPEN_FORM &&
+        nowElapsed >= armedAt && nowElapsed - armedAt < 4_000L
     fun move(to: StopLossPrefillPolicy.Stage) { stage = to }
     fun finish(code: String) {
         draft = null
         expiresAt = 0L
+        armedAt = 0L
         stage = StopLossPrefillPolicy.Stage.DONE
         status = when(code) {
             "VORBEREITET" -> "Stop-Loss und Anzahl eingegeben und ausgelesen. NICHT platziert; selbst kontrollieren."
