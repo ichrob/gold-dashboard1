@@ -1421,7 +1421,11 @@ class ProductReadService : AccessibilityService() {
         fun fail(code:String) { lastNavigationIssue=code;ProductReadRequest.cancel() }
         if(android.os.Build.VERSION.SDK_INT<34) { fail("LIST_CAPTURE_ANDROID_VERSION");return }
         if(!PhoneRemote.active() || !GoldSearchRun.running || keyboardVisible()) return
-        if(listImages.length()>0 && !listScrolled) {
+        if(listImages.length()>0 && !listScrolled &&
+            action.isins.all { it in listSeenIds }) {
+            // After asynchronous OCR, a WebView can expose new original rows
+            // without a reported scroll event. Capture those new identities
+            // first instead of scrolling past them or misreporting the footer.
             val candidates=nodes.indices.filter { i ->
                 val n=nodes[i]; val d=descriptions[i]
                 n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
