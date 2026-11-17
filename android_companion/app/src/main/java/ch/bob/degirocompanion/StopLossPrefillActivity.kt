@@ -37,9 +37,9 @@ class StopLossPrefillActivity : Activity() {
             inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         }
         content.addView(payload)
-        label("2. Öffne bei DEGIRO selbst die bestehende Position und deren VERKAUF-Ordermaske. Kauf-Orders werden nicht vorbereitet.")
+        label("2. Öffne bei DEGIRO selbst die Detailseite deiner bestehenden Position oder deren VERKAUF-Ordermaske. Bob darf nur die VERKAUF-Maske öffnen, keine Order senden.")
         confirmation=CheckBox(this).apply {
-            text="Ich bestätige: Diese ISIN und Stückzahl gehören zu meiner tatsächlich gehaltenen Position. Die VERKAUF-Maske ist in DEGIRO geöffnet. Den Geldkurs und den Stopp prüfe ich selbst."
+            text="Ich bestätige: Diese ISIN und Stückzahl gehören zu meiner tatsächlich gehaltenen Position. Die Produktdetailseite oder VERKAUF-Maske ist in DEGIRO geöffnet. Den Geldkurs und den Stopp prüfe ich selbst."
             isChecked=false
         }
         content.addView(confirmation)
@@ -73,7 +73,7 @@ class StopLossPrefillActivity : Activity() {
         if(launch==null) { status.text="DEGIRO-App nicht installiert.";return }
         AlertDialog.Builder(this)
             .setTitle("Nur Eingaben vorbereiten · KEINE Order")
-            .setMessage("ISIN: ${draft.isin}\nVerkauf von: ${draft.quantity} Stück\nModell-Stopp: ${draft.stopText} EUR\n\nBob prüft die sichtbare ISIN und ob VERKAUF ausgewählt ist. Er darf nur „Ordertyp“ → „Stop Loss“ auswählen und diese beiden Zahlen eintragen. Bei unklaren Feldern stoppt er. „Order platzieren“ wird NIE angetippt. Die Ausführung bleibt allein bei dir.")
+            .setMessage("ISIN: ${draft.isin}\nVerkauf von: ${draft.quantity} Stück\nModell-Stopp: ${draft.stopText} EUR\n\nBob öffnet bei klar erkannter Produktdetailseite zunächst VERKAUF, überprüft die ISIN und die Verkaufsrichtung und darf dann nur „Ordertyp“ → „Stop Loss“ auswählen und diese beiden Zahlen eintragen. Bei unklaren Feldern stoppt er. „Order platzieren“ wird NIE angetippt. Die Ausführung bleibt allein bei dir.")
             .setNegativeButton("Abbrechen",null)
             .setPositiveButton("Eingabefelder vorbereiten") { _,_ ->
                 StopLossPrefillSession.arm(draft,SystemClock.elapsedRealtime())
