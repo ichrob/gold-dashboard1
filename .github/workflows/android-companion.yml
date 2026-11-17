@@ -1,6 +1,13 @@
 name: Bob Android Companion Lab
 
 on:
+  # One-off verification build for a DISTINCT, offline-only install identity.
+  # Do not merge this ci/** workflow override into main.
+  push:
+    branches: ["ci/bob-stoploss-simulator-unique-install-20261117"]
+    paths:
+      - "android_companion/**"
+      - ".github/workflows/android-companion.yml"
   pull_request:
     branches: [main]
     paths:
@@ -50,7 +57,7 @@ jobs:
           # differently signed Bob lab APK. Never uninstall the existing app.
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" > /tmp/bob-android-badging.txt
           # Debug APK is a separate disposable lab, never a release update.
-          grep -Fq "package: name='ch.bob.degirocompanion.stable.voicetest'" /tmp/bob-android-badging.txt
+          grep -Fq "package: name='ch.bob.degirocompanion.stable.stoplosssimnov17'" /tmp/bob-android-badging.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > /tmp/bob-android-actual-permissions.txt
           cat /tmp/bob-android-actual-permissions.txt
           for required in android.permission.INTERNET android.permission.ACCESS_NETWORK_STATE android.permission.RECEIVE_BOOT_COMPLETED; do
