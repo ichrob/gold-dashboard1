@@ -1,6 +1,13 @@
 name: Bob Android Companion Lab
 
 on:
+  # Verification-only push path for the isolated Stop-Loss simulation branch.
+  # This edit exists ONLY on ci/*, never on main. It builds an unsigned lab APK.
+  push:
+    branches: ["ci/bob-stoploss-simulation-validation-20261117"]
+    paths:
+      - "android_companion/**"
+      - ".github/workflows/android-companion.yml"
   pull_request:
     branches: [main]
     paths:
