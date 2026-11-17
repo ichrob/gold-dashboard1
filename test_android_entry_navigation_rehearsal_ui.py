@@ -136,7 +136,13 @@ class ImmediateEntryNavigation(unittest.TestCase):
         final = service.split("// Final item: the original result is already durable.", 1)[1].split(
             "} else if(!backSent)", 1
         )[0]
-        self.assertIn("FinalReadReturnPolicy.safeLastProductBack(", final)
+        self.assertIn("FinalReadReturnPolicy.lastBackBlock(", final)
+        self.assertIn("FINAL_BACK_BLOCK_SESSION", final)
+        self.assertIn("FINAL_BACK_BLOCK_DEVICE", final)
+        self.assertIn("FINAL_BACK_BLOCK_FOREGROUND", final)
+        self.assertIn("FINAL_BACK_BLOCK_WINDOW", final)
+        self.assertIn("FINAL_BACK_BLOCK_IDENTITY", final)
+        self.assertIn("FINAL_BACK_BLOCK_SURFACE", final)
         self.assertIn("performGlobalAction(GLOBAL_ACTION_BACK)", final)
         self.assertIn('PhoneRemote.stop(this,"COMPLETED")', final)
         self.assertIn("MorningReadTransfer.automaticResults(this)", final)
