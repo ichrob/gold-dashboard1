@@ -72,6 +72,23 @@ POLICIES['noema5000nov'] = dict(POLICIES['normal1000nov'],
     campaign_id='no-ema-distance-20261111', disable_ema_distance=True,
     paper_campaign_entry=False)
 
+# Equal-capital, prospective validation of THREE historically positive but
+# unverified virtual strategies. The first production initialization establishes
+# a COMMON actual start clock; never replay archived October cases.
+FRESH_VALIDATION_ID = 'positive-strategies-forward-20261117'
+FRESH_VALIDATION_END = int(datetime(2026, 12, 15, 16, tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000)
+FRESH_VALIDATION_PROFILES = ('trend1000dec', 'normal1000dec', 'early1000dec')
+for _name, _parent, _label in (
+    ('trend1000dec', 'trend800', 'Trend/Stopp/Wiedereinstieg'),
+    ('normal1000dec', 'normal1000oct', 'Bestätigtes Hauptsignal'),
+    ('early1000dec', 'early1000oct', 'Frühwarnung vor Hauptsignal'),
+):
+    POLICIES[_name] = dict(POLICIES[_parent], id=_name,
+        title='Frischer Vergleich: '+_label+' · 1.000 € · bis 15.12.',
+        initial_capital_eur=1000., campaign=True, relaunch=False,
+        fresh_validation=True, campaign_id=FRESH_VALIDATION_ID,
+        campaign_end=FRESH_VALIDATION_END)
+
 _PAPER_CAMPAIGN_GATES = {
     'trend800nov': ('campaign-800-entry-v1', 1.25),
     'normal1000nov': ('campaign-1000-entry-v1', 1.4),
@@ -106,6 +123,9 @@ class Ledger:
 
 
 def init(conn):
+    # All three new validation arms share the same true initialization instant.
+    # Existing ledgers are INSERT-only; neither their starts nor balances reset.
+    fresh_start_at = int(time.time()*1000)
     for profile in POLICIES:
         n = names(profile)
         conn.execute(f"""CREATE TABLE IF NOT EXISTS {n['bob_paper_control']} (
@@ -114,7 +134,8 @@ def init(conn):
         # The experimental account starts with the first real deployment/initialization.
         # Existing live accounts retain their original Monday starting timestamps.
         policy=POLICIES[profile]
-        started = (policy['start_at'] if policy.get('relaunch') else
+        started = (fresh_start_at if policy.get('fresh_validation') else
+                   policy['start_at'] if policy.get('relaunch') else
                    int(time.time()*1000) if policy.get('early_impulse') or policy.get('campaign')
                    else START)
         starting = dict(version='paper-five-v1' if policy.get('early_impulse') else 'paper-four-v1',
@@ -438,6 +459,55 @@ def relaunch_comparison(accounts):
              'Kein Strategietestsieger oder Echtgeldauftrag.')
 
 
+def fresh_validation_comparison(accounts):
+    """Read-time December comparison; model returns are not verified broker net.
+
+    Missing product quotes and absent validation cases never become a winning
+    strategy, even when older completed account balances were positive.
+    """
+    rows = []
+    for profile in FRESH_VALIDATION_PROFILES:
+        account = next((x for x in accounts if x.get('profile') == profile), {})
+        control, performance = account.get('control') or {}, account.get('performance') or {}
+        capital, equity = control.get('initialCapital'), control.get('equity')
+        model_return = (round(100*(equity/capital-1), 4)
+            if type(capital) in (int,float) and math.isfinite(capital) and capital > 0
+            and type(equity) in (int,float) and math.isfinite(equity) else None)
+        rows.append(dict(profile=profile, status=control.get('status','unavailable'),
+            startAt=control.get('startAt'), endAt=control.get('endAt'),
+            initialCapitalEur=capital, equityEur=equity,
+            modelProfitEur=control.get('totalProfit'), modelReturnPct=model_return,
+            closedTrades=performance.get('closedTrades'),
+            pricedTrades=performance.get('pricedTrades'),
+            inconclusiveTrades=performance.get('inconclusiveTrades'),
+            observedMaxDrawdownPct=performance.get('observedMaxDrawdownPct')))
+    starts = [r['startAt'] for r in rows]
+    same_start = (all(type(t) in (int,float) and math.isfinite(t) and t>0
+                      for t in starts) and len(set(starts)) == 1)
+    ended = all(r['status'] == 'completed' for r in rows)
+    # A first review needs enough fully priced cases in ALL THREE arms. It
+    # still cannot certify a strategy winner or verified DEGIRO net returns.
+    review_eligible = ended and same_start and all(
+        type(r['closedTrades']) is int and r['closedTrades'] >= 20 and
+        r['closedTrades'] == r['pricedTrades'] and r['inconclusiveTrades'] == 0
+        for r in rows)
+    state = ('completed-review-required' if review_eligible else
+             'completed-insufficient-evidence' if ended else
+             'scheduled' if all(r['status']=='scheduled' for r in rows) else
+             'running-or-paused')
+    return dict(id=FRESH_VALIDATION_ID, readOnly=True, realOrders=False,
+        sameStartVerified=same_start,
+        endAt=FRESH_VALIDATION_END, status=state, accounts=rows,
+        reviewEligible=review_eligible, strategyWinnerConfirmed=False,
+        brokerNetVerified=False, noHistoricalBackfill=True,
+        note='Drei neue, unabhängig gebuchte 1.000-EUR-Spielgeldkonten ab erster '
+             'Live-Initialisierung bis 15.12.2026 16:00 Zürich. Identische '
+             'Kapital- und Risikoobergrenzen; bekannte historische Gewinne sind '
+             'nur eine Hypothese. Nur zeitgestempelte Kurse, KO und Produkt-'
+             'Nachweise werten; unbekannte Exits bleiben unbekannt. '
+             'Weder Modellführender noch echte DEGIRO-Nettorendite bestätigt.')
+
+
 def report(conn, day=None):
     import paper_simulation
     accounts = []
@@ -469,7 +539,14 @@ def report(conn, day=None):
                           'Produktfreigabe und frischer Geld-/Briefkurs vor dem Wiedereinstieg. '
                           'Fehlt der Verkaufskurs, bleibt das Kapital bis zur beobachteten Bewertung gebunden. '
                           'Nur virtuelle Trades, keine DEGIRO-Orders.')
-        if policy.get('relaunch'):
+        if policy.get('fresh_validation'):
+            data['note']=('Frischer unabhängiger Vorwärtsvergleich ab erster Aktivierung '
+                'bis 15.12.2026 16:00 Zürich. Genau 1.000 EUR Spielgeld; '
+                '65 % maximale Investition und 3 % Tagesverlustgrenze. '
+                'Gleiche Originalmarkt- und Produktprüfungen wie die historische '
+                'positive Strategie. Keine rückdatierten Fälle, keine '
+                'Echtgeldorders und keine bestätigten Broker-Nettogewinne.')
+        elif policy.get('relaunch'):
             data['note']=('Neue getrennte Simulation von 09.11.2026 08:00 bis 04.12.2026 '
                 '16:00 Europe/Zurich. Startgeld: '+str(int(policy['initial_capital_eur']))+
                 ' EUR. Altkonto bleibt unverändert. Bestätigte Originalkurse, identische '
@@ -494,9 +571,10 @@ def report(conn, day=None):
                              performance=performance_snapshot(data),**data))
     return dict(ok=True, mode='independent-prospective-paper-accounts',
                 simulatedCapitalEur=sum(p.get('initial_capital_eur',100.) for p in POLICIES.values()), realOrders=False, startAt=START,
-                note='4 × 100 EUR, 2 × 800 EUR, 3 × 1.000 EUR, 1 × 3.000 EUR und 1 × 5.000 EUR virtuell. Alte Konten bleiben getrennt und unverändert. Neue 800/1.000 EUR Kohorte: gleicher 20-Handelstage-Zeitraum ab 09.11.2026. Kein Echtgeld und keine rückdatierten Einstiege. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital unbekannt. Tatsächliche Brokergebühren nicht bestätigt.',
+                note='4 × 100 EUR, 2 × 800 EUR, 6 × 1.000 EUR, 1 × 3.000 EUR und 1 × 5.000 EUR virtuell. Alte Konten bleiben getrennt und unverändert. Neue 800/1.000 EUR Kohorte: gleicher 20-Handelstage-Zeitraum ab 09.11.2026. Kein Echtgeld und keine rückdatierten Einstiege. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital unbekannt. Tatsächliche Brokergebühren nicht bestätigt.',
                 accounts=accounts,campaignComparison=campaign_comparison(accounts),
-                relaunchComparison=relaunch_comparison(accounts))
+                relaunchComparison=relaunch_comparison(accounts),
+                freshValidationComparison=fresh_validation_comparison(accounts))
 
 
 def diagram_report(conn):
