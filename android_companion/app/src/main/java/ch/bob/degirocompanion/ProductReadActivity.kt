@@ -755,7 +755,7 @@ class ProductReadActivity : Activity() {
         ProductReadSession.clear()
         ProductReadDiagnostics.clear()
         refresh()
-        result.text="Test abgebrochen und zurückgesetzt. Du kannst einen neuen Test starten.\\n\\n"+result.text
+        result.text="Test abgebrochen und zurückgesetzt. Du kannst einen neuen Test starten.\n\n"+result.text
     }
     /** Explicit, time-bounded owner lock/unlock rehearsal. Distinct from
      * any market signal and from the separate live product-reading session.
