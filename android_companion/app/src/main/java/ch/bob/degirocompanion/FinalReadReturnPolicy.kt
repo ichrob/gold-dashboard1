@@ -27,6 +27,37 @@ internal object FinalReadReturnPolicy {
      * window, with the same strict owner/session and lock checks as the
      * app-local completion handoff. Sending BACK is not proof it succeeded.
      */
+    /** Fixed, non-sensitive reasons why the last-read BACK was blocked.
+     * Never send product identifiers, text, PINs, account or price data.
+     */
+    enum class LastBackBlock { NONE, READ, SESSION, DEVICE, FOREGROUND, WINDOW, IDENTITY, SURFACE }
+
+    fun lastBackBlock(
+        code: String,
+        draft: String,
+        expectedIsin: String,
+        previousWindow: Int?,
+        currentWindow: Int?,
+        foregroundPackage: String?,
+        interactive: Boolean,
+        locked: Boolean,
+        authorizedSession: Boolean,
+        nodes: List<MorningReadPolicy.Node>
+    ): LastBackBlock {
+        if(code != "READ") return LastBackBlock.READ
+        if(!authorizedSession) return LastBackBlock.SESSION
+        if(!interactive || locked) return LastBackBlock.DEVICE
+        if(foregroundPackage != ProductScreenEvidence.PACKAGE) return LastBackBlock.FOREGROUND
+        if(previousWindow == null || currentWindow == null ||
+            previousWindow != currentWindow) return LastBackBlock.WINDOW
+        if(!SeriesEvidence.validIsin(expectedIsin) ||
+            draft.lineSequence().none { it == "ISIN: $expectedIsin" }) return LastBackBlock.IDENTITY
+        if(!MorningReadPolicy.safeStatusReturn(nodes,expectedIsin) ||
+            !MorningReadPolicy.returnAfterRead(nodes,expectedIsin,currentWindow,
+                previousWindow,code)) return LastBackBlock.SURFACE
+        return LastBackBlock.NONE
+    }
+
     fun safeLastProductBack(
         code: String,
         draft: String,
@@ -38,13 +69,8 @@ internal object FinalReadReturnPolicy {
         locked: Boolean,
         authorizedSession: Boolean,
         nodes: List<MorningReadPolicy.Node>
-    ): Boolean =
-        allowed(code,draft,expectedIsin,previousWindow,currentWindow,
-            foregroundPackage,interactive,locked,authorizedSession) &&
-        currentWindow != null &&
-        MorningReadPolicy.safeStatusReturn(nodes,expectedIsin) &&
-        MorningReadPolicy.returnAfterRead(nodes,expectedIsin,currentWindow,
-            previousWindow,code)
+    ): Boolean = lastBackBlock(code,draft,expectedIsin,previousWindow,currentWindow,
+        foregroundPackage,interactive,locked,authorizedSession,nodes) == LastBackBlock.NONE
 
     fun allowed(
         code: String,
