@@ -78,24 +78,23 @@ class FinalReadReturnPolicyTest {
         previous,current,pkg,awake,locked,session,nodes)
 
     @Test fun lastBackFailureIsCategorizedWithoutAnyExtraPermission() {
-        val reason=FinalReadReturnPolicy.LastBackBlock
-        assertEquals(reason.NONE,blocked())
-        assertEquals(reason.READ,blocked(code="NO_QUOTES"))
-        assertEquals(reason.SESSION,blocked(session=false))
-        assertEquals(reason.DEVICE,blocked(locked=true))
-        assertEquals(reason.DEVICE,blocked(awake=false))
-        assertEquals(reason.FOREGROUND,blocked(pkg="com.android.systemui"))
-        assertEquals(reason.WINDOW,blocked(previous=null))
-        assertEquals(reason.WINDOW,blocked(current=13))
-        assertEquals(reason.IDENTITY,blocked(evidence=""))
-        assertEquals(reason.IDENTITY,blocked(expected="DE000FE2JJ20"))
-        assertEquals(reason.SURFACE,blocked(nodes=listOf(MorningReadPolicy.Node("Märkte"))))
-        assertEquals(reason.SURFACE,blocked(nodes=lastDetail+MorningReadPolicy.Node("Order bestätigen")))
-        assertEquals(reason.SURFACE,blocked(nodes=lastDetail+MorningReadPolicy.Node("",editable=true)))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.NONE,blocked())
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.READ,blocked(code="NO_QUOTES"))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.SESSION,blocked(session=false))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.DEVICE,blocked(locked=true))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.DEVICE,blocked(awake=false))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.FOREGROUND,blocked(pkg="com.android.systemui"))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.WINDOW,blocked(previous=null))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.WINDOW,blocked(current=13))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.IDENTITY,blocked(evidence=""))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.IDENTITY,blocked(expected="DE000FE2JJ20"))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.SURFACE,blocked(nodes=listOf(MorningReadPolicy.Node("Märkte"))))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.SURFACE,blocked(nodes=lastDetail+MorningReadPolicy.Node("Order bestätigen")))
+        assertEquals(FinalReadReturnPolicy.LastBackBlock.SURFACE,blocked(nodes=lastDetail+MorningReadPolicy.Node("",editable=true)))
         // Every safeBack result must still equal the exact pre-existing boolean
         // permission. The diagnostic is only a reason for refusing that action.
-        assertEquals(blocked()==reason.NONE,safeBack())
-        assertEquals(blocked(nodes=lastDetail+MorningReadPolicy.Node("Passwort"))==reason.NONE,
+        assertEquals(blocked()==FinalReadReturnPolicy.LastBackBlock.NONE,safeBack())
+        assertEquals(blocked(nodes=lastDetail+MorningReadPolicy.Node("Passwort"))==FinalReadReturnPolicy.LastBackBlock.NONE,
                      safeBack(nodes=lastDetail+MorningReadPolicy.Node("Passwort")))
     }
 
