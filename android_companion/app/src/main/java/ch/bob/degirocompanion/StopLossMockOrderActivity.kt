@@ -32,6 +32,8 @@ class StopLossMockOrderActivity : Activity() {
     private var stopField=""
     private var quantityField=""
     private var running=false
+    private var fullSuite=false
+    private var suitePassed=false
     private var steps=0
     private var log=mutableListOf<String>()
 
@@ -50,6 +52,7 @@ class StopLossMockOrderActivity : Activity() {
             StopLossOfflineSimulation.Scenario.valueOf(
                 intent.getStringExtra("mock_scenario") ?: "HAPPY_PATH")
         }.getOrDefault(StopLossOfflineSimulation.Scenario.HAPPY_PATH)
+        fullSuite=intent.getBooleanExtra("mock_full_suite",false)
 
         val page=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL; setPadding(20,24,20,20)
@@ -59,10 +62,11 @@ class StopLossMockOrderActivity : Activity() {
             page.addView(it)
         }
         header("TESTMASKE · NUR SIMULATION · KEINE DEGIRO-VERBINDUNG")
-        header("Bob-Modellwert: ${draft.isin} · ${draft.stopText} EUR · ${draft.quantity} Stück")
+        header((if(intent.getBooleanExtra("mock_model_proposal",false)) "Frischer Bob-Modellvorschlag" else "Fiktive Testwerte")+
+            ": ${draft.isin} · ${draft.stopText} EUR · ${draft.quantity} Stück")
         status=header("Noch keine simulierten Eingaben.").also { it.tag="mock_status" }
         page.addView(Button(this).apply {
-            text="Testoberfläche automatisch bedienen"; isAllCaps=false
+            text="Alle Tests erneut starten"; isAllCaps=false
             tag="mock_start"
             setOnClickListener { begin() }
         })
@@ -83,6 +87,10 @@ class StopLossMockOrderActivity : Activity() {
         trace=header("Start: simulierte Produktdetailseite")
         setContentView(ScrollView(this).apply { addView(page) })
         render()
+        // Only locally launched one-tap simulation requests can reach this
+        // non-exported activity; nothing touches a broker or background service.
+        if(intent.getBooleanExtra("mock_autorun",false) && savedInstanceState==null)
+            form.post { begin() }
     }
 
     private fun addText(value:String,selected:Boolean=false):TextView =
@@ -188,7 +196,17 @@ class StopLossMockOrderActivity : Activity() {
 
     private fun begin() {
         if(running)return
-        running=true;steps=0
+        running=true;steps=0;suitePassed=false
+        if(fullSuite) {
+            val checks=StopLossOfflineSimulation.suite(draft)
+            suitePassed=checks.size==4 &&
+                checks.all { it.second.passed && !it.second.brokerOpened && !it.second.orderSubmitted }
+            if(!suitePassed) {
+                stop("Sicherheitsprüfungen fehlgeschlagen; keine Eingaben ausgeführt")
+                return
+            }
+            record("4/4 interne Sicherheitsprüfungen bestanden")
+        }
         stage=StopLossPrefillPolicy.Stage.OPEN_FORM
         viewState="detail";orderType="Limit";stopField="";quantityField="";log.clear()
         render();status.text="Prüfe sichtbare Testfelder ..."
@@ -200,7 +218,9 @@ class StopLossMockOrderActivity : Activity() {
     }
     private fun stop(reason:String,passed:Boolean=false) {
         running=false;handler.removeCallbacksAndMessages(null)
-        status.text=if(passed) "TEST BESTANDEN: $reason · 0 Brokerzugriffe · 0 Orders"
+        status.text=if(passed)
+            (if(fullSuite && suitePassed) "5/5 TESTS BESTANDEN: " else "TEST BESTANDEN: ")+
+                "$reason · 0 Brokerzugriffe · 0 Orders"
             else "TEST ANGEHALTEN: $reason · 0 Brokerzugriffe · 0 Orders"
         record(reason)
     }
