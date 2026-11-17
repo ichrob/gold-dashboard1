@@ -9,6 +9,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
+import android.os.PowerManager
+import android.app.KeyguardManager
 import android.text.Editable
 import android.text.TextWatcher
 import android.provider.Settings
@@ -73,6 +75,7 @@ class MainActivity : Activity() {
     private var localEscrowOpening = false
     private var imageOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
     private var lastDiagnosticImageCount = 0
+    private var workModeStatus: TextView? = null
 
     private fun clearVoicePlan() {
         voiceSteps = emptyList()
@@ -87,6 +90,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (!localEscrowOpening) termuxCheckLabel?.text = TermuxBridge.displayStatus(this)
+        workModeStatus?.text = BobWorkMode.status(this)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -115,6 +119,17 @@ class MainActivity : Activity() {
         }
         label(appHeadline)
         button("🛑 NOT-STOPP – alle Handy- und Fernaufträge sperren") { emergencyStop() }
+        label("BOB-ARBEITSMODUS · ohne Bluetooth")
+        workModeStatus = label(BobWorkMode.status(this))
+        label("4 oder 8 Stunden Bob-Arbeitsfenster: Der Server überwacht den Markt unabhängig vom Handy. " +
+            "Das Samsung-Display darf danach ausgehen. Beim Start folgt eine einzige " +
+            "explizite DEGIRO-Lesung (maximal 15 Minuten), solange das Samsung entsperrt ist. " +
+            "Weitere DEGIRO-Lesungen erfordern eine entsperrte Sitzung und einen eigenen Start. " +
+            "Kein automatisches Aufwecken oder Entsperren, keine Orders. " +
+            "Für möglichst dunkles Display Extra-Dimmung einmalig in Samsung einstellen.")
+        button("▶ Bob-Arbeitsmodus · 4 Stunden") { startWorkMode(4) }
+        button("▶ Bob-Arbeitsmodus · 8 Stunden") { startWorkMode(8) }
+        button("■ Bob-Arbeitsmodus STOPP") { stopWorkMode() }
         // One explicit local tap starts the entire bounded, read-only workflow:
         // encrypted on-device PIN (when enrolled) -> verified DEGIRO Markets ->
         // Gold leveraged-product list -> authenticated missing-field detail plan.
@@ -745,7 +760,53 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Work mode never changes Samsung timeout, trusted-device state or
+     * keyguard. The first read is the same existing, owner-triggered reader.
+     * No automatic re-launch or broker operation when Android is locked.
+     */
+    private fun startWorkMode(hours: Int) {
+        val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        if (!BobWorkModePolicy.mayStartRead(1L, power.isInteractive,
+                keyguard.isKeyguardLocked || keyguard.isDeviceLocked)) {
+            workModeStatus?.text = "Samsung zuerst selbst entsperren. Arbeitsmodus nicht gestartet."
+            return
+        }
+        runCatching {
+            BobWorkMode.start(this, hours)
+            workModeStatus?.text = BobWorkMode.status(this)
+            // Existing one-tap reader only: starts once and remains subject to
+            // its normal local PIN, diagnostic and bounded read permissions.
+            startActivity(Intent(this, ProductReadActivity::class.java)
+                .putExtra(ProductReadActivity.EXTRA_START_COMPLETE_FLOW, true))
+        }.onFailure { workModeStatus?.text =
+            "Arbeitsmodus konnte nicht gestartet werden. Lesedienst und Samsung prüfen." }
+    }
+
+    private fun stopWorkMode() {
+        BobWorkMode.stop(this)
+        // Cancel all volatile local read/login authorizations but retain
+        // signed product evidence and pending upload receipts.
+        LoginToReadHandoff.clear()
+        if (PinReadinessProbe.running) PinReadinessProbe.stop("Bob-Arbeitsmodus gestoppt.")
+        PhoneRemote.stop(this, "USER_STOP")
+        MorningListDelivery.cancel()
+        GoldSearchRun.stop("USER_STOP", java.time.Instant.now().toString())
+        MorningReadRun.stop(this, "USER_STOP")
+        ProductReadRequest.cancel()
+        ProductReadSession.clear()
+        ProductReadDiagnostics.clear()
+        workModeStatus?.text = "Arbeitsmodus gestoppt. DEGIRO-Lesung beendet. " +
+            "Die unabhängige Serverüberwachung bleibt unverändert."
+    }
+
     private fun emergencyStop() {
+        BobWorkMode.stop(this)
+        LoginToReadHandoff.clear()
+        PhoneRemote.stop(this, "USER_STOP")
+        MorningReadRun.stop(this, "USER_STOP")
+        GoldSearchRun.stop("USER_STOP", java.time.Instant.now().toString())
+        workModeStatus?.text = BobWorkMode.status(this)
         GeminiLocalSession.stop()
         WorkflowService.stop()
         TermuxMaintenance.stop(this)
