@@ -113,6 +113,7 @@ internal object StopLossReadOnlySession {
         ))finish("BEENDET")
     }
     fun finish(code:String) {
+        if(!running)return
         running=false;deadline=0L
         status=when(code) {
             "BEENDET"->status+" Prüfung beendet."
