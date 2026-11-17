@@ -174,14 +174,14 @@ class GeminiReviewSafetyTests(unittest.TestCase):
 
         path = ("android_companion/app/src/main/java/ch/bob/"
                 "degirocompanion/TradeReadLeasePolicy.kt")
-        patch = "@@ -0,0 +1,2 @@\\n+internal fun mayRead() = false\\n+// local only"
+        patch = "@@ -0,0 +1,2 @@\n+internal fun mayRead() = false\n+// local only"
         safe = safe_files([{"filename": path, "patch": patch}])
         self.assertIn("FILE: " + path, safe)
         self.assertIn("mayRead()", safe)
         # Never pass credential-looking or oversized Kotlin changes to a model.
         with self.assertRaisesRegex(ValueError, "no-safe-reviewable-patches"):
             safe_files([{"filename": path,
-                         "patch": "@@ -0,0 +1 @@\\n+val API_KEY = 'synthetic'"}])
+                         "patch": "@@ -0,0 +1 @@\n+val API_KEY = 'synthetic'"}])
         with self.assertRaisesRegex(ValueError, "no-safe-reviewable-patches"):
             safe_files([{"filename": path, "patch": "x" * 4501}])
 
@@ -193,13 +193,13 @@ class GeminiReviewSafetyTests(unittest.TestCase):
                "BOB_CI_HEAD_SHA": "a" * 40}
         pr = self._owner_pr()
         private_or_unsupported = [{"filename": "diagram.png",
-                                   "patch": "@@ -0,0 +1 @@\\n+image"}]
-        with patch.dict(os.environ, env, clear=True), \\
-             patch.object(g, "enabled", return_value=True), \\
-             patch.object(g, "request_json",
-                          side_effect=[pr, [], private_or_unsupported]) as api, \\
-             patch.object(g, "gemini_request") as provider, \\
-             patch("builtins.print") as output:
+                                   "patch": "@@ -0,0 +1 @@\n+image"}]
+        with (patch.dict(os.environ, env, clear=True),
+              patch.object(g, "enabled", return_value=True),
+              patch.object(g, "request_json",
+                           side_effect=[pr, [], private_or_unsupported]) as api,
+              patch.object(g, "gemini_request") as provider,
+              patch("builtins.print") as output):
             g.run()
         self.assertEqual(api.call_count, 3)
         provider.assert_not_called()
