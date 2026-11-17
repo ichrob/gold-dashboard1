@@ -36,7 +36,7 @@ internal object StopLossReadOnlyProbe {
     }
 
     private val isinPattern=Regex("\\b[A-Z]{2}[A-Z0-9]{10}\\b")
-    private val protected=Regex(
+    private val secretPattern=Regex(
         "(?i)(passwort|password|passcode|\\bpin\\b|\\btan\\b|fingerabdruck|biometr|anmelden|log.?in|zahlung|bezahlen|verifizieren)"
     )
     private fun norm(text:String):String =
@@ -46,7 +46,7 @@ internal object StopLossReadOnlyProbe {
 
     fun inspect(f:StopLossPrefillPolicy.Frame):Result {
         if(f.app!="nl.degiro.trader")return Result(Code.NOT_DEGIRO)
-        if(f.nodes.any { it.password || protected.containsMatchIn(it.label) })
+        if(f.nodes.any { it.password || secretPattern.containsMatchIn(it.label) })
             return Result(Code.SCREEN_PROTECTED)
         if(f.nodes.size !in 4..1200)return Result(Code.VIEW_INCOMPLETE)
         // Deliberately do not return or persist an ISIN, even if multiple are shown.
