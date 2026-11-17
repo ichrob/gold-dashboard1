@@ -1372,8 +1372,15 @@ class ProductReadService : AccessibilityService() {
         saveListCheckpoint()
         if(listSeenIds.size==10) deliverMorningList(generation)
         else if(listImages.length()>=4) {
-            lastNavigationIssue="LIST_TOP_RESULTS_INCOMPLETE"
-            ProductReadRequest.cancel()
+            // The fourth safely cropped image may contain identities that
+            // Samsung's incomplete WebView tree did not expose. Ask Bob to
+            // verify the originals; never invent or locally confirm ten rows.
+            if(MorningListEndPolicy.maySubmitAtCaptureLimit(listImages.length(),listSeenIds)) {
+                deliverMorningList(generation)
+            } else {
+                lastNavigationIssue="LIST_TOP_RESULTS_INCOMPLETE"
+                ProductReadRequest.cancel()
+            }
         } else GoldSearchRun.event("LIST_FIRST_CAPTURED",at)
     }
 
@@ -1414,7 +1421,11 @@ class ProductReadService : AccessibilityService() {
         fun fail(code:String) { lastNavigationIssue=code;ProductReadRequest.cancel() }
         if(android.os.Build.VERSION.SDK_INT<34) { fail("LIST_CAPTURE_ANDROID_VERSION");return }
         if(!PhoneRemote.active() || !GoldSearchRun.running || keyboardVisible()) return
-        if(listImages.length()>0 && !listScrolled) {
+        if(listImages.length()>0 && !listScrolled &&
+            action.isins.all { it in listSeenIds }) {
+            // After asynchronous OCR, a WebView can expose new original rows
+            // without a reported scroll event. Capture those new identities
+            // first instead of scrolling past them or misreporting the footer.
             val candidates=nodes.indices.filter { i ->
                 val n=nodes[i]; val d=descriptions[i]
                 n.isVisibleToUser && n.isEnabled && !n.isEditable && !n.isPassword &&
@@ -1428,7 +1439,18 @@ class ProductReadService : AccessibilityService() {
                     if(cursor==ancestor) { found=true;break };cursor=descriptions[cursor].parent
                 };child!=ancestor && found
             } }.singleOrNull()
-            if(chosen==null || ++listScrollTries>2) { fail("LIST_SCROLL_UNAVAILABLE");return }
+            if(chosen==null) {
+                if(candidates.isEmpty() && root.windowId==listWindowId &&
+                    MorningListEndPolicy.maySubmitAtEnd(descriptions,listImages.length(),
+                        listSeenIds,action.isins,action)) {
+                    // A real DEGIRO end footer plus existing cropped images
+                    // permits an OCR-verification request, NOT acceptance of
+                    // missing products. The server still demands ten originals.
+                    deliverMorningList(listGeneration)
+                } else fail(if(candidates.isEmpty()) "LIST_SCROLL_UNAVAILABLE" else "LIST_SCROLL_AMBIGUOUS")
+                return
+            }
+            if(++listScrollTries>2) { fail("LIST_SCROLL_NO_PROGRESS");return }
             lastNavigation=SystemClock.elapsedRealtime()
             listScrolled=nodes[chosen].performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
             if(listScrolled) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_SCROLL_SENT)
@@ -1436,7 +1458,14 @@ class ProductReadService : AccessibilityService() {
             return
         }
         if(listImages.length()>0 && action.isins==listFirstIds) {
-            if(++listScrollTries>4) fail("LIST_SCROLL_NO_PROGRESS")
+            if(root.windowId==listWindowId &&
+                MorningListEndPolicy.maySubmitAtEnd(descriptions,listImages.length(),
+                    listSeenIds,action.isins,action)) {
+                // Some WebViews keep ACTION_SCROLL_FORWARD enabled even
+                // after reaching the footer; inspect identities rather than
+                // repeating a gesture against a motionless screen.
+                deliverMorningList(listGeneration)
+            } else if(++listScrollTries>4) fail("LIST_SCROLL_NO_PROGRESS")
             return
         }
         if(listImages.length()==0 && !descriptions.any { n ->
@@ -1615,7 +1644,8 @@ class ProductReadService : AccessibilityService() {
         val capturedWindow=listWindowId
         MorningListDelivery.start(this,body)
         checkpoint().delete()
-        GoldSearchRun.stop("LIST_IMAGES_DELIVERED",Instant.now().toString())
+        GoldSearchRun.stop(if(listSeenIds.size==10) "LIST_IMAGES_DELIVERED"
+            else "LIST_IMAGES_AWAITING_SERVER_VERIFICATION",Instant.now().toString())
         ProductReadRequest.cancel();PhoneDiagnostics.queue(this)
         // Do not wait for native OCR just to scroll back up. Still require
         // the server's ten-row receipt before touching any ISIN search.

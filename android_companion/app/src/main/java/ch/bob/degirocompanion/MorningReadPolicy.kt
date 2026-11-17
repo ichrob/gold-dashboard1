@@ -672,7 +672,7 @@ internal object MorningReadPolicy {
                     val found=ids.findAll(row.uppercase()).map { it.value }.toSet().singleOrNull()
                     found?.takeIf { SeriesEvidence.validIsin(it) &&
                         Regex("(?iu)\\b(gold|xau)\\b").containsMatchIn(row) &&
-                        (Regex(if(captureAll) "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short)|faktor|factor)\\b" else "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(row) || unlimitedGoldRow(row)) &&
+                        (Regex(if(captureAll) "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short)|faktor|factor|constant\\s+leverage)\\b" else "(?iu)\\b(turbo|knock[ -]?out|mini[ -]?(future|long|short))\\b").containsMatchIn(row) || unlimitedGoldRow(row)) &&
                         !Regex(if(captureAll) "(?iu)\\b(kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b" else "(?iu)\\b(faktor|factor|kauf|kaufen|verkauf|verkaufen|buy|sell|order)\\b").containsMatchIn(row) }
                 }.distinct().take(12)
                 if(candidates.isNotEmpty()) return Action(Kind.COLLECT,isins=candidates)
