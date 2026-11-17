@@ -52,7 +52,7 @@ internal object StopLossPrefillPolicy {
         val bottom: Int = 0
     )
     data class Frame(val app: String, val nodes: List<Node>)
-    enum class Stage { ORDER_TYPE, CHOOSE_STOP, WRITE_STOP, VERIFY_STOP, WRITE_QUANTITY, VERIFY_QUANTITY, DONE }
+    enum class Stage { OPEN_FORM, VERIFY_FORM, ORDER_TYPE, CHOOSE_STOP, WRITE_STOP, VERIFY_STOP, WRITE_QUANTITY, VERIFY_QUANTITY, DONE }
     enum class Kind { CLICK, WRITE, ADVANCE, DONE, BLOCK }
     data class Decision(val kind: Kind, val index: Int = -1, val text: String = "", val next: Stage = Stage.DONE, val code: String = "")
 
@@ -92,6 +92,21 @@ internal object StopLossPrefillPolicy {
 
     fun decide(stage: Stage, f: Frame, draft: StopLossPrefillDraft): Decision {
         fun block(code: String) = Decision(Kind.BLOCK, code = code)
+        if(stage==Stage.OPEN_FORM) {
+            if(!base(f,draft)) return block("PRODUKT_ISIN_NICHT_ERKANNT")
+            if(has(f,"Order platzieren")) {
+                return if(isSell(f) && has(f,"Ordertyp"))
+                    Decision(Kind.ADVANCE,next=Stage.ORDER_TYPE) else block("VERKAUF_NICHT_BESTAETIGT")
+            }
+            // The verified DEGIRO product detail shown by the owner has a
+            // distinct SELL entry button. This can only OPEN an order form;
+            // the broker's final "Order platzieren" control is never called.
+            if(!has(f,"Übersicht") || has(f,"Ordertyp") ||
+                !has(f,"KAUF") || !has(f,"VERKAUF")) return block("PRODUKT_DETAIL_NICHT_ERKANNT")
+            return exact(f,"VERKAUF",clickable=true)?.let {
+                Decision(Kind.CLICK,it,next=Stage.VERIFY_FORM)
+            } ?: block("VERKAUF_BUTTON_NICHT_EINDEUTIG")
+        }
         if(stage==Stage.CHOOSE_STOP) {
             // Android dialogs can expose only the four options, not the
             // original order background. Never mistake an unrelated popup:
@@ -107,6 +122,9 @@ internal object StopLossPrefillPolicy {
         if (!isSell(f)) return block("VERKAUF_NICHT_BESTAETIGT")
         if (!has(f,"Order platzieren")) return block("ORDERMASKE_NICHT_ERKANNT")
         return when(stage) {
+            Stage.OPEN_FORM -> block("PRODUKT_DETAIL_NICHT_ERKANNT")
+            Stage.VERIFY_FORM -> if(has(f,"Ordertyp"))
+                Decision(Kind.ADVANCE,next=Stage.ORDER_TYPE) else block("VERKAUFSFORM_NICHT_ERKANNT")
             Stage.ORDER_TYPE -> {
                 if (has(f,"Stop Loss") && f.nodes.none { norm(it.label) == "market" && it.clickable })
                     Decision(Kind.ADVANCE, next=Stage.WRITE_STOP)
