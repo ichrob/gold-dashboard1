@@ -178,7 +178,7 @@ class MainActivity : Activity() {
             "am Samsung aktivieren. Kein automatisches DEGIRO-Klicken, kein " +
             "Entsperren und keine Änderung der Geräte-PIN. Nur dieser Bildschirmmodus " +
             "bleibt bis zum serverseitig erkannten Trade-Ende aktiv (maximal 8 Stunden " +
-            "pro ausdrücklichem Start); einzelne Produktlesungen bleiben separat zeitlich begrenzt.")
+            "pro ausdrücklichem Start). Sichere DEGIRO-Lesesitzungen können in kurzen 15-Minuten-Abschnitten erneuert werden, sofern der Trade unverändert bestätigt und das Samsung entsperrt ist.")
         button("▶ Trade-Lesemodus starten · Bildschirm wach halten") {
             AlertDialog.Builder(this).setTitle("Trade-Lesemodus aktivieren?")
                 .setMessage("Nur bei einem eindeutig aktiven Trade in Bobs realem Trade-Journal. " +
@@ -186,7 +186,7 @@ class MainActivity : Activity() {
                     "prüft etwa alle 25 Sekunden den unveränderten Trade. STOPP, die Samsung-Sperrtaste, " +
                     "eine fehlende Serverbestätigung oder spätestens 8 Stunden beenden den Modus. " +
                     "Ein erkannter Trade-Abschluss ist nur so zuverlässig wie die gespeicherten Ausführungsbelege. " +
-                    "Keine automatischen Orders und keine verlängerte DEGIRO-Fernbedienungsfreigabe.")
+                    "Keine Orders. Die Lesebereitschaft kann im bestätigten Trade fortlaufen, aber jeder Seitenlesevorgang bleibt gesondert zeitlich begrenzt.")
                 .setNegativeButton("Abbrechen",null)
                 .setPositiveButton("Lesemodus starten") { _,_ ->
                     BobTradeDimMode.start(this) { message ->
