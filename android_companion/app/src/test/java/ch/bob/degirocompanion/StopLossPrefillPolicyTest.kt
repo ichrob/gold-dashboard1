@@ -34,6 +34,23 @@ class StopLossPrefillPolicyTest {
         assertNull(StopLossDraftCodec.parse(text.replace("|3|","|-3|"),now))
         assertNull(StopLossDraftCodec.parse(text.replace("26.90","26.999"),now))
     }
+    @Test fun detailMayOpenOnlySellFormForExactIsin() {
+        val p=StopLossPrefillPolicy
+        val detail=p.Frame("nl.degiro.trader",listOf(
+            p.Node(draft.isin),p.Node("Übersicht"),
+            p.Node("KAUF",clickable=true),p.Node("VERKAUF",clickable=true)
+        ))
+        val allowed=p.decide(p.Stage.OPEN_FORM,detail,draft)
+        assertEquals(p.Kind.CLICK,allowed.kind)
+        assertEquals("VERKAUF",detail.nodes[allowed.index].label)
+        assertEquals(p.Stage.VERIFY_FORM,allowed.next)
+        assertEquals(p.Kind.ADVANCE,p.decide(p.Stage.OPEN_FORM,frame(),draft).kind)
+        assertEquals(p.Kind.ADVANCE,p.decide(p.Stage.VERIFY_FORM,frame(),draft).kind)
+        assertEquals(p.Kind.BLOCK,p.decide(p.Stage.OPEN_FORM,detail.copy(
+            nodes=detail.nodes.filterNot { it.label=="Übersicht" }),draft).kind)
+        assertEquals(p.Kind.BLOCK,p.decide(p.Stage.OPEN_FORM,detail.copy(
+            nodes=detail.nodes.map { if(it.label==draft.isin) it.copy(label="DE000FB0A491") else it }),draft).kind)
+    }
     @Test fun noBuyNoWrongIsinNoLoginNoSubmit() {
         val p=StopLossPrefillPolicy
         assertEquals(p.Kind.BLOCK,p.decide(p.Stage.ORDER_TYPE,frame(selectedSell=false),draft).kind)
