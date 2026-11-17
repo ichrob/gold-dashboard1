@@ -121,8 +121,10 @@ class ProductReadService : AccessibilityService() {
                     handler.postDelayed({ resumeEntryAfterOwnerUnlock() },350)
                 return
             }
-            if(intent?.action==Intent.ACTION_SCREEN_OFF)
+            if(intent?.action==Intent.ACTION_SCREEN_OFF) {
+                StopLossReadOnlySession.finish("BILDSCHIRM_GESPERRT")
                 StopLossPrefillSession.finish("SCREEN_LOCKED")
+            }
             if(intent?.action==Intent.ACTION_SCREEN_OFF && PinReadinessProbe.running)
                 PinReadinessProbe.stop("Bildschirm ausgeschaltet. PIN-Test beendet.",
                     PinKeypadExerciseTrace.Reason.SCREEN_LOCKED)
@@ -314,6 +316,7 @@ class ProductReadService : AccessibilityService() {
             else PinReadinessProbe.stop("Dialogfreigabe nicht verfügbar. Lokale Anmeldung beendet.")
         }
         StopLossPrefillSession.onArmed = { handler.post { queueStopLossPrefill(550) } }
+        StopLossReadOnlySession.onStarted = { handler.post { queueStopLossReadProbe(400) } }
         PhoneRemote.reader={command -> remoteRead(command)}
         MorningListDelivery.onConfirmed={ plan, batch ->
             if(plan.isNotEmpty() && PhoneRemote.active()) {
@@ -506,8 +509,90 @@ class ProductReadService : AccessibilityService() {
             handler.postDelayed(stopLossPrefillTick,delay)
         }
     }
+    // Separate passive recognition path. It NEVER calls the writable
+    // StopLossPrefillExecutor, dispatchGesture, ACTION_CLICK or ACTION_SET_TEXT.
+    // No raw labels, ISIN, quantity, screenshots or user-entered values persist.
+    private var stopLossProbeQueued=false
+    private val stopLossProbeTick=object:Runnable {
+        override fun run() {
+            stopLossProbeQueued=false
+            val now=SystemClock.elapsedRealtime()
+            if(!StopLossReadOnlySession.active(now))return
+            if(StopLossPrefillSession.active(now) ||
+                PhoneRemote.active() || PinReadinessProbe.running ||
+                MorningReadRun.running || GoldSearchRun.running ||
+                ProductReadRequest.active(now)) {
+                StopLossReadOnlySession.finish("ANDERER_AUFTRAG")
+                return
+            }
+            val keyguard=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+            if(keyguard.isKeyguardLocked || keyguard.isDeviceLocked ||
+                !(getSystemService(POWER_SERVICE) as PowerManager).isInteractive) {
+                StopLossReadOnlySession.finish("BILDSCHIRM_GESPERRT")
+                return
+            }
+            val root=rootInActiveWindow ?: run {
+                StopLossReadOnlySession.observe(StopLossReadOnlyProbe.Result(
+                    StopLossReadOnlyProbe.Code.NOT_DEGIRO))
+                return
+            }
+            try {
+                if(root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) {
+                    StopLossReadOnlySession.observe(StopLossReadOnlyProbe.Result(
+                        StopLossReadOnlyProbe.Code.NOT_DEGIRO))
+                    return
+                }
+                val tree=WorkflowTree.read(root,{it.childCount},{node,index->node.getChild(index)})
+                if(!tree.complete) {
+                    StopLossReadOnlySession.observe(StopLossReadOnlyProbe.Result(
+                        StopLossReadOnlyProbe.Code.VIEW_INCOMPLETE))
+                    return
+                }
+                val refs=tree.nodes.filter {
+                    it.isVisibleToUser &&
+                        it.packageName?.toString()==ProductScreenEvidence.PACKAGE
+                }
+                if(refs.any { it.isPassword ||
+                    (android.os.Build.VERSION.SDK_INT>=34 && it.isAccessibilityDataSensitive) }) {
+                    StopLossReadOnlySession.observe(StopLossReadOnlyProbe.Result(
+                        StopLossReadOnlyProbe.Code.SCREEN_PROTECTED))
+                    return
+                }
+                // Build an ephemeral Frame from NON-editable captions only.
+                // Text typed into fields, order prices and credentials are ignored.
+                val frame=StopLossPrefillPolicy.Frame(ProductScreenEvidence.PACKAGE,
+                    refs.map { node ->
+                        val text=if(node.isEditable) "" else
+                            node.text?.toString()?.takeIf { it.isNotBlank() }
+                                ?:node.contentDescription?.toString().orEmpty()
+                        val selected=node.isSelected || node.isChecked ||
+                            (node.parent?.let { it.isSelected || it.isChecked } == true)
+                        StopLossPrefillPolicy.Node(
+                            label=text.take(200),selected=selected,
+                            password=node.isPassword,editable=node.isEditable
+                        )
+                    })
+                StopLossReadOnlySession.observe(StopLossReadOnlyProbe.inspect(frame))
+            } catch (_:Exception) {
+                StopLossReadOnlySession.observe(StopLossReadOnlyProbe.Result(
+                    StopLossReadOnlyProbe.Code.VIEW_INCOMPLETE))
+            } finally {root.recycle()}
+        }
+    }
+    private fun queueStopLossReadProbe(delay:Long) {
+        if(!stopLossProbeQueued && StopLossReadOnlySession.active(SystemClock.elapsedRealtime())) {
+            stopLossProbeQueued=true
+            handler.postDelayed(stopLossProbeTick,delay)
+        }
+    }
     // Only package/type metadata is used. Never read or retain event text.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if(StopLossReadOnlySession.active(SystemClock.elapsedRealtime())) {
+            if(event?.eventType==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+               event?.eventType==AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+                queueStopLossReadProbe(300)
+            return // Suppress every unrelated reader action throughout this lease.
+        }
         if(StopLossPrefillSession.active(SystemClock.elapsedRealtime())) {
             if(event?.eventType==AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) {
                 StopLossPrefillSession.finish("USER_STOP");return
@@ -564,8 +649,8 @@ class ProductReadService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         queueRead(400)
     }
-    override fun onInterrupt() { StopLossPrefillSession.onArmed=null; StopLossPrefillSession.finish("SERVICE_INTERRUPTED"); handler.removeCallbacks(stopLossPrefillTick); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
-    override fun onDestroy() { StopLossPrefillSession.onArmed=null; StopLossPrefillSession.finish("SERVICE_STOPPED"); handler.removeCallbacks(stopLossPrefillTick); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onLoginTouch=null;PinReadinessProbe.onDigitTouch=null;PinReadinessProbe.onDeleteTouch=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
+    override fun onInterrupt() { StopLossReadOnlySession.finish("DIENST_STOPP"); StopLossReadOnlySession.onStarted=null; handler.removeCallbacks(stopLossProbeTick); StopLossPrefillSession.onArmed=null; StopLossPrefillSession.finish("SERVICE_INTERRUPTED"); handler.removeCallbacks(stopLossPrefillTick); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
+    override fun onDestroy() { StopLossReadOnlySession.finish("DIENST_STOPP"); StopLossReadOnlySession.onStarted=null; handler.removeCallbacks(stopLossProbeTick); StopLossPrefillSession.onArmed=null; StopLossPrefillSession.finish("SERVICE_STOPPED"); handler.removeCallbacks(stopLossPrefillTick); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onLoginTouch=null;PinReadinessProbe.onDigitTouch=null;PinReadinessProbe.onDeleteTouch=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
