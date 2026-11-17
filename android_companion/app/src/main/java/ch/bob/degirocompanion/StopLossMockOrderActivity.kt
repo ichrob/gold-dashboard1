@@ -60,9 +60,10 @@ class StopLossMockOrderActivity : Activity() {
         }
         header("TESTMASKE · NUR SIMULATION · KEINE DEGIRO-VERBINDUNG")
         header("Bob-Modellwert: ${draft.isin} · ${draft.stopText} EUR · ${draft.quantity} Stück")
-        status=header("Noch keine simulierten Eingaben.")
+        status=header("Noch keine simulierten Eingaben.").also { it.tag="mock_status" }
         page.addView(Button(this).apply {
             text="Testoberfläche automatisch bedienen"; isAllCaps=false
+            tag="mock_start"
             setOnClickListener { begin() }
         })
         page.addView(Button(this).apply {
@@ -168,7 +169,10 @@ class StopLossMockOrderActivity : Activity() {
     private fun capture():Pair<StopLossPrefillPolicy.Frame,List<View>> {
         val nodes=screenNodes.toList()
         val frame=StopLossPrefillPolicy.Frame("nl.degiro.trader",nodes.map { view ->
-            val rect=Rect();view.getGlobalVisibleRect(rect)
+            // Use actual laid-out View geometry, including fields below the
+            // visible ScrollView fold. No guessed screen coordinates.
+            val pos=IntArray(2);view.getLocationOnScreen(pos)
+            val rect=Rect(pos[0],pos[1],pos[0]+view.width,pos[1]+view.height)
             val edit=view as? EditText
             StopLossPrefillPolicy.Node(
                 label=if(edit!=null) "" else (view as? TextView)?.text?.toString().orEmpty(),
