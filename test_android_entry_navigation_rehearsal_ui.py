@@ -47,6 +47,37 @@ class ImmediateEntryNavigation(unittest.TestCase):
         # both Builder.setMessage and Builder.setItems are set.
         self.assertNotIn(".setMessage(", dialog)
 
+    def test_expired_list_does_not_fail_silently_and_offers_bounded_new_gold_read(self):
+        activity = source("ProductReadActivity.kt")
+        helper = activity.split("private fun showEntryNavigationStartProblem(", 1)[1].split(
+            "private fun chooseEntryNavigationTest()", 1
+        )[0]
+        self.assertIn('setTitle("Navigationstest nicht gestartet")', helper)
+        self.assertIn(".setMessage(message)", helper)
+        self.assertIn('setPositiveButton("Goldliste jetzt einlesen")', helper)
+        self.assertIn("startGoldRead()", helper)
+        chooser = activity.split("private fun chooseEntryNavigationTest()", 1)[1].split(
+            "private fun chooseQuoteRefresh()", 1
+        )[0]
+        self.assertIn("MorningReadRun.refreshSourceSnapshot(this)", chooser)
+        self.assertIn("14*60*60*1000L", chooser)
+        self.assertIn("freshListNeeded = true", chooser)
+        self.assertIn("showEntryNavigationStartProblem(", chooser)
+        self.assertIn("it.message ?: \"Navigationstest nicht verfügbar.\"", chooser)
+        # Keep the original authenticated refresh and local read-only gates.
+        self.assertIn("requestQuoteRefresh(saved,listOf(names[which]),testOnly=true)", chooser)
+        self.assertNotIn("startGoldRead()", chooser)
+
+    def test_refresh_rejections_are_modal_for_navigation_test_only(self):
+        activity = source("ProductReadActivity.kt")
+        method = activity.split("private fun requestQuoteRefresh(", 1)[1].split(
+            "private fun startGoldRead()", 1
+        )[0]
+        self.assertEqual(method.count("if(testOnly) showEntryNavigationStartProblem(reason)"), 2)
+        self.assertIn('PhoneDiagnostics.listStatus(app,org.json.JSONObject()', method)
+        self.assertIn("if(LocalPinVault.exists(this))", method)
+        self.assertIn("ProductReadRequest.start(SystemClock.elapsedRealtime())", method)
+
     def test_test_selection_always_one_and_reuses_real_owned_list_gate(self):
         activity = source("ProductReadActivity.kt")
         method = activity.split("private fun requestQuoteRefresh(", 1)[1].split(
