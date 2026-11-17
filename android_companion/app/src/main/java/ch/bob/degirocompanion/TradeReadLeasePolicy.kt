@@ -12,7 +12,7 @@ internal object TradeReadLeasePolicy {
               screenInteractive: Boolean, deviceLocked: Boolean,
               readingInProgress: Boolean): Boolean =
         tradeVerified && screenInteractive && !deviceLocked &&
-        !readingInProgress && remainingMillis in 1..RENEW_BEFORE_MILLIS
+        !readingInProgress && remainingMillis >= 1L && remainingMillis <= RENEW_BEFORE_MILLIS
 
     fun keepIdleAfterCompletedRead(tradeVerified: Boolean, code: String): Boolean =
         tradeVerified && code in setOf("COMPLETE","COMPLETED")
