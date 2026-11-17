@@ -28,7 +28,7 @@ class StopLossPrefillPolicyTest {
     }
     @Test fun payloadDoesNotAcceptStaleWrongCurrencyOrArbitraryNumbers() {
         val text="BOB-STOP/1|DE000FB0A490|EUR|3|26.90|$now"
-        assertEquals(2690,StopLossDraftCodec.parse(text,now)?.stopCents)
+        assertEquals(2690L,StopLossDraftCodec.parse(text,now)?.stopCents)
         assertNull(StopLossDraftCodec.parse(text.replace("EUR","CHF"),now))
         assertNull(StopLossDraftCodec.parse(text,now+300_001))
         assertNull(StopLossDraftCodec.parse(text.replace("|3|","|-3|"),now))
