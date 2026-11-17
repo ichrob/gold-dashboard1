@@ -120,6 +120,25 @@ class LoginToReadHandoffTest {
         }
     }
 
+    @Test fun abortInvalidatesLateLoginAndImmediatelyReleasesNextTest() {
+        LoginToReadHandoff.clear()
+        LoginToReadHandoff.arm(1_000L,sessionOnly=true,
+            entryReadOnly=true,resumeAfterOwnerUnlock=true)
+        val oldTicket=LoginToReadHandoff.generation
+        assertTrue(LoginToReadHandoff.pending(1_100L))
+        LoginToReadHandoff.clear() // Explicit stop or screen-off abort.
+        assertFalse(LoginToReadHandoff.pending(1_100L))
+        assertNotEquals(oldTicket,LoginToReadHandoff.generation)
+        assertFalse(LoginToReadHandoff.consume("LOCAL_PIN_HOME_VISIBLE",1_200L))
+        assertFalse(LoginToReadHandoff.resumeAfterOwnerUnlock)
+        // A new owner-initiated test may arm without waiting for old timeout.
+        LoginToReadHandoff.arm(1_300L,sessionOnly=true,
+            entryReadOnly=true,resumeAfterOwnerUnlock=true)
+        assertTrue(LoginToReadHandoff.pending(1_400L))
+        assertTrue(LoginToReadHandoff.consume("LOCAL_PIN_HOME_VISIBLE",1_400L))
+        assertFalse(LoginToReadHandoff.pending(1_401L))
+    }
+
     @Test fun handoffExpiresAndCannotSurviveRollbackOrUnrelatedStop() {
         LoginToReadHandoff.clear()
         LoginToReadHandoff.arm(1_000L)
