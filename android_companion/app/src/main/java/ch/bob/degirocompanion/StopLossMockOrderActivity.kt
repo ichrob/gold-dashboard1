@@ -100,7 +100,7 @@ class StopLossMockOrderActivity : Activity() {
 
     private fun addField():EditText =
         EditText(this).also {
-            it.isSingleLine=true;it.showSoftInputOnFocus=false
+            it.setSingleLine(true);it.setShowSoftInputOnFocus(false)
             it.inputType=android.text.InputType.TYPE_CLASS_TEXT
             it.setPadding(8,4,8,4)
             form.addView(it);screenNodes.add(it)
