@@ -31,9 +31,10 @@ def quote(at=NOW):
 class ProfileTests(unittest.TestCase):
     def test_old_seven_and_new_two_ledger_profiles_are_distinct(self):
         self.assertEqual(list(profiles.POLICIES),
-                         ['conservative','balanced','offensive','early100','trend800','early1000oct','normal1000oct','trend800nov','normal1000nov','ema3000nov','noema5000nov'])
+                         ['conservative','balanced','offensive','early100','trend800','early1000oct','normal1000oct','trend800nov','normal1000nov','ema3000nov','noema5000nov',
+                          'trend1000dec','normal1000dec','early1000dec'])
         self.assertEqual(len(set(profiles.names(p)['bob_paper_cases']
-                                 for p in profiles.POLICIES)),11)
+                                 for p in profiles.POLICIES)),14)
         self.assertEqual(profiles.START, int(datetime(
             2026,10,12,8,tzinfo=ZoneInfo('Europe/Zurich')).timestamp()*1000))
         self.assertFalse(hasattr(profiles, 'place_order'))
@@ -202,9 +203,9 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(count,0)
             view=profiles.report(conn, '2026-10-12')
             self.assertEqual(view['mode'],'independent-prospective-paper-accounts')
-            self.assertEqual(view['simulatedCapitalEur'],13000)
+            self.assertEqual(view['simulatedCapitalEur'],16000)
             self.assertFalse(view['realOrders'])
-            self.assertEqual(len(view['accounts']),11)
+            self.assertEqual(len(view['accounts']),14)
             self.assertEqual({x['profile'] for x in view['accounts']},set(profiles.POLICIES))
         finally:
             conn.rollback()
