@@ -246,10 +246,9 @@ class ProductReadActivity : Activity() {
         // the existing one-ISIN verified refresh path and does not manufacture
         // or persist a market-entry signal, create a trade, or grant a remote
         // broker-control session beyond the ordinary product-reading gates.
-        button("Stop-Loss-Felder automatisch vorbereiten · keine Order") {
-            // Deliberately separate from remote commands, reader sessions and
-            // PIN login. Owner must inspect a real SELL form before arming.
-            startActivity(Intent(this,StopLossPrefillActivity::class.java))
+        // This one-off standalone test build provides ONLY the offline simulator.
+        button("Stop-Loss-Simulation starten · ohne DEGIRO") {
+            startActivity(Intent(this,StopLossSimulationActivity::class.java))
         }
         button("Einstiegskurs-Navigation sofort testen · ohne Signal") {
             chooseEntryNavigationTest()
