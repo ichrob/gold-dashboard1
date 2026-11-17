@@ -4,6 +4,8 @@ package ch.bob.degirocompanion
 internal object StopLossPrefillSession {
     private var draft: StopLossPrefillDraft? = null
     private var expiresAt = 0L
+    // Optional in-process callback, never persisted or reachable by remote intents.
+    var onArmed: (() -> Unit)? = null
     var stage = StopLossPrefillPolicy.Stage.OPEN_FORM
         private set
     var status = "Kein Stop-Loss-Entwurf aktiv."
@@ -14,6 +16,7 @@ internal object StopLossPrefillSession {
         expiresAt = nowElapsed + 120_000L
         stage = StopLossPrefillPolicy.Stage.OPEN_FORM
         status = "Entwurf aktiv: DEGIRO-Verkaufsmaske prüfen; niemals Order platzieren."
+        onArmed?.invoke()
     }
     fun active(nowElapsed: Long): Boolean {
         if (draft == null) return false
