@@ -158,6 +158,9 @@ internal object PhoneRemote {
     fun stop(c:Context,code:String="STOPPED") {
         if(session.isEmpty())return
         val old=session;session="";deadline=0;pendingSettings=null
+        // The old network request may still be in flight. It belongs to the
+        // old session and must not keep the next owner-started test "busy".
+        busy=false
         if(unlockRehearsalOnly && code=="SESSION_EXPIRED")
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.UNLOCK_TEST_EXPIRED)
         message=if(code=="UNLOCK_TEST_CONFIRMED")
@@ -168,6 +171,9 @@ internal object PhoneRemote {
         waitingOnUnlock=false
         onStop?.invoke(code)
         val body=payload(old,false,empty(code))
+        ack=null
+        entryOnly=false
+        expires=0L
         settingsOnly=false;localSettingsPending=false;pendingSettingsCode=""
         lastReportedAutoFx=null;lastReportedProfile=null
         locallyConfirmedProfile=null
@@ -238,8 +244,10 @@ internal object PhoneRemote {
         network.execute {
             val result=runCatching { PhoneDiagnostics.remoteExchange(c,body) }
             handler.post {
-                busy=false
+                // A cancelled session's late network reply must not reset the
+                // busy flag or mutate any state of its replacement session.
                 if(session!=id)return@post
+                busy=false
                 if(!active()) { stop(c,"SESSION_EXPIRED");return@post }
                 result.onSuccess { response ->
                     if(response.optString("sessionId")!=id) { stop(c,"SESSION_MISMATCH");return@onSuccess }
