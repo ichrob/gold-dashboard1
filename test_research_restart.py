@@ -183,6 +183,14 @@ class DatabaseTests(unittest.TestCase):
                     self.assertNotIn('retiredAt',relaunch)
                     self.assertEqual(relaunch['cash'],p.POLICIES[profile]['initial_capital_eur'])
                     self.assertIsNone(conn.execute('SELECT id FROM '+p.names(profile)['bob_paper_cases']).fetchone())
+                # A historical quality-restart must NEVER retire the new
+                # owner-requested forward-only December validation accounts.
+                for profile in p.FRESH_VALIDATION_PROFILES:
+                    fresh=conn.execute('SELECT payload FROM '+
+                        p.names(profile)['bob_paper_control']).fetchone()[0]
+                    self.assertNotIn('retiredAt',fresh)
+                    self.assertEqual(fresh['cash'],1000.)
+                    self.assertGreaterEqual(fresh['startAt'],p.FRESH_VALIDATION_NOT_BEFORE)
                 b,m=sample();r.tick(conn,b,m,NOW)
                 result=r.report(conn)
                 self.assertEqual(len(result['studies']),4)
