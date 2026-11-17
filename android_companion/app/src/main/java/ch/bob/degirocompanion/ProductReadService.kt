@@ -847,26 +847,42 @@ class ProductReadService : AccessibilityService() {
                     val statusAllowed=FinalReadReturnPolicy.allowed(
                         code,draft,priorTarget,priorWindow,window,pkg,
                         power.isInteractive,keyguard.isKeyguardLocked,authorized)
-                    val safeBack=statusAllowed && foreground!=null && runCatching {
+                    val reason=if(!statusAllowed || foreground==null)
+                        FinalReadReturnPolicy.lastBackBlock(
+                            code,draft,priorTarget,priorWindow,window,pkg,
+                            power.isInteractive,keyguard.isKeyguardLocked,
+                            authorized,emptyList())
+                    else runCatching {
                         val refs=mutableListOf<AccessibilityNodeInfo>()
                         val view=mutableListOf<MorningReadPolicy.Node>()
                         try {
                             navigationTree(foreground,refs,view)
-                            FinalReadReturnPolicy.safeLastProductBack(
+                            FinalReadReturnPolicy.lastBackBlock(
                                 code,draft,priorTarget,priorWindow,window,pkg,
                                 power.isInteractive,keyguard.isKeyguardLocked,
                                 authorized,view)
                         } finally { refs.forEach { it.recycle() } }
-                    }.getOrDefault(false)
-                    statusAllowed to safeBack
+                    }.getOrDefault(FinalReadReturnPolicy.LastBackBlock.SURFACE)
+                    statusAllowed to reason
                 } finally { foreground?.recycle() }
                 val returnToBob=finalReturn.first
-                val backAllowed=finalReturn.second
+                val backReason=finalReturn.second
+                val backAllowed=backReason==FinalReadReturnPolicy.LastBackBlock.NONE
                 val backSent=backAllowed && performGlobalAction(GLOBAL_ACTION_BACK)
                 ProductReadDiagnostics.record(when {
                     !backAllowed -> ProductReadDiagnostics.Outcome.FINAL_BACK_BLOCKED
                     backSent -> ProductReadDiagnostics.Outcome.FINAL_BACK_SENT
                     else -> ProductReadDiagnostics.Outcome.FINAL_BACK_REJECTED
+                })
+                if(!backAllowed) ProductReadDiagnostics.record(when(backReason) {
+                    FinalReadReturnPolicy.LastBackBlock.READ -> ProductReadDiagnostics.Outcome.FINAL_BACK_BLOCK_READ
+                    FinalReadReturnPolicy.LastBackBlock.SESSION -> ProductReadDiagnostics.Outcome.FINAL_BACK_BLOCK_SESSION
+                    FinalReadReturnPolicy.LastBackBlock.DEVICE -> ProductReadDiagnostics.Outcome.FINAL_BACK_BLOCK_DEVICE
+                    FinalReadReturnPolicy.LastBackBlock.FOREGROUND -> ProductReadDiagnostics.Outcome.FINAL_BACK_BLOCK_FOREGROUND
+                    FinalReadReturnPolicy.LastBackBlock.WINDOW -> ProductReadDiagnostics.Outcome.FINAL_BACK_BLOCK_WINDOW
+                    FinalReadReturnPolicy.LastBackBlock.IDENTITY -> ProductReadDiagnostics.Outcome.FINAL_BACK_BLOCK_IDENTITY
+                    FinalReadReturnPolicy.LastBackBlock.SURFACE, FinalReadReturnPolicy.LastBackBlock.NONE ->
+                        ProductReadDiagnostics.Outcome.FINAL_BACK_BLOCK_SURFACE
                 })
                 productReturnTransition.clear()
                 PhoneRemote.stop(this,"COMPLETED")
