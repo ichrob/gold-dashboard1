@@ -480,20 +480,12 @@ class ProductReadService : AccessibilityService() {
                         if(target==null || !sameWindow) {
                             StopLossPrefillSession.finish("ANSICHT_GEWECHSELT");return
                         }
-                        // Explicit allowlist: only open the type chooser or select
-                        // "Stop Loss". Never tap SELL/BUY, Order platzieren, etc.
-                        val success=if(decision.kind==StopLossPrefillPolicy.Kind.CLICK) {
-                            (frame.nodes[decision.index].label in listOf("Limit","Stop Loss") ||
-                                (StopLossPrefillSession.stage==StopLossPrefillPolicy.Stage.OPEN_FORM &&
-                                 frame.nodes[decision.index].label.equals("VERKAUF",ignoreCase=true))) &&
-                                target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        } else {
-                            target.isEditable && decision.text.matches(Regex("[0-9]{1,7}(?:,[0-9]{2})?")) &&
-                                target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,
-                                    android.os.Bundle().apply {
-                                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,decision.text)
-                                    })
-                        }
+                        // All UI actions are audited in a separate, exact allowlist.
+                        // This reader retains its original, read-only action budget.
+                        val success=StopLossPrefillExecutor.execute(
+                            target,frame.nodes[decision.index].label,decision,
+                            StopLossPrefillSession.stage
+                        )
                         if(!success) StopLossPrefillSession.finish("FELDAKTION_ABGELEHNT")
                         else { StopLossPrefillSession.move(decision.next);queueStopLossPrefill(600) }
                     }
