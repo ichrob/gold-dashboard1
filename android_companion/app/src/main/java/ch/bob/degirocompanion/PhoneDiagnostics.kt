@@ -66,6 +66,9 @@ internal object PhoneDiagnostics {
     fun workflowPlan(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-workflow/plan",false)
     fun termuxExchange(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-termux/exchange",false)
     fun remoteExchange(c:Context, body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-remote/exchange",false)
+    /** Read-only minimized server receipt; never a DEGIRO order or unlock. */
+    fun tradeMonitorStatus(c:Context):JSONObject =
+        sendDevice(c,JSONObject(),"/api/android-trade/status",false)
     fun uploadList(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-list/upload",true)
     fun listStatus(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-list/status",false)
     fun uploadDetails(c:Context,body:JSONObject):JSONObject = sendDevice(c,body,"/api/android-list/details",false)
@@ -92,6 +95,7 @@ internal object PhoneDiagnostics {
         } finally { conn.disconnect() }
     }
     fun disable(c:Context) = synchronized(lock) {
+        BobTradeDimMode.stop("Diagnose-Kopplung ausgeschaltet.")
         PhoneRemote.stop(c,"PAIRING_DISABLED")
         // Local opt-out takes effect before any further worker may send.
         prefs(c).edit().clear().putString("delivery","Ausgeschaltet").commit()

@@ -76,6 +76,7 @@ class MainActivity : Activity() {
     private var imageOutcome = DeviceDiagnosticShare.Outcome.NOT_TESTED
     private var lastDiagnosticImageCount = 0
     private var workModeStatus: TextView? = null
+    private var tradeDimStatus: TextView? = null
 
     private fun clearVoicePlan() {
         voiceSteps = emptyList()
@@ -91,6 +92,7 @@ class MainActivity : Activity() {
         super.onResume()
         if (!localEscrowOpening) termuxCheckLabel?.text = TermuxBridge.displayStatus(this)
         workModeStatus?.text = BobWorkMode.status(this)
+        tradeDimStatus?.text = BobTradeDimMode.status
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -130,6 +132,47 @@ class MainActivity : Activity() {
         button("▶ Bob-Arbeitsmodus · 4 Stunden") { startWorkMode(4) }
         button("▶ Bob-Arbeitsmodus · 8 Stunden") { startWorkMode(8) }
         button("■ Bob-Arbeitsmodus STOPP") { stopWorkMode() }
+        label("TRADE-LESEMODUS · bei laufendem realen Trade")
+        tradeDimStatus = label(BobTradeDimMode.status)
+        label("Hält das bereits entsperrte Samsung während eines eindeutig aktiven " +
+            "Bob-Trades technisch wach. Für eine fast schwarze Anzeige Extra-Dimmung " +
+            "am Samsung aktivieren. Kein automatisches DEGIRO-Klicken, kein " +
+            "Entsperren und keine Änderung der Geräte-PIN. Nur dieser Bildschirmmodus " +
+            "bleibt bis zum serverseitig erkannten Trade-Ende aktiv (maximal 8 Stunden " +
+            "pro ausdrücklichem Start); einzelne Produktlesungen bleiben separat zeitlich begrenzt.")
+        button("▶ Trade-Lesemodus starten · Bildschirm wach halten") {
+            AlertDialog.Builder(this).setTitle("Trade-Lesemodus aktivieren?")
+                .setMessage("Nur bei einem eindeutig aktiven Trade in Bobs realem Trade-Journal. " +
+                    "Das Samsung muss entsperrt bleiben. Bob hält das Display gedimmt wach und " +
+                    "prüft etwa alle 25 Sekunden den unveränderten Trade. STOPP, die Samsung-Sperrtaste, " +
+                    "eine fehlende Serverbestätigung oder spätestens 8 Stunden beenden den Modus. " +
+                    "Ein erkannter Trade-Abschluss ist nur so zuverlässig wie die gespeicherten Ausführungsbelege. " +
+                    "Keine automatischen Orders und keine verlängerte DEGIRO-Fernbedienungsfreigabe.")
+                .setNegativeButton("Abbrechen",null)
+                .setPositiveButton("Lesemodus starten") { _,_ ->
+                    BobTradeDimMode.start(this) { message ->
+                        tradeDimStatus?.text = message
+                        if(BobTradeDimMode.running) {
+                            // The owner already confirmed THIS local read-only
+                            // start. Reuse the established verified-PIN Gold
+                            // reader once; never create an order or re-arm it
+                            // silently after its short permission expires.
+                            startActivity(Intent(this, ProductReadActivity::class.java)
+                                .putExtra(ProductReadActivity.EXTRA_START_COMPLETE_FLOW, true))
+                        }
+                    }
+                }.show()
+        }
+        button("■ Trade-Lesemodus STOPP") {
+            BobTradeDimMode.stop("Vom Nutzer beendet.")
+            LoginToReadHandoff.clear()
+            if(PinReadinessProbe.running) PinReadinessProbe.stop("Trade-Lesemodus gestoppt.")
+            PhoneRemote.stop(this,"USER_STOP")
+            MorningReadRun.stop(this,"USER_STOP")
+            GoldSearchRun.stop("USER_STOP",java.time.Instant.now().toString())
+            ProductReadRequest.cancel()
+            tradeDimStatus?.text = BobTradeDimMode.status
+        }
         // One explicit local tap starts the entire bounded, read-only workflow:
         // encrypted on-device PIN (when enrolled) -> verified DEGIRO Markets ->
         // Gold leveraged-product list -> authenticated missing-field detail plan.
@@ -784,6 +827,8 @@ class MainActivity : Activity() {
     }
 
     private fun stopWorkMode() {
+        BobTradeDimMode.stop("Arbeitsmodus gestoppt.")
+        tradeDimStatus?.text = BobTradeDimMode.status
         BobWorkMode.stop(this)
         // Cancel all volatile local read/login authorizations but retain
         // signed product evidence and pending upload receipts.
@@ -801,6 +846,8 @@ class MainActivity : Activity() {
     }
 
     private fun emergencyStop() {
+        BobTradeDimMode.stop("NOT-STOPP")
+        tradeDimStatus?.text = BobTradeDimMode.status
         BobWorkMode.stop(this)
         LoginToReadHandoff.clear()
         if (PinReadinessProbe.running) PinReadinessProbe.stop("NOT-STOPP")
