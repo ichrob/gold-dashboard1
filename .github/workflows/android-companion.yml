@@ -4,7 +4,7 @@ on:
   # One-off verification build for a DISTINCT, offline-only install identity.
   # Do not merge this ci/** workflow override into main.
   push:
-    branches: ["ci/bob-stoploss-oneclick-20261117"]
+    branches: ["ci/bob-stoploss-readonly-probe-20261117"]
     paths:
       - "android_companion/**"
       - ".github/workflows/android-companion.yml"
@@ -57,7 +57,7 @@ jobs:
           # differently signed Bob lab APK. Never uninstall the existing app.
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" > /tmp/bob-android-badging.txt
           # Debug APK is a separate disposable lab, never a release update.
-          grep -Fq "package: name='ch.bob.degirocompanion.stable.stoplossoneclicknov17'" /tmp/bob-android-badging.txt
+          grep -Fq "package: name='ch.bob.degirocompanion.stable.stoplossreadnov17'" /tmp/bob-android-badging.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > /tmp/bob-android-actual-permissions.txt
           cat /tmp/bob-android-actual-permissions.txt
           for required in android.permission.INTERNET android.permission.ACCESS_NETWORK_STATE android.permission.RECEIVE_BOOT_COMPLETED; do
@@ -139,7 +139,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
             adb install android_companion/workflowfixture/build/outputs/apk/debug/workflowfixture-debug.apk
-            gradle -p android_companion :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=ch.bob.degirocompanion.WorkflowDeviceTest,ch.bob.degirocompanion.GeminiChatDeviceTest,ch.bob.degirocompanion.StopLossMockOrderDeviceTest --no-daemon --stacktrace
+            gradle -p android_companion :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=ch.bob.degirocompanion.WorkflowDeviceTest,ch.bob.degirocompanion.GeminiChatDeviceTest,ch.bob.degirocompanion.StopLossMockOrderDeviceTest,ch.bob.degirocompanion.StopLossReadOnlyDeviceTest --no-daemon --stacktrace
       - name: Retain device test reports
         if: always()
         uses: actions/upload-artifact@v4
