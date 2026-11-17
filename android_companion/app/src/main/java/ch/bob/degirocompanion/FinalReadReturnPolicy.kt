@@ -21,6 +21,31 @@ internal object FinalReadReturnPolicy {
         interactive && !locked && safeSurface &&
         foregroundPackage == ProductScreenEvidence.PACKAGE
 
+    /** A single native system BACK after the final, verified read. This
+     * cannot click a broker UI element or start another read. It is allowed
+     * only on the exact previously read, unprotected informational product
+     * window, with the same strict owner/session and lock checks as the
+     * app-local completion handoff. Sending BACK is not proof it succeeded.
+     */
+    fun safeLastProductBack(
+        code: String,
+        draft: String,
+        expectedIsin: String,
+        previousWindow: Int?,
+        currentWindow: Int?,
+        foregroundPackage: String?,
+        interactive: Boolean,
+        locked: Boolean,
+        authorizedSession: Boolean,
+        nodes: List<MorningReadPolicy.Node>
+    ): Boolean =
+        allowed(code,draft,expectedIsin,previousWindow,currentWindow,
+            foregroundPackage,interactive,locked,authorizedSession) &&
+        currentWindow != null &&
+        MorningReadPolicy.safeStatusReturn(nodes,expectedIsin) &&
+        MorningReadPolicy.returnAfterRead(nodes,expectedIsin,currentWindow,
+            previousWindow,code)
+
     fun allowed(
         code: String,
         draft: String,
