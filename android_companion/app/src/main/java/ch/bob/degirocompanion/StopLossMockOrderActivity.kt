@@ -197,6 +197,9 @@ class StopLossMockOrderActivity : Activity() {
     private fun begin() {
         if(running)return
         running=true;steps=0;suitePassed=false
+        stage=StopLossPrefillPolicy.Stage.OPEN_FORM
+        viewState="detail";orderType="Limit";stopField="";quantityField=""
+        log.clear();trace.text=""
         if(fullSuite) {
             val checks=StopLossOfflineSimulation.suite(draft)
             suitePassed=checks.size==4 &&
@@ -207,8 +210,6 @@ class StopLossMockOrderActivity : Activity() {
             }
             record("4/4 interne Sicherheitsprüfungen bestanden")
         }
-        stage=StopLossPrefillPolicy.Stage.OPEN_FORM
-        viewState="detail";orderType="Limit";stopField="";quantityField="";log.clear()
         render();status.text="Prüfe sichtbare Testfelder ..."
         form.postDelayed({ step() },200)
     }
