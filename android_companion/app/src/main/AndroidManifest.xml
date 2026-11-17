@@ -40,6 +40,8 @@
         <activity android:name=".ProductReadActivity" android:exported="false" />
         <!-- Explicit owner-reviewed SELL Stop Loss draft only; not exported. -->
         <activity android:name=".StopLossPrefillActivity" android:exported="false" />
+        <!-- Pure local mock; never opens a broker or runs an accessibility action. -->
+        <activity android:name=".StopLossSimulationActivity" android:exported="false" />
         <activity android:name=".MorningReadTransfer" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
