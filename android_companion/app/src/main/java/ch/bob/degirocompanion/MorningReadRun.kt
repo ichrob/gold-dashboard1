@@ -21,7 +21,25 @@ internal object MorningReadRun {
     val target: String get() = data?.getJSONArray("isins")?.optString(index).orEmpty()
     val count: Int get() = data?.getJSONArray("isins")?.length() ?: 0
     fun currentSnapshot(): String? = data?.toString()
-    fun refreshSourceSnapshot(c: Context): String? = prefs(c).getString("refreshSource",null) ?: latestSnapshot(c)
+    /** Prefer the most recent authenticated list batch, not the first locally
+     * pinned snapshot. An earlier refresh can survive an acknowledged newer
+     * product run; it must not make the no-signal test appear expired.
+     * Validation here is local preflight only. The server still rechecks
+     * handset ownership, batch provenance, expiry and per-ISIN read plan.
+     */
+    fun refreshSourceSnapshot(c: Context): String? = RefreshSourceChoice.choose(
+        prefs(c).getString("refreshSource",null), latestSnapshot(c)
+    ) { raw ->
+        runCatching {
+            val data=JSONObject(raw)
+            check(data.optString("listBatchId").matches(Regex("[a-f0-9]{32}")))
+            val ids=data.optJSONArray("isins") ?: error("No ISIN list")
+            check(ids.length() in 1..12)
+            val values=(0 until ids.length()).map { ids.getString(it) }
+            check(values.distinct().size==values.size && values.all { SeriesEvidence.validIsin(it) })
+            Instant.parse(data.getString("listUploadedAt")).toEpochMilli()
+        }.getOrNull()
+    }
     fun rememberRefreshSource(c: Context, raw: String) { check(prefs(c).edit().putString("refreshSource",raw).commit()) }
     fun latestSnapshot(c: Context): String? = RunOutbox.resumable(entries(c))
     fun importedListRun() = running && data?.optString("listBatchId").orEmpty().matches(Regex("[a-f0-9]{32}"))

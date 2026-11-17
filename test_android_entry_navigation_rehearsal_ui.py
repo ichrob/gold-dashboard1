@@ -117,6 +117,20 @@ class ImmediateEntryNavigation(unittest.TestCase):
             self.assertIn(required, nav, required)
         self.assertNotIn("ACTION_CLICK_ORDER", nav)
 
+    def test_newer_confirmed_gold_source_wins_over_pinned_stale_batch(self):
+        run = source("MorningReadRun.kt")
+        self.assertIn("RefreshSourceChoice.choose(", run)
+        self.assertIn('prefs(c).getString("refreshSource",null), latestSnapshot(c)', run)
+        self.assertIn('data.optString("listBatchId").matches', run)
+        self.assertIn('SeriesEvidence.validIsin(it)', run)
+        self.assertIn('Instant.parse(data.getString("listUploadedAt"))', run)
+        choice = source("RefreshSourceChoice.kt")
+        self.assertIn(".maxByOrNull { it.first }?.second", choice)
+        activity = source("ProductReadActivity.kt")
+        self.assertIn('MorningReadRun.refreshSourceSnapshot(this)', activity)
+        self.assertIn('14*60*60*1000L', activity)
+        self.assertIn('PhoneDiagnostics.listStatus(app,org.json.JSONObject()', activity)
+
     def test_terminal_list_product_can_be_skipped_but_no_trade_is_approved(self):
         server = Path(__file__).parent.joinpath("android_list.py").read_text()
         self.assertIn("refresh_plan(row[1] or [],products,selected,terminal_isins)", server)
