@@ -510,7 +510,7 @@ class ProductReadService : AccessibilityService() {
         }
     }
     // Separate passive recognition path. It NEVER calls the writable
-    // StopLossPrefillExecutor, dispatchGesture, ACTION_CLICK or ACTION_SET_TEXT.
+    // StopLossPrefillExecutor, gesture dispatching or field interactions.
     // No raw labels, ISIN, quantity, screenshots or user-entered values persist.
     private var stopLossProbeQueued=false
     private val stopLossProbeTick=object:Runnable {
