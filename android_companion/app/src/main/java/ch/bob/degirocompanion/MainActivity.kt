@@ -120,9 +120,25 @@ class MainActivity : Activity() {
         // Gold leveraged-product list -> authenticated missing-field detail plan.
         // ProductReadActivity is not exported; no deep link or remote command
         // can set this private start instruction.
-        // Installable standalone simulation: no broker, position, or reader permission required.
-        button("🧪 Stop-Loss-Simulation starten · OHNE DEGIRO") {
-            startActivity(Intent(this, StopLossSimulationActivity::class.java))
+        // ONE explicit tap: four policy checks and a visual Android mock form.
+        // Clipboard is read only on this tap, never monitored in the background.
+        // The model payload is an untrusted, short-lived proposal, never broker proof.
+        button("🧪 ALLE 5 TESTS STARTEN · 1 Knopf · OHNE DEGIRO") {
+            val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip=clipboard.primaryClip
+            val raw=if(clip!=null && clip.itemCount==1 &&
+                clip.getItemAt(0).uri==null && clip.getItemAt(0).intent==null)
+                clip.getItemAt(0).text?.toString().orEmpty() else ""
+            val proposal=StopLossOfflineSimulation.modelDraft(raw,System.currentTimeMillis())
+            val d=proposal ?: StopLossPrefillDraft("DE000FB0A490",3,2590,0L)
+            startActivity(Intent(this,StopLossMockOrderActivity::class.java)
+                .putExtra("mock_autorun",true)
+                .putExtra("mock_full_suite",true)
+                .putExtra("mock_model_proposal",proposal!=null)
+                .putExtra("mock_isin",d.isin)
+                .putExtra("mock_quantity",d.quantity)
+                .putExtra("mock_stop_cents",d.stopCents)
+                .putExtra("mock_scenario","HAPPY_PATH"))
         }
         button("▶ Bob starten · DEGIRO, Gold und fehlende Werte") {
             startActivity(Intent(this, ProductReadActivity::class.java)
