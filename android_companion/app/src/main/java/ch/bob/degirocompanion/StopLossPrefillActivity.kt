@@ -61,6 +61,16 @@ class StopLossPrefillActivity : Activity() {
         }
         content.addView(confirmation)
         status=label(StopLossPrefillSession.status)
+        content.addView(Button(this).apply {
+            isAllCaps=false
+            text="SIMULATION starten · ohne DEGIRO und ohne Position"
+            setOnClickListener {
+                // This is a completely different, broker-free test path.
+                // It never sets the actual-position checkbox or starts a broker.
+                startActivity(Intent(this@StopLossPrefillActivity,
+                    StopLossSimulationActivity::class.java))
+            }
+        })
         val start=Button(this).apply {
             isAllCaps=false; text="Stop-Loss-Felder automatisch vorbereiten"
             setOnClickListener { prepare() }
