@@ -159,3 +159,42 @@ Die kompakte Fall-/Lückenprüfung berücksichtigt nun bis zu 16 Profile und
 schließt damit alle elf aktuell konfigurierten Konten ein. Weiterhin maximal
 fünf Fälle pro Konto und zwölf unterschiedliche protokollierte Lückenzeitpunkte;
 die Anzeige ist ausdrücklich keine lückenlose historische Gesamtauswertung.
+
+
+## Frischer Validierungsvergleich: drei zuvor positive Hypothesen (17.11.–15.12.2026)
+
+Auf Nutzerwunsch werden bei der ersten produktiven Initialisierung nach dem
+17.11.2026 um 08:00 Europe/Zurich drei **zusätzliche, von allen alten Konten
+getrennte** virtuelle EUR-1.000-Konten angelegt, ohne alte Ledgers zurückzusetzen
+oder historische Einstiege nachzubuchen. Alle drei erhalten denselben tatsächlichen
+Initialisierungszeitpunkt. Der erste echte Markteintritt darf erst danach und
+innerhalb Bobs unverändertem Handelsfenster stattfinden. Der Beobachtungszeitraum
+endet **15.12.2026 um 16:00 Uhr Zürich**; fehlende Ausstiegs-Geldkurse bleiben
+offen und werden nie als bestätigter Gewinn abgerechnet.
+
+- `trend1000dec`: exakt die historischen `trend800`-Parameter für Bob-Stopp,
+  Trend und Wiedereinstieg, nur auf ein gemeinsames 1.000-EUR-Spielgeldkapital
+  skaliert, um Stückzahl-/Kapitalunterschiede kontrolliert zu vergleichen
+- `normal1000dec`: historische Standardstrategie `normal1000oct` mit bestätigtem
+  LONG/SHORT-Hauptsignal und unverändertem 2R-/Stopp-Kontext
+- `early1000dec`: historische `early1000oct`-Frühwarnstrategie; eine echte
+  zeitlich gültige Frühwarnung braucht eigenständig belegten Stopp, Ziel und
+  passende, originär bepreiste Instrumente
+
+In allen Fällen maximal **65 % eingesetztes Kapital**, **3 % Tagesverlustgrenze**,
+identischer geprüfter Gold-/KO-/EUR-Geld-/Brief-/Kostenstand; dieselben Beispiel-
+gebühren und Zeitschranken wie bisher, niemals Echtgeldorders. Die separate
+paper-only 5m-Modellreferenz vom 17.11. darf fehlende 15m-Originale nicht als
+echte Originalhistorie ausgeben und ist keine Handelsfreigabe. Das
+`freshValidationComparison`-Feld meldet Kontostände, vollständige bepreiste
+Ausgänge und unklare Fälle, getrennt von den bisherigen 11 Konten. Erst nach
+Ende und mindestens 20 vollständig bepreisten Fällen pro Strategie wird eine
+**erste** fachliche Sichtung als `completed-review-required` markiert; auch
+hierdurch wird kein Strategietestsieger oder Broker-Nettogewinn bewiesen.
+
+Historische positive Kontostände sind lediglich eine **Hypothese**, keine
+Auswahlgarantie. Null neue Trades bei neutraler Marktanalyse, fehlender
+Produktfreigabe oder Risiko-Hürde ist ein dokumentierter Wartezustand und
+kein automatischer Defekt. Verboten: erzwungene Einstiege, künstliche Kurse,
+Gebührenannahmen als DEGIRO-Abrechnung verkaufen, zusätzliche bezahlte Anbieter,
+Kontoüberschreibung oder historische Backfills.
