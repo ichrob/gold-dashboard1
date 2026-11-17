@@ -90,13 +90,16 @@ class GeminiReviewSafetyTests(unittest.TestCase):
              patch.object(g, "enabled", return_value=True), \
              patch.object(g, "request_json", return_value=pr) as request, \
              patch.object(g, "safe_files") as safe, \
-             patch.object(g, "gemini_request") as provider:
+             patch.object(g, "gemini_request") as provider, \
+             patch("builtins.print") as output:
             g.run()
         request.assert_called_once_with(
             "https://api.github.com/repos/ichrob/gold-dashboard1/pulls/1780",
             "github-token")
         safe.assert_not_called()
         provider.assert_not_called()
+        output.assert_called_once_with(
+            "Gemini review skipped: pull request closed after CI.")
 
     def test_manual_closed_pr_remains_denied(self):
         pr = {**self._owner_pr(), "state": "closed"}
