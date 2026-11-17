@@ -12,8 +12,16 @@ internal object StopLossOfflineSimulation {
                       val stopText: String = "", val quantityText: String = "",
                       val brokerOpened: Boolean = false, val orderSubmitted: Boolean = false)
 
-    fun run(scenario: Scenario): Report {
-        val draft=StopLossPrefillDraft("DE000FB0A490",3,2590,0L)
+    private val defaultDraft=StopLossPrefillDraft("DE000FB0A490",3,2590,0L)
+    /** Only the copied Bob model proposal, never an authenticated broker quote. */
+    fun modelDraft(raw:String, nowMs:Long):StopLossPrefillDraft? =
+        StopLossDraftCodec.parse(raw,nowMs)
+
+    fun run(scenario: Scenario, draft: StopLossPrefillDraft = defaultDraft): Report {
+        if(!draft.isin.matches(Regex("[A-Z]{2}[A-Z0-9]{10}")) ||
+            draft.quantity !in 1..1_000_000 || draft.stopCents !in 1..100_000_000L)
+            return Report(false,"Ungültiger Modell-Entwurf",listOf("SIMULATION blockiert; kein Brokerzugriff"))
+        val alteredIsin=if(draft.isin=="DE000FB0A490") "DE000FB0A491" else "DE000FB0A490"
         val trace=mutableListOf<String>("SIMULATION · offline · keine DEGIRO-Verbindung")
         var stage=StopLossPrefillPolicy.Stage.OPEN_FORM
         var orderType="Limit"
@@ -30,7 +38,7 @@ internal object StopLossOfflineSimulation {
                     .map { StopLossPrefillPolicy.Node(it,clickable=true) })
             } else if(!sellOpen) {
                 n.addAll(listOf(
-                    StopLossPrefillPolicy.Node(if(scenario==Scenario.WRONG_ISIN) "DE000FB0A491" else draft.isin),
+                    StopLossPrefillPolicy.Node(if(scenario==Scenario.WRONG_ISIN) alteredIsin else draft.isin),
                     StopLossPrefillPolicy.Node("Übersicht"),
                     StopLossPrefillPolicy.Node("KAUF",clickable=true),
                     StopLossPrefillPolicy.Node("VERKAUF",clickable=true)
@@ -116,5 +124,6 @@ internal object StopLossOfflineSimulation {
         return Report(false,"Simulationsschrittgrenze überschritten",trace,stopInput,quantityInput)
     }
 
-    fun suite(): List<Pair<Scenario,Report>> = Scenario.entries.map { it to run(it) }
+    fun suite(draft: StopLossPrefillDraft = defaultDraft): List<Pair<Scenario,Report>> =
+        Scenario.entries.map { it to run(it,draft) }
 }
