@@ -121,6 +121,24 @@
   // Research-only quotes deliberately never promote to "issuer observed".
   return result;
  }
+ /** Only current model + original Spot/FX evidence may form an offline
+  * simulation proposal. The payload is NEVER an executable quote/order. */
+ function simulationDraft({product,stopGold,targetGold,spots,quote,now=Date.now()}={}){
+  const model=evaluate({product,stopGold,targetGold,spots,quote,now});
+  const quantity=product?.quantity;
+  const stop=model?.model?.stopEur;
+  const cents=typeof stop==='number'?Math.floor(stop*100+1e-8):0;
+  if(product?.currency!=='EUR'||!model?.model||
+     !/^[A-Z]{2}[A-Z0-9]{10}$/.test(product?.isin||'')||
+     !Number.isSafeInteger(quantity)||quantity<1||quantity>1000000||
+     !Number.isSafeInteger(cents)||cents<1||cents>100000000||
+     !Number.isFinite(now)||now<=0)
+    return {available:false,reason:'Kein aktueller EUR-Modellstopp mit gültiger ISIN, ganzer Stückzahl und frischen Gold-/FX-Daten.'};
+  return {available:true,isin:product.isin,quantity,stopEur:cents/100,
+    raw:['BOB-STOP/1',product.isin,'EUR',quantity,(cents/100).toFixed(2),Math.trunc(now)].join('|'),
+    source:'Bob-Modell · keine DEGIRO-Ausführung',timestamp:now,
+    automaticOrder:false,degiroExecutable:false};
+ }
  function instructions({isin,quantity,stopEur,currency='EUR'}={}){
   if(!/^[A-Z]{2}[A-Z0-9]{10}$/.test(isin||'')||
      !Number.isSafeInteger(quantity)||quantity<=0||!positive(stopEur)||!['EUR','CHF'].includes(currency))
@@ -142,23 +160,27 @@
   const {product,stopGold,targetGold,spots,quote,now=Date.now()}=info||{};
   if(!panel){
    panel=document.createElement('section');panel.id='bobTwoStageStop';panel.style.cssText='border:1px solid #cbd5e1;border-radius:12px;padding:12px;margin:12px 0;';
-   panel.innerHTML='<h4>Zweistufiger Produkt-Stopp · ohne automatische Orders</h4><p data-stop-stage role="status"></p><p data-stop-model></p><p data-stop-issuer></p><details><summary>Quellenvergleich und Originalzeiten</summary><p data-stop-sources style="white-space:pre-line"></p></details><details><summary>Manuellen DEGIRO-Schutzstopp vorbereiten</summary><p data-stop-instructions style="white-space:pre-line"></p><p><button type="button" data-copy-isin>ISIN kopieren</button> <button type="button" data-copy-stop>Modell-Stopp kopieren</button> <button type="button" data-copy-draft>Bob-Handy-Entwurf kopieren</button></p><p data-copy-status role="status"></p></details>';
+   panel.innerHTML='<h4>Zweistufiger Produkt-Stopp · ohne automatische Orders</h4><p data-stop-stage role="status"></p><p data-stop-model></p><p data-stop-issuer></p><details><summary>Quellenvergleich und Originalzeiten</summary><p data-stop-sources style="white-space:pre-line"></p></details><details><summary>Manuellen DEGIRO-Schutzstopp vorbereiten</summary><p data-stop-instructions style="white-space:pre-line"></p><p><button type="button" data-copy-isin>ISIN kopieren</button> <button type="button" data-copy-stop>Modell-Stopp kopieren</button> <button type="button" data-copy-draft>Bob-Handy-Entwurf kopieren</button> <button type="button" data-copy-simulation>Offline-Simulation: Modellwerte kopieren</button></p><p data-copy-status role="status"></p></details>';
    stopPanel.insertAdjacentElement('afterend',panel);
    panel.addEventListener('click',async e=>{
     const key=e.target?.dataset?.copyIsin!==undefined?'isin':
       e.target?.dataset?.copyStop!==undefined?'stop':
-      e.target?.dataset?.copyDraft!==undefined?'draft':null;
+      e.target?.dataset?.copyDraft!==undefined?'draft':
+      e.target?.dataset?.copySimulation!==undefined?'simulation':null;
     if(!key)return;
     const message=panel.querySelector('[data-copy-status]');
-    if(key==='draft' && (!panel.dataset.draft || Date.now()-Number(panel.dataset.draftCheckedAt)>90000)) {
+    if((key==='draft'||key==='simulation') &&
+       (!panel.dataset.draft || Date.now()-Number(panel.dataset.draftCheckedAt)>90000)) {
      message.textContent='Modellwert veraltet. Bitte aktualisieren und erneut berechnen.';return;
     }
-    const value=key==='draft'?panel.dataset.draft+'|'+Date.now():panel.dataset[key];
+    const value=(key==='draft'||key==='simulation')?panel.dataset.draft+'|'+Date.now():panel.dataset[key];
     if(!value){message.textContent='Für diese Eingabe fehlt ein geprüfter Wert.';return;}
     try{
      if(!navigator?.clipboard?.writeText)throw Error('not-supported');
      await navigator.clipboard.writeText(value);
-     message.textContent='Wert kopiert. Bei DEGIRO selbst einfügen und prüfen.';
+     message.textContent=key==='simulation'?
+       'Modellwerte kopiert. Nur in der OFFLINE-Simulation verwenden; keine Broker-Freigabe.':
+       'Wert kopiert. Bei DEGIRO selbst einfügen und prüfen.';
     }catch(_){message.textContent='Kopieren nicht möglich; Wert bitte manuell prüfen.';}
    });
   }
@@ -166,16 +188,13 @@
   const fmt=n=>positive(n)?n.toFixed(4)+' '+(product?.currency||'EUR')+'/Stück':'nicht verfügbar';
   panel.dataset.isin=product?.isin||'';
   panel.dataset.stop=v.model?String(Number(v.model.stopEur.toFixed(4))):'';
-  // EUR broker input: round a SELL model stop DOWN to two decimal places.
-  // Quantity is only a proposal: actual held shares require owner confirmation.
-  const qty=product?.quantity;
-  const stopCents=v.model?Math.floor(v.model.stopEur*100+1e-8):0;
-  const safeDraft=product?.currency==='EUR' && Number.isSafeInteger(qty) && qty>0 &&
-    stopCents>0 && Number.isFinite(now) && typeof product?.isin==='string' &&
-    /^[A-Z]{2}[A-Z0-9]{10}$/.test(product.isin);
-  panel.dataset.draft=safeDraft?
-    ['BOB-STOP/1',product.isin,'EUR',qty,(stopCents/100).toFixed(2)].join('|'):'';
-  panel.dataset.draftCheckedAt=safeDraft?String(now):'0';
+  // Use the same already-qualified calculated Gold/FX model for both
+  // previews. The clipboard string does not authenticate a broker position.
+  const simulation=simulationDraft({product,stopGold,targetGold,spots,quote,now});
+  panel.dataset.draft=simulation.available?
+    simulation.raw.substring(0,simulation.raw.lastIndexOf('|')):'';
+  panel.dataset.draftCheckedAt=simulation.available?String(now):'0';
+  const safeDraft=simulation.available;
   const stage=panel.querySelector('[data-stop-stage]');
   stage.textContent=v.available?'Status: '+v.stage+' · '+v.reason:'Nicht verfügbar: '+v.reason;
   panel.querySelector('[data-stop-model]').textContent=v.model?
@@ -209,8 +228,9 @@
     guide.steps.join('\n')+'\n'+guide.note:guide.reason;
   panel.querySelector('[data-copy-stop]').disabled=!guide.available;
   panel.querySelector('[data-copy-draft]').disabled=!safeDraft;
+  panel.querySelector('[data-copy-simulation]').disabled=!safeDraft;
   panel.querySelector('[data-copy-isin]').disabled=!product?.isin;
  }
- root.BobStopAssistant={selectQuote,compareQuoteSources,evaluate,instructions,update};
+ root.BobStopAssistant={selectQuote,compareQuoteSources,evaluate,simulationDraft,instructions,update};
  if(typeof module!=='undefined')module.exports=root.BobStopAssistant;
 })(typeof window!=='undefined'?window:globalThis);
