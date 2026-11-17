@@ -142,14 +142,18 @@
   const {product,stopGold,targetGold,spots,quote,now=Date.now()}=info||{};
   if(!panel){
    panel=document.createElement('section');panel.id='bobTwoStageStop';panel.style.cssText='border:1px solid #cbd5e1;border-radius:12px;padding:12px;margin:12px 0;';
-   panel.innerHTML='<h4>Zweistufiger Produkt-Stopp · ohne automatische Orders</h4><p data-stop-stage role="status"></p><p data-stop-model></p><p data-stop-issuer></p><details><summary>Quellenvergleich und Originalzeiten</summary><p data-stop-sources style="white-space:pre-line"></p></details><details><summary>Manuellen DEGIRO-Schutzstopp vorbereiten</summary><p data-stop-instructions style="white-space:pre-line"></p><p><button type="button" data-copy-isin>ISIN kopieren</button> <button type="button" data-copy-stop>Modell-Stopp kopieren</button></p><p data-copy-status role="status"></p></details>';
+   panel.innerHTML='<h4>Zweistufiger Produkt-Stopp · ohne automatische Orders</h4><p data-stop-stage role="status"></p><p data-stop-model></p><p data-stop-issuer></p><details><summary>Quellenvergleich und Originalzeiten</summary><p data-stop-sources style="white-space:pre-line"></p></details><details><summary>Manuellen DEGIRO-Schutzstopp vorbereiten</summary><p data-stop-instructions style="white-space:pre-line"></p><p><button type="button" data-copy-isin>ISIN kopieren</button> <button type="button" data-copy-stop>Modell-Stopp kopieren</button> <button type="button" data-copy-draft>Bob-Handy-Entwurf kopieren</button></p><p data-copy-status role="status"></p></details>';
    stopPanel.insertAdjacentElement('afterend',panel);
    panel.addEventListener('click',async e=>{
     const key=e.target?.dataset?.copyIsin!==undefined?'isin':
-      e.target?.dataset?.copyStop!==undefined?'stop':null;
+      e.target?.dataset?.copyStop!==undefined?'stop':
+      e.target?.dataset?.copyDraft!==undefined?'draft':null;
     if(!key)return;
-    const value=panel.dataset[key];
     const message=panel.querySelector('[data-copy-status]');
+    if(key==='draft' && (!panel.dataset.draft || Date.now()-Number(panel.dataset.draftCheckedAt)>90000)) {
+     message.textContent='Modellwert veraltet. Bitte aktualisieren und erneut berechnen.';return;
+    }
+    const value=key==='draft'?panel.dataset.draft+'|'+Date.now():panel.dataset[key];
     if(!value){message.textContent='Für diese Eingabe fehlt ein geprüfter Wert.';return;}
     try{
      if(!navigator?.clipboard?.writeText)throw Error('not-supported');
@@ -162,6 +166,16 @@
   const fmt=n=>positive(n)?n.toFixed(4)+' '+(product?.currency||'EUR')+'/Stück':'nicht verfügbar';
   panel.dataset.isin=product?.isin||'';
   panel.dataset.stop=v.model?String(Number(v.model.stopEur.toFixed(4))):'';
+  // EUR broker input: round a SELL model stop DOWN to two decimal places.
+  // Quantity is only a proposal: actual held shares require owner confirmation.
+  const qty=product?.quantity;
+  const stopCents=v.model?Math.floor(v.model.stopEur*100+1e-8):0;
+  const safeDraft=product?.currency==='EUR' && Number.isSafeInteger(qty) && qty>0 &&
+    stopCents>0 && Number.isFinite(now) && typeof product?.isin==='string' &&
+    /^[A-Z]{2}[A-Z0-9]{10}$/.test(product.isin);
+  panel.dataset.draft=safeDraft?
+    ['BOB-STOP/1',product.isin,'EUR',qty,(stopCents/100).toFixed(2)].join('|'):'';
+  panel.dataset.draftCheckedAt=safeDraft?String(now):'0';
   const stage=panel.querySelector('[data-stop-stage]');
   stage.textContent=v.available?'Status: '+v.stage+' · '+v.reason:'Nicht verfügbar: '+v.reason;
   panel.querySelector('[data-stop-model]').textContent=v.model?
@@ -194,6 +208,7 @@
   panel.querySelector('[data-stop-instructions]').textContent=guide.available?
     guide.steps.join('\n')+'\n'+guide.note:guide.reason;
   panel.querySelector('[data-copy-stop]').disabled=!guide.available;
+  panel.querySelector('[data-copy-draft]').disabled=!safeDraft;
   panel.querySelector('[data-copy-isin]').disabled=!product?.isin;
  }
  root.BobStopAssistant={selectQuote,compareQuoteSources,evaluate,instructions,update};
