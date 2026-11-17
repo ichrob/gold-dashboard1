@@ -193,6 +193,11 @@ internal object PhoneRemote {
         // status does not complete, ACK or authorize any remote read request.
         val observation=if(waitingOnUnlock) empty("WAITING_FOR_UNLOCK")
             else if(unlockRehearsalOnly) empty("UNLOCK_TEST_ARMED")
+            // Once safely captured originals are awaiting the authenticated
+            // ten-product receipt, no further broker tree inspection or clicks
+            // are necessary. Do not let a global market order launcher abort
+            // the pending upload or treat it as a tradable order form.
+            else if(MorningListDelivery.waiting) empty("LIST_IMPORT_WAITING")
             else runCatching { reader?.invoke(null) ?: empty("SERVICE_MISSING") }
                 .getOrElse { empty("READ_ERROR") }
         if(PhoneObservationPolicy.mustStop(observation.optString("code"))) { stop(c,observation.optString("code"));return }
@@ -285,9 +290,11 @@ internal object PhoneRemote {
                             // Fail this particular already-delivered request
                             // closed; never replay it after an unlock.
                             val locked=waitingOnUnlock
-                            val reply=if(valid && !locked && action!="stop")
+                            val importing=MorningListDelivery.waiting
+                            val reply=if(valid && !locked && !importing && action!="stop")
                                 runCatching { reader?.invoke(command) }.getOrNull() else null
                             val code=if(locked && action!="stop") "SCREEN_LOCKED"
+                                else if(importing && action!="stop") "LIST_IMPORT_WAITING"
                                 else if(!valid) "COMMAND_EXPIRED" else if(action=="stop") "STOPPED"
                                 else reply?.optString("code") ?: "ACTION_ERROR"
                             if(action=="read_account_settings" && code in setOf(
