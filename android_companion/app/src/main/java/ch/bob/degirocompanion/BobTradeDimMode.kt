@@ -20,11 +20,27 @@ internal object BobTradeDimMode {
     private var checking = false
     private var active = false
     private var startedAt = 0L
+    private var verifiedAt = 0L
+    private var deviceContext: Context? = null
     private var linkedTag: String? = null
     private var lease: PowerManager.WakeLock? = null
     private var label = "Trade-Lesemodus aus."
     val running get() = active
     val status get() = label
+
+    /** Only a freshly verified, owner-armed real trade can roll a read-only
+     * handset session beyond its normal 15-minute segment. The user must keep
+     * Android unlocked; no synthetic test receipt can satisfy this gate.
+     */
+    fun mayContinueReading(c: Context): Boolean {
+        val age = SystemClock.elapsedRealtime() - verifiedAt
+        val ownerElapsed = SystemClock.elapsedRealtime() - startedAt
+        return active && linkedTag != null &&
+            BobTradeDimPolicy.eligible(active,ownerElapsed,
+                (c.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive,
+                !unlocked(c),PhoneDiagnostics.paired(c),true) &&
+            age >= 0L && age <= BobTradeDimPolicy.POLL_MILLIS + 35_000L
+    }
 
     private fun unlocked(c: Context): Boolean {
         val power = c.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -50,8 +66,15 @@ internal object BobTradeDimMode {
         generation++
         checking = false
         active = false
+        val context = deviceContext
+        deviceContext = null
         linkedTag = null
         startedAt = 0L
+        verifiedAt = 0L
+        // A trade closure must revoke its rolling read-only broker session,
+        // not merely release the dim-screen wake lock.
+        if(context != null && PhoneRemote.tradeLinked())
+            PhoneRemote.stop(context,"TRADE_MONITOR_ENDED")
         lease?.let { if(it.isHeld)it.release() }
         lease = null
         label = "Trade-Lesemodus aus · $reason"
@@ -88,7 +111,9 @@ internal object BobTradeDimMode {
                 }
                 linkedTag = tag
                 active = true
+                deviceContext = c
                 startedAt = SystemClock.elapsedRealtime()
+                verifiedAt = startedAt
                 if(!renew(c)) {
                     stop("Android konnte die Bildschirm-Wachhaltung nicht aktivieren.")
                     onStatus(label)
@@ -127,6 +152,7 @@ internal object BobTradeDimMode {
                     stop("Bildschirm gesperrt oder Android-Wachhaltung abgelehnt.")
                     return@post
                 }
+                verifiedAt = SystemClock.elapsedRealtime()
                 handler.postDelayed({ poll(c,ticket) }, BobTradeDimPolicy.POLL_MILLIS)
             }
         }
