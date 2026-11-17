@@ -154,8 +154,10 @@ class ImmediateEntryNavigation(unittest.TestCase):
                           "ACTION_SET_TEXT", "ACTION_CLICK"):
             self.assertNotIn(forbidden, final)
         policy = source("FinalReadReturnPolicy.kt")
-        self.assertIn("MorningReadPolicy.safeStatusReturn(nodes,expectedIsin)", policy)
-        self.assertIn("MorningReadPolicy.returnAfterRead(nodes,expectedIsin", policy)
+        self.assertIn("MorningReadPolicy.safeCompletedLastProductBack(", policy)
+        safe = source("MorningReadPolicy.kt")
+        self.assertIn("safeStatusReturn(nodes,target)", safe)
+        self.assertIn("returnAfterRead(nodes,target,window,readWindow,code)", safe)
         self.assertIn("authorizedSession", policy)
         diagnostics = source("ProductReadDiagnostics.kt")
         for reason in ("FINAL_BACK_SENT", "FINAL_BACK_REJECTED", "FINAL_BACK_BLOCKED",
