@@ -162,6 +162,23 @@ class ImmediateEntryNavigation(unittest.TestCase):
                        "FINAL_STATUS_REQUESTED", "FINAL_STATUS_FAILED"):
             self.assertIn(reason, diagnostics)
 
+    def test_final_return_reuses_strict_isolated_launcher_guard(self):
+        policy = source("FinalReadReturnPolicy.kt")
+        self.assertIn("MorningReadPolicy.safeCompletedLastProductBack(", policy)
+        morning = source("MorningReadPolicy.kt")
+        method = morning.split("fun safeCompletedLastProductBack(", 1)[1].split(
+            "/** One BACK from a previously observed product window", 1
+        )[0]
+        self.assertIn('code != "READ"', method)
+        self.assertIn("readWindow != window", method)
+        self.assertIn("returnAfterRead(nodes,target,window,readWindow,code)", method)
+        self.assertIn("safeStatusReturn(nodes,target)", method)
+        self.assertIn("detailLauncherIndex(nodes,target,anchored=true,symbolProbe=true)", method)
+        self.assertIn("visible==setOf(target)", method)
+        self.assertNotIn("performAction(", method)
+        self.assertNotIn("ACTION_CLICK", method)
+        self.assertNotIn("setText(", method)
+
     def test_owner_screen_lock_rehearsal_is_no_signal_and_never_remote_entry(self):
         activity = source("ProductReadActivity.kt")
         self.assertIn('button("Samsung-Sperr-Fortsetzung sofort testen · ohne Signal")', activity)
