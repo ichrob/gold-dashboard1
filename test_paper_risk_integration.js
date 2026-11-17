@@ -33,7 +33,8 @@ try{
  LateEntry.checkPaperCampaign=(b,d,t,at,profile)=>({
   allowed:true,paperOnly:true,paperProfile:profile,spotDistance:profile==='trend800nov'?1.25:1.4,
   maxSignalMinutes:30,maxDeviationAtr:1.5,reason:'Nur Paper-Test'});
- const b=bundle(),result=evaluate({bundle:b,learningPolicy});
+ const b=bundle(),result=evaluate({bundle:b,learningPolicy,
+  handsetPlanSettings:{trailAtr:1.5,minRR:2}});
  assert.equal(result.paperRiskReference.available,true,JSON.stringify(result.paperRiskReference));
  assert.equal(result.paperRiskReference.timeframe,'5m');
  assert.equal(result.paperRiskReference.confirmedBars,40);
@@ -41,6 +42,15 @@ try{
  assert.equal(result.direction,'SHORT','test fixture should retain original directional signal');
  assert.equal(result.referencePlan,null,'live reference must not inherit paper fallback');
  assert.equal(result.plan,null,'live entry gate remains blocked');
+ const handset=result.handsetPlans.SHORT;
+ assert.equal(handset.available,true,JSON.stringify(handset));
+ assert.equal(handset.paperOnly,true);
+ assert.equal(handset.modelReferenceOnly,true);
+ assert.equal(handset.riskTimeframe,'5m');
+ assert.equal(handset.entryApproved,false);
+ assert.equal(handset.productApproved,false);
+ assert.equal(handset.executable,false);
+ assert.equal(handset.copyAllowed,false);
  for(const name of ['trend800nov','normal1000nov']){
   const paper=result.paperCampaignEntries[name];
   assert.equal(paper.paperOnly,true);
