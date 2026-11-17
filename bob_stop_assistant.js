@@ -121,6 +121,24 @@
   // Research-only quotes deliberately never promote to "issuer observed".
   return result;
  }
+ /** Only current model + original Spot/FX evidence may form an offline
+  * simulation proposal. The payload is NEVER an executable quote/order. */
+ function simulationDraft({product,stopGold,targetGold,spots,quote,now=Date.now()}={}){
+  const model=evaluate({product,stopGold,targetGold,spots,quote,now});
+  const quantity=product?.quantity;
+  const stop=model?.model?.stopEur;
+  const cents=typeof stop==='number'?Math.floor(stop*100+1e-8):0;
+  if(product?.currency!=='EUR'||!model?.model||
+     !/^[A-Z]{2}[A-Z0-9]{10}$/.test(product?.isin||'')||
+     !Number.isSafeInteger(quantity)||quantity<1||quantity>1000000||
+     !Number.isSafeInteger(cents)||cents<1||cents>100000000||
+     !Number.isFinite(now)||now<=0)
+    return {available:false,reason:'Kein aktueller EUR-Modellstopp mit gültiger ISIN, ganzer Stückzahl und frischen Gold-/FX-Daten.'};
+  return {available:true,isin:product.isin,quantity,stopEur:cents/100,
+    raw:['BOB-STOP/1',product.isin,'EUR',quantity,(cents/100).toFixed(2),Math.trunc(now)].join('|'),
+    source:'Bob-Modell · keine DEGIRO-Ausführung',timestamp:now,
+    automaticOrder:false,degiroExecutable:false};
+ }
  function instructions({isin,quantity,stopEur,currency='EUR'}={}){
   if(!/^[A-Z]{2}[A-Z0-9]{10}$/.test(isin||'')||
      !Number.isSafeInteger(quantity)||quantity<=0||!positive(stopEur)||!['EUR','CHF'].includes(currency))
@@ -134,7 +152,7 @@
     '5. Im DEGIRO-Orderstatus prüfen, ob der Schutzauftrag tatsächlich angenommen wurde. Bob kann dies nicht bestätigen.'
    ],note:'Modellpreis ist kein ausführbarer Kurs. Knock-out, Handelsunterbrechung und Kurslücken können die Ausführung verhindern.'};
  }
- let panel=null;
+ let panel=null,latestInfo=null;
  function update(info){
   if(typeof document==='undefined')return;
   const stopPanel=document.getElementById('stopPanel');
@@ -142,22 +160,29 @@
   const {product,stopGold,targetGold,spots,quote,now=Date.now()}=info||{};
   if(!panel){
    panel=document.createElement('section');panel.id='bobTwoStageStop';panel.style.cssText='border:1px solid #cbd5e1;border-radius:12px;padding:12px;margin:12px 0;';
-   panel.innerHTML='<h4>Zweistufiger Produkt-Stopp · ohne automatische Orders</h4><p data-stop-stage role="status"></p><p data-stop-model></p><p data-stop-issuer></p><details><summary>Quellenvergleich und Originalzeiten</summary><p data-stop-sources style="white-space:pre-line"></p></details><details><summary>Manuellen DEGIRO-Schutzstopp vorbereiten</summary><p data-stop-instructions style="white-space:pre-line"></p><p><button type="button" data-copy-isin>ISIN kopieren</button> <button type="button" data-copy-stop>Modell-Stopp kopieren</button></p><p data-copy-status role="status"></p></details>';
+   panel.innerHTML='<h4>Zweistufiger Produkt-Stopp · ohne automatische Orders</h4><p data-stop-stage role="status"></p><p data-stop-model></p><p data-stop-issuer></p><details><summary>Quellenvergleich und Originalzeiten</summary><p data-stop-sources style="white-space:pre-line"></p></details><details><summary>Manuellen DEGIRO-Schutzstopp vorbereiten</summary><p data-stop-instructions style="white-space:pre-line"></p><p><button type="button" data-copy-isin>ISIN kopieren</button> <button type="button" data-copy-stop>Modell-Stopp kopieren</button> <button type="button" data-copy-simulation>Offline-Simulation: Bob-Modellwerte kopieren</button></p><p data-copy-status role="status"></p></details>';
    stopPanel.insertAdjacentElement('afterend',panel);
    panel.addEventListener('click',async e=>{
     const key=e.target?.dataset?.copyIsin!==undefined?'isin':
-      e.target?.dataset?.copyStop!==undefined?'stop':null;
+      e.target?.dataset?.copyStop!==undefined?'stop':
+      e.target?.dataset?.copySimulation!==undefined?'simulation':null;
     if(!key)return;
-    const value=panel.dataset[key];
     const message=panel.querySelector('[data-copy-status]');
-    if(!value){message.textContent='Für diese Eingabe fehlt ein geprüfter Wert.';return;}
+    // Recalculate at the moment of the deliberate clipboard click: stale
+    // Gold/FX evidence must never be exported as a fresh Bob model.
+    const proposal=key==='simulation'?simulationDraft({...latestInfo,now:Date.now()}):null;
+    const value=key==='simulation'?(proposal?.available?proposal.raw:''):panel.dataset[key];
+    if(!value){message.textContent='Für die Simulation fehlt ein frischer berechneter EUR-Modellwert oder eine bestätigte ISIN/Stückzahl.';return;}
     try{
      if(!navigator?.clipboard?.writeText)throw Error('not-supported');
      await navigator.clipboard.writeText(value);
-     message.textContent='Wert kopiert. Bei DEGIRO selbst einfügen und prüfen.';
+     message.textContent=key==='simulation'?
+       'Modellvorschlag kopiert: nur für Bobs OFFLINE-Simulation, keine Broker-Freigabe.':
+       'Wert kopiert. Bei DEGIRO selbst einfügen und prüfen.';
     }catch(_){message.textContent='Kopieren nicht möglich; Wert bitte manuell prüfen.';}
    });
   }
+  latestInfo=info;
   const v=evaluate({product,stopGold,targetGold,spots,quote,now});
   const fmt=n=>positive(n)?n.toFixed(4)+' '+(product?.currency||'EUR')+'/Stück':'nicht verfügbar';
   panel.dataset.isin=product?.isin||'';
@@ -194,8 +219,9 @@
   panel.querySelector('[data-stop-instructions]').textContent=guide.available?
     guide.steps.join('\n')+'\n'+guide.note:guide.reason;
   panel.querySelector('[data-copy-stop]').disabled=!guide.available;
+  panel.querySelector('[data-copy-simulation]').disabled=!simulationDraft({product,stopGold,targetGold,spots,quote,now}).available;
   panel.querySelector('[data-copy-isin]').disabled=!product?.isin;
  }
- root.BobStopAssistant={selectQuote,compareQuoteSources,evaluate,instructions,update};
+ root.BobStopAssistant={selectQuote,compareQuoteSources,evaluate,simulationDraft,instructions,update};
  if(typeof module!=='undefined')module.exports=root.BobStopAssistant;
 })(typeof window!=='undefined'?window:globalThis);
