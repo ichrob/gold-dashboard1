@@ -38,6 +38,8 @@
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/workflow_reader" />
         </service>
         <activity android:name=".ProductReadActivity" android:exported="false" />
+        <!-- Explicit owner-reviewed SELL Stop Loss draft only; not exported. -->
+        <activity android:name=".StopLossPrefillActivity" android:exported="false" />
         <activity android:name=".MorningReadTransfer" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
