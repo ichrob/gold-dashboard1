@@ -43,9 +43,9 @@ android {
         getByName("debug") {
             // Disposable lab app only. Never suggest GitHub debug artifacts as
             // updates to the signed permanent app.
-            applicationIdSuffix = ".stoplossoneclicknov17"
+            applicationIdSuffix = ".stoplossreadnov17"
             versionNameSuffix = "-lab"
-            manifestPlaceholders["bobAppLabel"] = "Bob: 1-Knopf-Stop-Loss-Test"
+            manifestPlaceholders["bobAppLabel"] = "Bob: Stop-Loss-Nur-Lesen (Test)"
         }
         getByName("release") {
             isMinifyEnabled = false
