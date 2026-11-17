@@ -43,6 +43,54 @@ class FinalReadReturnPolicyTest {
         assertTrue(allowed())
     }
 
+    private val lastDetail = listOf(
+        MorningReadPolicy.Node(isin),
+        MorningReadPolicy.Node("Übersicht"),
+        MorningReadPolicy.Node("Kursdaten"),
+        MorningReadPolicy.Node("Geld EUR 6,74")
+    )
+    private fun safeBack(
+        code: String = "READ",
+        evidence: String = draft,
+        expected: String = isin,
+        previous: Int? = 12,
+        current: Int? = 12,
+        pkg: String? = ProductScreenEvidence.PACKAGE,
+        awake: Boolean = true,
+        locked: Boolean = false,
+        session: Boolean = true,
+        nodes: List<MorningReadPolicy.Node> = lastDetail
+    ): Boolean = FinalReadReturnPolicy.safeLastProductBack(
+        code,evidence,expected,previous,current,pkg,awake,locked,session,nodes)
+
+    @Test fun verifiedLastProductMaySendOneNativeBack() {
+        assertTrue(safeBack())
+    }
+
+    @Test fun finalBackFailsClosedForOrderLoginDifferentIdentityAndInputs() {
+        assertFalse(safeBack(nodes=lastDetail+MorningReadPolicy.Node("Order bestätigen")))
+        assertFalse(safeBack(nodes=lastDetail+MorningReadPolicy.Node("Limitpreis")))
+        assertFalse(safeBack(nodes=lastDetail+MorningReadPolicy.Node("Passwort")))
+        assertFalse(safeBack(nodes=lastDetail+MorningReadPolicy.Node("",editable=true)))
+        assertFalse(safeBack(nodes=lastDetail+MorningReadPolicy.Node("",sensitive=true)))
+        assertFalse(safeBack(nodes=lastDetail+MorningReadPolicy.Node("DE000FE2JJ20")))
+        assertFalse(safeBack(nodes=listOf(MorningReadPolicy.Node("Märkte"))))
+        assertFalse(safeBack(nodes=emptyList()))
+    }
+
+    @Test fun finalBackRequiresSameAnchoredWindowExplicitSessionAndRealRead() {
+        assertFalse(safeBack(code="NO_QUOTES"))
+        assertFalse(safeBack(code="COMPLETE"))
+        assertFalse(safeBack(evidence=""))
+        assertFalse(safeBack(expected="DE000FE2JJ20"))
+        assertFalse(safeBack(previous=null))
+        assertFalse(safeBack(current=13))
+        assertFalse(safeBack(pkg="com.android.systemui"))
+        assertFalse(safeBack(session=false))
+        assertFalse(safeBack(awake=false))
+        assertFalse(safeBack(locked=true))
+    }
+
     @Test fun noReturnForUnverifiedOrAbortedProduct() {
         for (code in listOf("NO_QUOTES", "RETURN_FAILED", "SEEK_LIMIT",
                 "PROTECTED_VIEW", "USER_INTERRUPTED", "COMPLETE"))
