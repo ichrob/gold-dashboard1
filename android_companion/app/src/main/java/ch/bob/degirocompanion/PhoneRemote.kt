@@ -35,8 +35,11 @@ internal object PhoneRemote {
     // Other owner sessions and active page reads retain their fail-closed STOP.
     private var resumeOnUnlock=false
     private var waitingOnUnlock=false
+    // Owner-started, RAM-only lock/unlock rehearsal. Never eligible for a
+    // server entry signal or remote search/read command.
+    private var unlockRehearsalOnly=false
     private var entryScreenLease: PowerManager.WakeLock?=null
-    fun entryReadSession()=active() && entryOnly && !waitingOnUnlock
+    fun entryReadSession()=active() && entryOnly && !waitingOnUnlock && !unlockRehearsalOnly
     fun waitingForOwnerUnlock()=active() && waitingOnUnlock
 
     private fun releaseEntryScreenLease() {
@@ -65,7 +68,10 @@ internal object PhoneRemote {
                 resumeOnUnlock,entryOnly,active(),readingInProgress))return false
         waitingOnUnlock=true
         releaseEntryScreenLease()
-        message="Bereitschaft wartet auf deine Entsperrung · keine DEGIRO-Bedienung im Sperrbildschirm."
+        message=if(unlockRehearsalOnly)
+            "Sperrtest wartet auf deine echte Samsung-Entsperrung; keine Broker-Bedienung."
+            else "Bereitschaft wartet auf deine Entsperrung · keine DEGIRO-Bedienung im Sperrbildschirm."
+        if(unlockRehearsalOnly)ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.UNLOCK_TEST_WAITING)
         return true
     }
     fun resumeAfterOwnerUnlock(c:Context,brokerForeground:Boolean):Boolean {
@@ -77,6 +83,13 @@ internal object PhoneRemote {
         waitingOnUnlock=false
         holdEntryScreen(c)
         message="Entsperrt · DEGIRO wieder sichtbar · Bereitschaft läuft weiter."
+        if(unlockRehearsalOnly) {
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.UNLOCK_TEST_CONFIRMED)
+            // A positive result requires actual owner unlock + the expected
+            // DEGIRO foreground. No signal, quote read or order is attempted.
+            PhoneDiagnostics.queue(c)
+            stop(c,"UNLOCK_TEST_CONFIRMED")
+        }
         return true
     }
     private var localSettingsPending=false
@@ -94,7 +107,12 @@ internal object PhoneRemote {
         .put("diagnostics",ProductReadDiagnostics.report(SystemClock.elapsedRealtime()))
     fun start(c:Context, accountSettingsOnly:Boolean=false,
               ownerConfirmedProfile:String?=null, entryReadOnly:Boolean=false,
-              resumeAfterOwnerUnlock:Boolean=false) {
+              resumeAfterOwnerUnlock:Boolean=false,
+              unlockRehearsalOnly:Boolean=false) {
+        require(!unlockRehearsalOnly || (entryReadOnly && resumeAfterOwnerUnlock &&
+            !accountSettingsOnly && ownerConfirmedProfile==null)) {
+            "Sperrtest nur nach ausdrücklichem lokalen Start, ohne Kontoauftrag."
+        }
         require(!resumeAfterOwnerUnlock || entryReadOnly) {
             "Sperr-Fortsetzung nur für lokale Einstiegskurs-Bereitschaft."
         }
@@ -106,26 +124,36 @@ internal object PhoneRemote {
         check(PhoneDiagnostics.paired(c)) { "Zuerst automatische Diagnose verbinden und im Browser freigeben." }
         check(reader!=null && ProductReadDiagnostics.connected) { "Lesedienst zuerst einschalten." }
         check(!active() && !busy && !ProductReadRequest.active(SystemClock.elapsedRealtime()) && !MorningReadRun.running && !GoldSearchRun.running) { "Aktuelle Prüfung zuerst stoppen." }
-        session=UUID.randomUUID().toString().replace("-","");deadline=SystemClock.elapsedRealtime()+900000
-        expires=System.currentTimeMillis()/1000+900;ack=null;pendingSettings=null;pendingSettingsCode=""
+        val lease=if(unlockRehearsalOnly) 180000L else 900000L
+        session=UUID.randomUUID().toString().replace("-","");deadline=SystemClock.elapsedRealtime()+lease
+        expires=System.currentTimeMillis()/1000+lease/1000;ack=null;pendingSettings=null;pendingSettingsCode=""
         lastReportedAutoFx=null;lastReportedProfile=null
         locallyConfirmedProfile=ownerConfirmedProfile
         settingsOnly=accountSettingsOnly;localSettingsPending=accountSettingsOnly
         entryOnly=entryReadOnly
         resumeOnUnlock=resumeAfterOwnerUnlock
         waitingOnUnlock=false
+        this.unlockRehearsalOnly=unlockRehearsalOnly
         commands=PhoneCommandPolicy();ProductReadSession.clear()
-        message=if(resumeOnUnlock)
+        message=if(unlockRehearsalOnly)
+            "Sperrtest aktiv · 3 Minuten · Samsung mit Seitentaste sperren und selbst entsperren."
+            else if(resumeOnUnlock)
             "Einstiegskurs-Bereitschaft · höchstens 15 Minuten · Sperre wartet auf Entsperrung."
             else "Handy-Sitzung aktiv · höchstens 15 Minuten · STOPP oder Sperrtaste beendet sie."
+        if(unlockRehearsalOnly)ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.UNLOCK_TEST_ARMED)
         holdEntryScreen(c)
         val id=session
-        handler.postDelayed({ if(session==id)stop(c.applicationContext,"SESSION_EXPIRED") },900000)
+        handler.postDelayed({ if(session==id)stop(c.applicationContext,"SESSION_EXPIRED") },lease)
         poll(c.applicationContext,session)
     }
     fun stop(c:Context,code:String="STOPPED") {
         if(session.isEmpty())return
-        val old=session;session="";deadline=0;pendingSettings=null;message="Handy-Sitzung beendet: $code"
+        val old=session;session="";deadline=0;pendingSettings=null
+        if(unlockRehearsalOnly && code=="SESSION_EXPIRED")
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.UNLOCK_TEST_EXPIRED)
+        message=if(code=="UNLOCK_TEST_CONFIRMED")
+            "Sperrtest bestanden: Du hast Samsung selbst entsperrt; DEGIRO wurde wiedererkannt."
+            else "Handy-Sitzung beendet: $code"
         releaseEntryScreenLease()
         resumeOnUnlock=false
         waitingOnUnlock=false
@@ -134,18 +162,21 @@ internal object PhoneRemote {
         settingsOnly=false;localSettingsPending=false;pendingSettingsCode=""
         lastReportedAutoFx=null;lastReportedProfile=null
         locallyConfirmedProfile=null
+        unlockRehearsalOnly=false
         network.execute { runCatching { PhoneDiagnostics.remoteExchange(c.applicationContext,body) } }
     }
     private fun payload(id:String,active:Boolean,observation:JSONObject)=JSONObject()
         .put("sessionId",id).put("expiresAt",expires).put("active",active)
         .put("observation",observation).put("ack",ack ?: JSONObject.NULL)
-        .put("purpose",if(settingsOnly)"owner_account_settings" else if(entryOnly)"entry_read" else "product_read")
+        .put("purpose",if(settingsOnly)"owner_account_settings"
+            else if(entryOnly && !unlockRehearsalOnly)"entry_read" else "product_read")
     private fun poll(c:Context,id:String) {
         if(session!=id)return
         if(!active() || !PhoneDiagnostics.paired(c)) { stop(c,"SESSION_EXPIRED");return }
         // Never touch DEGIRO's window tree while Android is locked. This
         // status does not complete, ACK or authorize any remote read request.
         val observation=if(waitingOnUnlock) empty("WAITING_FOR_UNLOCK")
+            else if(unlockRehearsalOnly) empty("UNLOCK_TEST_ARMED")
             else runCatching { reader?.invoke(null) ?: empty("SERVICE_MISSING") }
                 .getOrElse { empty("READ_ERROR") }
         if(PhoneObservationPolicy.mustStop(observation.optString("code"))) { stop(c,observation.optString("code"));return }
@@ -223,7 +254,10 @@ internal object PhoneRemote {
                             } ?: "") +
                             " · tatsächliche Orderkosten weiterhin unbestätigt."
                     } else "Handy-Sitzung verbunden · Status wird übertragen."
-                    response.optJSONObject("command")?.let { command ->
+                    // This owner-only rehearsal cannot execute even a queued
+                    // authenticated product command. It tests unlock detection,
+                    // not a live market signal or broker action.
+                    if(!unlockRehearsalOnly)response.optJSONObject("command")?.let { command ->
                         val request=command.optString("requestId")
                         if(commands.accept(command.optString("sessionId"),id,request,command.optString("action"),command.optString("isin"),command.optLong("expiresAt"),System.currentTimeMillis()/1000)) {
                             val valid=command.optString("sessionId")==id && command.optLong("expiresAt")>System.currentTimeMillis()/1000
