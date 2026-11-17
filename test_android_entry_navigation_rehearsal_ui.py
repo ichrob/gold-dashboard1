@@ -131,6 +131,31 @@ class ImmediateEntryNavigation(unittest.TestCase):
         self.assertIn('14*60*60*1000L', activity)
         self.assertIn('PhoneDiagnostics.listStatus(app,org.json.JSONObject()', activity)
 
+    def test_completed_last_product_sends_guarded_back_and_retains_result(self):
+        service = source("ProductReadService.kt")
+        final = service.split("// Final item: the original result is already durable.", 1)[1].split(
+            "} else if(!backSent)", 1
+        )[0]
+        self.assertIn("FinalReadReturnPolicy.safeLastProductBack(", final)
+        self.assertIn("performGlobalAction(GLOBAL_ACTION_BACK)", final)
+        self.assertIn('PhoneRemote.stop(this,"COMPLETED")', final)
+        self.assertIn("MorningReadTransfer.automaticResults(this)", final)
+        self.assertLess(final.index("performGlobalAction(GLOBAL_ACTION_BACK)"),
+                        final.index('PhoneRemote.stop(this,"COMPLETED")'))
+        self.assertLess(final.index("MorningReadTransfer.automaticResults(this)"),
+                        final.index("startActivity(Intent(this,ProductReadActivity::class.java)"))
+        for forbidden in ("createOrder(", "placeOrder(", "ACTION_CLICK_ORDER",
+                          "ACTION_SET_TEXT", "ACTION_CLICK"):
+            self.assertNotIn(forbidden, final)
+        policy = source("FinalReadReturnPolicy.kt")
+        self.assertIn("MorningReadPolicy.safeStatusReturn(nodes,expectedIsin)", policy)
+        self.assertIn("MorningReadPolicy.returnAfterRead(nodes,expectedIsin", policy)
+        self.assertIn("authorizedSession", policy)
+        diagnostics = source("ProductReadDiagnostics.kt")
+        for reason in ("FINAL_BACK_SENT", "FINAL_BACK_REJECTED", "FINAL_BACK_BLOCKED",
+                       "FINAL_STATUS_REQUESTED", "FINAL_STATUS_FAILED"):
+            self.assertIn(reason, diagnostics)
+
     def test_terminal_list_product_can_be_skipped_but_no_trade_is_approved(self):
         server = Path(__file__).parent.joinpath("android_list.py").read_text()
         self.assertIn("refresh_plan(row[1] or [],products,selected,terminal_isins)", server)
