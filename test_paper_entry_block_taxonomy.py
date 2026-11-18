@@ -54,7 +54,8 @@ class NovemberPaperEntryClassificationTests(unittest.TestCase):
                 'signal-age',
             'Goldkurs nicht aktuell bestätigt; Quellenzeit prüfen':
                 'gold-stale',
-            'ABWARTEN: kein bestätigter gültiger Goldplan':'gold-plan-missing',
+            'ABWARTEN: kein bestätigter gültiger Goldplan':'no-direction',
+            'Einstieg wartet: Stopp-/Zielplan nicht gültig':'plan-or-timing',
         }
         for text, expected in cases.items():
             with self.subTest(expected=expected):
