@@ -41,6 +41,11 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(receipt['reason'],'OCR_MEMORY_WAIT_EXHAUSTED')
         for invalid in (-1,True,'3',None):
             self.assertEqual(worker.memory_deferrals({'memoryDeferrals':invalid}),0)
+        pending=worker.deferred_memory_receipt('a'*32,{'memoryDeferrals':4},enhanced=True)
+        self.assertTrue(pending['enhancedPending'])
+        later=worker.deferred_memory_receipt('a'*32,pending)
+        self.assertTrue(later['enhancedPending'])
+        self.assertEqual(later['memoryDeferrals'],6)
 
     def test_rejected_list_has_only_anonymous_bounded_counts(self):
         raw={'version':1,'uniqueRows':4,'expectedRows':10,
@@ -496,20 +501,22 @@ class WorkerTests(unittest.TestCase):
             def __init__(self,value):self.value=value
             def fetchone(self):return self.value
         class DB:
-            def __init__(self,attempts,error):
-                self.attempts=attempts;self.error=error;self.writes=[]
+            def __init__(self,attempts,error,memory=0,pending=False):
+                self.attempts=attempts;self.error=error
+                self.memory=memory;self.pending=pending;self.writes=[]
             def __enter__(self):return self
             def __exit__(self,*args):pass
             def commit(self):pass
             def execute(self,sql,args=()):
                 if sql.startswith('SELECT i.batch_id'):
                     return Result(('a'*32,{'images':[{'at':'2026-10-31T19:13:55Z'}]},
-                        None,self.attempts,{'stage':'read-failed','error':self.error}))
+                        None,self.attempts,{'stage':'read-failed','error':self.error,
+                            'memoryDeferrals':self.memory,'enhancedPending':self.pending}))
                 if sql.startswith('SELECT i.import_receipt'):return Result((None,))
                 if 'import_receipt=%s' in sql:self.writes.append(json.loads(args[0]))
                 return Result(None)
-        def attempt(attempts,error):
-            db=DB(attempts,error);calls=[]
+        def attempt(attempts,error,memory=0,pending=False):
+            db=DB(attempts,error,memory,pending);calls=[]
             def runner(payload,at):
                 calls.append(payload.get('_ocr_mode'))
                 raise worker.ListVerificationError('Do not log private OCR text')
@@ -521,6 +528,9 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(attempt(2,'ListVerificationError'),['enhanced'])
         self.assertEqual(attempt(3,'OcrChildError'),[None])
         self.assertEqual(attempt(4,'ListVerificationError'),[None])
+        self.assertEqual(attempt(7,'ListVerificationError',memory=4),['enhanced'])
+        self.assertEqual(attempt(7,'ListVerificationError'),[None])
+        self.assertEqual(attempt(7,'OcrMemoryDeferred',memory=5,pending=True),['enhanced'])
 
     def test_phone_ocr_size_is_bounded_without_changing_original(self):
         for width,height in [(1080,2400),(1440,3200),(5000,3000),(709,1536)]:
@@ -749,6 +759,30 @@ class DatabaseTests(unittest.TestCase):
                 final=conn.execute('SELECT import_receipt FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0]
                 self.assertIn(final['stage'],('synced','superseded'))
                 self.assertEqual(final['count'],10)
+            # This is the real reported sequence: memory-deferrals 4,
+            # successful first OCR at lifetime attempt 7, only 8 verified
+            # rows. The next, enhanced OCR is permitted exactly once.
+            incomplete={'batchId':value['batchId'],'stage':'read-failed',
+                        'count':0,'error':'ListVerificationError',
+                        'enhancedVerification':False,'memoryDeferrals':4,
+                        'verificationCounts':{'version':1,'uniqueRows':8,
+                            'expectedRows':10,'imagesTotal':3,'imagesWithRows':3,
+                            'conflictingRows':0,'duplicateRows':1,'reason':'incomplete'}}
+            with connect() as conn:
+                conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb,processing_attempts=7,processing_at=now()-interval '5 minutes' WHERE batch_id=%s",
+                    (json.dumps(incomplete),value['batchId']))
+            enhanced_calls=[]
+            def high_attempt_runner(payload,at):
+                enhanced_calls.append(payload.get('_ocr_mode'))
+                raise worker.ListVerificationError('Still only eight accepted rows')
+            self.assertTrue(worker.tick(connect,high_attempt_runner))
+            self.assertEqual(enhanced_calls,['enhanced'])
+            with connect() as conn:
+                final=conn.execute('SELECT import_receipt FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0]
+                self.assertEqual(final['error'],'ListVerificationError')
+                self.assertTrue(final['enhancedVerification'])
+                conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes' WHERE batch_id=%s",(value['batchId'],))
+            self.assertFalse(worker.tick(connect,lambda *_:self.fail('Enhanced OCR must remain one-shot')))
 
         finally:
             with psycopg.connect(url) as admin:admin.execute('DROP SCHEMA '+schema+' CASCADE')
