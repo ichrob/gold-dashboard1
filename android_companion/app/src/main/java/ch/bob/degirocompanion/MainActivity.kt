@@ -623,11 +623,6 @@ class MainActivity : Activity() {
         super.onStop()
     }
 
-    override fun onDestroy() {
-        stopTradeScreenDemo("Bob Handy beendet.")
-        super.onDestroy()
-    }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -1087,6 +1082,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        stopTradeScreenDemo("Bob Handy beendet.")
         speaker?.stop()
         speaker?.shutdown()
         speaker = null
