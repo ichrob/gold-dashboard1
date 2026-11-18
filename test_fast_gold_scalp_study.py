@@ -54,10 +54,10 @@ class FastProspectiveRegression(unittest.TestCase):
         previous=s.seed(NOW)
         for name in s.FAST_SETUPS:
             del previous["arms"][name]
-        previous["arms"]["breakout"]["started"]=17
+        previous["arms"]["breakout"]["started"]=100
         previous["arms"]["breakout"]["levers"]["10"]["equityEur"]=943.21
         later,closed=s.advance(previous,bundle(),NOW)
-        self.assertEqual(later["arms"]["breakout"]["started"],17)
+        self.assertEqual(later["arms"]["breakout"]["started"],100)
         self.assertEqual(later["arms"]["breakout"]["levers"]["10"]["equityEur"],943.21)
         self.assertTrue(all(n in later["arms"] for n in s.FAST_SETUPS))
         self.assertNotEqual(previous,later)
