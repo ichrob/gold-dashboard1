@@ -7,6 +7,7 @@ import threading
 from time import monotonic
 
 MAX_QUEUE_SECONDS = 10
+OCR_QUEUE_GRACE_SECONDS = 20
 _CONDITION = threading.Condition()
 _WAITERS = []
 _BUSY = False
@@ -29,6 +30,15 @@ def workload_kind(args):
     return 'other'
 
 
+def _wait_for(predicate):
+    """Keep the normal queue bound, with one measured grace only for OCR."""
+    if _CONDITION.wait_for(predicate, MAX_QUEUE_SECONDS):
+        return True
+    if _ACTIVE_KIND != 'ocr':
+        return False
+    return _CONDITION.wait_for(predicate, OCR_QUEUE_GRACE_SECONDS)
+
+
 def run(args, priority=1, runner=None, **kwargs):
     global _BUSY, _ACTIVE_KIND
     started = monotonic()
@@ -40,7 +50,7 @@ def run(args, priority=1, runner=None, **kwargs):
         flight = _FLIGHTS.get(key)
         if flight is not None:
             _STATS['shared'] += 1
-            if not _CONDITION.wait_for(lambda: flight['done'], MAX_QUEUE_SECONDS):
+            if not _wait_for(lambda: flight['done']):
                 _STATS['queueTimeouts'] += 1
                 raise TimeoutError('Gemeinsame Analyse noch ausgelastet')
             if flight.get('error'): raise flight['error']
@@ -52,7 +62,7 @@ def run(args, priority=1, runner=None, **kwargs):
     acquired = False
     try:
         with _CONDITION:
-            if not _CONDITION.wait_for(lambda: not _BUSY and ticket == min(_WAITERS, key=lambda t:t[:2]), MAX_QUEUE_SECONDS):
+            if not _wait_for(lambda: not _BUSY and ticket == min(_WAITERS, key=lambda t:t[:2])):
                 _STATS['queueTimeouts'] += 1
                 blocked_by = _ACTIVE_KIND
                 raise TimeoutError('Analyse ausgelastet; nächster Durchlauf erforderlich')
