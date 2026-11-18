@@ -28,7 +28,7 @@ function analyzeInputs(snapshot,now=Date.now()){
  return {
    signal,spot:{ok:spot,label:spot?'Originalzeit bestätigt':age===null?'Quellenzeit fehlt':age>60000?'Spot älter als 60 Sekunden':'Spot/Anmeldung prüfen'},
    analysis:{ok:analysis,label:analysis?'Signal anzeigen; keine Handelsfreigabe':'Analyse/Quelle nicht bestätigt'},
-   products:{ok:products!==null&&products>0,label:products===null?'Produktliste nicht geladen':products===0?'Keine identifizierten Produkte':products+' identifizierte Produkte – Handelsnachweise separat prüfen'},
+   products:{ok:products!==null&&products>0,label:products===null?'Produktliste nicht geladen':products===0?'Keine identifizierten Produkte':products+' identifizierte Produkte – Produktdaten separat prüfen'},
    trade:{ok:trade,label:trade?'Erfasster Trade vorhanden; Status der Überwachung separat prüfen':'Kein aktiver Trade erfasst'},
    date:zurichDay(new Date(now)),tradeable:false,canTradeAutomatically:false
  };
@@ -87,7 +87,7 @@ function productEvidence(p,now=Date.now()){
   prices:unknown('Gemeinsamer Produktnachweis nicht geladen'),
   barrier:unknown('Gemeinsamer Produktnachweis nicht geladen'),
   leverage:unknown('Gemeinsamer Produktnachweis nicht geladen'),
-  venue:unknown('DEGIRO-Handelsplatznachweis separat erforderlich')};
+  venue:{state:'optional',text:'Handelsplatzbeleg optional; für Analyse und Simulation nicht erforderlich'}};
 }
 // Union of identities only: no broker execution evidence or trading approvals.
 function mergeProductIdentities(visible,stored,audit,now=Date.now()){
@@ -507,13 +507,13 @@ function mount(){
   }
   const info=productEvidence(p);
   for(const [name,key] of [['Richtung','direction'],['Währung','currency'],['Geld und Brief','prices'],
-     ['KO','barrier'],['Hebel','leverage'],['DEGIRO-Handelsplatz','venue']]){
+     ['KO','barrier'],['Hebel','leverage'],['Handelsplatz (optional)','venue']]){
    const el=doc.createElement('p'),data=info[key];
-   el.textContent=(data.state==='conflict'?'✗ ':data.state==='observed'?'◦ ':'? ')+name+': '+data.text;
+   el.textContent=(data.state==='conflict'?'✗ ':['observed','optional'].includes(data.state)?'◦ ':'? ')+name+': '+data.text;
    host.append(el);
   }
   const note=doc.createElement('p');
-  note.textContent='Nur Informationen, keine vollständige Freigabeprüfung. Originalquelle und DEGIRO-Handelbarkeit separat kontrollieren.';
+  note.textContent='Nur Produktinformationen: Originalkurse, KO-Schwelle und Risiko separat prüfen. Kein Handelsplatzbeleg für Analyse oder Simulation erforderlich.';
   host.append(note);
  }
  chosen.addEventListener('change',()=>{
@@ -530,7 +530,7 @@ function mount(){
   const note=p.conflictingDirection?' · widersprüchliche Richtung; Übernahme gesperrt':'';
   productNote.textContent='ISIN '+p.isin+' · '+(p.conflictingDirection?'Richtung unklar':p.direction||'Richtung offen')+
    ' · '+origin+' · '+label+' · '+(q?.source||'Emittentenkurs nicht belegt')+note+
-   '. Kein bestätigter DEGIRO-Kurs oder Handelsplatz.';
+   '. Originalkurse und KO separat prüfen; Handelsplatzbeleg optional.';
  });
  doc.getElementById('bobUnifiedToDraft').addEventListener('click',()=>{
   const isin=chosen.value;
