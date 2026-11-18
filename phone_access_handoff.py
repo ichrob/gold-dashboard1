@@ -182,6 +182,9 @@ def morning_list_missing(conn, now):
         return False
     if not conn.execute("SELECT to_regclass('bob_android_list_images')").fetchone()[0]:
         return False
+    local = datetime.fromtimestamp(now, ZURICH)
+    midnight = int(local.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
     return not bool(conn.execute("""SELECT 1 FROM bob_android_list_images
         WHERE import_receipt->>'stage'='synced' AND created_at >= to_timestamp(%s)
-        LIMIT 1""", (day_start(now),)).fetchone())
+          AND created_at > now()-interval '14 hours'
+        LIMIT 1""", (midnight,)).fetchone())
