@@ -41,14 +41,22 @@ class DegiroReadOnlyActivity:Activity() {
             it.text=s;it.textSize=18f;it.setPadding(0,9,0,14);column.addView(it)
         }
         label("BOB HANDY · DEGIRO NUR LESEN")
-        label("Du brauchst keine zweite Test-App. Bob nutzt ausschließlich den bereits freigegebenen Produkt-Lesedienst dieser signierten Bob-Handy-App. Maximal 45 Sekunden, keine PIN-Eingabe, keine Klicks in DEGIRO, keine Orders. Eine echte Position ist nicht erforderlich.")
-        grant=label("Lesedienst wird geprüft.")
-        status=label(DegiroReadOnlySession.status)
+        // Primary action and STOP are always visible on a small Samsung display.
         column.addView(Button(this).apply {
             isAllCaps=false
             text="DEGIRO nur lesen · 45 Sekunden · keine Order"
             setOnClickListener { start() }
         })
+        column.addView(Button(this).apply {
+            isAllCaps=false
+            text="STOPP · Nur-Lesen-Prüfung beenden"
+            setOnClickListener {
+                DegiroReadOnlySession.finish("STOPP");showStatus()
+            }
+        })
+        grant=label("Lesedienst wird geprüft.")
+        status=label(DegiroReadOnlySession.status)
+        label("Keine zweite Test-App und keine weitere Orderfreigabe: Bob nutzt ausschließlich den bestehenden Produkt-Lesedienst seiner signierten App. Maximal 45 Sekunden, keine PIN-Eingabe, keine Klicks oder Orders. Eine echte Position ist nicht erforderlich.")
         column.addView(Button(this).apply {
             isAllCaps=false
             text="Lesedienst-Berechtigung prüfen / Android-Einstellungen"
@@ -72,13 +80,6 @@ class DegiroReadOnlyActivity:Activity() {
                         "\n"+DegiroReadOnlySession.status)
                 }
                 startActivity(Intent.createChooser(share,"Ergebnis teilen"))
-            }
-        })
-        column.addView(Button(this).apply {
-            isAllCaps=false
-            text="STOPP · Nur-Lesen-Prüfung beenden"
-            setOnClickListener {
-                DegiroReadOnlySession.finish("STOPP");showStatus()
             }
         })
         setContentView(ScrollView(this).apply { addView(column) })
