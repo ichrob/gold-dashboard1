@@ -11,6 +11,7 @@ import secrets
 import threading
 import time
 import product_push
+import phone_access_handoff
 import fibonacci_monitor
 import background_push
 import background_handoff
@@ -346,6 +347,7 @@ def _init_db_once():
                 "INSERT INTO bob_settings(key, value) VALUES(%s, %s)",
                 ("vapid_private_pem", pem),
             )
+        phone_access_handoff.init(conn)
         conn.commit()
 
 def vapid():
@@ -401,6 +403,18 @@ def send_json(handler, status, payload):
             # second error response to a disconnected caller.
             handler.close_connection = True
             print('BOB_PUSH_HTTP client_disconnected', flush=True)
+
+def send_phone_access_push(subscription, message, ttl):
+    """An accepted Web Push is not proof of display or owner approval."""
+    try:
+        webpush(subscription_info=subscription,
+                data=json.dumps(message, separators=(',', ':')),
+                vapid_private_key=vapid(), vapid_claims={'sub': VAPID_SUBJECT},
+                ttl=min(600, max(1, ttl)))
+        return True
+    except WebPushException:
+        return False
+
 
 def deliver_product_selection(conn, row, checked):
     sid, sub, previous = row
@@ -762,6 +776,15 @@ def run_background(bundle):
             except Exception as exc:
                 print('BOB_IMPROVEMENT capture_error='+type(exc).__name__,flush=True)
         conn.commit()  # Research writes must not hold locks through alert delivery.
+        # One quiet-hours-aware morning request, only if the imported DEGIRO
+        # list is still missing. Never interrupts an already opened phone session
+        # and never grants the browser control over Android or DEGIRO.
+        try:
+            with conn.transaction():
+                if phone_access_handoff.morning_list_missing(conn, int(time.time())):
+                    phone_access_handoff.request(conn, 'morning-list', send_phone_access_push)
+        except Exception as exc:
+            print('BOB_HANDY_ACCESS request_error='+type(exc).__name__, flush=True)
         rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE SKIP LOCKED").fetchall()
         for sid, sub, general, trade, active, settings, previous, evidence, selection in rows:
             try:
@@ -1115,6 +1138,33 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path == '/phone-access':
+                supplied = self.headers.get('X-Bob-Push-Token', '')
+                if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied, PUSH_SERVICE_TOKEN):
+                    send_json(self, 401, {'error': 'Unauthorized'}); return
+                value = json_body(self)
+                if not isinstance(value, dict) or value.get('action') not in ('status', 'decide', 'request'):
+                    raise ValueError('Invalid access action')
+                action = value['action']
+                expected = ({'action'} if action == 'status' else
+                            {'action', 'requestId', 'choice'} if action == 'decide' else
+                            {'action', 'reason'})
+                if set(value) != expected:
+                    raise ValueError('Unexpected access fields')
+                with db() as conn:
+                    if action == 'status':
+                        result = phone_access_handoff.public_state(
+                            phone_access_handoff.read(conn), int(time.time()))
+                    elif action == 'decide':
+                        result = phone_access_handoff.decide(
+                            conn, value['requestId'], value['choice'])
+                    else:
+                        if value['reason'] != 'manual':
+                            raise ValueError('Manual request only')
+                        result = phone_access_handoff.request(
+                            conn, 'manual', send_phone_access_push)
+                send_json(self, 200, result)
+                return
             if path == '/remote-push':
                 supplied=self.headers.get('X-Bob-Push-Token','')
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
