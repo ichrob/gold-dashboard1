@@ -42,6 +42,18 @@ internal object MorningListDelivery {
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.SCREEN_HOLD_FAILED)
         }
     }
+    /** Anonymized server recognition counts: never an accepted product list. */
+    internal fun rejectedListHint(receipt:JSONObject?):String {
+        val counts=receipt?.optJSONObject("verificationCounts") ?: return ""
+        if(counts.optInt("version",-1)!=1 || counts.optInt("expectedRows",-1)!=10) return ""
+        val recognized=counts.optInt("uniqueRows",-1)
+        val images=counts.optInt("imagesTotal",-1)
+        if(recognized !in 0..10 || images !in 1..4) return ""
+        val conflict=counts.optInt("conflictingRows",0)>0
+        return " · Diagnose: $recognized von 10 Produktzeilen vorläufig erkannt" +
+            (if(conflict) ", widersprüchliche Zeilen vorhanden" else "") +
+            ". Keine Produktfreigabe."
+    }
     var onConfirmed:((List<SelectiveDetailPlan.Entry>,String)->Unit)?=null
     /** Same user-opened session only. Original rejected images are archived
      * by resume() before the fresh capture; no silent new session is started. */
@@ -148,13 +160,17 @@ internal object MorningListDelivery {
                         waiting=false
                         if(archivedReady && PhoneRemote.active() &&
                             PhoneRemote.sessionId()==session && onFreshCaptureRequired!=null) {
-                            status(c,"Gespeicherte Liste endgültig abgelehnt. Bob startet einen frischen Gold-Einleselauf in derselben bestätigten Sitzung.")
+                            status(c,"Gespeicherte Liste endgültig abgelehnt" +
+                                rejectedListHint(receipt) +
+                                " Bob startet einen frischen Gold-Einleselauf in derselben bestätigten Sitzung.")
                             runCatching { onFreshCaptureRequired?.invoke() }.onFailure {
                                 status(c,"Frischer Gold-Lesestart fehlgeschlagen. Alte Belege bleiben gespeichert.")
                                 PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
                             }
                         } else {
-                            status(c,"Gespeicherte Liste nicht bestätigt. Ein neuer Gold-Lesestart ist erforderlich; alte Bilder bleiben erhalten.")
+                            status(c,"Gespeicherte Liste nicht bestätigt" +
+                                rejectedListHint(receipt) +
+                                " Ein neuer Gold-Lesestart ist erforderlich; alte Bilder bleiben erhalten.")
                             PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
                         }
                     } else if(MorningListFallbackPolicy.memoryDeferred(
@@ -204,7 +220,9 @@ internal object MorningListDelivery {
                             save(c,JSONObject(body.toString()).put("verificationFailed",true))
                         }.isSuccess
                         waiting=false;status(c,if(restartReady)
-                            "Listenbilder angekommen, aber Goldliste noch nicht bestätigt. Aufnahme bleibt gespeichert. Bob starten nimmt eine neue Liste auf."
+                            "Listenbilder angekommen, aber Goldliste noch nicht bestätigt" +
+                                rejectedListHint(receipt) +
+                                " Aufnahme bleibt gespeichert. Bob starten nimmt eine neue Liste auf."
                             else if(receipt?.optString("reason")=="OCR_MEMORY_WAIT_EXHAUSTED")
                             "Bilder gespeichert · Speicherwartezeit beendet. Neue Liste nicht bestätigt; frische lokale Erkennung erforderlich."
                             else "Aufnahme gespeichert. Serverbestätigung noch offen; Start setzt die Übertragung fort.")
