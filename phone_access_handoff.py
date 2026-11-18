@@ -4,7 +4,6 @@ An access request is a notification, NOT a remote phone capability. Only a
 fresh, local tap in Bob Handy can start the existing bounded product reader.
 No PIN, Android unlock, broker order or hidden screen navigation is possible.
 """
-import hashlib
 import json
 import time
 import uuid
@@ -113,7 +112,8 @@ def new_request(state, reason, now, fingerprint=None):
             # New evidence only, at most once per half-hour. A silent user
             # response does not create a recurring nagging reminder.
             if reason == state.get("reason") and (
-                    reason != "broker-read" or fingerprint == state.get("fingerprint")):
+                    reason != "broker-read" or (
+                        fingerprint is not None and fingerprint == state.get("fingerprint"))):
                 return None
             if now - state.get("createdAt", now) < MIN_NEW_EVENT_SECONDS:
                 return None
@@ -185,25 +185,3 @@ def morning_list_missing(conn, now):
     return not bool(conn.execute("""SELECT 1 FROM bob_android_list_images
         WHERE import_receipt->>'stage'='synced' AND created_at >= to_timestamp(%s)
         LIMIT 1""", (day_start(now),)).fetchone())
-
-
-def entry_read_fingerprint(conn, now):
-    """A fresh, model-suitable entry plan needs an owner-confirmed quote read.
-
-    Never turn a synthetic scenario into a broker order, and do not interrupt
-    any active phone session or request an unchanged signal twice.
-    """
-    if not allowed(now) or morning_list_missing(conn, now):
-        return None
-    try:
-        from handset_planning import read as planning_read
-        from handset_entry_request import candidate
-        planning = planning_read(conn)
-        item = candidate(planning, now)
-        if item is None:
-            return None
-        raw = json.dumps([item.get("isin"), item.get("modelReferenceAt"),
-                          planning.get("revision")], separators=(',', ':'))
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
-    except (ValueError, TypeError, KeyError):
-        return None
