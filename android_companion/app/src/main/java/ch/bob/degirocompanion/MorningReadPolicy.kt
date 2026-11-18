@@ -580,10 +580,14 @@ internal object MorningReadPolicy {
         if (inputs.size != 1 || !inputs.single().enabled ||
             inputs.single().text != "Gold" || !search(inputs.single())) return null
         val label = "Alle Ergebnisse in Hebelprodukte"
+        // Samsung may include the adjacent chevron as part of the link label.
+        // Strip only a single terminal navigation chevron, never arbitrary text.
+        fun linkText(value: String) = normalized(value)
+            .replace(Regex("[\\s]*[›»→>]$"), "").trim()
         val candidates = nodes.indices.filter { index ->
             val n = nodes[index]
             val values = listOf(n.text, n.description, n.hint, n.row)
-                .map(::normalized).filter(String::isNotBlank)
+                .map(::linkText).filter(String::isNotBlank)
             n.enabled && canClick(n) && !n.editable && !n.containsInput &&
                 !n.password && !n.sensitive && values.isNotEmpty() &&
                 values.all { it.equals(label, true) }
