@@ -41,6 +41,7 @@ class ProductReadService : AccessibilityService() {
     private var listScrollTries = 0
     private var listFirstIds = emptyList<String>()
     private val listSeenIds = mutableSetOf<String>()
+    private val listCoveredIds = mutableSetOf<String>()
     private var listCropTop: Int? = null
     private var listWindowId: Int? = null
     private val listImages = org.json.JSONArray()
@@ -50,7 +51,7 @@ class ProductReadService : AccessibilityService() {
     private var listAllResultsTappedAt = 0L
     private fun resetListCapture() {
         listGeneration++; listResumeChecked=false; listTopSeekSteps=0; listAllResultsTappedAt=0L; listBusy=false; listScrolled=false; listScrollTries=0
-        listFirstIds=emptyList(); listSeenIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
+        listFirstIds=emptyList(); listSeenIds.clear(); listCoveredIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
     }
     private var batchTransition = false
@@ -1455,6 +1456,37 @@ class ProductReadService : AccessibilityService() {
         finally { list.forEach { it.recycle() } }
     }
 
+    /** Local capture-completeness hint only, not server-verified evidence.
+     * Never infer any product identity: take only exact, already captured
+     * product-only app text or two valid on-device optical row passes. */
+    private fun capturedRowCoverage(image:org.json.JSONObject,visible:List<String>):Set<String> {
+        if(visible.isEmpty() || visible.size>10 || visible.distinct()!=visible ||
+            visible.any { !SeriesEvidence.validIsin(it) })return emptySet()
+        val app=image.optJSONObject("appText")
+        if(app!=null) {
+            val before=app.optJSONArray("before");val after=app.optJSONArray("after")
+            if(before!=null && after!=null && before.length()==visible.size &&
+                after.length()==visible.size) {
+                val rows=(0 until before.length()).map { before.optString(it) }
+                val other=(0 until after.length()).map { after.optString(it) }
+                val pattern=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
+                if(rows==other && rows.zip(visible).all { (row,id) ->
+                    pattern.findAll(row).map { it.value }.toList()==listOf(id)
+                })return visible.toSet()
+            }
+        }
+        val local=image.optJSONObject("localOcr") ?: return emptySet()
+        val expected=local.optJSONArray("expectedIsins") ?: return emptySet()
+        val passes=local.optJSONArray("passes") ?: return emptySet()
+        if(passes.length()!=2 || expected.length() !in 1..visible.size ||
+            (0..1).any { passes.optJSONArray(it)?.length()!=expected.length() })
+            return emptySet()
+        val ids=(0 until expected.length()).map { expected.optString(it) }
+        return ids.toSet().takeIf { it.size==ids.size && ids.all { id ->
+            id in visible && SeriesEvidence.validIsin(id)
+        } } ?: emptySet()
+    }
+
     private fun acceptCapturedMorningImage(image:org.json.JSONObject,ids:List<String>,
                                            generation:Int,windowId:Int,cropTop:Int,at:String) {
         if(generation!=listGeneration)return
@@ -1481,14 +1513,17 @@ class ProductReadService : AccessibilityService() {
         listCropTop=cropTop
         listWindowId=windowId
         ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_IMAGE_CAPTURED)
-        listFirstIds=ids;listSeenIds.addAll(ids);listScrolled=false;listScrollTries=0
+        listFirstIds=ids;listSeenIds.addAll(ids)
+        listCoveredIds.addAll(capturedRowCoverage(image,ids))
+        listScrolled=false;listScrollTries=0
         saveListCheckpoint()
-        if(listSeenIds.size==10) deliverMorningList(generation)
+        if(listSeenIds.size==10 && listCoveredIds.size==10) deliverMorningList(generation)
         else if(listImages.length()>=4) {
             // The fourth safely cropped image may contain identities that
             // Samsung's incomplete WebView tree did not expose. Ask Bob to
             // verify the originals; never invent or locally confirm ten rows.
-            if(MorningListEndPolicy.maySubmitAtCaptureLimit(listImages.length(),listSeenIds)) {
+            if(listSeenIds.size==10 ||
+                MorningListEndPolicy.maySubmitAtCaptureLimit(listImages.length(),listSeenIds)) {
                 deliverMorningList(generation)
             } else {
                 lastNavigationIssue="LIST_TOP_RESULTS_INCOMPLETE"
@@ -1530,7 +1565,8 @@ class ProductReadService : AccessibilityService() {
     // keyboard has disappeared. Never capture the full display or secure windows.
     private fun captureMorningList(root:AccessibilityNodeInfo,nodes:List<AccessibilityNodeInfo>,
                                   descriptions:List<MorningReadPolicy.Node>,action:MorningReadPolicy.Action) {
-        if(listBusy || listSeenIds.size==10) return
+        if(listBusy || (listSeenIds.size==10 &&
+            !MorningListEndPolicy.needsEdgeCapture(listImages.length(),listSeenIds,listCoveredIds))) return
         fun fail(code:String) { lastNavigationIssue=code;ProductReadRequest.cancel() }
         if(android.os.Build.VERSION.SDK_INT<34) { fail("LIST_CAPTURE_ANDROID_VERSION");return }
         if(!PhoneRemote.active() || !GoldSearchRun.running || keyboardVisible()) return
@@ -1554,8 +1590,9 @@ class ProductReadService : AccessibilityService() {
             } }.singleOrNull()
             if(chosen==null) {
                 if(candidates.isEmpty() && root.windowId==listWindowId &&
-                    MorningListEndPolicy.maySubmitAtEnd(descriptions,listImages.length(),
-                        listSeenIds,action.isins,action)) {
+                    (MorningListEndPolicy.maySubmitAtEnd(descriptions,listImages.length(),
+                        listSeenIds,action.isins,action) ||
+                     MorningListEndPolicy.needsEdgeCapture(listImages.length(),listSeenIds,listCoveredIds))) {
                     // A real DEGIRO end footer plus existing cropped images
                     // permits an OCR-verification request, NOT acceptance of
                     // missing products. The server still demands ten originals.
@@ -1570,7 +1607,9 @@ class ProductReadService : AccessibilityService() {
             if(!listScrolled) fail("LIST_SCROLL_REJECTED")
             return
         }
-        if(listImages.length()>0 && action.isins==listFirstIds) {
+        if(listImages.length()>0 && action.isins==listFirstIds &&
+            !(listScrolled && MorningListEndPolicy.needsEdgeCapture(
+                listImages.length(),listSeenIds,listCoveredIds))) {
             if(root.windowId==listWindowId &&
                 MorningListEndPolicy.maySubmitAtEnd(descriptions,listImages.length(),
                     listSeenIds,action.isins,action)) {
@@ -1695,7 +1734,9 @@ class ProductReadService : AccessibilityService() {
     private fun saveListCheckpoint() {
         val value=org.json.JSONObject().put("at",System.currentTimeMillis()).put("batch",listBatch)
             .put("window",listWindowId).put("crop",listCropTop).put("images",org.json.JSONArray(listImages.toString()))
-            .put("seen",org.json.JSONArray(listSeenIds.toList())).put("last",org.json.JSONArray(listFirstIds))
+            .put("seen",org.json.JSONArray(listSeenIds.toList()))
+            .put("covered",org.json.JSONArray(listCoveredIds.toList()))
+            .put("last",org.json.JSONArray(listFirstIds))
             .put("all",listAllResultsTappedAt>0L)
         val f=checkpoint();val stream=f.startWrite()
         try { stream.write(value.toString().toByteArray());f.finishWrite(stream) }
@@ -1724,8 +1765,16 @@ class ProductReadService : AccessibilityService() {
                 if(value.optBoolean("all",false) && MorningReadPolicy.fullGoldResultsView(view))
                     listAllResultsTappedAt=SystemClock.elapsedRealtime()
                 savedImages.forEach { listImages.put(it) };listSeenIds.addAll(seenIds)
+                val coverage=value.optJSONArray("covered")
+                if(coverage!=null) {
+                    val captured=(0 until coverage.length()).map { coverage.getString(it) }
+                    check(captured.distinct()==captured && captured.all { it in seenIds })
+                    listCoveredIds.addAll(captured)
+                }
                 listFirstIds=ids;listScrolled=false
-                if(listSeenIds.size==10)deliverMorningList(listGeneration)
+                if(listSeenIds.size==10 &&
+                    (listCoveredIds.size==10 || listImages.length()==4))
+                    deliverMorningList(listGeneration)
             } finally { refs.forEach { it.recycle() };root.recycle() }
         }
     }
