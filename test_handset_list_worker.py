@@ -208,15 +208,15 @@ class WorkerTests(unittest.TestCase):
                 worker.bounded_recognition_route(invalid)
 
     def test_ocr_defers_before_spawn_when_headroom_is_insufficient(self):
-        with patch.object(worker,'container_memory_bytes',return_value=305*1024*1024),patch('subprocess.Popen') as spawn:
+        with patch.object(worker,'container_memory_bytes',return_value=309*1024*1024),patch('subprocess.Popen') as spawn:
             with self.assertRaises(worker.OcrMemoryDeferred):
                 worker.guarded_ocr_run(['ocr'],input='[]',text=True,capture_output=True,timeout=35,check=True,env={},close_fds=True)
             spawn.assert_not_called()
 
 
-    def test_505_policy_keeps_200_mib_start_reserve(self):
+    def test_505_policy_keeps_196_mib_start_reserve(self):
         from types import SimpleNamespace
-        for mib in (305,400,504,505,None):
+        for mib in (309,400,504,505,None):
             used=None if mib is None else mib*1024*1024
             with patch.object(worker,'container_memory_bytes',return_value=used), \
                  patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn:
@@ -224,14 +224,22 @@ class WorkerTests(unittest.TestCase):
                     worker.guarded_ocr_run(['ocr'],input='[]',text=True,capture_output=True,
                         timeout=35,check=True,env={},close_fds=True)
                 spawn.assert_not_called()
-        with patch.object(worker,'container_memory_bytes',return_value=304*1024*1024), \
+        with patch.object(worker,'container_memory_bytes',return_value=306*1024*1024), \
              patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn, \
              patch.object(worker,'wait_ocr',return_value=0):
             result=worker.guarded_ocr_run(['ocr'],input='[]',text=True,capture_output=True,
                 timeout=35,check=True,env={},close_fds=True)
             spawn.assert_called_once();self.assertEqual(result.returncode,0)
         self.assertEqual(worker.status()['ocrMemoryLimitMiB'],505)
-        self.assertEqual(worker.status()['ocrStartReserveMiB'],200)
+        self.assertEqual(worker.status()['ocrStartReserveMiB'],196)
+        # 308 + 196 stays strictly below the unchanged 505-MiB cutoff.
+        with patch.object(worker,'container_memory_bytes',return_value=308*1024*1024), \
+             patch('memory_watch.release_free_pages'),patch('subprocess.Popen') as spawn, \
+             patch.object(worker,'wait_ocr',return_value=0):
+            worker.guarded_ocr_run(['ocr'],input='[]',text=True,capture_output=True,
+                timeout=35,check=True,env={},close_fds=True)
+            spawn.assert_called_once()
+
 
     def test_ocr_can_cross_old_ceiling_but_is_killed_at_505(self):
         class Child:

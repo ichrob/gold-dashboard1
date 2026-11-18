@@ -138,9 +138,12 @@ def content_bounds(image):
 
 
 # User-approved ceiling: keep 7 MiB below the 512-MiB Render container limit.
-# Admission still reserves 200 MiB for the native OCR model and its peak work.
+# The native OCR start reserve keeps 196 MiB available. This admits the
+# measured 306-MiB idle baseline (18 Nov 2026), while observed original OCR
+# peaks of 450-457 MiB leave at least 48 MiB below the unchanged 505-MiB
+# runtime kill threshold. The child still fails closed on a memory spike.
 OCR_CONTAINER_LIMIT = 505 * 1024 * 1024
-OCR_START_RESERVE = 200 * 1024 * 1024
+OCR_START_RESERVE = 196 * 1024 * 1024
 # Four admission checks at the existing four-minute lease cadence. Persisted
 # in the receipt so a restart cannot reset a permanently blocked batch.
 OCR_MAX_MEMORY_DEFERRALS = 4
