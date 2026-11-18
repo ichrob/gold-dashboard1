@@ -97,7 +97,7 @@ class DegiroReadOnlyActivity:Activity() {
         val enabled=readerEnabled()
         grant.text=when {
             enabled && ProductReadDiagnostics.connected ->
-                "Lesedienst bereit: Bob – Handy / Produktseite einmal lesen."
+                "Lesedienst bereit: Bob – Handy: Produkte lesen."
             enabled -> "Android-Freigabe vorhanden, aber Lesedienst noch nicht verbunden."
             else -> "Produkt-Lesedienst in dieser Bob-Handy-App nicht aktiviert. Keine Prüfung möglich. Über Android-Einstellungen freiwillig einschalten."
         }
