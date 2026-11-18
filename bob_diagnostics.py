@@ -648,14 +648,17 @@ def rapid_leverage_brief(control):
     if not isinstance(control, dict) or not control:
         return {'status':'unavailable','readOnly':True,'realOrders':False,
                 'productReturnVerified':False,'reason':'rapid-study-report-missing'}
-    permitted = {'breakout','impulse','pullback','news-impulse'}
+    permitted = {'breakout','impulse','pullback','news-impulse',
+                 'fast1m-impulse','fast1m-rebound','fast3m-breakout'}
     allowed_blockers = {'no-setup','no-verified-scheduled-release',
         'minute-history-gap','minute-evidence-invalid','mixed-minute-sources',
         'five-minute-original-coverage-short','five-minute-original-invalid',
         'five-minute-history-gap','five-minute-signal-not-fresh',
         'original-spot-unavailable','market-session-closed','closed-signal-too-old',
         'spot-before-signal','case-limit-reached','signal-already-used',
-        'stop-distance-invalid','closed-original-bars-missing','fresh-closed-5m-missing'}
+        'stop-distance-invalid','closed-original-bars-missing','fresh-closed-5m-missing',
+        'original-1m-coverage-missing','fast-quote-chased','fast-daily-loss-limit',
+        'fast-cooldown'}
     result={'status':control.get('status') if control.get('status') in
             ('collecting','awaiting-first-worker-check','completed-review-required')
             else 'unavailable',
@@ -675,7 +678,7 @@ def rapid_leverage_brief(control):
             'originalSpotFresh':source.get('originalSpotFresh') is True,
             'sourceAt':source.get('sourceAt') if type(source.get('sourceAt')) in (int,float) else None}
     setups=[]
-    for a in (control.get('setups') or [])[:4]:
+    for a in (control.get('setups') or [])[:7]:
         if not isinstance(a,dict) or a.get('setup') not in permitted:
             continue
         n=lambda key: a[key] if type(a.get(key)) is int and 0<=a[key]<=1000000 else None
