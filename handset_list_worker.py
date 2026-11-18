@@ -254,7 +254,32 @@ def guarded_ocr_run(args, *, input, text, capture_output, timeout, check, env, c
 
 
 class OcrChildError(RuntimeError):pass
-class ListVerificationError(ValueError):pass
+class ListVerificationError(ValueError):
+    def __init__(self, message, diagnostics=None):
+        super().__init__(message)
+        self.diagnostics = bounded_list_diagnostics(diagnostics)
+
+
+def bounded_list_diagnostics(value):
+    """Only integer counts/codes, never original optical strings or ISINs."""
+    if not isinstance(value, dict) or set(value) != {
+            'version', 'uniqueRows', 'expectedRows', 'imagesTotal',
+            'imagesWithRows', 'conflictingRows', 'duplicateRows', 'reason'}:
+        return None
+    for key, maximum in [('version', 1), ('uniqueRows', 10),
+                         ('expectedRows', 10), ('imagesTotal', 4),
+                         ('imagesWithRows', 4), ('conflictingRows', 10),
+                         ('duplicateRows', 10)]:
+        if type(value.get(key)) is not int or not 0 <= value[key] <= maximum:
+            return None
+    if value['version'] != 1 or value['expectedRows'] != 10 or not (
+            1 <= value['imagesTotal'] <= 4 and
+            value['imagesWithRows'] <= value['imagesTotal']):
+        return None
+    if value.get('reason') not in ('incomplete', 'conflict', 'other'):
+        return None
+    return dict(value)
+
 class OcrMemoryDeferred(ocr_workload_priority.OcrWorkloadDeferred):pass
 
 
@@ -339,7 +364,23 @@ def _process(payload,at,*,progress=None,save_progress=None):
             'appSources':[p is not None and 'appText' in image for p,image in zip(prepared,payload['images'])],
             'localSources':[p is not None and 'localOcr' in image for p,image in zip(prepared,payload['images'])]}),text=True,capture_output=True,timeout=20,check=True)
     except subprocess.CalledProcessError as exc:
-        raise ListVerificationError('Ten-row list verification failed') from exc
+        # Only after the strict parser rejected the list, ask the SAME Node
+        # parser for bounded counts. No source text or product identity is
+        # exposed in the receipt, and no failed row becomes a trade candidate.
+        details=None
+        try:
+            diagnostic=evaluator_runtime.run(
+                ['node',str(Path(__file__).with_name('handset_list_parse.js'))],
+                input=json.dumps({'mode':'diagnose','images':images,
+                    'appSources':[p is not None and 'appText' in image for p,image in zip(prepared,payload['images'])],
+                    'localSources':[p is not None and 'localOcr' in image for p,image in zip(prepared,payload['images'])]}),
+                text=True,capture_output=True,timeout=20,check=True)
+            details=bounded_list_diagnostics(json.loads(diagnostic.stdout))
+        except (ValueError, TypeError, KeyError, subprocess.CalledProcessError,
+                subprocess.TimeoutExpired, OSError, RuntimeError):
+            pass
+        raise ListVerificationError('Ten-row list verification failed',
+                                    diagnostics=details) from exc
     parsed=json.loads(result.stdout)
     # A private routing count, not a new issuer or trade approval. The original
     # ten-row parser and retained source screenshot remain authoritative.
@@ -502,8 +543,14 @@ def tick(connect,runner=process):
             # A failed global reconciliation must permit fresh optical reads;
             # an individually agreed subset is not proof of a complete image.
             clear_progress=',ocr_progress=NULL' if isinstance(exc,ListVerificationError) else ''
-            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb"+clear_progress+" WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",(json.dumps({'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,'memoryDeferrals':memory_deferrals(previous),
-                'enhancedVerification':bool(alternate and isinstance(exc,ListVerificationError))}),batch))
+            details=bounded_list_diagnostics(getattr(exc, 'diagnostics', None)) if isinstance(exc,ListVerificationError) else None
+            receipt={'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,
+                     'memoryDeferrals':memory_deferrals(previous),
+                     'enhancedVerification':bool(alternate and isinstance(exc,ListVerificationError))}
+            if details is not None:
+                receipt['verificationCounts']=details
+            conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb"+clear_progress+" WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",
+                (json.dumps(receipt),batch))
             conn.commit()
     return True
 

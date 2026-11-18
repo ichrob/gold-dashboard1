@@ -42,6 +42,54 @@ class WorkerTests(unittest.TestCase):
         for invalid in (-1,True,'3',None):
             self.assertEqual(worker.memory_deferrals({'memoryDeferrals':invalid}),0)
 
+    def test_rejected_list_has_only_anonymous_bounded_counts(self):
+        raw={'version':1,'uniqueRows':4,'expectedRows':10,
+             'imagesTotal':3,'imagesWithRows':2,'conflictingRows':0,
+             'duplicateRows':1,'reason':'incomplete'}
+        self.assertEqual(worker.bounded_list_diagnostics(raw),raw)
+        for changed in (
+            {'isin':'DE000TEST000'}, {'rawText':'account secret'},
+            {'uniqueRows':11}, {'uniqueRows':True}, {'imagesTotal':0},
+            {'reason':'unknown'}):
+            value={**raw,**changed}
+            self.assertIsNone(worker.bounded_list_diagnostics(value))
+        failure=worker.ListVerificationError('Do not log raw OCR',raw)
+        self.assertEqual(failure.diagnostics,raw)
+        self.assertNotIn('DE000',json.dumps(failure.diagnostics))
+
+    def test_node_verification_diagnoses_missing_ten_without_leaking_text(self):
+        input_payload={'mode':'diagnose','images':[
+            ['PRIVATE ACCOUNT NOT A PRODUCT', 'PRIVATE ACCOUNT NOT A PRODUCT']],
+            'appSources':[False],'localSources':[False]}
+        result=subprocess.run(['node','handset_list_parse.js'],
+            input=json.dumps(input_payload),text=True,capture_output=True,check=True)
+        parsed=json.loads(result.stdout)
+        self.assertEqual(parsed['uniqueRows'],0)
+        self.assertEqual(parsed['imagesWithRows'],0)
+        self.assertEqual(parsed['reason'],'incomplete')
+        self.assertNotIn('PRIVATE',result.stdout)
+        self.assertEqual(worker.bounded_list_diagnostics(parsed),parsed)
+
+    def test_failed_ocr_parser_uses_a_separate_redacted_diagnosis(self):
+        from types import SimpleNamespace
+        counts={'version':1,'uniqueRows':6,'expectedRows':10,
+                'imagesTotal':1,'imagesWithRows':1,'conflictingRows':0,
+                'duplicateRows':0,'reason':'incomplete'}
+        calls=[
+            SimpleNamespace(stdout='[["incomplete","incomplete"]]'),
+            subprocess.CalledProcessError(1,['node'],stderr='private inaccessible data'),
+            SimpleNamespace(stdout=json.dumps(counts))
+        ]
+        with patch('evaluator_runtime.run',side_effect=calls) as run:
+            with self.assertRaises(worker.ListVerificationError) as caught:
+                worker.process({'images':[{'png':'never decoded in mock'}]},
+                               '2026-11-18T09:00:00Z')
+        self.assertEqual(caught.exception.diagnostics,counts)
+        self.assertEqual(run.call_count,3)
+        diagnosis=json.loads(run.call_args_list[2].kwargs['input'])
+        self.assertEqual(diagnosis['mode'],'diagnose')
+        self.assertNotIn('PRIVATE',json.dumps(caught.exception.diagnostics))
+
     def test_semantic_path_never_starts_ocr(self):
         from types import SimpleNamespace
         text={'before':['row'],'after':['row']}
