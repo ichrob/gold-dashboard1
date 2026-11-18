@@ -48,6 +48,7 @@ class ProductReadActivity : Activity() {
     private lateinit var startFeedback: TextView
     private lateinit var diagnostics: TextView
     private lateinit var primary: Button
+    private lateinit var readerScroll: ScrollView
     private val preferences by lazy { getSharedPreferences("product_reader", MODE_PRIVATE) }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -300,6 +301,10 @@ class ProductReadActivity : Activity() {
                         startFeedback.text = "✅ DEGIRO-Lesedienst ist bereits in Samsung aktiviert. " +
                             "Bob-Leseprüfung jetzt freigegeben. Hier bleiben und oben „Bob starten“ drücken."
                         refresh()
+                        // This settings button is deep in the advanced reader
+                        // page. Return the owner directly to Bob's START button,
+                        // not to the Samsung shortcut or another nested menu.
+                        readerScroll.post { readerScroll.scrollTo(0, 0) }
                     } else {
                         preferences.edit().putBoolean("enabled", true).apply()
                         readerSettingsOpened = true
@@ -400,6 +405,7 @@ class ProductReadActivity : Activity() {
         }
         capabilityActions["Gold-Produkte suchen und auslesen"] = { startAutomaticTest() }
         capabilityActions["Gespeicherte PIN einmal eingeben"] = { startLocalLogin() }
+        readerScroll = scroll
         setContentView(scroll)
         scroll.requestApplyInsets()
     }
@@ -410,6 +416,7 @@ class ProductReadActivity : Activity() {
         refresh()
         if(readerSettingsOpened) {
             readerSettingsOpened = false
+            readerScroll.post { readerScroll.scrollTo(0, 0) }
             startFeedback.text = if(serviceEnabled())
                 "✅ Bob – Handy: Produkte lesen ist aktiviert. " +
                     "Du bist wieder bei Bob. Oben „Bob starten“ drücken; keinen Shortcut einstellen."
