@@ -109,9 +109,11 @@ self.addEventListener("push", event => {
       const preferences=await response.json();
       if((details.kind==='general'?(preferences.riskMarket??preferences.risk):preferences.risk)!==true)return;
     }
-    if(details.kind==='general'){
+    if(details.kind==='general'||details.kind==='device-access'){
+      // Device-access prompts are opt-in operational notices, not market
+      // signals or a command to open an Android app.
       const cache=await caches.open('bob-push-settings'),response=await cache.match('/__bob_push_preferences__');
-      if(!(response&&(await response.json()).general))return;
+      if(!(response&&(await response.json()).general===true))return;
     }
     if(details.kind==='trade'){
       const cache=await caches.open('bob-push-settings');
