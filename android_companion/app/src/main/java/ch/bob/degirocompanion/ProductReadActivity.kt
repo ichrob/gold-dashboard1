@@ -878,6 +878,26 @@ class ProductReadActivity : Activity() {
             }
             return
         }
+        // Android may have enabled the REAL accessibility reader while Bob's
+        // separate local opt-in is still off. Do not send the owner back into
+        // the nested Samsung shortcut settings. Ask for a fresh local consent
+        // from the actual Start button, then continue the same read-only flow.
+        if(serviceEnabled() && !preferences.getBoolean("enabled", false)) {
+            AlertDialog.Builder(this).setTitle("Bob-Leseprüfung einmalig freigeben?")
+                .setMessage("Der Samsung-Dienst „Bob – Handy: Produkte lesen“ ist bereits eingeschaltet. " +
+                    "Bob darf nach deiner Bestätigung DEGIRO-Produkte nur lesen, " +
+                    "die Goldliste suchen und die Ergebnisse an deinen Bob übertragen. " +
+                    "Keine Orders und keine Umgehung der Samsung-Sperre.")
+                .setNegativeButton("Abbrechen", null)
+                .setPositiveButton("Freigeben und Bob starten") { _, _ ->
+                    if(preferences.edit().putBoolean("enabled", true).commit()) {
+                        startAutomaticTest()
+                    } else {
+                        startFeedback.text = "Bob-Lesefreigabe konnte nicht gespeichert werden. Kein DEGIRO-Start."
+                    }
+                }.show()
+            return
+        }
         var startedHere=false
         var localPin: ByteArray?=null
         var failureCode = "START_OTHER"
@@ -951,7 +971,19 @@ class ProductReadActivity : Activity() {
                 MorningReadUiPolicy.Action.SEND -> MorningReadTransfer.showResults(this)
                 MorningReadUiPolicy.Action.SETUP -> {
                     preferences.edit().putBoolean("enabled",true).apply()
-                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    if(serviceEnabled()) {
+                        startFeedback.text = "✅ Samsung-Lesedienst bereits aktiv. " +
+                            "Bob-Leseprüfung freigegeben. Oben „Bob starten“ drücken."
+                        readerScroll.post { readerScroll.scrollTo(0, 0) }
+                    } else {
+                        readerSettingsOpened = true
+                        startFeedback.text = "Samsung-Lesedienst muss erst vom Gerätebesitzer aktiviert werden. " +
+                            "Danach über Home zu Bob Handy zurückkehren."
+                        runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                            .onFailure { readerSettingsOpened = false
+                                startFeedback.text = "Samsung-Einstellungen nicht erreichbar. " +
+                                    "Bitte Eingabehilfe → Installierte Apps öffnen." }
+                    }
                 }
                 MorningReadUiPolicy.Action.START -> MorningReadTransfer.requestList(this)
             }
