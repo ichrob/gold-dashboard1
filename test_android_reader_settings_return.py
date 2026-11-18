@@ -26,6 +26,8 @@ class ReaderSettingsReturn(unittest.TestCase):
         self.assertIn('preferences.edit().putBoolean("enabled", true).apply()', dialog)
         self.assertIn('Hier bleiben und oben „Bob starten“ drücken.', dialog)
         self.assertIn('readerSettingsOpened = true', dialog)
+        self.assertIn('readerScroll.post { readerScroll.scrollTo(0, 0) }', dialog)
+        self.assertIn('readerScroll = scroll', code)
 
     def test_real_product_reader_not_shortcut_is_source_of_truth(self):
         code = self.code
