@@ -605,6 +605,8 @@ class MorningReadPolicyTest {
     @Test fun goldSearchOpensOnlyIsolatedFullLeverageResultsLink() {
         val view=screenshotGoldTopResults()
         assertEquals(2,MorningReadPolicy.fullGoldResultsLink(view))
+        assertEquals(2,MorningReadPolicy.fullGoldResultsLink(
+            view.mapIndexed { i,n -> if(i==2)n.copy(row="Alle Ergebnisse in Hebelprodukte ›") else n }))
         val full=view.filterIndexed { index, _ -> index!=2 && index!=3 }
         assertTrue(MorningReadPolicy.fullGoldResultsView(full))
         assertTrue(MorningReadPolicy.fullGoldResultsView(full.filterNot { it.editable }))
