@@ -1728,7 +1728,8 @@ def _worker(db):
                                 and 'early5m1000nov' not in active_cases):
                             try:
                                 request={**evidence,'quotes':quotes,'market':two_candle_market,
-                                         'bundle':bundle,'rankingPolicy':ranking_policy}
+                                         'bundle':bundle,'rankingPolicy':ranking_policy,
+                                         'twoCandlePaper':True}
                                 p=evaluator_runtime.run(
                                     ['node',str(Path(__file__).with_name('paper_selection.js'))],
                                     input=json.dumps(request),text=True,capture_output=True,
