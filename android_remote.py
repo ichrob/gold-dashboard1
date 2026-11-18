@@ -7,7 +7,7 @@ import uuid
 from android_telemetry import token_hash
 
 SCOPE='bob:phone:control'
-TOOLS=('bob_phone_status','bob_phone_command')
+TOOLS=('bob_phone_status','bob_phone_command','bob_phone_request_access')
 ACTIONS=('inspect','search_gold','search_isin','read_page','read_account_settings','termux_check','stop')
 # The handset runs in the background when DEGIRO is in the foreground. Android
 # may delay remote polls for longer than 20s. Keep the *undelivered* request
@@ -48,7 +48,8 @@ def verified_settings(state,now):
 def definitions():
     common={'deviceId':{'type':'string','pattern':'^[a-f0-9]{12}$'}}
     return [dict(name='bob_phone_status',description='Read the latest user-opened Bob Handy session, product-only observation, bounded redacted settings evidence and command acknowledgement. Cached timestamps are not a live screen; never an order or full-phone access.',inputSchema={'type':'object','properties':common,'additionalProperties':False},annotations={'readOnlyHint':True,'destructiveHint':False,'idempotentHint':True,'openWorldHint':False}),
-      dict(name='bob_phone_command',description='Request one bounded DEGIRO product-reading action or read_account_settings on a user-opened settings page, in an explicitly opened handset session. search actions perform ONE semantic navigation step; inspect again before continuing. Account settings never confirm actual fees or executable quotes. termux_check may request only a fixed on-device help check during a user-opened session: no shell input, secrets, or orders. Queued/delivered does not mean performed. Reuse requestId on retry.',inputSchema={'type':'object','properties':{**common,'sessionId':{'type':'string'},'requestId':{'type':'string'},'action':{'type':'string','enum':list(ACTIONS)},'isin':{'type':'string'}},'required':['deviceId','sessionId','requestId','action'],'additionalProperties':False},annotations={'readOnlyHint':False,'destructiveHint':False,'idempotentHint':True,'openWorldHint':True})]
+      dict(name='bob_phone_command',description='Request one bounded DEGIRO product-reading action or read_account_settings on a user-opened settings page, in an explicitly opened handset session. search actions perform ONE semantic navigation step; inspect again before continuing. Account settings never confirm actual fees or executable quotes. termux_check may request only a fixed on-device help check during a user-opened session: no shell input, secrets, or orders. Queued/delivered does not mean performed. Reuse requestId on retry.',inputSchema={'type':'object','properties':{**common,'sessionId':{'type':'string'},'requestId':{'type':'string'},'action':{'type':'string','enum':list(ACTIONS)},'isin':{'type':'string'}},'required':['deviceId','sessionId','requestId','action'],'additionalProperties':False},annotations={'readOnlyHint':False,'destructiveHint':False,'idempotentHint':True,'openWorldHint':True}),
+      dict(name='bob_phone_request_access',description='Ask the paired owner to temporarily free the Samsung display for a necessary DEGIRO product read. Sends at most one bounded daytime Web Push. No Android unlock, remote navigation, order, credentials or auto-start. Browser and local handset approvals remain separate.',inputSchema={'type':'object','properties':common,'additionalProperties':False},annotations={'readOnlyHint':False,'destructiveHint':False,'idempotentHint':True,'openWorldHint':True})]
 
 def identifier(v,n):
     return isinstance(v,str) and re.fullmatch('[a-f0-9]{%d}'%n,v) is not None
@@ -60,7 +61,7 @@ def valid_isin(s):
 
 def arguments(name,a):
     if not isinstance(a,dict):raise ValueError('Invalid arguments')
-    if name=='bob_phone_status':
+    if name in ('bob_phone_status','bob_phone_request_access'):
         if set(a)-{'deviceId'} or ('deviceId' in a and not identifier(a['deviceId'],12)):raise ValueError('Invalid device')
     elif name=='bob_phone_command':
         if set(a)-{'deviceId','sessionId','requestId','action','isin'} or not all(identifier(a.get(k),n) for k,n in [('deviceId',12),('sessionId',32),('requestId',32)]):raise ValueError('Invalid command identity')
@@ -252,6 +253,24 @@ def handle(conn,payload):
         return answer
     if op!='mcp':raise ValueError('Invalid operation')
     name=payload.get('name');a=arguments(name,payload.get('arguments'))
+    if name=='bob_phone_request_access':
+        # This is a user-visible notification, not a device command.
+        # Resolve the paired handset without requiring a currently open
+        # remote-control session. Ambiguous pairings fail closed.
+        phones=conn.execute("""SELECT token_hash FROM bob_android_diagnostic_devices
+            WHERE NOT revoked AND expires_at>now()
+            ORDER BY created_at DESC LIMIT 5""").fetchall()
+        phones=[p[0] for p in phones if not a.get('deviceId') or p[0].startswith(a['deviceId'])]
+        if len(phones)!=1:return {'status':'device-missing-or-ambiguous'}
+        existing=conn.execute("""SELECT state FROM bob_android_remote
+            WHERE token_hash=%s""",(phones[0],)).fetchone()
+        state=existing[0] if existing else {}
+        if (state.get('active') and state.get('expiresAt',0)>now
+                and now-state.get('seenAt',0)<=30):
+            return {'status':'already-online','readAuthorized':False}
+        return __import__('phone_access_handoff').request(
+            conn, 'broker-read', __import__('push_server').send_phone_access_push)
+
     # Only authenticated server-side MCP dispatch can reach this branch.
     rows=conn.execute("SELECT d.token_hash,r.state FROM bob_android_diagnostic_devices d JOIN bob_android_remote r USING(token_hash) WHERE NOT d.revoked AND d.expires_at>now() ORDER BY d.created_at DESC LIMIT 5 FOR UPDATE OF d,r").fetchall()
     rows=[r for r in rows if not a.get('deviceId') or r[0].startswith(a['deviceId'])]
@@ -259,5 +278,11 @@ def handle(conn,payload):
         return {'devices':[{'deviceId':d[:12],**dict(s,commands=s.get('commands',[])[-12:]),'fresh':now-s.get('seenAt',0)<=30,'online':s.get('active',False) and s.get('expiresAt',0)>now and now-s.get('seenAt',0)<=30} for d,s in rows], 'serverAt':now,'ordersAllowed':False}
     if len(rows)!=1:return {'status':'device-missing-or-ambiguous'}
     digest,state=rows[0];answer=enqueue(state,a,now)
+    if (answer.get('status') in ('session-missing', 'session-offline')
+            and a.get('action') not in ('stop', 'termux_check')):
+        # A failed read-only command may ask the owner for screen time.
+        # Never queue the stale command, touch the screen or create a lease.
+        __import__('phone_access_handoff').request(
+            conn, 'broker-read', __import__('push_server').send_phone_access_push)
     conn.execute('UPDATE bob_android_remote SET state=%s::jsonb WHERE token_hash=%s',(json.dumps(state),digest))
     return answer

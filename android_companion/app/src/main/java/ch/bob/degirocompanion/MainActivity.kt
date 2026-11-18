@@ -600,6 +600,35 @@ class MainActivity : Activity() {
     private fun processUserShare(incoming: Intent?) {
         if (incoming == null) return
         if (incoming.action == Intent.ACTION_VIEW) {
+            // An untrusted deep link may only DISPLAY a local owner consent
+            // dialog. It never grants a remote lease, enters a device PIN,
+            // bypasses the keyguard or places a broker order.
+            if (incoming.dataString == "bobhandy://access/READ_PRODUCTS") {
+                val power = getSystemService(POWER_SERVICE) as PowerManager
+                val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+                if (!power.isInteractive || keyguard.isKeyguardLocked || keyguard.isDeviceLocked) {
+                    AlertDialog.Builder(this).setTitle("Samsung ist gesperrt")
+                        .setMessage("Bitte zuerst selbst entsperren. Bob kann eine Android-Gerätesperre nicht umgehen.")
+                        .setPositiveButton("OK", null).show()
+                    return
+                }
+                AlertDialog.Builder(this).setTitle("Bob · DEGIRO-Zugriff freigeben?")
+                    .setMessage("Jetzt die bereits vorhandene, zeitlich begrenzte Gold-Produktlesung starten? " +
+                        "Bitte das Samsung kurz weglegen. Keine Handelsorders. " +
+                        "Du kannst jederzeit stoppen und dein Handy wieder benutzen.")
+                    .setNegativeButton("Später", null)
+                    .setPositiveButton("Jetzt lesen") { _, _ ->
+                        if (!PhoneDiagnostics.paired(this) || !ProductReadDiagnostics.connected) {
+                            AlertDialog.Builder(this).setTitle("Lesedienst noch nicht bereit")
+                                .setMessage("Bob-Diagnose koppeln und den vorhandenen DEGIRO-Lesedienst einschalten. Keine Lesung gestartet.")
+                                .setPositiveButton("OK", null).show()
+                        } else {
+                            startActivity(Intent(this, ProductReadActivity::class.java)
+                                .putExtra(ProductReadActivity.EXTRA_START_COMPLETE_FLOW, true))
+                        }
+                    }.show()
+                return
+            }
             // One explicitly opened HTTPS App Link can show ONLY a fixed
             // read-only page on Bob's own origin. This is not a command or
             // broker authorization. The exact-link parser rejects all other

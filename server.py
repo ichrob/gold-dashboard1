@@ -1353,6 +1353,13 @@ class Handler(BaseHTTPRequestHandler):
                 handset_batch=query.get("handset-list", [""])[0],
             )
             return
+        if path == "/handy/access":
+            # An authenticated browser prompt only, never a remote read lease.
+            if not self.authenticated():
+                bob_auth.send(self, 303, location="/login?view=overview")
+            else:
+                __import__('phone_access_page').send(self)
+            return
         if path.startswith("/handy/"):
             # Normal HTTPS link from ChatGPT. No public personal content:
             # deny unknown paths and require existing Bob web authentication.
@@ -2403,13 +2410,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
 
-        if path in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/degiro/candidate-proof", "/api/degiro/list-correction", "/api/degiro/android-observations", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences") and not worker_ok and (not self.authenticated()):
+        if path in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/degiro/candidate-proof", "/api/degiro/list-correction", "/api/degiro/android-observations", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences", "/api/push/phone-access") and not worker_ok and (not self.authenticated()):
             self.send_response(401)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(b"Authentication required.")
             return
 
+        if path == "/api/push/phone-access":
+            if not self.authenticated():
+                bob_auth.send(self, 401)
+                return
+            if not bob_auth.same_origin(self.headers):
+                bob_auth.send(self, 403)
+                return
         if path in ("/api/degiro/candidate-proof", "/api/degiro/list-correction", "/api/degiro/android-observations"):
             # Only an authenticated user in this site's own UI can submit a
             # candidate image observation. A worker token is insufficient.
@@ -2420,7 +2434,7 @@ class Handler(BaseHTTPRequestHandler):
                 bob_auth.send(self, 403)
                 return
         path = urlparse(self.path).path
-        if path not in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/degiro/candidate-proof", "/api/degiro/list-correction", "/api/degiro/android-observations", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences", "/api/push/device-receipt"):
+        if path not in ("/api/improvement/read", "/api/research/video-evidence", "/api/ranking-learning/control", "/api/precision-learning/control", "/api/degiro/venue", "/api/degiro/candidate-proof", "/api/degiro/list-correction", "/api/degiro/android-observations", "/api/rule-learning/read", "/api/rule-learning/rollback", "/api/real-trades/read", "/api/real-trades/write", "/api/real-trades/curve", "/api/real-trades/risk", "/api/real-trades/confirm-sale", "/api/audit/read", "/api/audit/write", "/api/trade-email/read", "/api/push/test-background", "/api/push/selection", "/api/push/send", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/preferences", "/api/push/phone-access", "/api/push/device-receipt"):
             self.send_response(404)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -2468,6 +2482,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/push/subscribe": "/subscribe",
                 "/api/push/unsubscribe": "/unsubscribe",
                 "/api/push/preferences": "/preferences",
+                "/api/push/phone-access": "/phone-access",
                 "/api/push/device-receipt": "/device-receipt",
             }[path]
             req = Request(
