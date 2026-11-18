@@ -358,11 +358,17 @@ def advance(original, bundle, now, events=()):
                 p["maxAdversePct"] = max(p["maxAdversePct"], -100*movement/p["entry"])
                 p["maxFavorablePct"] = max(p["maxFavorablePct"], 100*movement/p["entry"])
                 held = price["at"]-p["entrySourceAt"]
+                fast=FAST_POLICY.get(name)
+                reversal=(fast is not None and held>=2*MINUTE and
+                          sign*(p["bestPrice"]-p["entry"])>=.7*p["risk"] and
+                          sign*(p["bestPrice"]-observed)>=.8*p["atr"])
                 why = ("stop-observed" if sign*(observed-p["stop"])<=0 else
                        "target-observed" if sign*(observed-p["target"])>=0 else
+                       "reversal-observed" if reversal else
                        "session-end" if not local_session(now) else
-                       "time-limit" if held>=MAX_MINUTES*MINUTE else
-                       "no-progress" if held>=30*MINUTE and movement < .25*p["risk"] else None)
+                       "time-limit" if held>=(fast["maxMinutes"] if fast else MAX_MINUTES)*MINUTE else
+                       "no-progress" if held>=(fast["noProgressMinutes"] if fast else 30)*MINUTE
+                       and movement < .25*p["risk"] else None)
                 p["lastSourceAt"], p["lastObservedAt"] = price["at"], now
                 if why:
                     p.update(status="closed", exitReason=why, closedAt=now,
@@ -372,14 +378,16 @@ def advance(original, bundle, now, events=()):
                     if sign*(observed-p["bestPrice"])>0:
                         p["bestPrice"] = observed
                     proposed = p["initialStop"]
-                    if sign*(p["bestPrice"]-p["entry"])>=p["risk"]:
+                    if sign*(p["bestPrice"]-p["entry"])>=(.7 if fast else 1.0)*p["risk"]:
                         proposed = p["entry"]
-                    if sign*(p["bestPrice"]-p["entry"])>=1.5*p["risk"]:
-                        proposed = p["bestPrice"]-sign*p["atr"]
+                    if sign*(p["bestPrice"]-p["entry"])>=(1.1 if fast else 1.5)*p["risk"]:
+                        proposed = p["bestPrice"]-sign*(.7 if fast else 1.0)*p["atr"]
                     if sign*(proposed-p["stop"])>0:
                         p["stop"] = proposed
             if p["status"] != "open":
                 arm["closed" if p["status"]=="closed" else "inconclusive"] += 1
+                if name in FAST_SETUPS:
+                    arm["lastExitAt"]=now
                 completed.append(p)
                 state["recent"] = (state["recent"] + [dict(id=p["id"], setup=name,
                     status=p["status"], exitReason=p.get("exitReason"), closedAt=now,
@@ -387,6 +395,11 @@ def advance(original, bundle, now, events=()):
                 arm["position"] = None
             continue  # Never close and reopen on one observation.
         key = f"{sig.get('closedAt')}:{sig.get('direction')}"
+        if name in FAST_SETUPS:
+            day=datetime.fromtimestamp(now/1000,ZoneInfo("Europe/Zurich")).date().isoformat()
+            if arm.get("riskDay")!=day:
+                arm["riskDay"]=day
+                arm["dayStartEur"]=arm["levers"]["10"]["equityEur"]
         why = (sig.get("reason")
                if sig.get("direction") not in ("LONG", "SHORT") else
                "original-spot-unavailable" if not price["available"] or price["estimated"] else
@@ -394,6 +407,10 @@ def advance(original, bundle, now, events=()):
                "closed-signal-too-old" if now-sig["closedAt"] > 90000 else
                "spot-before-signal" if price["at"] < sig["closedAt"] else
                "case-limit-reached" if arm["started"] >= MAX_TRADES_PER_SETUP else
+               "fast-daily-loss-limit" if name in FAST_SETUPS and
+                   arm["levers"]["10"]["equityEur"]<=.97*arm["dayStartEur"] else
+               "fast-cooldown" if name in FAST_SETUPS and
+                   now-arm.get("lastExitAt",-10*MINUTE)<3*MINUTE else
                "signal-already-used" if key == arm["lastSignal"] else None)
         arm["lastReason"] = why
         if why and key != arm.get("lastCheckedSignal"):
