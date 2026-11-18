@@ -518,6 +518,8 @@ def paper_entry_reason_code(reason):
     # Real invalid directional stop/target plans retain plan-or-timing.
     if text == 'ABWARTEN: kein bestätigter gültiger Goldplan':
         return 'no-direction'
+    if text.startswith('Zwei-5m-Test:'):
+        return 'two-candle-wait'
     # Prospectively separate the three dominant November-campaign blockers
     # instead of hiding their frequency under "plan-or-timing". Exact ATR
     # comparisons are still made by the existing isolated campaign gates.
@@ -907,6 +909,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 reason='Frühimpuls-Strategie: '+str(market.get('earlyPaperBlockReason') or 'kein bestätigter 5m/15m-Frühimpuls')
             elif profile_policy and profile_policy.get('early_warning') and market.get('paperEntrySource')!='early-warning-paper-v2':
                 reason='Frühwarn-Test: '+str(market.get('warningPaperBlockReason') or 'Keine aktuelle gültige Frühwarnung')
+            elif profile_policy and profile_policy.get('two_candle_early') and market.get('paperEntrySource')!='two-candle-5m-paper-v1':
+                reason='Zwei-5m-Test: '+str(market.get('twoCandleBlockReason') or 'Keine gültige aktuelle Zwei-Kerzen-Bestätigung')[:200]
             elif not stop_target_audit.valid_plan(plan):
                 detail = str((market.get('entryPlanState') or {}).get('reason')
                     or market.get('decisionReason') or 'Stopp-/Zielplan nicht gültig')
@@ -996,7 +1000,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             # Never store an ISIN, quote, full blocker text or model profit.
             if profile_policy and profile_policy.get('id') in (
                     'trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov',
-                    'trend1000dec', 'normal1000dec', 'early1000dec'):
+                    'trend1000dec', 'normal1000dec', 'early1000dec',
+                    'early5m1000nov'):
                 from paper_profit_summary import entry_block_code
                 control['lastTradingEntryBlockCode'] = (
                     None if entered else entry_block_code(reason))
