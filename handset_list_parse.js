@@ -127,7 +127,7 @@ function complementImage(phonePasses,nativePasses) {
   if(!Array.isArray(passes) || passes.length<2 || passes.length>3 ||
      passes.some(v=>typeof v!=='string'||v.length>30000))return null;
   const readings=passes.map(value=>local
-   ? value.split('\\n').map(normalizeLocalOcrLabels).join('\\n'):value);
+   ? value.split('\n').map(normalizeLocalOcrLabels).join('\n'):value);
   const agreed=agreedImageRows(readings);
   const result=new Map();
   const sig=row=>JSON.stringify([row.direction,...['venue','currency','ko','strike','ratio','maturity','excluded'].map(k=>row.listRow[k])]);
@@ -172,7 +172,7 @@ function complementImage(phonePasses,nativePasses) {
   for(const next of followers.get(id))indegree.set(next,indegree.get(next)-1);
   indegree.set(id,-1);
  }
- const result=[0,1].map(pass=>ordered.map(id=>union.get(id).blocks[pass]).join('\\n'));
+ const result=[0,1].map(pass=>ordered.map(id=>union.get(id).blocks[pass]).join('\n'));
  const agreed=agreedImageRows(result);
  if(agreed.length!==union.size || agreed.some(row=>!union.has(row.isin)))return null;
  return result;
