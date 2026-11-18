@@ -500,7 +500,26 @@ class WorkflowDeviceTest {
         }
         assertFalse(GoldSearchRun.running) // Fixture device has no enabled product reader.
         assertNull(WorkflowService.run)
-        assertTrue(automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Unter Einrichtung den Lesedienst einmalig einschalten.").isNotEmpty())
+        // The separate persistent start-status line now takes vertical room.
+        // Recheck the original setup hint after scrolling the reader's own
+        // ScrollView; do not require an offscreen TextView in the first frame.
+        await("Reader setup hint missing after handoff") {
+            val root = automation.rootInActiveWindow ?: return@await false
+            val present = root.findAccessibilityNodeInfosByText(
+                "Unter Einrichtung den Lesedienst einmalig einschalten.").isNotEmpty()
+            if (!present) {
+                fun scrollDown(node: android.view.accessibility.AccessibilityNodeInfo): Boolean {
+                    if (node.isScrollable && node.performAction(
+                            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return true
+                    for (i in 0 until node.childCount) node.getChild(i)?.let {
+                        if (scrollDown(it)) return true
+                    }
+                    return false
+                }
+                scrollDown(root)
+            }
+            present
+        }
         context.getSharedPreferences("workflow_auto_v1",0).edit().clear().commit()
     }
     @Test fun ownerLoginRequestUsesLocalPinRouteAndShowsMissingReaderInsteadOfAiRejection() {
