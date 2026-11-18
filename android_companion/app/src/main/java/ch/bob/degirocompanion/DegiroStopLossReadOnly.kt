@@ -39,14 +39,14 @@ internal object DegiroStopLossReadOnly {
     }
 
     private val isin=Regex("\\b[A-Z]{2}[A-Z0-9]{10}\\b")
-    private val protected=Regex(
+    private val secretLabels=Regex(
         "(?i)(passwort|password|passcode|\\bpin\\b|\\btan\\b|fingerabdruck|biometr|anmelden|log.?in|zahlung|bezahlen|verifizieren)"
     )
     private fun norm(s:String)=s.trim().lowercase(Locale.GERMAN).replace(Regex("\\s+")," ")
     private fun has(frame:Frame,label:String)=frame.nodes.any{norm(it.label)==norm(label)}
     fun inspect(frame:Frame):Result {
         if(frame.packageName!="nl.degiro.trader")return Result(Code.NOT_DEGIRO)
-        if(frame.nodes.any { it.password || protected.containsMatchIn(it.label) })
+        if(frame.nodes.any { it.password || secretLabels.containsMatchIn(it.label) })
             return Result(Code.PROTECTED)
         if(frame.nodes.size !in 4..1200)return Result(Code.INCOMPLETE)
         val count=frame.nodes.flatMap {
