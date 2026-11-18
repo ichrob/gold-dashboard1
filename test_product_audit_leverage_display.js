@@ -1,6 +1,9 @@
 'use strict';
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const panel=fs.readFileSync('degiro_product_audit_panel.py','utf8');
+assert(!panel.includes('Handelsplatznachweis speichern'));
+assert(!panel.includes('Handelsplatz bestätigen'));
+assert(panel.includes('kein manuelles Pflichtformular'));
 const start=panel.indexOf(' const fmt=iso=>');
 const end=panel.indexOf(' // A previously complete *analysis*',start);
 assert(start>0&&end>start);
