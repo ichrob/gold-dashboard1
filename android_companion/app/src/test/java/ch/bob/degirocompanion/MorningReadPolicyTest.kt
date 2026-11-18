@@ -609,6 +609,13 @@ class MorningReadPolicyTest {
         assertTrue(MorningReadPolicy.fullGoldResultsView(full))
         assertTrue(MorningReadPolicy.fullGoldResultsView(full.filterNot { it.editable }))
         assertFalse(MorningReadPolicy.fullGoldResultsView(view))
+        // Some Samsung WebViews replace the tab with a non-clickable
+        // full-catalog heading, after the isolated link opens.
+        val heading=full.filterNot { it.text=="Hebelprodukte" }+
+            MorningReadPolicy.Node("Alle Ergebnisse in Hebelprodukte")
+        assertTrue(MorningReadPolicy.fullGoldResultsView(heading))
+        assertEquals(MorningReadPolicy.Kind.COLLECT,
+            MorningReadPolicy.captureGoldList(heading,true,fullPage=true).kind)
         assertEquals(MorningReadPolicy.Kind.COLLECT,
             MorningReadPolicy.captureGoldList(full,true).kind)
     }
