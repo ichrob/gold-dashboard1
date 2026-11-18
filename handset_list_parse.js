@@ -122,7 +122,29 @@ function nativeImage(passes) {
 // server OCR can read those edges. Each output row still has two real OCR
 // passes and the exact ISIN/contract-terms proof; nothing is inferred.
 // Ordering must be unambiguous in the two independently read row sequences.
+function complementEligible(phonePasses) {
+ if(!Array.isArray(phonePasses)||phonePasses.length!==2||
+    phonePasses.some(s=>typeof s!=='string'||s.length>30000))return false;
+ const claims=new Map(),seenInBoth=new Set();
+ for(let pass=0;pass<2;pass++) {
+  const reading=phonePasses[pass].split('\n').map(normalizeLocalOcrLabels).join('\n');
+  const once=new Set();
+  for(const block of b.degiroListBlocks(normalizeLayout(reading))) {
+   const row=b.parseDegiroListRow(block);
+   if(!row||!b.validIsin(row.isin))continue;
+   if(once.has(row.isin))return false;
+   once.add(row.isin);
+   const signature=JSON.stringify([row.direction,...['venue','currency','ko','strike','ratio','maturity','excluded'].map(k=>row.listRow[k])]);
+   if(claims.has(row.isin)) {
+    if(claims.get(row.isin)!==signature)return false;
+    seenInBoth.add(row.isin);
+   } else claims.set(row.isin,signature);
+  }
+ }
+ return seenInBoth.size>0;
+}
 function complementImage(phonePasses,nativePasses) {
+ if(!complementEligible(phonePasses))return null;
  function witnessed(passes,local) {
   if(!Array.isArray(passes) || passes.length<2 || passes.length>3 ||
      passes.some(v=>typeof v!=='string'||v.length>30000))return null;
@@ -241,5 +263,5 @@ function diagnose(images,appSources=[],localSources=[]){
   duplicateRows:Math.min(10,duplicateRows),
   reason:conflictingRows?'conflict':unique.size!==10?'incomplete':'other'};
 }
-module.exports={normalizeLocalOcrLabels,canonicalLocalOcrIdentity,parse,diagnose,normalizeLayout,appImage,localOcrImage,nativeImage,complementImage};
-if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):x.mode==='prepare-native'?nativeImage(x.passes):x.mode==='complement'?complementImage(x.phone,x.native):x.mode==='diagnose'?diagnose(x.images,x.appSources,x.localSources):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
+module.exports={normalizeLocalOcrLabels,canonicalLocalOcrIdentity,parse,diagnose,normalizeLayout,appImage,localOcrImage,nativeImage,complementImage,complementEligible};
+if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):x.mode==='prepare-native'?nativeImage(x.passes):x.mode==='complement'?complementImage(x.phone,x.native):x.mode==='complement-eligible'?complementEligible(x.phone):x.mode==='diagnose'?diagnose(x.images,x.appSources,x.localSources):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
