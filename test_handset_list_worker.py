@@ -718,20 +718,33 @@ class DatabaseTests(unittest.TestCase):
             with connect() as conn:
                 conn.execute("UPDATE bob_android_list_images SET processing_attempts=0,processing_at=NULL,import_receipt=NULL WHERE batch_id=%s",(value['batchId'],))
             def deferred(*_):raise worker.OcrMemoryDeferred('private text')
-            for count in range(1,5):
+            for count in range(1,25):
                 self.assertTrue(worker.tick(connect,deferred))
                 with connect() as conn:
                     receipt,attempts,payload=conn.execute('SELECT import_receipt,processing_attempts,payload FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()
                     self.assertEqual(receipt['memoryDeferrals'],count)
-                    self.assertEqual(attempts,0 if count<4 else 6)
+                    self.assertEqual(attempts,0 if count<24 else 6)
                     self.assertEqual(payload['images'],value['images'])
                     # Late browser receipts cannot reset the durable budget.
                     android_list.handle(conn,{'action':'list-receipt','value':{'batchId':value['batchId'],'stage':'reading','count':0}},now)
                     after=conn.execute('SELECT import_receipt FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0]
                     self.assertEqual(after['memoryDeferrals'],count)
-                    if count==4:self.assertEqual(after,receipt)
+                    if count==24:self.assertEqual(after,receipt)
                     conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes' WHERE batch_id=%s",(value['batchId'],))
             self.assertFalse(worker.tick(connect,lambda *_:self.fail('Exhausted memory retries must stop')))
+            # A pre-fix batch at four deferrals is now eligible for reprocessing
+            # without recapturing or relaxing evidence verification.
+            legacy={'batchId':value['batchId'],'stage':'read-failed','count':0,
+                    'error':'MemoryError','reason':'OCR_MEMORY_WAIT_EXHAUSTED',
+                    'retryAllowed':False,'memoryDeferrals':4}
+            with connect() as conn:
+                conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb,processing_attempts=6,processing_at=now()-interval '5 minutes' WHERE batch_id=%s",
+                    (json.dumps(legacy),value['batchId']))
+            self.assertTrue(worker.tick(connect,lambda *_:parsed))
+            with connect() as conn:
+                final=conn.execute('SELECT import_receipt FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0]
+                self.assertIn(final['stage'],('synced','superseded'))
+                self.assertEqual(final['count'],10)
 
         finally:
             with psycopg.connect(url) as admin:admin.execute('DROP SCHEMA '+schema+' CASCADE')
