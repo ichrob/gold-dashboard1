@@ -947,6 +947,30 @@ class RapidStudyDiagnosticTests(unittest.TestCase):
         self.assertFalse(brief['productReturnVerified'])
         self.assertFalse(brief['realOrders'])
 
+    def test_all_seven_fast_setups_visible_without_private_payload(self):
+        names=('breakout','impulse','pullback','news-impulse',
+               'fast1m-impulse','fast1m-rebound','fast3m-breakout')
+        report=dict(status='collecting',checkedAt=1795012008455,
+            setups=[dict(setup=name,started=i,closed=0,inconclusive=0,
+                         open=False,latestBlockReason=(
+                             'fast-quote-chased' if name=='fast1m-impulse' else
+                             'original-1m-coverage-missing' if name=='fast1m-rebound' else
+                             'fast-cooldown' if name=='fast3m-breakout' else 'no-setup'),
+                         levers=[dict(leverage=lever,modeledReturnPct=0,completed=0)
+                                 for lever in (3,5,8,10,15,20,30)],
+                         hiddenIsin='REDACTED',token='REDACTED')
+                    for i,name in enumerate(names)])
+        result=diagnostics.rapid_leverage_brief(report)
+        self.assertEqual([x['setup'] for x in result['setups']],list(names))
+        self.assertEqual(result['configurationsReported'],49)
+        self.assertEqual(result['setups'][4]['latestBlockReason'],'fast-quote-chased')
+        self.assertEqual(result['setups'][5]['latestBlockReason'],'original-1m-coverage-missing')
+        self.assertEqual(result['setups'][6]['latestBlockReason'],'fast-cooldown')
+        self.assertNotIn('hiddenIsin',json.dumps(result))
+        self.assertNotIn('token',json.dumps(result))
+        self.assertFalse(result['productReturnVerified'])
+        self.assertFalse(result['strategyWinnerConfirmed'])
+
     def test_missing_rapid_study_is_not_reported_as_healthy(self):
         result=diagnostics.rapid_leverage_brief(None)
         self.assertEqual(result['status'],'unavailable')
