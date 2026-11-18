@@ -38,14 +38,16 @@ def test_snooze_and_daily_cap():
     state = access.new_request({}, "manual", now)
     state.update(status="snoozed", notBefore=now + 1200)
     assert access.new_request(state, "manual", now + 1199) is None
-    again = access.new_request(state, "manual", now + 1200)
-    assert again["requestId"] != state["requestId"]
-    assert again["attempts"] == 2
-    again.update(status="snoozed", notBefore=now + 2400)
-    third = access.new_request(again, "manual", now + 2400)
-    assert third["attempts"] == 3
-    third.update(status="snoozed", notBefore=now + 3600)
-    assert access.new_request(third, "manual", now + 3600) is None
+    previous = state
+    for attempt in range(2, access.MAX_NOTICES_PER_DAY + 1):
+        when = now + (attempt - 1) * 1200
+        current = access.new_request(previous, "manual", when)
+        assert current["requestId"] != previous["requestId"]
+        assert current["attempts"] == attempt
+        current.update(status="snoozed", notBefore=when + 1200)
+        previous = current
+    assert access.new_request(previous, "manual",
+                              now + access.MAX_NOTICES_PER_DAY * 1200) is None
 
 
 def test_no_message_on_weekend_or_unknown_reason():
@@ -103,3 +105,14 @@ def test_only_approved_actual_receipt_can_finish():
     assert access.completed(db, now)
     assert db.state["status"] == "completed"
     assert access.completed(db, now) is False
+
+
+def test_new_distinct_broker_plan_only_after_cooldown():
+    now = instant(2026, 11, 18, 10)
+    first = access.new_request({}, "broker-read", now, fingerprint="first")
+    first.update(status="completed", completedAt=now + 60)
+    assert access.new_request(first, "broker-read", now + 3600, fingerprint="first") is None
+    assert access.new_request(first, "broker-read", now + 1799, fingerprint="second") is None
+    second = access.new_request(first, "broker-read", now + 1800, fingerprint="second")
+    assert second["attempts"] == 2
+    assert second["fingerprint"] == "second"
