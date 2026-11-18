@@ -44,7 +44,7 @@ def entry_block_code(value):
     if signal_age:
         return 'signal-age'
     if any(word in reason for word in ('goldkurs nicht aktuell','quellenzeit','marktdaten',
-                                      'daten fehlen','quellenlücke')):
+                                      'daten fehlen','quellenlücke','5m-daten veraltet')):
         return 'source-not-fresh'
     if any(word in reason for word in ('außerhalb','nachtmodus','markt geschlossen',
                                       'börsenpause','einstiegszeit')):
