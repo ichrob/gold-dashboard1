@@ -82,37 +82,62 @@ class MainActivity : Activity() {
     private var tradeDimStatus: TextView? = null
     private val demoHandler = Handler(Looper.getMainLooper())
     private var demoActive = false
+    private var demoWakeLease: PowerManager.WakeLock? = null
+    private var demoStatus: String? = null
     private val demoExpiry = Runnable { stopTradeScreenDemo("20-Minuten-Test abgeschlossen.") }
+
+    private fun setDemoStatus(message: String) {
+        demoStatus = message
+        tradeDimStatus?.text = message
+    }
 
     /** Only tests the display wake behavior, not a DEGIRO trade or PIN.
      * The app must remain foreground; never creates a fake active server trade.
      */
+    @Suppress("DEPRECATION")
     private fun startTradeScreenDemo() {
         val power = getSystemService(POWER_SERVICE) as PowerManager
         val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-        if(!power.isInteractive || keyguard.isKeyguardLocked || keyguard.isDeviceLocked) {
-            tradeDimStatus?.text = "Samsung zuerst selbst entsperren."
+        if (!power.isInteractive || keyguard.isKeyguardLocked || keyguard.isDeviceLocked) {
+            setDemoStatus("Bildschirmtest nicht gestartet: Samsung zuerst selbst entsperren.")
             return
         }
-        if(BobTradeDimMode.running) {
-            tradeDimStatus?.text = "Laufenden echten Trade-Lesemodus zuerst stoppen."
+        if (BobTradeDimMode.running) {
+            setDemoStatus("Bildschirmtest nicht gestartet: Laufenden echten Trade-Lesemodus zuerst stoppen.")
             return
         }
         stopTradeScreenDemo("Neuer Test")
+        // Samsung may pause an activity under an overlay. The bounded SCREEN_DIM
+        // lease backs up the foreground window flag, never bypasses keyguard,
+        // and cannot override the owner's power button or device policy.
+        val newLease = runCatching {
+            power.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK, "Bob:OwnerScreenDemo").also {
+                it.setReferenceCounted(false)
+                it.acquire(20L * 60 * 1000)
+            }
+        }.getOrNull()
+        if (newLease == null) {
+            setDemoStatus("Bildschirmtest nicht gestartet: Android hat die Wachhaltung abgelehnt.")
+            return
+        }
+        demoWakeLease = newLease
         demoActive = true
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        tradeDimStatus?.text = "TEST OHNE ECHTGELD · 20 Minuten Wachhaltung nur in Bob Handy. " +
-            "Keine DEGIRO-Bedienung und keine simulierte Broker-Ausführung. " +
-            "Samsung-Extra-Dimmung bei Bedarf selbst einschalten."
-        demoHandler.postDelayed(demoExpiry,20L*60*1000)
+        setDemoStatus("TEST OHNE ECHTGELD · 20 Minuten Bildschirm-Wachhaltung aktiv. " +
+            "Samsung entsperrt und Bob Handy sichtbar lassen. " +
+            "Keine DEGIRO-Bedienung, keine Orders. " +
+            "Bei App-Wechsel, Sperre oder STOPP wird der Test beendet.")
+        demoHandler.postDelayed(demoExpiry, 20L * 60 * 1000)
     }
 
-    private fun stopTradeScreenDemo(reason:String) {
-        if(!demoActive)return
-        demoActive=false
+    private fun stopTradeScreenDemo(reason: String) {
+        if (!demoActive && demoWakeLease == null) return
+        demoActive = false
         demoHandler.removeCallbacks(demoExpiry)
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        tradeDimStatus?.text = "Bildschirmtest beendet · $reason"
+        demoWakeLease?.let { lease -> runCatching { if (lease.isHeld) lease.release() } }
+        demoWakeLease = null
+        setDemoStatus("Bildschirmtest beendet · $reason")
     }
 
     private fun clearVoicePlan() {
@@ -129,7 +154,8 @@ class MainActivity : Activity() {
         super.onResume()
         if (!localEscrowOpening) termuxCheckLabel?.text = TermuxBridge.displayStatus(this)
         workModeStatus?.text = BobWorkMode.status(this)
-        tradeDimStatus?.text = BobTradeDimMode.status
+        tradeDimStatus?.text = if (BobTradeDimMode.running) BobTradeDimMode.status
+            else demoStatus ?: BobTradeDimMode.status
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -576,7 +602,8 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
-        stopTradeScreenDemo("Bob Handy ist nicht mehr im Vordergrund.")
+        // A translucent overlay may pause the Activity while it stays visible.
+        // Clear remote permissions immediately; close the screen demo onStop.
         // No unfinished command survives a switch to another app or the background.
         taskApproval.clear()
         chatShareApproval.clear()
@@ -589,6 +616,16 @@ class MainActivity : Activity() {
             remotePendingTask = null
         }
         super.onPause()
+    }
+
+    override fun onStop() {
+        stopTradeScreenDemo("Bob Handy ist nicht mehr sichtbar oder Samsung hat den Bildschirm ausgeschaltet.")
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        stopTradeScreenDemo("Bob Handy beendet.")
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
