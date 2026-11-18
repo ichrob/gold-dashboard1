@@ -15,13 +15,33 @@ import intraday_timing_study as candles
 
 VERSION = "rapid-leverage-20261110-v1"
 MINUTE = 60000
+# Three forward-only paired experiments use exactly the same signal as their
+# named control, but different exits. Never alter older study-arm states.
+PAIRED_EXIT_CONTROLS = {
+    "fast1m-impulse-exit10": "fast1m-impulse",
+    "fast1m-rebound-exit15": "fast1m-rebound",
+    "fast3m-breakout-exit20": "fast3m-breakout",
+}
 SETUPS = ("breakout", "impulse", "pullback", "news-impulse",
-          "fast1m-impulse", "fast1m-rebound", "fast3m-breakout")
-FAST_SETUPS = frozenset(("fast1m-impulse", "fast1m-rebound", "fast3m-breakout"))
+          "fast1m-impulse", "fast1m-rebound", "fast3m-breakout",
+          *PAIRED_EXIT_CONTROLS)
+FAST_SETUPS = frozenset(("fast1m-impulse", "fast1m-rebound",
+                         "fast3m-breakout", *PAIRED_EXIT_CONTROLS))
+# Entry, initial stop, leverage and assumed costs match each paired control.
+# These options only test tighter, faster exits on newly observed cases.
 FAST_POLICY = {
     "fast1m-impulse": dict(maxMinutes=20, noProgressMinutes=6, targetR=1.4),
     "fast1m-rebound": dict(maxMinutes=30, noProgressMinutes=8, targetR=1.6),
     "fast3m-breakout": dict(maxMinutes=45, noProgressMinutes=10, targetR=1.8),
+    "fast1m-impulse-exit10": dict(maxMinutes=10, noProgressMinutes=3,
+        targetR=1.0, breakEvenR=.5, trailStartR=.8, trailAtr=.5,
+        reversalStartR=.5, reversalAtr=.6),
+    "fast1m-rebound-exit15": dict(maxMinutes=15, noProgressMinutes=5,
+        targetR=1.2, breakEvenR=.6, trailStartR=.9, trailAtr=.6,
+        reversalStartR=.6, reversalAtr=.7),
+    "fast3m-breakout-exit20": dict(maxMinutes=20, noProgressMinutes=6,
+        targetR=1.4, breakEvenR=.7, trailStartR=1.0, trailAtr=.65,
+        reversalStartR=.7, reversalAtr=.7),
 }
 
 LEVERS = (3, 5, 8, 10, 15, 20, 30)
@@ -215,10 +235,13 @@ def fast_signals(rows, now):
                     signalScope="fast-spot-proxy-paper-only")
     one=dict(b,closeTime=b["openTime"]+MINUTE)
     three=bars3[-1] if bars3 else one
-    return {"fast1m-impulse":sig(impulse,one,atr,rows[-7:]),
-            "fast1m-rebound":sig(rebound,one,atr,rows[-12:]),
-            "fast3m-breakout":sig(breakout,three,
-                                  atr3 if positive(atr3) else atr,rows[-12:])}
+    signals = {"fast1m-impulse":sig(impulse,one,atr,rows[-7:]),
+               "fast1m-rebound":sig(rebound,one,atr,rows[-12:]),
+               "fast3m-breakout":sig(breakout,three,
+                                    atr3 if positive(atr3) else atr,rows[-12:])}
+    for variant, control in PAIRED_EXIT_CONTROLS.items():
+        signals[variant] = copy.deepcopy(signals[control])
+    return signals
 
 
 def seed(now):
@@ -248,6 +271,8 @@ def open_position(name, signal, price, now, arm):
     if not positive(risk) or risk / entry > .05:
         return None, "stop-distance-invalid"
     return dict(id=f"{VERSION}:{name}:{signal['closedAt']}", setup=name, direction=signal["direction"],
+                pairedControl=PAIRED_EXIT_CONTROLS.get(name),
+                pairedSignalKey=f"{signal['closedAt']}:{signal['direction']}",
                 signal=copy.deepcopy(signal), entryAt=now, entrySourceAt=price["at"],
                 lastObservedAt=now, lastSourceAt=price["at"], entry=entry,
                 initialStop=entry-sign*risk, stop=entry-sign*risk,
@@ -360,8 +385,8 @@ def advance(original, bundle, now, events=()):
                 held = price["at"]-p["entrySourceAt"]
                 fast=FAST_POLICY.get(name)
                 reversal=(fast is not None and held>=2*MINUTE and
-                          sign*(p["bestPrice"]-p["entry"])>=.7*p["risk"] and
-                          sign*(p["bestPrice"]-observed)>=.8*p["atr"])
+                          sign*(p["bestPrice"]-p["entry"])>=fast.get("reversalStartR",.7)*p["risk"] and
+                          sign*(p["bestPrice"]-observed)>=fast.get("reversalAtr",.8)*p["atr"])
                 why = ("stop-observed" if sign*(observed-p["stop"])<=0 else
                        "target-observed" if sign*(observed-p["target"])>=0 else
                        "reversal-observed" if reversal else
@@ -378,16 +403,28 @@ def advance(original, bundle, now, events=()):
                     if sign*(observed-p["bestPrice"])>0:
                         p["bestPrice"] = observed
                     proposed = p["initialStop"]
-                    if sign*(p["bestPrice"]-p["entry"])>=(.7 if fast else 1.0)*p["risk"]:
+                    if sign*(p["bestPrice"]-p["entry"])>=(fast.get("breakEvenR",.7) if fast else 1.0)*p["risk"]:
                         proposed = p["entry"]
-                    if sign*(p["bestPrice"]-p["entry"])>=(1.1 if fast else 1.5)*p["risk"]:
-                        proposed = p["bestPrice"]-sign*(.7 if fast else 1.0)*p["atr"]
+                    if sign*(p["bestPrice"]-p["entry"])>=(fast.get("trailStartR",1.1) if fast else 1.5)*p["risk"]:
+                        proposed = p["bestPrice"]-sign*(fast.get("trailAtr",.7) if fast else 1.0)*p["atr"]
                     if sign*(proposed-p["stop"])>0:
                         p["stop"] = proposed
             if p["status"] != "open":
                 arm["closed" if p["status"]=="closed" else "inconclusive"] += 1
                 if name in FAST_SETUPS:
                     arm["lastExitAt"]=now
+                if name in PAIRED_EXIT_CONTROLS:
+                    # Prospective, complete-finish-only audit; no backfilled outcomes.
+                    reason=p.get("exitReason")
+                    if isinstance(reason,str) and len(reason)<40:
+                        counts=arm.setdefault("exitReasonCounts",{})
+                        counts[reason]=counts.get(reason,0)+1
+                    if p["status"]=="closed" and positive(p.get("risk")):
+                        r=(1 if p["direction"]=="LONG" else -1)*(
+                            p["exitPrice"]-p["entry"])/p["risk"]
+                        if finite(r):
+                            arm["completedObservedR"]=arm.get("completedObservedR",0)+r
+                            arm["completedObservedRCount"]=arm.get("completedObservedRCount",0)+1
                 completed.append(p)
                 state["recent"] = (state["recent"] + [dict(id=p["id"], setup=name,
                     status=p["status"], exitReason=p.get("exitReason"), closedAt=now,
@@ -498,6 +535,11 @@ def report(conn):
         arms.append(dict(setup=name, started=a["started"], closed=a["closed"],
                          inconclusive=a["inconclusive"], open=bool(a.get("position")),
                          latestBlockReason=a["lastReason"], blockCounts=a["blockCounts"],
+                         pairedControl=PAIRED_EXIT_CONTROLS.get(name),
+                         exitReasonCounts=a.get("exitReasonCounts") if name in PAIRED_EXIT_CONTROLS else None,
+                         completedObservedRCount=a.get("completedObservedRCount") if name in PAIRED_EXIT_CONTROLS else None,
+                         completedMeanObservedR=(round(a["completedObservedR"]/a["completedObservedRCount"],3)
+                             if name in PAIRED_EXIT_CONTROLS and a.get("completedObservedRCount",0)>0 else None),
                          modelReview=model_review(a),
                          levers=[dict(leverage=int(lev), **slot,
                                       modeledReturnPct=round(100*(slot["equityEur"]/INITIAL_EUR-1),3))
