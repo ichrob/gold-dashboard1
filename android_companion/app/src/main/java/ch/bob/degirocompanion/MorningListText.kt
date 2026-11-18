@@ -10,10 +10,10 @@ internal object MorningListText {
      * Caller captures this independently before/after the window screenshot. */
     data class Positioned(val node:Int,val line:MorningOcrLayout.Line)
     fun capturePositioned(nodes:List<MorningReadPolicy.Node>,parts:List<Positioned>,
-                          expected:List<String>):List<String>? {
+                          expected:List<String>,fullPage:Boolean=false):List<String>? {
         if(nodes.size>500 || parts.isEmpty() || parts.size>300 || expected.isEmpty() || expected.size>10 ||
             expected.distinct()!=expected || expected.any { !SeriesEvidence.validIsin(it) } ||
-            MorningReadPolicy.captureGoldList(nodes,true).let { it.kind!=MorningReadPolicy.Kind.COLLECT || it.isins!=expected })return null
+            MorningReadPolicy.captureGoldList(nodes,true,fullPage=fullPage).let { it.kind!=MorningReadPolicy.Kind.COLLECT || it.isins!=expected })return null
         if(parts.map { it.node }.distinct().size!=parts.size)return null
         for(part in parts) {
             val n=nodes.getOrNull(part.node) ?: return null
@@ -29,10 +29,10 @@ internal object MorningListText {
         return MorningLocalOcr.productRows(text,expected)
     }
 
-    fun capture(nodes:List<MorningReadPolicy.Node>, expected:List<String>):List<String>? {
+    fun capture(nodes:List<MorningReadPolicy.Node>, expected:List<String>,fullPage:Boolean=false):List<String>? {
         if(nodes.size>500 || expected.isEmpty() || expected.size>10 || expected.distinct()!=expected ||
             expected.any { !SeriesEvidence.validIsin(it) } ||
-            MorningReadPolicy.captureGoldList(nodes,true).let { it.kind!=MorningReadPolicy.Kind.COLLECT || it.isins!=expected }) return null
+            MorningReadPolicy.captureGoldList(nodes,true,fullPage=fullPage).let { it.kind!=MorningReadPolicy.Kind.COLLECT || it.isins!=expected }) return null
         return expected.map { isin ->
             val candidates=nodes.filter { !it.editable && !it.containsInput && !it.password && !it.sensitive }
                 // Samsung sometimes exposes all visible products under one

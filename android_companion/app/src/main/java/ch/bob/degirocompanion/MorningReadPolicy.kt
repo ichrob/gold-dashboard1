@@ -549,12 +549,16 @@ internal object MorningReadPolicy {
     /** Continue only an already captured Top Results list. The search header may
      * scroll out of the accessibility tree. A synthetic context node is used only
      * for policy validation; no action can target it or any product row. */
-    fun captureGoldList(nodes: List<Node>, continuing: Boolean): Action {
+    fun captureGoldList(nodes: List<Node>, continuing: Boolean, fullPage: Boolean = false): Action {
         // DEGIRO's WebView may draw the selected tab without exposing Android's
         // selected/checked flag. A captured Top Results page is stronger evidence.
         val tabs=innermost(nodes,nodes.indices.filter { nodes[it].enabled && normalized(nodes[it].text).equals("Hebelprodukte",true) })
         val topResults=nodes.any { normalized(it.text).equals("Top Ergebnisse",true) }
-        if(tabs.size!=1 || !(nodes[tabs.single()].selected || continuing || topResults)) return discoverGold(nodes)
+        val verifiedFullHeading=fullPage && nodes.any { !canClick(it) &&
+            normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte",true) }
+        if((tabs.size!=1 && !verifiedFullHeading) ||
+            !(verifiedFullHeading || tabs.size==1 && (nodes[tabs.single()].selected || continuing || topResults)))
+            return discoverGold(nodes)
         val context=if(continuing && nodes.none { it.editable })
             nodes + Node("Gold",id="search-input",editable=true) else nodes
         val action=navigate(context,"Gold",true,{ null },captureAll=true)
@@ -562,6 +566,54 @@ internal object MorningReadPolicy {
             return Action(Kind.WAIT,code="GOLD_IDENTITIES_MISSING")
         return action
     }
+    /**
+     * Only the isolated `Alle Ergebnisse in Hebelprodukte` link from a real
+     * Gold search may be selected. Never tap a card/wrapper containing K/V,
+     * an order launcher or an unverified search input. This is a read-only
+     * navigation target, not a product or trading action.
+     */
+    fun fullGoldResultsLink(nodes: List<Node>): Int? {
+        if (nodes.size > 500 || protection(nodes) != null ||
+            nodes.count { normalized(it.text).equals("Top Ergebnisse", true) } != 1 ||
+            nodes.count { normalized(it.text).equals("Hebelprodukte", true) } != 1) return null
+        val inputs = nodes.filter { it.editable }
+        if (inputs.size != 1 || !inputs.single().enabled ||
+            inputs.single().text != "Gold" || !search(inputs.single())) return null
+        val label = "Alle Ergebnisse in Hebelprodukte"
+        // Samsung may include the adjacent chevron as part of the link label.
+        // Strip only a single terminal navigation chevron, never arbitrary text.
+        fun linkText(value: String) = normalized(value)
+            .replace(Regex("[\\s]*[›»→>]$"), "").trim()
+        val candidates = nodes.indices.filter { index ->
+            val n = nodes[index]
+            val values = listOf(n.text, n.description, n.hint, n.row)
+                .map(::linkText).filter(String::isNotBlank)
+            n.enabled && canClick(n) && !n.editable && !n.containsInput &&
+                !n.password && !n.sensitive && values.isNotEmpty() &&
+                values.all { it.equals(label, true) }
+        }
+        return innermost(nodes, candidates).singleOrNull()
+    }
+
+    /** Full-list evidence only after that exact link was activated during this
+     * same bounded, unlocked session. A visible top-results header or the old
+     * link means navigation has NOT been demonstrated. */
+    fun fullGoldResultsView(nodes: List<Node>): Boolean {
+        if (nodes.size > 500 || protection(nodes) != null ||
+            nodes.any { normalized(it.text).equals("Top Ergebnisse", true) }) return false
+        val heading = nodes.any { !canClick(it) &&
+            normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte", true) }
+        if(nodes.any { canClick(it) &&
+            normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte", true) } ||
+            (!heading && nodes.count { normalized(it.text).equals("Hebelprodukte", true) } != 1))
+            return false
+        val inputs = nodes.filter { it.editable }
+        if (inputs.size > 1 || inputs.any { !search(it) || it.text != "Gold" }) return false
+        return captureGoldList(nodes, true, fullPage=true).let {
+            it.kind == Kind.COLLECT && it.isins.isNotEmpty()
+        }
+    }
+
     /** Search pages retain the global order launcher. Recognize only its exact,
      * isolated label beside one explicitly labelled product input. Keep indexes
      * unchanged and re-run every protection against the remaining nodes. */

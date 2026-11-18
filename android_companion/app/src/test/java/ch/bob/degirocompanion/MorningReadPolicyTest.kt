@@ -589,4 +589,75 @@ class MorningReadPolicyTest {
         assertNull(MorningReadPolicy.listReturnScrollTarget(listOf(MorningReadPolicy.Node("Märkte"),nodes[1],nodes[2]),setOf(1),captured))
     }
 
+
+    private fun screenshotGoldTopResults():List<MorningReadPolicy.Node> {
+        val title="SG Gold Turbo Unlimited Mini Call BAR 2166 BP 2135.51 Bv 10 | DE000SQ02JQ6"
+        return listOf(
+            MorningReadPolicy.Node("Gold",id="search-input",editable=true),
+            MorningReadPolicy.Node("Hebelprodukte",selected=true,clickable=true),
+            MorningReadPolicy.Node("Alle Ergebnisse in Hebelprodukte",clickable=true),
+            MorningReadPolicy.Node("Top Ergebnisse"),
+            MorningReadPolicy.Node(title,row=title),
+            MorningReadPolicy.Node("K",clickable=true),
+            MorningReadPolicy.Node("V",clickable=true))
+    }
+
+    @Test fun goldSearchOpensOnlyIsolatedFullLeverageResultsLink() {
+        val view=screenshotGoldTopResults()
+        assertEquals(2,MorningReadPolicy.fullGoldResultsLink(view))
+        assertEquals(2,MorningReadPolicy.fullGoldResultsLink(
+            view.mapIndexed { i,n -> if(i==2)n.copy(row="Alle Ergebnisse in Hebelprodukte ›") else n }))
+        val full=view.filterIndexed { index, _ -> index!=2 && index!=3 }
+        assertTrue(MorningReadPolicy.fullGoldResultsView(full))
+        assertTrue(MorningReadPolicy.fullGoldResultsView(full.filterNot { it.editable }))
+        assertFalse(MorningReadPolicy.fullGoldResultsView(view))
+        // Some Samsung WebViews replace the tab with a non-clickable
+        // full-catalog heading, after the isolated link opens.
+        val heading=full.filterNot { it.text=="Hebelprodukte" }+
+            MorningReadPolicy.Node("Alle Ergebnisse in Hebelprodukte")
+        assertTrue(MorningReadPolicy.fullGoldResultsView(heading))
+        assertEquals(MorningReadPolicy.Kind.COLLECT,
+            MorningReadPolicy.captureGoldList(heading,true,fullPage=true).kind)
+        assertEquals(MorningReadPolicy.Kind.COLLECT,
+            MorningReadPolicy.captureGoldList(full,true).kind)
+    }
+
+    @Test fun fullListLinkNeverSelectsTradingCardOrUnverifiedScreen() {
+        val base=screenshotGoldTopResults()
+        val changes=listOf(
+            base+base[2],
+            base.mapIndexed { i,n -> if(i==2)n.copy(clickable=false) else n },
+            base.mapIndexed { i,n -> if(i==2)n.copy(row="Alle Ergebnisse in Hebelprodukte\\nK\\nV") else n },
+            base.mapIndexed { i,n -> if(i==2)n.copy(text="SG Gold Turbo Unlimited Mini Call",row="Alle Ergebnisse in Hebelprodukte") else n },
+            base.mapIndexed { i,n -> if(i==0)n.copy(text="Silber") else n },
+            base.mapIndexed { i,n -> if(i==0)n.copy(hint="",id="invalid-input") else n },
+            base.mapIndexed { i,n -> if(i==1)n.copy(text="Zertifikate") else n },
+            base.mapIndexed { i,n -> if(i==3)n.copy(text="Andere Ergebnisse") else n },
+            base+MorningReadPolicy.Node("Order bestätigen"),
+            base+MorningReadPolicy.Node("",password=true),
+            base+MorningReadPolicy.Node("",sensitive=true),
+            base+MorningReadPolicy.Node("",editable=true,id="order-quantity"),
+            base.mapIndexed { i,n -> if(i==2)n.copy(text="Alle Ergebnisse in Hebelprodukte Kauf") else n }
+        )
+        for ((i,nodes) in changes.withIndex())
+            assertNull("Unsafe full-results link case $i",
+                MorningReadPolicy.fullGoldResultsLink(nodes))
+    }
+
+    @Test fun noFullResultsProofOnSameTopResultsPageOrProtectedCatalog() {
+        val view=screenshotGoldTopResults()
+        val full=view.filterIndexed { index, _ -> index!=2 && index!=3 }
+        assertFalse(MorningReadPolicy.fullGoldResultsView(full+
+            MorningReadPolicy.Node("Top Ergebnisse")))
+        assertFalse(MorningReadPolicy.fullGoldResultsView(full+
+            MorningReadPolicy.Node("Order bestätigen")))
+        assertFalse(MorningReadPolicy.fullGoldResultsView(full+
+            MorningReadPolicy.Node("",password=true)))
+        assertFalse(MorningReadPolicy.fullGoldResultsView(full.mapIndexed { i,n ->
+            // Removing the link and Top Results shifts the product row to 2.
+            if(i==2)n.copy(text="Unbekannt",row="Unbekannt") else n
+        }))
+    }
+
+
 }
