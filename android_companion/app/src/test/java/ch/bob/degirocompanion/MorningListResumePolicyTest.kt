@@ -24,6 +24,17 @@ class MorningListResumePolicyTest {
             policy.mode(0,0,verificationFailed=false))
     }
 
+    @Test fun onlyTerminalEnhancedFailureMayStartFreshCaptureInSameSession() {
+        assertTrue(policy.terminalVerificationFailed("read-failed","ListVerificationError",true))
+        assertFalse(policy.terminalVerificationFailed("read-failed","ListVerificationError",false))
+        for(stage in listOf(null,"reading","waiting-memory","synced","superseded"))
+            assertFalse(policy.terminalVerificationFailed(stage,"ListVerificationError",true))
+        for(error in listOf(null,"MemoryError","InterruptedWorker","ConnectionError"))
+            assertFalse(policy.terminalVerificationFailed("read-failed",error,true))
+        assertEquals(MorningListResumePolicy.Mode.NEW_LIST,
+            policy.mode(96*minute,0,verificationFailed=true))
+    }
+
     @Test fun recentUnfinishedBatchCanRetryOriginalUploadOnlyWithinBoundedAttempts() {
         assertEquals(MorningListResumePolicy.Mode.RETRY_TRANSFER,policy.mode(0,0))
         assertEquals(MorningListResumePolicy.Mode.RETRY_TRANSFER,policy.mode(14*minute,1))
