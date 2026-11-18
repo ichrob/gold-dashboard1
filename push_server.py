@@ -804,12 +804,8 @@ def run_background(bundle):
                 if phone_access_handoff.morning_list_missing(conn, handset_now):
                     phone_access_handoff.request(conn, 'morning-list',
                                                  send_phone_access_push, handset_now)
-                else:
-                    fingerprint = phone_access_handoff.entry_read_fingerprint(conn, handset_now)
-                    if fingerprint:
-                        phone_access_handoff.request(conn, 'broker-read',
-                                                     send_phone_access_push, handset_now,
-                                                     fingerprint=fingerprint)
+                # Other reads are requested explicitly by a Bob phone agent,
+                # not inferred from paper-trading scenarios.
         except Exception as exc:
             print('BOB_HANDY_ACCESS request_error='+type(exc).__name__, flush=True)
         rows = conn.execute("SELECT id, subscription, general_enabled, trade_enabled, active_trade, background_config, background_state, selection_evidence, product_selection FROM subscriptions WHERE (general_enabled=TRUE OR (trade_enabled=TRUE AND active_trade=TRUE)) AND background_config IS NOT NULL FOR UPDATE SKIP LOCKED").fetchall()
