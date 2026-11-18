@@ -64,12 +64,12 @@ const origin='https://bob-workspace.test';
      ?.textContent?.includes('1 identifizierte Produkte'));
   assert.equal(await page.locator('#bobUnifiedProduct option').count(),2);
   await page.locator('#bobGoldProductBanner').filter({hasText:'1 unterschiedliche ISINs'}).waitFor();
-  assert((await page.locator('#bobGoldProductBanner').innerText()).includes('Keine Handelsfreigabe'));
+  assert((await page.locator('#bobGoldProductBanner').innerText()).includes('Keine automatische Order'));
   assert(await page.locator('#bobOpenGoldProducts').isVisible());
   await page.locator('#bobGoldProductList summary').click();
   assert(await page.locator('#bobGoldProductRows').isVisible());
   assert((await page.locator('#bobGoldProductRows').innerText()).includes('DE000FG14AV8'));
-  assert((await page.locator('#bobGoldProductRows').innerText()).includes('keine Handelsfreigabe'));
+  assert((await page.locator('#bobGoldProductRows').innerText()).includes('keine automatische Order'));
   assert.deepEqual(await page.evaluate(()=>window.calls),{load:0,quotes:0,handOff:0},
     'Initial audit is read-only, no market reload/issuer query or handoff');
   await page.evaluate(()=>{
@@ -98,7 +98,7 @@ const origin='https://bob-workspace.test';
   });
   await page.locator('#bobPrepareReadOnly').click();
   await page.waitForFunction(()=>document.getElementById('bobUnifiedUploadedDiff').textContent.includes('1 in der neuen Liste fehlende ISIN'));
-  assert((await page.locator('#bobUnifiedUploadedDiff').innerText()).includes('Kein aktueller DEGIRO-Handelsnachweis'));
+  assert((await page.locator('#bobUnifiedUploadedDiff').innerText()).includes('Diese Liste ist kein aktueller Produktkurs'));
   await page.locator('#bobUnifiedCheckOperations').click();
   await page.locator('#bobUnifiedOperations').filter({hasText:'1 Produkt mit fehlenden Nachweisen'}).waitFor();
   assert((await page.locator('#bobUnifiedOperations').innerText()).includes('1 offene öffentliche technische KI-Hilfeanfragen'));
@@ -112,12 +112,11 @@ const origin='https://bob-workspace.test';
   assert((await page.locator('#bobOperationsDetail').textContent()).includes('Datierte Emittentenangabe gewählt'));
   assert(!(await page.locator('#bobOperationsDetail').textContent()).includes('Quellenentscheidung offen'));
   await page.locator('#bobUnifiedProduct').selectOption('DE000FG14AV8');
-  assert((await page.locator('#bobUnifiedProductNote').innerText()).includes('kein bestätigter DEGIRO-Kurs')||
-    (await page.locator('#bobUnifiedProductNote').innerText()).includes('Kein bestätigter DEGIRO-Kurs'));
+  assert((await page.locator('#bobUnifiedProductNote').innerText()).includes('Handelsplatzbeleg optional'));
   assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('Geld 10 / Brief 10.1'));
   assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('KO-Originalnachweis fehlt'));
   assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('keine DEGIRO-Orderquotierung'));
-  assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('DEGIRO-Handelsplatz'));
+  assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('Handelsplatz (optional)'));
   await page.locator('#bobUnifiedProduct').selectOption('');
   assert((await page.locator('#bobUnifiedEvidenceRows').textContent()).includes('Geld/Brief und Originalzeiten fehlen'));
   await page.locator('#bobUnifiedProduct').selectOption('DE000FG14AV8');
