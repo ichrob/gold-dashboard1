@@ -35,6 +35,10 @@ class IntegratedReadOnlySecurityTests(unittest.TestCase):
         main=(JAVA/"MainActivity.kt").read_text()
         self.assertIn("DEGIRO nur erkennen · 45 Sek.",main)
         self.assertIn("DegiroReadOnlyActivity.EXTRA_START_ONCE,true",main)
+        self.assertLess(main.index('button("🛑 NOT-STOPP'),
+                        main.index('button("🔎 DEGIRO nur erkennen'))
+        self.assertLess(main.index('button("🔎 DEGIRO nur erkennen'),
+                        main.index('label("BOB-ARBEITSMODUS'))
 
 if __name__=="__main__":
     unittest.main()
