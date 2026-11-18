@@ -494,31 +494,30 @@ class WorkflowDeviceTest {
             putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"Gold")
         }))
         val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Senden").single { it.isClickable && it.text?.toString() == "Senden" }
+        val readerMonitor = instrumentation.addMonitor(ProductReadActivity::class.java.name,null,false)
         assertTrue(start.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
         await("DEGIRO reader handoff missing") {
             automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("DEGIRO lesen · Produkt und Morgenliste")?.isNotEmpty() == true
         }
         assertFalse(GoldSearchRun.running) // Fixture device has no enabled product reader.
         assertNull(WorkflowService.run)
-        // The separate persistent start-status line now takes vertical room.
-        // Recheck the original setup hint after scrolling the reader's own
-        // ScrollView; do not require an offscreen TextView in the first frame.
-        await("Reader setup hint missing after handoff") {
-            val root = automation.rootInActiveWindow ?: return@await false
-            val present = root.findAccessibilityNodeInfosByText(
-                "Unter Einrichtung den Lesedienst einmalig einschalten.").isNotEmpty()
-            if (!present) {
-                fun scrollDown(node: android.view.accessibility.AccessibilityNodeInfo): Boolean {
-                    if (node.isScrollable && node.performAction(
-                            android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return true
-                    for (i in 0 until node.childCount) node.getChild(i)?.let {
-                        if (scrollDown(it)) return true
-                    }
-                    return false
-                }
-                scrollDown(root)
+        // The new persistent start-feedback line makes the old setup hint
+        // potentially offscreen. Verify the real launched Activity's Android
+        // TextView tree rather than only its currently exposed scroll viewport.
+        // The test still fails if the hint is removed or the wrong reader opens.
+        val reader = instrumentation.waitForMonitorWithTimeout(readerMonitor,5000) as? ProductReadActivity
+        assertNotNull("Native DEGIRO reader did not open",reader)
+        main {
+            fun hasHint(view: android.view.View): Boolean {
+                if(view is android.widget.TextView &&
+                    view.text?.toString()=="Unter Einrichtung den Lesedienst einmalig einschalten.") return true
+                if(view is android.view.ViewGroup)
+                    for(i in 0 until view.childCount)
+                        if(hasHint(view.getChildAt(i))) return true
+                return false
             }
-            present
+            assertTrue("Native reader setup hint is missing from its Activity layout",
+                hasHint(reader!!.window.decorView))
         }
         context.getSharedPreferences("workflow_auto_v1",0).edit().clear().commit()
     }
