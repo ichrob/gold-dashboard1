@@ -5,6 +5,57 @@ single Oracle **VM.Standard.A1.Flex / ARM64** virtual machine, and intentionally
 creates **no new cloud resources**. An Oracle VM is not yet provisioned.
 The preferred path is still Samsung on-device ML Kit / appText.
 
+## Verified owner onboarding status · 18 November 2026 (Europe/Zurich)
+
+The original Oracle Customer Service incident `261108-001524` was resolved
+by the provider. The owner then completed registration and **authenticated
+successfully in the OCI Console on Samsung Android**. The Console shows a
+**Free Tier account in Free Trial**; its selected region is
+**Switzerland North (Zurich)**. The selected Console region has **not**
+independently established that Zurich is the tenancy's *home* region.
+
+What remains **unverified**: a completed billing-setup status, region of
+home-tenancy registration, A1 instance capacity in that region, limits and
+current usage, resource Always Free labels, a running VM, host access, IAM
+policies, compartment quota policies, and all production OCR connections.
+No API keys, passwords, Oracle identity-domain URLs, screenshots of account
+details, payment information, SSH private keys or app tokens are committed.
+This is an evidence update, **not an activation approval**. Keep the
+pre-existing `owner_account_reviewed=false` template untouched.
+
+### Samsung-only read-only OCI console inspection
+
+The account owner can do this in a mobile browser without creating anything:
+
+1. At `https://cloud.oracle.com/`, sign in locally using the existing
+   identity and MFA (do not share security codes or credential screenshots).
+2. Stay in the home region for resources intended to survive the trial.
+   **Verify the home region explicitly** in tenancy details; do not assume
+   the header's selected region is the permanent home region.
+3. Open the OCI navigation menu. Use the menu search for
+   **Limits, Quotas and Usage**, or select
+   **Governance & Administration → Tenancy Management →
+   Limits, Quotas and Usage**. Filter by Compute, region and root/target
+   compartment and inspect *limit and usage* (not only the advertised
+   Free Tier maxima).
+4. Optionally inspect the **Compute → Instances** listing to confirm no VM
+   has yet been created; do not tap **Create instance**. Read the account's
+   Free Tier/Always Free banner; **never tap Upgrade**.
+5. Share only redacted service-limit/usage figures (and whether A1 Flex is
+   explicitly Always Free eligible). Do not transmit account IDs, identity
+   tokens, tenant OCIDs, QR codes, passwords, private SSH keys or billing
+   details to public repositories, logs or the chat.
+
+A subsequent server setup may proceed **only after** all independent
+provider-side Free Tier, home-region, capacity and cost gates are verified,
+and only with the existing fail-closed plan validator. Since the connected
+tools cannot administer this owner's OCI tenancy, this repository must not
+claim an actual server, IAM policy, quota or deployment was created.
+
+Provider references:
+- https://docs.oracle.com/en-us/iaas/Content/General/service-limits/view-tenancy.htm
+- https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm
+
 ## Cost and provider gate (strict)
 - Only use an account that shows **Always Free**. Never upgrade to **Pay As You Go**.
   Oracle may require a real credit/debit card for identity validation and place
