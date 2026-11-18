@@ -423,6 +423,18 @@ def _process(payload,at,*,progress=None,save_progress=None):
         if details is not None and details['reason']=='incomplete' and details['uniqueRows']<10:
             for index,item in enumerate(payload['images']):
                 if not local_sources[index] or 'png' not in item:continue
+                # Contradictory phone optical values are a hard stop, not an
+                # invitation to resolve two different contractual terms by OCR.
+                try:
+                    eligible=evaluator_runtime.run(
+                        ['node',str(Path(__file__).with_name('handset_list_parse.js'))],
+                        input=json.dumps({'mode':'complement-eligible',
+                                          'phone':prepared[index]}),
+                        text=True,capture_output=True,timeout=20,check=True)
+                    if json.loads(eligible.stdout) is not True:continue
+                except (subprocess.CalledProcessError,subprocess.TimeoutExpired,
+                        ValueError,TypeError,OSError):
+                    continue
                 try:
                     child=evaluator_runtime.run([sys.executable,__file__,'--ocr']+
                         (['--enhanced'] if enhanced else []),
