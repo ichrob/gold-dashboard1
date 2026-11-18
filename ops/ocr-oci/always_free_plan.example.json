@@ -1,0 +1,22 @@
+{
+  "provider": "oci",
+  "plan": "always_free",
+  "account_upgraded_to_paid": false,
+  "allow_paid_resources": false,
+  "region_scope": "home_region_only",
+  "shape": "VM.Standard.A1.Flex",
+  "ocpus": 1,
+  "memory_gb": 4,
+  "boot_volume_gb": 50,
+  "boot_volume_type": "always_free_eligible",
+  "os_image_type": "always_free_eligible_arm64",
+  "extra_block_volumes": 0,
+  "extra_instances": 0,
+  "paid_network_services": false,
+  "paid_api_services": false,
+  "autoscaling": false,
+  "allow_shape_upgrade": false,
+  "requires_upgrade_for_capacity": false,
+  "provisioning_enabled": false,
+  "owner_account_reviewed": false
+}

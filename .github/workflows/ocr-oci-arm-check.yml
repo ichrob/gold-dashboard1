@@ -1,0 +1,67 @@
+name: Bob Oracle Always Free ARM OCR packaging (staging only)
+
+on:
+  pull_request:
+    paths:
+      - 'ops/ocr-oci/**'
+      - 'remote_ocr_fallback.py'
+      - 'handset_list_worker.py'
+      - 'handset_ocr_engine.py'
+      - 'video_ocr.py'
+      - 'memory_watch.py'
+      - 'ocr_sandbox.py'
+      - 'ocr_workload_priority.py'
+      - 'test_remote_ocr_fallback.py'
+      - 'test_external_ocr_server.py'
+      - 'test_oci_shape_guard.py'
+      - 'test_oci_free_only_guard.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-arm64-synthetic:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove OCI free-only guard is fail-closed (offline)
+        run: |
+          python -m unittest -v test_oci_free_only_guard test_oci_shape_guard
+          if python ops/ocr-oci/free_only_guard.py ops/ocr-oci/always_free_plan.example.json; then
+            echo "ERROR: Unverified OCI plan must never pass the free-only lock"
+            exit 1
+          fi
+      - name: Build Oracle-compatible native ARM64 image without deployment
+        run: |
+          test "$(uname -m)" = "aarch64"
+          docker build --pull --platform linux/arm64 -f ops/ocr-oci/Dockerfile -t bob-ocr-oci:test .
+      - name: Prove native OCR and Linux network isolation on synthetic image
+        run: |
+          docker run --rm --platform linux/arm64 --entrypoint python bob-ocr-oci:test ops/ocr-oci/smoke.py
+      - name: Validate actual TLS IP certificate and unauthorized rejection
+        run: |
+          mkdir -p /tmp/bob-oci-test
+          chmod 755 /tmp/bob-oci-test
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
+            -keyout /tmp/bob-oci-test/tls.key -out /tmp/bob-oci-test/tls.crt \
+            -subj "/CN=bob-oci-synthetic" -addext "subjectAltName=IP:127.0.0.1"
+          chmod 644 /tmp/bob-oci-test/tls.crt /tmp/bob-oci-test/tls.key
+          docker run -d --name bob-oci-tls-ci --platform linux/arm64 \
+            -p 127.0.0.1:8443:8443 \
+            -e BOB_REMOTE_OCR_TOKEN=only-a-fake-ci-key-not-a-production-secret-12345 \
+            -e BOB_OCR_SYNTHETIC_TLS_DIAG=true \
+            -e BOB_OCI_FREE_TIER_OWNER_REVIEWED=true \
+            -v /tmp/bob-oci-test/tls.crt:/run/secrets/tls.crt:ro \
+            -v /tmp/bob-oci-test/tls.key:/run/secrets/tls.key:ro \
+            bob-ocr-oci:test
+          trap 'docker logs bob-oci-tls-ci 2>&1 | tail -35 || true; docker rm -f bob-oci-tls-ci >/dev/null 2>&1 || true' EXIT
+          # Docker publishes its proxy before the Python TLS process is ready.
+          # Never use a bare TCP connect as a TLS service readiness check.
+          sleep 3
+          docker ps -a --filter name=bob-oci-tls-ci --format 'status={{.Status}}'
+          docker logs --tail 20 bob-oci-tls-ci || true
+          openssl s_client -brief -verify_ip 127.0.0.1 -CAfile /tmp/bob-oci-test/tls.crt \
+            -connect 127.0.0.1:8443 </dev/null || true
+          python ops/ocr-oci/tls_smoke.py /tmp/bob-oci-test/tls.crt
