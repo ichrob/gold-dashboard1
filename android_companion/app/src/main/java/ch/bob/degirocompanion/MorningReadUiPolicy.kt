@@ -13,6 +13,15 @@ internal object MorningReadUiPolicy {
                   version:String,lastAttempt:String):Boolean = enabled && autoReturn && !running && interactive && !locked &&
         version.isNotEmpty() && version!=lastAttempt
     fun reason(code:String):String=when(code) {
+        "START_BUSY" -> "Anderer DEGIRO-Lese- oder Anmeldevorgang läuft."
+        "START_SERVICE_NOT_READY" -> "Android-Lesedienst/Leseprüfung nicht vollständig eingeschaltet. Unter Einrichtung prüfen."
+        "START_DIAGNOSTICS_UNPAIRED" -> "Automatische Diagnose noch nicht verbunden oder freigegeben."
+        "START_DEGIRO_MISSING" -> "DEGIRO-App auf Samsung nicht erreichbar."
+        "START_PIN_TEST_MISSING" -> "Lokale DEGIRO-PIN eingerichtet, aber der sichere Ein-Ziffer-Tastaturtest fehlt."
+        "START_PIN_UNAVAILABLE" -> "Lokale PIN nicht verfügbar; Samsung muss entsperrt sein."
+        "START_SESSION_FAILED" -> "Bob konnte keine gültige Lesesitzung starten."
+        "START_LAUNCH_FAILED" -> "Android hat das Öffnen der DEGIRO-App abgelehnt."
+        "START_OTHER" -> "Start abgebrochen; lokale Statuszeile unter Bob starten beachten."
         "LIST_RESTORE_NO_TARGET" -> "Suchleiste noch nicht erreichbar; Android meldet kein eindeutiges Scrollziel"
         "LIST_RESTORE_LIMIT" -> "Suchleiste nach vier Scrollversuchen noch nicht erkannt"
         "LIST_RESTORE_REJECTED" -> "Android hat das Zurückscrollen zur Suche abgelehnt"
