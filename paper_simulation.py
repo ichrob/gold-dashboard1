@@ -512,8 +512,12 @@ def paper_entry_reason_code(reason):
         return 'signal-age'
     if text.startswith('Goldkurs nicht aktuell'):
         return 'gold-stale'
-    if text.startswith('ABWARTEN: kein bestätigter gültiger Goldplan'):
-        return 'gold-plan-missing'
+    if '5m-Daten veraltet' in text:
+        return 'five-minute-bar-stale'
+    # This exact generic text is emitted when market.direction is NEUTRAL.
+    # Real invalid directional stop/target plans retain plan-or-timing.
+    if text == 'ABWARTEN: kein bestätigter gültiger Goldplan':
+        return 'no-direction'
     # Prospectively separate the three dominant November-campaign blockers
     # instead of hiding their frequency under "plan-or-timing". Exact ATR
     # comparisons are still made by the existing isolated campaign gates.

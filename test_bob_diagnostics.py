@@ -179,6 +179,38 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(result['push']['monitorState'],'subscriptions-observed')
         self.assertIn('nicht nachgewiesen',result['push']['deliveryNote'])
 
+    def test_december_paper_block_clocks_are_preserved_in_private_projection(self):
+        # Fresh 17.11.–15.12. accounts use the same stored enum and original
+        # timestamp as the November accounts. No sensitive raw reason is added.
+        profiles = ('trend1000dec', 'normal1000dec', 'early1000dec')
+        at = 1794985204169
+        control = {
+            'enabled': True, 'status': 'running', 'reason': 'ABWARTEN',
+            'initialCapital': 1000, 'equity': 1000,
+            'lastTradingEntryBlockCode': 'no-direction',
+            'lastTradingEntryBlockAt': at, 'secret': 'NEVER_PUBLISH',
+        }
+        conn = Mock()
+        conn.execute.return_value.fetchone.side_effect = (
+            [(dict(control),) for _ in profiles] + [(0, 0)]
+        )
+        portfolios = Mock(POLICIES={p: {} for p in profiles})
+        portfolios.names.side_effect = lambda p: {
+            'bob_paper_control': 'bob_paper_' + p + '_control'
+        }
+        evaluator = Mock()
+        evaluator.status.return_value = {'completed': 3, 'failed': 0}
+        health = Mock()
+        health.snapshot.return_value = {'state': 'ok'}
+        result = diagnostics.push_snapshot(conn, evaluator, health, portfolios)
+        self.assertEqual(len(result['accounts']), 3)
+        for row in result['accounts']:
+            self.assertEqual(row['lastTradingEntryBlockCode'], 'no-direction')
+            self.assertEqual(row['lastTradingEntryBlockAt'], at)
+        self.assertNotIn('NEVER_PUBLISH', json.dumps(result))
+        self.assertTrue(all(c.args[0].startswith('SELECT ')
+                            for c in conn.execute.call_args_list))
+
     def test_zero_push_subscriptions_are_not_declared_failed_deliveries(self):
         conn = Mock()
         conn.execute.return_value.fetchone.side_effect = [({'enabled':True},),(0, 2)]

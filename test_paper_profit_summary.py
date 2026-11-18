@@ -61,6 +61,15 @@ class PaperProfitSummaryTests(unittest.TestCase):
                          'knockout-protection')
         self.assertEqual(profit.entry_block_code('ABWARTEN: keine bestätigte Richtung'),
                          'no-direction')
+        self.assertEqual(profit.entry_block_code('ABWARTEN: kein bestätigter gültiger Goldplan'),
+                         'no-direction')
+        self.assertEqual(profit.entry_block_code('Stopp-/Zielplan fehlt oder ist ungültig'),
+                         'plan-not-ready')
+        self.assertEqual(profit.entry_block_code(
+            'Einstieg wartet: Haupttrend SHORT intakt · 5m-Daten veraltet: letzter Kerzenbeginn 07:50'),
+            'source-not-fresh')
+        self.assertEqual(profit.entry_block_code('Goldkurs nicht aktuell bestätigt; Quellenzeit prüfen'),
+                         'source-not-fresh')
         self.assertEqual(profit.entry_block_code(
             'Einstieg wartet: Preis über 1,5 ATR von EMA20 in Trendrichtung entfernt'),
             'ema-stretch')
