@@ -27,7 +27,7 @@ function analyzeInputs(snapshot,now=Date.now()){
  const trade=snapshot?.tradeActive===true;
  return {
    signal,spot:{ok:spot,label:spot?'Originalzeit bestätigt':age===null?'Quellenzeit fehlt':age>60000?'Spot älter als 60 Sekunden':'Spot/Anmeldung prüfen'},
-   analysis:{ok:analysis,label:analysis?'Signal anzeigen; keine Handelsfreigabe':'Analyse/Quelle nicht bestätigt'},
+   analysis:{ok:analysis,label:analysis?'Signal anzeigen; keine automatische Order':'Analyse/Quelle nicht bestätigt'},
    products:{ok:products!==null&&products>0,label:products===null?'Produktliste nicht geladen':products===0?'Keine identifizierten Produkte':products+' identifizierte Produkte – Produktdaten separat prüfen'},
    trade:{ok:trade,label:trade?'Erfasster Trade vorhanden; Status der Überwachung separat prüfen':'Kein aktiver Trade erfasst'},
    date:zurichDay(new Date(now)),tradeable:false,canTradeAutomatically:false
@@ -154,7 +154,7 @@ function operationalSnapshot(audit,problems,simulationText='',now=Date.now(),pri
   {state:'unknown',text:'Produktprüfung fehlt, ist nicht aktuell oder hat keine auswertbaren Produkte.'}:
   audit.incomplete>0?
   {state:'warning',text:audit.incomplete+(audit.incomplete===1?' Produkt':' Produkte')+' mit fehlenden Nachweisen. Details unter Gold-Hebelprodukte.'}:
-  {state:'checked',text:audit.items.length+(audit.items.length===1?' Produkt':' Produkte')+' ohne gemeldete Nachweislücke im aktuellen Prüfbericht. Keine Handelsfreigabe.'};
+  {state:'checked',text:audit.items.length+(audit.items.length===1?' Produkt':' Produkte')+' ohne gemeldete Nachweislücke im aktuellen Prüfbericht. Keine automatische Order.'};
  const counts=problems?.status==='ok'&&Array.isArray(problems.problems)&&
   Number.isInteger(problems.count)&&problems.count>=0&&problems.count===problems.problems.length;
  const privateKnown=Number.isInteger(privateProductHelp)&&privateProductHelp>=0;
@@ -216,7 +216,7 @@ function compactProductLabel(item){
  const direction=item.conflictingDirection?'Richtung widersprüchlich':item.direction||'Richtung offen';
  const gap=item.auditState==='incomplete'?' · Nachweise unvollständig':'';
  const history=item.fromAuditStale?' · historischer Prüfbericht':'';
- return item.isin+' · '+direction+gap+history+' · keine Handelsfreigabe';
+ return item.isin+' · '+direction+gap+history+' · nur Analyse, keine automatische Order';
 }
 function testOverviewLines(value){
  if(value?.version!==1)return ['Testübersicht: Nachweise nicht verfügbar.'];
@@ -412,7 +412,7 @@ function mount(){
  section.id='bobUnifiedWorkspace';section.className='card';
  section.innerHTML='<h3>Bob · Alles an einem Ort</h3>'+
  '<p id="bobDecisionSummary" role="status" class="small">Marktrichtung wird geprüft.</p>'+
- '<p class="small">Einmal prüfen, dann den passenden Bereich öffnen. Quellen- und Handelsnachweise bleiben getrennt; keine automatische Order oder Änderung der Risikoregeln.</p>'+
+ '<p class="small">Einmal prüfen, dann den passenden Bereich öffnen. Produktquellen und Originalzeiten getrennt prüfen; keine automatische Order oder Änderung der Risikoregeln.</p>'+
  '<div id="bobRequiredActions" role="status" class="small">Du musst etwas tun: Status noch nicht geprüft.</div>'+
  '<details class="bob-disclosure"><summary>Betrieb und Datenqualität</summary><div id="bobOperationsDetail" class="small">Noch nicht geprüft.</div></details>'+
  '<p class="small" id="bobGoldProductBanner" role="status" aria-live="polite">Goldprodukte: Prüfbericht wird geladen …</p>'+
@@ -494,7 +494,7 @@ function mount(){
    chosen.append(item);
   }
   if(old&&items.some(x=>x.isin===old))chosen.value=old;
-  if(chosen.value!==old)productNote.textContent='Nur Produktidentität. Keine automatische Handelsfreigabe.';
+  if(chosen.value!==old)productNote.textContent='Nur Produktidentität. Zusätzlicher Handelsplatzbeleg für Simulation nicht erforderlich.';
   renderEvidence();
  }
  function renderEvidence(){
@@ -502,7 +502,7 @@ function mount(){
   const host=doc.getElementById('bobUnifiedEvidenceRows');host.replaceChildren();
   if(p?.auditState==='terminated'){
    const note=doc.createElement('p');
-   note.textContent=p.isin+' · Produkt vom Emittenten als beendet gemeldet. Keine laufenden Produktwerte oder Handelsfreigabe.';
+   note.textContent=p.isin+' · Produkt vom Emittenten als beendet gemeldet. Keine laufenden Produktwerte oder neuen Einstiege.';
    host.append(note);return;
   }
   const info=productEvidence(p);
@@ -581,7 +581,7 @@ function mount(){
    if(candidates.visibleCount)parts.push(candidates.visibleCount+' im Handy-Assistenten');
    notice.textContent=total?'Goldprodukte: '+total+' unterschiedliche ISINs · '+parts.join(' · ')+
     (candidates.auditHistoric?' · Originalstand '+candidates.auditAt+'; Nachweise erneut prüfen':'')+
-    '. Keine Handelsfreigabe.':
+    '. Keine automatische Order.':
     'Goldprodukte derzeit nicht ladbar'+(auditFetchError?' ('+auditFetchError+')':'')+
     '. Unter Produkte oder Probleme den Prüfbericht kontrollieren.';
   }
@@ -611,7 +611,7 @@ function mount(){
    checks.append(p);
   }
   const p=doc.createElement('p');
-  p.textContent='Aktuelle Richtung laut Ansicht: '+value.signal+'. Diese Übersicht führt keine Broker- oder Handelsfreigabe durch.';
+  p.textContent='Aktuelle Richtung laut Ansicht: '+value.signal+'. Diese Übersicht löst keine Broker-Orders aus.';
   checks.append(p);
  }
  let checkingOperations=false;
@@ -641,7 +641,7 @@ function mount(){
    const line=value=>{const p=doc.createElement('p');p.textContent=value;detail.append(p);};
    const labels={unknown:'nicht bestätigt',unavailable:'Nachweis nicht verfügbar',observed:'Beobachtung vorhanden',paused:'pausiert','differences-explained':'Quellenabweichungen eingeordnet',conflict:'Quellenentscheidung offen',complete:'Pflichtfelder vollständig',incomplete:'Pflichtfelder unvollständig'};
    if(operations?.version===1){
-    line('Produktdaten: '+(labels[operations.productStatus.state]||'nicht bestätigt')+'. Handelsfreigabe separat.');
+    line('Produktdaten: '+(labels[operations.productStatus.state]||'nicht bestätigt')+'. Für Analyse und Simulation kein zusätzlicher Handelsplatzbeleg erforderlich.');
     for(const c of operations.productStatus.conflicts||[])line(c.isin+': '+c.fields.join(', ')+' – '+c.resolution);
     const clock=v=>{if(!v)return 'unbekannt';const d=new Date(typeof v==='number'?(v>100000000000?v:v*1000):v);return Number.isFinite(d.getTime())?d.toLocaleString('de-CH',{timeZone:'Europe/Zurich'}):'unbekannt';};
     if(operations.connections){
@@ -696,8 +696,8 @@ function mount(){
    if(comparison.state==='changed'){
     target.textContent='Neue Screenshot-Listenfassung '+currentUpload.at+': '+
       comparison.added.length+' neue ISIN · '+comparison.removed.length+' in der neuen Liste fehlende ISIN · '+
-      comparison.unchanged.length+' unverändert. Kein aktueller DEGIRO-Handelsnachweis.';
-   }else target.textContent=comparison.reason+' Die Liste ist kein aktueller Handelsplatz-/Kursnachweis.';
+      comparison.unchanged.length+' unverändert. Diese Liste ist kein aktueller Produktkurs.';
+   }else target.textContent=comparison.reason+' Die Liste ist kein aktueller Produktkurs.';
    if(['baseline','changed'].includes(comparison.state)){
     try{root.localStorage.setItem(UPLOADED_LIST_KEY,JSON.stringify({version:1,at:currentUpload.at,ids:currentUpload.ids}));}
     catch(_){target.textContent+=' Merkliste konnte nicht gespeichert werden.';}
