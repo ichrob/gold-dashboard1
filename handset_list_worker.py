@@ -571,11 +571,17 @@ def tick(connect,runner=process):
     observe("checking")
     with connect() as conn:
         # A process killed during OCR cannot write its failure receipt. End the
-        # bounded retry series explicitly once its lease has expired.
-        conn.execute("""UPDATE bob_android_list_images SET import_receipt=jsonb_build_object(
-            'batchId',batch_id,'stage','read-failed','count',0,'error','InterruptedWorker')
-            WHERE processing_attempts>=3 AND import_receipt->>'stage'='reading'
-            AND processing_at<now()-interval '4 minutes'""")
+        # bounded retry series explicitly once its lease has expired. A rolling
+        # predecessor may still own the row, so never wait for or rewrite it.
+        conn.execute("""WITH stale AS (
+                SELECT batch_id FROM bob_android_list_images
+                WHERE processing_attempts>=3 AND import_receipt->>'stage'='reading'
+                AND processing_at<now()-interval '4 minutes'
+                ORDER BY processing_at ASC LIMIT 8 FOR UPDATE SKIP LOCKED
+            )
+            UPDATE bob_android_list_images i SET import_receipt=jsonb_build_object(
+                'batchId',i.batch_id,'stage','read-failed','count',0,'error','InterruptedWorker')
+            FROM stale WHERE i.batch_id=stale.batch_id""")
         row=conn.execute("""SELECT i.batch_id,i.payload,i.created_at,i.processing_attempts,i.import_receipt,i.ocr_progress FROM bob_android_list_images i
             JOIN bob_android_diagnostic_devices d USING(token_hash)
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
