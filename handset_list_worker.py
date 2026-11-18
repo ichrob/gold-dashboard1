@@ -155,13 +155,17 @@ def memory_deferrals(receipt):
     return min(value,OCR_MAX_MEMORY_DEFERRALS) if type(value) is int and value>=0 else 0
 
 
-def deferred_memory_receipt(batch,previous):
+def deferred_memory_receipt(batch,previous,enhanced=False):
     count=memory_deferrals(previous)+1
     exhausted=count>=OCR_MAX_MEMORY_DEFERRALS
     value={'batchId':batch,'stage':'read-failed' if exhausted else 'waiting-memory',
            'count':0,'memoryDeferrals':count,'retryAllowed':not exhausted,
            'reason':'OCR_MEMORY_WAIT_EXHAUSTED' if exhausted else 'OCR_MEMORY_RESERVE',
            'at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}
+    # Preserve the one permitted enhanced pass across memory delays. This
+    # cannot turn incomplete OCR into accepted ten-row evidence.
+    if enhanced or (previous or {}).get('enhancedPending') is True:
+        value['enhancedPending']=True
     # Keep the existing, device-owned daily-list fallback available. This is
     # an honest memory failure, never a successful import or new list proof.
     if exhausted:value['error']='MemoryError'
@@ -515,7 +519,11 @@ def tick(connect,runner=process):
                 OR (i.processing_attempts=4 AND i.import_receipt->>'error' IN ('InterruptedWorker','MemoryError'))
                 OR (i.processing_attempts=5 AND i.import_receipt->>'error' IN ('CalledProcessError','LockNotAvailable','DeadlockDetected','SerializationFailure'))
                 OR (i.import_receipt->>'reason'='OCR_MEMORY_WAIT_EXHAUSTED'
-                    AND COALESCE((i.import_receipt->>'memoryDeferrals')::int,24)<24))
+                    AND COALESCE((i.import_receipt->>'memoryDeferrals')::int,24)<24)
+                OR (i.processing_attempts>5 AND i.import_receipt->>'stage'='read-failed'
+                    AND i.import_receipt->>'error'='ListVerificationError'
+                    AND COALESCE((i.import_receipt->>'memoryDeferrals')::int,0)>0
+                    AND COALESCE(i.import_receipt->>'enhancedVerification','false')='false'))
             AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes'
                 OR (i.import_receipt->>'stage'='read-failed'
                     AND i.import_receipt->>'error'='ListVerificationError'
@@ -530,10 +538,18 @@ def tick(connect,runner=process):
         # Do not repeat identical optical work three times with four-minute
         # leases between attempts. Existing legacy failures at 2/3 also recover.
         # A failed enhanced verification is terminal, even below three attempts.
-        alternate=(1<=attempts<=3 and (previous or {}).get('stage')=='read-failed'
-            and (previous or {}).get('error')=='ListVerificationError')
+        was_verification_failure=((previous or {}).get('stage')=='read-failed'
+            and (previous or {}).get('error')=='ListVerificationError'
+            and (previous or {}).get('enhancedVerification') is not True)
+        # A memory-exhausted old batch resumes with a high lifetime attempt
+        # number. It must still get exactly one enhanced OCR pass after an
+        # incomplete verified list, not silently fail at attempt seven.
+        alternate=((was_verification_failure and
+                    (1<=attempts<=3 or (attempts>5 and memory_deferrals(previous)>0)))
+                   or (previous or {}).get('enhancedPending') is True)
         reading={'batchId':batch,'stage':'reading','count':0,
                  'memoryDeferrals':memory_deferrals(previous)}
+        if alternate:reading['enhancedPending']=True
         conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1,import_receipt=%s::jsonb WHERE batch_id=%s",(json.dumps(reading),batch))
         conn.commit()
     observe("reading")
@@ -564,7 +580,7 @@ def tick(connect,runner=process):
             if route is not None:
                 with _state_lock: _state['lastRecognitionRoute']=route
     except OcrMemoryDeferred:
-        receipt=deferred_memory_receipt(batch,previous)
+        receipt=deferred_memory_receipt(batch,previous,enhanced=alternate)
         exhausted=not receipt['retryAllowed']
         observe(receipt['stage'],'MemoryError' if exhausted else None)
         with connect() as conn:
