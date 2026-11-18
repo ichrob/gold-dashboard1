@@ -69,7 +69,7 @@ for(const side of ['LONG','SHORT']){
  reject('no independent plan builder',x=>delete x.makePlan);
  reject('malformed newer closed candle',x=>{
   const last=x.bundle.history.bars_by_tf['5m'].at(-1);
-  x.bundle.history.bars_by_tf['5m'].push({...last,openTime:last.openTime+STEP,estimated:true});
+  x.bundle.history.bars_by_tf['5m'].push({...last,estimated:true});
  });
 }
 console.log('Two original 5m paper hypothesis: LONG/SHORT, 15m+1h trend, 2R, stale/KO-independent safety, no live mutation');
