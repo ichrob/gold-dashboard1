@@ -65,6 +65,9 @@ class PaperProfitSummaryTests(unittest.TestCase):
                          'no-direction')
         self.assertEqual(profit.entry_block_code('Stopp-/Zielplan fehlt oder ist ungültig'),
                          'plan-not-ready')
+        self.assertEqual(profit.entry_block_code(
+            'Einstieg wartet: Haupttrend SHORT intakt · 5m-Daten veraltet: letzter Kerzenbeginn 07:50'),
+            'source-not-fresh')
         self.assertEqual(profit.entry_block_code('Goldkurs nicht aktuell bestätigt; Quellenzeit prüfen'),
                          'source-not-fresh')
         self.assertEqual(profit.entry_block_code(
