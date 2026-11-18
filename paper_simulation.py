@@ -512,6 +512,8 @@ def paper_entry_reason_code(reason):
         return 'signal-age'
     if text.startswith('Goldkurs nicht aktuell'):
         return 'gold-stale'
+    if '5m-Daten veraltet' in text:
+        return 'five-minute-bar-stale'
     # This exact generic text is emitted when market.direction is NEUTRAL.
     # Real invalid directional stop/target plans retain plan-or-timing.
     if text == 'ABWARTEN: kein bestätigter gültiger Goldplan':
