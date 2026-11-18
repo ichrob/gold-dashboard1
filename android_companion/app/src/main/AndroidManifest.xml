@@ -76,6 +76,14 @@
                 <data android:scheme="bobhandy" android:host="handoff"
                       android:pathPrefix="/OPEN_" />
             </intent-filter>
+            <!-- User-tapped access handoff. Never silently starts a broker read. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="bobhandy" android:host="access"
+                      android:path="/READ_PRODUCTS" />
+            </intent-filter>
             <!-- Verified HTTPS App Link. Android validates the public
                  certificate at /.well-known/assetlinks.json. Every link is
                  still treated as an untrusted single display proposal. -->
