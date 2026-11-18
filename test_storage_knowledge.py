@@ -256,7 +256,7 @@ class PostgresKnowledgeTests(unittest.TestCase):
                 self.assertEqual(report["status"], "observed")
                 self.assertEqual(set(report["areas"]), set(k.AREAS))
                 sim = report["areas"]["simulations"]
-                self.assertEqual(sim["simulationCoverage"]["ledgersInspected"], 16)
+                self.assertEqual(sim["simulationCoverage"]["ledgersInspected"], 17)
                 self.assertEqual(sim["simulationCoverage"]["sampledPerLedger"]["normal1000oct"], 1)
                 self.assertFalse(sim["simulationCoverage"]["moreSourceRowsMayExist"])
                 self.assertFalse(sim["moreSourceRowsMayExist"])
