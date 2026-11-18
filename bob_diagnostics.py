@@ -648,8 +648,16 @@ def rapid_leverage_brief(control):
     if not isinstance(control, dict) or not control:
         return {'status':'unavailable','readOnly':True,'realOrders':False,
                 'productReturnVerified':False,'reason':'rapid-study-report-missing'}
+    paired_controls = {
+        'fast1m-impulse-exit10': 'fast1m-impulse',
+        'fast1m-rebound-exit15': 'fast1m-rebound',
+        'fast3m-breakout-exit20': 'fast3m-breakout'}
     permitted = {'breakout','impulse','pullback','news-impulse',
-                 'fast1m-impulse','fast1m-rebound','fast3m-breakout'}
+                 'fast1m-impulse','fast1m-rebound','fast3m-breakout',
+                 *paired_controls}
+    allowed_exits = {'stop-observed','target-observed','reversal-observed',
+                     'session-end','time-limit','no-progress',
+                     'spot-unavailable','observation-gap'}
     allowed_blockers = {'no-setup','no-verified-scheduled-release',
         'minute-history-gap','minute-evidence-invalid','mixed-minute-sources',
         'five-minute-original-coverage-short','five-minute-original-invalid',
@@ -678,7 +686,7 @@ def rapid_leverage_brief(control):
             'originalSpotFresh':source.get('originalSpotFresh') is True,
             'sourceAt':source.get('sourceAt') if type(source.get('sourceAt')) in (int,float) else None}
     setups=[]
-    for a in (control.get('setups') or [])[:7]:
+    for a in (control.get('setups') or [])[:10]:
         if not isinstance(a,dict) or a.get('setup') not in permitted:
             continue
         n=lambda key: a[key] if type(a.get(key)) is int and 0<=a[key]<=1000000 else None
@@ -687,6 +695,7 @@ def rapid_leverage_brief(control):
              'inconclusive':n('inconclusive'),'open':a.get('open') is True,
              'latestBlockReason':a.get('latestBlockReason') if
                 a.get('latestBlockReason') in allowed_blockers else None,
+             'pairedControl':paired_controls.get(a['setup']),
              'modelReview':{
                 'status':review.get('status') if review.get('status') in
                     ('exploratory-proxy-only','insufficient-comparable-evidence','unavailable')
@@ -698,6 +707,19 @@ def rapid_leverage_brief(control):
                     and type(review.get('exploratoryModelLeader')) is int else None,
                 'netProductVerified':False,'strategyWinnerConfirmed':False
              }, 'levers':[]}
+        if a['setup'] in paired_controls:
+            # Only prospective counters for newly registered cohorts. Do not
+            # backfill old trades or forward any raw trade/ISIN/trace.
+            source_counts=a.get('exitReasonCounts')
+            row['exitReasonCounts'] = (
+                {k:v for k,v in source_counts.items()
+                 if k in allowed_exits and type(v) is int and 0<=v<=1000000}
+                if isinstance(source_counts,dict) else {})
+            count=a.get('completedObservedRCount')
+            mean=a.get('completedMeanObservedR')
+            row['completedObservedRCount']=count if type(count) is int and 0<=count<=1000000 else 0
+            row['completedMeanObservedR']=(mean if type(mean) in (float,int)
+                and math.isfinite(mean) and abs(mean)<=1000 else None)
         # Report every configured lever in the read-only study; the previous
         # four-value subset hid 3x, 8x and 15x from coverage accounting.
         for leverage in (3,5,8,10,15,20,30):
@@ -708,7 +730,12 @@ def rapid_leverage_brief(control):
                 row['levers'].append({'leverage':leverage,
                     'modeledReturnPct':modeled if type(modeled) in (int,float)
                     and math.isfinite(modeled) and abs(modeled)<=100000 else None,
-                    'completed':entry.get('completed') if type(entry.get('completed')) is int else None})
+                    'completed':entry.get('completed') if type(entry.get('completed')) is int else None,
+                    'wins':entry.get('wins') if type(entry.get('wins')) is int and 0<=entry['wins']<=1000000 else None,
+                    'maxDrawdownPct':entry.get('maxDrawdownPct')
+                        if type(entry.get('maxDrawdownPct')) in (int,float)
+                        and math.isfinite(entry['maxDrawdownPct'])
+                        and 0<=entry['maxDrawdownPct']<=100 else None})
         setups.append(row)
     result['setups']=setups
     result['configurationsReported']=sum(len(a['levers']) for a in setups)
