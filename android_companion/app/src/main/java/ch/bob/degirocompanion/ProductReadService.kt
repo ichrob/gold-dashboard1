@@ -122,6 +122,7 @@ class ProductReadService : AccessibilityService() {
                 return
             }
             if(intent?.action!=Intent.ACTION_SCREEN_OFF) return
+            DegiroReadOnlySession.finish("BILDSCHIRM_GESPERRT")
             // Owner pressing the Samsung power button immediately ends the
             // voluntary trade-screen wake lease, with no automatic unlock.
             BobTradeDimMode.stop("Samsung wurde gesperrt.")
@@ -333,6 +334,7 @@ class ProductReadService : AccessibilityService() {
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
             } else PhoneRemote.stop(this,"COMPLETED")
         }
+        DegiroReadOnlySession.onStart={handler.post {queueDegiroReadOnly(450)}}
         PhoneRemote.onStop={ code ->
             // User STOP, screen-lock abort and session expiry must never leave
             // an old login handoff armed. Verified-login callbacks carry a
@@ -435,8 +437,84 @@ class ProductReadService : AccessibilityService() {
         queueRead(600)
         PhoneDiagnostics.queue(this)
     }
+    // Explicit, passive, foreground-only DEGIRO form detection.
+    // No action calls or text input. The regular product reader stays intact.
+    private var degiroReadOnlyQueued=false
+    private val degiroReadOnlyTick=object:Runnable {
+        override fun run() {
+            degiroReadOnlyQueued=false
+            val now=SystemClock.elapsedRealtime()
+            if(!DegiroReadOnlySession.active(now))return
+            val power=getSystemService(POWER_SERVICE) as PowerManager
+            val keyguard=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+            if(!power.isInteractive || keyguard.isKeyguardLocked || keyguard.isDeviceLocked) {
+                DegiroReadOnlySession.finish("BILDSCHIRM_GESPERRT");return
+            }
+            if(PhoneRemote.active() || PinReadinessProbe.running ||
+                MorningReadRun.running || GoldSearchRun.running ||
+                ProductReadRequest.active(now) || BobTradeDimMode.running) {
+                DegiroReadOnlySession.finish("PARALLELER_AUFTRAG");return
+            }
+            val root=rootInActiveWindow ?: run {
+                DegiroReadOnlySession.note(DegiroStopLossReadOnly.Result(
+                    DegiroStopLossReadOnly.Code.NOT_DEGIRO));return
+            }
+            try {
+                if(root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) {
+                    DegiroReadOnlySession.note(DegiroStopLossReadOnly.Result(
+                        DegiroStopLossReadOnly.Code.NOT_DEGIRO))
+                    return
+                }
+                val tree=WorkflowTree.read(root,{it.childCount},{node,index->node.getChild(index)})
+                if(!tree.complete) {
+                    DegiroReadOnlySession.note(DegiroStopLossReadOnly.Result(
+                        DegiroStopLossReadOnly.Code.INCOMPLETE))
+                    return
+                }
+                val nodes=tree.nodes.filter {
+                    it.isVisibleToUser &&
+                        it.packageName?.toString()==ProductScreenEvidence.PACKAGE
+                }
+                if(nodes.any {
+                    it.isPassword ||
+                    (android.os.Build.VERSION.SDK_INT>=34 && it.isAccessibilityDataSensitive)
+                }) {
+                    DegiroReadOnlySession.note(DegiroStopLossReadOnly.Result(
+                        DegiroStopLossReadOnly.Code.PROTECTED))
+                    return
+                }
+                // Never read text stored in editable fields, and never return
+                // captured strings to the Activity or telemetry server.
+                val snapshot=DegiroStopLossReadOnly.Frame(ProductScreenEvidence.PACKAGE,
+                    nodes.map { node ->
+                        val caption=if(node.isEditable) "" else
+                            (node.text?.toString()?.takeIf{it.isNotBlank()}
+                                ?:node.contentDescription?.toString().orEmpty()).take(160)
+                        val selected=node.isSelected || node.isChecked ||
+                            (node.parent?.let{it.isSelected || it.isChecked}==true)
+                        DegiroStopLossReadOnly.Node(caption,selected,node.isPassword,node.isEditable)
+                    })
+                DegiroReadOnlySession.note(DegiroStopLossReadOnly.inspect(snapshot))
+            } catch (_:Exception) {
+                DegiroReadOnlySession.note(DegiroStopLossReadOnly.Result(
+                    DegiroStopLossReadOnly.Code.INCOMPLETE))
+            } finally {root.recycle()}
+        }
+    }
+    private fun queueDegiroReadOnly(delay:Long) {
+        if(!degiroReadOnlyQueued && DegiroReadOnlySession.active(SystemClock.elapsedRealtime())) {
+            degiroReadOnlyQueued=true
+            handler.postDelayed(degiroReadOnlyTick,delay)
+        }
+    }
     // Only package/type metadata is used. Never read or retain event text.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if(DegiroReadOnlySession.active(SystemClock.elapsedRealtime())) {
+            if(event?.eventType==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                event?.eventType==AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+                queueDegiroReadOnly(280)
+            return // No other automated workflow runs during this read-only lease.
+        }
         if (PinReadinessProbe.running) {
             if (PinReadinessProbe.loginArmed && event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
                 PinReadinessProbe.loginWindowChanged(); return
@@ -485,8 +563,10 @@ class ProductReadService : AccessibilityService() {
         queueRead(400)
     }
     override fun onInterrupt() {
+        DegiroReadOnlySession.finish("DIENST_GESTOPPT");DegiroReadOnlySession.onStart=null;handler.removeCallbacks(degiroReadOnlyTick)
         BobTradeDimMode.stop("Android-Lesedienst unterbrochen."); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
     override fun onDestroy() {
+        DegiroReadOnlySession.finish("DIENST_GESTOPPT");DegiroReadOnlySession.onStart=null;handler.removeCallbacks(degiroReadOnlyTick)
         BobTradeDimMode.stop("Android-Lesedienst beendet."); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onLoginTouch=null;PinReadinessProbe.onDigitTouch=null;PinReadinessProbe.onDeleteTouch=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
