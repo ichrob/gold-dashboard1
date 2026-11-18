@@ -26,11 +26,11 @@ class PairedRapidExitStudyTests(unittest.TestCase):
         for name in study.PAIRED_EXIT_CONTROLS:
             old['arms'].pop(name)
         old['arms']['fast1m-impulse']['levers']['10']['equityEur']=972.9
-        old['arms']['fast1m-impulse']['started']=3
+        old['arms']['fast1m-impulse']['started']=100
         frozen=copy.deepcopy(old)
         upgraded,_=study.advance(old,bundle(),NOW)
         self.assertEqual(old,frozen)
-        self.assertEqual(upgraded['arms']['fast1m-impulse']['started'],3)
+        self.assertEqual(upgraded['arms']['fast1m-impulse']['started'],100)
         self.assertEqual(upgraded['arms']['fast1m-impulse']['levers']['10']['equityEur'],972.9)
         for variant in study.PAIRED_EXIT_CONTROLS:
             arm=upgraded['arms'][variant]
