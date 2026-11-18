@@ -571,7 +571,8 @@ def tick(connect,runner=process):
     observe("checking")
     with connect() as conn:
         # A process killed during OCR cannot write its failure receipt. End the
-        # bounded retry series explicitly once its lease has expired.
+        # bounded retry series explicitly once its lease has expired. A rolling
+        # predecessor may still own the row, so never wait for or rewrite it.
         conn.execute("""WITH stale AS (
                 SELECT batch_id FROM bob_android_list_images
                 WHERE processing_attempts>=3 AND import_receipt->>'stage'='reading'
