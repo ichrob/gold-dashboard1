@@ -512,7 +512,9 @@ class WorkflowDeviceTest {
             fun field(name:String) = ProductReadActivity::class.java.getDeclaredField(name)
                 .apply { isAccessible=true }.get(reader!!)
             val resultView=field("result") as android.widget.TextView
-            assertEquals("Lesedienst zuerst einschalten.",resultView.text.toString())
+            assertTrue("Native Bob reader must display the new specific start error",
+                resultView.text.toString().startsWith(
+                    "Bob konnte nicht starten: Lesedienst nicht vollständig bereit."))
             val button=field("primary") as android.widget.Button
             assertEquals("Bob starten",button.text.toString())
             assertTrue(button.performClick())
