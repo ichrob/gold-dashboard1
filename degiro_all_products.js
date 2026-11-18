@@ -310,9 +310,9 @@ function mount(){
   if(x.evidence){
    card.append(el(doc,'p','dg-unified-subtle',
     'Getrennte Identitätsquellen: '+x.evidence.identity.text+
-    '. Ausführbarer Brokerkurs: '+x.evidence.broker.text+'.'));
+    '. Brokerstatus (nur echte Ausführung): '+x.evidence.broker.text+'.'));
   }
-  card.append(el(doc,'p','dg-unified-subtle','Handelsfreigabe über DEGIRO: nicht bestätigt.'));
+  card.append(el(doc,'p','dg-unified-subtle','Zusätzlicher Handelsplatzbeleg für Analyse und Simulation nicht erforderlich. Keine automatische Order.'));
   return card;
  }
  function paint(reset=false,loadMore=false){
