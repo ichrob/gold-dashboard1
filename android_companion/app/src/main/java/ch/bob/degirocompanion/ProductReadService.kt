@@ -47,8 +47,9 @@ class ProductReadService : AccessibilityService() {
     private var listBatch = ""
     private var listResumeChecked = false
     private var listTopSeekSteps = 0
+    private var listAllResultsTappedAt = 0L
     private fun resetListCapture() {
-        listGeneration++; listResumeChecked=false; listTopSeekSteps=0; listBusy=false; listScrolled=false; listScrollTries=0
+        listGeneration++; listResumeChecked=false; listTopSeekSteps=0; listAllResultsTappedAt=0L; listBusy=false; listScrolled=false; listScrollTries=0
         listFirstIds=emptyList(); listSeenIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
     }
@@ -1335,7 +1336,7 @@ class ProductReadService : AccessibilityService() {
     }
 
     /** Local-only fallback. No caller-supplied coordinates and no result/order taps. */
-    private fun tapRecognizedSearch(expectedWindow: Int, input: Boolean = false, category: Boolean = false, productResult: Boolean = false, remoteQuery: String? = null, remoteSession: String? = null): Boolean {
+    private fun tapRecognizedSearch(expectedWindow: Int, input: Boolean = false, category: Boolean = false, productResult: Boolean = false, remoteQuery: String? = null, remoteSession: String? = null, allResults: Boolean = false): Boolean {
         fun authorized(): Boolean = PhoneRemote.active() && if(remoteQuery == null) {
             ProductReadRequest.active(SystemClock.elapsedRealtime())
         } else {
@@ -1364,7 +1365,13 @@ class ProductReadService : AccessibilityService() {
                 else if(GoldSearchRun.running && GoldSearchRun.searchOnlyQuery != null) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query)
                 else MorningReadPolicy.discoverGold(descriptions)
             val required=if(category) MorningReadPolicy.Kind.CATEGORY else if(input) MorningReadPolicy.Kind.FOCUS else MorningReadPolicy.Kind.SEARCH
-            val targetIndex=if(productResult) {
+            val targetIndex=if(allResults) {
+                // Never permit a remote or product search to re-purpose the link.
+                if(input || category || productResult || remoteQuery != null ||
+                    !GoldSearchRun.running || GoldSearchRun.searchOnlyQuery != null ||
+                    listImages.length()!=0) return false
+                MorningReadPolicy.fullGoldResultsLink(descriptions) ?: return false
+            } else if(productResult) {
                 if(input || category || (remoteQuery == null && !MorningReadRun.running && !GoldSearchRun.openingProduct)) return false
                 MorningReadPolicy.resultTapIndex(descriptions,remoteQuery ?: if(GoldSearchRun.openingProduct) GoldSearchRun.query else MorningReadRun.target, explicitOwnerTarget=remoteQuery != null || GoldSearchRun.openingProduct) ?: return false
             } else {
@@ -1555,7 +1562,9 @@ class ProductReadService : AccessibilityService() {
         }
         if(listImages.length()==0 && !descriptions.any { n ->
             listOf(n.text,n.description,n.row).any { value -> value.lines().any { it.trim().equals("Top Ergebnisse",true) } }
-        }) { fail("LIST_TOP_RESULTS_MISSING");return }
+        } && !(listAllResultsTappedAt>0L && MorningReadPolicy.fullGoldResultsView(descriptions))) {
+            fail("LIST_TOP_RESULTS_MISSING");return
+        }
         if((listSeenIds+action.isins).size>10) { fail("LIST_TOP_RESULTS_OVERFLOW");return }
         if(listImages.length()>=4) { fail("LIST_TOP_RESULTS_INCOMPLETE");return }
         val windowId=root.windowId;val generation=listGeneration
@@ -1564,6 +1573,14 @@ class ProductReadService : AccessibilityService() {
         val cropTop=if(input>=0) {
             val search=Rect();nodes[input].getBoundsInScreen(search)
             search.top-rect.top
+        } else if(listAllResultsTappedAt>0L && MorningReadPolicy.fullGoldResultsView(descriptions)) {
+            // The full catalog may no longer expose an editable search bar.
+            // Start at its independently verified Hebelprodukte header, never
+            // at screen top where the private account balance is displayed.
+            val header=descriptions.indexOfFirst { it.text.trim().equals("Hebelprodukte",true) }
+            if(header<0) { fail("LIST_CAPTURE_SEARCH_MISSING");return }
+            val bounds=Rect();nodes[header].getBoundsInScreen(bounds)
+            bounds.top-rect.top
         } else listCropTop ?: run { fail("LIST_CAPTURE_SEARCH_MISSING");return }
         if(rect.width()<=0 || cropTop<0 || cropTop>=rect.height()/2) { fail("LIST_CAPTURE_BOUNDS");return }
         val current=windows
@@ -1802,11 +1819,55 @@ class ProductReadService : AccessibilityService() {
                 if(descriptions.none { it.selected && it.text.trim().equals("Hebelprodukte",true) })
                     ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_TAB_SELECTION_UNREPORTED)
             }
+            // The Samsung Gold-search page contains only a Top Ergebnisse
+            // sample. Prefer its uniquely labelled full-list link before any
+            // screenshot capture. Never click the surrounding product cards or
+            // the adjacent K/V actions. No server acknowledgement is invented.
+            if(gold && !searchOnly && listImages.length()==0) {
+                if(listAllResultsTappedAt>0L) {
+                    if(!MorningReadPolicy.fullGoldResultsView(descriptions)) {
+                        if(SystemClock.elapsedRealtime()-listAllResultsTappedAt<4000L) return true
+                        lastNavigationIssue="LIST_ALL_RESULTS_NO_PROGRESS"
+                        GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
+                        ProductReadRequest.cancel(); PhoneRemote.stop(this,lastNavigationIssue)
+                        PhoneDiagnostics.queue(this)
+                        return true
+                    }
+                } else {
+                    val link=MorningReadPolicy.fullGoldResultsLink(descriptions)
+                    if(link!=null) {
+                        if(keyboardVisible()) {
+                            if(!performGlobalAction(GLOBAL_ACTION_BACK)) {
+                                lastNavigationIssue="KEYBOARD_HIDE_FAILED"
+                                GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
+                                ProductReadRequest.cancel()
+                            }
+                            return true
+                        }
+                        val key="FULL_GOLD_RESULTS|${root.windowId}|${descriptions[link].text}"
+                        if(!navigationStability.ready(key,SystemClock.elapsedRealtime())) return true
+                        val tapped=tapRecognizedSearch(root.windowId,allResults=true)
+                        lastNavigation=SystemClock.elapsedRealtime()
+                        if(tapped) {
+                            listAllResultsTappedAt=lastNavigation
+                            GoldSearchRun.event("LIST_ALL_RESULTS_TAP_SENT",Instant.now().toString())
+                        } else {
+                            lastNavigationIssue="LIST_ALL_RESULTS_TAP_REJECTED"
+                            GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
+                            ProductReadRequest.cancel(); PhoneRemote.stop(this,lastNavigationIssue)
+                        }
+                        PhoneDiagnostics.queue(this)
+                        return true
+                    }
+                }
+            }
             // A fresh run can begin on yesterday's scrolled list. Only scroll
             // backwards here; no capture is accepted before Top Ergebnisse is visible.
             if(!gold) ProductReadDiagnostics.detailHeader(descriptions)
             val detailRestore=MorningReadPolicy.detailSearchRestore(descriptions,MorningReadRun.importedListRun())
-            if(!searchOnly && (detailRestore!=null || (gold && listImages.length()==0 && descriptions.none { it.text.trim().equals("Top Ergebnisse",true) }))) {
+            if(!searchOnly && (detailRestore!=null || (gold && listImages.length()==0 &&
+                !MorningReadPolicy.fullGoldResultsView(descriptions) &&
+                descriptions.none { it.text.trim().equals("Top Ergebnisse",true) }))) {
                 val seek=detailRestore ?: MorningReadPolicy.captureGoldList(descriptions,true)
                 if(seek.kind==MorningReadPolicy.Kind.COLLECT) {
                     val targets=nodes.indices.filter { i ->
@@ -1837,7 +1898,7 @@ class ProductReadService : AccessibilityService() {
                     return true
                 }
             }
-            val proposed=if(openingProduct) MorningReadPolicy.ownerProductDecision(descriptions,productTarget,keyboardVisible()) else if(searchOnly) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query,searchCategoryTappedAt > 0L) else if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) {
+            val proposed=if(openingProduct) MorningReadPolicy.ownerProductDecision(descriptions,productTarget,keyboardVisible()) else if(searchOnly) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query,searchCategoryTappedAt > 0L) else if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0 || listAllResultsTappedAt>0L) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) {
                 symbolMemory.getString(it, null)
             }
             val action=automaticSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
