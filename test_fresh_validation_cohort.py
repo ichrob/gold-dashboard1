@@ -24,7 +24,9 @@ class FreshValidationCohortTests(unittest.TestCase):
         self.assertEqual(profiles.FRESH_VALIDATION_PROFILES, self.ARMS)
         self.assertEqual(profiles.FRESH_VALIDATION_NOT_BEFORE,ch_ms(2026,11,17,8))
         self.assertEqual(profiles.FRESH_VALIDATION_END,ch_ms(2026,12,15,16))
-        self.assertEqual(len(profiles.POLICIES),14)
+        self.assertEqual(len(profiles.POLICIES),15)
+        self.assertNotIn('early5m1000nov',self.ARMS,
+                         'New forward trial must never rewrite the frozen three-way cohort')
         table_sets=[]
         for name,parent in zip(self.ARMS,self.PARENTS):
             p=profiles.POLICIES[name]

@@ -7,7 +7,7 @@ import math
 
 PROFILES = ('conservative', 'balanced', 'offensive', 'early100', 'trend800',
             'early1000oct', 'normal1000oct', 'trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov',
-            'trend1000dec', 'normal1000dec', 'early1000dec')
+            'trend1000dec', 'normal1000dec', 'early1000dec', 'early5m1000nov')
 STATUSES = ('scheduled', 'running', 'completed', 'ending-pending-quotes',
             'night-paused', 'market-closed', 'preparing', 'stopped', 'unavailable')
 
@@ -32,6 +32,8 @@ def entry_block_code(value):
     if not isinstance(value,str) or not value.strip():
         return 'not-observed'
     reason=value.lower()
+    if reason.startswith('zwei-5m-test:'):
+        return 'two-candle-wait'
     # These two timing gates are the dominant actual November no-entry
     # observations. Reuse the fixed codes from the 15-minute paper buckets.
     # Never expose the original free-text reason or change entry approval.
@@ -93,7 +95,8 @@ ENTRY_BLOCK_CODES = frozenset((
     'not-observed','source-not-fresh','session-paused','plan-not-ready',
     'product-quote-missing','knockout-protection','product-not-approved',
     'signal-score-weak','risk-limit','no-direction','other-or-unclassified',
-    'ema-stretch-and-signal-age','ema-stretch','signal-age'))
+    'ema-stretch-and-signal-age','ema-stretch','signal-age',
+    'two-candle-wait'))
 
 
 FORWARD_VERSION = 'prospective-paper-v1'
@@ -241,7 +244,8 @@ def snapshot(accounts):
         control = a.get('control') if isinstance(a.get('control'),dict) else {}
         last_code, last_at = None, None
         if profile in ('trend800nov','normal1000nov','ema3000nov', 'noema5000nov',
-                       'trend1000dec','normal1000dec','early1000dec'):
+                       'trend1000dec','normal1000dec','early1000dec',
+                       'early5m1000nov'):
             stored = a.get('lastTradingEntryBlockCode',
                            control.get('lastTradingEntryBlockCode'))
             stored_valid = isinstance(stored, str) and stored in ENTRY_BLOCK_CODES

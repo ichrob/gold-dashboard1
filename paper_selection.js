@@ -1,5 +1,6 @@
 // Same product gates/ranking as Bob; no submitted approval is trusted.
 const fs=require('fs'),vm=require('vm');
+const TwoCandleSelect=require('./paper_two_candle_selection.js');
 function chfPaperEvidence(q,now){
  const n=q.paperNativeQuote,f=q.paperFxConversion,e=f?.evidence,m=q.metadata||{};
  const pos=x=>typeof x==='number'&&Number.isFinite(x)&&x>0;
@@ -53,7 +54,7 @@ function selectionQuote(q,now){
 }
 function evaluate(input,now=Date.now()){
  const selectedInput={...input,quotes:Object.fromEntries(Object.entries(input.quotes||{}).map(([isin,q])=>[isin,selectionQuote(q,now)]))};
- const env={window:{BobRankingPolicy:input.rankingPolicy||null},localStorage:{getItem:k=>k==='bobFixedScreenshotKoV1'?JSON.stringify(input.fixedBarriers||{}):null},input:selectedInput,now,Risk:require('./risk_workspace.js')};
+ const env={window:{BobRankingPolicy:input.rankingPolicy||null},localStorage:{getItem:k=>k==='bobFixedScreenshotKoV1'?JSON.stringify(input.fixedBarriers||{}):null},input:selectedInput,now,Risk:require('./risk_workspace.js'),TwoCandleSelect};
  vm.createContext(env);vm.runInContext(fs.readFileSync(__dirname+'/degiro_assistant.js','utf8'),env,{timeout:2000});
  return vm.runInContext(`(()=>{
   const api=window.BobDegiro,context={...input.market.context,direction:input.market.direction,spotFresh:input.market.priceFresh,spot:input.market.price,now};
@@ -69,10 +70,16 @@ function evaluate(input,now=Date.now()){
    return {signal,choices:Risk.ranking(products,signal,context,api,now).filter(r=>r.p.quote?.productVerified===true&&!r.p.quote.sourceDisabled&&api.productTermsStatus(r.p,now).complete).map(r=>({isin:r.p.isin,direction:r.p.productDirection,scope:'XAU/USD',leverage:r.p.leverage,ko:r.p.ko})),
     watches:Object.fromEntries(Object.entries(input.positions||{}).map(([key,p])=>[key,Risk.monitor(p.watch,{active:true,tradeId:p.id,dir:p.direction,entry:p.goldEntry,stop:p.goldStop},signal,now)]))};
   }
-  const flow=api.selectionWorkflow(products,context,input.bundle,input.references||[]);
-  // Official BNP PU0D10 is a 15x GOLD FUTURE factor product, never a KO.
-  // Exclude by exact ISIN even when an uploaded list omits the product type.
+  // Only the new isolated 2x5m account may use this source-only product
+  // selector. A complete main EMA/MACD direction is deliberately not required
+  // for the EARLIER paper signal; the exact quote/KO gates still apply.
   const valid=p=>p.isin!=='DE000PU0D101'&&!/FAKTOR|FACTOR/i.test(p.name||'')&&!api.knockoutStatus(p);
+  if(input.twoCandlePaper===true){
+   return TwoCandleSelect.select({market:input.market,products,now,
+    termsValid:p=>api.productTermsStatus(p,now).complete,
+    exclusion:p=>!valid(p)||api.isFutureProduct(p)});
+  }
+  const flow=api.selectionWorkflow(products,context,input.bundle,input.references||[]);
   const papers=[];
   if(api.selectionMarketGate(context).ok)for(const p of products){
    if(!valid(p)||api.isFutureProduct(p)||!p.isinConfirmed||!p.quote?.paperSelectionOnly

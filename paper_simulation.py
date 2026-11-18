@@ -518,6 +518,8 @@ def paper_entry_reason_code(reason):
     # Real invalid directional stop/target plans retain plan-or-timing.
     if text == 'ABWARTEN: kein bestätigter gültiger Goldplan':
         return 'no-direction'
+    if text.startswith('Zwei-5m-Test:'):
+        return 'two-candle-wait'
     # Prospectively separate the three dominant November-campaign blockers
     # instead of hiding their frequency under "plan-or-timing". Exact ATR
     # comparisons are still made by the existing isolated campaign gates.
@@ -907,6 +909,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
                 reason='Frühimpuls-Strategie: '+str(market.get('earlyPaperBlockReason') or 'kein bestätigter 5m/15m-Frühimpuls')
             elif profile_policy and profile_policy.get('early_warning') and market.get('paperEntrySource')!='early-warning-paper-v2':
                 reason='Frühwarn-Test: '+str(market.get('warningPaperBlockReason') or 'Keine aktuelle gültige Frühwarnung')
+            elif profile_policy and profile_policy.get('two_candle_early') and market.get('paperEntrySource')!='two-candle-5m-paper-v1':
+                reason='Zwei-5m-Test: '+str(market.get('twoCandleBlockReason') or 'Keine gültige aktuelle Zwei-Kerzen-Bestätigung')[:200]
             elif not stop_target_audit.valid_plan(plan):
                 detail = str((market.get('entryPlanState') or {}).get('reason')
                     or market.get('decisionReason') or 'Stopp-/Zielplan nicht gültig')
@@ -996,7 +1000,8 @@ def run_once(conn,bundle,market,selection,quotes,now,profile_policy=None):
             # Never store an ISIN, quote, full blocker text or model profit.
             if profile_policy and profile_policy.get('id') in (
                     'trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov',
-                    'trend1000dec', 'normal1000dec', 'early1000dec'):
+                    'trend1000dec', 'normal1000dec', 'early1000dec',
+                    'early5m1000nov'):
                 from paper_profit_summary import entry_block_code
                 control['lastTradingEntryBlockCode'] = (
                     None if entered else entry_block_code(reason))
@@ -1714,12 +1719,35 @@ def _worker(db):
                                 warning_selection=json.loads(p.stdout)
                             except Exception as exc:
                                 warning_selection['reasons']=['Frühwarn-Produktauswahl nicht verfügbar: '+type(exc).__name__]
+                        # Separate 2x5m prospect: only a fresh original-candle
+                        # signal may drive this one paper ledger. Never add
+                        # its direction or selection to the main signal.
+                        two_candle_market=paper_portfolios.two_candle_paper_market(market,now)
+                        two_candle_selection=dict(choices=[],reasons=['Kein passendes belegtes Produkt für den Zwei-5m-Test'])
+                        if (two_candle_market.get('paperEntrySource') == 'two-candle-5m-paper-v1'
+                                and 'early5m1000nov' not in active_cases):
+                            try:
+                                request={**evidence,'quotes':quotes,'market':two_candle_market,
+                                         'bundle':bundle,'rankingPolicy':ranking_policy,
+                                         'twoCandlePaper':True}
+                                p=evaluator_runtime.run(
+                                    ['node',str(Path(__file__).with_name('paper_selection.js'))],
+                                    input=json.dumps(request),text=True,capture_output=True,
+                                    timeout=6,check=True,priority=2)
+                                two_candle_selection=json.loads(p.stdout)
+                            except Exception as exc:
+                                two_candle_selection['reasons']=[
+                                    'Zwei-5m-Produktauswahl nicht verfügbar: '+type(exc).__name__]
+                                print('BOB_TWO_CANDLE_PAPER_SELECTION error='+type(exc).__name__,
+                                      flush=True)
                         input_observations=[]
                         outcomes=paper_portfolios.run_all(conn,bundle,market,selection,quotes,
                                                           time.time()*1000,settings,active_cases,
                                                           early_market=early_market,early_selection=early_selection,
                                                           input_observations=input_observations,
-                                                          warning_market=warning_market,warning_selection=warning_selection)
+                                                          warning_market=warning_market,warning_selection=warning_selection,
+                                                          two_candle_market=two_candle_market,
+                                                          two_candle_selection=two_candle_selection)
                         # Prospective separate MODEL trials cannot overwrite a
                         # primary 800/1000 simulation or broker quote evidence.
                         conn.execute('SAVEPOINT bob_model_paper')

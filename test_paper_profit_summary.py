@@ -61,6 +61,9 @@ class PaperProfitSummaryTests(unittest.TestCase):
                          'knockout-protection')
         self.assertEqual(profit.entry_block_code('ABWARTEN: keine bestätigte Richtung'),
                          'no-direction')
+        self.assertEqual(profit.entry_block_code('Zwei-5m-Test: Kerzen nicht bestätigt'),
+                         'two-candle-wait')
+        self.assertIn('early5m1000nov',profit.PROFILES)
         self.assertEqual(profit.entry_block_code('ABWARTEN: kein bestätigter gültiger Goldplan'),
                          'no-direction')
         self.assertEqual(profit.entry_block_code('Stopp-/Zielplan fehlt oder ist ungültig'),

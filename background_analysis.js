@@ -4,12 +4,13 @@ const LateEntry=require('./late_entry_guard.js');
 const Risk=require('./risk_workspace.js');
 const Opportunity=require('./entry_opportunity_study.js');
 const PaperRisk=require('./paper_risk_reference.js');
+const TwoCandle=require('./paper_two_candle_entry.js');
 function evaluate(input, {render=false}={}){
  const noop=()=>{},elements=new Map(),canvas=new Proxy({},{get:()=>noop,set:()=>true});
  const element=id=>{if(!elements.has(id))elements.set(id,{value:({tf:input.timeframe||'15m',n:'200',account:'500',risk:'1',trailAtr:String(input.trailAtr||1.5),minRR:'2',displayCcy:'USD'})[id]||'',textContent:'',innerHTML:'',className:'',parentElement:{className:''},style:{},dataset:{},classList:{add:noop,remove:noop,toggle:noop},addEventListener:noop,setAttribute:noop,appendChild:noop,append:noop,selectedOptions:[{textContent:"15 Minuten"}],getContext:()=>canvas,getBoundingClientRect:()=>({width:800,height:300}),width:800,height:220});return elements.get(id);};
  const push={registered:false,general:false,trade:false,activeTrade:false};
  const env={input,render,console:{log:noop,warn:noop,info:noop,error:noop},document:{getElementById:element,querySelectorAll:()=>[],querySelector:()=>null,visibilityState:'hidden',addEventListener:noop,createTextNode:text=>({textContent:text}),createElement:()=>element('temp')},window:{addEventListener:noop},localStorage:{getItem:()=>null,setItem:noop},navigator:{},Notification:{permission:'denied'},BobPush:{state:()=>push,set:()=>push,setActiveTrade:()=>push,emit:async()=>false},BobDegiro:{riskModel:()=>({ok:false})},fetch:async()=>{throw Error('Headless analysis has no network access')},setTimeout:()=>0,clearTimeout:noop,setInterval:()=>0,AbortController,Date,Math,Number,JSON,URL,Blob,Promise};
- env.LateEntry=LateEntry; env.Opportunity=Opportunity; env.PaperRisk=PaperRisk;
+ env.LateEntry=LateEntry; env.Opportunity=Opportunity; env.PaperRisk=PaperRisk; env.TwoCandle=TwoCandle;
  vm.createContext(env);
  const html=fs.readFileSync(__dirname+'/Bob.html','utf8');
  const script=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].find(m=>m[1].includes('function confirmedSignalDirection()'))[1];
@@ -70,6 +71,17 @@ function evaluate(input, {render=false}={}){
       unit:'USD/oz',at:Date.now(),experimental:true,source:'early-warning-paper-v2'};
    }
   }
+  // The extra 1,000-EUR experiment has an independent two-closed-5m signal.
+  // Nothing here changes confirmedSignalDirection(), main entry or live orders.
+  const paperTwoCandleEntry=TwoCandle.evaluate({
+    bundle,now:Date.now(),ready,priceFresh,price,trendContext,
+    dmi:dmiContext(bundle),paperRisk,
+    makePlan:(side,entry,riskSource)=>{
+      const stop=stopModel(side,entry,riskSource.atr,input.trailAtr||1.5,riskSource).stop;
+      const target=Number.isFinite(stop)&&stop>0?
+        targetModel(side,entry,stop,2,riskSource):{};
+      return {stop,...target};
+    }});
   let monitorPlan=null;
   if(ready&&priceFresh&&['LONG','SHORT'].includes(input.monitorDirection)){
    const side=input.monitorDirection,stop=stopModel(side,price,A.at,input.trailAtr||1.5).stop;
@@ -208,7 +220,7 @@ function evaluate(input, {render=false}={}){
    }catch(_){handsetPlans.LONG={available:false};handsetPlans.SHORT={available:false};}
    finally{$('trailAtr').value=trail;$('minRR').value=rr;}
   }
-  return {handsetPlans,handsetPlanRevision:input.handsetPlanRevision,entryOpportunityStudy,paperNoEmaEntry,paperCampaignEntries,relaxedPaper,paperRiskReference:{available:paperRisk.available,paperOnly:true,basis:paperRisk.basis,timeframe:paperRisk.timeframe,confirmedBars:paperRisk.confirmedBars||null,sourceAt:paperRisk.sourceAt||null,reason:paperRisk.reason},entryPlanState,referencePlan,entryPreparation,monitorPlan,entryTimingGate,entryTiming:signalState.entryTiming||'five-minute-confirmation',confirmationAt:signalState.confirmationAt||null,baseDirection:signalState.baseDirection||direction,learningPolicy:signalState.learningPolicy,dmi:dmiContext(bundle),continuedPlan:continuedTradePlan(input.trade,bundle),fx:bundle.spots?.usd_eur_meta||null,fxByCurrency:{EUR:bundle.spots?.usd_eur_meta||null,CHF:bundle.spots?.usd_chf_meta||null},marketReview:bundle.marketReview||null,plan,trendContext,earlyImpulse,earlyWarning,warningPaperPlan,warningPaperPlanReason,earlyPaperPlan,earlyPaperPlanReason,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),analysisWarnings:analysisAgeWarnings(),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,suggestedTargetPlan,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
+  return {handsetPlans,handsetPlanRevision:input.handsetPlanRevision,paperTwoCandleEntry,entryOpportunityStudy,paperNoEmaEntry,paperCampaignEntries,relaxedPaper,paperRiskReference:{available:paperRisk.available,paperOnly:true,basis:paperRisk.basis,timeframe:paperRisk.timeframe,confirmedBars:paperRisk.confirmedBars||null,sourceAt:paperRisk.sourceAt||null,reason:paperRisk.reason},entryPlanState,referencePlan,entryPreparation,monitorPlan,entryTimingGate,entryTiming:signalState.entryTiming||'five-minute-confirmation',confirmationAt:signalState.confirmationAt||null,baseDirection:signalState.baseDirection||direction,learningPolicy:signalState.learningPolicy,dmi:dmiContext(bundle),continuedPlan:continuedTradePlan(input.trade,bundle),fx:bundle.spots?.usd_eur_meta||null,fxByCurrency:{EUR:bundle.spots?.usd_eur_meta||null,CHF:bundle.spots?.usd_chf_meta||null},marketReview:bundle.marketReview||null,plan,trendContext,earlyImpulse,earlyWarning,warningPaperPlan,warningPaperPlanReason,earlyPaperPlan,earlyPaperPlanReason,comparisonBaseline:{ruleVersion:'intraday-responsive-v6',direction:intradaySession().entryAllowed?baseline.dir:'NEUTRAL',shadowDirection:intradaySession().entryAllowed?baseline.shadowDirection:'NEUTRAL',decisionReason:baseline.reason},analysisSnapshot:{timeframe:tf,...A,mtf:MTF},minuteEntry:minuteEntryContext(bundle,signalState),entryQuality:intradayEntryContext(bundle,signalState),ruleVersion:'intraday-trend-follow-v7',session:intradaySession(),intraday:intradayState(bundle,input.trade),analysisWarnings:analysisAgeWarnings(),ready,price,priceFresh,dataAt:Number.isFinite(at)?at:null,direction,mtf:MTF.overall,score:A.score,atr:riskData.available?riskData.atr:null,macd:A.macd,signal:A.sig,suggestedStop,suggestedTarget,suggestedTargetPlan,analysisBarAt:signalState.lastAt??C.at(-1)?.openTime,shadowDirection:signalState.shadowDirection,decisionReason:signalState.reason,context};
  })()`,env,{timeout:8000});
  if(input.riskEnabled===true||input.riskMarketEnabled===true){
   const clock=Date.now(),signal=Risk.analyze(input.bundle,clock);

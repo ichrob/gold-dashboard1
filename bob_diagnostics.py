@@ -986,14 +986,14 @@ def entry_block_evidence(conn, portfolios, limit=5):
             # first persisted observation, never a recreated historical window.
             time_windows = []
             raw_windows = payload.get('entryTimeBuckets15mV1')
-            if (profile in ('trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov')
+            if (profile in ('trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov', 'early5m1000nov')
                     and isinstance(raw_windows, dict)):
                 allowed_codes = {
                     'ema-stretch-and-signal-age', 'ema-stretch', 'signal-age',
                     'gold-stale', 'gold-plan-missing', 'no-direction', 'five-minute-bar-stale', 'plan-or-timing',
                     'spot-close-distance', 'weak-trend-confirmation',
                     'crv-obstacle', 'ko-safety', 'product-or-quote', 'capital-risk',
-                    'entry-checklist', 'duplicate-bar', 'other'}
+                    'entry-checklist', 'duplicate-bar', 'two-candle-wait', 'other'}
                 for k, item in sorted(raw_windows.items(),
                                       key=lambda x: str(x[0]), reverse=True)[:16]:
                     if not isinstance(item, dict) or not str(k).isdigit():
@@ -1102,7 +1102,8 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         # Keep only enum-validated codes and finite timestamps in this private
         # diagnostic projection; night-session reasons must not overwrite it.
         if profile in ('trend800nov', 'normal1000nov', 'ema3000nov', 'noema5000nov',
-                       'trend1000dec', 'normal1000dec', 'early1000dec'):
+                       'trend1000dec', 'normal1000dec', 'early1000dec',
+                       'early5m1000nov'):
             from paper_profit_summary import ENTRY_BLOCK_CODES, number
             block_code = source_control.get('lastTradingEntryBlockCode')
             if isinstance(block_code, str) and block_code in ENTRY_BLOCK_CODES:
