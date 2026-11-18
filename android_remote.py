@@ -278,5 +278,11 @@ def handle(conn,payload):
         return {'devices':[{'deviceId':d[:12],**dict(s,commands=s.get('commands',[])[-12:]),'fresh':now-s.get('seenAt',0)<=30,'online':s.get('active',False) and s.get('expiresAt',0)>now and now-s.get('seenAt',0)<=30} for d,s in rows], 'serverAt':now,'ordersAllowed':False}
     if len(rows)!=1:return {'status':'device-missing-or-ambiguous'}
     digest,state=rows[0];answer=enqueue(state,a,now)
+    if (answer.get('status') in ('session-missing', 'session-offline')
+            and a.get('action') not in ('stop', 'termux_check')):
+        # A failed read-only command may ask the owner for screen time.
+        # Never queue the stale command, touch the screen or create a lease.
+        __import__('phone_access_handoff').request(
+            conn, 'broker-read', __import__('push_server').send_phone_access_push)
     conn.execute('UPDATE bob_android_remote SET state=%s::jsonb WHERE token_hash=%s',(json.dumps(state),digest))
     return answer
