@@ -740,7 +740,11 @@ class DatabaseTests(unittest.TestCase):
             with connect() as conn:
                 conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb,processing_attempts=6,processing_at=now()-interval '5 minutes' WHERE batch_id=%s",
                     (json.dumps(legacy),value['batchId']))
-            self.assertTrue(worker.tick(connect,lambda *_:parsed))
+            # The mock schema intentionally lacks the production paper tables.
+            # Test durable receipt recovery here; paper persistence was already
+            # exercised above using a separate explicit transaction test.
+            with patch('paper_simulation.sync',return_value={'ok':True,'products':10}):
+                self.assertTrue(worker.tick(connect,lambda *_:parsed))
             with connect() as conn:
                 final=conn.execute('SELECT import_receipt FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0]
                 self.assertIn(final['stage'],('synced','superseded'))
