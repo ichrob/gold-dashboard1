@@ -166,6 +166,8 @@ def deferred_memory_receipt(batch,previous,enhanced=False):
     # cannot turn incomplete OCR into accepted ten-row evidence.
     if enhanced or (previous or {}).get('enhancedPending') is True:
         value['enhancedPending']=True
+    if (previous or {}).get('complementRecovery')=='phone-native-v1':
+        value['complementRecovery']='phone-native-v1'
     # Keep the existing, device-owned daily-list fallback available. This is
     # an honest memory failure, never a successful import or new list proof.
     if exhausted:value['error']='MemoryError'
@@ -567,7 +569,9 @@ def tick(connect,runner=process):
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
             AND NOT (COALESCE(i.import_receipt->>'error','')='ListVerificationError'
-                AND COALESCE(i.import_receipt->>'enhancedVerification','false')='true')
+                AND COALESCE(i.import_receipt->>'enhancedVerification','false')='true'
+                AND (COALESCE(i.import_receipt->>'complementRecovery','')='phone-native-v1'
+                    OR i.created_at<=now()-interval '3 hours'))
             AND (i.import_receipt->>'stage'='waiting-memory' OR i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error' IN ('MemoryError','ListVerificationError')))
                 OR (i.processing_attempts=4 AND i.import_receipt->>'error' IN ('InterruptedWorker','MemoryError'))
                 OR (i.processing_attempts=5 AND i.import_receipt->>'error' IN ('CalledProcessError','LockNotAvailable','DeadlockDetected','SerializationFailure'))
@@ -576,7 +580,13 @@ def tick(connect,runner=process):
                 OR (i.processing_attempts>5 AND i.import_receipt->>'stage'='read-failed'
                     AND i.import_receipt->>'error'='ListVerificationError'
                     AND COALESCE((i.import_receipt->>'memoryDeferrals')::int,0)>0
-                    AND COALESCE(i.import_receipt->>'enhancedVerification','false')='false'))
+                    AND COALESCE(i.import_receipt->>'enhancedVerification','false')='false')
+                OR (i.import_receipt->>'stage'='read-failed'
+                    AND i.import_receipt->>'error'='ListVerificationError'
+                    AND i.import_receipt->>'enhancedVerification'='true'
+                    AND COALESCE(i.import_receipt->>'complementRecovery','')<>'phone-native-v1'
+                    AND i.created_at>now()-interval '3 hours'
+                    AND i.processing_attempts<=8))
             AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes'
                 OR (i.import_receipt->>'stage'='read-failed'
                     AND i.import_receipt->>'error'='ListVerificationError'
@@ -597,11 +607,18 @@ def tick(connect,runner=process):
         # A memory-exhausted old batch resumes with a high lifetime attempt
         # number. It must still get exactly one enhanced OCR pass after an
         # incomplete verified list, not silently fail at attempt seven.
+        complement_replay=((previous or {}).get('stage')=='read-failed'
+            and (previous or {}).get('error')=='ListVerificationError'
+            and (previous or {}).get('enhancedVerification') is True
+            and (previous or {}).get('complementRecovery')!='phone-native-v1'
+            and attempts<=8)
         alternate=((was_verification_failure and
                     (1<=attempts<=3 or (attempts>5 and memory_deferrals(previous)>0)))
-                   or (previous or {}).get('enhancedPending') is True)
+                   or (previous or {}).get('enhancedPending') is True
+                   or complement_replay)
         reading={'batchId':batch,'stage':'reading','count':0,
-                 'memoryDeferrals':memory_deferrals(previous)}
+                 'memoryDeferrals':memory_deferrals(previous),
+                 'complementRecovery':'phone-native-v1'}
         if alternate:reading['enhancedPending']=True
         conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1,import_receipt=%s::jsonb WHERE batch_id=%s",(json.dumps(reading),batch))
         conn.commit()
@@ -652,7 +669,8 @@ def tick(connect,runner=process):
             details=bounded_list_diagnostics(getattr(exc, 'diagnostics', None)) if isinstance(exc,ListVerificationError) else None
             receipt={'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,
                      'memoryDeferrals':memory_deferrals(previous),
-                     'enhancedVerification':bool(alternate and isinstance(exc,ListVerificationError))}
+                     'enhancedVerification':bool(alternate and isinstance(exc,ListVerificationError)),
+                     'complementRecovery':'phone-native-v1'}
             if details is not None:
                 receipt['verificationCounts']=details
             conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb"+clear_progress+" WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",
