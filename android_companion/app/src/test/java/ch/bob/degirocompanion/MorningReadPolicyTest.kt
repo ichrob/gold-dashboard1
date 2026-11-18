@@ -652,7 +652,8 @@ class MorningReadPolicyTest {
         assertFalse(MorningReadPolicy.fullGoldResultsView(full+
             MorningReadPolicy.Node("",password=true)))
         assertFalse(MorningReadPolicy.fullGoldResultsView(full.mapIndexed { i,n ->
-            if(i==4)n.copy(text="Unbekannt",row="Unbekannt") else n
+            // Removing the link and Top Results shifts the product row to 2.
+            if(i==2)n.copy(text="Unbekannt",row="Unbekannt") else n
         }))
     }
 
