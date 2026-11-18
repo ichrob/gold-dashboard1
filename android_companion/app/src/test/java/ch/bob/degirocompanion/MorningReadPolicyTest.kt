@@ -2,6 +2,22 @@ package ch.bob.degirocompanion
 import org.junit.Assert.*
 import org.junit.Test
 class MorningReadPolicyTest {
+    @Test fun visibleTenIsinsNeedExtraPhotoWhenLastRowsAreIncomplete() {
+        fun id(n:Int):String {
+            val prefix="DE000ZZ"+n.toString().padStart(4,'0')
+            return ('0'..'9').map { prefix+it }.single { SeriesEvidence.validIsin(it) }
+        }
+        val seen=(1..10).map(::id).toSet()
+        val covered=seen.take(8).toSet()
+        assertEquals(10,seen.size)
+        assertTrue(MorningListEndPolicy.needsEdgeCapture(3,seen,covered))
+        assertTrue(MorningListEndPolicy.needsEdgeCapture(2,seen,covered))
+        assertFalse(MorningListEndPolicy.needsEdgeCapture(4,seen,covered))
+        assertFalse(MorningListEndPolicy.needsEdgeCapture(3,seen,seen))
+        assertFalse(MorningListEndPolicy.needsEdgeCapture(3,seen.take(9).toSet(),covered))
+        assertFalse(MorningListEndPolicy.needsEdgeCapture(3,seen,covered+"DE000INVALID"))
+    }
+
     @Test fun returnFromExactVisibleQuotePageSurvivesMissingLauncherButNeverWeakensProtection() {
         val isin="DE000FE6B3G9"
         val page=listOf(
