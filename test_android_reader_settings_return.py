@@ -37,6 +37,26 @@ class ReaderSettingsReturn(unittest.TestCase):
         self.assertNotIn('Shortcut', service)
         self.assertIn('Shortcut allein genügt nicht', code)
 
+    def test_bob_start_can_request_local_opt_in_without_reopening_samsung(self):
+        code = self.code
+        start = code.split('private fun startAutomaticTest() {', 1)[1].split('private fun primaryAction()', 1)[0]
+        self.assertIn('if(serviceEnabled() && !preferences.getBoolean("enabled", false))', start)
+        self.assertIn('setPositiveButton("Freigeben und Bob starten")', start)
+        self.assertIn('preferences.edit().putBoolean("enabled", true).commit()', start)
+        self.assertIn('startAutomaticTest()', start)
+        self.assertIn('Keine Orders und keine Umgehung der Samsung-Sperre.', start)
+        self.assertNotIn('Settings.ACTION_ACCESSIBILITY_SETTINGS', start)
+
+    def test_saved_morning_list_button_also_stays_out_of_samsung_when_enabled(self):
+        code = self.code
+        action = code.split('private fun primaryAction() {', 1)[1].split(
+            'private fun serviceEnabled(): Boolean {', 1)[0]
+        self.assertIn('MorningReadUiPolicy.Action.SETUP -> {', action)
+        self.assertIn('if(serviceEnabled()) {', action)
+        self.assertIn('readerScroll.post { readerScroll.scrollTo(0, 0) }', action)
+        self.assertIn('readerSettingsOpened = true', action)
+        self.assertIn('Settings.ACTION_ACCESSIBILITY_SETTINGS', action)
+
     def test_return_never_triggers_broker_navigation_without_owner_tap(self):
         code = self.code
         resume = code.split('override fun onResume() {', 1)[1].split('override fun onPause()', 1)[0]
