@@ -32,11 +32,11 @@ class WorkerTests(unittest.TestCase):
 
     def test_memory_deferrals_are_bounded_across_saved_receipts(self):
         receipt=None
-        for count in range(1,5):
+        for count in range(1,25):
             receipt=worker.deferred_memory_receipt('a'*32,receipt)
             self.assertEqual(receipt['memoryDeferrals'],count)
-            self.assertEqual(receipt['retryAllowed'],count<4)
-            self.assertEqual(receipt['stage'],'waiting-memory' if count<4 else 'read-failed')
+            self.assertEqual(receipt['retryAllowed'],count<24)
+            self.assertEqual(receipt['stage'],'waiting-memory' if count<24 else 'read-failed')
         self.assertEqual(receipt['error'],'MemoryError')
         self.assertEqual(receipt['reason'],'OCR_MEMORY_WAIT_EXHAUSTED')
         for invalid in (-1,True,'3',None):
@@ -205,6 +205,72 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(all(item['listRow']['crossChecked'] for item in result['items']))
         self.assertTrue(all(item['originalIsin'] in raw_ids for item in result['items']))
 
+    def test_verified_phone_rows_can_prove_ten_without_native_ocr_for_rejected_image(self):
+        from product_quotes import valid_isin
+        def identifier(n):
+            stem='DE000ZZ'+str(n).zfill(4)
+            return next(stem+str(x) for x in range(10) if valid_isin(stem+str(x)))
+        def row(n):
+            return ('SG Gold Turbo BEST Open-End Call BAR 4000 BP 4000 Bv 10 | '+
+                    identifier(n)+' Societe Generale OTC EUR')
+        images=[]
+        for group in ([1,2,3,4,5,6],[5,6,7,8,9,10]):
+            lines=[row(n) for n in group]
+            images.append({'png':'original never opened',
+                           'appText':{'before':lines,'after':list(lines)}})
+        images.append({'png':'unreadable original is retained',
+                       'localOcr':{'expectedIsins':['invalid'],'passes':[['bad'],['bad']]}})
+        with patch.object(worker,'guarded_ocr_run',
+                          side_effect=AssertionError('Native OCR must not launch')) as heavy:
+            result=worker.process({'images':images},'2026-11-18T18:37:00Z')
+        heavy.assert_not_called()
+        self.assertEqual(len(result['items']),10)
+        self.assertEqual(len({item['isin'] for item in result['items']}),10)
+        self.assertEqual(result['recognitionRoute'],{
+            'appTextImages':2,'phoneMlKitImages':0,'serverOcrFallbackImages':0,
+            'missingPhoneReadingImages':0,'rejectedPhoneReadingImages':0,
+            'skippedUnneededImages':1})
+        self.assertEqual(worker.bounded_recognition_route(result['recognitionRoute']),
+                         result['recognitionRoute'])
+        self.assertTrue(all(item['listRow']['source']=='DEGIRO-App-Text'
+                            for item in result['items']))
+        self.assertTrue(all(item['listRow']['imageReference'] in
+                            ('DEGIRO-TOP10-1.png','DEGIRO-TOP10-2.png')
+                            for item in result['items']))
+        self.assertTrue(all(not item['listRow']['isExecutableQuote']
+                            for item in result['items']))
+
+    def test_missing_tenth_phone_product_never_bypasses_native_memory_guard(self):
+        from product_quotes import valid_isin
+        def identifier(n):
+            stem='DE000ZZ'+str(n).zfill(4)
+            return next(stem+str(x) for x in range(10) if valid_isin(stem+str(x)))
+        rows=['SG Gold Turbo BEST Open-End Call BAR 4000 BP 4000 Bv 10 | '+
+              identifier(n)+' Societe Generale OTC EUR' for n in range(1,10)]
+        images=[{'png':'first original','appText':{'before':rows,'after':list(rows)}},
+                {'png':'second original'}]
+        with patch.object(worker,'guarded_ocr_run',
+                          side_effect=worker.OcrMemoryDeferred('Headroom not available')) as heavy:
+            with self.assertRaises(worker.OcrMemoryDeferred):
+                worker.process({'images':images},'2026-11-18T18:37:00Z')
+        heavy.assert_called_once()
+
+    def test_previous_exhausted_memory_receipt_is_eligible_for_resumption(self):
+        from types import SimpleNamespace
+        queries=[]
+        class Db:
+            def __enter__(self):return self
+            def __exit__(self,*_):pass
+            def commit(self):pass
+            def execute(self,sql,args=()):
+                queries.append(sql)
+                return SimpleNamespace(fetchone=lambda:None)
+        self.assertFalse(worker.tick(lambda:Db()))
+        selection=next(q for q in queries if q.startswith('SELECT i.batch_id'))
+        self.assertIn("OCR_MEMORY_WAIT_EXHAUSTED",selection)
+        self.assertIn("memoryDeferrals",selection)
+        self.assertIn("<24",selection)
+
     def test_only_missing_phone_evidence_goes_to_server_fallback(self):
         from types import SimpleNamespace
         images=[{'png':'image-a','appText':{'before':['safe'], 'after':['safe']}},
@@ -212,12 +278,13 @@ class WorkerTests(unittest.TestCase):
                 {'png':'image-c','localOcr':{'expectedIsins':['DE000ZZ00016'],'passes':[['r'],['r']]}}]
         responses=[
             SimpleNamespace(stdout=json.dumps([['paired','paired'], None, ['mlkit','mlkit']])),
+            subprocess.CalledProcessError(1,['node']),
             SimpleNamespace(stdout=json.dumps([['native-pass-one','native-pass-two']])),
             SimpleNamespace(stdout=json.dumps({'items':[],'evidence':{}})),
         ]
         with patch('evaluator_runtime.run',side_effect=responses) as runner:
             result=worker.process({'images':images},'2026-11-11T08:00:00Z')
-        self.assertEqual(runner.call_count,3)
+        self.assertEqual(runner.call_count,4)
         self.assertEqual(sum('--ocr' in call.args[0] for call in runner.call_args_list),1)
         self.assertEqual(result['recognitionRoute'],{
             'appTextImages':1,'phoneMlKitImages':1,'serverOcrFallbackImages':1,
@@ -651,20 +718,37 @@ class DatabaseTests(unittest.TestCase):
             with connect() as conn:
                 conn.execute("UPDATE bob_android_list_images SET processing_attempts=0,processing_at=NULL,import_receipt=NULL WHERE batch_id=%s",(value['batchId'],))
             def deferred(*_):raise worker.OcrMemoryDeferred('private text')
-            for count in range(1,5):
+            for count in range(1,25):
                 self.assertTrue(worker.tick(connect,deferred))
                 with connect() as conn:
                     receipt,attempts,payload=conn.execute('SELECT import_receipt,processing_attempts,payload FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()
                     self.assertEqual(receipt['memoryDeferrals'],count)
-                    self.assertEqual(attempts,0 if count<4 else 6)
+                    self.assertEqual(attempts,0 if count<24 else 6)
                     self.assertEqual(payload['images'],value['images'])
                     # Late browser receipts cannot reset the durable budget.
                     android_list.handle(conn,{'action':'list-receipt','value':{'batchId':value['batchId'],'stage':'reading','count':0}},now)
                     after=conn.execute('SELECT import_receipt FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0]
                     self.assertEqual(after['memoryDeferrals'],count)
-                    if count==4:self.assertEqual(after,receipt)
+                    if count==24:self.assertEqual(after,receipt)
                     conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes' WHERE batch_id=%s",(value['batchId'],))
             self.assertFalse(worker.tick(connect,lambda *_:self.fail('Exhausted memory retries must stop')))
+            # A pre-fix batch at four deferrals is now eligible for reprocessing
+            # without recapturing or relaxing evidence verification.
+            legacy={'batchId':value['batchId'],'stage':'read-failed','count':0,
+                    'error':'MemoryError','reason':'OCR_MEMORY_WAIT_EXHAUSTED',
+                    'retryAllowed':False,'memoryDeferrals':4}
+            with connect() as conn:
+                conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb,processing_attempts=6,processing_at=now()-interval '5 minutes' WHERE batch_id=%s",
+                    (json.dumps(legacy),value['batchId']))
+            # The mock schema intentionally lacks the production paper tables.
+            # Test durable receipt recovery here; paper persistence was already
+            # exercised above using a separate explicit transaction test.
+            with patch('paper_simulation.sync',return_value={'ok':True,'products':10}):
+                self.assertTrue(worker.tick(connect,lambda *_:parsed))
+            with connect() as conn:
+                final=conn.execute('SELECT import_receipt FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0]
+                self.assertIn(final['stage'],('synced','superseded'))
+                self.assertEqual(final['count'],10)
 
         finally:
             with psycopg.connect(url) as admin:admin.execute('DROP SCHEMA '+schema+' CASCADE')

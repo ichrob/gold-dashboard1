@@ -144,9 +144,10 @@ def content_bounds(image):
 # runtime kill threshold. The child still fails closed on a memory spike.
 OCR_CONTAINER_LIMIT = 505 * 1024 * 1024
 OCR_START_RESERVE = 196 * 1024 * 1024
-# Four admission checks at the existing four-minute lease cadence. Persisted
-# in the receipt so a restart cannot reset a permanently blocked batch.
-OCR_MAX_MEMORY_DEFERRALS = 4
+# Twenty-four bounded four-minute memory admission checks (~96 minutes).
+# Preserve the existing 505-MiB kill threshold and 196-MiB start reserve.
+# Waiting is not an OCR attempt. Already uploaded originals remain available.
+OCR_MAX_MEMORY_DEFERRALS = 24
 
 
 def memory_deferrals(receipt):
@@ -329,6 +330,33 @@ def _process(payload,at,*,progress=None,save_progress=None):
                 for i in payload['images']]}),
             text=True,capture_output=True,timeout=20,check=True)
         prepared=json.loads(result.stdout)
+    # A partially accepted phone capture may already contain a *complete*
+    # ten-ISIN list. Prove that with the same strict Node reconciliation
+    # before trying to load an expensive server OCR model. An unaccepted
+    # screenshot contributes zero rows, is never treated as verified, and
+    # remains retained in its original authenticated batch. The image index
+    # is preserved for every accepted row's source reference.
+    if any(p is not None for p in prepared) and any(p is None for p in prepared):
+        preview=[p if p is not None else ['',''] for p in prepared]
+        try:
+            preview_result=evaluator_runtime.run(
+                ['node',str(Path(__file__).with_name('handset_list_parse.js'))],
+                input=json.dumps({'images':preview,'at':at,
+                    'appSources':[p is not None and 'appText' in image
+                                  for p,image in zip(prepared,payload['images'])],
+                    'localSources':[p is not None and 'localOcr' in image
+                                    for p,image in zip(prepared,payload['images'])]}),
+                text=True,capture_output=True,timeout=20,check=True)
+        except subprocess.CalledProcessError:
+            # Incomplete/conflicting phone rows still require native OCR,
+            # exactly as before. Never fabricate the missing tenth product.
+            pass
+        else:
+            parsed=json.loads(preview_result.stdout)
+            parsed['recognitionRoute']=recognition_route(
+                payload['images'],prepared,
+                skipped={i for i,p in enumerate(prepared) if p is None})
+            return parsed
     # Share subprocess admission with Node analyses, releasing it after each
     # image. Never overlap a native OCR model with a heavy JS evaluator.
     for index,image in enumerate(payload['images']):
@@ -395,11 +423,15 @@ _RECOGNITION_COUNTS = frozenset((
     'missingPhoneReadingImages', 'rejectedPhoneReadingImages',
 ))
 
-def recognition_route(source, prepared):
+def recognition_route(source, prepared, skipped=()):
     if len(source)!=len(prepared) or not 1<=len(source)<=4:
         raise ValueError('Recognition routing bounds')
+    skipped=set(skipped)
+    if not skipped.issubset(range(len(source))) or any(prepared[i] is not None for i in skipped):
+        raise ValueError('Cannot skip a verified source')
     counts=dict.fromkeys(_RECOGNITION_COUNTS,0)
-    for image, accepted in zip(source,prepared):
+    for index,(image,accepted) in enumerate(zip(source,prepared)):
+        if index in skipped:continue
         if accepted is not None:
             if 'appText' in image: counts['appTextImages']+=1
             elif 'localOcr' in image: counts['phoneMlKitImages']+=1
@@ -409,15 +441,18 @@ def recognition_route(source, prepared):
             if 'appText' in image or 'localOcr' in image:
                 counts['rejectedPhoneReadingImages']+=1
             else: counts['missingPhoneReadingImages']+=1
+    if skipped:counts['skippedUnneededImages']=len(skipped)
     return counts
 
 def bounded_recognition_route(value):
     if value is None: return None  # Previously saved batches remain valid.
-    if not isinstance(value,dict) or set(value)!=_RECOGNITION_COUNTS or any(
-        type(v) is not int or not 0<=v<=4 for v in value.values()
-    ): raise ValueError('Invalid OCR route counts')
-    if (value['appTextImages']+value['phoneMlKitImages']+value['serverOcrFallbackImages']
-            not in range(1,5)
+    keys=set(value) if isinstance(value,dict) else set()
+    allowed=(set(_RECOGNITION_COUNTS),set(_RECOGNITION_COUNTS)|{'skippedUnneededImages'})
+    if keys not in allowed or any(type(v) is not int or not 0<=v<=4 for v in value.values()):
+        raise ValueError('Invalid OCR route counts')
+    total=(value['appTextImages']+value['phoneMlKitImages']+
+           value['serverOcrFallbackImages']+value.get('skippedUnneededImages',0))
+    if (total not in range(1,5)
             or value['missingPhoneReadingImages']+value['rejectedPhoneReadingImages']
             !=value['serverOcrFallbackImages']):
         raise ValueError('Inconsistent OCR route counts')
@@ -478,7 +513,9 @@ def tick(connect,runner=process):
                 AND COALESCE(i.import_receipt->>'enhancedVerification','false')='true')
             AND (i.import_receipt->>'stage'='waiting-memory' OR i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error' IN ('MemoryError','ListVerificationError')))
                 OR (i.processing_attempts=4 AND i.import_receipt->>'error' IN ('InterruptedWorker','MemoryError'))
-                OR (i.processing_attempts=5 AND i.import_receipt->>'error' IN ('CalledProcessError','LockNotAvailable','DeadlockDetected','SerializationFailure')))
+                OR (i.processing_attempts=5 AND i.import_receipt->>'error' IN ('CalledProcessError','LockNotAvailable','DeadlockDetected','SerializationFailure'))
+                OR (i.import_receipt->>'reason'='OCR_MEMORY_WAIT_EXHAUSTED'
+                    AND COALESCE((i.import_receipt->>'memoryDeferrals')::int,24)<24))
             AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes'
                 OR (i.import_receipt->>'stage'='read-failed'
                     AND i.import_receipt->>'error'='ListVerificationError'
