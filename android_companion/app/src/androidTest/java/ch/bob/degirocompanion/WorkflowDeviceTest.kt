@@ -494,13 +494,36 @@ class WorkflowDeviceTest {
             putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"Gold")
         }))
         val start = automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Senden").single { it.isClickable && it.text?.toString() == "Senden" }
+        val readerMonitor = instrumentation.addMonitor(ProductReadActivity::class.java.name,null,false)
         assertTrue(start.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
         await("DEGIRO reader handoff missing") {
             automation.rootInActiveWindow?.findAccessibilityNodeInfosByText("DEGIRO lesen · Produkt und Morgenliste")?.isNotEmpty() == true
         }
         assertFalse(GoldSearchRun.running) // Fixture device has no enabled product reader.
         assertNull(WorkflowService.run)
-        assertTrue(automation.rootInActiveWindow.findAccessibilityNodeInfosByText("Unter Einrichtung den Lesedienst einmalig einschalten.").isNotEmpty())
+        // This route sends a prepared Gold query to ProductReadActivity.
+        // With the fixture's disabled native reader, startPreparedGoal()
+        // reports its precise local preflight denial. Then test the ACTUAL
+        // Bob starten button as well: it must show a persistent, specific
+        // reason instead of silently replacing the old status on refresh.
+        val reader = instrumentation.waitForMonitorWithTimeout(readerMonitor,5000) as? ProductReadActivity
+        assertNotNull("Native DEGIRO reader did not open",reader)
+        main {
+            fun field(name:String) = ProductReadActivity::class.java.getDeclaredField(name)
+                .apply { isAccessible=true }.get(reader!!)
+            val resultView=field("result") as android.widget.TextView
+            assertTrue("Native Bob reader must display the new specific start error",
+                resultView.text.toString().startsWith(
+                    "Bob konnte nicht starten: Lesedienst nicht vollständig bereit."))
+            val button=field("primary") as android.widget.Button
+            assertEquals("Bob starten",button.text.toString())
+            assertTrue(button.performClick())
+            val startFeedback=field("startFeedback") as android.widget.TextView
+            assertTrue("Bob-start button did not retain its actual preflight failure",
+                startFeedback.text.toString().startsWith(
+                    "Bob konnte nicht starten: Lesedienst nicht vollständig bereit."))
+            assertFalse(GoldSearchRun.running)
+        }
         context.getSharedPreferences("workflow_auto_v1",0).edit().clear().commit()
     }
     @Test fun ownerLoginRequestUsesLocalPinRouteAndShowsMissingReaderInsteadOfAiRejection() {

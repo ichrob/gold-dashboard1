@@ -41,6 +41,8 @@ class ProductReadActivity : Activity() {
         }
     }
     private lateinit var result: TextView
+    /** Never overwritten by the once-per-second read-status refresh. */
+    private lateinit var startFeedback: TextView
     private lateinit var diagnostics: TextView
     private lateinit var primary: Button
     private val preferences by lazy { getSharedPreferences("product_reader", MODE_PRIVATE) }
@@ -67,6 +69,15 @@ class ProductReadActivity : Activity() {
         container.addView(TextView(this).apply { text = "DEGIRO lesen · Produkt und Morgenliste"; textSize = 21f })
         primary=Button(this).apply { text="Bob starten";isAllCaps=false;setOnClickListener { startAutomaticTest() } }
         container.addView(primary)
+        // A rejected one-tap start must remain visible even when onResume() or
+        // the frequent read-status tick rebuilds the main result view.
+        startFeedback=TextView(this).apply {
+            text="Startstatus: Bereit · Bob starten drücken."
+            textSize=18f
+            setTextIsSelectable(true)
+            setPadding(0,12,0,12)
+        }
+        container.addView(startFeedback)
         capabilityActions["Bob starten"] = { startAutomaticTest() }
         capabilityActions["Silber-Hebelprodukte suchen"] = { startPreparedGoal("Silber") }
         capabilityActions["Gold-Hebelprodukte suchen"] = { startPreparedGoal("Gold") }
@@ -803,42 +814,70 @@ class ProductReadActivity : Activity() {
         }
     }
 
+    /**
+     * One owner press: give an immediate durable visual acknowledgement and
+     * record a closed, privacy-safe reason if this specific start cannot run.
+     * The separate feedback TextView is intentionally not mutated by refresh().
+     * Never bypass a PIN/keyguard check or start an unapproved remote session.
+     */
     private fun startAutomaticTest() {
+        startFeedback.text = "Startknopf erkannt · DEGIRO-Lesestart wird geprüft."
         if (PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running || PinReadinessProbe.running) {
+            startFeedback.text = "Bereits ein Bob-Leselauf aktiv · DEGIRO wird erneut geöffnet. Nicht mehrfach starten."
             runCatching {
                 val launch = packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
                     ?: error("DEGIRO-App fehlt.")
                 startActivity(launch)
-            }.onFailure { result.text = "DEGIRO konnte nicht geöffnet werden. Der bestehende Lauf bleibt erhalten." }
+            }.onFailure {
+                startFeedback.text = "DEGIRO konnte nicht geöffnet werden: " +
+                    (it.message ?: "Android hat den Start abgelehnt.") +
+                    " · Der bisherige Lauf bleibt erhalten."
+                result.text = startFeedback.text
+                GoldSearchRun.event("START_LAUNCH_FAILED",java.time.Instant.now().toString())
+                PhoneDiagnostics.queue(this)
+            }
             return
         }
         var startedHere=false
         var localPin: ByteArray?=null
+        var failureCode = "START_OTHER"
+        fun reject(code:String, message:String):Nothing {
+            failureCode = code
+            error(message)
+        }
         runCatching {
-            check(!PinReadinessProbe.running && !LoginToReadHandoff.pending(SystemClock.elapsedRealtime()) &&
-                !PhoneRemote.active() && !GoldSearchRun.running && !MorningReadRun.running &&
-                !ProductReadRequest.active(SystemClock.elapsedRealtime())) { "Test läuft bereits. DEGIRO öffnen und abwarten." }
-            check(preferences.getBoolean("enabled",false) && serviceEnabled() && ProductReadDiagnostics.connected) { "Unter Einrichtung den Lesedienst einmalig einschalten." }
-            check(PhoneDiagnostics.paired(this)) { "Unter Einrichtung die automatische Diagnose einmalig verbinden." }
-            val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE) ?: error("DEGIRO-App fehlt.")
+            if(PinReadinessProbe.running || LoginToReadHandoff.pending(SystemClock.elapsedRealtime()) ||
+                PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running ||
+                ProductReadRequest.active(SystemClock.elapsedRealtime()))
+                reject("START_BUSY","Ein anderer Lese- oder Anmeldevorgang ist aktiv. Erst diesen Lauf beenden.")
+            if(!preferences.getBoolean("enabled",false) || !serviceEnabled() ||
+                !ProductReadDiagnostics.connected)
+                reject("START_SERVICE_NOT_READY","Lesedienst nicht vollständig bereit. Unter „Einrichtung und weitere Möglichkeiten“ die Leseprüfung einschalten.")
+            if(!PhoneDiagnostics.paired(this))
+                reject("START_DIAGNOSTICS_UNPAIRED","Automatische Diagnose nicht verbunden. Unter „Einrichtung und weitere Möglichkeiten“ verbinden und freigeben.")
+            val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
+                ?: reject("START_DEGIRO_MISSING","DEGIRO-App fehlt oder ist für Bob nicht erreichbar.")
             if(LocalPinVault.exists(this)) {
-                check(PhoneDiagnostics.keypadTestVerified(this)) { "Lokale PIN ist vorhanden, aber der sichere Tastaturtest fehlt. Unter Einrichtung prüfen." }
-                check(LocalPinVault.available(this)) { "Handy entsperren, damit der lokale PIN-Schlüssel genutzt werden kann." }
+                if(!PhoneDiagnostics.keypadTestVerified(this))
+                    reject("START_PIN_TEST_MISSING","Lokale DEGIRO-PIN ist gespeichert, aber der sichere Tastaturtest fehlt. Unter „Einrichtung“ zuerst „Eine Testziffer eingeben und löschen“ abschließen.")
+                if(!LocalPinVault.available(this))
+                    reject("START_PIN_UNAVAILABLE","Samsung entsperren und die lokal gespeicherte PIN-Verfügbarkeit prüfen.")
                 localPin=LocalPinVault.load(this)
                 LoginToReadHandoff.arm(SystemClock.elapsedRealtime())
                 PinReadinessProbe.startLocalLogin(localPin!!)
                 startedHere=true
-                result.text="DEGIRO wird geöffnet. Bob prüft die Anmeldung und versucht die verschlüsselt gespeicherte PIN nur auf diesem Handy einmal. Erst nach bestätigter Marktseite beginnt die Goldsuche."
+                startFeedback.text="DEGIRO wird geöffnet · Bob prüft die Anmeldung und startet danach die Goldsuche."
+                result.text=startFeedback.text
                 startActivity(launch)
             } else {
-                // A missing PIN never authorizes guessing or a login action.
-                // The existing reader works when the broker is already logged in.
+                // No locally enrolled PIN: read only the already logged-in broker.
                 PhoneRemote.start(this)
                 startedHere=true
-                check(PhoneRemote.active()) { PhoneRemote.message }
+                if(!PhoneRemote.active()) reject("START_SESSION_FAILED","Bob-Handysitzung konnte nicht aktiviert werden: "+PhoneRemote.message)
                 if(!MorningReadRun.resumeRecent(this)) GoldSearchRun.start()
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
-                result.text="DEGIRO wird geöffnet. Wenn keine PIN lokal eingerichtet ist, muss DEGIRO bereits angemeldet sein. Bob sucht anschließend Goldprodukte."
+                startFeedback.text="DEGIRO wird geöffnet · ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein."
+                result.text=startFeedback.text
                 startActivity(launch)
             }
         }.onFailure {
@@ -850,7 +889,14 @@ class ProductReadActivity : Activity() {
                 GoldSearchRun.stop("STOPPED",java.time.Instant.now().toString())
                 ProductReadRequest.cancel()
             }
-            result.text=it.message ?: "Test konnte nicht gestartet werden."
+            // An Android launch failure after successful preflight is not an
+            // incorrect PIN, broker rejection, or proof of a successful action.
+            if(failureCode=="START_OTHER") failureCode=if(startedHere) "START_LAUNCH_FAILED" else "START_OTHER"
+            val message=it.message ?: "Start nicht möglich; technische Diagnose prüfen."
+            startFeedback.text="Bob konnte nicht starten: $message"
+            result.text=startFeedback.text
+            GoldSearchRun.event(failureCode,java.time.Instant.now().toString())
+            PhoneDiagnostics.queue(this)
         }.also { localPin?.fill(0) }
     }
     private fun primaryAction() {

@@ -22,6 +22,33 @@ class EntryStartDiagnosticsTests(unittest.TestCase):
         value=report();value['lastCode']='ENTRY_START_private_content'
         with self.assertRaises(ValueError):android_telemetry.validate_report(value)
 
+    def test_one_tap_denial_is_visible_and_telemetry_has_only_closed_codes(self):
+        activity = (ROOT/'ProductReadActivity.kt').read_text(encoding='utf-8')
+        codes = set(re.findall(r'START_[A-Z_]+', activity))
+        expected = {
+            'START_BUSY','START_SERVICE_NOT_READY','START_DIAGNOSTICS_UNPAIRED',
+            'START_DEGIRO_MISSING','START_PIN_TEST_MISSING','START_PIN_UNAVAILABLE',
+            'START_SESSION_FAILED','START_LAUNCH_FAILED','START_OTHER'
+        }
+        self.assertTrue(expected <= codes)
+        self.assertIn('container.addView(startFeedback)', activity)
+        self.assertIn('setOnClickListener { startAutomaticTest() }', activity)
+        self.assertIn('startFeedback.text = "Startknopf erkannt', activity)
+        start = activity.split('private fun startAutomaticTest()', 1)[1].split('private fun primaryAction()', 1)[0]
+        self.assertIn('startFeedback.text="Bob konnte nicht starten:', start)
+        self.assertIn('GoldSearchRun.event(failureCode,', start)
+        refresh = activity.split('private fun refresh()', 1)[1]
+        self.assertNotIn('startFeedback.text', refresh)
+        for code in expected:
+            with self.subTest(code=code):
+                value = report()
+                value['lastCode'] = code
+                self.assertEqual(code, android_telemetry.validate_report(value)['lastCode'])
+        value = report()
+        value['lastCode'] = 'START_PRIVATE_DATA'
+        with self.assertRaises(ValueError):
+            android_telemetry.validate_report(value)
+
     def test_idle_session_stops_before_login_and_failure_preserves_other_handoff(self):
         body=(ROOT/'ProductReadActivity.kt').read_text().split('button("Einstiegskurs automatisch',1)[1].split('button("ChatGPT-Handy',1)[0]
         self.assertNotIn('!PhoneRemote.active()',body)
