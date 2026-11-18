@@ -24,7 +24,7 @@ CODES = {
     "currency": "Produktwährung fehlt, ist nicht unterstützt oder widerspricht der Produktliste",
     "factor": "Faktorprodukt ausgeschlossen",
     "future": "Anderer Basiswert/Future-Kontrakt: nicht als Spotprodukt freigegeben",
-    "venue": "Swiss DOTS ist ein eigener, exklusiver OTC-Handelsplatz. Ein Kurs dort ist kein DEGIRO-Ausführungsnachweis; nur eine gesondert belegte DEGIRO-Handelsroute zählt.",
+    "venue": "Handelsplatzbeleg ist für Analyse und Papiersimulation optional. Swiss DOTS-Kurse sind keine DEGIRO-Ausführungskurse.",
     "terminated": "Produkt vom Emittenten als beendet gemeldet",
     "source-status-conflict": "Quellenkonflikt: comdirect meldet Knock-out/inaktiv, SG bestätigt den Endstatus nicht. Laufende Kurs-/Hebelnachweise bleiben bis zur Klärung ungültig; keine Handelsfreigabe.",
     "quote": "Belegtes Geld-/Briefpaar aus Produkt- oder Ersatzquelle fehlt; Chartwerte bleiben separat",

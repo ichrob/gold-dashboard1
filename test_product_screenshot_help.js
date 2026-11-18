@@ -23,6 +23,8 @@ const helpers={finalProductStatus:()=>({complete:false,reasons:['Hebel mit Zeits
 vm.createContext(helpers);
 vm.runInContext(source.slice(source.indexOf('function productProblemLabels('),source.indexOf('function renderProductProblemSummary(')),helpers);
 assert.deepEqual(Array.from(helpers.productProblemLabels(p)),['Hebel','Kurszeit','Kursnachweis','Basispreis']);
+helpers.finalProductStatus=()=>({complete:false,reasons:['DEGIRO-Handelsplatznachweis offen']});
+assert.equal(helpers.productProblemLabels(p).length,0,'Kein Venue-only Nutzerproblem');
 helpers.finalProductStatus=()=>({complete:true,reasons:[]});
 assert.equal(helpers.productProblemLabels(p).length,0);
 console.log('Screenshot help: evidence labels, Android fallback, source order, desktop and exclusions passed');

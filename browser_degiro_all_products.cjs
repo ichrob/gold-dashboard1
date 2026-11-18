@@ -78,7 +78,7 @@ const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewpor
   assert((await page.locator('#dgUnifiedSync').innerText()).includes('Bob-Bericht im Browser abgerufen'));
   assert((await page.locator('#dgUnifiedSync').innerText()).includes('19.10.2026'));
 
-  assert((await page.locator('#dgUnifiedCards').innerText()).includes('Handelsfreigabe über DEGIRO: nicht bestätigt'));
+  assert((await page.locator('#dgUnifiedCards').innerText()).includes('Zusätzlicher Handelsplatzbeleg für Analyse und Simulation nicht erforderlich'));
   assert((await page.locator('#dgUnifiedCards').innerText()).includes('Faktorprodukt'));
   await page.locator('#dgUnifiedFilter').selectOption('depot');
   assert.equal(await page.locator('#dgUnifiedCards .dg-unified-card').count(),5);

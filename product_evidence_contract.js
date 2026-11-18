@@ -20,14 +20,16 @@ function productEvidence(p,now=Date.now()){
   direction:unknown('LONG/SHORT fehlt'),currency:unknown('EUR/CHF fehlt'),
   prices:unknown('Geld/Brief und Originalzeiten fehlen'),
   barrier:unknown('KO-Originalnachweis fehlt'),leverage:unknown('Emittenten-Hebel mit Uhrzeit fehlt'),
-  venue:unknown('DEGIRO-Handelsplatznachweis separat erforderlich')};
+  // The DEGIRO venue is not an analysis or paper-entry prerequisite.
+  // Keep broker execution flags separately false; no silent approval.
+  venue:{state:'optional',text:'Handelsplatzbeleg optional; für Analyse und Simulation nicht erforderlich'}};
  if(!validIsin(p?.isin))return out;
  out.isin=p.isin;
  const q=p.quote?.isin===p.isin?p.quote:null,r=p.reference?.isin===p.isin?p.reference:null;
  const dirs=[p.direction,q?.metadata?.direction,r?.direction].filter(x=>['LONG','SHORT'].includes(x));
  out.direction=!dirs.length?out.direction:new Set(dirs).size>1?
   {state:'conflict',text:'Richtungsangaben widersprechen sich'}:
-  {state:'observed',text:dirs[0]+' aus Produktidentität, keine Handelsfreigabe'};
+  {state:'observed',text:dirs[0]+' aus Produktidentität, keine Order'};
  const ccys=[q?.currency,q?.metadata?.currency,r?.currency].filter(x=>['EUR','CHF'].includes(x));
  out.currency=!ccys.length?out.currency:new Set(ccys).size>1?
   {state:'conflict',text:'Produktwährungen widersprechen sich'}:
@@ -75,7 +77,7 @@ function fromCombined(row,now=Date.now()){
   isin:id,identity:{state:'observed',text:'Gültige ISIN; Quellen: '+(reasons.join(' · ')||'keine nachgewiesen')},
   direction:row.direction||null,currency:row.currency||q?.currency||null,
   quote:{state:qState,text:q?String(q.source||'Quelle unbekannt').slice(0,100)+' · Originalzeit '+String(q.at||'fehlt')+' · keine DEGIRO-Ausführung':'Keine datierte Emittentenbeobachtung'},
-  broker:{state:'unknown',text:'Keine bestätigte ausführbare DEGIRO-Order und kein aktueller Handelsplatznachweis'},
+  broker:{state:'unknown',text:'Broker-Ausführbarkeit nicht geprüft; für Analyse und Simulation nicht erforderlich'},
   tradeable:false,automaticOrder:false,executableQuote:false
  };
 }

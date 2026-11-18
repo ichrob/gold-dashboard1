@@ -191,7 +191,7 @@ function zurichQuotePhase(now=Date.now()){
  return 'night';
 }
 function quotePhaseMessage(phase,reportStatus){
- if(phase==='preparation')return '07:30–08:00 Zürich: read-only Vorprüfung der Emittentenquellen geplant. Noch keine Handelsfreigabe; Quellen können geschlossen sein.';
+ if(phase==='preparation')return '07:30–08:00 Zürich: read-only Vorprüfung der Emittentenquellen geplant. Keine automatischen Orders; Quellen können geschlossen sein.';
  if(phase==='trading')return reportStatus==='stale'||reportStatus==='unavailable'
   ?'08:00–22:00 Zürich: Hintergrundprüfung vorgesehen, aber aktueller Produktprüfbericht fehlt. Quellen-/Dienststatus unter Probleme kontrollieren.'
   :'08:00–22:00 Zürich: automatische Produktprüfung läuft planmäßig, soweit der Emittent datierte Kurse bereitstellt.';
@@ -310,9 +310,9 @@ function mount(){
   if(x.evidence){
    card.append(el(doc,'p','dg-unified-subtle',
     'Getrennte Identitätsquellen: '+x.evidence.identity.text+
-    '. Ausführbarer Brokerkurs: '+x.evidence.broker.text+'.'));
+    '. Brokerstatus (nur echte Ausführung): '+x.evidence.broker.text+'.'));
   }
-  card.append(el(doc,'p','dg-unified-subtle','Handelsfreigabe über DEGIRO: nicht bestätigt.'));
+  card.append(el(doc,'p','dg-unified-subtle','Zusätzlicher Handelsplatzbeleg für Analyse und Simulation nicht erforderlich. Keine automatische Order.'));
   return card;
  }
  function paint(reset=false,loadMore=false){
