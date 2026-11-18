@@ -2095,9 +2095,10 @@ def focused_report(report, focus='overview'):
     if focus == 'storage' and 'storageBrief' not in areas:
         from storage_brief import project
         areas['storageBrief'] = project(original.get('storage'))
-    if focus == 'storage':
+    if focus == 'storage' and os.environ.get('BOB_LEGACY_INVENTORY_PASSWORD'):
         from legacy_restore_inventory import inventory
-        areas['legacyRestoreInventory'] = inventory()
+        areas['storageBrief'] = dict(areas.get('storageBrief') or {},
+                                     legacyRestoreInventory=inventory())
     if focus in ('trades', 'signals', 'repairs'):
         sim = original.get('simulationAndPush')
         if isinstance(sim, dict):
