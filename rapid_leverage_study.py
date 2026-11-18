@@ -15,7 +15,15 @@ import intraday_timing_study as candles
 
 VERSION = "rapid-leverage-20261110-v1"
 MINUTE = 60000
-SETUPS = ("breakout", "impulse", "pullback", "news-impulse")
+SETUPS = ("breakout", "impulse", "pullback", "news-impulse",
+          "fast1m-impulse", "fast1m-rebound", "fast3m-breakout")
+FAST_SETUPS = frozenset(("fast1m-impulse", "fast1m-rebound", "fast3m-breakout"))
+FAST_POLICY = {
+    "fast1m-impulse": dict(maxMinutes=20, noProgressMinutes=6, targetR=1.4),
+    "fast1m-rebound": dict(maxMinutes=30, noProgressMinutes=8, targetR=1.6),
+    "fast3m-breakout": dict(maxMinutes=45, noProgressMinutes=10, targetR=1.8),
+}
+
 LEVERS = (3, 5, 8, 10, 15, 20, 30)
 INITIAL_EUR = 1000.0
 MAX_EXPOSURE = .65
@@ -154,6 +162,65 @@ def candidate_signals(rows, now, events=(), *, original_bars=None):
     return out
 
 
+def fast_signals(rows, now):
+    """Three forward-only closed-original 1m/3m impulse/rebound/breakout studies."""
+    missing = {name: dict(direction=None, reason="original-1m-coverage-missing")
+               for name in FAST_SETUPS}
+    if len(rows)<45 or not 0<=now-(rows[-1]["openTime"]+MINUTE)<=90000:
+        return missing
+    last15=rows[-15:]
+    tr=[max(b["high"]-b["low"],abs(b["high"]-a["close"]),
+            abs(b["low"]-a["close"])) for a,b in zip(last15,last15[1:])]
+    atr=sum(tr)/len(tr)
+    if not positive(atr):
+        return missing
+    b,prev,before=rows[-1],rows[-2],rows[-3]
+    body=abs(b["close"]-b["open"])
+    size=b["high"]-b["low"]
+    sign=1 if b["close"]>b["open"] else -1 if b["close"]<b["open"] else 0
+    edge=b["high"]-b["close"] if sign>0 else b["close"]-b["low"]
+    follows=(sign>0 and b["close"]>prev["close"]) or (sign<0 and b["close"]<prev["close"])
+    impulse=("LONG" if sign>0 else "SHORT") if (
+        follows and abs(b["close"]-prev["close"])>=.85*atr and
+        body>=.7*atr and size>0 and edge<=.25*size) else None
+    low12=min(x["low"] for x in rows[-12:])
+    high12=max(x["high"] for x in rows[-12:])
+    nearLow=min(x["low"] for x in rows[-7:-2])
+    nearHigh=max(x["high"] for x in rows[-7:-2])
+    rebound=("LONG" if b["close"]>prev["close"]>before["close"]
+             and b["close"]>prev["high"] and prev["close"]-nearLow>=.65*atr
+             and b["close"]-low12>=1.5*atr and body>=.35*atr
+             else "SHORT" if b["close"]<prev["close"]<before["close"]
+             and b["close"]<prev["low"] and nearHigh-prev["close"]>=.65*atr
+             and high12-b["close"]>=1.5*atr and body>=.35*atr
+             else None)
+    bars3=candles.aggregate(rows,3,now)
+    atr3=atr5(bars3) if len(bars3)>=20 else None
+    breakout=None
+    if positive(atr3) and 0<=now-bars3[-1]["closeTime"]<=90000:
+        q=bars3[-1]
+        high=max(x["high"] for x in bars3[-6:-1])
+        low=min(x["low"] for x in bars3[-6:-1])
+        if q["close"]>high+.1*atr3 and q["close"]>q["open"] and q["close"]-q["open"]>=.35*atr3:
+            breakout="LONG"
+        elif q["close"]<low-.1*atr3 and q["close"]<q["open"] and q["open"]-q["close"]>=.35*atr3:
+            breakout="SHORT"
+    def sig(direction,bar,volatility,lookback):
+        return dict(direction=direction,reason=None if direction else "no-setup",
+                    closedAt=bar["closeTime"],barAt=bar["openTime"],
+                    signalClose=bar["close"],atr=volatility,
+                    recentHigh=max(x["high"] for x in lookback),
+                    recentLow=min(x["low"] for x in lookback),
+                    event=None,estimated=False,originalMinuteOnly=True,
+                    signalScope="fast-spot-proxy-paper-only")
+    one=dict(b,closeTime=b["openTime"]+MINUTE)
+    three=bars3[-1] if bars3 else one
+    return {"fast1m-impulse":sig(impulse,one,atr,rows[-7:]),
+            "fast1m-rebound":sig(rebound,one,atr,rows[-12:]),
+            "fast3m-breakout":sig(breakout,three,
+                                  atr3 if positive(atr3) else atr,rows[-12:])}
+
+
 def seed(now):
     return dict(version=VERSION, startedAt=int(now), checkedAt=None,
                 status="collecting", sampleType="original-spot-only",
@@ -173,13 +240,18 @@ def open_position(name, signal, price, now, arm):
                  else signal["recentHigh"] + .2 * signal["atr"])
     structure_risk = sign * (entry - structure)
     risk = max(.8 * signal["atr"], min(3.0 * signal["atr"], structure_risk))
+    if name in FAST_SETUPS:
+        # Reject late, extended entries; do not backfill at the candle close.
+        if abs(entry-signal["signalClose"])>1.2*signal["atr"]:
+            return None, "fast-quote-chased"
+        risk=max(.9*signal["atr"],min(2.5*signal["atr"],structure_risk))
     if not positive(risk) or risk / entry > .05:
         return None, "stop-distance-invalid"
     return dict(id=f"{VERSION}:{name}:{signal['closedAt']}", setup=name, direction=signal["direction"],
                 signal=copy.deepcopy(signal), entryAt=now, entrySourceAt=price["at"],
                 lastObservedAt=now, lastSourceAt=price["at"], entry=entry,
                 initialStop=entry-sign*risk, stop=entry-sign*risk,
-                target=entry+sign*2*risk, risk=risk, atr=signal["atr"], bestPrice=entry,
+                target=entry+sign*FAST_POLICY.get(name,{}).get("targetR",2)*risk, risk=risk, atr=signal["atr"], bestPrice=entry,
                 maxAdversePct=0., maxFavorablePct=0., status="open",
                 costAssumptions=dict(variable=ROUND_TRIP_VARIABLE_COST, fixedEur=ROUND_TRIP_FIXED_EUR),
                 resultScope="spot-leverage-proxy-not-DEGIRO-product", realOrders=False,
@@ -244,6 +316,10 @@ def advance(original, bundle, now, events=()):
     if state["checkedAt"] is not None and now <= state["checkedAt"]:
         return state, []
     state["checkedAt"] = now
+    # Prospective migration retains all four older arms and their outcomes.
+    defaults=seed(now)["arms"]
+    for name in SETUPS:
+        state["arms"].setdefault(name,defaults[name])
     rows, error = candles.minute_history(bundle, now, modeled=False)
     price = candles.source(bundle, now, modeled=False)
     original_bars = candles.aggregate(rows, 5, now) if rows else []
@@ -254,6 +330,8 @@ def advance(original, bundle, now, events=()):
         error = fallback_reason if not original_bars else None
     signals = candidate_signals(rows, now, events, original_bars=original_bars) if original_bars else {
         name: dict(direction=None, reason=error or "closed-original-bars-missing") for name in SETUPS}
+    # 5m fallback can support legacy setups, never synthetic 1m scalp setups.
+    signals.update(fast_signals(rows,now))
     state["lastInput"] = dict(checkedAt=now, basis=basis, lastClosedAt=(
         original_bars[-1]["closeTime"] if original_bars else None),
         bars=len(original_bars), reason=error if not original_bars else None,
@@ -280,11 +358,17 @@ def advance(original, bundle, now, events=()):
                 p["maxAdversePct"] = max(p["maxAdversePct"], -100*movement/p["entry"])
                 p["maxFavorablePct"] = max(p["maxFavorablePct"], 100*movement/p["entry"])
                 held = price["at"]-p["entrySourceAt"]
+                fast=FAST_POLICY.get(name)
+                reversal=(fast is not None and held>=2*MINUTE and
+                          sign*(p["bestPrice"]-p["entry"])>=.7*p["risk"] and
+                          sign*(p["bestPrice"]-observed)>=.8*p["atr"])
                 why = ("stop-observed" if sign*(observed-p["stop"])<=0 else
                        "target-observed" if sign*(observed-p["target"])>=0 else
+                       "reversal-observed" if reversal else
                        "session-end" if not local_session(now) else
-                       "time-limit" if held>=MAX_MINUTES*MINUTE else
-                       "no-progress" if held>=30*MINUTE and movement < .25*p["risk"] else None)
+                       "time-limit" if held>=(fast["maxMinutes"] if fast else MAX_MINUTES)*MINUTE else
+                       "no-progress" if held>=(fast["noProgressMinutes"] if fast else 30)*MINUTE
+                       and movement < .25*p["risk"] else None)
                 p["lastSourceAt"], p["lastObservedAt"] = price["at"], now
                 if why:
                     p.update(status="closed", exitReason=why, closedAt=now,
@@ -294,14 +378,16 @@ def advance(original, bundle, now, events=()):
                     if sign*(observed-p["bestPrice"])>0:
                         p["bestPrice"] = observed
                     proposed = p["initialStop"]
-                    if sign*(p["bestPrice"]-p["entry"])>=p["risk"]:
+                    if sign*(p["bestPrice"]-p["entry"])>=(.7 if fast else 1.0)*p["risk"]:
                         proposed = p["entry"]
-                    if sign*(p["bestPrice"]-p["entry"])>=1.5*p["risk"]:
-                        proposed = p["bestPrice"]-sign*p["atr"]
+                    if sign*(p["bestPrice"]-p["entry"])>=(1.1 if fast else 1.5)*p["risk"]:
+                        proposed = p["bestPrice"]-sign*(.7 if fast else 1.0)*p["atr"]
                     if sign*(proposed-p["stop"])>0:
                         p["stop"] = proposed
             if p["status"] != "open":
                 arm["closed" if p["status"]=="closed" else "inconclusive"] += 1
+                if name in FAST_SETUPS:
+                    arm["lastExitAt"]=now
                 completed.append(p)
                 state["recent"] = (state["recent"] + [dict(id=p["id"], setup=name,
                     status=p["status"], exitReason=p.get("exitReason"), closedAt=now,
@@ -309,6 +395,11 @@ def advance(original, bundle, now, events=()):
                 arm["position"] = None
             continue  # Never close and reopen on one observation.
         key = f"{sig.get('closedAt')}:{sig.get('direction')}"
+        if name in FAST_SETUPS:
+            day=datetime.fromtimestamp(now/1000,ZoneInfo("Europe/Zurich")).date().isoformat()
+            if arm.get("riskDay")!=day:
+                arm["riskDay"]=day
+                arm["dayStartEur"]=arm["levers"]["10"]["equityEur"]
         why = (sig.get("reason")
                if sig.get("direction") not in ("LONG", "SHORT") else
                "original-spot-unavailable" if not price["available"] or price["estimated"] else
@@ -316,6 +407,10 @@ def advance(original, bundle, now, events=()):
                "closed-signal-too-old" if now-sig["closedAt"] > 90000 else
                "spot-before-signal" if price["at"] < sig["closedAt"] else
                "case-limit-reached" if arm["started"] >= MAX_TRADES_PER_SETUP else
+               "fast-daily-loss-limit" if name in FAST_SETUPS and
+                   arm["levers"]["10"]["equityEur"]<=.97*arm["dayStartEur"] else
+               "fast-cooldown" if name in FAST_SETUPS and
+                   now-arm.get("lastExitAt",-10*MINUTE)<3*MINUTE else
                "signal-already-used" if key == arm["lastSignal"] else None)
         arm["lastReason"] = why
         if why and key != arm.get("lastCheckedSignal"):
