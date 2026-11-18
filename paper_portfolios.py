@@ -90,6 +90,16 @@ for _name, _parent, _label in (
         fresh_validation=True, campaign_id=FRESH_VALIDATION_ID,
         campaign_end=FRESH_VALIDATION_END)
 
+# Fourth, prospective 1,000-EUR trial; starts only at real first initialization.
+# It is NOT a fourth arm of the already frozen three-way December comparison.
+POLICIES['early5m1000nov'] = dict(POLICIES['normal1000oct'],
+    id='early5m1000nov',
+    title='Neu: 1.000 EUR · 2 originale 5m-Schlusskerzen im 1h-Trend',
+    initial_capital_eur=1000., campaign=True, fresh_validation=True,
+    two_candle_early=True, campaign_id='two-5m-forward-20261118',
+    campaign_end=FRESH_VALIDATION_END, max_holding_minutes=300,
+    exposure_fraction=.65, daily_loss_fraction=.03, require_trend=True)
+
 _PAPER_CAMPAIGN_GATES = {
     'trend800nov': ('campaign-800-entry-v1', 1.25),
     'normal1000nov': ('campaign-1000-entry-v1', 1.4),
@@ -177,6 +187,19 @@ def active_cases(conn):
 def entry_block_reason(policy, market):
     direction = market.get('direction')
     score = market.get('score')
+    if policy.get('two_candle_early'):
+        if market.get('paperEntrySource') != 'two-candle-5m-paper-v1':
+            return 'Zwei-5m-Test: Keine aktuelle geprüfte Zwei-Kerzen-Bestätigung'
+        if direction not in ('LONG','SHORT'):
+            return 'Zwei-5m-Test: Keine Richtung'
+        trend = market.get('trendContext') or {}
+        if (trend.get('available') is not True or trend.get('intact') is not True
+                or trend.get('direction') != direction):
+            return 'Zwei-5m-Test: 1h-Trend nicht übereinstimmend bestätigt'
+        # Main 70/30 score belongs to the original strategy, not this
+        # independently verified two-candle paper hypothesis. Keep the
+        # original 50/100 in the evidence, never fabricate a 70/30 score.
+        return None
     if policy.get('early_warning'):
         return None if market.get('paperEntrySource') == 'early-warning-paper-v2' and direction in ('LONG','SHORT') else 'Keine gültige aktuelle Frühwarnung'
     if policy.get('early_impulse'):
@@ -315,7 +338,57 @@ def campaign_paper_market(market, profile):
             'reason': 'Separater Papierplan geprüft; Produktschutz bleibt Pflicht' if valid else reason}}
 
 
-def run_all(conn, bundle, market, selection, quotes, now, settings, active=None, early_market=None, early_selection=None, input_observations=None, warning_market=None, warning_selection=None):
+def two_candle_paper_market(market, now):
+    """Validated second entry clock; no main-signal mutation or forced trade."""
+    trial = market.get('paperTwoCandleEntry') or {}
+    fail = (str(trial.get('reason') or 'Kein aktueller Zwei-Kerzen-Einstiegsplan')[:200])
+    neutral = {**market, 'direction':'NEUTRAL', 'plan':None,
+        'paperEntrySource':None, 'twoCandleBlockReason':fail}
+    from stop_target_audit import valid_plan
+    plan = trial.get('plan') if isinstance(trial, dict) else None
+    side = trial.get('direction') if isinstance(trial, dict) else None
+    trend = market.get('trendContext') or {}
+    frames = (market.get('dmi') or {}).get('frames') or {}
+    frame15, frame1h = frames.get('15m') or {}, frames.get('1h') or {}
+    at, bar = market.get('dataAt'), trial.get('barAt')
+    valid = (trial.get('version') == 'two-closed-5m-paper-v1'
+        and trial.get('source') == 'two-candle-5m-paper-v1'
+        and trial.get('paperOnly') is True and trial.get('comparisonOnly') is True
+        and trial.get('realOrders') is False and trial.get('liveRulesChanged') is False
+        and trial.get('entryApproved') is False and trial.get('productApproved') is False
+        and trial.get('status') == 'ready' and side in ('LONG','SHORT')
+        and market.get('ready') is True and market.get('priceFresh') is True
+        and type(at) in (int,float) and math.isfinite(at) and 0 <= now-at <= 60000
+        and type(bar) in (int,float) and math.isfinite(bar)
+        and 300000 <= now-bar < 600000 and bar % 300000 == 0
+        and type(trial.get('sourceAt')) in (int,float)
+        and abs(trial['sourceAt']-at) <= 1000
+        and trend.get('available') is True and trend.get('intact') is True
+        and trend.get('direction') == side
+        and frame15.get('available') is True and frame1h.get('available') is True
+        and frame15.get('direction') in (side,'NEUTRAL')
+        and frame1h.get('direction') == side
+        and valid_plan(plan) and plan.get('kind') == 'candidate'
+        and plan.get('source') == 'two-candle-5m-paper-v1'
+        and plan.get('paperOnly') is True and plan.get('experimental') is True
+        and plan.get('direction') == side and plan.get('unit') == 'USD/oz'
+        and type(market.get('price')) in (int,float)
+        and abs(plan.get('entry') - market['price']) <= 0.01
+        and abs(plan['target']-plan['entry']) >=
+            2*abs(plan['entry']-plan['stop']) - 1e-7)
+    if not valid:
+        return neutral
+    return {**market, 'direction':side, 'plan':copy.deepcopy(plan),
+        'paperEntrySource':'two-candle-5m-paper-v1',
+        'analysisBarAt':bar, 'twoCandleBlockReason':None,
+        'entryTimingGate':{'allowed':True,'paperOnly':True,
+            'version':'two-closed-5m-paper-v1','barAt':bar},
+        'entryPlanState':{'state':'ready','code':'TWO_CLOSED_5M_PAPER_READY',
+            'reason':'Zwei originale 5m-Schlusskerzen im bestätigten 1h-Trend'},
+        'decisionReason':'Unabhängiges virtuelles 2×5m-Einstiegssignal; kein Hauptsignal'}
+
+
+def run_all(conn, bundle, market, selection, quotes, now, settings, active=None, early_market=None, early_selection=None, input_observations=None, warning_market=None, warning_selection=None, two_candle_market=None, two_candle_selection=None):
     """One savepoint per account: a failure does not consume another account's run.
 
     Feed/selection are observational inputs, never broker orders.
@@ -332,6 +405,10 @@ def run_all(conn, bundle, market, selection, quotes, now, settings, active=None,
                 if policy.get('early_warning'):
                     m = warning_paper_market(market,now)
                     chosen = warning_selection or {'choices':[], 'reasons':['Keine freigegebenen Frühwarnprodukte']}
+                if policy.get('two_candle_early'):
+                    m = (two_candle_market or two_candle_paper_market(market,now))
+                    chosen = two_candle_selection or {'choices':[],
+                        'reasons':['Zwei-5m-Test: kein passender geprüfter Produktkandidat']}
                 if policy.get('paper_campaign_entry') and profile in _PAPER_CAMPAIGN_GATES:
                     m = campaign_paper_market(market, profile)
                 if policy.get('relaxed_ema'):
@@ -547,6 +624,14 @@ def report(conn, day=None):
                 'Gleiche Originalmarkt- und Produktprüfungen wie die historische '
                 'positive Strategie. Keine rückdatierten Fälle, keine '
                 'Echtgeldorders und keine bestätigten Broker-Nettogewinne.')
+        if policy.get('two_candle_early'):
+            data['note']=('Prospektives eigenes 1.000-EUR-Konto ab erster Live-Initialisierung '
+                'bis 15.12.2026 16:00 Zürich. Zwei originale geschlossene 5m-Kerzen '
+                'und kein Widerspruch zum bestätigten 1h-/15m-Trend als separates '
+                'Papier-Signal. 2R-Ziel, Originalkurse, KO und Kosten unverändert. '
+                'Maximal 65 % Kapitaleinsatz und 3 % Tagesverlust. Keine echten '
+                'Orders und keine rückdatierten Trades. Nicht Teil der '
+                'eingefrorenen drei Dezember-Vergleichskonten.')
         elif policy.get('relaunch'):
             data['note']=('Neue getrennte Simulation von 09.11.2026 08:00 bis 04.12.2026 '
                 '16:00 Europe/Zurich. Startgeld: '+str(int(policy['initial_capital_eur']))+
@@ -572,7 +657,7 @@ def report(conn, day=None):
                              performance=performance_snapshot(data),**data))
     return dict(ok=True, mode='independent-prospective-paper-accounts',
                 simulatedCapitalEur=sum(p.get('initial_capital_eur',100.) for p in POLICIES.values()), realOrders=False, startAt=START,
-                note='4 × 100 EUR, 2 × 800 EUR, 6 × 1.000 EUR, 1 × 3.000 EUR und 1 × 5.000 EUR virtuell. Alte Konten bleiben getrennt und unverändert. Neue 800/1.000 EUR Kohorte ab 09.11.2026; zusätzlich drei gleich große, wirklich vorwärts gestartete 1.000-EUR-Vergleichskonten bis 15.12.2026. Kein Echtgeld und keine rückdatierten Einstiege. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital unbekannt. Tatsächliche Brokergebühren nicht bestätigt.',
+                note='4 × 100 EUR, 2 × 800 EUR, 7 × 1.000 EUR, 1 × 3.000 EUR und 1 × 5.000 EUR virtuell. Alte Konten bleiben getrennt und unverändert. Neue 800/1.000 EUR Kohorte ab 09.11.2026; zusätzlich drei getrennte Dezember-Vergleichskonten und ein unabhängiger neuer Zwei-5m-Test bis 15.12.2026. Kein Echtgeld und keine rückdatierten Einstiege. Ohne belegten Abrechnungswert bleiben Produktverlust und freies Kapital unbekannt. Tatsächliche Brokergebühren nicht bestätigt.',
                 accounts=accounts,campaignComparison=campaign_comparison(accounts),
                 relaunchComparison=relaunch_comparison(accounts),
                 freshValidationComparison=fresh_validation_comparison(accounts))
