@@ -1502,7 +1502,7 @@ class ProductReadService : AccessibilityService() {
             MorningListText.Positioned(index,MorningOcrLayout.Line(d.text,box.left-rect.left,
                 box.top-rect.top-cropTop,box.right-rect.left,box.bottom-rect.top-cropTop))
         }
-        return MorningListText.capturePositioned(view,parts,ids)
+        return MorningListText.capturePositioned(view,parts,ids,fullPage=listAllResultsTappedAt>0L)
     }
 
     // Capture only the validated product-list window (Android 14+), after the
@@ -1596,7 +1596,7 @@ class ProductReadService : AccessibilityService() {
         if(!safe) { fail("LIST_CAPTURE_WINDOW_CHANGED");return }
         listBusy=true
         val ids=action.isins.toList();val capturedAt=Instant.now().toString()
-        val textBefore=MorningListText.capture(descriptions,ids)
+        val textBefore=MorningListText.capture(descriptions,ids,fullPage=listAllResultsTappedAt>0L)
             ?: morningPositionedText(nodes,descriptions,ids,windowId,rect,cropTop)
         val anchorsBefore=morningListAnchors(nodes,descriptions,ids,windowId,rect,cropTop)
         takeScreenshotOfWindow(windowId,mainExecutor,object:TakeScreenshotCallback {
@@ -1617,7 +1617,7 @@ class ProductReadService : AccessibilityService() {
                     val unchanged=try {
                         navigationTree(live,refs,view)
                         val currentRect=Rect();live.getBoundsInScreen(currentRect)
-                        textAfter=MorningListText.capture(view,ids)
+                        textAfter=MorningListText.capture(view,ids,fullPage=listAllResultsTappedAt>0L)
                             ?: if(currentRect==rect) morningPositionedText(refs,view,ids,windowId,rect,cropTop) else null
                         if(currentRect==rect) anchorsAfter=morningListAnchors(refs,view,ids,windowId,rect,cropTop)
                         val decision=MorningReadPolicy.captureGoldList(view,listImages.length()>0 || listAllResultsTappedAt>0L,
