@@ -107,9 +107,9 @@ def new_request(state, reason, now, fingerprint=None):
         status = state.get("status")
         if status == "pending" and state.get("expiresAt", 0) > now:
             return None
-        if status == "snoozed" and state.get("notBefore", 0) > now:
+        if status in ("snoozed", "delivery-failed") and state.get("notBefore", 0) > now:
             return None
-        if status != "snoozed":
+        if status not in ("snoozed", "delivery-failed"):
             # New evidence only, at most once per half-hour. A silent user
             # response does not create a recurring nagging reminder.
             if reason == state.get("reason") and (
@@ -144,12 +144,15 @@ def request(conn, reason, sender, now=None, fingerprint=None):
     updated = new_request(state, reason, now, fingerprint=fingerprint)
     if updated is None:
         return public_state(state, now)
-    save(conn, updated)
-    delivered = 0
     rows = conn.execute(
         "SELECT subscription FROM subscriptions WHERE general_enabled=TRUE "
         "ORDER BY updated_at DESC LIMIT 3"
     ).fetchall()
+    # A missing opt-in is not a delivered request; permit a later registration.
+    if not rows:
+        return public_state(state, now)
+    save(conn, updated)
+    delivered = 0
     message = notification(updated)
     for (subscription,) in rows:
         try:
@@ -159,6 +162,9 @@ def request(conn, reason, sender, now=None, fingerprint=None):
             # A rejected push cannot authorize a phone read or claim delivery.
             pass
     updated["sentCount"] = delivered
+    if delivered == 0:
+        updated["status"] = "delivery-failed"
+        updated["notBefore"] = now + SNOOZE_SECONDS
     save(conn, updated)
     return public_state(updated, now)
 
