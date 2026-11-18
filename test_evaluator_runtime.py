@@ -11,7 +11,7 @@ class RuntimeTests(unittest.TestCase):
         entered=threading.Event();release=threading.Event();logs=[]
         def ocr(*args,**kwargs):
             entered.set();release.wait(2);return 'ok'
-        with patch.object(r,'MAX_QUEUE_SECONDS',.02),patch('builtins.print',side_effect=lambda line,**kw:logs.append(line)):
+        with patch.object(r,'MAX_QUEUE_SECONDS',.02),patch.object(r,'OCR_QUEUE_GRACE_SECONDS',.02),patch('builtins.print',side_effect=lambda line,**kw:logs.append(line)):
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
                 running=pool.submit(r.run,['python','private-path','--ocr'],runner=ocr)
                 self.assertTrue(entered.wait(1))
@@ -24,6 +24,40 @@ class RuntimeTests(unittest.TestCase):
         self.assertIsNone(r.status()['activeKind'])
         self.assertTrue(any('"blockedBy": "ocr"' in line for line in logs))
         self.assertNotIn('private',str(logs))
+
+    def test_node_uses_one_bounded_grace_for_measured_ocr(self):
+        entered=threading.Event();release=threading.Event();node_started=threading.Event()
+        def ocr(*args,**kwargs):
+            entered.set();release.wait(2);return 'ocr'
+        def node(*args,**kwargs):node_started.set();return 'node'
+        queue_timeouts_before=r.status()['queueTimeouts']
+        with patch.object(r,'MAX_QUEUE_SECONDS',.02),patch.object(r,'OCR_QUEUE_GRACE_SECONDS',.2):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                image=pool.submit(r.run,['python','image','--ocr'],runner=ocr)
+                self.assertTrue(entered.wait(1))
+                analysis=pool.submit(r.run,['node','analysis'],runner=node)
+                time.sleep(.05)
+                self.assertFalse(analysis.done())
+                release.set()
+                self.assertEqual(image.result(),'ocr')
+                self.assertEqual(analysis.result(),'node')
+        self.assertTrue(node_started.is_set())
+        self.assertEqual(r.status()['queueTimeouts'],queue_timeouts_before)
+
+    def test_non_ocr_blocker_keeps_original_queue_bound(self):
+        entered=threading.Event();release=threading.Event()
+        def other(*args,**kwargs):entered.set();release.wait(2);return 'ok'
+        with patch.object(r,'MAX_QUEUE_SECONDS',.02),patch.object(r,'OCR_QUEUE_GRACE_SECONDS',1):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                running=pool.submit(r.run,['python','worker'],runner=other)
+                self.assertTrue(entered.wait(1))
+                try:
+                    started=time.monotonic()
+                    with self.assertRaises(TimeoutError):
+                        r.run(['node','analysis'],runner=lambda *a,**k:'node')
+                    self.assertLess(time.monotonic()-started,.2)
+                finally:release.set()
+                self.assertEqual(running.result(),'ok')
 
     def test_concurrent_analysis_and_product_work_are_serialized(self):
         active=0
