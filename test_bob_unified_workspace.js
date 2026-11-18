@@ -1,6 +1,9 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const a=require('./bob_unified_workspace.js');
+const uiSource=fs.readFileSync('bob_unified_workspace.js','utf8');
+assert.doesNotMatch(uiSource,/Handelsfreigabe separat|Handelsplatznachweis separat erforderlich/);
+assert.match(uiSource,/kein zusätzlicher Handelsplatzbeleg erforderlich/);
 const date=new Date('2026-10-22T04:20:00Z');
 const now=date.getTime();
 assert.equal(a.zurichDay(date),'2026-10-22');
@@ -41,7 +44,7 @@ assert.equal(ops.productStatus.state,'checked');
 assert.equal(ops.problemStatus.state,'checked');
 assert.equal(ops.simulation.state,'unknown');
 assert.equal(ops.tradeable,false);assert.equal(ops.automaticOrders,false);
-assert.match(ops.productStatus.text,/Keine Handelsfreigabe/);
+assert.match(ops.productStatus.text,/Keine automatische Order/);
 assert.equal(a.operationalSnapshot({...report,incomplete:1},none,'',operationsNow).productStatus.state,'warning');
 assert.equal(a.operationalSnapshot({...report,status:'stale'},none,'',operationsNow).productStatus.state,'unknown');
 assert.equal(a.operationalSnapshot({...report,lastCheckedAt:'2026-10-22T09:40:00Z'},none,'',operationsNow).productStatus.state,'unknown');
@@ -108,7 +111,7 @@ assert.equal(a.compactProductLabel(terminated.items[0]),
  'DE000FG14AV8 · Produkt beendet');
 assert(!a.compactProductLabel(terminated.items[0]).includes('LONG'),
  'Ended product cannot advertise old direction or quotes');
-assert(a.compactProductLabel(auditOnly.items[0]).includes('keine Handelsfreigabe'));
+assert(a.compactProductLabel(auditOnly.items[0]).includes('keine automatische Order'));
 const incompleteEvidence=a.mergeProductIdentities([],null,{
  status:'ok',lastCheckedAt:'2026-10-22T09:49:35Z',
  items:[{isin:'DE000FG14AV8',direction:'LONG',state:'incomplete'}]
