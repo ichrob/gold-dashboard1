@@ -62,6 +62,14 @@ class OneTapCompleteFlowTest(unittest.TestCase):
         self.assertIn('if (!sessionOnly) {', service)
         self.assertIn('else if(freshGold || !MorningReadRun.resumeRecent(this)) GoldSearchRun.start()', service)
 
+    def test_rejected_list_shows_redacted_row_count_but_never_confirms(self):
+        delivery = source("MorningListDelivery.kt")
+        self.assertIn("internal fun rejectedListHint(", delivery)
+        self.assertIn("counts.optInt(\"uniqueRows\",-1)", delivery)
+        self.assertIn("Keine Produktfreigabe.", delivery)
+        self.assertIn("rejectedListHint(receipt)", delivery)
+        self.assertIn("terminalVerificationFailed(", delivery)
+
     def test_list_receipt_is_not_detail_success(self):
         delivery = source("MorningListDelivery.kt")
         self.assertIn('receipt.optInt("count")==10', delivery)
