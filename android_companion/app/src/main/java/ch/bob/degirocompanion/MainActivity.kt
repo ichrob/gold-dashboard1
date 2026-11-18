@@ -219,6 +219,12 @@ class MainActivity : Activity() {
         // Gold leveraged-product list -> authenticated missing-field detail plan.
         // ProductReadActivity is not exported; no deep link or remote command
         // can set this private start instruction.
+        // Reuse the ALREADY INSTALLED, signed Bob-Handy accessibility
+        // service. This creates no separate sideloaded app or permissions.
+        button("🔎 DEGIRO nur erkennen · 45 Sek. · keine Order") {
+            startActivity(Intent(this,DegiroReadOnlyActivity::class.java)
+                .putExtra(DegiroReadOnlyActivity.EXTRA_START_ONCE,true))
+        }
         button("▶ Bob starten · DEGIRO, Gold und fehlende Werte") {
             startActivity(Intent(this, ProductReadActivity::class.java)
                 .putExtra(ProductReadActivity.EXTRA_START_COMPLETE_FLOW, true))
