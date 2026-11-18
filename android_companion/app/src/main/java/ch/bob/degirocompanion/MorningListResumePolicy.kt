@@ -11,6 +11,13 @@ internal object MorningListResumePolicy {
     fun verificationFailed(stage: String?, error: String?): Boolean =
         stage == "read-failed" && error == "ListVerificationError"
 
+    /** The first optical verification failure may still be retried by the
+     * server. Only a completed, unsuccessful enhanced pass is terminal and
+     * can turn one explicit handset start into a fresh Gold capture. */
+    fun terminalVerificationFailed(stage: String?, error: String?,
+                                   enhancedVerification: Boolean): Boolean =
+        verificationFailed(stage,error) && enhancedVerification
+
     fun mode(ageMillis: Long, resumeCount: Int, verificationFailed: Boolean = false): Mode {
         if (verificationFailed) return Mode.NEW_LIST
         if (ageMillis !in 0..DAY_MS || resumeCount !in 0..3)
