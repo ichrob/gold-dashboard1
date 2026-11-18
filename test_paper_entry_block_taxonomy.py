@@ -54,6 +54,8 @@ class NovemberPaperEntryClassificationTests(unittest.TestCase):
                 'signal-age',
             'Goldkurs nicht aktuell bestätigt; Quellenzeit prüfen':
                 'gold-stale',
+            'Einstieg wartet: Haupttrend SHORT intakt · 5m-Daten veraltet: letzter Kerzenbeginn 07:50':
+                'five-minute-bar-stale',
             'ABWARTEN: kein bestätigter gültiger Goldplan':'no-direction',
             'Einstieg wartet: Stopp-/Zielplan nicht gültig':'plan-or-timing',
         }
