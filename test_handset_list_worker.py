@@ -368,6 +368,22 @@ if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
         self.assertIn("memoryDeferrals",selection)
         self.assertIn("<24",selection)
 
+    def test_interrupted_recovery_claim_is_bounded_and_skip_locked(self):
+        from types import SimpleNamespace
+        queries=[]
+        class Db:
+            def __enter__(self):return self
+            def __exit__(self,*_):pass
+            def commit(self):pass
+            def execute(self,sql,args=()):
+                queries.append(sql)
+                return SimpleNamespace(fetchone=lambda:None)
+        self.assertFalse(worker.tick(lambda:Db()))
+        recovery=queries[0]
+        self.assertTrue(recovery.startswith('WITH stale AS'))
+        self.assertIn('LIMIT 8 FOR UPDATE SKIP LOCKED',recovery)
+        self.assertIn('FROM stale WHERE i.batch_id=stale.batch_id',recovery)
+
     def test_only_missing_phone_evidence_goes_to_server_fallback(self):
         from types import SimpleNamespace
         images=[{'png':'image-a','appText':{'before':['safe'], 'after':['safe']}},
@@ -900,6 +916,29 @@ class DatabaseTests(unittest.TestCase):
                 self.assertTrue(receipt['enhancedVerification'])
                 conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes' WHERE batch_id=%s",(value['batchId'],))
             self.assertFalse(worker.tick(connect,lambda *_:self.fail('No second complementary replay')))
+
+            # During zero-downtime deploy overlap, an old instance may still
+            # hold the stale-looking row. Recovery must skip that lock instead
+            # of consuming the new instance's lock_timeout and DB connection.
+            with connect() as conn:
+                conn.execute("""UPDATE bob_android_list_images
+                    SET processing_attempts=3,processing_at=now()-interval '5 minutes',
+                        import_receipt=%s::jsonb WHERE batch_id=%s""",
+                    (json.dumps({'stage':'reading'}),value['batchId']))
+            with psycopg.connect(url) as locker:
+                locker.execute('SET search_path TO '+schema)
+                locker.execute("""UPDATE bob_android_list_images
+                    SET ocr_progress=ocr_progress WHERE batch_id=%s""",
+                    (value['batchId'],))
+                @contextmanager
+                def fast_connect():
+                    with psycopg.connect(url,options='-c lock_timeout=250') as conn:
+                        conn.execute('SET search_path TO '+schema)
+                        yield conn
+                started=time.monotonic()
+                self.assertFalse(worker.tick(
+                    fast_connect,lambda *_:self.fail('Locked lease must be skipped')))
+                self.assertLess(time.monotonic()-started,1.0)
 
         finally:
             with psycopg.connect(url) as admin:admin.execute('DROP SCHEMA '+schema+' CASCADE')
