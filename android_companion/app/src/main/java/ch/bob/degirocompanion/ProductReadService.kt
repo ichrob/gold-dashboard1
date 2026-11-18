@@ -1577,7 +1577,10 @@ class ProductReadService : AccessibilityService() {
             // The full catalog may no longer expose an editable search bar.
             // Start at its independently verified Hebelprodukte header, never
             // at screen top where the private account balance is displayed.
-            val header=descriptions.indexOfFirst { it.text.trim().equals("Hebelprodukte",true) }
+            val header=descriptions.indexOfFirst {
+                it.text.trim().equals("Hebelprodukte",true) ||
+                    it.text.trim().equals("Alle Ergebnisse in Hebelprodukte",true)
+            }
             if(header<0) { fail("LIST_CAPTURE_SEARCH_MISSING");return }
             val bounds=Rect();nodes[header].getBoundsInScreen(bounds)
             bounds.top-rect.top
@@ -1617,7 +1620,8 @@ class ProductReadService : AccessibilityService() {
                         textAfter=MorningListText.capture(view,ids)
                             ?: if(currentRect==rect) morningPositionedText(refs,view,ids,windowId,rect,cropTop) else null
                         if(currentRect==rect) anchorsAfter=morningListAnchors(refs,view,ids,windowId,rect,cropTop)
-                        val decision=MorningReadPolicy.captureGoldList(view,listImages.length()>0)
+                        val decision=MorningReadPolicy.captureGoldList(view,listImages.length()>0 || listAllResultsTappedAt>0L,
+                            fullPage=listAllResultsTappedAt>0L)
                         live.windowId==windowId && live.packageName?.toString()==ProductScreenEvidence.PACKAGE &&
                             decision.kind==MorningReadPolicy.Kind.COLLECT && decision.isins==ids
                     } finally { refs.forEach { it.recycle() };live.recycle() }
@@ -1671,6 +1675,7 @@ class ProductReadService : AccessibilityService() {
         val value=org.json.JSONObject().put("at",System.currentTimeMillis()).put("batch",listBatch)
             .put("window",listWindowId).put("crop",listCropTop).put("images",org.json.JSONArray(listImages.toString()))
             .put("seen",org.json.JSONArray(listSeenIds.toList())).put("last",org.json.JSONArray(listFirstIds))
+            .put("all",listAllResultsTappedAt>0L)
         val f=checkpoint();val stream=f.startWrite()
         try { stream.write(value.toString().toByteArray());f.finishWrite(stream) }
         catch(e:Exception) { f.failWrite(stream);throw e }
@@ -1685,7 +1690,7 @@ class ProductReadService : AccessibilityService() {
             try {
                 check(root.packageName?.toString()==ProductScreenEvidence.PACKAGE && root.windowId==value.getInt("window"))
                 navigationTree(root,refs,view)
-                val decision=MorningReadPolicy.captureGoldList(view,true)
+                val decision=MorningReadPolicy.captureGoldList(view,true,fullPage=value.optBoolean("all",false))
                 val last=value.getJSONArray("last");val ids=(0 until last.length()).map { last.getString(it) }
                 check(decision.kind==MorningReadPolicy.Kind.COLLECT && decision.isins==ids)
                 val images=value.getJSONArray("images");check(images.length() in 1..4)
@@ -1695,6 +1700,8 @@ class ProductReadService : AccessibilityService() {
                 val crop=value.getInt("crop");check(crop>=0)
                 val savedImages=(0 until images.length()).map { images.getJSONObject(it) }
                 listBatch=batch;listWindowId=root.windowId;listCropTop=crop
+                if(value.optBoolean("all",false) && MorningReadPolicy.fullGoldResultsView(view))
+                    listAllResultsTappedAt=SystemClock.elapsedRealtime()
                 savedImages.forEach { listImages.put(it) };listSeenIds.addAll(seenIds)
                 listFirstIds=ids;listScrolled=false
                 if(listSeenIds.size==10)deliverMorningList(listGeneration)
@@ -1898,7 +1905,7 @@ class ProductReadService : AccessibilityService() {
                     return true
                 }
             }
-            val proposed=if(openingProduct) MorningReadPolicy.ownerProductDecision(descriptions,productTarget,keyboardVisible()) else if(searchOnly) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query,searchCategoryTappedAt > 0L) else if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0 || listAllResultsTappedAt>0L) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) {
+            val proposed=if(openingProduct) MorningReadPolicy.ownerProductDecision(descriptions,productTarget,keyboardVisible()) else if(searchOnly) MorningReadPolicy.searchLeveraged(descriptions,GoldSearchRun.query,searchCategoryTappedAt > 0L) else if(gold) MorningReadPolicy.captureGoldList(descriptions,listImages.length()>0 || listAllResultsTappedAt>0L,fullPage=listAllResultsTappedAt>0L) else MorningReadPolicy.detailDecision(descriptions,MorningReadRun.target,MorningReadRun.importedListRun(),keyboardVisible(),resultOpened=batchResultOpened) {
                 symbolMemory.getString(it, null)
             }
             val action=automaticSearchProgress.select(descriptions,proposed,root.windowId,SystemClock.elapsedRealtime())
