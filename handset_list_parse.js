@@ -152,5 +152,34 @@ function parse(images,at,appSources=[],localSources=[]){
   listVenueEvidence:b.listVenueForSync(x.isin,archive)
  }))}};
 }
-module.exports={normalizeLocalOcrLabels,canonicalLocalOcrIdentity,parse,normalizeLayout,appImage,localOcrImage,nativeImage};
-if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):x.mode==='prepare-native'?nativeImage(x.passes):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
+// Pure read-only failure classification. Exposes NO product identity, texts,
+// prices, account information or images. Never relaxes ten-row verification.
+function diagnose(images,appSources=[],localSources=[]){
+ if(!Array.isArray(images)||images.length<1||images.length>4)return null;
+ const unique=new Map();
+ let imagesWithRows=0,conflictingRows=0,duplicateRows=0;
+ const signature=x=>JSON.stringify([x.direction,...['venue','currency','ko','strike','ratio','maturity','excluded'].map(k=>x.listRow[k])]);
+ for(let index=0;index<images.length;index++){
+  const passes=images[index];
+  if(!Array.isArray(passes)||passes.length<2||passes.length>3||
+    passes.some(p=>typeof p!=='string'||p.length>30000))continue;
+  const candidate=localSources[index]?passes.map(p=>p.split('\n').map(normalizeLocalOcrLabels).join('\n')):passes;
+  let rows=[];
+  try{rows=agreedImageRows(candidate)}catch(_){continue}
+  if(rows.length)imagesWithRows++;
+  for(const row of rows){
+   const previous=unique.get(row.isin);
+   if(previous===undefined)unique.set(row.isin,signature(row));
+   else if(previous!==signature(row))conflictingRows++;
+   else duplicateRows++;
+  }
+ }
+ const uniqueRows=Math.min(10,unique.size);
+ return {version:1,uniqueRows,expectedRows:10,
+  imagesTotal:images.length,imagesWithRows,
+  conflictingRows:Math.min(10,conflictingRows),
+  duplicateRows:Math.min(10,duplicateRows),
+  reason:conflictingRows?'conflict':unique.size!==10?'incomplete':'other'};
+}
+module.exports={normalizeLocalOcrLabels,canonicalLocalOcrIdentity,parse,diagnose,normalizeLayout,appImage,localOcrImage,nativeImage};
+if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):x.mode==='prepare-native'?nativeImage(x.passes):x.mode==='diagnose'?diagnose(x.images,x.appSources,x.localSources):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
