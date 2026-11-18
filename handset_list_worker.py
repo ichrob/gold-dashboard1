@@ -166,6 +166,8 @@ def deferred_memory_receipt(batch,previous,enhanced=False):
     # cannot turn incomplete OCR into accepted ten-row evidence.
     if enhanced or (previous or {}).get('enhancedPending') is True:
         value['enhancedPending']=True
+    if (previous or {}).get('complementRecovery')=='phone-native-v1':
+        value['complementRecovery']='phone-native-v1'
     # Keep the existing, device-owned daily-list fallback available. This is
     # an honest memory failure, never a successful import or new list proof.
     if exhausted:value['error']='MemoryError'
@@ -391,32 +393,87 @@ def _process(payload,at,*,progress=None,save_progress=None):
             if clean is not None:
                 saved[str(index)]={'key':key,'passes':clean}
                 if len(saved)<=4 and len(json.dumps(saved))<=120000:save_progress(saved)
+    app_sources=[p is not None and 'appText' in item
+                 for p,item in zip(prepared,payload['images'])]
+    local_sources=[p is not None and 'localOcr' in item
+                   for p,item in zip(prepared,payload['images'])]
+    complemented=set()
+    def node_parse(mode=None):
+        data={'images':images,'appSources':app_sources,'localSources':local_sources}
+        if mode:data['mode']=mode
+        else:data['at']=at
+        return evaluator_runtime.run(
+            ['node',str(Path(__file__).with_name('handset_list_parse.js'))],
+            input=json.dumps(data),text=True,capture_output=True,timeout=20,check=True)
+    def redacted_counts():
+        try:return bounded_list_diagnostics(json.loads(node_parse('diagnose').stdout))
+        except (ValueError,TypeError,KeyError,subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,OSError,RuntimeError):return None
+    result=None
     try:
-        result=evaluator_runtime.run(['node',str(Path(__file__).with_name('handset_list_parse.js'))],input=json.dumps({'images':images,'at':at,
-            'appSources':[p is not None and 'appText' in image for p,image in zip(prepared,payload['images'])],
-            'localSources':[p is not None and 'localOcr' in image for p,image in zip(prepared,payload['images'])]}),text=True,capture_output=True,timeout=20,check=True)
-    except subprocess.CalledProcessError as exc:
-        # Only after the strict parser rejected the list, ask the SAME Node
-        # parser for bounded counts. No source text or product identity is
-        # exposed in the receipt, and no failed row becomes a trade candidate.
-        details=None
-        try:
-            diagnostic=evaluator_runtime.run(
-                ['node',str(Path(__file__).with_name('handset_list_parse.js'))],
-                input=json.dumps({'mode':'diagnose','images':images,
-                    'appSources':[p is not None and 'appText' in image for p,image in zip(prepared,payload['images'])],
-                    'localSources':[p is not None and 'localOcr' in image for p,image in zip(prepared,payload['images'])]}),
-                text=True,capture_output=True,timeout=20,check=True)
-            details=bounded_list_diagnostics(json.loads(diagnostic.stdout))
-        except (ValueError, TypeError, KeyError, subprocess.CalledProcessError,
-                subprocess.TimeoutExpired, OSError, RuntimeError):
-            pass
-        raise ListVerificationError('Ten-row list verification failed',
-                                    diagnostics=details) from exc
+        result=node_parse()
+    except subprocess.CalledProcessError as first_error:
+        details=redacted_counts()
+        # ML Kit can prove a subset of rows on a screenshot whose lower edge
+        # contains further products. An accepted subset previously prevented
+        # server OCR of this image entirely. Independently read ONLY those
+        # original ML Kit images after an incomplete, conflict-free ten-row
+        # assessment, then merge each strictly double-confirmed row. Never
+        # infer missing ISINs or accept a conflicting contractual term.
+        if details is not None and details['reason']=='incomplete' and details['uniqueRows']<10:
+            for index,item in enumerate(payload['images']):
+                if not local_sources[index] or 'png' not in item:continue
+                # Contradictory phone optical values are a hard stop, not an
+                # invitation to resolve two different contractual terms by OCR.
+                try:
+                    eligible=evaluator_runtime.run(
+                        ['node',str(Path(__file__).with_name('handset_list_parse.js'))],
+                        input=json.dumps({'mode':'complement-eligible',
+                                          'phone':prepared[index]}),
+                        text=True,capture_output=True,timeout=20,check=True)
+                    if json.loads(eligible.stdout) is not True:continue
+                except (subprocess.CalledProcessError,subprocess.TimeoutExpired,
+                        ValueError,TypeError,OSError):
+                    continue
+                try:
+                    child=evaluator_runtime.run([sys.executable,__file__,'--ocr']+
+                        (['--enhanced'] if enhanced else []),
+                        priority=2,runner=guarded_ocr_run,input=json.dumps([item]),
+                        text=True,capture_output=True,timeout=35,check=True,
+                        env=env,close_fds=True)
+                    if len(child.stdout)>100000:continue
+                    native=json.loads(child.stdout)
+                    if not isinstance(native,list) or len(native)!=1:continue
+                    combined=evaluator_runtime.run(
+                        ['node',str(Path(__file__).with_name('handset_list_parse.js'))],
+                        input=json.dumps({'mode':'complement','phone':prepared[index],
+                                          'native':native[0]}),
+                        text=True,capture_output=True,timeout=20,check=True)
+                    complement=json.loads(combined.stdout)
+                    if not (isinstance(complement,list) and len(complement)==2
+                            and all(isinstance(p,str) and len(p)<=30000 for p in complement)):
+                        continue
+                except (subprocess.CalledProcessError,subprocess.TimeoutExpired,
+                        ValueError,TypeError,KeyError,OSError):
+                    # The first strict 8/10 rejection remains authoritative
+                    # when optional optical recovery is unavailable.
+                    continue
+                images[index]=complement
+                local_sources[index]=False
+                complemented.add(index)
+            if complemented:
+                try:result=node_parse()
+                except subprocess.CalledProcessError as recovered_error:
+                    details=redacted_counts()
+                    first_error=recovered_error
+        if result is None:
+            raise ListVerificationError('Ten-row list verification failed',
+                                        diagnostics=details) from first_error
     parsed=json.loads(result.stdout)
-    # A private routing count, not a new issuer or trade approval. The original
-    # ten-row parser and retained source screenshot remain authoritative.
-    parsed['recognitionRoute']=recognition_route(payload['images'],prepared)
+    # The persisted counts describe recognition routes, never product text.
+    # Complementary OCR does not create an independent source or authorization.
+    parsed['recognitionRoute']=recognition_route(payload['images'],prepared,
+                                                complemented=complemented)
     return parsed
 
 
@@ -427,10 +484,15 @@ _RECOGNITION_COUNTS = frozenset((
     'missingPhoneReadingImages', 'rejectedPhoneReadingImages',
 ))
 
-def recognition_route(source, prepared, skipped=()):
+def recognition_route(source, prepared, skipped=(), complemented=()):
     if len(source)!=len(prepared) or not 1<=len(source)<=4:
         raise ValueError('Recognition routing bounds')
     skipped=set(skipped)
+    complemented=set(complemented)
+    if not complemented.issubset(range(len(source))) or any(
+        prepared[i] is None or 'localOcr' not in source[i] or i in skipped
+        for i in complemented
+    ):raise ValueError('Invalid optical complement provenance')
     if not skipped.issubset(range(len(source))) or any(prepared[i] is not None for i in skipped):
         raise ValueError('Cannot skip a verified source')
     counts=dict.fromkeys(_RECOGNITION_COUNTS,0)
@@ -446,14 +508,19 @@ def recognition_route(source, prepared, skipped=()):
                 counts['rejectedPhoneReadingImages']+=1
             else: counts['missingPhoneReadingImages']+=1
     if skipped:counts['skippedUnneededImages']=len(skipped)
+    if complemented:counts['nativeComplementImages']=len(complemented)
     return counts
 
 def bounded_recognition_route(value):
     if value is None: return None  # Previously saved batches remain valid.
     keys=set(value) if isinstance(value,dict) else set()
-    allowed=(set(_RECOGNITION_COUNTS),set(_RECOGNITION_COUNTS)|{'skippedUnneededImages'})
-    if keys not in allowed or any(type(v) is not int or not 0<=v<=4 for v in value.values()):
+    allowed=set(_RECOGNITION_COUNTS)
+    if not allowed.issubset(keys) or keys-allowed-{'skippedUnneededImages','nativeComplementImages'}:
+        raise ValueError('Invalid OCR route keys')
+    if any(type(v) is not int or not 0<=v<=4 for v in value.values()):
         raise ValueError('Invalid OCR route counts')
+    if value.get('nativeComplementImages',0)>value['phoneMlKitImages']:
+        raise ValueError('Complement cannot exceed accepted phone images')
     total=(value['appTextImages']+value['phoneMlKitImages']+
            value['serverOcrFallbackImages']+value.get('skippedUnneededImages',0))
     if (total not in range(1,5)
@@ -514,7 +581,9 @@ def tick(connect,runner=process):
             WHERE NOT d.revoked AND d.expires_at>now() AND i.created_at>now()-interval '24 hours'
             AND COALESCE(i.import_receipt->>'stage','') NOT IN ('synced','superseded')
             AND NOT (COALESCE(i.import_receipt->>'error','')='ListVerificationError'
-                AND COALESCE(i.import_receipt->>'enhancedVerification','false')='true')
+                AND COALESCE(i.import_receipt->>'enhancedVerification','false')='true'
+                AND (COALESCE(i.import_receipt->>'complementRecovery','')='phone-native-v1'
+                    OR i.created_at<=now()-interval '3 hours'))
             AND (i.import_receipt->>'stage'='waiting-memory' OR i.processing_attempts<3 OR (i.processing_attempts=3 AND (i.import_receipt IS NULL OR i.import_receipt->>'error' IN ('MemoryError','ListVerificationError')))
                 OR (i.processing_attempts=4 AND i.import_receipt->>'error' IN ('InterruptedWorker','MemoryError'))
                 OR (i.processing_attempts=5 AND i.import_receipt->>'error' IN ('CalledProcessError','LockNotAvailable','DeadlockDetected','SerializationFailure'))
@@ -523,7 +592,13 @@ def tick(connect,runner=process):
                 OR (i.processing_attempts>5 AND i.import_receipt->>'stage'='read-failed'
                     AND i.import_receipt->>'error'='ListVerificationError'
                     AND COALESCE((i.import_receipt->>'memoryDeferrals')::int,0)>0
-                    AND COALESCE(i.import_receipt->>'enhancedVerification','false')='false'))
+                    AND COALESCE(i.import_receipt->>'enhancedVerification','false')='false')
+                OR (i.import_receipt->>'stage'='read-failed'
+                    AND i.import_receipt->>'error'='ListVerificationError'
+                    AND i.import_receipt->>'enhancedVerification'='true'
+                    AND COALESCE(i.import_receipt->>'complementRecovery','')<>'phone-native-v1'
+                    AND i.created_at>now()-interval '3 hours'
+                    AND i.processing_attempts<=8))
             AND (i.processing_at IS NULL OR i.processing_at<now()-interval '4 minutes'
                 OR (i.import_receipt->>'stage'='read-failed'
                     AND i.import_receipt->>'error'='ListVerificationError'
@@ -544,11 +619,18 @@ def tick(connect,runner=process):
         # A memory-exhausted old batch resumes with a high lifetime attempt
         # number. It must still get exactly one enhanced OCR pass after an
         # incomplete verified list, not silently fail at attempt seven.
+        complement_replay=((previous or {}).get('stage')=='read-failed'
+            and (previous or {}).get('error')=='ListVerificationError'
+            and (previous or {}).get('enhancedVerification') is True
+            and (previous or {}).get('complementRecovery')!='phone-native-v1'
+            and attempts<=8)
         alternate=((was_verification_failure and
                     (1<=attempts<=3 or (attempts>5 and memory_deferrals(previous)>0)))
-                   or (previous or {}).get('enhancedPending') is True)
+                   or (previous or {}).get('enhancedPending') is True
+                   or complement_replay)
         reading={'batchId':batch,'stage':'reading','count':0,
-                 'memoryDeferrals':memory_deferrals(previous)}
+                 'memoryDeferrals':memory_deferrals(previous),
+                 'complementRecovery':'phone-native-v1'}
         if alternate:reading['enhancedPending']=True
         conn.execute("UPDATE bob_android_list_images SET processing_at=now(),processing_attempts=processing_attempts+1,import_receipt=%s::jsonb WHERE batch_id=%s",(json.dumps(reading),batch))
         conn.commit()
@@ -599,7 +681,8 @@ def tick(connect,runner=process):
             details=bounded_list_diagnostics(getattr(exc, 'diagnostics', None)) if isinstance(exc,ListVerificationError) else None
             receipt={'batchId':batch,'stage':'read-failed','count':0,'error':type(exc).__name__,
                      'memoryDeferrals':memory_deferrals(previous),
-                     'enhancedVerification':bool(alternate and isinstance(exc,ListVerificationError))}
+                     'enhancedVerification':bool(alternate and isinstance(exc,ListVerificationError)),
+                     'complementRecovery':'phone-native-v1'}
             if details is not None:
                 receipt['verificationCounts']=details
             conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb"+clear_progress+" WHERE batch_id=%s AND COALESCE(import_receipt->>'stage','') NOT IN ('synced','superseded')",

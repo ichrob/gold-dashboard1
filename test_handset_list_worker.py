@@ -62,6 +62,98 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(failure.diagnostics,raw)
         self.assertNotIn('DE000',json.dumps(failure.diagnostics))
 
+    def test_same_screenshot_complement_keeps_only_twice_verified_rows(self):
+        script=r"""
+const {complementImage,parse}=require('./handset_list_parse');
+const fs=require('fs'),vm=require('vm'),context={window:{}};
+vm.runInNewContext(fs.readFileSync('degiro_assistant.js','utf8'),context);
+const valid=context.window.BobDegiro.validIsin;
+function id(n) {
+ const prefix='DE000ZZ'+String(n).padStart(4,'0');
+ for(let i=0;i<10;i++)if(valid(prefix+i))return prefix+i;
+ throw Error('No valid id');
+}
+function row(n,bp=4000) {
+ return 'SG Gold Turbo BEST Open-End Call BAR 4000 BP '+bp+' Bv 10 | '+
+   id(n)+' Societe Generale OTC EUR';
+}
+const phone=[Array.from({length:8},(_,i)=>row(i+1)).join('\n')];
+phone.push(phone[0]);
+const native=[Array.from({length:4},(_,i)=>row(i+7)).join('\n')];
+native.push(native[0],native[0]);
+const merged=complementImage(phone,native);
+if(!merged||merged.length!==2)throw Error('No safe complement');
+const result=parse([merged],'2026-11-18T18:43:10Z');
+if(result.items.length!==10 || new Set(result.items.map(x=>x.isin)).size!==10)
+ throw Error('Not ten proven identities');
+if(complementImage(phone,native.map(pass=>pass.replace(row(8),row(8,4100))))!==null)
+ throw Error('Conflicting original contract term accepted');
+const {complementEligible}=require('./handset_list_parse');
+if(complementEligible([phone[0],phone[1].replace(row(8),row(8,4100))]))
+ throw Error('Two different phone contract terms were treated as incomplete');
+if(complementImage([row(1)+'\n'+row(2),row(1)+'\n'+row(2)],
+  [row(3)+'\n'+row(4),row(3)+'\n'+row(4)])!==null)
+ throw Error('Disjoint visual order accepted');
+if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
+ throw Error('No new row must not masquerade as a complement');
+"""
+        completed=subprocess.run(['node','-e',script],capture_output=True,text=True)
+        self.assertEqual(completed.returncode,0,completed.stderr)
+
+    def test_incomplete_local_ocr_uses_original_image_for_bounded_complement(self):
+        from types import SimpleNamespace
+        failure=subprocess.CalledProcessError(1,['node'],stderr='private original')
+        counts={'version':1,'uniqueRows':8,'expectedRows':10,'imagesTotal':1,
+                'imagesWithRows':1,'conflictingRows':0,'duplicateRows':0,
+                'reason':'incomplete'}
+        parsed={'items':[{'isin':str(n)} for n in range(10)],'evidence':{'products':[]}}
+        responses=[
+            SimpleNamespace(stdout=json.dumps([['phone pass a','phone pass b']])),
+            failure,
+            SimpleNamespace(stdout=json.dumps(counts)),
+            SimpleNamespace(stdout='true'),
+            SimpleNamespace(stdout=json.dumps([['native 1','native 2','native 3']])),
+            SimpleNamespace(stdout=json.dumps(['merged pass a','merged pass b'])),
+            SimpleNamespace(stdout=json.dumps(parsed)),
+        ]
+        payload={'images':[{'png':'saved original screenshot','localOcr':{
+            'expectedIsins':['DE000ZZ00016'],
+            'passes':[['phone pass a'],['phone pass b']]}}]}
+        with patch('evaluator_runtime.run',side_effect=responses) as run:
+            result=worker.process(payload,'2026-11-18T18:43:10Z')
+        self.assertEqual(run.call_count,7)
+        self.assertEqual(json.loads(run.call_args_list[3].kwargs['input'])['mode'],'complement-eligible')
+        self.assertIn('--ocr',run.call_args_list[4].args[0])
+        self.assertEqual(json.loads(run.call_args_list[4].kwargs['input']),[payload['images'][0]])
+        self.assertEqual(json.loads(run.call_args_list[5].kwargs['input'])['mode'],'complement')
+        final=json.loads(run.call_args_list[6].kwargs['input'])
+        self.assertEqual(final['images'],[['merged pass a','merged pass b']])
+        self.assertEqual(final['localSources'],[False])
+        self.assertEqual(result['recognitionRoute']['nativeComplementImages'],1)
+        self.assertEqual(result['recognitionRoute']['phoneMlKitImages'],1)
+        self.assertEqual(len(result['items']),10)
+
+    def test_conflicting_ocr_complement_never_authorizes_missing_rows(self):
+        from types import SimpleNamespace
+        failure=subprocess.CalledProcessError(1,['node'])
+        counts={'version':1,'uniqueRows':8,'expectedRows':10,'imagesTotal':1,
+                'imagesWithRows':1,'conflictingRows':0,'duplicateRows':0,
+                'reason':'incomplete'}
+        answers=[
+            SimpleNamespace(stdout=json.dumps([['old pass a','old pass b']])),
+            failure,SimpleNamespace(stdout=json.dumps(counts)),
+            SimpleNamespace(stdout='false'),
+        ]
+        with patch('evaluator_runtime.run',side_effect=answers) as run:
+            with self.assertRaises(worker.ListVerificationError) as raised:
+                worker.process({'images':[{'png':'existing original',
+                    'localOcr':{'expectedIsins':['DE000ZZ00016'],'passes':[[],[]]}}]},
+                    '2026-11-18T18:43:10Z')
+        self.assertEqual(raised.exception.diagnostics,counts)
+        self.assertEqual(run.call_count,4)
+        self.assertFalse(any('--ocr' in call.args[0] for call in run.call_args_list))
+        self.assertNotIn('existing original',str(raised.exception))
+
     def test_node_verification_diagnoses_missing_ten_without_leaking_text(self):
         input_payload={'mode':'diagnose','images':[
             ['PRIVATE ACCOUNT NOT A PRODUCT', 'PRIVATE ACCOUNT NOT A PRODUCT']],
@@ -317,7 +409,10 @@ class WorkerTests(unittest.TestCase):
                'missingPhoneReadingImages':1,'rejectedPhoneReadingImages':0}
         self.assertIsNone(worker.bounded_recognition_route(None))
         self.assertEqual(worker.bounded_recognition_route(valid),valid)
+        augmented={**valid,'nativeComplementImages':1}
+        self.assertEqual(worker.bounded_recognition_route(augmented),augmented)
         for invalid in (
+            {**valid,'nativeComplementImages':2},
             {**valid,'serverOcrFallbackImages':2},
             {**valid,'missingPhoneReadingImages':0},
             {**valid,'appTextImages':True},
@@ -783,6 +878,28 @@ class DatabaseTests(unittest.TestCase):
                 self.assertTrue(final['enhancedVerification'])
                 conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes' WHERE batch_id=%s",(value['batchId'],))
             self.assertFalse(worker.tick(connect,lambda *_:self.fail('Enhanced OCR must remain one-shot')))
+            # Previously terminal 8-of-10 enhanced runs are given exactly ONE
+            # complementary OCR replay, preserving their same original images.
+            old={'stage':'read-failed','error':'ListVerificationError',
+                 'enhancedVerification':True,'memoryDeferrals':0,
+                 'verificationCounts':{'version':1,'uniqueRows':8,'expectedRows':10,
+                    'imagesTotal':3,'imagesWithRows':3,'conflictingRows':0,
+                    'duplicateRows':1,'reason':'incomplete'}}
+            with connect() as conn:
+                conn.execute("UPDATE bob_android_list_images SET import_receipt=%s::jsonb,processing_attempts=2,processing_at=now()-interval '5 minutes' WHERE batch_id=%s",
+                    (json.dumps(old),value['batchId']))
+            observed=[]
+            def replay(payload,at):
+                observed.append(payload.get('_ocr_mode'))
+                raise worker.ListVerificationError('Eight complete verified rows')
+            self.assertTrue(worker.tick(connect,replay))
+            self.assertEqual(observed,['enhanced'])
+            with connect() as conn:
+                receipt=conn.execute('SELECT import_receipt FROM bob_android_list_images WHERE batch_id=%s',(value['batchId'],)).fetchone()[0]
+                self.assertEqual(receipt['complementRecovery'],'phone-native-v1')
+                self.assertTrue(receipt['enhancedVerification'])
+                conn.execute("UPDATE bob_android_list_images SET processing_at=now()-interval '5 minutes' WHERE batch_id=%s",(value['batchId'],))
+            self.assertFalse(worker.tick(connect,lambda *_:self.fail('No second complementary replay')))
 
         finally:
             with psycopg.connect(url) as admin:admin.execute('DROP SCHEMA '+schema+' CASCADE')

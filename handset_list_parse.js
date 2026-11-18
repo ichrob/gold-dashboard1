@@ -117,6 +117,88 @@ function nativeImage(passes) {
  const original=agreedImageRows(passes),filtered=agreedImageRows(clean);
  return original.length>0&&JSON.stringify(original)===JSON.stringify(filtered)?clean:null;
 }
+// Combine only independently agreed rows of the SAME original screenshot.
+// A phone ML Kit viewport may legally omit incomplete edge rows, while
+// server OCR can read those edges. Each output row still has two real OCR
+// passes and the exact ISIN/contract-terms proof; nothing is inferred.
+// Ordering must be unambiguous in the two independently read row sequences.
+function complementEligible(phonePasses) {
+ if(!Array.isArray(phonePasses)||phonePasses.length!==2||
+    phonePasses.some(s=>typeof s!=='string'||s.length>30000))return false;
+ const claims=new Map(),seenInBoth=new Set();
+ for(let pass=0;pass<2;pass++) {
+  const reading=phonePasses[pass].split('\n').map(normalizeLocalOcrLabels).join('\n');
+  const once=new Set();
+  for(const block of b.degiroListBlocks(normalizeLayout(reading))) {
+   const row=b.parseDegiroListRow(block);
+   if(!row||!b.validIsin(row.isin))continue;
+   if(once.has(row.isin))return false;
+   once.add(row.isin);
+   const signature=JSON.stringify([row.direction,...['venue','currency','ko','strike','ratio','maturity','excluded'].map(k=>row.listRow[k])]);
+   if(claims.has(row.isin)) {
+    if(claims.get(row.isin)!==signature)return false;
+    seenInBoth.add(row.isin);
+   } else claims.set(row.isin,signature);
+  }
+ }
+ return seenInBoth.size>0;
+}
+function complementImage(phonePasses,nativePasses) {
+ if(!complementEligible(phonePasses))return null;
+ function witnessed(passes,local) {
+  if(!Array.isArray(passes) || passes.length<2 || passes.length>3 ||
+     passes.some(v=>typeof v!=='string'||v.length>30000))return null;
+  const readings=passes.map(value=>local
+   ? value.split('\n').map(normalizeLocalOcrLabels).join('\n'):value);
+  const agreed=agreedImageRows(readings);
+  const result=new Map();
+  const sig=row=>JSON.stringify([row.direction,...['venue','currency','ko','strike','ratio','maturity','excluded'].map(k=>row.listRow[k])]);
+  for(const row of agreed) {
+   const verified=[];
+   for(const reading of readings) {
+    const matching=b.degiroListBlocks(normalizeLayout(reading)).filter(block=>{
+     const parsed=b.parseDegiroListRow(block);
+     return parsed&&parsed.isin===row.isin&&sig(parsed)===sig(row);
+    });
+    if(matching.length>1)return null;
+    if(matching.length===1)verified.push(matching[0]);
+   }
+   if(verified.length>=2)result.set(row.isin,{signature:sig(row),blocks:verified.slice(0,2)});
+  }
+  return result;
+ }
+ const phone=witnessed(phonePasses,true),native=witnessed(nativePasses,false);
+ if(!phone||!native||phone.size<1||native.size<1)return null;
+ const union=new Map(phone);
+ for(const [id,row] of native) {
+  if(union.has(id)&&union.get(id).signature!==row.signature)return null;
+  if(!union.has(id))union.set(id,row);
+ }
+ if(union.size<2||union.size>10||union.size<=phone.size)return null;
+ const followers=new Map([...union.keys()].map(id=>[id,new Set()]));
+ const indegree=new Map([...union.keys()].map(id=>[id,0]));
+ for(const source of [phone,native]) {
+  const ids=[...source.keys()];
+  for(let i=1;i<ids.length;i++) {
+   const from=ids[i-1],to=ids[i];
+   if(from===to||followers.get(from).has(to))continue;
+   followers.get(from).add(to);indegree.set(to,indegree.get(to)+1);
+  }
+ }
+ const ordered=[];
+ while(ordered.length<union.size) {
+  const ready=[...indegree].filter(([id,d])=>d===0 && !ordered.includes(id));
+  // Two possible orderings do not prove the visual row order.
+  if(ready.length!==1)return null;
+  const id=ready[0][0];ordered.push(id);
+  for(const next of followers.get(id))indegree.set(next,indegree.get(next)-1);
+  indegree.set(id,-1);
+ }
+ const result=[0,1].map(pass=>ordered.map(id=>union.get(id).blocks[pass]).join('\n'));
+ const agreed=agreedImageRows(result);
+ if(agreed.length!==union.size || agreed.some(row=>!union.has(row.isin)))return null;
+ return result;
+}
 function parse(images,at,appSources=[],localSources=[]){
  const items=new Map();
  for(const [index,passes] of images.entries()){
@@ -181,5 +263,5 @@ function diagnose(images,appSources=[],localSources=[]){
   duplicateRows:Math.min(10,duplicateRows),
   reason:conflictingRows?'conflict':unique.size!==10?'incomplete':'other'};
 }
-module.exports={normalizeLocalOcrLabels,canonicalLocalOcrIdentity,parse,diagnose,normalizeLayout,appImage,localOcrImage,nativeImage};
-if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):x.mode==='prepare-native'?nativeImage(x.passes):x.mode==='diagnose'?diagnose(x.images,x.appSources,x.localSources):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
+module.exports={normalizeLocalOcrLabels,canonicalLocalOcrIdentity,parse,diagnose,normalizeLayout,appImage,localOcrImage,nativeImage,complementImage,complementEligible};
+if(require.main===module){try{const x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(x.mode==='prepare-app'?x.images.map(i=>appImage(i.appText)||localOcrImage(i.localOcr)):x.mode==='prepare-native'?nativeImage(x.passes):x.mode==='complement'?complementImage(x.phone,x.native):x.mode==='complement-eligible'?complementEligible(x.phone):x.mode==='diagnose'?diagnose(x.images,x.appSources,x.localSources):parse(x.images,x.at,x.appSources,x.localSources)));}catch(e){process.stderr.write('List verification failed\n');process.exitCode=1;}}
