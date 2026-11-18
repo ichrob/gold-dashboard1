@@ -43,6 +43,9 @@ internal object MorningListDelivery {
         }
     }
     var onConfirmed:((List<SelectiveDetailPlan.Entry>,String)->Unit)?=null
+    /** Same user-opened session only. Original rejected images are archived
+     * by resume() before the fresh capture; no silent new session is started. */
+    var onFreshCaptureRequired:(()->Unit)?=null
     private fun file(c:Context)=AtomicFile(File(c.filesDir,"morning-list-pending.json"))
     private fun prefs(c:Context)=c.getSharedPreferences("morning_list_delivery",Context.MODE_PRIVATE)
     fun status(c:Context)=prefs(c).getString("status","").orEmpty()
@@ -130,6 +133,29 @@ internal object MorningListDelivery {
                                 else -> "✅ Goldliste mit 10 Produkten bestätigt. Die Lesesitzung ist abgelaufen; Detailprüfung nicht gestartet."
                             })
                             PhoneRemote.stop(c,"COMPLETE")
+                        }
+                    } else if(response?.optString("batchId")==batch &&
+                        MorningListResumePolicy.terminalVerificationFailed(
+                            receipt?.optString("stage"),receipt?.optString("error"),
+                            receipt?.optBoolean("enhancedVerification",false)==true)) {
+                        // The ORIGINAL enhanced two-pass OCR has definitively
+                        // rejected this list. Re-polling it is not a new read.
+                        // Archive this rejected batch before requesting any
+                        // new screenshot; never relabel its old data as current.
+                        val archivedReady=runCatching {
+                            save(c,JSONObject(body.toString()).put("verificationFailed",true))
+                        }.isSuccess
+                        waiting=false
+                        if(archivedReady && PhoneRemote.active() &&
+                            PhoneRemote.sessionId()==session && onFreshCaptureRequired!=null) {
+                            status(c,"Gespeicherte Liste endgültig abgelehnt. Bob startet einen frischen Gold-Einleselauf in derselben bestätigten Sitzung.")
+                            runCatching { onFreshCaptureRequired?.invoke() }.onFailure {
+                                status(c,"Frischer Gold-Lesestart fehlgeschlagen. Alte Belege bleiben gespeichert.")
+                                PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
+                            }
+                        } else {
+                            status(c,"Gespeicherte Liste nicht bestätigt. Ein neuer Gold-Lesestart ist erforderlich; alte Bilder bleiben erhalten.")
+                            PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
                         }
                     } else if(MorningListFallbackPolicy.memoryDeferred(
                             receipt?.optString("stage"),receipt?.optString("error")) &&

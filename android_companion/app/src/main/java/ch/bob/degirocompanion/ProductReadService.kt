@@ -335,6 +335,27 @@ class ProductReadService : AccessibilityService() {
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
             } else PhoneRemote.stop(this,"COMPLETED")
         }
+        MorningListDelivery.onFreshCaptureRequired={
+            // A previously rejected saved batch must NOT consume a whole
+            // explicit one-tap start. The server has already returned a
+            // terminal enhanced verification failure. Resume() archives it.
+            // Continue only if the original, unlocked DEGIRO read session
+            // is still active and in the foreground; no wake/unlock/login.
+            val power=getSystemService(POWER_SERVICE) as PowerManager
+            val keyguard=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+            val root=productRoot(false)
+            val inDegiro=try { root?.packageName?.toString()==ProductScreenEvidence.PACKAGE }
+                finally { root?.recycle() }
+            check(PhoneRemote.active() && inDegiro && power.isInteractive &&
+                !keyguard.isKeyguardLocked && !keyguard.isDeviceLocked &&
+                !GoldSearchRun.running && !MorningReadRun.running &&
+                !PinReadinessProbe.running &&
+                !ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+                "Neue Goldliste nur in der ursprünglich entsperrten DEGIRO-Lesesitzung"
+            }
+            GoldSearchRun.start()
+            ProductReadRequest.start(SystemClock.elapsedRealtime())
+        }
         DegiroReadOnlySession.onStart={handler.post {queueDegiroReadOnly(450)}}
         PhoneRemote.onStop={ code ->
             // User STOP, screen-lock abort and session expiry must never leave
@@ -568,7 +589,7 @@ class ProductReadService : AccessibilityService() {
         BobTradeDimMode.stop("Android-Lesedienst unterbrochen."); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
     override fun onDestroy() {
         DegiroReadOnlySession.finish("DIENST_GESTOPPT");DegiroReadOnlySession.onStart=null;handler.removeCallbacks(degiroReadOnlyTick)
-        BobTradeDimMode.stop("Android-Lesedienst beendet."); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onLoginTouch=null;PinReadinessProbe.onDigitTouch=null;PinReadinessProbe.onDeleteTouch=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
+        BobTradeDimMode.stop("Android-Lesedienst beendet."); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onLoginTouch=null;PinReadinessProbe.onDigitTouch=null;PinReadinessProbe.onDeleteTouch=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;MorningListDelivery.onFreshCaptureRequired=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
