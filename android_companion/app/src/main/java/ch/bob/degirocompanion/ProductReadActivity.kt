@@ -33,6 +33,9 @@ class ProductReadActivity : Activity() {
     private var pendingGoalQuery: String? = null
     private val capabilityActions = mutableMapOf<String, () -> Unit>()
     private var displayedRequestActive = false
+    // Tracks only our own request to open Samsung settings. The Android back
+    // stack itself belongs to Samsung and cannot be closed by Bob.
+    private var readerSettingsOpened = false
     private val statusHandler = Handler(Looper.getMainLooper())
     private val statusTick = object : Runnable {
         override fun run() {
@@ -288,8 +291,28 @@ class ProductReadActivity : Activity() {
                 .setMessage("Bob erhält über die Android-Bedienungshilfe Zugriff auf sichtbare DEGIRO-Texte. Nach „Prüfung starten“ prüft er höchstens eine Minute die geöffnete Produktseite und scrollt dafür automatisch nach unten und zur ISIN zurück; alternativ liest er nach deinem Tastendruck. Während der gestarteten Prüfung hält Bob den Bildschirm bis zu 60 Sekunden eingeschaltet; Abschluss oder Abbruch beendet dies. Die Sperrtaste bleibt wirksam. Er übernimmt nur strukturierte Produktfelder. Bei aktivierter automatischer Rückgabe öffnet er danach Bob und ordnet den Entwurf lokal anhand der ISIN deiner Produktliste zu. Beim Morgenlisten-Lauf wird die ISIN in die Produktsuche eingetragen; beim getrennten Goldsuchlauf zunächst nur das Wort Gold. Login- und Orderansichten stoppen den Lauf. DEGIRO beschränkt automatisierte Werkzeuge; dieser Gerätetest ist keine Zustimmung von DEGIRO. Ohne Freigabe bleibt manuelles Screenshot-Teilen die Alternative.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Leseprüfung aktivieren") { _, _ ->
-                    preferences.edit().putBoolean("enabled", true).apply()
-                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    // The actual reader (ProductReadService), not the
+                    // separately configurable accessibility shortcut, is the
+                    // prerequisite. Do NOT open multi-page Samsung settings
+                    // again when the service is already active.
+                    if(serviceEnabled()) {
+                        preferences.edit().putBoolean("enabled", true).apply()
+                        startFeedback.text = "✅ DEGIRO-Lesedienst ist bereits in Samsung aktiviert. " +
+                            "Bob-Leseprüfung jetzt freigegeben. Hier bleiben und oben „Bob starten“ drücken."
+                        refresh()
+                    } else {
+                        preferences.edit().putBoolean("enabled", true).apply()
+                        readerSettingsOpened = true
+                        startFeedback.text = "Samsung-Einstellungen geöffnet. Dort „Bob – Handy: Produkte lesen“ " +
+                            "als Dienst einschalten, nicht nur den Shortcut. Danach mit Home " +
+                            "Bob Handy wieder öffnen. Kein automatischer DEGIRO-Start."
+                        runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                            .onFailure {
+                                readerSettingsOpened = false
+                                startFeedback.text = "Samsung-Einstellungen konnten nicht geöffnet werden. " +
+                                    "Unter Eingabehilfe → Installierte Apps den Bob-Lesedienst manuell einschalten."
+                            }
+                    }
                 }.show()
         }
         container.addView(android.widget.CheckBox(this).apply {
@@ -385,6 +408,16 @@ class ProductReadActivity : Activity() {
         if(PinReadinessProbe.running) PinReadinessProbe.stop("Prüfung beendet. " + PinReadinessProbe.message)
         PhoneDiagnostics.queue(this)
         refresh()
+        if(readerSettingsOpened) {
+            readerSettingsOpened = false
+            startFeedback.text = if(serviceEnabled())
+                "✅ Bob – Handy: Produkte lesen ist aktiviert. " +
+                    "Du bist wieder bei Bob. Oben „Bob starten“ drücken; keinen Shortcut einstellen."
+            else
+                "DEGIRO-Lesedienst ist noch nicht aktiviert. " +
+                    "Samsung → Eingabehilfe → Installierte Apps → Bob – Handy: Produkte lesen. " +
+                    "Den eigentlichen Dienst einschalten; der Shortcut allein genügt nicht."
+        }
         statusHandler.post(statusTick)
         pendingGoalQuery?.let { query ->
             pendingGoalQuery = null
