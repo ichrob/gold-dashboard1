@@ -49,6 +49,11 @@ def entry_block_code(value):
     if any(word in reason for word in ('außerhalb','nachtmodus','markt geschlossen',
                                       'börsenpause','einstiegszeit')):
         return 'session-paused'
+    # In the paper evaluator this exact generic ABWARTEN text is emitted only
+    # for a NEUTRAL market direction, not for a failed paper stop/target model.
+    # Do not report yesterday's fixed plan fallback as missing in this case.
+    if reason.strip() == 'abwarten: kein bestätigter gültiger goldplan':
+        return 'no-direction'
     if any(word in reason for word in ('kein bestätigter gültiger goldplan',
                                       'stopp-/zielplan','risikoplan','kein gültiger goldplan',
                                       'kein bestätigter stopp')):
