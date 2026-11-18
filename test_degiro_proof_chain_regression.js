@@ -22,7 +22,9 @@ assert.equal(combined.tradeable,false);
 assert.equal(combined.executableQuote,false);
 const status=evidence.productEvidence({isin});
 assert.equal(status.tradeable,false);
-assert.equal(status.venue.state,'unknown');
+assert.equal(status.venue.state,'optional');
+assert.match(status.venue.text,/nicht erforderlich/);
+assert.equal(status.automaticOrder,false);
 console.log('DEGIRO screenshot identity / approval separation contract passed');
 
 const storage=new Map();
