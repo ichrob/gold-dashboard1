@@ -91,6 +91,8 @@ class DegiroReadOnlyActivity:Activity() {
     }
     override fun onResume() { super.onResume();if(::status.isInitialized)showStatus() }
     private fun showStatus() {
+        // Expire even if no further accessibility window events arrive.
+        DegiroReadOnlySession.active(SystemClock.elapsedRealtime())
         val enabled=readerEnabled()
         grant.text=when {
             enabled && ProductReadDiagnostics.connected ->
