@@ -29,6 +29,8 @@ class PaperInputEvidenceTests(unittest.TestCase):
         self.assertEqual(value,{"profile":"conservative", "outcome":"checked",
             "ready":True,"priceFresh":False,"dataAt":45000,"barAt":42000})
         self.assertIsNone(ev.sanitized_profile("private-profile",{}, "checked"))
+        self.assertEqual(ev.sanitized_profile('early5m1000nov',{'ready':True},'checked')['profile'],
+                         'early5m1000nov')
         self.assertIsNone(ev.sanitized_profile("conservative",{"dataAt":float("nan")}, "checked")["dataAt"])
 
     def test_capture_is_enqueue_only_redacted_and_never_claims_delivery(self):
