@@ -4,6 +4,7 @@ An access request is a notification, NOT a remote phone capability. Only a
 fresh, local tap in Bob Handy can start the existing bounded product reader.
 No PIN, Android unlock, broker order or hidden screen navigation is possible.
 """
+import hashlib
 import json
 import time
 import uuid
@@ -12,9 +13,10 @@ from zoneinfo import ZoneInfo
 
 ZURICH = ZoneInfo("Europe/Zurich")
 REASONS = frozenset(("morning-list", "manual", "broker-read"))
-MAX_NOTICES_PER_DAY = 3
+MAX_NOTICES_PER_DAY = 6
 SNOOZE_SECONDS = 20 * 60
 REQUEST_SECONDS = 10 * 60
+MIN_NEW_EVENT_SECONDS = 30 * 60
 
 
 def day_start(now):
@@ -94,7 +96,7 @@ def completed(conn, now=None):
     return True
 
 
-def new_request(state, reason, now):
+def new_request(state, reason, now, fingerprint=None):
     if reason not in REASONS or not allowed(now):
         return None
     day = day_start(now)
@@ -102,16 +104,21 @@ def new_request(state, reason, now):
     if attempts >= MAX_NOTICES_PER_DAY:
         return None
     if state.get("day") == day:
-        if state.get("status") in ("approved", "completed"):
+        status = state.get("status")
+        if status == "pending" and state.get("expiresAt", 0) > now:
             return None
-        if state.get("status") == "pending" and state.get("expiresAt", 0) > now:
+        if status == "snoozed" and state.get("notBefore", 0) > now:
             return None
-        if state.get("status") == "snoozed" and state.get("notBefore", 0) > now:
-            return None
-        # No unrequested repeated reminders; user must choose 'Später'.
-        if state.get("status") in ("expired", "pending"):
-            return None
+        if status != "snoozed":
+            # New evidence only, at most once per half-hour. A silent user
+            # response does not create a recurring nagging reminder.
+            if reason == state.get("reason") and (
+                    reason != "broker-read" or fingerprint == state.get("fingerprint")):
+                return None
+            if now - state.get("createdAt", now) < MIN_NEW_EVENT_SECONDS:
+                return None
     return {"requestId": uuid.uuid4().hex, "day": day, "reason": reason,
+            "fingerprint": fingerprint if reason == "broker-read" else None,
             "status": "pending", "createdAt": now, "expiresAt": now + REQUEST_SECONDS,
             "notBefore": now, "attempts": attempts + 1, "sentCount": 0}
 
@@ -127,20 +134,21 @@ def notification(state):
             "requireInteraction": False}
 
 
-def request(conn, reason, sender, now=None):
+def request(conn, reason, sender, now=None, fingerprint=None):
     """Sender is a callback(subscription, message, ttl) -> bool.
 
     A provider acceptance is NOT confirmation that a notification appeared.
     """
     now = int(time.time()) if now is None else now
     state = read(conn, lock=True)
-    updated = new_request(state, reason, now)
+    updated = new_request(state, reason, now, fingerprint=fingerprint)
     if updated is None:
         return public_state(state, now)
     save(conn, updated)
     delivered = 0
     rows = conn.execute(
-        "SELECT subscription FROM subscriptions WHERE general_enabled=TRUE LIMIT 10"
+        "SELECT subscription FROM subscriptions WHERE general_enabled=TRUE "
+        "ORDER BY updated_at DESC LIMIT 3"
     ).fetchall()
     message = notification(updated)
     for (subscription,) in rows:
@@ -171,3 +179,25 @@ def morning_list_missing(conn, now):
     return not bool(conn.execute("""SELECT 1 FROM bob_android_list_images
         WHERE import_receipt->>'stage'='synced' AND created_at >= to_timestamp(%s)
         LIMIT 1""", (day_start(now),)).fetchone())
+
+
+def entry_read_fingerprint(conn, now):
+    """A fresh, model-suitable entry plan needs an owner-confirmed quote read.
+
+    Never turn a synthetic scenario into a broker order, and do not interrupt
+    any active phone session or request an unchanged signal twice.
+    """
+    if not allowed(now) or morning_list_missing(conn, now):
+        return None
+    try:
+        from handset_planning import read as planning_read
+        from handset_entry_request import candidate
+        planning = planning_read(conn)
+        item = candidate(planning, now)
+        if item is None:
+            return None
+        raw = json.dumps([item.get("isin"), item.get("modelReferenceAt"),
+                          planning.get("revision")], separators=(',', ':'))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+    except (ValueError, TypeError, KeyError):
+        return None
