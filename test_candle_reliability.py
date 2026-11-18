@@ -216,6 +216,83 @@ class ReliabilityTests(unittest.TestCase):
                          c.validated('biquote/1m', rows))
         conn.commit.assert_not_called()
 
+    def test_scanner_series_http_failure_reports_bounded_context(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from urllib.error import HTTPError
+
+        c._ROWS['biquote/1m'] = self.rows()
+        secret_url = 'https://private-user:SECRET@example.invalid/api'
+        error = HTTPError(secret_url, 503, 'PRIVATE-TOKEN', None, None)
+        def request(action, payload):
+            if payload['key'] == 'statistics':
+                return {'ok': True, 'statistics': {}}
+            raise error
+        out = StringIO()
+        with patch.object(c, 'request', side_effect=request), redirect_stdout(out):
+            with self.assertRaises(HTTPError):
+                c.cycle(server)
+        log = out.getvalue()
+        self.assertIn('BOB_CANDLE_FAILURE stage=series key=biquote/1m', log)
+        self.assertIn('rows=220', log)
+        self.assertIn('http=503 error=HTTPError', log)
+        self.assertNotIn('SECRET', log)
+        self.assertNotIn('PRIVATE-TOKEN', log)
+        self.assertNotIn('example.invalid', log)
+        self.assertNotIn('https://', log)
+
+    def test_statistics_write_error_identified_without_payload(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+
+        with patch.object(c, 'request',
+                          side_effect=ValueError('PRIVATE JSON payload')), \
+             redirect_stdout(StringIO()) as out:
+            with self.assertRaises(ValueError):
+                c.cycle(server)
+        self.assertIn('BOB_CANDLE_FAILURE stage=statistics key=statistics', out.getvalue())
+        self.assertIn('http=none error=ValueError', out.getvalue())
+        self.assertNotIn('PRIVATE JSON', out.getvalue())
+
+    def test_sql_evidence_and_checkpoint_failures_identify_stage(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+
+        rows = self.rows()
+        conn = MagicMock()
+        conn.execute.side_effect = RuntimeError('PRIVATE-SQL-ERROR')
+        with redirect_stdout(StringIO()) as out, self.assertRaises(RuntimeError):
+            c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
+        log = out.getvalue()
+        self.assertIn('BOB_CANDLE_WRITE stage=evidence batch=0', log)
+        self.assertIn('BOB_CANDLE_FAILURE stage=evidence key=biquote/1m rows=128', log)
+        self.assertNotIn('PRIVATE-SQL-ERROR', log)
+        conn = MagicMock()
+        conn.execute.side_effect = [MagicMock(), MagicMock(),
+                                   RuntimeError('PRIVATE CHECKPOINT')]
+        with redirect_stdout(StringIO()) as out, self.assertRaises(RuntimeError):
+            c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
+        self.assertIn('BOB_CANDLE_FAILURE stage=checkpoint key=biquote/1m rows=220',
+                      out.getvalue())
+        self.assertNotIn('PRIVATE CHECKPOINT', out.getvalue())
+
+    def test_failure_context_rejects_unknown_keys_and_http_values(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+
+        private = RuntimeError('CREDENTIALS NOT FOR LOG')
+        private.code = 200
+        with redirect_stdout(StringIO()) as out:
+            c._safe_failure('unexpected', 'secret/symbol', 10000, time.perf_counter(),
+                            private, batch=9999)
+        result = out.getvalue()
+        self.assertIn('stage=unknown key=unknown rows=0', result)
+        self.assertIn('http=none error=RuntimeError', result)
+        self.assertNotIn('secret/symbol', result)
+        self.assertNotIn('CREDENTIALS', result)
+        self.assertNotIn('batch=', result)
+
+
 @unittest.skipUnless(os.environ.get('BOB_TEST_DATABASE_URL'),'PostgreSQL integration')
 class DatabaseTests(unittest.TestCase):
     def test_repeated_checkpoint_skips_insert_attempts_but_preserves_revisions(self):

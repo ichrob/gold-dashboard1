@@ -23,6 +23,21 @@ _STORAGE = {'state':'starting','lastSavedAt':None,'restoredSeries':0}
 _STARTED = time.time()
 
 
+def _safe_failure(stage, key, row_count, began, exc, batch=None):
+    """Bounded fields only: no URLs, credentials, candle rows or error messages."""
+    stage = stage if stage in ('evidence', 'checkpoint', 'series', 'statistics') else 'unknown'
+    key = key if key in KEYS or key == 'statistics' else 'unknown'
+    count = row_count if type(row_count) is int and 0 <= row_count <= 2000 else 0
+    ms = max(0, min(60000, int((time.perf_counter() - began) * 1000)))
+    http = getattr(exc, 'code', None)
+    http = str(http) if type(http) is int and 400 <= http <= 599 else 'none'
+    extra = (' batch=' + str(batch)) if type(batch) is int and 0 <= batch <= 16 else ''
+    print('BOB_CANDLE_FAILURE stage=' + stage + ' key=' + key +
+          ' rows=' + str(count) + ' elapsedMs=' + str(ms) +
+          ' http=' + http + ' error=' + type(exc).__name__ + extra,
+          flush=True)
+
+
 def validated(key, rows, now=None):
     now = time.time() if now is None else now
     if key not in KEYS or not isinstance(rows,list) or len(rows)>2000:
@@ -173,6 +188,7 @@ def handle(conn,action,payload):
             # Filter by the complete revision key before INSERT so those rows
             # do not re-enter the write/conflict path on every source update.
             # ON CONFLICT remains necessary for concurrent first-time writers.
+            batch_started = time.perf_counter()
             try:
                 conn.execute("""WITH incoming AS MATERIALIZED (
                     SELECT %s::text AS source_key,
@@ -190,16 +206,25 @@ def handle(conn,action,payload):
                 ON CONFLICT DO NOTHING""",(key,json.dumps(
                     rows[start:start+evidence_batch_size],allow_nan=False)))
             except Exception as exc:
-                print('BOB_CANDLE_WRITE stage=evidence batch='+
-                      str(start//evidence_batch_size)+
-                      ' error='+type(exc).__name__,flush=True)
+                # Keep the established marker for existing watchers; add a
+                # correlated bounded context line without emitting SQL or data.
+                print('BOB_CANDLE_WRITE stage=evidence batch=' +
+                      str(start//evidence_batch_size) +
+                      ' error=' + type(exc).__name__, flush=True)
+                _safe_failure('evidence', key, len(rows[start:start+evidence_batch_size]),
+                              batch_started, exc, batch=start//evidence_batch_size)
                 raise
-        conn.execute('''INSERT INTO bob_candle_checkpoints(key,latest,payload) VALUES(%s,%s,%s::jsonb)
-            ON CONFLICT(key) DO UPDATE SET latest=excluded.latest,payload=excluded.payload,saved_at=now()
-            WHERE (excluded.latest>bob_candle_checkpoints.latest OR
-                (excluded.latest=bob_candle_checkpoints.latest AND jsonb_array_length(excluded.payload)>=jsonb_array_length(bob_candle_checkpoints.payload)))
-                AND bob_candle_checkpoints.payload IS DISTINCT FROM excluded.payload''',
-            (key,rows[-1]['openTime'],json.dumps(rows,allow_nan=False)))
+        checkpoint_started = time.perf_counter()
+        try:
+            conn.execute('''INSERT INTO bob_candle_checkpoints(key,latest,payload) VALUES(%s,%s,%s::jsonb)
+                ON CONFLICT(key) DO UPDATE SET latest=excluded.latest,payload=excluded.payload,saved_at=now()
+                WHERE (excluded.latest>bob_candle_checkpoints.latest OR
+                    (excluded.latest=bob_candle_checkpoints.latest AND jsonb_array_length(excluded.payload)>=jsonb_array_length(bob_candle_checkpoints.payload)))
+                    AND bob_candle_checkpoints.payload IS DISTINCT FROM excluded.payload''',
+                (key,rows[-1]['openTime'],json.dumps(rows,allow_nan=False)))
+        except Exception as exc:
+            _safe_failure('checkpoint', key, len(rows), checkpoint_started, exc)
+            raise
     return {'ok':True}
 
 
@@ -294,21 +319,28 @@ def cycle(server, now=None, paused=False):
             digest.update(token.encode('utf-8'))
         digest = digest.digest()
         if _SAVED.get(key)==digest:continue
+        request_started = time.perf_counter()
         try:
             result = request('write',{'key':key,'rows':rows})
             if result.get('ok') is not True:
                 raise ValueError('Checkpoint write not acknowledged')
         except (OSError, ValueError, TypeError) as exc:
-            # One source timeout must not starve all later series or the
-            # reliability heartbeat. Leave this digest unsaved for next cycle.
+            # The key is an allowlisted original candle series and never a URL.
+            # One error may not starve later series or reliability heartbeat.
+            _safe_failure('series', key, len(rows), request_started, exc)
             if failed is None:
                 failed = exc
             continue
         _SAVED[key]=digest
     with _LOCK:stats=copy.deepcopy(_STATS)
-    result=request('write',{'key':'statistics','statistics':stats,'ownerStartedAt':_STARTED})
-    if result.get('ok') is not True:
-        raise ValueError('Statistics write not acknowledged')
+    request_started = time.perf_counter()
+    try:
+        result=request('write',{'key':'statistics','statistics':stats,'ownerStartedAt':_STARTED})
+        if result.get('ok') is not True:
+            raise ValueError('Statistics write not acknowledged')
+    except (OSError, ValueError, TypeError) as exc:
+        _safe_failure('statistics', 'statistics', len(stats), request_started, exc)
+        raise
     with _LOCK:
         if isinstance(result.get('statistics'),dict):_STATS.update(result['statistics'])
     if failed is not None:
