@@ -77,9 +77,9 @@ function row(n,bp=4000) {
  return 'SG Gold Turbo BEST Open-End Call BAR 4000 BP '+bp+' Bv 10 | '+
    id(n)+' Societe Generale OTC EUR';
 }
-const phone=[Array.from({length:8},(_,i)=>row(i+1)).join('\\n')];
+const phone=[Array.from({length:8},(_,i)=>row(i+1)).join('\n')];
 phone.push(phone[0]);
-const native=[Array.from({length:4},(_,i)=>row(i+7)).join('\\n')];
+const native=[Array.from({length:4},(_,i)=>row(i+7)).join('\n')];
 native.push(native[0],native[0]);
 const merged=complementImage(phone,native);
 if(!merged||merged.length!==2)throw Error('No safe complement');
@@ -88,10 +88,10 @@ if(result.items.length!==10 || new Set(result.items.map(x=>x.isin)).size!==10)
  throw Error('Not ten proven identities');
 if(complementImage(phone,native.map(pass=>pass.replace(row(8),row(8,4100))))!==null)
  throw Error('Conflicting original contract term accepted');
-if(complementImage([row(1)+'\\n'+row(2),row(1)+'\\n'+row(2)],
-  [row(3)+'\\n'+row(4),row(3)+'\\n'+row(4)])!==null)
+if(complementImage([row(1)+'\n'+row(2),row(1)+'\n'+row(2)],
+  [row(3)+'\n'+row(4),row(3)+'\n'+row(4)])!==null)
  throw Error('Disjoint visual order accepted');
-if(complementImage(phone,[row(7)+'\\n'+row(8),row(7)+'\\n'+row(8)])!==null)
+if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
  throw Error('No new row must not masquerade as a complement');
 """
         completed=subprocess.run(['node','-e',script],capture_output=True,text=True)
