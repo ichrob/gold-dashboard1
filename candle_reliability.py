@@ -24,7 +24,7 @@ _STARTED = time.time()
 
 
 def _safe_failure(stage, key, row_count, began, exc, batch=None):
-    """Bounded diagnostic context, never URLs, source rows, keys or raw errors."""
+    """Bounded fields only: no URLs, credentials, candle rows or error messages."""
     stage = stage if stage in ('evidence', 'checkpoint', 'series', 'statistics') else 'unknown'
     key = key if key in KEYS or key == 'statistics' else 'unknown'
     count = row_count if type(row_count) is int and 0 <= row_count <= 2000 else 0
@@ -206,6 +206,11 @@ def handle(conn,action,payload):
                 ON CONFLICT DO NOTHING""",(key,json.dumps(
                     rows[start:start+evidence_batch_size],allow_nan=False)))
             except Exception as exc:
+                # Keep the established marker for existing watchers; add a
+                # correlated bounded context line without emitting SQL or data.
+                print('BOB_CANDLE_WRITE stage=evidence batch=' +
+                      str(start//evidence_batch_size) +
+                      ' error=' + type(exc).__name__, flush=True)
                 _safe_failure('evidence', key, len(rows[start:start+evidence_batch_size]),
                               batch_started, exc, batch=start//evidence_batch_size)
                 raise
