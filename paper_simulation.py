@@ -1719,12 +1719,34 @@ def _worker(db):
                                 warning_selection=json.loads(p.stdout)
                             except Exception as exc:
                                 warning_selection['reasons']=['Frühwarn-Produktauswahl nicht verfügbar: '+type(exc).__name__]
+                        # Separate 2x5m prospect: only a fresh original-candle
+                        # signal may drive this one paper ledger. Never add
+                        # its direction or selection to the main signal.
+                        two_candle_market=paper_portfolios.two_candle_paper_market(market,now)
+                        two_candle_selection=dict(choices=[],reasons=['Kein passendes belegtes Produkt für den Zwei-5m-Test'])
+                        if (two_candle_market.get('paperEntrySource') == 'two-candle-5m-paper-v1'
+                                and 'early5m1000nov' not in active_cases):
+                            try:
+                                request={**evidence,'quotes':quotes,'market':two_candle_market,
+                                         'bundle':bundle,'rankingPolicy':ranking_policy}
+                                p=evaluator_runtime.run(
+                                    ['node',str(Path(__file__).with_name('paper_selection.js'))],
+                                    input=json.dumps(request),text=True,capture_output=True,
+                                    timeout=6,check=True,priority=2)
+                                two_candle_selection=json.loads(p.stdout)
+                            except Exception as exc:
+                                two_candle_selection['reasons']=[
+                                    'Zwei-5m-Produktauswahl nicht verfügbar: '+type(exc).__name__]
+                                print('BOB_TWO_CANDLE_PAPER_SELECTION error='+type(exc).__name__,
+                                      flush=True)
                         input_observations=[]
                         outcomes=paper_portfolios.run_all(conn,bundle,market,selection,quotes,
                                                           time.time()*1000,settings,active_cases,
                                                           early_market=early_market,early_selection=early_selection,
                                                           input_observations=input_observations,
-                                                          warning_market=warning_market,warning_selection=warning_selection)
+                                                          warning_market=warning_market,warning_selection=warning_selection,
+                                                          two_candle_market=two_candle_market,
+                                                          two_candle_selection=two_candle_selection)
                         # Prospective separate MODEL trials cannot overwrite a
                         # primary 800/1000 simulation or broker quote evidence.
                         conn.execute('SAVEPOINT bob_model_paper')
