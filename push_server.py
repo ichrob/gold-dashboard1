@@ -416,6 +416,25 @@ def send_phone_access_push(subscription, message, ttl):
         return False
 
 
+def send_phone_access_completion():
+    """Notify only after a real synced-list receipt; never claim device display."""
+    try:
+        now = int(time.time())
+        notice = {'title': 'Bob Handy · DEGIRO-Lesung abgeschlossen',
+                  'body': 'Die eingelesene Goldproduktliste wurde übernommen. Du kannst dein Handy wieder benutzen.',
+                  'tag': 'bob-device-access',
+                  'data': {'kind': 'device-access', 'url': '/handy/access',
+                           'expiresAt': (now + 180) * 1000}}
+        with db() as conn:
+            rows = conn.execute(
+                "SELECT subscription FROM subscriptions WHERE general_enabled=TRUE LIMIT 10"
+            ).fetchall()
+        for (subscription,) in rows:
+            send_phone_access_push(subscription, notice, 180)
+    except Exception as exc:
+        print('BOB_HANDY_ACCESS completion_push_error='+type(exc).__name__, flush=True)
+
+
 def deliver_product_selection(conn, row, checked):
     sid, sub, previous = row
     state, message = product_push.transition(previous, checked)
@@ -1322,10 +1341,30 @@ class Handler(BaseHTTPRequestHandler):
                 if not PUSH_SERVICE_TOKEN or not secrets.compare_digest(supplied,PUSH_SERVICE_TOKEN):
                     send_json(self,401,{'error':'Unauthorized'});return
                 try:
+                    completed_access = False
                     with db() as conn:
                         conn.execute("SET LOCAL statement_timeout='3s'")
-                        result=__import__('android_remote' if path=='/android-remote' else 'android_telemetry').handle(conn,json_body(self))
+                        body = json_body(self)
+                        result = __import__('android_remote' if path=='/android-remote' else 'android_telemetry').handle(conn, body)
+                        if (path == '/android-remote' and body.get('action') == 'list-receipt'
+                                and isinstance(body.get('value'), dict)
+                                and body['value'].get('stage') == 'synced'):
+                            # A browser approval is not sufficient; require
+                            # the normal importer to have stored actual parsed
+                            # product rows under this signed handset batch.
+                            checked = conn.execute("""
+                                SELECT 1 FROM bob_android_list_images
+                                WHERE batch_id=%s AND import_receipt->>'stage'='synced'
+                                  AND parsed_items IS NOT NULL
+                                  AND jsonb_array_length(parsed_items)>0
+                                LIMIT 1
+                            """, (body['value'].get('batchId'),)).fetchone()
+                            if checked:
+                                completed_access = phone_access_handoff.completed(conn)
                     send_json(self,200,result)
+                    if completed_access:
+                        threading.Thread(target=send_phone_access_completion,
+                                         daemon=True, name='bob-handset-access-finished').start()
                 except PermissionError:send_json(self,401,{'error':'Device not paired or revoked'})
                 return
             if path == '/android-observations':
