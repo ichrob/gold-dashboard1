@@ -19,6 +19,19 @@ def command(action='search_gold'):
     return dict(deviceId='b'*12,sessionId=ID,requestId=uuid.uuid4().hex,action=action)
 class Protocol(unittest.TestCase):
     def state(self):return r.exchange({},value(),NOW)[0]
+    def test_owner_access_request_is_notification_only(self):
+        self.assertIn('bob_phone_request_access', r.TOOLS)
+        self.assertEqual(r.arguments('bob_phone_request_access', {}), {})
+        self.assertEqual(r.arguments('bob_phone_request_access',
+                                     {'deviceId': 'b'*12}), {'deviceId': 'b'*12})
+        for bad in ({'action': 'buy'}, {'pin': '1234'},
+                    {'deviceId': 'wrong'}, {'durationMinutes': 999}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                r.arguments('bob_phone_request_access', bad)
+        definitions = r.definitions()
+        self.assertEqual(definitions[1]['name'], 'bob_phone_command')
+        self.assertEqual(definitions[2]['name'], 'bob_phone_request_access')
+        self.assertFalse(definitions[2]['annotations']['readOnlyHint'])
     def test_commands_reject_free_text_order_invalid_identity(self):
         for a in [dict(command(),action='buy'),dict(command(),text='password'),dict(command('search_isin'),isin='DE000FE2JJ21'),dict(command(),isin=ISIN),dict(command(),sessionId='')]:
             with self.assertRaises(ValueError):r.arguments('bob_phone_command',a)
