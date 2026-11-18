@@ -158,6 +158,12 @@ class MainActivity : Activity() {
         }
         label(appHeadline)
         button("🛑 NOT-STOPP – alle Handy- und Fernaufträge sperren") { emergencyStop() }
+        // Reuse the ALREADY INSTALLED, signed Bob-Handy accessibility
+        // service. This creates no separate sideloaded app or permissions.
+        button("🔎 DEGIRO nur erkennen · 45 Sek. · keine Order") {
+            startActivity(Intent(this,DegiroReadOnlyActivity::class.java)
+                .putExtra(DegiroReadOnlyActivity.EXTRA_START_ONCE,true))
+        }
         label("BOB-ARBEITSMODUS · ohne Bluetooth")
         workModeStatus = label(BobWorkMode.status(this))
         label("4 oder 8 Stunden Bob-Arbeitsfenster: Der Server überwacht den Markt unabhängig vom Handy. " +
