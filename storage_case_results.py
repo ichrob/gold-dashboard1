@@ -18,7 +18,7 @@ from decimal import Decimal
 _PROFILES = ("conservative", "balanced", "offensive", "early100",
              "trend800", "early1000oct", "normal1000oct",
              "trend800nov", "normal1000nov", "ema3000nov", "noema5000nov",
-             "trend1000dec", "normal1000dec", "early1000dec")
+             "trend1000dec", "normal1000dec", "early1000dec", "early5m1000nov")
 _PAGE = 8
 _RECEIPT = "model-gross-arithmetic-consistent-v1"
 _DAY = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
