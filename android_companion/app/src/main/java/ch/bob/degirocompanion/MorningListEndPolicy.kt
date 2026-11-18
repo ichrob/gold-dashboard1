@@ -25,6 +25,16 @@ internal object MorningListEndPolicy {
         hasVerifiedFooter(nodes) &&
         !nodes.any { it.password || it.sensitive || it.editable }
 
+    /** Ten visible ISIN labels do not prove ten complete product rows.
+     * Permit at most one additional cropped, read-only edge capture when
+     * independent on-device row text has not confirmed all ten labels.
+     * This never marks a server import successful or loosens its parser. */
+    fun needsEdgeCapture(capturedImages: Int, seen: Set<String>,
+                         covered: Set<String>): Boolean =
+        capturedImages in 1..3 && seen.size==10 &&
+        seen.all(SeriesEvidence::validIsin) &&
+        covered.all { it in seen } && covered.size<10
+
     fun maySubmitAtCaptureLimit(capturedImages: Int, seen: Set<String>): Boolean =
         capturedImages == 4 && seen.size in 5..9 && seen.all(SeriesEvidence::validIsin)
 }
