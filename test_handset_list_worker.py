@@ -88,6 +88,9 @@ if(result.items.length!==10 || new Set(result.items.map(x=>x.isin)).size!==10)
  throw Error('Not ten proven identities');
 if(complementImage(phone,native.map(pass=>pass.replace(row(8),row(8,4100))))!==null)
  throw Error('Conflicting original contract term accepted');
+const {complementEligible}=require('./handset_list_parse');
+if(complementEligible([phone[0],phone[1].replace(row(8),row(8,4100))]))
+ throw Error('Two different phone contract terms were treated as incomplete');
 if(complementImage([row(1)+'\n'+row(2),row(1)+'\n'+row(2)],
   [row(3)+'\n'+row(4),row(3)+'\n'+row(4)])!==null)
  throw Error('Disjoint visual order accepted');
@@ -108,6 +111,7 @@ if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
             SimpleNamespace(stdout=json.dumps([['phone pass a','phone pass b']])),
             failure,
             SimpleNamespace(stdout=json.dumps(counts)),
+            SimpleNamespace(stdout='true'),
             SimpleNamespace(stdout=json.dumps([['native 1','native 2','native 3']])),
             SimpleNamespace(stdout=json.dumps(['merged pass a','merged pass b'])),
             SimpleNamespace(stdout=json.dumps(parsed)),
@@ -117,11 +121,12 @@ if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
             'passes':[['phone pass a'],['phone pass b']]}}]}
         with patch('evaluator_runtime.run',side_effect=responses) as run:
             result=worker.process(payload,'2026-11-18T18:43:10Z')
-        self.assertEqual(run.call_count,6)
-        self.assertIn('--ocr',run.call_args_list[3].args[0])
-        self.assertEqual(json.loads(run.call_args_list[3].kwargs['input']),[payload['images'][0]])
-        self.assertEqual(json.loads(run.call_args_list[4].kwargs['input'])['mode'],'complement')
-        final=json.loads(run.call_args_list[5].kwargs['input'])
+        self.assertEqual(run.call_count,7)
+        self.assertEqual(json.loads(run.call_args_list[3].kwargs['input'])['mode'],'complement-eligible')
+        self.assertIn('--ocr',run.call_args_list[4].args[0])
+        self.assertEqual(json.loads(run.call_args_list[4].kwargs['input']),[payload['images'][0]])
+        self.assertEqual(json.loads(run.call_args_list[5].kwargs['input'])['mode'],'complement')
+        final=json.loads(run.call_args_list[6].kwargs['input'])
         self.assertEqual(final['images'],[['merged pass a','merged pass b']])
         self.assertEqual(final['localSources'],[False])
         self.assertEqual(result['recognitionRoute']['nativeComplementImages'],1)
@@ -137,8 +142,7 @@ if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
         answers=[
             SimpleNamespace(stdout=json.dumps([['old pass a','old pass b']])),
             failure,SimpleNamespace(stdout=json.dumps(counts)),
-            SimpleNamespace(stdout=json.dumps([['native a','native b']])),
-            SimpleNamespace(stdout='null'),
+            SimpleNamespace(stdout='false'),
         ]
         with patch('evaluator_runtime.run',side_effect=answers) as run:
             with self.assertRaises(worker.ListVerificationError) as raised:
@@ -146,7 +150,8 @@ if(complementImage(phone,[row(7)+'\n'+row(8),row(7)+'\n'+row(8)])!==null)
                     'localOcr':{'expectedIsins':['DE000ZZ00016'],'passes':[[],[]]}}]},
                     '2026-11-18T18:43:10Z')
         self.assertEqual(raised.exception.diagnostics,counts)
-        self.assertEqual(run.call_count,5)
+        self.assertEqual(run.call_count,4)
+        self.assertFalse(any('--ocr' in call.args[0] for call in run.call_args_list))
         self.assertNotIn('existing original',str(raised.exception))
 
     def test_node_verification_diagnoses_missing_ten_without_leaking_text(self):
