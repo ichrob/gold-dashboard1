@@ -341,6 +341,7 @@ def campaign_paper_market(market, profile):
 def two_candle_paper_market(market, now):
     """Validated second entry clock; no main-signal mutation or forced trade."""
     trial = market.get('paperTwoCandleEntry') or {}
+    trial = trial if isinstance(trial, dict) else {}
     fail = (str(trial.get('reason') or 'Kein aktueller Zwei-Kerzen-Einstiegsplan')[:200])
     neutral = {**market, 'direction':'NEUTRAL', 'plan':None,
         'paperEntrySource':None, 'twoCandleBlockReason':fail}
