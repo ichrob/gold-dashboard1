@@ -990,7 +990,7 @@ def entry_block_evidence(conn, portfolios, limit=5):
                     and isinstance(raw_windows, dict)):
                 allowed_codes = {
                     'ema-stretch-and-signal-age', 'ema-stretch', 'signal-age',
-                    'gold-stale', 'gold-plan-missing', 'plan-or-timing',
+                    'gold-stale', 'gold-plan-missing', 'no-direction', 'plan-or-timing',
                     'spot-close-distance', 'weak-trend-confirmation',
                     'crv-obstacle', 'ko-safety', 'product-or-quote', 'capital-risk',
                     'entry-checklist', 'duplicate-bar', 'other'}
