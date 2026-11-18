@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const source=fs.readFileSync('degiro_all_products.js','utf8');
 assert.match(source,/Zusätzlicher Handelsplatzbeleg für Analyse und Simulation nicht erforderlich/);
-assert.doesNotMatch(source,/Handelsfreigabe über DEGIRO: nicht bestätigt/);
+assert.doesNotMatch(source,/Handelsfreigabe über DEGIRO: nicht bestätigt|Noch keine Handelsfreigabe/);
 const combined=require('./degiro_all_products');
 const depotStore=require('./degiro_portfolio_store');
 function isin(n){
