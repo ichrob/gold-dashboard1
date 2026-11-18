@@ -18,7 +18,8 @@ const verified=common.productEvidence(base,now);
 assert.equal(verified.prices.state,'observed');
 assert.equal(verified.leverage.state,'observed');
 assert.equal(verified.barrier.state,'observed');
-assert.equal(verified.venue.state,'unknown');
+assert.equal(verified.venue.state,'optional');
+assert.match(verified.venue.text,/nicht erforderlich/);
 assert.equal(verified.tradeable,false);
 assert.equal(verified.automaticOrder,false);
 // The mobile cockpit must never reinterpret or upgrade the unified contract.
@@ -51,6 +52,7 @@ assert.equal(combined[0].evidence.identity.state,'observed');
 assert.equal(combined[0].evidence.quote.state,'observed');
 assert.equal(combined[0].evidence.executableQuote,false);
 assert.equal(combined[0].evidence.tradeable,false);
+assert.doesNotMatch(combined[0].evidence.broker.text,/Handelsplatznachweis.*erforderlich/);
 assert.equal(combined[0].tradeApproved,false);
 const staticServer=fs.readFileSync('server.py','utf8');
 assert.match(staticServer,/PRODUCT_EVIDENCE_CONTRACT_JS/);
