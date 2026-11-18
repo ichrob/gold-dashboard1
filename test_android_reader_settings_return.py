@@ -46,7 +46,7 @@ class ReaderSettingsReturn(unittest.TestCase):
         self.assertNotIn('startAutomaticTest()', after_settings)
         self.assertNotIn('startGoldRead()', after_settings)
         self.assertIn('serviceEnabled()', after_settings)
-        self.assertIn('oben „Bob starten“ drücken', after_settings)
+        self.assertIn('Oben „Bob starten“ drücken', after_settings)
         self.assertIn('startCompleteFlowOnFirstResume = false', resume)
 
 
