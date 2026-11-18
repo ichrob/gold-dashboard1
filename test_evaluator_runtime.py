@@ -30,6 +30,7 @@ class RuntimeTests(unittest.TestCase):
         def ocr(*args,**kwargs):
             entered.set();release.wait(2);return 'ocr'
         def node(*args,**kwargs):node_started.set();return 'node'
+        queue_timeouts_before=r.status()['queueTimeouts']
         with patch.object(r,'MAX_QUEUE_SECONDS',.02),patch.object(r,'OCR_QUEUE_GRACE_SECONDS',.2):
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
                 image=pool.submit(r.run,['python','image','--ocr'],runner=ocr)
@@ -41,7 +42,7 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(image.result(),'ocr')
                 self.assertEqual(analysis.result(),'node')
         self.assertTrue(node_started.is_set())
-        self.assertEqual(r.status()['queueTimeouts'],0)
+        self.assertEqual(r.status()['queueTimeouts'],queue_timeouts_before)
 
     def test_non_ocr_blocker_keeps_original_queue_bound(self):
         entered=threading.Event();release=threading.Event()
