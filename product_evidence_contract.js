@@ -29,7 +29,7 @@ function productEvidence(p,now=Date.now()){
  const dirs=[p.direction,q?.metadata?.direction,r?.direction].filter(x=>['LONG','SHORT'].includes(x));
  out.direction=!dirs.length?out.direction:new Set(dirs).size>1?
   {state:'conflict',text:'Richtungsangaben widersprechen sich'}:
-  {state:'observed',text:dirs[0]+' aus Produktidentität, keine Handelsfreigabe'};
+  {state:'observed',text:dirs[0]+' aus Produktidentität, keine Order'};
  const ccys=[q?.currency,q?.metadata?.currency,r?.currency].filter(x=>['EUR','CHF'].includes(x));
  out.currency=!ccys.length?out.currency:new Set(ccys).size>1?
   {state:'conflict',text:'Produktwährungen widersprechen sich'}:
