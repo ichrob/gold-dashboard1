@@ -549,12 +549,16 @@ internal object MorningReadPolicy {
     /** Continue only an already captured Top Results list. The search header may
      * scroll out of the accessibility tree. A synthetic context node is used only
      * for policy validation; no action can target it or any product row. */
-    fun captureGoldList(nodes: List<Node>, continuing: Boolean): Action {
+    fun captureGoldList(nodes: List<Node>, continuing: Boolean, fullPage: Boolean = false): Action {
         // DEGIRO's WebView may draw the selected tab without exposing Android's
         // selected/checked flag. A captured Top Results page is stronger evidence.
         val tabs=innermost(nodes,nodes.indices.filter { nodes[it].enabled && normalized(nodes[it].text).equals("Hebelprodukte",true) })
         val topResults=nodes.any { normalized(it.text).equals("Top Ergebnisse",true) }
-        if(tabs.size!=1 || !(nodes[tabs.single()].selected || continuing || topResults)) return discoverGold(nodes)
+        val verifiedFullHeading=fullPage && nodes.any { !canClick(it) &&
+            normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte",true) }
+        if((tabs.size!=1 && !verifiedFullHeading) ||
+            !(verifiedFullHeading || tabs.size==1 && (nodes[tabs.single()].selected || continuing || topResults)))
+            return discoverGold(nodes)
         val context=if(continuing && nodes.none { it.editable })
             nodes + Node("Gold",id="search-input",editable=true) else nodes
         val action=navigate(context,"Gold",true,{ null },captureAll=true)
@@ -592,12 +596,18 @@ internal object MorningReadPolicy {
      * link means navigation has NOT been demonstrated. */
     fun fullGoldResultsView(nodes: List<Node>): Boolean {
         if (nodes.size > 500 || protection(nodes) != null ||
-            nodes.any { normalized(it.text).equals("Top Ergebnisse", true) ||
-                normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte", true) } ||
-            nodes.count { normalized(it.text).equals("Hebelprodukte", true) } != 1) return false
+            nodes.any { normalized(it.text).equals("Top Ergebnisse", true) }) return false
+        val heading = nodes.any { !canClick(it) &&
+            normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte", true) }
+        if(nodes.any { canClick(it) &&
+            normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte", true) } ||
+            (!heading && nodes.count { normalized(it.text).equals("Hebelprodukte", true) } != 1))
+            return false
         val inputs = nodes.filter { it.editable }
         if (inputs.size > 1 || inputs.any { !search(it) || it.text != "Gold" }) return false
-        return captureGoldList(nodes, true).let { it.kind == Kind.COLLECT && it.isins.isNotEmpty() }
+        return captureGoldList(nodes, true, fullPage=true).let {
+            it.kind == Kind.COLLECT && it.isins.isNotEmpty()
+        }
     }
 
     /** Search pages retain the global order launcher. Recognize only its exact,
