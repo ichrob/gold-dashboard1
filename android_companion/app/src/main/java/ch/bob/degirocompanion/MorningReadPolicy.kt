@@ -657,9 +657,49 @@ internal object MorningReadPolicy {
      * This is a read-only shape classifier, never permission to interact with
      * the generic directory or to infer missing product identities. */
     fun genericTurboDirectory(nodes: List<Node>): Boolean {
-        if(nodes.size>500 || protection(nodes)!=null ||
+        if(nodes.size>500 ||
             nodes.any { it.editable || it.containsInput || it.password || it.sensitive })return false
-        val labels=nodes.map { normalized(it.text) }
+        // An unrelated global 'Order platzieren' button on Markets can appear
+        // in accessibility even on a purely informational Turbo directory.
+        // Ignore ONLY one exact, separately clickable leaf launcher for the
+        // purpose of identifying the directory and issuing one guarded BACK.
+        // Never allow a trade input, confirmation, nested/compound launcher,
+        // unknown order marker, credential or other protected screen here.
+        val cleaned=when(protection(nodes)) {
+            null -> nodes
+            "PROTECTED_ORDER_CONFIRM" -> {
+                val marked=nodes.indices.filter { i ->
+                    listOf(nodes[i].text,nodes[i].description,nodes[i].hint)
+                        .any(orderMarkers.first().second::containsMatchIn)
+                }
+                val index=marked.singleOrNull() ?: return false
+                val launcher=nodes[index]
+                val exact=Regex("(?iu)^(order platzieren|place order)$")
+                if(!canClick(launcher) ||
+                    listOf(launcher.text,launcher.description,launcher.hint)
+                        .filter(String::isNotBlank).any { !exact.matches(normalized(it)) } ||
+                    launcher.row.lines().filter(String::isNotBlank)
+                        .any { !exact.matches(normalized(it)) })return false
+                fun inside(child:Int,ancestor:Int):Boolean {
+                    var parent=nodes[child].parent;var hops=0
+                    while(parent in nodes.indices && hops++<nodes.size) {
+                        if(parent==ancestor)return true
+                        parent=nodes[parent].parent
+                    }
+                    return false
+                }
+                if(nodes.indices.any { it!=index && inside(it,index) })return false
+                var parent=launcher.parent;var hops=0
+                while(parent in nodes.indices && hops++<nodes.size) {
+                    if(ids.containsMatchIn(nodes[parent].text.uppercase()))return false
+                    parent=nodes[parent].parent
+                }
+                nodes.mapIndexed { i,n -> if(i==index) Node("") else n }
+                    .takeIf { protection(it)==null } ?: return false
+            }
+            else -> return false
+        }
+        val labels=cleaned.map { normalized(it.text) }
         fun has(value:String)=labels.any { it.equals(value,true) }
         val count=Regex("(?iu)\\b[0-9][0-9., ]*\\s+von\\s+[0-9][0-9., ]*\\s+turbos\\s+verfügbar\\b")
         return has("Hebelprodukte") && has("Turbos") &&
