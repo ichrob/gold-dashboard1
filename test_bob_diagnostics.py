@@ -998,7 +998,7 @@ class FastSimulationStatusTests(unittest.TestCase):
         # spot-only study; still no unbounded historical reads.
         # Two bounded model-ledger and current-list audit scopes add five
         # small indexed/PK reads; no history/case scans or broker permissions.
-        self.assertEqual(len(selects), 15)
+        self.assertEqual(len(selects), 17)
         sql = [call.args[0] for call in selects]
         self.assertEqual(sum('bob_model_paper_trial WHERE profile=ANY(%s::text[])' in q
                              for q in sql),1)
@@ -1008,6 +1008,8 @@ class FastSimulationStatusTests(unittest.TestCase):
         self.assertEqual(sum('bob_entry_opportunity_state WHERE id=%s' in q for q in sql),1)
         # Fourth independent research report: one single-row PK lookup only.
         self.assertEqual(sum('bob_rapid_leverage_state WHERE id=%s' in q for q in sql), 1)
+        self.assertEqual(sum('bob_short_regime_state WHERE id=%s' in q for q in sql), 1)
+        self.assertEqual(sum('bob_ko_distance_state WHERE id=%s' in q for q in sql), 1)
         self.assertFalse(any('bob_rapid_leverage_cases' in q for q in sql))
         self.assertEqual(sum('bob_intraday_timing_state WHERE id=%s' in q for q in sql),1)
         self.assertFalse(any('bob_intraday_timing_cases' in q for q in sql))
