@@ -153,6 +153,14 @@ def advance(old,market,selection,quotes,now):
                 continue
             if p.get("settlementUnknown"):
                 continue
+            # A missing original observation interval cannot be interpreted as
+            # an executable stop/target or a valid pre-KO exit.
+            if (now-p["lastSpotObservedAt"]>90000
+                or valid_market and market["dataAt"]-p["lastSourceAt"]>90000):
+                p["settlementUnknown"]=True
+                arm["equityEur"]=None
+                arm["lastBlock"]="original-observation-gap"
+                continue
             if valid_market and market["dataAt"]>p["lastSourceAt"]:
                 sign=1 if p["direction"]=="LONG" else -1
                 if (sign*(market["price"]-p["stop"])<=0
