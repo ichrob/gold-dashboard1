@@ -49,8 +49,12 @@ class ProductReadService : AccessibilityService() {
     private var listResumeChecked = false
     private var listTopSeekSteps = 0
     private var listAllResultsTappedAt = 0L
+    private var listGenericTurboFallback = false
+    private var listGenericTurboBackAt = 0L
     private fun resetListCapture() {
-        listGeneration++; listResumeChecked=false; listTopSeekSteps=0; listAllResultsTappedAt=0L; listBusy=false; listScrolled=false; listScrollTries=0
+        listGeneration++; listResumeChecked=false; listTopSeekSteps=0; listAllResultsTappedAt=0L
+        listGenericTurboFallback=false;listGenericTurboBackAt=0L
+        listBusy=false; listScrolled=false; listScrollTries=0
         listFirstIds=emptyList(); listSeenIds.clear(); listCoveredIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
     }
@@ -1906,7 +1910,54 @@ class ProductReadService : AccessibilityService() {
             // screenshot capture. Never click the surrounding product cards or
             // the adjacent K/V actions. No server acknowledgement is invented.
             if(gold && !searchOnly && listImages.length()==0) {
-                if(listAllResultsTappedAt>0L) {
+                if(listGenericTurboFallback) {
+                    // After one bounded BACK from the global Turbos directory,
+                    // resume only on the original Gold Top Ergebnisse screen.
+                    // Never enter a generic category a second time.
+                    if(MorningReadPolicy.fullGoldResultsLink(descriptions)==null) {
+                        if(SystemClock.elapsedRealtime()-listGenericTurboBackAt<4000L)return true
+                        lastNavigationIssue="LIST_GOLD_SEARCH_NOT_RESTORED"
+                        GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
+                        ProductReadRequest.cancel(); PhoneRemote.stop(this,lastNavigationIssue)
+                        PhoneDiagnostics.queue(this)
+                        return true
+                    }
+                    if(keyboardVisible()) {
+                        lastNavigation=SystemClock.elapsedRealtime()
+                        if(!performGlobalAction(GLOBAL_ACTION_BACK)) {
+                            lastNavigationIssue="KEYBOARD_HIDE_FAILED"
+                            GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
+                            ProductReadRequest.cancel();PhoneRemote.stop(this,lastNavigationIssue)
+                        }
+                        return true
+                    }
+                } else if(listAllResultsTappedAt>0L) {
+                    val age=SystemClock.elapsedRealtime()-listAllResultsTappedAt
+                    if(age in 0..10000L &&
+                        MorningReadPolicy.genericTurboDirectory(descriptions)) {
+                        // The Gold CTA opened the unfiltered Structured Products
+                        // directory. Only one verified BACK to the original
+                        // Gold preview is allowed, never a product/order tap.
+                        val live=productRoot(false)
+                        val same=live?.windowId==root.windowId &&
+                            live.packageName?.toString()==ProductScreenEvidence.PACKAGE
+                        live?.recycle()
+                        if(!same || !PhoneRemote.active() || !GoldSearchRun.running ||
+                            !performGlobalAction(GLOBAL_ACTION_BACK)) {
+                            lastNavigationIssue="LIST_GENERIC_TURBO_RETURN_FAILED"
+                            GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
+                            ProductReadRequest.cancel();PhoneRemote.stop(this,lastNavigationIssue)
+                            PhoneDiagnostics.queue(this)
+                            return true
+                        }
+                        listGenericTurboFallback=true
+                        listGenericTurboBackAt=SystemClock.elapsedRealtime()
+                        listAllResultsTappedAt=0L
+                        lastNavigation=listGenericTurboBackAt
+                        GoldSearchRun.event("LIST_GENERIC_TURBO_RETURN_SENT",Instant.now().toString())
+                        PhoneDiagnostics.queue(this)
+                        return true
+                    }
                     if(!MorningReadPolicy.fullGoldResultsView(descriptions)) {
                         if(SystemClock.elapsedRealtime()-listAllResultsTappedAt<4000L) return true
                         lastNavigationIssue="LIST_ALL_RESULTS_NO_PROGRESS"
@@ -1917,7 +1968,7 @@ class ProductReadService : AccessibilityService() {
                     }
                 } else {
                     val link=MorningReadPolicy.fullGoldResultsLink(descriptions)
-                    if(link!=null) {
+                    if(link!=null && !listGenericTurboFallback) {
                         if(keyboardVisible()) {
                             if(!performGlobalAction(GLOBAL_ACTION_BACK)) {
                                 lastNavigationIssue="KEYBOARD_HIDE_FAILED"
