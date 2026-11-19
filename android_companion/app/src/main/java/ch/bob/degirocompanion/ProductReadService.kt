@@ -1976,6 +1976,17 @@ class ProductReadService : AccessibilityService() {
                         listGenericTurboFallback=true
                         listGenericTurboBackAt=SystemClock.elapsedRealtime()
                         listAllResultsTappedAt=0L
+                        // A previously exhausted Gold search click chain
+                        // belongs to the OLD screen. Without clearing it,
+                        // the restored Markets search wrongly stays in
+                        // SEARCH_NO_PROGRESS even with a correct new target.
+                        automaticSearchProgress.clear()
+                        navigationStability.clear()
+                        clearWrittenSearch()
+                        searchTapAttempted=false
+                        inputTapAttempted=false
+                        categorySteps=0
+                        lastNavigationIssue=""
                         lastNavigation=listGenericTurboBackAt
                         GoldSearchRun.event("LIST_GENERIC_TURBO_RETURN_SENT",Instant.now().toString())
                         PhoneDiagnostics.queue(this)
