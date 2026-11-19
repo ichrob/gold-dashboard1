@@ -19,6 +19,7 @@ _ROWS = {}
 _CHECKS = {}
 _STATS = {}
 _SAVED = {}
+_EVIDENCE_SCAN = {}
 _STORAGE = {'state':'starting','lastSavedAt':None,'restoredSeries':0}
 _STARTED = time.time()
 
@@ -176,23 +177,49 @@ def handle(conn,action,payload):
     else:
         rows=validated(key,payload.get('rows'))
         if not rows:raise ValueError('Empty checkpoint')
-        # Preserve all accepted candle revisions before replacing the rolling checkpoint.
-        # Provider logs show that both dozens of bounded INSERT probes and reading
-        # every historical JSONB payload can exceed the scanner's five-second
-        # request budget for an advancing 1200+ row checkpoint. Read the previous
-        # checkpoint once, probe the exact incoming clocks through the covering
-        # primary-key index, and fetch historical JSONB only for clocks whose
-        # incoming payload differs from that checkpoint. The NOT EXISTS check
-        # below remains the concurrency fence, and all
-        # batches and the checkpoint still share the caller's transaction:
-        # a failure rolls everything back, never acknowledging a partial save.
+        # Preserve every new/corrected revision before replacing the rolling
+        # checkpoint. A committed checkpoint is also transactional evidence that
+        # its rows passed the archive write. Re-probing all 1200+ unchanged clocks
+        # on every advancing snapshot caused dozens of individually bounded SQL
+        # statements to exceed the scanner's five-second HTTP budget. Probe new,
+        # corrected and retired rows immediately, plus one bounded rolling slice
+        # of unchanged rows for legacy-installation backfill. The NOT EXISTS check
+        # remains the concurrency fence; evidence and checkpoint writes still
+        # share the caller's transaction.
         lookup_started = time.perf_counter()
         lookup_phase='checkpoint'
         try:
             checkpoint=conn.execute(
                 'SELECT payload FROM bob_candle_checkpoints WHERE key=%s',
                 (key,)).fetchone()
-            previous={row['openTime']:row for row in (checkpoint[0] if checkpoint else [])}
+            previous_rows=checkpoint[0] if checkpoint else []
+            previous={row['openTime']:row for row in previous_rows}
+            incoming={row['openTime']:row for row in rows}
+            if not checkpoint:
+                candidates=rows
+                scan_next=None
+            else:
+                urgent=[]
+                unchanged=[]
+                for row in rows:
+                    old=previous.get(row['openTime'])
+                    if old==row:
+                        unchanged.append(row)
+                    else:
+                        if old is not None:urgent.append(old)
+                        urgent.append(row)
+                urgent.extend(row for row in previous_rows
+                              if row['openTime'] not in incoming)
+                start=_EVIDENCE_SCAN.get(key,0) % max(1,len(unchanged))
+                maintenance=(unchanged[start:start+32] or unchanged[:32])
+                scan_next=(start+len(maintenance)) % max(1,len(unchanged))
+                candidates=[]
+                seen=set()
+                for row in urgent+maintenance:
+                    identity=(row['openTime'],json.dumps(
+                        row,sort_keys=True,separators=(',',':'),allow_nan=False))
+                    if identity not in seen:
+                        seen.add(identity);candidates.append(row)
             lookup_phase='clocks'
             # A range scan followed by GROUP BY still visited every stored
             # revision in the interval and exceeded the production statement
@@ -205,8 +232,9 @@ def handle(conn,action,payload):
             # production statement budget even though it no longer scanned a
             # range. Chunking changes neither the clocks checked nor the
             # fail-closed transaction boundary.
-            for start in range(0,len(rows),32):
-                clocks=[row['openTime'] for row in rows[start:start+32]]
+            clocks_to_probe=list(dict.fromkeys(row['openTime'] for row in candidates))
+            for start in range(0,len(clocks_to_probe),32):
+                clocks=clocks_to_probe[start:start+32]
                 recorded.update(row[0] for row in conn.execute('''SELECT candidate.open_time
                     FROM unnest(%s::bigint[]) AS candidate(open_time)
                     JOIN LATERAL (
@@ -215,23 +243,19 @@ def handle(conn,action,payload):
                             AND evidence.open_time=candidate.open_time
                         LIMIT 1
                     ) found ON TRUE''',(clocks,key)).fetchall())
-            missing=[row for row in rows if row['openTime'] not in recorded]
-            changed=[row for row in rows if row['openTime'] in recorded
-                     and previous.get(row['openTime'])!=row]
             known={}
             lookup_phase='revisions'
-            for start in range(0,len(changed),32):
-                clocks=[row['openTime'] for row in changed[start:start+32]]
+            recorded_clocks=[clock for clock in clocks_to_probe if clock in recorded]
+            for start in range(0,len(recorded_clocks),32):
+                clocks=recorded_clocks[start:start+32]
                 existing=conn.execute('''SELECT open_time,payload
                     FROM bob_candle_evidence
                     WHERE source_key=%s AND open_time=ANY(%s)''',(key,clocks)).fetchall()
                 for open_time,stored in existing:
                     known.setdefault(open_time,[]).append(stored)
-            missing_clocks={row['openTime'] for row in missing}
-            changed_clocks={row['openTime'] for row in changed}
-            evidence_rows=[row for row in rows if row['openTime'] in missing_clocks or
-                (row['openTime'] in changed_clocks and not any(
-                    stored==row for stored in known.get(row['openTime'],[])))]
+            evidence_rows=[row for row in candidates
+                if row['openTime'] not in recorded or not any(
+                    stored==row for stored in known.get(row['openTime'],[]))]
         except Exception as exc:
             print('BOB_CANDLE_WRITE stage=evidence batch=lookup phase=' +
                   lookup_phase + ' error=' + type(exc).__name__, flush=True)
@@ -277,6 +301,7 @@ def handle(conn,action,payload):
                     (excluded.latest=bob_candle_checkpoints.latest AND jsonb_array_length(excluded.payload)>=jsonb_array_length(bob_candle_checkpoints.payload)))
                     AND bob_candle_checkpoints.payload IS DISTINCT FROM excluded.payload''',
                 (key,rows[-1]['openTime'],json.dumps(rows,allow_nan=False)))
+            if scan_next is not None:_EVIDENCE_SCAN[key]=scan_next
         except Exception as exc:
             _safe_failure('checkpoint', key, len(rows), checkpoint_started, exc)
             raise
