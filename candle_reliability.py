@@ -187,11 +187,13 @@ def handle(conn,action,payload):
         # batches and the checkpoint still share the caller's transaction:
         # a failure rolls everything back, never acknowledging a partial save.
         lookup_started = time.perf_counter()
+        lookup_phase='checkpoint'
         try:
             checkpoint=conn.execute(
                 'SELECT payload FROM bob_candle_checkpoints WHERE key=%s',
                 (key,)).fetchone()
             previous={row['openTime']:row for row in (checkpoint[0] if checkpoint else [])}
+            lookup_phase='clocks'
             recorded={row[0] for row in conn.execute('''SELECT open_time
                 FROM bob_candle_evidence
                 WHERE source_key=%s AND open_time BETWEEN %s AND %s
@@ -201,6 +203,7 @@ def handle(conn,action,payload):
             changed=[row for row in rows if row['openTime'] in recorded
                      and previous.get(row['openTime'])!=row]
             known={}
+            lookup_phase='revisions'
             for start in range(0,len(changed),32):
                 clocks=[row['openTime'] for row in changed[start:start+32]]
                 existing=conn.execute('''SELECT open_time,payload
@@ -214,8 +217,8 @@ def handle(conn,action,payload):
                 (row['openTime'] in changed_clocks and not any(
                     stored==row for stored in known.get(row['openTime'],[])))]
         except Exception as exc:
-            print('BOB_CANDLE_WRITE stage=evidence batch=lookup error=' +
-                  type(exc).__name__, flush=True)
+            print('BOB_CANDLE_WRITE stage=evidence batch=lookup phase=' +
+                  lookup_phase + ' error=' + type(exc).__name__, flush=True)
             _safe_failure('evidence', key, len(rows), lookup_started, exc)
             raise
         evidence_batch_size = 32
