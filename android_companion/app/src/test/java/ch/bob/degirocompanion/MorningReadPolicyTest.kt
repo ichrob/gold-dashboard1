@@ -851,8 +851,12 @@ class MorningReadPolicyTest {
         assertEquals(MorningReadPolicy.Kind.CATEGORY,
             MorningReadPolicy.discoverGold(gold).kind)
 
-        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
-            screenshotGoldTopResults()))
+        // The existing scroll/capture reader still accepts genuine Gold
+        // Top Ergebnisse as candidate rows, never as a 10/10 server receipt.
+        val preview=screenshotGoldTopResults()
+        assertEquals(MorningReadPolicy.Kind.COLLECT,
+            MorningReadPolicy.captureGoldList(preview,false).kind)
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(preview))
         assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
             home+MorningReadPolicy.Node("Top Ergebnisse")))
         assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
