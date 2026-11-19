@@ -187,7 +187,7 @@ class ReliabilityTests(unittest.TestCase):
         c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
         batches = [json.loads(call.args[1][1]) for call in conn.execute.call_args_list
                    if 'INSERT INTO bob_candle_evidence' in call.args[0]]
-        self.assertEqual([len(batch) for batch in batches], [64] * 9 + [24])
+        self.assertEqual([len(batch) for batch in batches], [32] * 18 + [24])
         self.assertEqual([row for batch in batches for row in batch], c.validated('biquote/1m', rows))
         conn.commit.assert_not_called()
         conn.reset_mock()
@@ -206,12 +206,12 @@ class ReliabilityTests(unittest.TestCase):
             if 'INSERT INTO bob_candle_evidence' in sql:
                 batch = json.loads(params[1])
                 executed.append(batch)
-                if len(batch) > 64:
-                    raise TimeoutError('simulated statement timeout under overlapping rollout load')
+                if len(batch) > 32:
+                    raise TimeoutError('simulated statement timeout under natural post-rollout load')
             return MagicMock()
         conn.execute.side_effect = execute
         c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
-        self.assertEqual([len(batch) for batch in executed], [64] * 9 + [24])
+        self.assertEqual([len(batch) for batch in executed], [32] * 18 + [24])
         self.assertEqual([row for batch in executed for row in batch],
                          c.validated('biquote/1m', rows))
         conn.commit.assert_not_called()
@@ -265,10 +265,10 @@ class ReliabilityTests(unittest.TestCase):
             c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
         log = out.getvalue()
         self.assertIn('BOB_CANDLE_WRITE stage=evidence batch=0', log)
-        self.assertIn('BOB_CANDLE_FAILURE stage=evidence key=biquote/1m rows=64', log)
+        self.assertIn('BOB_CANDLE_FAILURE stage=evidence key=biquote/1m rows=32', log)
         self.assertNotIn('PRIVATE-SQL-ERROR', log)
         conn = MagicMock()
-        conn.execute.side_effect = [MagicMock()] * 4 + [
+        conn.execute.side_effect = [MagicMock()] * 7 + [
                                    RuntimeError('PRIVATE CHECKPOINT')]
         with redirect_stdout(StringIO()) as out, self.assertRaises(RuntimeError):
             c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
