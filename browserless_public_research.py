@@ -53,19 +53,17 @@ def _reserve(isin, source, now):
     """
     day = now.strftime("%Y-%m-%d")
     month = now.strftime("%Y-%m")
-    key = (month, isin, source)
+    key = (month, day, isin, source)
     with _LOCK:
         _RESERVED.intersection_update({k for k in _RESERVED if k[0] == month})
-        if key in _RESERVED:
+        if any(k[2:] == (isin, source) for k in _RESERVED):
             return "already-attempted"
         if len(_RESERVED) >= MAX_MONTHLY_CALLS:
             return "month-limit"
-        if sum(1 for k in _RESERVED if k[0] == month and k[1] == "DAY:" + day) >= MAX_DAILY_CALLS:
+        if sum(1 for k in _RESERVED if k[1] == day) >= MAX_DAILY_CALLS:
             return "day-limit"
-        # Day accounting is separate and intentionally counts even failed calls.
-        # Limit each (ISIN,source) once in a process, including HTTP errors.
+        # Limit each (ISIN, source) once per process, including failed calls.
         _RESERVED.add(key)
-        _RESERVED.add((month, "DAY:" + day, str(len(_RESERVED))))
         return "reserved"
 
 
