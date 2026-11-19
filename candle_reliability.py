@@ -177,24 +177,42 @@ def handle(conn,action,payload):
         rows=validated(key,payload.get('rows'))
         if not rows:raise ValueError('Empty checkpoint')
         # Preserve all accepted candle revisions before replacing the rolling checkpoint.
-        # Provider logs show that even bounded per-statement work can exceed the
-        # scanner's five-second request budget when an advancing 1200+ row
-        # checkpoint repeats dozens of 32-row evidence probes. Read the existing
-        # evidence once through its source/time index and hash/insert only missing
-        # or same-clock corrected rows. The NOT EXISTS check below remains the
+        # Provider logs show that both dozens of bounded INSERT probes and reading
+        # every historical JSONB payload can exceed the scanner's five-second
+        # request budget for an advancing 1200+ row checkpoint. Read the previous
+        # checkpoint once, obtain recorded clocks from the covering primary-key
+        # index, and fetch historical JSONB only for clocks whose incoming payload
+        # differs from that checkpoint. The NOT EXISTS check below remains the
         # concurrency fence, and all
         # batches and the checkpoint still share the caller's transaction:
         # a failure rolls everything back, never acknowledging a partial save.
         lookup_started = time.perf_counter()
         try:
+            checkpoint=conn.execute(
+                'SELECT payload FROM bob_candle_checkpoints WHERE key=%s',
+                (key,)).fetchone()
+            previous={row['openTime']:row for row in (checkpoint[0] if checkpoint else [])}
+            recorded={row[0] for row in conn.execute('''SELECT open_time
+                FROM bob_candle_evidence
+                WHERE source_key=%s AND open_time BETWEEN %s AND %s
+                GROUP BY open_time''',
+                (key,rows[0]['openTime'],rows[-1]['openTime'])).fetchall()}
+            missing=[row for row in rows if row['openTime'] not in recorded]
+            changed=[row for row in rows if row['openTime'] in recorded
+                     and previous.get(row['openTime'])!=row]
             known={}
-            existing=conn.execute('''SELECT open_time,payload FROM bob_candle_evidence
-                WHERE source_key=%s AND open_time BETWEEN %s AND %s''',
-                (key,rows[0]['openTime'],rows[-1]['openTime'])).fetchall()
-            for open_time,stored in existing:
-                known.setdefault(open_time,[]).append(stored)
-            evidence_rows=[row for row in rows
-                if not any(stored==row for stored in known.get(row['openTime'],[]))]
+            for start in range(0,len(changed),32):
+                clocks=[row['openTime'] for row in changed[start:start+32]]
+                existing=conn.execute('''SELECT open_time,payload
+                    FROM bob_candle_evidence
+                    WHERE source_key=%s AND open_time=ANY(%s)''',(key,clocks)).fetchall()
+                for open_time,stored in existing:
+                    known.setdefault(open_time,[]).append(stored)
+            missing_clocks={row['openTime'] for row in missing}
+            changed_clocks={row['openTime'] for row in changed}
+            evidence_rows=[row for row in rows if row['openTime'] in missing_clocks or
+                (row['openTime'] in changed_clocks and not any(
+                    stored==row for stored in known.get(row['openTime'],[])))]
         except Exception as exc:
             print('BOB_CANDLE_WRITE stage=evidence batch=lookup error=' +
                   type(exc).__name__, flush=True)
