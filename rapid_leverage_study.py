@@ -22,17 +22,22 @@ PAIRED_EXIT_CONTROLS = {
     "fast1m-rebound-exit15": "fast1m-rebound",
     "fast3m-breakout-exit20": "fast3m-breakout",
 }
+# One original-candle entry filter; never alter the earlier control arm.
+FILTER_ENTRY_CONTROLS = {"fast1m-impulse-prev1m": "fast1m-impulse"}
+PAIRED_CONTROLS = {**PAIRED_EXIT_CONTROLS, **FILTER_ENTRY_CONTROLS}
 SETUPS = ("breakout", "impulse", "pullback", "news-impulse",
           "fast1m-impulse", "fast1m-rebound", "fast3m-breakout",
-          *PAIRED_EXIT_CONTROLS)
+          *PAIRED_EXIT_CONTROLS, *FILTER_ENTRY_CONTROLS)
 FAST_SETUPS = frozenset(("fast1m-impulse", "fast1m-rebound",
-                         "fast3m-breakout", *PAIRED_EXIT_CONTROLS))
+                         "fast3m-breakout", *PAIRED_CONTROLS))
 # Entry, initial stop, leverage and assumed costs match each paired control.
 # These options only test tighter, faster exits on newly observed cases.
 FAST_POLICY = {
     "fast1m-impulse": dict(maxMinutes=20, noProgressMinutes=6, targetR=1.4),
     "fast1m-rebound": dict(maxMinutes=30, noProgressMinutes=8, targetR=1.6),
     "fast3m-breakout": dict(maxMinutes=45, noProgressMinutes=10, targetR=1.8),
+    # Identical time/stop/target/fees to base impulse; ONLY entry filter differs.
+    "fast1m-impulse-prev1m": dict(maxMinutes=20, noProgressMinutes=6, targetR=1.4),
     "fast1m-impulse-exit10": dict(maxMinutes=10, noProgressMinutes=3,
         targetR=1.0, breakEvenR=.5, trailStartR=.8, trailAtr=.5,
         reversalStartR=.5, reversalAtr=.6),
@@ -241,6 +246,19 @@ def fast_signals(rows, now):
                                     atr3 if positive(atr3) else atr,rows[-12:])}
     for variant, control in PAIRED_EXIT_CONTROLS.items():
         signals[variant] = copy.deepcopy(signals[control])
+    # The prior and current source candles are fully closed, contiguous and
+    # already verified. Filter at this same original signal clock only.
+    prior_sign = (1 if prev["close"]>prev["open"] else -1
+                  if prev["close"]<prev["open"] else 0)
+    confirmed_prior = (impulse is not None and prior_sign == sign
+        and abs(prev["close"]-prev["open"]) >= .35 * atr
+        and sign * (prev["close"]-before["close"]) > 0)
+    filtered = copy.deepcopy(signals["fast1m-impulse"])
+    if not confirmed_prior:
+        filtered["direction"] = None
+        filtered["reason"] = ("no-prior-1m-confirmation" if impulse
+                              else "no-setup")
+    signals["fast1m-impulse-prev1m"] = filtered
     return signals
 
 
@@ -271,7 +289,7 @@ def open_position(name, signal, price, now, arm):
     if not positive(risk) or risk / entry > .05:
         return None, "stop-distance-invalid"
     return dict(id=f"{VERSION}:{name}:{signal['closedAt']}", setup=name, direction=signal["direction"],
-                pairedControl=PAIRED_EXIT_CONTROLS.get(name),
+                pairedControl=PAIRED_CONTROLS.get(name),
                 pairedSignalKey=f"{signal['closedAt']}:{signal['direction']}",
                 signal=copy.deepcopy(signal), entryAt=now, entrySourceAt=price["at"],
                 lastObservedAt=now, lastSourceAt=price["at"], entry=entry,
@@ -413,7 +431,7 @@ def advance(original, bundle, now, events=()):
                 arm["closed" if p["status"]=="closed" else "inconclusive"] += 1
                 if name in FAST_SETUPS:
                     arm["lastExitAt"]=now
-                if name in PAIRED_EXIT_CONTROLS:
+                if name in PAIRED_CONTROLS:
                     # Prospective, complete-finish-only audit; no backfilled outcomes.
                     reason=p.get("exitReason")
                     if isinstance(reason,str) and len(reason)<40:
@@ -535,11 +553,12 @@ def report(conn):
         arms.append(dict(setup=name, started=a["started"], closed=a["closed"],
                          inconclusive=a["inconclusive"], open=bool(a.get("position")),
                          latestBlockReason=a["lastReason"], blockCounts=a["blockCounts"],
-                         pairedControl=PAIRED_EXIT_CONTROLS.get(name),
-                         exitReasonCounts=a.get("exitReasonCounts") if name in PAIRED_EXIT_CONTROLS else None,
-                         completedObservedRCount=a.get("completedObservedRCount") if name in PAIRED_EXIT_CONTROLS else None,
+                         pairedControl=PAIRED_CONTROLS.get(name),
+                         entryFilter=("prior-closed-1m-same-direction" if name in FILTER_ENTRY_CONTROLS else None),
+                         exitReasonCounts=a.get("exitReasonCounts") if name in PAIRED_CONTROLS else None,
+                         completedObservedRCount=a.get("completedObservedRCount") if name in PAIRED_CONTROLS else None,
                          completedMeanObservedR=(round(a["completedObservedR"]/a["completedObservedRCount"],3)
-                             if name in PAIRED_EXIT_CONTROLS and a.get("completedObservedRCount",0)>0 else None),
+                             if name in PAIRED_CONTROLS and a.get("completedObservedRCount",0)>0 else None),
                          modelReview=model_review(a),
                          levers=[dict(leverage=int(lev), **slot,
                                       modeledReturnPct=round(100*(slot["equityEur"]/INITIAL_EUR-1),3))
