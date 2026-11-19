@@ -134,6 +134,40 @@ class KoDistanceTest(unittest.TestCase):
             out=s.advance(s.seed(NOW),market(),selection,bad,NOW)
         self.assertEqual(out["eligiblePricePairs"],0)
 
+    def test_converted_chf_quote_never_enters_original_eur_ko_cohorts(self):
+        selection, quotes = documents()
+        before=copy.deepcopy(quotes)
+        def projected_chf(raw,now,isin):
+            # Native CHF quote projected to EUR by existing generic paper
+            # adapter; the new EUR-only KO study must reject it even when
+            # Swiss DOTS venue data are absent from the original metadata.
+            return {"isin":isin,"bid":9.9,"ask":10.,"currency":"EUR",
+                "bidAt":now,"askAt":now,"source":"Issuer market",
+                "paperFxConversion":{"at":now},
+                "paperNativeQuote":{"currency":"CHF","bid":10.4,"ask":10.6}}
+        a,b,c,d,e=self._patch()
+        with (patch.object(paper_simulation,"fresh_quote",side_effect=projected_chf),
+              b,c,d,e):
+            state=s.advance(s.seed(NOW),market(),selection,quotes,NOW)
+        self.assertEqual(state["eligiblePricePairs"],0)
+        self.assertEqual(quotes,before)
+        for tier in s.BANDS:
+            arm=state["arms"][tier]
+            self.assertEqual(arm["started"],0)
+            self.assertIsNone(arm["position"])
+            self.assertEqual(arm["cashEur"],1000.)
+        # An apparently EUR quote coming from an inadmissible Swiss source
+        # is also blocked even without conversion markers.
+        def swiss_source(raw,now,isin):
+            return {"isin":isin,"bid":9.9,"ask":10.,"currency":"EUR",
+                "bidAt":now,"askAt":now,"source":"Swissquote Swiss DOTS"}
+        a,b,c,d,e=self._patch()
+        with (patch.object(paper_simulation,"fresh_quote",side_effect=swiss_source),
+              b,c,d,e):
+            second=s.advance(s.seed(NOW),market(),selection,quotes,NOW)
+        self.assertEqual(second["eligiblePricePairs"],0)
+        self.assertTrue(all(a["started"]==0 for a in second["arms"].values()))
+
     def test_report_never_exposes_isins_quotes_or_executable_order(self):
         sel,quotes=documents()
         a,b,c,d,e=self._patch()

@@ -68,6 +68,18 @@ def _proof(choice,raw,market,now):
     if (not q or q.get("currency")!="EUR"
             or raw.get("priceKind") in ("issuer-chart","calculated")):
         return None
+    # fresh_quote() deliberately supports *other* isolated CHF-paper ledgers
+    # by projecting Swiss DOTS/Swissquote into EUR. These KO comparisons only
+    # accept ORIGINAL EUR issuer quotes, not a currency-converted simulation
+    # quote; a missing venue label must never let that projection through.
+    if (q.get("paperFxConversion") or q.get("paperNativeQuote")
+            or raw.get("paperFxConversion") or raw.get("paperNativeQuote")):
+        return None
+    quote_sources=" ".join(str(v or "") for v in (
+        q.get("source"),raw.get("source"),choice.get("source"),
+        q.get("venue"),q.get("paperIssuerSource"))).lower()
+    if "swiss dots" in quote_sources or "swissquote" in quote_sources:
+        return None
     blocker,guard=paper_ko_guard.entry_reason(choice,raw,market,now)
     if blocker or not guard or guard.get("danger") or guard.get("crossed"):
         return None
