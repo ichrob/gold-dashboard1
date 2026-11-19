@@ -25,6 +25,19 @@ internal object MorningListEndPolicy {
         hasVerifiedFooter(nodes) &&
         !nodes.any { it.password || it.sensitive || it.editable }
 
+    /** App text is capture coverage only when it passes the same complete-row
+     * contract (heading, single identity, issuer/venue/currency footer) as the
+     * local OCR parser. Matching identities alone must not suppress an edge image. */
+    fun completeAppRowCoverage(first: List<String>, second: List<String>,
+                               visible: List<String>): Set<String> {
+        if (visible.isEmpty() || visible.size>10 || visible.distinct()!=visible ||
+            visible.any { !SeriesEvidence.validIsin(it) } || first!=second ||
+            first.size!=visible.size) return emptySet()
+        val rows=MorningLocalOcr.productRows(first.joinToString("\n"),visible)
+            ?: return emptySet()
+        return visible.toSet().takeIf { rows.size==visible.size } ?: emptySet()
+    }
+
     /** Ten visible ISIN labels do not prove ten complete product rows.
      * Permit at most one additional cropped, read-only edge capture when
      * independent on-device row text has not confirmed all ten labels.
