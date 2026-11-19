@@ -268,7 +268,7 @@ class ReliabilityTests(unittest.TestCase):
         self.assertIn('BOB_CANDLE_FAILURE stage=evidence key=biquote/1m rows=64', log)
         self.assertNotIn('PRIVATE-SQL-ERROR', log)
         conn = MagicMock()
-        conn.execute.side_effect = [MagicMock(), MagicMock(),
+        conn.execute.side_effect = [MagicMock()] * 4 + [
                                    RuntimeError('PRIVATE CHECKPOINT')]
         with redirect_stdout(StringIO()) as out, self.assertRaises(RuntimeError):
             c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
