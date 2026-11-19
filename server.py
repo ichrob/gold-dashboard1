@@ -1383,7 +1383,7 @@ class Handler(BaseHTTPRequestHandler):
         # Sensitive data APIs must be authenticated before any data generation.
         # Keep static PWA resources and /health public, but never expose live,
         # MTF, or DEGIRO enrichment data without the existing Bob credentials.
-        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path in ("/api/degiro/connection-status", "/api/degiro/sync") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/degiro/candidate-proofs" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics" or path == "/api/source-reliability" or path == "/api/operations-summary"
+        protected_api_path = path in ("/api/live", "/api/mtf", "/api/degiro/enrich", "/api/collection-status", "/api/market-cards", "/api/economic-calendar", "/api/gold-research") or path in ("/api/degiro/connection-status", "/api/degiro/sync") or path == "/api/degiro/sandbox" or path == "/api/vollautomatisch/demo" or path == "/api/weekend-archive" or path == "/api/zukunft/research" or path == "/api/degiro/candidates" or path == "/api/degiro/audit" or path == "/api/degiro/candidate-proofs" or path == "/api/self-healing" or path == "/api/problems" or path == "/api/repair-statistics" or path == "/api/source-reliability" or path == "/api/operations-summary" or path == "/api/browserless/public-status"
         if protected_api_path or path == '/api/snaptrade/status':
             auth = self.headers.get("Authorization", "")
             expected = "Basic " + base64.b64encode(
@@ -1395,6 +1395,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"Authentication required.")
                 return
+
+        if path == "/api/browserless/public-status":
+            body=json.dumps(browserless_public_research.readiness(),allow_nan=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type","application/json; charset=utf-8")
+            self.send_header("Cache-Control","no-store")
+            self.send_header("X-Content-Type-Options","nosniff")
+            self.send_header("Content-Length",str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == '/api/snaptrade/status':
             snaptrade_bridge.mark_interactive()
