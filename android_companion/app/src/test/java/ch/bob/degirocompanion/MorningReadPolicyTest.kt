@@ -829,4 +829,48 @@ class MorningReadPolicyTest {
     }
 
 
+
+    @Test fun turboBackRestoresOnlyVerifiedMarketsSearchOrGoldTab() {
+        val home=listOf(
+            MorningReadPolicy.Node("Märkte"),
+            MorningReadPolicy.Node("Nach Produkttyp durchsuchen"),
+            MorningReadPolicy.Node("Mit Namen, ISIN oder Symbol suchen",
+                clickable=true),
+            MorningReadPolicy.Node("ETF Kernauswahl"),
+            MorningReadPolicy.Node("ZULETZT"))
+        assertTrue(MorningReadPolicy.safeGoldSearchRecovery(home))
+        assertEquals(MorningReadPolicy.Kind.SEARCH,
+            MorningReadPolicy.discoverGold(home).kind)
+
+        val gold=listOf(
+            MorningReadPolicy.Node("Gold",id="search-input",
+                editable=true,focused=true,containsInput=false),
+            MorningReadPolicy.Node("Hebelprodukte",clickable=true),
+            MorningReadPolicy.Node("Alle",selected=true))
+        assertTrue(MorningReadPolicy.safeGoldSearchRecovery(gold))
+        assertEquals(MorningReadPolicy.Kind.CATEGORY,
+            MorningReadPolicy.discoverGold(gold).kind)
+
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
+            screenshotGoldTopResults()))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
+            home+MorningReadPolicy.Node("Top Ergebnisse")))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
+            home+MorningReadPolicy.Node("Order bestätigen")))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
+            home+MorningReadPolicy.Node("Stückzahl",editable=true)))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
+            home+MorningReadPolicy.Node("",password=true)))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
+            home.filterNot { it.text=="Mit Namen, ISIN oder Symbol suchen" }))
+        val generic=listOf(
+            MorningReadPolicy.Node("Strukturierte Produkte"),
+            MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node("Turbos"),
+            MorningReadPolicy.Node("286.133 von 286.133 turbos verfügbar"),
+            MorningReadPolicy.Node("Märkte"),
+            MorningReadPolicy.Node("Nach Produkttyp durchsuchen"))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(generic))
+    }
+
 }
