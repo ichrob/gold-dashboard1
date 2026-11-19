@@ -2,6 +2,32 @@ package ch.bob.degirocompanion
 import org.junit.Assert.*
 import org.junit.Test
 class MorningReadPolicyTest {
+    @Test fun samsungGoldCategoryScrollRequiresKeyboardDismissalBeforeAttempt() {
+        val kinds=MorningReadPolicy.Kind.values().toList()
+        for(kind in kinds) {
+            val expected=kind in setOf(MorningReadPolicy.Kind.CATEGORY,
+                MorningReadPolicy.Kind.CATEGORY_SCROLL,MorningReadPolicy.Kind.COLLECT)
+            assertEquals("Gold action $kind",expected,
+                MorningReadPolicy.goldNeedsKeyboardDismissal(kind,false))
+        }
+        assertTrue(MorningReadPolicy.goldNeedsKeyboardDismissal(
+            MorningReadPolicy.Kind.RESULT,true))
+        assertFalse(MorningReadPolicy.goldNeedsKeyboardDismissal(
+            MorningReadPolicy.Kind.READ,true))
+        val query=listOf(
+            MorningReadPolicy.Node("Gold",id="search-input",editable=true,
+                hint="Mit Namen, ISIN oder Symbol suchen"),
+            MorningReadPolicy.Node("Alle",clickable=true,selected=true,parent=2),
+            MorningReadPolicy.Node("",row="Alle\\nAktien\\nETFs\\nAnleihen\\nInvestmentfonds",
+                scrollRight=true))
+        val scroll=MorningReadPolicy.discoverGold(query)
+        assertEquals(MorningReadPolicy.Kind.CATEGORY_SCROLL,scroll.kind)
+        assertTrue(MorningReadPolicy.goldNeedsKeyboardDismissal(scroll.kind,false))
+        assertEquals(MorningReadPolicy.Kind.BLOCK,
+            MorningReadPolicy.discoverGold(query+
+                MorningReadPolicy.Node("Order bestätigen")).kind)
+    }
+
     @Test fun nineRowsOfRealTenItemPlanGetExactlyOneFourthCapture() {
         fun id(n:Int):String {
             val prefix="DE000ZX"+n.toString().padStart(4,'0')
