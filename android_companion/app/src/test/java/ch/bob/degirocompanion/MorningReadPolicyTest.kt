@@ -717,7 +717,18 @@ class MorningReadPolicyTest {
             else n
         }
         assertTrue(MorningReadPolicy.fullGoldResultsLinkVisible(noGestureProof))
-        assertNull(MorningReadPolicy.fullGoldResultsLink(noGestureProof))
+        // The real Samsung screen draws the arrow separately from the text.
+        // Exact standalone text is already a valid measured gesture target.
+        assertEquals(2,MorningReadPolicy.fullGoldResultsLink(noGestureProof))
+        // No click metadata alone never permits a wrapper containing K/V.
+        assertNull(MorningReadPolicy.fullGoldResultsLink(
+            noGestureProof.mapIndexed { i,n -> if(i==2)
+                n.copy(row="Alle Ergebnisse in Hebelprodukte\\nK\\nV") else n
+            }))
+        assertNull(MorningReadPolicy.fullGoldResultsLink(
+            noGestureProof.mapIndexed { i,n -> if(i==2)
+                n.copy(text="Alle Ergebnisse in Hebelprodukte Kauf") else n
+            }))
         assertFalse(MorningReadPolicy.fullGoldResultsLinkVisible(
             base.filterNot { it.text=="Top Ergebnisse" }))
     }
@@ -746,7 +757,8 @@ class MorningReadPolicyTest {
         val base=screenshotGoldTopResults()
         val changes=listOf(
             base+base[2],
-            base.mapIndexed { i,n -> if(i==2)n.copy(clickable=false) else n },
+            base.mapIndexed { i,n -> if(i==2)n.copy(clickable=false,
+                text="",row="Alle Ergebnisse in Hebelprodukte") else n },
             base.mapIndexed { i,n -> if(i==2)n.copy(row="Alle Ergebnisse in Hebelprodukte\\nK\\nV") else n },
             base.mapIndexed { i,n -> if(i==2)n.copy(text="SG Gold Turbo Unlimited Mini Call",row="Alle Ergebnisse in Hebelprodukte") else n },
             base.mapIndexed { i,n -> if(i==0)n.copy(text="Silber") else n },

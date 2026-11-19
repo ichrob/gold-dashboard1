@@ -614,9 +614,30 @@ internal object MorningReadPolicy {
             n.enabled && !n.editable && !n.containsInput &&
                 !n.password && !n.sensitive && values.isNotEmpty() &&
                 values.all { it.equals(label, true) } &&
-                (canClick(n) || listOf(n.text,n.description,n.row).any(::chevron))
+                // A single exact visible title is sufficient for the EXISTING
+                // bounded semantic gesture. Samsung can expose its chevron as
+                // an independent sibling, not an Android click flag or text.
+                // Require the same strict row isolation for text-only targets.
+                (canClick(n) || listOf(n.text,n.description,n.row).any(::chevron) ||
+                 normalized(n.text).equals(label,true))
         }
-        val chosen=innermost(clean,candidates).singleOrNull() ?: return null
+        fun below(child:Int,ancestor:Int):Boolean {
+            var p=nodes[child].parent;var steps=0
+            while(p in nodes.indices && steps++<nodes.size) {
+                if(p==ancestor)return true
+                p=nodes[p].parent
+            }
+            return false
+        }
+        // Prefer one already validated clickable wrapper when every other
+        // exact-label candidate is its own text descendant. Otherwise a
+        // text-only label stays individually tappable, but unrelated duplicate
+        // labels remain ambiguous and are never selected by list order.
+        val clickable=candidates.filter { canClick(clean[it]) }
+        val chosen=if(clickable.size==1 && candidates.all {
+                it==clickable.single() || below(it,clickable.single())
+            }) clickable.single()
+            else innermost(clean,candidates).singleOrNull() ?: return null
         // Never treat a link nested in the launcher (or the launcher nested
         // inside a link's wrapper) as an independent informational target.
         if(clean !== nodes) {
@@ -625,14 +646,6 @@ internal object MorningReadPolicy {
                     .any { normalized(it).equals("Order platzieren",true) ||
                            normalized(it).equals("Place order",true) }
             }.singleOrNull() ?: return null
-            fun below(child:Int,ancestor:Int):Boolean {
-                var p=nodes[child].parent;var steps=0
-                while(p in nodes.indices && steps++<nodes.size) {
-                    if(p==ancestor)return true
-                    p=nodes[p].parent
-                }
-                return false
-            }
             if(chosen==launcher || below(chosen,launcher) || below(launcher,chosen))return null
         }
         return chosen

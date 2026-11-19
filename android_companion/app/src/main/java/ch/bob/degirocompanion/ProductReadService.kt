@@ -1408,7 +1408,7 @@ class ProductReadService : AccessibilityService() {
             val point=SearchTapPolicy.center(
                 SearchTapPolicy.Box(bounds.left,bounds.top,bounds.right,bounds.bottom),
                 SearchTapPolicy.Box(screen.left,screen.top,screen.right,screen.bottom)) ?: return false
-            if(productResult && live.indices.any { i ->
+            if((productResult || allResults) && live.indices.any { i ->
                 val label=descriptions[i].text.trim().lowercase()
                 label in setOf("k","v","kauf","verkauf","kaufen","verkaufen","buy","sell") &&
                     Rect().also { live[i].getBoundsInScreen(it) }.contains(point.first,point.second)
