@@ -44,6 +44,54 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(node_started.is_set())
         self.assertEqual(r.status()['queueTimeouts'],queue_timeouts_before)
 
+    def test_prior_ocr_still_gets_grace_after_signal_node_handoff(self):
+        """OCR completed before the bound; a higher-priority Node takes over.
+
+        The paper caller must retain one bounded OCR grace rather than
+        misclassifying the new active Node as an ordinary long queue.
+        """
+        ocr_entered = threading.Event()
+        ocr_release = threading.Event()
+        signal_entered = threading.Event()
+        signal_release = threading.Event()
+        paper_started = threading.Event()
+        def ocr(*args, **kwargs):
+            ocr_entered.set()
+            ocr_release.wait(2)
+            return 'ocr'
+        def signal(*args, **kwargs):
+            signal_entered.set()
+            signal_release.wait(2)
+            return 'signal'
+        def paper(*args, **kwargs):
+            paper_started.set()
+            return 'paper'
+        before = r.status()['queueTimeouts']
+        with patch.object(r,'MAX_QUEUE_SECONDS',.08), patch.object(r,'OCR_QUEUE_GRACE_SECONDS',.25):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                running_ocr = pool.submit(r.run,['python','image','--ocr'],runner=ocr,priority=2)
+                self.assertTrue(ocr_entered.wait(1))
+                waiting_paper = pool.submit(r.run,['node','paper-analysis'],runner=paper,priority=2)
+                waiting_signal = pool.submit(r.run,['node','signal-analysis'],runner=signal,priority=1)
+                deadline=time.monotonic()+1
+                while r.status()['waiting'] < 2 and time.monotonic() < deadline:
+                    time.sleep(.001)
+                self.assertEqual(r.status()['waiting'],2)
+                try:
+                    ocr_release.set()
+                    self.assertEqual(running_ocr.result(timeout=1),'ocr')
+                    self.assertTrue(signal_entered.wait(1))
+                    # Paper's ordinary 80ms deadline expires while the
+                    # higher-priority Node is now active, NOT OCR.
+                    time.sleep(.12)
+                finally:
+                    signal_release.set()
+                    ocr_release.set()
+                self.assertEqual(waiting_signal.result(timeout=1),'signal')
+                self.assertEqual(waiting_paper.result(timeout=1),'paper')
+        self.assertTrue(paper_started.is_set())
+        self.assertEqual(r.status()['queueTimeouts'],before)
+
     def test_non_ocr_blocker_keeps_original_queue_bound(self):
         entered=threading.Event();release=threading.Event()
         def other(*args,**kwargs):entered.set();release.wait(2);return 'ok'
