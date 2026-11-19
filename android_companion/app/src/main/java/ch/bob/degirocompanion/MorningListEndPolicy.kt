@@ -35,6 +35,15 @@ internal object MorningListEndPolicy {
         seen.all(SeriesEvidence::validIsin) &&
         covered.all { it in seen } && covered.size<10
 
+    /** On a verified read-only footer, one final cropped photo may clarify a
+     * tenth row present in pixels but not reliably represented in WebView text.
+     * The server must still validate ten distinct complete product rows. */ 
+    fun needsFooterRecapture(nodes: List<MorningReadPolicy.Node>,
+                             capturedImages: Int, seen: Set<String>,
+                             current: List<String>, action: MorningReadPolicy.Action): Boolean =
+        capturedImages == 3 && seen.size == 9 &&
+        maySubmitAtEnd(nodes, capturedImages, seen, current, action)
+
     fun maySubmitAtCaptureLimit(capturedImages: Int, seen: Set<String>): Boolean =
         capturedImages == 4 && seen.size in 5..9 && seen.all(SeriesEvidence::validIsin)
 }
