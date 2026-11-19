@@ -2306,6 +2306,13 @@ class Handler(BaseHTTPRequestHandler):
                 browserless_public_research.page_url(isin, source)
                 result = product_enrich_admission.run(
                     lambda: browserless_public_research.extract(isin, source))
+                if result.get("state") == "unverified-research":
+                    import browserless_public_compare
+                    import sg_direct
+                    # Reuse a validated in-process SG observation only. No
+                    # second provider request, no new timestamp or approval.
+                    issuer = sg_direct.cached_verified_observation(isin) if source == "sg" else None
+                    result["independentCheck"] = browserless_public_compare.compare(result, issuer)
                 status = 200
             except (ValueError, TypeError, json.JSONDecodeError):
                 status, result = 400, {"state": "invalid-request", "researchOnly": True}
