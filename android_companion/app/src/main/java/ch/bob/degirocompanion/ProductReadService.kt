@@ -50,10 +50,11 @@ class ProductReadService : AccessibilityService() {
     private var listTopSeekSteps = 0
     private var listAllResultsTappedAt = 0L
     private var listGenericTurboFallback = false
+    private var listVerifiedPreviewFallback = false
     private var listGenericTurboBackAt = 0L
     private fun resetListCapture() {
         listGeneration++; listResumeChecked=false; listTopSeekSteps=0; listAllResultsTappedAt=0L
-        listGenericTurboFallback=false;listGenericTurboBackAt=0L
+        listGenericTurboFallback=false;listVerifiedPreviewFallback=false;listGenericTurboBackAt=0L
         listBusy=false; listScrolled=false; listScrollTries=0
         listFirstIds=emptyList(); listSeenIds.clear(); listCoveredIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
@@ -1911,26 +1912,48 @@ class ProductReadService : AccessibilityService() {
             // the adjacent K/V actions. No server acknowledgement is invented.
             if(gold && !searchOnly && listImages.length()==0) {
                 if(listGenericTurboFallback) {
-                    // After one bounded BACK from the global Turbos directory,
-                    // resume only on the original Gold Top Ergebnisse screen.
-                    // Never enter a generic category a second time.
-                    if(MorningReadPolicy.fullGoldResultsLink(descriptions)==null) {
-                        if(SystemClock.elapsedRealtime()-listGenericTurboBackAt<4000L)return true
+                    // DEGIRO may return from its unfiltered Turbo directory to
+                    // the Markets search home (not the old Gold preview).
+                    // Reuse the established semantic Gold search/category route
+                    // exactly ONCE, within a fixed budget and the active lease.
+                    val restored=MorningReadPolicy.fullGoldResultsLink(descriptions)!=null
+                    if(restored) {
+                        if(keyboardVisible()) {
+                            lastNavigation=SystemClock.elapsedRealtime()
+                            if(!performGlobalAction(GLOBAL_ACTION_BACK)) {
+                                lastNavigationIssue="KEYBOARD_HIDE_FAILED"
+                                GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
+                                ProductReadRequest.cancel();PhoneRemote.stop(this,lastNavigationIssue)
+                                PhoneDiagnostics.queue(this)
+                            }
+                            return true
+                        }
+                        listGenericTurboFallback=false
+                        // The full-results CTA demonstrably led to the wrong
+                        // global Turbo catalogue. Reuse the OLD verified Gold
+                        // Top Ergebnisse scroll/capture path instead of
+                        // tapping that known-bad CTA a second time.
+                        // Server still requires ten full original product rows.
+                        listVerifiedPreviewFallback=true
+                        GoldSearchRun.event("LIST_GOLD_PREVIEW_CAPTURE_FALLBACK",Instant.now().toString())
+                        PhoneDiagnostics.queue(this)
+                        handler.postDelayed({ queueRead(400) },200)
+                        return true
+                    }
+                    val age=SystemClock.elapsedRealtime()-listGenericTurboBackAt
+                    if(age !in 0..16000L ||
+                        !MorningReadPolicy.safeGoldSearchRecovery(descriptions)) {
+                        // Allow a brief transition after BACK, but do not
+                        // invent a successful list when the view is unknown.
+                        if(age in 0..2500L)return true
                         lastNavigationIssue="LIST_GOLD_SEARCH_NOT_RESTORED"
                         GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
                         ProductReadRequest.cancel(); PhoneRemote.stop(this,lastNavigationIssue)
                         PhoneDiagnostics.queue(this)
                         return true
                     }
-                    if(keyboardVisible()) {
-                        lastNavigation=SystemClock.elapsedRealtime()
-                        if(!performGlobalAction(GLOBAL_ACTION_BACK)) {
-                            lastNavigationIssue="KEYBOARD_HIDE_FAILED"
-                            GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
-                            ProductReadRequest.cancel();PhoneRemote.stop(this,lastNavigationIssue)
-                        }
-                        return true
-                    }
+                    // Continue into captureGoldList/discoverGold below. It can
+                    // only reopen a proven search and the Hebelprodukte tab.
                 } else if(listAllResultsTappedAt>0L) {
                     val age=SystemClock.elapsedRealtime()-listAllResultsTappedAt
                     if(age in 0..10000L &&
@@ -1953,6 +1976,17 @@ class ProductReadService : AccessibilityService() {
                         listGenericTurboFallback=true
                         listGenericTurboBackAt=SystemClock.elapsedRealtime()
                         listAllResultsTappedAt=0L
+                        // A previously exhausted Gold search click chain
+                        // belongs to the OLD screen. Without clearing it,
+                        // the restored Markets search wrongly stays in
+                        // SEARCH_NO_PROGRESS even with a correct new target.
+                        automaticSearchProgress.clear()
+                        navigationStability.clear()
+                        clearWrittenSearch()
+                        searchTapAttempted=false
+                        inputTapAttempted=false
+                        categorySteps=0
+                        lastNavigationIssue=""
                         lastNavigation=listGenericTurboBackAt
                         GoldSearchRun.event("LIST_GENERIC_TURBO_RETURN_SENT",Instant.now().toString())
                         PhoneDiagnostics.queue(this)
@@ -1966,7 +2000,7 @@ class ProductReadService : AccessibilityService() {
                         PhoneDiagnostics.queue(this)
                         return true
                     }
-                } else {
+                } else if(!listVerifiedPreviewFallback) {
                     val link=MorningReadPolicy.fullGoldResultsLink(descriptions)
                     if(link!=null && !listGenericTurboFallback) {
                         if(keyboardVisible()) {

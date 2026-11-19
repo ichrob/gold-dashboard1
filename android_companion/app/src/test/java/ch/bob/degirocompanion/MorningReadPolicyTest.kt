@@ -829,4 +829,60 @@ class MorningReadPolicyTest {
     }
 
 
+
+    @Test fun turboBackRestoresOnlyVerifiedMarketsSearchOrGoldTab() {
+        val home=listOf(
+            MorningReadPolicy.Node("Märkte"),
+            MorningReadPolicy.Node("Nach Produkttyp durchsuchen"),
+            MorningReadPolicy.Node("Mit Namen, ISIN oder Symbol suchen",
+                clickable=true),
+            MorningReadPolicy.Node("ETF Kernauswahl"),
+            MorningReadPolicy.Node("ZULETZT"))
+        assertTrue(MorningReadPolicy.safeGoldSearchRecovery(home))
+        assertEquals(MorningReadPolicy.Kind.SEARCH,
+            MorningReadPolicy.discoverGold(home).kind)
+
+        val gold=listOf(
+            MorningReadPolicy.Node("Gold",id="search-input",
+                editable=true,focused=true,containsInput=false),
+            MorningReadPolicy.Node("Hebelprodukte",clickable=true),
+            MorningReadPolicy.Node("Alle",selected=true))
+        assertTrue(MorningReadPolicy.safeGoldSearchRecovery(gold))
+        assertEquals(MorningReadPolicy.Kind.CATEGORY,
+            MorningReadPolicy.discoverGold(gold).kind)
+        // Android can expose the exact standard placeholder as the editable
+        // input text while its search overlay becomes visible after BACK.
+        val prompt=listOf(MorningReadPolicy.Node(
+            "Mit Namen, ISIN oder Symbol suchen",id="search-input",
+            editable=true,focused=true))
+        assertTrue(MorningReadPolicy.safeGoldSearchRecovery(prompt))
+        assertEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.discoverGold(prompt).kind)
+
+        // The existing scroll/capture reader still accepts genuine Gold
+        // Top Ergebnisse as candidate rows, never as a 10/10 server receipt.
+        val preview=screenshotGoldTopResults()
+        assertEquals(MorningReadPolicy.Kind.COLLECT,
+            MorningReadPolicy.captureGoldList(preview,false).kind)
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(preview))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
+            home+MorningReadPolicy.Node("Top Ergebnisse")))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
+            home+MorningReadPolicy.Node("Order bestätigen")))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
+            home+MorningReadPolicy.Node("Stückzahl",editable=true)))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
+            home+MorningReadPolicy.Node("",password=true)))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(
+            home.filterNot { it.text=="Mit Namen, ISIN oder Symbol suchen" }))
+        val generic=listOf(
+            MorningReadPolicy.Node("Strukturierte Produkte"),
+            MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node("Turbos"),
+            MorningReadPolicy.Node("286.133 von 286.133 turbos verfügbar"),
+            MorningReadPolicy.Node("Märkte"),
+            MorningReadPolicy.Node("Nach Produkttyp durchsuchen"))
+        assertFalse(MorningReadPolicy.safeGoldSearchRecovery(generic))
+    }
+
 }

@@ -88,6 +88,18 @@ class SearchClickProgressTest {
         val changed=listOf(MorningReadPolicy.Node("Suchen",clickable=true))
         assertEquals(0,p.select(changed,decide(changed),2,6000).index)
     }
+    @Test fun verifiedTurboBackClearsExhaustedSearchOnSameWebViewWindow() {
+        val nodes=listOf(MorningReadPolicy.Node(label,clickable=true))
+        val p=SearchClickProgress()
+        val action=decide(nodes)
+        assertEquals(0,p.select(nodes,action,8,0).index)
+        p.record(0,0)
+        assertEquals("SEARCH_NO_PROGRESS",p.select(nodes,action,8,2000).code)
+        // Android can keep the same windowId after BACK to Markets; reset
+        // only after independently verified BACK, not on every UI tick.
+        p.clear()
+        assertEquals(0,p.select(nodes,action,8,3000).index)
+    }
     @Test fun chainIsBoundedAndCyclesStop() {
         val nodes=listOf(wrapper(),wrapper(0),wrapper(1),wrapper(2),MorningReadPolicy.Node(label,clickable=true,parent=3))
         assertEquals(listOf(4,3,2),MorningReadPolicy.searchClickChain(nodes,decide(nodes)))

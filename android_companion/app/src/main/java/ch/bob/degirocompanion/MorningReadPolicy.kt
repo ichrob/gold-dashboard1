@@ -486,6 +486,33 @@ internal object MorningReadPolicy {
         if (query !in setOf("Gold","Silber")) return Action(Kind.BLOCK,code="INVALID_VIEW")
         return navigate(nodes,query,true,{ null },searchOnly=true,categoryTapped=categoryTapped)
     }
+    /** A generic Turbo directory can return to Markets rather than directly
+     * to Gold Top Ergebnisse. Permit ONLY the existing verified search/tab
+     * navigation to restore that context once; no link, card or order clicks
+     * are authorized here. The caller owns the bounded retry and time budget. */
+    fun safeGoldSearchRecovery(nodes: List<Node>): Boolean {
+        if(nodes.isEmpty() || nodes.size>500 ||
+            nodes.any { it.password || it.sensitive } ||
+            genericTurboDirectory(nodes) ||
+            nodes.any { normalized(it.text).equals("Top Ergebnisse",true) })
+            return false
+        val cause=protection(nodes)
+        if(cause!=null && cause!="PROTECTED_ORDER_CONFIRM")return false
+        val markets=nodes.any { normalized(it.text).equals("Märkte",true) } &&
+            nodes.any { normalized(it.text).equals("Nach Produkttyp durchsuchen",true) }
+        val searchInputs=nodes.filter { it.editable }
+        val searchPage=searchInputs.size==1 && search(searchInputs.single()) &&
+            (searchInputs.single().text in setOf("","Gold") ||
+                normalized(searchInputs.single().text).equals(
+                    "Mit Namen, ISIN oder Symbol suchen",true))
+        if(!markets && !searchPage)return false
+        val route=discoverGold(nodes)
+        return route.kind in setOf(Kind.SEARCH,Kind.FOCUS,Kind.QUERY,
+            Kind.SUBMIT,Kind.CATEGORY,Kind.CATEGORY_SCROLL) ||
+            (searchPage && route.kind==Kind.WAIT &&
+                route.code in setOf("CATEGORY_RESULTS_PENDING","GOLD_IDENTITIES_MISSING"))
+    }
+
     fun discoverGold(nodes: List<Node>): Action = navigate(nodes,"Gold",true,{ null })
     /** A real search control takes precedence over another backward scroll. */
     fun detailSearchRestore(nodes: List<Node>, importedListRun: Boolean): Action? {
