@@ -492,7 +492,7 @@ internal object MorningReadPolicy {
      * are authorized here. The caller owns the bounded retry and time budget. */
     fun safeGoldSearchRecovery(nodes: List<Node>): Boolean {
         if(nodes.isEmpty() || nodes.size>500 ||
-            nodes.any { it.password || it.sensitive || it.containsInput } ||
+            nodes.any { it.password || it.sensitive } ||
             genericTurboDirectory(nodes) ||
             nodes.any { normalized(it.text).equals("Top Ergebnisse",true) })
             return false
