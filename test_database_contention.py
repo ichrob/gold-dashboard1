@@ -42,7 +42,7 @@ class PoolFailureTests(unittest.TestCase):
         self.assertNotIn('CREATE INDEX CONCURRENTLY', source)
 
     def test_connection_exhaustion_is_retryable_at_startup(self):
-        with patch.object(push_server, '_init_db_once', side_effect=[PoolTimeout(), None]) as init, patch.object(push_server.time, 'sleep'):
+        with patch.object(push_server, '_init_db_once', side_effect=[PoolTimeout(), None]) as init, patch.object(push_server, '_retry_sleep'):
             push_server.init_db()
         self.assertEqual(init.call_count, 2)
 
@@ -55,7 +55,7 @@ class PoolFailureTests(unittest.TestCase):
                           side_effect=[push_server.TooManyRequests(), connection]) as db, \
                 patch.object(push_server.bob_session_store, 'handle',
                              return_value=expected) as handle, \
-                patch.object(push_server.time, 'sleep') as sleep:
+                patch.object(push_server, '_retry_sleep') as sleep:
             result = push_server.handle_auth_session('check', {'sessionId': 'fixture'})
         self.assertEqual(result, expected)
         self.assertEqual(db.call_count, 2)
@@ -72,7 +72,7 @@ class PoolFailureTests(unittest.TestCase):
                           side_effect=[push_server.TooManyRequests(), connection]) as db, \
                 patch.object(push_server.bob_passkey_store, 'handle',
                              return_value=expected) as handle, \
-                patch.object(push_server.time, 'sleep') as sleep:
+                patch.object(push_server, '_retry_sleep') as sleep:
             result = push_server.handle_auth_passkey('status', {'account': 'fixture'})
         self.assertEqual(result, expected)
         self.assertEqual(db.call_count, 2)
@@ -90,7 +90,7 @@ class PoolFailureTests(unittest.TestCase):
         with patch.object(push_server, 'db', side_effect=[first, second]), \
                 patch.object(push_server.bob_market_store, 'handle',
                              side_effect=[psycopg.errors.LockNotAvailable(), expected]) as handle, \
-                patch.object(push_server.time, 'sleep') as sleep:
+                patch.object(push_server, '_retry_sleep') as sleep:
             result = push_server.write_market_spots({'spots': []})
         self.assertEqual(result, expected)
         self.assertEqual(handle.call_count, 2)

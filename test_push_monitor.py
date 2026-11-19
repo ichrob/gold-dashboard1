@@ -29,15 +29,15 @@ class PushMonitorTests(unittest.TestCase):
 
     def test_startup_transient_lock_retry_is_bounded(self):
         lock = push_server.psycopg.errors.LockNotAvailable('fixture')
-        with patch.object(push_server, '_init_db_once', side_effect=[lock, None]) as run, patch.object(push_server.time, 'sleep') as sleep:
+        with patch.object(push_server, '_init_db_once', side_effect=[lock, None]) as run, patch.object(push_server, '_retry_sleep') as sleep:
             push_server.init_db()
             self.assertEqual(run.call_count, 2)
             sleep.assert_called_once_with(1)
-        with patch.object(push_server, '_init_db_once', side_effect=lock) as run, patch.object(push_server.time, 'sleep'):
+        with patch.object(push_server, '_init_db_once', side_effect=lock) as run, patch.object(push_server, '_retry_sleep'):
             with self.assertRaises(push_server.psycopg.errors.LockNotAvailable):
                 push_server.init_db()
             self.assertEqual(run.call_count, 3)
-        with patch.object(push_server, '_init_db_once', side_effect=ValueError('schema')) as run, patch.object(push_server.time, 'sleep') as sleep:
+        with patch.object(push_server, '_init_db_once', side_effect=ValueError('schema')) as run, patch.object(push_server, '_retry_sleep') as sleep:
             with self.assertRaises(ValueError):
                 push_server.init_db()
             run.assert_called_once()
@@ -53,7 +53,7 @@ class PushMonitorTests(unittest.TestCase):
         conn.execute.return_value.fetchone.return_value = row
         with patch.object(push_server, 'db', side_effect=[first, second]) as database, \
              patch.object(push_server, 'deliver_product_selection', return_value=0) as deliver, \
-             patch.object(push_server.time, 'sleep') as sleep:
+             patch.object(push_server, '_retry_sleep') as sleep:
             result = push_server.store_product_selection(
                 'fixture', {'products': []}, {'products': []})
         self.assertEqual(result, (row, 0))
