@@ -776,6 +776,33 @@ class MorningReadPolicyTest {
                 MorningReadPolicy.fullGoldResultsLink(nodes))
     }
 
+    @Test fun genericTurbosDirectoryIsNeverAGoldProductList() {
+        val generic=listOf(
+            MorningReadPolicy.Node("Strukturierte Produkte",selected=true),
+            MorningReadPolicy.Node("Hebelprodukte"),
+            MorningReadPolicy.Node("Zertifikate"),
+            MorningReadPolicy.Node("Turbos"),
+            MorningReadPolicy.Node("286.133 von 286.133 turbos verfügbar"),
+            MorningReadPolicy.Node("BNP GOLD Unlimited Short DE000BY2C3U0"))
+        assertTrue(MorningReadPolicy.genericTurboDirectory(generic))
+        assertFalse(MorningReadPolicy.fullGoldResultsView(generic))
+        assertTrue(MorningReadPolicy.genericTurboDirectory(
+            generic.filterNot { it.text=="Strukturierte Produkte" }))
+        assertTrue(MorningReadPolicy.genericTurboDirectory(generic.map {
+            if(it.text=="286.133 von 286.133 turbos verfügbar")
+                it.copy(text="18.541 von 18.541 turbos verfügbar") else it
+        }))
+        assertFalse(MorningReadPolicy.genericTurboDirectory(generic+
+            MorningReadPolicy.Node("Top Ergebnisse")))
+        assertFalse(MorningReadPolicy.genericTurboDirectory(generic+
+            MorningReadPolicy.Node("Order bestätigen")))
+        assertFalse(MorningReadPolicy.genericTurboDirectory(generic+
+            MorningReadPolicy.Node("Gold",editable=true,hint="Suche")))
+        assertFalse(MorningReadPolicy.genericTurboDirectory(generic.filterNot { it.text=="Turbos" }))
+        assertFalse(MorningReadPolicy.genericTurboDirectory(screenshotGoldTopResults()))
+        assertFalse(MorningReadPolicy.fullGoldResultsView(screenshotGoldTopResults()))
+    }
+
     @Test fun noFullResultsProofOnSameTopResultsPageOrProtectedCatalog() {
         val view=screenshotGoldTopResults()
         val full=view.filterIndexed { index, _ -> index!=2 && index!=3 }
