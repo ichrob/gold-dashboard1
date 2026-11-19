@@ -614,7 +614,12 @@ internal object MorningReadPolicy {
             n.enabled && !n.editable && !n.containsInput &&
                 !n.password && !n.sensitive && values.isNotEmpty() &&
                 values.all { it.equals(label, true) } &&
-                (canClick(n) || listOf(n.text,n.description,n.row).any(::chevron))
+                // A single exact visible title is sufficient for the EXISTING
+                // bounded semantic gesture. Samsung can expose its chevron as
+                // an independent sibling, not an Android click flag or text.
+                // Require the same strict row isolation for text-only targets.
+                (canClick(n) || listOf(n.text,n.description,n.row).any(::chevron) ||
+                 normalized(n.text).equals(label,true))
         }
         val chosen=innermost(clean,candidates).singleOrNull() ?: return null
         // Never treat a link nested in the launcher (or the launcher nested
