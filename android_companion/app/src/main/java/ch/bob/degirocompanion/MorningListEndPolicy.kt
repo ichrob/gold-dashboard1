@@ -60,8 +60,13 @@ internal object MorningListEndPolicy {
                              current: List<String>, action: MorningReadPolicy.Action): Boolean =
         capturedImages == 3 && seen.size == 9 &&
         seen.all(SeriesEvidence::validIsin) &&
-        current.size == 10 && current.distinct() == current &&
-        current.all(SeriesEvidence::validIsin) && seen.all { it in current } &&
+        // Samsung can expose only the few footer rows while nine earlier
+        // identities were already captured. Requiring all ten identities on
+        // this ONE footer screen made the safe fourth recapture unreachable
+        // and sent only three images with nine server-verified rows.
+        current.isNotEmpty() && current.size<=10 &&
+        current.distinct()==current &&
+        current.all { SeriesEvidence.validIsin(it) && it in seen } &&
         action.kind == MorningReadPolicy.Kind.COLLECT && action.isins == current &&
         hasVerifiedFooter(nodes) &&
         !nodes.any { it.password || it.sensitive || it.editable } &&
