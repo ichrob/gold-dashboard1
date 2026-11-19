@@ -177,13 +177,31 @@ def handle(conn,action,payload):
         rows=validated(key,payload.get('rows'))
         if not rows:raise ValueError('Empty checkpoint')
         # Preserve all accepted candle revisions before replacing the rolling checkpoint.
-        # Provider logs show 64-row statements can exceed the route's 1500ms
-        # timeout during natural post-rollout writer load. Bound each hash/index
-        # probe to half that work; all
+        # Provider logs show that even bounded per-statement work can exceed the
+        # scanner's five-second request budget when an advancing 1200+ row
+        # checkpoint repeats dozens of 32-row evidence probes. Read the existing
+        # evidence once through its source/time index and hash/insert only missing
+        # or same-clock corrected rows. The NOT EXISTS check below remains the
+        # concurrency fence, and all
         # batches and the checkpoint still share the caller's transaction:
         # a failure rolls everything back, never acknowledging a partial save.
+        lookup_started = time.perf_counter()
+        try:
+            known={}
+            existing=conn.execute('''SELECT open_time,payload FROM bob_candle_evidence
+                WHERE source_key=%s AND open_time BETWEEN %s AND %s''',
+                (key,rows[0]['openTime'],rows[-1]['openTime'])).fetchall()
+            for open_time,stored in existing:
+                known.setdefault(open_time,[]).append(stored)
+            evidence_rows=[row for row in rows
+                if not any(stored==row for stored in known.get(row['openTime'],[]))]
+        except Exception as exc:
+            print('BOB_CANDLE_WRITE stage=evidence batch=lookup error=' +
+                  type(exc).__name__, flush=True)
+            _safe_failure('evidence', key, len(rows), lookup_started, exc)
+            raise
         evidence_batch_size = 32
-        for start in range(0, len(rows), evidence_batch_size):
+        for start in range(0, len(evidence_rows), evidence_batch_size):
             # An advancing checkpoint mostly repeats already archived candles.
             # Filter by the complete revision key before INSERT so those rows
             # do not re-enter the write/conflict path on every source update.
@@ -204,14 +222,14 @@ def handle(conn,action,payload):
                     WHERE e.source_key=i.source_key AND e.open_time=i.open_time
                         AND e.fingerprint=i.fingerprint)
                 ON CONFLICT DO NOTHING""",(key,json.dumps(
-                    rows[start:start+evidence_batch_size],allow_nan=False)))
+                    evidence_rows[start:start+evidence_batch_size],allow_nan=False)))
             except Exception as exc:
                 # Keep the established marker for existing watchers; add a
                 # correlated bounded context line without emitting SQL or data.
                 print('BOB_CANDLE_WRITE stage=evidence batch=' +
                       str(start//evidence_batch_size) +
                       ' error=' + type(exc).__name__, flush=True)
-                _safe_failure('evidence', key, len(rows[start:start+evidence_batch_size]),
+                _safe_failure('evidence', key, len(evidence_rows[start:start+evidence_batch_size]),
                               batch_started, exc, batch=start//evidence_batch_size)
                 raise
         checkpoint_started = time.perf_counter()
