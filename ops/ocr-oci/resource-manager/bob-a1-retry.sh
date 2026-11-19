@@ -15,6 +15,32 @@ root=$(oci iam availability-domain list --all | jq -er '.data[0]["compartment-id
 bob=$(oci iam compartment list --compartment-id "$root" --name BobOCR --lifecycle-state ACTIVE --all | jq -er '.data | select(length==1) | .[0].id')
 stack=$(oci resource-manager stack list --compartment-id "$bob" --all |
   jq -er "$rows"' | map(select(."display-name"=="BobOCR-Zuerich-Plan" and ."lifecycle-state"=="ACTIVE")) | select(length==1) | .[0].id')
+create_job() {
+  local operation=$1 label=$2 delay=900 id matches name
+  shift 2
+  name="$label-$(cat /proc/sys/kernel/random/uuid)"
+  while true; do
+    if id=$("${rmjob[@]}" "$operation" --stack-id "$stack" --display-name "$name" "$@" --query data.id --raw-output 2>"$work/create.err"); then
+      [[ $id == ocid1.ormjob.* ]] || { echo 'Auftrags-ID fehlt.' >&2; return 1; }
+      echo "$id"
+      return 0
+    fi
+    if ! grep -Eq '"status"[[:space:]]*:[[:space:]]*429([,[:space:]]|$)' "$work/create.err"; then
+      cat "$work/create.err" >&2
+      return 1
+    fi
+    echo "Oracle meldet HTTP 429 bei $label. Erneute Prüfung in $((delay/60)) Minuten." >&2
+    sleep "$delay"
+    delay=$((delay < 3600 ? delay * 2 : 3600))
+    matches=$("${rmjob[@]}" list --stack-id "$stack" --all) || return 1
+    id=$(jq -ser --arg name "$name" '
+      if length==0 then [] else (.[0].data | if type=="array" then . else .items end) end |
+      map(select(."display-name"==$name)) |
+      if length==0 then "ABSENT" elif length==1 then .[0].id else error("Mehrere Aufträge") end' <<<"$matches") || return 1
+    if [[ $id == ocid1.ormjob.* ]]; then echo "$id"; return 0; fi
+    [[ $id == ABSENT ]] || return 1
+  done
+}
 wait_job() {
   local state
   while true; do
@@ -58,7 +84,7 @@ while true; do
     sleep 300
     continue
   fi
-  plan=$("${rmjob[@]}" create-plan-job --stack-id "$stack" --display-name Bob-A1-Startplan --query data.id --raw-output)
+  plan=$(create_job create-plan-job Bob-A1-Startplan)
   [[ $(wait_job "$plan") == SUCCEEDED ]] || { echo 'Plan fehlgeschlagen. Automatik angehalten.'; exit 1; }
   rm -f "$work/plan.json"
   "${rmjob[@]}" get-job-tf-plan --job-id "$plan" --tf-plan-format JSON --file "$work/plan.json"
@@ -78,7 +104,7 @@ while true; do
   # Verify the account-reviewed platform image against the image actually resolved in this plan.
   image=$(jq -er '.resource_changes[] | select(.address=="oci_core_instance.bob") | .change.after.source_details[0].source_id' "$work/plan.json")
   oci compute image get --image-id "$image" | jq -e '.data | ."compartment-id"==null and ."display-name"=="Canonical-Ubuntu-24.04-aarch64-2026.11.05-0"' >/dev/null
-  apply=$("${rmjob[@]}" create-apply-job --stack-id "$stack" --execution-plan-strategy "$plan" --display-name Bob-A1-Start --query data.id --raw-output)
+  apply=$(create_job create-apply-job Bob-A1-Start --execution-plan-strategy "$plan")
   state=$(wait_job "$apply")
   case "$state" in
     SUCCEEDED) echo 'Bereitstellung erfolgreich. Automatik beendet.'; exit 0 ;;
