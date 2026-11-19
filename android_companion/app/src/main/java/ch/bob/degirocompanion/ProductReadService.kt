@@ -1933,13 +1933,6 @@ class ProductReadService : AccessibilityService() {
                 when(MorningReadPolicy.genericTurboRecovery(descriptions,
                         listGoldPreviewConfirmed || listAllResultsTappedAt>0L,
                         listGenericTurboFallback)) {
-                    MorningReadPolicy.GenericTurboRecovery.NOT_GOLD -> {
-                        lastNavigationIssue="LIST_GENERIC_TURBO_UNFILTERED"
-                        GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
-                        ProductReadRequest.cancel();PhoneRemote.stop(this,lastNavigationIssue)
-                        PhoneDiagnostics.queue(this)
-                        return true
-                    }
                     MorningReadPolicy.GenericTurboRecovery.RETURN_STUCK -> {
                         if(SystemClock.elapsedRealtime()-listGenericTurboBackAt<2500L)return true
                         lastNavigationIssue="LIST_GENERIC_TURBO_RETURN_STUCK"
@@ -1948,7 +1941,8 @@ class ProductReadService : AccessibilityService() {
                         PhoneDiagnostics.queue(this)
                         return true
                     }
-                    MorningReadPolicy.GenericTurboRecovery.RETURN_ONCE -> {
+                    MorningReadPolicy.GenericTurboRecovery.RETURN_ONCE,
+                    MorningReadPolicy.GenericTurboRecovery.RETURN_FROM_START -> {
                         // Only ONE verified Android BACK from this same live,
                         // unlocked and owner-authorized broker window.
                         val current=productRoot(false)
@@ -1975,7 +1969,9 @@ class ProductReadService : AccessibilityService() {
                         categorySteps=0
                         lastNavigationIssue=""
                         lastNavigation=listGenericTurboBackAt
-                        GoldSearchRun.event("LIST_GENERIC_TURBO_RETURN_SENT",Instant.now().toString())
+                        val code=if(listGoldPreviewConfirmed) "LIST_GENERIC_TURBO_RETURN_SENT"
+                            else "LIST_GENERIC_TURBO_START_BACK_SENT"
+                        GoldSearchRun.event(code,Instant.now().toString())
                         PhoneDiagnostics.queue(this)
                         return true
                     }
