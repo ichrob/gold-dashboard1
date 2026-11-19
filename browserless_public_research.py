@@ -18,6 +18,7 @@ API = "https://production-sfo.browserless.io/smart-scrape"
 MAX_RESPONSE = 131072
 MAX_MONTHLY_CALLS = 12
 MAX_DAILY_CALLS = 3
+FREE_CONFIRMATION_ENV = "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED"
 _LOCK = threading.Lock()
 _RESERVED = set()
 _FIELDS = ("direction", "knockOut", "bid", "ask", "quoteTime",
@@ -70,6 +71,29 @@ def _reserve(isin, source, now):
         return "reserved"
 
 
+def readiness():
+    """Local configuration status only; never contacts Browserless or reveals a token."""
+    enabled = os.environ.get("BOB_BROWSERLESS_PUBLIC_RESEARCH") == "1"
+    token_present = bool(os.environ.get("BROWSERLESS_API_TOKEN", "").strip())
+    free_confirmed = os.environ.get(FREE_CONFIRMATION_ENV) == "1"
+    if not enabled:
+        state = "disabled"
+    elif not token_present:
+        state = "not-configured"
+    elif not free_confirmed:
+        state = "free-plan-unconfirmed"
+    elif requests is None:
+        state = "dependency-unavailable"
+    else:
+        state = "ready-for-manual-test"
+    return dict(state=state, canStart=(state == "ready-for-manual-test"),
+                tokenConfigured=token_present, freeAccountConfirmed=free_confirmed,
+                researchOnly=True, maxCallsPerUtcDay=MAX_DAILY_CALLS,
+                maxCallsPerUtcMonth=MAX_MONTHLY_CALLS,
+                providerQuotaVerified=False, accountPlanVerifiedRemotely=False,
+                note="Freischaltung nur nach externer Free-Kontoprüfung; kein automatischer Abruf.")
+
+
 def _safe_failure(isin, source, code):
     return dict(isin=isin, source=source, state=code, researchOnly=True,
                 eligible=False, tradeApproved=False, isDegiroQuote=False,
@@ -83,13 +107,10 @@ def extract(isin, source="sg", *, now=None):
         url = page_url(isin, source)
     except ValueError as exc:
         return _safe_failure(isin, source, str(exc))
-    if os.environ.get("BOB_BROWSERLESS_PUBLIC_RESEARCH") != "1":
-        return _safe_failure(isin, source, "disabled")
+    preflight = readiness()
+    if not preflight["canStart"]:
+        return _safe_failure(isin, source, preflight["state"])
     token = os.environ.get("BROWSERLESS_API_TOKEN", "").strip()
-    if not token:
-        return _safe_failure(isin, source, "not-configured")
-    if requests is None:
-        return _safe_failure(isin, source, "dependency-unavailable")
     state = _reserve(isin, source, now)
     if state != "reserved":
         return _safe_failure(isin, source, state)
@@ -150,7 +171,8 @@ PANEL = r"""
 <details id="bobBrowserlessPublic" style="margin:16px auto;max-width:860px;padding:12px;border:1px solid #ddd;border-radius:12px;background:white">
  <summary>Browserless · öffentliche Produktrecherche (Test, nur auf Knopfdruck)</summary>
  <p>Nur Emittenten-/comdirect-Seiten, keine DEGIRO-Anmeldung. KI-Felder sind ungeprüfte Hinweise; keine Handelsfreigabe.</p>
- <label>ISIN <input id="bobBlIsin" maxlength="12" value="DE000FG77FN1" autocomplete="off"></label>
+ <p id="bobBlStatus">Kontostatus wird geladen …</p>
+ <label>ISIN <input id="bobBlIsin" maxlength="12" placeholder="DE000FB0A490" autocomplete="off"></label>
  <label>Quelle <select id="bobBlSource"><option value="sg">SG-Zertifikate</option><option value="comdirect">comdirect</option></select></label>
  <button type="button" id="bobBlRun">Einmal öffentlich prüfen</button>
  <pre id="bobBlResult" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
@@ -158,6 +180,12 @@ PANEL = r"""
 <script>
 (()=>{const section=document.getElementById('bobBrowserlessPublic');if(!section)return;
  const button=section.querySelector('#bobBlRun'),output=section.querySelector('#bobBlResult');
+ const status=section.querySelector('#bobBlStatus');
+ button.disabled=true;
+ fetch('/api/browserless/public-status',{credentials:'same-origin',cache:'no-store'})
+  .then(r=>{if(!r.ok)throw Error();return r.json()})
+  .then(d=>{status.textContent='Bereitschaft: '+d.state+'. Nur öffentlicher, einmaliger Test.';button.disabled=!d.canStart})
+  .catch(()=>{status.textContent='Bereitschaft momentan nicht prüfbar';button.disabled=true});
  button.addEventListener('click',async()=>{
   const isin=section.querySelector('#bobBlIsin').value.trim().toUpperCase();
   const source=section.querySelector('#bobBlSource').value;
