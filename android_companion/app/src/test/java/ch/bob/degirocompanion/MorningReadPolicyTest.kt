@@ -802,6 +802,45 @@ class MorningReadPolicyTest {
                 MorningReadPolicy.fullGoldResultsLink(nodes))
     }
 
+    @Test fun screenshot278459UnfilteredTurbosNeverBecomesGoldListOrSearchRetry() {
+        // Samsung screenshot 19.11, 20:23 CH: the large global count is
+        // NOT a Gold filter, even though visible BNP rows highlight GOLD.
+        val catalog=listOf(
+            MorningReadPolicy.Node("Strukturierte Produkte"),
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("Zertifikate"),
+            MorningReadPolicy.Node("Turbos"),
+            MorningReadPolicy.Node("278.459 von 278.459 turbos verfügbar"),
+            MorningReadPolicy.Node("BNP GOLD Unlimited Short SL DE000BY2C3U0"))
+        assertTrue(MorningReadPolicy.genericTurboDirectory(catalog))
+        assertFalse(MorningReadPolicy.fullGoldResultsView(catalog))
+        assertEquals(MorningReadPolicy.GenericTurboRecovery.RETURN_ONCE,
+            MorningReadPolicy.genericTurboRecovery(catalog,true,false))
+        // If Bob starts while DEGIRO is already parked here, the same one
+        // guarded BACK is permitted. It is NOT a trade or search result.
+        assertEquals(MorningReadPolicy.GenericTurboRecovery.RETURN_FROM_START,
+            MorningReadPolicy.genericTurboRecovery(catalog,false,false))
+        assertEquals(MorningReadPolicy.GenericTurboRecovery.RETURN_STUCK,
+            MorningReadPolicy.genericTurboRecovery(catalog,true,true))
+        assertEquals(MorningReadPolicy.GenericTurboRecovery.RETURN_STUCK,
+            MorningReadPolicy.genericTurboRecovery(catalog,false,true))
+        for(protected in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("Stückzahl",editable=true),
+            MorningReadPolicy.Node("",password=true),
+            MorningReadPolicy.Node("Gold",editable=true,hint="Suche"),
+            MorningReadPolicy.Node("",sensitive=true))) {
+            assertEquals(MorningReadPolicy.GenericTurboRecovery.NOT_GENERIC,
+                MorningReadPolicy.genericTurboRecovery(catalog+protected,true,false))
+        }
+        assertEquals(MorningReadPolicy.GenericTurboRecovery.NOT_GENERIC,
+            MorningReadPolicy.genericTurboRecovery(
+                catalog.filterNot { it.text=="Turbos" },true,false))
+        assertEquals(MorningReadPolicy.GenericTurboRecovery.NOT_GENERIC,
+            MorningReadPolicy.genericTurboRecovery(
+                screenshotGoldTopResults(),true,false))
+    }
+
     @Test fun genericTurbosDirectoryIsNeverAGoldProductList() {
         val generic=listOf(
             MorningReadPolicy.Node("Strukturierte Produkte",selected=true),

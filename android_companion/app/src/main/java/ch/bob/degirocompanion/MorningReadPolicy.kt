@@ -742,6 +742,22 @@ internal object MorningReadPolicy {
             !has("Top Ergebnisse")
     }
 
+    /** Distinguish an unfiltered DEGIRO Turbo directory from a verified Gold
+     * full-list result. In an explicitly owner-started full Gold-list session
+     * ONE local BACK can leave the proven safe informational Turbo directory,
+     * including when DEGIRO was already parked there before Bob started.
+     * The returned screen still has to pass safeGoldSearchRecovery; an
+     * unrelated page, second directory or protected view stops the reader.
+     * GOLD highlighted inside a Turbo row is NEVER proof of a Gold filter. */
+    enum class GenericTurboRecovery { NOT_GENERIC, RETURN_ONCE, RETURN_FROM_START, RETURN_STUCK }
+    fun genericTurboRecovery(nodes: List<Node>, goldContextVerified: Boolean,
+                             backAlreadySent: Boolean): GenericTurboRecovery {
+        if(!genericTurboDirectory(nodes))return GenericTurboRecovery.NOT_GENERIC
+        if(backAlreadySent)return GenericTurboRecovery.RETURN_STUCK
+        return if(goldContextVerified) GenericTurboRecovery.RETURN_ONCE
+            else GenericTurboRecovery.RETURN_FROM_START
+    }
+
     /** Full-list evidence only after that exact link was activated during this
      * same bounded, unlocked session. A visible top-results header or the old
      * link means navigation has NOT been demonstrated. */
