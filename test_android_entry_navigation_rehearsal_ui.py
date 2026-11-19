@@ -200,7 +200,10 @@ class ImmediateEntryNavigation(unittest.TestCase):
         self.assertIn('if(unlockRehearsalOnly) empty("UNLOCK_TEST_ARMED")', remote)
         self.assertIn('if(unlockRehearsalOnly && !rehearsalOwnerPresent)return false', remote)
         self.assertIn('fun noteOwnerPresentForUnlockTest()', remote)
-        self.assertIn('if(!unlockRehearsalOnly)response.optJSONObject("command")', remote)
+        # The owner-only unlock rehearsal still cannot execute remote
+        # commands; provisional local ISIN research is now equally isolated.
+        self.assertIn('if(!unlockRehearsalOnly && !MorningReadRun.researchOnlyActive())', remote)
+        self.assertIn('response.optJSONObject("command")?.let { command ->', remote)
         self.assertIn('stop(c,"UNLOCK_TEST_CONFIRMED")', remote)
         self.assertIn('if(unlockRehearsalOnly) 180000L else 900000L', remote)
         self.assertIn('else if(entryOnly && !unlockRehearsalOnly)"entry_read" else "product_read"', remote)
