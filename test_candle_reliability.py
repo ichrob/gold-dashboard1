@@ -215,7 +215,7 @@ class ReliabilityTests(unittest.TestCase):
         def execute(sql, params=None):
             if 'SELECT payload FROM bob_candle_checkpoints' in sql:
                 return checkpoint
-            if 'GROUP BY open_time' in sql:
+            if 'JOIN LATERAL' in sql:
                 return recorded
             if 'INSERT INTO bob_candle_evidence' in sql:
                 batch = json.loads(params[1])
@@ -247,7 +247,9 @@ class ReliabilityTests(unittest.TestCase):
         def execute(sql, params=None):
             if 'SELECT payload FROM bob_candle_checkpoints' in sql:
                 return checkpoint
-            if 'GROUP BY open_time' in sql:
+            if 'JOIN LATERAL' in sql:
+                self.assertEqual(params, ([row['openTime'] for row in rows],
+                                          'biquote/1m'))
                 return recorded
             if 'open_time=ANY' in sql:
                 self.assertEqual(params[1], [rows[-2]['openTime']])
@@ -263,6 +265,38 @@ class ReliabilityTests(unittest.TestCase):
         checkpoint = [call for call in conn.execute.call_args_list
                       if 'INSERT INTO bob_candle_checkpoints' in call.args[0]]
         self.assertEqual(json.loads(checkpoint[0].args[1][2]), rows)
+        conn.commit.assert_not_called()
+
+    def test_recorded_clock_probe_avoids_revision_range_aggregation(self):
+        conn = MagicMock()
+        rows = c.validated('biquote/1m', self.rows(600))
+        checkpoint = MagicMock()
+        checkpoint.fetchone.return_value = (rows,)
+        recorded = MagicMock()
+        recorded.fetchall.return_value = [(row['openTime'],) for row in rows]
+        clock_queries = []
+        def execute(sql, params=None):
+            if 'SELECT payload FROM bob_candle_checkpoints' in sql:
+                return checkpoint
+            if 'JOIN LATERAL' in sql:
+                clock_queries.append((sql, params))
+                return recorded
+            if 'BETWEEN' in sql or 'GROUP BY open_time' in sql:
+                raise TimeoutError('production range aggregation regression')
+            return MagicMock()
+        conn.execute.side_effect = execute
+        c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
+        self.assertEqual(len(clock_queries), 1)
+        sql, params = clock_queries[0]
+        self.assertIn('unnest(%s::bigint[])', sql)
+        self.assertIn('evidence.source_key=%s', sql)
+        self.assertIn('evidence.open_time=candidate.open_time', sql)
+        self.assertIn('LIMIT 1', sql)
+        self.assertNotIn('BETWEEN', sql)
+        self.assertNotIn('GROUP BY', sql)
+        self.assertEqual(params, ([row['openTime'] for row in rows], 'biquote/1m'))
+        self.assertFalse(any('INSERT INTO bob_candle_evidence' in call.args[0]
+                             for call in conn.execute.call_args_list))
         conn.commit.assert_not_called()
 
     def test_scanner_series_http_failure_reports_bounded_context(self):
