@@ -651,7 +651,8 @@ def rapid_leverage_brief(control):
     paired_controls = {
         'fast1m-impulse-exit10': 'fast1m-impulse',
         'fast1m-rebound-exit15': 'fast1m-rebound',
-        'fast3m-breakout-exit20': 'fast3m-breakout'}
+        'fast3m-breakout-exit20': 'fast3m-breakout',
+        'fast1m-impulse-prev1m': 'fast1m-impulse'}
     permitted = {'breakout','impulse','pullback','news-impulse',
                  'fast1m-impulse','fast1m-rebound','fast3m-breakout',
                  *paired_controls}
@@ -666,7 +667,7 @@ def rapid_leverage_brief(control):
         'spot-before-signal','case-limit-reached','signal-already-used',
         'stop-distance-invalid','closed-original-bars-missing','fresh-closed-5m-missing',
         'original-1m-coverage-missing','fast-quote-chased','fast-daily-loss-limit',
-        'fast-cooldown'}
+        'fast-cooldown','no-prior-1m-confirmation'}
     result={'status':control.get('status') if control.get('status') in
             ('collecting','awaiting-first-worker-check','completed-review-required')
             else 'unavailable',
@@ -686,7 +687,7 @@ def rapid_leverage_brief(control):
             'originalSpotFresh':source.get('originalSpotFresh') is True,
             'sourceAt':source.get('sourceAt') if type(source.get('sourceAt')) in (int,float) else None}
     setups=[]
-    for a in (control.get('setups') or [])[:10]:
+    for a in (control.get('setups') or [])[:11]:
         if not isinstance(a,dict) or a.get('setup') not in permitted:
             continue
         n=lambda key: a[key] if type(a.get(key)) is int and 0<=a[key]<=1000000 else None
@@ -696,6 +697,8 @@ def rapid_leverage_brief(control):
              'latestBlockReason':a.get('latestBlockReason') if
                 a.get('latestBlockReason') in allowed_blockers else None,
              'pairedControl':paired_controls.get(a['setup']),
+             'entryFilter':('prior-closed-1m-same-direction'
+                if a['setup']=='fast1m-impulse-prev1m' else None),
              'modelReview':{
                 'status':review.get('status') if review.get('status') in
                     ('exploratory-proxy-only','insufficient-comparable-evidence','unavailable')
