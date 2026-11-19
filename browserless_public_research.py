@@ -88,6 +88,8 @@ def extract(isin, source="sg", *, now=None):
     token = os.environ.get("BROWSERLESS_API_TOKEN", "").strip()
     if not token:
         return _safe_failure(isin, source, "not-configured")
+    if requests is None:
+        return _safe_failure(isin, source, "dependency-unavailable")
     state = _reserve(isin, source, now)
     if state != "reserved":
         return _safe_failure(isin, source, state)
@@ -96,7 +98,8 @@ def extract(isin, source="sg", *, now=None):
             API, params={"token": token, "timeout": 25000},
             json={"url": url, "formats": ["markdown", "json"],
                   "jsonOptions": {"schema": _SCHEMA, "prompt": _PROMPT},
-                  "onlyMainContent": True, "maxAge": 0},
+                  "onlyMainContent": True, "maxAge": 0,
+                  "proxy": "datacenter"},
             timeout=(5, 35), stream=True, allow_redirects=False,
         ) as response:
             if response.status_code != 200:
@@ -110,13 +113,17 @@ def extract(isin, source="sg", *, now=None):
         data = json.loads(b"".join(chunks))
         if not isinstance(data, dict) or data.get("ok") is not True:
             return _safe_failure(isin, source, "scrape-unavailable")
+        # A completed provider request is not proof that the source returned a
+        # successful product page. Block HTTP errors and challenge pages.
+        if data.get("statusCode") != 200:
+            return _safe_failure(isin, source, "source-http-unavailable")
         markdown = data.get("markdown")
         fields = data.get("json")
         if not isinstance(markdown, str) or not re.search(
             r"(?<![A-Z0-9])" + re.escape(isin) + r"(?![A-Z0-9])", markdown.upper()
         ):
             return _safe_failure(isin, source, "identity-not-proven")
-        if not isinstance(fields, dict) or fields.get("isin", "").upper() != isin:
+        if not isinstance(fields, dict) or not isinstance(fields.get("isin"), str) or fields["isin"].upper() != isin:
             return _safe_failure(isin, source, "extraction-not-proven")
         safe = {}
         for key in _FIELDS:
@@ -126,6 +133,8 @@ def extract(isin, source="sg", *, now=None):
         return dict(isin=isin, source="Browserless Smart Scrape · " + source,
                     sourceUrl=url, state="unverified-research",
                     checkedAt=now.isoformat(), fields=safe,
+                    providerStrategy=data.get("strategy") if data.get("strategy") in
+                    ("http-fetch", "http-proxy", "browser", "browser-captcha", "cache") else "unknown",
                     originalQuoteTimeVerified=False, originalTermsVerified=False,
                     researchOnly=True, eligible=False, tradeApproved=False,
                     isDegiroQuote=False,
