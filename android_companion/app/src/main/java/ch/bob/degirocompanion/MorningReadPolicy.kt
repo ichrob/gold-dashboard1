@@ -502,7 +502,9 @@ internal object MorningReadPolicy {
             nodes.any { normalized(it.text).equals("Nach Produkttyp durchsuchen",true) }
         val searchInputs=nodes.filter { it.editable }
         val searchPage=searchInputs.size==1 && search(searchInputs.single()) &&
-            searchInputs.single().text in setOf("","Gold")
+            (searchInputs.single().text in setOf("","Gold") ||
+                normalized(searchInputs.single().text).equals(
+                    "Mit Namen, ISIN oder Symbol suchen",true))
         if(!markets && !searchPage)return false
         val route=discoverGold(nodes)
         return route.kind in setOf(Kind.SEARCH,Kind.FOCUS,Kind.QUERY,
