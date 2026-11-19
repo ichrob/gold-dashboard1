@@ -18,7 +18,7 @@ class MorningReadPolicyTest {
             MorningReadPolicy.Node("Gold",id="search-input",editable=true,
                 hint="Mit Namen, ISIN oder Symbol suchen"),
             MorningReadPolicy.Node("Alle",clickable=true,selected=true,parent=2),
-            MorningReadPolicy.Node("",row="Alle\\nAktien\\nETFs\\nAnleihen\\nInvestmentfonds",
+            MorningReadPolicy.Node("",row="Alle\nAktien\nETFs\nAnleihen\nInvestmentfonds",
                 scrollRight=true))
         val scroll=MorningReadPolicy.discoverGold(query)
         assertEquals(MorningReadPolicy.Kind.CATEGORY_SCROLL,scroll.kind)
