@@ -18,6 +18,30 @@ class MorningReadPolicyTest {
         assertFalse(MorningListEndPolicy.needsEdgeCapture(3,seen,covered+"DE000INVALID"))
     }
 
+    @Test fun matchingIsinLabelsDoNotCountAnIncompleteAppRowAsCovered() {
+        fun id(n:Int):String {
+            val prefix="DE000ZZ"+n.toString().padStart(4,'0')
+            return ('0'..'9').map { prefix+it }.single { SeriesEvidence.validIsin(it) }
+        }
+        val ids=(1..10).map(::id)
+        val complete=ids.map { "SG Gold Turbo $it Société Générale OTC EUR" }
+        assertEquals(ids.toSet(),
+            MorningListEndPolicy.completeAppRowCoverage(complete,complete,ids))
+
+        // This was the live v10963 mismatch: ten repeated identity labels can
+        // coexist with only nine server-valid complete rows. The missing footer
+        // must keep the tenth row uncovered so a bounded fourth image is allowed.
+        val incomplete=complete.toMutableList().also {
+            it[9]="SG Gold Turbo ${ids[9]}"
+        }
+        assertTrue(MorningListEndPolicy.completeAppRowCoverage(
+            incomplete,incomplete,ids).isEmpty())
+        assertTrue(MorningListEndPolicy.completeAppRowCoverage(
+            complete,complete.reversed(),ids).isEmpty())
+        assertTrue(MorningListEndPolicy.completeAppRowCoverage(
+            complete,complete,ids.dropLast(1)).isEmpty())
+    }
+
     @Test fun returnFromExactVisibleQuotePageSurvivesMissingLauncherButNeverWeakensProtection() {
         val isin="DE000FE6B3G9"
         val page=listOf(
