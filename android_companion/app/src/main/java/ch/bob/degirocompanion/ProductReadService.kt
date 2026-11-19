@@ -1465,14 +1465,11 @@ class ProductReadService : AccessibilityService() {
         val app=image.optJSONObject("appText")
         if(app!=null) {
             val before=app.optJSONArray("before");val after=app.optJSONArray("after")
-            if(before!=null && after!=null && before.length()==visible.size &&
-                after.length()==visible.size) {
+            if(before!=null && after!=null) {
                 val rows=(0 until before.length()).map { before.optString(it) }
                 val other=(0 until after.length()).map { after.optString(it) }
-                val pattern=Regex("\\b[A-Z]{2}[A-Z0-9]{9}[0-9]\\b")
-                if(rows==other && rows.zip(visible).all { (row,id) ->
-                    pattern.findAll(row).map { it.value }.toList()==listOf(id)
-                })return visible.toSet()
+                MorningListEndPolicy.completeAppRowCoverage(rows,other,visible)
+                    .takeIf { it.isNotEmpty() }?.let { return it }
             }
         }
         val local=image.optJSONObject("localOcr") ?: return emptySet()
