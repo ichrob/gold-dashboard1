@@ -46,6 +46,13 @@ class PublicBrowserlessTests(unittest.TestCase):
             self.assertEqual(b.extract("DE000FG77FN1", source="degiro", now=self.now)["state"], "unsupported-source")
             post.assert_not_called()
 
+    def test_bnp_static_public_source(self):
+        self.assertEqual(b.page_url("DE000BY7UKR4","bnp"),
+                         "https://derivate.bnpparibas.com/product-details/DE000BY7UKR4/")
+        with patch.object(b.requests, "post") as post:
+            self.assertEqual(b.extract("DE000BY7UKR4",source="degiro",now=self.now)["state"],"unsupported-source")
+            post.assert_not_called()
+
     def test_public_fixed_origin_and_unverified_output(self):
         body = {"ok": True, "statusCode": 200, "strategy": "http-fetch", "markdown": "Produkt ISIN DE000FG77FN1 Gold Turbo",
                 "json": {"isin": "DE000FG77FN1", "bid": "0,63 EUR",
