@@ -43,7 +43,7 @@ def page_url(isin, source):
     if not isinstance(isin, str) or not re.fullmatch(r"DE[0-9A-Z]{10}", isin) or not valid_isin(isin):
         raise ValueError("invalid-isin")
     if source == "sg":
-        return "https://www.sg-zertifikate.de/product-details/" + isin[5:].lower()
+        return "https://www.sg-zertifikate.de/product-details/" + isin[5:-1].lower()
     if source == "comdirect":
         return "https://www.comdirect.de/inf/zertifikate/" + isin
     raise ValueError("unsupported-source")
