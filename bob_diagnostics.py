@@ -615,6 +615,8 @@ def new_studies_brief(paper, now_ms=None):
         'rapid':rapid_leverage_brief(rapid),
         **({'shortRegime':short_regime_brief(paper['shortRegimeStudy'])}
            if isinstance(paper.get('shortRegimeStudy'),dict) else {}),
+        **({'koDistance':ko_distance_brief(paper['koDistanceStudy'])}
+           if isinstance(paper.get('koDistanceStudy'),dict) else {}),
         **({'entryOpportunities':entry_opportunity_brief(paper['entryOpportunityStudy'])}
            if isinstance(paper.get('entryOpportunityStudy'),dict) else {}),
         'strategyWinnerConfirmed':False,
@@ -640,6 +642,47 @@ def entry_opportunity_brief(control):
             for key in ARMS if isinstance(decisions.get(key),dict)}
     result.update(strategyWinnerConfirmed=False,productReturnVerified=False,realOrders=False,liveRulesChanged=False)
     return result
+
+
+def ko_distance_brief(control):
+    """Three evidence-gated issuer-quote cohorts, not broker fills."""
+    if not isinstance(control,dict) or control.get('status') not in (
+            'collecting','awaiting-first-worker-check'):
+        return {'status':'unavailable','readOnly':True,'realOrders':False,
+                'productReturnVerified':False}
+    allowed={'buffered-1p5-to-3','medium-3-to-6','wide-6-plus'}
+    reasons={'waiting-issuer-evidence','original-gold-not-verified',
+         'no-timestamped-issuer-ko-pair','session-closed',
+         'same-or-missing-original-signal','stop-risk-unavailable',
+         'insufficient-capital','observed-model-entry',
+         'ko-or-product-status-unresolved','dated-exit-bid-not-observed',
+         'closed-issuer-bid-model-only'}
+    def n(v, *, money=False):
+        return v if type(v) in (int,float) and math.isfinite(v) and 0<=v<=1e9 else None
+    arms=[]
+    for a in (control.get('arms') or [])[:3]:
+        if not isinstance(a,dict) or a.get('koTier') not in allowed:
+            continue
+        arms.append(dict(koTier=a['koTier'],
+          started=n(a.get('started')),closed=n(a.get('closed')),
+          positionOpen=a.get('positionOpen') is True,
+          missingExitBid=n(a.get('missingExitBid')),
+          unresolvedKo=n(a.get('unresolvedKo')),
+          lastBlock=a.get('lastBlock') if a.get('lastBlock') in reasons else None,
+          modelCashEur=n(a.get('modelCashEur')),
+          modelEquityEur=n(a.get('modelEquityEur')),
+          modelRealizedEur=a.get('modelRealizedEur') if
+              type(a.get('modelRealizedEur')) in (int,float)
+              and math.isfinite(a['modelRealizedEur'])
+              and abs(a['modelRealizedEur'])<=1e9 else None))
+    checked=control.get('checkedAt')
+    return dict(status=control['status'],readOnly=True,realOrders=False,
+        checkedAt=n(checked),arms=arms,tiersReported=len(arms),
+        eligiblePricePairs=n(control.get('eligiblePricePairs')),
+        originalQuoteChecks=n(control.get('originalQuoteChecks')),
+        productReturnVerified=False,brokerExecutionVerified=False,
+        strategyWinnerConfirmed=False,noHistoricalBackfill=True,
+        scope='bounded-eur-issuer-quote-model-without-executable-broker-fills')
 
 
 def short_regime_brief(control):
@@ -1470,6 +1513,14 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
     except Exception:
         result['shortRegimeStudy'] = {'status':'unavailable','realOrders':False,
                                       'reason':'short-regime-report-unavailable'}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='500ms'")
+            result['koDistanceStudy'] = __import__('gold_ko_distance_cohorts').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        result['koDistanceStudy'] = {'status':'unavailable','realOrders':False,
+                                      'reason':'ko-distance-report-unavailable'}
     result['shadowStudies']['entryExitComparison'] = comparison
     try:
         with conn.transaction():
