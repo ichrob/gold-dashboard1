@@ -177,12 +177,12 @@ def handle(conn,action,payload):
         rows=validated(key,payload.get('rows'))
         if not rows:raise ValueError('Empty checkpoint')
         # Preserve all accepted candle revisions before replacing the rolling checkpoint.
-        # Provider logs show 256-row statements can exceed the route's 1500ms
-        # timeout during concurrent maintenance/research load. Bound each hash/index
+        # Provider logs show 128-row statements can exceed the route's 1500ms
+        # timeout during overlapping rollout/source writers. Bound each hash/index
         # probe to half that work; all
         # batches and the checkpoint still share the caller's transaction:
         # a failure rolls everything back, never acknowledging a partial save.
-        evidence_batch_size = 128
+        evidence_batch_size = 64
         for start in range(0, len(rows), evidence_batch_size):
             # An advancing checkpoint mostly repeats already archived candles.
             # Filter by the complete revision key before INSERT so those rows
