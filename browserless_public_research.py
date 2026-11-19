@@ -9,7 +9,10 @@ import os
 import re
 import threading
 
-import requests
+try:
+    import requests
+except ImportError:  # Isolated simulator CI imports server without HTTP dependencies.
+    requests = None
 
 API = "https://production-sfo.browserless.io/smart-scrape"
 MAX_RESPONSE = 131072
