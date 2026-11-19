@@ -28,12 +28,32 @@ wait_job() {
 while true; do
   date -Is
   instances=$(oci compute instance list --compartment-id "$bob" --all)
-  if jq -e '[.data[] | select(."display-name"=="bob-ocr-zurich" and ."lifecycle-state"!="TERMINATED")] | length>0' <<<"$instances" >/dev/null; then
-    echo 'Bob-Instanz vorhanden. Kein weiterer Startversuch.'
-    exit 0
-  fi
+  # Some OCI CLI versions print nothing for an empty list with --all.
+  instance_state=$(jq -ser '
+    if length==0 then []
+    elif length==1 and (.[0].data|type)=="array" then .[0].data
+    else error("Unerwartete Instanzliste") end |
+    map(select(."display-name"=="bob-ocr-zurich" and ."lifecycle-state"!="TERMINATED")) |
+    if length==0 then "ABSENT"
+    elif length==1 then (.[0]."lifecycle-state" // error("Status fehlt"))
+    else error("Mehrere Bob-Instanzen gefunden") end' <<<"$instances")
+  echo "Bob-Instanz in Zürich: $instance_state"
+  case "$instance_state" in
+    RUNNING) echo 'Bob läuft. Startautomatik beendet.'; exit 0 ;;
+    MOVING|PROVISIONING|STARTING|TERMINATING)
+      sleep 120
+      continue ;;
+    ABSENT) ;;
+    *) echo 'Vorhandene Instanz prüfen. Keine weitere Instanz angelegt.'; exit 1 ;;
+  esac
   jobs=$("${rmjob[@]}" list --stack-id "$stack" --all)
-  if jq -e "$rows"' | any(.[]; ."lifecycle-state" | IN("ACCEPTED","IN_PROGRESS","CANCELING"))' <<<"$jobs" >/dev/null; then
+  busy=$(jq -sr '
+    if length==0 then []
+    elif length==1 then (.[0].data | if type=="array" then . else .items end)
+    else error("Unerwartete Auftragsliste") end |
+    if type!="array" then error("Auftragsliste fehlt") else
+    any(.[]; ."lifecycle-state" | IN("ACCEPTED","IN_PROGRESS","CANCELING")) end' <<<"$jobs")
+  if [[ $busy == true ]]; then
     echo 'Stack beschäftigt. Prüfe in fünf Minuten erneut.'
     sleep 300
     continue
