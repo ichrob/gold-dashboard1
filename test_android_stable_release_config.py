@@ -148,6 +148,16 @@ class AndroidStableReleaseTests(unittest.TestCase):
         # actions with the keyboard previously open. Never permit a free
         # gesture or unbounded retries; all tabs remain semantically verified.
         self.assertIn('++categorySteps>7', service)
+        # The screenshot-confirmed 278k Turbos is unfiltered. Detect its
+        # identity BEFORE generic search retries and without a 10-second
+        # timeout that can miss a slow WebView transition.
+        self.assertIn('MorningReadPolicy.genericTurboRecovery(descriptions,', service)
+        self.assertIn('listGoldPreviewConfirmed=true', service)
+        self.assertIn('listGoldPreviewConfirmed=false', service)
+        self.assertNotIn('age in 0..10000L', service)
+        self.assertIn('LIST_GENERIC_TURBO_RETURN_STUCK', service)
+        self.assertIn('LIST_GENERIC_TURBO_START_BACK_SENT', service)
+        self.assertIn('!ProductReadRequest.active(SystemClock.elapsedRealtime())', service)
         self.assertIn('MorningReadPolicy.goldNeedsKeyboardDismissal(', service)
         # All full-list starts must use the SAME lease, instead of
         # silently reverting to 60 s from the one-button activity.
