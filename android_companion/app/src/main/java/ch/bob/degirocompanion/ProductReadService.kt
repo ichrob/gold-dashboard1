@@ -351,6 +351,41 @@ class ProductReadService : AccessibilityService() {
                 ProductReadRequest.start(SystemClock.elapsedRealtime())
             } else PhoneRemote.stop(this,"COMPLETED")
         }
+        MorningListDelivery.onProvisionalResearch={ local ->
+            // Owner explicitly pressed Bob starten for Gold + missing product
+            // reads. The SERVER rejected one list row: do not promote the
+            // unverified local candidate set into a trading source. Reuse
+            // exactly the existing per-ISIN semantic search/read/BACK engine
+            // within the ORIGINAL unlocked and owner-opened session.
+            val power=getSystemService(POWER_SERVICE) as PowerManager
+            val keyguard=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+            check(PhoneRemote.active() && power.isInteractive &&
+                !keyguard.isKeyguardLocked && !keyguard.isDeviceLocked &&
+                !GoldSearchRun.running && !MorningReadRun.running &&
+                !PinReadinessProbe.running &&
+                !ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+                "Lokale ISIN-Recherche benötigt die bestehende entsperrte Lesesitzung"
+            }
+            check(local.size in 9..10 && local.distinct()==local &&
+                local.all(SeriesEvidence::validIsin))
+            val root=productRoot(false) ?: error("DEGIRO-Suchseite nicht erreichbar")
+            val refs=mutableListOf<AccessibilityNodeInfo>()
+            val view=mutableListOf<MorningReadPolicy.Node>()
+            val ready=try {
+                check(root.packageName?.toString()==ProductScreenEvidence.PACKAGE)
+                navigationTree(root,refs,view)
+                val action=MorningReadPolicy.detailDecision(
+                    view,local.first(),false,keyboardVisible(),resultOpened=false)
+                action.kind in setOf(MorningReadPolicy.Kind.SEARCH,
+                    MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.Kind.QUERY) &&
+                    !MorningReadPolicy.genericTurboDirectory(view)
+            } finally { refs.forEach { it.recycle() };root.recycle() }
+            check(ready) { "DEGIRO nicht eindeutig auf der sicheren Produktsuche" }
+            MorningReadRun.beginDiscovered(this,local,researchOnly=true)
+            ProductReadRequest.start(SystemClock.elapsedRealtime())
+            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_STARTED)
+            PhoneDiagnostics.queue(this)
+        }
         MorningListDelivery.onFreshCaptureRequired={
             // A previously rejected saved batch must NOT consume a whole
             // explicit one-tap start. The server has already returned a
@@ -605,7 +640,7 @@ class ProductReadService : AccessibilityService() {
         BobTradeDimMode.stop("Android-Lesedienst unterbrochen."); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst unterbrochen. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED); PhoneRemote.stop(this,"SERVICE_INTERRUPTED"); GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString()); MorningReadRun.stop(this,"SERVICE_INTERRUPTED"); ProductReadRequest.cancel(); handler.removeCallbacks(pendingRead); readQueued = false; ProductReadSession.clear() }
     override fun onDestroy() {
         DegiroReadOnlySession.finish("DIENST_GESTOPPT");DegiroReadOnlySession.onStart=null;handler.removeCallbacks(degiroReadOnlyTick)
-        BobTradeDimMode.stop("Android-Lesedienst beendet."); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onLoginTouch=null;PinReadinessProbe.onDigitTouch=null;PinReadinessProbe.onDeleteTouch=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;MorningListDelivery.onFreshCaptureRequired=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
+        BobTradeDimMode.stop("Android-Lesedienst beendet."); LoginToReadHandoff.clear(); if(PinReadinessProbe.running) PinReadinessProbe.stop("Lesedienst beendet. PIN-Test beendet.", PinKeypadExerciseTrace.Reason.SERVICE_STOPPED);PinReadinessProbe.onStart=null;PinReadinessProbe.onLoginTouch=null;PinReadinessProbe.onDigitTouch=null;PinReadinessProbe.onDeleteTouch=null;PinReadinessProbe.onStop=null;PinReadinessProbe.onTimeout=null;handler.removeCallbacks(pinProbeTick); MorningListDelivery.onConfirmed=null;MorningListDelivery.onProvisionalResearch=null;MorningListDelivery.onFreshCaptureRequired=null;PhoneRemote.stop(this,"SERVICE_STOPPED");PhoneRemote.reader=null;PhoneRemote.onStop=null;
         GoldSearchRun.stop("SERVICE_INTERRUPTED",Instant.now().toString())
         MorningReadRun.onStopped=null
         MorningReadRun.stop(this,"SERVICE_INTERRUPTED")
@@ -1839,6 +1874,10 @@ class ProductReadService : AccessibilityService() {
         if(generation!=listGeneration)return
         val body=org.json.JSONObject().put("batchId",listBatch).put("sessionId",PhoneRemote.sessionId())
             .put("images",org.json.JSONArray(listImages.toString()))
+            // Original observed Gold ISIN hints are retained ONLY in the
+            // app-private outbox for a research-only continuation. They are
+            // stripped before upload and never become a verified 10-row list.
+            .put("localCandidates",org.json.JSONArray(listSeenIds.toList()))
         val captured=listSeenIds.toSet()
         val capturedWindow=listWindowId
         MorningListDelivery.start(this,body)
