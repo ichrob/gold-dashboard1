@@ -37,12 +37,18 @@ internal object MorningListEndPolicy {
 
     /** On a verified read-only footer, one final cropped photo may clarify a
      * tenth row present in pixels but not reliably represented in WebView text.
-     * The server must still validate ten distinct complete product rows. */ 
+     * The server must still validate ten distinct complete product rows. */
+    private val footerProtection = Regex(
+        "(?iu)order platzieren|order bestätigen|place order|confirm order|" +
+            "orderart|ordertyp|limitpreis|stückzahl|anzahl kaufen|passwort|password|login|anmelden"
+    )
     fun needsFooterRecapture(nodes: List<MorningReadPolicy.Node>,
                              capturedImages: Int, seen: Set<String>,
                              current: List<String>, action: MorningReadPolicy.Action): Boolean =
         capturedImages == 3 && seen.size == 9 &&
-        maySubmitAtEnd(nodes, capturedImages, seen, current, action)
+        maySubmitAtEnd(nodes, capturedImages, seen, current, action) &&
+        nodes.none { n -> listOf(n.text,n.description,n.hint,n.row)
+            .any(footerProtection::containsMatchIn) }
 
     fun maySubmitAtCaptureLimit(capturedImages: Int, seen: Set<String>): Boolean =
         capturedImages == 4 && seen.size in 5..9 && seen.all(SeriesEvidence::validIsin)
