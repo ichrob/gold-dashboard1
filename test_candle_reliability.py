@@ -10,7 +10,7 @@ from test_ema200_history_backfill import candle_series,xaus_points
 
 class ReliabilityTests(unittest.TestCase):
     def setUp(self):
-        for name in ('_ROWS','_CHECKS','_STATS','_SAVED'):
+        for name in ('_ROWS','_CHECKS','_STATS','_SAVED','_EVIDENCE_SCAN'):
             p=patch.object(c,name,{});p.start();self.addCleanup(p.stop)
         for name in ('_technical_history','_ema_backfill_series','_ema_backfill_attempted'):
             p=patch.object(server,name,{});p.start();self.addCleanup(p.stop)
@@ -254,22 +254,25 @@ class ReliabilityTests(unittest.TestCase):
         stored[-1]['high'] += 1
         checkpoint = MagicMock()
         checkpoint.fetchone.return_value = (stored,)
-        revisions = MagicMock()
-        revisions.fetchall.return_value = [(stored[-1]['openTime'], stored[-1])]
         inserted = []
+        clock_queries = []
         def execute(sql, params=None):
             if 'SELECT payload FROM bob_candle_checkpoints' in sql:
                 return checkpoint
             if 'JOIN LATERAL' in sql:
                 self.assertLessEqual(len(params[0]),32)
                 self.assertEqual(params[1],'biquote/1m')
+                clock_queries.append(list(params[0]))
                 recorded = MagicMock()
                 stored_clocks={row['openTime'] for row in stored}
                 recorded.fetchall.return_value=[(clock,) for clock in params[0]
                                                   if clock in stored_clocks]
                 return recorded
             if 'open_time=ANY' in sql:
-                self.assertEqual(params[1], [rows[-2]['openTime']])
+                revisions = MagicMock()
+                revisions.fetchall.return_value = [
+                    (row['openTime'], row) for row in stored
+                    if row['openTime'] in params[1]]
                 return revisions
             if 'INSERT INTO bob_candle_evidence' in sql:
                 inserted.extend(json.loads(params[1]))
@@ -277,6 +280,8 @@ class ReliabilityTests(unittest.TestCase):
         conn.execute.side_effect = execute
         c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
         self.assertEqual(inserted, [rows[-2], rows[-1]])
+        self.assertLessEqual(len(clock_queries), 2)
+        self.assertEqual(sum(map(len,clock_queries)), 34)
         self.assertEqual(sum('INSERT INTO bob_candle_evidence' in call.args[0]
                              for call in conn.execute.call_args_list), 1)
         checkpoint = [call for call in conn.execute.call_args_list
@@ -298,12 +303,18 @@ class ReliabilityTests(unittest.TestCase):
                 recorded = MagicMock()
                 recorded.fetchall.return_value = [(open_time,) for open_time in params[0]]
                 return recorded
+            if 'open_time=ANY' in sql:
+                revisions = MagicMock()
+                revisions.fetchall.return_value = [
+                    (row['openTime'], row) for row in rows
+                    if row['openTime'] in params[1]]
+                return revisions
             if 'BETWEEN' in sql or 'GROUP BY open_time' in sql:
                 raise TimeoutError('production range aggregation regression')
             return MagicMock()
         conn.execute.side_effect = execute
         c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
-        self.assertEqual(len(clock_queries), 19)
+        self.assertEqual(len(clock_queries), 1)
         probed=[]
         for sql, params in clock_queries:
             self.assertIn('unnest(%s::bigint[])', sql)
@@ -315,7 +326,7 @@ class ReliabilityTests(unittest.TestCase):
             self.assertLessEqual(len(params[0]),32)
             self.assertEqual(params[1], 'biquote/1m')
             probed.extend(params[0])
-        self.assertEqual(probed,[row['openTime'] for row in rows])
+        self.assertEqual(probed,[row['openTime'] for row in rows[:32]])
         self.assertFalse(any('INSERT INTO bob_candle_evidence' in call.args[0]
                              for call in conn.execute.call_args_list))
         conn.commit.assert_not_called()
@@ -462,7 +473,7 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(conn.execute('SELECT count(*) FROM bob_candle_evidence').fetchone()[0],601)
             # A missing evidence row must be backfilled even if the checkpoint
             # already contains the same payload (e.g. an older installation).
-            conn.execute('DELETE FROM bob_candle_evidence WHERE open_time=%s',(rows[0]['openTime'],))
+            conn.execute('DELETE FROM bob_candle_evidence WHERE open_time=%s',(rows[96]['openTime'],))
             self.assertEqual(write(rows),1)
             # Checkpoint failure must roll back new evidence with it.
             conn.execute('''CREATE FUNCTION fail_checkpoint() RETURNS trigger
