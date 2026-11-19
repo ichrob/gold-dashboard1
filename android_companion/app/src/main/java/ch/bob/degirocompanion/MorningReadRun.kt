@@ -156,7 +156,7 @@ internal object MorningReadRun {
         data=JSONObject().put("batchId",requestBatchId ?: UUID.randomUUID().toString().replace("-",""))
             .put("listUploadedAt",originalListAt ?: Instant.now().toString())
             .put("listSource",if(researchOnly) "unverified-local-gold-preview" else "degiro-gold-search")
-            .put("researchOnly",researchOnly)
+            .apply { if(researchOnly) put("researchOnly",true) }
             .put("appVersionCode",c.packageManager.getPackageInfo(c.packageName,0).versionCode)
             .put("revision",0).put("isins",JSONArray(values)).put("results",JSONArray()).put("events",JSONArray())
         if(listBatchId!=null)data!!.put("listBatchId",listBatchId)
