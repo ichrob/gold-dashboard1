@@ -265,7 +265,7 @@ class ReliabilityTests(unittest.TestCase):
             c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
         log = out.getvalue()
         self.assertIn('BOB_CANDLE_WRITE stage=evidence batch=0', log)
-        self.assertIn('BOB_CANDLE_FAILURE stage=evidence key=biquote/1m rows=128', log)
+        self.assertIn('BOB_CANDLE_FAILURE stage=evidence key=biquote/1m rows=64', log)
         self.assertNotIn('PRIVATE-SQL-ERROR', log)
         conn = MagicMock()
         conn.execute.side_effect = [MagicMock(), MagicMock(),
