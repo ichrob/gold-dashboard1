@@ -21,6 +21,10 @@ internal object ProductReadRequest {
         durationMillis = maxDurationMillis; attemptLimit = maxAttempts
         onStarted?.invoke()
     }
+    /** Use one audited lease for every locally owner-started full Gold-list
+     * path, including the main Bob starten button and the old Goldliste button.
+     * This never applies to the one-product or search-only readers. */
+    fun startGoldList(now: Long) = start(now,120000L,60)
     fun cancel(reason: End = End.STOPPED) { endReason = reason; startedAt = null; lastAttempt = null; attempts = 0; onCancelled?.invoke() }
     fun active(now: Long): Boolean {
         val start = startedAt ?: return false
