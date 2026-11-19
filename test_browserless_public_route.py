@@ -25,6 +25,25 @@ class BrowserlessPublicRouteTests(unittest.TestCase):
                 conn.close()
                 worker.join(3)
 
+    def test_status_requires_bob_auth_and_never_exposes_secret(self):
+        with server.BobHTTPServer(("127.0.0.1", 0), server.Handler) as httpd, \
+                patch.object(server.Handler, "authenticated", return_value=True), \
+                patch.dict(os.environ, {"BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                      "BROWSERLESS_API_TOKEN": "private-secret"}, clear=True):
+            thread=threading.Thread(target=httpd.handle_request)
+            thread.start()
+            conn=http.client.HTTPConnection(*httpd.server_address,timeout=3)
+            try:
+                conn.request("GET","/api/browserless/public-status")
+                response=conn.getresponse()
+                body=response.read()
+            finally:
+                conn.close()
+                thread.join(3)
+        self.assertEqual(response.status,200)
+        self.assertNotIn(b"private-secret",body)
+        self.assertEqual(json.loads(body)["state"],"free-plan-unconfirmed")
+
     def test_fails_closed_when_disabled(self):
         with patch.dict(os.environ, {"BOB_BROWSERLESS_PUBLIC_RESEARCH": "0"}, clear=True), \
                 patch("browserless_public_research.requests.post") as post:

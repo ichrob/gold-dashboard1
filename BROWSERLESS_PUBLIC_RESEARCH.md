@@ -9,6 +9,14 @@ keine automatische Tradeausführung, keine Order.
 
 - Nur nach isolierter Code- und CI-Prüfung aktivieren: BOB_BROWSERLESS_PUBLIC_RESEARCH=1
   auf dem bestehenden Bob-Scanner-Dienst. Ohne den Wert ist alles gesperrt.
+- Zusätzlich MUSS BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED=1 gesetzt sein,
+  nachdem der Kontoinhaber im Browserless-Dashboard Free/0 USD und das
+  verbleibende Monatskontingent gesehen hat. Diese zweite Konfiguration ist
+  eine manuelle Bestätigung, KEIN automatischer Beweis eines Free-Abos.
+- Geschützte Bob-Statusanzeige: GET /api/browserless/public-status.
+  Sie zeigt nur die beiden Freigaben und ob ein Schlüssel konfiguriert ist;
+  der Schlüssel selbst und Browserless-Kontodaten werden niemals ausgegeben.
+  Ohne alle Voraussetzungen bleibt der Button deaktiviert.
 - Der Schlüssel liegt ausschließlich als Server-Secret BROWSERLESS_API_TOKEN auf
   Render, nie in GitHub, Logs, mobilem Gerät oder Browser-JS.
   Die schon existierende Browserless-Video-Testfunktion verwendet denselben Namen;
@@ -32,7 +40,7 @@ keine automatische Tradeausführung, keine Order.
 ## Technische Felder und Sicherheitsgrenzen
 
 - Start mit genau einer vom Nutzer eingegebenen, prüfsummenvalidierten DE-ISIN;
-  sg und comdirect sind feste Domain-/Pfadschablonen. Kein frei übergebbarer
+  sg, comdirect und BNP Paribas sind feste Domain-/Pfadschablonen. Kein frei übergebbarer
   Weblink, kein DEGIRO-Host, keine Cookies oder Login-Profile.
 - Die Smart-Scrape-Schnittstelle liefert Markdown und unverbindliche KI-Felder.
   Die öffentliche Quellseite muss HTTP 200 melden. Die Identität muss sowohl
@@ -51,6 +59,12 @@ keine automatische Tradeausführung, keine Order.
   werden nicht geloggt. Antwortgröße sowie Einzelsitzung sind beschränkt.
   Fehlschläge führen nie zu einem automatischen zweiten Anbieteraufruf.
 
+- Bereits vorhandene SG-Originalbeobachtungen dürfen per
+  browserless_public_compare nur gegen KI-Richtung und KO verglichen
+  werden. Das startet keinen Emittentenabruf und erzeugt KEINE frische
+  Kurszeit. Abweichungen erscheinen als solche; fehlende Referenzen
+  bleiben ungeprüft. Der Vergleich ist kein Trading- oder Venue-Nachweis.
+
 ## Prüfung
 
 Python-Unittests: test_browserless_public_research,
@@ -58,7 +72,7 @@ test_browserless_profile und test_browserless_trial.
 
 Praktische Abnahme nach grüner CI: Free-Tarif und Kontingent im Browserless-Konto
 prüfen, Secret auf Render verifizieren, Feature-Schalter explizit setzen,
-einmal DE000FG77FN1 an SG öffentlich auslesen und den Research-Status
+einmal eine noch geeignete, nicht beendete Gold-ISIN an SG öffentlich auslesen und den Research-Status
 mit dem ursprünglichen Emittentenbeleg vergleichen. Keine Originalbelege und
 keine Marktfreigaben ersetzen. Danach erst über eine weitere, separat zu
 testende Zuordnung von unabhängig verifizierten Daten zu Bob entscheiden.
@@ -72,3 +86,7 @@ Deshalb ist keine Browserless-Anmeldung am persönlichen Depot und keine
 Weitergabe der DEGIRO-PIN vorgesehen. Bob Handy und seine vorhandene
 lokale Lesediagnostik bleiben als eigener Arbeitsstrang bestehen, ohne
 Zugangsdaten an Browserless zu übertragen.
+
+Beispiel: DE000FG77FN1 hat nach bestätigter SG-Produktseite seinen letzten Handelstag am 19.11.2026 (Bewertung am 20.11.2026) und ist für eine neue fortlaufende Kursstudie ungeeignet. Die Liste muss vor einem Abruf auf tatsächliche aktuelle Laufzeit und Knock-out geprüft werden.
+
+BNP-Paribas-Seiten nutzen die offizielle feste Form https://derivate.bnpparibas.com/product-details/DE000BY7UKR4/ (Beispiel-ISIN). Der vorhandene Validierungspfad verlangt die exakte ISIN sowohl im Seiten-Markdown als auch in der KI-Ausgabe. Unabhängiger Laufzeit-, Emittenten-, Handelsstatus- und Kurszeitnachweis bleibt notwendig. Ein leerer Vergleich mit SG ist bei BNP korrekt; er gibt keine Daten frei.

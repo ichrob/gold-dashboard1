@@ -13,9 +13,27 @@ class PublicBrowserlessTests(unittest.TestCase):
         self.now = datetime(2026, 11, 19, 20, 0, tzinfo=timezone.utc)
 
     def test_no_secret_does_not_call_cloud(self):
-        with patch.dict(os.environ, {"BOB_BROWSERLESS_PUBLIC_RESEARCH": "1"}, clear=True), patch.object(b.requests, "post") as post:
+        with patch.dict(os.environ, {"BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}, clear=True), patch.object(b.requests, "post") as post:
             self.assertEqual(b.extract("DE000FG77FN1", now=self.now)["state"], "not-configured")
             post.assert_not_called()
+
+    def test_free_plan_not_confirmed_stops_request(self):
+        with patch.dict(os.environ, {"BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BROWSERLESS_API_TOKEN": "private"}, clear=True), patch.object(b.requests, "post") as post:
+            self.assertEqual(b.readiness()["state"], "free-plan-unconfirmed")
+            self.assertEqual(b.extract("DE000FG77FN1", now=self.now)["state"], "free-plan-unconfirmed")
+            self.assertFalse(b.readiness()["canStart"])
+            post.assert_not_called()
+
+    def test_readiness_never_exposes_token(self):
+        with patch.dict(os.environ, {"BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1",
+                                     "BROWSERLESS_API_TOKEN": "private-secret"}, clear=True):
+            ready=b.readiness()
+            self.assertTrue(ready["canStart"])
+            self.assertFalse(ready["providerQuotaVerified"])
+            self.assertNotIn("private-secret", json.dumps(ready))
 
     def test_disabled_does_not_call_cloud(self):
         with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private"}, clear=True), patch.object(b.requests, "post") as post:
@@ -28,6 +46,13 @@ class PublicBrowserlessTests(unittest.TestCase):
             self.assertEqual(b.extract("DE000FG77FN1", source="degiro", now=self.now)["state"], "unsupported-source")
             post.assert_not_called()
 
+    def test_bnp_static_public_source(self):
+        self.assertEqual(b.page_url("DE000BY7UKR4","bnp"),
+                         "https://derivate.bnpparibas.com/product-details/DE000BY7UKR4/")
+        with patch.object(b.requests, "post") as post:
+            self.assertEqual(b.extract("DE000BY7UKR4",source="degiro",now=self.now)["state"],"unsupported-source")
+            post.assert_not_called()
+
     def test_public_fixed_origin_and_unverified_output(self):
         body = {"ok": True, "statusCode": 200, "strategy": "http-fetch", "markdown": "Produkt ISIN DE000FG77FN1 Gold Turbo",
                 "json": {"isin": "DE000FG77FN1", "bid": "0,63 EUR",
@@ -36,7 +61,8 @@ class PublicBrowserlessTests(unittest.TestCase):
         response.status_code = 200
         response.iter_content.return_value = [json.dumps(body).encode()]
         with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
-                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1"}), patch.object(b.requests, "post") as post:
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), patch.object(b.requests, "post") as post:
             post.return_value.__enter__.return_value = response
             result = b.extract("DE000FG77FN1", now=self.now)
             self.assertEqual(result["state"], "unverified-research")
@@ -56,7 +82,8 @@ class PublicBrowserlessTests(unittest.TestCase):
 
     def test_identity_absent_or_ai_disagrees(self):
         with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
-                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1"}), patch.object(b.requests, "post") as post:
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), patch.object(b.requests, "post") as post:
             response = post.return_value.__enter__.return_value
             response.status_code = 200
             response.iter_content.return_value = [json.dumps(
@@ -82,7 +109,8 @@ class PublicBrowserlessTests(unittest.TestCase):
         response = MagicMock()
         response.status_code = 200
         with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
-                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1"}), patch.object(b.requests, "post") as post:
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), patch.object(b.requests, "post") as post:
             post.return_value.__enter__.return_value = response
             response.iter_content.return_value = [json.dumps(
                 {"ok": True, "statusCode": 403, "markdown": "DE000FG77FN1",
@@ -98,7 +126,8 @@ class PublicBrowserlessTests(unittest.TestCase):
 
     def test_exception_is_redacted(self):
         with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "private",
-                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1"}), patch.object(b.requests, "post", side_effect=ValueError("private")):
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), patch.object(b.requests, "post", side_effect=ValueError("private")):
             self.assertEqual(b.extract("DE000FG77FN1", now=self.now)["state"], "request-failed")
             self.assertNotIn("private", json.dumps(b.extract("DE000FG77FN1", now=self.now)))
 
