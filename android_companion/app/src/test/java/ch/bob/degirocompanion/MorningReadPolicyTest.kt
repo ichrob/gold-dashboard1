@@ -794,8 +794,18 @@ class MorningReadPolicyTest {
         }))
         assertFalse(MorningReadPolicy.genericTurboDirectory(generic+
             MorningReadPolicy.Node("Top Ergebnisse")))
+        val safeLauncher=MorningReadPolicy.Node("Order platzieren",clickable=true,
+            row="Order platzieren")
+        assertTrue(MorningReadPolicy.genericTurboDirectory(generic+safeLauncher))
+        assertFalse(MorningReadPolicy.genericTurboDirectory(generic+safeLauncher+safeLauncher))
+        assertFalse(MorningReadPolicy.genericTurboDirectory(generic+
+            safeLauncher.copy(row="Order platzieren\\nK\\nV")))
+        assertFalse(MorningReadPolicy.genericTurboDirectory(generic+
+            safeLauncher.copy(parent=5)))
         assertFalse(MorningReadPolicy.genericTurboDirectory(generic+
             MorningReadPolicy.Node("Order bestätigen")))
+        assertFalse(MorningReadPolicy.genericTurboDirectory(generic+safeLauncher+
+            MorningReadPolicy.Node("Orderart")))
         assertFalse(MorningReadPolicy.genericTurboDirectory(generic+
             MorningReadPolicy.Node("Gold",editable=true,hint="Suche")))
         assertFalse(MorningReadPolicy.genericTurboDirectory(generic.filterNot { it.text=="Turbos" }))

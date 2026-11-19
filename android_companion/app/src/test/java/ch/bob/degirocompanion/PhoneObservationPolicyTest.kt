@@ -4,6 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhoneObservationPolicyTest {
+    @Test fun nativeGoldReadOwnsPassiveObservationOnlyUnderExplicitLease() {
+        assertTrue(PhoneObservationPolicy.localGoldReaderOwnsUi(true,true,false,false))
+        assertFalse(PhoneObservationPolicy.localGoldReaderOwnsUi(true,false,false,false))
+        assertFalse(PhoneObservationPolicy.localGoldReaderOwnsUi(false,true,false,false))
+        assertFalse(PhoneObservationPolicy.localGoldReaderOwnsUi(true,true,true,false))
+        assertFalse(PhoneObservationPolicy.localGoldReaderOwnsUi(true,true,false,true))
+        assertFalse(PhoneObservationPolicy.mustStop("GOLD_LOCAL_READ_ACTIVE"))
+        // The local native reader still treats an actual order view as fatal.
+        assertTrue(PhoneObservationPolicy.mustStop("PROTECTED_ORDER_CONFIRM"))
+        assertTrue(PhoneObservationPolicy.mustStop("PROTECTED_PASSWORD"))
+    }
+
     @Test fun everyDetailedProtectionStillEndsTheSession() {
         for(code in listOf("PROTECTED_VIEW","PROTECTED_PASSWORD","PROTECTED_LOGIN","PROTECTED_ORDER_CONFIRM",
             "PROTECTED_ORDER_TYPE","PROTECTED_ORDER_PRICE","PROTECTED_ORDER_QUANTITY",

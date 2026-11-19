@@ -251,6 +251,9 @@ internal object PhoneRemote {
             // are necessary. Do not let a global market order launcher abort
             // the pending upload or treat it as a tradable order form.
             else if(MorningListDelivery.waiting) empty("LIST_IMPORT_WAITING")
+            else if(PhoneObservationPolicy.localGoldReaderOwnsUi(
+                    GoldSearchRun.running,ProductReadRequest.active(now),
+                    settingsOnly,unlockRehearsalOnly)) empty("GOLD_LOCAL_READ_ACTIVE")
             // An idle trade-follow session never navigates or scans the
             // broker. Only an explicit short read or authenticated bounded
             // command can inspect its visible product page.
@@ -350,10 +353,15 @@ internal object PhoneRemote {
                             // closed; never replay it after an unlock.
                             val locked=waitingOnUnlock
                             val importing=MorningListDelivery.waiting
-                            val reply=if(valid && !locked && !importing && action!="stop")
+                            val localGold=PhoneObservationPolicy.localGoldReaderOwnsUi(
+                                GoldSearchRun.running,
+                                ProductReadRequest.active(SystemClock.elapsedRealtime()),
+                                settingsOnly,unlockRehearsalOnly)
+                            val reply=if(valid && !locked && !importing && !localGold && action!="stop")
                                 runCatching { reader?.invoke(command) }.getOrNull() else null
                             val code=if(locked && action!="stop") "SCREEN_LOCKED"
                                 else if(importing && action!="stop") "LIST_IMPORT_WAITING"
+                                else if(localGold && action!="stop") "GOLD_LOCAL_READ_ACTIVE"
                                 else if(!valid) "COMMAND_EXPIRED" else if(action=="stop") "STOPPED"
                                 else reply?.optString("code") ?: "ACTION_ERROR"
                             if(action=="read_account_settings" && code in setOf(
