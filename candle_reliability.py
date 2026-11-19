@@ -180,10 +180,10 @@ def handle(conn,action,payload):
         # Provider logs show that both dozens of bounded INSERT probes and reading
         # every historical JSONB payload can exceed the scanner's five-second
         # request budget for an advancing 1200+ row checkpoint. Read the previous
-        # checkpoint once, obtain recorded clocks from the covering primary-key
-        # index, and fetch historical JSONB only for clocks whose incoming payload
-        # differs from that checkpoint. The NOT EXISTS check below remains the
-        # concurrency fence, and all
+        # checkpoint once, probe the exact incoming clocks through the covering
+        # primary-key index, and fetch historical JSONB only for clocks whose
+        # incoming payload differs from that checkpoint. The NOT EXISTS check
+        # below remains the concurrency fence, and all
         # batches and the checkpoint still share the caller's transaction:
         # a failure rolls everything back, never acknowledging a partial save.
         lookup_started = time.perf_counter()
@@ -194,11 +194,19 @@ def handle(conn,action,payload):
                 (key,)).fetchone()
             previous={row['openTime']:row for row in (checkpoint[0] if checkpoint else [])}
             lookup_phase='clocks'
-            recorded={row[0] for row in conn.execute('''SELECT open_time
-                FROM bob_candle_evidence
-                WHERE source_key=%s AND open_time BETWEEN %s AND %s
-                GROUP BY open_time''',
-                (key,rows[0]['openTime'],rows[-1]['openTime'])).fetchall()}
+            # A range scan followed by GROUP BY still visited every stored
+            # revision in the interval and exceeded the production statement
+            # bound. Probe each validated incoming clock by the PK prefix and
+            # stop after the first matching revision instead.
+            recorded={row[0] for row in conn.execute('''SELECT candidate.open_time
+                FROM unnest(%s::bigint[]) AS candidate(open_time)
+                JOIN LATERAL (
+                    SELECT 1 FROM bob_candle_evidence evidence
+                    WHERE evidence.source_key=%s
+                        AND evidence.open_time=candidate.open_time
+                    LIMIT 1
+                ) found ON TRUE''',
+                ([row['openTime'] for row in rows],key)).fetchall()}
             missing=[row for row in rows if row['openTime'] not in recorded]
             changed=[row for row in rows if row['openTime'] in recorded
                      and previous.get(row['openTime'])!=row]
