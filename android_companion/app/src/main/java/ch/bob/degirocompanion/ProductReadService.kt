@@ -1940,6 +1940,16 @@ class ProductReadService : AccessibilityService() {
                         }
                         PhoneDiagnostics.queue(this)
                         return true
+                    } else if(MorningReadPolicy.fullGoldResultsLinkVisible(descriptions)) {
+                        // The link is visible but Android did not prove a safe
+                        // isolated tap target. Do NOT scrape Top Ergebnisse as
+                        // though it were the full ten-product catalog.
+                        lastNavigationIssue="LIST_ALL_RESULTS_LINK_UNSAFE"
+                        GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
+                        ProductReadRequest.cancel()
+                        PhoneRemote.stop(this,lastNavigationIssue)
+                        PhoneDiagnostics.queue(this)
+                        return true
                     }
                 }
             }
