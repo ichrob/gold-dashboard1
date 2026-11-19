@@ -127,6 +127,12 @@ class KoDistanceTest(unittest.TestCase):
         with (a,b,c,d,e):
             out=s.advance(s.seed(NOW),market(),selection,bad,NOW)
         self.assertEqual(out["eligiblePricePairs"],0)
+        bad["DE000AAAAAAA"]["currency"]="EUR"
+        selection["choices"][0]["issuerVenue"]="Swiss DOTS (CHF)"
+        a,b,c,d,e=self._patch()
+        with (a,b,c,d,e):
+            out=s.advance(s.seed(NOW),market(),selection,bad,NOW)
+        self.assertEqual(out["eligiblePricePairs"],0)
 
     def test_report_never_exposes_isins_quotes_or_executable_order(self):
         sel,quotes=documents()
