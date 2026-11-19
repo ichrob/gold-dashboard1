@@ -651,11 +651,29 @@ internal object MorningReadPolicy {
         return chosen
     }
 
+    /** DEGIRO may navigate the Gold search CTA to its unfiltered global
+     * Structured Products > Turbos directory. That directory is NOT a Gold
+     * search result, even though some instruments have highlighted GOLD text.
+     * This is a read-only shape classifier, never permission to interact with
+     * the generic directory or to infer missing product identities. */
+    fun genericTurboDirectory(nodes: List<Node>): Boolean {
+        if(nodes.size>500 || protection(nodes)!=null ||
+            nodes.any { it.editable || it.containsInput || it.password || it.sensitive })return false
+        val labels=nodes.map { normalized(it.text) }
+        fun has(value:String)=labels.any { it.equals(value,true) }
+        val count=Regex("(?iu)\\b[0-9][0-9., ]*\\s+von\\s+[0-9][0-9., ]*\\s+turbos\\s+verfügbar\\b")
+        return has("Hebelprodukte") && has("Turbos") &&
+            (has("Strukturierte Produkte") || has("Zertifikate")) &&
+            labels.any(count::containsMatchIn) &&
+            !has("Top Ergebnisse")
+    }
+
     /** Full-list evidence only after that exact link was activated during this
      * same bounded, unlocked session. A visible top-results header or the old
      * link means navigation has NOT been demonstrated. */
     fun fullGoldResultsView(nodes: List<Node>): Boolean {
         if (nodes.size > 500 || protection(nodes) != null ||
+            genericTurboDirectory(nodes) ||
             nodes.any { normalized(it.text).equals("Top Ergebnisse", true) }) return false
         val heading = nodes.any { !canClick(it) &&
             normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte", true) }
