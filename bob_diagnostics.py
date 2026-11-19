@@ -652,6 +652,7 @@ def ko_distance_brief(control):
                 'productReturnVerified':False}
     allowed={'buffered-1p5-to-3','medium-3-to-6','wide-6-plus'}
     reasons={'waiting-issuer-evidence','original-gold-not-verified',
+         'no-confirmed-market-direction','no-verified-stop-target-plan',
          'no-timestamped-issuer-ko-pair','session-closed',
          'same-or-missing-original-signal','stop-risk-unavailable',
          'insufficient-capital','observed-model-entry',
