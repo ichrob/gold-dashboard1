@@ -117,12 +117,12 @@ class PairedRapidExitStudyTests(unittest.TestCase):
             def fetchone(self):
                 return (state,)
         raw=study.report(Conn())
-        self.assertEqual(len(raw['setups']),10)
+        self.assertEqual(len(raw['setups']),11)
         private=raw['setups'][7]
         private['hiddenToken']='do-not-forward'
         brief=bob_diagnostics.rapid_leverage_brief(raw)
-        self.assertEqual(len(brief['setups']),10)
-        self.assertEqual(brief['configurationsReported'],70)
+        self.assertEqual(len(brief['setups']),11)
+        self.assertEqual(brief['configurationsReported'],77)
         self.assertEqual(brief['setups'][7]['pairedControl'],'fast1m-impulse')
         self.assertNotIn('hiddenToken',json.dumps(brief))
         self.assertNotIn('pairedSignalKey',json.dumps(brief))
