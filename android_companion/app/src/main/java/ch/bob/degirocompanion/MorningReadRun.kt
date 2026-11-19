@@ -43,6 +43,7 @@ internal object MorningReadRun {
     fun rememberRefreshSource(c: Context, raw: String) { check(prefs(c).edit().putString("refreshSource",raw).commit()) }
     fun latestSnapshot(c: Context): String? = RunOutbox.resumable(entries(c))
     fun importedListRun() = running && data?.optString("listBatchId").orEmpty().matches(Regex("[a-f0-9]{32}"))
+    fun researchOnlyActive() = running && data?.optBoolean("researchOnly",false)==true
     /** Only a server-planned, authenticated list follow-up may omit a quote pair. */
     fun requestedTermsOnly(): Set<String> {
         if(!importedListRun()) return emptySet()
