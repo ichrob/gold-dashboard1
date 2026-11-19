@@ -687,6 +687,52 @@ class MorningReadPolicyTest {
             MorningReadPolicy.captureGoldList(full,true).kind)
     }
 
+    @Test fun samsungTextChevronReusesSameSafeLinkTapWithoutClickFlag() {
+        val base=screenshotGoldTopResults()
+        val textOnly=base.mapIndexed { i,n ->
+            if(i==2) n.copy(clickable=false,row="Alle Ergebnisse in Hebelprodukte ›")
+            else n
+        }
+        assertTrue(MorningReadPolicy.fullGoldResultsLinkVisible(textOnly))
+        assertEquals(2,MorningReadPolicy.fullGoldResultsLink(textOnly))
+        // Existing semantic gesture also supports an exact clickable wrapper
+        // whose child owns the text and the chevron.
+        val wrapper=base.mapIndexed { i,n -> if(i==2)
+            n.copy(text="",row="Alle Ergebnisse in Hebelprodukte ›",
+                clickable=true,clickAction=true)
+            else n
+        } + MorningReadPolicy.Node("Alle Ergebnisse in Hebelprodukte",parent=2)
+        assertEquals(2,MorningReadPolicy.fullGoldResultsLink(wrapper))
+        val noGestureProof=base.mapIndexed { i,n -> if(i==2)
+            n.copy(clickable=false,clickAction=false)
+            else n
+        }
+        assertTrue(MorningReadPolicy.fullGoldResultsLinkVisible(noGestureProof))
+        assertNull(MorningReadPolicy.fullGoldResultsLink(noGestureProof))
+        assertFalse(MorningReadPolicy.fullGoldResultsLinkVisible(
+            base.filterNot { it.text=="Top Ergebnisse" }))
+    }
+
+    @Test fun exactGlobalOrderLauncherNeverBlocksIsolatedReadOnlyListLink() {
+        val base=screenshotGoldTopResults()
+        val launcher=MorningReadPolicy.Node("Order platzieren",clickable=true,
+            row="Order platzieren")
+        val safe=base+launcher
+        assertEquals(2,MorningReadPolicy.fullGoldResultsLink(safe))
+        for(unsafe in listOf("Order bestätigen","Orderart","Limitpreis",
+                "Stückzahl","Passwort","Anmelden")) {
+            assertNull(MorningReadPolicy.fullGoldResultsLink(safe+
+                MorningReadPolicy.Node(unsafe)))
+        }
+        assertNull(MorningReadPolicy.fullGoldResultsLink(safe+launcher))
+        assertNull(MorningReadPolicy.fullGoldResultsLink(
+            safe.mapIndexed { i,n -> if(i==2)n.copy(parent=7) else n }))
+        assertNull(MorningReadPolicy.fullGoldResultsLink(
+            safe.mapIndexed { i,n -> if(i==7)n.copy(parent=2) else n }))
+        assertNull(MorningReadPolicy.fullGoldResultsLink(
+            safe.mapIndexed { i,n -> if(i==7)n.copy(row="Order platzieren\\nK") else n }))
+    }
+
     @Test fun fullListLinkNeverSelectsTradingCardOrUnverifiedScreen() {
         val base=screenshotGoldTopResults()
         val changes=listOf(
