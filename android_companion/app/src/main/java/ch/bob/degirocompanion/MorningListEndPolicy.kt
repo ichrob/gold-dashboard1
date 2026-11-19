@@ -59,7 +59,12 @@ internal object MorningListEndPolicy {
                              capturedImages: Int, seen: Set<String>,
                              current: List<String>, action: MorningReadPolicy.Action): Boolean =
         capturedImages == 3 && seen.size == 9 &&
-        maySubmitAtEnd(nodes, capturedImages, seen, current, action) &&
+        seen.all(SeriesEvidence::validIsin) &&
+        current.size == 10 && current.distinct() == current &&
+        current.all(SeriesEvidence::validIsin) && seen.all { it in current } &&
+        action.kind == MorningReadPolicy.Kind.COLLECT && action.isins == current &&
+        hasVerifiedFooter(nodes) &&
+        !nodes.any { it.password || it.sensitive || it.editable } &&
         nodes.none { n -> listOf(n.text,n.description,n.hint,n.row)
             .any(footerProtection::containsMatchIn) }
 
