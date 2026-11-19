@@ -47,6 +47,8 @@ def page_url(isin, source):
         return "https://www.sg-zertifikate.de/product-details/" + isin[5:-1].lower()
     if source == "comdirect":
         return "https://www.comdirect.de/inf/zertifikate/" + isin
+    if source == "bnp":
+        return "https://derivate.bnpparibas.com/product-details/" + isin + "/"
     raise ValueError("unsupported-source")
 
 
@@ -170,10 +172,10 @@ def extract(isin, source="sg", *, now=None):
 PANEL = r"""
 <details id="bobBrowserlessPublic" style="margin:16px auto;max-width:860px;padding:12px;border:1px solid #ddd;border-radius:12px;background:white">
  <summary>Browserless · öffentliche Produktrecherche (Test, nur auf Knopfdruck)</summary>
- <p>Nur Emittenten-/comdirect-Seiten, keine DEGIRO-Anmeldung. KI-Felder sind ungeprüfte Hinweise; keine Handelsfreigabe.</p>
+ <p>Nur offizielle SG-, BNP- und öffentliche comdirect-Seiten, keine DEGIRO-Anmeldung. KI-Felder sind ungeprüfte Hinweise; keine Handelsfreigabe.</p>
  <p id="bobBlStatus">Kontostatus wird geladen …</p>
  <label>ISIN <input id="bobBlIsin" maxlength="12" placeholder="DE000FB0A490" autocomplete="off"></label>
- <label>Quelle <select id="bobBlSource"><option value="sg">SG-Zertifikate</option><option value="comdirect">comdirect</option></select></label>
+ <label>Quelle <select id="bobBlSource"><option value="sg">SG-Zertifikate</option><option value="comdirect">comdirect</option><option value="bnp">BNP Paribas</option></select></label>
  <button type="button" id="bobBlRun">Einmal öffentlich prüfen</button>
  <pre id="bobBlResult" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
 </details>
