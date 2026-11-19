@@ -39,7 +39,7 @@ class ProductReadService : AccessibilityService() {
     private fun startBoundedGoldOrProductRead() {
         val now=SystemClock.elapsedRealtime()
         if(GoldSearchRun.running && GoldSearchRun.searchOnlyQuery==null &&
-            !GoldSearchRun.openingProduct) ProductReadRequest.start(now,120000L,60)
+            !GoldSearchRun.openingProduct) ProductReadRequest.startGoldList(now)
         else ProductReadRequest.start(now)
     }
     private var searchCategoryTappedAt = 0L

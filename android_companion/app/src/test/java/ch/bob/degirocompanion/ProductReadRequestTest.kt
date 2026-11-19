@@ -81,6 +81,16 @@ class ProductReadRequestTest {
         } catch(_:IllegalArgumentException) { }
         ProductReadRequest.cancel()
     }
+    @Test fun bobStartAndHistoricalGoldButtonShareTheSameFiniteLease() {
+        ProductReadRequest.startGoldList(1000)
+        assertEquals(120000L,ProductReadRequest.remainingMillis(1000))
+        assertTrue(ProductReadRequest.active(120999))
+        assertFalse(ProductReadRequest.active(121000))
+        assertEquals(ProductReadRequest.End.TIMEOUT,ProductReadRequest.endReason)
+        ProductReadRequest.start(200000)
+        assertEquals(60000L,ProductReadRequest.remainingMillis(200000))
+        ProductReadRequest.cancel()
+    }
     @Test fun cancellationAndNewStartDoNotReuseOldBudget() {
         ProductReadRequest.start(1000)
         assertTrue(ProductReadRequest.attempt(1000))
