@@ -149,7 +149,17 @@ class AndroidStableReleaseTests(unittest.TestCase):
         # gesture or unbounded retries; all tabs remain semantically verified.
         self.assertIn('++categorySteps>7', service)
         self.assertIn('MorningReadPolicy.goldNeedsKeyboardDismissal(', service)
-        self.assertIn('ProductReadRequest.start(now,120000L,60)', service)
+        # All full-list starts must use the SAME lease, instead of
+        # silently reverting to 60 s from the one-button activity.
+        self.assertIn('ProductReadRequest.startGoldList(now)', service)
+        request=(ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadRequest.kt").read_text()
+        activity=(ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadActivity.kt").read_text()
+        self.assertIn('fun startGoldList(now: Long) = start(now,120000L,60)', request)
+        self.assertIn('private fun startAutomaticTest()', activity)
+        self.assertIn('private fun startPreparedGoal(query: String)', activity)
+        self.assertIn('ProductReadRequest.startGoldList(SystemClock.elapsedRealtime())', activity)
+        self.assertIn('if(existingDetails) ProductReadRequest.start(SystemClock.elapsedRealtime())', activity)
+        self.assertIn('else ProductReadRequest.startGoldList(SystemClock.elapsedRealtime())', activity)
         self.assertIn('else ProductReadRequest.start(now)', service)
         self.assertIn('GoldSearchRun.searchOnlyQuery==null', service)
         self.assertIn('!GoldSearchRun.openingProduct', service)
