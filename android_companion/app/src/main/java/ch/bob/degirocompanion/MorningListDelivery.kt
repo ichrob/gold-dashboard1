@@ -13,6 +13,9 @@ import java.util.concurrent.Executors
 
 /** Durable image outbox. Retrying transport never authorizes a phone action. */
 internal object MorningListDelivery {
+    // Revision 12 captures missing edge rows after ten visible ISIN labels.
+    // An older outbox must not prevent an explicit start from using that capture policy.
+    private const val CAPTURE_REVISION = 12
     private val handler=Handler(Looper.getMainLooper())
     private val network=Executors.newSingleThreadExecutor()
     private var generation=0
@@ -65,13 +68,13 @@ internal object MorningListDelivery {
     fun cancel() { generation++;waiting=false }
     fun save(c:Context,body:JSONObject) {
         val f=file(c);val stream=f.startWrite()
-        try { stream.write(JSONObject(body.toString()).put("localRecognitionRevision",11).toString().toByteArray(Charsets.UTF_8));f.finishWrite(stream) }
+        try { stream.write(JSONObject(body.toString()).put("localRecognitionRevision",CAPTURE_REVISION).toString().toByteArray(Charsets.UTF_8));f.finishWrite(stream) }
         catch(e:Exception) { f.failWrite(stream);throw e }
     }
     fun resume(c:Context):Boolean {
         val body=runCatching { JSONObject(String(file(c).readFully(),Charsets.UTF_8)) }.getOrNull() ?: return false
         val images=body.optJSONArray("images") ?: return false
-        if(body.optInt("localRecognitionRevision")<11) {
+        if(body.optInt("localRecognitionRevision")<CAPTURE_REVISION) {
             // Only reached on a new user-started run. Keep the exact legacy
             // capture locally; do not let old recognition output monopolize
             // an updated reader's explicit fresh start.
