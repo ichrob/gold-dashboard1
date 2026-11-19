@@ -198,15 +198,23 @@ def handle(conn,action,payload):
             # revision in the interval and exceeded the production statement
             # bound. Probe each validated incoming clock by the PK prefix and
             # stop after the first matching revision instead.
-            recorded={row[0] for row in conn.execute('''SELECT candidate.open_time
-                FROM unnest(%s::bigint[]) AS candidate(open_time)
-                JOIN LATERAL (
-                    SELECT 1 FROM bob_candle_evidence evidence
-                    WHERE evidence.source_key=%s
-                        AND evidence.open_time=candidate.open_time
-                    LIMIT 1
-                ) found ON TRUE''',
-                ([row['openTime'] for row in rows],key)).fetchall()}
+            recorded=set()
+            # Keep each exact-clock probe below the same bounded statement
+            # shape as the revision and insert lookups. A single 1200+ clock
+            # array still required enough cold PK probes to exceed the
+            # production statement budget even though it no longer scanned a
+            # range. Chunking changes neither the clocks checked nor the
+            # fail-closed transaction boundary.
+            for start in range(0,len(rows),32):
+                clocks=[row['openTime'] for row in rows[start:start+32]]
+                recorded.update(row[0] for row in conn.execute('''SELECT candidate.open_time
+                    FROM unnest(%s::bigint[]) AS candidate(open_time)
+                    JOIN LATERAL (
+                        SELECT 1 FROM bob_candle_evidence evidence
+                        WHERE evidence.source_key=%s
+                            AND evidence.open_time=candidate.open_time
+                        LIMIT 1
+                    ) found ON TRUE''',(clocks,key)).fetchall())
             missing=[row for row in rows if row['openTime'] not in recorded]
             changed=[row for row in rows if row['openTime'] in recorded
                      and previous.get(row['openTime'])!=row]
