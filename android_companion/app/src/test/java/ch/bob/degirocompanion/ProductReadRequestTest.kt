@@ -52,6 +52,35 @@ class ProductReadRequestTest {
             assertEquals(0L, ProductReadRequest.remainingMillis(71000))
         } finally { ProductReadRequest.onCancelled = null; ProductReadRequest.cancel() }
     }
+    @Test fun explicitGoldExtensionIsFiniteAndNeverChangesOrdinaryReadBudget() {
+        ProductReadRequest.start(1000,120000L,60)
+        assertEquals(120000L,ProductReadRequest.remainingMillis(1000))
+        assertTrue(ProductReadRequest.active(120999))
+        assertFalse(ProductReadRequest.active(121000))
+        assertEquals(ProductReadRequest.End.TIMEOUT,ProductReadRequest.endReason)
+        ProductReadRequest.start(1000,120000L,60)
+        for(i in 0..59) assertTrue(ProductReadRequest.attempt(1000+i*1000L))
+        assertFalse(ProductReadRequest.attempt(61000))
+        assertEquals(ProductReadRequest.End.ATTEMPT_LIMIT,ProductReadRequest.endReason)
+        ProductReadRequest.start(70000)
+        assertEquals(60000L,ProductReadRequest.remainingMillis(70000))
+        assertFalse(ProductReadRequest.active(130000))
+        assertEquals(ProductReadRequest.End.TIMEOUT,ProductReadRequest.endReason)
+        ProductReadRequest.cancel()
+    }
+    @Test fun invalidExtensionCannotCreateUnboundedReader() {
+        for(bad in listOf(0L,120001L)) {
+            try {
+                ProductReadRequest.start(1000,bad,60)
+                fail("Invalid duration accepted")
+            } catch(_:IllegalArgumentException) { }
+        }
+        try {
+            ProductReadRequest.start(1000,120000L,61)
+            fail("Invalid attempt limit accepted")
+        } catch(_:IllegalArgumentException) { }
+        ProductReadRequest.cancel()
+    }
     @Test fun cancellationAndNewStartDoNotReuseOldBudget() {
         ProductReadRequest.start(1000)
         assertTrue(ProductReadRequest.attempt(1000))

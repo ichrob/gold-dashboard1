@@ -144,7 +144,15 @@ class AndroidStableReleaseTests(unittest.TestCase):
         self.assertIn('action.kind!=required || (input && category)', tap)
         self.assertIn('target.isEditable!=input', tap)
         self.assertIn('tapRecognizedSearch(root.windowId,category=true)', service)
-        self.assertIn('++categorySteps>4', service)
+        # Samsung Gold search may need more than four bounded category-scroll
+        # actions with the keyboard previously open. Never permit a free
+        # gesture or unbounded retries; all tabs remain semantically verified.
+        self.assertIn('++categorySteps>7', service)
+        self.assertIn('MorningReadPolicy.goldNeedsKeyboardDismissal(', service)
+        self.assertIn('ProductReadRequest.start(now,120000L,60)', service)
+        self.assertIn('else ProductReadRequest.start(now)', service)
+        self.assertIn('GoldSearchRun.searchOnlyQuery==null', service)
+        self.assertIn('!GoldSearchRun.openingProduct', service)
         submit = service.split('private fun submitSearch(', 1)[1].split('private fun scrollCategories(', 1)[0]
         self.assertIn('android.os.Build.VERSION.SDK_INT>=30', submit)
         self.assertIn('node.isEditable && node.isFocused', submit)

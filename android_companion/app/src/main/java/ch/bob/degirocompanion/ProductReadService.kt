@@ -34,6 +34,14 @@ class ProductReadService : AccessibilityService() {
     private var inputTapAttempted = false
     private var nativeBackSteps = 0
     private var categorySteps = 0
+    /** Scope-only extension for the explicitly started full Gold list. All
+     * ordinary single-product reads retain the 60-second request budget. */
+    private fun startBoundedGoldOrProductRead() {
+        val now=SystemClock.elapsedRealtime()
+        if(GoldSearchRun.running && GoldSearchRun.searchOnlyQuery==null &&
+            !GoldSearchRun.openingProduct) ProductReadRequest.start(now,120000L,60)
+        else ProductReadRequest.start(now)
+    }
     private var searchCategoryTappedAt = 0L
     private var listGeneration = 0
     private var listBusy = false
@@ -280,7 +288,7 @@ class ProductReadService : AccessibilityService() {
                     detailRefresh.batch,detailRefresh.entries.associate { it.isin to it.missingFields },detailRefresh.listAt)
                 else if(searchQuery != null) GoldSearchRun.startSearch(searchQuery)
                 else if(freshGold || !MorningReadRun.resumeRecent(this)) GoldSearchRun.start()
-                ProductReadRequest.start(SystemClock.elapsedRealtime())
+                startBoundedGoldOrProductRead()
             }
             PhoneDiagnostics.queue(this)
         }.onFailure { fail("LOGIN_HANDOFF_START_FAILED") }
@@ -360,7 +368,7 @@ class ProductReadService : AccessibilityService() {
                 "Neue Goldliste nur in der ursprünglich entsperrten DEGIRO-Lesesitzung"
             }
             GoldSearchRun.start()
-            ProductReadRequest.start(SystemClock.elapsedRealtime())
+            startBoundedGoldOrProductRead()
         }
         DegiroReadOnlySession.onStart={handler.post {queueDegiroReadOnly(450)}}
         PhoneRemote.onStop={ code ->
@@ -2093,7 +2101,12 @@ class ProductReadService : AccessibilityService() {
                     n?.id,n?.text,n?.enabled,n?.selected).joinToString("|")
                 if(!navigationStability.ready(key,SystemClock.elapsedRealtime())) return true
             }
-            if(gold && (action.kind in setOf(MorningReadPolicy.Kind.CATEGORY,MorningReadPolicy.Kind.COLLECT) || (openingProduct && action.kind==MorningReadPolicy.Kind.RESULT)) && keyboardVisible()) {
+            // On Samsung the category strip is ABOVE the keyboard. An
+            // accessibility SCROLL_RIGHT may acknowledge without advancing the
+            // WebView while the IME owns focus. Hide it first, using the same
+            // guarded Android BACK as CATEGORY and COLLECT, before ANY scroll.
+            if(gold && MorningReadPolicy.goldNeedsKeyboardDismissal(
+                    action.kind,openingProduct) && keyboardVisible()) {
                 lastNavigation=SystemClock.elapsedRealtime()
                 if(!performGlobalAction(GLOBAL_ACTION_BACK)) { lastNavigationIssue="KEYBOARD_HIDE_FAILED";ProductReadRequest.cancel() }
                 return true
@@ -2170,7 +2183,10 @@ class ProductReadService : AccessibilityService() {
                         }
                         return true
                     }
-                    if(action.kind in setOf(MorningReadPolicy.Kind.CATEGORY,MorningReadPolicy.Kind.CATEGORY_SCROLL) && ++categorySteps>4) {
+                    // Hebelprodukte can lie past five preceding tabs. Allow
+                    // a few more bounded, semantic right-scrolls without a
+                    // guessed coordinate. Never retry indefinitely.
+                    if(action.kind in setOf(MorningReadPolicy.Kind.CATEGORY,MorningReadPolicy.Kind.CATEGORY_SCROLL) && ++categorySteps>7) {
                         lastNavigationIssue="CATEGORY_NO_PROGRESS";record(lastNavigationIssue)
                         ProductReadRequest.cancel();return true
                     }
