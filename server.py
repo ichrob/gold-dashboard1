@@ -46,6 +46,7 @@ import auto_collection
 import background_push
 import ocr_assets
 import product_quotes
+import browserless_public_research
 import product_enrich_admission
 import future_chart
 import market_cards
@@ -364,6 +365,7 @@ HTML = HTML.replace(b"</body>", bob_self_healing.PANEL.encode("utf-8")+b"</body>
 HTML = HTML.replace(b"</body>", bob_problems.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", bob_area_checks.PANEL.encode("utf-8")+b"</body>")
 HTML = HTML.replace(b"</body>", degiro_product_audit_panel.PANEL.encode("utf-8")+b"</body>")
+HTML = HTML.replace(b"</body>", browserless_public_research.PANEL.encode("utf-8")+b"</body>")
 # Standalone presentation shell (separate from the legacy monolith).
 HTML = HTML.replace(b"</body>", b'<script src="/bob_unified_workspace.js"></script></body>')
 SW = SW_PATH.read_bytes() if SW_PATH.exists() else None
@@ -2268,6 +2270,47 @@ class Handler(BaseHTTPRequestHandler):
         ).decode("ascii")
         worker_token = self.headers.get("X-Bob-Worker-Token", "")
         worker_ok = bool(SIGNAL_WORKER_TOKEN) and hmac.compare_digest(worker_token, SIGNAL_WORKER_TOKEN)
+
+
+        if path == "/api/browserless/public-research":
+            if not self.authenticated():
+                bob_auth.send(self, 401)
+                return
+            if not bob_auth.same_origin(self.headers):
+                bob_auth.send(self, 403)
+                return
+            try:
+                if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                    raise ValueError("invalid-type")
+                length = self.headers.get("Content-Length", "")
+                if not length.isdecimal() or not 0 < int(length) <= 256:
+                    raise ValueError("invalid-size")
+                payload = json.loads(self.rfile.read(int(length)))
+                if not isinstance(payload, dict) or set(payload) != {"isin", "source"}:
+                    raise ValueError("invalid-request")
+                isin, source = payload["isin"], payload["source"]
+                if not isinstance(isin, str) or not isinstance(source, str):
+                    raise ValueError("invalid-request")
+                # No DEGIRO account, browser profile, cookie or arbitrary URL input.
+                browserless_public_research.page_url(isin, source)
+                result = product_enrich_admission.run(
+                    lambda: browserless_public_research.extract(isin, source))
+                status = 200
+            except (ValueError, TypeError, json.JSONDecodeError):
+                status, result = 400, {"state": "invalid-request", "researchOnly": True}
+            except product_enrich_admission.ProductEnrichBusy:
+                status, result = 503, {"state": "busy", "researchOnly": True}
+            except Exception:
+                status, result = 503, {"state": "unavailable", "researchOnly": True}
+            body = json.dumps(result, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/api/assistance":
             if not self.authenticated():
