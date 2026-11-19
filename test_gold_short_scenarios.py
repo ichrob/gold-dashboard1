@@ -83,9 +83,9 @@ class ShortGoldScenarioTests(unittest.TestCase):
         signals={"trend-reentry":sig(),
                  "breakout-retest":None,"false-breakout":None}
         snap=copy.deepcopy(old)
-        with patch.object(candles,"minute_history",return_value=([{}]*120,None)), \\
-             patch.object(candles,"source",return_value=source()), \\
-             patch.object(s,"signals",return_value=(signals,None)):
+        with (patch.object(candles,"minute_history",return_value=([{}]*120,None)), 
+             patch.object(candles,"source",return_value=source()), 
+             patch.object(s,"signals",return_value=(signals,None))):
             current=s.advance(old,data,market(),NOW)
         self.assertEqual(old,snap)
         self.assertEqual(current["arms"]["trend-reentry:control"]["started"],1)
@@ -93,9 +93,9 @@ class ShortGoldScenarioTests(unittest.TestCase):
         self.assertIsNone(current["arms"]["breakout-retest:control"]["position"])
         self.assertEqual(current["arms"]["trend-reentry:control"]["levers"]["10"]["equityEur"],1000.)
         self.assertFalse(current["arms"]["trend-reentry:control"]["position"]["realOrders"])
-        with patch.object(candles,"minute_history",return_value=([{}]*120,None)), \\
-             patch.object(candles,"source",return_value=source(108.,SOURCE+30000)), \\
-             patch.object(s,"signals",return_value=(signals,None)):
+        with (patch.object(candles,"minute_history",return_value=([{}]*120,None)), 
+             patch.object(candles,"source",return_value=source(108.,SOURCE+30000)), 
+             patch.object(s,"signals",return_value=(signals,None))):
             done=s.advance(current,data,market(now=NOW+30000,spot=108.),NOW+30000)
         base=done["arms"]["trend-reentry:control"]
         cautious=done["arms"]["trend-reentry:risk05"]
@@ -111,13 +111,13 @@ class ShortGoldScenarioTests(unittest.TestCase):
     def test_gap_never_books_model_profit(self):
         data={}
         signs={"trend-reentry":sig(),"breakout-retest":None,"false-breakout":None}
-        with patch.object(candles,"minute_history",return_value=([{}]*120,None)), \\
-             patch.object(candles,"source",return_value=source()), \\
-             patch.object(s,"signals",return_value=(signs,None)):
+        with (patch.object(candles,"minute_history",return_value=([{}]*120,None)), 
+             patch.object(candles,"source",return_value=source()), 
+             patch.object(s,"signals",return_value=(signs,None))):
             first=s.advance(s.seed(NOW),data,market(),NOW)
-        with patch.object(candles,"minute_history",return_value=([{}]*120,None)), \\
-             patch.object(candles,"source",return_value=source(200.,SOURCE+120000)), \\
-             patch.object(s,"signals",return_value=(signs,None)):
+        with (patch.object(candles,"minute_history",return_value=([{}]*120,None)), 
+             patch.object(candles,"source",return_value=source(200.,SOURCE+120000)), 
+             patch.object(s,"signals",return_value=(signs,None))):
             gap=s.advance(first,data,market(now=NOW+120000,spot=200.),NOW+120000)
         arm=gap["arms"]["trend-reentry:control"]
         self.assertEqual(arm["inconclusive"],1)
