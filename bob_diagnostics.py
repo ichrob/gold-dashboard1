@@ -652,14 +652,18 @@ def ko_distance_brief(control):
                 'productReturnVerified':False}
     allowed={'buffered-1p5-to-3','medium-3-to-6','wide-6-plus'}
     reasons={'waiting-issuer-evidence','original-gold-not-verified',
+         'no-confirmed-market-direction','no-verified-stop-target-plan',
          'no-timestamped-issuer-ko-pair','session-closed',
          'same-or-missing-original-signal','stop-risk-unavailable',
          'insufficient-capital','observed-model-entry',
          'daily-loss-limit','cooldown','original-observation-gap',
          'ko-or-product-status-unresolved','dated-exit-bid-not-observed',
          'closed-issuer-bid-model-only'}
-    def n(v, *, money=False):
+    def n(v):
+        # Counters and amounts are bounded separately from Unix epoch-ms.
         return v if type(v) in (int,float) and math.isfinite(v) and 0<=v<=1e9 else None
+    def epoch_ms(v):
+        return v if type(v) in (int,float) and math.isfinite(v) and 0<v<=1e15 else None
     arms=[]
     for a in (control.get('arms') or [])[:3]:
         if not isinstance(a,dict) or a.get('koTier') not in allowed:
@@ -678,7 +682,7 @@ def ko_distance_brief(control):
               and abs(a['modelRealizedEur'])<=1e9 else None))
     checked=control.get('checkedAt')
     return dict(status=control['status'],readOnly=True,realOrders=False,
-        checkedAt=n(checked),arms=arms,tiersReported=len(arms),
+        checkedAt=epoch_ms(checked),arms=arms,tiersReported=len(arms),
         eligiblePricePairs=n(control.get('eligiblePricePairs')),
         originalQuoteChecks=n(control.get('originalQuoteChecks')),
         productReturnVerified=False,brokerExecutionVerified=False,

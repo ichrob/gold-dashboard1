@@ -145,11 +145,57 @@ class KoDistanceTest(unittest.TestCase):
         result=s.report(Conn())
         compact=__import__("bob_diagnostics").ko_distance_brief(result)
         self.assertEqual(len(compact["arms"]),3)
+        # 2026 timestamps are in Unix milliseconds (~1.8e12), not bounded
+        # research counters (<1e9). Never mislabel an active worker as stale.
+        self.assertEqual(compact["checkedAt"],NOW)
+        self.assertEqual(compact["originalQuoteChecks"],1)
         self.assertFalse(compact["brokerExecutionVerified"])
         self.assertFalse(compact["realOrders"])
         self.assertFalse(compact["productReturnVerified"])
         self.assertNotIn("DE000",json.dumps(compact))
         self.assertNotIn("entryAsk",json.dumps(compact))
         self.assertNotIn('"position":',json.dumps(compact))
+
+    def test_neutral_direction_and_invalid_plan_not_mislabeled_as_missing_quote(self):
+        selection,quotes=documents()
+        neutral=market()
+        neutral["direction"]="NEUTRAL"
+        a,b,c,d,e=self._patch()
+        with (a,b,c,d,e):
+            state=s.advance(s.seed(NOW),neutral,selection,quotes,NOW)
+        self.assertTrue(all(x["lastBlock"]=="no-confirmed-market-direction"
+                            and x["started"]==0 for x in state["arms"].values()))
+        compact=__import__("bob_diagnostics").ko_distance_brief(s.report(type(
+            "Conn",(),{"execute":lambda self,*args:self,
+                       "fetchone":lambda self:(state,)})()))
+        self.assertTrue(all(x["lastBlock"]=="no-confirmed-market-direction"
+                            for x in compact["arms"]))
+        planned=market()
+        planned["plan"]=None
+        a,b,c,d,_=self._patch()
+        with (a,b,c,d,patch.object(stop_target_audit,"valid_plan",return_value=False)):
+            state=s.advance(s.seed(NOW),planned,selection,quotes,NOW)
+        self.assertTrue(all(x["lastBlock"]=="no-verified-stop-target-plan"
+                            and x["started"]==0 for x in state["arms"].values()))
+        self.assertEqual(state["eligiblePricePairs"],0)
+
+
+    def test_invalid_clock_is_unknown_without_leaking_arbitrary_payload(self):
+        import bob_diagnostics
+        state={"status":"collecting","checkedAt":float("nan"),
+               "originalQuoteChecks":411,"eligiblePricePairs":0,
+               "arms":[{"koTier":t,"started":0,"closed":0,
+                        "positionOpen":False,"missingExitBid":0,
+                        "unresolvedKo":0,"lastBlock":"no-timestamped-issuer-ko-pair",
+                        "modelCashEur":1000.,"modelEquityEur":1000.,
+                        "modelRealizedEur":0.} for t in s.BANDS]}
+        out=bob_diagnostics.ko_distance_brief(state)
+        self.assertIsNone(out["checkedAt"])
+        self.assertEqual(out["originalQuoteChecks"],411)
+        self.assertEqual(len(out["arms"]),3)
+        json.dumps(out,allow_nan=False)
+        state["checkedAt"]=NOW
+        self.assertEqual(bob_diagnostics.ko_distance_brief(state)["checkedAt"],NOW)
+
 
 if __name__=="__main__":unittest.main()
