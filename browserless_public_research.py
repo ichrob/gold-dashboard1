@@ -130,3 +130,39 @@ def extract(isin, source="sg", *, now=None):
     except Exception:
         # Provider exception messages could contain the API token.
         return _safe_failure(isin, source, "request-failed")
+
+
+# The control always requires an intentional click and Bob's existing login.
+# The returned AI strings are shown as text, never injected as HTML.
+PANEL = r"""
+<details id="bobBrowserlessPublic" style="margin:16px auto;max-width:860px;padding:12px;border:1px solid #ddd;border-radius:12px;background:white">
+ <summary>Browserless · öffentliche Produktrecherche (Test, nur auf Knopfdruck)</summary>
+ <p>Nur Emittenten-/comdirect-Seiten, keine DEGIRO-Anmeldung. KI-Felder sind ungeprüfte Hinweise; keine Handelsfreigabe.</p>
+ <label>ISIN <input id="bobBlIsin" maxlength="12" value="DE000FG77FN1" autocomplete="off"></label>
+ <label>Quelle <select id="bobBlSource"><option value="sg">SG-Zertifikate</option><option value="comdirect">comdirect</option></select></label>
+ <button type="button" id="bobBlRun">Einmal öffentlich prüfen</button>
+ <pre id="bobBlResult" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+</details>
+<script>
+(()=>{const section=document.getElementById('bobBrowserlessPublic');if(!section)return;
+ const button=section.querySelector('#bobBlRun'),output=section.querySelector('#bobBlResult');
+ button.addEventListener('click',async()=>{
+  const isin=section.querySelector('#bobBlIsin').value.trim().toUpperCase();
+  const source=section.querySelector('#bobBlSource').value;
+  if(!/^DE[A-Z0-9]{10}$/.test(isin)){output.textContent='Ungültige ISIN';return}
+  button.disabled=true;output.textContent='Öffentliche Seite wird einmal geprüft …';
+  try{
+   const response=await fetch('/api/browserless/public-research',{
+    method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({isin,source})
+   });
+   const data=await response.json();
+   if(!response.ok)throw Error('HTTP '+response.status);
+   output.textContent=JSON.stringify(data,null,2);
+  }catch{output.textContent='Recherche derzeit nicht verfügbar. Keine Daten verändert.'}
+  finally{button.disabled=false}
+ });
+})();
+</script>
+"""
