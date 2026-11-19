@@ -613,6 +613,8 @@ def new_studies_brief(paper, now_ms=None):
                     'variantsObserved':len(variants) if variants is not None else None,
                     'legacyOpenPositions':value(timing,'legacyOpenPositions')},
         'rapid':rapid_leverage_brief(rapid),
+        **({'shortRegime':short_regime_brief(paper['shortRegimeStudy'])}
+           if isinstance(paper.get('shortRegimeStudy'),dict) else {}),
         **({'entryOpportunities':entry_opportunity_brief(paper['entryOpportunityStudy'])}
            if isinstance(paper.get('entryOpportunityStudy'),dict) else {}),
         'strategyWinnerConfirmed':False,
@@ -638,6 +640,58 @@ def entry_opportunity_brief(control):
             for key in ARMS if isinstance(decisions.get(key),dict)}
     result.update(strategyWinnerConfirmed=False,productReturnVerified=False,realOrders=False,liveRulesChanged=False)
     return result
+
+
+def short_regime_brief(control):
+    """Compact allowlist: never pass positions, product identities or raw clocks."""
+    if not isinstance(control,dict) or control.get('status') not in (
+            'collecting','awaiting-first-worker-check'):
+        return {'status':'unavailable','readOnly':True,'realOrders':False,
+                'productReturnVerified':False}
+    families={'trend-reentry','breakout-retest','false-breakout'}
+    options={'control','adx20','age25','drift11','rr20','stop10','risk05'}
+    blockers={'awaiting-source','no-setup','original-minute-coverage',
+      'closed-five-minute-coverage','five-minute-signal-not-fresh',
+      'atr-unavailable','market-analysis-not-ready','original-spot-not-aligned',
+      'session-closed','spot-before-closed-signal','prior-main-signal-age',
+      'spot-close-drift','original-adx-unavailable','strong-or-opposed-trend',
+      'mtf-adx-not-confirmed','ema-20-50-not-confirmed','main-opposes-study',
+      'stop-distance-invalid','target-room-insufficient',
+      'case-cap-or-cooldown','daily-loss-limit','invalid-stop',
+      'unobserved-exit-gap'}
+    exits={'stop','target','session-exit','time-limit','no-progress','main-opposite'}
+    names={f+':'+opt for f in families for opt in options}
+    arms=[]
+    for row in (control.get('variants') or [])[:21]:
+        if not isinstance(row,dict) or row.get('name') not in names:
+            continue
+        ls=row.get('leverageScenarios')
+        ten=next((e for e in ls if isinstance(e,dict)
+            and e.get('leverage')==10),{}) if isinstance(ls,list) else {}
+        count=lambda k:row[k] if type(row.get(k)) is int and 0<=row[k]<=1000000 else None
+        curr=ten.get('equityEur')
+        curr=curr if type(curr) in (int,float) and math.isfinite(curr) and 0<=curr<=1e9 else None
+        reasons=row.get('exitCounts')
+        arms.append(dict(name=row['name'],family=row.get('family') if row.get('family') in families else None,
+            option=row.get('option') if row.get('option') in options else None,
+            started=count('started'),closed=count('closed'),inconclusive=count('inconclusive'),
+            open=row.get('open') is True,
+            lastBlock=row.get('lastBlock') if row.get('lastBlock') in blockers else None,
+            exitCounts={k:v for k,v in reasons.items()
+                 if k in exits and type(v) is int and 0<=v<=1000000} if isinstance(reasons,dict) else {},
+            modeled10xEquityEur=curr,
+            modeled10xReturnPct=round((curr-1000.)/10.,3) if curr is not None else None,
+            modeled10xClosed=ten.get('completed') if type(ten.get('completed')) is int else None,
+            modeled10xDrawdownPct=ten.get('maxDrawdownPct')
+                  if type(ten.get('maxDrawdownPct')) in (int,float)
+                  and math.isfinite(ten['maxDrawdownPct']) else None))
+    at=control.get('checkedAt')
+    return dict(status=control['status'],readOnly=True,realOrders=False,
+        checkedAt=at if type(at) in (int,float) and math.isfinite(at) else None,
+        configurationsReported=63 if len(arms)==21 else None,
+        variants=arms,productReturnVerified=False,
+        strategyWinnerConfirmed=False,modelCostsOnly=True,
+        scope='small-original-spot-proxy-brief-no-product-fills')
 
 
 def rapid_leverage_brief(control):
@@ -1408,6 +1462,14 @@ def simulation_status(conn, evaluator, paper_health, portfolios):
             result['entryOpportunityStudy'] = __import__('entry_opportunity_study').report(conn)
     except Exception:
         result['entryOpportunityStudy'] = {'status':'unavailable','realOrders':False}
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL statement_timeout='500ms'")
+            result['shortRegimeStudy'] = __import__('gold_short_scenarios').report(conn)
+            conn.execute("SET LOCAL statement_timeout='3s'")
+    except Exception:
+        result['shortRegimeStudy'] = {'status':'unavailable','realOrders':False,
+                                      'reason':'short-regime-report-unavailable'}
     result['shadowStudies']['entryExitComparison'] = comparison
     try:
         with conn.transaction():
