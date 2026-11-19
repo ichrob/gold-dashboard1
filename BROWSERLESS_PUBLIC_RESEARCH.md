@@ -19,6 +19,10 @@ keine automatische Tradeausführung, keine Order.
 - Der neue Aufruf ist nur durch bewusstes Klicken auf
   "Browserless · öffentliche Produktrecherche" im angemeldeten Bob-Webbereich möglich.
   Keine selbsttätige Polling-Schleife, keine periodischen Abfragen.
+- Smart Scrape verwendet ausdrücklich den günstigeren datacenter-Proxy als
+  Fallback, aber die dokumentierte Eskalation kann trotzdem zusätzlich
+  Browserzeit, KI-Extraktion und CAPTCHA-Einheiten kosten. Daher keine
+  Zusicherung eines festen Einheitenpreises pro Einzelaufruf.
 - Prozesslokale Schranke: maximal 3 einzelne Versuche pro UTC-Tag und 12 pro
   UTC-Monat; nur ein Versuch je ISIN und Quelle im Prozess. Die Schranke
   wird bei Render-Neustart zurückgesetzt und ist keine dauerhafte Abrechnungssperre.
@@ -31,14 +35,16 @@ keine automatische Tradeausführung, keine Order.
   sg und comdirect sind feste Domain-/Pfadschablonen. Kein frei übergebbarer
   Weblink, kein DEGIRO-Host, keine Cookies oder Login-Profile.
 - Die Smart-Scrape-Schnittstelle liefert Markdown und unverbindliche KI-Felder.
-  Die Identität muss sowohl im tatsächlichen Markdown als auch in der KI-Antwort
-  exakt stimmen. Mögliche Hinweise: Richtung, KO, Geld/Brief, Hebel,
+  Die öffentliche Quellseite muss HTTP 200 melden. Die Identität muss sowohl
+  im tatsächlichen Markdown als auch in der KI-Antwort exakt stimmen. Mögliche Hinweise: Richtung, KO, Geld/Brief, Hebel,
   Status, Basiswert und auf der Seite angezeigte Kurs-/Hebelzeiten.
 - Antwortfelder bleiben reine Recherchekandidaten. Sie werden nicht
   in product_quotes, quote_updates, Handelsstatus, Produktfreigaben,
   KO-Schwellen, Simulationseinstiege oder Echtgeldaufträge übernommen.
   tradeApproved=false, eligible=false, isDegiroQuote=false,
-  originalQuoteTimeVerified=false sind feste Rückgaberegeln.
+  originalQuoteTimeVerified=false sind feste Rückgaberegeln. Die
+  Rückgabe nennt die Browserless-Strategie zur manuellen Kostenprüfung; sie
+  enthält keine Konto- oder Authentifizierungsinformationen.
 - Kein erfundener Zeitstempel: checkedAt ist allein der Zeitpunkt der
   Browserless-Recherche, ausdrücklich nicht der Originalkurs.
 - Statuscodes und Fehler sind datensparsam; Browserless-Token und Provider-Fehlertext
