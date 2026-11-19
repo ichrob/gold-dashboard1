@@ -10,6 +10,7 @@ class PhoneDiagnosticPolicyTest {
             "LIST_GENERIC_TURBO_RETURN_FAILED",
             "LIST_GENERIC_TURBO_RETURN_STUCK",
             "LIST_GOLD_SEARCH_NOT_RESTORED",
+            "LIST_GOLD_PREVIEW_DIRECT",
             "LIST_GOLD_PREVIEW_CAPTURE_FALLBACK",
             "LIST_ALL_RESULTS_LINK_UNSAFE")) {
             assertEquals(code,PhoneDiagnosticPolicy.code(code))
