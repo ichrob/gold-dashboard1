@@ -31,10 +31,26 @@ def workload_kind(args):
 
 
 def _wait_for(predicate):
-    """Keep the normal queue bound, with one measured grace only for OCR."""
-    if _CONDITION.wait_for(predicate, MAX_QUEUE_SECONDS):
+    """Bound ordinary waits, remembering OCR contention across queue handoffs.
+
+    OCR may finish just before the 10-second deadline while a higher-priority
+    Node task takes its place. Looking only at the *current* active kind at
+    timeout then mistakenly denies the existing OCR grace to the waiting
+    paper-analysis task. Keep a bounded grace if OCR was observed at any
+    point during this wait, without increasing the non-OCR limit.
+    Caller holds _CONDITION; no additional child process is started here.
+    """
+    deadline = monotonic() + MAX_QUEUE_SECONDS
+    saw_ocr = _ACTIVE_KIND == 'ocr'
+    while not predicate():
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            break
+        _CONDITION.wait(remaining)
+        saw_ocr = saw_ocr or _ACTIVE_KIND == 'ocr'
+    if predicate():
         return True
-    if _ACTIVE_KIND != 'ocr':
+    if not saw_ocr:
         return False
     return _CONDITION.wait_for(predicate, OCR_QUEUE_GRACE_SECONDS)
 
