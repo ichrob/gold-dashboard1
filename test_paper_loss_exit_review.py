@@ -96,8 +96,8 @@ class PaperLossReviewProjectionTests(unittest.TestCase):
             def status():return {"completed":1,"failed":0}
         c=Connection()
         import report_admission, decision_audit
-        with patch.object(report_admission,"status",return_value={}), \\
-             patch.object(decision_audit,"prospective_query_probe",return_value={}):
+        with (patch.object(report_admission,"status",return_value={}),
+              patch.object(decision_audit,"prospective_query_probe",return_value={})):
             live=diag.push_snapshot(c,Evaluator(),Health(),Portfolios())
         self.assertEqual(len(c.queries),5) # 4 control SELECTs and one push aggregate
         out=profit.snapshot(live["accounts"])
