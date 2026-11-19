@@ -59,8 +59,7 @@ def _proof(choice,raw,market,now):
         return None
     q=paper_simulation.fresh_quote(raw,now,isin)
     if (not q or q.get("currency")!="EUR"
-            or raw.get("priceKind") in ("issuer-chart","calculated")
-            or raw.get("isExecutableQuote") is True and raw.get("degiroExecutable") is not True):
+            or raw.get("priceKind") in ("issuer-chart","calculated")):
         return None
     blocker,guard=paper_ko_guard.entry_reason(choice,raw,market,now)
     if blocker or not guard or guard.get("danger") or guard.get("crossed"):
@@ -108,7 +107,8 @@ def seed(now):
          realizedModelNetEur=0.,position=None,started=0,closed=0,
          missingExitBid=0,unresolvedKo=0,
          lastSignal=None,lastBlock="waiting-issuer-evidence",
-         lastEvidenceAt=None,observedMaxDrawdownPct=0.,
+         lastEvidenceAt=None,lastExitAt=None,riskDay=None,dayStartEquity=CAPITAL,
+         observedMaxDrawdownPct=0.,
          peakEur=CAPITAL,modelWins=0,modelLosses=0,
          exitCounts={}) for band in BANDS},realOrders=False)
 
@@ -183,6 +183,7 @@ def advance(old,market,selection,quotes,now):
                     arm["observedMaxDrawdownPct"]=max(arm["observedMaxDrawdownPct"],
                         100*(arm["peakEur"]-arm["equityEur"])/arm["peakEur"])
                     arm["position"]=None
+                    arm["lastExitAt"]=now
                     arm["lastBlock"]="closed-issuer-bid-model-only"
                 else:
                     arm["missingExitBid"]+=1
@@ -206,6 +207,16 @@ def advance(old,market,selection,quotes,now):
         clock=datetime.fromtimestamp(now/1000,ZURICH)
         if clock.weekday()>=5 or not (8<=clock.hour<21) or not (market.get("session") or {}).get("entryAllowed"):
             arm["lastBlock"]="session-closed"
+            continue
+        today=clock.date().isoformat()
+        if arm.get("riskDay")!=today:
+            arm["riskDay"]=today
+            arm["dayStartEquity"]=arm["cashEur"]
+        if arm["cashEur"]<=.97*arm["dayStartEquity"]:
+            arm["lastBlock"]="daily-loss-limit"
+            continue
+        if number(arm.get("lastExitAt")) and now-arm["lastExitAt"]<3*MINUTE:
+            arm["lastBlock"]="cooldown"
             continue
         signal=market.get("analysisBarAt")
         if not number(signal) or signal==arm.get("lastSignal"):
