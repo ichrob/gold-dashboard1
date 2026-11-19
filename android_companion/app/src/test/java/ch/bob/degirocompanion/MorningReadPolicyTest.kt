@@ -702,6 +702,36 @@ class MorningReadPolicyTest {
             MorningReadPolicy.Node("V",clickable=true))
     }
 
+    @Test fun goldPreviewIsReadDirectlyInsteadOfOpeningGenericTurbos() {
+        val preview=screenshotGoldTopResults()
+        // This exact Gold > Hebelprodukte > Top Ergebnisse context is
+        // sufficient to enter the existing read-only capture/scroll path.
+        // It does NOT certify ten rows or permit trading.
+        assertTrue(MorningReadPolicy.preferGoldPreviewRead(preview))
+        assertEquals(MorningReadPolicy.Kind.COLLECT,
+            MorningReadPolicy.captureGoldList(preview,false).kind)
+        val catalogue=listOf(
+            MorningReadPolicy.Node("Strukturierte Produkte"),
+            MorningReadPolicy.Node("Hebelprodukte",selected=true),
+            MorningReadPolicy.Node("Turbos"),
+            MorningReadPolicy.Node("279.325 von 279.325 turbos verfügbar"),
+            MorningReadPolicy.Node("BNP GOLD Unlimited Short DE000BY2C3U0"))
+        assertFalse(MorningReadPolicy.preferGoldPreviewRead(catalogue))
+        for(unsafe in listOf(
+            MorningReadPolicy.Node("Order bestätigen"),
+            MorningReadPolicy.Node("",password=true),
+            MorningReadPolicy.Node("",sensitive=true),
+            MorningReadPolicy.Node("Stückzahl",editable=true))) {
+            assertFalse(MorningReadPolicy.preferGoldPreviewRead(preview+unsafe))
+        }
+        assertFalse(MorningReadPolicy.preferGoldPreviewRead(
+            preview.filterNot { it.text=="Top Ergebnisse" }))
+        assertFalse(MorningReadPolicy.preferGoldPreviewRead(
+            preview.mapIndexed { i,n ->
+                if(i==0) n.copy(text="Silber") else n
+            }))
+    }
+
     @Test fun goldSearchOpensOnlyIsolatedFullLeverageResultsLink() {
         val view=screenshotGoldTopResults()
         assertEquals(2,MorningReadPolicy.fullGoldResultsLink(view))
