@@ -141,8 +141,17 @@ def advance(old,market,selection,quotes,now):
     else:
         s["lastInput"]="original-gold-observed"
     if valid_market:s["originalQuoteChecks"]+=1
-    # One ranked product in each distance tier, only when source proof exists.
-    options=candidates(selection,quotes,market,now) if valid_market else {}
+    # Distinguish unavailable ORIGINAL market direction or risk plan from
+    # unavailable issuer quotes. None is permission to create a paper entry.
+    import stop_target_audit
+    direction_block = ("no-confirmed-market-direction"
+        if market.get("direction") not in ("LONG","SHORT")
+        else "no-verified-stop-target-plan"
+        if not stop_target_audit.valid_plan(market.get("plan"))
+        else None)
+    # One ranked product in each tier, only with a confirmed direction, plan
+    # and issuer quote. Zero source matches are NOT automatically feed errors.
+    options=candidates(selection,quotes,market,now) if valid_market and not direction_block else {}
     for band in BANDS:
         arm=s["arms"][band]
         p=arm.get("position")
@@ -216,8 +225,9 @@ def advance(old,market,selection,quotes,now):
             else:
                 arm["equityEur"]=None
             continue
-        if not valid_market or not options.get(band):
-            arm["lastBlock"]="no-timestamped-issuer-ko-pair"
+        if not valid_market or direction_block or not options.get(band):
+            arm["lastBlock"]=("original-gold-not-verified" if not valid_market
+                 else direction_block or "no-timestamped-issuer-ko-pair")
             continue
         clock=datetime.fromtimestamp(now/1000,ZURICH)
         if clock.weekday()>=5 or not (8<=clock.hour<21) or not (market.get("session") or {}).get("entryAllowed"):
