@@ -197,6 +197,7 @@ def init(conn):
     __import__('intraday_timing_study').init(conn)
     __import__('rapid_leverage_study').init(conn)
     __import__('entry_opportunity_study').init(conn)
+    __import__('gold_short_scenarios').init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -1897,6 +1898,15 @@ def _worker(db):
                                 __import__('rapid_leverage_study').tick(conn,bundle,int(time.time()*1000))
                         except Exception as rapid_exc:
                             print('BOB_RAPID_LEVERAGE error='+type(rapid_exc).__name__,flush=True)
+                        # Independent bounded, original-minute Gold regime paper models.
+                        # A study error never changes already committed EUR ledgers.
+                        try:
+                            with conn.transaction():
+                                __import__('gold_short_scenarios').tick(
+                                    conn,bundle,market,int(time.time()*1000))
+                        except Exception as regime_exc:
+                            print('BOB_SHORT_REGIME error='+type(regime_exc).__name__,
+                                  flush=True)
                         print('BOB_PAPER checked profiles='+str(outcomes)+
                               ' direction='+str(market.get('direction'))+
                               ' ready='+str(market.get('ready'))+
