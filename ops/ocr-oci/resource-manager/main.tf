@@ -1,5 +1,5 @@
 # Inputs must come from the OCI account review before generating a saved plan.
-# Use an existing Bob compartment, subnet and reviewed Always Free ARM64 platform image.
+# Use an existing Bob compartment and reviewed Always Free ARM64 platform image.
 terraform {
   required_version = ">= 1.2.0"
   required_providers {
@@ -14,7 +14,6 @@ provider "oci" {
 }
 
 variable "compartment_id" { type = string }
-variable "subnet_id" { type = string }
 variable "reviewed_image_id" { type = string }
 variable "ssh_public_key" { type = string }
 variable "availability_domain" {
@@ -23,6 +22,27 @@ variable "availability_domain" {
     condition     = can(regex(":EU-ZURICH-1-AD-1$", upper(var.availability_domain)))
     error_message = "Select Zurich AD-1."
   }
+}
+
+resource "oci_core_vcn" "bob" {
+  compartment_id = var.compartment_id
+  display_name   = "bob-ocr-test"
+  cidr_blocks    = ["10.73.0.0/24"]
+}
+
+resource "oci_core_security_list" "isolated" {
+  compartment_id = var.compartment_id
+  vcn_id         = oci_core_vcn.bob.id
+  display_name   = "bob-ocr-isolated"
+}
+
+resource "oci_core_subnet" "test" {
+  compartment_id            = var.compartment_id
+  vcn_id                    = oci_core_vcn.bob.id
+  display_name              = "bob-ocr-private"
+  cidr_block                = "10.73.0.0/28"
+  prohibit_public_ip_on_vnic = true
+  security_list_ids         = [oci_core_security_list.isolated.id]
 }
 
 resource "oci_core_instance" "bob" {
@@ -41,7 +61,7 @@ resource "oci_core_instance" "bob" {
     boot_volume_vpus_per_gb = 10
   }
   create_vnic_details {
-    subnet_id        = var.subnet_id
+    subnet_id        = oci_core_subnet.test.id
     assign_public_ip = false
   }
   instance_options {
