@@ -99,7 +99,10 @@ internal object MorningReadRun {
             val noQuotes=codes.count { it in setOf("NO_QUOTES","QUOTES_UNAVAILABLE") }
             val saved=entries(c)
             val confirmed=RunOutbox.currentConfirmed(saved)
-            val receipt=if(confirmed) "Übertragung dieses Laufs bestätigt. " else "Endgültige Übertragung dieses Laufs noch nicht bestätigt. "
+            val receipt=if(d.optBoolean("researchOnly",false))
+                "Nur lokal gespeichert; Übertragung und Produktfreigabe bewusst gesperrt. "
+                else if(confirmed) "Übertragung dieses Laufs bestätigt. "
+                else "Endgültige Übertragung dieses Laufs noch nicht bestätigt. "
             val events=d.getJSONArray("events");val last=events.optJSONObject(events.length()-1)
             (if(d.optBoolean("researchOnly",false))
                 "⚠️ NUR LOKALE RECHERCHE aus unbestätigter Goldliste. Keine Handels- oder Rankingfreigabe.\n"
