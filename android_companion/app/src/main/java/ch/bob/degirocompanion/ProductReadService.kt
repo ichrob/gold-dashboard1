@@ -50,11 +50,11 @@ class ProductReadService : AccessibilityService() {
     private var listTopSeekSteps = 0
     private var listAllResultsTappedAt = 0L
     private var listGenericTurboFallback = false
-    private var listGenericTurboRetryUsed = false
+    private var listVerifiedPreviewFallback = false
     private var listGenericTurboBackAt = 0L
     private fun resetListCapture() {
         listGeneration++; listResumeChecked=false; listTopSeekSteps=0; listAllResultsTappedAt=0L
-        listGenericTurboFallback=false;listGenericTurboRetryUsed=false;listGenericTurboBackAt=0L
+        listGenericTurboFallback=false;listVerifiedPreviewFallback=false;listGenericTurboBackAt=0L
         listBusy=false; listScrolled=false; listScrollTries=0
         listFirstIds=emptyList(); listSeenIds.clear(); listCoveredIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
@@ -1929,8 +1929,13 @@ class ProductReadService : AccessibilityService() {
                             return true
                         }
                         listGenericTurboFallback=false
-                        listGenericTurboRetryUsed=true
-                        GoldSearchRun.event("LIST_GOLD_SEARCH_RESTORED",Instant.now().toString())
+                        // The full-results CTA demonstrably led to the wrong
+                        // global Turbo catalogue. Reuse the OLD verified Gold
+                        // Top Ergebnisse scroll/capture path instead of
+                        // tapping that known-bad CTA a second time.
+                        // Server still requires ten full original product rows.
+                        listVerifiedPreviewFallback=true
+                        GoldSearchRun.event("LIST_GOLD_PREVIEW_CAPTURE_FALLBACK",Instant.now().toString())
                         PhoneDiagnostics.queue(this)
                         handler.postDelayed({ queueRead(400) },200)
                         return true
@@ -1953,15 +1958,6 @@ class ProductReadService : AccessibilityService() {
                     val age=SystemClock.elapsedRealtime()-listAllResultsTappedAt
                     if(age in 0..10000L &&
                         MorningReadPolicy.genericTurboDirectory(descriptions)) {
-                        if(listGenericTurboRetryUsed) {
-                            // A second redirect confirms this is not a Gold
-                            // full-results link. Never loop or import Turbos.
-                            lastNavigationIssue="LIST_GENERIC_TURBO_REDIRECT_REPEAT"
-                            GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
-                            ProductReadRequest.cancel(); PhoneRemote.stop(this,lastNavigationIssue)
-                            PhoneDiagnostics.queue(this)
-                            return true
-                        }
                         // The Gold CTA opened the unfiltered Structured Products
                         // directory. Only one verified BACK to the original
                         // Gold preview is allowed, never a product/order tap.
@@ -1993,7 +1989,7 @@ class ProductReadService : AccessibilityService() {
                         PhoneDiagnostics.queue(this)
                         return true
                     }
-                } else {
+                } else if(!listVerifiedPreviewFallback) {
                     val link=MorningReadPolicy.fullGoldResultsLink(descriptions)
                     if(link!=null && !listGenericTurboFallback) {
                         if(keyboardVisible()) {
