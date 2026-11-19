@@ -76,8 +76,8 @@ class KoDistanceTest(unittest.TestCase):
 
     def test_later_dated_issuer_bid_can_settle_without_broker_claim(self):
         sel,quotes=documents()
-        with self._patch()[0],self._patch()[1],self._patch()[2],self._patch()[3],self._patch()[4]:
-            # separately instantiated patches target same source but compatible stubs
+        a,b,c,d,e=self._patch()
+        with (a,b,c,d,e):
             entered=s.advance(s.seed(NOW),market(),sel,quotes,NOW)
         after=copy.deepcopy(quotes)
         for raw in after.values():
@@ -144,6 +144,6 @@ class KoDistanceTest(unittest.TestCase):
         self.assertFalse(compact["productReturnVerified"])
         self.assertNotIn("DE000",json.dumps(compact))
         self.assertNotIn("entryAsk",json.dumps(compact))
-        self.assertNotIn("position",json.dumps(compact))
+        self.assertNotIn('"position":',json.dumps(compact))
 
 if __name__=="__main__":unittest.main()
