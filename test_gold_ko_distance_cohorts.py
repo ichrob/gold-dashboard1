@@ -81,7 +81,7 @@ class KoDistanceTest(unittest.TestCase):
             entered=s.advance(s.seed(NOW),market(),sel,quotes,NOW)
         after=copy.deepcopy(quotes)
         for raw in after.values():
-            raw["bid"]=11.2;raw["bidAt"]=NOW+29000;raw["askAt"]=NOW+29000
+            raw["bid"]=11.2;raw["bidAt"]=NOW+30000;raw["askAt"]=NOW+30000
         a,b,c,d,e=self._patch()
         with (a,b,c,d,e):
             settled=s.advance(entered,market(NOW+30000,3731),sel,after,NOW+30000)
