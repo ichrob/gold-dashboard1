@@ -12,7 +12,7 @@ def _number(raw):
     # Conservative interpretation of German source numbers; do not infer
     # missing decimals, units, or mixed locale/ambiguous values.
     text=raw.strip()
-    m=re.match(r'^(?:([0-9]{1,3}(?:\.[0-9]{3})+)(?:,([0-9]+))?|([0-9]+)(?:,([0-9]+))?)\b',text)
+    m=re.match(r'^(?:([0-9]{1,3}(?:\.[0-9]{3})+)(?:,([0-9]+))?|([0-9]+)(?:,([0-9]+))?)(?=$|\s)',text)
     if not m:
         return None
     if m[1]:
