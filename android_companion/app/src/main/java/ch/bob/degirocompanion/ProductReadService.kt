@@ -1567,6 +1567,7 @@ class ProductReadService : AccessibilityService() {
         fun fail(code:String) { lastNavigationIssue=code;ProductReadRequest.cancel() }
         if(android.os.Build.VERSION.SDK_INT<34) { fail("LIST_CAPTURE_ANDROID_VERSION");return }
         if(!PhoneRemote.active() || !GoldSearchRun.running || keyboardVisible()) return
+        var footerRecapture=false
         if(listImages.length()>0 && !listScrolled &&
             action.isins.all { it in listSeenIds }) {
             // After asynchronous OCR, a WebView can expose new original rows
@@ -1587,24 +1588,31 @@ class ProductReadService : AccessibilityService() {
             } }.singleOrNull()
             if(chosen==null) {
                 if(candidates.isEmpty() && root.windowId==listWindowId &&
-                    (MorningListEndPolicy.maySubmitAtEnd(descriptions,listImages.length(),
-                        listSeenIds,action.isins,action) ||
-                     MorningListEndPolicy.needsEdgeCapture(listImages.length(),listSeenIds,listCoveredIds))) {
-                    // A real DEGIRO end footer plus existing cropped images
-                    // permits an OCR-verification request, NOT acceptance of
-                    // missing products. The server still demands ten originals.
-                    deliverMorningList(listGeneration)
-                } else fail(if(candidates.isEmpty()) "LIST_SCROLL_UNAVAILABLE" else "LIST_SCROLL_AMBIGUOUS")
+                    MorningListEndPolicy.needsFooterRecapture(descriptions,listImages.length(),
+                        listSeenIds,action.isins,action)) {
+                    // Exactly one additional screenshot of the same safe, cropped
+                    // list footer; never a new tap, a claimed tenth row or an order.
+                    footerRecapture=true
+                } else {
+                    if(candidates.isEmpty() && root.windowId==listWindowId &&
+                        (MorningListEndPolicy.maySubmitAtEnd(descriptions,listImages.length(),
+                            listSeenIds,action.isins,action) ||
+                         MorningListEndPolicy.needsEdgeCapture(listImages.length(),listSeenIds,listCoveredIds))) {
+                        // A real DEGIRO footer permits only OCR verification.
+                        deliverMorningList(listGeneration)
+                    } else fail(if(candidates.isEmpty()) "LIST_SCROLL_UNAVAILABLE" else "LIST_SCROLL_AMBIGUOUS")
+                    return
+                }
+            } else {
+                if(++listScrollTries>2) { fail("LIST_SCROLL_NO_PROGRESS");return }
+                lastNavigation=SystemClock.elapsedRealtime()
+                listScrolled=nodes[chosen].performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                if(listScrolled) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_SCROLL_SENT)
+                if(!listScrolled) fail("LIST_SCROLL_REJECTED")
                 return
             }
-            if(++listScrollTries>2) { fail("LIST_SCROLL_NO_PROGRESS");return }
-            lastNavigation=SystemClock.elapsedRealtime()
-            listScrolled=nodes[chosen].performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-            if(listScrolled) ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LIST_SCROLL_SENT)
-            if(!listScrolled) fail("LIST_SCROLL_REJECTED")
-            return
         }
-        if(listImages.length()>0 && action.isins==listFirstIds &&
+        if(listImages.length()>0 && action.isins==listFirstIds && !footerRecapture &&
             !(listScrolled && MorningListEndPolicy.needsEdgeCapture(
                 listImages.length(),listSeenIds,listCoveredIds))) {
             if(root.windowId==listWindowId &&
