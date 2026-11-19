@@ -85,7 +85,7 @@ class ProductReadActivity : Activity() {
         capabilityActions["Bob starten"] = { startAutomaticTest() }
         capabilityActions["Silber-Hebelprodukte suchen"] = { startPreparedGoal("Silber") }
         capabilityActions["Gold-Hebelprodukte suchen"] = { startPreparedGoal("Gold") }
-        button("Prüfung stoppen") { stopAndResetCurrentTest() }
+        button("Prüfung stoppen") { requestStopConfirmation() }
         result=TextView(this).apply { textSize=18f;setTextIsSelectable(true) }
         container.addView(result)
         container.addView(TextView(this).apply { tag = "pin_probe_status"; text = PinReadinessProbe.message; textSize = 18f })
@@ -793,6 +793,35 @@ class ProductReadActivity : Activity() {
      * cannot start a reader after the user pressed STOP. Never delete the
      * persistent MorningReadRun outbox or confirmed product observations.
      */
+    /** A single accidental tap must not cancel an explicitly started Gold
+     * reader and erase the reason it got stuck. Explicit STOP remains available
+     * after confirmation; the dialog never controls DEGIRO or an order. */
+    private fun requestStopConfirmation() {
+        val active=MorningReadUiPolicy.stopConfirmationRequired(
+            PhoneRemote.active(),GoldSearchRun.running,MorningReadRun.running,
+            ProductReadRequest.active(SystemClock.elapsedRealtime()),
+            PinReadinessProbe.running,
+            LoginToReadHandoff.pending(SystemClock.elapsedRealtime()),
+            MorningListDelivery.waiting)
+        if(!active) {
+            result.text="Kein aktiver Bob-Leselauf zum Stoppen. Gespeicherte Diagnosen und Produktbelege bleiben erhalten."
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Bob-Leselauf wirklich stoppen?")
+            .setMessage("Der Gold-Leser wird dadurch beendet. Bei einem hängenden Bildschirm bleiben bisherige Originalbelege erhalten; Bob kann den aktuellen Leseschritt danach nicht fortsetzen. Weiterlaufen führt ohne zusätzlichen Lesestart nur zurück zu DEGIRO.")
+            .setNegativeButton("Weiterlaufen") { _, _ ->
+                if(PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running) {
+                    runCatching {
+                        val launch=packageManager.getLaunchIntentForPackage(ProductScreenEvidence.PACKAGE)
+                        if(launch!=null) startActivity(launch)
+                    }
+                }
+            }
+            .setPositiveButton("Lauf stoppen") { _, _ -> stopAndResetCurrentTest() }
+            .show()
+    }
+
     private fun stopAndResetCurrentTest() {
         refreshTickets.cancel()
         refreshPreparing=false
@@ -804,9 +833,12 @@ class ProductReadActivity : Activity() {
         MorningReadRun.stop(this,"USER_STOP")
         ProductReadRequest.cancel()
         ProductReadSession.clear()
-        ProductReadDiagnostics.clear()
+        // Preserve shape-only diagnostic counters and confirmed image outboxes
+        // across an owner-confirmed STOP so the concrete navigation issue
+        // remains visible. A new local read resets the counters on start.
+        PhoneDiagnostics.queue(this)
         refresh()
-        result.text="Test abgebrochen und zurückgesetzt. Du kannst einen neuen Test starten.\n\n"+result.text
+        result.text="Leselauf auf ausdrückliche Bestätigung gestoppt. Der letzte Diagnosebericht bleibt erhalten.\n\n"+result.text
     }
     /** Explicit, time-bounded owner lock/unlock rehearsal. Distinct from
      * any market signal and from the separate live product-reading session.
@@ -1002,7 +1034,7 @@ class ProductReadActivity : Activity() {
         primary.text=if(PhoneRemote.active() || GoldSearchRun.running || MorningReadRun.running) "Läuft · DEGIRO öffnen" else "Bob starten"
         val delivery=MorningListDelivery.status(this)
         val current=when {
-            GoldSearchRun.running -> "Goldsuche läuft · zehn Top Ergebnisse erfassen"
+            GoldSearchRun.running -> "Goldsuche läuft · vollständige Gold-Hebelproduktliste mit zehn Einträgen prüfen"
             MorningReadRun.running -> delivery+"\n\nFehlende Produktangaben lesen: "+MorningReadRun.summary()
             delivery.isNotBlank() -> delivery + "\n\n" + MorningReadRun.savedStatus(this)
             GoldSearchRun.lastCode!=null -> "Goldsuche beendet: "+MorningReadUiPolicy.reason(GoldSearchRun.lastCode.orEmpty())

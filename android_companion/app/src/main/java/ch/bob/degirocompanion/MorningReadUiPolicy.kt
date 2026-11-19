@@ -3,6 +3,12 @@ package ch.bob.degirocompanion
 /** One primary action and finite, opt-out automatic diagnostic handoff. */
 internal object MorningReadUiPolicy {
     enum class Action { OPEN, SEND, SETUP, START }
+    /** A consented read may be stopped only by an explicit confirmed owner
+     * action. An idle tap must not delete previously captured diagnostics. */
+    fun stopConfirmationRequired(remote:Boolean,gold:Boolean,detail:Boolean,
+                                 read:Boolean,pin:Boolean,handoff:Boolean,
+                                 upload:Boolean):Boolean =
+        remote || gold || detail || read || pin || handoff || upload
     fun action(running:Boolean,pending:Boolean,enabled:Boolean,connected:Boolean):Action = when {
         running -> Action.OPEN
         pending -> Action.SEND
@@ -56,7 +62,8 @@ internal object MorningReadUiPolicy {
         "LOGIN_HANDOFF_START_FAILED" -> "DEGIRO erkannt, aber der Lesestart ist fehlgeschlagen. Diagnose prüfen und erneut starten."
         "LOGIN_HANDOFF_DISABLED" -> "DEGIRO erkannt, aber Android-Leseberechtigung wurde deaktiviert."
         "SCREEN_LOCKED" -> "Bildschirm wurde gesperrt"
-        "USER_INTERRUPTED", "USER_STOP" -> "Prüfung durch Bedienung beendet"
+        "USER_INTERRUPTED" -> "Lesung durch andere Bedienung unterbrochen"
+        "USER_STOP" -> "Lesung durch ausdrücklich bestätigte Stopptaste beendet"
         "PROTECTED_VERIFICATION" -> "Sicherheitsabfrage erkannt; bitte selbst in DEGIRO prüfen und anschließend neu starten"
         "PROTECTED_PASSWORD" -> "Passwortfeld sichtbar; zuerst selbst in DEGIRO anmelden"
         "PROTECTED_LOGIN" -> "Anmeldemerkmal sichtbar; Lesen sicher angehalten"
