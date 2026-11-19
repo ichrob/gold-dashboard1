@@ -23,7 +23,7 @@ class ReportQueueStatusTests(unittest.TestCase):
         self.assertTrue(snapshot['readOnly'])
         self.assertFalse(snapshot['realOrders'])
         self.assertEqual(snapshot['pendingKeys'], 1)
-        self.assertEqual(snapshot['maxActiveLoads'], 2)
+        self.assertEqual(snapshot['maxActiveLoads'], 1)
         self.assertEqual(snapshot['maxPendingKeys'], 32)
         self.assertNotIn('secret-report', json.dumps(snapshot))
         self.assertNotIn('token', json.dumps(snapshot))

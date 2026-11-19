@@ -9,7 +9,11 @@ from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 
 _lock=threading.Lock()
 _pending={}
-_slots=threading.BoundedSemaphore(2)
+# The smallest Render database timed out when two distinct authenticated
+# reports overlapped a bounded background harvest.  Keep database-backed
+# report loaders single-flight; identical callers still share one Future.
+_MAX_ACTIVE_LOADS=1
+_slots=threading.BoundedSemaphore(_MAX_ACTIVE_LOADS)
 _ACTIVE_LOADS=0
 _COUNTERS=dict(completed=0, failed=0, capacityTimeouts=0,
                queueFull=0, joined=0, joiningTimeouts=0)
@@ -21,7 +25,7 @@ def status():
         return dict(status='observed', readOnly=True, realOrders=False,
                     scope='push-process-read-report-admission-since-start',
                     pendingKeys=len(_pending), activeLoads=_ACTIVE_LOADS,
-                    maxActiveLoads=2, maxPendingKeys=32, **_COUNTERS)
+                    maxActiveLoads=_MAX_ACTIVE_LOADS, maxPendingKeys=32, **_COUNTERS)
 
 
 

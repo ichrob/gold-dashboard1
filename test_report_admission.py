@@ -56,6 +56,45 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(gate.status()['pendingKeys'], 0)
             self.assertEqual(gate.read('copy-error', lambda: {'ok':True}), {'ok':True})
 
+    def test_distinct_reports_do_not_overlap_database_loaders(self):
+        first_entered=threading.Event()
+        release_first=threading.Event()
+        second_started=threading.Event()
+        second_entered=threading.Event()
+        activity_lock=threading.Lock()
+        active=0
+        peak=0
+
+        def loader(entered):
+            nonlocal active,peak
+            with activity_lock:
+                active+=1
+                peak=max(peak,active)
+            entered.set()
+            if entered is first_entered:
+                self.assertTrue(release_first.wait(5))
+            with activity_lock:
+                active-=1
+            return {'ok':True}
+
+        def second_call():
+            second_started.set()
+            return gate.read('second',lambda:loader(second_entered))
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first=pool.submit(gate.read,'first',lambda:loader(first_entered))
+            self.assertTrue(first_entered.wait(5))
+            second=pool.submit(second_call)
+            self.assertTrue(second_started.wait(5))
+            self.assertFalse(second_entered.wait(0.1))
+            self.assertEqual(gate.status()['activeLoads'],1)
+            self.assertEqual(gate.status()['maxActiveLoads'],1)
+            release_first.set()
+            self.assertEqual(first.result(5),{'ok':True})
+            self.assertEqual(second.result(5),{'ok':True})
+        self.assertEqual(peak,1)
+        self.assertFalse(gate._pending)
+
     def test_waiter_does_not_borrow_connection(self):
         entered=threading.Event();semaphore=threading.BoundedSemaphore(2)
         semaphore.acquire();semaphore.acquire()
