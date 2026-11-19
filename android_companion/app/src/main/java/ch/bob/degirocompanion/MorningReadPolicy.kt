@@ -482,6 +482,13 @@ internal object MorningReadPolicy {
         return inlineTitle.singleOrNull()
     }
 
+    /** Android's keyboard must be dismissed before a Gold category strip
+     * scroll, category tap or list capture; otherwise WebView may report
+     * accepted scrolls without exposing the next visible tab. */
+    fun goldNeedsKeyboardDismissal(kind: Kind, openingProduct: Boolean): Boolean =
+        kind in setOf(Kind.CATEGORY,Kind.CATEGORY_SCROLL,Kind.COLLECT) ||
+            (openingProduct && kind==Kind.RESULT)
+
     fun searchLeveraged(nodes: List<Node>, query: String, categoryTapped: Boolean = false): Action {
         if (query !in setOf("Gold","Silber")) return Action(Kind.BLOCK,code="INVALID_VIEW")
         return navigate(nodes,query,true,{ null },searchOnly=true,categoryTapped=categoryTapped)
