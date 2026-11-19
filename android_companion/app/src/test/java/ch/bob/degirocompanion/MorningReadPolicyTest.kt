@@ -850,6 +850,14 @@ class MorningReadPolicyTest {
         assertTrue(MorningReadPolicy.safeGoldSearchRecovery(gold))
         assertEquals(MorningReadPolicy.Kind.CATEGORY,
             MorningReadPolicy.discoverGold(gold).kind)
+        // Android can expose the exact standard placeholder as the editable
+        // input text while its search overlay becomes visible after BACK.
+        val prompt=listOf(MorningReadPolicy.Node(
+            "Mit Namen, ISIN oder Symbol suchen",id="search-input",
+            editable=true,focused=true))
+        assertTrue(MorningReadPolicy.safeGoldSearchRecovery(prompt))
+        assertEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.discoverGold(prompt).kind)
 
         // The existing scroll/capture reader still accepts genuine Gold
         // Top Ergebnisse as candidate rows, never as a 10/10 server receipt.
