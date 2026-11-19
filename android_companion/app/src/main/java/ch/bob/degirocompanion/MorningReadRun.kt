@@ -57,7 +57,11 @@ internal object MorningReadRun {
         val arr=data?.optJSONObject("requestedFields")?.optJSONArray(target) ?: return false
         return (0 until arr.length()).any { arr.optString(it)=="Hebel" }
     }
-    fun summary(): String = if (running) "Produkt ${index+1} von $count · $target · Versuch $attempt/2" else "Listenlauf nicht aktiv."
+    fun summary(): String = if (running)
+        (if(data?.optBoolean("researchOnly")==true)
+            "LOKALE RECHERCHE (nicht freigegeben) · " else "") +
+            "Produkt ${index+1} von $count · $target · Versuch $attempt/2"
+        else "Listenlauf nicht aktiv."
     fun expired(now: Long = SystemClock.elapsedRealtime()) = now < started || now-started >= 15*60*1000
     private fun entries(c: Context): Map<String,String> = prefs(c).all.filterKeys {
         it == RunOutbox.CURRENT || it == RunOutbox.RESUME || it.startsWith(RunOutbox.PREFIX)
@@ -96,6 +100,9 @@ internal object MorningReadRun {
             val confirmed=RunOutbox.currentConfirmed(saved)
             val receipt=if(confirmed) "Übertragung dieses Laufs bestätigt. " else "Endgültige Übertragung dieses Laufs noch nicht bestätigt. "
             val events=d.getJSONArray("events");val last=events.optJSONObject(events.length()-1)
+            (if(d.optBoolean("researchOnly",false))
+                "⚠️ NUR LOKALE RECHERCHE aus unbestätigter Goldliste. Keine Handels- oder Rankingfreigabe.\n"
+             else "") +
             "$read vollständig · $partial teilweise · $noQuotes ohne Kurspaar · ${rows.length()} von ${d.getJSONArray("isins").length()} geprüft.\n"+
                 (if(last!=null) "Zuletzt: ${MorningReadUiPolicy.reason(last.optString("code"))}.\n" else "Noch kein Produkt gelesen.\n")+
                 receipt+"${RunOutbox.archivedPending(saved)} ältere Protokoll(e) separat zur Übertragung gespeichert; neuer Start bleibt möglich."
@@ -131,9 +138,14 @@ internal object MorningReadRun {
     }
     fun beginDiscovered(c: Context, values: List<String>, listBatchId: String? = null,
                         requested: Map<String, List<String>>? = null, originalListAt: String? = null,
-                        requestBatchId: String? = null) {
+                        requestBatchId: String? = null,
+                        researchOnly: Boolean = false) {
         check(!running) { "Listenlauf läuft bereits." }
         check(values.size in 1..12 && values.distinct()==values && values.all { SeriesEvidence.validIsin(it) })
+        if(researchOnly) check(values.size in 9..10 && listBatchId==null &&
+            requested==null && originalListAt==null && requestBatchId==null) {
+            "Lokale Recherche nur aus strikt beobachteten ISINs ohne freigegebene Liste"
+        }
         check(listBatchId==null || listBatchId.matches(Regex("[a-f0-9]{32}")))
         check(requestBatchId==null || (PhoneRemote.entryReadSession() &&
             requestBatchId.matches(Regex("[a-f0-9]{32}")) && values.size==1 && listBatchId!=null))
@@ -142,11 +154,16 @@ internal object MorningReadRun {
                 v.distinct()==v && v.all { it in SelectiveDetailPlan.fields } })
         if(originalListAt!=null) check(System.currentTimeMillis()-Instant.parse(originalListAt).toEpochMilli() in 0..14*60*60*1000L)
         data=JSONObject().put("batchId",requestBatchId ?: UUID.randomUUID().toString().replace("-",""))
-            .put("listUploadedAt",originalListAt ?: Instant.now().toString()).put("listSource","degiro-gold-search")
+            .put("listUploadedAt",originalListAt ?: Instant.now().toString())
+            .put("listSource",if(researchOnly) "unverified-local-gold-preview" else "degiro-gold-search")
+            .put("researchOnly",researchOnly)
             .put("appVersionCode",c.packageManager.getPackageInfo(c.packageName,0).versionCode)
             .put("revision",0).put("isins",JSONArray(values)).put("results",JSONArray()).put("events",JSONArray())
         if(listBatchId!=null)data!!.put("listBatchId",listBatchId)
-        if(originalListAt==null) rememberRefreshSource(c,data!!.toString())
+        // Unconfirmed OCR identities can never become a saved, validated
+        // list source for signal-triggered reads or the trade UI.
+        if(originalListAt==null && !researchOnly)
+            rememberRefreshSource(c,data!!.toString())
         if(requested!=null) data!!.put("requestedFields",JSONObject().apply {
             values.forEach { put(it,JSONArray(requested.getValue(it))) }
         })
@@ -225,6 +242,9 @@ internal object MorningReadRun {
     fun resumeRecent(c: Context): Boolean {
         val raw=RunOutbox.resumable(entries(c)) ?: return false
         val saved=runCatching { JSONObject(raw) }.getOrNull() ?: return false
+        // Never silently restart unverified local research on the next
+        // Bob-start tap; it needs a newly owner-started verified session.
+        if(saved.optBoolean("researchOnly",false))return false
         val age=runCatching { System.currentTimeMillis()-Instant.parse(saved.getString("listUploadedAt")).toEpochMilli() }.getOrNull() ?: return false
         val events=saved.optJSONArray("events") ?: return false
         if(!MorningResumePolicy.eligible(age,saved.optInt("resumeCount"),
