@@ -215,6 +215,95 @@ def safe_net_sample(value):
     return out
 
 
+
+# Fixed, code-owned exit categories; never forward raw case/issuer data.
+LOSS_REVIEW_PROFILES = frozenset(('ema3000nov','noema5000nov',
+                                  'early1000dec','early5m1000nov'))
+MODEL_EXIT_REASONS = frozenset(('stop','time-exit','target-exit',
+    'reversal-exit','ko-safety-exit','profit-weak','trend-exit',
+    'partial-profit','stop-follow','other'))
+
+
+def saved_exit_review(reflection):
+    """Read a control's already-stored paper reflections; no trade or SQL reads.
+
+    The cumulative counts are stored by the normal ledger at settlement.
+    The most recent 20 reviewed cases are a bounded descriptive SAMPLE, not
+    necessarily the entire history, nor verified DEGIRO net returns.
+    """
+    unknown = dict(status='not-yet-observed', readOnly=True, realOrders=False,
+        brokerNetVerified=False, fullHistoryRead=False,
+        sampleScope='last-twenty-saved-reflections-not-full-trade-history')
+    if not isinstance(reflection, dict) or reflection.get('version') != 'paper-reflection-v1':
+        return unknown
+    def count(key):
+        v=reflection.get(key)
+        return v if type(v) is int and 0 <= v <= 1000000 else None
+    reviewed=count('reviewed'); evaluated=count('evaluated')
+    losses=count('modelLosses'); unpriced=count('unpriced')
+    if (None in (reviewed,evaluated,losses,unpriced) or
+            evaluated+unpriced > reviewed or losses > evaluated):
+        return dict(unknown,status='invalid-stored-summary')
+    recent=reflection.get('recent')
+    if not isinstance(recent,list):
+        recent=[]
+    reasons={}
+    sample=dict(reviewed=0,modeledWins=0,modeledLosses=0,
+                modeledFlat=0,unpriced=0,grossPositiveButNetNonPositive=0)
+    for x in recent[-20:]:
+        if not isinstance(x,dict) or x.get('version')!='paper-reflection-v1':
+            continue
+        sample['reviewed']+=1
+        reason=x.get('exitReason')
+        reason=reason if reason in MODEL_EXIT_REASONS else 'other'
+        reasons[reason]=reasons.get(reason,0)+1
+        cost=x.get('costModel')
+        net=number(cost.get('modelNetEur')) if isinstance(cost,dict) else None
+        gross=number(cost.get('grossEur')) if isinstance(cost,dict) else None
+        if net is None:
+            sample['unpriced']+=1
+        else:
+            sample['modeledWins' if net>0 else
+                   'modeledLosses' if net<0 else 'modeledFlat']+=1
+            if gross is not None and gross>0 and net<=0:
+                sample['grossPositiveButNetNonPositive']+=1
+    return {**unknown,'status':'observed',
+        'cumulative':{'reviewed':reviewed,'modeledEvaluated':evaluated,
+                      'modeledLosses':losses,'unpriced':unpriced,
+                      'modelNetEur':number(reflection.get('modelNetEur'))},
+        'recentSample':sample,'recentExitReasons':reasons,
+        'lastAt':number(reflection.get('lastAt'),timestamp=True)}
+
+
+def safe_exit_review_projection(value):
+    """Allowlist an already sanitized report for paperProfitEvidence rows."""
+    if not isinstance(value,dict) or value.get('status') not in (
+            'observed','not-yet-observed','invalid-stored-summary'):
+        return {'status':'unavailable','readOnly':True,'brokerNetVerified':False,
+                'fullHistoryRead':False}
+    out={'status':value['status'],'readOnly':True,'realOrders':False,
+         'brokerNetVerified':False,'fullHistoryRead':False,
+         'sampleScope':'last-twenty-saved-reflections-not-full-trade-history'}
+    def validated_counts(obj,fields):
+        return {k:obj[k] for k in fields if type(obj.get(k)) is int
+                and 0<=obj[k]<=1000000} if isinstance(obj,dict) else {}
+    if out['status']=='observed':
+        cumul=value.get('cumulative')
+        out['cumulative']=validated_counts(cumul,
+            ('reviewed','modeledEvaluated','modeledLosses','unpriced'))
+        if isinstance(cumul,dict):
+            out['cumulative']['modelNetEur']=number(cumul.get('modelNetEur'))
+        out['recentSample']=validated_counts(value.get('recentSample'),
+            ('reviewed','modeledWins','modeledLosses','modeledFlat',
+             'unpriced','grossPositiveButNetNonPositive'))
+        reasons=value.get('recentExitReasons')
+        out['recentExitReasons']={
+            k:v for k,v in reasons.items() if k in MODEL_EXIT_REASONS
+            and type(v) is int and 0<=v<=20} if isinstance(reasons,dict) else {}
+        out['lastAt']=number(value.get('lastAt'),timestamp=True)
+    return out
+
+
 def snapshot(accounts):
     """Project only explicitly allowlisted account-control numbers already read."""
     unavailable = dict(status='unavailable', readOnly=True, realOrders=False,
@@ -280,7 +369,9 @@ def snapshot(accounts):
             forwardEvidence=(safe_forward_projected(a['forwardEvidence'])
                              if a.get('forwardEvidence') is not None
                              else safe_forward_evidence(a.get('forwardValidation'))),
-            recentModelNetSample=safe_net_sample(a.get('netEvidenceSample'))))
+            recentModelNetSample=safe_net_sample(a.get('netEvidenceSample')),
+            modelExitReview=(safe_exit_review_projection(a.get('modelExitReview'))
+                             if profile in LOSS_REVIEW_PROFILES else None)))
     complete = all(r.get('source') == 'saved-virtual-control'
                    and r.get('initialCapitalEur') is not None
                    and r.get('equityEur') is not None for r in rows)

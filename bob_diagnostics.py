@@ -1146,6 +1146,11 @@ def push_snapshot(conn, evaluator, paper_health, portfolios, extended=False):
         # trades, provider prices, account credentials or extra database reads.
         from paper_profit_summary import safe_forward_evidence
         record['forwardEvidence'] = safe_forward_evidence(source_control.get('forwardValidation'))
+        # The virtual ledger already saves bounded post-exit review counts.
+        # No case scan, extra SQL query, raw issuer quote or change to entries.
+        if profile in ('ema3000nov','noema5000nov','early1000dec','early5m1000nov'):
+            from paper_profit_summary import saved_exit_review
+            record['modelExitReview']=saved_exit_review(source_control.get('reflection'))
         accounts.append(record)
     # Single bounded aggregate: distinguish no installed subscription from
     # an existing subscription whose notifications are disabled. No endpoints,
