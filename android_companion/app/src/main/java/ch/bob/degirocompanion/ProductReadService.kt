@@ -1953,7 +1953,7 @@ class ProductReadService : AccessibilityService() {
                         // unlocked and owner-authorized broker window.
                         val current=productRoot(false)
                         val same=current?.windowId==root.windowId &&
-                            current.packageName?.toString()==ProductScreenEvidence.PACKAGE
+                            current?.packageName?.toString()==ProductScreenEvidence.PACKAGE
                         current?.recycle()
                         if(!same || !PhoneRemote.active() || !GoldSearchRun.running ||
                             !ProductReadRequest.active(SystemClock.elapsedRealtime()) ||
