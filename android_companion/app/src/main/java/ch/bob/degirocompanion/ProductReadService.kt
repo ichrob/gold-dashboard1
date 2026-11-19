@@ -383,7 +383,6 @@ class ProductReadService : AccessibilityService() {
             check(ready) { "DEGIRO nicht eindeutig auf der sicheren Produktsuche" }
             MorningReadRun.beginDiscovered(this,local,researchOnly=true)
             ProductReadRequest.start(SystemClock.elapsedRealtime())
-            ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_STARTED)
             PhoneDiagnostics.queue(this)
         }
         MorningListDelivery.onFreshCaptureRequired={
