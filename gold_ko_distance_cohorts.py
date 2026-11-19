@@ -57,6 +57,13 @@ def _proof(choice,raw,market,now):
     if (choice.get("estimated") or choice.get("indicative")
             or choice.get("direction")!=market.get("direction")):
         return None
+    # Research may not silently substitute Swiss DOTS/Swissquote execution
+    # for the owner's DEGIRO product universe, even if quoted in EUR.
+    venue=" ".join(str(v or "") for v in (
+        choice.get("venue"),choice.get("issuerVenue"),
+        raw.get("venue"),raw.get("issuerVenue"))).lower()
+    if "swiss dots" in venue or "swissquote" in venue:
+        return None
     q=paper_simulation.fresh_quote(raw,now,isin)
     if (not q or q.get("currency")!="EUR"
             or raw.get("priceKind") in ("issuer-chart","calculated")):
