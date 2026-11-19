@@ -178,14 +178,14 @@ internal object MorningListDelivery {
                         val raw=body.optJSONArray("localCandidates")
                         val local=if(raw==null) emptyList() else
                             (0 until raw.length()).map { raw.optString(it) }
-                        val counts=receipt.optJSONObject("verificationCounts")
+                        val counts=receipt?.optJSONObject("verificationCounts")
                         val provisional=if(counts==null || resumeSavedCapture) null else
                             ProvisionalIsinReadPolicy.candidates(
                                 local,
-                                serverBatchMatches=response.optString("batchId")==batch,
-                                stage=receipt.optString("stage"),
-                                error=receipt.optString("error"),
-                                enhanced=receipt.optBoolean("enhancedVerification",false),
+                                serverBatchMatches=response?.optString("batchId")==batch,
+                                stage=receipt?.optString("stage").orEmpty(),
+                                error=receipt?.optString("error").orEmpty(),
+                                enhanced=receipt?.optBoolean("enhancedVerification",false)==true,
                                 recognized=counts.optInt("uniqueRows",-1),
                                 expected=counts.optInt("expectedRows",-1),
                                 images=counts.optInt("imagesTotal",-1),
