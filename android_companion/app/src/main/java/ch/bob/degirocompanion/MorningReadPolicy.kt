@@ -617,6 +617,15 @@ internal object MorningReadPolicy {
             }
         }
 
+    /** The original Samsung Gold results link currently opens the unfiltered
+     * global Turbos directory. Use the EXISTING, read-only Gold preview
+     * capture/scroll path instead of activating that link. This verifies only
+     * the search context, NOT a complete ten-row catalog; the server retains
+     * its strict ten-complete-original-rows requirement. */
+    fun preferGoldPreviewRead(nodes: List<Node>): Boolean =
+        fullGoldResultsLink(nodes)!=null &&
+            nodes.any { normalized(it.text).equals("Top Ergebnisse",true) }
+
     fun fullGoldResultsLink(nodes: List<Node>): Int? {
         if (nodes.size > 500 ||
             nodes.count { normalized(it.text).equals("Top Ergebnisse", true) } != 1 ||
