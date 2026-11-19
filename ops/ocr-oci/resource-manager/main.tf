@@ -16,7 +16,6 @@ provider "oci" {
 variable "compartment_id" { type = string }
 data "oci_core_images" "bob_ubuntu" {
   compartment_id   = var.compartment_id
-  display_name     = "Canonical-Ubuntu-24.04-aarch64-2026.11.05-0"
   operating_system = "Canonical Ubuntu"
   shape            = "VM.Standard.A1.Flex"
   state            = "AVAILABLE"
