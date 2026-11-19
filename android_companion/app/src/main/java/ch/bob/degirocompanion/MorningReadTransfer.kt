@@ -54,6 +54,10 @@ class MorningReadTransfer : Activity() {
             if(GoldSearchRun.running || ProductReadRequest.active(SystemClock.elapsedRealtime())) return false
             val raw=MorningReadRun.pending(c) ?: return false
             val data=org.json.JSONObject(raw)
+            // Unconfirmed nine-of-ten observations are research only: they
+            // remain on the owner's handset and must NEVER enter the normal
+            // browser upload or the server-confirmed product/ranking pipeline.
+            if(data.optBoolean("researchOnly",false))return false
             if(data.optString("listBatchId").matches(Regex("[a-f0-9]{32}")) && PhoneDiagnostics.paired(c)) {
                 return ProductDetailDelivery.autoStart(c)
             }
@@ -72,6 +76,12 @@ class MorningReadTransfer : Activity() {
         fun showResults(c: Context) {
             check(!MorningReadRun.running) { "Leselauf läuft noch. Zuerst stoppen oder Abschluss abwarten." }
             val raw=MorningReadRun.pending(c) ?: return
+            // Explicit manual export also cannot accidentally promote local
+            // provisional research into a verified product import.
+            check(!org.json.JSONObject(raw).optBoolean("researchOnly",false)) {
+                "Nicht bestätigte ISIN-Recherche bleibt nur lokal in Bob Handy. " +
+                    "Erst die vollständig bestätigte Zehnerliste darf übertragen werden."
+            }
             val encoded=Base64.encodeToString(raw.toByteArray(Charsets.UTF_8),Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
             c.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(BASE+"#bob-read-results="+encoded)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             val data=org.json.JSONObject(raw)

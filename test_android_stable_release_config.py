@@ -169,6 +169,23 @@ class AndroidStableReleaseTests(unittest.TestCase):
         # All full-list starts must use the SAME lease, instead of
         # silently reverting to 60 s from the one-button activity.
         self.assertIn('ProductReadRequest.startGoldList(now)', service)
+        delivery = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/MorningListDelivery.kt").read_text()
+        run = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/MorningReadRun.kt").read_text()
+        transfer = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/MorningReadTransfer.kt").read_text()
+        # A rejected batch can trigger local read-only research, but never
+        # promote these unconfirmed candidate identities or quotes into
+        # the authenticated daily list or any trading decision.
+        self.assertIn('MorningListDelivery.onProvisionalResearch=', service)
+        self.assertIn('MorningReadRun.beginDiscovered(this,local,researchOnly=true)', service)
+        self.assertIn('remove("localCandidates")', delivery)
+        self.assertIn('ProvisionalIsinReadPolicy.candidates(', delivery)
+        self.assertIn('if(researchOnly) "unverified-local-gold-preview"', run)
+        self.assertIn('if(originalListAt==null && !researchOnly)', run)
+        self.assertIn('if(data.optBoolean("researchOnly",false))return false', transfer)
+        phone = (ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/PhoneRemote.kt").read_text()
+        self.assertIn('MorningReadRun.researchOnlyActive()) empty("LOCAL_RESEARCH_ACTIVE")', phone)
+        self.assertIn('!MorningReadRun.researchOnlyActive()', phone)
+        self.assertIn('check(!org.json.JSONObject(raw).optBoolean("researchOnly",false))', transfer)
         request=(ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadRequest.kt").read_text()
         activity=(ROOT / "android_companion/app/src/main/java/ch/bob/degirocompanion/ProductReadActivity.kt").read_text()
         self.assertIn('fun startGoldList(now: Long) = start(now,120000L,60)', request)

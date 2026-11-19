@@ -251,6 +251,9 @@ internal object PhoneRemote {
             // are necessary. Do not let a global market order launcher abort
             // the pending upload or treat it as a tradable order form.
             else if(MorningListDelivery.waiting) empty("LIST_IMPORT_WAITING")
+            // These incomplete-list quotes are a LOCAL diagnostic only.
+            // Remote heartbeat must never inspect or relay a product draft.
+            else if(MorningReadRun.researchOnlyActive()) empty("LOCAL_RESEARCH_ACTIVE")
             else if(PhoneObservationPolicy.localGoldReaderOwnsUi(
                     GoldSearchRun.running,ProductReadRequest.active(now),
                     settingsOnly,unlockRehearsalOnly)) empty("GOLD_LOCAL_READ_ACTIVE")
@@ -342,7 +345,8 @@ internal object PhoneRemote {
                     // This owner-only rehearsal cannot execute even a queued
                     // authenticated product command. It tests unlock detection,
                     // not a live market signal or broker action.
-                    if(!unlockRehearsalOnly)response.optJSONObject("command")?.let { command ->
+                    if(!unlockRehearsalOnly && !MorningReadRun.researchOnlyActive())
+                        response.optJSONObject("command")?.let { command ->
                         val request=command.optString("requestId")
                         if(commands.accept(command.optString("sessionId"),id,request,command.optString("action"),command.optString("isin"),command.optLong("expiresAt"),System.currentTimeMillis()/1000)) {
                             val valid=command.optString("sessionId")==id && command.optLong("expiresAt")>System.currentTimeMillis()/1000

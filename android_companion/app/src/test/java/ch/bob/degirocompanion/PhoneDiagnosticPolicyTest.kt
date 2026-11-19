@@ -21,6 +21,14 @@ class PhoneDiagnosticPolicyTest {
             "278.459 Turbos und privates Konto 503,93 CHF"))
     }
 
+    @Test fun localResearchHeartbeatNeverContainsProductIdentity() {
+        assertEquals("LOCAL_RESEARCH_ACTIVE",
+            PhoneDiagnosticPolicy.code("LOCAL_RESEARCH_ACTIVE"))
+        assertFalse(MorningReadUiPolicy.reason("LOCAL_RESEARCH_ACTIVE").isBlank())
+        assertEquals("OTHER",PhoneDiagnosticPolicy.code(
+            "LOCAL_RESEARCH_ACTIVE DE000FD0S0G4 Geld 42 CHF"))
+    }
+
     @Test fun onlyClosedErrorVocabularyCanLeaveDevice() {
         assertEquals("RETURN_NOT_CONFIRMED",PhoneDiagnosticPolicy.code("RETURN_NOT_CONFIRMED"))
         for(code in listOf("NONE","PROTECTED_ORDER_CONFIRM","PROTECTED_ORDER_TYPE","PROTECTED_ORDER_PRICE","PROTECTED_ORDER_QUANTITY","PROTECTED_PASSWORD","UNRECOGNIZED_INPUT","SEARCH_MISSING","SEARCH_TREE_EMPTY","SEARCH_NOT_ACTIONABLE","SCREEN_LOCKED"))
