@@ -40,7 +40,7 @@ keine automatische Tradeausführung, keine Order.
 ## Technische Felder und Sicherheitsgrenzen
 
 - Start mit genau einer vom Nutzer eingegebenen, prüfsummenvalidierten DE-ISIN;
-  sg und comdirect sind feste Domain-/Pfadschablonen. Kein frei übergebbarer
+  sg, comdirect und BNP Paribas sind feste Domain-/Pfadschablonen. Kein frei übergebbarer
   Weblink, kein DEGIRO-Host, keine Cookies oder Login-Profile.
 - Die Smart-Scrape-Schnittstelle liefert Markdown und unverbindliche KI-Felder.
   Die öffentliche Quellseite muss HTTP 200 melden. Die Identität muss sowohl
@@ -88,3 +88,5 @@ lokale Lesediagnostik bleiben als eigener Arbeitsstrang bestehen, ohne
 Zugangsdaten an Browserless zu übertragen.
 
 Beispiel: DE000FG77FN1 hat nach bestätigter SG-Produktseite seinen letzten Handelstag am 19.11.2026 (Bewertung am 20.11.2026) und ist für eine neue fortlaufende Kursstudie ungeeignet. Die Liste muss vor einem Abruf auf tatsächliche aktuelle Laufzeit und Knock-out geprüft werden.
+
+BNP-Paribas-Seiten nutzen die offizielle feste Form https://derivate.bnpparibas.com/product-details/DE000BY7UKR4/ (Beispiel-ISIN). Der vorhandene Validierungspfad verlangt die exakte ISIN sowohl im Seiten-Markdown als auch in der KI-Ausgabe. Unabhängiger Laufzeit-, Emittenten-, Handelsstatus- und Kurszeitnachweis bleibt notwendig. Ein leerer Vergleich mit SG ist bei BNP korrekt; er gibt keine Daten frei.
