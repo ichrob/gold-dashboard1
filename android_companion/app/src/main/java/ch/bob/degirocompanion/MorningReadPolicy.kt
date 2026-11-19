@@ -572,27 +572,70 @@ internal object MorningReadPolicy {
      * an order launcher or an unverified search input. This is a read-only
      * navigation target, not a product or trading action.
      */
+    /** Observation only: a visible Top-Ergebnisse link must never be silently
+     * treated as the complete catalog when Android omits click metadata. */
+    fun fullGoldResultsLinkVisible(nodes: List<Node>): Boolean =
+        nodes.any { normalized(it.text).equals("Top Ergebnisse", true) } &&
+        nodes.any { n -> !n.editable && !n.password && !n.sensitive &&
+            listOf(n.text,n.description,n.hint).any { value ->
+                Regex("(?iu)^Alle Ergebnisse in Hebelprodukte(?:\\s*[›»→>])?$")
+                    .matches(normalized(value))
+            }
+        }
+
     fun fullGoldResultsLink(nodes: List<Node>): Int? {
-        if (nodes.size > 500 || protection(nodes) != null ||
+        if (nodes.size > 500 ||
             nodes.count { normalized(it.text).equals("Top Ergebnisse", true) } != 1 ||
             nodes.count { normalized(it.text).equals("Hebelprodukte", true) } != 1) return null
-        val inputs = nodes.filter { it.editable }
+        // Reuse the existing narrowly scoped launcher isolation: an unrelated
+        // exact global 'Order platzieren' button may coexist with a Gold search.
+        // An order form, a second launcher, a password or any other input still
+        // blocks this path. Never click the neutralized launcher.
+        val clean = when (protection(nodes)) {
+            null -> nodes
+            "PROTECTED_ORDER_CONFIRM" -> productSearchWithoutLauncher(nodes) ?: return null
+            else -> return null
+        }
+        if (protection(clean) != null) return null
+        val inputs = clean.filter { it.editable }
         if (inputs.size != 1 || !inputs.single().enabled ||
             inputs.single().text != "Gold" || !search(inputs.single())) return null
         val label = "Alle Ergebnisse in Hebelprodukte"
-        // Samsung may include the adjacent chevron as part of the link label.
-        // Strip only a single terminal navigation chevron, never arbitrary text.
+        // A Samsung WebView may expose the *visible* exact label and chevron
+        // without a clickable flag. The existing bounded semantic gesture can
+        // tap its measured text bounds; no new coordinate or remote click path.
         fun linkText(value: String) = normalized(value)
             .replace(Regex("[\\s]*[›»→>]$"), "").trim()
-        val candidates = nodes.indices.filter { index ->
-            val n = nodes[index]
+        fun chevron(value: String) = Regex("[›»→>]$").containsMatchIn(normalized(value))
+        val candidates = clean.indices.filter { index ->
+            val n = clean[index]
             val values = listOf(n.text, n.description, n.hint, n.row)
                 .map(::linkText).filter(String::isNotBlank)
-            n.enabled && canClick(n) && !n.editable && !n.containsInput &&
+            n.enabled && !n.editable && !n.containsInput &&
                 !n.password && !n.sensitive && values.isNotEmpty() &&
-                values.all { it.equals(label, true) }
+                values.all { it.equals(label, true) } &&
+                (canClick(n) || listOf(n.text,n.description,n.row).any(::chevron))
         }
-        return innermost(nodes, candidates).singleOrNull()
+        val chosen=innermost(clean,candidates).singleOrNull() ?: return null
+        // Never treat a link nested in the launcher (or the launcher nested
+        // inside a link's wrapper) as an independent informational target.
+        if(clean !== nodes) {
+            val launcher=nodes.indices.filter { i ->
+                listOf(nodes[i].text,nodes[i].description,nodes[i].hint)
+                    .any { normalized(it).equals("Order platzieren",true) ||
+                           normalized(it).equals("Place order",true) }
+            }.singleOrNull() ?: return null
+            fun below(child:Int,ancestor:Int):Boolean {
+                var p=nodes[child].parent;var steps=0
+                while(p in nodes.indices && steps++<nodes.size) {
+                    if(p==ancestor)return true
+                    p=nodes[p].parent
+                }
+                return false
+            }
+            if(chosen==launcher || below(chosen,launcher) || below(launcher,chosen))return null
+        }
+        return chosen
     }
 
     /** Full-list evidence only after that exact link was activated during this
