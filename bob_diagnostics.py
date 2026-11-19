@@ -655,6 +655,7 @@ def ko_distance_brief(control):
          'no-timestamped-issuer-ko-pair','session-closed',
          'same-or-missing-original-signal','stop-risk-unavailable',
          'insufficient-capital','observed-model-entry',
+         'daily-loss-limit','cooldown',
          'ko-or-product-status-unresolved','dated-exit-bid-not-observed',
          'closed-issuer-bid-model-only'}
     def n(v, *, money=False):
