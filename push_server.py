@@ -54,6 +54,10 @@ from py_vapid import Vapid
 from pywebpush import webpush as _webpush, WebPushException
 from requests.exceptions import RequestException
 
+# Keep retry-test patching local to this module. Patching time.sleep on the
+# shared stdlib module can record unrelated daemon-thread sleeps.
+_retry_sleep = time.sleep
+
 PORT = int(os.environ.get("PORT", "10000"))
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:bob@localhost")
@@ -249,7 +253,7 @@ def init_db():
             if attempt == 2:
                 raise
             print(f'BOB_PUSH startup=database_retry attempt={attempt + 1}', flush=True)
-            time.sleep(attempt + 1)
+            _retry_sleep(attempt + 1)
 
 
 def _init_db_once():
@@ -465,7 +469,7 @@ def handle_auth_session(action, payload, attempts=3):
                 raise
             print(f'BOB_PUSH database_retry route=auth-session attempt={attempt + 1}',
                   flush=True)
-            time.sleep(0.25 * (attempt + 1))
+            _retry_sleep(0.25 * (attempt + 1))
 
 
 def handle_auth_passkey(action, payload, attempts=3):
@@ -481,7 +485,7 @@ def handle_auth_passkey(action, payload, attempts=3):
                 raise
             print(f'BOB_PUSH database_retry route=auth-passkey attempt={attempt + 1}',
                   flush=True)
-            time.sleep(0.25 * (attempt + 1))
+            _retry_sleep(0.25 * (attempt + 1))
 
 
 def write_market_spots(payload, attempts=3):
@@ -497,7 +501,7 @@ def write_market_spots(payload, attempts=3):
                 raise
             print(f'BOB_PUSH database_retry route=market-spots attempt={attempt + 1}',
                   flush=True)
-            time.sleep(0.25 * (attempt + 1))
+            _retry_sleep(0.25 * (attempt + 1))
 
 
 def store_product_selection(endpoint, payload, checked, attempts=2):
@@ -525,7 +529,7 @@ def store_product_selection(endpoint, payload, checked, attempts=2):
                 raise
             print(f'BOB_PUSH database_retry route=selection attempt={attempt + 1}',
                   flush=True)
-            time.sleep(0.25 * (attempt + 1))
+            _retry_sleep(0.25 * (attempt + 1))
 
 
 def expire_product_selections():
