@@ -198,6 +198,7 @@ def init(conn):
     __import__('rapid_leverage_study').init(conn)
     __import__('entry_opportunity_study').init(conn)
     __import__('gold_short_scenarios').init(conn)
+    __import__('gold_ko_distance_cohorts').init(conn)
 
 def sync(conn, payload):
     products=payload.get('products')
@@ -1906,6 +1907,15 @@ def _worker(db):
                                     conn,bundle,market,int(time.time()*1000))
                         except Exception as regime_exc:
                             print('BOB_SHORT_REGIME error='+type(regime_exc).__name__,
+                                  flush=True)
+                        # KO/issuer-quote cohorts only consume data already obtained
+                        # by the original ranking and quote reader, no new API use.
+                        try:
+                            with conn.transaction():
+                                __import__('gold_ko_distance_cohorts').tick(
+                                    conn,market,selection,quotes,int(time.time()*1000))
+                        except Exception as ko_study_exc:
+                            print('BOB_KO_DISTANCE_STUDY error='+type(ko_study_exc).__name__,
                                   flush=True)
                         print('BOB_PAPER checked profiles='+str(outcomes)+
                               ' direction='+str(market.get('direction'))+
