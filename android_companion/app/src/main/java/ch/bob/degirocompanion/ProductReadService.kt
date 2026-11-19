@@ -2105,9 +2105,8 @@ class ProductReadService : AccessibilityService() {
             // accessibility SCROLL_RIGHT may acknowledge without advancing the
             // WebView while the IME owns focus. Hide it first, using the same
             // guarded Android BACK as CATEGORY and COLLECT, before ANY scroll.
-            if(gold && (action.kind in setOf(MorningReadPolicy.Kind.CATEGORY,
-                    MorningReadPolicy.Kind.CATEGORY_SCROLL,MorningReadPolicy.Kind.COLLECT) ||
-                    (openingProduct && action.kind==MorningReadPolicy.Kind.RESULT)) && keyboardVisible()) {
+            if(gold && MorningReadPolicy.goldNeedsKeyboardDismissal(
+                    action.kind,openingProduct) && keyboardVisible()) {
                 lastNavigation=SystemClock.elapsedRealtime()
                 if(!performGlobalAction(GLOBAL_ACTION_BACK)) { lastNavigationIssue="KEYBOARD_HIDE_FAILED";ProductReadRequest.cancel() }
                 return true
