@@ -329,6 +329,22 @@ class ReliabilityTests(unittest.TestCase):
                       out.getvalue())
         self.assertNotIn('PRIVATE CHECKPOINT', out.getvalue())
 
+    def test_lookup_failure_identifies_bounded_subphase(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+
+        rows = self.rows()
+        checkpoint = MagicMock()
+        checkpoint.fetchone.return_value = None
+        conn = MagicMock()
+        conn.execute.side_effect = [checkpoint, RuntimeError('PRIVATE CLOCK SQL')]
+        with redirect_stdout(StringIO()) as out, self.assertRaises(RuntimeError):
+            c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
+        log = out.getvalue()
+        self.assertIn('BOB_CANDLE_WRITE stage=evidence batch=lookup phase=clocks', log)
+        self.assertIn('error=RuntimeError', log)
+        self.assertNotIn('PRIVATE CLOCK SQL', log)
+
     def test_failure_context_rejects_unknown_keys_and_http_values(self):
         from contextlib import redirect_stdout
         from io import StringIO
