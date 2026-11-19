@@ -185,9 +185,13 @@ class ReliabilityTests(unittest.TestCase):
         conn = MagicMock()
         checkpoint = MagicMock()
         checkpoint.fetchone.return_value = None
-        recorded = MagicMock()
-        recorded.fetchall.return_value = []
-        conn.execute.side_effect = [checkpoint, recorded] + [MagicMock()] * 20
+        def execute(sql, params=None):
+            if 'SELECT payload FROM bob_candle_checkpoints' in sql:
+                return checkpoint
+            result=MagicMock()
+            result.fetchall.return_value=[]
+            return result
+        conn.execute.side_effect = execute
         rows = self.rows(600)
         c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
         batches = [json.loads(call.args[1][1]) for call in conn.execute.call_args_list
@@ -196,8 +200,19 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual([row for batch in batches for row in batch], c.validated('biquote/1m', rows))
         conn.commit.assert_not_called()
         conn.reset_mock()
-        conn.execute.side_effect = [checkpoint, recorded, None,
-                                    OSError('second batch failed')]
+        insert_count=0
+        def fail_second_insert(sql, params=None):
+            nonlocal insert_count
+            if 'SELECT payload FROM bob_candle_checkpoints' in sql:
+                return checkpoint
+            if 'INSERT INTO bob_candle_evidence' in sql:
+                insert_count+=1
+                if insert_count==2:
+                    raise OSError('second batch failed')
+            result=MagicMock()
+            result.fetchall.return_value=[]
+            return result
+        conn.execute.side_effect = fail_second_insert
         with self.assertRaises(OSError):
             c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
         self.assertFalse(any('INSERT INTO bob_candle_checkpoints' in call.args[0]
@@ -239,8 +254,6 @@ class ReliabilityTests(unittest.TestCase):
         stored[-1]['high'] += 1
         checkpoint = MagicMock()
         checkpoint.fetchone.return_value = (stored,)
-        recorded = MagicMock()
-        recorded.fetchall.return_value = [(row['openTime'],) for row in stored]
         revisions = MagicMock()
         revisions.fetchall.return_value = [(stored[-1]['openTime'], stored[-1])]
         inserted = []
@@ -248,8 +261,12 @@ class ReliabilityTests(unittest.TestCase):
             if 'SELECT payload FROM bob_candle_checkpoints' in sql:
                 return checkpoint
             if 'JOIN LATERAL' in sql:
-                self.assertEqual(params, ([row['openTime'] for row in rows],
-                                          'biquote/1m'))
+                self.assertLessEqual(len(params[0]),32)
+                self.assertEqual(params[1],'biquote/1m')
+                recorded = MagicMock()
+                stored_clocks={row['openTime'] for row in stored}
+                recorded.fetchall.return_value=[(clock,) for clock in params[0]
+                                                  if clock in stored_clocks]
                 return recorded
             if 'open_time=ANY' in sql:
                 self.assertEqual(params[1], [rows[-2]['openTime']])
@@ -272,29 +289,33 @@ class ReliabilityTests(unittest.TestCase):
         rows = c.validated('biquote/1m', self.rows(600))
         checkpoint = MagicMock()
         checkpoint.fetchone.return_value = (rows,)
-        recorded = MagicMock()
-        recorded.fetchall.return_value = [(row['openTime'],) for row in rows]
         clock_queries = []
         def execute(sql, params=None):
             if 'SELECT payload FROM bob_candle_checkpoints' in sql:
                 return checkpoint
             if 'JOIN LATERAL' in sql:
                 clock_queries.append((sql, params))
+                recorded = MagicMock()
+                recorded.fetchall.return_value = [(open_time,) for open_time in params[0]]
                 return recorded
             if 'BETWEEN' in sql or 'GROUP BY open_time' in sql:
                 raise TimeoutError('production range aggregation regression')
             return MagicMock()
         conn.execute.side_effect = execute
         c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
-        self.assertEqual(len(clock_queries), 1)
-        sql, params = clock_queries[0]
-        self.assertIn('unnest(%s::bigint[])', sql)
-        self.assertIn('evidence.source_key=%s', sql)
-        self.assertIn('evidence.open_time=candidate.open_time', sql)
-        self.assertIn('LIMIT 1', sql)
-        self.assertNotIn('BETWEEN', sql)
-        self.assertNotIn('GROUP BY', sql)
-        self.assertEqual(params, ([row['openTime'] for row in rows], 'biquote/1m'))
+        self.assertEqual(len(clock_queries), 19)
+        probed=[]
+        for sql, params in clock_queries:
+            self.assertIn('unnest(%s::bigint[])', sql)
+            self.assertIn('evidence.source_key=%s', sql)
+            self.assertIn('evidence.open_time=candidate.open_time', sql)
+            self.assertIn('LIMIT 1', sql)
+            self.assertNotIn('BETWEEN', sql)
+            self.assertNotIn('GROUP BY', sql)
+            self.assertLessEqual(len(params[0]),32)
+            self.assertEqual(params[1], 'biquote/1m')
+            probed.extend(params[0])
+        self.assertEqual(probed,[row['openTime'] for row in rows])
         self.assertFalse(any('INSERT INTO bob_candle_evidence' in call.args[0]
                              for call in conn.execute.call_args_list))
         conn.commit.assert_not_called()
@@ -353,10 +374,15 @@ class ReliabilityTests(unittest.TestCase):
         conn = MagicMock()
         checkpoint = MagicMock()
         checkpoint.fetchone.return_value = None
-        recorded = MagicMock()
-        recorded.fetchall.return_value = []
-        conn.execute.side_effect = [checkpoint, recorded] + [MagicMock()] * 7 + [
-                                   RuntimeError('PRIVATE CHECKPOINT')]
+        def fail_checkpoint(sql, params=None):
+            if 'SELECT payload FROM bob_candle_checkpoints' in sql:
+                return checkpoint
+            if 'INSERT INTO bob_candle_checkpoints' in sql:
+                raise RuntimeError('PRIVATE CHECKPOINT')
+            result=MagicMock()
+            result.fetchall.return_value=[]
+            return result
+        conn.execute.side_effect = fail_checkpoint
         with redirect_stdout(StringIO()) as out, self.assertRaises(RuntimeError):
             c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
         self.assertIn('BOB_CANDLE_FAILURE stage=checkpoint key=biquote/1m rows=220',
