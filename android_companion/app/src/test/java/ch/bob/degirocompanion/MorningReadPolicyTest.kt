@@ -2,6 +2,31 @@ package ch.bob.degirocompanion
 import org.junit.Assert.*
 import org.junit.Test
 class MorningReadPolicyTest {
+    @Test fun nineRowsAtSafeFooterGetExactlyOneFourthCaptureWithoutRelaxingImport() {
+        fun id(n:Int):String {
+            val prefix="DE000ZX"+n.toString().padStart(4,'0')
+            return ('0'..'9').map { prefix+it }.single { SeriesEvidence.validIsin(it) }
+        }
+        val ids=(1..9).map(::id)
+        val seen=ids.toSet()
+        val footer=listOf(MorningReadPolicy.Node("Datenquellen und -anbieter"))
+        val collect=MorningReadPolicy.Action(MorningReadPolicy.Kind.COLLECT,isins=ids)
+        assertTrue(MorningListEndPolicy.needsFooterRecapture(footer,3,seen,ids,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(footer,2,seen,ids,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(footer,4,seen,ids,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(footer,3,seen-ids.last(),ids,collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(footer,3,seen,ids.dropLast(1),collect))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(footer,3,seen,ids,
+            MorningReadPolicy.Action(MorningReadPolicy.Kind.SEARCH,isins=ids)))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(listOf(MorningReadPolicy.Node("Produktliste")),3,seen,ids,collect))
+        for(unsafe in listOf(MorningReadPolicy.Node("Order bestätigen"),
+                MorningReadPolicy.Node("Passwort",password=true),
+                MorningReadPolicy.Node("",editable=true),
+                MorningReadPolicy.Node("",sensitive=true))) {
+            assertFalse(MorningListEndPolicy.needsFooterRecapture(footer+unsafe,3,seen,ids,collect))
+        }
+    }
+
     @Test fun visibleTenIsinsNeedExtraPhotoWhenLastRowsAreIncomplete() {
         fun id(n:Int):String {
             val prefix="DE000ZZ"+n.toString().padStart(4,'0')
