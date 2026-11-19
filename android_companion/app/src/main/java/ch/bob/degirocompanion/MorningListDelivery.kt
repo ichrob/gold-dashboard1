@@ -58,6 +58,10 @@ internal object MorningListDelivery {
             ". Keine Produktfreigabe."
     }
     var onConfirmed:((List<SelectiveDetailPlan.Entry>,String)->Unit)?=null
+    /** Local-only, owner-started diagnostic reads when exactly 9 of 10
+     * complete original Gold list rows fail server validation. NEVER a list
+     * confirmation, server detail plan, or trading permission. */
+    var onProvisionalResearch:((List<String>)->Unit)?=null
     /** Same user-opened session only. Original rejected images are archived
      * by resume() before the fresh capture; no silent new session is started. */
     var onFreshCaptureRequired:(()->Unit)?=null
@@ -123,7 +127,12 @@ internal object MorningListDelivery {
             if(id!=generation)return
             network.execute {
                 val result=runCatching {
-                    if(!uploaded) { check(PhoneRemote.active() && PhoneRemote.sessionId()==session);PhoneDiagnostics.uploadList(c,JSONObject(body.toString()).apply { remove("resumeCount");remove("localRecognitionRevision");remove("verificationFailed") }) }
+                    if(!uploaded) { check(PhoneRemote.active() && PhoneRemote.sessionId()==session);PhoneDiagnostics.uploadList(c,JSONObject(body.toString()).apply {
+                        remove("resumeCount");remove("localRecognitionRevision");remove("verificationFailed")
+                        // Captured candidate identity hints stay on this
+                        // handset, never enter the authenticated 10-row API.
+                        remove("localCandidates")
+                    }) }
                     PhoneDiagnostics.listStatus(c,JSONObject().put("batchId",batch))
                 }
                 handler.post {
@@ -161,7 +170,38 @@ internal object MorningListDelivery {
                             save(c,JSONObject(body.toString()).put("verificationFailed",true))
                         }.isSuccess
                         waiting=false
-                        if(archivedReady && PhoneRemote.active() &&
+                        // Never accept this incomplete batch as a valid list.
+                        // A separate, *local-only* read may still inspect the
+                        // exact product ISINs observed on this phone. Broker
+                        // searches, ranking and purchase eligibility remain
+                        // independently gated throughout the whole flow.
+                        val raw=body.optJSONArray("localCandidates")
+                        val local=if(raw==null) emptyList() else
+                            (0 until raw.length()).map { raw.optString(it) }
+                        val counts=receipt.optJSONObject("verificationCounts")
+                        val provisional=if(counts==null || resumeSavedCapture) null else
+                            ProvisionalIsinReadPolicy.candidates(
+                                local,
+                                serverBatchMatches=response.optString("batchId")==batch,
+                                stage=receipt.optString("stage"),
+                                error=receipt.optString("error"),
+                                enhanced=receipt.optBoolean("enhancedVerification",false),
+                                recognized=counts.optInt("uniqueRows",-1),
+                                expected=counts.optInt("expectedRows",-1),
+                                images=counts.optInt("imagesTotal",-1),
+                                conflicts=counts.optInt("conflictingRows",-1))
+                        if(archivedReady && provisional!=null && PhoneRemote.active() &&
+                            PhoneRemote.sessionId()==session && onProvisionalResearch!=null) {
+                            status(c,"Goldliste nicht vollständig bestätigt" +
+                                rejectedListHint(receipt) +
+                                " Nur lokal erfasste ISINs werden für eine " +
+                                "getrennte, nicht handelsfähige Recherche gelesen.")
+                            runCatching { onProvisionalResearch?.invoke(provisional) }.onFailure {
+                                status(c,"Lokale ISIN-Recherche konnte nicht sicher starten. " +
+                                    "Originalbilder und Fehlerbericht bleiben gespeichert.")
+                                PhoneRemote.stop(c,"LIST_UPLOAD_FAILED")
+                            }
+                        } else if(archivedReady && PhoneRemote.active() &&
                             PhoneRemote.sessionId()==session && onFreshCaptureRequired!=null) {
                             status(c,"Gespeicherte Liste endgültig abgelehnt" +
                                 rejectedListHint(receipt) +
