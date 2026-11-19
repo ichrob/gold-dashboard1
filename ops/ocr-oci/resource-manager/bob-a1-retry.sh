@@ -104,7 +104,7 @@ while true; do
   # Verify the account-reviewed platform image against the image actually resolved in this plan.
   image=$(jq -er '.resource_changes[] | select(.address=="oci_core_instance.bob") | .change.after.source_details[0].source_id' "$work/plan.json")
   oci compute image get --image-id "$image" | jq -e '.data | ."compartment-id"==null and ."display-name"=="Canonical-Ubuntu-24.04-aarch64-2026.11.05-0"' >/dev/null
-  apply=$(create_job create-apply-job Bob-A1-Start --execution-plan-strategy "$plan")
+  apply=$(create_job create-apply-job Bob-A1-Start --execution-plan-strategy FROM_PLAN_JOB_ID --execution-plan-job-id "$plan")
   state=$(wait_job "$apply")
   case "$state" in
     SUCCEEDED) echo 'Bereitstellung erfolgreich. Automatik beendet.'; exit 0 ;;
