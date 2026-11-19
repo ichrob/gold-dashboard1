@@ -183,9 +183,11 @@ class ReliabilityTests(unittest.TestCase):
 
     def test_evidence_batches_preserve_all_rows_without_partial_commit(self):
         conn = MagicMock()
-        lookup = MagicMock()
-        lookup.fetchall.return_value = []
-        conn.execute.return_value = lookup
+        checkpoint = MagicMock()
+        checkpoint.fetchone.return_value = None
+        recorded = MagicMock()
+        recorded.fetchall.return_value = []
+        conn.execute.side_effect = [checkpoint, recorded] + [MagicMock()] * 20
         rows = self.rows(600)
         c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
         batches = [json.loads(call.args[1][1]) for call in conn.execute.call_args_list
@@ -194,7 +196,8 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual([row for batch in batches for row in batch], c.validated('biquote/1m', rows))
         conn.commit.assert_not_called()
         conn.reset_mock()
-        conn.execute.side_effect = [lookup, None, OSError('second batch failed')]
+        conn.execute.side_effect = [checkpoint, recorded, None,
+                                    OSError('second batch failed')]
         with self.assertRaises(OSError):
             c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
         self.assertFalse(any('INSERT INTO bob_candle_checkpoints' in call.args[0]
@@ -203,13 +206,17 @@ class ReliabilityTests(unittest.TestCase):
 
     def test_evidence_statement_work_stays_below_observed_timeout_batch(self):
         conn = MagicMock()
-        lookup = MagicMock()
-        lookup.fetchall.return_value = []
+        checkpoint = MagicMock()
+        checkpoint.fetchone.return_value = None
+        recorded = MagicMock()
+        recorded.fetchall.return_value = []
         rows = self.rows(600)
         executed = []
         def execute(sql, params=None):
-            if 'SELECT open_time,payload FROM bob_candle_evidence' in sql:
-                return lookup
+            if 'SELECT payload FROM bob_candle_checkpoints' in sql:
+                return checkpoint
+            if 'GROUP BY open_time' in sql:
+                return recorded
             if 'INSERT INTO bob_candle_evidence' in sql:
                 batch = json.loads(params[1])
                 executed.append(batch)
@@ -230,12 +237,21 @@ class ReliabilityTests(unittest.TestCase):
         # Preserve a different revision at the same clock: it must not hide the
         # corrected incoming candle, while unchanged rows need no SQL insert.
         stored[-1]['high'] += 1
-        lookup = MagicMock()
-        lookup.fetchall.return_value = [(row['openTime'], row) for row in stored]
+        checkpoint = MagicMock()
+        checkpoint.fetchone.return_value = (stored,)
+        recorded = MagicMock()
+        recorded.fetchall.return_value = [(row['openTime'],) for row in stored]
+        revisions = MagicMock()
+        revisions.fetchall.return_value = [(stored[-1]['openTime'], stored[-1])]
         inserted = []
         def execute(sql, params=None):
-            if 'SELECT open_time,payload FROM bob_candle_evidence' in sql:
-                return lookup
+            if 'SELECT payload FROM bob_candle_checkpoints' in sql:
+                return checkpoint
+            if 'GROUP BY open_time' in sql:
+                return recorded
+            if 'open_time=ANY' in sql:
+                self.assertEqual(params[1], [rows[-2]['openTime']])
+                return revisions
             if 'INSERT INTO bob_candle_evidence' in sql:
                 inserted.extend(json.loads(params[1]))
             return MagicMock()
@@ -301,9 +317,11 @@ class ReliabilityTests(unittest.TestCase):
         self.assertIn('BOB_CANDLE_FAILURE stage=evidence key=biquote/1m rows=220', log)
         self.assertNotIn('PRIVATE-SQL-ERROR', log)
         conn = MagicMock()
-        lookup = MagicMock()
-        lookup.fetchall.return_value = []
-        conn.execute.side_effect = [lookup] + [MagicMock()] * 7 + [
+        checkpoint = MagicMock()
+        checkpoint.fetchone.return_value = None
+        recorded = MagicMock()
+        recorded.fetchall.return_value = []
+        conn.execute.side_effect = [checkpoint, recorded] + [MagicMock()] * 7 + [
                                    RuntimeError('PRIVATE CHECKPOINT')]
         with redirect_stdout(StringIO()) as out, self.assertRaises(RuntimeError):
             c.handle(conn, 'write', {'key': 'biquote/1m', 'rows': rows})
