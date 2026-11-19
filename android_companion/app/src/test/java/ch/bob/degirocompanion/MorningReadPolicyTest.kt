@@ -28,37 +28,47 @@ class MorningReadPolicyTest {
                 MorningReadPolicy.Node("Order bestätigen")).kind)
     }
 
-    @Test fun nineRowsOfRealTenItemPlanGetExactlyOneFourthCapture() {
+    @Test fun nineRowsAtVerifiedFooterGetExactlyOneFourthCapture() {
         fun id(n:Int):String {
             val prefix="DE000ZX"+n.toString().padStart(4,'0')
             return ('0'..'9').map { prefix+it }.single { SeriesEvidence.validIsin(it) }
         }
         val expected=(1..10).map(::id)
         val seen=expected.take(9).toSet()
+        // The real Samsung footer exposes only its final visible rows,
+        // not all ten names in the entire scrolled search list.
+        val visible=listOf(expected[7],expected[8])
         val footer=listOf(MorningReadPolicy.Node("Datenquellen und -anbieter"))
-        val collect=MorningReadPolicy.Action(MorningReadPolicy.Kind.COLLECT,isins=expected)
+        val collect=MorningReadPolicy.Action(MorningReadPolicy.Kind.COLLECT,isins=visible)
         assertTrue(MorningListEndPolicy.needsFooterRecapture(
-            footer,3,seen,expected,collect))
+            footer,3,seen,visible,collect))
         assertFalse(MorningListEndPolicy.needsFooterRecapture(
-            footer,2,seen,expected,collect))
+            footer,2,seen,visible,collect))
         assertFalse(MorningListEndPolicy.needsFooterRecapture(
-            footer,4,seen,expected,collect))
+            footer,4,seen,visible,collect))
         assertFalse(MorningListEndPolicy.needsFooterRecapture(
-            footer,3,seen-expected[8],expected,collect))
-        assertFalse(MorningListEndPolicy.needsFooterRecapture(
-            footer,3,seen,expected.dropLast(1),
-            collect.copy(isins=expected.dropLast(1))))
+            footer,3,seen-expected[8],visible,collect))
         assertFalse(MorningListEndPolicy.needsFooterRecapture(
             footer,3,seen,expected,
-            MorningReadPolicy.Action(MorningReadPolicy.Kind.SEARCH,isins=expected)))
+            collect.copy(isins=expected)))
         assertFalse(MorningListEndPolicy.needsFooterRecapture(
-            listOf(MorningReadPolicy.Node("Produktliste")),3,seen,expected,collect))
+            footer,3,seen,visible,collect.copy(isins=emptyList())))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            footer,3,seen,emptyList(),collect.copy(isins=emptyList())))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            footer,3,seen,visible+visible[0],
+            collect.copy(isins=visible+visible[0])))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            footer,3,seen,visible,
+            MorningReadPolicy.Action(MorningReadPolicy.Kind.SEARCH,isins=visible)))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            listOf(MorningReadPolicy.Node("Produktliste")),3,seen,visible,collect))
         for(unsafe in listOf(MorningReadPolicy.Node("Order bestätigen"),
                 MorningReadPolicy.Node("Passwort",password=true),
                 MorningReadPolicy.Node("",editable=true),
                 MorningReadPolicy.Node("",sensitive=true))) {
             assertFalse(MorningListEndPolicy.needsFooterRecapture(
-                footer+unsafe,3,seen,expected,collect))
+                footer+unsafe,3,seen,visible,collect))
         }
     }
 
