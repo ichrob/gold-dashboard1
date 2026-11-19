@@ -774,7 +774,7 @@ class ProductReadActivity : Activity() {
                 check(PhoneRemote.active()) { "Handy-Sitzung konnte nicht gestartet werden." }
                 GoldSearchRun.start()
                 startedHere=true
-                ProductReadRequest.start(SystemClock.elapsedRealtime())
+                ProductReadRequest.startGoldList(SystemClock.elapsedRealtime())
                 startActivity(launch)
             }.onFailure {
                 if(loginStartedHere) {
@@ -966,8 +966,13 @@ class ProductReadActivity : Activity() {
                 PhoneRemote.start(this)
                 startedHere=true
                 if(!PhoneRemote.active()) reject("START_SESSION_FAILED","Bob-Handysitzung konnte nicht aktiviert werden: "+PhoneRemote.message)
-                if(!MorningReadRun.resumeRecent(this)) GoldSearchRun.start()
-                ProductReadRequest.start(SystemClock.elapsedRealtime())
+                val existingDetails=MorningReadRun.resumeRecent(this)
+                if(!existingDetails) GoldSearchRun.start()
+                // The primary owner button must use the SAME full Gold-list
+                // lease as the verified-PIN handoff and the original Gold
+                // list reader. A resumed one-product read remains 60s.
+                if(existingDetails) ProductReadRequest.start(SystemClock.elapsedRealtime())
+                else ProductReadRequest.startGoldList(SystemClock.elapsedRealtime())
                 startFeedback.text="DEGIRO wird geöffnet · ohne gespeicherte PIN muss DEGIRO bereits angemeldet sein."
                 result.text=startFeedback.text
                 startActivity(launch)
