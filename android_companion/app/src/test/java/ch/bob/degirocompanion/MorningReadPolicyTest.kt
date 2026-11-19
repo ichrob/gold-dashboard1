@@ -185,6 +185,43 @@ class MorningReadPolicyTest {
                 MorningReadPolicy.Node("",editable=true,id="nl.degiro.trader:id/amount")))
             assertEquals(MorningReadPolicy.Kind.BLOCK,MorningReadPolicy.discoverGold(listOf(launcher,input)).kind)
     }
+    @Test fun eachLocalResearchIsinReplacesGoldOrPreviousIsinThroughSafeSearch() {
+        val first="DE000FD0S0G4"
+        val next="DE000FE6B3G9"
+        val input=MorningReadPolicy.Node("Gold",
+            id="nl.degiro.trader:id/search_src_text",editable=true,
+            focused=false,hint="Mit Namen, ISIN oder Symbol suchen")
+        val selected=MorningReadPolicy.Node("Hebelprodukte",selected=true)
+        assertEquals(MorningReadPolicy.Kind.FOCUS,
+            MorningReadPolicy.detailDecision(listOf(input,selected),
+                first,false,keyboardReady=false,resultOpened=false).kind)
+        assertEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.detailDecision(listOf(input.copy(focused=true),selected),
+                first,false,keyboardReady=true,resultOpened=false).kind)
+        val result=MorningReadPolicy.Node(
+            "SG Gold Turbo Mini Call $first",clickable=true,
+            row="SG Gold Turbo Mini Call $first")
+        assertEquals(MorningReadPolicy.Kind.RESULT,
+            MorningReadPolicy.detailDecision(listOf(input.copy(text=first,
+                focused=true),selected,result),first,false,
+                keyboardReady=true,resultOpened=false).kind)
+        // BACK must return to a verified search before replacing the
+        // previous product with the next ISIN. Reused old input is safe.
+        assertEquals(MorningReadPolicy.Kind.FOCUS,
+            MorningReadPolicy.detailDecision(listOf(input.copy(text=first),selected),
+                next,false,keyboardReady=false,resultOpened=false).kind)
+        assertEquals(MorningReadPolicy.Kind.QUERY,
+            MorningReadPolicy.detailDecision(listOf(input.copy(text=first,
+                focused=true),selected),next,false,
+                keyboardReady=true,resultOpened=false).kind)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,
+            MorningReadPolicy.detailDecision(listOf(input,selected,
+                MorningReadPolicy.Node("Order bestätigen")),first,false).kind)
+        assertEquals(MorningReadPolicy.Kind.BLOCK,
+            MorningReadPolicy.detailDecision(listOf(input,selected,
+                MorningReadPolicy.Node("Stückzahl",editable=true)),first,false).kind)
+    }
+
     @Test fun submitOnlyRecognizedSearchWithMatchingQueryAndNoResult() {
         val input=MorningReadPolicy.Node("Gold",editable=true,hint="Mit Namen, ISIN oder Symbol suchen",imeEnter=true)
         assertEquals(MorningReadPolicy.Kind.SUBMIT,MorningReadPolicy.discoverGold(listOf(input)).kind)
