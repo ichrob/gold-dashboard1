@@ -41,6 +41,27 @@ class MorningListEndPolicyTest {
         }
     }
 
+    @Test fun verifiedNineRowFooterPrefersFourthPhotoOverThreeImageSubmission() {
+        val seen=ids.take(6).toSet()+setOf(
+            "DE000SQ02JQ6","DE000FG8K0P8","DE000FG77MY4")
+        assertEquals(9,seen.size)
+        val visible=listOf(ids[0],ids[3])
+        val action=MorningReadPolicy.Action(MorningReadPolicy.Kind.COLLECT,isins=visible)
+        val footer=page()
+        // Both rules are true. The existing service must prioritize one safe
+        // final screenshot BEFORE submitting its three incomplete images.
+        assertTrue(MorningListEndPolicy.needsFooterRecapture(
+            footer,3,seen,visible,action))
+        assertTrue(MorningListEndPolicy.maySubmitAtEnd(
+            footer,3,seen,visible,action))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            footer,4,seen,visible,action))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            footer+MorningReadPolicy.Node("Orderart"),3,seen,visible,action))
+        assertFalse(MorningListEndPolicy.needsFooterRecapture(
+            footer+MorningReadPolicy.Node("",sensitive=true),3,seen,visible,action))
+    }
+
     @Test fun fourImagesMayBeSubmittedButNeverCountAsLocalCompletion() {
         assertTrue(MorningListEndPolicy.maySubmitAtCaptureLimit(4,ids.toSet()))
         assertFalse(MorningListEndPolicy.maySubmitAtCaptureLimit(3,ids.toSet()))
