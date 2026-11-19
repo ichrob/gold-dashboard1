@@ -58,11 +58,13 @@ class ProductReadService : AccessibilityService() {
     private var listTopSeekSteps = 0
     private var listAllResultsTappedAt = 0L
     private var listGenericTurboFallback = false
+    private var listGoldPreviewConfirmed = false
     private var listVerifiedPreviewFallback = false
     private var listGenericTurboBackAt = 0L
     private fun resetListCapture() {
         listGeneration++; listResumeChecked=false; listTopSeekSteps=0; listAllResultsTappedAt=0L
-        listGenericTurboFallback=false;listVerifiedPreviewFallback=false;listGenericTurboBackAt=0L
+        listGenericTurboFallback=false;listGoldPreviewConfirmed=false
+        listVerifiedPreviewFallback=false;listGenericTurboBackAt=0L
         listBusy=false; listScrolled=false; listScrollTries=0
         listFirstIds=emptyList(); listSeenIds.clear(); listCoveredIds.clear(); listCropTop=null; listWindowId=null; while(listImages.length()>0) listImages.remove(0)
         listBatch=java.util.UUID.randomUUID().toString().replace("-","")
@@ -1919,6 +1921,66 @@ class ProductReadService : AccessibilityService() {
             // screenshot capture. Never click the surrounding product cards or
             // the adjacent K/V actions. No server acknowledgement is invented.
             if(gold && !searchOnly && listImages.length()==0) {
+                // Remember only the exact, independently verified Gold search
+                // preview from THIS active owner-started read. No previous
+                // session or generic GOLD text can authorize a BACK.
+                if(MorningReadPolicy.fullGoldResultsLink(descriptions)!=null)
+                    listGoldPreviewConfirmed=true
+                // Inspect a wrong generic Turbo directory BEFORE ordinary
+                // search retry logic. The old 10-second guard lost the
+                // recognizer on slower Samsung WebView transitions, leaving
+                // SEARCH_NO_PROGRESS while 278,459 unfiltered Turbos were shown.
+                when(MorningReadPolicy.genericTurboRecovery(descriptions,
+                        listGoldPreviewConfirmed || listAllResultsTappedAt>0L,
+                        listGenericTurboFallback)) {
+                    MorningReadPolicy.GenericTurboRecovery.NOT_GOLD -> {
+                        lastNavigationIssue="LIST_GENERIC_TURBO_UNFILTERED"
+                        GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
+                        ProductReadRequest.cancel();PhoneRemote.stop(this,lastNavigationIssue)
+                        PhoneDiagnostics.queue(this)
+                        return true
+                    }
+                    MorningReadPolicy.GenericTurboRecovery.RETURN_STUCK -> {
+                        if(SystemClock.elapsedRealtime()-listGenericTurboBackAt<2500L)return true
+                        lastNavigationIssue="LIST_GENERIC_TURBO_RETURN_STUCK"
+                        GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
+                        ProductReadRequest.cancel();PhoneRemote.stop(this,lastNavigationIssue)
+                        PhoneDiagnostics.queue(this)
+                        return true
+                    }
+                    MorningReadPolicy.GenericTurboRecovery.RETURN_ONCE -> {
+                        // Only ONE verified Android BACK from this same live,
+                        // unlocked and owner-authorized broker window.
+                        val current=productRoot(false)
+                        val same=current?.windowId==root.windowId &&
+                            current.packageName?.toString()==ProductScreenEvidence.PACKAGE
+                        current?.recycle()
+                        if(!same || !PhoneRemote.active() || !GoldSearchRun.running ||
+                            !ProductReadRequest.active(SystemClock.elapsedRealtime()) ||
+                            !performGlobalAction(GLOBAL_ACTION_BACK)) {
+                            lastNavigationIssue="LIST_GENERIC_TURBO_RETURN_FAILED"
+                            GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
+                            ProductReadRequest.cancel();PhoneRemote.stop(this,lastNavigationIssue)
+                            PhoneDiagnostics.queue(this)
+                            return true
+                        }
+                        listGenericTurboFallback=true
+                        listGenericTurboBackAt=SystemClock.elapsedRealtime()
+                        listAllResultsTappedAt=0L
+                        automaticSearchProgress.clear()
+                        navigationStability.clear()
+                        clearWrittenSearch()
+                        searchTapAttempted=false
+                        inputTapAttempted=false
+                        categorySteps=0
+                        lastNavigationIssue=""
+                        lastNavigation=listGenericTurboBackAt
+                        GoldSearchRun.event("LIST_GENERIC_TURBO_RETURN_SENT",Instant.now().toString())
+                        PhoneDiagnostics.queue(this)
+                        return true
+                    }
+                    MorningReadPolicy.GenericTurboRecovery.NOT_GENERIC -> Unit
+                }
                 if(listGenericTurboFallback) {
                     // DEGIRO may return from its unfiltered Turbo directory to
                     // the Markets search home (not the old Gold preview).
@@ -1964,42 +2026,6 @@ class ProductReadService : AccessibilityService() {
                     // only reopen a proven search and the Hebelprodukte tab.
                 } else if(listAllResultsTappedAt>0L) {
                     val age=SystemClock.elapsedRealtime()-listAllResultsTappedAt
-                    if(age in 0..10000L &&
-                        MorningReadPolicy.genericTurboDirectory(descriptions)) {
-                        // The Gold CTA opened the unfiltered Structured Products
-                        // directory. Only one verified BACK to the original
-                        // Gold preview is allowed, never a product/order tap.
-                        val live=productRoot(false)
-                        val same=live?.windowId==root.windowId &&
-                            live.packageName?.toString()==ProductScreenEvidence.PACKAGE
-                        live?.recycle()
-                        if(!same || !PhoneRemote.active() || !GoldSearchRun.running ||
-                            !performGlobalAction(GLOBAL_ACTION_BACK)) {
-                            lastNavigationIssue="LIST_GENERIC_TURBO_RETURN_FAILED"
-                            GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
-                            ProductReadRequest.cancel();PhoneRemote.stop(this,lastNavigationIssue)
-                            PhoneDiagnostics.queue(this)
-                            return true
-                        }
-                        listGenericTurboFallback=true
-                        listGenericTurboBackAt=SystemClock.elapsedRealtime()
-                        listAllResultsTappedAt=0L
-                        // A previously exhausted Gold search click chain
-                        // belongs to the OLD screen. Without clearing it,
-                        // the restored Markets search wrongly stays in
-                        // SEARCH_NO_PROGRESS even with a correct new target.
-                        automaticSearchProgress.clear()
-                        navigationStability.clear()
-                        clearWrittenSearch()
-                        searchTapAttempted=false
-                        inputTapAttempted=false
-                        categorySteps=0
-                        lastNavigationIssue=""
-                        lastNavigation=listGenericTurboBackAt
-                        GoldSearchRun.event("LIST_GENERIC_TURBO_RETURN_SENT",Instant.now().toString())
-                        PhoneDiagnostics.queue(this)
-                        return true
-                    }
                     if(!MorningReadPolicy.fullGoldResultsView(descriptions)) {
                         if(SystemClock.elapsedRealtime()-listAllResultsTappedAt<4000L) return true
                         lastNavigationIssue="LIST_ALL_RESULTS_NO_PROGRESS"
