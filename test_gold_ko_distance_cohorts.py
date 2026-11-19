@@ -156,6 +156,30 @@ class KoDistanceTest(unittest.TestCase):
         self.assertNotIn("entryAsk",json.dumps(compact))
         self.assertNotIn('"position":',json.dumps(compact))
 
+    def test_neutral_direction_and_invalid_plan_not_mislabeled_as_missing_quote(self):
+        selection,quotes=documents()
+        neutral=market()
+        neutral["direction"]="NEUTRAL"
+        a,b,c,d,e=self._patch()
+        with (a,b,c,d,e):
+            state=s.advance(s.seed(NOW),neutral,selection,quotes,NOW)
+        self.assertTrue(all(x["lastBlock"]=="no-confirmed-market-direction"
+                            and x["started"]==0 for x in state["arms"].values()))
+        compact=__import__("bob_diagnostics").ko_distance_brief(s.report(type(
+            "Conn",(),{"execute":lambda self,*args:self,
+                       "fetchone":lambda self:(state,)})()))
+        self.assertTrue(all(x["lastBlock"]=="no-confirmed-market-direction"
+                            for x in compact["arms"]))
+        planned=market()
+        planned["plan"]=None
+        a,b,c,d,_=self._patch()
+        with (a,b,c,d,patch.object(stop_target_audit,"valid_plan",return_value=False)):
+            state=s.advance(s.seed(NOW),planned,selection,quotes,NOW)
+        self.assertTrue(all(x["lastBlock"]=="no-verified-stop-target-plan"
+                            and x["started"]==0 for x in state["arms"].values()))
+        self.assertEqual(state["eligiblePricePairs"],0)
+
+
     def test_invalid_clock_is_unknown_without_leaking_arbitrary_payload(self):
         import bob_diagnostics
         state={"status":"collecting","checkedAt":float("nan"),
