@@ -2031,29 +2031,19 @@ class ProductReadService : AccessibilityService() {
                         return true
                     }
                 } else if(!listVerifiedPreviewFallback) {
-                    val link=MorningReadPolicy.fullGoldResultsLink(descriptions)
-                    if(link!=null && !listGenericTurboFallback) {
-                        if(keyboardVisible()) {
-                            if(!performGlobalAction(GLOBAL_ACTION_BACK)) {
-                                lastNavigationIssue="KEYBOARD_HIDE_FAILED"
-                                GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
-                                ProductReadRequest.cancel()
-                            }
-                            return true
-                        }
-                        val key="FULL_GOLD_RESULTS|${root.windowId}|${descriptions[link].text}"
-                        if(!navigationStability.ready(key,SystemClock.elapsedRealtime())) return true
-                        val tapped=tapRecognizedSearch(root.windowId,allResults=true)
-                        lastNavigation=SystemClock.elapsedRealtime()
-                        if(tapped) {
-                            listAllResultsTappedAt=lastNavigation
-                            GoldSearchRun.event("LIST_ALL_RESULTS_TAP_SENT",Instant.now().toString())
-                        } else {
-                            lastNavigationIssue="LIST_ALL_RESULTS_TAP_REJECTED"
-                            GoldSearchRun.stop(lastNavigationIssue,Instant.now().toString())
-                            ProductReadRequest.cancel(); PhoneRemote.stop(this,lastNavigationIssue)
-                        }
+                    // The user-confirmed "Alle Ergebnisse in Hebelprodukte"
+                    // link redirects to the generic (279k) Turbos catalogue.
+                    // Do NOT touch it from Bob starten. Reuse the established
+                    // Gold Top Ergebnisse read/capture/scroll path in place.
+                    // It may contain fewer than ten complete rows: preserve
+                    // strict server validation and report incompleteness.
+                    if(!listGenericTurboFallback &&
+                        MorningReadPolicy.preferGoldPreviewRead(descriptions)) {
+                        listVerifiedPreviewFallback=true
+                        lastNavigationIssue=""
+                        GoldSearchRun.event("LIST_GOLD_PREVIEW_DIRECT",Instant.now().toString())
                         PhoneDiagnostics.queue(this)
+                        handler.postDelayed({ queueRead(400) },200)
                         return true
                     } else if(!listGenericTurboFallback &&
                         MorningReadPolicy.fullGoldResultsLinkVisible(descriptions)) {

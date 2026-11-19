@@ -151,6 +151,13 @@ class AndroidStableReleaseTests(unittest.TestCase):
         # The screenshot-confirmed 278k Turbos is unfiltered. Detect its
         # identity BEFORE generic search retries and without a 10-second
         # timeout that can miss a slow WebView transition.
+        # DEGIRO's visible all-results CTA demonstrably opens the
+        # UNFILTERED global Turbos directory. Do not execute it at all from
+        # the owner-started native Gold reader; keep local preview capture
+        # and the server's ten-original-rows import gate unchanged.
+        self.assertIn('MorningReadPolicy.preferGoldPreviewRead(descriptions)', service)
+        self.assertIn('LIST_GOLD_PREVIEW_DIRECT', service)
+        self.assertNotIn('tapRecognizedSearch(root.windowId,allResults=true)', service)
         self.assertIn('MorningReadPolicy.genericTurboRecovery(descriptions,', service)
         self.assertIn('listGoldPreviewConfirmed=true', service)
         self.assertIn('listGoldPreviewConfirmed=false', service)

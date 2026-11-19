@@ -39,6 +39,7 @@ internal object MorningReadUiPolicy {
         "LIST_GENERIC_TURBO_RETURN_FAILED" -> "Rückkehr aus dem falschen Turbo-Gesamtkatalog konnte nicht sicher ausgelöst werden."
         "LIST_GENERIC_TURBO_RETURN_STUCK" -> "DEGIRO blieb nach dem erlaubten Zurück auf dem ungefilterten Turbo-Gesamtkatalog. Kein weiterer Klick."
         "LIST_GOLD_SEARCH_NOT_RESTORED" -> "Gold-Suche nach Rückkehr aus der Turbo-Liste nicht eindeutig wiederhergestellt."
+        "LIST_GOLD_PREVIEW_DIRECT" -> "Gold und Hebelprodukte erkannt: vorhandene Top-Ergebnisse direkt lesen; kein Wechsel zum allgemeinen Turbo-Katalog."
         "LIST_GOLD_PREVIEW_CAPTURE_FALLBACK" -> "Wieder bei Gold-Top-Ergebnissen: sichere Listenaufnahme statt des falsch führenden Gesamtkatalog-Links."
         "LIST_ALL_RESULTS_LINK_UNSAFE" -> "Gold-Gesamtergebnis-Link nicht als isoliertes sicheres Tippziel bestätigt."
         "LIST_ALL_RESULTS_TAP_SENT" -> "Gold-Gesamtergebnis-Link angetippt; tatsächliche Zielseite wird vor jeder Übernahme geprüft"
