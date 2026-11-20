@@ -20,6 +20,11 @@ MAX_RESPONSE = 131072
 MAX_SG_RESPONSE = 524288  # Browserless includes public source HTML plus markdown/json.
 MAX_MONTHLY_CALLS = 12
 MAX_DAILY_CALLS = 3
+# Four separate public SG Browserless attempts failed identity/HTTP validation.
+# Bob's issuer-native SG source already provides dated quote evidence for the
+# tested ISIN. Keep the SG Browserless route off until new independent evidence
+# justifies revisiting it. Do not change this by user-controlled HTTP input.
+SG_BROWSERLESS_SUSPENDED = True
 FREE_CONFIRMATION_ENV = "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED"
 _LOCK = threading.Lock()
 _RESERVED = set()
@@ -131,6 +136,8 @@ def readiness():
     else:
         state = "ready-for-manual-test"
     return dict(state=state, canStart=(state == "ready-for-manual-test"),
+                sgBrowserlessSuspended=SG_BROWSERLESS_SUSPENDED,
+                sgDirectPreferred=True,
                 tokenConfigured=token_present, freeAccountConfirmed=free_confirmed,
                 researchOnly=True, maxCallsPerUtcDay=MAX_DAILY_CALLS,
                 maxCallsPerUtcMonth=MAX_MONTHLY_CALLS,
@@ -240,6 +247,16 @@ def extract(isin, source="sg", *, now=None):
     preflight = readiness()
     if not preflight["canStart"]:
         return _safe_failure(isin, source, preflight["state"])
+    # An explicit backend gate is essential: front-end controls are bypassable.
+    # No Browserless quota reservation, request or AI call for SG while direct
+    # original issuer evidence is preferred. Keep all other sources unchanged.
+    if source == "sg" and SG_BROWSERLESS_SUSPENDED:
+        return _safe_failure(isin, source, "direct-sg-preferred", {
+            "reason": "sg-browserless-unreliable",
+            "providerCallStarted": False,
+            "preferredSource": "Bob SG-Direktimport",
+            "note": "SG-Produktdaten unter Produkte prüfen; kein Browserless-Abruf."
+        })
     token = os.environ.get("BROWSERLESS_API_TOKEN", "").strip()
     state = _reserve(isin, source, now)
     if state != "reserved":
@@ -374,6 +391,7 @@ PANEL = r"""
  <summary>Browserless · öffentliche Produktrecherche (Test, nur auf Knopfdruck)</summary>
  <p>Nur offizielle SG-, BNP- und öffentliche comdirect-Seiten, keine DEGIRO-Anmeldung. KI-Felder sind ungeprüfte Hinweise; keine Handelsfreigabe.</p>
  <p id="bobBlStatus">Kontostatus wird geladen …</p>
+ <p id="bobBlSourceNote" role="status"></p>
  <label>ISIN <input id="bobBlIsin" maxlength="12" placeholder="DE000FB0A490" autocomplete="off"></label>
  <label>Quelle <select id="bobBlSource"><option value="sg">SG-Zertifikate</option><option value="comdirect">comdirect</option><option value="bnp">BNP Paribas</option></select></label>
  <button type="button" id="bobBlRun">Einmal öffentlich prüfen</button>
@@ -384,16 +402,23 @@ PANEL = r"""
 (()=>{const section=document.getElementById('bobBrowserlessPublic');if(!section)return;
  const button=section.querySelector('#bobBlRun'),output=section.querySelector('#bobBlResult');
  const status=section.querySelector('#bobBlStatus');
+ const info=section.querySelector('#bobBlSourceNote');
  const input=section.querySelector('#bobBlIsin'),selector=section.querySelector('#bobBlSource');
- let canStart=false,submitted=null;
+ let canStart=false,sgSuspended=true,submitted=null;
  const selected=()=>input.value.trim().toUpperCase()+'|'+selector.value;
- const refresh=()=>{button.disabled=!canStart||selected()===submitted};
+ const refresh=()=>{
+  const sgDirect=sgSuspended&&selector.value==='sg';
+  button.disabled=!canStart||sgDirect||selected()===submitted;
+  info.textContent=sgDirect?
+   'SG-Browserless wurde nach wiederholten Fehlversuchen gesperrt. Die Originaldaten stehen in Bob unter Produkte über den SG-Direktimport zur Verfügung. Kein Browserless-Kontingentverbrauch.':
+   'Nur öffentlicher Recherchetest; keine Handelsfreigabe.';
+ };
  button.disabled=true;
  input.addEventListener('input',refresh);
  selector.addEventListener('change',refresh);
  fetch('/api/browserless/public-status',{credentials:'same-origin',cache:'no-store'})
   .then(r=>{if(!r.ok)throw Error();return r.json()})
-  .then(d=>{status.textContent='Bereitschaft: '+d.state+'. Nur öffentlicher, einmaliger Test.';canStart=!!d.canStart;refresh()})
+  .then(d=>{status.textContent='Bereitschaft: '+d.state+'. Nur öffentlicher, einmaliger Test.';canStart=!!d.canStart;sgSuspended=d.sgBrowserlessSuspended!==false;refresh()})
   .catch(()=>{status.textContent='Bereitschaft momentan nicht prüfbar';canStart=false;refresh()});
  button.addEventListener('click',async()=>{
   const isin=input.value.trim().toUpperCase();
@@ -410,6 +435,7 @@ PANEL = r"""
    const data=await response.json();
    if(!response.ok)throw Error('HTTP '+response.status);
    const help={
+    'direct-sg-preferred':'SG-Browserless ist aus Kostenschutzgründen gesperrt. Die vorhandenen SG-Originaldaten unter Produkte prüfen.',
     'identity-not-proven':'Die Browserless-Seite zeigt die Produktidentität nicht ausreichend eindeutig. Keine Daten übernommen. Die anonymisierte Diagnose im Ergebnis zeigt, welche Produktmerkmale fehlen. Bitte nicht denselben Abruf wiederholen.',
     'extraction-not-proven':'Die KI-Ausgabe enthält keine passende vollständige ISIN. Keine Daten übernommen.',
     'already-attempted':'Bereits geprüft, kein erneuter Browserless-Aufruf. Die ursprüngliche HTTP-Ablehnung wird angezeigt, soweit im laufenden Prozess gespeichert.',
