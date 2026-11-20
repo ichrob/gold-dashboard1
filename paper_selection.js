@@ -102,8 +102,13 @@ function evaluate(input,now=Date.now()){
   }
   const researchCandidates=choices.filter(c=>!c.indicative&&!c.estimated).slice(0,12);
   const ranked=api.applyLearnedRanking(choices,products,input.rankingPolicy,now);
+  // Display remains Top 3. The independent PAPER evaluator may consider up to
+  // twelve already-ranked non-indicative candidates, each rechecked against
+  // original issuer quotes, KO barriers and cash/risk rules before an entry.
+  // Previously truncating at three could hide a valid lower-ranked SHORT.
+  const paperCandidates=ranked.filter(c=>!c.indicative&&!c.estimated).slice(0,12);
   const selected=new Set(ranked.slice(0,3).map(c=>c.isin));
-  return {choices:ranked.slice(0,3),researchCandidates,reasons:flow.gateReasons.concat(flow.requests.filter(p=>!selected.has(p.isin)).flatMap(p=>p.reasons),flow.waiting.filter(p=>!selected.has(p.isin)).map(p=>p.reason)).slice(0,8)};
+  return {choices:ranked.slice(0,3),paperCandidates,researchCandidates,reasons:flow.gateReasons.concat(flow.requests.filter(p=>!selected.has(p.isin)).flatMap(p=>p.reasons),flow.waiting.filter(p=>!selected.has(p.isin)).map(p=>p.reason)).slice(0,8)};
  })()`,env,{timeout:3000});
 }
 module.exports={evaluate,selectionQuote};
