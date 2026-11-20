@@ -87,6 +87,45 @@ class ModelPaperTrials(unittest.TestCase):
         later=trial.evolve(done,m,b,a,newer)
         self.assertIsNone(later['active'],'cannot re-enter from same confirmed signal')
 
+    def test_fresh_confirmed_reversal_closes_model_position_only(self):
+        for side in ('LONG', 'SHORT'):
+            with self.subTest(side=side):
+                m,b,a=fixture(side=side)
+                c=trial.evolve(trial.new_control('trend800nov',NOW),m,b,a,NOW)
+                self.assertIsNotNone(c['active'])
+                later=NOW+600000
+                price=4210. if side=='LONG' else 4190.
+                m['price']=price
+                m['direction']='SHORT' if side=='LONG' else 'LONG'
+                b['spots']['xaus']=price
+                b['spots']['spot_price_as_of']=stamp(later-10000)
+                b['spots']['usd_eur_meta']['fetchedAt']=stamp(later-10000)
+                out=trial.evolve(c,m,b,a,later)
+                self.assertEqual(out['recent'][0]['status'],'model-reversal')
+                self.assertIsNone(out['active'])
+                self.assertEqual(out['completed'],1)
+                self.assertFalse(out['recent'][0]['brokerFillVerified'])
+                self.assertFalse(out['recent'][0]['productNetVerified'])
+                self.assertEqual(out['brokerFills'],0)
+                self.assertFalse(out['realOrders'])
+
+    def test_neutral_and_old_quote_cannot_force_model_reversal(self):
+        m,b,a=fixture()
+        c=trial.evolve(trial.new_control('trend800nov',NOW),m,b,a,NOW)
+        m['direction']='SHORT'
+        # Original entry-era quote is still fresh, but is not a NEW exit quote.
+        same_quote=trial.evolve(c,m,b,a,NOW+30000)
+        self.assertEqual(same_quote['status'],'model-position-open')
+        self.assertIsNotNone(same_quote['active'])
+        later=NOW+60000
+        m['direction']='NEUTRAL'
+        b['spots']['spot_price_as_of']=stamp(later-10000)
+        b['spots']['usd_eur_meta']['fetchedAt']=stamp(later-10000)
+        neutral=trial.evolve(same_quote,m,b,a,later)
+        self.assertEqual(neutral['status'],'model-position-open')
+        self.assertIsNotNone(neutral['active'])
+        self.assertEqual(neutral['completed'],0)
+
     def test_unobserved_market_does_not_invent_exit(self):
         m,b,a=fixture()
         c=trial.evolve(trial.new_control('trend800nov',NOW),m,b,a,NOW)
