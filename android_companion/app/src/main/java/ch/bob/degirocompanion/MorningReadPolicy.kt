@@ -607,6 +607,31 @@ internal object MorningReadPolicy {
         return Action(if(field.focused && keyboardReady) Kind.QUERY else Kind.FOCUS,index)
     }
 
+    /** After an owner-started Gold list CAPTURE (not a verified import), only
+     * allow activating the same visible search EditText again. Captured IDs
+     * prove local capture scope, NEVER a broker list, quote or trade. The
+     * caller must keep the keyboard/text untouched until server receipt. */
+    fun postCaptureGoldSearchFocusIndex(nodes: List<Node>, captured: Set<String>): Int? {
+        if(captured.size!=10 || captured.any { !SeriesEvidence.validIsin(it) } ||
+            nodes.isEmpty() || nodes.size>500 || genericTurboDirectory(nodes)) return null
+        when(protection(nodes)) {
+            null -> Unit
+            "PROTECTED_ORDER_CONFIRM" -> if(productSearchWithoutLauncher(nodes)==null) return null
+            else -> return null
+        }
+        val context=nodes.any { normalized(it.text).equals("Top Ergebnisse",true) } ||
+            nodes.any { normalized(it.text).equals("Alle Ergebnisse in Hebelprodukte",true) } ||
+            nodes.count { normalized(it.text).equals("Hebelprodukte",true) && it.selected }==1
+        if(!context)return null
+        val fields=nodes.indices.filter { nodes[it].editable }
+        val index=fields.singleOrNull() ?: return null
+        val field=nodes[index]
+        if(!field.enabled || field.password || field.sensitive ||
+            field.text!="Gold" || !isSearchInput(field.id,field.description,field.hint))
+            return null
+        return index
+    }
+
     /** Move back toward the existing search only after ten exact list identities
      * were captured. This permits SCROLL_BACKWARD, not a product tap, input, or
      * acceptance of still-pending server OCR. Reject every ambiguous surface. */
