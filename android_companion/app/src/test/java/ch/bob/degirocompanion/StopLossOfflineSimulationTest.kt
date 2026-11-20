@@ -61,6 +61,30 @@ class StopLossOfflineSimulationTest {
         assertTrue(r.trace.none { it.contains("Testklick") })
     }
 
+    @Test fun negativeResultsRequireTheExactExpectedGate() {
+        val expected=mapOf(
+            StopLossOfflineSimulation.Scenario.WRONG_ISIN to
+                (StopLossPrefillPolicy.Stage.OPEN_FORM to "PRODUKT_ISIN_NICHT_ERKANNT"),
+            StopLossOfflineSimulation.Scenario.BUY_SELECTED to
+                (StopLossPrefillPolicy.Stage.VERIFY_FORM to "VERKAUF_NICHT_BESTAETIGT"),
+            StopLossOfflineSimulation.Scenario.AMBIGUOUS_STOP_FIELD to
+                (StopLossPrefillPolicy.Stage.WRITE_STOP to "STOP_FELD_NICHT_EINDEUTIG")
+        )
+        assertNull(StopLossOfflineSimulation.expectedBlock(StopLossOfflineSimulation.Scenario.HAPPY_PATH))
+        for ((scenario, gate) in expected) {
+            val guard=StopLossOfflineSimulation.expectedBlock(scenario)
+            assertNotNull(guard)
+            assertEquals(gate.first,guard!!.stage)
+            assertEquals(gate.second,guard.code)
+            val report=StopLossOfflineSimulation.run(scenario)
+            assertTrue(report.reason+" / "+report.trace.joinToString("; "),report.passed)
+            assertEquals("Sperre wie erwartet: "+gate.second,report.reason)
+            assertTrue(report.trace.any { it.contains("Sicherheitssperre in "+gate.first+": "+gate.second) })
+            assertEquals("",report.stopText)
+            assertEquals("",report.quantityText)
+        }
+    }
+
     @Test fun allOfflineScenariosCannotOpenBrokerOrPlaceOrder() {
         val all=StopLossOfflineSimulation.suite()
         assertEquals(4,all.size)
