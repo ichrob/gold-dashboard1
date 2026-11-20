@@ -72,6 +72,7 @@ class PublicBrowserlessTests(unittest.TestCase):
             self.assertEqual(result["fields"]["bid"], "0,63 EUR")
             self.assertEqual(result["providerStrategy"], "http-fetch")
             self.assertEqual(post.call_args.kwargs["json"]["proxy"], "datacenter")
+            self.assertFalse(post.call_args.kwargs["json"]["onlyMainContent"])
             self.assertEqual(post.call_args.args[0], b.API)
             self.assertEqual(post.call_args.kwargs["json"]["url"],
                              "https://www.sg-zertifikate.de/product-details/fg77fn")
@@ -192,6 +193,60 @@ Knock-Out-Barriere 4.151,2285 USD
         self.assertEqual(result["state"], "extraction-not-proven")
         self.assertFalse(result["eligible"])
         self.assertEqual(result["fields"], {})
+
+    def test_identity_failure_diagnostics_are_anonymous(self):
+        secret = "PRIVATE_API_KEY_DO_NOT_EXPOSE"
+        page = "## SG Shop\nCookie banner - another page; no matching product"
+        response = MagicMock()
+        response.status_code = 200
+        response.iter_content.return_value = [json.dumps({
+            "ok": True, "statusCode": 200,
+            "strategy": "http-fetch", "markdown": page,
+            "json": {"isin": "DE000FB0A490"}
+        }).encode()]
+        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": secret,
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), \
+                patch.object(b.requests, "post") as post:
+            post.return_value.__enter__.return_value = response
+            result = b.extract("DE000FB0A490", now=self.now)
+        self.assertEqual(result["state"], "identity-not-proven")
+        self.assertEqual(result["diagnostics"]["providerStrategy"], "http-fetch")
+        self.assertFalse(result["diagnostics"]["hasExactIsin"])
+        self.assertFalse(result["diagnostics"]["hasMatchingWknHeading"])
+        self.assertFalse(result["diagnostics"]["hasProductMarkers"])
+        self.assertTrue(result["diagnostics"]["sgFullContentRequested"])
+        self.assertFalse(result["tradeApproved"])
+        self.assertFalse(result["eligible"])
+        self.assertFalse(result["fields"])
+        self.assertNotIn(secret, json.dumps(result))
+        self.assertNotIn(page, json.dumps(result))
+
+    def test_identity_diagnostic_classifies_challenge_without_leaking_text(self):
+        page = "Just a moment... Cloudflare Challenge\nnot the requested product"
+        d = b.safe_page_diagnostics(page, "DE000FB0A490", "sg", "browser")
+        self.assertTrue(d["possibleChallenge"])
+        self.assertEqual(d["markdownSizeClass"], "short")
+        self.assertNotIn(page, json.dumps(d))
+        self.assertFalse(d["hasExactIsin"])
+        self.assertFalse(d["hasMatchingWknHeading"])
+
+    def test_main_content_other_sources_remains_stripped(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.iter_content.return_value = [json.dumps({
+            "ok": True, "statusCode": 200, "strategy": "http-fetch",
+            "markdown": "ISIN DE000BY7UKR4",
+            "json": {"isin": "DE000BY7UKR4"}
+        }).encode()]
+        with patch.dict(os.environ, {"BROWSERLESS_API_TOKEN": "PRIVATE",
+                                     "BOB_BROWSERLESS_PUBLIC_RESEARCH": "1",
+                                     "BOB_BROWSERLESS_FREE_ACCOUNT_CONFIRMED": "1"}), \
+                patch.object(b.requests, "post") as post:
+            post.return_value.__enter__.return_value = response
+            result = b.extract("DE000BY7UKR4", source="bnp", now=self.now)
+        self.assertEqual(result["state"], "unverified-research")
+        self.assertTrue(post.call_args.kwargs["json"]["onlyMainContent"])
 
     def test_sg_wkn_requires_extracted_matching_wkn(self):
         response = MagicMock()
