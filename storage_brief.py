@@ -320,6 +320,34 @@ def project(storage):
         "scope": "physical-provider-volume-single-observation-not-savings"
     }
 
+    # Read-only receipt for the *configured* weekend one-shot attempt.
+    # A claimed ID is not evidence of a completed VACUUM, and even a
+    # completed VACUUM does not prove provider-level physical savings.
+    tail = storage.get("tailReclaimReceipt")
+    tail = tail if type(tail) is dict else {}
+    tail_status = _choice(tail.get("status"), frozenset((
+        "disabled", "not-observed", "observed", "unavailable",
+        "claim-mismatch", "unknown-claim-state")), "not-observed")
+    attempt_status = _choice(tail.get("attemptStatus"), frozenset((
+        "running", "completed", "deferred", "deferred-busy", "failed")), None)
+    table = tail.get("targetTable")
+    table = table if table in (
+        "bob_diagnostic_history", "bob_improvement_observations",
+        "bob_metric_checks", "bob_android_list_images") else None
+    decrease = _number(tail.get("observedRelationBytesDecrease"),
+                       integer=True, maximum=10**12)
+    result["tailReclaimReceipt"] = {
+        "status": tail_status,
+        "attemptStatus": attempt_status if tail_status == "observed" else None,
+        "targetTable": table if tail_status == "observed" else None,
+        "updatedAt": _clock(tail.get("updatedAt"))
+                     if tail_status == "observed" else None,
+        "observedRelationBytesDecrease": decrease if tail_status == "observed"
+            and attempt_status == "completed" else None,
+        "readOnly": True,
+        "diskBytesFreed": None,
+    }
+
     cold_tests = storage.get("coldTests")
     cold_tests = cold_tests if isinstance(cold_tests, dict) else {}
     cycle = cold_tests.get("lastCycle")
@@ -357,6 +385,9 @@ def project(storage):
         "sourceScopeVerified": verified.get("scope") ==
                                "reviewed-evidence-tables-not-full-database-backup",
         "deletionPermitted": False,
+        "driveQuotaAvailableAtArchive": _number(
+            verified.get("driveQuotaAvailableAtArchive"), integer=True),
+        "driveQuotaIsCurrent": False,
         "scope": "persisted-receipt-projection-not-offline-escrow-proof"
     }
     # This projected gate is explanatory only. It cannot mark operator
@@ -393,6 +424,28 @@ def project(storage):
         'hostMemoryCoverage': 'unavailable',
         'automaticRestoreAllowed': False,
     }
+    # Pure observation: never sets writer cadence, changes retention,
+    # starts backup/reclaim, or claims a physical provider disk saving.
+    diagnostic = next((item for item in
+        result.get("databaseDiagnostics", {}).get("tables", [])
+        if item.get("table") == "bob_diagnostic_history"), {})
+    observed_days = storage.get("fixedSlotDaily")
+    observed_days = observed_days.get("retrospectiveDays") if type(observed_days) is dict else None
+    from storage_prevention import assess as storage_warning
+    result["earlyWarning"] = storage_warning(
+        physical_bytes=int(size) if valid else None,
+        physical_observed_at=observed,
+        allocation_bytes=result.get("configuredAllocationBytes"),
+        database_bytes=result.get("databaseBytes"),
+        daily=observed_days,
+        diagnostic_live_estimate=(
+            int(diagnostic["estimatedLiveRows"]) if
+            type(diagnostic.get("estimatedLiveRows")) in (int, float)
+            and diagnostic["estimatedLiveRows"] >= 0 else None),
+        archive_verified_at=result["archive"]["verifiedAt"],
+        drive_quota_available=result["archive"]["driveQuotaAvailableAtArchive"],
+        now=storage.get("observedAt"),
+    )
     preview = storage.get("decisionProductsPreview")
     preview = preview if isinstance(preview, dict) else {}
     result["referencePreview"] = {

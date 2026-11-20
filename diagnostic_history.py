@@ -166,7 +166,7 @@ def write(conn,event):
                 # A completed full batch is the only evidence of backlog; keep
                 # the 7-day/60k retention policy, 500-row cap and 5s budget.
                 _PRUNE_NEXT_INTERVAL_SECONDS = (
-                    _PRUNE_CATCHUP_INTERVAL_SECONDS
+                    verified_weekend_catchup_seconds(conn)
                     if type(removed) is int and removed >= _PRUNE_CAP_BATCH_SIZE
                     else _PRUNE_INTERVAL_SECONDS)
                 print('BOB_DIAGNOSTIC_PRUNE status=completed removed='+str(removed)+
@@ -183,6 +183,31 @@ def write(conn,event):
                 _LAST_PRUNE=time.monotonic()
         finally:
             _PRUNE_LOCK.release()
+
+
+def verified_weekend_catchup_seconds(conn, now=None):
+    """Optional quicker *existing* 500-row retention batches on closed weekends.
+
+    Default remains 15 minutes. A fresh independent restore receipt and an
+    explicit opt-in are both mandatory. No changed age/60k limits, new deletion
+    categories, SQL timeouts, batch sizes, or market-hour load.
+    """
+    if os.environ.get('BOB_DIAGNOSTIC_WEEKEND_CATCHUP') != '1':
+        return _PRUNE_CATCHUP_INTERVAL_SECONDS
+    now = time.time() if now is None else now
+    try:
+        from zoneinfo import ZoneInfo
+        clock=datetime.fromtimestamp(now, ZoneInfo('Europe/Zurich'))
+        if clock.weekday() not in (5, 6):
+            return _PRUNE_CATCHUP_INTERVAL_SECONDS
+        from storage_budget import archive_status
+        from cold_decision_product_writer import _proof_state
+        if _proof_state(archive_status(conn), now, require_recovery=False) != 'verified-fresh':
+            return _PRUNE_CATCHUP_INTERVAL_SECONDS
+        return 300
+    except Exception:
+        # Archive, clock or DB uncertainty can never accelerate deletion.
+        return _PRUNE_CATCHUP_INTERVAL_SECONDS
 
 
 def _bounded_cap_count(conn):

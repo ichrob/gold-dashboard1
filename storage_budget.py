@@ -117,6 +117,14 @@ def _sanitized_archive_attempt(row):
             'restoreVerified': proof.get('restoreVerified') is True,
             'remoteDownloadVerified': proof.get('remoteDownloadVerified') is True,
             'recoveryKeyVerified': proof.get('recoveryKeyVerified') is True,
+            # Only a numeric quota snapshot from the *verified* archive receipt.
+            # This is historical Google Drive availability, never current quota.
+            'driveQuotaAvailableAtArchive': (
+                proof.get('driveQuotaBefore', {}).get('availableBytes')
+                if isinstance(proof.get('driveQuotaBefore'), dict)
+                and type(proof['driveQuotaBefore'].get('availableBytes')) is int
+                and 0 <= proof['driveQuotaBefore']['availableBytes'] <= 10**13
+                else None),
             'restoreIsolation': (proof.get('restoreIsolation') if
                                  proof.get('restoreIsolation') ==
                                  'separate-database-instance' else None),
@@ -237,6 +245,7 @@ def report(conn,now=None):
         largestTables=[dict(table=name,bytes=n,estimatedRows=live,estimatedDeadRows=dead,
             lastAutovacuum=str(vac) if vac else None) for name,n,live,dead,vac in tables],
         archiveWorker={**persisted_archive, 'originalImageBackupReadiness': image_backup_readiness},
+        tailReclaimReceipt=__import__('storage_tail_once').receipt_status(conn),
         decisionProductsPreview=decision_preview,
         decisionProductsPilot=__import__('decision_product_pilot').status(conn),
         coldMetrics=__import__('cold_metrics').status(conn),

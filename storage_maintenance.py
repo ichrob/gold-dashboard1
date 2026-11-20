@@ -7,7 +7,12 @@ import time
 _THREAD = None
 _LOCK = threading.Lock()
 # Fixed SQL identifiers: never interpolate user input or catalog names.
-_TABLES = ('bob_diagnostic_history', 'bob_android_list_images', 'bob_metric_checks', 'bob_improvement_observations')
+# Keep the existing hourly worker unchanged. Large decision-audit TOAST/index
+# maintenance is an explicit one-table operator action only, not a fifth
+# recurring vacuum and never a table rewrite.
+_AUTO_TABLES = ('bob_diagnostic_history', 'bob_android_list_images', 'bob_metric_checks', 'bob_improvement_observations')
+_MANUAL_ONLY_TABLES = ('bob_decision_audit',)
+_TABLES = _AUTO_TABLES + _MANUAL_ONLY_TABLES
 
 
 def connect():
@@ -21,8 +26,12 @@ def connect():
 
 @__import__("ocr_workload_priority").maintenance
 def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tail=False,
-             reclaim_observation_tail=False, reclaim_image_tail=False, target_table=None):
+             reclaim_observation_tail=False, reclaim_image_tail=False, target_table=None,
+             manual_decision_audit=False):
     """A dedicated autocommit connection, at most four time-limited vacuums.
+
+    bob_decision_audit requires target_table plus an explicit manual_decision_audit=True
+    flag, and is never scheduled.
 
     No FULL: never rewrite tables. After cold offload, cold-table tail truncation
     may briefly lock the table; the whole command is limited to ten seconds.
@@ -32,6 +41,23 @@ def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tai
     # Only the fixed allowlist is ever used in SQL; never accept dynamic names.
     if target_table is not None and target_table not in _TABLES:
         raise ValueError('Unapproved maintenance target')
+    # A plain target_table argument must never silently expand the old allowlist.
+    # Preserve the pre-existing hard rejection before any connection or SQL.
+    if target_table in _MANUAL_ONLY_TABLES and manual_decision_audit is not True:
+        raise ValueError('Manual decision audit confirmation required')
+    if manual_decision_audit is not False and not (
+            manual_decision_audit is True and target_table in _MANUAL_ONLY_TABLES):
+        raise ValueError('Manual flag requires the exact approved target')
+    # No automatic extra checks for the original four hourly targets.
+    # The large manual-only decision audit must also have fresh Render
+    # PostgreSQL RAM headroom BEFORE opening a database connection.
+    if manual_decision_audit is True:
+        ram = __import__('render_memory_guard').report()
+        if ram.get('status') != 'memory-headroom-observed':
+            return {'status': ('deferred-memory-pressure' if
+                    ram.get('status') == 'memory-pressure' else
+                    'deferred-memory-proof-unavailable'), 'tables': [],
+                    'evidenceDeleted': False, 'diskBytesFreed': None}
     results = []
     with factory() as conn:
         if not conn.autocommit:
@@ -39,7 +65,7 @@ def run_once(factory=connect, *, reclaim_metric_tail=False, reclaim_analysis_tai
         if not conn.execute("SELECT pg_try_advisory_lock(hashtext('bob_storage_maintenance_v1'))").fetchone()[0]:
             return {'status': 'busy', 'tables': []}
         # Closing this dedicated connection releases the session advisory lock.
-        for table in ((target_table,) if target_table is not None else _TABLES):
+        for table in ((target_table,) if target_table is not None else _AUTO_TABLES):
             row = conn.execute('''SELECT n_dead_tup FROM pg_stat_user_tables
                 WHERE schemaname='public' AND relname=%s
                 AND n_dead_tup>0

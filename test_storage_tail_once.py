@@ -87,6 +87,67 @@ class TailSafetyTests(unittest.TestCase):
         self.assertEqual(vacuum.call_args.kwargs["target_table"],
                          "bob_android_list_images")
 
+    def test_readonly_claim_receipt_distinguishes_completed_from_claimed(self):
+        class Reader:
+            def __init__(self, record, exists=True):
+                self.record, self.exists, self.calls = record, exists, []
+                self.last = ""
+                self.timeout = "3s"
+            def transaction(self):
+                return self
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def execute(self, sql, params=None):
+                self.calls.append((sql, params))
+                self.last = sql
+                return self
+            def fetchone(self):
+                if self.last == "SHOW statement_timeout":
+                    return (self.timeout,)
+                if "to_regclass(" in self.last:
+                    return ("bob_storage_tail_reclaim_attempts",) if self.exists else (None,)
+                return self.record
+        with self.env():
+            reader = Reader(("bob_diagnostic_history", "completed", 0,
+                             datetime(2026, 11, 14, 1, tzinfo=timezone.utc)))
+            result = tail.receipt_status(reader)
+            self.assertEqual(result["status"], "observed")
+            self.assertEqual(result["attemptStatus"], "completed")
+            self.assertEqual(result["observedRelationBytesDecrease"], 0)
+            self.assertIsNone(result["diskBytesFreed"])
+            self.assertEqual(len(reader.calls), 5)
+            self.assertEqual(reader.calls[-2][1], (CONFIG["id"],))
+            self.assertEqual(reader.calls[-1][1], ("3s",))
+            self.assertIn("set_config('statement_timeout'", reader.calls[-1][0])
+            self.assertNotIn(CONFIG["id"], json.dumps(result))
+            self.assertFalse(any("VACUUM" in sql or "CREATE " in sql
+                                 for sql, _ in reader.calls))
+            unknown = tail.receipt_status(Reader(None))
+            self.assertEqual(unknown["status"], "not-observed")
+            self.assertIsNone(unknown["attemptStatus"])
+            missing = tail.receipt_status(Reader(None, exists=False))
+            self.assertEqual(missing["status"], "not-observed")
+            mismatch = tail.receipt_status(Reader(
+                ("bob_metric_checks", "completed", 500, "private-clock")))
+            self.assertEqual(mismatch["status"], "claim-mismatch")
+            self.assertNotIn("private-clock", json.dumps(mismatch))
+            deferred = tail.receipt_status(Reader(
+                ("bob_diagnostic_history", "deferred", 1234,
+                 datetime(2026, 11, 14, 1, tzinfo=timezone.utc))))
+            self.assertEqual(deferred["attemptStatus"], "deferred")
+            self.assertIsNone(deferred["observedRelationBytesDecrease"])
+            failed = Reader(None)
+            failed.execute = lambda *_args: (_ for _ in ()).throw(
+                RuntimeError("PRIVATE-CREDENTIAL"))
+            error = tail.receipt_status(failed)
+            self.assertEqual(error["status"], "unavailable")
+            self.assertNotIn("PRIVATE", json.dumps(error))
+        with patch.dict(os.environ, {"BOB_STORAGE_TAIL_RECLAIM_ONCE": ""}):
+            self.assertEqual(tail.receipt_status(Reader(None))["status"],
+                             "disabled")
+
     def test_market_hours_fail_before_connection(self):
         with self.env():
             factory = Mock()
@@ -174,9 +235,22 @@ class TailSafetyTests(unittest.TestCase):
                 "observedAt":SUNDAY-60, "diskUsage":660_000_000,"unit":"bytes"}
         with patch("archive_worker.status",return_value={"status":"ready"}), \
              patch("storage_budget.archive_status",return_value=verified), \
-             patch("render_disk_metrics.report",return_value=volume):
+             patch("render_disk_metrics.report",return_value=volume), \
+             patch("render_memory_guard.report",return_value={
+                 "status":"memory-headroom-observed"}) as ram:
             self.assertEqual(tail._preflight(conn,SUNDAY),
                              "approved-for-one-table-vacuum")
+            ram.assert_called_once()
+        for proof_state, expected in (
+                ('memory-pressure', 'memory-pressure'),
+                ('memory-proof-unavailable', 'memory-proof-unavailable')):
+            with self.subTest(memory=proof_state), \
+                 patch("archive_worker.status",return_value={"status":"ready"}), \
+                 patch("storage_budget.archive_status",return_value=verified), \
+                 patch("render_disk_metrics.report",return_value=volume), \
+                 patch("render_memory_guard.report",return_value={
+                     "status":proof_state}):
+                self.assertEqual(tail._preflight(conn,SUNDAY),expected)
         for bad in ({**volume,"diskUsage":4_500_000_000},
                     {**volume,"observedAt":SUNDAY-400},
                     {**volume,"resource":"another-volume"}):
@@ -218,6 +292,16 @@ class DurableClaimTests(unittest.TestCase):
                 self.assertEqual(second["status"],"already-claimed")
                 self.assertEqual(vacuum.call_count,1)
                 with factory() as conn:
+                    conn.execute("SET statement_timeout='3s'")
+                    with patch.dict(os.environ, {
+                            "BOB_STORAGE_TAIL_RECLAIM_ONCE": json.dumps(CONFIG)}):
+                        receipt = tail.receipt_status(conn)
+                    self.assertEqual(conn.execute("SHOW statement_timeout").fetchone()[0], '3s')
+                    self.assertEqual(receipt["status"], "observed")
+                    self.assertEqual(receipt["attemptStatus"], "completed")
+                    self.assertEqual(receipt["observedRelationBytesDecrease"], 0)
+                    self.assertIsNone(receipt["diskBytesFreed"])
+                    self.assertTrue(receipt["readOnly"])
                     row=conn.execute("SELECT status,relation_bytes_reduced "
                         "FROM bob_storage_tail_reclaim_attempts").fetchone()
                     self.assertEqual(row,("completed",0))

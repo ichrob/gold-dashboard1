@@ -27,6 +27,49 @@ class WorkerTests(unittest.TestCase):
             'DATABASE_URL':'test-only', 'BOB_ARCHIVE_RESTORE_DATABASE_URL':AIVEN_TEST_URI, 'BOB_ARCHIVE_DRIVE_FOLDER_ID':'test-only',
             'BOB_ARCHIVE_GOOGLE_AUTHORIZED_USER_JSON':'test-only'})
 
+    def test_verified_archive_can_use_only_existing_weekend_one_shot(self):
+        valid={'status': 'verified',
+               'receipt': {'restoreVerified': True,
+                           'remoteDownloadVerified': True}}
+        with patch('storage_tail_once.configuration',return_value=None):
+            self.assertEqual(worker.post_verified_weekend_reclaim(valid)['status'],
+                             'not-configured')
+        with patch('storage_tail_once.configuration',
+                   return_value={'id':'test','table':'bob_metric_checks',
+                                 'confirmed':True}), \
+             patch('storage_tail_once._weekend',return_value=True), \
+             patch('storage_tail_once.run_once',
+                   return_value={'status':'already-claimed',
+                                 'privateToken':'SHOULD_NOT_LEAK'}) as tail:
+            done=worker.post_verified_weekend_reclaim(valid)
+            self.assertEqual(done['status'],'already-claimed')
+            self.assertIsNone(done['diskBytesFreed'])
+            self.assertNotIn('SHOULD_NOT_LEAK',str(done))
+            tail.assert_called_once()
+        with patch('storage_tail_once.configuration',
+                   return_value={'id':'test','table':'bob_metric_checks',
+                                 'confirmed':True}), \
+             patch('storage_tail_once._weekend',return_value=True), \
+             patch('storage_tail_once.run_once',
+                   return_value={'status':'memory-pressure'}) as tail:
+            pressured=worker.post_verified_weekend_reclaim(valid)
+            self.assertEqual(pressured['status'],'memory-pressure')
+            self.assertIsNone(pressured['diskBytesFreed'])
+            tail.assert_called_once()
+        for bad in ({'status':'failed'}, {'status':'verified'},
+                    {'status':'verified','receipt':{'restoreVerified':True}}):
+            with patch('storage_tail_once.run_once') as tail:
+                result=worker.post_verified_weekend_reclaim(bad)
+                self.assertIn(result['status'],
+                    ('archive-not-verified','restore-not-verified'))
+                tail.assert_not_called()
+        with patch('storage_tail_once.configuration',return_value={'id':'test'}), \
+             patch('storage_tail_once._weekend',return_value=False), \
+             patch('storage_tail_once.run_once') as tail:
+            self.assertEqual(worker.post_verified_weekend_reclaim(valid)['status'],
+                             'outside-weekend')
+            tail.assert_not_called()
+
     def test_disabled_does_not_access_database(self):
         with patch.dict(os.environ, {'BOB_ARCHIVE_ENABLED':'0'}):
             db=DB(); worker.cycle(db)

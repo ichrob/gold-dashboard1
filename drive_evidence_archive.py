@@ -17,6 +17,26 @@ FOLDER_ID = os.environ.get('BOB_ARCHIVE_DRIVE_FOLDER_ID', '')
 RESERVE_BYTES = 256 * 1024 * 1024
 
 
+
+def quota_outlook(available_bytes, upload_budget_bytes, reserve_bytes=RESERVE_BYTES):
+    """Read-only forecast from *one* Drive quota observation.
+
+    Never purge encrypted backups or treat this snapshot as a current
+    balance. Upload authorization still belongs to Google's runtime preflight.
+    """
+    values = (available_bytes, upload_budget_bytes, reserve_bytes)
+    if any(type(v) is not int or v < 0 or v > 10**13 for v in values) or upload_budget_bytes == 0:
+        return {'status': 'unavailable', 'readOnly': True,
+                'automaticDeletionAllowed': False}
+    slots = max(0, (available_bytes - reserve_bytes) // upload_budget_bytes)
+    return {'status': ('insufficient' if slots == 0 else
+                       'critical' if slots == 1 else
+                       'caution' if slots <= 3 else 'room'),
+            'conservativeFutureFullArchives': min(slots, 100000),
+            'readOnly': True, 'automaticDeletionAllowed': False,
+            'incrementalArchiveActivated': False}
+
+
 class GoogleDrive:
     def __init__(self, info=None, folder_id=None, parent_id=None):
         from google.oauth2.credentials import Credentials
@@ -51,7 +71,8 @@ class GoogleDrive:
         available = int(quota['limit']) - int(quota['usage'])
         if available < required_bytes + RESERVE_BYTES:
             raise ValueError('Drive reserve reached; no upgrade or deletion permitted')
-        return dict(availableBytes=available, reserveBytes=RESERVE_BYTES)
+        return dict(availableBytes=available, reserveBytes=RESERVE_BYTES,
+                    quotaOutlook=quota_outlook(available, required_bytes))
 
     def upload(self, path, checksum):
         from googleapiclient.http import MediaFileUpload
@@ -122,9 +143,8 @@ def run(source_dsn, restore_dsn, work_directory, drive, *, temporary_session=Fal
     quota = drive.preflight(archive.MAX_BYTES + 2*1024*1024)
     progress('restore-isolation-check')
     isolation = verify_restore_isolation(source_dsn, restore_dsn)
-    # Only a provider classification, never a hostname, address or credential.
-    # Combined with the live independent-server probe, this lets future
-    # receipts distinguish the active Aiven target from expiring Render tests.
+    # Bind provider classification to the verified, independent restore
+    # receipt without exposing the private provider host or credentials.
     target_policy = ('aiven-uri-validated' if aiven_restore_configured({
         'DATABASE_URL': source_dsn,
         'BOB_ARCHIVE_RESTORE_DATABASE_URL': restore_dsn}) else 'other-or-unverified')

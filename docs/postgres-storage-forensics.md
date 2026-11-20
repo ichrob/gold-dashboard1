@@ -143,3 +143,51 @@ between `pg_database_size` and Render volume is not automatically all
 WAL: temporary data, other database/system files and accounting scope
 can contribute. No WAL recycling, checkpoint, shell command or SQL
 maintenance is performed by the diagnostic.
+
+## Decision-audit routine space reuse: manual opt-in (14 November 2026)
+
+The existing hourly `storage_maintenance.run_once()` continues to vacuum **only** its
+original four fixed tables. The large `bob_decision_audit` relation is now permitted
+**only** through an explicit `run_once(target_table='bob_decision_audit', manual_decision_audit=True)` call
+from an already authorized operator environment. Any attempt to target this table
+without that additional literal boolean is rejected before opening a connection,
+including attempts made through existing weekend-tail maintenance paths. This is an operator capability,
+**not** an auto-start job, deploy, new service, cloud credential, or user endpoint.
+
+The manual attempt requires the existing exclusive advisory lock, dedicated
+autocommit connection, metadata-estimated dead tuples, and six-hour separation
+from previous manual and automatic vacuum. It uses
+`VACUUM (SKIP_LOCKED, TRUNCATE FALSE, PARALLEL 0) ONLY public.bob_decision_audit`,
+with short lock wait and bounded statement timeout. There is **no** `FULL`,
+`REINDEX`, `CLUSTER`, table rewrite, manual deletion, maintenance tail
+truncation, retention-policy change, or new hourly work.
+
+Operator must first check live load, current backups, disk/WAL headroom, and
+competing jobs before explicitly choosing a maintenance window. Do not infer
+reclaimable pages from `n_dead_tup`; after a completed command, compare
+independently observed provider volume before/after and PostgreSQL relation
+allocation/index stats, with non-savings reported as unknown/zero rather
+than inventing freed bytes. Normal vacuum may allow **reuse** without reducing
+files visible in Render disk measurements. Keeping the PR unmerged leaves the
+production database entirely unchanged.
+
+## Persisted weekend one-shot outcome (read-only addition)
+
+The old `already-claimed` worker result only proves that a persistent claim
+exists. It cannot distinguish success, deferral, a failed command or a
+process interruption. The private storage health report now includes a
+bounded `tailReclaimReceipt` projection for **only the currently configured
+one-shot claim ID**. The underlying read uses catalog existence checking,
+a 750-ms local statement timeout and one fixed parameterized row lookup.
+It does not enumerate claim IDs, run a VACUUM, create tables, access
+original market/product evidence, or clear consumed claims. If the
+configuration is absent or the record is unavailable, it reports an
+explicit unknown/disabled state.
+
+The private projection exposes only an allowlisted table name, fixed
+terminal/running state, update time and an optional decline in PostgreSQL
+relation allocation **if** the command completed. It always reports
+`diskBytesFreed=null`: a recorded completed command or relation allocation
+change is not independent proof of Render provider-level disk savings.
+This new observability requires separate review and deployment of this
+draft PR; it does not retroactively prove the November 14 attempt.

@@ -70,6 +70,13 @@ def _preflight(conn, seconds):
                 or type(volume.get("diskUsage")) is not int
                 or volume["diskUsage"] > MAX_VOLUME_BYTES):
             return "fresh-volume-proof-unavailable"
+        # Optional tail-truncation is not justified by disk headroom alone:
+        # refuse when the 256 MiB PostgreSQL instance lacks recent RAM reserve.
+        # This is an additional read-only, fail-closed provider measurement.
+        ram = __import__('render_memory_guard').report()
+        if ram.get('status') != 'memory-headroom-observed':
+            return ('memory-pressure' if ram.get('status') == 'memory-pressure'
+                    else 'memory-proof-unavailable')
     except Exception:
         return "proof-unavailable"
     return "approved-for-one-table-vacuum"
@@ -85,6 +92,59 @@ def _init(conn):
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )""")
+
+
+
+def receipt_status(conn):
+    """Read the exact configured durable one-shot claim, never initiate work.
+
+    No SQL payloads, claim IDs, credentials, or arbitrary table names leave
+    this module. This receipt describes a past relation-level command only,
+    never independently proven physical provider disk savings.
+    """
+    base = {"status": "not-observed", "attemptStatus": None,
+            "targetTable": None, "updatedAt": None,
+            "observedRelationBytesDecrease": None,
+            "readOnly": True, "diskBytesFreed": None}
+    config = configuration()
+    if config is None:
+        return {**base, "status": "disabled"}
+    try:
+        with conn.transaction():
+            # The caller may be doing other work in the same transaction.
+            # Releasing a SAVEPOINT does NOT reset a successful SET LOCAL.
+            # Restore the exact previous timeout before leaving the savepoint;
+            # a SQL exception rolls back it automatically instead.
+            previous = conn.execute("SHOW statement_timeout").fetchone()
+            if not previous or type(previous[0]) is not str:
+                raise ValueError("Timeout state unavailable")
+            conn.execute("SET LOCAL statement_timeout='750ms'")
+            present = conn.execute(
+                "SELECT to_regclass('bob_storage_tail_reclaim_attempts')"
+            ).fetchone()
+            row = (conn.execute("""SELECT target_table,status,relation_bytes_reduced,
+                updated_at FROM bob_storage_tail_reclaim_attempts
+                WHERE id=%s LIMIT 1""", (config["id"],)).fetchone()
+                if present and present[0] is not None else None)
+            conn.execute("SELECT set_config('statement_timeout',%s,true)",
+                         (previous[0],))
+        if not row:
+            return base
+        table, state, decreased, stamp = row
+        if table != config["table"] or table not in _TARGETS:
+            return {**base, "status": "claim-mismatch"}
+        valid = ("running", "completed", "deferred", "deferred-busy", "failed")
+        if state not in valid:
+            return {**base, "status": "unknown-claim-state"}
+        # Relation-byte decline is not independently measured free disk space.
+        reduction = (decreased if state == "completed"
+                     and type(decreased) is int and 0 <= decreased <= 10**12
+                     else None)
+        return {**base, "status": "observed", "targetTable": table,
+                "attemptStatus": state, "updatedAt": str(stamp),
+                "observedRelationBytesDecrease": reduction}
+    except Exception:
+        return {**base, "status": "unavailable"}
 
 
 def run_once(*, factory=None, vacuum=None, now=None):

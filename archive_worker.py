@@ -18,9 +18,8 @@ def readiness():
         return dict(status='disabled', evidenceDeleted=False)
     required = ('DATABASE_URL', 'BOB_ARCHIVE_PARENT_FOLDER_ID', 'BOB_ARCHIVE_RESTORE_DATABASE_URL') if os.environ.get('BOB_ARCHIVE_CREDENTIAL_SOURCE') == 'encrypted-store' else _REQUIRED
     missing = [key for key in required if not os.environ.get(key)]
-    # The old free Render restore instance expires on 2026-11-29. No automatic
-    # fallback or provider rotation: only the already configured, separate
-    # Aiven target may be used for NEW independent archive proofs.
+    # New independent archive proofs must target the existing isolated Aiven
+    # host. The expiring free Render restore test may not be used as fallback.
     if not missing:
         from aiven_health import configured as aiven_restore_configured
         if not aiven_restore_configured(os.environ):
@@ -132,6 +131,44 @@ def cycle(db, runner=None):
         _LOCK.release()
 
 
+
+def post_verified_weekend_reclaim(result, *, runner=None, now=None):
+    """Reuse existing expressly confirmed one-shot after fresh remote restore.
+
+    The archival coordination lock is released when cycle() returns. This
+    function starts no archive and never overrides weekend, proof, provider
+    volume, single-claim, or maintenance-lock gates.
+    """
+    if type(result) is not dict or result.get('status') != 'verified':
+        return {'status': 'archive-not-verified', 'diskBytesFreed': None}
+    proof = result.get('receipt')
+    if (type(proof) is not dict
+            or proof.get('restoreVerified') is not True
+            or proof.get('remoteDownloadVerified') is not True):
+        return {'status': 'restore-not-verified', 'diskBytesFreed': None}
+    import storage_tail_once as tail
+    if tail.configuration() is None:
+        return {'status': 'not-configured', 'diskBytesFreed': None}
+    if not tail._weekend(time.time() if now is None else now):
+        return {'status': 'outside-weekend', 'diskBytesFreed': None}
+    try:
+        receipt = (tail.run_once() if runner is None else runner())
+        # A compact, non-secret classification; returned receipts never carry
+        # original file content, internal Drive IDs or connection details.
+        approved = frozenset((
+            'completed', 'deferred', 'deferred-busy', 'already-claimed',
+            'backup-proof-not-fresh', 'fresh-volume-proof-unavailable',
+            'memory-pressure', 'memory-proof-unavailable',
+            'proof-unavailable', 'archive-running', 'failed',
+            'receipt-write-failed', 'disabled', 'market-hours-deferred',
+            'non-autocommit-connection'))
+        status = receipt.get('status') if type(receipt) is dict else None
+        return {'status': status if status in approved else 'unknown-result',
+                'diskBytesFreed': None}
+    except Exception:
+        return {'status': 'deferred', 'diskBytesFreed': None}
+
+
 def start(db):
     global _THREAD, _STATE
     if _THREAD or (readiness()['status'] != 'ready' and os.environ.get('BOB_ARCHIVE_PREPARE') != '1'):
@@ -148,9 +185,17 @@ def start(db):
                     prepared = prepare(db)
                     _STATE.update(prepared)
                     if readiness()['status'] == 'ready' and prepared['status'] == 'prepared':
-                        cycle(db)
+                        archive_result = cycle(db)
+                        if archive_result.get('status') == 'verified':
+                            followup = post_verified_weekend_reclaim(archive_result)
+                            print('BOB_ARCHIVE_TAIL_FOLLOWUP ' +
+                                  json.dumps(followup, sort_keys=True), flush=True)
                 else:
-                    cycle(db)
+                    archive_result = cycle(db)
+                    if archive_result.get('status') == 'verified':
+                        followup = post_verified_weekend_reclaim(archive_result)
+                        print('BOB_ARCHIVE_TAIL_FOLLOWUP ' +
+                              json.dumps(followup, sort_keys=True), flush=True)
             except Exception as error:
                 _STATE.update(status='failed', errorType=type(error).__name__, evidenceDeleted=False)
             time.sleep(60 if _STATE.get('status') == 'awaiting-folder-placement' else 3600)

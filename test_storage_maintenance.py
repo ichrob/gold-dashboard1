@@ -43,11 +43,84 @@ class MaintenanceTests(unittest.TestCase):
         result = maintenance.run_once(lambda: conn)
         commands = [sql for sql, _ in conn.calls if sql.startswith('VACUUM')]
         self.assertEqual(len(commands), 4)
-        for sql, table in zip(commands, maintenance._TABLES):
+        for sql, table in zip(commands, maintenance._AUTO_TABLES):
             self.assertEqual(sql, 'VACUUM (SKIP_LOCKED, TRUNCATE FALSE, PARALLEL 0) ONLY public.' + table)
         self.assertIsNone(result['diskBytesFreed'])
         self.assertFalse(result['evidenceDeleted'])
         self.assertTrue(conn.closed)
+
+    def test_large_decision_audit_requires_explicit_opt_in(self):
+        # Existing hourly maintenance remains exactly four fixed relations.
+        default = Connection()
+        maintenance.run_once(lambda: default)
+        self.assertFalse(any('bob_decision_audit' in sql for sql, _ in default.calls))
+
+        # A deliberate one-table call uses ordinary non-truncating VACUUM.
+        conn = Connection()
+        with patch('render_memory_guard.report', return_value={
+                'status':'memory-headroom-observed'}) as measured:
+            result = maintenance.run_once(
+                lambda: conn, target_table='bob_decision_audit',
+                manual_decision_audit=True)
+        measured.assert_called_once()
+        commands = [sql for sql, _ in conn.calls if sql.startswith('VACUUM')]
+        self.assertEqual(commands, [
+            'VACUUM (SKIP_LOCKED, TRUNCATE FALSE, PARALLEL 0) ONLY public.bob_decision_audit'])
+        self.assertEqual(result['tables'][0]['table'], 'bob_decision_audit')
+        self.assertEqual(result['tables'][0]['status'], 'command-completed')
+        self.assertIsNone(result['diskBytesFreed'])
+        self.assertFalse(result['evidenceDeleted'])
+
+    def test_decision_audit_cannot_force_tail_truncation(self):
+        conn = Connection(candidates=False)
+        with patch('render_memory_guard.report', return_value={
+                'status':'memory-headroom-observed'}):
+            result = maintenance.run_once(
+                lambda: conn, target_table='bob_decision_audit',
+                manual_decision_audit=True,
+                reclaim_analysis_tail=True,
+                reclaim_metric_tail=True)
+        self.assertEqual(result['tables'], [])
+        self.assertFalse(any(sql.startswith('VACUUM') for sql, _ in conn.calls))
+
+    def test_manual_decision_audit_does_not_connect_without_ram_headroom(self):
+        for state, expected in (
+                ('memory-pressure', 'deferred-memory-pressure'),
+                ('memory-proof-unavailable', 'deferred-memory-proof-unavailable')):
+            with self.subTest(state=state), \
+                 patch('render_memory_guard.report',return_value={'status':state}):
+                def forbidden():
+                    raise AssertionError('Cannot connect without fresh RAM proof')
+                result=maintenance.run_once(
+                    forbidden, target_table='bob_decision_audit',
+                    manual_decision_audit=True)
+                self.assertEqual(result['status'],expected)
+                self.assertEqual(result['tables'],[])
+                self.assertFalse(result['evidenceDeleted'])
+                self.assertIsNone(result['diskBytesFreed'])
+
+    def test_manual_decision_gate_rejects_missing_or_inexact_confirmation(self):
+        for flags in ({}, {'manual_decision_audit': False},
+                      {'manual_decision_audit': 1},
+                      {'manual_decision_audit': 'yes'}):
+            with self.subTest(flags=flags), self.assertRaises(ValueError):
+                maintenance.run_once(lambda: (_ for _ in ()).throw(
+                    AssertionError('must fail before connection')),
+                    target_table='bob_decision_audit', **flags)
+        with self.assertRaises(ValueError):
+            maintenance.run_once(lambda: (_ for _ in ()).throw(
+                AssertionError('must fail before connection')),
+                manual_decision_audit=True)
+        with self.assertRaises(ValueError):
+            maintenance.run_once(lambda: (_ for _ in ()).throw(
+                AssertionError('must fail before connection')),
+                target_table='bob_metric_checks', manual_decision_audit=True)
+
+    def test_unknown_target_fails_before_connection(self):
+        with self.assertRaises(ValueError):
+            maintenance.run_once(lambda: (_ for _ in ()).throw(
+                AssertionError('Connection should not be established')),
+                target_table='private_credentials')
 
     def test_no_candidates_no_vacuum(self):
         conn = Connection(candidates=False)
@@ -127,7 +200,7 @@ class PostgreSQLMaintenanceTests(unittest.TestCase):
                         # Exercise production SQL against an isolated test table.
                         mapped = tuple('public.' + name if p == 'public.bob_metric_checks' else p for p in params) if params else params
                         return self.conn.execute(statement.replace('public.bob_metric_checks', 'public.' + name), mapped)
-                with patch.object(maintenance, '_TABLES', ('bob_metric_checks',)):
+                with patch.object(maintenance, '_AUTO_TABLES', ('bob_metric_checks',)):
                     result = maintenance.run_once(TailConnection, reclaim_metric_tail=True)
                 self.assertEqual(result['tables'][0]['status'], 'command-completed')
                 self.assertGreater(result['tables'][0]['observedRelationBytesDecrease'], 0)
@@ -162,7 +235,7 @@ class PostgreSQLMaintenanceTests(unittest.TestCase):
                                     return (1,)
                             return Row()
                         return self.conn.execute(statement, params)
-                with patch.object(maintenance, '_TABLES', (name,)):
+                with patch.object(maintenance, '_AUTO_TABLES', (name,)):
                     result = maintenance.run_once(CandidateConnection)
                 self.assertEqual(result['tables'], [{'table': name, 'status': 'command-completed'}])
                 self.assertEqual(admin.execute('SELECT * FROM public.' + name).fetchall(), before)

@@ -197,6 +197,19 @@ def copy_segments(blocks, limit):
             yield part
 
 
+
+def compression_level():
+    """Only pretested, manually selected lossless ZIP levels.
+
+    Default behavior is unchanged. Level 3 is opt-in and must first pass a
+    representative isolated CPU/memory/size benchmark and roundtrip checks.
+    """
+    level = os.environ.get('BOB_ARCHIVE_ZIP_LEVEL', '1')
+    if level not in ('1', '3'):
+        raise ValueError('Unsupported archive compression level')
+    return int(level)
+
+
 def export(dsn, destination, tables=None, schema='public', progress=None):
     import psycopg
     destination = Path(destination)
@@ -213,7 +226,7 @@ def export(dsn, destination, tables=None, schema='public', progress=None):
                         scope='reviewed-evidence-tables-not-full-database-backup',
                         sourceSchema=schema, tables=[], absentTables=[], evidenceDeleted=False,
                         deletionPermitted=False, restoreVerified=False)
-        with psycopg.connect(dsn) as conn, zipfile.ZipFile(stage, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as z:
+        with psycopg.connect(dsn) as conn, zipfile.ZipFile(stage, 'w', zipfile.ZIP_DEFLATED, compresslevel=compression_level()) as z:
             conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
             settings(conn)
             manifest['sourceDatabase'] = conn.info.dbname

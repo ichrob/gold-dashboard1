@@ -2083,6 +2083,27 @@ def summary(areas):
             item['severity']='info'
             item['meaning']='backup-source-unavailable-selected-feed-assessed-separately'
         else:item['severity']='warning'
+    # One central read-only storage finding, derived solely from the existing
+    # bounded storageBrief snapshot. No separate sender, push or live SQL.
+    # Physical-volume thresholds and PostgreSQL logical-growth evidence must
+    # remain distinct; neither grants compaction, deletion or migration.
+    brief = areas.get('storageBrief') if isinstance(areas, dict) else None
+    early = brief.get('earlyWarning') if isinstance(brief, dict) else None
+    if isinstance(early, dict) and early.get('readOnly') is True:
+        level = early.get('severity')
+        growth = early.get('logicalGrowthState')
+        if level in ('caution', 'action', 'high', 'emergency'):
+            findings.insert(0, {
+                'area':'storageBrief.earlyWarning',
+                'state':'physical-volume-'+level,
+                'severity':'warning',
+                'meaning':'measured-render-volume-threshold-not-maintenance-authorization'})
+        elif growth == 'rapid-logical-growth':
+            findings.insert(0, {
+                'area':'storageBrief.earlyWarning',
+                'state':'rapid-logical-growth',
+                'severity':'warning',
+                'meaning':'postgres-logical-size-growth-not-physical-provider-volume'})
     return {'attention':findings[:40], 'assessment':'needs-attention' if any(x['severity']=='warning' for x in findings) else 'observed-only',
             'note':'A stale alternate quote source does not by itself prove the selected candle feed failed. Inconclusive paper results are not realised losses. Original timestamps remain authoritative.'}
 
@@ -2567,13 +2588,32 @@ def bounded_report(report, max_bytes):
                 compact.update(truncated=True,
                                omittedSections=removed + ['accounts.recentCases'])
     result['summary'] = summary(areas)
+    # Preserve a bounded storage core when optional full storage diagnostics
+    # would otherwise displace the actual volume, warning, and one-shot result.
+    # This is presentation-only: no extra SQL, archive run, push or deletion.
+    brief = areas.get('storageBrief')
+    if size(result) > max_bytes and isinstance(brief, dict):
+        compact_brief = {key: brief[key] for key in (
+            'status', 'readOnly', 'databaseBytes', 'configuredAllocationBytes',
+            'budgetState', 'lastSampleAt', 'renderVolume', 'earlyWarning',
+            'tailReclaimReceipt', 'largestTables')
+            if key in brief}
+        archive = brief.get('archive')
+        if isinstance(archive, dict):
+            compact_brief['archive'] = {key: archive[key] for key in (
+                'latestVerifiedState', 'verifiedAt', 'recoveryKeyVerified',
+                'recoveryAcceptanceState', 'deletionPermitted')
+                if key in archive}
+        compact_brief.update(truncated=True,
+                             omittedSections=['nonessential-storage-details'])
+        areas['storageBrief'] = compact_brief
     # Large optional comparisons must not displace the current virtual-account
     # balances, costs and entry-block observations.  The old largest-first
     # omission could drop simulationAndPush itself, even after its journal and
     # individual cases were removed, leaving the simulation focus unusable.
     # Preserve core evidence as long as it fits; a truly too-small response
     # still reports an explicit omission rather than pretending it was read.
-    core = ('simulationAndPush', 'paperProfitEvidence',
+    core = ('storageBrief', 'simulationAndPush', 'paperProfitEvidence',
             'simulationRuntimeBrief', 'entryBlockEvidence',
             # The stored research summary is a separate compact section
             # projected from the original simulation source; never discard
