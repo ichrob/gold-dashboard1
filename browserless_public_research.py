@@ -110,7 +110,7 @@ def source_identity_evidence(markdown, isin, source):
     text = markdown.upper()
     exact = r'(?<![A-Z0-9])' + re.escape(isin) + r'(?![A-Z0-9])'
     if re.search(exact, text):
-        return 'exact-isn-in-page'
+        return 'exact-isin-in-page'
     if source != 'sg':
         return None
     # Do not accept an alternate product's page with a related WKN link.
