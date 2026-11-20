@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import {webcrypto} from 'node:crypto';
+import {validate,run} from './worker.js';
+const keys=await webcrypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
+const der=new Uint8Array(await webcrypto.subtle.exportKey('pkcs8',keys.privateKey));
+const pem='-----BEGIN PRIVATE KEY-----\n'+Buffer.from(der).toString('base64')+'\n-----END PRIVATE KEY-----';
+const e={ENABLED:'true',ALLOW_APPLY:'true',PLAN_VERIFIED_ALWAYS_FREE:'true',OCI_TENANCY_OCID:'ocid1.tenancy.oc1..test',OCI_USER_OCID:'ocid1.user.oc1..test',OCI_API_FINGERPRINT:'00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00',OCI_PRIVATE_KEY_PEM:pem,OCI_STACK_OCID:'ocid1.ormstack.oc1..test',OCI_PLAN_JOB_OCID:'ocid1.ormjob.oc1..plan'};
+assert.equal(validate({}).status,'disabled');
+assert.equal(validate({...e,OCI_PRIVATE_KEY_PEM:''}).status,'configuration_required');
+const failed={id:'ocid1.ormjob.oc1..last',operation:'APPLY',lifecycleState:'FAILED',timeCreated:new Date(Date.now()-3600000).toISOString()};
+let writes=0;
+function mock(jobs,text='Out of host capacity'){
+  writes=0;
+  globalThis.fetch=async (url,opts)=>{
+    const p=new URL(url).pathname;
+    let result;
+    if(opts.method==='POST'){writes++;result={id:'ocid1.ormjob.oc1..created'};}
+    else if(p.endsWith('/jobs'))result=jobs;
+    else if(p.endsWith('/logs/content'))result=text;
+    else result={id:e.OCI_PLAN_JOB_OCID,operation:'PLAN',lifecycleState:'SUCCEEDED',stackId:e.OCI_STACK_OCID};
+    return new Response(typeof result==='string'?result:JSON.stringify(result),{headers:{'content-type':typeof result==='string'?'text/plain':'application/json'}});
+  };
+}
+mock([{...failed,lifecycleState:'SUCCEEDED'}]);assert.equal((await run(e)).status,'already_succeeded');assert.equal(writes,0);
+mock([{...failed,lifecycleState:'IN_PROGRESS'}]);assert.equal((await run(e)).status,'job_in_progress');assert.equal(writes,0);
+mock([failed],'Unauthorized');assert.equal((await run(e)).status,'not_a_capacity_failure');assert.equal(writes,0);
+mock([failed]);assert.equal((await run(e)).status,'apply_submitted');assert.equal(writes,1);
+console.log('oracle-a1-retry: safety guards and signed retry flow OK');
