@@ -34,6 +34,12 @@ class ProductReadService : AccessibilityService() {
     private var inputTapAttempted = false
     private var inputClickAttempted = false
     private var inputFocusAttempted = false
+    private var localResearchAwaitingDegiro = false
+    private var localResearchWaitTicket = ""
+    private fun clearLocalResearchWait() {
+        localResearchAwaitingDegiro = false
+        localResearchWaitTicket = ""
+    }
     /** One gesture then bounded semantic fallback, only after local list capture. */
     private var postListGestureAttempted = false
     private var nativeBackSteps = 0
@@ -364,7 +370,8 @@ class ProductReadService : AccessibilityService() {
                 local.all(SeriesEvidence::validIsin))
             val ticket=PhoneRemote.sessionId()
             check(PhoneRemote.active())
-            continueLocalGoldResearch(local.toList(),ticket,0)
+            continueLocalGoldResearch(local.toList(),ticket,0,
+                SystemClock.elapsedRealtime())
         }
         MorningListDelivery.onFreshCaptureRequired={
             // A previously rejected saved batch must NOT consume a whole
@@ -389,6 +396,7 @@ class ProductReadService : AccessibilityService() {
         }
         DegiroReadOnlySession.onStart={handler.post {queueDegiroReadOnly(450)}}
         PhoneRemote.onStop={ code ->
+            clearLocalResearchWait()
             // User STOP, screen-lock abort and session expiry must never leave
             // an old login handoff armed. Verified-login callbacks carry a
             // generation ticket, so clearing here also invalidates late posts.
@@ -1235,11 +1243,15 @@ class ProductReadService : AccessibilityService() {
         if(command?.optString("action")=="termux_check") {
             return observation(TermuxBridge.launch(this,TermuxBridge.Action.CHECK))
         }
-        val root=productRoot(true) ?: return observation("NO_ROOT")
+        val root=productRoot(true) ?: return observation(
+            if(localResearchAwaitingDegiro && localResearchWaitTicket==PhoneRemote.sessionId())
+                "LOCAL_RESEARCH_AWAITING_DEGIRO" else "NO_ROOT")
         val nodes=mutableListOf<AccessibilityNodeInfo>()
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         try {
-            if(root.packageName?.toString()!=ProductScreenEvidence.PACKAGE)return observation("OTHER_APP")
+            if(root.packageName?.toString()!=ProductScreenEvidence.PACKAGE)return observation(
+                if(localResearchAwaitingDegiro && localResearchWaitTicket==PhoneRemote.sessionId())
+                    "LOCAL_RESEARCH_AWAITING_DEGIRO" else "OTHER_APP")
             if(connectionErrorVisible(root)) {
                 stopForConnectionError()
                 return observation("CONNECTION_ERROR")
@@ -1838,46 +1850,86 @@ class ProductReadService : AccessibilityService() {
      * unlocked session. No input, gesture, order, PIN or stale-session reuse
      * occurs in this retry. A validated SEARCH/FOCUS/QUERY starts the EXISTING
      * exact-ISIN reader, whose protections are rechecked before each action. */
-    private fun continueLocalGoldResearch(local:List<String>,ticket:String,attempt:Int) {
-        if(!PhoneRemote.active() || PhoneRemote.sessionId()!=ticket)return
+    private fun continueLocalGoldResearch(local:List<String>,ticket:String,
+                                          attempt:Int,startedAt:Long) {
+        if(!PhoneRemote.active() || PhoneRemote.sessionId()!=ticket) {
+            clearLocalResearchWait()
+            return
+        }
         val power=getSystemService(POWER_SERVICE) as PowerManager
         val keyguard=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
         if(!power.isInteractive || keyguard.isKeyguardLocked || keyguard.isDeviceLocked) {
-            PhoneRemote.stop(this,"SCREEN_LOCKED");return
+            clearLocalResearchWait()
+            PhoneRemote.stop(this,"SCREEN_LOCKED")
+            return
         }
         if(GoldSearchRun.running || MorningReadRun.running || PinReadinessProbe.running ||
             ProductReadRequest.active(SystemClock.elapsedRealtime())) {
+            clearLocalResearchWait()
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SESSION_BLOCKED)
-            PhoneRemote.stop(this,"LOCAL_RESEARCH_START_BLOCKED");return
+            PhoneRemote.stop(this,"LOCAL_RESEARCH_START_BLOCKED")
+            return
         }
         val root=productRoot(false)
+        // A long-running server verification can complete after the owner has
+        // switched to ChatGPT. That is NOT a failed DEGIRO search. Do not use
+        // any other app's accessibility tree, input or screen coordinates.
+        if(root?.packageName?.toString()!=ProductScreenEvidence.PACKAGE) {
+            root?.recycle()
+            val elapsed=SystemClock.elapsedRealtime()-startedAt
+            if(LocalResearchForegroundPolicy.mayWait(elapsed,
+                    PhoneRemote.active() && PhoneRemote.sessionId()==ticket,
+                    power.isInteractive && !keyguard.isKeyguardLocked &&
+                        !keyguard.isDeviceLocked,brokerVisible=false)) {
+                if(!localResearchAwaitingDegiro || localResearchWaitTicket!=ticket) {
+                    localResearchAwaitingDegiro=true
+                    localResearchWaitTicket=ticket
+                    ProductReadDiagnostics.record(
+                        ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_AWAITING_DEGIRO)
+                    PhoneDiagnostics.queue(this)
+                }
+                handler.postDelayed({
+                    continueLocalGoldResearch(local,ticket,attempt,startedAt)
+                },LocalResearchForegroundPolicy.POLL_MS)
+            } else {
+                clearLocalResearchWait()
+                ProductReadDiagnostics.record(
+                    ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_DEGIRO_WAIT_EXPIRED)
+                PhoneDiagnostics.queue(this)
+                PhoneRemote.stop(this,"LOCAL_RESEARCH_DEGIRO_NOT_VISIBLE")
+            }
+            return
+        }
+        if(localResearchAwaitingDegiro && localResearchWaitTicket==ticket) {
+            clearLocalResearchWait()
+            ProductReadDiagnostics.record(
+                ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_DEGIRO_RETURNED)
+            PhoneDiagnostics.queue(this)
+        }
         val live=mutableListOf<AccessibilityNodeInfo>()
         val descriptions=mutableListOf<MorningReadPolicy.Node>()
         val safe=try {
-            if(root==null) false else if(root.packageName?.toString()!=ProductScreenEvidence.PACKAGE) {
-                ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_VIEW_LOST)
-                false
-            } else {
-                navigationTree(root,live,descriptions)
-                val decision=MorningReadPolicy.localResearchDecision(
-                    descriptions,local.first(),keyboardVisible(),resultOpened=false)
-                decision.kind in setOf(MorningReadPolicy.Kind.SEARCH,
-                    MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.Kind.QUERY) &&
-                    !MorningReadPolicy.genericTurboDirectory(descriptions)
-            }
+            navigationTree(root,live,descriptions)
+            val decision=MorningReadPolicy.localResearchDecision(
+                descriptions,local.first(),keyboardVisible(),resultOpened=false)
+            decision.kind in setOf(MorningReadPolicy.Kind.SEARCH,
+                MorningReadPolicy.Kind.FOCUS,MorningReadPolicy.Kind.QUERY) &&
+                !MorningReadPolicy.genericTurboDirectory(descriptions)
         } catch(_:Exception) { false }
-          finally { live.forEach { it.recycle() };root?.recycle() }
+          finally { live.forEach { it.recycle() };root.recycle() }
         if(safe) {
-            // Every pending callback is tied to ticket; protect against a
-            // different user session starting before the retry completed.
             if(!PhoneRemote.active() || PhoneRemote.sessionId()!=ticket)return
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_READY)
             MorningReadRun.beginDiscovered(this,local,researchOnly=true)
             ProductReadRequest.start(SystemClock.elapsedRealtime())
             PhoneDiagnostics.queue(this)
         } else if(attempt<8) {
+            // These attempts count only genuine DEGIRO foreground views,
+            // not time the owner spends in another app during server OCR.
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_RETRY)
-            handler.postDelayed({ continueLocalGoldResearch(local,ticket,attempt+1) },500)
+            handler.postDelayed({
+                continueLocalGoldResearch(local,ticket,attempt+1,startedAt)
+            },500)
         } else {
             ProductReadDiagnostics.record(ProductReadDiagnostics.Outcome.LOCAL_RESEARCH_SEARCH_UNAVAILABLE)
             PhoneDiagnostics.queue(this)
